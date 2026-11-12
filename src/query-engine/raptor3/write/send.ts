@@ -19,6 +19,7 @@ import type { SqlOperationContext } from "../shared/sql-operation-context";
 export interface Sent {
   readonly rows: Input[];
   readonly rowCount: number;
+  readonly insertId?: unknown;
 }
 
 /** One statement, which suffices by itself, and the model it is sent in the name of. */

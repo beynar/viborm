@@ -3,15 +3,17 @@
  * database itself and answered at once. No transport, no provider, no row
  * scope, no word about what is known when.
  */
+import { NestedWriteError, UnsupportedOperationError } from "@errors";
 import type { AnyModel } from "@schema/model";
+import type { Query } from "../shared/query";
 import { parseStamped } from "../shared/row-scope";
 import type { Arguments, Input } from "../shared/schema";
 import type { Membership } from "../shared/storage";
-import { outside } from "./statements";
+import { outside, type Question } from "./statements";
 import type { Row, Store } from "./store";
 
 const list = (value: unknown): unknown[] => {
-  if (value === undefined) return [];
+  if (value === undefined || value === false) return [];
   return Array.isArray(value) ? value : [value];
 };
 
@@ -33,56 +35,334 @@ export function verbs(store: Store) {
   };
   const stated = (admitted: Input): Input =>
     (said.get(admitted) ?? {}) as Input;
+  /** How many rows the call's own verb writes, where it writes several. */
+  let several = 1;
+
   /** The relations `data` names of a row of `model`, each with what it asks. */
   const relationsOf = (model: AnyModel, data: Input) =>
     model["~"].relationNames.flatMap((name) => {
       const payload = data[name] as Input | undefined;
       if (payload === undefined) return [];
+      const resolved = schema.index.get(model)!.get(name)!;
+      if ("members" in resolved.edge && !resolved.member) outside();
       const edge = schema.membership(model, name);
       if (
         edge.discriminator ||
-        (edge.kind === "junction"
-          ? edge.declared || edge.uniqueSide
-          : edge.owner === "source")
+        (edge.kind === "junction" && (edge.declared || edge.uniqueSide))
       )
         outside();
       return [{ name, edge, payload }];
     });
-  /** Whether what a relation asks writes the row it is asked of: the link is the row's own, or the row holds the key. */
-  const touches = (edge: Membership): boolean =>
-    edge.kind === "junction" || edge.owner === "source";
-  /** What a row born a member of `parent`'s holds: none where the membership is not the row's to hold. */
+  /** The row a relation is asked of holds the key of the row it reaches. */
+  const holds = (edge: Membership) =>
+    edge.kind === "reference" && edge.owner === "source";
+  /** What a row born a member of `parent`'s holds: nothing where the membership is not the row's to hold. */
   const born = (parent: Row, edge: Membership): Input =>
     edge.kind === "reference"
       ? Object.fromEntries(
           edge.pairs.map((pair) => [pair.target, parent[pair.source]])
         )
       : {};
-  /** Makes a row that is there a member of `parent`'s. */
-  const join = (parent: Row, edge: Membership, row: Row): void => {
-    if (edge.kind === "junction") store.link(edge, parent, row);
-    else outside();
+  /** What the row that holds a relation's key takes of the row it reaches. */
+  const reaching = (edge: Membership, row: Row): Input =>
+    edge.kind === "reference"
+      ? Object.fromEntries(
+          edge.pairs.map((pair) => [pair.source, row[pair.target]])
+        )
+      : {};
+  /** What empties a relation on the row that holds it. */
+  const cleared = (edge: Membership): Input =>
+    edge.clearability.kind === "columns"
+      ? Object.fromEntries(
+          edge.clearability.fields.map((field) => [field, null])
+        )
+      : outside();
+  const members = (
+    parent: Row,
+    edge: Membership,
+    where: Input | undefined,
+    ask: Partial<Question>
+  ): Row[] =>
+    store.rows({
+      model: edge.target,
+      where,
+      member: { edge, of: parent },
+      ...ask,
+    });
+  /** What a write of `data` writes of its row, as the caller stated it: none where it writes nothing of it. */
+  const writes = (model: AnyModel, data: Input): string[] | undefined => {
+    const own = stated(data);
+    const fields = Object.keys(schema.scalars(model, own));
+    const relations = relationsOf(model, data).flatMap(
+      ({ name, edge, payload }) =>
+        // A relation whose verbs change which row this one holds, or its links, writes this row.
+        Object.keys(payload).some(
+          (verb) =>
+            payload[verb] !== undefined &&
+            verb !== "update" &&
+            (holds(edge) || (edge.kind === "junction" && verb !== "updateMany"))
+        )
+          ? [
+              name,
+              ...(edge.kind === "reference" && holds(edge)
+                ? edge.pairs.map((pair) => pair.source)
+                : []),
+            ]
+          : []
+    );
+    const written =
+      Object.keys(store.values(model, "update", data, own)).length > 0;
+    return written || relations.length > 0
+      ? [...fields, ...relations]
+      : undefined;
   };
+
+  /** Makes a row that is there a member of `parent`'s. */
+  const join = (parent: Row, edge: Membership, row: Row, verb: string) => {
+    if (edge.kind === "junction") return store.link(edge, parent, row);
+    // A row whose membership is its own to hold is the member of one row.
+    if (several > 1)
+      throw new UnsupportedOperationError(
+        `updateMany matched ${several} rows, so it cannot apply '${verb}' to relation '${edge.name}': that membership is stored on the target row, which can belong to only one of them — the last row updated would take it from the others. Narrow the filter (or add 'limit: 1') so exactly one row matches, or write this relation in a separate call.`
+      );
+    store.update(row, born(parent, edge), undefined, edge);
+  };
+  const leave = (parent: Row, edge: Membership, row: Row) =>
+    edge.kind === "junction"
+      ? store.unlink(edge, parent, row)
+      : store.update(row, cleared(edge), undefined, edge);
+  /** One member: with `true`, the one there is, and none is no refusal. */
+  const member = (
+    parent: Row,
+    edge: Membership,
+    entry: unknown,
+    verb: string,
+    ask: Partial<Question>
+  ): Row | undefined =>
+    entry === true
+      ? members(parent, edge, undefined, { ...ask, verb, strict: true })[0]
+      : store.one({
+          model: edge.target,
+          where: entry as Input,
+          unique: edge.many,
+          member: { edge, of: parent },
+          verb,
+          ...ask,
+        });
   const make = (
     model: AnyModel,
     data: Input,
     given: Input,
     relation?: string
   ): Row => {
+    const relations = relationsOf(model, data);
+    // The rows whose key this one holds are there before it.
+    const held = relations
+      .filter(({ edge }) => holds(edge))
+      .map(({ edge, payload }) => holder(undefined, edge, payload));
+    const takes = Object.assign({}, given, ...held.map((own) => own.takes));
     const row = store.insert(
       model,
-      { ...data, ...given },
-      { ...stated(data), ...given },
+      { ...data, ...takes },
+      { ...stated(data), ...takes },
       relation
     );
-    relate(model, row, data);
+    for (const own of held) for (const next of own.then) next();
+    for (const { edge, payload } of relations)
+      if (!holds(edge)) relate(row, edge, payload);
     return row;
   };
-  /** A relation's verbs, in the order they take effect. */
+  /** A row that is there takes what `data` states, then what its relations ask of the rows they reach. */
+  const write = (model: AnyModel, row: Row, data: Input, set?: Input): void => {
+    const relations = relationsOf(model, data);
+    const held = relations
+      .filter(({ edge }) => holds(edge))
+      .map(({ edge, payload }) => holder(row, edge, payload));
+    const takes = Object.assign({}, ...held.map((own) => own.takes));
+    store.update(
+      row,
+      set ?? {
+        ...store.values(model, "update", data, { ...stated(data), ...takes }),
+        ...takes,
+      },
+      writes(model, data)
+    );
+    for (const own of held) for (const next of own.then) next();
+    for (const { edge, payload } of relations)
+      if (!holds(edge)) relate(row, edge, payload);
+  };
+  /**
+   * A relation whose key the row itself holds: what the row takes of it, and
+   * what follows the row's own write. The row is not there yet where it is
+   * being created.
+   */
+  function holder(
+    row: Row | undefined,
+    edge: Membership,
+    payload: Input
+  ): { takes: Input; then: (() => void)[] } {
+    const takes: Input = {};
+    const then: (() => void)[] = [];
+    const target = edge.target;
+    const current = (ask: Partial<Question>, where?: Input) =>
+      row ? members(row, edge, where, ask) : [];
+    const [disconnect] = list(payload.disconnect);
+    const [remove] = list(payload.delete);
+    const [create] = list(payload.create);
+    const [connect] = list(payload.connect);
+    const [connectOrCreate] = list(payload.connectOrCreate) as Input[];
+    const [upsert] = list(payload.upsert) as Input[];
+    const [update] = list(payload.update) as Input[];
+    // Nothing is read of the row a slot gives up.
+    if (disconnect) Object.assign(takes, cleared(edge));
+    if (remove) {
+      const [old] = current(
+        { intent: "delete", verb: "delete", strict: remove === true },
+        remove === true ? undefined : (remove as Input)
+      );
+      if (old) {
+        Object.assign(takes, cleared(edge));
+        then.push(() => store.delete(old));
+      }
+    }
+    let supplied: Row | undefined;
+    if (create) supplied = make(target, create as Input, {}, edge.name);
+    if (connect)
+      supplied = store.one({
+        model: target,
+        where: connect as Input,
+        unique: true,
+        joins: edge,
+        verb: "connect",
+      });
+    if (connectOrCreate)
+      supplied =
+        store.rows({
+          model: target,
+          where: connectOrCreate.where as Input,
+          unique: true,
+          joins: edge,
+          verb: "connectOrCreate",
+        })[0] ?? make(target, connectOrCreate.create as Input, {}, edge.name);
+    if (upsert) {
+      const [found] = current(
+        {
+          intent: "update",
+          writes: writes(target, upsert.update as Input),
+          verb: "upsert",
+        },
+        upsert.where as Input | undefined
+      );
+      if (found) then.push(() => write(target, found, upsert.update as Input));
+      else supplied = make(target, upsert.create as Input, {}, edge.name);
+    }
+    if (supplied) Object.assign(takes, reaching(edge, supplied));
+    if (update) {
+      const data = update.data as Input;
+      // The row the relation was just given is the one updated.
+      const reached =
+        supplied ??
+        (row &&
+          store.one({
+            model: target,
+            where: update.where as Input | undefined,
+            member: { edge, of: row },
+            intent: "update",
+            writes: writes(target, data),
+            verb: "update",
+          }));
+      if (!reached) return outside();
+      then.push(() => write(target, reached, data));
+    }
+    return { takes, then };
+  }
+  /** A relation's verbs where the rows it reaches, or their links, hold what makes them members: in the order they take effect. */
   const nested: Record<
     string,
     (parent: Row, edge: Membership, entry: Input) => void
   > = {
+    disconnect(parent, edge, entry) {
+      const row = member(parent, edge, entry, "disconnect", { joins: edge });
+      if (row) leave(parent, edge, row);
+    },
+    delete(parent, edge, entry) {
+      const row = member(parent, edge, entry, "delete", { intent: "delete" });
+      if (!row) return;
+      // The link references the row: it goes first.
+      if (edge.kind === "junction") leave(parent, edge, row);
+      store.delete(row);
+    },
+    updateMany(parent, edge, { where, data }) {
+      const values = paired(data as Input, stated(data as Input));
+      const ask = {
+        intent: "update" as const,
+        writes: writes(edge.target, values),
+        verb: "updateMany",
+      };
+      // Rows that take the same fields are written at once; rows of which a relation or a key is written are each written as an update writes its row.
+      if (
+        relationsOf(edge.target, values).length === 0 &&
+        !schema.keys(edge.target).some((key) => values[key] !== undefined)
+      )
+        store.all(
+          {
+            model: edge.target,
+            where: where as Input,
+            member: { edge, of: parent },
+            ...ask,
+          },
+          store.values(edge.target, "update", values, stated(values))
+        );
+      else
+        for (const row of members(parent, edge, where as Input, ask))
+          write(edge.target, row, values);
+    },
+    deleteMany(parent, edge, where) {
+      store.all({
+        model: edge.target,
+        where,
+        member: { edge, of: parent },
+        intent: "delete",
+        verb: "deleteMany",
+      });
+    },
+    update(parent, edge, { where, data }) {
+      const values = data as Input;
+      write(
+        edge.target,
+        store.one({
+          model: edge.target,
+          where: where as Input | undefined,
+          unique: edge.many,
+          member: { edge, of: parent },
+          intent: "update",
+          writes: writes(edge.target, values),
+          verb: "update",
+        }),
+        values
+      );
+    },
+    upsert(parent, edge, { where, create, update }) {
+      const [row] = members(parent, edge, where as Input | undefined, {
+        unique: edge.many,
+        intent: "update",
+        writes: writes(edge.target, update as Input),
+        verb: "upsert",
+      });
+      if (row) write(edge.target, row, update as Input);
+      else nested.create!(parent, edge, create as Input);
+    },
+    connectOrCreate(parent, edge, { where, create }) {
+      const [row] = store.rows({
+        model: edge.target,
+        where: where as Input,
+        unique: true,
+        joins: edge,
+        verb: "connectOrCreate",
+      });
+      if (row) join(parent, edge, row, "connectOrCreate");
+      else nested.create!(parent, edge, create as Input);
+    },
     connect(parent, edge, where) {
       join(
         parent,
@@ -93,67 +373,162 @@ export function verbs(store: Store) {
           unique: true,
           joins: edge,
           verb: "connect",
-        })
+        }),
+        "connect"
       );
     },
     create(parent, edge, data) {
       const row = make(edge.target, data, born(parent, edge), edge.name);
-      if (edge.kind !== "reference") join(parent, edge, row);
+      if (edge.kind === "junction") store.link(edge, parent, row);
+    },
+    createMany(parent, edge, { data, skipDuplicates }) {
+      if (skipDuplicates) outside();
+      for (const entry of list(data))
+        nested.create!(parent, edge, entry as Input);
     },
   };
-  function relate(model: AnyModel, row: Row, data: Input): void {
-    for (const { edge, payload } of relationsOf(model, data)) {
-      if (Object.keys(payload).some((verb) => !(verb in nested))) outside();
-      for (const verb of Object.keys(nested))
-        for (const entry of list(payload[verb]))
-          nested[verb]!(row, edge, entry as Input);
-    }
-  }
-  return {
-    updateMany(model: AnyModel, args: Arguments, raw: Input): () => unknown {
-      const data = paired(args.data as Input, raw.data);
-      const select = args.select as Input | undefined;
-      const projection = select && q.prepareProjection(model, { select });
-      const decoded = (rows: Input[]) =>
-        q.decodeResult(rows, "updateMany", (read) =>
-          q.decodeProjection(projection!.shape, read)
+  /** A set: the rows it names are the relation's members, and no other. */
+  const set = (parent: Row, edge: Membership, entries: Input[]): void => {
+    const kept = entries.map((where) =>
+      store.one({
+        model: edge.target,
+        where,
+        unique: true,
+        joins: edge,
+        verb: "set",
+      })
+    );
+    const keys = kept.map((row) => schema.identity(edge.target, row));
+    const others: Question = {
+      model: edge.target,
+      member: { edge, of: parent },
+      except: keys,
+      joins: edge,
+      verb: "set",
+      strict: true,
+    };
+    if (edge.kind === "junction") store.unlink(edge, parent, undefined, kept);
+    else if (edge.clearability.kind === "none") {
+      // A member that cannot give its key up cannot be taken out.
+      if (store.rows(others).length > 0)
+        throw new NestedWriteError(
+          `Cannot set relation '${edge.name}' because foreign key field(s) ${edge.pairs
+            .map((pair) => pair.target)
+            .join(
+              ", "
+            )} are required: rows removed from the set cannot be disconnected. Delete them instead.`,
+          edge.name
         );
+    } else store.all(others, cleared(edge));
+    for (const row of kept) join(parent, edge, row, "set");
+  };
+  function relate(parent: Row, edge: Membership, payload: Input): void {
+    const asked = Object.keys(payload).filter(
+      (verb) => payload[verb] !== undefined && payload[verb] !== false
+    );
+    if (asked.some((verb) => !(verb in nested || verb === "set"))) outside();
+    // In the order the verbs take effect, whatever order they were written in.
+    for (const verb of ["disconnect", "delete"])
+      for (const entry of list(payload[verb]))
+        nested[verb]!(parent, edge, entry as Input);
+    if (payload.set !== undefined)
+      set(parent, edge, list(payload.set) as Input[]);
+    for (const verb of Object.keys(nested).slice(2))
+      for (const entry of list(payload[verb]))
+        nested[verb]!(parent, edge, entry as Input);
+  }
+
+  /** The call's row, read as the caller asked once the writes before this are sent. */
+  const answering = (model: AnyModel, row: Row, args: Arguments) => {
+    const projection = q.prepareProjection(model, args);
+    let value: unknown;
+    store.read(row, projection, (rows: Input[], query: Query) => {
+      q.assertExpectedRows(query, rows.length);
+      [value] = q.decodeResult(rows, operation.operation, (read) =>
+        q.decodeProjection(query.shape, read)
+      );
+    });
+    return () => value;
+  };
+  /** A verb over many rows answers with them as the caller selected them, or with their number. */
+  const many = (model: AnyModel, args: Arguments) => {
+    const select = args.select as Input | undefined;
+    const projection = select && q.prepareProjection(model, { select });
+    const decoded = (rows: Input[]) =>
+      q.decodeResult(rows, operation.operation, (read) =>
+        q.decodeProjection(projection!.shape, read)
+      );
+    /** The rows written by their keys, read again once every one is written. */
+    const again = (rows: Row[], kind: "createMany" | "updateMany") => {
+      const returned: Input[] = [];
+      if (projection && rows.length > 0)
+        store.series(model, rows, projection, kind, (read) =>
+          returned.push(...read)
+        );
+      return () => (projection ? decoded(returned) : { count: rows.length });
+    };
+    return { projection, decoded, again };
+  };
+
+  return {
+    create(model: AnyModel, args: Arguments, raw: Input) {
+      const data = paired(args.data as Input, raw.data);
+      return answering(model, make(model, data, {}), args);
+    },
+    createMany(model: AnyModel, args: Arguments, raw: Input) {
+      if (args.skipDuplicates) outside();
+      const entries = paired(list(args.data) as Input[], list(raw.data));
+      return many(model, args).again(
+        entries.map((data) => make(model, data, {})),
+        "createMany"
+      );
+    },
+    update(model: AnyModel, args: Arguments, raw: Input) {
+      const data = paired(args.data as Input, raw.data);
+      const row = store.one({
+        model,
+        where: args.where as Input,
+        unique: true,
+        intent: "update",
+        writes: writes(model, data),
+      });
+      write(model, row, data);
+      return answering(model, row, args);
+    },
+    updateMany(model: AnyModel, args: Arguments, raw: Input) {
+      const data = paired(args.data as Input, raw.data);
+      const { projection, decoded, again } = many(model, args);
       if (args.limit === 0 || Object.keys(data).length === 0)
         return () => (projection ? [] : { count: 0 });
       const relations = relationsOf(model, data);
-      const set = store.values(model, "update", data, stated(data));
-      // What the caller's own data writes of the rows: what the write is judged at.
-      const writes = [
-        ...Object.keys(set).filter(
-          (field) => stated(data)[field] !== undefined
-        ),
-        ...relations
-          .filter(({ edge }) => touches(edge))
-          .map(({ name }) => name),
-      ];
-      const question = {
+      const question: Question = {
         model,
         where: args.where as Input | undefined,
         limit: args.limit as number | undefined,
-        intent: "update" as const,
-        writes:
-          writes.length + Object.keys(set).length > 0 ? writes : undefined,
+        intent: "update",
+        writes: writes(model, data),
       };
-      // Nothing but the rows is written: one statement names them itself.
-      if (relations.length === 0) {
-        const later = store.updateAll(question, set, projection);
+      const plain = !relations.some(({ edge }) => holds(edge));
+      const set = store.values(model, "update", data, stated(data));
+      // Nothing but the rows is written, and no key: one statement names them itself.
+      if (
+        relations.length === 0 &&
+        !schema.keys(model).some((key) => set[key] !== undefined)
+      ) {
+        const later = store.all(question, set, projection);
         return () =>
           projection
             ? decoded(later.sent!.rows)
             : { count: store.writer.count(later.sent!) };
       }
       const rows = store.rows(question);
-      for (const row of rows) store.update(row, set, question.writes);
-      for (const [at, row] of rows.entries())
-        relate(
-          model,
-          row,
-          // Each row is written of its own copy of what the caller wrote: what a default fills is that row's own.
+      several = rows.length;
+      // Rows that take the same values are written side by side, before what their relations ask.
+      if (plain)
+        for (const row of rows) store.update(row, set, question.writes);
+      for (const [at, row] of rows.entries()) {
+        // Each row is written of its own copy of what the caller wrote: what a default fills is that row's own.
+        const own =
           at === 0
             ? data
             : store.copy(`${at}`, () =>
@@ -163,21 +538,58 @@ export function verbs(store: Store) {
                   ),
                   raw.data
                 )
-              )
-        );
-      // Rows written by their keys are read again once every one is written.
-      const returned: Input[] = [];
-      if (projection && rows.length > 0)
-        for (const query of operation.seriesQueries(
-          projection,
-          rows.map((row) => schema.identity(model, row)),
-          "updateMany"
-        ))
-          store.after(model, query, (sent) => {
-            q.assertExpectedRows(query, sent.rows.length);
-            returned.push(...sent.rows);
-          });
-      return () => (projection ? decoded(returned) : { count: rows.length });
+              );
+        if (plain)
+          for (const { edge, payload } of relationsOf(model, own))
+            relate(row, edge, payload);
+        else write(model, row, own);
+      }
+      return again(rows, "updateMany");
+    },
+    upsert(model: AnyModel, args: Arguments, raw: Input) {
+      if (args.targetWhere || args.setWhere) outside();
+      const update = paired(args.update as Input, raw.update);
+      const create = paired(args.create as Input, raw.create);
+      const [found] = store.rows({
+        model,
+        where: args.where as Input,
+        unique: true,
+        intent: "update",
+        writes: writes(model, update),
+      });
+      // An update that says nothing asks nothing of the row found.
+      if (found && Object.keys(stated(update)).length > 0)
+        write(model, found, update);
+      return answering(model, found ?? make(model, create, {}), args);
+    },
+    delete(model: AnyModel, args: Arguments) {
+      const row = store.one({
+        model,
+        where: args.where as Input,
+        unique: true,
+        intent: "delete",
+      });
+      const answer = answering(model, row, args);
+      store.delete(row);
+      return answer;
+    },
+    deleteMany(model: AnyModel, args: Arguments) {
+      const { projection, decoded } = many(model, args);
+      if (args.limit === 0) return () => (projection ? [] : { count: 0 });
+      const later = store.all(
+        {
+          model,
+          where: args.where as Input | undefined,
+          limit: args.limit as number | undefined,
+          intent: "delete",
+        },
+        undefined,
+        projection
+      );
+      return () =>
+        projection
+          ? decoded(later.sent!.rows)
+          : { count: store.writer.count(later.sent!) };
     },
   };
 }

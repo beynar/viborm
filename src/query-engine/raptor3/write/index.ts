@@ -15,7 +15,7 @@ import type { Arguments, Input } from "../shared/schema";
 import type { SqlOperationContext } from "../shared/sql-operation-context";
 import { batches, contextOf, dialogue, prepared, type Transport } from "./send";
 import { outside } from "./statements";
-import { Store } from "./store";
+import { SEVERAL, Store } from "./store";
 import { verbs } from "./verbs";
 
 export { OUTSIDE } from "./statements";
@@ -30,12 +30,9 @@ const call =
   ): (() => () => unknown) =>
   () => {
     const { operation } = store;
-    if (
-      operation.operation !== "updateMany" ||
-      writeSinks.get(operation.attribution)
-    )
-      outside();
-    return verbs(store).updateMany(model, args, raw as Input);
+    const verb = verbs(store)[operation.operation as "create"];
+    if (!verb || writeSinks.get(operation.attribution)) outside();
+    return verb(model, args, raw as Input);
   };
 
 /** A call sent by itself, or inside the transaction its caller lends it. */
@@ -106,8 +103,6 @@ export async function writeCall(
   return answer;
 }
 
-const SEVERAL = Symbol("more than one unit");
-
 /**
  * A call as one unit its caller sends, among other calls' units: its
  * statements are handed over, each with what it reports where it stops the
@@ -127,10 +122,7 @@ export async function prepareCall(
     end: async () => undefined,
   });
   try {
-    const { unit, answer } = await store.run(
-      call(store, model, args, raw),
-      true
-    );
+    const { unit, answer } = await store.prepare(call(store, model, args, raw));
     return {
       queries: unit.statements.map((statement) =>
         prepared(operation, driver, statement)

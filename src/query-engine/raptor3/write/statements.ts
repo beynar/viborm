@@ -46,6 +46,10 @@ export interface Question {
   readonly verb?: string;
   /** A row must be there: none is the call's refusal. */
   readonly must?: true;
+  /** Every row the call may see must be one it may write so. */
+  readonly strict?: boolean;
+  /** Rows left out, by their key. */
+  readonly except?: readonly Input[];
 }
 
 export class Writer {
@@ -69,9 +73,19 @@ export class Writer {
   selector(question: Question, keys?: readonly Input[]): PreparedSelector {
     const q = this.#q;
     const { model } = question;
-    const own = keys
+    const named = keys
       ? q.includeIdentities(model, keys)
       : q.prepareSelector(model, question.where, question.unique ?? false);
+    const own = question.except?.length
+      ? {
+          ...q.andSelectors(model, [
+            named,
+            q.excludeIdentities(model, question.except),
+          ]),
+          uniqueKey: named.uniqueKey,
+          uniqueValues: named.uniqueValues,
+        }
+      : named;
     return q.candidates(
       own,
       this.#related(question),
@@ -106,6 +120,26 @@ export class Writer {
         parent: question.member.of,
       }
     );
+  }
+  /** The rows a set write names, as its statement says them: among the members of the question's row, where it has one. */
+  #among(question: Question, selector: PreparedSelector, alias: string) {
+    const named = this.#q.lowerSelector(selector, alias);
+    const { member } = question;
+    if (!member) return named;
+    const members = this.#q.memberWhere(member.edge, member.of, alias);
+    return named
+      ? this.#operation.driver.adapter.operators.and(members, named)
+      : members;
+  }
+  #limited(question: Question, selector: PreparedSelector, keys: unknown) {
+    const { model, member } = question;
+    return member
+      ? { where: this.#among(question, selector, model["~"].names.sql!) }
+      : this.#q.lowerMutationLimit(
+          model,
+          selector,
+          keys ? undefined : question.limit
+        );
   }
   /** The rows a question names, read whole; held where `hold`. */
   read(question: Question, hold: boolean): Query {
@@ -219,25 +253,38 @@ export class Writer {
   async insert(
     model: AnyModel,
     values: Input[],
-    relation?: string
+    relation?: string,
+    keyed = false
   ): Promise<Statement> {
     const q = this.#q;
+    const { capabilities, mutations } = this.#operation.driver.adapter;
     const rows = await this.#operation.computed(model, values, false);
     const fields = Object.keys(rows[0]!);
-    if (fields.length === 0) outside();
     const placed = q.domain?.produced(model);
+    if (fields.length === 0 && placed) outside();
     const select = placed && q.producedSource(model, fields, rows, placed);
+    // A row that states nothing is the database's to fill.
+    const insert =
+      fields.length > 0
+        ? mutations.insert(
+            q.table(model),
+            fields.map((field) => q.columnName(model, field)),
+            select
+              ? { select }
+              : rows.map((row) =>
+                  fields.map((field) => q.fieldValue(model, field, row[field]))
+                )
+          )
+        : mutations.insertDefault(q.table(model));
     return {
       model,
-      sql: this.#operation.driver.adapter.mutations.insert(
-        q.table(model),
-        fields.map((field) => q.columnName(model, field)),
-        select
-          ? { select }
-          : rows.map((row) =>
-              fields.map((field) => q.fieldValue(model, field, row[field]))
-            )
-      ),
+      // It says the key the database decides, where the provider returns what it wrote.
+      sql:
+        keyed && capabilities.supportsReturning
+          ? sql`${insert} ${mutations.returning(
+              sql.join(q.lowerProjection(this.#projection(model, false)), ", ")
+            )}`
+          : insert,
       ...(select && {
         probe: select,
         stops:
@@ -272,7 +319,7 @@ export class Writer {
         q.domain &&
         q.producedWhere(
           model,
-          (alias) => q.lowerSelector(selector, alias),
+          (alias) => this.#among(question, selector, alias),
           set!,
           q.domain.produced(model, judged, Object.keys(set!)),
           q.domain.cycles(model, judged),
@@ -284,7 +331,7 @@ export class Writer {
           : this.#operation.refusalOf(model, judged);
       const named = produced
         ? { where: produced, suffix: undefined }
-        : q.lowerMutationLimit(model, selector, limit);
+        : this.#limited(question, selector, keys);
       const update = mutations.update(
         q.table(model),
         sql.join(
@@ -306,6 +353,101 @@ export class Writer {
     } else if (!keys && capabilities.countsCascadedChanges)
       statement = sql`${statement} ${mutations.returning(sql.raw("1"))}`;
     return { model, sql: statement, stops };
+  }
+  /**
+   * The rows a question names are removed: the rows `keys` names, where the
+   * call knows them. With `projection`, it answers with them as they were.
+   */
+  remove(
+    question: Question,
+    keys?: readonly Input[],
+    projection?: PreparedProjection
+  ): Statement {
+    const q = this.#q;
+    const { model } = question;
+    const { capabilities, mutations } = this.#operation.driver.adapter;
+    const selector = this.selector({ ...question, intent: "delete" }, keys);
+    let statement = q.sharing(() => {
+      const named = this.#limited(question, selector, keys);
+      const removal = mutations.delete(q.table(model), named.where);
+      return named.suffix ? sql`${removal} ${named.suffix}` : removal;
+    });
+    if (projection) {
+      if (!capabilities.supportsReturning) outside();
+      statement = this.#operation.answering(model, statement, projection);
+    } else if (!keys && capabilities.countsCascadedChanges)
+      statement = sql`${statement} ${mutations.returning(sql.raw("1"))}`;
+    return { model, sql: statement };
+  }
+  /** A statement that stops its unit, with `stops`, where a row answers the question. */
+  none(question: Question, stops: PreparedGuardFailure): Statement {
+    const { model } = question;
+    const probe = this.#q.select(
+      model,
+      { take: 1 },
+      this.#membership(question),
+      {
+        projection: this.#projection(model, false),
+        selector: this.selector(question),
+      }
+    ).sql;
+    return {
+      sql: this.#operation.driver.adapter.assertions.notExists(probe),
+      probe,
+      premise: "notExists",
+      stops,
+      model,
+    };
+  }
+  /** One row read by its key, as `projection` says. */
+  one(model: AnyModel, key: Input, projection: PreparedProjection): Query {
+    return this.#q.select(model, {}, undefined, { identity: key, projection });
+  }
+  /** The links of `from`'s row through a junction go: the one to `to`, or every one but those to the rows `kept`. */
+  unlink(
+    edge: Junction,
+    from: Input,
+    to: Input | undefined,
+    kept: readonly Input[]
+  ): Statement {
+    const q = this.#q;
+    const { identifiers, mutations, operators } =
+      this.#operation.driver.adapter;
+    const named = (side: Junction["sourceSide"], row: Input) =>
+      Object.fromEntries(
+        side.members.map((pair) => [
+          pair.junctionField,
+          row[pair.referencedField],
+        ])
+      );
+    const own = named(edge.sourceSide, from);
+    return {
+      model: edge.source,
+      sql: mutations.delete(
+        identifiers.table(edge.table),
+        operators.and(
+          q.junctionWhere(edge, {
+            ...own,
+            ...(to && named(edge.targetSide, to)),
+          }),
+          ...kept.map((row) =>
+            operators.not(
+              q.junctionWhere(edge, { ...own, ...named(edge.targetSide, row) })
+            )
+          )
+        )
+      ),
+    };
+  }
+  /** The keys a statement returned, as the call holds them. */
+  keys(model: AnyModel, rows: Input[]): Input[] {
+    return rows.length > 0
+      ? (this.#q.decodeProjection(
+          this.#projection(model, false).shape,
+          rows,
+          true
+        ) as Input[])
+      : [];
   }
   /** How many rows a set write that answers so wrote. */
   count(sent: Sent): number {
