@@ -23,6 +23,7 @@ import type { Sql } from "@sql";
 import { createFailureError } from "../../batch-error-attribution";
 import type { PreparedGuardFailure } from "../../types";
 import { type WriteKind, type WriteSink, writeSinks } from "../../write-sinks";
+import { InsertValue } from "../shared/insert-value";
 import {
   type PreparedProjection,
   type Query,
@@ -207,6 +208,8 @@ export class Store {
   readonly #heard = new Map<number, Sent[]>();
   /** The rows taken to be there that a unit asked for already, where rows are held. */
   readonly #asserted = new Set<string>();
+  /** What is computed of a row where it is written, by field. */
+  readonly #computes = new WeakMap<Row, Input>();
   #meta = new WeakMap<Row, Meta>();
   #known = new Map<string, Row>();
   #log: Entry[] = [];
@@ -774,10 +777,17 @@ export class Store {
       ...this.values(model, "create", admitted, { ...raw, ...takes }),
       ...takes,
     };
-    // A key the database decides is known once the row's statement is heard.
-    const decided = this.operation.schema
-      .keys(model)
-      .filter((field) => row[field] === undefined);
+    // What the database decides of the row is known once its statement is heard: a key it leaves out, a value computed where it is written.
+    const computed: Input = {};
+    for (const [field, value] of Object.entries(row))
+      if (value instanceof InsertValue) computed[field] = value;
+    this.#computes.set(row, computed);
+    const decided = [
+      ...this.operation.schema
+        .keys(model)
+        .filter((field) => row[field] === undefined),
+      ...Object.keys(computed),
+    ];
     for (const field of decided)
       row[field] = new Pending(row, field, `@${++this.#made}`);
     // A row created under a key another has is the database's to refuse.
@@ -790,7 +800,7 @@ export class Store {
       relation,
       decided,
       take: ([sent]) => {
-        const [said] = this.writer.keys(model, sent!.rows);
+        const [said] = this.writer.told(model, decided, sent!.rows);
         for (const field of decided)
           if (row[field] instanceof Pending)
             row[field] = said?.[field] ?? sent!.insertId;
@@ -1454,14 +1464,16 @@ export class Store {
       if (entry.kind === "insert") {
         const { model } = this.#meta.get(entry.row)!;
         const { decided } = entry;
-        const settled = (row: Row) =>
-          Object.fromEntries(
+        const settled = (row: Row): Input => ({
+          ...Object.fromEntries(
             Object.entries(row).filter(
               ([, value]) =>
                 value !== undefined &&
                 !(value instanceof Pending && value.row === row)
             )
-          );
+          ),
+          ...this.#computes.get(row),
+        });
         const fits = (rows: Row[], next: Entry | undefined) =>
           next?.kind === "insert" &&
           this.#meta.get(next.row)!.model === model &&
@@ -1509,7 +1521,7 @@ export class Store {
                 rows.map((row) => this.#said(settled(row))),
                 entry.relation,
                 returns,
-                Boolean(read) && hears
+                read && hears ? decided : undefined
               );
             const kept =
               scratch &&
@@ -1519,7 +1531,8 @@ export class Store {
             if (!kept)
               return [
                 await insert(
-                  read?.projection ?? (hears ? writer.key(model) : undefined)
+                  read?.projection ??
+                    (hears ? writer.fields(model, decided) : undefined)
                 ),
               ];
             entry.row[decided[0]!] = kept.value;

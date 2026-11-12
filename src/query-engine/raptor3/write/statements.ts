@@ -10,7 +10,7 @@ import type { AnyModel } from "@schema/model";
 import { type Sql, sql } from "@sql";
 import type { PreparedGuardFailure } from "../../types";
 import { writeSinks } from "../../write-sinks";
-import { InsertValue, JoinedValue } from "../shared/insert-value";
+import { InsertValue, JoinedValue, Stored } from "../shared/insert-value";
 import { nestedRefusal } from "../shared/operation-context";
 import type {
   PreparedProjection,
@@ -125,7 +125,8 @@ export class Writer {
       ),
     ]);
   }
-  #fields(model: AnyModel, fields: readonly string[]) {
+  /** Fields of a row of `model`, as a statement answers with them. */
+  fields(model: AnyModel, fields: readonly string[]) {
     return this.#q.prepareProjection(
       model,
       { select: Object.fromEntries(fields.map((field) => [field, true])) },
@@ -138,8 +139,8 @@ export class Writer {
     if (!known) {
       const { schema } = this.#operation;
       known = [
-        this.#fields(model, schema.keys(model)),
-        this.#fields(model, schema.storedFields(model)),
+        this.fields(model, schema.keys(model)),
+        this.fields(model, schema.storedFields(model)),
       ];
       this.#projections.set(model, known);
     }
@@ -268,8 +269,6 @@ export class Writer {
         // parameter is the call's one instant.
         (value instanceof InsertValue ? computed : kept)[field] =
           value instanceof Parameter ? scope!.instant() : value;
-    if (Object.values(computed).some((value) => value instanceof JoinedValue))
-      outside();
     // Admitted as the caller's own would be, where there is something to admit.
     let written: Input = {};
     if (Object.keys(kept).length > 0)
@@ -277,13 +276,18 @@ export class Writer {
         kind === "create"
           ? schema.createValues(model, kept)
           : schema.update(model, kept, true);
-    return schema.scalars(model, {
-      ...admitted,
-      ...Object.fromEntries(
-        Object.keys(kept).map((field) => [field, written[field]])
-      ),
-      ...computed,
-    });
+    // A field kept as stored is not written.
+    return Object.fromEntries(
+      Object.entries(
+        schema.scalars(model, {
+          ...admitted,
+          ...Object.fromEntries(
+            Object.keys(kept).map((field) => [field, written[field]])
+          ),
+          ...computed,
+        })
+      ).filter(([, value]) => !(value instanceof Stored))
+    );
   }
   /**
    * What a row of `model` takes instead of going, where its model keeps the
@@ -360,7 +364,7 @@ export class Writer {
     values: Input[],
     relation?: string,
     returns?: PreparedProjection,
-    keyed = false
+    beside?: readonly string[]
   ): Promise<Statement> {
     const q = this.#q;
     const { capabilities, mutations } = this.#operation.driver.adapter;
@@ -391,8 +395,8 @@ export class Writer {
               model,
               insert,
               returns,
-              // With its key beside, where the call needs both.
-              keyed ? q.lowerProjection(this.#projection(model, false)) : []
+              // With what the database decides of the row beside, where the call needs both.
+              beside ? q.lowerProjection(this.fields(model, beside)) : []
             )
           : insert,
       ...(select && {
@@ -420,9 +424,10 @@ export class Writer {
     const { model } = question;
     const limit = keys ? undefined : question.limit;
     const { capabilities, mutations } = this.#operation.driver.adapter;
-    // A value joined to other rows where it is written is not written here yet.
-    if (Object.values(values).some((value) => value instanceof JoinedValue))
-      outside();
+    // A value read of rows the statement joins: each row takes its own.
+    const joined = Object.values(values).find(
+      (value): value is JoinedValue => value instanceof JoinedValue
+    );
     const [set] = await this.#operation.computed(model, [values], false);
     const selector = this.selector(question, keys);
     const judged = this.#judged(question);
@@ -448,16 +453,22 @@ export class Writer {
       const named = produced
         ? { where: produced, suffix: undefined }
         : this.#limited(question, selector, keys);
-      const update = mutations.update(
-        q.table(model),
-        sql.join(
-          Object.entries(set!).map(([field, value]) =>
-            q.updateAssignment(model, field, value)
-          ),
-          ", "
+      const sets = sql.join(
+        Object.entries(set!).map(([field, value]) =>
+          q.updateAssignment(model, field, value)
         ),
-        named.where
+        ", "
       );
+      const join = joined?.join(q, model["~"].names.sql!);
+      const update = join
+        ? mutations.updateFrom(
+            q.table(model),
+            sets,
+            q.settleRows(join.source),
+            join.on,
+            named.where
+          )
+        : mutations.update(q.table(model), sets, named.where);
       return named.suffix ? sql`${update} ${named.suffix}` : update;
     });
     // It answers with the rows it wrote as the caller reads them, or so that
@@ -714,6 +725,16 @@ export class Writer {
   /** The key of a row of `model`, as a statement answers with it. */
   key(model: AnyModel): PreparedProjection {
     return this.#projection(model, false);
+  }
+  /** Fields a statement returned, as the call holds them. */
+  told(model: AnyModel, fields: readonly string[], rows: Input[]): Input[] {
+    return rows.length > 0 && fields.length > 0
+      ? (this.#q.decodeProjection(
+          this.fields(model, fields).shape,
+          rows,
+          true
+        ) as Input[])
+      : [];
   }
   /** The keys a statement returned, as the call holds them. */
   keys(model: AnyModel, rows: Input[]): Input[] {

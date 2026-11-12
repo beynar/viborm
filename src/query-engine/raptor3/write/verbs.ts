@@ -9,6 +9,7 @@ import {
   UnsupportedOperationError,
 } from "@errors";
 import type { AnyModel } from "@schema/model";
+import { Stored } from "../shared/insert-value";
 import { parseStamped } from "../shared/row-scope";
 import type { Arguments, Input } from "../shared/schema";
 import type { Membership } from "../shared/storage";
@@ -184,7 +185,10 @@ export function verbs(store: Store) {
   /** What a write of `data` writes of its row, as the caller stated it: none where it writes nothing of it. */
   const writes = (model: AnyModel, data: Input): string[] | undefined => {
     const own = stated(data);
-    const fields = Object.keys(schema.scalars(model, own));
+    // A field kept as stored is no field the write writes.
+    const fields = Object.keys(schema.scalars(model, own)).filter(
+      (field) => !(own[field] instanceof Stored)
+    );
     const relations = relationsOf(model, data).flatMap(
       ({ name, edge, payload }) =>
         // A relation whose verbs change which row this one holds, or its links, writes this row.
