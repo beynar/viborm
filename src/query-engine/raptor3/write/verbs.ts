@@ -359,9 +359,9 @@ export function verbs(store: Store) {
           })
         : current(removal, remove));
     if (old) {
-      // A row the row itself references goes once the row no longer does.
+      // A row the row itself references goes once the row no longer does; a row that is kept is still referenced.
       if (held) {
-        take(cleared(edge));
+        if (!store.keeps(target)) take(cleared(edge));
         then.push(() => store.delete(old));
       } else store.delete(old);
     }

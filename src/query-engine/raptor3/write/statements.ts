@@ -96,36 +96,34 @@ export class Writer {
     const named = only
       ? q.includeIdentities(model, only)
       : q.prepareSelector(model, question.where, question.unique ?? false);
-    const { referenced } = question;
-    const more = [
-      ...(question.except?.length
-        ? [q.excludeIdentities(model, question.except)]
-        : []),
-      ...(referenced
-        ? [
-            q.referenced(
-              model,
-              this.#operation.schema.restrictingSlots(model),
-              this.#operation.scope?.defaults,
-              referenced === true ? undefined : referenced
-            ),
-          ]
-        : []),
-    ];
-    const own =
-      more.length > 0
-        ? {
-            ...q.andSelectors(model, [named, ...more]),
-            uniqueKey: named.uniqueKey,
-            uniqueValues: named.uniqueValues,
-          }
-        : named;
-    return q.candidates(
+    const { referenced, limit } = question;
+    const own = question.except?.length
+      ? {
+          ...q.andSelectors(model, [
+            named,
+            q.excludeIdentities(model, question.except),
+          ]),
+          uniqueKey: named.uniqueKey,
+          uniqueValues: named.uniqueValues,
+        }
+      : named;
+    const chosen = q.candidates(
       own,
       this.#related(question),
       undefined,
       this.#judged(question)
     );
+    if (!referenced) return chosen;
+    // Of the rows the write takes: the first of them, where it takes no more.
+    return q.andSelectors(model, [
+      limit === undefined || only ? chosen : q.window(chosen, limit),
+      q.referenced(
+        model,
+        this.#operation.schema.restrictingSlots(model),
+        this.#operation.scope?.defaults,
+        referenced === true ? undefined : referenced
+      ),
+    ]);
   }
   #fields(model: AnyModel, fields: readonly string[]) {
     return this.#q.prepareProjection(
@@ -309,6 +307,26 @@ export class Writer {
       ),
       {}
     );
+  }
+  /**
+   * Among the rows that still reference a kept row, the one the call reaches
+   * it through restricts nothing: its link is kept, where a removal would
+   * have taken it first.
+   */
+  referenced(member: Question["member"], of?: Input): Question["referenced"] {
+    const { schema } = this.#operation;
+    const edge = member?.edge;
+    const slot =
+      edge &&
+      schema
+        .restrictingSlots(edge.target)
+        .find(
+          (name) =>
+            schema.index.get(edge.target)?.get(name)?.edge ===
+              edge.scope.edge &&
+            !(edge.target === edge.source && name === edge.name)
+        );
+    return slot ? { slot, identity: of! } : true;
   }
   /** What a kept row is refused with where a row still references it as the database would refuse its removal. */
   restriction(model: AnyModel): PreparedGuardFailure | undefined {

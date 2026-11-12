@@ -31,7 +31,7 @@ import {
 } from "../shared/query";
 import type { EngineSchema, Input } from "../shared/schema";
 import type { SqlOperationContext } from "../shared/sql-operation-context";
-import { linkJudgement, type Membership } from "../shared/storage";
+import type { Membership } from "../shared/storage";
 import { type Sent, type Statement, Stopped, type Transport } from "./send";
 import { type Junction, outside, type Question, Writer } from "./statements";
 
@@ -262,6 +262,17 @@ export class Store {
       } catch (error) {
         if (!(error instanceof Stopped)) throw error;
         const { stops, believed, model } = error.statement;
+        if (process.env.VIBORM_DEBUG_SQL) {
+          const prepared = this.operation.driver._prepare(
+            error.statement.sql,
+            this.operation.attribution
+          );
+          console.error(
+            "STOPPED",
+            prepared.sql,
+            JSON.stringify(prepared.params)
+          );
+        }
         // The call may not leave the row it would write, a row that must be
         // there is not, or what it wrote before cannot be taken back.
         if (!believed || this.#delivered > 0)
@@ -706,6 +717,10 @@ export class Store {
     }
     return rows;
   }
+  /** Whether rows of `model` the call deletes are kept, and marked. */
+  keeps(model: AnyModel): boolean {
+    return this.writer.marks(model) !== undefined;
+  }
   /** The one row a question names, which must be there. */
   one(question: Question): Row {
     const missed = this.#missed.size;
@@ -929,19 +944,16 @@ export class Store {
       // A kept row leaves the rows that reference it in place: where the database would have refused its removal, the mark is refused too.
       const stops = this.writer.restriction(model);
       const through = question?.member;
-      // The link the row is reached through is kept, and restricts nothing.
-      const slot =
-        through?.edge.kind === "junction" &&
-        linkJudgement(through.edge)?.writes.at(-1);
       if (stops)
         this.none(
           {
             model,
             where: this.#key(row),
             unique: true,
-            referenced: slot
-              ? { slot, identity: this.#key(through!.of) }
-              : true,
+            referenced: this.writer.referenced(
+              through,
+              through && this.#key(through.of)
+            ),
           },
           stops
         );
@@ -984,20 +996,20 @@ export class Store {
     // Where no statement both writes rows and answers with them so, they are
     // read, then written by their keys; and so are rows that are kept where
     // one may be refused: the rows asked of are the rows written.
+    const { member } = question;
+    const referenced =
+      stops && this.writer.referenced(member, member && this.#key(member.of));
+    // In a unit handed over nothing comes between what is asked and what is written.
     if (
       marks
-        ? watched || stops
+        ? watched || (stops && !this.#handed)
         : returns &&
           !this.operation.answersInStatement(model, returns, kind, set)
     ) {
       const rows = this.rows(question);
       if (stops && !watched && rows.length > 0) {
         this.none(
-          {
-            model,
-            only: rows.map((row) => this.#key(row)),
-            referenced: true,
-          },
+          { model, only: rows.map((row) => this.#key(row)), referenced },
           stops
         );
         const take = (read: Input[]) => {
@@ -1027,7 +1039,10 @@ export class Store {
       if (set) answer();
       return later;
     }
-    if (marks) return this.all(question, marks, projection);
+    if (marks) {
+      if (stops) this.none({ ...question, must: undefined, referenced }, stops);
+      return this.all(question, marks, projection);
+    }
     this.writable(question);
     // A row that must be there is asked for where what the write says of it comes too late.
     if (question.must && this.#handed)
