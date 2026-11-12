@@ -2,7 +2,16 @@ import type { AnyModel } from "@schema/model";
 import { parseProviding } from "@validation/primitives/object";
 import type { PreparedGuardFailure } from "../../types";
 import type { Writer } from "../write/statements";
-import type { PreparedDomain, PreparedSelector, Queries, Query } from "./query";
+import type {
+  PreparedDomain,
+  PreparedOperand,
+  PreparedPredicate,
+  PreparedScalar,
+  PreparedSelector,
+  Queries,
+  Query,
+  SelectorFacts,
+} from "./query";
 import type { EngineSchema, Input } from "./schema";
 import type { Membership } from "./storage";
 
@@ -290,12 +299,23 @@ export class Condition {
 export class OuterColumn {
   readonly $row: string;
   readonly up: number;
-  constructor(field: string, up: number) {
+  readonly #prepare: PrepareOuterColumn;
+  constructor(field: string, up: number, prepare: PrepareOuterColumn) {
     this.$row = field;
     this.up = up;
+    this.#prepare = prepare;
     Object.freeze(this);
   }
+  /** The column it names, compared with `owner`: said by what admitted it. */
+  prepare(queries: Queries, owner: PreparedScalar): PreparedOperand {
+    return this.#prepare(queries, owner, this);
+  }
 }
+export type PrepareOuterColumn = (
+  queries: Queries,
+  owner: PreparedScalar,
+  value: OuterColumn
+) => PreparedOperand;
 
 /**
  * `{ $exists: { <model>: <where> } }` in a domain predicate: whether some row
@@ -308,11 +328,20 @@ export class Existence {
   readonly $exists: Readonly<Record<string, Input>>;
   readonly #model: string;
   readonly #where: Input;
-  constructor(model: string, where: Input) {
+  readonly #prepare: PrepareExistence;
+  constructor(model: string, where: Input, prepare: PrepareExistence) {
     this.#model = model;
     this.#where = where;
+    this.#prepare = prepare;
     this.$exists = Object.freeze({ [model]: where });
     Object.freeze(this);
+  }
+  /** What it is as a predicate: said by what admitted it. */
+  prepare(
+    queries: Queries,
+    facts: SelectorFacts | undefined
+  ): PreparedPredicate {
+    return this.#prepare(queries, this, facts);
   }
   /** The model whose rows it looks for (its TS name). */
   get model(): string {
@@ -323,6 +352,12 @@ export class Existence {
     return this.#where;
   }
 }
+
+export type PrepareExistence = (
+  queries: Queries,
+  existence: Existence,
+  facts: SelectorFacts | undefined
+) => PreparedPredicate;
 
 /** The row facts one prepared call carries, and its one instant. */
 export interface CallScope {
