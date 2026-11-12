@@ -121,11 +121,20 @@ export class Writer {
       }
     );
   }
-  /** The rows a set write names, as its statement says them: among the members of the question's row, where it has one. */
-  #among(question: Question, selector: PreparedSelector, alias: string) {
+  /**
+   * The rows a write names, as its statement says them: among the members of
+   * the question's row, where it has one. Rows the call knows by their `keys`
+   * were found members already.
+   */
+  #among(
+    question: Question,
+    selector: PreparedSelector,
+    alias: string,
+    keys?: unknown
+  ) {
     const named = this.#q.lowerSelector(selector, alias);
     const { member } = question;
-    if (!member) return named;
+    if (!member || keys) return named;
     const members = this.#q.memberWhere(member.edge, member.of, alias);
     return named
       ? this.#operation.driver.adapter.operators.and(members, named)
@@ -133,7 +142,7 @@ export class Writer {
   }
   #limited(question: Question, selector: PreparedSelector, keys: unknown) {
     const { model, member } = question;
-    return member
+    return member && !keys
       ? { where: this.#among(question, selector, model["~"].names.sql!) }
       : this.#q.lowerMutationLimit(
           model,
@@ -319,7 +328,7 @@ export class Writer {
         q.domain &&
         q.producedWhere(
           model,
-          (alias) => this.#among(question, selector, alias),
+          (alias) => this.#among(question, selector, alias, keys),
           set!,
           q.domain.produced(model, judged, Object.keys(set!)),
           q.domain.cycles(model, judged),
@@ -438,6 +447,10 @@ export class Writer {
         )
       ),
     };
+  }
+  /** The key of a row of `model`, as a statement answers with it. */
+  key(model: AnyModel): PreparedProjection {
+    return this.#projection(model, false);
   }
   /** The keys a statement returned, as the call holds them. */
   keys(model: AnyModel, rows: Input[]): Input[] {

@@ -16,7 +16,11 @@ import { NotFoundError } from "@errors";
 import type { AnyModel } from "@schema/model";
 import { createFailureError } from "../../batch-error-attribution";
 import type { PreparedGuardFailure } from "../../types";
-import type { PreparedProjection, Query } from "../shared/query";
+import {
+  type PreparedProjection,
+  type Query,
+  readUpdate,
+} from "../shared/query";
 import type { Input } from "../shared/schema";
 import type { SqlOperationContext } from "../shared/sql-operation-context";
 import type { Membership } from "../shared/storage";
@@ -71,10 +75,19 @@ type Entry =
   | {
       readonly kind: "update";
       readonly row: Row;
+      /** The row's key as the write finds it. */
+      readonly key: Input;
       readonly set: Input;
+      /** The fields of its key the database computes by this write. */
+      readonly hears: readonly string[];
       readonly question: Question;
     }
-  | { readonly kind: "delete"; readonly row: Row; readonly question: Question }
+  | {
+      readonly kind: "delete";
+      readonly row: Row;
+      readonly key: Input;
+      readonly question: Question;
+    }
   | {
       readonly kind: "all";
       readonly question: Question;
@@ -87,6 +100,7 @@ type Entry =
       readonly edge: Junction;
       readonly from: Row;
       readonly to: Row;
+      readonly keys: readonly [Input, Input];
     }
   | {
       readonly kind: "unlink";
@@ -94,6 +108,7 @@ type Entry =
       readonly from: Row;
       readonly to?: Row;
       readonly kept: readonly Row[];
+      readonly keys: readonly [Input, Input | undefined, Input[]];
     }
   | {
       readonly kind: "none";
@@ -232,6 +247,10 @@ export class Store {
       this.operation.schema.identity(this.#meta.get(row)!.model, row)
     );
   }
+  /** A row's key as it stands now, for a write noted now. */
+  #now(row: Row): Input {
+    return this.operation.schema.identity(this.#meta.get(row)!.model, row);
+  }
   /** Values as a statement takes them: what the database decides must have been heard. */
   #heard(values: Input): Input {
     const heard: Input = {};
@@ -281,8 +300,10 @@ export class Store {
       if (linked === false) return false;
       if (linked === undefined && !was) return false;
     }
-    for (const [field, value] of facts.equals)
+    for (const [field, value] of facts.equals) {
+      if (row[field] instanceof Pending) return undefined;
       if (field in row && !same(row[field], value)) return false;
+    }
     // Stated in full by what the call knows of the row.
     if (
       facts.exact &&
@@ -387,7 +408,13 @@ export class Store {
         model["~"].names.ts,
         question.where,
         question.unique,
-        member && [member.edge.name, this.#name(member.edge.source, member.of)],
+        member && [
+          member.edge.name,
+          this.#name(member.edge.source, member.of),
+          // What makes a row a member, where the row it is a member of holds it.
+          member.edge.kind === "reference" &&
+            member.edge.pairs.map((pair) => String(member.of[pair.source])),
+        ],
         question.intent,
         question.writes,
         question.joins?.name,
@@ -408,7 +435,13 @@ export class Store {
     if (!answer) {
       const presumed = this.#presume(id, question);
       if (presumed) return presumed;
-      this.#missed.set(id, question);
+      // Asked of the row as it stands now, whatever the call writes of it next.
+      this.#missed.set(
+        id,
+        member
+          ? { ...question, member: { ...member, of: { ...member.of } } }
+          : question
+      );
       return [];
     }
     // Rows a set write of the call may have changed are the database's to say.
@@ -508,14 +541,34 @@ export class Store {
   ): void {
     if (Object.keys(set).length === 0) return;
     const meta = this.#meta.get(row)!;
-    Object.assign(row, set);
-    for (const field of Object.keys(set)) meta.wrote.add(field);
+    const key = this.#now(row);
+    const keys = this.operation.schema.keys(meta.model);
+    const hears: string[] = [];
+    for (const [field, value] of Object.entries(set)) {
+      const update =
+        value instanceof Pending
+          ? { kind: "value" as const, value }
+          : readUpdate(value);
+      meta.wrote.add(field);
+      if (update.kind === "value") row[field] = update.value;
+      // What the database computes of a row is its to say.
+      else if (meta.made) outside();
+      else {
+        row[field] = new Pending(row, field, `@${++this.#made}`);
+        if (keys.includes(field)) hears.push(field);
+      }
+    }
+    // A row is known by the key it has now.
+    if (keys.some((field) => field in set))
+      this.#known.set(this.#name(meta.model, row), row);
     // A row the call creates is inserted as it stands in the end.
     if (meta.made) return;
     this.#log.push({
       kind: "update",
       row,
+      key,
       set,
+      hears,
       question: this.#writing(row, { intent: "update", writes, joins }),
     });
   }
@@ -536,6 +589,7 @@ export class Store {
       this.#log.push({
         kind: "delete",
         row,
+        key: this.#now(row),
         question: this.#writing(row, { intent: "delete" }),
       });
   }
@@ -550,11 +604,28 @@ export class Store {
   }
   /** `to` is made a member of `from`'s through a junction. */
   link(edge: Junction, from: Row, to: Row): void {
-    this.#log.push({ kind: "link", edge, from, to });
+    this.#log.push({
+      kind: "link",
+      edge,
+      from,
+      to,
+      keys: [this.#now(from), this.#now(to)],
+    });
   }
   /** `from`'s links through a junction go: the one to `to`, or every one but those to the rows `kept`. */
   unlink(edge: Junction, from: Row, to?: Row, kept: readonly Row[] = []): void {
-    this.#log.push({ kind: "unlink", edge, from, to, kept });
+    this.#log.push({
+      kind: "unlink",
+      edge,
+      from,
+      to,
+      kept,
+      keys: [
+        this.#now(from),
+        to && this.#now(to),
+        kept.map((row) => this.#now(row)),
+      ],
+    });
   }
   /** No row may answer the question when the call's writes reach here: `stops` refuses it. */
   none(question: Question, stops: PreparedGuardFailure): void {
@@ -681,20 +752,27 @@ export class Store {
         });
       } else if (entry.kind === "update") {
         const { model } = entry.question;
+        const { hears } = entry;
         const run = beside<Extract<Entry, { kind: "update" }>>(
           (next) =>
             next.kind === "update" &&
             next.set === entry.set &&
-            next.question.model === model
+            next.question.model === model &&
+            hears.length === 0
         );
         steps.push({
           write: async () => [
             await writer.update(
               entry.question,
               this.#heard(entry.set),
-              run.map((next) => this.#key(next.row))
+              run.map((next) => this.#heard(next.key)),
+              hears.length > 0 ? writer.key(model) : undefined
             ),
           ],
+          take: ([sent]) => {
+            const [said] = writer.keys(model, sent!.rows);
+            for (const field of hears) entry.row[field] = said?.[field];
+          },
         });
       } else if (entry.kind === "delete") {
         const { model } = entry.question;
@@ -705,7 +783,7 @@ export class Store {
           write: () => [
             writer.remove(
               entry.question,
-              run.map((next) => this.#key(next.row))
+              run.map((next) => this.#heard(next.key))
             ),
           ],
         });
@@ -734,7 +812,11 @@ export class Store {
             writer.link(
               entry.edge,
               run.map(
-                (next) => [this.#key(next.from), this.#key(next.to)] as const
+                (next) =>
+                  [
+                    this.#heard(next.keys[0]),
+                    this.#heard(next.keys[1]),
+                  ] as const
               )
             ),
         });
@@ -743,9 +825,9 @@ export class Store {
           write: () => [
             writer.unlink(
               entry.edge,
-              this.#key(entry.from),
-              entry.to && this.#key(entry.to),
-              entry.kept.map((row) => this.#key(row))
+              this.#heard(entry.keys[0]),
+              entry.keys[1] && this.#heard(entry.keys[1]),
+              entry.keys[2].map((key) => this.#heard(key))
             ),
           ],
         });
