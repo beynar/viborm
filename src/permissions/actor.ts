@@ -6,7 +6,6 @@
 
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { ClientInitializationError } from "../errors";
-import { errorCause } from "../errors/diagnostic-safety";
 import { type VibSchema, v } from "../validation";
 
 /** The paths below one actor value: named keys, or any key of a record. */
@@ -42,7 +41,12 @@ export function refuse(
 ): never {
   throw new ClientInitializationError(`viborm/permissions: ${message}`, {
     meta: { extension: "viborm.permissions", ...(model && { model }) },
-    ...(cause !== undefined && { cause: errorCause(cause) }),
+    ...(cause !== undefined && {
+      cause:
+        cause instanceof Error
+          ? cause
+          : new Error("A non-Error value was thrown.", { cause }),
+    }),
   });
 }
 

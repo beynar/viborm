@@ -9,10 +9,8 @@
 // what the types check is the declaration's names: models, fields and actions
 // against the schema and each other, actor paths against the actor schema.
 
-import type { OperationPayload } from "../client/exports"; // public today
+import type { OperationPayload, RowsVerbs } from "../client/exports";
 import { ForbiddenError } from "../errors";
-// The one type the public entry does not export yet.
-import type { RowsVerbs } from "../extensions/controls";
 import { defineExtension } from "../extensions/definition";
 import type {
   ClientSchema,

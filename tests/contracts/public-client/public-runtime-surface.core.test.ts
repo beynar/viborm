@@ -55,6 +55,7 @@ const documentedRuntimeExports = [
   "defineExtension",
   "empty",
   "getOperationPayloadSchema",
+  "getRowKey",
   "getSchemas",
   "isFieldRef",
   "isJsonNullSentinel",

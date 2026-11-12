@@ -15,11 +15,8 @@
 // interactively, so this read always happens there; the MySQL expression
 // below serves a driver that could not read first.
 
-import {
-  type ComputedContext,
-  computed,
-  UnsupportedOperationError,
-} from "../index";
+import { UnsupportedOperationError } from "../errors";
+import { type ComputedContext, computed } from "../index";
 import { type Sql, sql } from "../sql/sql";
 import { keysAfter } from "./keys";
 

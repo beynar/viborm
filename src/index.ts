@@ -270,6 +270,7 @@ export type {
 } from "./client/schema-links.js";
 export type { IndexDefinition, IndexOptions } from "./schema/model/index.js";
 // Schema introspection
+export { getRowKey } from "./schema/model/keys.js";
 export { getSchemas } from "./schema/schemas.js";
 export type {
   SchemaValidationIssue,

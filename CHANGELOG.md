@@ -25,6 +25,9 @@ it fits one batch.
 - **`db.<model>.$sql`.** The model's table, columns and bound values as the
   client's statements spell them, and `visible()`, the rows a call may see as a
   condition, for a fragment you write by hand.
+- **`getRowKey(model)`.** A model's primary key fields in constraint order,
+  and the compound key's name. `viborm/client` also exports the type
+  `NoExtraOperationKeys`.
 - **Several `on()` on one client.** Each runs its own hooks, in the order they
   were applied. A second `on()` was refused before.
 

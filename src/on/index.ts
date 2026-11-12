@@ -9,20 +9,21 @@
 // after a rollback.
 
 import type { OperationResult } from "../client/exports"; // public today
-import {
-  type AnyModel,
-  type AnyRelation,
-  ClientInitializationError,
-  type ClientSchema,
-  type ClientTypeState,
-  type ExtensionState,
-  QueryError,
-  type VibORMClient,
-  type VibORMConfig,
-  type WriteKind,
-  type WriteOutcome,
-  type WrittenCall,
-  type WrittenWatch,
+// The classes are imported where viborm defines them, so the built entry
+// shares the root's chunk.
+import { ClientInitializationError, QueryError } from "../errors";
+import type {
+  AnyModel,
+  AnyRelation,
+  ClientSchema,
+  ClientTypeState,
+  ExtensionState,
+  VibORMClient,
+  VibORMConfig,
+  WriteKind,
+  WriteOutcome,
+  WrittenCall,
+  WrittenWatch,
 } from "../index";
 
 const NAME = "viborm.on";

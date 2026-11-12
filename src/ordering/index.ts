@@ -8,15 +8,17 @@
 // too long, or tie, is repaired (`move` does it on its own when it must).
 
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import type { OperationPayload, OperationResult } from "../client/exports"; // public today
-import type { NoExtraOperationKeys } from "../client/types";
+import type {
+  NoExtraOperationKeys,
+  OperationPayload,
+  OperationResult,
+} from "../client/exports";
 import {
   ClientInitializationError,
   NotFoundError,
   QueryError,
 } from "../errors";
 import { ValidationError } from "../errors/validation";
-import type { OrderTerm } from "../extensions/controls";
 import { defineExtension } from "../extensions/definition";
 import type {
   ClientSchema,
@@ -30,7 +32,7 @@ import type {
   VibORMConfig,
 } from "../index";
 import { computed, joined, stored } from "../index";
-import { getModelKeyCatalog } from "../schema/model/keys";
+import { getRowKey } from "../schema/model/keys";
 import { type Sql, sql } from "../sql/sql";
 import { appendKey } from "./append";
 import { between, jitter, spellings } from "./between";
@@ -79,6 +81,8 @@ type Schema = VibORMConfig["schema"];
 type AnyModel = Schema[string];
 type Names<Config extends OrderingConfig> = keyof Config & string;
 type Row = Readonly<Record<string, unknown>>;
+/** One term of a model's default order, as the `order` capability takes it. */
+type OrderTerm = { readonly [field: string]: "asc" | "desc" };
 type Delegate = Readonly<
   Record<string, (args: object) => PromiseLike<unknown>>
 >;
@@ -138,8 +142,7 @@ function admit(schema: Schema, config: OrderingConfig): readonly Ordered[] {
     if (!Object.hasOwn(schema, name)) refuse(`unknown model "${name}".`);
     const model = schema[name] as AnyModel;
     const scalars = model["~"].state.scalars;
-    const identity: readonly string[] | undefined =
-      getModelKeyCatalog(model).rowKey?.fields;
+    const identity: readonly string[] | undefined = getRowKey(model)?.fields;
     if (identity === undefined)
       refuse(`${name} needs a primary or unique key.`);
     const key = entry.key;
@@ -498,7 +501,7 @@ function methods(ordered: Ordered, dialect: string) {
   const scalars = model["~"].state.scalars;
   const stored = storedOf(model);
   /** A row read with its key: the unique selector naming it, a cursor. */
-  const rowKey = getModelKeyCatalog(model).rowKey!;
+  const rowKey = getRowKey(model)!;
   const selectorOf = (row: Row): Row =>
     rowKey.name === undefined
       ? { [rowKey.fields[0]!]: row[rowKey.fields[0]!] }
