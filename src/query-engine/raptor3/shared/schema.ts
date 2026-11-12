@@ -620,20 +620,6 @@ export class EngineSchema {
     }
     return admitted;
   }
-  member(model: AnyModel, relation: string, source: Input): Input {
-    const schema =
-      this.registry.getModelSchemas(model).relations[relation]!.update;
-    const parsed = record(
-      parseValidated(
-        schema,
-        { updateMany: { data: source } },
-        "update",
-        `data.${relation}`,
-        model
-      )
-    );
-    return record(entries(parsed.updateMany)[0]!.data);
-  }
   keys(model: AnyModel): readonly string[] {
     return getModelKeyCatalog(model).rowKey!.fields;
   }

@@ -30,10 +30,7 @@ import type {
   Input,
   ReadOperation,
 } from "@query-engine/raptor3/shared/schema";
-import {
-  linkMembers,
-  type Membership,
-} from "@query-engine/raptor3/shared/storage";
+import type { Membership } from "@query-engine/raptor3/shared/storage";
 import { jsonNullKindOf } from "@schema/json-null";
 import { Sql, sql } from "@sql";
 import { Decimal, GeometryPoint, RecordId } from "surrealdb";
@@ -1803,28 +1800,6 @@ export class SurrealReadBackend implements ReadBackend {
       side.members.map((pair) => [pair.referencedField, read(pair)])
     );
     return sql`${this.recordOf(side.model, row)}`;
-  }
-
-  /** The link between two rows, named by each side's junction field. */
-  linkRowQuery(edge: Junction, values: Input): Query {
-    const link = edge.declared!.model;
-    const columns = linkMembers(edge).filter(({ pair }) =>
-      Object.hasOwn(values, pair.junctionField)
-    );
-    const fields: Record<string, unknown> = {};
-    const named = linkMembers(edge).map(({ pair }) => {
-      const field = this.#linkField(edge, pair.junctionField);
-      fields[pair.junctionField] = this.#leaf(link, field);
-      return sql`${this.physical(link, field)} AS ${sql.raw(pair.junctionField)}`;
-    });
-    const where = columns.map(({ pair }) => {
-      const field = this.#linkField(edge, pair.junctionField);
-      return sql`${this.physical(link, field)} = ${this.value(link, field, values[pair.junctionField])}`;
-    });
-    return {
-      sql: sql`SELECT ${sql.join(named, ", ")} FROM ${name(tableOf(link))} WHERE ${sql.join(where, " AND ")}`,
-      shape: { kind: "object", fields } as Query["shape"],
-    };
   }
 
   /** The field of a declared junction's model that a column names, for its writes. */

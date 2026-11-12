@@ -356,24 +356,8 @@ export interface Query {
     readonly missing: Error;
   };
 }
-/** A condition `commands/` asks of a read's rows, described, not spelled. */
-export type RowCondition =
-  /** The row holds no value in `field`. */
-  | { readonly kind: "fieldNull"; readonly field: string }
-  /** The row is none of `identities`. */
-  | { readonly kind: "notIdentity"; readonly identities: readonly Input[] }
-  /** An update of `model` from `before` to `after` changes one of `fields`. */
-  | {
-      readonly kind: "keyChanges";
-      readonly model: AnyModel;
-      readonly fields: readonly string[];
-      readonly before: Input;
-      readonly after: Input;
-    };
 /** What a {@link Queries.select} takes beyond its arguments. */
 export interface SelectControls {
-  /** More of the root row's filter, as `commands/` describes it. */
-  row?: RowCondition;
   forUpdate?: boolean;
   identity?: Input;
   projection?: PreparedProjection;
@@ -618,12 +602,6 @@ export type PreparedPredicate =
       readonly kind: "window";
       readonly selector: PreparedSelector;
       readonly limit: number;
-    }
-  | {
-      /** The rows whose key is at most `last`'s ({@link Queries.through}). */
-      readonly kind: "through";
-      readonly model: AnyModel;
-      readonly last: Input;
     };
 export type OperationPredicate = Extract<
   PreparedPredicate,
@@ -2224,11 +2202,6 @@ export abstract class Queries {
       id,
     });
   }
-  abstract junction(
-    edge: Extract<Membership, { kind: "junction" }>,
-    values: Input,
-    forUpdate?: boolean
-  ): Query;
   /**
    * Whether {@link updateValue} names this payload over a known prior value:
    * the answer a counter `upsert` folds on (engine-08). Read before the
@@ -2499,24 +2472,6 @@ export abstract class Queries {
     if (captured.length > 0) facts.exact = false;
     return balancedOr(captured, (arms) => this.combine("OR", arms));
   }
-  /**
-   * The rows any of `selectors` takes, as prepared meaning: a set, so it pins
-   * no equality ({@link capturedSet}'s rule for an `OR`).
-   */
-  orSelectors(
-    model: AnyModel,
-    selectors: readonly PreparedSelector[]
-  ): PreparedSelector {
-    const arms = selectors.map((selector) => selector.predicate);
-    return freeze({
-      model,
-      facts: newSelectorFacts(false),
-      // A selector that states nothing takes every row, and so does the set.
-      predicate: arms.every((arm) => arm !== undefined)
-        ? balancedOr(arms, (items) => this.combine("OR", items))
-        : undefined,
-    });
-  }
   andSelectors(
     model: AnyModel,
     selectors: readonly PreparedSelector[]
@@ -2611,20 +2566,6 @@ export abstract class Queries {
     });
   }
   abstract lockAll(selector: PreparedSelector): Query;
-  /**
-   * The rows whose key is at most `last`'s in key order: over a selector whose
-   * key-ordered read ended at `last`, that read's rows, at one bound value per
-   * key however many they are (keys are NOT NULL: a row-value `<=`).
-   */
-  through(model: AnyModel, last: Input): PreparedSelector {
-    const facts = newSelectorFacts(false);
-    for (const field of this.keyOrder(model)) facts.fields.add(field);
-    return Object.freeze({
-      model,
-      facts,
-      predicate: Object.freeze({ kind: "through", model, last }),
-    });
-  }
   /**
    * A combinator, unless the model declares a field by that name: validation
    * extends its three combinator entries with the model's own fields, so a

@@ -13,9 +13,7 @@ import {
   type PreparedSelector,
   Queries,
   type Query,
-  type RowCondition,
   type SelectControls,
-  wholeValue,
 } from "@query-engine/raptor3/shared/query";
 import type {
   CallScope,
@@ -29,7 +27,6 @@ import { Sql, sql } from "@sql";
 import { SurrealReadBackend } from "./read-backend";
 
 type AnyModel = Parameters<Queries["select"]>[0];
-type Junction = Extract<Membership, { kind: "junction" }>;
 
 function refuse(what: string): never {
   throw new UnsupportedOperationError(
@@ -149,41 +146,6 @@ export class SurrealQueries extends Queries {
     return this.#backend;
   }
 
-  #row(model: AnyModel, row: RowCondition): Sql {
-    switch (row.kind) {
-      case "fieldNull":
-        return sql`${this.lowering.physical(model, row.field)} = NONE`;
-      case "notIdentity":
-        return sql`!(${sql.join(
-          row.identities.map(
-            (identity) => sql`(${this.lowering.identity(model, identity)})`
-          ),
-          " OR "
-        )})`;
-      default: {
-        // A located value is read where it is spent, so the database compares it.
-        const moves = row.fields.flatMap((field) => {
-          const stated = row.after[field];
-          // Nothing this write states: the column keeps what it holds.
-          if (stated === undefined) return [];
-          const whole = wholeValue(stated);
-          if (!whole) return [sql.raw("true")];
-          const after = whole.value;
-          if (after instanceof Sql)
-            return [
-              sql`({ LET $moved = ${after}; (IF type::is_record($moved) { record::id($moved) } ELSE { $moved }) != ${row.before[field]} })`,
-            ];
-          return String(row.before[field]) === String(after)
-            ? []
-            : [sql.raw("true")];
-        });
-        return moves.length
-          ? sql`(${sql.join(moves, " OR ")})`
-          : sql.raw("false");
-      }
-    }
-  }
-
   /** A field of the row `selector` names, read inside the statement that spends it. */
   override locatedValue(
     model: AnyModel,
@@ -194,44 +156,6 @@ export class SurrealQueries extends Queries {
       ? sql`WHERE ${this.lowering.predicate(selector.predicate, true)} `
       : sql.raw("");
     return sql`(SELECT VALUE ${this.lowering.physical(model, field)} FROM ${sql.raw(model["~"].names.sql!)} ${where}LIMIT 1)[0]`;
-  }
-
-  /** The edge between two records, named by each side's junction field. */
-  override junction(edge: Junction, values: Input): Query {
-    if (edge.declared) return this.lowering.linkRowQuery(edge, values);
-    const { table, near, far, out } = this.lowering.edgeOf(edge);
-    const knows = (side: Junction["sourceSide"]) =>
-      Object.hasOwn(values, side.members[0]!.junctionField);
-    const end = (side: Junction["sourceSide"]) =>
-      this.lowering.end(side, (pair) => values[pair.junctionField]);
-    // From its source, an edge is reached along the record's own list.
-    const edges = knows(edge.sourceSide)
-      ? sql`${end(edge.sourceSide)}${out}`
-      : table;
-    const conditions = [
-      ...(knows(edge.targetSide)
-        ? [sql`${far} = ${end(edge.targetSide)}`]
-        : []),
-    ];
-    const unique = edge.uniqueSide === "target";
-    const owner = unique ? edge.sourceSide : edge.targetSide;
-    const read = unique ? near : far;
-    const fields: Record<string, ReturnType<typeof this.scalarShape>> = {};
-    const columns = owner.members.map((pair, index) => {
-      fields[pair.junctionField] = this.scalarShape(
-        owner.model,
-        pair.referencedField
-      );
-      const value =
-        owner.members.length === 1
-          ? read
-          : sql`record::id(${read})[${sql.raw(String(index))}]`;
-      return sql`${value} AS ${sql.raw(pair.junctionField)}`;
-    });
-    return {
-      sql: sql`SELECT ${sql.join(columns, ", ")} FROM ${edges}${conditions.length ? sql` WHERE ${sql.join(conditions, " AND ")}` : sql.raw("")}`,
-      shape: { kind: "object", fields },
-    };
   }
 
   /** Rows a write named, by key, in the order it named them: a list reads so. */
@@ -304,7 +228,6 @@ export class SurrealQueries extends Queries {
       ...(controls.unless?.predicate
         ? [this.lowering.predicate(controls.unless.predicate, false)]
         : []),
-      ...(controls.row ? [this.#row(model, controls.row)] : []),
     ];
     return {
       sql: this.lowering.hoisted(() =>

@@ -111,7 +111,6 @@ import {
   RECURSIVE_CARRIER,
   type Read,
   ROOT_CANDIDATES,
-  type RowCondition,
   readsRelation,
   readUpdate,
   relations,
@@ -1308,37 +1307,6 @@ export class SqlQueries extends Queries {
       )
     );
   }
-  override junction(
-    edge: Extract<Membership, { kind: "junction" }>,
-    values: Input,
-    forUpdate = false
-  ): Query {
-    const a = this.adapter;
-    const alias = this.#rootAlias();
-    const owner =
-      edge.uniqueSide === "target" ? edge.sourceSide : edge.targetSide;
-    const fields: Record<string, Leaf> = {};
-    const columns = owner.members.map((pair) => {
-      const shape = this.scalarShape(owner.model, pair.referencedField);
-      fields[pair.junctionField] = shape;
-      const column = a.identifiers.column(alias, pair.junctionField);
-      return a.identifiers.aliased(
-        shape.type === "decimal" || shape.type === "bigint"
-          ? a.expressions.cast(column, "text")
-          : transportedIdentifier(a, shape.id, column, shape.nullable),
-        pair.junctionField
-      );
-    });
-    return {
-      sql: assembleAdapterSelect(a, {
-        columns: sql.join(columns, ", "),
-        from: this.#tableNamed(edge.table, alias),
-        where: this.junctionWhere(edge, values, alias),
-        forUpdate,
-      }),
-      shape: { kind: "object", fields },
-    };
-  }
   /** The payload {@link readUpdate} reads, refused where it cannot run. */
   #prepareUpdate(
     model: AnyModel,
@@ -1812,16 +1780,6 @@ export class SqlQueries extends Queries {
         return this.#lowerExists(predicate, alias ?? "");
       case "window":
         return this.#capped(predicate.selector, predicate.limit, alias);
-      case "through": {
-        const { model, last } = predicate;
-        const keys = this.keyOrder(model);
-        return a.operators.lte(
-          rowValue(keys.map((field) => this.column(model, field, alias))),
-          rowValue(
-            keys.map((field) => this.fieldValue(model, field, last[field]))
-          )
-        );
-      }
     }
   }
   /**
@@ -4078,7 +4036,7 @@ export class SqlQueries extends Queries {
     filter: Sql | undefined,
     unless: Sql | undefined,
     cursor: Sql | undefined,
-    controls: Pick<SqlSelectControls, "condition" | "identity" | "row">
+    controls: Pick<SqlSelectControls, "condition" | "identity">
   ): Sql | undefined {
     const where: Sql[] = [];
     if (membership)
@@ -4092,7 +4050,6 @@ export class SqlQueries extends Queries {
     if (cursor) where.push(cursor);
     if (controls.identity)
       where.push(this.lowerIdentity(model, controls.identity, alias));
-    if (controls.row) where.push(this.#rowCondition(model, controls.row));
     const { condition } = controls;
     if (condition)
       where.push(
@@ -4101,33 +4058,6 @@ export class SqlQueries extends Queries {
     return where.length === 0
       ? undefined
       : this.adapter.operators.and(...where);
-  }
-  #rowCondition(model: AnyModel, row: RowCondition): Sql {
-    const a = this.adapter;
-    switch (row.kind) {
-      case "fieldNull":
-        return a.operators.isNull(this.column(model, row.field));
-      case "notIdentity":
-        return a.operators.not(
-          a.operators.or(
-            ...row.identities.map((identity) =>
-              this.lowerIdentity(model, identity)
-            )
-          )
-        );
-      default:
-        return a.operators.or(
-          ...row.fields.map((field) => {
-            const held = this.fieldValue(row.model, field, row.before[field]);
-            return a.operators.not(
-              a.operators.eq(
-                held,
-                this.updateValue(row.model, field, row.after[field], held)
-              )
-            );
-          })
-        );
-    }
   }
   /**
    * Every read verb is one cardinality and shape decision over the same
@@ -4925,37 +4855,6 @@ export class SqlQueries extends Queries {
       );
     });
     return counted.reduce((total, arm) => a.expressions.add(total, arm));
-  }
-  /**
-   * One value this unit PRODUCED, published as the field it belongs to.
-   *
-   * `SELECT <expression> AS <field>` — no FROM, so one row by construction —
-   * composed from the owners that already hold the parts: the field's own
-   * physical value ({@link fieldValue}, the one destination-aware operand
-   * owner) and its own decode leaf ({@link scalarShape}), read back by
-   * {@link decodeQuery} like every other row. That is the composition
-   * {@link grouped} and {@link junction} already state for every scalar they
-   * publish.
-   *
-   * A user projection was never the question: D-58's segment boundary asks for
-   * exactly ONE field, so preparing one to borrow its shape and its lowering
-   * was a detour through arms — relation, variant, `_count`, `_distance`,
-   * sentinel — that a produced scalar cannot reach, and it ended in a cast back
-   * to the scalar arm the caller already knew it had.
-   */
-  scalarQuery(model: AnyModel, field: string, value: unknown): Query {
-    return {
-      shape: {
-        kind: "object",
-        fields: { [field]: this.scalarShape(model, field) },
-      },
-      sql: this.adapter.clauses.select(
-        this.adapter.identifiers.aliased(
-          this.fieldValue(model, field, value),
-          field
-        )
-      ),
-    };
   }
   #lowerRelationProjection(
     relation: PreparedRelationProjection,

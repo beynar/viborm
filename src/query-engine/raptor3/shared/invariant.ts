@@ -15,14 +15,6 @@ export class EngineInvariantError extends Error {
   override readonly name = "EngineInvariantError";
 }
 
-/** The narrow assertion of a fact an earlier owner established. */
-export function assertInvariant(
-  condition: unknown,
-  message: string
-): asserts condition {
-  if (!condition) throw new EngineInvariantError(message);
-}
-
 /** A `switch` arm the type system already closed: the value has no members. */
 export function unreachable(value: never, message: string): never {
   throw new EngineInvariantError(`${message}: ${String(value)}`);
