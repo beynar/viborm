@@ -110,23 +110,13 @@ await client.$transaction(async (tx) => {
 
 ### Relation-bearing bulk writes
 
-Outside `$transaction([...])`, a relation-bearing `createMany` or `updateMany`
-runs its members left to right and can take several D1 batches, as **ordered
-committed segments** (what goes into one batch is described under
-[nested writes and failures per driver](/docs/drivers#nested-writes-and-failures-per-driver)).
-A nested relation-bearing `createMany` or `updateMany` runs at its exact
-position in the record tree:
-
-- one submitted segment batch is atomic;
-- a later member observes earlier committed members;
-- successful results match transaction-capable drivers;
-- if a later segment fails, earlier segments stay committed;
-- the error reports the durable prefix;
-- VibORM never retries an already committed prefix.
+A relation-bearing `createMany` or `updateMany`, at the root or nested, is
+sent as **one D1 batch** whenever none of its rows has to hear the database
+before the next can be written. The call knows the rows it creates: a later
+row that looks for a row an earlier row creates finds it without a batch being
+sent in between. Such a write succeeds or leaves nothing:
 
 ```ts
-import { isVibORMError } from "viborm";
-
 try {
   await client.post.createMany({
     data: [
@@ -134,18 +124,30 @@ try {
       { id: "p2", author: { create: { id: "a2", name: "occupied" } } },
     ],
   });
-} catch (error) {
-  if (isVibORMError(error)) {
-    console.log(error.toJSON().meta.recordSeriesProgress);
-    // {
-    //   atomicity: "segment",
-    //   phase: "member",
-    //   committedSegments: 1,
-    //   completedMembers: 1,
-    //   committedWriteMembers: 1
-    // }
-  }
+} catch {
+  // The second author's name is taken: neither post and neither author exists.
 }
+```
+
+A write that must read the database between two of its own writes takes one
+batch after another (what goes into one batch is described under
+[nested writes and failures per driver](/docs/drivers#nested-writes-and-failures-per-driver)):
+
+- one submitted batch is atomic;
+- successful results match transaction-capable drivers;
+- if a later batch fails, earlier batches stay committed;
+- the error reports what stands, in `meta.recordSeriesProgress`;
+- VibORM never retries an already committed batch.
+
+```ts
+// error.toJSON().meta.recordSeriesProgress, where an earlier batch stands:
+// {
+//   atomicity: "segment",
+//   phase: "member",
+//   committedSegments: 1,
+//   completedMembers: 1,
+//   committedWriteMembers: 1
+// }
 ```
 
 `completedMembers` is the completed input prefix.

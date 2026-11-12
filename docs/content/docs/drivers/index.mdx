@@ -99,8 +99,8 @@ differs by driver, and these are the facts the engine relies on and verifies:
 | mysql2 | one interactive transaction | rolled back | 65 535 | local MySQL qualification; see below |
 | planetscale | one single-shard transaction | rolled back within the supported shard | 65 535 | controlled transport contracts; hosted qualification remains separate |
 | sqlite3, libsql, bun-sqlite | one interactive transaction | rolled back | 32 766 | actual better-sqlite3 and local libSQL regressions; Bun uses its own provider tests |
-| neon-http | atomic batches, one per segment; work that must observe an earlier write takes another committed batch | the failing batch rolls back; earlier acknowledged batches remain committed, reported through `committedSegments`; an uncertain outcome uses `mayHaveCommittedSegment` | 65 535 | actual Neon HTTP 1.2: failed-batch atomicity, Serializable batch options, durable commit notification, and post-commit result failure; credential-gated by `NEON_DATABASE_URL` or `NEON_TEST_DATABASE_URL` |
-| d1 | committed segments; generated references use the ordinary emptied `__viborm_batch_refs` scratch table | the failing batch rolls back; earlier acknowledged batches remain committed | 100 | local Workers D1 tests (`provider-d1`); no hosted Cloudflare D1 qualification |
+| neon-http | one atomic batch; work that must read the database after an earlier write takes another committed batch | the failing batch rolls back; earlier acknowledged batches remain committed, reported through `committedSegments`; an uncertain outcome uses `mayHaveCommittedSegment` | 65 535 | actual Neon HTTP 1.2: failed-batch atomicity, Serializable batch options, durable commit notification, and post-commit result failure; credential-gated by `NEON_DATABASE_URL` or `NEON_TEST_DATABASE_URL` |
+| d1 | one atomic batch, or one batch after another where a part must read between two writes; generated references use the ordinary emptied `__viborm_batch_refs` scratch table | the failing batch rolls back; earlier acknowledged batches remain committed | 100 | local Workers D1 tests (`provider-d1`); no hosted Cloudflare D1 qualification |
 | durable-object | one `ctx.storage.transaction()` | rolled back | 100 | local workerd tests (`provider-durable-object`); no hosted Cloudflare qualification |
 
 A scalar `in` / `notIn` list is one bound value on PostgreSQL (pg, postgres, pglite, bun-sql, neon-http), SQLite (sqlite3, libsql, bun-sqlite) and D1, so it does not count against these limits. On mysql2 and planetscale each member is one bound value. On every driver a `mode: "insensitive"` list binds one value per member. On SQLite, libSQL, bun-sqlite and D1 a list of non-integer numbers also binds one value per member.
@@ -119,21 +119,17 @@ more than one batch can, and there the error carries how many segments
 committed so the caller can decide what to do with them.
 
 **What travels in one batch follows the work's own dependencies, not the verb.**
-A `create` or `update` with everything nested under it, a nested `createMany`
-included, is dispatched as ONE batch while no part of the write has to read
-what another part of it wrote. A ROOT `createMany` of relation-bearing rows is
-different outside `$transaction([...])`: on d1 (measured) and neon-http (the
-same batch route) each row is its own committed segment, so a later row's
-failure leaves the earlier rows written and counted in `committedSegments`;
-inside `$transaction([...])` the rows share the array's one batch. A part that
-must observe an earlier write — a later row's `connectOrCreate` that has to
-find the row an earlier row created, a nested `delete` addressed by a value an
-earlier nested `update` set — takes the boundary: the queued statements are
-dispatched first (on neon-http and d1 that dispatch is a committed segment,
-which is what `committedSegments` counts) and the observing work follows in the
-next one. A key the database generated in one segment crosses into the next as
-a literal, so none of this depends on the transport keeping a session between
-requests.
+A `create` or `update` with everything nested under it, and a `createMany` or
+`updateMany` of relation-bearing rows, at the root or nested, is dispatched as
+ONE batch while no part of the write has to hear the database before the next
+part can be written. The call knows the rows it creates: a later row's
+`connectOrCreate` finds the row an earlier row created without a batch being
+sent in between. A key the database generates reaches the
+statements that need it inside the same batch. A part that must read what the
+database alone can say after an earlier write — rows a cascade or a trigger may
+have changed — takes the boundary: what is written so far is dispatched first
+(on neon-http and d1 that dispatch is a committed segment, which is what
+`committedSegments` counts) and the reading work follows in the next one.
 :::
 
 ### Captured-set mutations, per route
