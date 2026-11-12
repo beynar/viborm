@@ -18,6 +18,7 @@
  * again: it is the verbs that refuse, of an image that is right.
  */
 import {
+  NestedWriteError,
   NotFoundError,
   UniqueConstraintError,
   UnsupportedOperationError,
@@ -698,6 +699,16 @@ export class Store {
     this.writable(question);
     return this.#rows(question, this.#spoiled(question));
   }
+  /** Whether the row a junction's members are members of says what its links hold of it: asked of the row, so a row known by its key alone is read. */
+  #links(member: NonNullable<Question["member"]>): boolean {
+    const { edge, of } = member;
+    return (
+      edge.kind !== "junction" ||
+      edge.sourceSide.members.every(
+        (pair) => of[pair.referencedField] !== undefined
+      )
+    );
+  }
   #rows(question: Question, late: boolean): Row[] {
     const { model, member } = question;
     const fresh = member && this.#meta.get(member.of)?.made;
@@ -705,6 +716,7 @@ export class Store {
     if (member?.edge.kind === "reference" && !fresh)
       for (const pair of member.edge.pairs)
         if (member.of[pair.source] === undefined) return [];
+    if (member && !this.#links(member)) return [];
     const after = late ? this.#log.length : 0;
     const id = text([
       model["~"].names.ts,
@@ -756,7 +768,15 @@ export class Store {
                           ? [member.edge.discriminator.field]
                           : []),
                       ]
-                    : this.operation.schema.keys(member.edge.source)
+                    : // What a link holds of the row: its key, or the fields the junction references of it.
+                      [
+                        ...new Set([
+                          ...this.operation.schema.keys(member.edge.source),
+                          ...member.edge.sourceSide.members.map(
+                            (pair) => pair.referencedField
+                          ),
+                        ]),
+                      ]
                   ).map((field) => [field, member.of[field]])
                 ),
               },
@@ -1121,6 +1141,7 @@ export class Store {
   /** Every row a question names takes `set`, or is removed where there is none: the call does not need to know them. */
   all(question: Question, set?: Input, projection?: PreparedProjection): Later {
     const { model } = question;
+    if (question.member) this.#links(question.member);
     const q = this.operation.queries;
     const name = model["~"].names.ts!;
     const kind = set ? "update" : "delete";
@@ -1320,12 +1341,35 @@ export class Store {
   }
   /** `to` is made a member of `from`'s through a junction: `through` is what was written of the link itself. */
   link(edge: Junction, from: Row, to: Row, through?: Input): void {
+    const source = this.#end(edge.sourceSide, from);
+    const target = this.#end(edge.targetSide, to);
+    // One column of a link holds one value: where both rows supply it, they supply the same, or the call is refused before anything is written.
+    for (const pair of edge.sourceSide.members) {
+      const other = edge.targetSide.members.find(
+        (each) => each.junctionField === pair.junctionField
+      );
+      if (!other) continue;
+      const a = source[pair.referencedField];
+      const b = target[other.referencedField];
+      const known = (value: unknown) =>
+        !(value === undefined || value instanceof Pending);
+      const same =
+        a instanceof Date && b instanceof Date
+          ? a.getTime() === b.getTime()
+          : a === b;
+      if (known(a) && known(b) && !same)
+        throw new NestedWriteError(
+          `Cannot link relation '${edge.name}': the two rows hold different values for '${pair.junctionField}'.`,
+          edge.name,
+          { meta: { field: pair.junctionField, relation: edge.name } }
+        );
+    }
     this.#note({
       kind: "link",
       edge,
       from,
       to,
-      keys: [this.#end(edge.sourceSide, from), this.#end(edge.targetSide, to)],
+      keys: [source, target],
       through,
     });
   }
@@ -1364,6 +1408,7 @@ export class Store {
   }
   /** No row may answer the question when the call's writes reach here: `stops` refuses it. */
   none(question: Question, stops: PreparedGuardFailure): void {
+    if (question.member) this.#links(question.member);
     this.#note({ kind: "none", question, stops });
   }
   /** The call goes on as no row answers the question: asked again where its writes are sent, where nothing held what it read. */
