@@ -29,7 +29,7 @@ import {
 } from "../shared/query";
 import type { EngineSchema, Input } from "../shared/schema";
 import type { SqlOperationContext } from "../shared/sql-operation-context";
-import type { Membership } from "../shared/storage";
+import { linkJudgement, type Membership } from "../shared/storage";
 import { type Sent, type Statement, Stopped, type Transport } from "./send";
 import { type Junction, outside, type Question, Writer } from "./statements";
 
@@ -815,7 +815,8 @@ export class Store {
     row: Row,
     set: Input,
     writes?: readonly string[],
-    joined?: Membership
+    joined?: Membership,
+    removes = false
   ): void {
     if (Object.keys(set).length === 0) return;
     const meta = this.#meta.get(row)!;
@@ -857,7 +858,9 @@ export class Store {
         row,
         joined
           ? { intent: "join", through: joined }
-          : { intent: "update", writes }
+          : removes
+            ? { intent: "delete" }
+            : { intent: "update", writes }
       ),
       take: ([sent]) => {
         if (hears.length === 0) return;
@@ -866,11 +869,35 @@ export class Store {
       },
     });
   }
-  /** A row is removed. */
+  /** A row is removed: marked, where its model keeps the rows it deletes. */
   delete(row: Row): void {
     const meta = this.#meta.get(row)!;
-    if (this.operation.scope?.rows.tombstones?.has(meta.model["~"].names.ts!))
-      outside();
+    const { model, question } = meta;
+    const marks = this.writer.marks(model);
+    if (marks) {
+      // A kept row leaves the rows that reference it in place: where the database would have refused its removal, the mark is refused too.
+      const stops = this.writer.restriction(model);
+      const through = question?.member;
+      // The link the row is reached through is kept, and restricts nothing.
+      const slot =
+        through?.edge.kind === "junction" &&
+        linkJudgement(through.edge)?.writes.at(-1);
+      if (stops)
+        this.none(
+          {
+            model,
+            where: this.#key(row),
+            unique: true,
+            referenced: slot
+              ? { slot, identity: this.#key(through!.of) }
+              : true,
+          },
+          stops
+        );
+      this.update(row, marks, undefined, undefined, true);
+      meta.gone = true;
+      return;
+    }
     meta.gone = true;
     const made = this.#log.findIndex(
       (entry) => entry.kind === "insert" && entry.row === row
@@ -891,11 +918,12 @@ export class Store {
   /** Every row a question names takes `set`, or is removed where there is none: the call does not need to know them. */
   all(question: Question, set?: Input, projection?: PreparedProjection): Later {
     const { model } = question;
-    if (
-      !set &&
-      this.operation.scope?.rows.tombstones?.has(model["~"].names.ts!)
-    )
-      outside();
+    const marks = set ? undefined : this.writer.marks(model);
+    if (marks) {
+      const stops = this.writer.restriction(model);
+      if (stops) this.none({ ...question, referenced: true }, stops);
+      return this.all(question, marks, projection);
+    }
     const later: Later = {};
     // Where no statement both writes rows and answers with them so, they are read, then written by their keys.
     if (

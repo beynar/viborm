@@ -54,6 +54,14 @@ export interface Question {
    * it refuses with, where not as a row that is not there.
    */
   readonly strict?: boolean | string;
+  /**
+   * Among the rows a row the call may see still references through a
+   * relation that restricts deletes: all of them, or all but the row with
+   * that key through that relation.
+   */
+  readonly referenced?:
+    | true
+    | { readonly slot: string; readonly identity: Input };
   /** Rows left out, by their key. */
   readonly except?: readonly Input[];
 }
@@ -83,16 +91,30 @@ export class Writer {
     const named = keys
       ? q.includeIdentities(model, keys)
       : q.prepareSelector(model, question.where, question.unique ?? false);
-    const own = question.except?.length
-      ? {
-          ...q.andSelectors(model, [
-            named,
-            q.excludeIdentities(model, question.except),
-          ]),
-          uniqueKey: named.uniqueKey,
-          uniqueValues: named.uniqueValues,
-        }
-      : named;
+    const { referenced } = question;
+    const more = [
+      ...(question.except?.length
+        ? [q.excludeIdentities(model, question.except)]
+        : []),
+      ...(referenced
+        ? [
+            q.referenced(
+              model,
+              this.#operation.schema.restrictingSlots(model),
+              this.#operation.scope?.defaults,
+              referenced === true ? undefined : referenced
+            ),
+          ]
+        : []),
+    ];
+    const own =
+      more.length > 0
+        ? {
+            ...q.andSelectors(model, [named, ...more]),
+            uniqueKey: named.uniqueKey,
+            uniqueValues: named.uniqueValues,
+          }
+        : named;
     return q.candidates(
       own,
       this.#related(question),
@@ -259,6 +281,42 @@ export class Writer {
       ),
       ...computed,
     });
+  }
+  /**
+   * What a row of `model` takes instead of going, where its model keeps the
+   * rows it deletes; none where it removes them.
+   */
+  marks(model: AnyModel): Input | undefined {
+    const { scope, schema } = this.#operation;
+    const mark = scope?.rows.tombstones?.get(model["~"].names.ts!);
+    if (!(scope && mark)) return undefined;
+    if (scope.defaults !== scope.domain) outside();
+    // A kept row is updated: it takes what every update of its model takes.
+    return this.values(
+      model,
+      "update",
+      schema.update(
+        model,
+        mark.at === undefined
+          ? mark.assign
+          : { ...mark.assign, [mark.at]: scope.instant() },
+        true
+      ),
+      {}
+    );
+  }
+  /** What a kept row is refused with where a row still references it as the database would refuse its removal. */
+  restriction(model: AnyModel): PreparedGuardFailure | undefined {
+    const slots = this.#operation.schema.restrictingSlots(model);
+    return slots.length > 0
+      ? {
+          kind: "foreignKey",
+          message: `Cannot delete '${model["~"].names.ts!}' record: a related record still references it through one of its relations whose foreign key restricts deletes: ${slots
+            .map((slot) => `'${slot}'`)
+            .join(", ")}.`,
+          raceable: false,
+        }
+      : undefined;
   }
   /** Whether `row` travels in the statement that inserts `rows`: the same columns, within what the provider binds in one statement. */
   beside(model: AnyModel, rows: readonly Input[], row: Input): boolean {
