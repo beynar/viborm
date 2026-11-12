@@ -8,7 +8,6 @@ import { assembleAdapterSelect } from "@adapters/adapter-internals";
 import {
   NO_RELATIONS,
   type PreparedSelector,
-  readsAny,
   rowValue,
   throughDerived,
   wholeValue,
@@ -17,6 +16,7 @@ import type { Input } from "@query-engine/raptor3/shared/schema";
 import type { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import type { AnyModel } from "@schema/model";
 import { Sql, sql } from "@sql";
+import { readsAny } from "./reads";
 
 /**
  * The rows of `model` a write produces, as ONE FROM item read under

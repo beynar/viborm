@@ -635,23 +635,29 @@ interface Folded {
 }
 const ALWAYS_TRUE: PreparedPredicate = freeze({ kind: "always", value: true });
 /**
- * `predicate` with every condition replaced by its outcome and the logical
- * combinators simplified, so a false condition removes its arm with every
- * parameter inside it. A relation keeps its quantifier over a folded body.
+ * `predicate` with the leaves `known` answers for replaced by their outcome
+ * and the logical combinators simplified, so a false arm goes with every
+ * parameter inside it. `deep` folds the body of a relation too, which keeps
+ * its quantifier: for an outcome that holds whatever row is read.
  */
-function foldConditions(
+function fold(
   predicate: PreparedPredicate,
-  holds: (condition: Condition) => boolean
+  known: (leaf: PreparedPredicate) => boolean | undefined,
+  deep: boolean
 ): PreparedPredicate {
   switch (predicate.kind) {
     case "condition":
-      return holds(predicate.condition) ? ALWAYS_TRUE : VACUOUS_FALSE;
+    case "operation": {
+      const outcome = known(predicate);
+      if (outcome === undefined) return predicate;
+      return outcome ? ALWAYS_TRUE : VACUOUS_FALSE;
+    }
     case "and":
     case "or": {
       const conjunction = predicate.kind === "and";
       const kept: PreparedPredicate[] = [];
       for (const member of predicate.predicates) {
-        const folded = foldConditions(member, holds);
+        const folded = fold(member, known, deep);
         if (folded.kind !== "always") kept.push(folded);
         else if (folded.value !== conjunction) return folded;
       }
@@ -662,32 +668,33 @@ function foldConditions(
       )
         return predicate;
       // A dropped arm may have held two quantifiers over one relation apart.
-      const merged = mergeQuantifiers(predicate.kind, kept);
+      const merged = deep ? mergeQuantifiers(predicate.kind, kept) : undefined;
       return merged?.length === 1 && !conjunction
         ? merged[0]!
         : freeze({ kind: predicate.kind, predicates: freeze(merged ?? kept) });
     }
     case "not": {
-      const folded = foldConditions(predicate.predicate, holds);
+      const folded = fold(predicate.predicate, known, deep);
       if (folded.kind === "always")
         return folded.value ? VACUOUS_FALSE : ALWAYS_TRUE;
       return folded === predicate.predicate
         ? predicate
         : freeze({ kind: "not", predicate: folded });
     }
-    case "relation": {
-      if (!predicate.predicate) return predicate;
-      const folded = foldConditions(predicate.predicate, holds);
-      return folded === predicate.predicate
-        ? predicate
-        : freeze({ ...predicate, predicate: folded });
-    }
+    case "relation":
     case "exists": {
-      if (!predicate.predicate) return predicate;
-      const folded = foldConditions(predicate.predicate, holds);
+      if (!(deep && predicate.predicate)) return predicate;
+      const folded = fold(predicate.predicate, known, deep);
       // No row matches a false body; a true one still needs a row to exist.
-      if (folded.kind === "always" && !folded.value) return VACUOUS_FALSE;
+      if (
+        predicate.kind === "exists" &&
+        folded.kind === "always" &&
+        !folded.value
+      )
+        return VACUOUS_FALSE;
       if (folded === predicate.predicate) return predicate;
+      if (predicate.kind === "relation")
+        return freeze({ ...predicate, predicate: folded });
       return freeze({
         kind: "exists",
         model: predicate.model,
@@ -698,169 +705,44 @@ function foldConditions(
       return predicate;
   }
 }
+/** `predicate` with every condition replaced by its outcome. */
+const foldConditions = (
+  predicate: PreparedPredicate,
+  holds: (condition: Condition) => boolean
+): PreparedPredicate =>
+  fold(
+    predicate,
+    (leaf) => (leaf.kind === "condition" ? holds(leaf.condition) : undefined),
+    true
+  );
 /**
  * `predicate` over a produced row whose fields' nullness the write states
  * (`nulls`: field to whether its value is null), each null test of such a
- * field replaced by its outcome and the combinators simplified as
- * {@link foldConditions} does: the values a write sets fold into its
- * judgement, so an arm on a key it leaves null does not
- * reach the statement. Only the row's own columns: a relation reads other
- * rows, and is kept as it is.
+ * field replaced by its outcome: the values a write sets fold into its
+ * judgement, so an arm on a key it leaves null does not reach the statement.
+ * Only the row's own columns: a relation reads other rows, and is kept as it
+ * is.
  */
-export function foldKnownNulls(
+export const foldKnownNulls = (
   predicate: PreparedPredicate,
   nulls: ReadonlyMap<string, boolean>
-): PreparedPredicate {
-  switch (predicate.kind) {
-    case "operation": {
-      const { target, operand } = predicate;
-      if (
-        predicate.operator !== "equals" ||
-        target.kind !== "column" ||
-        target.path !== undefined ||
-        operand?.kind !== "value" ||
-        operand.value !== null ||
-        target.scalar.physical.scalar["~"].state.type === "json"
-      )
-        return predicate;
-      const known = nulls.get(target.scalar.field);
-      if (known === undefined) return predicate;
-      return known ? ALWAYS_TRUE : VACUOUS_FALSE;
-    }
-    case "and":
-    case "or": {
-      const conjunction = predicate.kind === "and";
-      const kept: PreparedPredicate[] = [];
-      for (const member of predicate.predicates) {
-        const folded = foldKnownNulls(member, nulls);
-        if (folded.kind !== "always") kept.push(folded);
-        else if (folded.value !== conjunction) return folded;
-      }
-      if (kept.length === 0) return conjunction ? ALWAYS_TRUE : VACUOUS_FALSE;
-      return kept.length === predicate.predicates.length &&
-        kept.every((member, index) => member === predicate.predicates[index])
-        ? predicate
-        : freeze({ kind: predicate.kind, predicates: freeze(kept) });
-    }
-    case "not": {
-      const folded = foldKnownNulls(predicate.predicate, nulls);
-      if (folded.kind === "always")
-        return folded.value ? VACUOUS_FALSE : ALWAYS_TRUE;
-      return folded === predicate.predicate
-        ? predicate
-        : freeze({ kind: "not", predicate: folded });
-    }
-    default:
-      return predicate;
-  }
-}
-/**
- * Whether `predicate`, judged over a row of `model`, may read one of
- * `fields` of that row: an operation's column or field operand, a
- * relation's own side of its link (a junction's: the row's keys). Anything
- * it cannot answer for (an aggregate, a window) reads them all. A row that
- * differs from another only outside what a predicate reads gets the same
- * answer from it, against the same rows.
- */
-export function readsAny(
-  predicate: PreparedPredicate,
-  fields: ReadonlySet<string>,
-  keys: readonly string[]
-): boolean {
-  switch (predicate.kind) {
-    case "and":
-    case "or":
-      return predicate.predicates.some((member) =>
-        readsAny(member, fields, keys)
-      );
-    case "not":
-    case "layer":
-      return readsAny(predicate.predicate, fields, keys);
-    case "always":
-    case "condition":
-      return false;
-    case "exists":
-      return (
-        predicate.predicate !== undefined &&
-        readsAbove(predicate.predicate, fields, 1)
-      );
-    case "operation": {
-      if (predicate.target.kind !== "column") return true;
-      const operands = [predicate.operand, ...(predicate.operands ?? [])];
-      return (
-        fields.has(predicate.target.scalar.field) ||
-        operands.some(
-          (operand) =>
-            (operand?.kind === "field" && fields.has(operand.scalar.field)) ||
-            (operand?.kind === "sql" &&
-              operand.operands.some(
-                (member) =>
-                  member.kind === "field" && fields.has(member.scalar.field)
-              ))
-        )
-      );
-    }
-    case "relation": {
-      const { edge } = predicate;
-      const own =
-        edge.kind === "reference"
-          ? [
-              ...edge.pairs.map((pair) => pair.source),
-              ...(edge.discriminator?.side === "source"
-                ? [edge.discriminator.field]
-                : []),
-            ]
-          : keys;
-      return (
-        own.some((field) => fields.has(field)) ||
-        (predicate.predicate !== undefined &&
-          readsAbove(predicate.predicate, fields, 1))
-      );
-    }
-    default:
-      return true;
-  }
-}
-/**
- * Whether a relation body `depth` bodies below the judged row compares one of
- * `fields` of that row (`{ $row, up: depth }`): the row's new value changes
- * its answer as surely as a column of its own does. An `$exists` body is a
- * root of its own and reads no row outside it.
- */
-function readsAbove(
-  predicate: PreparedPredicate,
-  fields: ReadonlySet<string>,
-  depth: number
-): boolean {
-  switch (predicate.kind) {
-    case "and":
-    case "or":
-      return predicate.predicates.some((member) =>
-        readsAbove(member, fields, depth)
-      );
-    case "not":
-    case "layer":
-      return readsAbove(predicate.predicate, fields, depth);
-    case "relation":
-    case "exists":
-      return (
-        predicate.predicate !== undefined &&
-        readsAbove(predicate.predicate, fields, depth + 1)
-      );
-    case "operation":
-      return [predicate.operand, ...(predicate.operands ?? [])].some(
-        (operand) =>
-          operand?.kind === "field" &&
-          operand.up === depth &&
-          fields.has(operand.scalar.field)
-      );
-    case "always":
-    case "condition":
-      return false;
-    default:
-      return true;
-  }
-}
+): PreparedPredicate =>
+  fold(
+    predicate,
+    (leaf) => {
+      if (leaf.kind !== "operation") return;
+      const { target, operand } = leaf;
+      return leaf.operator === "equals" &&
+        target.kind === "column" &&
+        target.path === undefined &&
+        operand?.kind === "value" &&
+        operand.value === null &&
+        target.scalar.physical.scalar["~"].state.type !== "json"
+        ? nulls.get(target.scalar.field)
+        : undefined;
+    },
+    false
+  );
 /** Every parameter and condition a layer's predicate reads. */
 export function callReads(
   predicate: PreparedPredicate,

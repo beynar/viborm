@@ -20,7 +20,6 @@ import {
   type PreparedSelector,
   type ProjectedFacts,
   type Queries,
-  readsAny,
 } from "@query-engine/raptor3/shared/query";
 import type {
   CallRows,
@@ -43,6 +42,7 @@ import type { AnyModel } from "@schema/model";
 import { evidence, gatedDocument, gateHolds } from "./gates";
 import { producedSource, producedWhere } from "./produced";
 import { admitProjected } from "./projected";
+import { readsAny } from "./reads";
 
 /** Equal gates shared, so a projection carries one member per distinct gate. */
 function sharedGate(gate: FieldGate, known: FieldGate[]): FieldGate {
