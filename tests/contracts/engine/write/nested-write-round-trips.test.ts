@@ -18,11 +18,15 @@ import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { NestedWriteError, NotFoundError } from "@errors";
+import { withRows } from "@extensions/rows-runtime";
 import { hydrateSchemaNames, s } from "@schema";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import type Database from "better-sqlite3";
 import { beforeAll, describe, expect, test } from "vitest";
+
+// These definitions are stated as plain objects: what reads their rows is brought here.
+withRows();
 
 const user = s
   .model({

@@ -300,6 +300,7 @@ export class Store {
       this.#again = false;
       this.#made = 0;
       this.#members = [];
+      this.#says = [];
       let answer: (() => T) | undefined;
       let refused: { error: unknown } | undefined;
       try {
@@ -325,7 +326,8 @@ export class Store {
         await this.#deliver(this.#steps(this.#log.length), true);
         return answer();
       } catch (error) {
-        if (!(error instanceof Stopped)) throw error;
+        if (!(error instanceof Stopped))
+          throw this.#says.reduce((failure, say) => say(failure), error);
         const { stops, believed, model } = error.statement;
         // The call may not leave the row it would write, a row that must be
         // there is not, or what it wrote before cannot be taken back.
@@ -1431,6 +1433,11 @@ export class Store {
       },
     });
   }
+  /** What the call says of a failure of its writes, where it knows more of it than the database says. */
+  #says: ((failure: unknown) => unknown)[] = [];
+  saying(say: (failure: unknown) => unknown): void {
+    this.#says.push(say);
+  }
   /** A row of the call's own rows begins: what is written until the next is its. */
   member(): void {
     this.#members.push(this.#log.length);
@@ -2172,6 +2179,9 @@ export class Store {
         statements = await step.write();
       }
       waiting.push({ statements, step });
+      // Where each statement is heard as it is sent, what it says is taken before the next is written: a row that is not there refuses the call before anything under it does.
+      if (!within && this.#transport.holds)
+        await flush(last && at === steps.length - 1);
     }
     await flush(last);
   }

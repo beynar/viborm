@@ -7,6 +7,7 @@
  * extensions that declare one.
  */
 
+import { ForbiddenError } from "@errors";
 import {
   callReads,
   type DeclaredEvidence,
@@ -102,6 +103,29 @@ export class PreparedDomain {
    * A call's arguments admitted with the projection keys this domain
    * declares kept beside the schema's.
    */
+  /**
+   * What an upsert says when it located no row and its create is refused
+   * for the key it named: where no row of the model may be updated at all,
+   * the row it located exists, and the update is what is not permitted.
+   */
+  located(model: AnyModel): ((cause: Error) => Error) | undefined {
+    const name = model["~"].names.ts!;
+    const never = this.rows.verbs?.get(name)?.some((layer) => {
+      const members = layer?.update.OR;
+      return (
+        Array.isArray(members) &&
+        members.length === 0 &&
+        Object.keys(layer!.update).length === 1
+      );
+    });
+    return never
+      ? (cause) =>
+          new ForbiddenError(name, "update", {
+            reason: "the row this upsert locates exists",
+            cause,
+          })
+      : undefined;
+  }
   /** The row a write would leave, judged in the statement that writes it. */
   readonly producedSource = producedSource;
   readonly producedWhere = producedWhere;

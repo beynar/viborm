@@ -4,8 +4,15 @@
  * never says who may.
  */
 
-import { getAdapterInternals } from "@adapters/adapter-internals";
-import { NestedWriteError, UnsupportedOperationError } from "@errors";
+import {
+  adapterConstraints,
+  getAdapterInternals,
+} from "@adapters/adapter-internals";
+import {
+  NestedWriteError,
+  type UniqueConstraintError,
+  UnsupportedOperationError,
+} from "@errors";
 import type { AnyModel } from "@schema/model";
 import { type Sql, sql } from "@sql";
 import type { PreparedGuardFailure } from "../../types";
@@ -77,7 +84,19 @@ export class Writer {
     const edge = question.through ?? question.member?.edge;
     if (question.intent === "join" && edge) return linkJudgement(edge);
     if (question.intent === "delete") return { verb: "delete", writes: [] };
-    return question.writes && { verb: "update", writes: question.writes };
+    const { writes } = question;
+    if (!writes) return undefined;
+    const tombstone = this.#operation.scope?.rows.tombstones?.get(
+      question.model["~"].names.ts!
+    );
+    // A caller who writes what a delete that keeps its rows writes is judged as that delete is.
+    return tombstone &&
+      writes.some(
+        (field) =>
+          field === tombstone.at || Object.hasOwn(tombstone.assign, field)
+      )
+      ? { verb: "update", writes, marks: true }
+      : { verb: "update", writes };
   }
   #related(question: Question): "root" | "related" {
     return question.member || question.through ? "related" : "root";
@@ -733,6 +752,30 @@ export class Writer {
         )
       ),
     };
+  }
+  /** Whether the database refused a row for the key a selector names. */
+  refusedFor(
+    model: AnyModel,
+    key: NonNullable<PreparedSelector["uniqueKey"]>,
+    error: UniqueConstraintError
+  ): boolean {
+    const table = model["~"].names.sql!;
+    const columns = key.fields.map((field) => this.#q.columnName(model, field));
+    const constraints = adapterConstraints(this.#operation.driver.adapter);
+    const { meta } = error;
+    // A database whose refusals name no constraint says which columns it found.
+    if (!constraints)
+      return meta.table === table && meta.columns?.join() === columns.join();
+    const expected = (
+      key.kind === "primary"
+        ? constraints.primaryKey(table, columns)
+        : constraints.unique(table, key.name ?? columns[0]!, columns)
+    ).normalizedError;
+    return (
+      meta.table === expected.table &&
+      meta.constraint === expected.constraint &&
+      meta.columns?.join() === expected.columns?.join()
+    );
   }
   /** Whether a write says what it wrote. */
   get says(): boolean {

@@ -7,6 +7,7 @@ import {
   NestedWriteError,
   NotFoundError,
   QueryEngineError,
+  UniqueConstraintError,
   UnsupportedOperationError,
 } from "@errors";
 import type { AnyModel } from "@schema/model";
@@ -210,6 +211,19 @@ export function verbs(store: Store) {
       ...ask,
     });
   /** What a write of `data` writes of its row, as the caller stated it: none where it writes nothing of it. */
+  /** Whether a row created with `data` holds the values a question names its one row by: the key then refuses a row that came since. */
+  const keyed = (question: Question, data: Input): boolean => {
+    const { uniqueKey, uniqueValues } = store.writer.selector(question);
+    return (
+      uniqueKey?.fields.every((field) => {
+        const proposed = data[field];
+        const named = uniqueValues?.get(field);
+        return proposed instanceof Date && named instanceof Date
+          ? proposed.getTime() === named.getTime()
+          : proposed !== undefined && Object.is(proposed, named);
+      }) === true
+    );
+  };
   const writes = (model: AnyModel, data: Input): string[] | undefined => {
     const own = stated(data);
     // A field kept as stored is no field the write writes.
@@ -556,8 +570,8 @@ export function verbs(store: Store) {
       const asked = sought(either.where, "connectOrCreate");
       const [found] = store.rows(asked);
       const through = either.$through as Input | undefined;
-      // A row created because none was found is created while none is there.
-      if (!found) store.absent(asked);
+      // A row created because none was found is created while none is there: its own key says so, or the call asks again.
+      if (!(found || keyed(asked, either.create as Input))) store.absent(asked);
       supplied = found
         ? adopt(found, "connectOrCreate", through)
         : create(either.create as Input, true, through);
@@ -732,8 +746,8 @@ export function verbs(store: Store) {
       const [row] = store.rows(asked);
       if (row) join(parent, edge, row, "connectOrCreate", $through as Input);
       else {
-        // A row created because none was found is created while none is there.
-        store.absent(asked);
+        // A row created because none was found is created while none is there: its own key says so, or the call asks again.
+        if (!keyed(asked, create as Input)) store.absent(asked);
         nested.create!(parent, edge, create as Input, true, $through as Input);
       }
     },
@@ -1078,6 +1092,20 @@ export function verbs(store: Store) {
       const matched =
         !found || guards.length === 0 || store.rows(asked).length > 0;
       if (!matched) store.absent(asked);
+      // A row created because none was found may be refused for the key the call named: what declares the rows says what that means.
+      const key = store.writer.selector(question).uniqueKey;
+      const refuses =
+        !found &&
+        key &&
+        keyed(question, create) &&
+        operation.queries.domain?.located(model);
+      if (refuses)
+        store.saying((failure) =>
+          failure instanceof UniqueConstraintError &&
+          store.writer.refusedFor(model, key, failure)
+            ? refuses(failure)
+            : failure
+        );
       // An update that says nothing asks nothing of the row found.
       const updates =
         found && matched && Object.keys(stated(update)).length > 0;
