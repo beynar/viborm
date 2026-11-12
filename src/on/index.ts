@@ -1,38 +1,33 @@
 // viborm/on: per-model write hooks that run after commit.
 //
-// The official `on` extension. Core carries it by identity (like the cache):
-// a chain that holds it asks it to plan each write (`src/extensions/writes.ts`),
-// and only a write a hook concerns is changed. Everything else is here, so an
-// application that never imports `viborm/on` loads none of it.
-//
-// A write a hook concerns runs with its projection widened to whole rows: the
-// engine returns them through its own `RETURNING` (or, on MySQL, its own
-// capture and re-read), the hook's rows are copied out, and the caller's value
-// is cut back to exactly what the call asked for. Delivery rides the write
-// outcome rail: after the write committed, after the outermost commit inside
-// a transaction, never after a rollback.
+// An extension like any other: it declares `written`, the point where a
+// definition is told the rows a write call wrote, and nothing of it is known
+// to core. It watches only a write a hook concerns; of that write it keeps
+// its own copy of the rows the engine shows it (the call's own and those its
+// nested writes reach), and runs the hooks once the write is durable: after
+// the write committed, after the outermost commit inside a transaction, never
+// after a rollback.
 
 import type { OperationResult } from "../client/exports"; // public today
-import { ClientInitializationError, QueryError } from "../errors";
-import type { ResolvedExtensionChain } from "../extensions/chain";
-import type { WriteOutcome } from "../extensions/query";
 import {
-  OFFICIAL_ON_NAME,
-  registerOfficialWrites,
-  type WritePlan,
-} from "../extensions/writes";
-import type {
-  AnyModel,
-  ClientSchema,
-  ClientTypeState,
-  ExtensionState,
-  VibORMClient,
-  VibORMConfig,
+  type AnyModel,
+  type AnyRelation,
+  ClientInitializationError,
+  type ClientSchema,
+  type ClientTypeState,
+  type ExtensionState,
+  QueryError,
+  type VibORMClient,
+  type VibORMConfig,
+  type WriteKind,
+  type WriteOutcome,
+  type WrittenCall,
+  type WrittenWatch,
 } from "../index";
-import { writeSinks } from "../query-engine/write-sinks";
-import type { AnyRelation } from "../schema/relation";
 
-const NAME = OFFICIAL_ON_NAME;
+const NAME = "viborm.on";
+/** How many declarations were made: each is an extension of its own name. */
+let declared = 0;
 
 /** What a hook is named after: what happened to the rows it receives. */
 export type OnKind = "create" | "update" | "delete";
@@ -148,15 +143,15 @@ type Row = Record<string, unknown>;
 
 const HOOK_KINDS: ReadonlySet<string> = new Set(["create", "update", "delete"]);
 
-/** The kind each root operation reports; `upsert` is decided by its arm. */
-const KINDS: Readonly<Record<string, OnKind | "upsert">> = {
-  create: "create",
-  createMany: "create",
-  update: "update",
-  updateMany: "update",
-  upsert: "upsert",
-  delete: "delete",
-  deleteMany: "delete",
+/** What each operation may do to the call's own rows: a delete of a model that keeps its rows updates them. */
+const KINDS: Readonly<Record<string, readonly OnKind[]>> = {
+  create: ["create"],
+  createMany: ["create"],
+  update: ["update"],
+  updateMany: ["update"],
+  upsert: ["create", "update"],
+  delete: ["delete", "update"],
+  deleteMany: ["delete", "update"],
 };
 
 /**
@@ -196,18 +191,12 @@ export function on(hooks: RuntimeHooks, options?: OnOptions) {
       console.error(error, thrown);
     }
   };
-  // The plan is also the definition's `query`, which identifies it: core
-  // recognizes it and keeps it out of the chain's handlers.
-  const writes = (
-    model: AnyModel,
-    operation: string,
-    args: Row,
-    chain: ResolvedExtensionChain,
-    callArgs: Row
-  ) => plan(own, report, model, operation, args, chain, callArgs);
-  registerOfficialWrites(writes, { plan: writes });
-  const definition = Object.freeze({ name: NAME, query: writes });
-  return (base: { $schema: object; $extends(definition: object): unknown }) => {
+  declared += 1;
+  const name = declared === 1 ? NAME : `${NAME}.${declared}`;
+  return (base: {
+    $schema: Record<string, AnyModel>;
+    $extends(definition: object): unknown;
+  }) => {
     // Refused when applied, never after a write commits: an unknown model or
     // hook name, or a hook that is no function, would otherwise run nothing.
     for (const [model, modelHooks] of Object.entries(own)) {
@@ -222,197 +211,75 @@ export function on(hooks: RuntimeHooks, options?: OnOptions) {
             `${model}.${kind} must be a create, update or delete function`
           );
     }
-    return base.$extends(definition);
+    return base.$extends(
+      Object.freeze({
+        name,
+        written: (call: WrittenCall) =>
+          watch(own, report, base.$schema[call.model]!, call),
+      })
+    );
   };
 }
 
-function plan(
+/** What watches one write a hook concerns; nothing for any other write. */
+function watch(
   hooks: RuntimeHooks,
   report: (error: QueryError, event: OnEvent) => Promise<void>,
   model: AnyModel,
-  operation: string,
-  args: Row,
-  chain: ResolvedExtensionChain,
-  callArgs: Row
-): WritePlan | undefined {
-  const name = model["~"].names.ts!;
-  const modelHooks = hooks[name] ?? {};
-  const { scalars, relations } = model["~"].state;
-  // Core plans only writes, and every write has a kind.
-  let kind = KINDS[operation]!;
-  // A delete of a model `deletion` manages leaves a tombstone, an update,
-  // unless the call's controls match its `removeWhen` (read when the write
-  // registers): until then, either hook concerns it.
-  const deletion = kind === "delete" ? chain.deletion?.[name] : undefined;
-  const removeWhen = deletion?.removeWhen;
-  if (deletion !== undefined && removeWhen === undefined) kind = "update";
-  const either =
-    kind === "upsert"
-      ? (["create", "update"] as const)
-      : removeWhen === undefined
-        ? ([kind] as const)
-        : (["delete", "update"] as const);
-  // The call's own rows, where a hook wants them; and the rows its nested
-  // writes reach, where its payload names a relation (the engine reports
-  // only those of a model a hook wants: `wants` below).
-  const root = either.some((candidate) => modelHooks[candidate] !== undefined);
+  call: WrittenCall
+): WrittenWatch | undefined {
+  const mine = hooks[call.model] ?? {};
+  // The call's own rows, where a hook wants what its verb may do to them;
+  // and the rows its nested writes reach, where its payload names a relation.
   if (
     !(
-      root ||
-      (writesRelation(args, relations) &&
+      KINDS[call.operation]!.some((kind) => mine[kind] !== undefined) ||
+      (writesRelation(call.args, model["~"].state.relations) &&
         [...reachable(model)].some((other) => hooks[other] !== undefined))
     )
   )
     return undefined;
   // The event's own copy: neither the caller nor a hook changes the other's.
-  const eventArgs = detached(callArgs) as Row;
-  // An upsert whose update writes nothing (a `data` stamp included) leaves a
-  // found row as it was: no hook.
-  const keeps =
-    kind === "upsert" && Object.keys(args.update as Row).length === 0;
-
-  const isScalar = (key: string) => Object.hasOwn(scalars, key);
-  const bulk = operation.endsWith("Many");
-  const { select, omit, ...rest } = args as {
-    select?: Row;
-    omit?: Row;
-  } & Row;
-  // The default projection is every scalar the call may read, and every
-  // computed field; a caller's relations, counts and projection keys move to
-  // `include`.
-  const widened: Row = { ...rest };
-  if (select !== undefined) {
-    const include: Row = {};
-    for (const [key, value] of Object.entries(select))
-      if (
-        value &&
-        (Object.hasOwn(relations, key) || key === "_count" || key[0] === "$")
-      )
-        include[key] = value;
-    if (Object.keys(include).length > 0) widened.include = include;
-  }
-  // A bulk write returns rows only with a projection: `omit: {}` is all.
-  if (bulk) widened.omit = {};
-  // The rows nested writes wrote, per model and kind, in write order.
-  const nested: { model: string; kind: OnKind; rows: Row[] }[] = [];
-  /** Cut one row back to what the call asked for. */
-  const narrow = (row: Row) => {
-    for (const key of Object.keys(row))
-      if ((select !== undefined && !select[key]) || omit?.[key] === true)
-        delete row[key];
-  };
-  const returnsRows =
-    !(root && bulk) || select !== undefined || omit !== undefined;
-
-  let rows: Row[] | undefined;
-  let created: boolean | undefined;
+  const args = detached(call.args) as Row;
+  /** The rows the call wrote, per model and kind, the call's own first. */
+  const written: {
+    model: string;
+    kind: WriteKind;
+    rows: Row[];
+    nested: boolean;
+  }[] = [];
   let certainty: WriteOutcome["certainty"] | undefined;
   let delivered = false;
-  // The cache's invalidation failure, held until the hooks have run.
-  let invalidation: { readonly failure: unknown } | undefined;
-  const event = (): OnEvent =>
-    Object.freeze({
-      model: name,
-      operation: operation as OnOperation,
-      args: eventArgs,
-      certainty: certainty!,
-    });
-  const hookOf = () => {
-    const hookKind =
-      kind === "upsert"
-        ? created
-          ? "create"
-          : created === undefined || keeps
-            ? undefined
-            : "update"
-        : kind;
-    const hook = root && hookKind && modelHooks[hookKind];
-    return hook && ([hook, `${name}.${hookKind}`] as const);
-  };
-  /**
-   * Run the hook once both are known: the rows (from the write's value) and
-   * the commit (from the outcome rail). Whichever comes second runs it: the
-   * rail after the value inside a transaction, before it on a direct write.
-   */
-  const deliver = async (): Promise<void> => {
-    if (delivered || rows === undefined || certainty === undefined) return;
-    delivered = true;
-    const held = invalidation;
-    invalidation = undefined;
-    const found = hookOf();
-    const runs: [RuntimeHook, Row[], string][] = found
-      ? [[found[0], rows, found[1]]]
-      : [];
-    for (const group of nested) {
-      const hook = hooks[group.model]?.[group.kind];
-      if (hook) runs.push([hook, group.rows, `${group.model}.${group.kind}`]);
-    }
-    for (const [hook, written, label] of runs) {
-      if (written.length === 0) continue;
-      const happened = event();
-      const failure = await runHook(hook, written, happened, label);
-      if (failure) await report(failure, happened);
-    }
-    // The cache's own failure keeps its own boundary, as without `on`.
-    if (held !== undefined) throw held.failure;
-  };
-
   return {
-    args: root ? widened : args,
-    take(value, settle) {
-      const written = root ? (Array.isArray(value) ? value : [value]) : [];
-      rows = [];
-      for (const row of written) {
-        const copy: Row = {};
-        for (const key of Object.keys(row as Row))
-          if (isScalar(key)) copy[key] = detached((row as Row)[key]);
-        rows.push(copy);
+    wants: (name, kind) => hooks[name]?.[kind] !== undefined,
+    rows(name, kind, rows, nested) {
+      const group =
+        (nested &&
+          written.find(
+            (each) => each.nested && each.model === name && each.kind === kind
+          )) ||
+        written[written.push({ model: name, kind, rows: [], nested }) - 1]!;
+      for (const row of rows) group.rows.push(detached(row) as Row);
+    },
+    async settled(outcome) {
+      if (certainty !== "committed") certainty = outcome.certainty;
+      if (delivered) return;
+      delivered = true;
+      const event: OnEvent = Object.freeze({
+        model: call.model,
+        operation: call.operation as OnOperation,
+        args,
+        certainty,
+      });
+      for (const { model: name, kind, rows } of written) {
+        const failure = await runHook(
+          hooks[name]![kind]!,
+          rows,
+          event,
+          `${name}.${kind}`
+        );
+        if (failure) await report(failure, event);
       }
-      const result = returnsRows ? value : { count: written.length };
-      if (returnsRows) for (const row of written) narrow(row as Row);
-      return settle && certainty !== undefined
-        ? deliver().then(() => result)
-        : result;
-    },
-    finish(value, then) {
-      const result = then ? then(value) : value;
-      return certainty === undefined ? result : deliver().then(() => result);
-    },
-    register(context, controls, cached) {
-      if (
-        removeWhen !== undefined &&
-        !Object.entries(removeWhen).every(
-          ([control, value]) => controls?.[control] === value
-        )
-      )
-        kind = "update";
-      writeSinks.set(context, {
-        upserted: (arm) => {
-          created = arm;
-        },
-        wants: (model, written) => hooks[model]?.[written] !== undefined,
-        wrote: (model, written, read) => {
-          const group =
-            nested.find(
-              (each) => each.model === model && each.kind === written
-            ) ?? nested[nested.push({ model, kind: written, rows: [] }) - 1]!;
-          for (const row of read) group.rows.push(row as Row);
-        },
-      });
-      return Object.freeze({
-        extension: NAME,
-        failurePolicy: "boundary-owned",
-        listener: async (outcome: WriteOutcome) => {
-          if (cached)
-            try {
-              await cached.listener(outcome);
-            } catch (failure) {
-              invalidation ??= { failure };
-            }
-          if (certainty !== "committed") certainty = outcome.certainty;
-          await deliver();
-        },
-      });
     },
   };
 }

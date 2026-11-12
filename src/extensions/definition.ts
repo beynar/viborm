@@ -44,6 +44,7 @@ import type { ResultDefinition, ResultInference } from "./result-types";
 import { withRows } from "./rows-runtime";
 import { rowsRuntime } from "./rows-slot";
 import type { StatementHandler } from "./statement";
+import type { WrittenHandler } from "./written";
 
 type RuntimeExtensionFunction = (...args: never[]) => unknown;
 
@@ -59,6 +60,7 @@ export interface RuntimeExtensionDefinition {
   readonly query?: RuntimeQueryContribution;
   readonly statement?: RuntimeExtensionFunction;
   readonly observe?: RuntimeExtensionFunction;
+  readonly written?: RuntimeExtensionFunction;
   readonly client?: RuntimeClientMethodContribution;
   readonly model?: RuntimeModelMethodContribution;
   readonly controls?: ControlsContribution;
@@ -90,6 +92,7 @@ const DEFINITION_KEYS = new Set([
   "query",
   "statement",
   "observe",
+  "written",
   "client",
   "model",
   "controls",
@@ -452,6 +455,13 @@ export function normalizeExtensionDefinition(
     rawObserve === undefined
       ? undefined
       : requireFunction(rawObserve, "observe", name);
+  const rawWritten = ownKeys.includes("written")
+    ? readOwn(value, "written", name)
+    : undefined;
+  const written =
+    rawWritten === undefined
+      ? undefined
+      : requireFunction(rawWritten, "written", name);
   const rawClient = ownKeys.includes("client")
     ? readOwn(value, "client", name)
     : undefined;
@@ -490,6 +500,7 @@ export function normalizeExtensionDefinition(
     ...(query ? { query } : {}),
     ...(statement ? { statement } : {}),
     ...(observe ? { observe } : {}),
+    ...(written ? { written } : {}),
     ...(client ? { client } : {}),
     ...(model ? { model } : {}),
     ...(controls ? { controls } : {}),
@@ -631,6 +642,7 @@ type ExtensionMembers<
   readonly query?: GenericQueryHandler | QueryHandlerMap<C, X["rows"]>;
   readonly statement?: StatementHandler;
   readonly observe?: ObserveHandler;
+  readonly written?: WrittenHandler;
   readonly controls?: ControlsContribution;
   readonly rows?: RowsContribution;
   readonly deletion?: DeletionContribution;

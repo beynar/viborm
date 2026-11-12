@@ -389,18 +389,8 @@ export class PendingOperation<T>
           ? operation.#options.finishResult(value)
           : value,
       prepare: (operation) => operation.#resolveSinglePackage()?.queries[0],
-      prepareBatch: async (operation) => {
-        const prepared = await operation
-          .#resolveRouted()
-          .prepareBatch(operation.#context.attribution);
-        const take = operation.#options.takeResult;
-        return take && prepared
-          ? {
-              ...prepared,
-              parseResult: (results) => take(prepared.parseResult(results)),
-            }
-          : prepared;
-      },
+      prepareBatch: (operation) =>
+        operation.#resolveRouted().prepareBatch(operation.#context.attribution),
       parseResult: (operation, raw) => {
         const single = operation.#resolveSinglePackage();
         if (!single) {
@@ -408,9 +398,7 @@ export class PendingOperation<T>
             `Operation '${operation.#operation}' on model '${operation.#modelName}' publishes no single driver result to parse.`
           );
         }
-        const take = operation.#options.takeResult;
-        const value = single.parseResult([raw]);
-        return take ? take(value) : value;
+        return single.parseResult([raw]);
       },
       observeBatchPhase: (operation, driver, execute) =>
         observeTransactionBatchPhase(
@@ -807,17 +795,13 @@ export class PendingOperation<T>
     committedWriteSegment?: CommittedWriteSegmentNotification,
     writeMayBeVisible?: WriteMayBeVisibleNotification
   ): Promise<T> {
-    const value = this.#deferredExecution
+    return this.#deferredExecution
       ? this.#deferredExecution(
           driverOverride,
           committedWriteSegment,
           writeMayBeVisible
         )
       : this.#run(driverOverride, committedWriteSegment, writeMayBeVisible);
-    const take = this.#options.takeResult;
-    // Here, unlike an array member's parser, the hooks of a write that has
-    // already committed may run before any extension sees the value.
-    return take ? value.then((result) => take(result, true) as T) : value;
   }
 
   /**

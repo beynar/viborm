@@ -12,6 +12,7 @@ import {
 } from "@errors";
 import type { AnyModel } from "@schema/model";
 import { getModelKeyCatalog } from "@schema/model/keys";
+import type { WriteKind } from "../../write-sinks";
 import { Stored } from "../shared/insert-value";
 import { readUpdate } from "../shared/query";
 import { parseStamped } from "../shared/row-scope";
@@ -1014,21 +1015,68 @@ export function verbs(store: Store) {
     }
   }
 
-  /** One row as the caller asked for it: none is no row of the call's. */
-  const one = (model: AnyModel, args: Arguments) => {
-    const projection = q.prepareProjection(model, args);
-    const said = (rows: Input[]) => {
+  /**
+   * The call's own rows, where something asked to see rows written so: read
+   * whole beside what the caller selected, shown, then cut back to what the
+   * caller asked.
+   */
+  const showing = (model: AnyModel, args: Arguments, kinds: WriteKind[]) => {
+    const name = model["~"].names.ts!;
+    if (!kinds.some((kind) => store.wants(name, kind))) return undefined;
+    const select = args.select as Input | undefined;
+    const { scalars } = model["~"].state;
+    const beside = Object.entries(select ?? {}).filter(
+      ([field, selected]) => selected && !Object.hasOwn(scalars, field)
+    );
+    return {
+      projection: q.prepareProjection(
+        model,
+        beside.length > 0 ? { include: Object.fromEntries(beside) } : {}
+      ),
+      cut(rows: Input[], kind: WriteKind | undefined) {
+        if (kind && store.wants(name, kind))
+          store.shows(
+            name,
+            kind,
+            rows.map((row) =>
+              Object.fromEntries(
+                Object.entries(row).filter(([field]) =>
+                  Object.hasOwn(scalars, field)
+                )
+              )
+            ),
+            false
+          );
+        if (select)
+          for (const row of rows)
+            for (const field of Object.keys(row))
+              if (!select[field]) delete row[field];
+        return rows;
+      },
+    };
+  };
+  /** One row as the caller asked for it: none is no row of the call's. `kinds`: what the call may do to it. */
+  const one = (model: AnyModel, args: Arguments, kinds: WriteKind[]) => {
+    const shows = showing(model, args, kinds);
+    const projection = shows?.projection ?? q.prepareProjection(model, args);
+    const said = (rows: Input[], kind = kinds[0]) => {
       if (rows.length === 0)
         throw new NotFoundError(model["~"].names.ts!, operation.operation);
-      return q.decodeResult(rows, operation.operation, (read) =>
-        q.decodeProjection(projection.shape, read)
-      )[0];
+      const read = q.decodeResult(rows, operation.operation, (raw) =>
+        q.decodeProjection(projection.shape, raw)
+      );
+      return (shows?.cut(read, kind) ?? read)[0];
     };
     return { projection, said };
   };
   /** The call's row, read as the caller asked once the writes before this are sent. */
-  const answering = (model: AnyModel, row: Row, args: Arguments) => {
-    const { projection, said } = one(model, args);
+  const answering = (
+    model: AnyModel,
+    row: Row,
+    args: Arguments,
+    kind?: WriteKind
+  ) => {
+    const { projection, said } = one(model, args, kind ? [kind] : []);
     let value: unknown;
     store.read(row, projection, (rows) => {
       value = said(rows);
@@ -1040,19 +1088,31 @@ export function verbs(store: Store) {
     relationsOf(model, data).length === 0 &&
     Object.keys(set).length > 0 &&
     !schema.keys(model).some((key) => set[key] !== undefined);
+  /** What a delete does to a row of `model`: a row its model keeps is updated. */
+  const removes = (model: AnyModel): WriteKind =>
+    operation.scope?.rows.tombstones?.has(model["~"].names.ts!)
+      ? "update"
+      : "delete";
   /** A verb over many rows answers with them as the caller selected them, or with their number. */
-  const many = (model: AnyModel, args: Arguments) => {
+  const many = (model: AnyModel, args: Arguments, kind: WriteKind) => {
     const select = args.select as Input | undefined;
-    const projection = select && q.prepareProjection(model, { select });
-    const decoded = (rows: Input[]) =>
-      q.decodeResult(rows, operation.operation, (read) =>
-        q.decodeProjection(projection!.shape, read)
+    const shows = showing(model, args, [kind]);
+    const projection =
+      shows?.projection ?? (select && q.prepareProjection(model, { select }));
+    const decoded = (rows: Input[]) => {
+      const read = q.decodeResult(rows, operation.operation, (raw) =>
+        q.decodeProjection(projection!.shape, raw)
       );
+      if (!shows) return read;
+      shows.cut(read, kind);
+      // Rows read only to be shown are answered as their number.
+      return select ? read : { count: read.length };
+    };
     /** The rows written by their keys, read again once every one is written. */
-    const again = (rows: Row[], kind: "createMany" | "updateMany") => {
+    const again = (rows: Row[], verb: "createMany" | "updateMany") => {
       const returned: Input[] = [];
       if (projection && rows.length > 0)
-        store.series(model, rows, projection, kind, (read) =>
+        store.series(model, rows, projection, verb, (read) =>
           returned.push(...read)
         );
       return () =>
@@ -1060,20 +1120,22 @@ export function verbs(store: Store) {
           ? decoded(returned)
           : {
               // Of rows created, as many as the database said it wrote.
-              count: kind === "createMany" ? store.written(rows) : rows.length,
+              count: verb === "createMany" ? store.written(rows) : rows.length,
             };
     };
-    return { projection, decoded, again };
+    /** What a verb told to write no row answers. */
+    const none = () => (select ? [] : { count: 0 });
+    return { projection, decoded, again, none };
   };
 
   return {
     create(model: AnyModel, args: Arguments, raw: Input) {
       const data = paired(args.data as Input, raw.data);
-      return answering(model, make(model, data, {}), args);
+      return answering(model, make(model, data, {}), args, "create");
     },
     createMany(model: AnyModel, args: Arguments, raw: Input) {
       const entries = paired(list(args.data) as Input[], list(raw.data));
-      const { projection, decoded, again } = many(model, args);
+      const { projection, decoded, again } = many(model, args, "create");
       // A unit handed over that writes nothing is no unit.
       if (entries.length === 0 && store.handed)
         throw new QueryEngineError("No data to insert for createMany.");
@@ -1126,18 +1188,18 @@ export function verbs(store: Store) {
       };
       const set = store.values(model, "update", data, stated(data));
       if (plain(model, data, set)) {
-        const { projection, said } = one(model, args);
+        const { projection, said } = one(model, args, ["update"]);
         const later = store.all({ ...question, must: true }, set, projection);
         return () => said(later.sent!.rows);
       }
       const row = store.one(question);
       write(model, row, data, false);
-      return answering(model, row, args);
+      return answering(model, row, args, "update");
     },
     updateMany(model: AnyModel, args: Arguments, raw: Input) {
       const data = paired(args.data as Input, raw.data);
-      const { projection, decoded, again } = many(model, args);
-      if (args.limit === 0) return () => (projection ? [] : { count: 0 });
+      const { projection, decoded, again, none } = many(model, args, "update");
+      if (args.limit === 0) return none;
       const relations = relationsOf(model, data);
       const question: Question = {
         model,
@@ -1209,7 +1271,7 @@ export function verbs(store: Store) {
         related + guards.length === 0 &&
         Object.keys(stated(update)).length > 0
       ) {
-        const { projection, said } = one(model, args);
+        const { projection, said } = one(model, args, ["create", "update"]);
         const later = store.either(
           question,
           create,
@@ -1217,7 +1279,9 @@ export function verbs(store: Store) {
           store.values(model, "update", update, stated(update)),
           projection
         );
-        if (later) return () => said(later.sent!.rows);
+        if (later)
+          return () =>
+            said(later.sent!.rows, later.created ? "create" : "update");
       }
       const [found] = store.rows({ ...question, makes: true });
       // Updated where found, and where it holds what the call asks of it besides.
@@ -1254,15 +1318,16 @@ export function verbs(store: Store) {
       const updates =
         found && matched && Object.keys(stated(update)).length > 0;
       if (updates) write(model, found, update, false);
-      const answer = answering(model, found ?? make(model, create, {}), args);
-      return () => {
-        // Which of the two it was is told once the call's writes are made: neither where it wrote nothing.
-        if (!found || updates) store.sink?.upserted(!found);
-        return answer();
-      };
+      // The row is shown as created or as updated: as neither where the call wrote nothing of it.
+      return answering(
+        model,
+        found ?? make(model, create, {}),
+        args,
+        found ? (updates ? "update" : undefined) : "create"
+      );
     },
     delete(model: AnyModel, args: Arguments) {
-      const { projection, said } = one(model, args);
+      const { projection, said } = one(model, args, [removes(model)]);
       const later = store.all(
         {
           model,
@@ -1277,8 +1342,8 @@ export function verbs(store: Store) {
       return () => said(later.sent!.rows);
     },
     deleteMany(model: AnyModel, args: Arguments) {
-      const { projection, decoded } = many(model, args);
-      if (args.limit === 0) return () => (projection ? [] : { count: 0 });
+      const { projection, decoded, none } = many(model, args, removes(model));
+      if (args.limit === 0) return none;
       const later = store.all(
         {
           model,

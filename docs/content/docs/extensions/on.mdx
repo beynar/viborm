@@ -310,8 +310,9 @@ call may not write is not written, so it calls no hook). Every other
 extension's `query` handler sees the call's own value, exactly what the caller
 asked for, never the whole rows the hook receives.
 
-One client carries one `on()`: put every hook in one call. The declaration is
-checked when it is applied: a model the schema lacks, a hook name other than
+One client can carry several `on()`: each runs its own hooks, in the order they
+were applied. Applying the same `on()` value twice to one client is refused.
+The declaration is checked when it is applied: a model the schema lacks, a hook name other than
 `create`, `update` and `delete`, or a hook that is no function is a
 `ClientInitializationError` there. To name a hooked client's type, use
 `typeof` (`ExtendedClient` takes object definitions, not a factory such as

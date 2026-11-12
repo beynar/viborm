@@ -42,11 +42,6 @@ import {
 import { appendResultFields, type ResolvedResultFields } from "./result";
 import type { RowsBinding } from "./rows";
 import { rowsRuntime } from "./rows-slot";
-import {
-  OFFICIAL_ON_NAME,
-  officialWritesOf,
-  type WritesCapability,
-} from "./writes";
 
 /** The fixed name admission reserves for the official instrumentation extension. */
 export const OFFICIAL_INSTRUMENTATION_NAME = "viborm.instrumentation";
@@ -145,8 +140,8 @@ export interface ResolvedExtensionChain {
   readonly callRows?: RowsBinding;
   /** Per model, every extension's computed fields, in chain order. */
   readonly result?: ResolvedResultFields;
-  /** The official `on` extension's writes, when the chain carries it. */
-  readonly writes?: WritesCapability;
+  /** Every `written` declaration, in chain order: what watches a write call. */
+  readonly written?: readonly ResolvedOperationHandler[];
   readonly extensions: readonly ResolvedExtension[];
   readonly hasCache: boolean;
   readonly hasRequestHandlers: boolean;
@@ -524,22 +519,10 @@ export function appendResolvedExtension(
       definition.name
     );
   }
-  const incomingWrites = officialWritesOf(definition.query);
-  assertOfficialExtensionAdmission({
-    definitionName: definition.name,
-    officialName: OFFICIAL_ON_NAME,
-    label: "on",
-    hasIdentity: incomingWrites !== undefined,
-    isAlreadyPresent: chain?.writes !== undefined,
-    duplicateMessage:
-      "The official on extension is already present on this client.",
-  });
   const effectiveDefinition =
     incomingCache === undefined
       ? incomingDefaultOmit === undefined
-        ? incomingWrites === undefined
-          ? definition
-          : withoutIdentity(definition, "query")
+        ? definition
         : withoutIdentity(definition, "request")
       : asOfficialCacheDefinition(definition);
   const declaredControls =
@@ -663,7 +646,13 @@ export function appendResolvedExtension(
           effectiveDefinition.result,
           schema
         );
-  const writes = incomingWrites ?? chain?.writes;
+  const written =
+    effectiveDefinition.written === undefined
+      ? chain?.written
+      : Object.freeze([
+          ...(chain?.written ?? []),
+          resolvedOperationHandler(handlerOwner, effectiveDefinition.written),
+        ]);
   const resolvedChain = Object.freeze({
     ...(controls === undefined ? {} : { controls }),
     ...(rows === undefined ? {} : { rows }),
@@ -672,7 +661,7 @@ export function appendResolvedExtension(
     ...(order === undefined ? {} : { order }),
     ...(callRows === undefined ? {} : { callRows }),
     ...(result === undefined ? {} : { result }),
-    ...(writes === undefined ? {} : { writes }),
+    ...(written === undefined ? {} : { written }),
     extensions,
     hasCache: incomingCache !== undefined || chain?.hasCache === true,
     hasRequestHandlers: hasCompiledHandlers(request),

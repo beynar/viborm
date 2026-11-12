@@ -88,6 +88,7 @@ deliberately small so the query protocol is visible.
 | Wrap one prepared logical operation | `query` | Asynchronous continuation around execution |
 | Rewrite materialized SQL | `statement` | Synchronous trusted `Sql → Sql` transform |
 | Record lifecycle completion | `observe` | Protected, failure-contained observation |
+| Receive the rows a write wrote | `written` | A watch per write call: which rows, the rows, then the commit |
 | Add client methods | `client` | Factory returning dollar-prefixed functions |
 | Add model methods | `model` | Per-model factory returning functions |
 | Accept a new call argument | `controls` | Declared values, checked once; only your handlers see them |
@@ -299,6 +300,55 @@ Observers never receive SQL, parameters, rows, results, cache keys, drivers, or
 raw errors. Their throws, rejected promises, and returned promises cannot alter
 or delay the application operation. Their synchronous JavaScript still runs on
 the application thread, so keep it small.
+
+## Receive the rows a write wrote with `written`
+
+`written` is asked once per write call, before it runs. Return a watch to
+receive the rows the call writes, or nothing to leave the call exactly as it
+is:
+
+```ts
+const outbox = defineExtension({
+  name: "outbox",
+  written({ model, operation, args }) {
+    const rows: { model: string; kind: string; row: object }[] = [];
+    return {
+      // Rows nobody wants are not read.
+      wants: (model, kind) => model === "order",
+      // Whole rows, once every write of the call is made.
+      rows(model, kind, written, nested) {
+        for (const row of written)
+          rows.push({ model, kind, row: structuredClone(row) });
+      },
+      // After the commit. Awaited before the call's promise resolves.
+      async settled({ certainty }) {
+        await publish(rows, certainty);
+      },
+    };
+  },
+});
+```
+
+- `wants(model, kind)` says which rows to show: `kind` is `"create"`,
+  `"update"` or `"delete"`. A call nothing wants a row of sends exactly the
+  statements it sends unwatched. A wanted row is read through the write's own
+  `RETURNING` where the database has one.
+- `rows(model, kind, rows, nested)` receives every scalar field of each row: as
+  the write left it, or as it was before a delete. The call's own rows come
+  first, then the rows its nested writes reach (`nested` is `true`), in write
+  order. `kind` is what happened: an upsert reports `"create"` or `"update"`,
+  and a delete that a `deletion` turns into an update reports `"update"`. The
+  values are also the caller's, so copy what you keep.
+- `settled(outcome)` runs when the write is durable: after the call's own
+  commit, after the outermost commit inside a transaction, and never after a
+  rollback. `outcome.certainty` is `"committed"` or `"may-have-committed"`.
+  VibORM awaits it before the call's promise (or the transaction's) resolves.
+  What it throws rejects that promise as a `QueryError`; the write is not
+  undone.
+
+A call that fails calls neither `rows` nor `settled`. Several extensions can
+declare `written`; each watch is told in the order the extensions were applied.
+[`viborm/on`](/docs/extensions/on) is built on this point.
 
 ## Declare arguments with `controls`
 

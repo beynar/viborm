@@ -53,6 +53,11 @@ export {
   type ObserveHandler,
   type StatementContext,
   type StatementHandler,
+  type WriteKind,
+  type WriteOutcome,
+  type WrittenCall,
+  type WrittenHandler,
+  type WrittenWatch,
 } from "./extensions/index.js";
 export type {
   AccumulatedExtensionState,

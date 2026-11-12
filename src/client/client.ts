@@ -49,7 +49,7 @@ import { TransactionWriteOutcomes } from "@extensions/query";
 import { applyRequestTransforms } from "@extensions/request";
 import { planResultFields } from "@extensions/result";
 import type { ResultInference } from "@extensions/result-types";
-import type { WritePlan } from "@extensions/writes";
+import { watchWrite } from "@extensions/written";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { enableFindUniqueBatching } from "@query-engine/find-unique-batch";
 import {
@@ -871,30 +871,29 @@ export class VibORM<C extends VibORMConfig> {
     let prepareInput: PrepareOperationInput | undefined;
     const resultFields = chain?.result;
     let finishResult: ((value: unknown) => unknown) | undefined;
-    const writes = isWrite ? chain?.writes : undefined;
-    let writePlan: WritePlan | undefined;
+    const written = isWrite ? chain?.written : undefined;
+    /** The call's arguments as what watches its writes is told them. */
+    let callArgs: Record<string, unknown> | undefined;
+    /** What watches the call's writes is told late that they settled: the call's value runs it and waits. */
+    let settle: (() => Promise<void>) | undefined;
     // Apply the client omit, then refuse an empty unique where, then plan
-    // the chain's computed fields, then widen a write to the rows its hooks
-    // receive.
+    // the chain's computed fields.
     const finish = (requestArgs: Record<string, unknown>) => {
       const omittedArgs = clientOmit
         ? applyClientOmit(model, operation, requestArgs, clientOmit)
         : requestArgs;
       assertNonEmptyUniqueWhere(modelNameStr, operation, omittedArgs);
-      let planned = omittedArgs;
-      if (resultFields !== undefined) {
-        const fields = planResultFields(
-          resultFields,
-          this.#relations,
-          model,
-          operation,
-          omittedArgs
-        );
-        finishResult = fields?.finish;
-        planned = fields?.args ?? omittedArgs;
-      }
-      writePlan = writes?.plan(model, operation, planned, chain!, omittedArgs);
-      return writePlan?.args ?? planned;
+      callArgs = omittedArgs;
+      if (resultFields === undefined) return omittedArgs;
+      const fields = planResultFields(
+        resultFields,
+        this.#relations,
+        model,
+        operation,
+        omittedArgs
+      );
+      finishResult = fields?.finish;
+      return fields?.args ?? omittedArgs;
     };
 
     if (
@@ -928,7 +927,7 @@ export class VibORM<C extends VibORMConfig> {
     const prepareWriteOutcomeRegistration:
       | PrepareWriteOutcomeRegistration
       | undefined =
-      (officialCache === undefined && writes === undefined) || !isWrite
+      (officialCache === undefined && written === undefined) || !isWrite
         ? undefined
         : (context, controls) => {
             const cached =
@@ -941,8 +940,17 @@ export class VibORM<C extends VibORMConfig> {
                 context,
                 officialCache.scope
               );
-            return writePlan
-              ? writePlan.register(context, controls, cached)
+            return written
+              ? watchWrite(
+                  written,
+                  { model: modelNameStr, operation, args: callArgs! },
+                  controls,
+                  context,
+                  cached,
+                  (late) => {
+                    settle = late;
+                  }
+                )
               : cached;
           };
 
@@ -953,22 +961,19 @@ export class VibORM<C extends VibORMConfig> {
       model,
       operation,
       operationArgs,
-      resultFields === undefined && writes === undefined
+      resultFields === undefined && written === undefined
         ? officialReadCache
           ? { skipSpan: true }
           : undefined
         : {
             ...(officialReadCache ? { skipSpan: true } : {}),
-            ...(writes && {
-              takeResult: (value: unknown, settle?: true) =>
-                writePlan ? writePlan.take(value, settle) : value,
-            }),
-            finishResult: (value) =>
-              writePlan
-                ? writePlan.finish(value, finishResult)
-                : finishResult === undefined
-                  ? value
-                  : finishResult(value),
+            finishResult(value) {
+              const finished =
+                finishResult === undefined ? value : finishResult(value);
+              const late = settle;
+              settle = undefined;
+              return late ? late().then(() => finished) : finished;
+            },
           },
       prepareInput,
       prepareWriteOutcomeRegistration
@@ -1215,7 +1220,7 @@ export class VibORM<C extends VibORMConfig> {
       const outcomes =
         chain?.hasQueryHandlers ||
         chain?.hasCache ||
-        chain?.writes ||
+        chain?.written ||
         (chain?.observe.length ?? 0) > 0
           ? new TransactionWriteOutcomes()
           : undefined;

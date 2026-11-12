@@ -168,6 +168,7 @@ async function sent(
         await operation.stateWriteOutcome(seam?.mayBeVisible, failure);
     throw failure;
   }
+  store.shown();
   try {
     await transport.end();
   } catch (error) {
@@ -257,7 +258,9 @@ export async function prepareCall(
               }
             );
         try {
-          return answer(results as never);
+          const value = answer(results as never);
+          store.shown();
+          return value;
         } catch (error) {
           throw operation.failure(error);
         }

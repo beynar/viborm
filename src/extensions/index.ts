@@ -5,4 +5,11 @@ export type {
   ObservationUnit,
   ObserveHandler,
 } from "./observation";
+export type { WriteOutcome } from "./query";
 export type { StatementContext, StatementHandler } from "./statement";
+export type {
+  WriteKind,
+  WrittenCall,
+  WrittenHandler,
+  WrittenWatch,
+} from "./written";

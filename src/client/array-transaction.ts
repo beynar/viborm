@@ -140,8 +140,8 @@ export function executeArrayTransaction(
 
 /**
  * Each member's value as its caller receives it: a chain that computes
- * result fields or runs write hooks finishes every member once the array
- * has settled.
+ * result fields or watches writes finishes every member once the array has
+ * settled.
  * The members are read before the run, which writes its values over them.
  */
 function finishArrayResults(
@@ -150,7 +150,7 @@ function finishArrayResults(
   run: () => Promise<unknown[]>
 ): Promise<unknown[]> {
   const chain = engine.extensionChain;
-  if (chain?.result === undefined && chain?.writes === undefined) return run();
+  if (chain?.result === undefined && chain?.written === undefined) return run();
   const members = [...operations] as object[];
   return run().then(async (values) => {
     // One member at a time: a member's write hooks run in member order, and
@@ -211,7 +211,7 @@ function canRequireInterceptedArray(engine: QueryEngine): boolean {
     (chain.hasRequestHandlers ||
       chain.hasQueryHandlers ||
       chain.hasCache ||
-      chain.writes !== undefined)
+      chain.written !== undefined)
   );
 }
 

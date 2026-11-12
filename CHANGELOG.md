@@ -10,8 +10,21 @@ application without extensions is smaller, a nested write sends fewer
 statements, and a many-row write on a batch-only driver is all-or-nothing when
 it fits one batch.
 
+### Added
+
+- **`written`, a new extension capability.** A definition is asked once per
+  write call and can return a watch: which rows it wants (`wants`), the whole
+  rows the call wrote, nested writes included (`rows`), then the commit
+  (`settled`). `viborm/on` is now built on it and has no private channel into
+  the client. See "Receive the rows a write wrote with `written`" in the
+  extension guide.
+- **Several `on()` on one client.** Each runs its own hooks, in the order they
+  were applied. A second `on()` was refused before.
+
 ### Changed
 
+- **The name `viborm.on` is no longer reserved.** `on()` is an extension like
+  any other.
 - **Nested writes send fewer statements.** A write reads what it needs
   together, then sends its writes as one unit. No call that succeeds sends more
   statements or more round trips than before. The SQL of a write may differ.

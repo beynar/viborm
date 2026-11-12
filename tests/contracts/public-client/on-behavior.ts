@@ -614,9 +614,30 @@ export function runOnBehavior(provider: OnProvider): void {
     });
 
     describe("application", () => {
-      test("one client carries one on(): a second is refused", async () => {
-        const { db } = await open();
-        expect(() => db.$extends(on({ user: {} }))).toThrow(
+      test("one client carries several on(): each runs its own hooks, in the order they were applied", async () => {
+        const { db, calls } = await open();
+        const second: string[] = [];
+        const both = db.$extends(
+          on({
+            user: {
+              update: (rows) => {
+                second.push(`second after ${calls.length}: ${rows[0]!.name}`);
+              },
+            },
+          })
+        );
+        await both.user.update({
+          where: { id: "u1" },
+          data: { name: "Twice" },
+        });
+        expect(calls.map((call) => call.hook)).toEqual(["user.update"]);
+        expect(second).toEqual(["second after 1: Twice"]);
+      });
+
+      test("the same on() applied twice to one client is refused", async () => {
+        const { base } = await open();
+        const once = on({ user: {} });
+        expect(() => base.$extends(once).$extends(once)).toThrow(
           ClientInitializationError
         );
       });
@@ -1350,29 +1371,6 @@ export function runOnBehavior(provider: OnProvider): void {
       test("onError that is no function is refused at once", () => {
         expect(() =>
           on({}, { onError: "log" as unknown as () => undefined })
-        ).toThrow(ClientInitializationError);
-      });
-
-      test("the official name is reserved, and a second on() is refused under any name", async () => {
-        const { base, db } = await open();
-        expect(() =>
-          base.$extends({
-            name: "viborm.on",
-            statement: (s: { statement: Sql }) => s.statement,
-          })
-        ).toThrow(ClientInitializationError);
-        const second = on({ user: { update: () => undefined } }) as unknown as (
-          b: object
-        ) => unknown;
-        let definition: { name: string; query: unknown } | undefined;
-        second({
-          $schema: base.$schema,
-          $extends: (value: { name: string; query: unknown }) => {
-            definition = value;
-          },
-        });
-        expect(() =>
-          db.$extends({ ...definition!, name: "renamed" } as never)
         ).toThrow(ClientInitializationError);
       });
 
