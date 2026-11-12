@@ -1375,15 +1375,24 @@ export class Store {
           there.map((row) => this.#said(this.#key(row))),
           kind
         ),
-      take: (sent) => take(sent.flatMap((each) => each.rows)),
+      take: (sent, queries) => {
+        // A read-back owes its write every row it names: fewer is the write's refusal.
+        for (const [at, query] of (queries ?? []).entries()) {
+          const expected = query.expectedRows;
+          if (expected && sent[at]!.rows.length < expected.count)
+            throw expected.missing;
+        }
+        take(sent.flatMap((each) => each.rows));
+      },
     });
   }
   /** A row of the call's own rows begins: what is written until the next is its. */
   member(): void {
     this.#members.push(this.#log.length);
   }
-  /** How many of the call's own rows are made whole, where what the call sent before it failed stands. */
-  get members(): number {
+  /** How many of the call's own rows are written, where what the call sent before it failed stands: of a call that writes one row, that row; `series` counts the rows of a call that writes several, and none of one that writes one. */
+  members(series = false): number {
+    if (series && this.#members.length === 0) return 0;
     const ends = [...this.#members.slice(1), this.#log.length];
     return ends.filter((end) => end <= this.#sent).length;
   }

@@ -95,9 +95,8 @@ export async function writeCall(
         atomicity: "segment",
         phase: store.said ? "result" : "member",
         committedSegments: store.segments,
-        // The row whose answer failed was written, and is not whole.
-        completedMembers: Math.max(0, store.members - Number(store.said)),
-        committedWriteMembers: store.members,
+        completedMembers: store.members(true),
+        committedWriteMembers: store.members(),
         ...(loose && { mayHaveCommittedSegment: true as const }),
       });
     // What the call sent outside a transaction of its own and cannot prove undone may be there: a key already taken proves it.

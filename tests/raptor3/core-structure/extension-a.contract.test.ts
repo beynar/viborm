@@ -247,10 +247,11 @@ async function runMissingFinalRow(batch: boolean): Promise<string[]> {
       // members of its own. The operation's members are therefore the two
       // root rows — it was three while the nested set mutation was a member —
       // and the caller pins the plan that makes the count what it is.
+      // Both members travel in one batch: one committed segment.
       assert.deepEqual(failure.meta.recordSeriesProgress, {
         atomicity: "segment",
         phase: "result",
-        committedSegments: 2,
+        committedSegments: 1,
         committedWriteMembers: 2,
         completedMembers: 2,
       });
