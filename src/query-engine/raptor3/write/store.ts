@@ -711,6 +711,8 @@ export class Store {
     const { writer } = this;
     const { schema } = this.operation;
     const steps: Step[] = [];
+    /** Where this unit keeps the keys the database decides in it: it cannot hear them and go on. */
+    let scratch: { id: string; model: AnyModel } | undefined;
     for (const { question } of this.#presumed.values())
       steps.push({
         write: () => [writer.asks(question, undefined, "presumed")],
@@ -767,19 +769,30 @@ export class Store {
         const decided = schema
           .keys(model)
           .filter((field) => entry.row[field] instanceof Pending);
+        if (decided.length > 0 && !this.#transport.holds)
+          scratch ??= { id: crypto.randomUUID(), model };
+        const at = steps.length;
         steps.push({
-          write: async () => [
-            await writer.insert(
-              model,
-              rows.map((row) => this.#heard(settled(row))),
-              entry.relation,
-              decided.length > 0
-            ),
-          ],
+          write: async () => {
+            const insert = (keyed: boolean) =>
+              writer.insert(
+                model,
+                rows.map((row) => this.#heard(settled(row))),
+                entry.relation,
+                keyed
+              );
+            const kept =
+              scratch &&
+              writer.kept(scratch.id, `${at}`, decided, await insert(false));
+            if (!kept) return [await insert(decided.length > 0)];
+            entry.row[decided[0]!] = kept.value;
+            return kept.statements;
+          },
           take: ([sent]) => {
             const [said] = writer.keys(model, sent!.rows);
             for (const field of decided)
-              entry.row[field] = said?.[field] ?? sent!.insertId;
+              if (entry.row[field] instanceof Pending)
+                entry.row[field] = said?.[field] ?? sent!.insertId;
           },
         });
       } else if (entry.kind === "update") {
@@ -880,6 +893,11 @@ export class Store {
           take: (sent) => entry.take(sent, queries),
         });
       }
+    }
+    if (scratch) {
+      const { open, close } = writer.scratch(scratch.id, scratch.model);
+      steps.unshift({ write: () => open });
+      steps.push({ write: () => [close] });
     }
     return steps;
   }

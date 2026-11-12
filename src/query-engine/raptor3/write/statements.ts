@@ -3,8 +3,10 @@
  * provider's spelling. The store says which rows and what they take; it
  * never says who may.
  */
+
+import { getAdapterInternals } from "@adapters/adapter-internals";
 import type { AnyModel } from "@schema/model";
-import { sql } from "@sql";
+import { type Sql, sql } from "@sql";
 import type { PreparedGuardFailure } from "../../types";
 import { InsertValue, JoinedValue } from "../shared/insert-value";
 import { nestedRefusal } from "../shared/operation-context";
@@ -323,6 +325,9 @@ export class Writer {
     const { model } = question;
     const limit = keys ? undefined : question.limit;
     const { capabilities, mutations } = this.#operation.driver.adapter;
+    // A value joined to other rows where it is written is not written here yet.
+    if (Object.values(values).some((value) => value instanceof JoinedValue))
+      outside();
     const [set] = await this.#operation.computed(model, [values], false);
     const selector = this.selector(question, keys);
     const judged = this.#judged(question);
@@ -501,6 +506,56 @@ export class Writer {
               ]
             : [])
         )
+      ),
+    };
+  }
+  /** What opens and closes the place a unit keeps the keys the database decides in it. */
+  scratch(
+    id: string,
+    model: AnyModel
+  ): { open: Statement[]; close: Statement } {
+    const { batchRefs } = getAdapterInternals(this.#operation.driver.adapter);
+    return {
+      open: batchRefs.setup(id).map((statement) => ({ sql: statement, model })),
+      close: { sql: batchRefs.cleanup(id), model },
+    };
+  }
+  /**
+   * An insert that keeps the one key the database decides of its row where
+   * the statements after it in its unit read it, and what they read. None
+   * where the provider keeps no such key exactly.
+   */
+  kept(
+    scratch: string,
+    name: string,
+    fields: readonly string[],
+    insert: Statement
+  ): { statements: Statement[]; value: Sql } | undefined {
+    const { adapter } = this.#operation.driver;
+    const { batchRefs } = getAdapterInternals(adapter);
+    const { model } = insert;
+    const [field] = fields;
+    const state = model["~"].state.scalars[field!]?.["~"].state;
+    if (
+      fields.length !== 1 ||
+      state?.autoGenerate?.kind !== "increment" ||
+      !batchRefs.storeInsertedKey
+    )
+      return undefined;
+    const [producing, ...storing] = batchRefs.storeInsertedKey(
+      scratch,
+      name,
+      insert.sql,
+      adapter.identifiers.escape(this.#q.columnName(model, field!))
+    );
+    return {
+      statements: [
+        { ...insert, sql: producing! },
+        ...storing.map((statement) => ({ sql: statement, model })),
+      ],
+      value: adapter.expressions.cast(
+        batchRefs.read(scratch, name),
+        state.type === "bigint" ? "bigint" : "integer"
       ),
     };
   }
