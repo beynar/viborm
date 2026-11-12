@@ -538,6 +538,8 @@ export type PreparedPredicate =
       readonly kind: "exists";
       readonly model: AnyModel;
       readonly predicate?: PreparedPredicate;
+      /** Its SQL, read under `alias`: said by what prepared it. */
+      readonly lower: (queries: Queries, alias: string) => Sql;
     }
   | {
       /**

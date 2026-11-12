@@ -4,6 +4,7 @@
  * row. Admission makes these nodes and hands each what prepares it; this
  * module is loaded with the extensions that declare row domains.
  */
+import { assembleAdapterSelect } from "@adapters/adapter-internals";
 import { UnsupportedOperationError } from "@errors";
 import {
   exactDecimalDomain,
@@ -12,18 +13,24 @@ import {
 import { incomparableIdentifiers } from "@query-engine/raptor3/shared/identifier";
 import {
   freeze,
+  memberRead,
   newSelectorFacts,
   type PreparedOperand,
   type PreparedPredicate,
   type PreparedScalar,
   type Queries,
+  readsRelation,
   type SelectorFacts,
+  sharedKey,
   states,
 } from "@query-engine/raptor3/shared/query";
 import type {
   Existence,
   OuterColumn,
 } from "@query-engine/raptor3/shared/row-scope";
+import type { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
+import { type Sql, sql } from "@sql";
+import { SqlSlot } from "../sql/slot";
 
 /**
  * `$exists`: the target's rows, read by the statement wherever it sits, so
@@ -64,8 +71,77 @@ export function prepareExistence(
   return freeze({
     kind: "exists",
     model,
+    lower: lowerExistence,
     ...(states(predicate) && { predicate }),
   });
+}
+/**
+ * `EXISTS (SELECT 1 FROM target WHERE related AND stated)`, correlated to
+ * nothing: inside a statement sharing its bodies, every occurrence with the
+ * same text and values settles to one `WITH` member holding at most one row,
+ * and each reads it as `EXISTS (SELECT 1 FROM <member>)`.
+ */
+function lowerExistence(
+  this: Extract<PreparedPredicate, { kind: "exists" }>,
+  queries: Queries,
+  alias: string
+): Sql {
+  const q = queries as SqlQueries;
+  const a = q.adapter;
+  const { model } = this;
+  const child = q.rowAlias(model);
+  const frame = { alias: child, escaped: false };
+  q.frames.push(frame);
+  let stated: Sql[];
+  try {
+    stated = this.predicate ? [q.lowerPredicate(this.predicate, child)] : [];
+  } finally {
+    q.frames.pop();
+  }
+  const domain = q.domainOf(model, "related");
+  const lowered = domain && q.lowerSelector(domain, child);
+  const related =
+    lowered && this.predicate && readsRelation(this.predicate)
+      ? a.subqueries.isolated(lowered)
+      : lowered;
+  const conditions = related ? [related, ...stated] : stated;
+  const where =
+    conditions.length === 0
+      ? a.literals.true()
+      : a.operators.and(...conditions);
+  const inline = a.subqueries.existsCheck(q.attached(model, child), where);
+  const shared = q.shared;
+  // Correlated to a row above it: written where it is.
+  if (shared === undefined || frame.escaped) return a.filters.some(inline);
+  const query = assembleAdapterSelect(a, {
+    columns: sql`1`,
+    from: q.attached(model, child),
+    where,
+    limit: q.value(1),
+  });
+  const key = sharedKey(query);
+  let body = shared.byKey.get(key);
+  if (body === undefined) {
+    body = {
+      name: `__shared_${shared.order.length}`,
+      query,
+      correlated: false,
+      slots: [],
+    };
+    shared.byKey.set(key, body);
+    shared.order.push(body);
+  }
+  const use = a.filters.some(
+    a.subqueries.existsCheck(memberRead(a, body.name), a.literals.true())
+  );
+  const slot = new SqlSlot(use);
+  body.slots.push({
+    slot,
+    inline: a.filters.some(inline),
+    use,
+    test: { alias, columns: [], holds: true },
+  });
+  return slot;
 }
 /**
  * `{ $row, up }`: the column of the row `up` relation bodies above, which

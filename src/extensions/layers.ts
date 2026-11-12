@@ -89,6 +89,7 @@ function fold(
       return freeze({
         kind: "exists",
         model: predicate.model,
+        lower: predicate.lower,
         ...(folded.kind !== "always" && { predicate: folded }),
       });
     }

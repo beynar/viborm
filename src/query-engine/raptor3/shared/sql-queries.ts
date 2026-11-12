@@ -189,7 +189,7 @@ export class SqlQueries extends Queries {
    * The relation filter bodies of the statement lowering here, where the
    * adapter shares them ({@link sharingBodies}).
    */
-  #shared: SharedBodies | undefined;
+  shared: SharedBodies | undefined;
   /**
    * The read lowering here is bounded: a unique, first or existence read, or
    * a `take` (`capabilities.joinsJunctionFilters`). Each read sets it; a
@@ -217,18 +217,18 @@ export class SqlQueries extends Queries {
    * The bound is the driver's to state (Neki: 256); absent, nothing changes.
    */
   #sharingBodies(build: () => Sql): Sql {
-    if (this.#shared !== undefined) return build();
+    if (this.shared !== undefined) return build();
     const shared: SharedBodies = {
       byKey: new Map(),
       order: [],
       attach: new Map(),
     };
-    this.#shared = shared;
+    this.shared = shared;
     let statement: Sql;
     try {
       statement = build();
     } finally {
-      this.#shared = undefined;
+      this.shared = undefined;
     }
     const repeated: SharedBody[] = [];
     for (const body of shared.order)
@@ -926,12 +926,12 @@ export class SqlQueries extends Queries {
    * against ({@link sharingBodies}). Only where nothing after the item but
    * other joins and the clauses of its own query read `alias`.
    */
-  #attached(model: AnyModel, alias: string): Sql {
+  attached(model: AnyModel, alias: string): Sql {
     return sql`${this.table(model, alias)}${this.#attachPoint(alias)}`;
   }
   /** The slot after `alias`'s `FROM` item ({@link attached}). */
   #attachPoint(alias: string): Sql {
-    const shared = this.#shared;
+    const shared = this.shared;
     if (shared === undefined) return sql.empty;
     const slot = new SqlSlot(sql.empty);
     const slots = shared.attach.get(alias);
@@ -940,7 +940,7 @@ export class SqlQueries extends Queries {
     return slot;
   }
   /** A fresh alias for a stored row of `model`, known before its `FROM` is. */
-  #rowAlias(model: AnyModel): string {
+  rowAlias(model: AnyModel): string {
     const alias = this.alias();
     this.#rows.set(alias, model);
     return alias;
@@ -1485,12 +1485,12 @@ export class SqlQueries extends Queries {
     alias?: string
   ): Sql | undefined {
     if (!selector.predicate) return undefined;
-    const frames = this.#frames;
-    this.#frames = [{ alias, escaped: false }];
+    const frames = this.frames;
+    this.frames = [{ alias, escaped: false }];
     try {
       return this.#lowerStated(selector.predicate, alias);
     } finally {
-      this.#frames = frames;
+      this.frames = frames;
     }
   }
   /**
@@ -1501,10 +1501,10 @@ export class SqlQueries extends Queries {
    * into its `FROM` ({@link lowerRelationPredicate}); `undefined` where the
    * body takes none, and while what is lowered is not one of its conjuncts.
    */
-  #frames: LoweringFrame[] = [];
+  frames: LoweringFrame[] = [];
   /** The alias of the row `up` bodies above the current one. */
   #outerAlias(up: number | undefined, alias: string | undefined): string {
-    const frames = this.#frames;
+    const frames = this.frames;
     const at = frames.length - 1 - (up ?? 0);
     const owner = up === undefined || up === 0 ? alias : frames[at]?.alias;
     if (owner === undefined)
@@ -1528,12 +1528,12 @@ export class SqlQueries extends Queries {
       const excluded = (this.excluded ??= []);
       excluded.push(predicate.layer);
       try {
-        return this.#lowerPredicate(resolved, alias);
+        return this.lowerPredicate(resolved, alias);
       } finally {
         excluded.pop();
       }
     }
-    if (predicate.kind !== "and") return this.#lowerPredicate(predicate, alias);
+    if (predicate.kind !== "and") return this.lowerPredicate(predicate, alias);
     // No closure here: this runs at every filter node of every statement.
     const { predicates } = predicate;
     if (predicates.length === 1) {
@@ -1707,17 +1707,17 @@ export class SqlQueries extends Queries {
    * it is in, so no relation in it joins that body.
    */
   #apart(predicate: PreparedPredicate, alias?: string): Sql {
-    const frame = this.#frames.at(-1);
+    const frame = this.frames.at(-1);
     const joins = frame?.joins;
-    if (joins === undefined) return this.#lowerPredicate(predicate, alias);
+    if (joins === undefined) return this.lowerPredicate(predicate, alias);
     frame!.joins = undefined;
     try {
-      return this.#lowerPredicate(predicate, alias);
+      return this.lowerPredicate(predicate, alias);
     } finally {
       frame!.joins = joins;
     }
   }
-  #lowerPredicate(predicate: PreparedPredicate, alias?: string): Sql {
+  lowerPredicate(predicate: PreparedPredicate, alias?: string): Sql {
     const a = this.adapter;
     // biome-ignore lint/style/useDefaultSwitchClause: the prepared predicate union is exhaustive; a default would be dead code.
     switch (predicate.kind) {
@@ -1746,7 +1746,7 @@ export class SqlQueries extends Queries {
       case "relation":
         return this.#lowerRelationPredicate(predicate, alias);
       case "exists":
-        return this.#lowerExists(predicate, alias ?? "");
+        return predicate.lower(this, alias ?? "");
       case "window":
         return this.#capped(predicate.selector, predicate.limit, alias);
     }
@@ -2392,7 +2392,7 @@ export class SqlQueries extends Queries {
     )
       return a.literals.true();
     const { edge, closure } = predicate;
-    const childAlias = this.#rowAlias(edge.target);
+    const childAlias = this.rowAlias(edge.target);
     const linkAlias = predicate.link ? this.alias() : undefined;
     // A semijoin over a plain reference: `some`/`is` with a body, neither a
     // walk nor a variant arm. Its `FROM` takes the semijoins among its
@@ -2409,13 +2409,13 @@ export class SqlQueries extends Queries {
       escaped: false,
       ...(semijoin && { joins: [] }),
     };
-    const parent = semijoin ? this.#frames.at(-1) : undefined;
+    const parent = semijoin ? this.frames.at(-1) : undefined;
     const joinable = parent?.joins !== undefined;
     // The body reads above its parent where lowering it marks the parent, so
     // the parent's own mark waits aside meanwhile.
     const marked = parent?.escaped === true;
     if (joinable) parent!.escaped = false;
-    this.#frames.push(frame);
+    this.frames.push(frame);
     let nested: Sql | undefined;
     const body = predicate.predicate;
     const enclosing: Enclosing = {};
@@ -2426,18 +2426,18 @@ export class SqlQueries extends Queries {
           : this.#inside(enclosing, () =>
               predicate.quantifier === "none" ||
               predicate.quantifier === "isNot"
-                ? this.#opposite(() => this.#lowerPredicate(body, childAlias))
-                : this.#lowerPredicate(body, childAlias)
+                ? this.#opposite(() => this.lowerPredicate(body, childAlias))
+                : this.lowerPredicate(body, childAlias)
             );
     } finally {
-      this.#frames.pop();
+      this.frames.pop();
     }
     if (predicate.link) {
       // A layer's own rule reads what it states; a caller's filter is a test
       // of a column a direct read of it could hide.
       if (!this.#lowersLayer)
         this.refuseHiddenLinkRow(edge, predicate.linkFields!, "filter");
-      const held = this.#lowerPredicate(predicate.link, linkAlias);
+      const held = this.lowerPredicate(predicate.link, linkAlias);
       nested = nested ? a.operators.and(nested, held) : held;
     }
     if (joinable) {
@@ -2633,7 +2633,7 @@ export class SqlQueries extends Queries {
       joined?.from ??
       (a.capabilities.boundsExpressionDepth === true
         ? this.table(edge.target, child)
-        : this.#attached(edge.target, child));
+        : this.attached(edge.target, child));
     const inline = quantified.of(
       a.subqueries.existsCheck(
         joins.length === 0 ? table : sql`${table} ${sql.join(joins, " ")}`,
@@ -2643,7 +2643,7 @@ export class SqlQueries extends Queries {
         )
       )
     );
-    const shared = this.#shared;
+    const shared = this.shared;
     const conditions = related ? [related, ...stated] : stated;
     if (
       shared === undefined ||
@@ -2664,7 +2664,7 @@ export class SqlQueries extends Queries {
         ),
         ", "
       ),
-      from: this.#attached(edge.target, child),
+      from: this.attached(edge.target, child),
       where: a.operators.and(
         ...conditions,
         ...(quantified.holds ? this.#setBound(edge.target, child) : [])
@@ -2739,7 +2739,7 @@ export class SqlQueries extends Queries {
     selective: boolean
   ): Sql {
     const a = this.adapter;
-    const shared = this.#shared;
+    const shared = this.shared;
     const model = edge.source;
     const keys = this.schema.keys(model);
     const inline = quantified.of(walk);
@@ -2848,7 +2848,7 @@ export class SqlQueries extends Queries {
           ],
           ", "
         ),
-        from: this.#attached(model, child),
+        from: this.attached(model, child),
         where: conditions([...stated, ...(bound?.(child) ?? [])]),
       });
     else {
@@ -2865,7 +2865,7 @@ export class SqlQueries extends Queries {
           ],
           ", "
         ),
-        from: sql.join([this.#attached(model, child), ...first.joins], " "),
+        from: sql.join([this.attached(model, child), ...first.joins], " "),
         where: conditions([...related(child), ...stated]),
       });
     }
@@ -3085,77 +3085,6 @@ export class SqlQueries extends Queries {
         ...this.#linkBound(edge, link)
       ),
     };
-  }
-  /**
-   * `EXISTS (SELECT 1 FROM target WHERE related AND stated)`, correlated to
-   * nothing: inside a statement sharing its bodies, every occurrence with the
-   * same text and values settles to one `WITH` member holding at most one row,
-   * and each reads it as `EXISTS (SELECT 1 FROM <member>)`.
-   */
-  #lowerExists(
-    predicate: Extract<PreparedPredicate, { kind: "exists" }>,
-    alias: string
-  ): Sql {
-    const a = this.adapter;
-    const { model } = predicate;
-    const child = this.#rowAlias(model);
-    const frame = { alias: child, escaped: false };
-    this.#frames.push(frame);
-    let stated: Sql[];
-    try {
-      stated = predicate.predicate
-        ? [this.#lowerPredicate(predicate.predicate, child)]
-        : [];
-    } finally {
-      this.#frames.pop();
-    }
-    const domain = this.domainOf(model, "related");
-    const lowered = domain && this.lowerSelector(domain, child);
-    const related =
-      lowered && predicate.predicate && readsRelation(predicate.predicate)
-        ? a.subqueries.isolated(lowered)
-        : lowered;
-    const conditions = related ? [related, ...stated] : stated;
-    const where =
-      conditions.length === 0
-        ? a.literals.true()
-        : a.operators.and(...conditions);
-    const inline = a.subqueries.existsCheck(
-      this.#attached(model, child),
-      where
-    );
-    const shared = this.#shared;
-    // Correlated to a row above it: written where it is.
-    if (shared === undefined || frame.escaped) return a.filters.some(inline);
-    const query = assembleAdapterSelect(a, {
-      columns: sql`1`,
-      from: this.#attached(model, child),
-      where,
-      limit: this.value(1),
-    });
-    const key = sharedKey(query);
-    let body = shared.byKey.get(key);
-    if (body === undefined) {
-      body = {
-        name: `__shared_${shared.order.length}`,
-        query,
-        correlated: false,
-        slots: [],
-      };
-      shared.byKey.set(key, body);
-      shared.order.push(body);
-    }
-    const use = a.filters.some(
-      a.subqueries.existsCheck(memberRead(a, body.name), a.literals.true())
-    );
-    const slot = new SqlSlot(use);
-    body.slots.push({
-      slot,
-      inline: a.filters.some(inline),
-      use,
-      test: { alias, columns: [], holds: true },
-    });
-    return slot;
   }
   /**
    * MySQL ERROR 1093: a subquery may not read the table its own statement is
@@ -3931,7 +3860,7 @@ export class SqlQueries extends Queries {
       page.cursor,
       controls
     );
-    const shared = this.#shared;
+    const shared = this.shared;
     if (shared && controls.source === undefined && !controls.forUpdate)
       shared.root ??= { alias, scope: sql`${columns} ${where ?? sql.empty}` };
     return {
@@ -3942,7 +3871,7 @@ export class SqlQueries extends Queries {
             ? // FOR UPDATE refuses the nullable side of an outer join.
               controls.forUpdate
               ? this.table(model, alias)
-              : this.#attached(model, alias)
+              : this.attached(model, alias)
             : a.identifiers.aliased(
                 a.identifiers.escape(controls.source),
                 alias
@@ -4801,7 +4730,7 @@ export class SqlQueries extends Queries {
       linkRow,
       linkWhere,
     } = relation;
-    const childAlias = this.#rowAlias(edge.target);
+    const childAlias = this.rowAlias(edge.target);
     const child = this.lowerProjection(projection, childAlias, true);
     const childFields = Object.keys(projection.shape.fields);
     // A nested node is the ordinary page operator inside the parent's
@@ -4987,7 +4916,7 @@ export class SqlQueries extends Queries {
   ): { from: Sql; joins?: Sql[]; where: Sql; link?: string } {
     if (edge.kind !== "junction")
       return {
-        from: this.#attached(edge.target, child),
+        from: this.attached(edge.target, child),
         where: this.correlation(edge, parent, child),
       };
     const link = this.alias();
@@ -5258,7 +5187,7 @@ export class SqlQueries extends Queries {
       ),
       from: a.identifiers.aliased(a.identifiers.escape(cteName), walk),
     });
-    const node = this.#rowAlias(model);
+    const node = this.rowAlias(model);
     const nodeDocument = a.json.object(
       relation.projection.fields.map((field) => [
         field.name,
@@ -5509,7 +5438,7 @@ export class SqlQueries extends Queries {
           ", "
         ),
         having: args.having
-          ? this.#lowerPredicate(
+          ? this.lowerPredicate(
               this.#prepareHaving(model, record(args.having)),
               alias
             )
