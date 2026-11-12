@@ -211,6 +211,8 @@ interface Step {
   root?: boolean;
   /** Whether it writes. */
   writes?: boolean;
+  /** Its answer says whether a row the call took to be there is: heard before anything more is written. */
+  confirms?: boolean;
 }
 
 interface Answer {
@@ -2110,6 +2112,7 @@ export class Store {
         let asked = false;
         let named: Question | undefined;
         steps.push({
+          confirms: confirms.has(entry),
           write: async () => {
             const set = this.#said(entry.set);
             const first =
@@ -2148,6 +2151,7 @@ export class Store {
         sizes.set(entry, run.length);
         const named = under(entry, run);
         steps.push({
+          confirms: confirms.has(entry),
           write: () => [
             writer.remove(
               named,
@@ -2362,8 +2366,8 @@ export class Store {
         statements = await step.write();
       }
       waiting.push({ statements, step });
-      // Where each statement is heard as it is sent, what it says is taken before the next is written: a row that is not there refuses the call before anything under it does.
-      if (!within && this.#transport.holds)
+      // Where each statement is heard as it is sent, what says whether a row is there is taken before the next is written: a row that is not there refuses the call before anything under it does.
+      if (!within && this.#transport.holds && step.confirms)
         await flush(last && at === steps.length - 1);
     }
     await flush(last);
