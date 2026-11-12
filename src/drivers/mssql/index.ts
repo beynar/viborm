@@ -127,6 +127,14 @@ function savepointStatement(sql: string): string | null | undefined {
   return null;
 }
 
+/**
+ * Transactions the server rolled back itself: a deadlock victim, a killed
+ * session, a batch-aborting error. `mssql` has released their connection, so
+ * there is nothing left to roll back, to a savepoint or whole, and the
+ * statement's own error is the failure to report.
+ */
+const ABORTED_BY_SERVER = new WeakSet<Transaction>();
+
 const ISOLATION_LEVELS: Record<TransactionIsolationLevel, string> = {
   ReadUncommitted: "READ_UNCOMMITTED",
   ReadCommitted: "READ_COMMITTED",
@@ -362,7 +370,12 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     const savepoint = savepointStatement(sql);
-    if (savepoint === null) return { rows: [], rowCount: 0 };
+    if (
+      savepoint === null ||
+      (savepoint?.startsWith("ROLLBACK") &&
+        ABORTED_BY_SERVER.has(client as Transaction))
+    )
+      return { rows: [], rowCount: 0 };
     return this.#run<T>(
       client,
       savepoint ?? sql,
@@ -415,6 +428,9 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
     }
     const mssql = await this.#provider();
     const transaction = new mssql.Transaction(client);
+    transaction.on("rollback", (aborted: boolean) => {
+      if (aborted) ABORTED_BY_SERVER.add(transaction);
+    });
     const level = options?.isolationLevel;
     return runTransactionLifecycle({
       begin: async () => {
@@ -428,9 +444,16 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
       },
       callback: () => fn(transaction),
       commit: () => transaction.commit(),
-      rollback: () => transaction.rollback(),
+      rollback: async () => {
+        if (!ABORTED_BY_SERVER.has(transaction)) await transaction.rollback();
+      },
       phases: getExecutionTransactionPhases(context),
     });
+  }
+
+  protected override transactionCleanupFailed(_error: Error): void {
+    // `mssql` releases a transaction's connection whether its rollback
+    // succeeds or fails, and the pool discards a closed one: it stays usable.
   }
 }
 
