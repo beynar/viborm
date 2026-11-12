@@ -1,6 +1,6 @@
 import type { Operations, Schema } from "@client/types";
 import type { AnyDriver } from "@drivers";
-import type { ExecutionBinding } from "@query-engine/raptor3/shared/operation-context";
+import type { ExecutionBinding } from "@query-engine/raptor3/shared/sql-operation-context";
 import type { PreparedBatchOperation } from "@query-engine/types";
 import type Database from "better-sqlite3";
 import type { ContractId, ScenarioId, WitnessFamily } from "../contracts";

@@ -5,6 +5,61 @@ Versioning.
 
 ## Unreleased
 
+The write half of the SQL engine is rewritten. An application without
+extensions is smaller, a nested write sends fewer statements, and a many-row
+write on a batch-only driver is all-or-nothing when it fits one batch.
+
+### Changed
+
+- **Nested writes send fewer statements.** A write reads what it needs
+  together, then sends its writes as one unit. No call that succeeds sends more
+  statements or more round trips than before. The SQL of a write may differ.
+- **Many-row writes with relations on batch-only drivers (D1, neon-http) are
+  all-or-nothing** when the call fits one atomic batch. They ran one batch per
+  row before, and a failure could leave earlier rows written. A call past the
+  batch limits still runs in several batches and reports its progress
+  (`RecordSeriesProgress`).
+- **A row found and then changed by another session makes the call plan
+  again** where it used to fail with `NestedWriteError` ("replaced by another
+  transaction"). A call that loses the race four times in a row fails with
+  `NotFoundError`.
+- **A refused produced row on a batch-only driver reports its own error**
+  (`ForbiddenError`) where it reported the generic batch failure.
+- **`$transaction([...])` on a batch-only driver accepts more calls**: a write
+  whose answer reads a relation now fits the batch. A member that would need a
+  read between two statements is still refused with `TransactionError`.
+- **Two of the three to-one compositions the documentation listed as refused
+  run** (`delete` then `connect`, with or without `update`, where the child
+  holds the key). `delete` then `connect` where the parent holds the key is
+  still refused.
+- **A `default()` function is called once per written row, before any read.**
+  A nested `updateMany` called it once more than it wrote rows.
+- **Every statement of a call is attributed to the operation the caller
+  asked for** and to the model the statement touches. A nested create under
+  `post.createMany` was attributed to `create`.
+- **Changing a key that a row with a restricting `onUpdate` references fails
+  with the database's own foreign-key error.** Nothing is written in either
+  case; the error used to be a `NestedWriteError` raised before the write.
+- **Two `deleteMany` on the same junction relation in one call run in order**
+  where they were refused.
+
+### Upgrade notes
+
+- **Extension authors: build every definition with `defineExtension()`.** A
+  plain object that declares `rows`, `data`, `deletion` or `order` and was not
+  passed to `defineExtension()` is refused by `$extends()` with
+  `ClientInitializationError`. The code that reads these declarations is now
+  brought by `defineExtension()` and by the official extensions, so a client
+  without them does not carry it. See
+  [Create an extension](https://viborm.dev/docs/extensions/create).
+- **Tests that count statements or assert exact SQL of a write** need new
+  expectations. Assert the rows a call returns and the rows it leaves.
+- **Code that caught `NestedWriteError` for a concurrent change** now sees the
+  call succeed after it planned again, or `NotFoundError` when it kept losing
+  the race.
+- **On D1 and neon-http, do not rely on partial progress** of a many-row write
+  with relations that fits one batch: nothing is left when it fails.
+
 ## 1.14.0 — 2026-11-11
 
 VibORM now runs on a Durable Object's own SQLite storage, takes over tables it

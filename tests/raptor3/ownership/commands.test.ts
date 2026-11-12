@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { UniqueConstraintError } from "@errors";
-import type { ExecutionBinding } from "@query-engine/raptor3/shared/operation-context";
+import type { ExecutionBinding } from "@query-engine/raptor3/shared/sql-operation-context";
 import { s } from "@schema";
 import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import Database from "better-sqlite3";

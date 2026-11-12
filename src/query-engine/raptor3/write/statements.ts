@@ -11,7 +11,6 @@ import { type Sql, sql } from "@sql";
 import type { PreparedGuardFailure } from "../../types";
 import { writeSinks } from "../../write-sinks";
 import { InsertValue, JoinedValue, Stored } from "../shared/insert-value";
-import { nestedRefusal } from "../shared/operation-context";
 import type {
   PreparedProjection,
   PreparedSelector,
@@ -20,6 +19,7 @@ import type {
 import { Parameter, type RowJudgement } from "../shared/row-scope";
 import type { Input } from "../shared/schema";
 import type { SqlOperationContext } from "../shared/sql-operation-context";
+import { nestedRefusal } from "../shared/sql-operation-context";
 import type { SqlQueries } from "../shared/sql-queries";
 import { linkJudgement, linkMembers, type Membership } from "../shared/storage";
 import type { Sent, Statement } from "./send";
@@ -392,7 +392,7 @@ export class Writer {
   ): Promise<Statement> {
     const q = this.#q;
     const { capabilities, mutations } = this.#operation.driver.adapter;
-    const rows = await this.#operation.computed(model, values, false);
+    const rows = await this.#operation.computed(model, values);
     const fields = Object.keys(rows[0]!);
     const placed = q.domain?.produced(model);
     // A row of defaults only has no value to judge before it is written.
@@ -462,7 +462,7 @@ export class Writer {
     const joined = Object.values(values).find(
       (value): value is JoinedValue => value instanceof JoinedValue
     );
-    const [set] = await this.#operation.computed(model, [values], false);
+    const [set] = await this.#operation.computed(model, [values]);
     const selector = this.selector(question, keys);
     const judged = this.#judged(question);
     let stops: PreparedGuardFailure | undefined;
@@ -887,11 +887,9 @@ export class Writer {
         for (const row of rows) row.push(q.fieldValue(model, field, value));
       }
       if (through && Object.keys(through).length > 0) {
-        const [sets] = await this.#operation.computed(
-          model,
-          [schema.scalars(model, schema.update(model, through, true))],
-          false
-        );
+        const [sets] = await this.#operation.computed(model, [
+          schema.scalars(model, schema.update(model, through, true)),
+        ]);
         takes = sql.join(
           Object.entries(sets!).map(([field, value]) =>
             q.updateAssignment(model, field, value)

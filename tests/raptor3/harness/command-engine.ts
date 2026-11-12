@@ -10,7 +10,7 @@
 import type { Operations } from "@client/types";
 import type { QueryExecutionContext } from "@drivers/types";
 import { createCommandEngine } from "@query-engine/raptor3/commands";
-import type { ExecutionBinding } from "@query-engine/raptor3/shared/operation-context";
+import type { ExecutionBinding } from "@query-engine/raptor3/shared/sql-operation-context";
 import type { PreparedBatchOperation } from "@query-engine/types";
 
 export function createTestCommandEngine(

@@ -40,6 +40,40 @@ const measured = client.$extends(timing);
 the same schema, driver, and pool. Extension names must be non-empty and unique
 inside one chain.
 
+### Build every definition with `defineExtension()`
+
+`defineExtension()` checks the definition, and it brings the code that reads
+`rows`, `data`, `deletion` and `order` declarations into your program. A client
+no such extension is applied to does not carry that code, so an application
+that only reads and writes pays nothing for it.
+
+This has one consequence for authors. A plain object that declares `rows`,
+`data`, `deletion` or `order` and was never passed to `defineExtension()` is
+refused when it is applied:
+
+```ts
+// Refused with ClientInitializationError: nothing brought what reads `rows`.
+client.$extends({ name: "archiving", rows: { /* ... */ } });
+
+// Accepted.
+client.$extends(defineExtension({ name: "archiving", rows: { /* ... */ } }));
+```
+
+A factory that builds its definition from the client it receives returns the
+result of `defineExtension()` as well:
+
+```ts
+const archiving = (models: string[]) => (client: typeof base) =>
+  defineExtension<typeof schema>()({
+    name: "archiving",
+    rows: { /* built from client.$schema and models */ },
+  });
+```
+
+Definitions that declare none of these four capabilities (`request`, `query`,
+`statement`, `observe`, `client`, `model`, `controls`, `result`) are accepted
+either way. The official extensions bring the same code themselves.
+
 :::tip
 Use the official [`instrumentation()`](/docs/extensions/instrumentation)
 extension for production tracing and structured logging. The example above is
@@ -1143,6 +1177,9 @@ operations.
 ## Before publishing an extension
 
 - Give it one stable, unique name.
+- Build the definition with `defineExtension()`, also when a factory returns
+  it: a plain object that declares `rows`, `data`, `deletion` or `order` is
+  refused.
 - Use `defineExtension<typeof schema>()({...})` for model or operation maps.
 - Keep request handlers synchronous and return only a shallow patch.
 - Return or await `proceed()` exactly once unless intentionally short-circuiting

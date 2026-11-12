@@ -13,9 +13,11 @@ import {
 import type { AnyModel } from "@schema/model";
 import { sql } from "@sql";
 import type { PreparedBatchOperation } from "../../types";
-import type { ExecutionBinding } from "../shared/operation-context";
 import type { Arguments, Input } from "../shared/schema";
-import type { SqlOperationContext } from "../shared/sql-operation-context";
+import type {
+  ExecutionBinding,
+  SqlOperationContext,
+} from "../shared/sql-operation-context";
 import {
   batches,
   contextOf,
@@ -88,7 +90,7 @@ export async function writeCall(
   } catch (error) {
     await transport.end(error);
     const loose = unproven.has(error as object);
-    let failure = operation.failure(error, "result");
+    let failure = operation.failure(error);
     // What stands of a call that failed after a part of it was made is said with its failure.
     if (store.segments > 0 && !transport.holds)
       failure = attachRecordSeriesProgress(failure, {

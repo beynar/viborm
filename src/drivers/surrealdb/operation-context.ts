@@ -24,11 +24,6 @@ import {
   Stored,
 } from "@query-engine/raptor3/shared/insert-value";
 import {
-  nestedRefusal,
-  OperationContext,
-  type StatementAnswer,
-} from "@query-engine/raptor3/shared/operation-context";
-import {
   type PreparedPredicate,
   type PreparedProjection,
   type PreparedSelector,
@@ -48,6 +43,11 @@ import { writeSinks } from "@query-engine/write-sinks";
 import { getModelKeyCatalog } from "@schema/model/keys";
 import { Sql, sql } from "@sql";
 import { Decimal, RecordId } from "surrealdb";
+import {
+  nestedRefusal,
+  OperationContext,
+  type StatementAnswer,
+} from "./commands/operation-context";
 import type { Selection } from "./commands/selection";
 import { SurrealQueries } from "./queries";
 import {

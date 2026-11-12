@@ -1,9 +1,9 @@
 import type { BatchQuery } from "@drivers/types";
 import type { UniqueConstraintError } from "@errors";
+import type { Query } from "@query-engine/raptor3/shared/query";
 import type { AnyModel } from "@schema";
 import { Sql } from "@sql";
 import type { Member } from "./operation-context";
-import type { Query } from "./query";
 
 /**
  * One assertion this attempt raises if its statement disagrees with the world.

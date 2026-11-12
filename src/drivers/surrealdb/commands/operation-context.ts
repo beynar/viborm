@@ -26,19 +26,11 @@ import {
   UnsupportedOperationError,
   VibORMErrorCode,
 } from "@errors";
-import type { AnyModel } from "@schema/model";
-import type { Sql } from "@sql";
-import { createFailureError } from "../../batch-error-attribution";
+import { createFailureError } from "@query-engine/batch-error-attribution";
 import {
   compileBindBudgetChunks,
   normalizedBindParameterLimit,
-} from "../../bind-budget";
-import type {
-  PreparedBatchGuard,
-  PreparedBatchOperation,
-  PreparedGuardFailure,
-} from "../../types";
-import { type WriteKind, writeSinks } from "../../write-sinks";
+} from "@query-engine/bind-budget";
 import {
   GatedFieldRefusal,
   InvalidScalarResult,
@@ -51,16 +43,27 @@ import {
   RecursiveOutputOverBudget,
   refusesWhileDecoding,
   returningSafeProjection,
-} from "./query";
-import type { CallScope, RowJudgement } from "./row-scope";
+} from "@query-engine/raptor3/shared/query";
+import type {
+  CallScope,
+  RowJudgement,
+} from "@query-engine/raptor3/shared/row-scope";
 import {
   type EngineSchema,
   type Input,
   isReadOperation,
   type Operation,
   record,
-} from "./schema";
-import type { Membership } from "./storage";
+} from "@query-engine/raptor3/shared/schema";
+import type { Membership } from "@query-engine/raptor3/shared/storage";
+import type {
+  PreparedBatchGuard,
+  PreparedBatchOperation,
+  PreparedGuardFailure,
+} from "@query-engine/types";
+import { type WriteKind, writeSinks } from "@query-engine/write-sinks";
+import type { AnyModel } from "@schema/model";
+import type { Sql } from "@sql";
 import { type ScratchPublication, TransportAttempt } from "./transport-attempt";
 
 export type Member = object;

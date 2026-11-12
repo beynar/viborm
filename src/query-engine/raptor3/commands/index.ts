@@ -7,12 +7,12 @@ import type { Sql } from "@sql";
 import { baseOperation } from "../../routed-operations";
 import type { PreparedBatchOperation } from "../../types";
 import { renderers } from "../shared/insert-value";
-import type {
-  ExecutionBinding,
-  OperationContext,
-} from "../shared/operation-context";
 import type { Leaf, ProjectionShape, Queries, Read } from "../shared/query";
-import { type EngineBackend, engineBackend } from "../shared/query-backend";
+import {
+  type CallContext,
+  type EngineBackend,
+  engineBackend,
+} from "../shared/query-backend";
 import {
   type CallRows,
   type CallScope,
@@ -25,7 +25,10 @@ import {
   isReadOperation,
   type Operation,
 } from "../shared/schema";
-import { SqlOperationContext } from "../shared/sql-operation-context";
+import {
+  type ExecutionBinding,
+  SqlOperationContext,
+} from "../shared/sql-operation-context";
 import { SqlQueries } from "../shared/sql-queries";
 import { prepareCall, writeCall } from "../write";
 
@@ -208,7 +211,7 @@ class PreparedCommand implements PreparedOperation {
     preparing: boolean,
     attribution?: QueryExecutionContext,
     binding?: ExecutionBinding
-  ): OperationContext {
+  ): CallContext {
     const { backend } = this.#config.driver;
     const Context = backend
       ? engineBackend(backend).context
@@ -226,7 +229,7 @@ class PreparedCommand implements PreparedOperation {
   }
 
   /** A write in a language of the driver's own: the driver's backend says how it runs. */
-  #plan(context: OperationContext): BackendPlan {
+  #plan(context: CallContext): BackendPlan {
     return engineBackend(this.#config.driver.backend!).plan(
       context,
       this.#model,
@@ -235,7 +238,7 @@ class PreparedCommand implements PreparedOperation {
     );
   }
 
-  #body(context: OperationContext) {
+  #body(context: CallContext) {
     const value = this.#read();
     if (value) return context.run(() => context.publish(value, this.#missing));
     // The physical form is constructed before the envelope decision and runs

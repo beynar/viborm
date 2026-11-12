@@ -8,7 +8,6 @@ import {
 } from "@errors";
 import { createFailureError } from "@query-engine/batch-error-attribution";
 import { InsertValue, Stored } from "@query-engine/raptor3/shared/insert-value";
-import type { OperationContext } from "@query-engine/raptor3/shared/operation-context";
 import {
   InvalidScalarResult,
   type PreparedSelector,
@@ -41,6 +40,7 @@ import {
   type Origin,
 } from "./assignments";
 import { CommandExecution, namesKeyConstraint } from "./execution";
+import type { OperationContext } from "./operation-context";
 import { RelationBody } from "./relation-body";
 import {
   type BoundMembership,

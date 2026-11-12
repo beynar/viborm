@@ -1,6 +1,5 @@
 import type { Query } from "@query-engine/raptor3/shared/query";
 import type { Input } from "@query-engine/raptor3/shared/schema";
-import { TransportAttempt } from "@query-engine/raptor3/shared/transport-attempt";
 import type { Assignments, FieldValue } from "./assignments";
 import type {
   Choose,
@@ -11,6 +10,7 @@ import type {
   Selection,
   SeriesOccurrence,
 } from "./commands";
+import { TransportAttempt } from "./transport-attempt";
 
 /** Database observations and field transports belonging to one command attempt. */
 export class CommandAttempt {

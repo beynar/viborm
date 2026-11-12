@@ -10,14 +10,6 @@ import {
   normalizedBindParameterLimit,
 } from "@query-engine/bind-budget";
 import {
-  type Member,
-  type MembershipParent,
-  nestedRefusal,
-  type ObservationPremise,
-  type OperationContext,
-  type StatementAnswer,
-} from "@query-engine/raptor3/shared/operation-context";
-import {
   type PreparedProjection,
   type PreparedSelector,
   type Query,
@@ -35,7 +27,6 @@ import {
   physicalField,
   storedFields,
 } from "@query-engine/raptor3/shared/storage";
-import type { TransportAttempt } from "@query-engine/raptor3/shared/transport-attempt";
 import type { PreparedGuardFailure } from "@query-engine/types";
 import { writeSinks } from "@query-engine/write-sinks";
 import {
@@ -63,12 +54,21 @@ import {
   membershipRaceFailure,
 } from "./commands";
 import {
+  type Member,
+  type MembershipParent,
+  nestedRefusal,
+  type ObservationPremise,
+  type OperationContext,
+  type StatementAnswer,
+} from "./operation-context";
+import {
   type BoundMembership,
   type DeferredFailure,
   junctionPairs,
   membershipFields,
   type Selection,
 } from "./selection";
+import type { TransportAttempt } from "./transport-attempt";
 
 /**
  * Every write `occurrence` and the occurrences under it may issue: the model

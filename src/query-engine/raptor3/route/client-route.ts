@@ -25,9 +25,9 @@ import type { Sql } from "@sql";
 import type { CacheResultCodec } from "../../cache-flow";
 import type { PreparedBatchOperation } from "../../types";
 import { createCommandEngine, type PreparedOperation } from "../commands";
-import type { WriteOutcomeSeam } from "../shared/operation-context";
 import type { CallRows } from "../shared/row-scope";
 import type { ResolvedSchemaViews } from "../shared/schema";
+import type { WriteOutcomeSeam } from "../shared/sql-operation-context";
 
 /** What the existing pending-operation lifecycle knows when it executes. */
 export interface RoutedOperationExecution {

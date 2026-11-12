@@ -6,9 +6,10 @@
  */
 
 import type { AnyModel } from "@schema/model";
-import type { OperationContext } from "./operation-context";
-import type { Queries } from "./query";
+import type { PreparedBatchOperation } from "../../types";
+import type { Queries, Read } from "./query";
 import type { Arguments } from "./schema";
+import type { SqlOperationContext } from "./sql-operation-context";
 
 declare const OPAQUE: unique symbol;
 
@@ -29,16 +30,27 @@ export const queryBackend = (backend: EngineBackend): QueryBackend =>
 export const engineBackend = (backend: QueryBackend): EngineBackend =>
   backend as never;
 
-export interface EngineBackend {
+/** What the engine asks of one call's context, whatever language writes it. */
+export interface CallContext {
+  /** Runs the call's body; `single` where a write is one statement. */
+  run<T>(body: () => Promise<T>, single?: boolean): Promise<T>;
+  publish(read: Read, missing?: () => Error): Promise<unknown>;
+  publishPrepared(read: Read, missing?: () => Error): undefined;
+  preparedBatch(): PreparedBatchOperation<unknown> | undefined;
+  isIncompletePreparation(error: unknown): boolean;
+}
+
+// biome-ignore lint/suspicious/noExplicitAny: a backend's context is its own class; the engine hands it back as it was made
+export interface EngineBackend<Context extends CallContext = any> {
   readonly queries: new (
     ...args: ConstructorParameters<typeof Queries>
   ) => Queries;
   readonly context: new (
-    ...args: ConstructorParameters<typeof OperationContext>
-  ) => OperationContext;
+    ...args: ConstructorParameters<typeof SqlOperationContext>
+  ) => Context;
   /** How a write runs in the backend's language: one statement where `single`. */
   readonly plan: (
-    context: OperationContext,
+    context: Context,
     model: AnyModel,
     args: Arguments,
     raw: Arguments
