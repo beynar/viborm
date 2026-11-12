@@ -23,7 +23,7 @@ import {
   UniqueConstraintError,
   UnsupportedOperationError,
 } from "@errors";
-import type { AnyModel } from "@schema/model";
+import { type AnyModel, getModelKeyCatalog } from "@schema/model";
 import type { Sql } from "@sql";
 import { createFailureError } from "../../batch-error-attribution";
 import type { PreparedGuardFailure } from "../../types";
@@ -1800,7 +1800,17 @@ export class Store {
           .filter(
             (values) => !passed(this.#known.get(this.#name(model, values)))
           )
-          .map((values) => schema.identity(model, values));
+          // By its key, and by every value of it no other row may have: what the call may have given another row to hold.
+          .map((values) =>
+            Object.fromEntries(
+              [
+                ...new Set([
+                  ...schema.keys(model),
+                  ...getModelKeyCatalog(model).referenceableKeys.flat(),
+                ]),
+              ].map((field) => [field, values[field]])
+            )
+          );
         if (keys.length > 0)
           ask(
             answer.question,
