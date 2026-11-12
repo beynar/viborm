@@ -70,7 +70,7 @@ test("a protected field is judged the same through a to-one update as through it
     .update({ where: { id: "p1" }, data: { secret: "taken" } })
     .then(
       () => "written",
-      (error: Error) => error.constructor.name
+      (error: unknown) => (error as Error).constructor.name
     );
   const refusedThroughTheRelation = await db.account
     .update({
@@ -79,7 +79,7 @@ test("a protected field is judged the same through a to-one update as through it
     })
     .then(
       () => "written",
-      (error: Error) => error.constructor.name
+      (error: unknown) => (error as Error).constructor.name
     );
   expect(refusedDirectly).not.toBe("written");
   expect(refusedThroughTheRelation).not.toBe("written");

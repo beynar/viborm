@@ -180,7 +180,7 @@ const selfMembershipScenarios: ScenarioDefinition[] = cases.map((id) => ({
         // dependency/overlap are not in the public diagnostic disclosure set;
         // the correlated refusal names its relation and nothing else.
         assert.deepEqual(
-          { ...failure.meta },
+          { ...(failure.meta as object) },
           disconnect
             ? { relation: "children" }
             : {
