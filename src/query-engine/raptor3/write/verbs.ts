@@ -12,10 +12,11 @@ import {
 import type { AnyModel } from "@schema/model";
 import { getModelKeyCatalog } from "@schema/model/keys";
 import { Stored } from "../shared/insert-value";
+import { readUpdate } from "../shared/query";
 import { parseStamped } from "../shared/row-scope";
 import type { Arguments, Input } from "../shared/schema";
 import type { Membership } from "../shared/storage";
-import { outside, type Question } from "./statements";
+import type { Question } from "./statements";
 import type { Row, Store } from "./store";
 
 const list = (value: unknown): unknown[] => {
@@ -185,11 +186,12 @@ export function verbs(store: Store) {
     referencing(edge, row, "source");
   /** What empties a relation on the row that holds it. */
   const cleared = (edge: Membership): Input =>
-    edge.clearability.kind === "columns"
-      ? Object.fromEntries(
-          edge.clearability.fields.map((field) => [field, null])
-        )
-      : outside();
+    Object.fromEntries(
+      (edge.clearability as { fields?: string[] }).fields!.map((field) => [
+        field,
+        null,
+      ])
+    );
   const members = (
     parent: Row,
     edge: Membership,
@@ -390,14 +392,15 @@ export function verbs(store: Store) {
       held && edge.kind === "reference"
         ? edge.pairs.filter((pair) => said[pair.source] !== undefined)
         : [];
-    if (final.some((pair) => typeof said[pair.source] === "object")) outside();
     const of =
       row && final.length > 0
         ? new Proxy(row, {
-            get: (known, field) =>
-              typeof field === "string" && said[field] !== undefined
-                ? said[field]
-                : known[field as string],
+            get(known, field: string) {
+              // A value the database computes is the row's to say once written.
+              const stated =
+                said[field] === undefined ? undefined : readUpdate(said[field]);
+              return stated?.kind === "value" ? stated.value : known[field];
+            },
           })
         : row;
     /** The row the relation reaches now. */
@@ -510,23 +513,23 @@ export function verbs(store: Store) {
     const update = first("update") as Input | undefined;
     if (update) {
       const data = update.data as Input;
-      if (supplied && update.where) outside();
-      // The row the relation was just given is the one updated; else the one it reaches once the row's own write is made.
-      then.push(() => {
-        const reached =
-          supplied ??
-          (of &&
-            store.one({
-              model: target,
-              where: update.where as Input | undefined,
-              member: { edge, of },
-              intent: "update",
-              writes: writes(target, data),
-              verb: "update",
-            }));
-        if (!reached) return outside();
-        write(target, reached, data);
-      });
+      // The row the relation was just given is the one updated, where nothing more is asked of it; else the one it reaches once the row's own write is made.
+      then.push(() =>
+        write(
+          target,
+          supplied && !update.where
+            ? supplied
+            : store.one({
+                model: target,
+                where: update.where as Input | undefined,
+                member: { edge, of: of! },
+                intent: "update",
+                writes: writes(target, data),
+                verb: "update",
+              }),
+          data
+        )
+      );
     }
     if (held) return { takes, then };
     for (const next of then) next();
@@ -771,7 +774,6 @@ export function verbs(store: Store) {
     const asked = Object.keys(payload).filter(
       (verb) => payload[verb] !== undefined && payload[verb] !== false
     );
-    if (asked.some((verb) => !(verb in nested || verb === "set"))) outside();
     // In the order the verbs take effect, whatever order they were written in.
     for (const verb of ["disconnect", "delete"])
       for (const entry of list(payload[verb]))

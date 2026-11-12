@@ -27,6 +27,7 @@ import type { Sent, Statement } from "./send";
 /** Thrown, before anything is written, by a call the new write path does not cover yet: the shipped engine runs it. */
 export const OUTSIDE = Symbol("outside what the new write path covers");
 export const outside = (): never => {
+  if (process.env.VIBORM_IMAGE_ONLY) throw new Error("outside the image");
   throw OUTSIDE;
 };
 
@@ -107,12 +108,21 @@ export class Writer {
           uniqueValues: named.uniqueValues,
         }
       : named;
-    const chosen = q.candidates(
+    const scope = this.#operation.scope;
+    const taken = q.candidates(
       own,
       this.#related(question),
       undefined,
       this.#judged(question)
     );
+    // A delete that keeps its rows takes those an absent control would show, whatever the call's own show.
+    const chosen =
+      question.intent === "delete" &&
+      scope &&
+      scope.defaults !== scope.domain &&
+      scope.rows.tombstones?.has(model["~"].names.ts!)
+        ? q.candidates(taken, this.#related(question), scope.defaults)
+        : taken;
     if (!referenced) return chosen;
     // Of the rows the write takes: the first of them, where it takes no more.
     return q.andSelectors(model, [
@@ -297,7 +307,6 @@ export class Writer {
     const { scope, schema } = this.#operation;
     const mark = scope?.rows.tombstones?.get(model["~"].names.ts!);
     if (!(scope && mark)) return undefined;
-    if (scope.defaults !== scope.domain) outside();
     // A kept row is updated: it takes what every update of its model takes.
     return this.values(
       model,

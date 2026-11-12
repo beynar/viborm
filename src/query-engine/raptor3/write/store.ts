@@ -44,7 +44,7 @@ import {
   Stopped,
   type Transport,
 } from "./send";
-import { type Junction, outside, type Question, Writer } from "./statements";
+import { type Junction, type Question, Writer } from "./statements";
 
 /** A row the call knows: what it holds, as far as the call knows it. */
 export type Row = Input;
@@ -939,6 +939,7 @@ export class Store {
     const keys = this.operation.schema.keys(model);
     const hears: string[] = [];
     const before = { ...row };
+    let computed = false;
     for (const [field, value] of Object.entries(set)) {
       const update =
         value instanceof Pending
@@ -946,9 +947,12 @@ export class Store {
           : readUpdate(value);
       meta.wrote.add(field);
       if (update.kind === "value") row[field] = update.value;
-      // What the database computes of a row is its to say.
-      else if (meta.made) outside();
+      // What the database computes of a row is its to say: a row the call creates is written first as it stood.
       else {
+        const born = this.#computes.get(row);
+        if (born && !(field in born || row[field] instanceof Pending))
+          born[field] = row[field];
+        computed = true;
         row[field] = new Pending(row, field, `@${++this.#made}`);
         if (keys.includes(field)) hears.push(field);
       }
@@ -961,7 +965,7 @@ export class Store {
     }
     this.#follow(row, before);
     // A row the call creates is inserted as it stands in the end.
-    if (meta.made) return;
+    if (meta.made && !computed) return;
     this.#note({
       kind: "update",
       row,
@@ -1002,6 +1006,7 @@ export class Store {
             model,
             where: this.#key(row),
             unique: true,
+            intent: "delete",
             referenced: this.writer.referenced(
               through,
               through && this.#key(through.of)
@@ -1061,7 +1066,12 @@ export class Store {
       const rows = this.rows(question);
       if (stops && !watched && rows.length > 0) {
         this.none(
-          { model, only: rows.map((row) => this.#key(row)), referenced },
+          {
+            model,
+            only: rows.map((row) => this.#key(row)),
+            intent: "delete",
+            referenced,
+          },
           stops
         );
         const take = (read: Input[]) => {
@@ -1092,7 +1102,11 @@ export class Store {
       return later;
     }
     if (marks) {
-      if (stops) this.none({ ...question, must: undefined, referenced }, stops);
+      if (stops)
+        this.none(
+          { ...question, must: undefined, intent: "delete", referenced },
+          stops
+        );
       return this.all(question, marks, projection);
     }
     this.writable(question);
