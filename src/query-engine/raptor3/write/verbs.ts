@@ -301,17 +301,16 @@ export function verbs(store: Store) {
       );
     },
     delete(parent, edge, where) {
-      const row = store.one({
-        model: edge.target,
-        where,
-        unique: true,
-        member: { edge, of: parent },
-        intent: "delete",
-        verb: "delete",
-      });
-      // The link references the row: it goes first.
-      if (edge.kind === "junction") leave(parent, edge, row);
-      store.delete(row);
+      store.delete(
+        store.one({
+          model: edge.target,
+          where,
+          unique: true,
+          member: { edge, of: parent },
+          intent: "delete",
+          verb: "delete",
+        })
+      );
     },
     updateMany(parent, edge, { where, data }) {
       const values = paired(data as Input, stated(data as Input));
@@ -437,10 +436,12 @@ export function verbs(store: Store) {
       except: kept.map((row) => schema.identity(edge.target, row)),
       intent: "join",
       verb: "set",
-      strict: true,
+      strict: `Cannot clear relation '${edge.name}': a connected record may not be disconnected by this call.`,
     };
-    if (edge.kind === "junction") store.unlink(edge, parent, undefined, kept);
-    else if (edge.clearability.kind === "none") {
+    if (edge.kind === "junction") {
+      store.writable(others);
+      store.unlink(edge, parent, undefined, kept);
+    } else if (edge.clearability.kind === "none") {
       // A member that cannot give its key up cannot be taken out.
       if (store.rows(others).length > 0)
         throw new NestedWriteError(

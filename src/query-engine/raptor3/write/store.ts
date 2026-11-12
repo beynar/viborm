@@ -113,7 +113,7 @@ type Entry =
   | {
       readonly kind: "none";
       readonly question: Question;
-      readonly stops: PreparedGuardFailure;
+      readonly stops?: PreparedGuardFailure;
     }
   | {
       readonly kind: "read";
@@ -450,8 +450,7 @@ export class Store {
     if (member?.edge.kind === "reference" && !fresh)
       for (const pair of member.edge.pairs)
         if (member.of[pair.source] === undefined) return [];
-    // Rows the call may see and may not write so are a refusal the shipped engine states.
-    if (question.strict && this.writer.selector(question).scoped) outside();
+    this.writable(question);
     const answer = fresh ? { question, rows: [] } : this.#answers.get(id);
     if (!answer) {
       const known = this.#recalled(question);
@@ -625,7 +624,7 @@ export class Store {
   all(question: Question, set?: Input, projection?: PreparedProjection): Later {
     const name = question.model["~"].names.ts!;
     if (!set && this.operation.scope?.rows.tombstones?.has(name)) outside();
-    // Rows the call wrote are the database's to say once their writes are sent: a set write names them by its query.
+    this.writable(question);
     const later: Later = {};
     this.#log.push({ kind: "all", question, set, later, projection });
     return later;
@@ -654,6 +653,11 @@ export class Store {
         kept.map((row) => this.#now(row)),
       ],
     });
+  }
+  /** Of a strict question, no row the call may see may be one it may not write so, when its writes reach here. */
+  writable(question: Question): void {
+    if (question.strict && this.writer.judges(question))
+      this.#log.push({ kind: "none", question });
   }
   /** No row may answer the question when the call's writes reach here: `stops` refuses it. */
   none(question: Question, stops: PreparedGuardFailure): void {

@@ -46,8 +46,12 @@ export interface Question {
   readonly verb?: string;
   /** A row must be there: none is the call's refusal. */
   readonly must?: true;
-  /** Every row the call may see must be one it may write so. */
-  readonly strict?: boolean;
+  /**
+   * Every row the call may see must be one it may write so: a row it cannot
+   * see is passed by, one it sees and may not write is a refusal. With what
+   * it refuses with, where not as a row that is not there.
+   */
+  readonly strict?: boolean | string;
   /** Rows left out, by their key. */
   readonly except?: readonly Input[];
 }
@@ -389,16 +393,44 @@ export class Writer {
       statement = sql`${statement} ${mutations.returning(sql.raw("1"))}`;
     return { model, sql: statement };
   }
-  /** A statement that stops its unit, with `stops`, where a row answers the question. */
-  none(question: Question, stops: PreparedGuardFailure): Statement {
-    const { model } = question;
+  /** Whether the call's writes of the rows a question names are judged beyond what it may see. */
+  judges(question: Question): boolean {
+    return Boolean(
+      this.#judged(question) &&
+        this.#operation.scope?.rows.domain.verbs?.has(
+          question.model["~"].names.ts!
+        )
+    );
+  }
+  /**
+   * A statement that stops its unit, with `stops`, where a row answers the
+   * question; of a strict question, where a row the call may see is not one
+   * it may write so.
+   */
+  none(
+    question: Question,
+    stops: PreparedGuardFailure = typeof question.strict === "string"
+      ? {
+          kind: "nestedWrite",
+          relation: question.member!.edge.name,
+          message: question.strict,
+          raceable: false,
+        }
+      : this.absent(question)
+  ): Statement {
+    const { model, strict } = question;
     const probe = this.#q.select(
       model,
       { take: 1 },
       this.#membership(question),
       {
         projection: this.#projection(model, false),
-        selector: this.selector(question),
+        selector: this.selector(
+          strict ? { ...question, intent: undefined } : question
+        ),
+        ...(strict && {
+          unless: this.#q.domainOf(model, "related", this.#judged(question)),
+        }),
       }
     ).sql;
     return {
@@ -421,7 +453,7 @@ export class Writer {
     kept: readonly Input[]
   ): Statement {
     const q = this.#q;
-    const { identifiers, mutations, operators } =
+    const { identifiers, mutations, operators, subqueries } =
       this.#operation.driver.adapter;
     const named = (side: Junction["sourceSide"], row: Input) =>
       Object.fromEntries(
@@ -431,6 +463,11 @@ export class Writer {
         ])
       );
     const own = named(edge.sourceSide, from);
+    // Every link but those kept: of the rows the call may take out, and no other.
+    const domain = to
+      ? undefined
+      : q.domainOf(edge.target, "related", linkJudgement(edge));
+    const seen = q.alias();
     return {
       model: edge.source,
       sql: mutations.delete(
@@ -444,7 +481,25 @@ export class Writer {
             operators.not(
               q.junctionWhere(edge, { ...own, ...named(edge.targetSide, row) })
             )
-          )
+          ),
+          ...(domain
+            ? [
+                operators.exists(
+                  subqueries.existsCheck(
+                    q.table(edge.target, seen),
+                    operators.and(
+                      ...edge.targetSide.members.map((pair) =>
+                        operators.eq(
+                          identifiers.column(edge.table, pair.junctionField),
+                          q.column(edge.target, pair.referencedField, seen)
+                        )
+                      ),
+                      q.lowerSelector(domain, seen)!
+                    )
+                  )
+                ),
+              ]
+            : [])
         )
       ),
     };
