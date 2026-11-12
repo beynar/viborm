@@ -6,6 +6,7 @@
 import {
   NestedWriteError,
   NotFoundError,
+  QueryEngineError,
   UnsupportedOperationError,
 } from "@errors";
 import type { AnyModel } from "@schema/model";
@@ -660,9 +661,19 @@ export function verbs(store: Store) {
         store.link(edge, parent, row, data.$through as Input);
     },
     createMany(parent, edge, { data, skipDuplicates }) {
-      if (skipDuplicates) outside();
-      for (const entry of list(data))
-        nested.create!(parent, edge, entry as Input);
+      const rows = list(data) as Input[];
+      if (skipDuplicates) {
+        // Rows that hold their own membership, and nothing but themselves, are written at once.
+        if (
+          edge.kind !== "reference" ||
+          rows.some((row) => relationsOf(edge.target, row).length > 0)
+        )
+          outside();
+        store.skipping(
+          edge.target,
+          rows.map((row) => [row, stated(row), born(parent, edge)])
+        );
+      } else for (const entry of rows) nested.create!(parent, edge, entry);
     },
   };
   /** A set: the rows it names are the relation's members, and no other. */
@@ -765,7 +776,13 @@ export function verbs(store: Store) {
         store.series(model, rows, projection, kind, (read) =>
           returned.push(...read)
         );
-      return () => (projection ? decoded(returned) : { count: rows.length });
+      return () =>
+        projection
+          ? decoded(returned)
+          : {
+              // Of rows created, as many as the database said it wrote.
+              count: kind === "createMany" ? store.written(rows) : rows.length,
+            };
     };
     return { projection, decoded, again };
   };
@@ -776,9 +793,25 @@ export function verbs(store: Store) {
       return answering(model, make(model, data, {}), args);
     },
     createMany(model: AnyModel, args: Arguments, raw: Input) {
-      if (args.skipDuplicates) outside();
       const entries = paired(list(args.data) as Input[], list(raw.data));
-      return many(model, args).again(
+      const { projection, decoded, again } = many(model, args);
+      // A unit handed over that writes nothing is no unit.
+      if (entries.length === 0 && store.handed)
+        throw new QueryEngineError("No data to insert for createMany.");
+      if (args.skipDuplicates) {
+        if (entries.some((data) => relationsOf(model, data).length > 0))
+          outside();
+        const later = store.skipping(
+          model,
+          entries.map((data) => [data, stated(data)]),
+          projection
+        );
+        return () =>
+          projection
+            ? decoded(later.sent!.rows)
+            : { count: later.sent!.rowCount };
+      }
+      return again(
         entries.map((data) => make(model, data, {})),
         "createMany"
       );

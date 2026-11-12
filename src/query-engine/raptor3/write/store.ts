@@ -118,6 +118,13 @@ type Entry = (
       readonly projection?: PreparedProjection;
     }
   | {
+      /** Rows created where none holds what one of them alone may hold. */
+      readonly kind: "skipping";
+      readonly model: AnyModel;
+      readonly rows: readonly Input[];
+      readonly projection?: PreparedProjection;
+    }
+  | {
       /** The row a question names takes `set`; where there is none, `row` is created. */
       readonly kind: "either";
       readonly question: Question;
@@ -208,6 +215,8 @@ export class Store {
   readonly #heard = new Map<number, Sent[]>();
   /** The rows taken to be there that a unit asked for already, where rows are held. */
   readonly #asserted = new Set<string>();
+  /** How many rows the statement that created a row said it wrote: of rows written side by side, said of the first. */
+  readonly #inserted = new WeakMap<Row, number>();
   /** What is computed of a row where it is written, by field. */
   readonly #computes = new WeakMap<Row, Input>();
   #meta = new WeakMap<Row, Meta>();
@@ -761,6 +770,7 @@ export class Store {
   #note(entry: Entry): void {
     if ("row" in entry && entry.kind !== "either")
       this.#touched.add(this.#meta.get(entry.row)!.model);
+    else if (entry.kind === "skipping") this.#touched.add(entry.model);
     else if ("edge" in entry) this.#touched.add(entry.edge.table);
     const heard = this.#heard.get(this.#log.push(entry) - 1);
     if (heard) entry.take?.(heard);
@@ -800,9 +810,15 @@ export class Store {
       relation,
       decided,
       take: ([sent]) => {
-        const [said] = this.writer.told(model, decided, sent!.rows);
+        this.#inserted.set(row, sent!.rowCount);
+        // Where its statement said what the database decided of it.
+        const [raw] = sent!.rows;
+        const [said] =
+          raw && decided.every((field) => field in raw)
+            ? this.writer.told(model, decided, sent!.rows)
+            : [];
         for (const field of decided)
-          if (row[field] instanceof Pending)
+          if (row[field] instanceof Pending && (said || sent!.insertId))
             row[field] = said?.[field] ?? sent!.insertId;
       },
     });
@@ -1233,6 +1249,56 @@ export class Store {
       take: (sent) => take(sent.flatMap((each) => each.rows)),
     });
   }
+  /** How many of the rows the call created the database said it wrote. */
+  written(rows: readonly Row[]): number {
+    let count = 0;
+    for (const row of rows) count += this.#inserted.get(row) ?? 0;
+    return count;
+  }
+  /** The call's unit is handed over. */
+  get handed(): boolean {
+    return this.#handed;
+  }
+  /**
+   * Rows created where no row holds what one of them alone may hold: the
+   * others are passed by, and the call does not know which. Each is what was
+   * admitted of it, what the caller wrote of it, and what it takes of the
+   * rows it references.
+   */
+  skipping(
+    model: AnyModel,
+    rows: readonly (readonly [Input, Input, Input?])[],
+    projection?: PreparedProjection
+  ): Later {
+    const { mutations } = this.operation.driver.adapter;
+    if (
+      mutations.skipDuplicatesStrategy !== "sql" ||
+      (projection &&
+        !this.operation.answersInStatement(model, projection, "insert"))
+    )
+      outside();
+    const later: Later = {};
+    this.#note({
+      kind: "skipping",
+      model,
+      rows: rows.map(([admitted, raw, takes]) => ({
+        ...this.values(model, "create", admitted, { ...raw, ...takes }),
+        ...takes,
+      })),
+      projection,
+      take: (sent) => {
+        const said = sent.flatMap((each) => each.rows);
+        later.sent = {
+          rows: said,
+          rowCount: projection
+            ? said.length
+            : sent.reduce((count, each) => count + each.rowCount, 0),
+        };
+      },
+    });
+    this.#spoil(model);
+    return later;
+  }
   /** What one run makes of `make` is what every later run takes: a row's own copy of what the caller wrote. */
   copy<T>(name: string, make: () => T): T {
     if (!this.#copies.has(name)) this.#copies.set(name, make());
@@ -1539,7 +1605,7 @@ export class Store {
             return kept.statements;
           },
           take: (sent) => {
-            if (hears) take(sent);
+            take(sent);
             if (read) tells(read, mine?.place ?? at)(sent);
           },
         });
@@ -1613,7 +1679,31 @@ export class Store {
           ],
           take,
         });
-      else if (entry.kind === "either")
+      else if (entry.kind === "skipping") {
+        // As many statements as the rows' shapes and the provider's bound on one statement ask.
+        const chunks: Input[][] = [];
+        for (const row of entry.rows) {
+          const chunk = chunks.at(-1);
+          if (chunk && writer.beside(entry.model, chunk, row)) chunk.push(row);
+          else chunks.push([row]);
+        }
+        steps.push({
+          write: () =>
+            Promise.all(
+              chunks.map((chunk) =>
+                writer.insert(
+                  entry.model,
+                  chunk.map((row) => this.#said(row)),
+                  undefined,
+                  entry.projection,
+                  undefined,
+                  true
+                )
+              )
+            ),
+          take,
+        });
+      } else if (entry.kind === "either")
         steps.push({
           write: async () => [
             await writer.either(

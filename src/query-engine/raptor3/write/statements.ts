@@ -364,17 +364,26 @@ export class Writer {
     values: Input[],
     relation?: string,
     returns?: PreparedProjection,
-    beside?: readonly string[]
+    beside?: readonly string[],
+    skips = false
   ): Promise<Statement> {
     const q = this.#q;
     const { capabilities, mutations } = this.#operation.driver.adapter;
     const rows = await this.#operation.computed(model, values, false);
     const fields = Object.keys(rows[0]!);
     const placed = q.domain?.produced(model);
-    if (fields.length === 0 && placed) outside();
+    // A row of defaults only has no value to judge before it is written.
+    if (fields.length === 0 && placed)
+      throw new UnsupportedOperationError(
+        `Cannot create a '${model["~"].names.ts!}' row that writes no field: its placement is judged on the values it writes.`
+      );
     const select = placed && q.producedSource(model, fields, rows, placed);
+    // Rows that hold what another row alone may hold are passed by.
+    const skip = skips
+      ? mutations.skipDuplicates(q.columnName(model, fields[0]!))
+      : undefined;
     // A row that states nothing is the database's to fill.
-    const insert =
+    const written =
       fields.length > 0
         ? mutations.insert(
             q.table(model),
@@ -383,9 +392,11 @@ export class Writer {
               ? { select }
               : rows.map((row) =>
                   fields.map((field) => q.fieldValue(model, field, row[field]))
-                )
+                ),
+            skip?.prefix
           )
         : mutations.insertDefault(q.table(model));
+    const insert = skip?.suffix ? sql`${written} ${skip.suffix}` : written;
     return {
       model,
       // It answers with the row it wrote, where the provider returns what it wrote.

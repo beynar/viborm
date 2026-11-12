@@ -159,8 +159,13 @@ export function batches(
   operation: SqlOperationContext,
   driver: AnyDriver
 ): Transport {
-  const send = async (statements: readonly Statement[]): Promise<Sent[]> => {
+  const send = async (
+    statements: readonly Statement[],
+    last = true
+  ): Promise<Sent[]> => {
     const [alone] = statements;
+    // What is more than one statement is one unit, or is not sent.
+    if (statements.length > 1 || !last) operation.requireAtomicUnit();
     try {
       return statements.length === 1
         ? [
