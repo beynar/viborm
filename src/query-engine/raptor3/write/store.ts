@@ -940,24 +940,23 @@ export class Store {
   /** Every row a question names takes `set`, or is removed where there is none: the call does not need to know them. */
   all(question: Question, set?: Input, projection?: PreparedProjection): Later {
     const { model } = question;
+    const q = this.operation.queries;
+    const name = model["~"].names.ts!;
+    const kind = set ? "update" : "delete";
+    // Rows written through a relation are shown whole to what asked to see them.
+    const watched =
+      question.verb && this.sink?.wants(name, kind)
+        ? q.prepareProjection(model, {})
+        : undefined;
+    const returns = projection ?? watched;
     const marks = set ? undefined : this.writer.marks(model);
-    if (marks) {
-      const stops = this.writer.restriction(model);
-      if (stops) this.none({ ...question, referenced: true }, stops);
-      return this.all(question, marks, projection);
-    }
     const later: Later = {};
     // Where no statement both writes rows and answers with them so, they are read, then written by their keys.
     if (
-      (question.verb &&
-        this.sink?.wants(model["~"].names.ts!, set ? "update" : "delete")) ||
-      (projection &&
-        !this.operation.answersInStatement(
-          model,
-          projection,
-          set ? "update" : "delete",
-          set
-        ))
+      marks
+        ? watched
+        : returns &&
+          !this.operation.answersInStatement(model, returns, kind, set)
     ) {
       const rows = this.rows(question);
       const take = (read: Input[]) => {
@@ -974,6 +973,11 @@ export class Store {
       if (set) answer();
       return later;
     }
+    if (marks) {
+      const stops = this.writer.restriction(model);
+      if (stops) this.none({ ...question, referenced: true }, stops);
+      return this.all(question, marks, projection);
+    }
     this.writable(question);
     // A row that must be there is asked for where what the write says of it comes too late.
     if (question.must && this.#handed)
@@ -986,9 +990,15 @@ export class Store {
       kind: "all",
       question,
       set,
-      projection,
+      projection: returns,
       take: ([sent]) => {
         later.sent = sent;
+        if (watched)
+          this.sink!.wrote(
+            name,
+            kind,
+            q.decodeProjection(watched.shape, sent!.rows)
+          );
       },
     });
     this.#spoil(model, set && Object.keys(set));
