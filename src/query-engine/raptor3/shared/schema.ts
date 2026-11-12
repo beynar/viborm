@@ -624,9 +624,9 @@ export class EngineSchema {
     return getModelKeyCatalog(model).rowKey!.fields;
   }
   identity(model: AnyModel, row: Input): Input {
-    return Object.fromEntries(
-      this.keys(model).map((field) => [field, row[field]])
-    );
+    const identity: Input = {};
+    for (const field of this.keys(model)) identity[field] = row[field];
+    return identity;
   }
   membership(model: AnyModel, name: string, variant?: string): Membership {
     const modelViews = memo(this.#membershipViews, model, () => new Map());

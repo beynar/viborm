@@ -81,24 +81,25 @@ export interface Question {
 export class Writer {
   protected readonly operation: SqlOperationContext;
   readonly #q: SqlQueries;
-  readonly #projections = new Map<AnyModel, PreparedProjection[]>();
+  #projections: Map<AnyModel, PreparedProjection[]> | undefined;
   /** Asks the database in the call's unit, where what it says is heard before the next statement is written. */
-  hears?: (statement: Sql, model: AnyModel) => Promise<readonly Input[]>;
-  protected computed(model: AnyModel, rows: Input[]): Promise<Input[]> {
-    const { hears } = this;
-    return this.operation.computed(
-      model,
-      rows,
-      hears && { read: (statement) => hears(statement, model) }
-    );
+  readonly hears:
+    | ((statement: Sql, model: AnyModel) => Promise<readonly Input[]>)
+    | undefined;
+  protected computed(
+    model: AnyModel,
+    rows: Input[]
+  ): Input[] | Promise<Input[]> {
+    return this.operation.computed(model, rows, this.hears);
   }
   /** A question as a statement that stops its unit unless a row answers it, or where one does. */
   protected asserts(probe: Sql, premise: "exists" | "notExists"): Sql {
     return this.operation.driver.adapter.assertions[premise](probe);
   }
-  constructor(operation: SqlOperationContext) {
+  constructor(operation: SqlOperationContext, hears?: Writer["hears"]) {
     this.operation = operation;
     this.#q = operation.queries as SqlQueries;
+    this.hears = hears;
   }
   /** What a write of the rows a question names is judged at. */
   protected judged(question: Question): RowJudgement | undefined {
@@ -189,14 +190,14 @@ export class Writer {
   }
   /** The whole row of a model, and its key, as projections. */
   protected projection(model: AnyModel, whole: boolean): PreparedProjection {
-    let known = this.#projections.get(model);
+    let known = this.#projections?.get(model);
     if (!known) {
       const { schema } = this.operation;
       known = [
         this.fields(model, schema.keys(model)),
         this.fields(model, schema.storedFields(model)),
       ];
-      this.#projections.set(model, known);
+      (this.#projections ??= new Map()).set(model, known);
     }
     return known[Number(whole)]!;
   }
@@ -360,38 +361,40 @@ export class Writer {
     model: AnyModel,
     kind: "create" | "update",
     admitted: Input,
-    raw: Input
+    raw: Input = {},
+    /** What the row takes of the rows it references: written as the caller's own. */
+    takes?: Input
   ): Input {
     const { scope, schema } = this.operation;
-    const kept: Input = {};
-    const computed: Input = {};
-    for (const [field, value] of Object.entries(
-      scope?.rows.stamps?.get(model["~"].names.ts!)?.[kind] ?? {}
-    ))
-      if (raw[field] === undefined)
-        // A value computed where the row is written is no data to admit; a
-        // parameter is the call's one instant.
-        (value instanceof InsertValue ? computed : kept)[field] =
-          value instanceof Parameter ? scope!.instant() : value;
-    // Admitted as the caller's own would be, where there is something to admit.
-    let written: Input = {};
-    if (Object.keys(kept).length > 0)
-      written =
-        kind === "create"
-          ? schema.createValues(model, kept)
-          : schema.update(model, kept, true);
+    const stamps = scope?.rows.stamps?.get(model["~"].names.ts!)?.[kind];
+    let source = admitted;
+    if (stamps) {
+      const kept: Input = {};
+      const computed: Input = {};
+      for (const field in stamps)
+        if (raw[field] === undefined && takes?.[field] === undefined) {
+          const value = stamps[field];
+          // A value computed where the row is written is no data to admit; a
+          // parameter is the call's one instant.
+          (value instanceof InsertValue ? computed : kept)[field] =
+            value instanceof Parameter ? scope!.instant() : value;
+        }
+      // Admitted as the caller's own would be, where there is something to admit.
+      let written: Input = {};
+      if (Object.keys(kept).length > 0)
+        written =
+          kind === "create"
+            ? schema.createValues(model, kept)
+            : schema.update(model, kept, true);
+      source = { ...admitted };
+      for (const field in kept) source[field] = written[field];
+      Object.assign(source, computed);
+    }
+    const values = schema.scalars(model, source);
     // A field kept as stored is not written.
-    return Object.fromEntries(
-      Object.entries(
-        schema.scalars(model, {
-          ...admitted,
-          ...Object.fromEntries(
-            Object.keys(kept).map((field) => [field, written[field]])
-          ),
-          ...computed,
-        })
-      ).filter(([, value]) => !(value instanceof Stored))
-    );
+    for (const field in values)
+      if (values[field] instanceof Stored) delete values[field];
+    return values;
   }
   /**
    * What a row of `model` takes instead of going, where its model keeps the
@@ -448,18 +451,23 @@ export class Writer {
         }
       : undefined;
   }
-  /** Whether `row` travels in the statement that inserts `count` rows like `first`: the same columns, within what the provider binds in one statement. */
-  beside(model: AnyModel, first: Input, count: number, row: Input): boolean {
+  /** Whether `row` travels in the statement that inserts `count` rows of these `columns`: the same columns, within what the provider binds in one statement. */
+  beside(
+    model: AnyModel,
+    columns: readonly string[],
+    count: number,
+    row: Input
+  ): boolean {
     const q = this.#q;
-    const fields = Object.keys(row);
-    const bound = this.operation.driver.maxBindParametersPerStatement;
+    let fields = 0;
+    for (const field in row) if (field !== columns[fields++]) return false;
     // A row of defaults only is a statement of its own.
-    if (fields.length === 0 || fields.join() !== Object.keys(first).join())
-      return false;
+    if (fields === 0 || fields !== columns.length) return false;
+    const bound = this.operation.driver.maxBindParametersPerStatement;
     if (bound === undefined) return true;
     const placed = q.domain?.produced(model);
     return (
-      (count + 1) * fields.length +
+      (count + 1) * fields +
         ((placed && q.lowerSelector(placed)?.values.length) ?? 0) <=
       bound
     );

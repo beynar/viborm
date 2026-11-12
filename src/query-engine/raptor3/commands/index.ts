@@ -10,12 +10,17 @@ import type { PreparedBatchOperation } from "../../types";
 import { renderers } from "../shared/insert-value";
 import type { Leaf, ProjectionShape, Queries, Read } from "../shared/query";
 import { engineBackend } from "../shared/query-backend";
-import { type CallRows, parseStamped } from "../shared/row-scope";
+import {
+  type CallRows,
+  type CallScope,
+  parseStamped,
+} from "../shared/row-scope";
 import {
   type Arguments,
   type EngineConfig,
   EngineSchema,
   isReadOperation,
+  type Operation,
 } from "../shared/schema";
 import {
   type ExecutionBinding,
@@ -154,6 +159,202 @@ export interface PreparedOperation {
   ): PreparedBatchOperation<unknown> | undefined;
 }
 
+/** A class, not a closure: one is made per call, and its methods are made once. */
+class PreparedCommand implements PreparedOperation {
+  readonly #config: EngineConfig;
+  readonly #queries: Queries;
+  readonly #modelName: string;
+  readonly #requested: Operations;
+  readonly #operation: Operation;
+  readonly #rawArgs: unknown;
+  readonly #scope: CallScope | undefined;
+  #admitted: Arguments | undefined;
+  #prepared: Read | undefined;
+  #facts: PreparedRead | undefined;
+
+  constructor(
+    config: EngineConfig,
+    queries: Queries,
+    modelName: string,
+    requested: Operations,
+    rawArgs: unknown,
+    rows?: CallRows
+  ) {
+    // The call's one instant lives with the prepared call, so a replan and
+    // every occurrence it re-admits share it.
+    let instant: Date | undefined;
+    this.#scope = rows?.prepare(queries, () => (instant ??= new Date()));
+    this.#config = config;
+    this.#queries = queries;
+    this.#modelName = modelName;
+    this.#requested = requested;
+    this.#operation = baseOperation(requested);
+    this.#rawArgs = rawArgs;
+  }
+
+  get #model(): AnyModel {
+    return this.#config.schema[this.#modelName]!;
+  }
+
+  get requested(): { readonly model: string; readonly operation: string } {
+    return { model: this.#modelName, operation: this.#requested };
+  }
+
+  /** What a verb that must find its row fails with where there is none. */
+  get #missing(): (() => NotFoundError) | undefined {
+    return this.#requested === this.#operation
+      ? undefined
+      : () =>
+          new NotFoundError(
+            this.#model["~"].names.ts ?? "unknown",
+            this.#requested
+          );
+  }
+
+  /**
+   * Admitted where a required field the call's stamps write may be left out,
+   * with the projection keys its domain declares kept beside the schema's.
+   */
+  get args(): Arguments {
+    if (this.#admitted) return this.#admitted;
+    const { schema } = this.#queries;
+    const stamps = this.#scope?.rows.stamps;
+    const domain = this.#scope?.domain;
+    const own = (raw: unknown) =>
+      schema.admit(this.#model, this.#operation, raw);
+    const admit = domain?.projects
+      ? () =>
+          domain.admit(schema, this.#model, this.#operation, this.#rawArgs, own)
+      : () => own(this.#rawArgs);
+    return (this.#admitted =
+      stamps === undefined ? admit() : parseStamped(stamps, admit));
+  }
+
+  #read(): Read | undefined {
+    if (!isReadOperation(this.#operation)) return undefined;
+    return (this.#prepared ??= (
+      this.#scope?.domain.reads(this.#scope) ?? this.#queries
+    ).read(this.#model, this.#operation, this.args));
+  }
+
+  get read(): PreparedRead | undefined {
+    const value = this.#read();
+    return value && (this.#facts ??= publishedFacts(value));
+  }
+
+  /** This call's context; only the binding, preparation and attribution vary. */
+  #context(
+    preparing: boolean,
+    attribution?: QueryExecutionContext,
+    binding?: ExecutionBinding
+  ): SqlOperationContext {
+    const { driver } = this.#config;
+    return new (
+      driver.backend
+        ? engineBackend(driver.backend).context
+        : SqlOperationContext
+    )(
+      this.#queries.schema,
+      driver,
+      this.#modelName,
+      this.#operation,
+      binding,
+      preparing,
+      attribution,
+      this.#scope
+    );
+  }
+
+  // Not `async`: the promise is handed back as it is. An async function
+  // adopts a returned promise a microtask later, so a refusal thrown before
+  // any I/O (V8003) sat rejected with no handler in between, which workerd
+  // under nodejs_compat reports as an unhandled rejection.
+  execute(
+    binding?: ExecutionBinding,
+    attribution?: QueryExecutionContext
+  ): Promise<unknown> {
+    try {
+      const context = this.#context(false, attribution, binding);
+      const value = this.#read();
+      return value
+        ? context.run(() => context.publish(value, this.#missing))
+        : writeCall(
+            context,
+            this.#config.driver,
+            this.#model,
+            this.args,
+            this.#rawArgs,
+            binding
+          );
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  }
+
+  run(execution: RoutedOperationExecution): Promise<unknown> {
+    const { driverOverride, engineDriver } = execution;
+    const writeOutcome =
+      execution.isWrite &&
+      (execution.committedWriteSegment || execution.writeMayBeVisible)
+        ? {
+            committedSegment: execution.committedWriteSegment,
+            mayBeVisible: execution.writeMayBeVisible,
+          }
+        : undefined;
+    if (driverOverride)
+      return this.execute(
+        { driver: driverOverride, kind: "borrowed-transaction", writeOutcome },
+        execution.context
+      );
+    if (engineDriver === this.#config.driver)
+      return this.execute(
+        writeOutcome && { kind: "standalone", writeOutcome },
+        execution.context
+      );
+    const region: MemberRollback = (execute, scoped) =>
+      engineDriver.withTransaction(execute, undefined, scoped);
+    return this.execute(
+      {
+        driver: engineDriver,
+        kind: "borrowed-transaction",
+        memberRollback: region,
+        operationRegion: region,
+        writeOutcome,
+      },
+      execution.context
+    );
+  }
+
+  prepareSingle(
+    attribution?: QueryExecutionContext
+  ): PreparedBatchOperation<unknown> | undefined {
+    // Preparing admits the input whatever the verb compiles to: an operation
+    // that publishes no single query still answers for the payload it was
+    // handed, exactly as `prepareBatch` does.
+    this.args;
+    // A write is prepared by asking: its owner asks for the package.
+    const value = this.#read();
+    if (!value) return undefined;
+    const context = this.#context(true, attribution);
+    context.publishPrepared(value, this.#missing);
+    return context.preparedBatch();
+  }
+
+  async prepareBatch(
+    attribution?: QueryExecutionContext
+  ): Promise<PreparedBatchOperation<unknown> | undefined> {
+    return this.#read()
+      ? this.prepareSingle(attribution)
+      : prepareCall(
+          this.#context(true, attribution),
+          this.#config.driver,
+          this.#model,
+          this.args,
+          this.#rawArgs
+        );
+  }
+}
+
 /**
  * Prepared queries per driver result parser. Weak: a schema and adapter can
  * outlive every client, and a transient driver's parser (with whatever it
@@ -227,149 +428,14 @@ export function createCommandEngine(config: EngineConfig) {
   let byAdapter = renderers.get(config.schema);
   if (!byAdapter) renderers.set(config.schema, (byAdapter = new WeakMap()));
   byAdapter.set(config.driver.adapter, queries);
-  const { schema } = queries;
   const { driver } = config;
   const prepare = (
     modelName: string,
     requested: Operations,
     rawArgs: unknown,
     rows?: CallRows
-  ): PreparedOperation => {
-    const model = config.schema[modelName]!;
-    const operation = baseOperation(requested);
-    // The call's one instant lives with the prepared call, so a replan and
-    // every occurrence it re-admits share it.
-    let instant: Date | undefined;
-    const scope = rows?.prepare(queries, () => (instant ??= new Date()));
-    const missing =
-      requested === operation
-        ? undefined
-        : () => new NotFoundError(model["~"].names.ts ?? "unknown", requested);
-    let admitted: Arguments | undefined;
-    let prepared: Read | undefined;
-    let facts: PreparedRead | undefined;
-    /**
-     * Admitted where a required field the call's stamps write may be left out,
-     * with the projection keys its domain declares kept beside the schema's.
-     */
-    const args = (): Arguments => {
-      if (admitted) return admitted;
-      const stamps = scope?.rows.stamps;
-      const domain = scope?.domain;
-      const own = (raw: unknown) => schema.admit(model, operation, raw);
-      const admit = domain?.projects
-        ? () => domain.admit(schema, model, operation, rawArgs, own)
-        : () => own(rawArgs);
-      admitted = stamps === undefined ? admit() : parseStamped(stamps, admit);
-      return admitted;
-    };
-    const read = (): Read | undefined =>
-      isReadOperation(operation)
-        ? (prepared ??= (scope?.domain.reads(scope) ?? queries).read(
-            model,
-            operation,
-            args()
-          ))
-        : undefined;
-    /** This call's context; only the binding, preparation and attribution vary. */
-    const context = (
-      preparing: boolean,
-      attribution?: QueryExecutionContext,
-      binding?: ExecutionBinding
-    ): SqlOperationContext =>
-      new (driver.backend
-        ? engineBackend(driver.backend).context
-        : SqlOperationContext)(
-        schema,
-        driver,
-        modelName,
-        operation,
-        binding,
-        preparing,
-        attribution,
-        scope
-      );
-    const call: PreparedOperation = {
-      get args() {
-        return args();
-      },
-      get read() {
-        const value = read();
-        return value && (facts ??= publishedFacts(value));
-      },
-      requested: { model: modelName, operation: requested },
-      // Not `async`: the promise is handed back as it is. An async function
-      // adopts a returned promise a microtask later, so a refusal thrown
-      // before any I/O (V8003) sat rejected with no handler in between, which
-      // workerd under nodejs_compat reports as an unhandled rejection.
-      execute(binding, attribution) {
-        try {
-          const at = context(false, attribution, binding);
-          const value = read();
-          return value
-            ? at.run(() => at.publish(value, missing))
-            : writeCall(at, driver, model, args(), rawArgs, binding);
-        } catch (error) {
-          return Promise.reject(error);
-        }
-      },
-      run(execution) {
-        const { driverOverride, engineDriver } = execution;
-        const writeOutcome =
-          execution.isWrite &&
-          (execution.committedWriteSegment || execution.writeMayBeVisible)
-            ? {
-                committedSegment: execution.committedWriteSegment,
-                mayBeVisible: execution.writeMayBeVisible,
-              }
-            : undefined;
-        const region: MemberRollback = (execute, scoped) =>
-          engineDriver.withTransaction(execute, undefined, scoped);
-        return call.execute(
-          driverOverride
-            ? {
-                driver: driverOverride,
-                kind: "borrowed-transaction",
-                writeOutcome,
-              }
-            : engineDriver === driver
-              ? writeOutcome && { kind: "standalone", writeOutcome }
-              : {
-                  driver: engineDriver,
-                  kind: "borrowed-transaction",
-                  memberRollback: region,
-                  operationRegion: region,
-                  writeOutcome,
-                },
-          execution.context
-        );
-      },
-      prepareSingle(attribution) {
-        // Preparing admits the input whatever the verb compiles to: an
-        // operation that publishes no single query still answers for the
-        // payload it was handed, exactly as `prepareBatch` does.
-        args();
-        // A write is prepared by asking: its owner asks for the package.
-        const value = read();
-        if (!value) return undefined;
-        const at = context(true, attribution);
-        at.publishPrepared(value, missing);
-        return at.preparedBatch();
-      },
-      async prepareBatch(attribution) {
-        return read()
-          ? call.prepareSingle(attribution)
-          : prepareCall(
-              context(true, attribution),
-              driver,
-              model,
-              args(),
-              rawArgs
-            );
-      },
-    };
-    return call;
-  };
+  ): PreparedOperation =>
+    new PreparedCommand(config, queries, modelName, requested, rawArgs, rows);
   /**
    * `$rows`: `model`'s rows a root read under `rows` takes, as a raw read's
    * `FROM` item named `alias`. A model whose layers gate a field's reads is

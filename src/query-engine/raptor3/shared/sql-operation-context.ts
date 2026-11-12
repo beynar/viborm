@@ -26,7 +26,7 @@ import {
 } from "../../bind-budget";
 import type { PreparedBatchOperation, PreparedGuardFailure } from "../../types";
 import type { Sent, Statement } from "../write/send";
-import { InsertValue, type InsertValueContext } from "./insert-value";
+import { InsertValue } from "./insert-value";
 import {
   GatedFieldRefusal,
   InvalidScalarResult,
@@ -355,23 +355,37 @@ export class SqlOperationContext {
   }
 
   /** The rows with every value an extension computes put in; `asks` is how one asks the database in the call's unit, where it can be heard before the rows are written. */
-  async computed(
+  computed(
     model: AnyModel,
     rows: Input[],
-    asks?: Pick<InsertValueContext, "read">
-  ): Promise<Input[]> {
-    const spelt = this.queries.spelling(model, this.driver.dialect);
-    let computed: Input[] | undefined;
-    const fields = new Map<string, { value: InsertValue; at: number[] }>();
-    for (const [index, row] of rows.entries())
-      for (const [field, value] of Object.entries(row))
+    asks?: (statement: Sql, model: AnyModel) => Promise<readonly Input[]>
+  ): Input[] | Promise<Input[]> {
+    let fields: Map<string, { value: InsertValue; at: number[] }> | undefined;
+    for (let index = 0; index < rows.length; index++) {
+      const row = rows[index]!;
+      for (const field in row) {
+        const value = row[field];
         if (value instanceof InsertValue) {
+          fields ??= new Map();
           const entry = fields.get(field) ?? { value, at: [] };
           entry.at.push(index);
           fields.set(field, entry);
         }
+      }
+    }
+    // Most rows hold nothing an extension computes: they are answered at once.
+    return fields ? this.#compute(model, rows, fields, asks) : rows;
+  }
+
+  async #compute(
+    model: AnyModel,
+    rows: Input[],
+    fields: Map<string, { value: InsertValue; at: number[] }>,
+    asks?: (statement: Sql, model: AnyModel) => Promise<readonly Input[]>
+  ): Promise<Input[]> {
+    const spelt = this.queries.spelling(model, this.driver.dialect);
+    const computed = rows.map((row) => ({ ...row }));
     for (const [field, { value, at }] of fields) {
-      computed ??= rows.map((row) => ({ ...row }));
       const values = await value.compute(
         {
           model: model["~"].names.ts!,
@@ -379,14 +393,14 @@ export class SqlOperationContext {
           field,
           sql: spelt,
           dialect: spelt.dialect,
-          ...asks,
+          ...(asks && { read: (statement: Sql) => asks(statement, model) }),
         },
         at
       );
       for (const [position, index] of at.entries())
         computed[index]![field] = values[position];
     }
-    return computed ?? rows;
+    return computed;
   }
 
   /** {@link answersInStatement}'s projections over a write. */

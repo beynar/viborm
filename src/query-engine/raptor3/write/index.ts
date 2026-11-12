@@ -31,19 +31,19 @@ import {
 import { Lost, SEVERAL, Store } from "./store";
 import { verbs } from "./verbs";
 
-/** The verbs of one call, run on a store. */
-const call =
-  (
-    store: Store,
-    model: AnyModel,
-    args: Arguments,
-    raw: unknown
-  ): (() => () => unknown) =>
-  () => {
-    const { operation } = store;
-    const verb = verbs(store)[operation.operation as "create"];
+/** The verbs of one call, run on a store: made once, however many times the call runs them. */
+const call = (
+  store: Store,
+  model: AnyModel,
+  args: Arguments,
+  raw: unknown
+): (() => () => unknown) => {
+  let verb: ReturnType<typeof verbs>["create"] | undefined;
+  return () => {
+    verb ??= verbs(store)[store.operation.operation as "create"];
     return verb(model, args, raw as Input);
   };
+};
 
 /** A call sent by itself, or inside the transaction its caller lends it; made again where its backend says a unit of its own that was undone is. */
 export async function writeCall(
@@ -186,7 +186,8 @@ async function sent(
     );
     throw primary;
   }
-  await operation.stateWriteOutcome(seam?.committedSegment);
+  if (seam?.committedSegment)
+    await operation.stateWriteOutcome(seam.committedSegment);
   return answer;
 }
 

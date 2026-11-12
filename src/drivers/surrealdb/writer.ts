@@ -218,8 +218,8 @@ export class SurrealWriter extends Writer {
   readonly #q: SurrealQueries;
   readonly #low: SurrealReadBackend;
 
-  constructor(operation: SqlOperationContext) {
-    super(operation);
+  constructor(operation: SqlOperationContext, hears?: Writer["hears"]) {
+    super(operation, hears);
     this.#q = operation.queries as unknown as SurrealQueries;
     this.#low = this.#q.lowering;
   }

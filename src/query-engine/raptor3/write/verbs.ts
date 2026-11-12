@@ -21,6 +21,12 @@ import type { Membership } from "../shared/storage";
 import type { Question } from "./statements";
 import type { Row, Store } from "./store";
 
+/** Whether a value is an object written as one: no instance of a class. */
+const plainObject = (value: unknown): value is Input => {
+  if (typeof value !== "object" || value === null) return false;
+  const kind = Object.getPrototypeOf(value);
+  return kind === Object.prototype || kind === null;
+};
 const list = (value: unknown): unknown[] => {
   if (value === undefined || value === false) return [];
   return Array.isArray(value) ? value : [value];
@@ -33,13 +39,23 @@ export function verbs(store: Store) {
   /** What the caller wrote of each node of what was admitted of it. One entry is written as itself, or as the list of one. */
   const said = new WeakMap<object, unknown>();
   const paired = <T>(admitted: T, raw: unknown): T => {
-    if (typeof admitted === "object" && admitted) {
+    if (Array.isArray(admitted)) {
+      said.set(admitted, raw);
+      for (let at = 0; at < admitted.length; at++) {
+        const child = admitted[at];
+        if (typeof child !== "object" || child === null) continue;
+        const next = (raw as unknown[] | undefined)?.[at];
+        paired(child, next === undefined && at === 0 ? raw : next);
+      }
+      // A value is no node of the payload: what a blob or a date holds is not walked.
+    } else if (plainObject(admitted)) {
       said.set(admitted, raw);
       // An update of the one row a relation reaches is written as its data alone.
-      const whole = Object.keys(admitted).every(
-        (key) => key === "data" || key === "where"
-      );
-      for (const [key, child] of Object.entries(admitted)) {
+      let whole = true;
+      for (const key in admitted) whole &&= key === "data" || key === "where";
+      for (const key in admitted) {
+        const child = admitted[key];
+        if (typeof child !== "object" || child === null) continue;
         const next = (raw as Input | undefined)?.[key];
         paired(
           child,
@@ -129,6 +145,11 @@ export function verbs(store: Store) {
 
   /** The relations `data` names of a row of `model`, each with what it asks. */
   const relationsOf = (model: AnyModel, data: Input) =>
+    // Most rows are written with none.
+    model["~"].relationNames.some((name) => data[name] !== undefined)
+      ? relationsIn(model, data)
+      : [];
+  const relationsIn = (model: AnyModel, data: Input) =>
     model["~"].relationNames.flatMap((name) => {
       const payload = data[name] as Input | undefined;
       if (payload === undefined) return [];
@@ -260,7 +281,12 @@ export function verbs(store: Store) {
       }) === true
     );
   };
-  const writes = (model: AnyModel, data: Input): string[] | undefined => {
+  const writes = (
+    model: AnyModel,
+    data: Input,
+    /** What the row takes, where the caller of this has it. */
+    set?: Input
+  ): string[] | undefined => {
     const own = stated(data);
     // A field kept as stored is no field the write writes.
     const fields = Object.keys(schema.scalars(model, own)).filter(
@@ -287,7 +313,7 @@ export function verbs(store: Store) {
           : []
     );
     const written =
-      Object.keys(store.values(model, "update", data, own)).length > 0;
+      Object.keys(set ?? store.values(model, "update", data, own)).length > 0;
     return written || relations.length > 0
       ? [...fields, ...relations]
       : undefined;
@@ -344,6 +370,12 @@ export function verbs(store: Store) {
     arm = false
   ): Row => {
     const relations = relationsOf(model, data);
+    // A row that is nothing but itself is written as it is.
+    if (relations.length === 0 && relation === undefined) {
+      const row = store.insert(model, data, stated(data), relation, given);
+      made.set(row, !arm);
+      return row;
+    }
     const said = schema.scalars(model, stated(data));
     // The rows whose key this one holds are there before it.
     const held = relations
@@ -1139,14 +1171,14 @@ export function verbs(store: Store) {
     },
     update(model: AnyModel, args: Arguments, raw: Input) {
       const data = paired(args.data as Input, raw.data);
+      const set = store.values(model, "update", data, stated(data));
       const question: Question = {
         model,
         where: args.where as Input,
         unique: true,
         intent: "update",
-        writes: writes(model, data),
+        writes: writes(model, data, set),
       };
-      const set = store.values(model, "update", data, stated(data));
       if (plain(model, data, set)) {
         const { projection, said } = one(model, args, ["update"]);
         const later = store.all({ ...question, must: true }, set, projection);
@@ -1161,15 +1193,15 @@ export function verbs(store: Store) {
       const { projection, decoded, again, none } = many(model, args, "update");
       if (args.limit === 0) return none;
       const relations = relationsOf(model, data);
+      const set = store.values(model, "update", data, stated(data));
       const question: Question = {
         model,
         where: args.where as Input | undefined,
         limit: args.limit as number | undefined,
         intent: "update",
-        writes: writes(model, data),
+        writes: writes(model, data, set),
       };
       const beside = !relations.some(({ edge }) => holds(edge));
-      const set = store.values(model, "update", data, stated(data));
       if (plain(model, data, set)) {
         const later = store.all(question, set, projection);
         return () =>

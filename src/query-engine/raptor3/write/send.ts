@@ -157,18 +157,21 @@ export function dialogue(
         !(asked(statements[end - 1]!) && !asked(statements[end]!))
       )
         end++;
-      const part = statements.slice(at, end);
-      const sent = (part.length > 1 &&
-        (await operation.together?.(transport, part, false))) || [
-        await hear(transport, part[0]!),
-      ];
-      for (const [place, statement] of part.slice(0, sent.length).entries())
+      const sent = (end - at > 1 &&
+        (await operation.together?.(
+          transport,
+          statements.slice(at, end),
+          false
+        ))) || [await hear(transport, statements[at]!)];
+      for (let place = 0; place < sent.length; place++) {
+        const statement = statements[at + place]!;
         if (
           asked(statement) &&
           sent[place]!.rows.length > 0 !== (statement.premise === "exists")
         )
           throw new Stopped(statement);
-      answers.push(...sent);
+        answers.push(sent[place]!);
+      }
       at += sent.length;
     }
     return answers;
