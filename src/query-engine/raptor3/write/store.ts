@@ -795,7 +795,10 @@ export class Store {
         )
           continue;
         const was = { ...child };
-        for (const pair of edge.pairs) child[pair.target] = row[pair.source];
+        for (const pair of edge.pairs) {
+          child[pair.target] = row[pair.source];
+          meta.wrote.add(pair.target);
+        }
         if (schema.keys(meta.model).some((key) => was[key] !== child[key])) {
           this.#known.set(this.#name(meta.model, child), child);
           meta.moved = true;
@@ -1535,8 +1538,10 @@ export class Store {
     let waiting: { statements: Statement[]; step: Step }[] = [];
     const flush = async (end: boolean) => {
       const statements = waiting.flatMap((written) => written.statements);
-      if (statements.length === 0) return;
-      const sent = await this.#transport.send(statements, end);
+      const sent =
+        statements.length > 0
+          ? await this.#transport.send(statements, end)
+          : [];
       let at = 0;
       for (const { statements: own, step } of waiting) {
         step.take?.(sent.slice(at, at + own.length));
