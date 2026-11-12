@@ -277,7 +277,11 @@ export class Store {
    * only the database can say. `was` says whether it answered before the
    * call wrote it.
    */
-  #holds(row: Row, question: Question, was: boolean): boolean | undefined {
+  #holds(
+    row: Row,
+    question: Question,
+    was: boolean | undefined
+  ): boolean | undefined {
     const meta = this.#meta.get(row)!;
     if (meta.gone) return false;
     const { member } = question;
@@ -298,7 +302,7 @@ export class Store {
     else if (member) {
       const linked = this.#linked(member.edge as Junction, member.of, row);
       if (linked === false) return false;
-      if (linked === undefined && !was) return false;
+      if (linked === undefined && !was) return was && undefined;
     }
     for (const [field, value] of facts.equals) {
       if (row[field] instanceof Pending) return undefined;
@@ -361,12 +365,8 @@ export class Store {
     );
     const name = this.#name(model, key);
     let row = this.#known.get(name);
-    // A row the call wrote says itself whether it answers, where it can.
-    if (row && this.#changed(row)) {
-      const answers = this.#holds(row, question, false);
-      if (answers === undefined) return outside();
-      return answers ? [row] : [];
-    }
+    // What a row the call wrote answers, where the call cannot say, is the database's to say once it is written.
+    if (row && this.#changed(row)) return outside();
     if (!row) {
       const fields = schema.storedFields(model);
       const held: Row = { ...key };
@@ -396,6 +396,27 @@ export class Store {
     this.#presumed.set(id, { question, row });
     return [row];
   }
+  /**
+   * A question that names one row by values no other row has, of a row the
+   * call knows by them: answered by what the call knows, where that says.
+   */
+  #recalled(question: Question): Row[] | undefined {
+    const pins = this.writer.selector(question).uniqueValues;
+    if (!(question.unique && pins)) return undefined;
+    for (const row of this.#known.values()) {
+      if (
+        this.#meta.get(row)!.model !== question.model ||
+        ![...pins].every(
+          ([field, value]) =>
+            field in row && String(row[field]) === String(value)
+        )
+      )
+        continue;
+      const answers = this.#holds(row, question, undefined);
+      return answers === undefined ? undefined : answers ? [row] : [];
+    }
+    return undefined;
+  }
   #changed(row: Row): boolean {
     const meta = this.#meta.get(row)!;
     return Boolean(meta.made || meta.gone || meta.wrote.size > 0);
@@ -417,7 +438,7 @@ export class Store {
         ],
         question.intent,
         question.writes,
-        question.joins?.name,
+        question.through?.name,
         question.limit,
         question.except?.map((key) => this.#name(model, key)),
       ],
@@ -433,7 +454,9 @@ export class Store {
     if (question.strict && this.writer.selector(question).scoped) outside();
     const answer = fresh ? { question, rows: [] } : this.#answers.get(id);
     if (!answer) {
-      const presumed = this.#presume(id, question);
+      const known = this.#recalled(question);
+      if (known) return known;
+      const presumed = question.must && this.#presume(id, question);
       if (presumed) return presumed;
       // Asked of the row as it stands now, whatever the call writes of it next.
       this.#missed.set(
@@ -530,14 +553,14 @@ export class Store {
     };
   }
   /**
-   * A row takes `set`: `writes` says what the caller wrote of it, `joins` the
+   * A row takes `set`: `writes` says what the caller wrote of it, `joined` the
    * relation it is made a member of, or leaves, by this write.
    */
   update(
     row: Row,
     set: Input,
     writes?: readonly string[],
-    joins?: Membership
+    joined?: Membership
   ): void {
     if (Object.keys(set).length === 0) return;
     const meta = this.#meta.get(row)!;
@@ -569,7 +592,12 @@ export class Store {
       key,
       set,
       hears,
-      question: this.#writing(row, { intent: "update", writes, joins }),
+      question: this.#writing(
+        row,
+        joined
+          ? { intent: "join", through: joined }
+          : { intent: "update", writes }
+      ),
     });
   }
   /** A row is removed. */

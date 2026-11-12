@@ -35,11 +35,11 @@ export interface Question {
   /** The filter was admitted as a unique selector: it names one row at most. */
   readonly unique?: boolean;
   readonly member?: { readonly edge: Membership; readonly of: Input };
-  /** What the call means to do with the rows; of an update, what it writes of them. */
-  readonly intent?: "update" | "delete";
+  /** The relation the rows are reached through, whose ever members they are. */
+  readonly through?: Membership;
+  /** What the call means to do with the rows: `join` makes them members, or no longer; of an update, what it writes of them. */
+  readonly intent?: "update" | "delete" | "join";
   readonly writes?: readonly string[];
-  /** The rows are sought to be made members through this relation. */
-  readonly joins?: Membership;
   /** No more than that many of them, the first by their key. */
   readonly limit?: number;
   /** The nested verb that asks, for what it refuses with. */
@@ -62,12 +62,13 @@ export class Writer {
   }
   /** What a write of the rows a question names is judged at. */
   #judged(question: Question): RowJudgement | undefined {
-    if (question.joins) return linkJudgement(question.joins);
+    const edge = question.through ?? question.member?.edge;
+    if (question.intent === "join" && edge) return linkJudgement(edge);
     if (question.intent === "delete") return { verb: "delete", writes: [] };
     return question.writes && { verb: "update", writes: question.writes };
   }
   #related(question: Question): "root" | "related" {
-    return question.member || question.joins ? "related" : "root";
+    return question.member || question.through ? "related" : "root";
   }
   /** The rows a question names, among those the call may take so; `keys` narrows them to rows the call knows. */
   selector(question: Question, keys?: readonly Input[]): PreparedSelector {
@@ -165,7 +166,7 @@ export class Writer {
   }
   /** What a call refuses with where a row a question asks for is not there. */
   absent(question: Question, raceable = false): PreparedGuardFailure {
-    const edge = question.member?.edge ?? question.joins;
+    const edge = question.member?.edge ?? question.through;
     return edge && question.verb
       ? {
           kind: "nestedWrite",

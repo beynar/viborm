@@ -131,24 +131,6 @@ export function verbs(store: Store) {
     edge.kind === "junction"
       ? store.unlink(edge, parent, row)
       : store.update(row, cleared(edge), undefined, edge);
-  /** One member: with `true`, the one there is, and none is no refusal. */
-  const member = (
-    parent: Row,
-    edge: Membership,
-    entry: unknown,
-    verb: string,
-    ask: Partial<Question>
-  ): Row | undefined =>
-    entry === true
-      ? members(parent, edge, undefined, { ...ask, verb, strict: true })[0]
-      : store.one({
-          model: edge.target,
-          where: entry as Input,
-          unique: edge.many,
-          member: { edge, of: parent },
-          verb,
-          ...ask,
-        });
   const make = (
     model: AnyModel,
     data: Input,
@@ -159,7 +141,7 @@ export function verbs(store: Store) {
     // The rows whose key this one holds are there before it.
     const held = relations
       .filter(({ edge }) => holds(edge))
-      .map(({ edge, payload }) => holder(undefined, edge, payload));
+      .map(({ edge, payload }) => single(undefined, edge, payload));
     const takes = Object.assign({}, given, ...held.map((own) => own.takes));
     const row = store.insert(
       model,
@@ -169,19 +151,19 @@ export function verbs(store: Store) {
     );
     for (const own of held) for (const next of own.then) next();
     for (const { edge, payload } of relations)
-      if (!holds(edge)) relate(row, edge, payload);
+      if (!holds(edge)) (edge.many ? relate : single)(row, edge, payload);
     return row;
   };
   /** A row that is there takes what `data` states, then what its relations ask of the rows they reach. */
-  const write = (model: AnyModel, row: Row, data: Input, set?: Input): void => {
+  const write = (model: AnyModel, row: Row, data: Input): void => {
     const relations = relationsOf(model, data);
     const held = relations
       .filter(({ edge }) => holds(edge))
-      .map(({ edge, payload }) => holder(row, edge, payload));
+      .map(({ edge, payload }) => single(row, edge, payload));
     const takes = Object.assign({}, ...held.map((own) => own.takes));
     store.update(
       row,
-      set ?? {
+      {
         ...store.values(model, "update", data, { ...stated(data), ...takes }),
         ...takes,
       },
@@ -189,63 +171,82 @@ export function verbs(store: Store) {
     );
     for (const own of held) for (const next of own.then) next();
     for (const { edge, payload } of relations)
-      if (!holds(edge)) relate(row, edge, payload);
+      if (!holds(edge)) (edge.many ? relate : single)(row, edge, payload);
   };
   /**
-   * A relation whose key the row itself holds: what the row takes of it, and
-   * what follows the row's own write. The row is not there yet where it is
-   * being created.
+   * A relation that reaches one row: the row it reaches goes, another is
+   * supplied, and the row supplied, or the one there, is updated — in that
+   * order, however they were written. Where the row the relation is asked of
+   * holds the key, it answers what that row takes and what follows its own
+   * write; the row is not there yet where it is being created.
    */
-  function holder(
+  function single(
     row: Row | undefined,
     edge: Membership,
     payload: Input
   ): { takes: Input; then: (() => void)[] } {
+    const held = holds(edge);
     const takes: Input = {};
     const then: (() => void)[] = [];
-    const target = edge.target;
-    const current = (ask: Partial<Question>, where?: Input) =>
-      row ? members(row, edge, where, ask) : [];
-    const [disconnect] = list(payload.disconnect);
-    const [remove] = list(payload.delete);
-    const [create] = list(payload.create);
-    const [connect] = list(payload.connect);
-    const [connectOrCreate] = list(payload.connectOrCreate) as Input[];
-    const [upsert] = list(payload.upsert) as Input[];
-    const [update] = list(payload.update) as Input[];
-    // Nothing is read of the row a slot gives up.
-    if (disconnect) Object.assign(takes, cleared(edge));
-    if (remove) {
-      const [old] = current(
-        { intent: "delete", verb: "delete", strict: remove === true },
-        remove === true ? undefined : (remove as Input)
-      );
-      if (old) {
+    const { target } = edge;
+    const first = (verb: string) =>
+      list(payload[verb])[0] as Input | true | undefined;
+    /** The row the relation reaches now. */
+    const current = (ask: Partial<Question>, entry?: Input | true) =>
+      row
+        ? members(row, edge, entry === true ? undefined : entry, {
+            ...ask,
+            strict: entry === true,
+          })[0]
+        : undefined;
+    const disconnect = first("disconnect");
+    // Nothing is read of the row a slot of the row itself gives up.
+    if (disconnect === true && held) Object.assign(takes, cleared(edge));
+    else if (disconnect) {
+      const old = current({ intent: "join", verb: "disconnect" }, disconnect);
+      if (old && held) Object.assign(takes, cleared(edge));
+      else if (old) leave(row!, edge, old);
+    }
+    const remove = first("delete");
+    const old = remove && current({ intent: "delete", verb: "delete" }, remove);
+    if (old) {
+      // A row the row itself references goes once the row no longer does.
+      if (held) {
         Object.assign(takes, cleared(edge));
         then.push(() => store.delete(old));
-      }
+      } else store.delete(old);
     }
+    const create = (data: Input | true | undefined) =>
+      make(target, data as Input, held ? {} : born(row!, edge), edge.name);
+    const adopt = (found: Row, verb: string) => {
+      if (!held) join(row!, edge, found, verb);
+      return found;
+    };
+    const sought = (where: unknown, verb: string): Question => ({
+      model: target,
+      where: where as Input,
+      unique: true,
+      through: edge,
+      intent: "join",
+      verb,
+    });
     let supplied: Row | undefined;
-    if (create) supplied = make(target, create as Input, {}, edge.name);
-    if (connect)
-      supplied = store.one({
-        model: target,
-        where: connect as Input,
-        unique: true,
-        joins: edge,
-        verb: "connect",
-      });
-    if (connectOrCreate)
-      supplied =
-        store.rows({
-          model: target,
-          where: connectOrCreate.where as Input,
-          unique: true,
-          joins: edge,
-          verb: "connectOrCreate",
-        })[0] ?? make(target, connectOrCreate.create as Input, {}, edge.name);
+    if (first("create")) supplied = create(first("create"));
+    if (first("connect"))
+      supplied = adopt(
+        store.one(sought(first("connect"), "connect")),
+        "connect"
+      );
+    const either = first("connectOrCreate") as Input | undefined;
+    if (either) {
+      const [found] = store.rows(sought(either.where, "connectOrCreate"));
+      supplied = found
+        ? adopt(found, "connectOrCreate")
+        : create(either.create as Input);
+    }
+    const upsert = first("upsert") as Input | undefined;
     if (upsert) {
-      const [found] = current(
+      const found = current(
         {
           intent: "update",
           writes: writes(target, upsert.update as Input),
@@ -254,12 +255,14 @@ export function verbs(store: Store) {
         upsert.where as Input | undefined
       );
       if (found) then.push(() => write(target, found, upsert.update as Input));
-      else supplied = make(target, upsert.create as Input, {}, edge.name);
+      else supplied = create(upsert.create as Input);
     }
-    if (supplied) Object.assign(takes, reaching(edge, supplied));
+    if (supplied && held) Object.assign(takes, reaching(edge, supplied));
+    const update = first("update") as Input | undefined;
     if (update) {
       const data = update.data as Input;
       // The row the relation was just given is the one updated.
+      if (supplied && update.where) outside();
       const reached =
         supplied ??
         (row &&
@@ -274,20 +277,38 @@ export function verbs(store: Store) {
       if (!reached) return outside();
       then.push(() => write(target, reached, data));
     }
-    return { takes, then };
+    if (held) return { takes, then };
+    for (const next of then) next();
+    return { takes, then: [] };
   }
-  /** A relation's verbs where the rows it reaches, or their links, hold what makes them members: in the order they take effect. */
+  /** A relation's verbs where it reaches many rows: in the order they take effect. */
   const nested: Record<
     string,
     (parent: Row, edge: Membership, entry: Input) => void
   > = {
-    disconnect(parent, edge, entry) {
-      const row = member(parent, edge, entry, "disconnect", { joins: edge });
-      if (row) leave(parent, edge, row);
+    disconnect(parent, edge, where) {
+      leave(
+        parent,
+        edge,
+        store.one({
+          model: edge.target,
+          where,
+          unique: true,
+          member: { edge, of: parent },
+          intent: "join",
+          verb: "disconnect",
+        })
+      );
     },
-    delete(parent, edge, entry) {
-      const row = member(parent, edge, entry, "delete", { intent: "delete" });
-      if (!row) return;
+    delete(parent, edge, where) {
+      const row = store.one({
+        model: edge.target,
+        where,
+        unique: true,
+        member: { edge, of: parent },
+        intent: "delete",
+        verb: "delete",
+      });
       // The link references the row: it goes first.
       if (edge.kind === "junction") leave(parent, edge, row);
       store.delete(row);
@@ -333,7 +354,7 @@ export function verbs(store: Store) {
         store.one({
           model: edge.target,
           where: where as Input | undefined,
-          unique: edge.many,
+          unique: true,
           member: { edge, of: parent },
           intent: "update",
           writes: writes(edge.target, values),
@@ -343,21 +364,31 @@ export function verbs(store: Store) {
       );
     },
     upsert(parent, edge, { where, create, update }) {
-      const [row] = members(parent, edge, where as Input | undefined, {
-        unique: edge.many,
+      const named: Question = {
+        model: edge.target,
+        where: where as Input,
+        unique: true,
         intent: "update",
         writes: writes(edge.target, update as Input),
         verb: "upsert",
-      });
-      if (row) write(edge.target, row, update as Input);
-      else nested.create!(parent, edge, create as Input);
+      };
+      // The row the filter names, whose ever it is: one that is another row's is not taken, nor made again.
+      if (store.rows({ ...named, through: edge }).length === 0)
+        nested.create!(parent, edge, create as Input);
+      else
+        write(
+          edge.target,
+          store.one({ ...named, member: { edge, of: parent } }),
+          update as Input
+        );
     },
     connectOrCreate(parent, edge, { where, create }) {
       const [row] = store.rows({
         model: edge.target,
         where: where as Input,
         unique: true,
-        joins: edge,
+        through: edge,
+        intent: "join",
         verb: "connectOrCreate",
       });
       if (row) join(parent, edge, row, "connectOrCreate");
@@ -371,7 +402,8 @@ export function verbs(store: Store) {
           model: edge.target,
           where,
           unique: true,
-          joins: edge,
+          through: edge,
+          intent: "join",
           verb: "connect",
         }),
         "connect"
@@ -394,16 +426,16 @@ export function verbs(store: Store) {
         model: edge.target,
         where,
         unique: true,
-        joins: edge,
+        through: edge,
+        intent: "join",
         verb: "set",
       })
     );
-    const keys = kept.map((row) => schema.identity(edge.target, row));
     const others: Question = {
       model: edge.target,
       member: { edge, of: parent },
-      except: keys,
-      joins: edge,
+      except: kept.map((row) => schema.identity(edge.target, row)),
+      intent: "join",
       verb: "set",
       strict: true,
     };
