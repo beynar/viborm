@@ -377,7 +377,9 @@ export class Writer {
     const q = this.#q;
     const fields = Object.keys(row);
     const bound = this.#operation.driver.maxBindParametersPerStatement;
-    if (fields.join() !== Object.keys(first).join()) return false;
+    // A row of defaults only is a statement of its own.
+    if (fields.length === 0 || fields.join() !== Object.keys(first).join())
+      return false;
     if (bound === undefined) return true;
     const placed = q.domain?.produced(model);
     return (

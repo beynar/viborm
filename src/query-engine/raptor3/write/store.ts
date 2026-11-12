@@ -1711,6 +1711,14 @@ export class Store {
             keys.length === 1 ? keys[0] : keys
           );
       }
+    /** A read of every row a run of inserts creates, whatever their shapes: each of their statements answers its part. */
+    let series:
+      | {
+          read: NonNullable<ReturnType<typeof answered>>;
+          stop: number;
+          parts: Sent[];
+        }
+      | undefined;
     /** Where the steps of each entry begin. */
     const begins: [number, Entry][] = [];
     for (let at = this.#sent; at < to; at++) {
@@ -1763,7 +1771,24 @@ export class Store {
         let end = at + 1;
         while (!mine && end < to && fits(rows, log[end]))
           rows.push((log[end++] as typeof entry).row);
-        let read = mine?.read ?? answered(end, rows, "insert");
+        if (!(mine || series)) {
+          const all = [...rows];
+          let stop = end;
+          for (let next = log[stop]; stop < to; next = log[++stop]) {
+            if (
+              next?.kind !== "insert" ||
+              this.#meta.get(next.row)!.model !== model ||
+              next.relation !== entry.relation
+            )
+              break;
+            all.push(next.row);
+          }
+          const asked = stop > end && answered(stop, all, "insert");
+          if (asked && !all.some((row) => (needed.get(row) ?? 0) > 1))
+            series = { read: asked, stop, parts: [] };
+        }
+        const part = mine ? undefined : series;
+        let read = mine?.read ?? part?.read ?? answered(end, rows, "insert");
         // Another statement needs what the database decides of the row: its statement says it beside the answer, where it can.
         const both = Boolean(mine) && (needed.get(entry.row) ?? 0) > 1;
         if (
@@ -1774,7 +1799,11 @@ export class Store {
           told.delete(mine.read);
           read = undefined;
         } else if (mine) rows = [entry.row];
-        else if (read && !rows.some((row) => (needed.get(row) ?? 0) > 1))
+        else if (part) {
+          // The read stands after the last of them.
+          at = end === part.stop ? end : end - 1;
+          if (end === part.stop) series = undefined;
+        } else if (read && !rows.some((row) => (needed.get(row) ?? 0) > 1))
           at = end;
         else {
           read = undefined;
@@ -1823,7 +1852,13 @@ export class Store {
           },
           take: (sent) => {
             take(sent);
-            if (read) tells(read, mine?.place ?? at)(sent);
+            if (!read) return;
+            if (!part) {
+              tells(read, mine?.place ?? at)(sent);
+              return;
+            }
+            part.parts.push(...sent);
+            if (end === part.stop) tells(read, part.stop)(part.parts);
           },
         });
       } else if (entry.kind === "update") {

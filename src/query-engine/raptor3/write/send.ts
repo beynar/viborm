@@ -179,7 +179,12 @@ export function dialogue(
     async end(failed) {
       if (!entered) return;
       leave(failed);
-      await (failed === undefined ? unit : unit!.catch(() => undefined));
+      // What the unit says of its own undoing is said with what undid it.
+      const said = await unit!.then(
+        () => failed,
+        (error) => error
+      );
+      if (said !== failed) throw said;
     },
   };
   return transport;
