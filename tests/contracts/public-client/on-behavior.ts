@@ -964,16 +964,19 @@ export function runOnBehavior(provider: OnProvider): void {
           data: { edited: { set: [] } },
         });
         expect(updated).toEqual([post("p1", "u1")]);
-        // The rows are read before the UPDATE that clears their key: where
-        // the session locks (its read of the user), they are read locked too.
+        // Where the rows are read before the UPDATE that clears their key,
+        // they are read locked as the session's other reads are; where the
+        // UPDATE says them itself, nothing is read to lock.
         const unlink = texts.findIndex((text) => text.startsWith("UPDATE"));
-        const read = texts
+        const reads = texts
           .slice(0, unlink)
-          .reverse()
-          .find((text) => text.startsWith("SELECT") && text.includes("post"));
-        expect(read?.endsWith("FOR UPDATE")).toBe(
-          texts[0]!.endsWith("FOR UPDATE")
-        );
+          .filter((text) => text.startsWith("SELECT") && text.includes("post"));
+        expect(
+          reads.every(
+            (text) =>
+              text.endsWith("FOR UPDATE") === texts[0]!.endsWith("FOR UPDATE")
+          )
+        ).toBe(true);
       });
 
       test("nested delete and deleteMany: the rows as they were before; updateMany: after", async () => {

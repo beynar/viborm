@@ -5,14 +5,25 @@
 import type { AnyDriver } from "@drivers";
 import { attachCommitCertainty } from "@drivers/driver-error-context";
 import { bindExecutionTransactionPhases } from "@drivers/execution-context";
-import { isVibORMError } from "@errors";
+import {
+  attachRecordSeriesProgress,
+  isVibORMError,
+  UniqueConstraintError,
+} from "@errors";
 import type { AnyModel } from "@schema/model";
 import { sql } from "@sql";
 import type { PreparedBatchOperation } from "../../types";
 import type { ExecutionBinding } from "../shared/operation-context";
 import type { Arguments, Input } from "../shared/schema";
 import type { SqlOperationContext } from "../shared/sql-operation-context";
-import { batches, contextOf, dialogue, prepared, type Transport } from "./send";
+import {
+  batches,
+  contextOf,
+  dialogue,
+  prepared,
+  type Transport,
+  unproven,
+} from "./send";
 import { outside } from "./statements";
 import { SEVERAL, Store } from "./store";
 import { verbs } from "./verbs";
@@ -75,12 +86,30 @@ export async function writeCall(
     );
   else transport = batches(operation, driver);
   let answer: unknown;
+  const store = new Store(operation, transport);
   try {
-    const store = new Store(operation, transport);
     answer = await store.run(call(store, model, args, raw));
   } catch (error) {
     await transport.end(error);
-    throw error;
+    const loose = unproven.has(error as object);
+    let failure = operation.failure(error, "result");
+    // What stands of a call that failed after a part of it was made is said with its failure.
+    if (store.segments > 0 && !transport.holds)
+      failure = attachRecordSeriesProgress(failure, {
+        atomicity: "segment",
+        phase: failure === error ? "member" : "result",
+        committedSegments: store.segments,
+        completedMembers: store.members,
+        committedWriteMembers: store.members,
+        ...(loose && { mayHaveCommittedSegment: true as const }),
+      });
+    // What the call sent outside a transaction of its own and cannot prove undone may be there: a key already taken proves it.
+    if (binding?.kind !== "borrowed-transaction")
+      if (store.segments > 0)
+        await operation.stateWriteOutcome(seam?.committedSegment, failure);
+      else if (loose && !(error instanceof UniqueConstraintError))
+        await operation.stateWriteOutcome(seam?.mayBeVisible, failure);
+    throw failure;
   }
   try {
     await transport.end();

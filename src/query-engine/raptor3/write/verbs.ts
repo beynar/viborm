@@ -879,7 +879,10 @@ export function verbs(store: Store) {
         return again(rows, "createMany");
       }
       return again(
-        entries.map((data) => make(model, data, {})),
+        entries.map((data) => {
+          store.member();
+          return make(model, data, {});
+        }),
         "createMany"
       );
     },
@@ -929,6 +932,7 @@ export function verbs(store: Store) {
       if (beside)
         for (const row of rows) store.update(row, set, question.writes);
       for (const [at, row] of rows.entries()) {
+        store.member();
         // Each row is written of its own copy of what the caller wrote: what a default fills is that row's own.
         const own =
           at === 0

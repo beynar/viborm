@@ -53,6 +53,8 @@ export class Stopped {
 export interface Transport {
   /** Rows the call read are held until its unit ends: no statement asks for them again. */
   readonly holds: boolean;
+  /** Whether what was last sent stands once answered, whatever the call does next. */
+  loose?: boolean;
   /** Sends statements that go together and answers for each; `last` where the call has no more to say. */
   send(statements: readonly Statement[], last: boolean): Promise<Sent[]>;
   /** Ends the unit: undone where the call `failed`. */
@@ -66,6 +68,13 @@ export interface Transport {
 
 /** The statement the database refused, by the error it refused it with. */
 export const refusedBy = new WeakMap<object, Statement>();
+
+/** The failures of what was sent outside any unit that proves it undone: what it wrote may be there. */
+export const unproven = new WeakSet<object>();
+const loose = (error: unknown): never => {
+  if (typeof error === "object" && error) unproven.add(error);
+  throw error;
+};
 
 /** The context one statement is sent under: the operation's, named for the model it touches. */
 export const contextOf = (
@@ -141,15 +150,13 @@ export function dialogue(
     }
     return answers;
   };
-  return {
+  const transport: Transport = {
     holds: true,
     async send(statements, last) {
-      return run(
-        !open || (last && !entered && statements.length === 1)
-          ? driver
-          : await enter(),
-        statements
-      );
+      const alone = !open || (last && !entered && statements.length === 1);
+      transport.loose = alone;
+      const sent = run(alone ? driver : await enter(), statements);
+      return alone ? sent.catch(loose) : sent;
     },
     ...((open || rollback) && {
       async attempt(body) {
@@ -170,6 +177,7 @@ export function dialogue(
       await (failed === undefined ? unit : unit!.catch(() => undefined));
     },
   };
+  return transport;
 }
 
 /** One statement as a batch takes it. */
@@ -215,12 +223,13 @@ export function batches(
             operation.attribution
           );
     } catch (error) {
-      if (!(error instanceof NestedWriteAssertionError)) throw error;
+      // A unit that stops itself is undone; one that fails otherwise may have been made.
+      if (!(error instanceof NestedWriteAssertionError)) loose(error);
       // The statement that stopped the batch is the one the provider points
       // at. Where it points at none, what was asked for its own sake is
       // asked again together, then each judgement; where all still hold, it
       // is the first that judged its rows amid the batch's writes.
-      const index = error.meta.statementIndex;
+      const index = (error as NestedWriteAssertionError).meta.statementIndex;
       const stopping = statements.filter((statement) => statement.stops);
       // The one statement that may stop the batch is the one that did.
       let stopped =
@@ -258,5 +267,5 @@ export function batches(
       throw stopped?.stops ? new Stopped(stopped) : error;
     }
   };
-  return { holds: false, send, end: async () => undefined };
+  return { holds: false, loose: true, send, end: async () => undefined };
 }

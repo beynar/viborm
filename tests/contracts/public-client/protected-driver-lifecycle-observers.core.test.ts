@@ -95,9 +95,12 @@ class LifecycleDriver extends Driver<object, object> {
     statement: string
   ): Promise<QueryResult<T>> {
     this.timeline.push(`provider:${statement}`);
-    const rows = statement.trimStart().startsWith("SELECT")
-      ? (this.selectRows ?? [])
-      : [];
+    // A statement that answers with rows: a read, or a write that says what it wrote.
+    const rows =
+      statement.trimStart().startsWith("SELECT") ||
+      statement.includes("RETURNING")
+        ? (this.selectRows ?? [])
+        : [];
     return { rows: rows as T[], rowCount: 1 };
   }
 

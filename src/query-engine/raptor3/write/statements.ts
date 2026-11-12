@@ -354,17 +354,18 @@ export class Writer {
         }
       : undefined;
   }
-  /** Whether `row` travels in the statement that inserts `rows`: the same columns, within what the provider binds in one statement. */
-  beside(model: AnyModel, rows: readonly Input[], row: Input): boolean {
+  /** Whether `row` travels in the statement that inserts `count` rows like `first`: the same columns, within what the provider binds in one statement. */
+  beside(model: AnyModel, first: Input, count: number, row: Input): boolean {
     const q = this.#q;
     const fields = Object.keys(row);
+    const bound = this.#operation.driver.maxBindParametersPerStatement;
+    if (fields.join() !== Object.keys(first).join()) return false;
+    if (bound === undefined) return true;
     const placed = q.domain?.produced(model);
     return (
-      fields.join() === Object.keys(rows[0]!).join() &&
-      (rows.length + 1) * fields.length +
+      (count + 1) * fields.length +
         ((placed && q.lowerSelector(placed)?.values.length) ?? 0) <=
-        (this.#operation.driver.maxBindParametersPerStatement ??
-          Number.POSITIVE_INFINITY)
+      bound
     );
   }
   /** Rows of `model`; where the call may not create one, the statement refuses it, in the name of `relation` where they are created through one. */

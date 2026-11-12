@@ -189,6 +189,8 @@ interface Step {
   take?(sent: Sent[]): void;
   attempt?: number;
   root?: boolean;
+  /** Whether it writes. */
+  writes?: boolean;
 }
 
 interface Answer {
@@ -238,6 +240,9 @@ export class Store {
   readonly #inserted = new WeakMap<Row, number>();
   /** What is computed of a row where it is written, by field. */
   readonly #computes = new WeakMap<Row, Input>();
+  /** How many times what the call wrote was made before the call ended. */
+  segments = 0;
+  #members: number[] = [];
   /** A row as the statement that read it whole said it. */
   readonly #raw = new WeakMap<Input, Input>();
   #meta = new WeakMap<Row, Meta>();
@@ -276,6 +281,7 @@ export class Store {
       this.#touched = new Set();
       this.#again = false;
       this.#made = 0;
+      this.#members = [];
       let answer: (() => T) | undefined;
       let refused: { error: unknown } | undefined;
       try {
@@ -1303,6 +1309,15 @@ export class Store {
       take: (sent) => take(sent.flatMap((each) => each.rows)),
     });
   }
+  /** A row of the call's own rows begins: what is written until the next is its. */
+  member(): void {
+    this.#members.push(this.#log.length);
+  }
+  /** How many of the call's own rows are made whole, where what the call sent before it failed stands. */
+  get members(): number {
+    const ends = [...this.#members.slice(1), this.#log.length];
+    return ends.filter((end) => end <= this.#sent).length;
+  }
   /** Refuses where no part of the call's unit can be undone alone. */
   attempts(rows: string): void {
     if (!this.#transport.attempt)
@@ -1650,11 +1665,12 @@ export class Store {
           ),
           ...this.#computes.get(row),
         });
+        const first = settled(entry.row);
         const fits = (rows: Row[], next: Entry | undefined) =>
           next?.kind === "insert" &&
           this.#meta.get(next.row)!.model === model &&
           next.relation === entry.relation &&
-          writer.beside(model, rows.map(settled), settled(next.row));
+          writer.beside(model, first, rows.length, settled(next.row));
         let rows = [entry.row];
         const mine = own.get(entry);
         // The rows written side by side that the read after them asks for, and nothing else of what the database decides of them: their statement answers it.
@@ -1805,7 +1821,8 @@ export class Store {
         const chunks: Input[][] = [];
         for (const row of entry.rows) {
           const chunk = chunks.at(-1);
-          if (chunk && writer.beside(entry.model, chunk, row)) chunk.push(row);
+          if (chunk && writer.beside(entry.model, chunk[0]!, chunk.length, row))
+            chunk.push(row);
           else chunks.push([row]);
         }
         steps.push({
@@ -1914,7 +1931,11 @@ export class Store {
     // The steps of a part undone alone are told apart, and the write of its first row among them.
     for (const [at, [from, entry]] of begins.entries())
       for (const step of steps.slice(from, begins[at + 1]?.[0]))
-        Object.assign(step, { attempt: entry.attempt, root: entry.root });
+        Object.assign(step, {
+          attempt: entry.attempt,
+          root: entry.root,
+          writes: entry.kind !== "read",
+        });
     if (scratch) {
       const { open, close } = writer.scratch(scratch.id, scratch.model);
       steps.unshift({ write: () => open });
@@ -1939,11 +1960,23 @@ export class Store {
       const statements = waiting.flatMap((written) => written.statements);
       const sent = statements.length > 0 ? await send(statements, end) : [];
       let at = 0;
-      for (const { statements: own, step } of waiting) {
-        step.take?.(sent.slice(at, at + own.length));
-        at += own.length;
-      }
+      const told = waiting.map(({ statements: own, step }) => ({
+        step,
+        part: sent.slice(at, (at += own.length)),
+      }));
       waiting = [];
+      // What was written outside a unit the call can undo is made, where a row was written.
+      if (
+        !within &&
+        this.#transport.loose &&
+        told.some(
+          ({ step, part }) =>
+            step.writes &&
+            part.some((each) => each.rowCount > 0 || each.rows.length > 0)
+        )
+      )
+        this.segments++;
+      for (const { step, part } of told) step.take?.(part);
     };
     for (let at = 0; at < steps.length; at++) {
       const step = steps[at]!;

@@ -125,6 +125,9 @@ async function open(shared: boolean) {
 
 const MEMBERS =
   'SELECT "q2"."orgId" AS "k0" FROM "member" AS "q2" WHERE "q2"."userId" COLLATE BINARY = ?';
+/** The repeated body stated once and the body holding it after it, whatever the aliases. */
+const SHARED_TWICE =
+  /^WITH "__shared_0" AS \(SELECT "q\d+"\."orgId" AS "k0" FROM "member" AS "q\d+" WHERE "q\d+"\."userId" COLLATE BINARY = \?\), "__shared_1" AS MATERIALIZED \(SELECT "q\d+"\."id" AS "k0" FROM "org" AS "q\d+" /;
 
 describe("relation bodies a statement repeats, stated once", () => {
   test("each repeated body is one definition its arms test; a nested one comes first; a body lowered once stays in place", async () => {
@@ -175,18 +178,15 @@ describe("relation bodies a statement repeats, stated once", () => {
       { id: "d1", title: "z" },
       { id: "d1", title: "z" },
     ]);
-    // The probe and the located row: `take: 1` lookups of the governed doc.
-    const lookups = shared.statements.filter((statement) =>
-      statement.endsWith("LIMIT ?")
+    // Every statement of the upsert that tests the governed doc states the
+    // repeated body once and reads it twice, however many statements it is.
+    const governed = shared.statements.filter((statement) =>
+      statement.includes('"doc"')
     );
-    expect(lookups).toHaveLength(2);
-    for (const lookup of lookups) {
-      expect(
-        lookup.startsWith(
-          `WITH "__shared_0" AS (${MEMBERS}), "__shared_1" AS MATERIALIZED (SELECT "q1"."id" AS "k0" FROM "org" AS "q1" `
-        )
-      ).toBe(true);
-      expect(lookup.split('FROM "__shared_1" WHERE').length - 1).toBe(2);
+    expect(governed.length).toBeGreaterThan(0);
+    for (const statement of governed) {
+      expect(statement).toMatch(SHARED_TWICE);
+      expect(statement.split('FROM "__shared_1" WHERE').length - 1).toBe(2);
     }
     for (const statement of plain.statements)
       expect(statement).not.toContain("WITH");
