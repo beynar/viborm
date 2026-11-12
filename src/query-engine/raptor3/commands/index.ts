@@ -1,4 +1,3 @@
-import { appendFileSync } from "node:fs";
 import { adapterPinnedTable } from "@adapters/adapter-internals";
 import type { Operations } from "@client/types";
 import type { QueryExecutionContext } from "@drivers/types";
@@ -7,8 +6,6 @@ import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
 import { baseOperation } from "../../routed-operations";
 import type { PreparedBatchOperation } from "../../types";
-import { OUTSIDE, planSets, prepareSets } from "../plan/sets";
-import { declined, planWrite, UNSUPPORTED } from "../plan/write";
 import { renderers } from "../shared/insert-value";
 import type {
   ExecutionBinding,
@@ -17,7 +14,7 @@ import type {
 import { admitProjected } from "../shared/projected";
 import type { Leaf, ProjectionShape, Read } from "../shared/query";
 import { PreparedDomain, type Queries } from "../shared/query";
-import { engineBackend } from "../shared/query-backend";
+import { type EngineBackend, engineBackend } from "../shared/query-backend";
 import {
   type CallRows,
   type CallScope,
@@ -34,19 +31,9 @@ import {
 } from "../shared/schema";
 import { SqlOperationContext } from "../shared/sql-operation-context";
 import { SqlQueries } from "../shared/sql-queries";
-import { OUTSIDE as IMAGE_OUTSIDE, prepareCall, writeCall } from "../write";
-import { Commands, type PhysicalPlan } from "./commands";
+import { prepareCall, writeCall } from "../write";
 
-/** PROTOTYPE: the verbs the plan is asked about. */
-const PLANNED = [
-  "create",
-  "update",
-  "delete",
-  "upsert",
-  "createMany",
-  "updateMany",
-  "deleteMany",
-];
+type BackendPlan = ReturnType<EngineBackend["plan"]>;
 
 /**
  * What a prepared read publishes before it runs.
@@ -55,13 +42,6 @@ const PLANNED = [
  * FROM it, by asking the prepared `Read` what it publishes for zero rows, so the
  * two cannot disagree for any verb.
  */
-/** MEASURE: the hooks a measuring run installs (measure-preload.mjs). */
-interface Measure {
-  aside<T>(bucket: (answer: T | undefined) => string, work: () => T): T;
-  enter(kind: "P" | "J" | "W" | "O"): void;
-  leave(kind: "P" | "J" | "W" | "O"): void;
-}
-
 export interface PreparedRead {
   /**
    * The shape of the ROW the prepared statement decodes. For every verb whose
@@ -251,8 +231,10 @@ class PreparedCommand implements PreparedOperation {
     );
   }
 
-  #plan(context: OperationContext): PhysicalPlan {
-    return new Commands(context).plan(
+  /** A write in a language of the driver's own: the driver's backend says how it runs. */
+  #plan(context: OperationContext): BackendPlan {
+    return engineBackend(this.#config.driver.backend!).plan(
+      context,
       this.#model,
       this.args,
       this.#rawArgs as Arguments
@@ -262,18 +244,11 @@ class PreparedCommand implements PreparedOperation {
   #body(context: OperationContext) {
     const value = this.#read();
     if (value) return context.run(() => context.publish(value, this.#missing));
-    // The physical form is constructed BEFORE the envelope decision and runs
-    // once, whichever envelope the rule chooses.
-    let planned: PhysicalPlan | undefined = this.#plan(context);
+    // The physical form is constructed before the envelope decision and runs
+    // once, whichever envelope the rule chooses; each attempt after the first
+    // plans again from the same admitted arguments.
+    let planned: BackendPlan | undefined = this.#plan(context);
     const single = planned.single;
-    // Each ATTEMPT runs its own occurrence tree. The envelope restart and the
-    // recovery both re-enter this body, and a recovery re-plans from the same
-    // ADMITTED arguments — never re-validated, never re-transformed (rule 10,
-    // Arnaud's D-25) — because the tree that ran carries the members it
-    // captured and a series occurrence is expanded exactly once. The first
-    // attempt consumes the plan built above, which is also the plan that
-    // answered the envelope question, so nothing is constructed twice to
-    // START an operation.
     return context.run(() => {
       const plan = planned ?? this.#plan(context);
       planned = undefined;
@@ -281,284 +256,68 @@ class PreparedCommand implements PreparedOperation {
     }, single);
   }
 
-  /** MEASURE: a create or update the plan does not take ("W"), or another verb ("O"). */
-  #kind(): "W" | "O" {
-    return this.#operation === "create" || this.#operation === "update"
-      ? "W"
-      : "O";
-  }
-
-  /** PROTOTYPE: is this call one the plan is asked about? */
-  #offered(binding?: ExecutionBinding): boolean {
-    return (
-      PLANNED.includes(this.#operation) &&
-      (!binding || binding.kind === "standalone") &&
-      !this.#config.driver.backend
-    );
-  }
-
-  /** PROTOTYPE: the plan's run of this call, when the plan takes it. */
-  #offer(
-    binding?: ExecutionBinding,
-    attribution?: QueryExecutionContext
-  ): (() => Promise<unknown>) | undefined {
-    {
-      // PROTOTYPE: a standalone write runs as a physical plan, under whatever row scope the call has.
-      // PROTOTYPE accounting: where each create and update of a run went.
-      const ledger = (line: string) => {
-        if (line !== "planned") {
-          const tally = globalThis as { unplannedWrites?: number };
-          tally.unplannedWrites = (tally.unplannedWrites ?? 0) + 1;
-        }
-        if (process.env.VIBORM_PLAN_LEDGER)
-          appendFileSync(process.env.VIBORM_PLAN_LEDGER, `${line}\n`);
-      };
-      const writes = PLANNED.includes(this.#operation);
-      const offered = this.#offered(binding);
-      if (writes && !offered && process.env.VIBORM_PHYSICAL_PLAN !== "sets")
-        ledger(
-          `not offered: ${
-            binding && binding.kind !== "standalone"
-              ? "a caller's transaction"
-              : "a driver with its own backend"
-          }`
-        );
-      // PROTOTYPE: the second foundation, statements over sets of rows. It
-      // takes a call inside its caller's transaction too.
-      // PROTOTYPE: the image. It takes a call inside its caller's transaction too.
-      if (process.env.VIBORM_PHYSICAL_PLAN === "image") {
-        if (!writes || this.#config.driver.backend) return;
-        const tally = (line: string) => {
-          if (line === "planned") {
-            const counted = globalThis as { plannedCreates?: number };
-            counted.plannedCreates = (counted.plannedCreates ?? 0) + 1;
-          }
-          ledger(line);
-        };
-        return () =>
-          writeCall(
-            this.#context(false, attribution, binding) as SqlOperationContext,
-            this.#config.driver,
-            this.#model,
-            this.args,
-            this.#rawArgs,
-            binding
-          ).then(
-            (answer) => {
-              tally("planned");
-              return answer;
-            },
-            (error) => {
-              // A call found outside wrote nothing: the shipped engine runs it.
-              if (error !== IMAGE_OUTSIDE) {
-                tally("planned");
-                throw error;
-              }
-              tally("declined: outside the image");
-              return this.#body(this.#context(false, attribution, binding));
-            }
-          );
-      }
-      if (process.env.VIBORM_PHYSICAL_PLAN === "sets") {
-        if (!writes || this.#config.driver.backend) return;
-        const tally = (line: string) => {
-          if (line === "planned") {
-            const counted = globalThis as { plannedCreates?: number };
-            counted.plannedCreates = (counted.plannedCreates ?? 0) + 1;
-          }
-          ledger(line);
-        };
-        return () =>
-          planSets(
-            this.#context(false, attribution, binding) as SqlOperationContext,
-            this.#config.driver,
-            this.#model,
-            this.args,
-            this.#rawArgs,
-            binding
-          ).then(
-            (answer) => {
-              tally("planned");
-              return answer;
-            },
-            (error) => {
-              // A call found outside wrote nothing: the shipped engine runs it.
-              if (error !== OUTSIDE) {
-                tally("planned");
-                throw error;
-              }
-              tally("declined: outside the foundation");
-              return this.#body(this.#context(false, attribution, binding));
-            }
-          );
-      }
-      if (process.env.VIBORM_PHYSICAL_PLAN && offered)
-        try {
-          const run = planWrite(
-            this.#context(false, attribution, binding) as SqlOperationContext,
-            this.#config.driver,
-            this.#model,
-            this.args,
-            this.#rawArgs,
-            binding?.writeOutcome
-          );
-          (globalThis as { plannedCreates?: number }).plannedCreates =
-            ((globalThis as { plannedCreates?: number }).plannedCreates ?? 0) +
-            1;
-          ledger("planned");
-          return run;
-        } catch (error) {
-          if (error !== UNSUPPORTED) throw error;
-          ledger(`declined: ${declined.reason}`);
-        }
-      return;
-    }
+  /** Whether the call is a write in SQL: the engine's own write path runs it. */
+  get #writes(): boolean {
+    return !(isReadOperation(this.#operation) || this.#config.driver.backend);
   }
 
   execute(
     binding?: ExecutionBinding,
     attribution?: QueryExecutionContext
   ): Promise<unknown> {
-    const measure = (globalThis as { __measure?: Measure }).__measure;
-    if (!measure)
-      try {
-        const run = this.#offer(binding, attribution);
-        return run
-          ? run()
-          : this.#body(this.#context(false, attribution, binding));
-      } catch (error) {
-        return Promise.reject(error);
-      }
-    // MEASURE: what executes for this call is filed under its kind: "P" when
-    // the plan takes it, "J" when it takes it through a junction. In shadow
-    // mode the plan only says whether it would (filed apart), and the engine
-    // runs the call.
-    const shadow = process.env.VIBORM_PHYSICAL_PLAN === "shadow";
-    let run: (() => Promise<unknown>) | undefined;
-    let refusal: { error: unknown } | undefined;
-    if (process.env.VIBORM_PHYSICAL_PLAN && this.#offered(binding))
-      measure.aside(
-        (taken) => {
-          if (shadow) return "dry";
-          if (!taken) return "declined";
-          return declined.junction ? "J" : "P";
-        },
-        () => {
-          declined.junction = false;
-          try {
-            run = this.#offer(binding, attribution);
-          } catch (error) {
-            refusal = { error };
-          }
-          return Boolean(run || refusal);
-        }
-      );
-    let kind: "P" | "J" | "W" | "O" = this.#kind();
-    if (run || refusal) kind = declined.junction ? "J" : "P";
-    measure.enter(kind);
-    let answer: Promise<unknown>;
     try {
-      if (refusal && !shadow) answer = Promise.reject(refusal.error);
-      else if (run && !shadow) answer = run();
-      else answer = this.#body(this.#context(false, attribution, binding));
+      const context = this.#context(false, attribution, binding);
+      return this.#writes
+        ? writeCall(
+            context as SqlOperationContext,
+            this.#config.driver,
+            this.#model,
+            this.args,
+            this.#rawArgs,
+            binding
+          )
+        : this.#body(context);
     } catch (error) {
-      answer = Promise.reject(error);
+      return Promise.reject(error);
     }
-    return answer.then(
-      (value) => {
-        measure.leave(kind);
-        return value;
-      },
-      (error) => {
-        measure.leave(kind);
-        throw error;
-      }
-    );
   }
 
   prepareSingle(
-    attribution?: QueryExecutionContext
-  ): PreparedBatchOperation<unknown> | undefined {
-    const measure = (globalThis as { __measure?: Measure }).__measure;
-    const kind = this.#kind();
-    measure?.enter(kind);
-    try {
-      return this.#prepareSingle(attribution);
-    } finally {
-      measure?.leave(kind);
-    }
-  }
-
-  async prepareBatch(
-    attribution?: QueryExecutionContext
-  ): Promise<PreparedBatchOperation<unknown> | undefined> {
-    const measure = (globalThis as { __measure?: Measure }).__measure;
-    const kind = this.#kind();
-    measure?.enter(kind);
-    try {
-      return await this.#prepareBatch(attribution);
-    } finally {
-      measure?.leave(kind);
-    }
-  }
-
-  #prepareSingle(
     attribution?: QueryExecutionContext
   ): PreparedBatchOperation<unknown> | undefined {
     // Preparing admits the input whatever the verb compiles to: an
     // operation that publishes no single query still answers for the
     // payload it was handed, exactly as `prepareBatch` does.
     this.args;
+    // A write in SQL is prepared by asking: its owner asks for the package.
+    if (this.#writes) return undefined;
     const context = this.#context(true, attribution);
     const value = this.#read();
     if (value) {
       context.publishPrepared(value, this.#missing);
       return context.preparedBatch();
     }
-    // D-20: a WRITE whose plan is one statement publishes the same package
-    // (`prepareBatch` would publish it too), so the array owner parses it
-    // through its own `parseResult` seam and interceptor onion instead of
-    // through the batch. It is not a second preparation: this is the
-    // preparation, and `Commands.plan` states the ONE-statement
-    // admissibility itself. Preparation reaches no driver and queues
-    // synchronously, so the package is in hand when this returns; anything
-    // it would refuse — a capability gate, the dynamic-planning sentinel —
-    // is refused again, and reported, by the arm that actually runs the
-    // operation, which is the only arm a caller takes once no single
-    // package is published.
+    // A write whose plan is one statement publishes the same package.
+    // Preparation reaches no driver and queues synchronously; anything it
+    // would refuse is refused again by the arm that runs the operation.
     const plan = this.#plan(context);
     if (!plan.single) return undefined;
     plan.run().catch(() => undefined);
     return context.preparedBatch();
   }
 
-  async #prepareBatch(
+  async prepareBatch(
     attribution?: QueryExecutionContext
   ): Promise<PreparedBatchOperation<unknown> | undefined> {
     const context = this.#context(true, attribution);
-    // PROTOTYPE: the second foundation hands its one unit to the array's owner.
-    if (
-      (process.env.VIBORM_PHYSICAL_PLAN === "sets" ||
-        process.env.VIBORM_PHYSICAL_PLAN === "image") &&
-      PLANNED.includes(this.#operation) &&
-      !this.#config.driver.backend
-    )
-      try {
-        const unit = await (process.env.VIBORM_PHYSICAL_PLAN === "image"
-          ? prepareCall
-          : prepareSets)(
-          context as SqlOperationContext,
-          this.#config.driver,
-          this.#model,
-          this.args,
-          this.#rawArgs
-        );
-        const counted = globalThis as { plannedCreates?: number };
-        counted.plannedCreates = (counted.plannedCreates ?? 0) + 1;
-        return unit;
-      } catch (error) {
-        if (error !== OUTSIDE && error !== IMAGE_OUTSIDE) throw error;
-      }
+    if (this.#writes)
+      return prepareCall(
+        context as SqlOperationContext,
+        this.#config.driver,
+        this.#model,
+        this.args,
+        this.#rawArgs
+      );
     try {
       await this.#body(context);
     } catch (error) {

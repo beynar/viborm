@@ -5,8 +5,10 @@
  * does not compile.
  */
 
+import type { AnyModel } from "@schema/model";
 import type { OperationContext } from "./operation-context";
 import type { Queries } from "./query";
+import type { Arguments } from "./schema";
 
 declare const OPAQUE: unique symbol;
 
@@ -34,4 +36,11 @@ export interface EngineBackend {
   readonly context: new (
     ...args: ConstructorParameters<typeof OperationContext>
   ) => OperationContext;
+  /** How a write runs in the backend's language: one statement where `single`. */
+  readonly plan: (
+    context: OperationContext,
+    model: AnyModel,
+    args: Arguments,
+    raw: Arguments
+  ) => { readonly single: boolean; run(): Promise<unknown> };
 }

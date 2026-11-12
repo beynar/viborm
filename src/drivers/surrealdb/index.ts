@@ -24,6 +24,7 @@ import {
   UnsupportedOperationError,
   VibORMErrorCode,
 } from "@errors";
+import { Commands } from "@query-engine/raptor3/commands/commands";
 import { queryBackend } from "@query-engine/raptor3/shared/query-backend";
 import type { Sql } from "@sql";
 import {
@@ -247,6 +248,8 @@ export class SurrealDriver
   override readonly backend = queryBackend({
     queries: SurrealQueries,
     context: SurrealOperationContext,
+    plan: (context, model, args, raw) =>
+      new Commands(context).plan(model, args, raw),
   });
   readonly supportsTransactions = true;
   readonly supportsBatch = false;
