@@ -1446,7 +1446,16 @@ export class Store {
           (value): value is JoinedValue => value instanceof JoinedValue
         );
       const rows = this.rows(joined ? { ...question, joined } : question);
-      if (stops && !watched && rows.length > 0) {
+      const take = (read: Input[]) => {
+        later.sent = { rows: read, rowCount: read.length };
+      };
+      const answer = () =>
+        projection
+          ? this.series(model, rows, projection, "updateMany", take)
+          : take(rows);
+      // Rows that go answer as they were; rows that are written or kept, as that leaves them.
+      if (!(set || marks)) answer();
+      if (stops && rows.length > 0)
         this.none(
           {
             model,
@@ -1456,30 +1465,11 @@ export class Store {
           },
           stops
         );
-        const take = (read: Input[]) => {
-          later.sent = { rows: read, rowCount: read.length };
-        };
-        for (const row of rows) {
-          this.update(row, marks!, undefined, undefined, true);
-          this.#meta.get(row)!.gone = true;
-        }
-        // They answer as their marks leave them.
-        if (projection)
-          this.series(model, rows, projection, "updateMany", take);
-        else take(rows);
-        return later;
-      }
-      const take = (read: Input[]) => {
-        later.sent = { rows: read, rowCount: read.length };
-      };
-      const answer = () =>
-        projection
-          ? this.series(model, rows, projection, "updateMany", take)
-          : take(rows);
-      if (!set) answer();
-      // Marked as rows that go are taken: those an absent control would show.
       for (const row of rows)
-        if (set)
+        if (marks) {
+          this.update(row, marks, undefined, undefined, true);
+          this.#meta.get(row)!.gone = true;
+        } else if (set)
           this.update(
             row,
             set,
@@ -1488,7 +1478,7 @@ export class Store {
             question.intent === "delete"
           );
         else this.delete(row);
-      if (set) answer();
+      if (set || marks) answer();
       return later;
     }
     if (marks) {
