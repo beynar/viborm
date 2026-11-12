@@ -39,26 +39,49 @@ carries the key or the token: pass `privateKey` or `token` beside it.
 | Option | Meaning |
 | --- | --- |
 | `databaseUrl` | `snowflake://USER@ACCOUNT/DATABASE/SCHEMA?warehouse=…&role=…` |
-| `account` | `ORGNAME-ACCOUNTNAME`, or an account locator (`xy12345.us-east-1`) |
+| `account` | The account identifier (see below) |
 | `username` | The user the key belongs to |
-| `privateKey` | The RSA private key of key-pair authentication, or an imported `CryptoKey` |
-| `token` | An OAuth token, or a function answering a fresh one (for refreshing) |
+| `privateKey` | The RSA private key of key-pair authentication (PKCS#8 or PKCS#1 PEM, its line breaks real or written `\n`), or an imported **extractable** `CryptoKey` |
+| `token` | An OAuth token, or a function answering a fresh one, asked before each request (for refreshing) |
 | `tokenType` | `"OAUTH"` (default) or `"PROGRAMMATIC_ACCESS_TOKEN"` |
-| `warehouse`, `database`, `role` | The context every statement runs in |
+| `warehouse`, `database`, `role` | The context every statement runs in, spelled as the catalog spells them (usually upper case) |
 | `namespace` | The schema every statement runs in, and the one VibORM qualifies its tables with |
-| `timeout` | Seconds a statement may run; past it, Snowflake and the driver cancel it |
-| `host` | The API's base URL, when it is not `https://<account>.snowflakecomputing.com` |
-| `fetch` | The `fetch` to send with |
-| `parameters` | Session parameters added to every statement's |
+| `timeout` | Seconds a statement may run (see [Timeouts](#timeouts)) |
+| `host` | The API's base URL, when it is not `https://<account>.snowflakecomputing.com`: a proxy, a test server. The token goes wherever it says |
+| `fetch` | The `fetch` to send with: any `(url, init) => Promise<Response>` |
+| `parameters` | `QUERY_TAG`, `USE_CACHED_RESULT` or `CLIENT_RESULT_CHUNK_SIZE`, added to every statement's session |
 
 A field given beside `databaseUrl` takes precedence over the URL's. Use exactly
 one credential: a `privateKey` (with `username`) or a `token`.
 
+The account is the first labels of the API's host, and nothing else: an
+organization and account name (`myorg-myaccount`), a locator with its region
+(`xy12345.us-east-1`, `xy12345.us-east-1.aws`), or a private link
+(`xy12345.us-east-1.privatelink`). VibORM refuses, before sending anything, an
+account that would name another host: a scheme, a path, a user, a port or a
+query. Any other endpoint (`.snowflakecomputing.cn`, a proxy) is `host`.
+
+A `CryptoKey` must be extractable: the driver reads its public half to compute
+the fingerprint Snowflake checks, and refuses a key it cannot read with a
+`ClientInitializationError`.
+
+Every other session parameter is refused when the client is created, in any
+case: the driver decodes results in the formats and time zone it fixes (a
+`DATE_OUTPUT_FORMAT` or `BINARY_OUTPUT_FORMAT` would make it read wrong
+values), runs one statement at a time (`MULTI_STATEMENT_COUNT`) and reads
+every row (`ROWS_PER_RESULTSET`).
+
+The user's `QUOTED_IDENTIFIERS_IGNORE_CASE` must stay `FALSE`, its default:
+with it, Snowflake upper-cases every quoted name a statement gives its columns,
+and VibORM finds none of them. The SQL API refuses to set it per statement, so
+the driver cannot set it for you (measured).
+
 ## Names
 
-VibORM quotes every identifier, so a model reads the table whose name it maps to
-**exactly**. Snowflake stores an unquoted name in upper case: a table created as
-`CREATE TABLE orders` is `ORDERS`, and its model needs `.map("ORDERS")`.
+VibORM quotes every identifier, so a model reads the table and the columns
+whose names it maps to **exactly**. Snowflake stores an unquoted name in upper
+case: a table created as `CREATE TABLE orders (id NUMBER)` is `ORDERS`, its
+column `ID`, and its model needs `.map("ORDERS")` and `id: s.int().id().map("ID")`.
 [`introspectSchema`](/docs/schema/introspect) writes each name as the catalog
 spells it, so a schema built from it needs no care.
 
@@ -66,7 +89,7 @@ spells it, so a schema built from it needs no care.
 
 | Operation | Notes |
 | --- | --- |
-| `findMany`, `findFirst`, `findUnique` and their `OrThrow` forms | With nested `include` / `select`, `where`, `orderBy`, `take`, `skip`, `cursor`, `distinct` at the root |
+| `findMany`, `findFirst`, `findUnique` and their `OrThrow` forms | With nested `include` / `select`, `where`, `orderBy`, `take`, `skip`, `distinct` at the root, and `cursor` ordered by the model's single-field key alone |
 | Nested relations | `where`, `orderBy` on the related row's own fields, `take` (negative included), `skip`, `_count` |
 | Relation filters | `some`, `every`, `none`, `is`, `isNot` |
 | `count`, `exist`, `aggregate`, `groupBy` | Sums and averages exact on `NUMBER` columns |
@@ -83,7 +106,27 @@ its rows per key (`ROW_NUMBER() … QUALIFY`), and only the `ARRAY_AGG` around i
 is correlated, by an equality, which Snowflake turns into a grouped join.
 
 That page reads the related table set-wise. On a large table, a nested read
-costs what its whole relation costs, not what the parent's rows reach.
+costs what its whole relation costs, not what the parent's rows reach. Two
+levels deep, Snowflake pushes the root's filter into the first level's page
+only (measured on a query plan): the second level's page scans every row of
+its relation, whichever parents the root keeps. `findUnique` with an
+`include` pays the same.
+
+### Keys Snowflake does not enforce
+
+Snowflake stores a `PRIMARY KEY` and a `UNIQUE` key and enforces neither. A
+read that relies on one reads what the table holds: `findUnique` answers the
+first of two rows sharing the key, and an order by a to-one relation lists a
+row twice when two target rows share the key it joins on. VibORM cannot tell:
+keep the keys true with Snowflake's own tools.
+
+### Timeouts
+
+A statement runs with `timeout` sent to Snowflake. The SQL API answers with a
+statement's handle only at its first `202`, after 45 seconds: before it,
+Snowflake's own timeout stops the statement; after it, the driver also cancels
+it, waits at most 2 seconds for the answer, and answers `QUERY_TIMEOUT` either
+way (both measured).
 
 ## What is refused
 
@@ -92,15 +135,33 @@ anything is sent**:
 
 - `create`, `createMany`, `update`, `updateMany`, `upsert`, `delete`,
   `deleteMany`, and every nested write;
-- `$executeRaw` and `$executeRawUnsafe`;
-- every migration command that could write (`push`, `apply`, `reset`, …).
+- `$executeRaw` and `$executeRawUnsafe`.
+
+`createMigrationClient` refuses a Snowflake client with a `MigrationError`
+(`V8001`), so every migration command (`push`, `apply`, `log`, `status`, …) is
+refused before it reads its storage or sends anything. Only
+[introspection](#introspection) reads a warehouse.
 
 A `$transaction`, callback or array, fails with a `TransactionError` before
 anything is sent: the SQL API runs each statement on its own.
 
-And with an `UnsupportedOperationError`, before anything is sent, in a nested
-relation: `cursor`, `distinct`, an order by a related row or a `_count`, a
-recursive relation, a polymorphic slot, a junction's `$through` row.
+And with an `UnsupportedOperationError`, before anything is sent:
+
+- a recursive filter (`recurse` in a `where`, the caller's or a permission
+  rule's): Snowflake refuses the recursive walk VibORM writes ("is an invalid
+  Recursive CTE", measured);
+- a root `cursor` ordered by anything but the model's single-field key: the
+  comparison would need a multi-column subquery, which Snowflake refuses
+  (measured); order by the key, or page with `skip`;
+- in a nested relation: `cursor`, `distinct`, an order by a related row or a
+  `_count`, a recursive relation, a polymorphic slot, a junction's `$through`
+  row.
+
+What VibORM does not refuse can still write: `$queryRaw` and
+`$queryRawUnsafe` send their text as written, and so do `$driver._execute`
+and a query interceptor. A role with only `SELECT` privileges is what
+guarantees nothing writes. An extension's write verb (`move`, `restore`) may
+send its reads before its write is refused.
 
 ### Why VibORM does not write to Snowflake
 
@@ -110,9 +171,6 @@ on a warehouse that bills while it runs. What a VibORM write promises — the ro
 unique key addresses, a relation that holds, a nested write that rolls back to
 where it failed — would not hold there. Write with Snowflake's own tools
 (`COPY INTO`, `MERGE`, tasks, dbt).
-
-`$queryRaw` sends its text as written: a role with only `SELECT` privileges is
-what guarantees nothing writes.
 
 ## Types
 
@@ -139,7 +197,7 @@ operand binds as a `TIMESTAMP_TZ` at UTC.
 
 A JSON number inside a `VARIANT` read through `$queryRaw` is parsed by
 `JSON.parse`, so an integer past 2^53 there rounds, and the SQL API prints a
-`VECTOR` with six decimals. VibORM's own reads lose nothing: `bigint`,
+`VECTOR` with six decimals. A SQL `NULL` inside an `ARRAY` reads as `null`. VibORM's own reads lose nothing: `bigint`,
 `Decimal` and `number` values travel as text inside the documents they build (a
 `VARIANT` prints a double with 16 significant digits, one short of every
 double), a vector as the text of its exact members, and a point as two exact
@@ -185,10 +243,12 @@ relations are: each declared foreign key becomes a relation. A warning says so.
   `VARCHAR` a `string`; the three timestamps a `dateTime` (a `TIMESTAMP_NTZ`
   with an `approximated` warning: it is read as UTC); `BINARY` a `blob`;
   `VARIANT`, `OBJECT` and `ARRAY` a `json`; `VECTOR(FLOAT, n)` a `vector` of
-  dimension `n` (read from `SHOW COLUMNS`, since `INFORMATION_SCHEMA` does not
-  state it); `GEOGRAPHY` a `point`, with an `approximated` warning (it may hold
+  dimension `n` (read from `SHOW COLUMNS` of its table, since
+  `INFORMATION_SCHEMA` does not state it); `GEOGRAPHY` a `point`, with an `approximated` warning (it may hold
   another shape); `CURRENT_TIMESTAMP()` a `now` default.
 - A view, and a column with no VibORM scalar (`GEOMETRY`, `VECTOR(INT, n)`),
   are listed in `skipped`.
 - No `drift` warning is reported: nothing is ever pushed to Snowflake.
-- A key into another schema is left out.
+- A key into another schema or another database is listed in `skipped`, with
+  the table it names (`CRM.PUBLIC.CUSTOMERS`): never read as a relation to
+  this schema's table of the same name.

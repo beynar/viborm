@@ -200,7 +200,8 @@ a row's key is NULL, and cannot keep what the table carries beyond the document
 Pass a [`SnowflakeDriver`](/docs/drivers/snowflake): a `snowflake://` URL carries
 no key or token, and `introspectSchema({ url })` refuses one. Snowflake declares
 keys and enforces none: each declared foreign key becomes a relation, and an
-`approximated` warning says the document's keys may not hold. Nothing is ever
+`approximated` warning says the document's keys may not hold. A key into
+another schema or database is listed in `skipped`. Nothing is ever
 pushed to Snowflake, so no `drift` warning is reported. The
 [Snowflake page](/docs/drivers/snowflake#introspection) lists the types.
 

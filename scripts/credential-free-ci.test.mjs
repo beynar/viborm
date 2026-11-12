@@ -140,7 +140,9 @@ const snowflakeTestStep = "      - name: Read a real Snowflake account\n";
 function assertSnowflakeReports(job) {
   assert(job.includes("\n    continue-on-error: true\n"));
   const [setup, test] = job.split(snowflakeTestStep);
-  assert(test?.includes(`          SNOWFLAKE_TEST_CREDENTIALS: ${snowflakeSecret}\n`));
+  assert(
+    test?.includes(`          SNOWFLAKE_TEST_CREDENTIALS: ${snowflakeSecret}\n`)
+  );
   // Before the test step, the secret only answers whether it is set.
   const [preamble, ...steps] = setup.split("\n      - name: ");
   assert(!preamble.includes(snowflakeSecret));
