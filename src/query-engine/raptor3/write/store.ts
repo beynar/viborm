@@ -1249,7 +1249,14 @@ export class Store {
       take: ([sent]) => {
         if (hears.length === 0) return;
         const [said] = this.writer.keys(model, sent!.rows);
-        for (const field of hears) row[field] = said?.[field];
+        // A write that is to say the key it gave its row says it, or wrote no row.
+        if (!said)
+          throw createFailureError(
+            this.writer.absent(meta.question ?? { model }),
+            model["~"].names.ts!,
+            this.operation.operation
+          );
+        for (const field of hears) row[field] = said[field];
       },
     });
     // A kept row that goes is seen as the update it is.

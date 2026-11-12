@@ -26,6 +26,7 @@ import {
   prepared,
   type Transport,
   unproven,
+  unsaid,
 } from "./send";
 import { Lost, SEVERAL, Store } from "./store";
 import { verbs } from "./verbs";
@@ -117,14 +118,21 @@ export async function writeCall(
     await transport.end(error);
     const loose = unproven.has(error as object);
     let failure = operation.failure(error);
-    // What stands of a call that failed after a part of it was made is said with its failure.
-    if (store.segments > 0 && !transport.holds)
+    // What stands of a call that failed after a part of it was made is said with its failure; and so that its one unit may have been made.
+    const made = store.segments > 0;
+    if (
+      (made ||
+        (unsaid.has(error as object) &&
+          !(error instanceof UniqueConstraintError))) &&
+      !transport.holds
+    )
       failure = attachRecordSeriesProgress(failure, {
         atomicity: "segment",
         phase: store.said ? "result" : "member",
         committedSegments: store.segments,
-        completedMembers: store.members(true),
-        committedWriteMembers: store.members(),
+        // Of a unit that may have been made, nothing is known to be.
+        completedMembers: made ? store.members(true) : 0,
+        committedWriteMembers: made ? store.members() : 0,
         ...(loose && { mayHaveCommittedSegment: true as const }),
       });
     // What the call sent outside a transaction of its own and cannot prove undone may be there: a key already taken proves it.

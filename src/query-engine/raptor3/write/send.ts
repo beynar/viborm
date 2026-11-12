@@ -78,6 +78,8 @@ export const refusedBy = new WeakMap<object, Statement>();
 
 /** The failures of what was sent outside any unit that proves it undone: what it wrote may be there. */
 export const unproven = new WeakSet<object>();
+/** Those of them that say nothing of which statement failed, of several sent as one unit by a driver that does not say when a unit is made: the unit may have been made whole. */
+export const unsaid = new WeakSet<object>();
 const loose = (error: unknown): never => {
   if (typeof error === "object" && error) unproven.add(error);
   throw error;
@@ -231,7 +233,18 @@ export function batches(
           );
     } catch (error) {
       // A unit that stops itself is undone; one that fails otherwise may have been made.
-      if (!(error instanceof NestedWriteAssertionError)) loose(error);
+      if (!(error instanceof NestedWriteAssertionError)) {
+        if (
+          statements.length > 1 &&
+          !driver.supportsOrderedCommittedSegments &&
+          typeof error === "object" &&
+          error &&
+          (error as { meta?: { statementIndex?: number } }).meta
+            ?.statementIndex === undefined
+        )
+          unsaid.add(error);
+        loose(error);
+      }
       // The statement that stopped the batch is the one the provider points
       // at. Where it points at none, what was asked for its own sake is
       // asked again together, then each judgement; where all still hold, it

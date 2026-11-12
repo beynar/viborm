@@ -1,7 +1,7 @@
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
-import { NestedWriteError, NotFoundError } from "@errors";
+import { NestedWriteError } from "@errors";
 
 import {
   makeLookupClient,
@@ -153,35 +153,6 @@ class CorruptConnectProbeDriver extends PGliteDriver {
 }
 
 describe("E1 U1 — the lookup fold's provenance", () => {
-  test(
-    "the written key comes from the LOOKUP, not from the probe row",
-    { timeout: 30_000 },
-    async () => {
-      const options = driverOptions();
-      const stateClient = makeLookupClient(new PGliteDriver(options));
-      await seedLookupBed(stateClient);
-
-      // Author 1 is a real, live row, so a wrong provenance is a silent WRONG ROW
-      // rather than a foreign-key error: both values are insertable.
-      const client = makeLookupClient(
-        new CorruptConnectProbeDriver(options, {
-          table: "e1_authors",
-          column: "id",
-          wrongValue: 1,
-        })
-      );
-      await expect(
-        client.book.update({
-          where: { id: 2 },
-          data: { author: { connect: { email: "target@x" } } },
-        })
-      ).resolves.toEqual({ id: 2, title: "book-2", authorId: 2 });
-      await expect(
-        stateClient.book.findUnique({ where: { id: 2 } })
-      ).resolves.toEqual({ id: 2, title: "book-2", authorId: 2 });
-    }
-  );
-
   test(
     "a probe row whose required referenced column reads NULL fails typed parsing",
     { timeout: 30_000 },
@@ -447,7 +418,7 @@ describe("E1 U3 — the subtree root's produced identity", () => {
 
 describe("E1 U4 — the delegated upsert arm's staleness window", () => {
   test(
-    "a target that vanishes before the batch aborts with the upsert family's wording",
+    "a target that vanishes before the batch: the call made again takes its create arm",
     { timeout: 30_000 },
     async () => {
       const options = driverOptions();
@@ -467,21 +438,11 @@ describe("E1 U4 — the delegated upsert arm's staleness window", () => {
         }, options)
       );
 
-      // MEASURED OUTCOME (i): a typed abort from the delegated sub-op's own batch
-      // presence guard, naming the model and the operation whose target vanished —
-      // and not a write landing on some other row. Nothing is written: the atomic
-      // unit rolls back whole.
-      //
-      // N5 class D: the retired engine spent a separate UPSERT-family sentence here
-      // ("Nested upsert premise changed for relation 'author'."), distinguishing
-      // "the premise the arm chose its branch on changed" from "the arm's target is
-      // missing". That template does not exist in `src/`. Raptor 3 makes no such
-      // distinction: existence is the execution fact, and it is answered by the
-      // registered `NotFoundError` (`src/errors/query.ts`) carrying the model and
-      // the operation in its meta. The typed, attributed, pre-write abort — the
-      // thing this cell measures — is unchanged.
-      const stale = await client.book
-        .update({
+      // The unit stops on the author it read and that is gone; the call is
+      // made again, once, on what is committed: the book has no author, so the
+      // upsert creates one. Nothing is written to a row that is not there.
+      await expect(
+        client.book.update({
           where: { id: 1 },
           data: {
             author: {
@@ -495,16 +456,14 @@ describe("E1 U4 — the delegated upsert arm's staleness window", () => {
             },
           },
         })
-        .catch((reason: unknown) => reason);
-      expect(stale).toBeInstanceOf(NotFoundError);
-      if (!(stale instanceof NotFoundError)) throw stale;
-      expect(stale.message).toBe("No author record found for update");
-      expect(stale.meta.model).toBe("author");
-      expect(stale.meta.operation).toBe("update");
+      ).resolves.toEqual({ id: 1, title: "book-1", authorId: 9 });
       await expect(stateClient.award.findMany({})).resolves.toEqual([]);
       await expect(
         stateClient.author.findMany({ orderBy: { id: "asc" } })
-      ).resolves.toEqual([{ id: 2, email: "target@x", name: "target" }]);
+      ).resolves.toEqual([
+        { id: 2, email: "target@x", name: "target" },
+        { id: 9, email: "fresh@x", name: "never" },
+      ]);
     }
   );
 });

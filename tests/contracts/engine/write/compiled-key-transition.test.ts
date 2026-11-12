@@ -192,7 +192,7 @@ describe("E6.7 the pre-value's provenance and the window it lives in", () => {
     }
   }, 30_000);
 
-  test("concurrency: a key moved between planning and the batch ABORTS the unit", async () => {
+  test("concurrency: a key moved between planning and the batch is the key the call made again writes", async () => {
     const family = getFamily();
     const db = family.database;
     const namespace = family.namespace;
@@ -200,11 +200,11 @@ describe("E6.7 the pre-value's provenance and the window it lives in", () => {
     await resetCompileTransition(stateClient);
     await stateClient.counter.create({ data: { id: 10, tag: "t" } });
 
-    // The concurrent writer moves the row off the key the locate published, INSIDE the
-    // window between planning and the atomic unit. The batch's root presence guard —
-    // NOT a postcondition, which is a transaction-mode instrument — is what pins the
-    // premise here, and it must fail the whole unit rather than write against a key
-    // that no longer names this row.
+    // The concurrent writer moves the row off the key the call read, inside
+    // the window between that read and the atomic unit. The unit asks again
+    // for the row it read and stops rather than write against a key that no
+    // longer names it; the call is made again, once, and reads the row at the
+    // key it has now.
     const client = createClient({
       schema: compileTransitionSchema,
       driver: new BeforeBatchPGliteDriver(
@@ -223,13 +223,15 @@ describe("E6.7 the pre-value's provenance and the window it lives in", () => {
         where: { tag: "t" },
         data: { id: { increment: 5 }, ticks: { create: { id: "tk1" } } },
       })
-    ).rejects.toThrow();
+    ).resolves.toEqual({ id: 82, tag: "t" });
 
-    // Nothing of the aborted unit survived: no tick, and the row still carries the
-    // concurrent writer's value rather than 15.
-    expect(await stateClient.tick.findMany()).toEqual([]);
+    // The derivation ran over the key the row has now, never over the one the
+    // first read saw: 77 + 5, not 10 + 5, and the tick references it.
+    expect(
+      (await stateClient.tick.findMany()).map((row: any) => row.counterId)
+    ).toEqual([82]);
     expect(
       (await stateClient.counter.findMany()).map((row: any) => row.id)
-    ).toEqual([77]);
+    ).toEqual([82]);
   }, 30_000);
 });

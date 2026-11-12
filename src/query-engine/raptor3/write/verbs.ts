@@ -601,6 +601,15 @@ export function verbs(store: Store) {
         then.push(() => store.delete(old));
       } else store.delete(old);
     }
+    // A relation held by fields of which one is null reaches no row: nothing goes, and the row gives up what it still holds of it.
+    else if (
+      remove === true &&
+      held &&
+      of &&
+      edge.kind === "reference" &&
+      edge.pairs.some((pair) => (of[pair.source] ?? null) !== null)
+    )
+      take(cleared(edge));
     const create = (
       data: Input | true | undefined,
       arm = true,
