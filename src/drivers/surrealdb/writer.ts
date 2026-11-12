@@ -14,10 +14,7 @@ import {
   UnsupportedOperationError,
 } from "@errors";
 import { dividesByZero } from "@query-engine/raptor3/shared/decimal";
-import {
-  type JoinedPlan,
-  JoinedValue,
-} from "@query-engine/raptor3/shared/insert-value";
+import { JoinedValue } from "@query-engine/raptor3/shared/insert-value";
 import {
   type PreparedProjection,
   type PreparedSelector,
@@ -57,7 +54,6 @@ import {
   type SurrealReadBackend,
   walksFurther,
 } from "./read-backend";
-import { placed } from "./respace";
 import { FORBIDDEN_ROW, isConflict, STOPPED } from "./transaction";
 
 type AnyModel = PreparedProjection["model"];
@@ -232,36 +228,6 @@ export class SurrealWriter extends Writer {
   async #heard(statement: Sql, model: AnyModel): Promise<Input[]> {
     if (!this.hears) refuse("a write that reads before it writes, in a batch");
     return (await this.hears(statement, model)) as Input[];
-  }
-
-  protected override computed(
-    model: AnyModel,
-    rows: Input[]
-  ): Promise<Input[]> {
-    return this.operation.computed(model, rows, {
-      dialect: "postgresql",
-      lastKey: (list, key) => this.#lastKey(model, list, key),
-    });
-  }
-
-  /** The largest key a list holds, among values that are digit strings. */
-  async #lastKey(
-    model: AnyModel,
-    list: Input,
-    key: string
-  ): Promise<string | null> {
-    const low = this.#low;
-    const column = low.physical(model, key);
-    const held = Object.entries(list).map(([field, value]) =>
-      value === null
-        ? sql`${low.physical(model, field)} = NONE`
-        : sql`${low.physical(model, field)} = ${low.value(model, field, value)}`
-    );
-    const rows = await this.#heard(
-      sql`SELECT ${column} AS key, id FROM ${fieldName(model["~"].names.sql!)} WHERE ${sql.join([...held, sql`string::matches(${column}, ${"^[0-9]{2,}$"})`], " AND ")} ORDER BY key DESC LIMIT 1`,
-      model
-    );
-    return (rows[0]?.key as string | undefined) ?? null;
   }
 
   /** `INSERT IGNORE` answers with the rows it wrote: none is a row passed by, and nothing failed. */
@@ -730,9 +696,9 @@ export class SurrealWriter extends Writer {
   ): Promise<Statement> {
     const { model } = question;
     const low = this.#low;
-    const joined = Object.values(values).find(
-      (value): value is JoinedValue => value instanceof JoinedValue
-    );
+    const [field, joined] = (Object.entries(values).find(
+      ([, value]) => value instanceof JoinedValue
+    ) ?? []) as [string, JoinedValue] | [];
     const [given] = await this.computed(model, [
       Object.fromEntries(
         Object.entries(values).filter(([, value]) => value !== joined)
@@ -744,9 +710,10 @@ export class SurrealWriter extends Writer {
       return {
         model,
         stops,
-        sql: await this.#respace(
+        sql: await this.#listed(
           question,
-          joined.plan(),
+          field!,
+          joined,
           given!,
           keys,
           projection
@@ -828,13 +795,14 @@ export class SurrealWriter extends Writer {
   }
 
   /**
-   * A value read from rows the update ranks: every row of each list is read, each
-   * list placed, and the one statement writes a row only while it holds the key it
-   * was ranked with.
+   * A value each row takes from a list: what gives the value names the rows, read
+   * in the call's unit, and the one statement writes a row only while it holds what
+   * it was named by.
    */
-  async #respace(
+  async #listed(
     question: Question,
-    plan: JoinedPlan,
+    field: string,
+    joined: JoinedValue,
     beside: Input,
     keys: readonly Input[] | undefined,
     projection: PreparedProjection | undefined
@@ -843,102 +811,41 @@ export class SurrealWriter extends Writer {
     const q = this.#q;
     const low = this.#low;
     const selector = this.selector(question, keys);
-    const table = fieldName(model["~"].names.sql!);
-    const column = (field: string) => low.physical(model, field);
-    const seen = q.scoped(
-      model,
-      plan.where === undefined
-        ? undefined
-        : q.prepareSelector(
-            model,
-            this.operation.schema.admit(model, "findMany", {
-              where: plan.where as Input,
-            }).where as Input
-          ).predicate,
-      "root"
+    const spelt = q.spelling(model, this.operation.driver.dialect);
+    const entries = await joined.rows(
+      {
+        ...spelt,
+        // The rows this update may write are those its own question names.
+        visible: (alias, options) =>
+          options?.update
+            ? selector.predicate
+              ? low.predicate(selector.predicate, true)
+              : sql.raw("true")
+            : spelt.visible(alias, options),
+      },
+      (statement) => this.#heard(statement, model)
     );
-    const filter = seen ? sql`WHERE ${low.predicate(seen, true)}` : NOTHING;
-    const asRow = (fields: readonly string[], prefix: string) =>
-      fields.map(
-        (field, at) => sql`${column(field)} AS ${sql.raw(`${prefix}${at}`)}`
-      );
-    const movable = selector.predicate
-      ? sql`(IF ${low.predicate(selector.predicate, true)} { true } ELSE { false })`
-      : sql.raw("true");
-    const read = (statement: Sql) => this.#heard(statement, model);
-    let lists: Input[];
-    if (plan.within.length > 0)
-      lists = await read(
-        sql`SELECT ${sql.join(asRow(plan.within, "w"), ", ")} FROM ${seq(table, filter)} GROUP BY ${sql.join(
-          plan.within.map((_, at) => sql.raw(`w${at}`)),
-          ", "
-        )}`
-      );
-    else
-      lists =
-        plan.where === undefined ||
-        (
-          await read(
-            sql`SELECT VALUE { id: id } FROM ${seq(table, filter)} LIMIT 1`
-          )
-        ).length > 0
-          ? [{}]
-          : [];
-    const writes: { record: Sql; values: Input; where: Sql }[] = [];
-    for (const list of lists) {
-      const conditions = plan.within.map((field, at) => {
-        const value = list[`w${at}`];
-        return value === null || value === undefined
-          ? sql`${column(field)} = NONE`
-          : sql`${column(field)} = ${low.value(model, field, value)}`;
-      });
-      const rows = await read(
-        seq(
-          sql`SELECT ${sql.join(
-            [
-              sql`${column(plan.key)} AS k`,
-              ...asRow(plan.identity, "i"),
-              ...asRow(
-                plan.order.map(([field]) => field),
-                "o"
-              ),
-              sql`${movable} AS v`,
-            ],
-            ", "
-          )} FROM ${table}`,
-          conditions.length
-            ? sql`WHERE ${sql.join(conditions, " AND ")}`
-            : NOTHING
-        )
-      );
-      const next = placed(
-        rows.map((row) => ({
-          key: row.k ?? null,
-          identity: plan.identity.map((_, at) => row[`i${at}`]),
-          order: plan.order.map((_, at) => row[`o${at}`] ?? null),
-          movable: row.v === true,
-        })),
-        plan.order.map(([, way]) => way)
-      );
-      for (const [index, row] of rows.entries()) {
-        const key = next[index];
-        if (key === null || key === undefined) continue;
-        const held =
-          row.k === null || row.k === undefined
-            ? sql`${column(plan.key)} = NONE`
-            : sql`${column(plan.key)} = ${row.k}`;
-        writes.push({
-          record: low.recordOfRow(
-            model,
-            Object.fromEntries(
-              plan.identity.map((field, at) => [field, row[`i${at}`]])
-            )
-          ),
-          values: { [plan.key]: key, ...beside },
-          where: sql.join([held, ...conditions], " AND "),
-        });
-      }
-    }
+    const identity = q.keyOrder(model);
+    const writes = entries.map(({ where, value }) => ({
+      record: low.recordOfRow(
+        model,
+        Object.fromEntries(identity.map((key) => [key, where[key]]))
+      ),
+      values: { [field]: value, ...beside } as Input,
+      where: sql.join(
+        [
+          sql.raw("true"),
+          ...Object.entries(where)
+            .filter(([held]) => !identity.includes(held))
+            .map(([held, was]) =>
+              was === null || was === undefined
+                ? sql`${low.physical(model, held)} = NONE`
+                : sql`${low.physical(model, held)} = ${low.value(model, held, was)}`
+            ),
+        ],
+        " AND "
+      ),
+    }));
     if (writes.length === 0) return sql`RETURN []`;
     // Each row is judged as it would be left, as the rows of an update are.
     return low.hoisted(() => {
@@ -961,7 +868,7 @@ export class SurrealWriter extends Writer {
               ),
               ", "
             )}])`,
-          [plan.key, ...Object.keys(beside)],
+          [field, ...Object.keys(beside)],
           this.judged(question)
         ),
         projection

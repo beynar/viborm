@@ -1,6 +1,7 @@
 import { assembleAdapterSelect } from "@adapters/adapter-internals";
 import type { DatabaseAdapter, EngineFacts } from "@adapters/database-adapter";
 import type { DriverResultParser } from "@drivers/exports";
+import type { Dialect } from "@drivers/types";
 import {
   QueryEngineError,
   TransactionError,
@@ -67,6 +68,7 @@ import {
   identifierColumn,
   incomparableIdentifiers,
 } from "./identifier";
+import type { ModelSql } from "./insert-value";
 import {
   type CallScope,
   type CallValues,
@@ -2227,6 +2229,8 @@ export abstract class Queries {
       ) !== undefined
     );
   }
+  /** `model`'s names and values as this lowering spells them, for a fragment written by hand. */
+  abstract spelling(model: AnyModel, dialect: Dialect): ModelSql;
   abstract updateAssignment(
     model: AnyModel,
     field: string,

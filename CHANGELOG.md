@@ -18,11 +18,21 @@ it fits one batch.
   (`settled`). `viborm/on` is now built on it and has no private channel into
   the client. See "Receive the rows a write wrote with `written`" in the
   extension guide.
+- **`computed()`, `stored()` and `joined()`: values a write computes.** A value
+  computed when the statement is written, a field kept as stored, and an
+  `updateMany` value each row reads from a joined table. `viborm/ordering` used
+  private forms of them; they are now exported from `viborm` for any caller.
+- **`db.<model>.$sql`.** The model's table, columns and bound values as the
+  client's statements spell them, and `visible()`, the rows a call may see as a
+  condition, for a fragment you write by hand.
 - **Several `on()` on one client.** Each runs its own hooks, in the order they
   were applied. A second `on()` was refused before.
 
 ### Changed
 
+- **`viborm/ordering` on SurrealDB brings its own SurrealQL.** The driver no
+  longer holds code for it: it writes a `joined()` value from the list the
+  extension gives it.
 - **The name `viborm.on` is no longer reserved.** `on()` is an extension like
   any other.
 - **Nested writes send fewer statements.** A write reads what it needs

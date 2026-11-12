@@ -940,6 +940,61 @@ version the call expects, and every update moves the version on. The
 [recipes](/docs/extensions/recipes) give it in full, with tenancy and audit
 stamping.
 
+## Write values the statement computes
+
+Three values, exported from `viborm`, go where a field's value goes. Each is
+typed as the field it is written to. They are open to any caller, not only to
+extensions.
+
+| Value | Where | What it writes |
+|---|---|---|
+| `computed(compute)` | `update` and `updateMany` data, a `data` stamp | A value computed when the statement is written: a plain value, or an SQL expression the statement evaluates |
+| `stored()` | `update` and `updateMany` data | Nothing: the field stays as stored, and no generated value (`updatedAt()`) fills it |
+| `joined(source)` | `updateMany` data | Each row's own value, read from a derived table the `UPDATE` joins |
+
+```ts
+import { computed, sql, stored } from "viborm";
+
+await db.counter.update({
+  where: { id },
+  data: {
+    hits: computed<number>(({ sql: q }) => [
+      sql`(SELECT MAX(${q.column("hits", "m")}) + 1 FROM ${q.table("m")})`,
+    ]),
+    touchedAt: stored(),
+  },
+});
+```
+
+`compute(context, indexes)` answers one value per row that holds it.
+`context` gives the model's name, the field, the statement's rows
+(`context.rows`, with `indexes` naming those that hold the value), the
+`dialect`, and `read(statement)` where the write can read first in its own
+unit (absent in a batch). `context.sql` spells the model as the client's
+statements do. The same object is `db.<model>.$sql`:
+
+| Member | Result |
+|---|---|
+| `table(alias?)` | The model's table, in its namespace |
+| `column(field, alias?)` | A field's column |
+| `value(field, value)` | A value bound as that field is written and compared |
+| `name(...path)` | A quoted identifier: `name("r", "k")` is `"r"."k"` |
+| `visible(alias, { update?, where? })` | A condition: the rows the call may see under `alias`; with `update`, those it may update by writing those fields |
+
+`visible()` is settled by the model operation the fragment is handed to, so a
+subquery you write reads the rows the call may read. A raw query does not
+settle it: use [`$rows`](/docs/client/raw-sql) there.
+
+`joined({ join, value, rows })` takes the SQL form and the list form of the
+same values. `join(sql, target)` returns the derived table and the condition
+that matches it to the row written; `value(sql)` is the `SET` expression. A
+database that joins no derived table (SurrealDB) calls `rows(sql, read)`
+instead: a list of `{ where, value }`, one per row, written only while the
+row still holds the `where` values. An extension that supports SurrealDB
+writes its own SurrealQL there, as it writes its own SQL per dialect.
+
+A create's own data does not take these values yet: use a `data` stamp.
+
 ## Order reads with `order`
 
 `order.models` gives a model the order its reads take when the caller gives

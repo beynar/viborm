@@ -11,7 +11,7 @@ const compareLists = (a: readonly unknown[], b: readonly unknown[]): number => {
  * that reads the rows and writes them itself.
  */
 
-import { keysBetween } from "../../ordering/keys";
+import { keysBetween } from "./keys";
 
 /** One row placed, with what it may do there. */
 export interface PlannedMember {

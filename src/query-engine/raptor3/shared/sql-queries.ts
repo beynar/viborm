@@ -16,6 +16,7 @@ import type {
   GeoPointSql,
   TextMatch,
 } from "@adapters/database-adapter";
+import type { Dialect } from "@drivers/types";
 import {
   FeatureNotSupportedError,
   QueryEngineError,
@@ -61,6 +62,7 @@ import {
   isCompact,
   transportedIdentifier,
 } from "./identifier";
+import type { ModelSql } from "./insert-value";
 import { unreachable } from "./invariant";
 import {
   AGGREGATES,
@@ -958,6 +960,27 @@ export class SqlQueries extends Queries {
     return alias
       ? this.adapter.identifiers.column(alias, name)
       : this.adapter.identifiers.escape(name);
+  }
+  spelling(model: AnyModel, dialect: Dialect): ModelSql {
+    const { identifiers } = this.adapter;
+    return {
+      dialect,
+      table: (alias) => this.table(model, alias),
+      column: (field, alias) => this.column(model, field, alias),
+      value: (field, value) => this.fieldValue(model, field, value),
+      name: (...path) =>
+        sql.join(
+          path.map((part) => identifiers.escape(part)),
+          "."
+        ),
+      visible: (alias, options) =>
+        new RowsOf(
+          model,
+          alias,
+          options?.update && { verb: "update", writes: options.update },
+          options?.where
+        ),
+    };
   }
   /**
    * A caller's fragment with every {@link RowsOf} in it settled to this

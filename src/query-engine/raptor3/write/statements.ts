@@ -255,7 +255,10 @@ export class Writer {
         condition:
           joined &&
           ((alias) => {
-            const join = joined.join(this.#q, alias);
+            const join = joined.join(
+              this.#q.spelling(question.model, this.operation.driver.dialect),
+              alias
+            );
             return this.#q.settleRows(
               filters.some(subqueries.existsCheck(join.source, join.on))
             );
@@ -575,7 +578,10 @@ export class Writer {
         ),
         ", "
       );
-      const join = joined?.join(q, model["~"].names.sql!);
+      const join = joined?.join(
+        q.spelling(model, this.operation.driver.dialect),
+        model["~"].names.sql!
+      );
       const update = join
         ? mutations.updateFrom(
             q.table(model),

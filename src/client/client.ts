@@ -61,6 +61,7 @@ import {
 } from "@query-engine/pending-operation";
 import { QueryEngine } from "@query-engine/query-engine";
 import { createCandidateRoute } from "@query-engine/raptor3/route/client-route";
+import { renderers } from "@query-engine/raptor3/shared/insert-value";
 import {
   baseOperation,
   isWriteOperation,
@@ -164,7 +165,8 @@ function createModelProxy<S extends Schema, R>(
     args: unknown;
   }) => R,
   modelMethods?: ExtensionMethods["model"],
-  rowsOf?: (model: keyof S, alias: unknown) => unknown,
+  /** A model's core members beside its operations: `$rows(alias)`, and `$sql` where no alias is given. */
+  rowsOf?: (model: keyof S, alias?: unknown) => unknown,
   path: string[] = []
 ): unknown {
   // A model's own methods, read (and their factories invoked) only once the
@@ -176,7 +178,7 @@ function createModelProxy<S extends Schema, R>(
       : path.length === 1
         ? [
             ...ROUTED_OPERATIONS,
-            ...(rowsOf ? ["$rows"] : []),
+            ...(rowsOf ? ["$rows", "$sql"] : []),
             ...Object.keys(methods ?? {}),
           ]
         : []
@@ -188,6 +190,7 @@ function createModelProxy<S extends Schema, R>(
     if (methods !== undefined && Object.hasOwn(methods, key)) {
       return methods[key];
     }
+    if (key === "$sql" && rowsOf) return rowsOf(path[0]!);
     let child = children.get(key);
     if (child === undefined) {
       child =
@@ -828,8 +831,13 @@ export class VibORM<C extends VibORMConfig> {
           clientOmit
         ),
       modelMethods,
-      (modelName, alias) =>
-        createRowsFragment(engine, this.#schema[modelName]!, alias)
+      (modelName, ...alias) =>
+        alias.length === 0
+          ? renderers
+              .get(this.#schema)!
+              .get(engine.driver.adapter)!
+              .spelling(this.#schema[modelName]!, engine.driver.dialect)
+          : createRowsFragment(engine, this.#schema[modelName]!, alias[0])
     ) as Client<C>;
   }
 

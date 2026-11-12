@@ -1,28 +1,53 @@
-import type { AnyModel } from "@schema/model";
+import type { Dialect } from "@drivers/types";
 import type { Sql } from "@sql";
 import type { Queries } from "./query";
 import type { Input } from "./schema";
 
-/** What an {@link InsertValue} is given to compute its values with. */
+/**
+ * One model's names and values as its client's statements spell them: what a
+ * fragment written by hand (a computed value, a filter's expression, a joined
+ * source) names tables and columns and binds values with, so it reads what a
+ * query of the client would.
+ */
+export interface ModelSql {
+  readonly dialect: Dialect;
+  /** The model's table, in its namespace, under `alias` where given. */
+  table(alias?: string): Sql;
+  /** A field's column, qualified by `alias` where given. */
+  column(field: string, alias?: string): Sql;
+  /** `value` bound as a value of `field` is written and compared. */
+  value(field: string, value: unknown): Sql;
+  /** An identifier quoted for the dialect: `name("r", "k")` is `"r"."k"`. */
+  name(...path: string[]): Sql;
+  /**
+   * A condition over the model's rows read under `alias`: those the call
+   * holding the fragment may see; with `update`, those it may update by
+   * writing these fields; with `where`, of those the ones it matches. Only a
+   * fragment handed to a model operation holds one: that operation settles
+   * it.
+   */
+  visible(
+    alias: string,
+    options?: { readonly update?: readonly string[]; readonly where?: object }
+  ): Sql;
+}
+
+/** What a computed value is given to compute its values with. */
 export interface InsertValueContext {
-  readonly model: AnyModel;
+  /** The model written, by its name in the schema. */
+  readonly model: string;
   /** The INSERT's rows, every value final but the computed ones. */
   readonly rows: readonly Input[];
   /** The field the value is written to. */
   readonly field: string;
-  readonly queries: Queries;
-  readonly dialect: "postgresql" | "mysql" | "sqlite";
+  readonly sql: ModelSql;
+  readonly dialect: ModelSql["dialect"];
   /**
    * Run one read in the operation (its transaction, if any) and return its
    * raw rows; absent where the operation cannot read before writing (an
    * array transaction's batch), so the value must be an SQL expression.
    */
   readonly read?: (statement: Sql) => Promise<readonly Input[]>;
-  /**
-   * The largest key among the rows holding `list`, where a backend reads it for
-   * the value rather than the value spelling the read.
-   */
-  readonly lastKey?: (list: Input, key: string) => Promise<string | null>;
 }
 
 /**
@@ -68,19 +93,25 @@ export class Stored extends InsertValue {
  */
 export abstract class JoinedValue extends InsertValue {
   abstract join(
-    queries: Queries,
+    sql: ModelSql,
     target: string
   ): { readonly source: Sql; readonly on: Sql };
-  /** The same values for a backend that reads the rows and writes them itself. */
-  abstract plan(): JoinedPlan;
+  /**
+   * The same values as a list, for a database that joins no derived table:
+   * each entry names one row by the values its fields hold and gives the
+   * value it takes. The row is written only while it holds them. `read` asks
+   * the database in the call's unit.
+   */
+  abstract rows(
+    sql: ModelSql,
+    read: (statement: Sql) => Promise<readonly Input[]>
+  ): Promise<readonly JoinedEntry[]>;
 }
 
-export interface JoinedPlan {
-  readonly key: string;
-  readonly within: readonly string[];
-  readonly identity: readonly string[];
-  readonly order: readonly (readonly [string, "asc" | "desc"])[];
-  readonly where: unknown;
+/** One row a joined value is written to, as a list names it. */
+export interface JoinedEntry {
+  readonly where: Input;
+  readonly value: unknown;
 }
 
 /**
@@ -90,3 +121,63 @@ export interface JoinedPlan {
  * queries do, without importing the engine into its entry.
  */
 export const renderers = new WeakMap<object, WeakMap<object, Queries>>();
+
+/** {@link computed}'s value. */
+class Computed extends InsertValue {
+  readonly compute: InsertValue["compute"];
+  constructor(compute: InsertValue["compute"]) {
+    super();
+    this.compute = compute;
+  }
+}
+
+/**
+ * A written value the write computes: `compute` answers, for the rows of one
+ * statement that hold it (`indexes` into `context.rows`), one value each, a
+ * plain value or an SQL expression the statement evaluates. Typed as the
+ * field it is written to.
+ */
+export const computed = <T = never>(compute: InsertValue["compute"]): T =>
+  new Computed(compute) as T;
+
+/** An update value that keeps its field as stored: no generated value (`updatedAt()`) fills it. */
+export const stored = <T = never>(): T => new Stored() as T;
+
+/** {@link joined}'s value. */
+class Joined extends JoinedValue {
+  readonly #from: JoinedSource;
+  constructor(from: JoinedSource) {
+    super();
+    this.#from = from;
+  }
+  compute({ sql }: InsertValueContext): readonly unknown[] {
+    return [this.#from.value(sql)];
+  }
+  join(sql: ModelSql, target: string) {
+    return this.#from.join(sql, target);
+  }
+  rows(sql: ModelSql, read: (statement: Sql) => Promise<readonly Input[]>) {
+    return this.#from.rows(sql, read);
+  }
+}
+
+/** What {@link joined} reads each row's value from. */
+export interface JoinedSource {
+  /** The derived table, aliased, and the condition matching it to the row written, whose columns `target` qualifies. */
+  join(
+    sql: ModelSql,
+    target: string
+  ): { readonly source: Sql; readonly on: Sql };
+  /** The SET expression, over the derived table's columns. */
+  value(sql: ModelSql): Sql;
+  /** The same values as a list, where the database joins no derived table: see {@link JoinedEntry}. */
+  rows: JoinedValue["rows"];
+}
+
+/**
+ * An `updateMany` value each row reads from a derived table the UPDATE joins:
+ * one statement writes each row its own value, the source read once before
+ * any row changes. Typed as the field it is written to.
+ */
+export const joined = <T = never>(from: JoinedSource): T =>
+  new Joined(from) as T;

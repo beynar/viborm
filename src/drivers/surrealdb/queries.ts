@@ -5,7 +5,9 @@
  * write reads through this. Everything else it asks of `Queries` is shared.
  */
 
+import type { Dialect } from "@drivers/types";
 import { UnsupportedOperationError } from "@errors";
+import type { ModelSql } from "@query-engine/raptor3/shared/insert-value";
 import {
   type PreparedDomain,
   type PreparedPredicate,
@@ -136,6 +138,36 @@ export class SurrealQueries extends Queries {
 
   override lockAll(): Query {
     return refuse("locks");
+  }
+
+  spelling(model: AnyModel, dialect: Dialect): ModelSql {
+    const low = this.lowering;
+    return {
+      dialect,
+      table: () => sql.raw(model["~"].names.sql!),
+      column: (field) => low.physical(model, field),
+      value: (field, value) => low.value(model, field, value),
+      name: (...path) => sql.raw(path.join(".")),
+      visible: (_alias, options) => {
+        if (options?.update)
+          throw new UnsupportedOperationError(
+            "SurrealDB: the rows a call may update are not a condition yet"
+          );
+        const seen = this.scoped(
+          model,
+          options?.where === undefined
+            ? undefined
+            : this.prepareSelector(
+                model,
+                this.schema.admit(model, "findMany", {
+                  where: options.where as Input,
+                }).where as Input
+              ).predicate,
+          "root"
+        );
+        return seen ? low.predicate(seen, true) : sql.raw("true");
+      },
+    };
   }
 
   #backend: SurrealReadBackend | undefined;

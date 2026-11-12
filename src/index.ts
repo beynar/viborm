@@ -75,6 +75,15 @@ export {
   type UnwrapPendingOperation,
   type UnwrapPendingOperations,
 } from "./query-engine/pending-operation.js";
+// Values a write computes, and the names a hand-written fragment spells them with.
+export {
+  computed,
+  type InsertValueContext as ComputedContext,
+  type JoinedSource,
+  joined,
+  type ModelSql,
+  stored,
+} from "./query-engine/raptor3/shared/insert-value.js";
 // Inferred exported schemas must name these types through a public entry.
 export type {
   AnyModel,

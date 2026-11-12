@@ -11,7 +11,7 @@ import {
   resolvePositionalResultDriver,
 } from "@drivers/positional-result";
 import { transferPreparedStatement } from "@drivers/prepared-statement-provenance";
-import type { QueryExecutionContext, SqlDialect } from "@drivers/types";
+import type { QueryExecutionContext } from "@drivers/types";
 import {
   QueryError,
   retainWriteOutcomeFailure,
@@ -358,8 +358,9 @@ export class SqlOperationContext {
   async computed(
     model: AnyModel,
     rows: Input[],
-    asks?: Partial<Pick<InsertValueContext, "read" | "lastKey" | "dialect">>
+    asks?: Pick<InsertValueContext, "read">
   ): Promise<Input[]> {
+    const spelt = this.queries.spelling(model, this.driver.dialect);
     let computed: Input[] | undefined;
     const fields = new Map<string, { value: InsertValue; at: number[] }>();
     for (const [index, row] of rows.entries())
@@ -373,11 +374,11 @@ export class SqlOperationContext {
       computed ??= rows.map((row) => ({ ...row }));
       const values = await value.compute(
         {
-          model,
+          model: model["~"].names.ts!,
           rows: computed,
           field,
-          queries: this.queries,
-          dialect: this.driver.dialect as SqlDialect,
+          sql: spelt,
+          dialect: spelt.dialect,
           ...asks,
         },
         at
