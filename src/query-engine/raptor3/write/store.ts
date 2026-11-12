@@ -36,7 +36,6 @@ import {
   readUpdate,
   returningSafeProjection,
 } from "../shared/query";
-import { engineBackend } from "../shared/query-backend";
 import type { EngineSchema, Input } from "../shared/schema";
 import type { SqlOperationContext } from "../shared/sql-operation-context";
 import type { Membership } from "../shared/storage";
@@ -123,6 +122,8 @@ class Pending {
   }
 }
 const UNHEARD = Symbol("a value the database has not said yet");
+/** The first row of a part undone alone was passed by: another row holds what it alone may hold. */
+const PASSED = Symbol("a row the database passed by");
 /** A value as text, whatever numbers it holds. */
 const text = (value: unknown): string =>
   JSON.stringify(value, (_, each) =>
@@ -303,16 +304,15 @@ export class Store {
   #handed = false;
   constructor(operation: SqlOperationContext, transport: Transport) {
     this.operation = operation;
-    const { backend } = operation.driver;
-    this.writer = new ((backend && engineBackend(backend).writer) || Writer)(
-      operation
-    );
+    this.writer = new (operation.backend?.writer ?? Writer)(operation);
     this.sink = writeSinks.get(operation.attribution);
     this.#transport = transport;
     if (transport.holds)
-      this.writer.hears = async (sql, model) =>
-        (await transport.send([{ sql, model }], false))[0]!.rows;
+      this.writer.hears = (sql, model) => this.#hear({ sql, model });
   }
+  /** Asks the database in the call's unit, once what was written before is sent. */
+  #hear = async (statement: Statement): Promise<Input[]> =>
+    (await this.#transport.send([statement], false))[0]!.rows;
   /** Runs the verbs until they ran on an image that could answer them. */
   async #settle<T>(work: () => () => T): Promise<() => T> {
     for (;;) {
@@ -2326,7 +2326,9 @@ export class Store {
                 rows.map((row) => this.#said(settled(row))),
                 entry.relation,
                 returns,
-                read && hears ? decided : undefined
+                read && hears ? decided : undefined,
+                // Where an insert can pass a taken key by and say so, the first row of a part undone alone does: nothing fails, and nothing is undone.
+                entry.root && writer.passes
               );
             const kept =
               scratch &&
@@ -2344,6 +2346,8 @@ export class Store {
             return kept.statements;
           },
           take: (sent) => {
+            if (entry.root && writer.passes && sent[0]!.rows.length === 0)
+              throw PASSED;
             take(sent);
             if (!read) return;
             if (!part) {
@@ -2629,30 +2633,45 @@ export class Store {
         this.segments++;
       for (const { step, part } of told) step.take?.(part);
     };
-    for (let at = 0; at < steps.length; at++) {
-      const step = steps[at]!;
-      // A part undone alone is sent alone: whether it was written is noted.
-      if (!within && step.attempt !== undefined) {
-        await flush(false);
-        const part = [step];
-        while (steps[at + 1]?.attempt === step.attempt) part.push(steps[++at]!);
-        this.#outcomes.set(step.attempt, await this.#attempted(part));
-        continue;
+    // What a statement asks while it is written is asked once what stands before it is sent.
+    const outer = this.#hear;
+    this.#hear = async (statement) => {
+      await flush(false);
+      return (await send([statement], false))[0]!.rows;
+    };
+    try {
+      for (let at = 0; at < steps.length; at++) {
+        const step = steps[at]!;
+        // A part undone alone is sent alone: whether it was written is noted.
+        if (!within && step.attempt !== undefined) {
+          await flush(false);
+          const part = [step];
+          while (steps[at + 1]?.attempt === step.attempt)
+            part.push(steps[++at]!);
+          this.#outcomes.set(step.attempt, await this.#attempted(part));
+          continue;
+        }
+        let statements: Statement[];
+        try {
+          statements = await step.write();
+        } catch (error) {
+          if (error !== UNHEARD) throw error;
+          await flush(false);
+          statements = await step.write();
+        }
+        waiting.push({ statements, step });
+        // Where each statement is heard as it is sent, what says whether a row is there is taken before the next is written: a row that is not there refuses the call before anything under it does.
+        if (
+          within
+            ? step.root && this.writer.passes
+            : this.#transport.holds && step.confirms
+        )
+          await flush(last && at === steps.length - 1);
       }
-      let statements: Statement[];
-      try {
-        statements = await step.write();
-      } catch (error) {
-        if (error !== UNHEARD) throw error;
-        await flush(false);
-        statements = await step.write();
-      }
-      waiting.push({ statements, step });
-      // Where each statement is heard as it is sent, what says whether a row is there is taken before the next is written: a row that is not there refuses the call before anything under it does.
-      if (!within && this.#transport.holds && step.confirms)
-        await flush(last && at === steps.length - 1);
+      await flush(last);
+    } finally {
+      this.#hear = outer;
     }
-    await flush(last);
   }
   /** Sends a part of the unit that is undone alone where the database refuses its first row as one too many: whether it was written. */
   async #attempted(part: Step[]): Promise<boolean> {
@@ -2676,9 +2695,10 @@ export class Store {
       return true;
     } catch (error) {
       if (
-        error instanceof UniqueConstraintError &&
-        first &&
-        refusedBy.get(error) === first
+        error === PASSED ||
+        (error instanceof UniqueConstraintError &&
+          first &&
+          refusedBy.get(error) === first)
       )
         return false;
       throw error;

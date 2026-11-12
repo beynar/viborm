@@ -45,8 +45,28 @@ const call =
     return verb(model, args, raw as Input);
   };
 
-/** A call sent by itself, or inside the transaction its caller lends it. */
+/** A call sent by itself, or inside the transaction its caller lends it; made again where its backend says a unit of its own that was undone is. */
 export async function writeCall(
+  operation: SqlOperationContext,
+  driver: AnyDriver,
+  model: AnyModel,
+  args: Arguments,
+  raw: unknown,
+  binding?: ExecutionBinding
+): Promise<unknown> {
+  for (let attempt = 1; ; attempt++)
+    try {
+      return await sent(operation, driver, model, args, raw, binding);
+    } catch (error) {
+      if (
+        binding?.kind === "borrowed-transaction" ||
+        !(await operation.again(error, attempt))
+      )
+        throw error;
+    }
+}
+
+async function sent(
   operation: SqlOperationContext,
   driver: AnyDriver,
   model: AnyModel,
@@ -72,21 +92,26 @@ export async function writeCall(
         binding.memberRollback
       );
     if (!driver.supportsTransactions) return batches(operation, driver);
-    return dialogue(operation, driver, (body) =>
-      driver.withTransaction(
-        body,
-        undefined,
-        seam
-          ? bindExecutionTransactionPhases(at, {
-              readyToCommit: () => {
-                phase = "ready";
-              },
-              committed: () => {
-                phase = "committed";
-              },
-            })
-          : at
-      )
+    return dialogue(
+      operation,
+      driver,
+      (body) =>
+        driver.withTransaction(
+          body,
+          undefined,
+          seam
+            ? bindExecutionTransactionPhases(at, {
+                readyToCommit: () => {
+                  phase = "ready";
+                },
+                committed: () => {
+                  phase = "committed";
+                },
+              })
+            : at
+        ),
+      undefined,
+      true
     );
   };
   let transport = open();

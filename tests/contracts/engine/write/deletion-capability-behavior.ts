@@ -1262,10 +1262,9 @@ export function runDeletionCapabilityBehavior(
         "post.update",
       ];
       expect(transformed).toEqual(attributions);
-      // Instrumentation logs a statement as it runs; a batch-only substrate
-      // runs a whole unit as one batch, logged once under its root.
-      if (base.$driver.supportsTransactions)
-        expect(logged).toEqual(attributions);
+      // Instrumentation logs a request as it runs; a substrate that sends a
+      // whole unit as one batch logs it once, under its root.
+      if (!base.$driver.supportsBatch) expect(logged).toEqual(attributions);
     });
   });
 }

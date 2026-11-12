@@ -125,7 +125,7 @@ export class SurrealQueries extends Queries {
     operation: Parameters<Queries["read"]>[1],
     args: Arguments
   ) {
-    return this.#lowering.read(model, operation, args);
+    return this.lowering.read(model, operation, args);
   }
 
   /** These spell a statement's parts, and only a statement written whole is read here. */
@@ -143,7 +143,8 @@ export class SurrealQueries extends Queries {
 
   #backend: SurrealReadBackend | undefined;
 
-  get #lowering(): SurrealReadBackend {
+  /** What spells this call's reads, and the parts of its writes that read: one, so that what a statement computes ahead of itself is stated once. */
+  get lowering(): SurrealReadBackend {
     this.#backend ??= new SurrealReadBackend(this);
     return this.#backend;
   }
@@ -151,11 +152,11 @@ export class SurrealQueries extends Queries {
   #row(model: AnyModel, row: RowCondition): Sql {
     switch (row.kind) {
       case "fieldNull":
-        return sql`${this.#lowering.physical(model, row.field)} = NONE`;
+        return sql`${this.lowering.physical(model, row.field)} = NONE`;
       case "notIdentity":
         return sql`!(${sql.join(
           row.identities.map(
-            (identity) => sql`(${this.#lowering.identity(model, identity)})`
+            (identity) => sql`(${this.lowering.identity(model, identity)})`
           ),
           " OR "
         )})`;
@@ -190,19 +191,19 @@ export class SurrealQueries extends Queries {
     selector: PreparedSelector
   ): Sql {
     const where = selector.predicate
-      ? sql`WHERE ${this.#lowering.predicate(selector.predicate, true)} `
+      ? sql`WHERE ${this.lowering.predicate(selector.predicate, true)} `
       : sql.raw("");
-    return sql`(SELECT VALUE ${this.#lowering.physical(model, field)} FROM ${sql.raw(model["~"].names.sql!)} ${where}LIMIT 1)[0]`;
+    return sql`(SELECT VALUE ${this.lowering.physical(model, field)} FROM ${sql.raw(model["~"].names.sql!)} ${where}LIMIT 1)[0]`;
   }
 
   /** The edge between two records, named by each side's junction field. */
   override junction(edge: Junction, values: Input): Query {
-    if (edge.declared) return this.#lowering.linkRowQuery(edge, values);
-    const { table, near, far, out } = this.#lowering.edgeOf(edge);
+    if (edge.declared) return this.lowering.linkRowQuery(edge, values);
+    const { table, near, far, out } = this.lowering.edgeOf(edge);
     const knows = (side: Junction["sourceSide"]) =>
       Object.hasOwn(values, side.members[0]!.junctionField);
     const end = (side: Junction["sourceSide"]) =>
-      this.#lowering.end(side, (pair) => values[pair.junctionField]);
+      this.lowering.end(side, (pair) => values[pair.junctionField]);
     // From its source, an edge is reached along the record's own list.
     const edges = knows(edge.sourceSide)
       ? sql`${end(edge.sourceSide)}${out}`
@@ -241,11 +242,11 @@ export class SurrealQueries extends Queries {
   ): Query {
     const { model } = prepared;
     const records = sql.join(
-      identities.map((identity) => this.#lowering.recordOfRow(model, identity)),
+      identities.map((identity) => this.lowering.recordOfRow(model, identity)),
       ", "
     );
     return {
-      sql: sql`SELECT ${this.#lowering.columns(prepared)} FROM [${records}]`,
+      sql: sql`SELECT ${this.lowering.columns(prepared)} FROM [${records}]`,
       shape: prepared.shape,
       expectedRows: this.seriesExpectation(model, identities.length, operation),
     };
@@ -277,7 +278,7 @@ export class SurrealQueries extends Queries {
       membership?.edge.kind === "junction" &&
       !membership.edge.declared &&
       !membership.outside
-        ? this.#lowering.membersOf(membership.edge, membership.parent)
+        ? this.lowering.membersOf(membership.edge, membership.parent)
         : undefined;
     // A whole key stated as values is the record itself, read without a filter.
     const identity = controls.identity;
@@ -287,29 +288,27 @@ export class SurrealQueries extends Queries {
       this.keyOrder(model).every(
         (key) => identity[key] != null && !(identity[key] instanceof Sql)
       )
-        ? this.#lowering.recordOfRow(model, identity)
+        ? this.lowering.recordOfRow(model, identity)
         : undefined;
     const conditions = () => [
       ...(membership && !path
         ? [
-            this.#lowering.member(
+            this.lowering.member(
               membership.edge,
               membership.parent,
               membership.outside
             ),
           ]
         : []),
-      ...(identity && !record
-        ? [this.#lowering.identity(model, identity)]
-        : []),
+      ...(identity && !record ? [this.lowering.identity(model, identity)] : []),
       ...(controls.unless?.predicate
-        ? [this.#lowering.predicate(controls.unless.predicate, false)]
+        ? [this.lowering.predicate(controls.unless.predicate, false)]
         : []),
       ...(controls.row ? [this.#row(model, controls.row)] : []),
     ];
     return {
-      sql: this.#lowering.hoisted(() =>
-        this.#lowering.statement(
+      sql: this.lowering.hoisted(() =>
+        this.lowering.statement(
           model,
           projection,
           record ? { ...args, unordered: true } : args,

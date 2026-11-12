@@ -107,7 +107,9 @@ export function dialogue(
   driver: AnyDriver,
   open?: (body: (inside: AnyDriver) => Promise<void>) => Promise<unknown>,
   /** Undoes a part of the unit alone, where the unit is not the call's own to open. */
-  rollback?: MemberRollback
+  rollback?: MemberRollback,
+  /** The unit is the call's own: where it fails, the call may be made again. */
+  own = false
 ): Transport {
   let entered: Promise<AnyDriver> | undefined;
   let unit: Promise<unknown> | undefined;
@@ -123,42 +125,70 @@ export function dialogue(
       );
       unit.catch(refused);
     }));
+  /** What a statement asks for its own sake: its answer is heard, and says whether the unit goes on. */
+  const asked = (statement: Statement) =>
+    Boolean(statement.believed) || statement.sql === statement.probe;
+  const hear = (transport: AnyDriver, statement: Statement) =>
+    // What the call believed is asked, not asserted: a dialogue hears
+    // the answer, and a statement that fails would undo its unit.
+    transport
+      ._execute<Input>(
+        statement.believed ? statement.probe! : statement.sql,
+        contextOf(operation, statement.model)
+      )
+      .catch((error) => {
+        if (typeof error === "object" && error) refusedBy.set(error, statement);
+        throw statement.stops && error instanceof NestedWriteAssertionError
+          ? new Stopped(statement)
+          : error;
+      });
   const run = async (
     transport: AnyDriver,
-    statements: readonly Statement[]
+    statements: readonly Statement[],
+    together = false
   ): Promise<Sent[]> => {
     const answers: Sent[] = [];
-    for (const statement of statements) {
-      const at = contextOf(operation, statement.model);
-      // What the call believed is asked, not asserted: a dialogue hears
-      // the answer, and a statement that fails would undo its unit.
-      const sent = await transport
-        ._execute<Input>(
-          statement.believed ? statement.probe! : statement.sql,
-          at
-        )
-        .catch((error) => {
-          if (typeof error === "object" && error)
-            refusedBy.set(error, statement);
-          throw statement.stops && error instanceof NestedWriteAssertionError
-            ? new Stopped(statement)
-            : error;
-        });
-      if (
-        (statement.believed || statement.sql === statement.probe) &&
-        sent.rows.length > 0 !== (statement.premise === "exists")
+    for (let at = 0; at < statements.length; ) {
+      // One request takes what goes together, where the backend has such a request: no further than what is asked for its own sake, which is heard before what follows it is sent.
+      let end = at + 1;
+      while (
+        together &&
+        end < statements.length &&
+        !(asked(statements[end - 1]!) && !asked(statements[end]!))
       )
-        throw new Stopped(statement);
-      answers.push(sent);
+        end++;
+      const part = statements.slice(at, end);
+      const sent = (part.length > 1 &&
+        (await operation.together?.(transport, part, false))) || [
+        await hear(transport, part[0]!),
+      ];
+      for (const [place, statement] of part.slice(0, sent.length).entries())
+        if (
+          asked(statement) &&
+          sent[place]!.rows.length > 0 !== (statement.premise === "exists")
+        )
+          throw new Stopped(statement);
+      answers.push(...sent);
+      at += sent.length;
     }
     return answers;
   };
   const transport: Transport = {
     holds: true,
     async send(statements, last) {
-      const alone = !open || (last && !entered && statements.length === 1);
+      const whole = last && !entered;
+      const alone = !open || (whole && statements.length === 1);
       transport.loose = alone;
-      const sent = run(alone ? driver : await enter(), statements);
+      // A call that says everything at once is one unit by itself, where the backend takes a unit as one request.
+      const one =
+        own && whole && !alone
+          ? operation.together?.(driver, statements, true)
+          : undefined;
+      if (one) {
+        transport.loose = true;
+        return one.catch(loose);
+      }
+      const sent = run(alone ? driver : await enter(), statements, own);
       return alone ? sent.catch(loose) : sent;
     },
     ...((open || rollback) && {

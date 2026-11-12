@@ -29,6 +29,8 @@ import {
 // These definitions are stated as plain objects: what reads their rows is brought here.
 withRows();
 
+const WRITES_A_ROW = /\b(?:CREATE|INSERT)\b/;
+
 describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
   describe("fk-key-actions", () => {
     it.each([
@@ -979,7 +981,7 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
   });
 
   describe("a create that loses its race", () => {
-    /** Another client writes the row just before this one's first `INSERT IGNORE`. */
+    /** Another client writes the row just before this one's first write. */
     const racing = async (
       scenario: (db: any) => Promise<unknown>,
       winner: (db: any) => Promise<unknown>,
@@ -997,7 +999,7 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
       let raced = false;
       const execute = driver.execute;
       driver.execute = async function (this: unknown, ...args: unknown[]) {
-        if (!raced && String(args[1]).includes("INSERT IGNORE")) {
+        if (!raced && WRITES_A_ROW.test(String(args[1]))) {
           raced = true;
           await winner(other);
         }

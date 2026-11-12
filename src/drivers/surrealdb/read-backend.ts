@@ -3246,6 +3246,8 @@ export class SurrealReadBackend implements ReadBackend {
         edges.length === 1 &&
         edge?.kind === "reference" &&
         edge.owner === "source" &&
+        // A variant relation's column holds the key itself, whichever model it names.
+        !edge.discriminator &&
         edge.pairs.length === 1 &&
         edge.pairs[0]!.source === field &&
         isSingleKey(q, edge.target, edge.pairs[0]!.target)

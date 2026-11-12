@@ -25,6 +25,7 @@ import {
   normalizedBindParameterLimit,
 } from "../../bind-budget";
 import type { PreparedBatchOperation, PreparedGuardFailure } from "../../types";
+import type { Sent, Statement } from "../write/send";
 import { InsertValue, type InsertValueContext } from "./insert-value";
 import {
   GatedFieldRefusal,
@@ -37,7 +38,7 @@ import {
   returningSafeProjection,
   throughDerived,
 } from "./query";
-import { engineBackend } from "./query-backend";
+import { type EngineBackend, engineBackend } from "./query-backend";
 import type { CallScope, RowJudgement } from "./row-scope";
 import {
   type EngineSchema,
@@ -101,6 +102,7 @@ export class SqlOperationContext {
   readonly operation: Operation;
   readonly driver: AnyDriver & { readonly adapter: DatabaseAdapter };
   readonly queries: SqlQueries;
+  readonly backend: EngineBackend | undefined;
   /** Whether the call owns its unit, or prepares a package for an owner. */
   readonly #owner: "standalone" | "borrowed-transaction" | "batch-preparation";
   readonly #caller: QueryExecutionContext | undefined;
@@ -128,8 +130,10 @@ export class SqlOperationContext {
     this.driver = (
       binding?.kind === "borrowed-transaction" ? binding.driver : factoryDriver
     ) as this["driver"];
-    const { backend } = this.driver;
-    this.queries = new (backend ? engineBackend(backend).queries : SqlQueries)(
+    // The language is the driver's the call was made on: a transaction's view of it writes the same.
+    this.backend =
+      factoryDriver.backend && engineBackend(factoryDriver.backend);
+    this.queries = new (this.backend?.queries ?? SqlQueries)(
       schema,
       this.driver.adapter,
       this.driver.result,
@@ -273,11 +277,6 @@ export class SqlOperationContext {
     return this.#package;
   }
 
-  /** A read prepares whole: nothing of it waits for an answer. */
-  isIncompletePreparation(_error: unknown): boolean {
-    return false;
-  }
-
   /** A write of several statements needs a unit that takes all or none. */
   requireAtomicUnit(): void {
     if (this.#owner !== "standalone") return;
@@ -339,11 +338,29 @@ export class SqlOperationContext {
     ).map(({ statement }) => queries.get(statement)!);
   }
 
-  /** The rows with every value an extension computes put in; `read` asks the database in the call's unit, where it can be heard before the rows are written. */
+  /**
+   * Statements that go together sent as one request, where a backend has
+   * such a request: their answers, each as its own statement's. `whole` where
+   * they are the call's whole unit, which the request then opens and closes,
+   * and stops where one of them asks what is not so. A request that fails
+   * says nothing of which statement did: the call is made again without.
+   */
+  together?(
+    driver: AnyDriver,
+    statements: readonly Statement[],
+    whole: boolean
+  ): Promise<Sent[]> | undefined;
+
+  /** Whether a call whose own unit `error` undid is made again, the `attempt`th time: never here, where a writer that meets another waits for it. */
+  again(_error: unknown, _attempt: number): boolean | Promise<boolean> {
+    return false;
+  }
+
+  /** The rows with every value an extension computes put in; `asks` is how one asks the database in the call's unit, where it can be heard before the rows are written. */
   async computed(
     model: AnyModel,
     rows: Input[],
-    read?: InsertValueContext["read"]
+    asks?: Partial<Pick<InsertValueContext, "read" | "lastKey" | "dialect">>
   ): Promise<Input[]> {
     let computed: Input[] | undefined;
     const fields = new Map<string, { value: InsertValue; at: number[] }>();
@@ -363,7 +380,7 @@ export class SqlOperationContext {
           field,
           queries: this.queries,
           dialect: this.driver.dialect as SqlDialect,
-          read,
+          ...asks,
         },
         at
       );

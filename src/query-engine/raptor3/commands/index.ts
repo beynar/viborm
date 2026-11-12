@@ -8,11 +8,7 @@ import { baseOperation } from "../../routed-operations";
 import type { PreparedBatchOperation } from "../../types";
 import { renderers } from "../shared/insert-value";
 import type { Leaf, ProjectionShape, Queries, Read } from "../shared/query";
-import {
-  type CallContext,
-  type EngineBackend,
-  engineBackend,
-} from "../shared/query-backend";
+import { engineBackend } from "../shared/query-backend";
 import {
   type CallRows,
   type CallScope,
@@ -31,8 +27,6 @@ import {
 } from "../shared/sql-operation-context";
 import { SqlQueries } from "../shared/sql-queries";
 import { prepareCall, writeCall } from "../write";
-
-type BackendPlan = ReturnType<NonNullable<EngineBackend["plan"]>>;
 
 /**
  * What a prepared read publishes before it runs.
@@ -211,12 +205,9 @@ class PreparedCommand implements PreparedOperation {
     preparing: boolean,
     attribution?: QueryExecutionContext,
     binding?: ExecutionBinding
-  ): CallContext {
+  ): SqlOperationContext {
     const { backend } = this.#config.driver;
-    const Context = backend
-      ? engineBackend(backend).context
-      : SqlOperationContext;
-    return new Context(
+    return new (backend ? engineBackend(backend).context : SqlOperationContext)(
       this.#schema,
       this.#config.driver,
       this.#modelName,
@@ -228,56 +219,23 @@ class PreparedCommand implements PreparedOperation {
     );
   }
 
-  /** A write in a language of the driver's own: the driver's backend says how it runs. */
-  #plan(context: CallContext): BackendPlan {
-    return engineBackend(this.#config.driver.backend!).plan!(
-      context,
-      this.#model,
-      this.args,
-      this.#rawArgs as Arguments
-    );
-  }
-
-  #body(context: CallContext) {
-    const value = this.#read();
-    if (value) return context.run(() => context.publish(value, this.#missing));
-    // The physical form is constructed before the envelope decision and runs
-    // once, whichever envelope the rule chooses; each attempt after the first
-    // plans again from the same admitted arguments.
-    let planned: BackendPlan | undefined = this.#plan(context);
-    const single = planned.single;
-    return context.run(() => {
-      const plan = planned ?? this.#plan(context);
-      planned = undefined;
-      return plan.run();
-    }, single);
-  }
-
-  /** Whether the call is a write the engine's own write path runs: every one, but where a backend plans its writes itself. */
-  get #writes(): boolean {
-    const { backend } = this.#config.driver;
-    return !(
-      isReadOperation(this.#operation) ||
-      (backend && engineBackend(backend).plan)
-    );
-  }
-
   execute(
     binding?: ExecutionBinding,
     attribution?: QueryExecutionContext
   ): Promise<unknown> {
     try {
       const context = this.#context(false, attribution, binding);
-      return this.#writes
-        ? writeCall(
-            context as SqlOperationContext,
+      const value = this.#read();
+      return value
+        ? context.run(() => context.publish(value, this.#missing))
+        : writeCall(
+            context,
             this.#config.driver,
             this.#model,
             this.args,
             this.#rawArgs,
             binding
-          )
-        : this.#body(context);
+          );
     } catch (error) {
       return Promise.reject(error);
     }
@@ -290,42 +248,27 @@ class PreparedCommand implements PreparedOperation {
     // operation that publishes no single query still answers for the
     // payload it was handed, exactly as `prepareBatch` does.
     this.args;
-    // A write in SQL is prepared by asking: its owner asks for the package.
-    if (this.#writes) return undefined;
-    const context = this.#context(true, attribution);
+    // A write is prepared by asking: its owner asks for the package.
     const value = this.#read();
-    if (value) {
-      context.publishPrepared(value, this.#missing);
-      return context.preparedBatch();
-    }
-    // A write whose plan is one statement publishes the same package.
-    // Preparation reaches no driver and queues synchronously; anything it
-    // would refuse is refused again by the arm that runs the operation.
-    const plan = this.#plan(context);
-    if (!plan.single) return undefined;
-    plan.run().catch(() => undefined);
+    if (!value) return undefined;
+    const context = this.#context(true, attribution);
+    context.publishPrepared(value, this.#missing);
     return context.preparedBatch();
   }
 
   async prepareBatch(
     attribution?: QueryExecutionContext
   ): Promise<PreparedBatchOperation<unknown> | undefined> {
-    const context = this.#context(true, attribution);
-    if (this.#writes)
-      return prepareCall(
-        context as SqlOperationContext,
-        this.#config.driver,
-        this.#model,
-        this.args,
-        this.#rawArgs
-      );
-    try {
-      await this.#body(context);
-    } catch (error) {
-      if (context.isIncompletePreparation(error)) return undefined;
-      throw error;
-    }
-    return context.preparedBatch();
+    const value = this.#read();
+    return value
+      ? this.prepareSingle(attribution)
+      : prepareCall(
+          this.#context(true, attribution),
+          this.#config.driver,
+          this.#model,
+          this.args,
+          this.#rawArgs
+        );
   }
 }
 

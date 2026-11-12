@@ -89,8 +89,12 @@ export class Writer {
     return this.operation.computed(
       model,
       rows,
-      hears && ((statement) => hears(statement, model))
+      hears && { read: (statement) => hears(statement, model) }
     );
+  }
+  /** A question as a statement that stops its unit unless a row answers it, or where one does. */
+  protected asserts(probe: Sql, premise: "exists" | "notExists"): Sql {
+    return this.operation.driver.adapter.assertions[premise](probe);
   }
   constructor(operation: SqlOperationContext) {
     this.operation = operation;
@@ -295,7 +299,7 @@ export class Writer {
     held = true
   ): Statement {
     const q = this.#q;
-    const { assertions, operators } = this.operation.driver.adapter;
+    const { operators } = this.operation.driver.adapter;
     const [[question]] = asked as [[Question]];
     const { model } = question;
     // The rows asked for are held from there to the end of their unit, where the database holds rows: what is written after stands on them.
@@ -335,7 +339,7 @@ export class Writer {
     );
     return {
       // Where its answer is heard, the question itself is what is sent.
-      sql: heard && lock ? probe : assertions.exists(probe),
+      sql: heard && lock ? probe : this.asserts(probe, "exists"),
       probe,
       premise: "exists",
       believed: believed === "presumed" && question.must ? undefined : believed,
@@ -750,7 +754,7 @@ export class Writer {
       }
     ).sql;
     return {
-      sql: this.operation.driver.adapter.assertions.notExists(probe),
+      sql: this.asserts(probe, "notExists"),
       probe,
       premise: "notExists",
       stops,
@@ -848,6 +852,10 @@ export class Writer {
       meta.columns?.join() === expected.columns?.join()
     );
   }
+  /** Whether an insert that passes by a row whose key is taken says, for one row, that it did. */
+  get passes(): boolean {
+    return false;
+  }
   /** Whether a write says what it wrote. */
   get says(): boolean {
     return this.operation.driver.adapter.capabilities.supportsReturning;
@@ -937,6 +945,64 @@ export class Writer {
       : sent.rowCount;
   }
   /**
+   * What a link a model holds takes beside the two rows it joins: the model's
+   * defaults and what was written of it, `through`; and what one that is there
+   * takes of what was written. Refused where the link cannot be filled, or
+   * where a write of its model is judged or observed.
+   */
+  protected async linked(
+    edge: Junction,
+    columns: readonly string[],
+    through?: Input
+  ): Promise<{ row: Input; sets?: Input }> {
+    const q = this.#q;
+    const { schema, scope, attribution } = this.operation;
+    const model = edge.declared!.model;
+    const name = model["~"].names.ts!;
+    const missing = schema
+      .linkRequired(model, new Set(columns))
+      .filter((field) => through?.[field] === undefined);
+    if (missing.length > 0)
+      throw new NestedWriteError(
+        `Cannot link relation '${edge.name}': '${name}' requires ${missing.map((field) => `$through.${field}`).join(", ")}, which a link cannot fill.`,
+        edge.name
+      );
+    const sink = writeSinks.get(attribution);
+    // A written column is a write to the model: what would judge or observe a direct write refuses it.
+    if (
+      through &&
+      (q.restrictsLinkWrite(model) ||
+        scope?.rows.stamps?.has(name) ||
+        sink?.wants(name, "create") ||
+        sink?.wants(name, "update"))
+    )
+      throw new UnsupportedOperationError(
+        `Cannot write $through of relation '${edge.name}': this client's extensions judge or observe writes to '${name}'. Write the row through the '${name}' delegate.`
+      );
+    return {
+      row: {
+        ...schema.createValues(
+          model,
+          Object.fromEntries(
+            schema
+              .linkDefaults(model, new Set(columns))
+              .filter((field) => !(through && field in through))
+              .map((field) => [field, undefined])
+          )
+        ),
+        ...through,
+      },
+      sets:
+        through && Object.keys(through).length > 0
+          ? (
+              await this.computed(model, [
+                schema.scalars(model, schema.update(model, through, true)),
+              ])
+            )[0]
+          : undefined,
+    };
+  }
+  /**
    * The links that make each second row a member of the first one's through
    * a junction, added where they are not there. A link a model holds is a row
    * of that model: it takes the model's defaults and what was written of it,
@@ -949,7 +1015,7 @@ export class Writer {
     through?: Input
   ): Promise<Statement[]> {
     const q = this.#q;
-    const { schema, scope, attribution } = this.operation;
+    const { schema } = this.operation;
     const { identifiers, mutations, set } = this.operation.driver.adapter;
     const { uniqueSide, declared } = edge;
     const members = linkMembers(edge);
@@ -965,54 +1031,20 @@ export class Writer {
     );
     let takes: Sql | undefined;
     const model = declared?.model;
-    if (model) {
-      const name = model["~"].names.ts!;
-      const missing = schema
-        .linkRequired(model, new Set(columns))
-        .filter((field) => through?.[field] === undefined);
-      if (missing.length > 0)
-        throw new NestedWriteError(
-          `Cannot link relation '${edge.name}': '${name}' requires ${missing.map((field) => `$through.${field}`).join(", ")}, which a link cannot fill.`,
-          edge.name
-        );
-      const sink = writeSinks.get(attribution);
-      // A written column is a write to the model: what would judge or observe a direct write refuses it.
-      if (
-        through &&
-        (q.restrictsLinkWrite(model) ||
-          scope?.rows.stamps?.has(name) ||
-          sink?.wants(name, "create") ||
-          sink?.wants(name, "update"))
-      )
-        throw new UnsupportedOperationError(
-          `Cannot write $through of relation '${edge.name}': this client's extensions judge or observe writes to '${name}'. Write the row through the '${name}' delegate.`
-        );
-      for (const [field, value] of Object.entries({
-        ...schema.createValues(
-          model,
-          Object.fromEntries(
-            schema
-              .linkDefaults(model, new Set(columns))
-              .filter((field) => !(through && field in through))
-              .map((field) => [field, undefined])
-          )
-        ),
-        ...through,
-      })) {
+    const own = model && (await this.linked(edge, columns, through));
+    if (model && own) {
+      for (const [field, value] of Object.entries(own.row)) {
         columns.push(schema.physicalField(model, field).name);
         for (const row of rows) row.push(q.fieldValue(model, field, value));
       }
-      if (through && Object.keys(through).length > 0) {
-        const [sets] = await this.computed(model, [
-          schema.scalars(model, schema.update(model, through, true)),
-        ]);
-        takes = sql.join(
-          Object.entries(sets!).map(([field, value]) =>
+      takes =
+        own.sets &&
+        sql.join(
+          Object.entries(own.sets).map(([field, value]) =>
             q.updateAssignment(model, field, value)
           ),
           ", "
         );
-      }
     }
     const table = identifiers.table(edge.table);
     const side = (name: "source" | "target") =>

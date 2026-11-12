@@ -5,11 +5,8 @@
  * does not compile.
  */
 
-import type { AnyModel } from "@schema/model";
-import type { PreparedBatchOperation } from "../../types";
 import type { Writer } from "../write/statements";
-import type { Queries, Read } from "./query";
-import type { Arguments } from "./schema";
+import type { Queries } from "./query";
 import type { SqlOperationContext } from "./sql-operation-context";
 
 declare const OPAQUE: unique symbol;
@@ -31,33 +28,11 @@ export const queryBackend = (backend: EngineBackend): QueryBackend =>
 export const engineBackend = (backend: QueryBackend): EngineBackend =>
   backend as never;
 
-/** What the engine asks of one call's context, whatever language writes it. */
-export interface CallContext {
-  /** Runs the call's body; `single` where a write is one statement. */
-  run<T>(body: () => Promise<T>, single?: boolean): Promise<T>;
-  publish(read: Read, missing?: () => Error): Promise<unknown>;
-  publishPrepared(read: Read, missing?: () => Error): undefined;
-  preparedBatch(): PreparedBatchOperation<unknown> | undefined;
-  isIncompletePreparation(error: unknown): boolean;
-}
-
-// biome-ignore lint/suspicious/noExplicitAny: a backend's context is its own class; the engine hands it back as it was made
-export interface EngineBackend<Context extends CallContext = any> {
+/** What a language supplies: how its statements read, what one call is in it, and what writes the write path's statements. */
+export interface EngineBackend {
   readonly queries: new (
     ...args: ConstructorParameters<typeof Queries>
   ) => Queries;
-  readonly context: new (
-    ...args: ConstructorParameters<typeof SqlOperationContext>
-  ) => Context;
-  /** What writes the statements of the engine's write path in the backend's language. */
-  readonly writer?: new (
-    operation: Context & SqlOperationContext
-  ) => Writer;
-  /** How a write runs in the backend's language: one statement where `single`. */
-  readonly plan?: (
-    context: Context,
-    model: AnyModel,
-    args: Arguments,
-    raw: Arguments
-  ) => { readonly single: boolean; run(): Promise<unknown> };
+  readonly context: typeof SqlOperationContext;
+  readonly writer: new (operation: SqlOperationContext) => Writer;
 }

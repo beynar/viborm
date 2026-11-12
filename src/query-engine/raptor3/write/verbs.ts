@@ -55,6 +55,9 @@ export function verbs(store: Store) {
   /** The rows the call makes. Of those a `create` makes (`true`), the caller said everything they hold. */
   const made = new WeakMap<Row, boolean>();
   const fresh = { has: (row: Row) => made.get(row) === true };
+  /** An instant is the same said as a date or as its text. */
+  const instant = (value: unknown) =>
+    value instanceof Date ? value.toISOString() : value;
   /** A field of a row is decided once: by what was written of the row, or by one relation. */
   const once = (
     kind: "create" | "update",
@@ -72,7 +75,11 @@ export function verbs(store: Store) {
         written !== null && typeof written === "object" && "set" in written
           ? written.set
           : written;
-      if (typeof value !== "object" && Object.is(plain, value)) continue;
+      if (
+        typeof instant(value) !== "object" &&
+        instant(plain) === instant(value)
+      )
+        continue;
       throw new UnsupportedOperationError(
         owned
           ? `Relation '${relation}' owns '${Object.keys(takes).join(", ")}'; omit it from nested create and update data.`
