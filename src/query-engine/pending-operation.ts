@@ -4,7 +4,10 @@
  * method is called. Every operation is served by the single (V2) engine.
  */
 
-import { isCacheManagedExecution } from "@cache/capability";
+import {
+  isCacheManagedExecution,
+  officialCacheRuntime,
+} from "@cache/capability";
 import type { AnyDriver, QueryExecutionContext } from "@drivers/exports";
 import {
   InvalidTransactionInputError,
@@ -627,7 +630,7 @@ export class PendingOperation<T>
 
   /** The detached cache representation of this read, from its result owner. */
   #cacheResultCodec(): CacheResultCodec {
-    return this.#resolveRouted().cacheResultCodec();
+    return officialCacheRuntime().routedCodec(this.#resolveRouted());
   }
 
   #getPromise(): Promise<T> {

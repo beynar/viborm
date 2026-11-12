@@ -15,16 +15,17 @@
  * ONE operation owner rather than a selectable alternative.
  */
 
-import { officialCacheRuntime } from "@cache/capability";
 import type { Operations } from "@client/types";
 import type { AnyDriver, QueryExecutionContext } from "@drivers/exports";
-import { UnsupportedOperationError } from "@errors";
 import type { Schema } from "@schema/hydration";
 import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
-import type { CacheResultCodec } from "../../cache-flow";
 import type { PreparedBatchOperation } from "../../types";
-import { createCommandEngine, type PreparedOperation } from "../commands";
+import {
+  createCommandEngine,
+  type PreparedOperation,
+  type PreparedRead,
+} from "../commands";
 import type { CallRows } from "../shared/row-scope";
 import type { ResolvedSchemaViews } from "../shared/schema";
 import type { WriteOutcomeSeam } from "../shared/sql-operation-context";
@@ -60,7 +61,10 @@ export interface RoutedCandidateOperation {
    * driver-prepared queries rather than an `Sql`.
    */
   buildStatement(): Sql | undefined;
-  cacheResultCodec(): CacheResultCodec;
+  /** What a read publishes before it runs: its shape, value and cardinality. */
+  readonly read: PreparedRead | undefined;
+  /** The model and the verb the caller asked for, `…OrThrow` included. */
+  readonly requested: { readonly model: string; readonly operation: string };
   /**
    * The prepared package when this operation prepares to it synchronously —
    * a read, whose preparation reaches no driver. It is the SAME package
@@ -143,7 +147,6 @@ class RoutedOperation implements RoutedCandidateOperation {
   readonly #modelName: string;
   readonly #requestedOperation: string;
   readonly #prepared: PreparedOperation;
-  #codec: CacheResultCodec | undefined;
 
   constructor(
     factoryDriver: AnyDriver,
@@ -165,36 +168,12 @@ class RoutedOperation implements RoutedCandidateOperation {
     return this.#prepared.read?.statement;
   }
 
-  cacheResultCodec(): CacheResultCodec {
-    // KEPT as a capability boundary (N4, plan §4). It alone owns "the
-    // cache layer asked this engine to encode a verb this engine
-    // publishes no prepared read for" — a boundary between two
-    // independently-maintained vocabularies in two layers:
-    // `CACHEABLE_OPERATIONS` (`query-engine/cache-flow.ts`, nine names,
-    // including both `…OrThrow` variants) and the engine's own
-    // `READ_OPERATIONS` (`shared/schema.ts`, seven), reconciled today
-    // only by the `…OrThrow` normalization `baseOperation`
-    // (`query-engine/routed-operations.ts`) states. No type
-    // ties them and no single upstream owner establishes the fact, so an
-    // assertion here would establish a missing fact rather than state an
-    // established one (ELEGANCE §5). The class stays public
-    // (`UnsupportedOperationError`) because this seam
-    // (`RoutedCandidateOperation`) is consumed outside raptor3.
-    const read = this.#prepared.read;
-    if (!read)
-      throw new UnsupportedOperationError(
-        `Cannot cache '${this.#requestedOperation}' on model '${this.#modelName}': the operation has no readable result.`,
-        {
-          meta: {
-            model: this.#modelName,
-            operation: this.#requestedOperation,
-          },
-        }
-      );
-    return (this.#codec ??= officialCacheRuntime().cacheCodec(
-      read,
-      this.#requestedOperation
-    ));
+  get read(): PreparedRead | undefined {
+    return this.#prepared.read;
+  }
+
+  get requested(): { readonly model: string; readonly operation: string } {
+    return { model: this.#modelName, operation: this.#requestedOperation };
   }
 
   prepareSingle(

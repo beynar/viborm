@@ -209,7 +209,7 @@ type FieldReader = (value: unknown) => unknown;
  * ({@link Queries.compileReader}): it reads the provider's value there and
  * answers the public one.
  */
-type Reader = (value: unknown) => unknown;
+export type Reader = (value: unknown) => unknown;
 type RelationProjectionArguments = Pick<
   Partial<Arguments>,
   "orderBy" | "take" | "skip" | "cursor" | "distinct"
@@ -1169,7 +1169,7 @@ function orphanedArm(carrier: unknown, arm: ProjectionShape): boolean {
  * that does not parse JSON itself hands back the value's TEXT, which is parsed
  * here once, and any other value is already the parsed structure.
  */
-function providerJson(value: unknown): unknown {
+export function providerJson(value: unknown): unknown {
   return typeof value === "string" ? JSON.parse(value) : value;
 }
 /**
@@ -1184,7 +1184,7 @@ function providerJson(value: unknown): unknown {
  * may be ABSENT is the integrity entry, which a slot without junction
  * memberships does not carry; a present one is refused like any other.
  */
-function providerDocument(value: unknown): Input | null | undefined {
+export function providerDocument(value: unknown): Input | null | undefined {
   if (value === null) return null;
   return typeof value === "object" && !Array.isArray(value)
     ? record(value)
@@ -4577,11 +4577,11 @@ export abstract class Queries {
     // An internal read is the engine's own: it reads every member it asked
     // for, its gates unread (K5).
     if (shape.gates !== undefined && !internal)
-      return this.#compileGatedDocument(
+      return this.domain!.gatedDocument(
+        this.compileReader(BOOLEAN_LEAF, false, carried),
         shape,
         fields,
         readers,
-        carried,
         columns
       );
     if (columns) {
@@ -4637,76 +4637,6 @@ export abstract class Queries {
             writable: true,
           });
         else document[field] = decoded;
-      }
-      return document;
-    };
-  }
-  /**
-   * A document with read-gated members (K5), out of line from the plain
-   * reader: its gates are read first, once per row, and each gated member is
-   * written only where its gate holds; where it does not, a member the caller
-   * named fails the read, and any other is left out (the row's shape
-   * changes, so the document is always a new object).
-   */
-  #compileGatedDocument(
-    shape: Extract<ProjectionShape, { kind: "object" }>,
-    fields: readonly string[],
-    readers: readonly Reader[],
-    carried: boolean,
-    columns?: readonly string[]
-  ): Reader {
-    const gates = shape.gates!;
-    const readGate = this.compileReader(BOOLEAN_LEAF, false, carried);
-    const gated = fields.map((field) => shape.gated![field]);
-    const gateIndex = gated.map((member) =>
-      member === undefined ? -1 : gates.indexOf(member.gate)
-    );
-    const positions = columns && [
-      ...fields.map((field) => columns.lastIndexOf(field)),
-      ...gates.map((gate) => columns.lastIndexOf(gate)),
-    ];
-    const cell = (source: unknown, index: number, key: string): unknown => {
-      if (positions === undefined) return own(source as Input, key);
-      const position = positions[index]!;
-      return position < 0 ? undefined : (source as unknown[])[position];
-    };
-    return (value) => {
-      let source: unknown = value;
-      if (positions) {
-        if (!Array.isArray(value))
-          throw new InvalidScalarResult(
-            "row",
-            "a positional row is not an array"
-          );
-      } else {
-        source = providerDocument(providerJson(value));
-        if (source === null) {
-          if (shape.nullable === false)
-            throw new InvalidScalarResult(
-              "row",
-              "a document the statement always builds is null"
-            );
-          return null;
-        }
-        if (source === undefined)
-          throw new InvalidScalarResult(
-            "row",
-            "a requested document is not a provider row"
-          );
-      }
-      const held = gates.map((gate, index) =>
-        readGate(cell(source, fields.length + index, gate))
-      );
-      const document: Input = {};
-      for (let index = 0; index < fields.length; index++) {
-        const field = fields[index]!;
-        const gate = gateIndex[index]!;
-        if (gate >= 0 && held[gate] !== true) {
-          const refused = gated[index]!.refused;
-          if (refused !== undefined) throw new GatedFieldRefusal(refused);
-          continue;
-        }
-        document[field] = readers[index]!(cell(source, index, field));
       }
       return document;
     };

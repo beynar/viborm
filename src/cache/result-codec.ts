@@ -1,5 +1,8 @@
-import { CacheConfigurationError } from "@errors";
-import type { CacheResultCodec } from "../../cache-flow";
+import { CacheConfigurationError, UnsupportedOperationError } from "@errors";
+import type { CacheResultCodec } from "@query-engine/cache-flow";
+import type { PreparedRead } from "@query-engine/raptor3/commands";
+import { EngineInvariantError } from "@query-engine/raptor3/shared/invariant";
+import type { Leaf, ProjectionShape } from "@query-engine/raptor3/shared/query";
 import {
   arrayCodec,
   booleanCodec,
@@ -12,10 +15,7 @@ import {
   recursiveRelationCodec,
   taggedRelationCodec,
   type ValueCodec,
-} from "../../result/cache-value-codecs";
-import type { PreparedRead } from "../commands";
-import { EngineInvariantError } from "../shared/invariant";
-import type { Leaf, ProjectionShape } from "../shared/query";
+} from "@query-engine/result/cache-value-codecs";
 
 /**
  * The detached cache representation of one prepared read.
@@ -29,6 +29,31 @@ import type { Leaf, ProjectionShape } from "../shared/query";
  * `empty`), which the read owner states beside the statement it decodes, so the
  * codec and the decoder cannot disagree about cardinality.
  */
+const routedCodecs = new WeakMap<object, CacheResultCodec>();
+
+/**
+ * The detached representation of one routed operation's result, made once.
+ * The cache admits nine verbs and the engine publishes a read for seven of
+ * them (`…OrThrow` is its base read): a verb with no published read is
+ * refused here, where the two lists meet.
+ */
+export function routedCodec(routed: {
+  readonly read: PreparedRead | undefined;
+  readonly requested: { readonly model: string; readonly operation: string };
+}): CacheResultCodec {
+  const known = routedCodecs.get(routed);
+  if (known !== undefined) return known;
+  const { read, requested } = routed;
+  if (!read)
+    throw new UnsupportedOperationError(
+      `Cannot cache '${requested.operation}' on model '${requested.model}': the operation has no readable result.`,
+      { meta: { ...requested } }
+    );
+  const codec = cacheCodec(read, requested.operation);
+  routedCodecs.set(routed, codec);
+  return codec;
+}
+
 export function cacheCodec(
   read: PreparedRead,
   requestedOperation: string

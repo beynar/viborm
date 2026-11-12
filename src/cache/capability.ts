@@ -7,11 +7,11 @@
 // the core asks for it.
 
 import type { ResolvedExtensionChain } from "@extensions/chain";
-import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type {
   GenericQueryHandler,
   OfficialGenericQueryHandler,
 } from "@extensions/query";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { isFunction } from "@validation/value-guards";
 import type { CacheDriver, WaitUntilFn } from "./driver";
 import type { OfficialCacheRuntime } from "./runtime";

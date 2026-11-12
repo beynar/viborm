@@ -79,7 +79,6 @@ import {
   callerText,
   distanceUpperBound,
   type Enclosing,
-  type FieldGate,
   type FlagChoice,
   type FlagMember,
   type FlagPlan,
@@ -848,6 +847,15 @@ export class SqlQueries extends Queries {
   }
   /** How many read gates are lowering here: none of their sets is bounded. */
   #unbounded = 0;
+  /** `fn` lowered where no set it reads is bounded: what masks a value tests nothing. */
+  unbounded<T>(fn: () => T): T {
+    this.#unbounded++;
+    try {
+      return fn();
+    } finally {
+      this.#unbounded--;
+    }
+  }
   /** The relation bodies lowering here, innermost last ({@link Enclosing}). */
   readonly #enclosing: Enclosing[] = [];
   /** `lower`, read inside `enclosing`'s body ({@link Enclosing}). */
@@ -1870,7 +1878,8 @@ export class SqlQueries extends Queries {
     const gate = this.domain?.projected(model)?.gates.get(field);
     // Every row a caller's operand is read on is one the domain takes, so
     // `read` holds there: the gate's own predicate decides.
-    const holds = gate && this.#gateHolds(model, gate, alias, true);
+    const holds =
+      gate && this.domain!.gateHolds(this, model, gate, alias, true);
     return holds === undefined
       ? column
       : this.adapter.expressions.caseWhen(
@@ -4698,10 +4707,22 @@ export class SqlQueries extends Queries {
     } else if (field.kind === "sentinel") {
       expression = a.expressions.cast(a.literals.value(1), "integer");
     } else if (field.kind === "evidence") {
-      expression = this.#lowerEvidence(projection.model, field, alias, visible);
+      expression = this.domain!.evidence(
+        this,
+        projection.model,
+        field,
+        alias,
+        visible
+      );
     } else if (field.kind === "gate") {
-      expression = this.#truth(
-        this.#gateHolds(projection.model, field.gate, alias, visible)
+      expression = this.truth(
+        this.domain!.gateHolds(
+          this,
+          projection.model,
+          field.gate,
+          alias,
+          visible
+        )
       );
     } else if (field.kind === "relation") {
       expression = this.#duplicateMembershipGuard(
@@ -4720,96 +4741,14 @@ export class SqlQueries extends Queries {
     }
     return expression;
   }
-  /**
-   * Where `input`, one of `model`'s predicates in `layer`, holds on the row
-   * at `alias`, as that layer's node: R5 and R6 judge it as they judge the
-   * layer's filter. `undefined` where the call drops it (it holds).
-   */
-  #layerHolds(
-    model: AnyModel,
-    layer: number,
-    input: Input,
-    alias?: string
-  ): Sql | undefined {
-    return this.lowerSelector(this.domain!.layered(model, layer, input), alias);
-  }
-  /** Where a read-gated field's row carries it: every gating layer's `read` and predicate. */
-  #gateHolds(
-    model: AnyModel,
-    gate: FieldGate,
-    alias: string | undefined,
-    visible: boolean
-  ): Sql | undefined {
-    const held: Sql[] = [];
-    // A gate masks a value: neither a positive nor a negative test, so no
-    // set it reads is bounded ({@link setBound}) and it holds where it would.
-    this.#unbounded++;
-    try {
-      for (const [layer, read, input] of gate) {
-        const tested = input === read ? [read] : [read, input];
-        for (const where of visible ? tested.slice(1) : tested) {
-          const lowered = this.#layerHolds(model, layer, where, alias);
-          if (lowered !== undefined) held.push(lowered);
-        }
-      }
-    } finally {
-      this.#unbounded--;
-    }
-    return held.length === 0 ? undefined : this.adapter.operators.and(...held);
-  }
   /** A condition as a value: true or false, never NULL; `undefined` holds. */
-  #truth(condition: Sql | undefined): Sql {
+  truth(condition: Sql | undefined): Sql {
     const a = this.adapter;
     return condition === undefined
       ? a.literals.true()
       : a.expressions.caseWhen(
           [{ when: condition, then: a.literals.true() }],
           a.literals.false()
-        );
-  }
-  /**
-   * A declared projection key's value on the row at `alias` (K5): the
-   * layer's `read` once, around one test per name. Ordered, the last name
-   * that holds; else a document of one boolean per name.
-   */
-  #lowerEvidence(
-    model: AnyModel,
-    field: Extract<PreparedProjectionField, { kind: "evidence" }>,
-    alias: string | undefined,
-    taken: boolean
-  ): Sql {
-    const a = this.adapter;
-    const { layer, read, ordered } = field.evidence;
-    const visible = taken
-      ? undefined
-      : this.#layerHolds(model, layer, read, alias);
-    const test = (input: Input) =>
-      input === read ? undefined : this.#layerHolds(model, layer, input, alias);
-    if (ordered) {
-      const highest = a.expressions.caseWhen(
-        [...field.names].reverse().map(([name, input]) => ({
-          when: test(input) ?? a.literals.true(),
-          then: a.expressions.cast(this.value(name), "text"),
-        })),
-        a.literals.null()
-      );
-      return visible === undefined
-        ? highest
-        : a.expressions.caseWhen(
-            [{ when: visible, then: highest }],
-            a.literals.null()
-          );
-    }
-    const held = a.json.objectFromColumns(
-      field.names.map(([name, input]) => [name, this.#truth(test(input))])
-    );
-    return visible === undefined
-      ? held
-      : a.expressions.caseWhen(
-          [{ when: visible, then: held }],
-          a.json.objectFromColumns(
-            field.names.map(([name]) => [name, a.literals.false()])
-          )
         );
   }
   /**

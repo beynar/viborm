@@ -8,6 +8,7 @@
  */
 
 // The route's cache codec belongs to the cache runtime `viborm/cache` loads.
+import { routedCodec } from "@cache/result-codec";
 import "@cache/runtime";
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
@@ -167,7 +168,7 @@ describe("G4-02 prepared operation boundary", () => {
         );
         const admitted = handle.preparedArgs;
         const statement = handle.buildStatement();
-        const codec = handle.cacheResultCodec();
+        const codec = routedCodec(handle);
         assert.ok(statement);
         assert.deepEqual(admitted.select, request.args.select);
         return { request, handle, admitted, statement, codec };
@@ -196,7 +197,7 @@ describe("G4-02 prepared operation boundary", () => {
             );
             assert.equal(handle.preparedArgs, admitted);
             assert.equal(handle.buildStatement(), statement);
-            assert.equal(handle.cacheResultCodec(), codec);
+            assert.equal(routedCodec(handle), codec);
           }
         )
       );

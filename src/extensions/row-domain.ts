@@ -39,6 +39,7 @@ import {
 } from "@query-engine/raptor3/shared/schema";
 import type { Operation } from "@query-engine/types";
 import type { AnyModel } from "@schema/model";
+import { evidence, gatedDocument, gateHolds } from "./gates";
 import { producedSource, producedWhere } from "./produced";
 import { admitProjected } from "./projected";
 
@@ -104,6 +105,10 @@ export class PreparedDomain {
   /** The row a write would leave, judged in the statement that writes it. */
   readonly producedSource = producedSource;
   readonly producedWhere = producedWhere;
+  /** What a rule hides, and what it reports, of a row read. */
+  readonly gateHolds = gateHolds;
+  readonly evidence = evidence;
+  readonly gatedDocument = gatedDocument;
   admit(
     schema: EngineSchema,
     model: AnyModel,

@@ -1,7 +1,7 @@
 /**
  * RQ-05 — the live recursive cache codec, entered through the real route.
  *
- * The live cache path is `RoutedCandidateOperation.cacheResultCodec()`
+ * The live cache path is `routedCodec()` of a routed operation
  * (`raptor3/route/client-route.ts`): `cacheCodec` composes one value codec per
  * published shape through `shapeCodec`, from the official owners in
  * `result/cache-value-codecs.ts`. Every route cell below asks THAT codec for a
@@ -34,6 +34,7 @@
  */
 
 // The route's cache codec belongs to the cache runtime `viborm/cache` loads.
+import { routedCodec } from "@cache/result-codec";
 import "@cache/runtime";
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
@@ -130,7 +131,7 @@ async function world() {
     codec: (
       args: Record<string, unknown>,
       operation: "findMany" | "findUnique" = "findMany"
-    ) => route.operation(node as never, operation, args).cacheResultCodec(),
+    ) => routedCodec(route.operation(node as never, operation, args)),
   };
 }
 
@@ -329,7 +330,7 @@ function deepChain(levels: number, depth: number | false) {
       children: { recurse: { depth }, select: { id: true } },
     },
   });
-  const codec = operation.cacheResultCodec();
+  const codec = routedCodec(operation);
   const prepared = operation.prepareSingle({
     model: "node",
     operation: "findMany",
