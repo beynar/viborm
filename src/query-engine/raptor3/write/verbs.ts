@@ -341,23 +341,36 @@ export function verbs(store: Store) {
           }
         );
     }
-    const held = relations
-      .filter(({ edge }) => holds(edge))
-      .map(({ edge, payload }) => single(row, model, edge, payload, said));
+    const own = relations.filter(({ edge }) => holds(edge));
+    const held = own.map(({ edge, payload }) =>
+      single(row, model, edge, payload, said)
+    );
     const takes = Object.assign(
       {},
       given && once("update", model, said, given, relation!, true),
-      ...held.map((own) => own.takes)
+      ...held.map((each) => each.takes)
+    );
+    // A relation the caller wrote decides the fields the row holds it by: nothing else writes them.
+    const decided = Object.fromEntries(
+      own.flatMap(({ edge }) =>
+        (edge as Extract<Membership, { kind: "reference" }>).pairs.map(
+          (pair) => [pair.source, true]
+        )
+      )
     );
     store.update(
       row,
       {
-        ...store.values(model, "update", data, { ...stated(data), ...takes }),
+        ...store.values(model, "update", data, {
+          ...decided,
+          ...stated(data),
+          ...takes,
+        }),
         ...takes,
       },
       writes(model, data)
     );
-    for (const own of held) for (const next of own.then) next();
+    for (const each of held) for (const next of each.then) next();
     for (const { edge, payload } of relations)
       if (!holds(edge))
         if (edge.many) relate(row, edge, payload);
@@ -538,7 +551,13 @@ export function verbs(store: Store) {
   /** A relation's verbs where it reaches many rows: in the order they take effect. */
   const nested: Record<
     string,
-    (parent: Row, edge: Membership, entry: Input, arm?: boolean) => void
+    (
+      parent: Row,
+      edge: Membership,
+      entry: Input,
+      arm?: boolean,
+      through?: Input
+    ) => void
   > = {
     disconnect(parent, edge, where) {
       leave(
@@ -659,7 +678,7 @@ export function verbs(store: Store) {
       });
       if (row) join(parent, edge, row, "connectOrCreate", $through as Input);
       else
-        nested.create!(parent, edge, { $through, ...(create as Input) }, true);
+        nested.create!(parent, edge, create as Input, true, $through as Input);
     },
     connect(parent, edge, { $through, ...where }) {
       join(
@@ -677,10 +696,9 @@ export function verbs(store: Store) {
         $through as Input
       );
     },
-    create(parent, edge, data, arm = false) {
+    create(parent, edge, data, arm = false, through = data.$through as Input) {
       const row = make(edge.target, data, born(parent, edge), edge.name, arm);
-      if (edge.kind === "junction")
-        store.link(edge, parent, row, data.$through as Input);
+      if (edge.kind === "junction") store.link(edge, parent, row, through);
     },
     createMany(parent, edge, { data, skipDuplicates }) {
       const rows = list(data) as Input[];

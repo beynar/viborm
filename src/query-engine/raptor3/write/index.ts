@@ -147,7 +147,16 @@ export async function prepareCall(
 ): Promise<PreparedBatchOperation<unknown> | undefined> {
   const store = new Store(operation, {
     holds: false,
-    send: () => Promise.reject(SEVERAL),
+    // What the call may ask before its unit is asked outside it.
+    send: (statements) =>
+      Promise.all(
+        statements.map((statement) =>
+          driver._execute<Input>(
+            statement.sql,
+            contextOf(operation, statement.model)
+          )
+        )
+      ),
     end: async () => undefined,
   });
   try {

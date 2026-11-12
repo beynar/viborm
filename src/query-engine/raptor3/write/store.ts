@@ -376,6 +376,19 @@ export class Store {
     const after = Math.min(
       ...[...this.#missed.values()].map((missed) => missed.after)
     );
+    // Before a unit handed over, only the call's own row may be looked for: found, the unit asks for it again; not found, the key it is created under refuses a row that came since.
+    if (
+      this.#handed &&
+      [...this.#missed.values()].some(
+        ({ question, after: asked }) =>
+          asked > 0 ||
+          !question?.unique ||
+          question.must ||
+          question.through ||
+          question.member
+      )
+    )
+      throw SEVERAL;
     const steps = after > this.#sent ? this.#steps(after) : [];
     // Questions that each name one row of a model, sought the same way, are one statement.
     const groups = new Map<string, [string, Question][]>();
@@ -1067,10 +1080,12 @@ export class Store {
     const { member } = question;
     const referenced =
       stops && this.writer.referenced(member, member && this.#key(member.of));
-    // In a unit handed over nothing comes between what is asked and what is written.
+    // Rows that need not be known are held, not read: nothing comes to reference them between what is asked and what is written. So it is in a unit handed over, which nothing comes between.
+    const held =
+      stops && !(this.#handed || member || question.limit !== undefined);
     if (
       marks
-        ? watched || (stops && !this.#handed)
+        ? watched || (stops && !(this.#handed || held))
         : returns &&
           !this.operation.answersInStatement(model, returns, kind, set)
     ) {
@@ -1106,13 +1121,34 @@ export class Store {
           ? this.series(model, rows, projection, "updateMany", take)
           : take(rows);
       if (!set) answer();
+      // Marked as rows that go are taken: those an absent control would show.
       for (const row of rows)
-        if (set) this.update(row, set, question.writes);
+        if (set)
+          this.update(
+            row,
+            set,
+            question.writes,
+            undefined,
+            question.intent === "delete"
+          );
         else this.delete(row);
       if (set) answer();
       return later;
     }
     if (marks) {
+      if (
+        held &&
+        this.#transport.holds &&
+        this.operation.driver.adapter.capabilities.supportsRowLocks
+      )
+        this.#note({
+          kind: "read",
+          model,
+          rows: [],
+          queries: () => [
+            q.lockAll(this.writer.selector({ ...question, intent: "delete" })),
+          ],
+        });
       if (stops)
         this.none(
           { ...question, must: undefined, intent: "delete", referenced },
@@ -1465,13 +1501,13 @@ export class Store {
     /** The writes that say themselves whether the row they were taken to find is there. */
     const confirms = new Map<Entry, Question>();
     /** The rows taken to be there that one statement asks for: those sought the same way. */
-    const asked = new Map<string, [Question, Input?][]>();
+    const asked = new Map<string, [Question, (Input | Input[])?][]>();
     /** Adds a row to ask for to the statement that asks for those sought the same way. */
     const ask = (
       question: Question,
       own: string,
       believed: "presumed" | "read",
-      key?: Input
+      key?: Input | Input[]
     ) => {
       const group = text([
         believed,
@@ -1482,7 +1518,7 @@ export class Store {
         question.writes,
       ]);
       if (!asked.has(group)) {
-        const together: [Question, Input?][] = [];
+        const together: [Question, (Input | Input[])?][] = [];
         asked.set(group, together);
         steps.push({ write: () => [writer.asks(together, believed)] });
       }
@@ -1612,17 +1648,21 @@ export class Store {
         : undefined;
     };
     if (!holds)
-      for (const [answer, at] of this.#used)
-        for (const values of at > to ? [] : answer.rows) {
-          const { model } = answer.question;
-          if (passed(this.#known.get(this.#name(model, values)))) continue;
+      for (const [answer, at] of this.#used) {
+        const { model, where } = answer.question;
+        const keys = (at > to ? [] : answer.rows)
+          .filter(
+            (values) => !passed(this.#known.get(this.#name(model, values)))
+          )
+          .map((values) => schema.identity(model, values));
+        if (keys.length > 0)
           ask(
             answer.question,
-            text(answer.question.where),
+            text(where),
             "read",
-            schema.identity(model, values)
+            keys.length === 1 ? keys[0] : keys
           );
-        }
+      }
     /** Where the steps of each entry begin. */
     const begins: [number, Entry][] = [];
     for (let at = this.#sent; at < to; at++) {

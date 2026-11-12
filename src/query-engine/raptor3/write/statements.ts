@@ -222,25 +222,43 @@ export class Writer {
   }
   /**
    * A statement that stops its unit unless each question still names a row:
-   * the one `key` names, where given. It stops on what the call `believed`,
-   * or, where the row must be there, on the call's refusal itself.
+   * the one `key` names, or every one of the rows several keys name, where
+   * given. It stops on what the call `believed`, or, where the row must be
+   * there, on the call's refusal itself.
    */
   asks(
-    asked: readonly (readonly [Question, Input?])[],
+    asked: readonly (readonly [Question, (Input | Input[])?])[],
     believed: "presumed" | "read"
   ): Statement {
+    const q = this.#q;
     const { assertions, operators } = this.#operation.driver.adapter;
     const [[question]] = asked as [[Question]];
     const { model } = question;
-    const asking = ([each, key]: readonly [Question, Input?], more?: Sql) =>
-      this.#q.select(model, { take: 1 }, this.#membership(each), {
-        projection: this.#projection(model, false),
-        selector: this.selector(each),
-        ...(key && { identity: key }),
-        ...(more && { condition: more }),
-      }).sql;
+    const asking = (
+      [each, key]: readonly [Question, (Input | Input[])?],
+      more?: Sql
+    ) => {
+      // Of several rows: as many of them as there are still answer.
+      const keys = Array.isArray(key) ? key : undefined;
+      return q.select(
+        model,
+        { take: 1, ...(keys && { skip: keys.length - 1 }) },
+        this.#membership(each),
+        {
+          projection: this.#projection(model, false),
+          selector: keys
+            ? q.andSelectors(model, [
+                this.selector(each),
+                q.includeIdentities(model, keys),
+              ])
+            : this.selector(each),
+          ...(key && !keys && { identity: key as Input }),
+          ...(more && { condition: more }),
+        }
+      ).sql;
+    };
     // One row answers where every question names one.
-    const [first, ...others] = asked as [[Question, Input?]];
+    const [first, ...others] = asked as [[Question, (Input | Input[])?]];
     const probe = asking(
       first,
       others.length > 0
