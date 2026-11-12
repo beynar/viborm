@@ -33,7 +33,8 @@
  *
  * Refused, with a typed error before anything is sent: a nested `cursor` or
  * `distinct`, a nested order by a relation or a `_count`, a recursive
- * relation, a polymorphic slot and a junction's `$through` row.
+ * relation, a polymorphic slot and a junction's `$through` row; a root
+ * `cursor` whose order is not the model's single-field key alone.
  */
 
 import { assembleAdapterSelect } from "@adapters/adapter-internals";
@@ -45,7 +46,12 @@ import type {
   PreparedProjectionField,
   PreparedRelationProjection,
   ProjectionShape,
+  Read,
 } from "@query-engine/raptor3/shared/query";
+import type {
+  Arguments,
+  ReadOperation,
+} from "@query-engine/raptor3/shared/schema";
 import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import { physicalField } from "@query-engine/raptor3/shared/storage";
 import type { AnyModel } from "@schema/model";
@@ -73,6 +79,40 @@ const RANK = "$rn";
 
 export class SnowflakeQueries extends SqlQueries {
   declare readonly adapter: SnowflakeAdapter;
+
+  /**
+   * A root `cursor` ordered by the model's single-field key alone: the SQL
+   * backend then compares that key with one uncorrelated scalar subquery,
+   * which Snowflake evaluates (measured, ascending and descending, with
+   * `distinct` too). A longer order compares a row of keys with a
+   * multi-column subquery, which it refuses ("Scalar subquery with
+   * multi-column SELECT clause").
+   */
+  override read(
+    model: AnyModel,
+    operation: ReadOperation,
+    args: Arguments
+  ): Read {
+    if (args.cursor !== undefined && !this.#keyedCursor(model, args))
+      throw new UnsupportedOperationError(
+        "Snowflake pages with a cursor only in the order of the model's single-field key, alone. Order by that key, or page with skip.",
+        { meta: { dialect: "snowflake", feature: "cursor" } }
+      );
+    return super.read(model, operation, args);
+  }
+
+  #keyedCursor(
+    model: AnyModel,
+    { cursor, orderBy }: Pick<Arguments, "cursor" | "orderBy">
+  ): boolean {
+    const [key, ...more] = this.keyOrder(model);
+    if (key === undefined || more.length > 0) return false;
+    const terms = Array.isArray(orderBy) ? orderBy : orderBy ? [orderBy] : [];
+    return [cursor, ...terms].every(
+      (term) =>
+        isRecord(term) && Object.keys(term).every((field) => field === key)
+    );
+  }
 
   override lowerProjection(
     projection: PreparedProjection,

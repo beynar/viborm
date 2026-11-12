@@ -158,6 +158,19 @@ const parsedJson = (value: unknown): Sql =>
 const containsEvery = (column: Sql, values: Sql): Sql =>
   sql`(ARRAY_SIZE(ARRAY_EXCEPT(ARRAY_DISTINCT(${values}), ${column})) = 0)`;
 
+/**
+ * A recursive walk, which every recursive filter lowers to: Snowflake refuses
+ * the one VibORM writes (a correlated anchor, `UNION`), measured as "is an
+ * invalid Recursive CTE". Refused while the statement is built, so nothing
+ * is sent, whether the filter is the caller's or a permission rule's.
+ */
+function noRecursion(): never {
+  throw new UnsupportedOperationError(
+    "Snowflake reads a relation without recursion. Read it with a second query, or with $queryRaw.",
+    { meta: { dialect: "snowflake", feature: "recursion" } }
+  );
+}
+
 /** A statement Snowflake has no spelling for, asked only of a write. */
 function noSpelling(statement: string): never {
   throw new FeatureNotSupportedError(
@@ -389,10 +402,11 @@ export class SnowflakeAdapter implements DatabaseAdapter {
     extract: jsonPath,
     extractText: (column: Sql, path: string[]): Sql =>
       sql`TO_VARCHAR(${jsonPath(column, path)})`,
-    numberAtPath: (column: Sql, path: string[]): Sql => {
-      const value = jsonPath(column, path);
-      return sql`(CASE WHEN TYPEOF(${value}) IN ('INTEGER', 'DECIMAL', 'DOUBLE') THEN CAST(${value} AS FLOAT) END)`;
-    },
+    // NULL for any member that is not a number. A CAST under a CASE on its
+    // TYPEOF is not enough: Snowflake may evaluate the CAST first, and fails
+    // on an array (measured).
+    numberAtPath: (column: Sql, path: string[]): Sql =>
+      sql`AS_DOUBLE(${jsonPath(column, path)})`,
     // Without a collation Snowflake orders text by code point already.
     stringAtPath: (column: Sql, path: string[]): Sql =>
       this.json.foldableStringAtPath(column, path),
@@ -520,7 +534,12 @@ export class SnowflakeAdapter implements DatabaseAdapter {
           noLimitValue: this.noLimitValue,
         });
 
-  cte = createCteBuilders(quoteIdent);
+  // Every walk is this one: Snowflake shares no relation body, so none is a
+  // recursive member of a statement's WITH list.
+  cte: DatabaseAdapter["cte"] = {
+    ...createCteBuilders(quoteIdent),
+    recursive: noRecursion,
+  };
 
   mutations = {
     // Snowflake enforces no unique key, so there is no duplicate to skip.

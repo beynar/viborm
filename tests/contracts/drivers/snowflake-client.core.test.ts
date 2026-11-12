@@ -16,6 +16,8 @@ import {
   VibORMErrorCode,
 } from "@errors";
 import { s } from "@schema";
+import { permissions } from "@src/permissions";
+import { v } from "@src/validation";
 import {
   type FakeAnswer,
   type FakeSnowflake,
@@ -494,6 +496,104 @@ describe("Snowflake refusals", () => {
     for (const shape of shapes)
       await expect(shape).rejects.toBeInstanceOf(UnsupportedOperationError);
     expect(server.requests).toEqual([]);
+  });
+});
+
+const doc = s
+  .model({
+    id: s.int().id(),
+    parentId: s.int().nullable(),
+    ownerId: s.int(),
+    title: s.string(),
+    data: s.json().nullable(),
+    parent: s
+      .toOne(() => doc)
+      .fields("parentId")
+      .references("id"),
+    children: s.toMany(() => doc),
+  })
+  .map("DOCS");
+
+const pair = s
+  .model({ a: s.int(), b: s.int(), label: s.string() })
+  .id(["a", "b"])
+  .map("PAIRS");
+
+function docs() {
+  return createClient({
+    schema: { doc, pair },
+    account: "myorg-acct",
+    token: "t",
+    host: server.url,
+  });
+}
+
+describe("Snowflake root pages and filters", () => {
+  it("refuses a recursive filter, the caller's or a permission rule's, before sending anything", async () => {
+    const db = docs();
+    const walk = {
+      parent: { recurse: { depth: false }, self: true, some: { ownerId: 1 } },
+    } as const;
+    await expect(db.doc.findMany({ where: walk })).rejects.toBeInstanceOf(
+      UnsupportedOperationError
+    );
+    await expect(
+      db.doc.findMany({ include: { children: { where: walk } } })
+    ).rejects.toBeInstanceOf(UnsupportedOperationError);
+    const gated = db
+      .$extends(
+        permissions({
+          actor: v.object({ userId: v.number() }),
+          models: {
+            doc: {
+              read: {
+                parent: {
+                  recurse: { depth: false },
+                  self: true,
+                  some: { ownerId: { actor: "userId" } },
+                },
+              },
+            },
+            pair: { read: true },
+          },
+        })
+      )
+      .$as({ userId: 1 });
+    await expect(gated.doc.findMany()).rejects.toBeInstanceOf(
+      UnsupportedOperationError
+    );
+    expect(server.requests).toEqual([]);
+  });
+
+  it("pages with a cursor in the order of the single-field key, and refuses any other order before sending anything", async () => {
+    const db = docs();
+    await db.doc.findMany({ cursor: { id: 2 }, orderBy: { id: "desc" } });
+    await db.doc.findMany({ cursor: { id: 2 }, distinct: ["ownerId"] });
+    const [descending, distinct] = server.statements();
+    // One key against one uncorrelated scalar subquery: what Snowflake runs.
+    expect(descending!.statement).toContain(
+      '"q0"."id" <= (SELECT "q1"."id" FROM "DOCS" AS "q1" WHERE "q1"."id" = ? LIMIT ?)'
+    );
+    expect(distinct!.statement).toContain(">= (SELECT");
+    server.requests.length = 0;
+    for (const read of [
+      db.doc.findMany({ cursor: { id: 2 }, orderBy: { title: "asc" } }),
+      db.doc.findMany({
+        cursor: { id: 2 },
+        orderBy: [{ id: "asc" }, { title: "asc" }],
+      }),
+      db.doc.count({ cursor: { id: 2 }, orderBy: { title: "asc" } }),
+      db.pair.findMany({ cursor: { a_b: { a: 1, b: 2 } } }),
+    ])
+      await expect(read).rejects.toBeInstanceOf(UnsupportedOperationError);
+    expect(server.requests).toEqual([]);
+  });
+
+  it("reads a JSON number at a path with AS_DOUBLE, which no other member fails", async () => {
+    await docs().doc.findMany({ where: { data: { path: ["k"], gt: 1 } } });
+    expect(server.statements()[0]!.statement).toContain(
+      'AS_DOUBLE(("q0"."data")[\'k\'])'
+    );
   });
 });
 
