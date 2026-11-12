@@ -533,15 +533,22 @@ export class Writer {
     const { where } = this.#limited(question, this.selector(question, [key]), [
       key,
     ]);
-    const fields = this.#operation.schema.keys(model).map((field) => {
+    // The row as its write will leave its key, read as any row is.
+    const columns = this.#operation.schema.keys(model).map((field) => {
       const column = q.column(model, field, table);
       const value =
         field in set ? q.updateValue(model, field, set[field], column) : column;
-      return sql`${value} AS ${identifiers.escape(field)}`;
+      return sql`${value} AS ${identifiers.escape(q.columnName(model, field))}`;
+    });
+    const row = sql`SELECT ${sql.join(columns, ", ")} FROM ${q.table(model)} WHERE ${where}`;
+    const source = "__viborm_computed";
+    const read = q.select(model, {}, undefined, {
+      projection: this.#projection(model, false),
+      source,
     });
     return {
       model,
-      sql: sql`SELECT ${sql.join(fields, ", ")} FROM ${q.table(model)} WHERE ${where} FOR UPDATE`,
+      sql: sql`WITH ${identifiers.escape(source)} AS (${capabilities.supportsRowLocks ? sql`${row} FOR UPDATE` : row}) ${read.sql}`,
     };
   }
   /**

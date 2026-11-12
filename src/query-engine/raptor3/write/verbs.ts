@@ -997,8 +997,18 @@ export function verbs(store: Store) {
         intent: "update",
         writes: writes(model, update),
       };
-      const related =
-        relationsOf(model, create).length + relationsOf(model, update).length;
+      const followed = relationsOf(model, update);
+      // A key that rows written beside it must follow has to be nameable before either arm: what it becomes is what they take.
+      const unnamed = schema.keyTransitionRefusal(
+        model,
+        update,
+        store.writer.selector(question).facts.keys,
+        followed.flatMap(({ edge }) =>
+          edge.kind === "reference" && !holds(edge) ? [edge] : []
+        )
+      );
+      if (unnamed) throw unnamed;
+      const related = relationsOf(model, create).length + followed.length;
       // An update that says nothing writes nothing: no statement that would write what every update takes.
       if (
         related + guards.length === 0 &&
@@ -1021,14 +1031,19 @@ export function verbs(store: Store) {
         ...question,
         where: { ...where, AND: [...list(where.AND), ...guards] },
       };
+      // What a key may be rewritten with is asked of the row found, whatever is asked of it besides.
+      const refused =
+        found &&
+        followed.length > 0 &&
+        schema.keyPortabilityRefusal(model, update);
+      if (refused) throw refused;
       const matched =
         !found || guards.length === 0 || store.rows(asked).length > 0;
       if (!matched) store.absent(asked);
       // An update that says nothing asks nothing of the row found.
       const updates =
         found && matched && Object.keys(stated(update)).length > 0;
-      if (updates)
-        write(model, found, update, relationsOf(model, update).length > 0);
+      if (updates) write(model, found, update, false);
       const answer = answering(model, found ?? make(model, create, {}), args);
       return () => {
         // Which of the two it was is told once the call's writes are made: neither where it wrote nothing.
