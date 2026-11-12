@@ -7,6 +7,7 @@
 
 import type { AnyModel } from "@schema/model";
 import type { PreparedBatchOperation } from "../../types";
+import type { Writer } from "../write/statements";
 import type { Queries, Read } from "./query";
 import type { Arguments } from "./schema";
 import type { SqlOperationContext } from "./sql-operation-context";
@@ -48,8 +49,12 @@ export interface EngineBackend<Context extends CallContext = any> {
   readonly context: new (
     ...args: ConstructorParameters<typeof SqlOperationContext>
   ) => Context;
+  /** What writes the statements of the engine's write path in the backend's language. */
+  readonly writer?: new (
+    operation: Context & SqlOperationContext
+  ) => Writer;
   /** How a write runs in the backend's language: one statement where `single`. */
-  readonly plan: (
+  readonly plan?: (
     context: Context,
     model: AnyModel,
     args: Arguments,

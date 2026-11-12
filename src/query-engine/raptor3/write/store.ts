@@ -36,6 +36,7 @@ import {
   readUpdate,
   returningSafeProjection,
 } from "../shared/query";
+import { engineBackend } from "../shared/query-backend";
 import type { EngineSchema, Input } from "../shared/schema";
 import type { SqlOperationContext } from "../shared/sql-operation-context";
 import type { Membership } from "../shared/storage";
@@ -302,7 +303,10 @@ export class Store {
   #handed = false;
   constructor(operation: SqlOperationContext, transport: Transport) {
     this.operation = operation;
-    this.writer = new Writer(operation);
+    const { backend } = operation.driver;
+    this.writer = new ((backend && engineBackend(backend).writer) || Writer)(
+      operation
+    );
     this.sink = writeSinks.get(operation.attribution);
     this.#transport = transport;
     if (transport.holds)
@@ -554,6 +558,13 @@ export class Store {
       .keys(model)
       .map((field) => String(values[field]))
       .join("|")}`;
+  }
+  /** A question as a statement asks it: of a row it names the members of, what only the database holds written as what reads it. */
+  #asked<Q extends Question>(question: Q): Q {
+    const { member } = question;
+    return member
+      ? { ...question, member: { ...member, of: this.#said(member.of) } }
+      : question;
   }
   /** A row's key as it stands now. */
   #key(row: Row): Input {
@@ -1929,7 +1940,14 @@ export class Store {
         const together: [Question, (Input | Input[])?][] = [];
         asked.set(group, together);
         steps.push({
-          write: () => [writer.asks(together, believed, holds, held)],
+          write: () => [
+            writer.asks(
+              together.map(([each, key]) => [this.#asked(each), key]),
+              believed,
+              holds,
+              held
+            ),
+          ],
         });
       }
       asked.get(group)!.push([question, key]);
@@ -1986,8 +2004,10 @@ export class Store {
       entry: Extract<Entry, { kind: "update" | "delete" }>,
       run: readonly Extract<Entry, { kind: "update" | "delete" }>[] = [entry]
     ) => ({
-      ...entry.question,
-      member: confirms.get(entry)?.member,
+      ...this.#asked({
+        ...entry.question,
+        member: confirms.get(entry)?.member,
+      }),
       through: entry.question.member?.edge ?? entry.question.through,
       // Where nothing holds what the call read, the first write of the rows it read says again what they were found by.
       again:
@@ -2417,12 +2437,16 @@ export class Store {
           write: async () => [
             entry.set
               ? await writer.update(
-                  entry.question,
+                  this.#asked(entry.question),
                   this.#said(entry.set),
                   undefined,
                   entry.projection
                 )
-              : writer.remove(entry.question, undefined, entry.projection),
+              : writer.remove(
+                  this.#asked(entry.question),
+                  undefined,
+                  entry.projection
+                ),
           ],
           take,
         });
@@ -2501,7 +2525,7 @@ export class Store {
         steps.push({
           write: () => [
             {
-              ...writer.none(entry.question, entry.stops),
+              ...writer.none(this.#asked(entry.question), entry.stops),
               ...(entry.believed && { believed: "read" as const }),
             },
           ],

@@ -32,7 +32,7 @@ import {
 import { SqlQueries } from "../shared/sql-queries";
 import { prepareCall, writeCall } from "../write";
 
-type BackendPlan = ReturnType<EngineBackend["plan"]>;
+type BackendPlan = ReturnType<NonNullable<EngineBackend["plan"]>>;
 
 /**
  * What a prepared read publishes before it runs.
@@ -230,7 +230,7 @@ class PreparedCommand implements PreparedOperation {
 
   /** A write in a language of the driver's own: the driver's backend says how it runs. */
   #plan(context: CallContext): BackendPlan {
-    return engineBackend(this.#config.driver.backend!).plan(
+    return engineBackend(this.#config.driver.backend!).plan!(
       context,
       this.#model,
       this.args,
@@ -253,9 +253,13 @@ class PreparedCommand implements PreparedOperation {
     }, single);
   }
 
-  /** Whether the call is a write in SQL: the engine's own write path runs it. */
+  /** Whether the call is a write the engine's own write path runs: every one, but where a backend plans its writes itself. */
   get #writes(): boolean {
-    return !(isReadOperation(this.#operation) || this.#config.driver.backend);
+    const { backend } = this.#config.driver;
+    return !(
+      isReadOperation(this.#operation) ||
+      (backend && engineBackend(backend).plan)
+    );
   }
 
   execute(

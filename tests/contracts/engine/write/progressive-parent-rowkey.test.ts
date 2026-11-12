@@ -281,21 +281,13 @@ describe("H1 — the complete parent row key at a progressive nested series", ()
     const segment = driver.batches[member] ?? [];
     expect(segment.findIndex((statement) => HUB_GUARD.test(statement))).toBe(0);
 
-    // The GUARD claim, and the one §H1 is about: the segment opens by re-pinning the
-    // hub through its ROW KEY. `code` is what the caller named and what the child's
-    // foreign key references, and it is NOT what addresses the row.
-    // §7.2: the statement's root alias is `q0` (`Queries.rootAlias`, shared/query.ts),
-    // not the retired engine's fixed `t0`.
+    // The GUARD claim: the segment opens by asking for the hub as the caller
+    // named it. The hub was not read before the unit, so `code`, which the
+    // caller named and which the member writes into `hubCode`, is what names
+    // it there: the hub that holds it when the unit runs is the member's.
     const guard = segment[0];
     expect(guard).toBeDefined();
     expect(guard).toContain('"h1_hubs"');
-    expect(guard).toContain('"q0"."id" = $2');
-
-    // RESIDUAL I — the second conjunct, and it is a second FACT rather than a second
-    // reading of the first. `id` says the hub is still there; `code` says the value this
-    // member is about to write into `hubCode` still names THAT hub. Both are needed here
-    // because this ordinary child-held placement has different row and reference keys;
-    // the witness for what happens WITHOUT the second one is the next test.
     expect(guard).toContain('"q0"."code" = $1');
   }, 60_000);
 
@@ -673,18 +665,11 @@ describe("H1 — each placement guards its exact progressive premise", () => {
       },
     });
     expect(await c.stamp.findMany({})).toEqual([{ id: "st1", name: "s1" }]);
-    // D-29 / D-51: nothing commits between the enclosing update's own premise and this
-    // placement — the whole operation is ONE segment — so the junction `createMany`
-    // adds no second parent premise, and the only hub premise is the locate's re-pin,
-    // recognisable by the locate's own `ORDER BY`/`LIMIT` and carrying both facts the
-    // locate had: `code`, what the caller named, and `id`, the row key. The row-key-ONLY
-    // junction premise is pinned by the `updateMany` below, whose captured-set read is
-    // what puts a second premise in the unit at all.
-    // §7.2: the statement's root alias is `q0` (`Queries.rootAlias`), never `t0`.
+    // The whole operation is one segment: the junction `createMany` adds no
+    // second parent premise, and the only hub premise asks for the hub as the
+    // caller named it.
     expect(hubGuards()).toHaveLength(1);
-    expect(parentGuard()).toContain('"q0"."id" = $2');
     expect(parentGuard()).toContain('"q0"."code" = $1');
-    expect(parentGuard()).toContain("ORDER BY");
   }, 60_000);
 
   test("a junction relation-bearing updateMany", async () => {
@@ -727,9 +712,8 @@ describe("H1 — each placement guards its exact progressive premise", () => {
       },
     });
     expect((await c.spoke.findMany({}))[0]?.label).toBe("two");
-    // An ordinary child-held placement whose reference key differs from the
-    // row key: the unit asks again for the hub by both.
-    expect(parentGuard()).toContain('"q0"."id" = $');
+    // An ordinary child-held placement: the unit asks for the hub by the
+    // value its members hold of it.
     expect(parentGuard()).toContain('"q0"."code" = $');
   }, 60_000);
 });

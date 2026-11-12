@@ -37,6 +37,7 @@ import {
   returningSafeProjection,
   throughDerived,
 } from "./query";
+import { engineBackend } from "./query-backend";
 import type { CallScope, RowJudgement } from "./row-scope";
 import {
   type EngineSchema,
@@ -127,13 +128,14 @@ export class SqlOperationContext {
     this.driver = (
       binding?.kind === "borrowed-transaction" ? binding.driver : factoryDriver
     ) as this["driver"];
-    this.queries = new SqlQueries(
+    const { backend } = this.driver;
+    this.queries = new (backend ? engineBackend(backend).queries : SqlQueries)(
       schema,
       this.driver.adapter,
       this.driver.result,
       scope?.domain,
       scope
-    );
+    ) as SqlQueries;
   }
 
   /** What every statement of the call is attributed to. */
