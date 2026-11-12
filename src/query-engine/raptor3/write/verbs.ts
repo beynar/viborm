@@ -405,15 +405,22 @@ export function verbs(store: Store) {
       held && edge.kind === "reference"
         ? edge.pairs.filter((pair) => said[pair.source] !== undefined)
         : [];
+    // A key the relation is held by is given a value: what the database would compute of it names no row the relation could be asked of.
+    const stated = (field: string) => readUpdate(said[field]);
+    for (const { source } of final)
+      if (stated(source).kind !== "value")
+        throw new NestedWriteError(
+          `Cannot update relation key field '${source}' with a non-literal operation while mutating relation '${edge.name}'. Use a literal value or '{ set: ... }'.`,
+          edge.name,
+          { meta: { operation: "update", field: source, relation: edge.name } }
+        );
     const of =
       row && final.length > 0
         ? new Proxy(row, {
-            get(known, field: string) {
-              // A value the database computes is the row's to say once written.
-              const stated =
-                said[field] === undefined ? undefined : readUpdate(said[field]);
-              return stated?.kind === "value" ? stated.value : known[field];
-            },
+            get: (known, field: string) =>
+              said[field] === undefined
+                ? known[field]
+                : (stated(field) as { value: unknown }).value,
           })
         : row;
     /** The row the relation reaches now. */

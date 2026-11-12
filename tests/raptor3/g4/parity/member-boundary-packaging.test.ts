@@ -1,33 +1,17 @@
 /**
- * N5 — a member boundary is the MEMBER's, and a dispatch commits the whole
- * queue.
+ * N5 — on a batch-only transport, a write that fits one unit is one unit.
  *
- * On a batch-only transport a dispatch is a committed segment. A boundary taken
- * at every member therefore made durable whatever was already waiting: a nested
- * `createMany` of literal rows dispatched [INSERT board, INSERT post#1] at the
- * first member, and the second row's duplicate key then left the parent and its
- * first child behind, where the interactive route rolls the whole operation
- * back. So the packaging boundary `executeMember` would take at a member's end
- * is DEFERRED while an enclosing write waits (a series of literal rows is one
- * unit with its parent, and D-51's "one result" holds for it on both routes),
- * and the boundary a later member's observation needs is taken by the
- * OBSERVING member, in `OperationContext.answer`, whenever another record of
- * the series left a write waiting — a succession of segments, which D-51
- * admits as packaging. What that succession leaves committed behind a later
- * failure differs by route, and the last cell pins both states.
+ * A dispatch is durable there. A nested `createMany` of literal rows is one
+ * unit with its parent: a later row's duplicate key leaves nothing behind, as
+ * on the interactive route. So is a series whose later member looks for the
+ * row an earlier member creates: the call knows the rows it creates, so the
+ * later member's `connectOrCreate` finds the earlier one's row without a unit
+ * being sent between them — under a parent whose `data` carries only the
+ * relation, under a parent that also writes a scalar of its own, and under a
+ * `create` whose parent row is itself part of the unit. One author row, never
+ * a second `INSERT INTO "n5mb_authors"`.
  *
- * The controls beside it are what keep that packaging honest. A series whose
- * members really do need the boundary — a later member's `connectOrCreate`
- * probe must see the row an earlier member created — still segments, and still
- * answers with one author row, and it does so WHATEVER the enclosing record is
- * doing: under a parent whose `data` carries only the relation, under a parent
- * that also writes a scalar of its own, and under a `create` whose parent row
- * is itself the pending write. The boundary such a member earns is deferred by
- * the enclosing write, never dropped — the probe is answered outside the queue,
- * so the queue is dispatched before it is asked. The two latter shapes are the
- * regression this file exists to keep out: they answered
- * `UniqueConstraintError` with a second `INSERT INTO "n5mb_authors"` in one
- * dispatched unit, where the interactive twin answered `ok`.
+ * A series that then fails leaves nothing behind on either route.
  */
 
 import assert from "node:assert/strict";
@@ -151,8 +135,6 @@ describe("N5: the member boundary on a batch-only transport", () => {
       authors,
       posts: posts.map((row) => [row.id, row.boardId, row.authorId !== null]),
       oneAuthor: posts[0]?.authorId === posts[1]?.authorId,
-      // a series whose members observe each other still segments
-      segmented: driver.segments > 1,
     };
   }
   /** One author row, both posts on the board, both pointing at that author. */
@@ -163,10 +145,9 @@ describe("N5: the member boundary on a batch-only transport", () => {
       ["p2", "b1", true],
     ],
     oneAuthor: true,
-    segmented: true,
   };
 
-  it("a member a later member must SEE still takes its boundary", async () => {
+  it("a member a later member must SEE is seen", async () => {
     const client = await world();
     await client.board.create({ data: { id: "b1" } });
     driver.segments = 0;
@@ -177,7 +158,7 @@ describe("N5: the member boundary on a batch-only transport", () => {
     assert.deepEqual(await observedState(client), ONE_SHARED_AUTHOR);
   });
 
-  it("it takes it while the parent's own write is still pending", async () => {
+  it("it is seen while the parent's own write is still pending", async () => {
     const client = await world();
     await client.board.create({ data: { id: "b1", label: "before" } });
     driver.segments = 0;
@@ -191,7 +172,7 @@ describe("N5: the member boundary on a batch-only transport", () => {
     ]);
   });
 
-  it("it takes it where the parent row is itself the pending write", async () => {
+  it("it is seen where the parent row is itself the pending write", async () => {
     const client = await world();
     driver.segments = 0;
     await client.board.create({
@@ -207,15 +188,11 @@ describe("N5: the member boundary on a batch-only transport", () => {
     ]);
   });
 
-  it("an observing series that then fails: the interactive route rolls back, the batch route keeps the committed prefix (D-51)", async () => {
-    // The boundary the observing member claimed made the board, the first post
-    // and the author durable on a batch-only transport; the interactive route
-    // holds one transaction and rolls everything back. D-51's "one result"
-    // is the answer (both routes reject), not what stands committed behind it.
+  it("an observing series that then fails leaves nothing behind, on either route", async () => {
     const failing = [...observing, { id: "p1", title: "duplicate" }];
-    for (const [route, make, durable] of [
-      ["interactive", () => new RecordingSQLiteDriver(), false],
-      ["batch-only", () => new SegmentCountingDriver(), true],
+    for (const [route, make] of [
+      ["interactive", () => new RecordingSQLiteDriver()],
+      ["batch-only", () => new SegmentCountingDriver()],
     ] as const) {
       const live = make();
       const client = createClient({ schema, driver: live });
@@ -235,17 +212,17 @@ describe("N5: the member boundary on a batch-only transport", () => {
       );
       assert.deepEqual(
         await client.board.findMany({ select: { id: true } }),
-        durable ? [{ id: "b1" }] : [],
+        [],
         route
       );
       assert.deepEqual(
         await client.post.findMany({ select: { id: true } }),
-        durable ? [{ id: "p1" }] : [],
+        [],
         route
       );
       assert.deepEqual(
         await client.author.findMany({ select: { name: true } }),
-        durable ? [{ name: "shared" }] : [],
+        [],
         route
       );
       await live.disconnect();
