@@ -193,19 +193,28 @@ describeIf("SQL Server transactions the server rolls back", () => {
       committing.then(restore, restore);
       return committing;
     };
-    const slow = open();
-    const failure = await slow
-      .$transaction(async (tx) => {
-        await tx.$executeRaw(
-          sql.raw(
-            `INSERT INTO "${NAMESPACE}"."counters" ("key", "value") SELECT TOP 3000 CONCAT('slow-', ROW_NUMBER() OVER (ORDER BY (SELECT NULL))), 1 FROM sys.all_objects AS a CROSS JOIN sys.all_objects AS b`
-          )
+    // A server may answer within the millisecond: that COMMIT succeeded,
+    // and the scenario is run again on a fresh client.
+    let slow = open();
+    let failure: unknown;
+    for (let attempt = 1; attempt <= 10; attempt++) {
+      failure = await slow
+        .$transaction(async (tx) => {
+          await tx.$executeRaw(
+            sql.raw(
+              `INSERT INTO "${NAMESPACE}"."counters" ("key", "value") SELECT TOP 3000 CONCAT('slow-', ROW_NUMBER() OVER (ORDER BY (SELECT NULL))), 1 FROM sys.all_objects AS a CROSS JOIN sys.all_objects AS b`
+            )
+          );
+        })
+        .then(
+          () => undefined,
+          (error: unknown) => error
         );
-      })
-      .then(
-        () => undefined,
-        (error: unknown) => error
-      );
+      if (failure !== undefined) break;
+      await slow.counter.deleteMany({});
+      await slow.$disconnect();
+      slow = open();
+    }
     prototype.commit = commit;
     expect(reported(failure)).toEqual(UNKNOWN_COMMIT);
     expect(
