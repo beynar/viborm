@@ -421,6 +421,24 @@ export class Writer {
       model
     );
   }
+  /** A row the call created still holds what the database decided of it: asked where a later unit, on its own, writes that into other rows. */
+  still(model: AnyModel, values: Input): Statement {
+    const probe = this.#q.select(model, { take: 1 }, undefined, {
+      projection: this.projection(model, false),
+      selector: this.#q.prepareSelector(model, values, false),
+    }).sql;
+    return {
+      model,
+      sql: this.asserts(probe, "exists"),
+      probe,
+      premise: "exists",
+      stops: {
+        kind: "query",
+        message: `Created record '${model["~"].names.ts!}' changed across a generated-output segment boundary.`,
+        raceable: false,
+      },
+    };
+  }
   /** Whether `row` travels in the statement that inserts `count` rows of these `columns`: the same columns, within what the provider binds in one statement. */
   beside(
     model: AnyModel,

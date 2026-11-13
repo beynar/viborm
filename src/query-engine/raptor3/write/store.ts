@@ -264,6 +264,8 @@ function dependentsOf(schema: EngineSchema, model: AnyModel): Set<AnyModel> {
 }
 
 const NONE: string[] = [];
+/** The step of a statement that only asks. */
+const STILL: Step = { write: () => [] };
 /** The fields of a model the database decides where a row leaves them out: its key, and what it counts for the row. */
 const decidables = new WeakMap<AnyModel, readonly string[]>();
 function decidable(schema: EngineSchema, model: AnyModel): readonly string[] {
@@ -325,6 +327,8 @@ export class Store {
   /** The models the call wrote a row of, and the junctions it wrote a link of. */
   #touched = new Set<AnyModel | string>();
   #again = false;
+  /** The value a statement being written waits for the database to say. */
+  #waited: Pending | undefined;
   /** The verbs ran on this store already: what a run noted is put away before the next. */
   #ran = false;
   #made = 0;
@@ -658,8 +662,10 @@ export class Store {
       const said = value instanceof Pending ? value.row[value.field] : value;
       // What cannot be heard before the unit goes on is written as the database will compute it.
       if (said instanceof Pending) {
-        if (!said.named && (this.#transport.holds || !said.spell))
+        if (!said.named && (this.#transport.holds || !said.spell)) {
+          this.#waited = said;
           throw UNHEARD;
+        }
         heard[field] = said.spell!();
       } else if (said !== undefined) heard[field] = said;
     }
@@ -2738,6 +2744,19 @@ export class Store {
         } catch (error) {
           if (error !== UNHEARD) throw error;
           await flush(false);
+          // What the database decided of a row is asked for again where a unit made after it writes it into other rows: on a transport that holds nothing, another writer may have changed the row since.
+          const waited = this.#waited;
+          this.#waited = undefined;
+          if (waited && !(within || this.#transport.holds))
+            waiting.push({
+              statements: [
+                this.writer.still(this.#meta.get(waited.row)!.model, {
+                  ...this.#key(waited.row),
+                  [waited.field]: waited.row[waited.field],
+                }),
+              ],
+              step: STILL,
+            });
           statements = await step.write();
         }
         waiting.push({ statements, step });
