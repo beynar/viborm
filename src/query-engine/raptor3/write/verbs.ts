@@ -254,6 +254,12 @@ export function verbs(store: Store) {
         null,
       ])
     );
+  /** The members of `parent` through a relation, among those `where` names: what every question about them starts from. */
+  const within = (parent: Row, edge: Membership, where?: unknown) => ({
+    model: edge.target,
+    where: where as Input | undefined,
+    member: { edge, of: parent },
+  });
   const members = (
     parent: Row,
     edge: Membership,
@@ -261,9 +267,7 @@ export function verbs(store: Store) {
     ask: Partial<Question>
   ): Row[] =>
     store.rows({
-      model: edge.target,
-      where,
-      member: { edge, of: parent },
+      ...within(parent, edge, where),
       ...ask,
     });
   /** What a write of `data` writes of its row, as the caller stated it: none where it writes nothing of it. */
@@ -767,10 +771,8 @@ export function verbs(store: Store) {
         parent,
         edge,
         store.one({
-          model: edge.target,
-          where,
+          ...within(parent, edge, where),
           unique: true,
-          member: { edge, of: parent },
           intent: "join",
           verb: "disconnect",
         })
@@ -778,10 +780,8 @@ export function verbs(store: Store) {
     },
     delete(parent, edge, where) {
       const row = store.one({
-        model: edge.target,
-        where,
+        ...within(parent, edge, where),
         unique: true,
-        member: { edge, of: parent },
         intent: "delete",
         verb: "delete",
       });
@@ -805,9 +805,7 @@ export function verbs(store: Store) {
       if (plain(edge.target, values, set))
         store.all(
           {
-            model: edge.target,
-            where: where as Input,
-            member: { edge, of: parent },
+            ...within(parent, edge, where),
             ...ask,
           },
           set
@@ -840,9 +838,7 @@ export function verbs(store: Store) {
     },
     deleteMany(parent, edge, where) {
       store.all({
-        model: edge.target,
-        where,
-        member: { edge, of: parent },
+        ...within(parent, edge, where),
         intent: "delete",
         verb: "deleteMany",
       });
@@ -852,10 +848,8 @@ export function verbs(store: Store) {
       write(
         edge.target,
         store.one({
-          model: edge.target,
-          where: where as Input | undefined,
+          ...within(parent, edge, where),
           unique: true,
-          member: { edge, of: parent },
           intent: "update",
           writes: writes(edge.target, values),
           verb: "update",
@@ -992,8 +986,7 @@ export function verbs(store: Store) {
       });
     });
     const others: Question = {
-      model: edge.target,
-      member: { edge, of: parent },
+      ...within(parent, edge),
       except: kept.map((row) => schema.identity(edge.target, row)),
       intent: "join",
       verb: "set",

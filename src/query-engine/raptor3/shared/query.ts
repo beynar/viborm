@@ -1818,7 +1818,7 @@ export abstract class Queries {
     ) as Input[];
   }
   columnName(model: AnyModel, field: string): string {
-    return physicalField(this.schema, model, field).name;
+    return this.physical(model, field).name;
   }
   /** The declared native form of a column; a list's members live in its container. */
   protected nativeType(scalar: Scalar): NativeTypeDeclaration | undefined {
@@ -1844,7 +1844,7 @@ export abstract class Queries {
     }
     let shape = leaves.get(field);
     if (shape === undefined) {
-      const physical = physicalField(this.schema, model, field);
+      const physical = this.physical(model, field);
       shape = this.#leaf(
         physical.scalar,
         physical.nullable,
@@ -1907,8 +1907,7 @@ export abstract class Queries {
     if (update.kind !== "arithmetic") return update.kind === "value";
     return !(
       (update.operator === "multiply" || update.operator === "divide") &&
-      exactDecimalDomain(physicalField(this.schema, model, field).state) !==
-        undefined
+      exactDecimalDomain(this.physical(model, field).state) !== undefined
     );
   }
   /** `model`'s names and values as this lowering spells them, for a fragment written by hand. */
@@ -2332,7 +2331,7 @@ export abstract class Queries {
     return freeze({
       model,
       field,
-      physical: physicalField(this.schema, model, field),
+      physical: this.physical(model, field),
     });
   }
   #prepareScalarPredicate(
@@ -2970,6 +2969,10 @@ export abstract class Queries {
       ...nested.reads
     );
   }
+  /** A field of a model as it is stored. */
+  physical(model: AnyModel, field: string): PhysicalField {
+    return this.schema.physicalField(model, field);
+  }
   /**
    * The model's key order: a bare scalar id, else the row key's fields in
    * declaration order. A windowed read's tie-break, and the order a limited
@@ -3362,7 +3365,7 @@ export abstract class Queries {
   }
   /** A missing point/vector or a zero-norm cosine distance has no number. */
   #distanceLeaf(model: AnyModel, field: string, distance: Input): Leaf {
-    const physical = physicalField(this.schema, model, field);
+    const physical = this.physical(model, field);
     return freeze({
       kind: "scalar",
       type: "number",

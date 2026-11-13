@@ -140,12 +140,7 @@ import {
   type ReadOperation,
   record,
 } from "./schema";
-import {
-  hopFieldsOf,
-  linkMembers,
-  type Membership,
-  physicalField,
-} from "./storage";
+import { hopFieldsOf, linkMembers, type Membership } from "./storage";
 import { listed, nameOf, tableOf } from "./terms";
 
 /** A select's controls, and a condition spelled for the alias this language gives it. */
@@ -1086,7 +1081,7 @@ export class SqlQueries extends Queries {
    */
   fieldValue(model: AnyModel, field: string, value: unknown): Sql {
     return this.#scalarValue(
-      physicalField(this.schema, model, field).scalar,
+      this.physical(model, field).scalar,
       value,
       field,
       this.scalarShape(model, field).id
@@ -1233,7 +1228,7 @@ export class SqlQueries extends Queries {
   projectedColumn(model: AnyModel, field: string, alias?: string): Sql {
     const column = this.column(model, field, alias);
     const leaf = this.scalarShape(model, field);
-    const state = physicalField(this.schema, model, field).state;
+    const state = this.physical(model, field).state;
     if (state.type === "bigint" && state.array !== true)
       return this.#cast(column, "text");
     if (
@@ -1364,7 +1359,7 @@ export class SqlQueries extends Queries {
     if (
       update.kind === "arithmetic" &&
       update.operator === "divide" &&
-      exactDecimalDomain(physicalField(this.schema, model, field).state) &&
+      exactDecimalDomain(this.physical(model, field).state) &&
       dividesByZero(update.by)
     )
       throw new QueryEngineError(
@@ -1378,7 +1373,7 @@ export class SqlQueries extends Queries {
    * The adapter owns both spellings; this only names the destination.
    */
   #arithmeticTarget(model: AnyModel, field: string): ArithmeticTarget {
-    const state = physicalField(this.schema, model, field).state;
+    const state = this.physical(model, field).state;
     return {
       integer: state.type === "int" || state.type === "bigint",
       decimal: exactDecimalDomain(state),
@@ -1463,7 +1458,7 @@ export class SqlQueries extends Queries {
       );
     if (update.kind === "value")
       return this.fieldValue(model, field, update.value);
-    const state = physicalField(this.schema, model, field).state;
+    const state = this.physical(model, field).state;
     const base = state.type === "int" ? this.#cast(before, "integer") : before;
     const operand = this.fieldValue(model, field, update.by);
     if (update.operator === "increment")
@@ -3317,7 +3312,7 @@ export class SqlQueries extends Queries {
         alias,
         joins
       );
-    const physical = physicalField(this.schema, model, field);
+    const physical = this.physical(model, field);
     const state = physical.state;
     const column = this.#operand(model, field, alias);
     const nullable = physical.nullable || this.#gatedHere(model, field);
@@ -3637,7 +3632,7 @@ export class SqlQueries extends Queries {
     for (const field of completion) {
       if (ordered.has(field)) continue;
       ordered.add(field);
-      const physical = physicalField(this.schema, model, field);
+      const physical = this.physical(model, field);
       terms.push(
         this.#sortKey(
           this.#operand(model, field, alias),
@@ -4387,8 +4382,7 @@ export class SqlQueries extends Queries {
     } else if (field.kind === "distance") {
       expression = this.#distanceExpression(
         this.column(projection.model, field.field, alias),
-        physicalField(this.schema, projection.model, field.field).scalar["~"]
-          .state,
+        this.physical(projection.model, field.field).scalar["~"].state,
         field.field,
         field.specification,
         "select"
