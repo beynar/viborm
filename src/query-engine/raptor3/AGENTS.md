@@ -1451,7 +1451,7 @@ in the anchor (MySQL `cte_max_recursion_depth`; and PostgreSQL plans the
 recursive member as a hash join over a scan of the table where the anchor's
 hop is an index probe). Where the driver shares relation bodies
 (`sharesRelationBodies`), each reached row carries the columns its next hop
-reads (`#hopFields`) and the recursive member joins no row again, except
+reads (`hopFieldsOf`, in `storage.ts`) and the recursive member joins no row again, except
 from a start row that is not the stored row (`#rows`) where the hop reads
 more than its key: that walk still leaves the stored row too, as it always
 has; a junction hop joins the
