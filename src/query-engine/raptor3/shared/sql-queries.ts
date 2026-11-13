@@ -814,18 +814,28 @@ export class SqlQueries extends Queries {
   sharing(build: () => Sql): Sql;
   sharing(build: () => Sql | undefined): Sql | undefined;
   sharing(build: () => Sql | undefined): Sql | undefined {
-    return this.#sharing(build);
+    return this.#shares(
+      build,
+      (statement) => statement,
+      (_, statement) => statement
+    );
   }
-  /** `build`'s statement, sharing its bodies where the adapter does. */
-  #sharing(build: () => Sql | undefined): Sql | undefined {
+  /**
+   * What `build` makes, the statement `of` it sharing its bodies where the
+   * adapter does and put back by `into`; as made where it holds none.
+   */
+  #shares<T>(
+    build: () => T,
+    of: (made: T) => Sql | undefined,
+    into: (made: T, statement: Sql) => T
+  ): T {
     if (!this.sharesBodies) return build();
-    let built = true;
+    let made!: T;
     const statement = this.#sharingBodies(() => {
-      const made = build();
-      built = made !== undefined;
-      return made ?? sql.empty;
+      made = build();
+      return of(made) ?? sql.empty;
     });
-    return built ? statement : undefined;
+    return of(made) === undefined ? made : into(made, statement);
   }
   /** `args`, ordered by {@link defaultOrder} when it states no order. */
   #ordered(model: AnyModel, args: Arguments): Arguments {
@@ -2515,25 +2525,20 @@ export class SqlQueries extends Queries {
     };
     return quantified.holds ? range() : this.#opposite(range);
   }
-  /** How `predicate`'s quantifier tests its relation's subquery. */
+  /**
+   * How `predicate`'s quantifier tests its relation's subquery: a row exists
+   * (`some`, an `is` with a body, an `isNot` without one) or none does. Of no
+   * row, `is` and `isNot` read as each other; `every` tests that no row
+   * fails its body.
+   */
   #quantified(
     predicate: Extract<PreparedPredicate, { kind: "relation" }>
   ): Quantified {
     const { quantifier } = predicate;
-    // `is` and `isNot` are the two left once the three of a list are told:
-    // every relation filter that spells quantifiers refuses a payload naming
-    // none of them in its own registered sentence, at admission, so only an
-    // already-admitted quantifier arrives. Of no row, each reads as the other.
-    const name =
-      quantifier === "some" || quantifier === "none" || quantifier === "every"
-        ? quantifier
-        : (quantifier === "is") === Boolean(predicate.predicate)
-          ? "is"
-          : "isNot";
-    return {
-      of: (query) => this.adapter.filters[name](query),
-      holds: name === "some" || name === "is",
-    };
+    const holds =
+      quantifier === "some" ||
+      quantifier === (predicate.predicate ? "is" : "isNot");
+    return { of: this.adapter.filters[holds ? "some" : "none"], holds };
   }
   /**
    * The related domain of a relation's rows, where `scoped`. Where the filter
@@ -3782,13 +3787,11 @@ export class SqlQueries extends Queries {
   }
   /** The query `build` makes, its statement sharing its bodies where the adapter does. */
   #sharingQuery(build: () => Query): Query {
-    if (!this.sharesBodies) return build();
-    let query: Query | undefined;
-    const statement = this.#sharingBodies(() => {
-      query = build();
-      return query.sql;
-    });
-    return statement === query!.sql ? query! : { ...query!, sql: statement };
+    return this.#shares(
+      build,
+      (query) => query.sql,
+      (query, statement) => ({ ...query, sql: statement })
+    );
   }
   #select(
     model: AnyModel,
@@ -3921,13 +3924,14 @@ export class SqlQueries extends Queries {
       operation === "findFirst" ||
       operation === "exist" ||
       (operation !== "groupBy" && args.take !== undefined);
-    if (!this.sharesBodies) return this.#read(model, operation, args);
-    let read: Read | undefined;
-    const query = this.#sharingQuery(() => {
-      read = this.#read(model, operation, args);
-      return read.query;
-    });
-    return { ...read!, query };
+    return this.#shares(
+      () => this.#read(model, operation, args),
+      (read) => read.query.sql,
+      (read, statement) => ({
+        ...read,
+        query: { ...read.query, sql: statement },
+      })
+    );
   }
   #read(model: AnyModel, operation: ReadOperation, args: Arguments): Read {
     switch (operation) {

@@ -750,16 +750,10 @@ export interface DatabaseAdapter {
    * Relation filter wrappers for subqueries
    */
   filters: {
-    /** EXISTS wrapper for "some" relation filter (to-many) */
+    /** `EXISTS`: a row of the subquery exists (`some`, `is`). */
     some: (subquery: Sql) => Sql;
-    /** NOT EXISTS wrapper for "every" - negated condition (to-many) */
-    every: (subquery: Sql) => Sql;
-    /** NOT EXISTS wrapper for "none" (to-many) */
+    /** `NOT EXISTS`: none does (`none`, `isNot`, and `every` over the negated condition). */
     none: (subquery: Sql) => Sql;
-    /** EXISTS wrapper for "is" relation filter (to-one) */
-    is: (subquery: Sql) => Sql;
-    /** NOT EXISTS wrapper for "isNot" relation filter (to-one) */
-    isNot: (subquery: Sql) => Sql;
   };
 
   /**

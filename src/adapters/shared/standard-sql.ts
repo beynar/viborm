@@ -221,10 +221,7 @@ export const createNumericSetOperations = (): NumericSetOperations => ({
 
 export const createRelationFilters = (): DatabaseAdapter["filters"] => ({
   some: (subquery: Sql): Sql => sql`EXISTS (${subquery})`,
-  every: (subquery: Sql): Sql => sql`NOT EXISTS (${subquery})`,
   none: (subquery: Sql): Sql => sql`NOT EXISTS (${subquery})`,
-  is: (subquery: Sql): Sql => sql`EXISTS (${subquery})`,
-  isNot: (subquery: Sql): Sql => sql`NOT EXISTS (${subquery})`,
 });
 
 export const createMutationCommands = (): MutationCommands => ({
