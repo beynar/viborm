@@ -19,7 +19,6 @@ import { type Sql, sql } from "@sql";
 import type { PreparedGuardFailure } from "../../types";
 import { writeSinks } from "../../write-sinks";
 import { InsertValue, JoinedValue, Stored } from "../shared/insert-value";
-import { nameOf, tableOf } from "../shared/names";
 import type {
   PreparedProjection,
   PreparedSelector,
@@ -30,6 +29,7 @@ import type { Input } from "../shared/schema";
 import type { SqlOperationContext } from "../shared/sql-operation-context";
 import type { SqlQueries } from "../shared/sql-queries";
 import { linkJudgement, linkMembers, type Membership } from "../shared/storage";
+import { listed, nameOf, scalarsOf, tableOf } from "../shared/terms";
 import type { Sent, Statement } from "./send";
 
 export type Junction = Extract<Membership, { kind: "junction" }>;
@@ -245,11 +245,10 @@ export class Writer {
   }
   /** What a write sets of the rows it takes. */
   #sets(model: AnyModel, set: Input): Sql {
-    return sql.join(
+    return listed(
       Object.entries(set).map(([field, value]) =>
         this.#q.updateAssignment(model, field, value)
-      ),
-      ", "
+      )
     );
   }
   /** A write of rows with what bounds it, answering with the rows it wrote as the caller reads them, or so that the call can count them where the provider's own count would count what a cascade changed besides. */
@@ -659,7 +658,7 @@ export class Writer {
         {
           name: source,
           query: assembleAdapterSelect(adapter, {
-            columns: sql.join(columns, ", "),
+            columns: listed(columns),
             from: q.table(model),
             where,
             forUpdate: true,
@@ -715,21 +714,19 @@ export class Writer {
     const insert = await this.insert(model, [row]);
     const table = tableOf(model);
     const conflict = mutations.onConflict(
-      sql.join(
+      listed(
         this.selector(question).uniqueKey!.fields.map((field) =>
           identifiers.escape(q.columnName(model, field))
-        ),
-        ", "
+        )
       ),
       mutations.onConflictUpdate(
-        sql.join(
+        listed(
           Object.entries(set).map(([field, value]) =>
             assignments.assign(
               q.column(model, field),
               q.updateValue(model, field, value, q.column(model, field, table))
             )
-          ),
-          ", "
+          )
         )
       )
     );
@@ -917,7 +914,7 @@ export class Writer {
     const { batchRefs } = getAdapterInternals(adapter);
     const { model } = insert;
     const [field] = fields;
-    const state = model["~"].state.scalars[field!]?.["~"].state;
+    const state = scalarsOf(model)[field!]?.["~"].state;
     if (
       fields.length !== 1 ||
       state?.autoGenerate?.kind !== "increment" ||
@@ -1080,14 +1077,13 @@ export class Writer {
               columns,
               [row],
               side(uniqueSide!),
-              sql.join(
+              listed(
                 other.map((column) =>
                   set.assign(
                     identifiers.escape(column),
                     row[columns.indexOf(column)]!
                   )
-                ),
-                ", "
+                )
               ),
               this.adapter.operators.and(
                 ...other.map((column) =>

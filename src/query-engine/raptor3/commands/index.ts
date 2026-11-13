@@ -8,7 +8,6 @@ import type { Sql } from "@sql";
 import { baseOperation } from "../../routed-operations";
 import type { PreparedBatchOperation } from "../../types";
 import { renderers } from "../shared/insert-value";
-import { nameOf } from "../shared/names";
 import type { Leaf, ProjectionShape, Queries, Read } from "../shared/query";
 import { engineBackend } from "../shared/query-backend";
 import {
@@ -29,6 +28,7 @@ import {
   SqlOperationContext,
 } from "../shared/sql-operation-context";
 import { SqlQueries } from "../shared/sql-queries";
+import { nameOf } from "../shared/terms";
 import { prepareCall, writeCall } from "../write";
 
 /**

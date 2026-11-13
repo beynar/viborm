@@ -30,7 +30,6 @@ import { createFailureError } from "../../batch-error-attribution";
 import type { PreparedGuardFailure } from "../../types";
 import { type WriteKind, type WriteWatch, writeSinks } from "../../write-sinks";
 import { InsertValue, JoinedValue } from "../shared/insert-value";
-import { nameOf } from "../shared/names";
 import {
   type PreparedProjection,
   type Query,
@@ -40,6 +39,7 @@ import {
 import type { EngineSchema, Input } from "../shared/schema";
 import type { SqlOperationContext } from "../shared/sql-operation-context";
 import { hopFieldsOf, type Membership } from "../shared/storage";
+import { nameOf, scalarsOf } from "../shared/terms";
 import {
   refusedBy,
   type Sent,
@@ -244,6 +244,13 @@ interface Answer {
   readonly rows: Input[];
 }
 
+/** The relations of `model` whose rows hold its key. */
+const holders = (schema: EngineSchema, model: AnyModel) =>
+  model["~"].relationNames.flatMap((name) => {
+    if ("members" in schema.index.get(model)!.get(name)!.edge) return [];
+    const edge = schema.membership(model, name);
+    return edge.kind === "reference" && edge.owner === "target" ? [edge] : [];
+  });
 /** The models whose rows the database changes with a row of `model` that goes, or takes another key. */
 const dependents = new WeakMap<AnyModel, Set<AnyModel>>();
 function dependentsOf(schema: EngineSchema, model: AnyModel): Set<AnyModel> {
@@ -251,11 +258,7 @@ function dependentsOf(schema: EngineSchema, model: AnyModel): Set<AnyModel> {
   if (!found) {
     found = new Set();
     dependents.set(model, found);
-    for (const name of model["~"].relationNames) {
-      const resolved = schema.index.get(model)!.get(name)!;
-      if ("members" in resolved.edge) continue;
-      const edge = schema.membership(model, name);
-      if (edge.kind !== "reference" || edge.owner !== "target") continue;
+    for (const edge of holders(schema, model)) {
       found.add(edge.target);
       for (const further of dependentsOf(schema, edge.target))
         found.add(further);
@@ -272,7 +275,7 @@ const decidables = new WeakMap<AnyModel, readonly string[]>();
 function decidable(schema: EngineSchema, model: AnyModel): readonly string[] {
   let fields = decidables.get(model);
   if (!fields) {
-    const scalars = model["~"].state.scalars;
+    const scalars = scalarsOf(model);
     fields = [
       ...new Set([
         ...schema.keys(model),
@@ -517,6 +520,11 @@ export class Store {
       const together = row && groups.get(group(question) || "");
       if (together) together.push([id, question]);
     }
+    /** A question asked of the row it is asked of as the database has said it by then. */
+    const told = ({ member, ...question }: Question): Question => ({
+      ...question,
+      member: member && { ...member, of: this.#said(member.of) },
+    });
     for (const asked of groups.values()) {
       const [[, first]] = asked as [[string, Question]];
       const { model } = first;
@@ -556,10 +564,7 @@ export class Store {
         // Asked of the row it is asked of as the database has said it by then.
         write: () => {
           query = this.writer.read(
-            asked.map(([, { member, ...question }]) => ({
-              ...question,
-              member: member && { ...member, of: this.#said(member.of) },
-            })),
+            asked.map(([, question]) => told(question)),
             this.#transport.holds && !loose
           );
           return [{ sql: query.sql, model }];
@@ -573,9 +578,8 @@ export class Store {
             if (!found) throw UNHEARD;
             const again = found
               .filter(([, , rows]) => rows.length > 0)
-              .map(([, { member, ...question }, rows]) => ({
-                ...question,
-                member: member && { ...member, of: this.#said(member.of) },
+              .map(([, question, rows]) => ({
+                ...told(question),
                 only: rows.map((row) =>
                   this.operation.schema.identity(model, row)
                 ),
@@ -594,13 +598,7 @@ export class Store {
                 ([, , rows], at) => rows.length < before[at]![2].length
               )
             )
-              throw new Lost(
-                createFailureError(
-                  this.writer.absent(first, true),
-                  nameOf(model),
-                  this.operation.operation
-                )
-              );
+              throw new Lost(this.#absent(first, true));
           },
         });
     }
@@ -630,6 +628,14 @@ export class Store {
           ...hopFieldsOf(edge),
         ]),
       ].map((field) => [field, of[field]])
+    );
+  }
+  /** What refuses the call where the row a question names is not there. */
+  #absent(question: Question, lost?: boolean) {
+    return createFailureError(
+      this.writer.absent(question, lost),
+      nameOf(question.model),
+      this.operation.operation
     );
   }
   /** A question as a statement asks it: of a row it names the members of, what only the database holds written as what reads it. */
@@ -1060,12 +1066,7 @@ export class Store {
       this.#meta.set(unknown, { model: question.model, question });
       return unknown;
     }
-    if (!row)
-      throw createFailureError(
-        this.writer.absent(question),
-        nameOf(question.model),
-        this.operation.operation
-      );
+    if (!row) throw this.#absent(question);
     return row;
   }
   /** What a row of `model` takes where it is created or updated, beside what the caller wrote of it. */
@@ -1189,12 +1190,8 @@ export class Store {
   #follow(row: Row, before: Row): void {
     const { schema } = this.operation;
     const { model } = this.#meta.get(row)!;
-    for (const name of model["~"].relationNames) {
-      if ("members" in schema.index.get(model)!.get(name)!.edge) continue;
-      const edge = schema.membership(model, name);
+    for (const edge of holders(schema, model)) {
       if (
-        edge.kind !== "reference" ||
-        edge.owner !== "target" ||
         edge.reference?.onUpdate !== "cascade" ||
         // What the row does not hold, no write of the call gave it.
         edge.pairs.every(
@@ -1348,12 +1345,7 @@ export class Store {
         if (hears.length === 0) return;
         const [said] = this.writer.keys(model, sent!.rows);
         // A write that is to say the key it gave its row says it, or wrote no row.
-        if (!said)
-          throw createFailureError(
-            this.writer.absent(meta.question ?? { model }),
-            nameOf(model),
-            this.operation.operation
-          );
+        if (!said) throw this.#absent(meta.question ?? { model });
         for (const field of hears) row[field] = said[field];
       },
     });
@@ -2161,11 +2153,7 @@ export class Store {
     const confirmed = (entry: Entry, sent: Sent) => {
       const question = confirms.get(entry);
       if (question && writer.count(sent) < (sizes?.get(entry) ?? 1))
-        throw createFailureError(
-          writer.absent(question),
-          nameOf(question.model),
-          this.operation.operation
-        );
+        throw this.#absent(question);
     };
     /**
      * The reads of one row its own write answers: the write just before it,

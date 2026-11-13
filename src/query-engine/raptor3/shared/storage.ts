@@ -16,6 +16,7 @@ import type {
 } from "@schema/validation/relation-resolution";
 import type { RowJudgement } from "./row-scope";
 import type { EngineSchema } from "./schema";
+import { scalarsOf } from "./terms";
 
 export type Membership = {
   scope: Pick<ResolvedSlot, "edge" | "member">;
@@ -71,6 +72,9 @@ export function linkMembers(
 export type PhysicalField = {
   readonly name: string;
   readonly scalar: Scalar;
+  /** What the scalar was declared with, and the native type it names: read at every comparison. */
+  readonly state: Scalar["~"]["state"];
+  readonly nativeType: Scalar["~"]["nativeType"];
   readonly nullable: boolean;
   /**
    * The KEY a private column stands in for — a polymorphic row carrier's id
@@ -300,16 +304,18 @@ export function buildPhysicalFieldView(
   model: AnyModel,
   field: string
 ): PhysicalField {
-  const scalar = model["~"].state.scalars[field];
-  if (scalar)
-    return {
-      name: model["~"].getFieldName(field).sql,
-      scalar,
-      nullable: scalar["~"].state.nullable === true,
-    };
-  return carrierColumns(schema, model).find(
-    (candidate) => candidate.name === field
-  )!;
+  const scalar = scalarsOf(model)[field];
+  const view = scalar
+    ? {
+        name: model["~"].getFieldName(field).sql,
+        scalar,
+        nullable: scalar["~"].state.nullable === true,
+      }
+    : carrierColumns(schema, model).find(
+        (candidate) => candidate.name === field
+      )!;
+  const { state, nativeType } = view.scalar["~"];
+  return { ...view, state, nativeType };
 }
 
 export function buildStoredFieldsView(

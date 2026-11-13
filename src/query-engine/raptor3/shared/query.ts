@@ -69,7 +69,6 @@ import {
   incomparableIdentifiers,
 } from "./identifier";
 import type { ModelSql } from "./insert-value";
-import { nameOf, tableOf } from "./names";
 import {
   type CallScope,
   type CallValues,
@@ -96,6 +95,7 @@ import {
   type PhysicalField,
   physicalField,
 } from "./storage";
+import { listed, nameOf, scalarsOf, tableOf } from "./terms";
 
 /**
  * `Object.freeze`, named once: this module freezes every prepared structure it
@@ -424,7 +424,7 @@ export interface SelectorRead {
 }
 /** Expressions compared as one: a row value, or the expression itself alone. */
 export function rowValue(items: Sql[]): Sql {
-  return items.length === 1 ? items[0]! : sql`(${sql.join(items, ", ")})`;
+  return items.length === 1 ? items[0]! : sql`(${listed(items)})`;
 }
 /** Every column of `query`, read through a derived table named `alias`. */
 export function throughDerived(
@@ -663,7 +663,7 @@ function sameColumnIn(
     target ??= arm.target;
     operands.push(operand);
   }
-  const state = target?.scalar.physical.scalar["~"].state;
+  const state = target?.scalar.physical.state;
   if (
     !target ||
     state?.array === true ||
@@ -1907,9 +1907,8 @@ export abstract class Queries {
     if (update.kind !== "arithmetic") return update.kind === "value";
     return !(
       (update.operator === "multiply" || update.operator === "divide") &&
-      exactDecimalDomain(
-        physicalField(this.schema, model, field).scalar["~"].state
-      ) !== undefined
+      exactDecimalDomain(physicalField(this.schema, model, field).state) !==
+        undefined
     );
   }
   /** `model`'s names and values as this lowering spells them, for a fragment written by hand. */
@@ -2202,7 +2201,7 @@ export abstract class Queries {
   ): key is "AND" | "OR" | "NOT" {
     return (
       (key === "AND" || key === "OR" || key === "NOT") &&
-      !model["~"].state.scalars[key] &&
+      !scalarsOf(model)[key] &&
       !model["~"].state.relations[key]
     );
   }
@@ -2270,7 +2269,7 @@ export abstract class Queries {
         // An ordinary scalar predicate is not a unique discriminator. Only
         // unique selectors and possible compound names need the key catalog.
         const key =
-          unique || model["~"].state.scalars[field] === undefined
+          unique || scalarsOf(model)[field] === undefined
             ? findAddressableKey(model, field)
             : undefined;
         if (key?.name)
@@ -2320,17 +2319,7 @@ export abstract class Queries {
     }
     if (facts && nestedFacts) {
       facts.exact = false;
-      const domain = this.domain?.selector(model, "related");
-      if (domain)
-        for (const field of domain.facts.fields) nestedFacts.fields.add(field);
-      facts.reads.push({
-        model,
-        path: [],
-        fields: nestedFacts.fields,
-        equals: nestedFacts.equals,
-        exact: false,
-      });
-      facts.reads.push(...nestedFacts.reads);
+      this.#nested(facts, nestedFacts, model, [], false);
     }
     return freeze({
       kind: "exists",
@@ -2402,7 +2391,7 @@ export abstract class Queries {
     insensitive = false,
     positive = true
   ): PreparedPredicate {
-    const state = target.scalar?.physical.scalar["~"].state;
+    const state = target.scalar?.physical.state;
     const shorthand =
       value === null ||
       value instanceof Sql ||
@@ -2428,7 +2417,7 @@ export abstract class Queries {
     insensitive: boolean,
     positive: boolean
   ): PreparedPredicate {
-    const state = target.scalar?.physical.scalar["~"].state;
+    const state = target.scalar?.physical.state;
     const filter = record(value);
     // D-22. A JSON filter's own `mode` wins in BOTH directions — a declared
     // `default` really does restore exact matching on that arm — while a
@@ -2536,7 +2525,7 @@ export abstract class Queries {
           insensitive,
           ...(operator === "distance" &&
           positive &&
-          owner?.physical.scalar["~"].state.type === "point" &&
+          owner?.physical.state.type === "point" &&
           distanceUpperBound(value) !== undefined
             ? { probe: true as const }
             : {}),
@@ -2563,7 +2552,7 @@ export abstract class Queries {
     if (value instanceof OuterColumn)
       return this.#prepareOuterOperand(owner, value);
     if (isFieldRef(value)) {
-      if (owner.physical.scalar["~"].state.type === "json")
+      if (owner.physical.state.type === "json")
         throw new UnsupportedOperationError(
           `Field reference '${formatFieldRef(value)}' is not supported in a JSON filter operand.`
         );
@@ -2618,12 +2607,12 @@ export abstract class Queries {
       throw new UnsupportedOperationError(
         `Field reference '${formatFieldRef(value)}' is a list field and cannot be used as a scalar SQL operand.`
       );
-    const referenced = model["~"].state.scalars[payload.field];
+    const referenced = scalarsOf(model)[payload.field];
     if (!referenced)
       throw new UnsupportedOperationError(
         `Field reference '${formatFieldRef(value)}' does not name a scalar field of '${scope}'.`
       );
-    const own = exactDecimalDomain(owner.physical.scalar["~"].state);
+    const own = exactDecimalDomain(owner.physical.state);
     const other = exactDecimalDomain(referenced["~"].state);
     if (own && other && !sameDecimalDomain(own, other))
       throw new UnsupportedOperationError(
@@ -2668,8 +2657,8 @@ export abstract class Queries {
         );
     const { model, facts } = scopes[at]!;
     const name = nameOf(model) ?? "unknown";
-    const referenced = model["~"].state.scalars[value.$row];
-    const own = owner.physical.scalar["~"].state;
+    const referenced = scalarsOf(model)[value.$row];
+    const own = owner.physical.state;
     if (!referenced)
       throw new UnsupportedOperationError(
         `${spelled} does not name a scalar field of '${name}'.`
@@ -2958,19 +2947,28 @@ export abstract class Queries {
     if (closure && edge.kind === "reference")
       for (const pair of edge.pairs)
         nestedFacts.fields.add(pair.source).add(pair.target);
-    // The related domain's fields are read by this scope too, so a lookup
-    // that reads through it depends on a write to them (§2.2).
-    const domain = this.domain?.selector(edge.target, "related");
+    this.#nested(facts, nestedFacts, edge.target, scope, nestedFacts.exact);
+  }
+  /**
+   * What a scope nested in another reads of `model`, reached by `path`, is
+   * read by the scope it is nested in. The related domain's fields are read
+   * by it too, so a lookup that reads through it depends on a write to them
+   * (§2.2).
+   */
+  #nested(
+    facts: SelectorFacts,
+    nested: SelectorFacts,
+    model: AnyModel,
+    path: SelectorFacts["reads"][number]["path"],
+    exact: boolean
+  ): void {
+    const domain = this.domain?.selector(model, "related");
     if (domain)
-      for (const field of domain.facts.fields) nestedFacts.fields.add(field);
-    facts.reads.push({
-      model: edge.target,
-      path: scope,
-      fields: nestedFacts.fields,
-      equals: nestedFacts.equals,
-      exact: nestedFacts.exact,
-    });
-    facts.reads.push(...nestedFacts.reads);
+      for (const field of domain.facts.fields) nested.fields.add(field);
+    facts.reads.push(
+      { model, path, fields: nested.fields, equals: nested.equals, exact },
+      ...nested.reads
+    );
   }
   /**
    * The model's key order: a bare scalar id, else the row key's fields in
@@ -2989,9 +2987,7 @@ export abstract class Queries {
         "Paginated scalar ordering requires a primary model identifier."
       );
     const fields = new Set<string>(rowKey.fields);
-    return Object.keys(model["~"].state.scalars).filter((field) =>
-      fields.has(field)
-    );
+    return Object.keys(scalarsOf(model)).filter((field) => fields.has(field));
   }
   abstract select(
     model: AnyModel,
@@ -3372,8 +3368,7 @@ export abstract class Queries {
       type: "number",
       nullable:
         physical.nullable ||
-        (physical.scalar["~"].state.type === "vector" &&
-          distance.metric === "cosine"),
+        (physical.state.type === "vector" && distance.metric === "cosine"),
     });
   }
   /**

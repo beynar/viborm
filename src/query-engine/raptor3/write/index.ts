@@ -14,12 +14,12 @@ import {
 import type { AnyModel } from "@schema/model";
 import { sql } from "@sql";
 import type { PreparedBatchOperation } from "../../types";
-import { nameOf } from "../shared/names";
 import type { Arguments, Input } from "../shared/schema";
 import type {
   ExecutionBinding,
   SqlOperationContext,
 } from "../shared/sql-operation-context";
+import { nameOf } from "../shared/terms";
 import {
   batches,
   contextOf,

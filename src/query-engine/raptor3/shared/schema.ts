@@ -28,6 +28,7 @@ import {
   type Membership,
   type PhysicalField,
 } from "./storage";
+import { scalarsOf } from "./terms";
 
 export type Input = Record<string, unknown>;
 export type ReadOperation =
@@ -327,7 +328,7 @@ export class EngineSchema {
         );
       const operation = named[0]!;
       if (operation === "set") continue;
-      const scalarType = model["~"].state.scalars[keyField]?.["~"].state.type;
+      const scalarType = scalarsOf(model)[keyField]?.["~"].state.type;
       if (
         scalarType === "number" ||
         (scalarType === "decimal" && ROUNDING_KEY_UPDATES.includes(operation))
@@ -375,7 +376,7 @@ export class EngineSchema {
    */
   linkFields(model: AnyModel, members: readonly string[]) {
     return memo(this.#linkFields, model, () => {
-      const scalars = model["~"].state.scalars;
+      const scalars = scalarsOf(model);
       const beside = Object.keys(scalars).filter(
         (field) => !members.includes(this.physicalField(model, field).name)
       );

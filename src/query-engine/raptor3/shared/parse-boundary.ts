@@ -3,7 +3,7 @@ import type { AnyModel } from "@schema/model";
 import { type InferOutput, parse, type VibSchema } from "@validation";
 import { readValidationFailureCause } from "@validation/parse-failure";
 import type { Operation } from "../../types";
-import { nameOf } from "./names";
+import { nameOf } from "./terms";
 
 /**
  * THE typed parse boundary (X2 — one home for validation). Every seam that turns a

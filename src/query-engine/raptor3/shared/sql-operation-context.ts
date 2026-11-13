@@ -27,7 +27,6 @@ import {
 import type { PreparedBatchOperation } from "../../types";
 import type { Sent, Statement } from "../write/send";
 import { InsertValue } from "./insert-value";
-import { nameOf, tableOf } from "./names";
 import {
   GatedFieldRefusal,
   InvalidScalarResult,
@@ -48,6 +47,7 @@ import {
   record,
 } from "./schema";
 import { SqlQueries } from "./sql-queries";
+import { listed, nameOf, tableOf } from "./terms";
 
 /** The rows a write returns, named where a statement answers over them. */
 const MUTATION_ROWS = "__viborm_mutation";
@@ -445,7 +445,7 @@ export class SqlOperationContext {
         answer = throughDerived(a, answer, MUTATION_ANSWER);
     } else {
       answer = this.queries.sharing(() =>
-        sql.join(this.queries.lowerProjection(projection, table), ", ")
+        listed(this.queries.lowerProjection(projection, table))
       );
       folds = !a.cte.opens(answer);
     }
@@ -474,7 +474,7 @@ export class SqlOperationContext {
     const a = this.driver.adapter;
     if (returningSafeProjection(projection))
       return sql`${statement} ${a.mutations.returning(
-        sql.join([...this.queries.lowerProjection(projection), ...extra], ", ")
+        listed([...this.queries.lowerProjection(projection), ...extra])
       )}`;
     const { answer } = this.#overWrite(model, projection);
     if (!a.capabilities.supportsCteWithMutations)

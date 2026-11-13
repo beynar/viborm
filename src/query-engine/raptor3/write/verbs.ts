@@ -14,11 +14,11 @@ import type { AnyModel } from "@schema/model";
 import { getModelKeyCatalog } from "@schema/model/keys";
 import type { WriteKind } from "../../write-sinks";
 import { Stored } from "../shared/insert-value";
-import { nameOf } from "../shared/names";
 import { readUpdate } from "../shared/query";
 import { parseStamped } from "../shared/row-scope";
 import type { Arguments, Input } from "../shared/schema";
 import type { Membership } from "../shared/storage";
+import { nameOf } from "../shared/terms";
 import type { Question } from "./statements";
 import type { Row, Store } from "./store";
 

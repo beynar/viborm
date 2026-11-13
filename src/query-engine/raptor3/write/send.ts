@@ -17,12 +17,12 @@ import {
 import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
 import type { PreparedGuardFailure } from "../../types";
-import { nameOf } from "../shared/names";
 import type { Input } from "../shared/schema";
 import type {
   MemberRollback,
   SqlOperationContext,
 } from "../shared/sql-operation-context";
+import { nameOf } from "../shared/terms";
 
 /** What the database says of one statement. */
 export interface Sent {
