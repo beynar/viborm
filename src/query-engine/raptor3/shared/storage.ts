@@ -153,7 +153,7 @@ export function buildMembershipView(
       member,
       direct,
       base: {
-        scope: Object.freeze({ edge, member }),
+        scope: { edge, member },
         clearability,
         name: direct ? `${name}.${member.variant}` : name,
         source,
@@ -255,15 +255,6 @@ export function hopFieldsOf(edge: Membership): readonly string[] {
         ...edge.pairs.map((pair) => pair.source),
       ]
     : edge.sourceSide.members.map((member) => member.referencedField);
-}
-
-export function freezeMembershipView(view: Membership): Membership {
-  if (view.kind === "reference") {
-    for (const pair of view.pairs) Object.freeze(pair);
-    Object.freeze(view.pairs);
-    if (view.discriminator) Object.freeze(view.discriminator);
-  }
-  return Object.freeze(view);
 }
 
 /** Private carrier columns are resolved schema fields, never public scalar declarations. */

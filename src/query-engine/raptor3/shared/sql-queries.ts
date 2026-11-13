@@ -86,7 +86,6 @@ import {
   type FlagMember,
   type FlagPlan,
   firstRow,
-  freeze,
   isAggregate,
   isParameterOperand,
   type Leaf,
@@ -1490,10 +1489,10 @@ export class SqlQueries extends Queries {
     const scope = this.scope(model, purpose);
     if (scope?.predicate === undefined) return selector;
     if (selector?.predicate === undefined) return scope;
-    return freeze({
+    return {
       model,
       predicate: conjunction([selector.predicate, scope.predicate]),
-    });
+    };
   }
   /** `undefined` where it states nothing, or the call drops all it states. */
   override lowerSelector(
@@ -3428,28 +3427,26 @@ export class SqlQueries extends Queries {
     field?: string,
     expressionNulls?: true
   ): OrderTerm {
-    return freeze({
+    return {
       expression,
       descending,
       nulls: nulls ?? (descending ? "first" : "last"),
       expressionNulls,
       nullable,
       field,
-    });
+    };
   }
   #reverseOrder(terms: readonly OrderTerm[]): OrderTerm[] {
-    return terms.map((term) =>
-      freeze({
-        ...term,
-        descending: !term.descending,
-        nulls:
-          term.nulls === undefined || term.expressionNulls
-            ? term.nulls
-            : term.nulls === "first"
-              ? ("last" as const)
-              : ("first" as const),
-      })
-    );
+    return terms.map((term) => ({
+      ...term,
+      descending: !term.descending,
+      nulls:
+        term.nulls === undefined || term.expressionNulls
+          ? term.nulls
+          : term.nulls === "first"
+            ? ("last" as const)
+            : ("first" as const),
+    }));
   }
   /**
    * One page owner: the root read and every nested node use it, so a nested
@@ -3570,10 +3567,10 @@ export class SqlQueries extends Queries {
     for (let index = 0; index < terms.length; index++) {
       const term = terms[index]!;
       if (term.nulls === undefined && (term.nullable || cursor !== undefined)) {
-        terms[index] = freeze({
+        terms[index] = {
           ...term,
           nulls: term.descending ? "first" : "last",
-        });
+        };
       }
     }
     return terms;
@@ -4209,13 +4206,13 @@ export class SqlQueries extends Queries {
     if (aggregate === "_count") return COUNT_LEAF;
     const leaf = this.scalarShape(model, field);
     if (aggregate === "_avg" && leaf.type !== "decimal")
-      return freeze({ kind: "scalar", type: "number", nullable: true });
+      return { kind: "scalar", type: "number", nullable: true };
     // Admission admits `_sum` only on the summable types, every one widened.
-    return freeze({
+    return {
       ...leaf,
       nullable: true,
       widened: aggregate === "_sum" ? true : undefined,
-    });
+    };
   }
   /**
    * A split `_sum` as `having` compares it and a grouped `orderBy` sorts it:
@@ -5290,9 +5287,7 @@ export class SqlQueries extends Queries {
     const columns: Sql[] = by.map((field) => {
       const leaf = this.scalarShape(model, field);
       // A masked group reads a gated key as absent: the NULL group.
-      fields[field] = gates?.has(field)
-        ? freeze({ ...leaf, nullable: true })
-        : leaf;
+      fields[field] = gates?.has(field) ? { ...leaf, nullable: true } : leaf;
       return this.#named(this.projectedColumn(model, field, alias), field);
     });
     for (const [name, expression] of aggregates.columns(alias)) {
@@ -5343,12 +5338,10 @@ export class SqlQueries extends Queries {
         // A field-keyed condition names a grouped column: admission refuses
         // one outside `by` at its path (`args/aggregate.ts`).
         if (aggregated.length === 0)
-          return [
-            this.prepareOperations(freeze({ kind: "column", scalar }), value),
-          ];
+          return [this.prepareOperations({ kind: "column", scalar }, value)];
         return aggregated.map((aggregate) =>
           this.prepareOperations(
-            freeze({ kind: "aggregate", aggregate, scalar }),
+            { kind: "aggregate", aggregate, scalar },
             filter[aggregate]
           )
         );

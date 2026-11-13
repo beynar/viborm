@@ -458,7 +458,7 @@ Do not reconstruct clearability from scalar nullability in the engine.
 descriptors, ordered stored fields, exact model/slot/variant membership
 orientation, slot clearability, and the query owner's per-adapter views
 (the scalar leaves and the default projection). Reuse original resolved descriptors,
-topology, edges, and members; freeze only the newly owned wrappers and arrays.
+topology, edges, and members. What is prepared is read-only by its type; the engine freezes none of it at run time.
 These caches contain no aliases, operation demands, origins, refusals,
 assignments, scratch references, or attempt values.
 
@@ -1720,8 +1720,8 @@ statement always builds cannot decode as `null` — members are read with
 `Object.hasOwn`, and the decoder's structural failures are
 `InvalidScalarResult`, which `run` publishes as non-retryable public `QueryError` V2006 (`QUERY_RESULT_INVALID`).
 **And the member LIST of a decoded document is the PROJECTION's fact, not the
-row's** (P1, ruling D-61): `prepareProjection` states `shape.fields` once and
-freezes it, and the decoder reads it — `Object.entries(shape.fields)`, OWN
+row's** (P1, ruling D-61): `prepareProjection` states `shape.fields` once,
+and the decoder reads it — `Object.entries(shape.fields)`, OWN
 keys only, exactly as it READS the provider's — once per decoded BATCH, never
 per row, and never rebuilds the members as PAIRS, nor the document around them,
 per row. The member write is a plain assignment because the destination key is

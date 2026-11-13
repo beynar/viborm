@@ -24,7 +24,6 @@ import {
   buildMembershipView,
   buildPhysicalFieldView,
   buildStoredFieldsView,
-  freezeMembershipView,
   type Membership,
   type PhysicalField,
 } from "./storage";
@@ -380,7 +379,7 @@ export class EngineSchema {
       const beside = Object.keys(scalars).filter(
         (field) => !members.includes(this.physicalField(model, field).name)
       );
-      return Object.freeze({
+      return {
         required: beside.filter(
           (field) => scalars[field]!["~"].state.optional !== true
         ),
@@ -390,7 +389,7 @@ export class EngineSchema {
             this.createValues(model, { [field]: undefined })[field] !==
               undefined
         ),
-      });
+      };
     });
   }
   /** What an update writes of a row, admitted as an update's data is. */
@@ -418,7 +417,7 @@ export class EngineSchema {
     const modelViews = memo(this.#membershipViews, model, () => new Map());
     const slotViews = memo(modelViews, name, () => new Map());
     return memo(slotViews, variant, () =>
-      freezeMembershipView(buildMembershipView(this, model, name, variant))
+      buildMembershipView(this, model, name, variant)
     );
   }
   /**
@@ -443,14 +442,14 @@ export class EngineSchema {
               : undefined;
         if (action === "restrict" || action === "noAction") found.push(name);
       }
-      return Object.freeze(found);
+      return found;
     });
   }
   clearability(resolved: ResolvedSlot): ClearableMembership {
     return memo(this.#clearabilityViews, resolved, () => {
       const view = clearableMembership(resolved);
-      if (view.kind === "columns") Object.freeze(view.fields);
-      return Object.freeze(view);
+      if (view.kind === "columns") view.fields;
+      return view;
     });
   }
   physicalField(model: AnyModel, field: string): PhysicalField {
@@ -461,7 +460,7 @@ export class EngineSchema {
     }
     let descriptor = fields.get(field);
     if (!descriptor) {
-      descriptor = Object.freeze(buildPhysicalFieldView(this, model, field));
+      descriptor = buildPhysicalFieldView(this, model, field);
       fields.set(field, descriptor);
     }
     return descriptor;
@@ -490,7 +489,7 @@ export class EngineSchema {
   }
   storedFields(model: AnyModel): readonly string[] {
     return memo(this.#storedFieldLists, model, () =>
-      Object.freeze(buildStoredFieldsView(this, model))
+      buildStoredFieldsView(this, model)
     );
   }
   /**

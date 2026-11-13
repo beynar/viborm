@@ -97,11 +97,7 @@ import {
 } from "./storage";
 import { listed, nameOf, same, scalarsOf, tableOf } from "./terms";
 
-/**
- * `Object.freeze`, named once: this module freezes every prepared structure it
- * builds, and one local name minifies where 92 member reads do not. Declared
- * ahead of every module-level use.
- */
+/** `Object.freeze`, named once for what an extension states and shares. */
 export const freeze = Object.freeze;
 
 export type Leaf = {
@@ -686,13 +682,13 @@ function sameColumnIn(
     state?.type === "vector"
   )
     return;
-  return freeze({
+  return {
     kind: "operation",
     operator: "in",
     target,
-    operands: freeze(operands),
+    operands,
     insensitive: false,
-  });
+  };
 }
 type RelationPredicate = Extract<PreparedPredicate, { kind: "relation" }>;
 /** One row a predicate being lowered reads ({@link Queries}' `#frames`). */
@@ -796,14 +792,14 @@ export function mergeQuantifiers(
     if (bodies.length === 1) continue;
     changed = true;
     const { closure } = head;
-    merged[at] = freeze({
+    merged[at] = {
       ...head,
       predicate: disjunction(bodies),
       ...(closure?.selective &&
         !selective && {
-          closure: freeze({ depth: closure.depth, self: closure.self }),
+          closure: { depth: closure.depth, self: closure.self },
         }),
-    });
+    };
   }
   return changed ? merged : undefined;
 }
@@ -827,7 +823,7 @@ function quantifiedArms(
 /** `predicates` AND-ed, as they stand. */
 export const conjunction = (
   predicates: readonly PreparedPredicate[]
-): PreparedPredicate => freeze({ kind: "and", predicates: freeze(predicates) });
+): PreparedPredicate => ({ kind: "and", predicates });
 /**
  * `arms` OR-ed: one column's `in` ({@link sameColumnIn}), the quantifiers
  * over one relation merged ({@link mergeQuantifiers}), or the `or` itself.
@@ -836,11 +832,8 @@ function disjunction(arms: readonly PreparedPredicate[]): PreparedPredicate {
   const sameColumn = sameColumnIn(arms);
   if (sameColumn) return sameColumn;
   const merged = mergeQuantifiers("or", arms);
-  if (merged === undefined)
-    return freeze({ kind: "or", predicates: freeze(arms) });
-  return merged.length === 1
-    ? merged[0]!
-    : freeze({ kind: "or", predicates: freeze(merged) });
+  if (merged === undefined) return { kind: "or", predicates: arms };
+  return merged.length === 1 ? merged[0]! : { kind: "or", predicates: merged };
 }
 /** Does the predicate read another row: a relation subquery anywhere in it? */
 export function readsRelation(predicate: PreparedPredicate): boolean {
@@ -931,10 +924,10 @@ export function own(source: Record<string, unknown>, key: string): unknown {
 export const CURSOR_ORDER_REFUSAL =
   "Cursor pagination supports direct scalar sort directions only; relation and vector-distance orderBy are not supported.";
 /** A disjunction of nothing is FALSE; it is the one predicate that says so. */
-export const VACUOUS_FALSE: PreparedPredicate = freeze({
+export const VACUOUS_FALSE: PreparedPredicate = {
   kind: "always",
   value: false,
-});
+};
 /** One normalized sort key; `field` marks a direct scalar a cursor can use. */
 export interface OrderTerm {
   readonly expression: Sql;
@@ -1045,7 +1038,7 @@ const DISTANCE_FIELD = "_distance";
  * The private recursive carrier's member names, stated once: the one wire
  * vocabulary the recursive lowering writes and `decodeRecursiveCarrier` reads.
  */
-export const RECURSIVE_CARRIER = freeze({
+export const RECURSIVE_CARRIER = {
   root: "__rq_root",
   nodes: "__rq_nodes",
   edges: "__rq_edges",
@@ -1054,7 +1047,7 @@ export const RECURSIVE_CARRIER = freeze({
   parent: "__rq_parent",
   child: "__rq_child",
   depth: "__rq_depth",
-});
+};
 export const AGGREGATES = ["_count", "_avg", "_sum", "_min", "_max"] as const;
 /**
  * The aggregate vocabulary as a TYPE, so the lowering switch over it is
@@ -1068,16 +1061,16 @@ const AGGREGATE_NAMES: ReadonlySet<string> = new Set(AGGREGATES);
 export function isAggregate(name: string): name is Aggregate {
   return AGGREGATE_NAMES.has(name);
 }
-export const BOOLEAN_LEAF: Leaf = freeze({
+export const BOOLEAN_LEAF: Leaf = {
   kind: "scalar",
   type: "boolean",
   nullable: false,
-});
-export const COUNT_LEAF: Leaf = freeze({
+};
+export const COUNT_LEAF: Leaf = {
   kind: "scalar",
   type: "int",
   nullable: false,
-});
+};
 const QUANTIFIERS: ReadonlySet<string> = new Set([
   "is",
   "isNot",
@@ -1317,7 +1310,7 @@ export function reversedRows(rows: Input[]): Input[] {
 }
 
 /** A filter read's controls: it takes the root domain's rows. */
-export const ROOT_CANDIDATES = Object.freeze({ purpose: "root" as const });
+export const ROOT_CANDIDATES = { purpose: "root" as const };
 
 /**
  * One relation filter body a statement lowers ({@link Queries.relationExists}):
@@ -1605,9 +1598,9 @@ const SPELLED_ONCE: ReadonlySet<string> = new Set([
   "bigint",
 ]);
 /** No layer is lowering. */
-export const NO_LAYERS: readonly number[] = Object.freeze([]);
+export const NO_LAYERS: readonly number[] = [];
 /** A projection that carries no gate member (K5). */
-export const NO_GATES: readonly string[] = Object.freeze([]);
+export const NO_GATES: readonly string[] = [];
 export const isParameterOperand = (operand: PreparedOperand): boolean =>
   operand.kind === "parameter";
 
@@ -1636,7 +1629,7 @@ export interface ProjectedFacts {
  */
 export const namedGatedFields = new WeakMap<object, ReadonlySet<string>>();
 
-export const NO_RELATIONS: readonly string[] = Object.freeze([]);
+export const NO_RELATIONS: readonly string[] = [];
 /** A relation node or body without its `$through`, which belongs to the link. */
 function withoutLinkKey(map: Input): Input {
   const { $through: _taken, ...rest } = map;
@@ -1847,7 +1840,7 @@ export abstract class Queries {
    *
    * The answer is the field's declared scalar, its nullability and the
    * adapter's representation of it — schema and dialect only — so rebuilding a
-   * fresh frozen object (and a fresh enum `Set`) on every projection of every
+   * fresh object (and a fresh enum `Set`) on every projection of every
    * operation was pure repetition (rule 1). Nothing consumes a leaf by
    * identity: the decoder, the result codec and the shape readers all read its
    * fields.
@@ -1882,7 +1875,7 @@ export abstract class Queries {
     id: IdentifierColumn | undefined
   ): Leaf {
     const state = scalar["~"].state;
-    return freeze({
+    return {
       kind: "scalar",
       type: state.type,
       nullable,
@@ -1901,7 +1894,7 @@ export abstract class Queries {
           : undefined,
       dimension: state.dimension,
       id,
-    });
+    };
   }
   /**
    * Whether {@link updateValue} names this payload over a known prior value:
@@ -1961,16 +1954,16 @@ export abstract class Queries {
     where?: Input,
     unique = false,
     includeFacts = true
-  ): Pick<PreparedSelector, "model" | "predicate"> {
+  ): Pick<PreparedSelector, "model" | "predicate"> | PreparedSelector {
     if (!includeFacts)
-      return freeze({
+      return {
         model,
         predicate: where
           ? this.#rooted(model, undefined, () =>
               this.#prepareWhere(model, where, undefined, unique)
             )
           : undefined,
-      });
+      };
     const facts = newSelectorFacts();
     const keys = Object.keys(where ?? {});
     const uniqueKey =
@@ -1980,7 +1973,7 @@ export abstract class Queries {
         ? record(where![uniqueKey.name])
         : where!
       : undefined;
-    return freeze({
+    return {
       model,
       facts,
       uniqueKey,
@@ -1992,7 +1985,7 @@ export abstract class Queries {
             this.#prepareWhere(model, where, facts, unique)
           )
         : undefined,
-    });
+    };
   }
   /**
    * The rows a predicate being prepared reads, from its root to the relation
@@ -2053,12 +2046,12 @@ export abstract class Queries {
   ): PreparedSelector {
     const facts = newSelectorFacts();
     const captured = this.#capturedSet(model, identities, facts, false);
-    return freeze({
+    return {
       model,
       facts,
       predicate:
         identities.length === 0 ? undefined : this.combine("NOT", [captured]),
-    });
+    };
   }
   /**
    * The captured identity set ITSELF — "this row is one of the rows the engine
@@ -2079,11 +2072,11 @@ export abstract class Queries {
     identities: readonly Input[]
   ): PreparedSelector {
     const facts = newSelectorFacts();
-    return freeze({
+    return {
       model,
       facts,
       predicate: this.#capturedSet(model, identities, facts),
-    });
+    };
   }
   /** One captured set's rows, as the disjunction of their own identities. */
   #capturedSet(
@@ -2133,11 +2126,11 @@ export abstract class Queries {
       for (const read of selector.facts.reads) facts.reads.add(read);
       if (selector.predicate) predicates.push(selector.predicate);
     }
-    return freeze({
+    return {
       model,
       facts,
       predicate: predicates.length === 0 ? undefined : conjunction(predicates),
-    });
+    };
   }
   /**
    * The key-preserving conjunction: `selector` AND `domain`'s predicate for
@@ -2162,12 +2155,12 @@ export abstract class Queries {
       judgement
     );
     if (scope === undefined) return selector;
-    return Object.freeze({
+    return {
       ...this.andSelectors(selector.model, [selector, scope]),
       uniqueKey: selector.uniqueKey,
       uniqueValues: selector.uniqueValues,
       scoped: true,
-    });
+    };
   }
   abstract lowerSelector(
     selector: Pick<PreparedSelector, "model" | "predicate">,
@@ -2196,11 +2189,11 @@ export abstract class Queries {
    * of `selector`, so the selector's facts hold for them.
    */
   window(selector: PreparedSelector, limit: number): PreparedSelector {
-    return Object.freeze({
+    return {
       model: selector.model,
       facts: selector.facts,
-      predicate: Object.freeze({ kind: "window", selector, limit }),
-    });
+      predicate: { kind: "window", selector, limit },
+    };
   }
   /**
    * A combinator, unless the model declares a field by that name: validation
@@ -2236,9 +2229,7 @@ export abstract class Queries {
     const predicates: readonly PreparedPredicate[] =
       key === "AND"
         ? (mergeQuantifiers("and", stated) ?? stated)
-        : stated.map((predicate) =>
-            freeze({ kind: "not" as const, predicate })
-          );
+        : stated.map((predicate) => ({ kind: "not" as const, predicate }));
     return conjunction(predicates);
   }
   #prepareWhere(
@@ -2250,7 +2241,7 @@ export abstract class Queries {
   ): PreparedPredicate {
     if (where instanceof Condition) {
       if (facts) facts.exact = false;
-      return freeze({ kind: "condition", condition: where });
+      return { kind: "condition", condition: where };
     }
     if (where instanceof Existence) return this.#prepareExists(where, facts);
     return conjunction(
@@ -2334,19 +2325,19 @@ export abstract class Queries {
       facts.exact = false;
       facts.reads.add(model);
     }
-    return freeze({
+    return {
       kind: "exists",
       model,
       ...(states(predicate) && { predicate }),
-    });
+    };
   }
   /** One prepared scalar: the field and its memoised physical view. */
   protected scalar(model: AnyModel, field: string): PreparedScalar {
-    return freeze({
+    return {
       model,
       field,
       physical: this.physical(model, field),
-    });
+    };
   }
   #prepareScalarPredicate(
     model: AnyModel,
@@ -2385,9 +2376,7 @@ export abstract class Queries {
       // equalities, so its literal ones still prove a write disjoint (N1).
     }
     return this.prepareOperations(
-      key
-        ? freeze({ kind: "column", scalar, key: true })
-        : freeze({ kind: "column", scalar }),
+      key ? { kind: "column", scalar, key: true } : { kind: "column", scalar },
       value,
       false,
       positive
@@ -2445,10 +2434,10 @@ export abstract class Queries {
         : insensitive || declared === "insensitive";
     const scoped: PreparedTarget =
       state?.type === "json" && Array.isArray(filter.path)
-        ? freeze({
+        ? {
             ...(target as Extract<PreparedTarget, { kind: "column" }>),
-            path: freeze([...(filter.path as string[])]),
-          })
+            path: [...(filter.path as string[])],
+          }
         : target;
     const predicates: PreparedPredicate[] = [];
     for (const name of Object.keys(filter)) {
@@ -2459,17 +2448,10 @@ export abstract class Queries {
           this.prepareOperations(scoped, operand, folded, positive)
         );
       } else if (name === "not") {
-        predicates.push(
-          freeze({
-            kind: "not",
-            predicate: this.prepareOperations(
-              scoped,
-              operand,
-              folded,
-              !positive
-            ),
-          })
-        );
+        predicates.push({
+          kind: "not",
+          predicate: this.prepareOperations(scoped, operand, folded, !positive),
+        });
       } else {
         predicates.push(
           this.prepareOperation(scoped, name, operand, folded, positive)
@@ -2490,11 +2472,11 @@ export abstract class Queries {
     switch (operator) {
       case "in":
       case "notIn":
-        return freeze({
+        return {
           kind: "operation",
           operator,
           target,
-          operands: freeze(
+          operands:
             value instanceof Parameter
               ? [
                   {
@@ -2507,10 +2489,9 @@ export abstract class Queries {
                   owner
                     ? this.#prepareOperand(owner, member)
                     : { kind: "value" as const, value: member }
-                )
-          ),
+                ),
           insensitive,
-        });
+        };
       case "equals":
       case "lt":
       case "lte":
@@ -2519,7 +2500,7 @@ export abstract class Queries {
       case "contains":
       case "startsWith":
       case "endsWith":
-        return freeze({
+        return {
           kind: "operation",
           operator,
           target,
@@ -2528,9 +2509,9 @@ export abstract class Queries {
             : ({ kind: "value", value } satisfies PreparedOperand),
           value,
           insensitive,
-        });
+        };
       default:
-        return freeze({
+        return {
           kind: "operation",
           operator,
           target,
@@ -2542,22 +2523,15 @@ export abstract class Queries {
           distanceUpperBound(value) !== undefined
             ? { probe: true as const }
             : {}),
-        });
+        };
     }
   }
   /**
    * One admitted filter member, resolved to the value it binds or the column it
-   * names.
-   *
-   * The operand is NOT frozen and the structure that holds it is: the prepared
-   * predicate ({@link prepareOperation}) and, for `in`/`notIn`, its operand
-   * list. One owner builds an operand and one owner reads it
-   * ({@link lowerOperation}), both in this file, so freezing each box restated
-   * the same immutability the enclosing predicate already carries — and
-   * restated it PER MEMBER: `Object.freeze` transitions a fresh object's map on
-   * every call, measured at 1.98–2.20 µs for the 100 members of one
-   * `id: { in: ids₁₀₀ }` against 0.25–0.28 µs for the same 100 boxes
-   * (`g4/perf2/receipts/micro-in-list.json`).
+   * names. A plain box per member: what is prepared is read-only by its type,
+   * and nothing freezes it (a freeze per member of one `id: { in: ids₁₀₀ }`
+   * measured 1.98–2.20 µs against 0.25–0.28 µs,
+   * `g4/perf2/receipts/micro-in-list.json`).
    */
   #prepareOperand(owner: PreparedScalar, value: unknown): PreparedOperand {
     if (value instanceof Parameter)
@@ -2601,7 +2575,7 @@ export abstract class Queries {
       return { kind: "value", value: member } as const;
     });
     return operands.some((member) => member.kind === "field")
-      ? { kind: "sql", strings: [...flat.strings], operands: freeze(operands) }
+      ? { kind: "sql", strings: [...flat.strings], operands }
       : { kind: "value", value };
   }
   /** A field-reference operand, out of line: most operands are values. */
@@ -2735,11 +2709,11 @@ export abstract class Queries {
       const closure: Closure | undefined =
         recurrence === undefined
           ? undefined
-          : freeze({
+          : {
               depth: recurrence.depth,
               self: entries.self === true,
               ...(recurrence.selective && { selective: true as const }),
-            });
+            };
       const arms: [string, unknown][] = closure
         ? Object.entries(entries).filter(
             ([key, value]) => QUANTIFIERS.has(key) && value !== undefined
@@ -2807,15 +2781,15 @@ export abstract class Queries {
           "polymorphic"
         );
         if (quantifier !== undefined) {
-          const quantified = freeze({
+          const quantified = {
             kind: "relation" as const,
             edge,
             quantifier,
             predicate:
               negated && inner
-                ? freeze({ kind: "not" as const, predicate: inner })
+                ? { kind: "not" as const, predicate: inner }
                 : inner,
-          });
+          };
           // `some` and `none` address the tagged arm and nothing else.
           // `every` is a statement about the WHOLE collection — "every member
           // is an arm-`T` member satisfying P" — so a member of any OTHER arm
@@ -2841,15 +2815,13 @@ export abstract class Queries {
         }
         // A tagged to-one arm: `{ type }` asks only that the slot holds that
         // variant; `is`/`isNot` keep the ordinary to-one quantifier meaning.
-        return freeze({
+        return {
           kind: "relation",
           edge,
           quantifier: "some",
           predicate:
-            negated && inner
-              ? Object.freeze({ kind: "not", predicate: inner })
-              : inner,
-        });
+            negated && inner ? { kind: "not", predicate: inner } : inner,
+        };
       })
     );
   }
@@ -2876,7 +2848,7 @@ export abstract class Queries {
       ).predicate,
       linkFields: Object.keys(linkWhere),
     };
-    return freeze({
+    return {
       kind: "relation",
       edge,
       quantifier,
@@ -2892,7 +2864,7 @@ export abstract class Queries {
         closure
       ),
       ...(closure ? { closure } : {}),
-    });
+    };
   }
   /**
    * One relation's body, and the read of other rows it is. `inexact` is also
@@ -3050,18 +3022,18 @@ export abstract class Queries {
     // > 0)` (`select-builder.ts:418`), so `_count: true` on a model with
     // no to-many relation publishes no `_count` key rather than `{}`.
     if (counts.length === 0) return;
-    fields[name] = freeze({
+    fields[name] = {
       kind: "object",
       // A count carrier is a document the statement always builds: a
       // provider that answers `null` here has not answered the question,
       // and an object shape that carried no nullability let that `null`
       // reach a caller whose type says `{ children: number }`.
       nullable: false,
-      fields: freeze(
-        Object.fromEntries(counts.map((count) => [count.relation, COUNT_LEAF]))
+      fields: Object.fromEntries(
+        counts.map((count) => [count.relation, COUNT_LEAF])
       ),
-    });
-    prepared.push(freeze({ kind: "counts", name, counts }));
+    };
+    prepared.push({ kind: "counts", name, counts });
   }
   /** A selected `_distance`, out of line: most reads select none. */
   #projectDistance(
@@ -3075,14 +3047,12 @@ export abstract class Queries {
     if (distanceSelected) throw new QueryEngineError(DISTANCE_SELECTED_TWICE);
     // The output key `_distance` is the distance's alone: schema
     // validation refuses a member of that name (F010).
-    prepared.push(
-      freeze({
-        kind: "distance",
-        name: DISTANCE_FIELD,
-        field: name,
-        specification: record(distance),
-      })
-    );
+    prepared.push({
+      kind: "distance",
+      name: DISTANCE_FIELD,
+      field: name,
+      specification: record(distance),
+    });
     fields[DISTANCE_FIELD] = this.#distanceLeaf(model, name, record(distance));
   }
   /** A polymorphic slot's projection, out of line: most reads have none. */
@@ -3133,32 +3103,28 @@ export abstract class Queries {
       );
       if (many) collections[member.variant] = this.#collectionShape(nested);
       else documents[member.variant] = this.#relationShape(nested);
-      preparedArms.push(freeze({ variant: member.variant, ...nested }));
+      preparedArms.push({ variant: member.variant, ...nested });
     }
-    fields[name] = freeze(
-      many
-        ? {
-            kind: "variants",
-            relation: name,
-            many,
-            arms: freeze(collections),
-          }
-        : {
-            kind: "variants",
-            relation: name,
-            many,
-            arms: freeze(documents),
-          }
-    );
-    prepared.push(
-      freeze({
-        kind: "variants",
-        name,
-        many,
-        arms: freeze(preparedArms),
-        memberships: freeze(memberships),
-      })
-    );
+    fields[name] = many
+      ? {
+          kind: "variants",
+          relation: name,
+          many,
+          arms: collections,
+        }
+      : {
+          kind: "variants",
+          relation: name,
+          many,
+          arms: documents,
+        };
+    prepared.push({
+      kind: "variants",
+      name,
+      many,
+      arms: preparedArms,
+      memberships,
+    });
   }
   /**
    * One immutable alias-free projection description and decoder shape.
@@ -3241,7 +3207,7 @@ export abstract class Queries {
         continue;
       }
       if (!model["~"].state.relations[name]) {
-        prepared.push(freeze({ kind: "scalar", name }));
+        prepared.push({ kind: "scalar", name });
         fields[name] = this.scalarShape(model, name);
         const gate = projected?.gates.get(name);
         if (gate === undefined) continue;
@@ -3249,11 +3215,11 @@ export abstract class Queries {
         if (member === undefined) {
           member = gateResultKey(gates!.size);
           gates!.set(gate, member);
-          prepared.push(freeze({ kind: "gate", name: member, gate }));
+          prepared.push({ kind: "gate", name: member, gate });
         }
         gated![name] = named?.has(name)
-          ? freeze({ gate: member, refused: `${path}select.${name}` })
-          : freeze({ gate: member });
+          ? { gate: member, refused: `${path}select.${name}` }
+          : { gate: member };
         continue;
       }
       const resolved = this.schema.index.get(model)!.get(name)!;
@@ -3279,28 +3245,26 @@ export abstract class Queries {
         `${path}${args.include?.[name] === undefined ? "select" : "include"}.${name}.`
       );
       fields[name] = this.#relationShape(nested);
-      prepared.push(freeze({ kind: "relation", name, ...nested }));
+      prepared.push({ kind: "relation", name, ...nested });
     }
     // An empty projection is the model's own default — every scalar omitted —
     // and the row still exists, so it carries the sentinel column. A written
     // `select` that projects nothing never arrives: admission refuses it at
     // its path (`requireSelectedField`, validation/model/core/select.ts).
     if (prepared.length === 0)
-      prepared.push(freeze({ kind: "sentinel", name: EMPTY_ROW_RESULT_KEY }));
-    const projection: PreparedProjection = freeze({
+      prepared.push({ kind: "sentinel", name: EMPTY_ROW_RESULT_KEY });
+    const projection: PreparedProjection = {
       model,
-      fields: freeze(prepared),
-      shape: freeze(
-        gates?.size
-          ? {
-              kind: "object",
-              fields: freeze(fields),
-              gated: freeze(gated!),
-              gates: freeze([...gates.values()]),
-            }
-          : { kind: "object", fields: freeze(fields) }
-      ),
-    });
+      fields: prepared,
+      shape: gates?.size
+        ? {
+            kind: "object",
+            fields,
+            gated: gated!,
+            gates: [...gates.values()],
+          }
+        : { kind: "object", fields },
+    };
     if (shared) defaults.set(model, projection);
     return projection;
   }
@@ -3314,19 +3278,17 @@ export abstract class Queries {
       const resolved = this.schema.index
         .get(nested.edge.source)!
         .get(nested.edge.name)!;
-      return freeze({
+      return {
         kind: "recursive",
         relation: nested.edge.name,
         many: nested.edge.many,
         optional: slotMayBeEmpty(resolved),
         recurrence: nested.recurrence,
         row: nested.projection.shape,
-        identity: freeze(
-          this.schema
-            .keys(nested.edge.target)
-            .map((field) => this.scalarShape(nested.edge.target, field))
-        ),
-      });
+        identity: this.schema
+          .keys(nested.edge.target)
+          .map((field) => this.scalarShape(nested.edge.target, field)),
+      };
     }
     if (!nested.edge.many) return nested.projection.shape;
     return this.#collectionShape(nested);
@@ -3334,30 +3296,30 @@ export abstract class Queries {
   /** A to-many relation's rows, in the window its `take` requested. */
   #collectionShape(nested: PreparedRelationProjection): CollectionShape {
     const take = nested.arguments.take;
-    return freeze({
+    return {
       kind: "collection",
       reversed: take !== undefined && take < 0 ? true : undefined,
       row: nested.linkRow
-        ? freeze({
+        ? {
             ...nested.projection.shape,
-            fields: freeze({
+            fields: {
               ...nested.projection.shape.fields,
               $through: nested.linkRow.shape,
-            }),
-          })
+            },
+          }
         : nested.projection.shape,
-    });
+    };
   }
   /** A missing point/vector or a zero-norm cosine distance has no number. */
   #distanceLeaf(model: AnyModel, field: string, distance: Input): Leaf {
     const physical = this.physical(model, field);
-    return freeze({
+    return {
       kind: "scalar",
       type: "number",
       nullable:
         physical.nullable ||
         (physical.state.type === "vector" && distance.metric === "cosine"),
-    });
+    };
   }
   /**
    * A node's `$through`, and its arguments without it: the key is the slot's,
@@ -3393,18 +3355,16 @@ export abstract class Queries {
     this.domain?.refuseHiddenLinkRow(this, edge, named, "read");
     return {
       nested: rest,
-      linkRow: freeze({
+      linkRow: {
         model,
-        fields: freeze(named),
-        shape: freeze({
+        fields: named,
+        shape: {
           kind: "object" as const,
-          fields: freeze(
-            Object.fromEntries(
-              named.map((field) => [field, this.scalarShape(model, field)])
-            )
+          fields: Object.fromEntries(
+            named.map((field) => [field, this.scalarShape(model, field)])
           ),
-        }),
-      }),
+        },
+      },
     };
   }
   #prepareRelationProjection(
@@ -3430,7 +3390,7 @@ export abstract class Queries {
     const nested = linkWhere
       ? { ...taken, where: withoutLinkKey(taken.where as Input) }
       : taken;
-    return freeze({
+    return {
       edge,
       linkRow,
       linkWhere:
@@ -3441,7 +3401,7 @@ export abstract class Queries {
           false,
           false
         ),
-      arguments: freeze({
+      arguments: {
         selector: nested.where
           ? this.prepareSelector(edge.target, nested.where, false, false)
           : undefined,
@@ -3452,10 +3412,10 @@ export abstract class Queries {
         skip: nested.skip,
         cursor: nested.cursor,
         distinct: nested.distinct,
-      }),
+      },
       projection: this.prepareProjection(edge.target, nested, false, path),
       recurrence: nested.recurse,
-    });
+    };
   }
   /**
    * Admission desugars `_count: true` into `{ select: { relation: … } }`, so
@@ -3473,23 +3433,21 @@ export abstract class Queries {
       const where =
         configuration === true ? undefined : record(configuration).where;
       if (where === undefined) {
-        counts.push(freeze({ relation, edges }));
+        counts.push({ relation, edges });
         continue;
       }
       const filter = record(where);
       if (!variants) {
-        counts.push(
-          freeze({
-            relation,
-            edges,
-            selector: this.prepareSelector(
-              edges[0]!.target,
-              filter,
-              false,
-              false
-            ),
-          })
-        );
+        counts.push({
+          relation,
+          edges,
+          selector: this.prepareSelector(
+            edges[0]!.target,
+            filter,
+            false,
+            false
+          ),
+        });
         continue;
       }
       // A TAGGED count filter selects an arm; it is not a scalar predicate
@@ -3504,19 +3462,17 @@ export abstract class Queries {
         );
       const negated = filter.isNot !== undefined;
       const inner = negated ? filter.isNot : filter.is;
-      counts.push(
-        freeze({
-          relation,
-          edges: freeze([arm]),
-          selector:
-            inner === undefined
-              ? undefined
-              : this.prepareSelector(arm.target, record(inner), false, false),
-          ...(negated ? { negated: true as const } : {}),
-        })
-      );
+      counts.push({
+        relation,
+        edges: [arm],
+        selector:
+          inner === undefined
+            ? undefined
+            : this.prepareSelector(arm.target, record(inner), false, false),
+        ...(negated ? { negated: true as const } : {}),
+      });
     }
-    return freeze(counts);
+    return counts;
   }
   /**
    * Every membership one relation SLOT counts.
@@ -3547,16 +3503,14 @@ export abstract class Queries {
         resolved.edge.kind === "variantJunctionCarrier")
         ? resolved.edge
         : undefined;
-    return freeze({
-      edges: freeze(
-        carrier
-          ? carrier.members.map((member) =>
-              bindMembership(this.schema, model, relation, member.variant)
-            )
-          : [bindMembership(this.schema, model, relation)]
-      ),
+    return {
+      edges: carrier
+        ? carrier.members.map((member) =>
+            bindMembership(this.schema, model, relation, member.variant)
+          )
+        : [bindMembership(this.schema, model, relation)],
       variants: carrier !== undefined,
-    });
+    };
   }
   /**
    * ONE statement's row-count contract, on the rows that statement answered.
@@ -3700,10 +3654,10 @@ export abstract class Queries {
         );
       facts.add(fact);
       const siblings = edges.get(parent);
-      const entry = freeze({
+      const entry = {
         child,
         ...(depth === undefined ? {} : { depth }),
-      });
+      };
       if (siblings) siblings.push(entry);
       else edges.set(parent, [entry]);
     }
@@ -4005,7 +3959,7 @@ export abstract class Queries {
     if (shape.kind === "collection")
       return this.#compileCollection(shape, internal);
     // The document's MEMBER LIST is a fact of the PREPARED PROJECTION, stated
-    // once by {@link prepareProjection} and frozen on the shape; a row carries
+    // once by {@link prepareProjection} on the shape; a row carries
     // only the values for it. It is read here, once per batch — the shape's
     // OWN keys, exactly as {@link own} reads the provider's — and never again
     // per row: materialising it per row as pairs (`Object.entries` read back
@@ -4315,11 +4269,11 @@ export abstract class Queries {
           );
         return members;
       };
-    const member: Leaf = freeze({
+    const member: Leaf = {
       ...leaf,
       list: undefined,
       nullable: false,
-    });
+    };
     const readMember = this.compileScalar(member, internal);
     const arrayText =
       this.adapter.result.enumListRepresentation === "arrayText";
