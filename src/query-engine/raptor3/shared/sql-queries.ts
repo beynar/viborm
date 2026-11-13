@@ -183,6 +183,18 @@ export class SqlQueries extends Queries {
   get #true() {
     return this.adapter.literals.true;
   }
+  get #false() {
+    return this.adapter.literals.false;
+  }
+  get #or() {
+    return this.adapter.operators.or;
+  }
+  get #isNull() {
+    return this.adapter.operators.isNull;
+  }
+  get #isNotNull() {
+    return this.adapter.operators.isNotNull;
+  }
 
   /**
    * A raw `Sql` operand is PARENTHESIZED. A caller's fragment is an
@@ -669,7 +681,7 @@ export class SqlQueries extends Queries {
                       column,
                       this.#at(slot.test.alias, slot.test.columns[0]!)
                     ),
-                    a.literals.false()
+                    this.#false()
                   );
             atoms.set(slot, slot.test.holds ? holds : a.operators.not(holds));
             continue;
@@ -680,9 +692,7 @@ export class SqlQueries extends Queries {
           );
           atoms.set(
             slot,
-            slot.test.holds
-              ? a.operators.isNotNull(flagged)
-              : a.operators.isNull(flagged)
+            slot.test.holds ? this.#isNotNull(flagged) : this.#isNull(flagged)
           );
         }
       }
@@ -1246,7 +1256,7 @@ export class SqlQueries extends Queries {
     ]);
     return state.nullable
       ? this.#when(
-          this.adapter.operators.isNull(column),
+          this.#isNull(column),
           this.adapter.literals.null(),
           projected
         )
@@ -1282,7 +1292,7 @@ export class SqlQueries extends Queries {
     if (leaf.type === "number") return this.adapter.json.number(expression);
     if (leaf.type === "blob")
       return this.#when(
-        this.adapter.operators.isNull(expression),
+        this.#isNull(expression),
         this.adapter.literals.null(),
         this.adapter.expressions.blobToHex(expression)
       );
@@ -1722,18 +1732,18 @@ export class SqlQueries extends Queries {
         // expression level deep per arm and refuses depth 1000 (platform-15).
         return balancedOr(
           predicate.predicates.map((member) => this.#apart(member, alias)),
-          (arms) => a.operators.or(...arms)
+          (arms) => this.#or(...arms)
         );
       case "not":
         return a.operators.not(
           this.#opposite(() => this.#apart(predicate.predicate, alias))
         );
       case "always":
-        return predicate.value ? this.#true() : a.literals.false();
+        return predicate.value ? this.#true() : this.#false();
       case "condition":
         return predicate.condition.holds(this.values, this.instant)
           ? this.#true()
-          : a.literals.false();
+          : this.#false();
       case "operation":
         return this.lowerOperation(this.#bound(predicate), alias);
       case "relation":
@@ -1953,7 +1963,7 @@ export class SqlQueries extends Queries {
         const single = operand!;
         const literal = single.kind === "value" ? single.value : undefined;
         if (single.kind === "value" && literal === null)
-          return a.operators.isNull(column);
+          return this.#isNull(column);
         if (state?.type === "point" && state.array !== true)
           return this.#geoPoint("equals").equals(column, literal as GeoPoint);
         if (state?.array === true && Array.isArray(literal))
@@ -2041,7 +2051,7 @@ export class SqlQueries extends Queries {
         const negated = operator === "notIn";
         const operands = members();
         if (operands.length === 0)
-          return negated ? this.#true() : a.literals.false();
+          return negated ? this.#true() : this.#false();
         if (insensitive) {
           const comparisons = operands.map((member) =>
             negated
@@ -2050,7 +2060,7 @@ export class SqlQueries extends Queries {
           );
           // One comparison per member: balanced, as an `OR` is (platform-15).
           return balancedOr(comparisons, (arms) =>
-            negated ? this.#and(...arms) : a.operators.or(...arms)
+            negated ? this.#and(...arms) : this.#or(...arms)
           );
         }
         const list = a.literals.list(operands.map((member) => bind(member)));
@@ -2076,7 +2086,7 @@ export class SqlQueries extends Queries {
           : a.operators[`${operator}Text`](column, bind(operand!));
       case "has":
         return predicate.value === null
-          ? a.literals.false()
+          ? this.#false()
           : a.arrays.has(
               column,
               this.#scalarValue(
@@ -2085,23 +2095,18 @@ export class SqlQueries extends Queries {
                 scalar!.field
               )
             );
-      case "hasEvery": {
-        const values = predicate.value as unknown[];
-        return values.length === 0
-          ? a.operators.isNotNull(column)
-          : a.arrays.hasEvery(
-              column,
-              this.#scalarValue(scalar!.physical.scalar, values, scalar!.field)
-            );
-      }
+      case "hasEvery":
       case "hasSome": {
         const values = predicate.value as unknown[];
-        return values.length === 0
-          ? a.literals.false()
-          : a.arrays.hasSome(
-              column,
-              this.#scalarValue(scalar!.physical.scalar, values, scalar!.field)
-            );
+        // Every member of none holds of any list there is; some member of none, of no list.
+        if (values.length === 0)
+          return operator === "hasEvery"
+            ? this.#isNotNull(column)
+            : this.#false();
+        return a.arrays[operator](
+          column,
+          this.#scalarValue(scalar!.physical.scalar, values, scalar!.field)
+        );
       }
       case "isEmpty":
         return predicate.value
@@ -2266,14 +2271,13 @@ export class SqlQueries extends Queries {
       case "equals": {
         const sentinel = jsonNullKindOf(value);
         if (sentinel) {
-          const isDatabaseNull = a.operators.isNull(column);
+          const isDatabaseNull = this.#isNull(column);
           const isJsonNull = a.json.equals(target, a.json.value(null));
           if (sentinel === "DbNull") return isDatabaseNull;
           if (sentinel === "JsonNull") return isJsonNull;
-          return a.operators.or(isDatabaseNull, isJsonNull);
+          return this.#or(isDatabaseNull, isJsonNull);
         }
-        if (value === null && path.length === 0)
-          return a.operators.isNull(column);
+        if (value === null && path.length === 0) return this.#isNull(column);
         return a.json.equals(target, a.json.value(value));
       }
       case "lt":
@@ -3136,16 +3140,13 @@ export class SqlQueries extends Queries {
       edge.discriminator?.side !== "source"
     )
       return undefined;
-    const a = this.adapter;
     return this.#and(
       this.#eq(
         this.column(edge.source, edge.discriminator.field, parentAlias),
         this.value(edge.discriminator.value)
       ),
       ...edge.pairs.map((pair) =>
-        a.operators.isNotNull(
-          this.column(edge.source, pair.source, parentAlias)
-        )
+        this.#isNotNull(this.column(edge.source, pair.source, parentAlias))
       )
     );
   }
@@ -3716,27 +3717,27 @@ export class SqlQueries extends Queries {
     const afterTerms: Sql[] = [];
     for (const { row, cursor: key, term } of comparisons) {
       const compare = term.descending ? a.operators.lt : a.operators.gt;
-      const strict = this.#and(a.operators.isNotNull(row), compare(row, key));
+      const strict = this.#and(this.#isNotNull(row), compare(row, key));
       afterTerms.push(
         this.#and(
           ...equalities,
           term.nulls === "first"
-            ? a.operators.or(
-                this.#and(a.operators.isNull(key), a.operators.isNotNull(row)),
-                this.#and(a.operators.isNotNull(key), strict)
+            ? this.#or(
+                this.#and(this.#isNull(key), this.#isNotNull(row)),
+                this.#and(this.#isNotNull(key), strict)
               )
             : this.#and(
-                a.operators.isNotNull(key),
-                a.operators.or(a.operators.isNull(row), strict)
+                this.#isNotNull(key),
+                this.#or(this.#isNull(row), strict)
               )
         )
       );
       equalities.push(
-        a.operators.or(
-          this.#and(a.operators.isNull(row), a.operators.isNull(key)),
+        this.#or(
+          this.#and(this.#isNull(row), this.#isNull(key)),
           this.#and(
-            a.operators.isNotNull(row),
-            a.operators.isNotNull(key),
+            this.#isNotNull(row),
+            this.#isNotNull(key),
             this.#eq(row, key)
           )
         )
@@ -3747,7 +3748,7 @@ export class SqlQueries extends Queries {
       assembleAdapterSelect(a, {
         columns: this.#true(),
         from: a.subqueries.correlate(derived, cursorAlias),
-        where: a.operators.or(...afterTerms),
+        where: this.#or(...afterTerms),
       })
     );
     // Every row after the anchor sorts at or past its NOT NULL leading key:
@@ -3837,7 +3838,7 @@ export class SqlQueries extends Queries {
         a.expressions.coalesce(
           this.#opposite(() => this.lowerSelector(controls.unless!, alias)) ??
             this.#true(),
-          a.literals.false()
+          this.#false()
         )
       );
     const columns = listed(projection);
@@ -4319,9 +4320,7 @@ export class SqlQueries extends Queries {
       sql: assembleAdapterSelect(this.adapter, {
         columns: listed(projection),
         from: this.table(model, alias),
-        where: balancedOr(predicates, (arms) =>
-          this.adapter.operators.or(...arms)
-        ),
+        where: balancedOr(predicates, (arms) => this.#or(...arms)),
         // The place of each row is a number the statement states: one it binds is text to a provider that is told no type, and ten sorts before two.
         orderBy: this.adapter.expressions.caseWhen(
           predicates.map((when, index) => ({
@@ -4425,18 +4424,18 @@ export class SqlQueries extends Queries {
           alias
         );
         const empty = slotMayBeEmpty(resolved)
-          ? this.#and(a.operators.isNull(type), a.operators.isNull(id))
-          : a.literals.false();
+          ? this.#and(this.#isNull(type), this.#isNull(id))
+          : this.#false();
         const valid = this.#and(
-          a.operators.isNotNull(id),
-          a.operators.or(
+          this.#isNotNull(id),
+          this.#or(
             ...edge.members.map((member) =>
               this.#eq(type, this.value(member.entry.storedValue))
             )
           )
         );
         const invalid = this.#when(
-          a.operators.or(empty, valid),
+          this.#or(empty, valid),
           this.value(0),
           this.value(1)
         );
@@ -4525,10 +4524,9 @@ export class SqlQueries extends Queries {
   }
   /** A condition as a value: true or false, never NULL; `undefined` holds. */
   truth(condition: Sql | undefined): Sql {
-    const a = this.adapter;
     return condition === undefined
       ? this.#true()
-      : this.#when(condition, this.#true(), a.literals.false());
+      : this.#when(condition, this.#true(), this.#false());
   }
   /**
    * What a claimed arm whose row did not come back carries: the empty

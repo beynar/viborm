@@ -630,6 +630,10 @@ export class Store {
       ].map((field) => [field, of[field]])
     );
   }
+  /** What the call holds of a row it knows. */
+  #about(row: Row) {
+    return this.#meta.get(row)!;
+  }
   /** What refuses the call where the row a question names is not there. */
   #absent(question: Question, lost?: boolean) {
     return createFailureError(
@@ -650,7 +654,7 @@ export class Store {
   }
   /** A row's key as it stands now. */
   #key(row: Row): Input {
-    return this.operation.schema.identity(this.#meta.get(row)!.model, row);
+    return this.operation.schema.identity(this.#about(row).model, row);
   }
   /** Values as a statement takes them: what the database decides must have been heard. */
   #said(values: Input): Input {
@@ -690,7 +694,7 @@ export class Store {
     question: Question,
     was: boolean | undefined
   ): boolean | undefined {
-    const meta = this.#meta.get(row)!;
+    const meta = this.#about(row);
     if (meta.gone) return false;
     const { member } = question;
     const selector = this.writer.selector(question);
@@ -858,7 +862,7 @@ export class Store {
     if (!(question.unique && pins)) return false;
     for (const row of this.#known.values()) {
       if (
-        this.#meta.get(row)!.model !== question.model ||
+        this.#about(row).model !== question.model ||
         ![...pins].every(
           ([field, value]) =>
             field in row && String(row[field]) === String(value)
@@ -872,7 +876,7 @@ export class Store {
     return false;
   }
   #changed(row: Row): boolean {
-    const meta = this.#meta.get(row)!;
+    const meta = this.#about(row);
     return Boolean(meta.made || meta.gone || meta.wrote);
   }
   /** Whether the database may hold, of the rows a question names, what the call does not know. */
@@ -1021,7 +1025,7 @@ export class Store {
     const read = new Set(
       answer.rows.map((values) => {
         const row = this.#intern(model, values, question);
-        const meta = this.#meta.get(row)!;
+        const meta = this.#about(row);
         const raw = (this.#raw ??= new WeakMap());
         raw.set(row, raw.get(values)!);
         // A row taken to be there, now read: what the call wrote of it stands.
@@ -1038,7 +1042,7 @@ export class Store {
     if (late) return rows;
     // What the call wrote since may answer now, or no longer.
     for (const row of this.#known.values()) {
-      const meta = this.#meta.get(row)!;
+      const meta = this.#about(row);
       if (meta.model !== model) continue;
       const linked =
         member?.edge.kind === "junction" &&
@@ -1082,7 +1086,7 @@ export class Store {
   #note(entry: Entry): void {
     entry.attempt = this.#attempting;
     if ("row" in entry && entry.kind !== "either")
-      this.#touched.add(this.#meta.get(entry.row)!.model);
+      this.#touched.add(this.#about(entry.row).model);
     else if (entry.kind === "skipping") this.#touched.add(entry.model);
     else if ("edge" in entry) this.#touched.add(entry.edge.table);
     const heard = this.#heard.get(this.#log.push(entry) - 1);
@@ -1154,7 +1158,7 @@ export class Store {
    * such rows: read whole where the call's writes stand when this is said.
    */
   #seen(row: Row, kind: WriteKind): void {
-    const { model } = this.#meta.get(row)!;
+    const { model } = this.#about(row);
     const name = nameOf(model);
     const { watch } = this;
     if (!watch?.wants(name, kind)) return;
@@ -1166,7 +1170,7 @@ export class Store {
   }
   /** The question a write of one row the call knows is written under: what found it, and what the write is. */
   #writing(row: Row, write: Partial<Question>): Question {
-    const { model, question } = this.#meta.get(row)!;
+    const { model, question } = this.#about(row);
     return {
       model,
       // What the row was found by: said again by its first write where nothing holds what the call read.
@@ -1189,7 +1193,7 @@ export class Store {
    */
   #follow(row: Row, before: Row): void {
     const { schema } = this.operation;
-    const { model } = this.#meta.get(row)!;
+    const { model } = this.#about(row);
     for (const edge of holders(schema, model)) {
       if (
         edge.reference?.onUpdate !== "cascade" ||
@@ -1202,7 +1206,7 @@ export class Store {
       )
         continue;
       for (const child of [...this.#known.values()]) {
-        const meta = this.#meta.get(child)!;
+        const meta = this.#about(child);
         if (
           meta.model !== edge.target ||
           !edge.pairs.every(
@@ -1239,7 +1243,7 @@ export class Store {
     of?: Row
   ): void {
     if (Object.keys(set).length === 0) return;
-    const meta = this.#meta.get(row)!;
+    const meta = this.#about(row);
     const { model } = meta;
     const key = this.#key(row);
     const keys = this.operation.schema.keys(model);
@@ -1354,7 +1358,7 @@ export class Store {
   }
   /** A row is removed: marked, where its model keeps the rows it deletes. */
   delete(row: Row): void {
-    const meta = this.#meta.get(row)!;
+    const meta = this.#about(row);
     const { model, question } = meta;
     const marks = this.writer.marks(model);
     // As it was before it goes.
@@ -1458,7 +1462,7 @@ export class Store {
       for (const row of rows)
         if (marks) {
           this.update(row, marks, undefined, undefined, true);
-          this.#meta.get(row)!.gone = true;
+          this.#about(row).gone = true;
         } else if (set)
           this.update(
             row,
@@ -1688,7 +1692,7 @@ export class Store {
     projection: PreparedProjection,
     take: (rows: Input[]) => void
   ): void {
-    const { model } = this.#meta.get(row)!;
+    const { model } = this.#about(row);
     const said = this.#told([row], projection);
     if (said) {
       take(said);
@@ -1725,7 +1729,7 @@ export class Store {
     take: (rows: Input[]) => void
   ): void {
     // A row the database passed by is no row of the call's.
-    const there = rows.filter((row) => !this.#meta.get(row)!.passed);
+    const there = rows.filter((row) => !this.#about(row).passed);
     const said = this.#told(there, projection);
     if (said) {
       take(said);
@@ -1835,7 +1839,7 @@ export class Store {
     if (!written)
       for (const entry of part) {
         if (entry.kind !== "insert") continue;
-        const meta = this.#meta.get(entry.row)!;
+        const meta = this.#about(entry.row);
         Object.assign(meta, { gone: true, passed: true });
         // The row that has its key is the one the database holds.
         const name = this.#name(meta.model, entry.row);
@@ -2211,7 +2215,7 @@ export class Store {
           entry.kind === "all" || entry.kind === "either"
             ? entry.question.model
             : entry.kind === "delete" || entry.kind === "update"
-              ? this.#meta.get(entry.row)!.model
+              ? this.#about(entry.row).model
               : undefined;
         if (
           touched === model ||
@@ -2317,10 +2321,10 @@ export class Store {
           read?.take?.(sent);
         };
       if (entry.kind === "insert") {
-        const { model } = this.#meta.get(entry.row)!;
+        const { model } = this.#about(entry.row);
         const { decided } = entry;
         const settled = (row: Row): Input => {
-          const computes = this.#meta.get(row)!.born;
+          const computes = this.#about(row).born;
           /** What the statement does not write of the row: what it holds no value of, and what the database decides of it. */
           const left = (value: unknown) =>
             value === undefined ||
@@ -2340,7 +2344,7 @@ export class Store {
         const columns = Object.keys(settled(entry.row));
         const fits = (rows: Row[], next: Entry | undefined) =>
           next?.kind === "insert" &&
-          this.#meta.get(next.row)!.model === model &&
+          this.#about(next.row).model === model &&
           next.relation === entry.relation &&
           writer.beside(model, columns, rows.length, settled(next.row));
         let rows = [entry.row];
@@ -2729,7 +2733,7 @@ export class Store {
           if (waited && !(within || this.#transport.holds))
             waiting.push({
               statements: [
-                this.writer.still(this.#meta.get(waited.row)!.model, {
+                this.writer.still(this.#about(waited.row).model, {
                   ...this.#key(waited.row),
                   [waited.field]: waited.row[waited.field],
                 }),
