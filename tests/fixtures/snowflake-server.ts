@@ -249,13 +249,16 @@ export async function startFakeSnowflake(
   return {
     url,
     host: FAKE_HOST,
-    fetch: (input, init) =>
-      fetch(
-        input.startsWith(FAKE_HOST)
-          ? url + input.slice(FAKE_HOST.length)
+    fetch: (input, init) => {
+      // The host compared as an origin, not a prefix of the text.
+      const target = new URL(input);
+      return fetch(
+        target.origin === FAKE_HOST
+          ? `${url}${target.pathname}${target.search}`
           : input,
         init
-      ),
+      );
+    },
     requests,
     statements: () =>
       requests
