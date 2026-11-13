@@ -76,7 +76,7 @@ describeIf("SQL Server compares values exactly", () => {
         id: "5-doc",
         name: "doc",
         tags: ["a/b"],
-        doc: { url: "https://x.io/p", long: LONG_JSON },
+        doc: { url: "https://x.io/p", long: LONG_JSON, arr: ["a ", null, 1] },
         long: LONG_TEXT,
       },
     });
@@ -143,6 +143,16 @@ describeIf("SQL Server compares values exactly", () => {
     );
     expect(stored!.tags).toBe('["a/b","c/d"]');
     expect(await ids({ tags: { equals: ["a/b", "c/d"] } })).toEqual(["5-doc"]);
+  });
+
+  test("array containment keeps null members and trailing spaces", async () => {
+    const at = (value: unknown[]) =>
+      ids({ doc: { path: ["arr"], array_contains: value } });
+    expect(await at([null])).toEqual(["5-doc"]);
+    expect(await at(["a ", null, 1])).toEqual(["5-doc"]);
+    expect(await at(["a "])).toEqual(["5-doc"]);
+    expect(await at(["a"])).toEqual([]);
+    expect(await at([2])).toEqual([]);
   });
 
   test("a JSON string past 4,000 characters is read by every string filter", async () => {

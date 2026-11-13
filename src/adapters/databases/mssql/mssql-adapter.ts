@@ -700,10 +700,12 @@ export class MssqlAdapter implements DatabaseAdapter {
       sql`(CASE WHEN ${jsonTypeAt(column, path)} = 1 THEN ${jsonValueAt(column, path)} ${BINARY_COLLATION} END)`,
     foldableStringAtPath: (column: Sql, path: string[]): Sql =>
       sql`(CASE WHEN ${jsonTypeAt(column, path)} = 1 THEN ${jsonValueAt(column, path)} END)`,
-    // Every member of `value` is a member of `target`, compared as JSON text.
+    // Every member of `value` is a member of `target` of its type: `null`
+    // (whose OPENJSON value is SQL NULL) equal to `null`, any other member's
+    // text compared exactly (trailing spaces count).
     contains: (target: Sql, value: Sql): Sql =>
       predicate(
-        sql`(ISJSON(${target}, ARRAY) = 1 AND NOT EXISTS (SELECT 1 FROM OPENJSON(${container(value)}) AS "c" WHERE NOT EXISTS (SELECT 1 FROM OPENJSON(${container(target)}) AS "t" WHERE "t"."type" = "c"."type" AND "t"."value" ${BINARY_COLLATION} = "c"."value")))`
+        sql`(ISJSON(${target}, ARRAY) = 1 AND NOT EXISTS (SELECT 1 FROM OPENJSON(${container(value)}) AS "c" WHERE NOT EXISTS (SELECT 1 FROM OPENJSON(${container(target)}) AS "t" WHERE "t"."type" = "c"."type" AND ("c"."type" = 0 OR ${exactKey(sql.raw('"t"."value"'))} = ${exactKey(sql.raw('"c"."value"'))}))))`
       ),
     lastElement: (target: Sql): Sql =>
       sql`(SELECT TOP (1) ${OPENJSON_MEMBER} FROM OPENJSON(CASE WHEN ISJSON(${target}, ARRAY) = 1 THEN ${target} END) ORDER BY CAST("key" AS INT) DESC)`,
