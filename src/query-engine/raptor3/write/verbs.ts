@@ -15,7 +15,7 @@ import { Stored } from "../shared/insert-value";
 import { readUpdate } from "../shared/query";
 import { parseStamped } from "../shared/row-scope";
 import type { Arguments, Input } from "../shared/schema";
-import type { Membership } from "../shared/storage";
+import { type Membership, sideFields } from "../shared/storage";
 import { engineFault, nameOf, same, unsupported } from "../shared/terms";
 import type { Question } from "./statements";
 import type { Row, Store } from "./store";
@@ -992,12 +992,10 @@ export function verbs(store: Store) {
       // A member that cannot give its key up cannot be taken out.
       if (store.rows(others).length > 0)
         throw new NestedWriteError(
-          `Cannot set relation '${edge.name}' because foreign key field(s) ${[
-            ...(edge.discriminator?.side === "target"
-              ? [edge.discriminator.field]
-              : []),
-            ...edge.pairs.map((pair) => pair.target),
-          ].join(
+          `Cannot set relation '${edge.name}' because foreign key field(s) ${sideFields(
+            edge,
+            "target"
+          ).join(
             ", "
           )} are required: rows removed from the set cannot be disconnected. Delete them instead.`,
           edge.name

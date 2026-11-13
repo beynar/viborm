@@ -145,6 +145,21 @@ export interface SqlSelectControls extends SelectControls {
   approximate?: boolean;
 }
 
+/** The adapter's arithmetic for each update operator that names one; a division is chosen by the column. */
+const ARITHMETIC: Partial<Record<string, "add" | "subtract" | "multiply">> = {
+  increment: "add",
+  decrement: "subtract",
+  multiply: "multiply",
+};
+
+/** The body each slot of a statement was settled from. */
+const bySlot = (bodies: readonly SharedBody[]): Map<Sql, SharedBody> => {
+  const of = new Map<Sql, SharedBody>();
+  for (const body of bodies)
+    for (const placed of body.slots) of.set(placed.slot, body);
+  return of;
+};
+
 export class SqlQueries extends Queries {
   declare readonly adapter: DatabaseAdapter;
   // What the statements say most: the adapter's own, held from the start.
@@ -357,9 +372,7 @@ export class SqlQueries extends Queries {
     // By the slots a stated body settled to, not by text: a table may be
     // named like a body. The same pass finds the aliases each body joins
     // flags after ({@link flagging}).
-    const uses = new Map<Sql, SharedBody>();
-    for (const body of stated)
-      for (const placed of body.slots) uses.set(placed.slot, body);
+    const uses = bySlot(stated);
     // How many places the statement reads each stated body at.
     const readers = new Map<SharedBody, number>();
     const attached = new Map<Sql, string>();
@@ -427,9 +440,7 @@ export class SqlQueries extends Queries {
     query: Sql,
     walks: readonly SharedBody[]
   ): { readonly body: SharedBody; readonly saves: number }[] {
-    const of = new Map<Sql, SharedBody>();
-    for (const body of walks)
-      for (const placed of body.slots) of.set(placed.slot, body);
+    const of = bySlot(walks);
     const read = new Map<SharedBody, Sql[]>();
     relations(query, (fragment) => {
       const body = of.get(fragment);
@@ -1426,15 +1437,13 @@ export class SqlQueries extends Queries {
     const state = this.physical(model, field).state;
     const base = state.type === "int" ? this.#cast(before, "integer") : before;
     const operand = this.fieldValue(model, field, update.by);
-    if (update.operator === "increment")
-      return a.expressions.add(base, operand);
-    if (update.operator === "decrement")
-      return a.expressions.subtract(base, operand);
-    if (update.operator === "multiply")
-      return a.expressions.multiply(base, operand);
-    return state.type === "int" || state.type === "bigint"
-      ? a.expressions.integerDivide(base, operand)
-      : a.expressions.divide(base, operand);
+    // A division of integers is the dialect's integer division.
+    return a.expressions[
+      ARITHMETIC[update.operator] ??
+        (state.type === "int" || state.type === "bigint"
+          ? "integerDivide"
+          : "divide")
+    ](base, operand);
   }
   /**
    * A read's own candidates: `selector` (absent: every row) under `purpose`.

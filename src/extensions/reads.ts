@@ -3,6 +3,7 @@
  * judged again only if it changes what its judgement reads.
  */
 import type { PreparedPredicate } from "@query-engine/raptor3/shared/query";
+import { hopFieldsOf } from "@query-engine/raptor3/shared/storage";
 
 /**
  * Whether `predicate`, judged over a row of `model`, may read one of
@@ -52,15 +53,7 @@ export function readsAny(
     }
     case "relation": {
       const { edge } = predicate;
-      const own =
-        edge.kind === "reference"
-          ? [
-              ...edge.pairs.map((pair) => pair.source),
-              ...(edge.discriminator?.side === "source"
-                ? [edge.discriminator.field]
-                : []),
-            ]
-          : keys;
+      const own = edge.kind === "reference" ? hopFieldsOf(edge) : keys;
       return (
         own.some((field) => fields.has(field)) ||
         (predicate.predicate !== undefined &&

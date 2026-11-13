@@ -248,14 +248,18 @@ export function buildMembershipView(
 /** The fields of the row it leaves that one hop of `edge` reads. */
 export function hopFieldsOf(edge: Membership): readonly string[] {
   return edge.kind === "reference"
-    ? [
-        ...(edge.discriminator?.side === "source"
-          ? [edge.discriminator.field]
-          : []),
-        ...edge.pairs.map((pair) => pair.source),
-      ]
+    ? sideFields(edge, "source")
     : edge.sourceSide.members.map((member) => member.referencedField);
 }
+
+/** The fields a reference holds on one side, its discriminator first. */
+export const sideFields = (
+  edge: Extract<Membership, { kind: "reference" }>,
+  side: "source" | "target"
+): string[] => [
+  ...(edge.discriminator?.side === side ? [edge.discriminator.field] : []),
+  ...edge.pairs.map((pair) => pair[side]),
+];
 
 /** Private carrier columns are resolved schema fields, never public scalar declarations. */
 export function physicalField(
