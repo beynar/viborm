@@ -4,7 +4,14 @@ import { SQLite3Driver } from "@drivers/sqlite3";
 import { PGlite } from "@electric-sql/pglite";
 import { s } from "@schema";
 import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
-import { describe, expect, test } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "vitest";
 
 /**
  * A call that already knows a row is asked for it again, by a value it holds.
@@ -39,14 +46,66 @@ const schema = (() => {
 
 const AT = "2026-01-02T03:04:05.000Z";
 
+/** One database for each driver's cases: a PGlite instance is heavy. */
 const drivers = {
   SQLite: () => new SQLite3Driver({ dataDir: ":memory:" }),
   PGlite: () => new PGliteDriver({ client: new PGlite() }),
 };
+const makeClient = (name: keyof typeof drivers) =>
+  createClient({ schema, driver: drivers[name]() });
+type Client = ReturnType<typeof makeClient>;
+type BookFilter = Omit<
+  NonNullable<NonNullable<Parameters<Client["book"]["findFirst"]>[0]>["where"]>,
+  "id"
+>;
 
-for (const [name, makeDriver] of Object.entries(drivers))
+for (const name of ["SQLite", "PGlite"] as const)
   describe(`a known row asked again by a value it holds (${name})`, () => {
-    const spellings: [string, Record<string, unknown>][] = [
+    let client: Client;
+    beforeAll(async () => {
+      client = makeClient(name);
+      await push(client, { force: true });
+    });
+    afterAll(async () => {
+      await client.$disconnect();
+    });
+    beforeEach(async () => {
+      await client.book.deleteMany({});
+      await client.shelf.deleteMany({});
+      await client.shelf.create({
+        data: {
+          id: "s1",
+          books: {
+            create: {
+              id: "b1",
+              title: "Draft",
+              at: AT,
+              day: "2026-01-02",
+              price: "12.50",
+              rating: 4.5,
+            },
+          },
+        },
+      });
+    });
+    /** The row is read whole (its filter is no key), then asked again by `held`. */
+    const again = (held: BookFilter) =>
+      client.shelf.update({
+        where: { id: "s1" },
+        data: {
+          books: {
+            update: [
+              {
+                where: { id: "b1", NOT: { title: "Other" } },
+                data: { title: "Draft" },
+              },
+              { where: { id: "b1", ...held }, data: { title: "Found" } },
+            ],
+          },
+        },
+      });
+
+    const spellings: [string, BookFilter][] = [
       ["an instant as a Date", { at: new Date(AT) }],
       ["an instant without its milliseconds", { at: "2026-01-02T03:04:05Z" }],
       ["an instant at another offset", { at: "2026-01-02T04:04:05+01:00" }],
@@ -59,89 +118,21 @@ for (const [name, makeDriver] of Object.entries(drivers))
     ];
     for (const [label, held] of spellings)
       test(`finds it by ${label}`, async () => {
-        const client = createClient({ schema, driver: makeDriver() });
-        try {
-          await push(client, { force: true });
-          await client.shelf.create({
-            data: {
-              id: "s1",
-              books: {
-                create: {
-                  id: "b1",
-                  title: "Draft",
-                  at: AT,
-                  day: "2026-01-02",
-                  price: "12.50",
-                  rating: 4.5,
-                },
-              },
-            },
-          });
-          await client.shelf.update({
-            where: { id: "s1" },
-            data: {
-              books: {
-                update: [
-                  // Read whole: its filter is no key.
-                  {
-                    where: { id: "b1", NOT: { title: "Other" } },
-                    data: { title: "Draft" },
-                  },
-                  { where: { id: "b1", ...held }, data: { title: "Found" } },
-                ],
-              },
-            },
-          });
-          const book = await client.book.findUnique({ where: { id: "b1" } });
-          expect(book?.title).toBe("Found");
-        } finally {
-          await client.$disconnect();
-        }
+        await again(held);
+        const book = await client.book.findUnique({ where: { id: "b1" } });
+        expect(book?.title).toBe("Found");
       });
 
     test("does not find it by a value it does not hold", async () => {
-      const client = createClient({ schema, driver: makeDriver() });
-      try {
-        await push(client, { force: true });
-        await client.shelf.create({
-          data: {
-            id: "s1",
-            books: {
-              create: {
-                id: "b1",
-                title: "Draft",
-                at: AT,
-                day: "2026-01-02",
-                price: "12.50",
-                rating: 4.5,
-              },
-            },
-          },
-        });
-        for (const held of [
-          { at: "2026-01-02T03:04:06.000Z" },
-          { day: "2026-01-03" },
-          { price: "12.51" },
-          { title: "draft" },
-        ])
-          await expect(
-            client.shelf.update({
-              where: { id: "s1" },
-              data: {
-                books: {
-                  update: [
-                    {
-                      where: { id: "b1", NOT: { title: "Other" } },
-                      data: { title: "Draft" },
-                    },
-                    { where: { id: "b1", ...held }, data: { title: "Found" } },
-                  ],
-                },
-              },
-            })
-          ).rejects.toThrow("target record was not found");
-      } finally {
-        await client.$disconnect();
-      }
+      const others: BookFilter[] = [
+        { at: "2026-01-02T03:04:06.000Z" },
+        { day: "2026-01-03" },
+        { price: "12.51" },
+        { title: "draft" },
+      ];
+      for (const held of others)
+        await expect(again(held)).rejects.toThrow(
+          "target record was not found"
+        );
     });
   });

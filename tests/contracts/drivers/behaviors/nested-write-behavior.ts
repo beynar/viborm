@@ -339,38 +339,56 @@ export function runNestedWriteBehavior({
           posts: { create: { id: "post-twice", title: "Draft" } },
         },
       });
-      for (const [filter, title] of [
-        [{ NOT: { title: "Other" } }, "Not"],
-        [{ OR: [{ title: "Draft" }, { title: "Other" }] }, "Or"],
-      ] as const) {
-        await currentClient.post.update({
-          where: { id: "post-twice" },
-          data: { title: "Draft" },
-        });
-        // The first update reads the row whole; the second names it again,
-        // by an equality that is no conjunct of its filter.
-        await currentClient.user.update({
-          where: { id: "user-twice-owner" },
-          data: {
-            posts: {
-              update: [
-                {
-                  where: { id: "post-twice", ...filter },
-                  data: { title: "Draft" },
-                },
-                {
-                  where: { id: "post-twice", ...filter },
-                  data: { title },
-                },
-              ],
-            },
+      // The first update reads the row whole; the second names it again, by
+      // an equality that is no conjunct of its filter.
+      await currentClient.user.update({
+        where: { id: "user-twice-owner" },
+        data: {
+          posts: {
+            update: [
+              {
+                where: { id: "post-twice", NOT: { title: "Other" } },
+                data: { title: "Draft" },
+              },
+              {
+                where: { id: "post-twice", NOT: { title: "Other" } },
+                data: { title: "Not" },
+              },
+            ],
           },
-        });
-        const post = await currentClient.post.findUnique({
-          where: { id: "post-twice" },
-        });
-        expect(post?.title).toBe(title);
-      }
+        },
+      });
+      expect(
+        (await currentClient.post.findUnique({ where: { id: "post-twice" } }))
+          ?.title
+      ).toBe("Not");
+      await currentClient.user.update({
+        where: { id: "user-twice-owner" },
+        data: {
+          posts: {
+            update: [
+              {
+                where: {
+                  id: "post-twice",
+                  OR: [{ title: "Not" }, { title: "Other" }],
+                },
+                data: { title: "Not" },
+              },
+              {
+                where: {
+                  id: "post-twice",
+                  OR: [{ title: "Not" }, { title: "Other" }],
+                },
+                data: { title: "Or" },
+              },
+            ],
+          },
+        },
+      });
+      expect(
+        (await currentClient.post.findUnique({ where: { id: "post-twice" } }))
+          ?.title
+      ).toBe("Or");
     });
 
     test("a row the call already read is not taken to match a relation filter", async () => {
