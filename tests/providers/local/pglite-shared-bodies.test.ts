@@ -80,9 +80,19 @@ const policy = defineExtension({
 });
 
 const clients: { $disconnect(): Promise<void> }[] = [];
-afterEach(async () => {
+const closeClients = async () => {
   for (const client of clients.splice(0)) await client.$disconnect();
-});
+};
+afterEach(closeClients);
+/**
+ * One database at a time: a client is opened once the one before it is closed.
+ * A PGlite instance holds its memory until then, and a test that walks a
+ * matrix of capabilities opens one per cell.
+ */
+const opened = async (client: { $disconnect(): Promise<void> }) => {
+  await closeClients();
+  clients.push(client);
+};
 
 // PostgreSQL 12+ materializes a WITH member read twice and scans it, without
 // an index, once per outer row: a relation body, read through its key
@@ -94,7 +104,7 @@ test("PGlite: a shared relation body reading no other is NOT MATERIALIZED; one r
     const driver = createInMemoryPGliteDriver();
     driver.adapter.capabilities.sharesRelationBodies = shared;
     const base = createClient({ schema: { org, member, doc }, driver });
-    clients.push(base);
+    await opened(base);
     await syncLiveSchema(base);
     await base.org.createMany({ data: [{ id: "o1" }, { id: "o2" }] });
     await base.member.createMany({
@@ -169,7 +179,7 @@ test("PGlite: an upsert's locked lookup states its repeated body once, ahead of 
     const driver = createInMemoryPGliteDriver();
     driver.adapter.capabilities.sharesRelationBodies = shared;
     const base = createClient({ schema: { org, member, doc }, driver });
-    clients.push(base);
+    await opened(base);
     await syncLiveSchema(base);
     await base.org.createMany({ data: [{ id: "o1" }, { id: "o2" }] });
     await base.member.createMany({
@@ -252,7 +262,7 @@ test("PGlite: a shared relation body over a table named like a body is still NOT
   const seated = { team: { seats: { some: { userId: user } } } };
   const driver = createInMemoryPGliteDriver();
   const base = createClient({ schema: { team, seat, note }, driver });
-  clients.push(base);
+  await opened(base);
   await syncLiveSchema(base);
   await base.team.createMany({ data: [{ id: "t1" }, { id: "t2" }] });
   await base.seat.createMany({

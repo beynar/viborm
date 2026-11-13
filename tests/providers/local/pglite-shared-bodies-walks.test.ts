@@ -24,9 +24,19 @@ const CROSS_JOIN = /CROSS JOIN/g;
 const user = { control: "user" } as const;
 
 const clients: { $disconnect(): Promise<void> }[] = [];
-afterEach(async () => {
+const closeClients = async () => {
   for (const client of clients.splice(0)) await client.$disconnect();
-});
+};
+afterEach(closeClients);
+/**
+ * One database at a time: a client is opened once the one before it is closed.
+ * A PGlite instance holds its memory until then, and a test that walks a
+ * matrix of capabilities opens one per cell.
+ */
+const opened = async (client: { $disconnect(): Promise<void> }) => {
+  await closeClients();
+  clients.push(client);
+};
 
 // A walk its author states selective (the teams the actor belongs to,
 // through their subteams), read only inside bodies computed over their whole
@@ -146,7 +156,7 @@ const teamsClient = async (
   driver.adapter.capabilities.sharesRelationBodies = shared;
   driver.adapter.capabilities.relationsPerStatement = relationsPerStatement;
   const base = createClient({ schema: { team, seat, page, grant }, driver });
-  clients.push(base);
+  await opened(base);
   await syncLiveSchema(base);
   // root ← mid ← leaf, other ← sub; ann sits in leaf, bob in sub. A team's
   // walk reads its subteams, not itself: a grant to leaf is none of ann's.
@@ -535,7 +545,7 @@ test("a declared junction's hop reads a column beyond the key: a walk from a sel
     driver.adapter.capabilities.sharesRelationBodies = true;
     driver.adapter.capabilities.relationsPerStatement = budget;
     const base = createClient({ schema: { tree, teamParent }, driver });
-    clients.push(base);
+    await opened(base);
     await syncLiveSchema(base);
     await base.tree.createMany({
       data: [
