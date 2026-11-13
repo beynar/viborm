@@ -365,5 +365,20 @@ ALTER ROLE db_datareader ADD MEMBER "${LOGIN}"; ALTER ROLE db_datawriter ADD MEM
         message: expect.stringMatching(INCOMING_KEY_WARNING),
       })
     );
+    // A key from this schema into another: that table is left out, named,
+    // and the others are read.
+    await db.$executeRaw(
+      sql.raw(
+        `CREATE TABLE ${t("outbound")} ("id" INT NOT NULL PRIMARY KEY, "childId" INT NOT NULL REFERENCES "${OTHER}"."child" ("id"))`
+      )
+    );
+    const partial = await introspectSchema({
+      driver: createMssqlDriverIn(NS),
+      tables: ["holders", "outbound"],
+    });
+    expect(Object.keys(partial.document.models)).toEqual(["holders"]);
+    expect(partial.skipped).toContainEqual(
+      expect.objectContaining({ kind: "table", name: "outbound" })
+    );
   });
 });

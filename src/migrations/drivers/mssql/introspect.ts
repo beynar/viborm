@@ -267,7 +267,14 @@ function readForeignKeys(
       throw new MigrationError(
         `Foreign key "${first.constraint_name}" crosses the schema boundary: "${first.table_schema}"."${first.table_name}" references "${first.referenced_schema}"."${first.referenced_table}", and this client reads only "${schema}".`,
         VibORMErrorCode.FEATURE_NOT_SUPPORTED,
-        { meta: { dialect: "mssql", constraint: first.constraint_name } }
+        // Named, the table is left out and the others read (`readCatalog`).
+        {
+          meta: {
+            dialect: "mssql",
+            constraint: first.constraint_name,
+            table: first.table_name,
+          },
+        }
       );
     }
     const keys = byTable.get(first.table_name) ?? [];
