@@ -124,7 +124,7 @@ describe("one resolution, one index", () => {
         .references("id"),
     });
     expect(build).toThrow();
-    delete record.dangling;
+    Reflect.deleteProperty(record, "dangling");
     expect(build).not.toThrow();
   });
 });
