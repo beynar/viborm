@@ -26,17 +26,21 @@ export interface DecimalProviderLimitRefusal {
 }
 
 /**
- * Every dialect in the decimal codec's physical vocabulary, or none where
- * there is no limit to fit: a SurrealDB `decimal` holds any precision and
- * scale, and VibORM stores nothing in Snowflake.
+ * The dialects with no limit to fit: a SurrealDB `decimal` holds any
+ * precision and scale, and VibORM stores nothing in Snowflake.
  */
-const DECIMAL_DIALECT: Readonly<Record<Dialect, DecimalDialect | undefined>> = {
+type NoDecimalLimit = "surrealql" | "snowflake";
+
+/**
+ * Every other dialect in the decimal codec's physical vocabulary: one added
+ * to `Dialect` does not compile until it is here or above. Checked by the type
+ * only, so the dialects above cost an application no byte.
+ */
+const DECIMAL_DIALECT: Readonly<Partial<Record<Dialect, DecimalDialect>>> = {
   postgresql: "pg",
   mysql: "mysql",
   sqlite: "sqlite",
-  surrealql: undefined,
-  snowflake: undefined,
-};
+} satisfies Record<Exclude<Dialect, NoDecimalLimit>, DecimalDialect>;
 
 /** Return the first declared decimal domain the selected provider cannot hold. */
 export function findDecimalProviderLimitRefusal(
