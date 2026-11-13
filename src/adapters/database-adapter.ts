@@ -473,12 +473,12 @@ export interface DatabaseAdapter {
       readonly order: readonly Sql[];
     };
     /**
-     * Stated only where an integer `SUM` is int64 and raises past it
-     * (SQLite): an int64 column's sum as two `SUM`s no realistic row count
-     * can overflow — each member's high 32 bits and the rest — read back
-     * exactly as `high * 2^32 + low` (engine-10), compared and sorted as
-     * `numberSum` states. PostgreSQL and MySQL already sum integers as exact
-     * numerics.
+     * Stated only where an integer `SUM` raises past the column's type
+     * (SQLite's int64, SQL Server's INT and BIGINT): an integer column's sum
+     * as two `SUM`s no realistic row count can overflow — each member's high
+     * 32 bits and the rest — read back exactly as `high * 2^32 + low`
+     * (engine-10), compared and sorted as `numberSum` states. PostgreSQL and
+     * MySQL already sum integers as exact numerics.
      */
     integerSum?: DatabaseAdapter["aggregates"]["numberSum"];
     avg: (expr: Sql) => Sql;

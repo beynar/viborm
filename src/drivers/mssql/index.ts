@@ -89,13 +89,25 @@ const INSERT_ID_COLUMN = "__viborm_insert_id";
  */
 const INSERT_STATEMENT = /^\s*(?:WITH\b[\s\S]*\)\s*)?INSERT\b/i;
 
+/** An `UPDATE` or a `DELETE`, alone or after its `WITH`. */
+const COUNTED_STATEMENT = /^\s*(?:WITH\b[\s\S]*\)\s*)?(?:UPDATE|DELETE)\b/i;
+
+/**
+ * The rows a statement wrote, read in its own request: a trigger's own
+ * statements add to `rowsAffected` (before the statement's count) unless
+ * the trigger sets NOCOUNT, and may return rows of their own, but
+ * `@@ROWCOUNT` after the statement is the statement's.
+ */
+const ROWCOUNT_COLUMN = "__viborm_rowcount";
+const ROWCOUNT_SELECT = `;SELECT @@ROWCOUNT AS "${ROWCOUNT_COLUMN}"`;
+
 /** The target of a VibORM `INSERT INTO "schema"."table"`. */
 const INSERT_TARGET = /\bINSERT\s+INTO\s+((?:"(?:[^"]|"")*"\.)?"(?:[^"]|"")*")/;
 
 /** "Cannot insert explicit value for identity column … IDENTITY_INSERT is OFF." */
 const EXPLICIT_IDENTITY = 544;
 
-const IDENTITY_SELECT = `;SELECT CAST(SCOPE_IDENTITY() AS BIGINT) AS "${INSERT_ID_COLUMN}"`;
+const IDENTITY_SELECT = `;SELECT @@ROWCOUNT AS "${ROWCOUNT_COLUMN}", CAST(SCOPE_IDENTITY() AS BIGINT) AS "${INSERT_ID_COLUMN}"`;
 
 /**
  * An `INSERT` that spells an identity column's value, as every other dialect
@@ -106,7 +118,8 @@ const IDENTITY_SELECT = `;SELECT CAST(SCOPE_IDENTITY() AS BIGINT) AS "${INSERT_I
 function withExplicitIdentity(sql: string): string | undefined {
   const table = INSERT_TARGET.exec(sql)?.[1];
   if (table === undefined) return undefined;
-  return `SET IDENTITY_INSERT ${table} ON; BEGIN TRY ;${sql}; END TRY BEGIN CATCH SET IDENTITY_INSERT ${table} OFF; THROW; END CATCH; SET IDENTITY_INSERT ${table} OFF`;
+  // `SET` resets `@@ROWCOUNT`: the INSERT's count is kept before it runs.
+  return `DECLARE @viborm_rowcount INT; SET IDENTITY_INSERT ${table} ON; BEGIN TRY ;${sql}; SET @viborm_rowcount = @@ROWCOUNT; END TRY BEGIN CATCH SET IDENTITY_INSERT ${table} OFF; THROW; END CATCH; SET IDENTITY_INSERT ${table} OFF; SELECT @viborm_rowcount AS "${ROWCOUNT_COLUMN}"`;
 }
 
 /**
@@ -128,12 +141,15 @@ function savepointStatement(sql: string): string | null | undefined {
 }
 
 /**
- * Transactions the server rolled back itself: a deadlock victim, a killed
- * session, a batch-aborting error. `mssql` has released their connection, so
+ * Transactions the server rolled back itself: a deadlock victim, a
+ * batch-aborting error. `mssql` has released their connection, so
  * there is nothing left to roll back, to a savepoint or whole, and the
  * statement's own error is the failure to report.
  */
 const ABORTED_BY_SERVER = new WeakSet<Transaction>();
+
+/** tedious refusing a request on a connection that has closed. */
+const SESSION_GONE = /\bnot the Final state\b/;
 
 const ISOLATION_LEVELS: Record<TransactionIsolationLevel, string> = {
   ReadUncommitted: "READ_UNCOMMITTED",
@@ -183,7 +199,9 @@ type MssqlTypes = typeof import("mssql");
 /**
  * Bind every value with a type T-SQL reads exactly: a `Date` as `DATETIME2`
  * (the inferred `DATETIME` rounds to 1/300 s), bytes as `VARBINARY`, a
- * `bigint` as `BIGINT`, and everything else as `mssql` infers it.
+ * `bigint` as `BIGINT`, a whole `number` past the safe integers as `FLOAT`
+ * (`mssql` infers BIGINT for any whole number, and 1e19 overflows it), and
+ * everything else as `mssql` infers it.
  */
 function bind(mssql: MssqlTypes, request: Request, params: unknown[]): void {
   for (const [index, value] of params.entries()) {
@@ -199,31 +217,41 @@ function bind(mssql: MssqlTypes, request: Request, params: unknown[]): void {
       );
     else if (typeof value === "bigint")
       request.input(name, mssql.BigInt, value.toString());
+    else if (typeof value === "number" && !Number.isSafeInteger(value))
+      request.input(name, mssql.Float, value);
     else request.input(name, value);
   }
 }
 
+/**
+ * How a statement's result is read: its one result set as its rows, or (a
+ * write, which returns none of its own) the count and the generated
+ * identity its trailing SELECT reads, from the request's last result set.
+ */
+type ResultShape = "rows" | "counted" | "identity";
+
 function toQueryResult<T>(
   result: IResult<unknown>,
   operation: string,
-  identity: boolean
+  shape: ResultShape
 ): QueryResult<T> {
   const context = { provider: "mssql", operation };
   const sets = result.recordsets as unknown as unknown[][];
-  if (identity) {
+  if (shape !== "rows") {
+    const last: unknown = sets.at(-1)?.[0];
+    const read = (column: string): unknown =>
+      typeof last === "object" && last !== null
+        ? Reflect.get(last, column)
+        : undefined;
     // NULL where the table has no identity column.
-    const identityRow: unknown = sets.at(-1)?.[0];
-    const value =
-      typeof identityRow === "object" && identityRow !== null
-        ? Reflect.get(identityRow, INSERT_ID_COLUMN)
-        : null;
+    const id = shape === "identity" ? read(INSERT_ID_COLUMN) : undefined;
     const insertId =
-      value === null || value === undefined
+      id === null || id === undefined
         ? undefined
-        : normalizeProviderInsertId(value, context, { allowNumber: true });
+        : normalizeProviderInsertId(id, context, { allowNumber: true });
     return {
       rows: [],
-      rowCount: normalizeProviderRowCount(result.rowsAffected[0] ?? 0, context),
+      rowCount: normalizeProviderRowCount(read(ROWCOUNT_COLUMN) ?? 0, context),
       ...(insertId === undefined ? {} : { insertId }),
     };
   }
@@ -310,6 +338,15 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
     return numberedStatement(query);
   }
 
+  /**
+   * T-SQL names its parameters (`@p1`), and the statement is numbered here
+   * from its own text: past the bind budget it is refused, never bound with
+   * equal values merged into a `?NNN` text this driver does not read.
+   */
+  protected override get numbersPlaceholders(): boolean {
+    return false;
+  }
+
   protected override createTransactionBoundDriver(
     tx: Transaction,
     context: QueryExecutionContext
@@ -342,15 +379,23 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     const operation = context?.operation ?? "execute";
+    if (COUNTED_STATEMENT.test(sql))
+      return this.#run<T>(
+        client,
+        `${sql}${ROWCOUNT_SELECT}`,
+        params,
+        operation,
+        "counted"
+      );
     if (!INSERT_STATEMENT.test(sql))
-      return this.#run<T>(client, sql, params, operation, false);
+      return this.#run<T>(client, sql, params, operation, "rows");
     try {
       return await this.#run<T>(
         client,
         `${sql}${IDENTITY_SELECT}`,
         params,
         operation,
-        true,
+        "identity",
         true
       );
     } catch (error) {
@@ -359,7 +404,7 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
           ? withExplicitIdentity(sql)
           : undefined;
       if (explicit === undefined) throw normalizeMssqlError(error);
-      return this.#run<T>(client, explicit, params, operation, false);
+      return this.#run<T>(client, explicit, params, operation, "counted");
     }
   }
 
@@ -381,7 +426,7 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
       savepoint ?? sql,
       params ?? [],
       context?.operation ?? "executeRaw",
-      false
+      "rows"
     );
   }
 
@@ -390,7 +435,7 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
     sql: string,
     params: unknown[],
     operation: string,
-    identity: boolean,
+    shape: ResultShape,
     raw = false
   ): Promise<QueryResult<T>> {
     const mssql = await this.#provider();
@@ -403,7 +448,7 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
       if (raw) throw error;
       throw normalizeMssqlError(error);
     }
-    return toQueryResult<T>(result, operation, identity);
+    return toQueryResult<T>(result, operation, shape);
   }
 
   /** The isolation level is `BEGIN TRANSACTION`'s own argument in `mssql`. */
@@ -445,15 +490,19 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
       callback: () => fn(transaction),
       commit: () => transaction.commit(),
       rollback: async () => {
-        if (!ABORTED_BY_SERVER.has(transaction)) await transaction.rollback();
+        if (ABORTED_BY_SERVER.has(transaction)) return;
+        try {
+          await transaction.rollback();
+        } catch (error) {
+          // A killed session: the connection is closed, and the transaction
+          // went with it. Any other failure leaves a session whose state is
+          // unknown, which `mssql` still hands back to the pool: the driver
+          // then refuses further work (`transactionCleanupFailed`).
+          if (!SESSION_GONE.test((error as Error).message)) throw error;
+        }
       },
       phases: getExecutionTransactionPhases(context),
     });
-  }
-
-  protected override transactionCleanupFailed(_error: Error): void {
-    // `mssql` releases a transaction's connection whether its rollback
-    // succeeds or fails, and the pool discards a closed one: it stays usable.
   }
 }
 

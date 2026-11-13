@@ -67,6 +67,9 @@ const MSSQL_CONSTRAINTS = createNamedConstraintIdentities(
   (table) => `${table}_pkey`
 );
 
+/** Where `integerSum` splits a member: 2^32, as a BIGINT. */
+const INTEGER_SPLIT = sql.raw("CAST(4294967296 AS BIGINT)");
+
 /** The widest exact decimal T-SQL computes: `DECIMAL(38, s)`. */
 const MSSQL_EXACT_DIGITS = 38;
 
@@ -505,6 +508,24 @@ export class MssqlAdapter implements DatabaseAdapter {
       logicalDecimalAverage(MSSQL_INTEGERS, column, descriptor),
     decimalSumOperandPrecision:
       createDecimalSumOperandPrecision(MSSQL_EXACT_DIGITS),
+    // `SUM` of an INT is an INT and of a BIGINT a BIGINT, each raising past
+    // its type (Msg 8115), where PostgreSQL widens. Each member splits at
+    // 2^32 (T-SQL's `/` and `%` truncate, so both parts keep its sign and
+    // `high * 2^32 + low` is it exactly), read as text (a JSON number past
+    // 2^53 is rounded by its reader), and compared and sorted as one exact
+    // DECIMAL(38, 0).
+    integerSum: (column: Sql) => {
+      const member = sql`CAST(${column} AS BIGINT)`;
+      const exact = sql`SUM(CAST(${column} AS DECIMAL(38, 0)))`;
+      return {
+        parts: [
+          sql`CAST(SUM(${member} / ${INTEGER_SPLIT}) AS VARCHAR(20))`,
+          sql`CAST(SUM(${member} % ${INTEGER_SPLIT}) AS VARCHAR(20))`,
+        ] as const,
+        value: exact,
+        order: [exact],
+      };
+    },
   };
 
   json = {
