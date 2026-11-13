@@ -215,11 +215,9 @@ test("CI keeps every delegated check and shallow sparse checkout", () => {
   assert.doesNotMatch(workflow, pullRequestPathCoverage);
   assert.doesNotMatch(workflow, perfTimingsVariable);
   // The release proof is exactly the set of jobs this workflow runs, the
-  // prototypes' excepted: they report, and no release waits on them.
+  // SurrealDB prototype's excepted: it reports, and no release waits on it.
   assert.deepEqual(
-    expandedJobNames(jobs).filter(
-      (name) => name !== "SurrealDB provider" && name !== "SQL Server provider"
-    ),
+    expandedJobNames(jobs).filter((name) => name !== "SurrealDB provider"),
     RELEASE_CI_JOBS
   );
 
