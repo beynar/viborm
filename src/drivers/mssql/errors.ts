@@ -10,6 +10,8 @@
  * message carries the way PostgreSQL reports them.
  */
 
+import { VibORMError } from "@errors";
+
 const SQLSTATE_BY_NUMBER: Readonly<Record<number, string>> = {
   // Duplicate key: a PRIMARY KEY or UNIQUE constraint, and a unique index.
   2627: "23505",
@@ -79,6 +81,31 @@ function sqlStateOf(number: number, message: string): string | undefined {
   return SQLSTATE_BY_NUMBER[number];
 }
 
+/** `mssql`'s own failure codes, in the SQLSTATE class the mapping reads. */
+const CODE_SQLSTATES: Record<string, string> = {
+  ECONNCLOSED: "08003",
+  ETIMEOUT: "57014",
+};
+
+/**
+ * SQL Server's message number, put in `meta.providerErrno` of the error the
+ * shared mapping built from `error`. The mapping never reads it: its errnos
+ * are MySQL's, and many collide (1205 is a lock wait there).
+ */
+export function withServerNumber(mapped: Error, error: unknown): Error {
+  const number = readErrorNumber(error) ?? readErrorNumber(errorCause(error));
+  if (
+    number !== undefined &&
+    mapped instanceof VibORMError &&
+    mapped.meta.providerErrno === undefined
+  )
+    mapped.meta.providerErrno = number;
+  return mapped;
+}
+
+const errorCause = (error: unknown): unknown =>
+  error instanceof Error ? error.cause : undefined;
+
 /**
  * A tedious `RequestError` (or the `mssql` wrapper around one) carrying the
  * SQLSTATE, constraint, table and column of its server error; anything else
@@ -86,10 +113,12 @@ function sqlStateOf(number: number, message: string): string | undefined {
  */
 export function normalizeMssqlError(error: unknown): unknown {
   if (!(error instanceof Error)) return error;
-  // A request on a pool that was closed: the connection does not exist.
-  if (Reflect.get(error, "code") === "ECONNCLOSED")
+  // A request on a pool that was closed: the connection does not exist. A
+  // request past its timeout: cancelled, as PostgreSQL's statement timeout.
+  const coded = CODE_SQLSTATES[String(Reflect.get(error, "code"))];
+  if (coded !== undefined)
     return Object.assign(new Error(error.message, { cause: error }), {
-      sqlstate: "08003",
+      sqlstate: coded,
     });
   const number = readErrorNumber(error);
   if (number === undefined) return error;

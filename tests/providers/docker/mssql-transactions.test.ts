@@ -31,6 +31,8 @@ import {
 } from "./mssql-fixtures";
 
 const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
+const COMMITTED =
+  /raw COMMIT ended the transaction: what it wrote is committed/;
 const NAMESPACE = "viborm_transactions";
 
 const counter = s
@@ -70,6 +72,69 @@ describeIf("SQL Server transactions the server rolls back", () => {
   afterAll(async () => {
     for (const opened of clients) await opened.$disconnect();
     await dropSchema(NAMESPACE);
+  });
+
+  test("each isolation level is the transaction's own, interactive and batch, and the pooled session goes back to READ COMMITTED", async () => {
+    // One pooled connection: every call below runs on the same session.
+    const single = client({ pool: { max: 1, min: 0 } });
+    const LEVEL = sql`SELECT transaction_isolation_level AS level FROM sys.dm_exec_sessions WHERE session_id = @@SPID`;
+    const level = (rows: { level: number }[]) => rows[0]!.level;
+    const levels = {
+      ReadUncommitted: 1,
+      ReadCommitted: 2,
+      RepeatableRead: 3,
+      Serializable: 4,
+    } as const;
+    const seen: Record<string, number> = {};
+    for (const name of Object.keys(levels)) {
+      const isolationLevel = name as keyof typeof levels;
+      seen[`interactive ${name}`] = level(
+        await single.$transaction(
+          (tx) => tx.$queryRaw<{ level: number }>(LEVEL),
+          {
+            isolationLevel,
+          }
+        )
+      );
+      const [batch] = await single.$transaction(
+        [single.$queryRaw<{ level: number }>(LEVEL)],
+        { isolationLevel }
+      );
+      seen[`batch ${name}`] = level(batch!);
+      seen[`after ${name}`] = level(
+        await single.$queryRaw<{ level: number }>(LEVEL)
+      );
+    }
+    expect(seen).toEqual(
+      Object.fromEntries(
+        Object.entries(levels).flatMap(([name, expected]) => [
+          [`interactive ${name}`, expected],
+          [`batch ${name}`, expected],
+          [`after ${name}`, levels.ReadCommitted],
+        ])
+      )
+    );
+  });
+
+  test("a raw COMMIT inside $transaction ends it, typed, and the client stays usable", async () => {
+    const single = client({ pool: { max: 1, min: 0 } });
+    const failure = await single
+      .$transaction(async (tx) => {
+        await tx.counter.create({ data: { key: "kept", value: 1 } });
+        await tx.$executeRaw(sql.raw("COMMIT"));
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error
+      );
+    expect(failure).toBeInstanceOf(TransactionError);
+    expect((failure as TransactionError).meta.reason).toBe(
+      "transaction-ended-by-statement"
+    );
+    expect((failure as Error).message).toMatch(COMMITTED);
+    // The row is committed, and the one pooled connection serves again.
+    expect(await single.counter.count()).toBe(1);
+    expect(await single.$transaction((tx) => tx.counter.count())).toBe(1);
   });
 
   test("a deadlock victim fails with the typed deadlock, and both clients stay usable", async () => {

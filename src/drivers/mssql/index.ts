@@ -20,6 +20,7 @@ import {
   ClientInitializationError,
   QueryError,
   TransactionError,
+  UnsupportedOperationError,
 } from "@errors";
 import type { Sql } from "@sql";
 import type {
@@ -35,10 +36,7 @@ import {
   TransactionBoundDriver,
 } from "../driver";
 import { getExecutionTransactionPhases } from "../execution-context";
-import {
-  normalizeProviderInsertId,
-  normalizeProviderRowCount,
-} from "../normalized-result";
+import { normalizeProviderRowCount } from "../normalized-result";
 import {
   type DriverTransactionOptions,
   defineImmutableDriverFact,
@@ -51,7 +49,11 @@ import {
 import { refuseUnknownDriverConfigKeys } from "../shared/driver-options";
 import type { TransactionOptions } from "../shared/transaction-options";
 import type { QueryResult } from "../types";
-import { normalizeMssqlError, readErrorNumber } from "./errors";
+import {
+  normalizeMssqlError,
+  readErrorNumber,
+  withServerNumber,
+} from "./errors";
 
 export type MssqlOptions = MssqlConfig;
 
@@ -167,6 +169,39 @@ const rolledBack = (cause?: unknown) =>
     }
   );
 
+/**
+ * Transactions a raw COMMIT or ROLLBACK ended (Msg 266, the count now 0),
+ * each to whether it committed. They are in {@link ABORTED_BY_SERVER} too.
+ */
+const ENDED_BY_STATEMENT = new WeakMap<Transaction, boolean>();
+
+const endedByStatement = (committed: boolean, cause?: unknown) =>
+  new TransactionError(
+    committed
+      ? "A raw COMMIT ended the transaction: what it wrote is committed, and no statement runs in it any more."
+      : "A raw ROLLBACK ended the transaction: what it wrote is rolled back, and no statement runs in it any more.",
+    {
+      cause: cause as Error | undefined,
+      meta: { driver: "mssql", reason: "transaction-ended-by-statement" },
+    }
+  );
+
+/** What a statement, or the COMMIT, of a transaction that ended fails with. */
+const ended = (transaction: Transaction) => {
+  const committed = ENDED_BY_STATEMENT.get(transaction);
+  return committed === undefined ? rolledBack() : endedByStatement(committed);
+};
+
+/** A statement that rolls back, as opposed to one that commits. */
+const ROLLBACK_STATEMENT = /\bROLLBACK\b/i;
+
+/** Msg 266 with the count back at 0: a statement ended the transaction. */
+const TRANCOUNT_MISMATCH = 266;
+const TRANCOUNT_ZERO = /current count = 0\b/;
+
+/** Msg 1088: SET IDENTITY_INSERT on a table the login may not ALTER. */
+const IDENTITY_INSERT_DENIED = 1088;
+
 /** Msg 3609: the transaction ended in the trigger, the batch aborted. */
 const TRIGGER_ENDED_TRANSACTION = 3609;
 
@@ -186,6 +221,15 @@ const sessionGone = (error: unknown): boolean =>
       "code"
     )
   );
+
+/** `mssql`'s isolation constants, as `SET TRANSACTION ISOLATION LEVEL` names them. */
+const LEVEL_NAMES: Record<number, string> = {
+  1: "READ UNCOMMITTED",
+  2: "READ COMMITTED",
+  3: "REPEATABLE READ",
+  4: "SERIALIZABLE",
+  5: "SNAPSHOT",
+};
 
 const ISOLATION_LEVELS: Record<TransactionIsolationLevel, string> = {
   ReadUncommitted: "READ_UNCOMMITTED",
@@ -266,6 +310,21 @@ function bind(mssql: MssqlTypes, request: Request, params: unknown[]): void {
  */
 type ResultShape = "rows" | "counted" | "identity";
 
+/** `SCOPE_IDENTITY()` as the BIGINT text it is cast to. */
+const IDENTITY_TEXT = /^-?\d+$/;
+
+/** A generated key the driver read back, or a malformed one refused. */
+function identityOf(
+  id: unknown,
+  context: { provider: string; operation: string }
+): bigint {
+  if (typeof id === "string" && IDENTITY_TEXT.test(id)) return BigInt(id);
+  throw new QueryError(
+    `Driver "mssql" returned a malformed insert id for operation "${context.operation}".`,
+    { meta: { driver: "mssql", operation: context.operation } }
+  );
+}
+
 function toQueryResult<T>(
   result: IResult<unknown>,
   operation: string,
@@ -279,12 +338,11 @@ function toQueryResult<T>(
       typeof last === "object" && last !== null
         ? Reflect.get(last, column)
         : undefined;
-    // NULL where the table has no identity column.
+    // NULL where the table has no identity column; any other value is the
+    // key, 0 and negative seeds included (`CAST(… AS BIGINT)`, read as text).
     const id = shape === "identity" ? read(INSERT_ID_COLUMN) : undefined;
     const insertId =
-      id === null || id === undefined
-        ? undefined
-        : normalizeProviderInsertId(id, context, { allowNumber: true });
+      id === null || id === undefined ? undefined : identityOf(id, context);
     return {
       rows: [],
       rowCount: normalizeProviderRowCount(read(ROWCOUNT_COLUMN) ?? 0, context),
@@ -341,7 +399,7 @@ class MssqlTransactionDriver extends TransactionBoundDriver<
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     return ABORTED_BY_SERVER.has(this.#tx)
-      ? Promise.reject(rolledBack())
+      ? Promise.reject(ended(this.#tx))
       : super._execute<T>(query, context);
   }
 
@@ -351,7 +409,7 @@ class MssqlTransactionDriver extends TransactionBoundDriver<
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     return ABORTED_BY_SERVER.has(this.#tx)
-      ? Promise.reject(rolledBack())
+      ? Promise.reject(ended(this.#tx))
       : super._executeRaw<T>(sql, params, context);
   }
 
@@ -361,12 +419,31 @@ class MssqlTransactionDriver extends TransactionBoundDriver<
     context?: QueryExecutionContext
   ): Promise<T> {
     return ABORTED_BY_SERVER.has(this.#tx)
-      ? Promise.reject(rolledBack())
+      ? Promise.reject(ended(this.#tx))
       : super._transaction(fn, options, context);
   }
 
   protected override buildStatement(query: Sql): string {
     return numberedStatement(query);
+  }
+
+  protected override normalizeStatementFailure(
+    error: unknown,
+    sql: string,
+    params: unknown[],
+    context: QueryExecutionContext,
+    forceErrorContext: boolean
+  ): Error {
+    return withServerNumber(
+      super.normalizeStatementFailure(
+        error,
+        sql,
+        params,
+        context,
+        forceErrorContext
+      ),
+      error
+    );
   }
 
   protected override createTransactionBoundDriver(
@@ -415,6 +492,25 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
 
   protected override buildStatement(query: Sql): string {
     return numberedStatement(query);
+  }
+
+  protected override normalizeStatementFailure(
+    error: unknown,
+    sql: string,
+    params: unknown[],
+    context: QueryExecutionContext,
+    forceErrorContext: boolean
+  ): Error {
+    return withServerNumber(
+      super.normalizeStatementFailure(
+        error,
+        sql,
+        params,
+        context,
+        forceErrorContext
+      ),
+      error
+    );
   }
 
   /**
@@ -488,7 +584,23 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
           ? withExplicitIdentity(sql)
           : undefined;
       if (explicit === undefined) throw normalizeMssqlError(error);
-      return this.#run<T>(client, explicit, params, operation, "counted");
+      try {
+        return await this.#run<T>(
+          client,
+          explicit,
+          params,
+          operation,
+          "counted",
+          true
+        );
+      } catch (refused) {
+        if (readErrorNumber(refused) !== IDENTITY_INSERT_DENIED)
+          throw normalizeMssqlError(refused);
+        throw new UnsupportedOperationError(
+          "An explicit value for an IDENTITY key needs SET IDENTITY_INSERT, which needs ALTER permission on the table: grant ALTER to this login, or leave the key to SQL Server.",
+          { cause: normalizeMssqlError(refused) as Error }
+        );
+      }
     }
   }
 
@@ -522,7 +634,8 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
     shape: ResultShape,
     raw = false
   ): Promise<QueryResult<T>> {
-    if (ABORTED_BY_SERVER.has(client as Transaction)) throw rolledBack();
+    if (ABORTED_BY_SERVER.has(client as Transaction))
+      throw ended(client as Transaction);
     const mssql = await this.#provider();
     const request = client.request();
     let result: IResult<unknown>;
@@ -533,8 +646,20 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
       // A trigger's ROLLBACK ended the transaction under this statement: it
       // says so as every statement after it does. Any other error keeps its
       // own (a deadlock, a constraint, a judged write's refusal).
-      if (readErrorNumber(error) === TRIGGER_ENDED_TRANSACTION)
-        throw rolledBack(error);
+      const number = readErrorNumber(error);
+      if (number === TRIGGER_ENDED_TRANSACTION) throw rolledBack(error);
+      // A raw COMMIT or ROLLBACK ended this transaction: nothing is left
+      // open, and the statements after it say how it ended.
+      if (
+        number === TRANCOUNT_MISMATCH &&
+        client instanceof mssql.Transaction &&
+        TRANCOUNT_ZERO.test((error as Error).message)
+      ) {
+        const committed = !ROLLBACK_STATEMENT.test(sql);
+        ENDED_BY_STATEMENT.set(client, committed);
+        ABORTED_BY_SERVER.add(client);
+        throw endedByStatement(committed, error);
+      }
       if (raw) throw error;
       throw normalizeMssqlError(error);
     }
@@ -544,7 +669,8 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
   /** The isolation level is `BEGIN TRANSACTION`'s own argument in `mssql`. */
   protected override transactionOptionSupport(): TransactionOptionSupport {
     return {
-      isolationLevel: "provider",
+      // Handed to this driver, which opens the transaction at that level.
+      isolationLevel: "pre-begin",
       timeout: true,
       maxWait: "unsupported",
       maxWaitReason:
@@ -567,6 +693,19 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
       if (aborted) ABORTED_BY_SERVER.add(transaction);
     });
     const level = options?.isolationLevel;
+    // A session keeps the level a transaction set past its end, and `mssql`
+    // lends it again: it goes back to the pool's own level first, in a batch
+    // of its own (a parameterized request's SET ends with its scope).
+    const configured =
+      (client as unknown as { config: MssqlConfig }).config.options
+        ?.isolationLevel ?? mssql.ISOLATION_LEVEL.READ_COMMITTED;
+    const restore =
+      level === undefined ||
+      mssql.ISOLATION_LEVEL[
+        ISOLATION_LEVELS[level] as keyof typeof mssql.ISOLATION_LEVEL
+      ] === configured
+        ? undefined
+        : `SET TRANSACTION ISOLATION LEVEL ${LEVEL_NAMES[configured] ?? "READ COMMITTED"}`;
     return runTransactionLifecycle({
       begin: async () => {
         await transaction.begin(
@@ -579,8 +718,15 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
       },
       callback: () => fn(transaction),
       commit: async () => {
-        // Rolled back by the server, the transaction's outcome is known.
-        if (ABORTED_BY_SERVER.has(transaction)) throw rolledBack();
+        // Rolled back by the server, or ended by a raw statement: the
+        // outcome is known. `mssql` still holds a raw statement's connection,
+        // which its (failing) ROLLBACK hands back to the pool.
+        if (ABORTED_BY_SERVER.has(transaction)) {
+          if (ENDED_BY_STATEMENT.has(transaction))
+            await transaction.rollback().catch(() => undefined);
+          throw ended(transaction);
+        }
+        if (restore) await transaction.request().batch(restore);
         try {
           await transaction.commit();
         } catch (error) {
@@ -603,8 +749,13 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
         }
       },
       rollback: async () => {
-        if (ABORTED_BY_SERVER.has(transaction)) return;
+        if (ABORTED_BY_SERVER.has(transaction)) {
+          if (ENDED_BY_STATEMENT.has(transaction))
+            await transaction.rollback().catch(() => undefined);
+          return;
+        }
         try {
+          if (restore) await transaction.request().batch(restore);
           await transaction.rollback();
         } catch (error) {
           // A killed session: the connection is closed, and the transaction
