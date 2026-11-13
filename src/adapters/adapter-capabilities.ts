@@ -139,7 +139,8 @@ export interface DatabaseAdapterCapabilities {
    * collation, so a unique key holds `"a"` and `"a "` as one value. VibORM's
    * own text filters still tell the two apart (`equals`, `in`, `notIn`, the
    * ranges, `mode: "insensitive"`, list membership); a key the database
-   * enforces, `distinct` and `groupBy` cannot. Absent: false.
+   * enforces, a unique selector or a join on it, `distinct` and `groupBy`
+   * cannot. Absent: false.
    */
   padsTrailingSpaces?: boolean;
 }

@@ -19,7 +19,11 @@ Server schema into a schema document.
   includes are built with `STRING_AGG` in their page's order; upserts take
   the locked branch (no `MERGE`); a statement binds at most 2,098 values:
   bulk writes split to stay under it, and a read that needs more is refused.
-  Text filters keep trailing spaces significant, as on PostgreSQL. Tables
+  Text filters keep trailing spaces significant, as on PostgreSQL; unique
+  selectors and relations follow SQL Server's padded comparison. A
+  transaction the server rolls back itself, even inside a savepoint, and a
+  COMMIT whose outcome is unknown fail with a `TransactionError` saying so
+  (`meta.reason`). Tables
   live in `dbo` unless `namespace` names another schema. See the
   [SQL Server](https://viborm.dev/docs/drivers/sqlserver) page.
 - **`introspectSchema({ url: "mssql://…" })`** reads a SQL Server schema; the

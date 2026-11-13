@@ -25,8 +25,8 @@ const db = createClient({
 });
 ```
 
-To keep control of the connection pool, pass your own; the driver never closes
-it:
+To keep control of the connection pool, pass your own, connected or not: the
+driver connects it on first use and never closes it:
 
 ```ts
 import sql from "mssql";
@@ -71,42 +71,102 @@ The column types VibORM reads and writes:
 | `blob` | `VARBINARY(MAX)` |
 | identifiers (`uuid`, `ulid`, …) | text: `NVARCHAR(450)` |
 
-Declare text columns with a binary collation, `COLLATE Latin1_General_100_BIN2`:
-VibORM's filters are case-sensitive and its string order is code-point order,
-as on the tables it creates elsewhere. On a case-insensitive column, `orderBy`,
-`distinct` and unique keys follow that column's collation instead.
+Declare text columns `NVARCHAR` with a binary collation,
+`COLLATE Latin1_General_100_BIN2`: VibORM's filters are case-sensitive, and
+only on that collation do its range filters (`lt`, `gte`, …) seek an index
+(on another collation they scan; on a `VARCHAR` column in a `SQL_` collation
+even `equals` scans, and characters outside the column's code page are lost on
+write). On a case-insensitive column, `orderBy`, `distinct` and unique keys
+follow that column's collation.
 
 ## Differences
 
-- **Recursive queries** (`recurse` in a filter or a projection) are refused: T-SQL
-  allows no `WITH` inside a subquery and no `UNION` in a recursive member.
-- **Trailing spaces**: SQL Server ignores them when it compares strings, so a
-  unique key holds `"a"` and `"a "` as the same value, and `distinct` and
-  `groupBy` group them. VibORM's filters still tell them apart: `equals`,
-  `in`, `notIn`, `lt`/`gt`, `mode: "insensitive"`, `contains`, `startsWith`,
-  `endsWith` and list membership.
+### Text
+
+SQL Server compares strings padded with spaces, under every collation: to
+the server, `"ab"` and `"ab "` are one value.
+
+- **Filters** tell them apart, as on PostgreSQL: `equals`, `in`, `notIn`,
+  `lt`/`gt`, `mode: "insensitive"`, `contains`, `startsWith`, `endsWith`, list
+  membership and the same filters on a JSON string at a path.
+- **Unique selectors** do not: `findUnique`, `update`, `delete`, `upsert` and
+  `connect` address a row by its unique key as the server's unique index does,
+  so with only `"ab "` stored, `findUnique({ where: { slug: "ab" } })` returns
+  it and `delete` deletes it, while `findFirst` with the same `where` returns
+  `null`. A cursor's anchor is found the same way.
+- **Relations** do not either: SQL Server's foreign key accepts a child whose
+  key is `"ab "` under a parent `"ab"`, and `include`, `is`/`some` and `_count`
+  count it there, while a filter on the foreign-key column itself does not.
+- **`distinct` and `groupBy`** group `"ab"` with `"ab "`, and **`orderBy`**
+  ties them. The order is UTF-16 code-unit order, padded: `"ab\t"` sorts
+  before `"ab"`, and a character outside the Basic Multilingual Plane (an
+  emoji) before `U+FF21`.
+- A value ending with `NCHAR(0)` can be misplaced by a range filter.
+
+### JSON
+
+- **Equality of a document or a list** compares the stored text with VibORM's
+  canonical text: a document another program wrote with its keys in another
+  order, or with spaces, equals nothing. At a path, a string reads the same
+  whatever its escapes, but a number or an object is compared as stored:
+  `{"n": 1.0}` does not equal `1`, and an object with its keys in another
+  order does not equal the one you pass.
+- Path filters go through `OPENJSON`: an index on a computed `JSON_VALUE`
+  column is not used, and a document holding the same key twice fails the
+  whole query (Msg 512).
+- A JSON column holding a scalar (`42`, `"text"`) is read and written
+  normally, and path filters do not match inside it.
+
+### Transactions
+
+- **A deadlock, a statement under `XACT_ABORT ON` or a trigger's `ROLLBACK`
+  roll back the whole transaction**, even inside a nested `$transaction`
+  (a savepoint), where PostgreSQL loses the savepoint alone. The next
+  statement of the outer transaction fails with a `TransactionError`
+  (`meta.reason: "transaction-rolled-back-by-server"`), and nothing the
+  transaction wrote is kept.
+- **A COMMIT that fails** (its session lost, or past its request timeout)
+  leaves its outcome unknown: the transaction may have been committed or not.
+  It fails with a `TransactionError` (`meta.reason: "commit-outcome-unknown"`);
+  read the data back before retrying. After a lost session the client goes
+  on; after a timeout, the transaction may still be open on a pooled
+  connection, so the client refuses further work until you disconnect it.
+- **Raw transaction control**: a `BEGIN TRANSACTION` sent through
+  `$executeRaw` outside `$transaction` fails (Msg 266) and leaves its
+  connection in the pool with the transaction open; the next statement on it
+  runs inside that transaction and its writes are lost when the pool closes.
+  Open transactions with `$transaction` only.
+
+### Writes
+
 - **Cascades**: SQL Server refuses any `ON DELETE` action on a self-reference
   and a second cascade path into one table; declare such keys `NO ACTION`.
   Deleting a row its children still reference then fails with a
   `ForeignKeyError`: detach them first (a reply's `parentId` set to `null`).
 - **Triggers**: a count VibORM answers (`createMany`, `updateMany`,
   `deleteMany`) is the statement's own, a trigger's statements aside. Under an
-  `INSTEAD OF` trigger it is the trigger's last statement's.
-  `$executeRaw` returns the server's own count, trigger statements included.
-- **JSON equality** (`equals` on a JSON field or a list) compares the stored
-  text with VibORM's canonical text: a document another program wrote with
-  its keys in another order, or with spaces, equals nothing. Path filters
-  read the stored document whatever its spelling. They go through `OPENJSON`,
-  so an index on a computed `JSON_VALUE` column is not used, and an object
-  holding the same key twice fails the filter (Msg 512).
-- **A JSON column holding a scalar** (`42`, `"text"`) is read and written
-  normally, and path filters do not match inside it.
+  `INSTEAD OF` trigger it is the number of rows handed to the trigger, whatever
+  the trigger did with them. An `INSTEAD OF INSERT` trigger that inserts the
+  row itself hides its generated key: `create`, `upsert` and
+  `createMany({ select })` then fail with a `QueryEngineError`; a plain
+  `createMany` works. `$executeRaw` returns the server's own count, trigger
+  statements included.
+
+### Limits
+
+- **Bound values**: one statement binds at most 2,098 values; VibORM splits
+  bulk writes to stay under it and refuses any other statement past it with an
+  `UnsupportedOperationError`, never sent. Each value counts once, with two
+  exceptions: a text `in` of up to 1,049 members binds each member twice (so
+  that an index can serve it), and a judged `updateMany` whose data writes a
+  column its `viborm/permissions` rule reads binds its filter twice, so its
+  `in` list is refused from about 1,050 ids.
+- **`contains`** with a needle past 4,000 characters compares every window
+  of the value: correct, and slower.
+- **Recursive queries** (`recurse` in a filter, a projection or a
+  `viborm/permissions` rule) are refused: T-SQL allows no `WITH` inside a
+  subquery and no `UNION` in a recursive member.
 - **Geographic points and vectors** are not supported.
-- **Bound values**: one statement binds at most 2,098 values. VibORM splits
-  bulk writes to stay under it; a read that needs more (an `in` list of 3,000
-  ids) is refused with an `UnsupportedOperationError`, never sent.
-- **`viborm/permissions`**: a rule that walks a closure (`recurse`) is refused
-  as every recursive query is.
 
 ## Cloudflare Workers
 
