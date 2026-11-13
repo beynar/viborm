@@ -1692,8 +1692,10 @@ export class SqlQueries extends Queries {
         nulls.set(field, whole.value === null);
     }
     const judgedSet = (): Sql | undefined => {
-      const where = candidates(row);
-      const kept = a.assertions.keptWhere && (where ?? a.literals.true());
+      // Lowered before the guard only where the guard reads it: the other
+      // dialects mint their aliases in the order they always have.
+      const kept =
+        a.assertions.keptWhere && (candidates(row) ?? a.literals.true());
       const guard = this.#holds(
         model,
         judged,
@@ -1711,7 +1713,7 @@ export class SqlQueries extends Queries {
         ...(kept
           ? { where: a.operators.and(kept, sql`${guard} = 1`) }
           : {
-              where,
+              where: candidates(row),
               groupBy: sql.join(keys, ", "),
               having: sql`${a.aggregates.min(guard)} = 1`,
             }),
