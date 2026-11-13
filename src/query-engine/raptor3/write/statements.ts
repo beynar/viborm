@@ -9,11 +9,7 @@ import {
   assembleAdapterSelect,
   getAdapterInternals,
 } from "@adapters/adapter-internals";
-import {
-  NestedWriteError,
-  type UniqueConstraintError,
-  UnsupportedOperationError,
-} from "@errors";
+import { NestedWriteError, type UniqueConstraintError } from "@errors";
 import type { AnyModel } from "@schema/model";
 import { type Sql, sql } from "@sql";
 import type { PreparedGuardFailure } from "../../types";
@@ -29,7 +25,13 @@ import type { Input } from "../shared/schema";
 import type { SqlOperationContext } from "../shared/sql-operation-context";
 import type { SqlQueries } from "../shared/sql-queries";
 import { linkJudgement, linkMembers, type Membership } from "../shared/storage";
-import { listed, nameOf, scalarsOf, tableOf } from "../shared/terms";
+import {
+  listed,
+  nameOf,
+  scalarsOf,
+  tableOf,
+  unsupported,
+} from "../shared/terms";
 import type { Sent, Statement } from "./send";
 
 export type Junction = Extract<Membership, { kind: "junction" }>;
@@ -503,7 +505,7 @@ export class Writer {
     const placed = q.domain?.produced(model);
     // A row of defaults only has no value to judge before it is written.
     if (fields.length === 0 && placed)
-      throw new UnsupportedOperationError(
+      unsupported(
         `Cannot create a '${nameOf(model)}' row that writes no field: its placement is judged on the values it writes.`
       );
     const select =
@@ -996,7 +998,7 @@ export class Writer {
         sink?.wants(name, "create") ||
         sink?.wants(name, "update"))
     )
-      throw new UnsupportedOperationError(
+      unsupported(
         `Cannot write $through of relation '${edge.name}': this client's extensions judge or observe writes to '${name}'. Write the row through the '${name}' delegate.`
       );
     return {

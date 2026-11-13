@@ -17,11 +17,7 @@ import type {
   TextMatch,
 } from "@adapters/database-adapter";
 import type { Dialect } from "@drivers/types";
-import {
-  FeatureNotSupportedError,
-  QueryEngineError,
-  UnsupportedOperationError,
-} from "@errors";
+import { FeatureNotSupportedError, QueryEngineError } from "@errors";
 import {
   CURSOR_CARRIER_PREFIX,
   POLYMORPHIC_COLLECTION_ORPHANS_KEY,
@@ -139,7 +135,7 @@ import {
   type ReadOperation,
 } from "./schema";
 import { hopFieldsOf, linkMembers, type Membership } from "./storage";
-import { listed, nameOf, tableOf } from "./terms";
+import { engineFault, listed, nameOf, tableOf, unsupported } from "./terms";
 
 /** A select's controls, and a condition spelled for the alias this language gives it. */
 export interface SqlSelectControls extends SelectControls {
@@ -1003,9 +999,7 @@ export class SqlQueries extends Queries {
       const { model } = node;
       // Settled here, it would take this call's domain, not its own client's.
       if (node instanceof RawRows)
-        throw new UnsupportedOperationError(
-          `${nameOf(model)}.$rows() is for a tagged $queryRaw only`
-        );
+        unsupported(`${nameOf(model)}.$rows() is for a tagged $queryRaw only`);
       const domain = this.domainOf(model, "root", node.judgement);
       // A `where` the extension passes on is admitted as a `findMany`'s.
       const named =
@@ -1335,9 +1329,7 @@ export class SqlQueries extends Queries {
       exactDecimalDomain(this.physical(model, field).state) &&
       dividesByZero(update.by)
     )
-      throw new QueryEngineError(
-        `Cannot divide decimal field '${field}' by zero.`
-      );
+      engineFault(`Cannot divide decimal field '${field}' by zero.`);
     return update;
   }
   /**
@@ -1426,7 +1418,7 @@ export class SqlQueries extends Queries {
     const a = this.adapter;
     const update = this.#prepareUpdate(model, field, value);
     if (!this.named(model, field, update))
-      throw new QueryEngineError(
+      engineFault(
         `Cannot determine the updated value of '${nameOf(model) ?? "unknown"}.${field}' before '${update.operator}' executes: the database determines the stored result.`
       );
     if (update.kind === "value")
@@ -1491,7 +1483,7 @@ export class SqlQueries extends Queries {
     const at = frames.length - 1 - (up ?? 0);
     const owner = up === undefined || up === 0 ? alias : frames[at]?.alias;
     if (owner === undefined)
-      throw new UnsupportedOperationError(
+      unsupported(
         "An enclosing row's column ({ $row, up }) has no row to read here."
       );
     for (let index = at + 1; index < frames.length; index++)
@@ -2189,7 +2181,7 @@ export class SqlQueries extends Queries {
       const digits = coefficient.startsWith("-")
         ? coefficient.length - 1
         : coefficient.length;
-      throw new QueryEngineError(
+      engineFault(
         `The 'having' _sum operand for decimal field '${scalar.field}' needs ${digits} coefficient digits, but its value is outside this provider's exact HAVING operand cast domain. ` +
           "The provider may compute a wider sum, but VibORM cannot express this operand through its exact decimal cast without changing or refusing the value written."
       );
@@ -2253,7 +2245,7 @@ export class SqlQueries extends Queries {
           return compare(a.json.numberAtPath(column, path), this.value(value));
         if (typeof value === "string")
           return compare(a.json.stringAtPath(column, path), this.value(value));
-        throw new QueryEngineError(
+        return engineFault(
           `JSON filter '${predicate.operator}' requires a number or string operand.`
         );
       }
@@ -2301,7 +2293,7 @@ export class SqlQueries extends Queries {
       const to = specification.to as number[];
       const { dimension } = state;
       if (dimension !== undefined && to.length !== dimension)
-        throw new UnsupportedOperationError(
+        unsupported(
           `Vector distance ${usage} dimension mismatch for '${field}': expected ${dimension} values, received ${to.length}.`
         );
       const metric = specification.metric === "cosine" ? "cosine" : "l2";
@@ -3256,7 +3248,7 @@ export class SqlQueries extends Queries {
         // first is what keeps `page`'s sentence the answer on a driver that
         // happens not to support vectors — `distanceExpression` consults the
         // capability while it BUILDS, so it would otherwise pre-empt it.
-        if (cursored) throw new UnsupportedOperationError(CURSOR_ORDER_REFUSAL);
+        if (cursored) unsupported(CURSOR_ORDER_REFUSAL);
         const distance = specification._distance as Input;
         const point = state.type === "point";
         return this.#sortKey(
@@ -3452,7 +3444,7 @@ export class SqlQueries extends Queries {
     // The single raise point for every other non-scalar key: a relation term
     // builds with `field: undefined` and is classified here.
     if (cursored && requested.some((term) => term.field === undefined))
-      throw new UnsupportedOperationError(CURSOR_ORDER_REFUSAL);
+      unsupported(CURSOR_ORDER_REFUSAL);
     const terms = total ?? requested;
     const presented = backward ? this.#reverseOrder(terms) : terms;
     const distinct = (args.distinct?.length ?? 0) > 0;
@@ -3609,7 +3601,7 @@ export class SqlQueries extends Queries {
       ...(scope ? [this.lowerSelector(scope, sourceAlias)!] : []),
       ...Object.entries(identity).map(([field, value]) => {
         if (value === null)
-          throw new QueryEngineError(
+          engineFault(
             `Cursor field '${field}' cannot be null. Cursor must point to a specific record.`
           );
         return this.#eq(

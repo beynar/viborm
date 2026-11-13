@@ -92,7 +92,15 @@ import {
   type PhysicalField,
   physicalField,
 } from "./storage";
-import { listed, nameOf, same, scalarsOf, tableOf } from "./terms";
+import {
+  engineFault,
+  listed,
+  nameOf,
+  same,
+  scalarsOf,
+  tableOf,
+  unsupported,
+} from "./terms";
 
 /** `Object.freeze`, named once for what an extension states and shares. */
 export const freeze = Object.freeze;
@@ -1189,9 +1197,7 @@ export function readUpdate(value: unknown): PreparedUpdate {
   // operator (`builders/set-builder.ts:217-219`), identity included: the one
   // reachable shape is an empty record, and it is refused here, before any
   // statement of the update is built.
-  throw new QueryEngineError(
-    `Unknown update operation: ${Object.keys(operation).join(", ")}`
-  );
+  engineFault(`Unknown update operation: ${Object.keys(operation).join(", ")}`);
 }
 
 /** Query scopes and output shapes share no record-identity requirement. */
@@ -2524,7 +2530,7 @@ export abstract class Queries {
       return this.#prepareOuterOperand(owner, value);
     if (isFieldRef(value)) {
       if (owner.physical.state.type === "json")
-        throw new UnsupportedOperationError(
+        unsupported(
           `Field reference '${formatFieldRef(value)}' is not supported in a JSON filter operand.`
         );
       return this.#prepareFieldOperand(owner, value);
@@ -2541,11 +2547,11 @@ export abstract class Queries {
       const seen = new WeakSet<object>();
       for (const nested of pending) {
         if (isFieldRef(nested))
-          throw new UnsupportedOperationError(
+          unsupported(
             "An SQL filter field reference must be a direct interpolation, not nested inside a parameter object."
           );
         if (nested instanceof OuterColumn)
-          throw new UnsupportedOperationError(
+          unsupported(
             "An enclosing row's column ({ $row, up }) is compared directly, never inside an SQL filter."
           );
         if (nested === null || typeof nested !== "object" || seen.has(nested))
@@ -2571,22 +2577,22 @@ export abstract class Queries {
     const payload = fieldRefPayload(value);
     const scope = nameOf(model) ?? "unknown";
     if (payload.model !== scope)
-      throw new UnsupportedOperationError(
+      unsupported(
         `Field reference '${formatFieldRef(value)}' cannot be used while filtering '${scope}': a field reference may only compare columns of the same model.`
       );
     if (payload.list)
-      throw new UnsupportedOperationError(
+      unsupported(
         `Field reference '${formatFieldRef(value)}' is a list field and cannot be used as a scalar SQL operand.`
       );
     const referenced = scalarsOf(model)[payload.field];
     if (!referenced)
-      throw new UnsupportedOperationError(
+      unsupported(
         `Field reference '${formatFieldRef(value)}' does not name a scalar field of '${scope}'.`
       );
     const own = exactDecimalDomain(owner.physical.state);
     const other = exactDecimalDomain(referenced["~"].state);
     if (own && other && !sameDecimalDomain(own, other))
-      throw new UnsupportedOperationError(
+      unsupported(
         `Field reference '${payload.field}' cannot be compared with '${owner.field}' on '${scope}': '${owner.field}' is decimal(${own.precision},${own.scale}) and '${payload.field}' is decimal(${other.precision},${other.scale}). Two decimals compare exactly only when they declare the same precision and scale.`
       );
     const storage = incomparableIdentifiers(
@@ -2596,7 +2602,7 @@ export abstract class Queries {
       payload.field
     );
     if (storage !== undefined)
-      throw new UnsupportedOperationError(
+      unsupported(
         `Field reference '${payload.field}' cannot be compared with '${owner.field}' on '${scope}': ${storage}`
       );
     return {
@@ -2618,12 +2624,12 @@ export abstract class Queries {
     const scopes = this.#scopes;
     const at = scopes.length - 1 - value.up;
     if (at < 0)
-      throw new UnsupportedOperationError(
+      unsupported(
         `${spelled} reaches past the predicate it is written in: it is ${Math.max(scopes.length - 1, 0)} relation bodies deep.`
       );
     for (let index = at + 1; index < scopes.length; index++)
       if (scopes[index]!.sealed !== undefined)
-        throw new UnsupportedOperationError(
+        unsupported(
           `${spelled} crosses a ${scopes[index]!.sealed} relation: an enclosing row is read only through plain relations.`
         );
     const { model, facts } = scopes[at]!;
@@ -2631,9 +2637,7 @@ export abstract class Queries {
     const referenced = scalarsOf(model)[value.$row];
     const own = owner.physical.state;
     if (!referenced)
-      throw new UnsupportedOperationError(
-        `${spelled} does not name a scalar field of '${name}'.`
-      );
+      unsupported(`${spelled} does not name a scalar field of '${name}'.`);
     const other = referenced["~"].state;
     const kinds = new Set([own.type, other.type]);
     if (
@@ -2645,13 +2649,13 @@ export abstract class Queries {
         (kinds.size === 2 && kinds.has("string") && kinds.has("enum"))
       )
     )
-      throw new UnsupportedOperationError(
+      unsupported(
         `${spelled} names '${name}.${value.$row}' (${other.array === true ? `${other.type}[]` : other.type}), which cannot be compared with '${owner.field}' (${own.array === true ? `${own.type}[]` : own.type}).`
       );
     const ownDomain = exactDecimalDomain(own);
     const otherDomain = exactDecimalDomain(other);
     if (ownDomain && otherDomain && !sameDecimalDomain(ownDomain, otherDomain))
-      throw new UnsupportedOperationError(
+      unsupported(
         `${spelled} names a decimal(${otherDomain.precision},${otherDomain.scale}) and '${owner.field}' is decimal(${ownDomain.precision},${ownDomain.scale}): two decimals compare exactly only when they declare the same precision and scale.`
       );
     const storage = incomparableIdentifiers(
@@ -2660,8 +2664,7 @@ export abstract class Queries {
       owner.field,
       value.$row
     );
-    if (storage !== undefined)
-      throw new UnsupportedOperationError(`${spelled}: ${storage}`);
+    if (storage !== undefined) unsupported(`${spelled}: ${storage}`);
     // The row that holds the column reads it: a write to it reorders.
     facts?.fields.add(value.$row);
     return {
@@ -2927,7 +2930,7 @@ export abstract class Queries {
     if (bare) return bare.fields;
     const rowKey = catalog.rowKey;
     if (!rowKey)
-      throw new QueryEngineError(
+      engineFault(
         "Paginated scalar ordering requires a primary model identifier."
       );
     const fields = new Set<string>(rowKey.fields);
@@ -3028,7 +3031,7 @@ export abstract class Queries {
     fields: Record<string, Shape | Leaf>,
     prepared: PreparedProjectionField[]
   ): void {
-    if (distanceSelected) throw new QueryEngineError(DISTANCE_SELECTED_TWICE);
+    if (distanceSelected) engineFault(DISTANCE_SELECTED_TWICE);
     // The output key `_distance` is the distance's alone: schema
     // validation refuses a member of that name (F010).
     prepared.push({
@@ -3420,7 +3423,7 @@ export abstract class Queries {
       const tag = filter.type;
       const arm = edges.find((edge) => edge.scope.member?.variant === tag);
       if (!arm)
-        throw new QueryEngineError(
+        engineFault(
           `Unknown polymorphic target '${String(tag)}' for relation '${relation}'.`
         );
       const negated = filter.isNot !== undefined;
@@ -3490,7 +3493,7 @@ export abstract class Queries {
     if (query.expectedRows && rows < query.expectedRows.count)
       throw query.expectedRows.missing;
     if (query.expectedRows && rows > query.expectedRows.count)
-      throw new QueryEngineError(
+      engineFault(
         "createMany returned a different number of rows than expected."
       );
   }
@@ -3864,10 +3867,10 @@ export abstract class Queries {
         for (const [type, count] of Object.entries(orphans))
           if (Number(count) > 0) {
             if (type === "$storage")
-              throw new QueryEngineError(
+              engineFault(
                 `Polymorphic relation '${shape.relation}' has an unknown discriminator or incomplete stored pair.`
               );
-            throw new QueryEngineError(
+            engineFault(
               `Polymorphic relation '${shape.relation}' references a missing '${type}' record.`
             );
           }
@@ -3898,7 +3901,7 @@ export abstract class Queries {
         for (const { type, arm, read } of arms) {
           const carrier = own(variants, type);
           if (orphanedArm(carrier, arm))
-            throw new QueryEngineError(
+            engineFault(
               `Polymorphic relation '${shape.relation}' references a missing '${type}' record.`
             );
           const data = read(carrier);

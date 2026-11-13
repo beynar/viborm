@@ -2,7 +2,7 @@ import { adapterPinnedTable } from "@adapters/adapter-internals";
 import type { Operations } from "@client/types";
 import type { AnyDriver } from "@drivers/driver";
 import type { QueryExecutionContext } from "@drivers/types";
-import { NotFoundError, UnsupportedOperationError } from "@errors";
+import { NotFoundError } from "@errors";
 import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
 import { baseOperation } from "../../routed-operations";
@@ -28,7 +28,7 @@ import {
   SqlOperationContext,
 } from "../shared/sql-operation-context";
 import { SqlQueries } from "../shared/sql-queries";
-import { nameOf } from "../shared/terms";
+import { nameOf, unsupported } from "../shared/terms";
 import { prepareCall, writeCall } from "../write";
 
 /**
@@ -445,10 +445,9 @@ export function createCommandEngine(config: EngineConfig) {
     rows: CallRows | undefined,
     instant: () => Date
   ): Sql => {
-    if (driver.backend)
-      throw new UnsupportedOperationError("$rows() needs an SQL driver");
+    if (driver.backend) unsupported("$rows() needs an SQL driver");
     if (adapterPinnedTable(queries.adapter) === undefined)
-      throw new UnsupportedOperationError(
+      unsupported(
         "$rows() needs a driver bound to its database (a MySQL namespace): a caller's CTE could otherwise stand for a table its rows read"
       );
     const scope = rows?.prepare(queries, instant);

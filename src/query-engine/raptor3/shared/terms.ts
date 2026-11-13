@@ -1,3 +1,4 @@
+import { QueryEngineError, UnsupportedOperationError } from "@errors";
 import type { AnyModel } from "@schema/model";
 import { type Sql, sql } from "@sql";
 
@@ -17,3 +18,13 @@ export const same = (a: unknown, b: unknown): boolean =>
   a instanceof Date || b instanceof Date
     ? a != null && b != null && +new Date(a as Date) === +new Date(b as Date)
     : String(a) === String(b);
+
+/** Refuses what the engine does not support, in the caller's words. */
+export function unsupported(message: string): never {
+  throw new UnsupportedOperationError(message);
+}
+
+/** Stops on a state the engine itself should never reach. */
+export function engineFault(message: string): never {
+  throw new QueryEngineError(message);
+}
