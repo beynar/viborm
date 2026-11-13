@@ -2901,8 +2901,12 @@ export abstract class Queries {
     closure?: Closure,
     sealed: string | undefined = closure && "recursive"
   ): PreparedPredicate | undefined {
-    facts?.reads.add(edge.target);
-    if (edge.kind === "junction") facts?.reads.add(edge.table);
+    if (facts) {
+      // What other rows hold is not stated by what its own row holds.
+      facts.exact = false;
+      facts.reads.add(edge.target);
+      if (edge.kind === "junction") facts.reads.add(edge.table);
+    }
     if (!where) return;
     const scopes = this.#scopes;
     const nestedFacts = facts && apart(facts);
