@@ -203,6 +203,44 @@ describe("post-G3 selector preparation", () => {
     );
   });
 
+  it("pins nothing by a captured set of several rows, nor by the rows it leaves out", () => {
+    const pair = s
+      .model({ a: s.string(), b: s.string() })
+      .id(["a", "b"])
+      .map("post_g3_selector_pairs");
+    const queries = new SqlQueries(
+      new EngineSchema({ pair }),
+      new SQLiteAdapter()
+    );
+    const one = [{ a: "1", b: "x" }];
+    const two = [...one, { a: "2", b: "y" }];
+    // One row: every row the selector takes holds its key.
+    assert.deepEqual(
+      [...queries.includeIdentities(pair, one).facts.equals],
+      [
+        ["a", "1"],
+        ["b", "x"],
+      ]
+    );
+    // Several rows, or the rows left out: no value every taken row holds.
+    assert.deepEqual(
+      [...queries.includeIdentities(pair, two).facts.equals],
+      []
+    );
+    assert.deepEqual(
+      [...queries.excludeIdentities(pair, one).facts.equals],
+      []
+    );
+    assert.deepEqual(
+      [...queries.excludeIdentities(pair, two).facts.equals],
+      []
+    );
+    assert.deepEqual(
+      [...queries.excludeIdentities(pair, two).facts.fields].sort(),
+      ["a", "b"]
+    );
+  });
+
   it("prepares mixed compound and relation facts without SQL or alias allocation", () => {
     const schema = selectorSchema();
     const adapter = new SQLiteAdapter();

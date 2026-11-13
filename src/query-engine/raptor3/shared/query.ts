@@ -2052,7 +2052,7 @@ export abstract class Queries {
     identities: readonly Input[]
   ): PreparedSelector {
     const facts = newSelectorFacts();
-    const captured = this.#capturedSet(model, identities, facts);
+    const captured = this.#capturedSet(model, identities, facts, false);
     return freeze({
       model,
       facts,
@@ -2089,7 +2089,8 @@ export abstract class Queries {
   #capturedSet(
     model: AnyModel,
     identities: readonly Input[],
-    facts: SelectorFacts
+    facts: SelectorFacts,
+    taken = true
   ): PreparedPredicate {
     const keys = getModelKeyCatalog(model).rowKey?.fields;
     const field = keys?.length === 1 ? keys[0] : undefined;
@@ -2107,11 +2108,12 @@ export abstract class Queries {
         { in: identities.map((identity) => identity[field]) },
         facts
       );
+    // A set pins no equality, and the rows left out (`taken` false) none
+    // either: only one row taken holds what names it.
+    const held = taken && identities.length === 1 ? facts : apart(facts, true);
     const captured = identities.map((identity) =>
-      this.identityPredicate(model, identity, facts)
+      this.identityPredicate(model, identity, held)
     );
-    // A SET pins no equality: the facts describe a filter, not a discriminator,
-    // exactly as the combinator walker records any `OR` arm.
     if (captured.length > 0) facts.exact = false;
     return balancedOr(captured, (arms) => this.combine("OR", arms));
   }
