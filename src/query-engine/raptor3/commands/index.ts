@@ -8,6 +8,7 @@ import type { Sql } from "@sql";
 import { baseOperation } from "../../routed-operations";
 import type { PreparedBatchOperation } from "../../types";
 import { renderers } from "../shared/insert-value";
+import { nameOf } from "../shared/names";
 import type { Leaf, ProjectionShape, Queries, Read } from "../shared/query";
 import { engineBackend } from "../shared/query-backend";
 import {
@@ -205,10 +206,7 @@ class PreparedCommand implements PreparedOperation {
     return this.#requested === this.#operation
       ? undefined
       : () =>
-          new NotFoundError(
-            this.#model["~"].names.ts ?? "unknown",
-            this.#requested
-          );
+          new NotFoundError(nameOf(this.#model) ?? "unknown", this.#requested);
   }
 
   /**
@@ -457,7 +455,7 @@ export function createCommandEngine(config: EngineConfig) {
     const gated = scope?.domain.projected(model)?.gates;
     if (gated !== undefined && gated.size > 0)
       throw new UnsupportedOperationError(
-        `${model["~"].names.ts}.$rows() refuses read-gated fields: ${[...gated.keys()]}`
+        `${nameOf(model)}.$rows() refuses read-gated fields: ${[...gated.keys()]}`
       );
     const view = (scope ? scope.domain.reads(scope) : queries) as SqlQueries;
     return view.rowsOf(model, alias);

@@ -183,8 +183,13 @@ const NO_KEY: readonly string[] = [];
 export class EngineSchema {
   readonly index;
   readonly registry;
-  readonly #linkDefaults = new WeakMap<AnyModel, readonly string[]>();
-  readonly #linkRequired = new WeakMap<AnyModel, readonly string[]>();
+  readonly #linkFields = new WeakMap<
+    AnyModel,
+    {
+      readonly required: readonly string[];
+      readonly defaults: readonly string[];
+    }
+  >();
   readonly #membershipViews = new WeakMap<
     AnyModel,
     Map<string, Map<string | undefined, Membership>>
@@ -360,48 +365,31 @@ export class EngineSchema {
     return admitted;
   }
   /**
-   * The fields a link through a declared junction writes beside its members:
-   * each one its own create schema fills when it is given nothing. A field
-   * whose schema answers nothing (nullable, or the database's own default)
-   * stays out of the INSERT, and the column takes what it takes for any row.
-   * Asked once per model: a junction model holds one pair (JT010).
+   * The fields of a declared junction beside its two sides' (`members`).
+   * `required`: those a link cannot fill itself, required as a create
+   * requires them; a write must state them. `defaults`: those its own create
+   * schema fills when it is given nothing; a field whose schema answers
+   * nothing (nullable, or the database's own default) stays out of the
+   * INSERT, and the column takes what it takes for any row. Asked once per
+   * model: a junction model holds one pair (JT010).
    */
-  /**
-   * The columns of a declared junction a link cannot fill itself: not one of its
-   * two sides', and required as a create requires them. A write must state them.
-   */
-  linkRequired(
-    model: AnyModel,
-    members: ReadonlySet<string>
-  ): readonly string[] {
-    return memo(this.#linkRequired, model, () => {
+  linkFields(model: AnyModel, members: readonly string[]) {
+    return memo(this.#linkFields, model, () => {
       const scalars = model["~"].state.scalars;
-      return Object.freeze(
-        Object.keys(scalars).filter((field) => {
-          const state = scalars[field]!["~"].state;
-          return (
-            !members.has(this.physicalField(model, field).name) &&
-            state.optional !== true
-          );
-        })
+      const beside = Object.keys(scalars).filter(
+        (field) => !members.includes(this.physicalField(model, field).name)
       );
-    });
-  }
-  linkDefaults(
-    model: AnyModel,
-    members: ReadonlySet<string>
-  ): readonly string[] {
-    return memo(this.#linkDefaults, model, () => {
-      const scalars = model["~"].state.scalars;
-      return Object.freeze(
-        Object.keys(scalars).filter(
+      return Object.freeze({
+        required: beside.filter(
+          (field) => scalars[field]!["~"].state.optional !== true
+        ),
+        defaults: beside.filter(
           (field) =>
-            !members.has(this.physicalField(model, field).name) &&
             scalars[field]!["~"].state.hasDefault === true &&
             this.createValues(model, { [field]: undefined })[field] !==
               undefined
-        )
-      );
+        ),
+      });
     });
   }
   /** What an update writes of a row, admitted as an update's data is. */

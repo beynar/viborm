@@ -69,6 +69,7 @@ import {
   incomparableIdentifiers,
 } from "./identifier";
 import type { ModelSql } from "./insert-value";
+import { nameOf, tableOf } from "./names";
 import {
   type CallScope,
   type CallValues,
@@ -809,6 +810,10 @@ function quantifiedArms(
     count += quantifiedArms(member, kind, quantifiers);
   return count;
 }
+/** `predicates` AND-ed, as they stand. */
+export const conjunction = (
+  predicates: readonly PreparedPredicate[]
+): PreparedPredicate => freeze({ kind: "and", predicates: freeze(predicates) });
 /**
  * `arms` OR-ed: one column's `in` ({@link sameColumnIn}), the quantifiers
  * over one relation merged ({@link mergeQuantifiers}), or the `or` itself.
@@ -1557,7 +1562,7 @@ function hasAliasLikeNames(schema: EngineSchema): boolean {
   // bound view. Scan them once, not for each operation's Queries.
   return memo(aliasLikeSchemas, schema, () => {
     for (const [model, slots] of schema.index) {
-      if (resemblesAlias(model["~"].names.sql!)) return true;
+      if (resemblesAlias(tableOf(model))) return true;
       for (const field of schema.storedFields(model))
         if (resemblesAlias(physicalField(schema, model, field).name))
           return true;
@@ -1687,7 +1692,7 @@ export abstract class Queries {
    * states none (the `order` capability), else `undefined`.
    */
   protected defaultOrder(model: AnyModel): Arguments["orderBy"] {
-    return this.domain?.rows.order?.get(model["~"].names.ts!) as
+    return this.domain?.rows.order?.get(nameOf(model)) as
       | Arguments["orderBy"]
       | undefined;
   }
@@ -2004,14 +2009,11 @@ export abstract class Queries {
     identity: Input,
     facts: SelectorFacts
   ): PreparedPredicate {
-    return freeze({
-      kind: "and",
-      predicates: freeze(
-        Object.entries(identity).map(([field, value]) =>
-          this.#prepareScalarPredicate(model, field, value, facts)
-        )
-      ),
-    });
+    return conjunction(
+      Object.entries(identity).map(([field, value]) =>
+        this.#prepareScalarPredicate(model, field, value, facts)
+      )
+    );
   }
   /**
    * The complement of a CAPTURED identity set — "this row is not one of the
@@ -2118,13 +2120,7 @@ export abstract class Queries {
     return freeze({
       model,
       facts,
-      predicate:
-        predicates.length === 0
-          ? undefined
-          : freeze({
-              kind: "and",
-              predicates: freeze(predicates),
-            }),
+      predicate: predicates.length === 0 ? undefined : conjunction(predicates),
     });
   }
   /**
@@ -2229,10 +2225,7 @@ export abstract class Queries {
         : stated.map((predicate) =>
             freeze({ kind: "not" as const, predicate })
           );
-    return freeze({
-      kind: "and",
-      predicates: freeze(predicates),
-    });
+    return conjunction(predicates);
   }
   #prepareWhere(
     model: AnyModel,
@@ -2247,68 +2240,62 @@ export abstract class Queries {
       return freeze({ kind: "condition", condition: where });
     }
     if (where instanceof Existence) return this.#prepareExists(where, facts);
-    return freeze({
-      kind: "and",
-      predicates: freeze(
-        Object.entries(where).map(([field, operand]) => {
-          if (this.combinator(model, field)) {
-            if (facts && field !== "AND") facts.exact = false;
-            return this.combine(
-              field,
-              entries(operand).map((clause) =>
-                this.#prepareWhere(
-                  model,
-                  clause,
-                  facts,
-                  path,
-                  false,
-                  field === "NOT" ? !positive : positive
-                )
+    return conjunction(
+      Object.entries(where).map(([field, operand]) => {
+        if (this.combinator(model, field)) {
+          if (facts && field !== "AND") facts.exact = false;
+          return this.combine(
+            field,
+            entries(operand).map((clause) =>
+              this.#prepareWhere(
+                model,
+                clause,
+                facts,
+                path,
+                false,
+                field === "NOT" ? !positive : positive
               )
-            );
-          }
-          if (model["~"].state.relations[field])
-            return this.#prepareSlotPredicate(
-              model,
-              field,
-              operand,
-              facts,
-              path,
-              positive
-            );
-          // An ordinary scalar predicate is not a unique discriminator. Only
-          // unique selectors and possible compound names need the key catalog.
-          const key =
-            unique || model["~"].state.scalars[field] === undefined
-              ? findAddressableKey(model, field)
-              : undefined;
-          if (key?.name)
-            return freeze({
-              kind: "and",
-              predicates: freeze(
-                key.fields.map((member) =>
-                  this.#prepareScalarPredicate(
-                    model,
-                    member,
-                    record(operand)[member],
-                    facts,
-                    unique,
-                    positive
-                  )
-                )
-              ),
-            });
-          return this.#prepareScalarPredicate(
+            )
+          );
+        }
+        if (model["~"].state.relations[field])
+          return this.#prepareSlotPredicate(
             model,
             field,
             operand,
             facts,
-            unique && key !== undefined,
+            path,
             positive
           );
-        })
-      ),
-    });
+        // An ordinary scalar predicate is not a unique discriminator. Only
+        // unique selectors and possible compound names need the key catalog.
+        const key =
+          unique || model["~"].state.scalars[field] === undefined
+            ? findAddressableKey(model, field)
+            : undefined;
+        if (key?.name)
+          return conjunction(
+            key.fields.map((member) =>
+              this.#prepareScalarPredicate(
+                model,
+                member,
+                record(operand)[member],
+                facts,
+                unique,
+                positive
+              )
+            )
+          );
+        return this.#prepareScalarPredicate(
+          model,
+          field,
+          operand,
+          facts,
+          unique && key !== undefined,
+          positive
+        );
+      })
+    );
   }
   /**
    * `$exists`: the target's rows, read by the statement wherever it sits, so
@@ -2487,10 +2474,7 @@ export abstract class Queries {
         );
       }
     }
-    return freeze({
-      kind: "and",
-      predicates: freeze(predicates),
-    });
+    return conjunction(predicates);
   }
   /** One admitted operator, with its operand resolved once. */
   private prepareOperation(
@@ -2625,7 +2609,7 @@ export abstract class Queries {
   ): Extract<PreparedOperand, { kind: "field" }> {
     const { model } = owner;
     const payload = fieldRefPayload(value);
-    const scope = model["~"].names.ts ?? "unknown";
+    const scope = nameOf(model) ?? "unknown";
     if (payload.model !== scope)
       throw new UnsupportedOperationError(
         `Field reference '${formatFieldRef(value)}' cannot be used while filtering '${scope}': a field reference may only compare columns of the same model.`
@@ -2683,7 +2667,7 @@ export abstract class Queries {
           `${spelled} crosses a ${scopes[index]!.sealed} relation: an enclosing row is read only through plain relations.`
         );
     const { model, facts } = scopes[at]!;
-    const name = model["~"].names.ts ?? "unknown";
+    const name = nameOf(model) ?? "unknown";
     const referenced = model["~"].state.scalars[value.$row];
     const own = owner.physical.scalar["~"].state;
     if (!referenced)
@@ -2762,22 +2746,19 @@ export abstract class Queries {
         : Object.keys(entries).every((key) => QUANTIFIERS.has(key))
           ? Object.entries(entries)
           : [["is", entries]];
-      return freeze({
-        kind: "and",
-        predicates: freeze(
-          arms.map(([quantifier, value]) =>
-            this.#relationPredicate(
-              edge,
-              quantifier,
-              value,
-              facts,
-              path,
-              positive,
-              closure
-            )
+      return conjunction(
+        arms.map(([quantifier, value]) =>
+          this.#relationPredicate(
+            edge,
+            quantifier,
+            value,
+            facts,
+            path,
+            positive,
+            closure
           )
-        ),
-      });
+        )
+      );
     }
     const members = resolved.edge.members;
     const many = resolved.edge.kind === "variantJunctionCarrier";
@@ -2793,19 +2774,16 @@ export abstract class Queries {
         resolved.edge.storage.typeColumn.name,
         resolved.edge.storage.idColumn.name,
       ];
-      return Object.freeze({
-        kind: "and",
-        predicates: Object.freeze(
-          fields.map((field) =>
-            this.#prepareScalarPredicate(
-              model,
-              field,
-              absent ? null : { not: null },
-              facts
-            )
+      return conjunction(
+        fields.map((field) =>
+          this.#prepareScalarPredicate(
+            model,
+            field,
+            absent ? null : { not: null },
+            facts
           )
-        ),
-      });
+        )
+      );
     }
     const arms: [string | undefined, Input][] = many
       ? Object.entries(entries).map(([quantifier, tagged]) => [
@@ -2813,75 +2791,69 @@ export abstract class Queries {
           record(tagged),
         ])
       : [[undefined, entries]];
-    return freeze({
-      kind: "and",
-      predicates: freeze(
-        arms.map(([quantifier, tagged]) => {
-          const edge = variantEdge(tagged.type);
-          const negated = tagged.isNot !== undefined;
-          const inexact =
-            negated || quantifier === "none" || quantifier === "every";
-          const inner = this.#relationScope(
+    return conjunction(
+      arms.map(([quantifier, tagged]) => {
+        const edge = variantEdge(tagged.type);
+        const negated = tagged.isNot !== undefined;
+        const inexact =
+          negated || quantifier === "none" || quantifier === "every";
+        const inner = this.#relationScope(
+          edge,
+          negated ? record(tagged.isNot) : (tagged.is as Input | undefined),
+          facts,
+          path,
+          inexact,
+          positive,
+          undefined,
+          "polymorphic"
+        );
+        if (quantifier !== undefined) {
+          const quantified = freeze({
+            kind: "relation" as const,
             edge,
-            negated ? record(tagged.isNot) : (tagged.is as Input | undefined),
-            facts,
-            path,
-            inexact,
-            positive,
-            undefined,
-            "polymorphic"
-          );
-          if (quantifier !== undefined) {
-            const quantified = freeze({
-              kind: "relation" as const,
-              edge,
-              quantifier,
-              predicate:
-                negated && inner
-                  ? freeze({ kind: "not" as const, predicate: inner })
-                  : inner,
-            });
-            // `some` and `none` address the tagged arm and nothing else.
-            // `every` is a statement about the WHOLE collection — "every member
-            // is an arm-`T` member satisfying P" — so a member of any OTHER arm
-            // falsifies it. That is the one tagged quantifier that must also
-            // state the arms it did not name; the shipped engine answers a
-            // board holding two posts and one tag `false` for
-            // `every: { type: "post", … }`, and this is why.
-            if (quantifier !== "every") return quantified;
-            return freeze({
-              kind: "and",
-              predicates: Object.freeze([
-                ...(inner ? [quantified] : []),
-                ...members
-                  .filter((member) => member.variant !== tagged.type)
-                  .map((member) =>
-                    this.#relationPredicate(
-                      variantEdge(member.variant),
-                      "none",
-                      undefined,
-                      facts,
-                      path,
-                      positive
-                    )
-                  ),
-              ]),
-            });
-          }
-          // A tagged to-one arm: `{ type }` asks only that the slot holds that
-          // variant; `is`/`isNot` keep the ordinary to-one quantifier meaning.
-          return freeze({
-            kind: "relation",
-            edge,
-            quantifier: "some",
+            quantifier,
             predicate:
               negated && inner
-                ? Object.freeze({ kind: "not", predicate: inner })
+                ? freeze({ kind: "not" as const, predicate: inner })
                 : inner,
           });
-        })
-      ),
-    });
+          // `some` and `none` address the tagged arm and nothing else.
+          // `every` is a statement about the WHOLE collection — "every member
+          // is an arm-`T` member satisfying P" — so a member of any OTHER arm
+          // falsifies it. That is the one tagged quantifier that must also
+          // state the arms it did not name; the shipped engine answers a
+          // board holding two posts and one tag `false` for
+          // `every: { type: "post", … }`, and this is why.
+          if (quantifier !== "every") return quantified;
+          return conjunction([
+            ...(inner ? [quantified] : []),
+            ...members
+              .filter((member) => member.variant !== tagged.type)
+              .map((member) =>
+                this.#relationPredicate(
+                  variantEdge(member.variant),
+                  "none",
+                  undefined,
+                  facts,
+                  path,
+                  positive
+                )
+              ),
+          ]);
+        }
+        // A tagged to-one arm: `{ type }` asks only that the slot holds that
+        // variant; `is`/`isNot` keep the ordinary to-one quantifier meaning.
+        return freeze({
+          kind: "relation",
+          edge,
+          quantifier: "some",
+          predicate:
+            negated && inner
+              ? Object.freeze({ kind: "not", predicate: inner })
+              : inner,
+        });
+      })
+    );
   }
   #relationPredicate(
     edge: Membership,
@@ -3073,7 +3045,7 @@ export abstract class Queries {
               "updateMany with 'select' could not read back one of the updated rows at its final primary key.",
               {
                 meta: {
-                  model: model["~"].names.ts ?? "unknown",
+                  model: nameOf(model) ?? "unknown",
                   operation: "updateMany",
                 },
               }
@@ -4187,13 +4159,13 @@ export abstract class Queries {
   }
   /** Bind the declared scalar codec once, preserving its provider-value checks. */
   #compileScalarValue(leaf: Leaf, internal: boolean): Reader {
+    const invalid = (why: string) => new InvalidScalarResult(leaf.type, why);
     const identifier = leaf.id;
     if (identifier !== undefined) {
       return (value) => {
         const decoded = decodeIdentifier(identifier, value);
         if (decoded === undefined)
-          throw new InvalidScalarResult(
-            leaf.type,
+          throw invalid(
             "the value is not in this column's declared identifier domain"
           );
         return internal && identifier.representation === "text"
@@ -4223,8 +4195,7 @@ export abstract class Queries {
             this.adapter.result
           );
           if (decoded === undefined)
-            throw new InvalidScalarResult(
-              leaf.type,
+            throw invalid(
               leaf.widened
                 ? "the sum is not an exact decimal at this column's scale"
                 : "the value is not an exact decimal in this column's declared domain"
@@ -4236,8 +4207,7 @@ export abstract class Queries {
           if (leaf.dateTime !== undefined && leaf.dateTime !== "text") {
             const decoded = decodePhysicalDateTime(value, leaf.dateTime);
             if (decoded === undefined)
-              throw new InvalidScalarResult(
-                leaf.type,
+              throw invalid(
                 "the value is not this column's declared physical timestamp"
               );
             return decoded;
@@ -4245,18 +4215,14 @@ export abstract class Queries {
           if (value instanceof Date) {
             if (isDateTimeInstant(value.getTime()))
               return new Date(value.getTime());
-            throw new InvalidScalarResult(
-              leaf.type,
-              "the Date is outside the public DateTime domain"
-            );
+            throw invalid("the Date is outside the public DateTime domain");
           }
           const parsed =
             typeof value === "string"
               ? decodeProviderTimestamp(value)
               : undefined;
           if (!parsed)
-            throw new InvalidScalarResult(
-              leaf.type,
+            throw invalid(
               "the value is not a valid provider timestamp in the public DateTime domain"
             );
           // A TEXT-stored instant's PHYSICAL value is the spelling itself
@@ -4283,10 +4249,7 @@ export abstract class Queries {
               value.getUTCMilliseconds() === 0
             )
               return new Date(epoch);
-            throw new InvalidScalarResult(
-              leaf.type,
-              "the Date is invalid or not UTC midnight"
-            );
+            throw invalid("the Date is invalid or not UTC midnight");
           }
           const match =
             typeof value === "string" ? DATE_TEXT.exec(value) : null;
@@ -4296,10 +4259,7 @@ export abstract class Queries {
               )
             : undefined;
           if (!parsed)
-            throw new InvalidScalarResult(
-              leaf.type,
-              "the value is not a valid ISO calendar date"
-            );
+            throw invalid("the value is not a valid ISO calendar date");
           return parsed;
         };
       case "time":
@@ -4308,10 +4268,7 @@ export abstract class Queries {
         return (value) => {
           if (typeof value === "string" && leaf.enumValues?.has(value) === true)
             return value;
-          throw new InvalidScalarResult(
-            leaf.type,
-            "the value is not a declared enum member"
-          );
+          throw invalid("the value is not a declared enum member");
         };
       case "json":
         return (value) => this.jsonValue(value);
@@ -4326,13 +4283,9 @@ export abstract class Queries {
               (member) => typeof member !== "number" || !Number.isFinite(member)
             )
           )
-            throw new InvalidScalarResult(
-              leaf.type,
-              "the value is not an array of finite numbers"
-            );
+            throw invalid("the value is not an array of finite numbers");
           if (leaf.dimension !== undefined && decoded.length !== leaf.dimension)
-            throw new InvalidScalarResult(
-              leaf.type,
+            throw invalid(
               `the value does not have the configured dimension ${leaf.dimension}`
             );
           return [...decoded];
@@ -4342,8 +4295,7 @@ export abstract class Queries {
           const decoded = providerJson(value);
           const point = validateGeoPoint(decoded);
           if (point.issues)
-            throw new InvalidScalarResult(
-              leaf.type,
+            throw invalid(
               point.issues[0]?.message ??
                 "the value is not a canonical GeoPoint"
             );
@@ -4351,10 +4303,7 @@ export abstract class Queries {
         };
       default:
         return () => {
-          throw new InvalidScalarResult(
-            leaf.type,
-            "the scalar type is unsupported"
-          );
+          throw invalid("the scalar type is unsupported");
         };
     }
   }

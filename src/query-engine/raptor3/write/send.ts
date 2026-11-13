@@ -17,6 +17,7 @@ import {
 import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
 import type { PreparedGuardFailure } from "../../types";
+import { nameOf } from "../shared/names";
 import type { Input } from "../shared/schema";
 import type {
   MemberRollback,
@@ -91,7 +92,7 @@ export const contextOf = (
   model: AnyModel
 ): QueryExecutionContext => {
   const whole = operation.attribution;
-  const name = model["~"].names.ts!;
+  const name = nameOf(model);
   return whole.model === name
     ? whole
     : deriveStatementExecutionContext(whole, name);

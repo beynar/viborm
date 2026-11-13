@@ -27,6 +27,7 @@ import {
 import type { PreparedBatchOperation } from "../../types";
 import type { Sent, Statement } from "../write/send";
 import { InsertValue } from "./insert-value";
+import { nameOf, tableOf } from "./names";
 import {
   GatedFieldRefusal,
   InvalidScalarResult,
@@ -375,7 +376,7 @@ export class SqlOperationContext {
     for (const [field, { value, at }] of fields) {
       const values = await value.compute(
         {
-          model: model["~"].names.ts!,
+          model: nameOf(model),
           rows: computed,
           field,
           sql: spelt,
@@ -431,7 +432,7 @@ export class SqlOperationContext {
     const known = this.#overWrites?.get(projection);
     if (known !== undefined) return known;
     const a = this.driver.adapter;
-    const table = model["~"].names.sql!;
+    const table = tableOf(model);
     const name = Sql.leafText(a.identifiers.escape(table))!;
     let answer: Sql;
     let folds = true;

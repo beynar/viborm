@@ -14,6 +14,7 @@ import {
 import type { AnyModel } from "@schema/model";
 import { sql } from "@sql";
 import type { PreparedBatchOperation } from "../../types";
+import { nameOf } from "../shared/names";
 import type { Arguments, Input } from "../shared/schema";
 import type {
   ExecutionBinding,
@@ -231,7 +232,7 @@ export async function prepareCall(
                 ? statement.probe!
                 : operation.driver.adapter.clauses.select(sql`1`),
               failure: statement.stops,
-              model: statement.model["~"].names.ts!,
+              model: nameOf(statement.model),
               operation: operation.operation,
             },
           ]

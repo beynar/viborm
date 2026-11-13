@@ -3,6 +3,7 @@ import type { AnyModel } from "@schema/model";
 import { type InferOutput, parse, type VibSchema } from "@validation";
 import { readValidationFailureCause } from "@validation/parse-failure";
 import type { Operation } from "../../types";
+import { nameOf } from "./names";
 
 /**
  * THE typed parse boundary (X2 — one home for validation). Every seam that turns a
@@ -50,7 +51,7 @@ export function parseValidated<S extends VibSchema>(
       })),
       {
         cause: readValidationFailureCause(result),
-        meta: { model: model["~"].names.ts! },
+        meta: { model: nameOf(model) },
       }
     );
   }

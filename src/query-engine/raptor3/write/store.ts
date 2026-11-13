@@ -30,6 +30,7 @@ import { createFailureError } from "../../batch-error-attribution";
 import type { PreparedGuardFailure } from "../../types";
 import { type WriteKind, type WriteWatch, writeSinks } from "../../write-sinks";
 import { InsertValue, JoinedValue } from "../shared/insert-value";
+import { nameOf } from "../shared/names";
 import {
   type PreparedProjection,
   type Query,
@@ -38,7 +39,7 @@ import {
 } from "../shared/query";
 import type { EngineSchema, Input } from "../shared/schema";
 import type { SqlOperationContext } from "../shared/sql-operation-context";
-import type { Membership } from "../shared/storage";
+import { hopFieldsOf, type Membership } from "../shared/storage";
 import {
   refusedBy,
   type Sent,
@@ -427,7 +428,7 @@ export class Store {
         if (!believed || this.#delivered > 0)
           throw createFailureError(
             stops!,
-            model["~"].names.ts!,
+            nameOf(model),
             this.operation.operation
           );
         // What the call took for granted is asked for real; what it read is read again.
@@ -436,10 +437,7 @@ export class Store {
             (this.#concrete ??= new Set()).add(id);
         // Only a unit that holds nothing of what it reads asks again what it read: it plans again on what the database says now, three times at most.
         else if (++races > 3)
-          throw new NotFoundError(
-            model["~"].names.ts!,
-            this.operation.operation
-          );
+          throw new NotFoundError(nameOf(model), this.operation.operation);
         else this.#answers = undefined;
         this.#asserted = undefined;
         this.#outcomes = undefined;
@@ -503,7 +501,7 @@ export class Store {
     const group = (question: Question) =>
       pins(question) &&
       text([
-        question.model["~"].names.ts,
+        nameOf(question.model),
         question.through?.name,
         question.intent,
         question.writes,
@@ -553,7 +551,7 @@ export class Store {
       const loose =
         this.#transport.holds &&
         first.makes === true &&
-        this.operation.driver.adapter.capabilities.locksMissingKeys === true;
+        this.writer.adapter.capabilities.locksMissingKeys === true;
       steps.push({
         // Asked of the row it is asked of as the database has said it by then.
         write: () => {
@@ -599,7 +597,7 @@ export class Store {
               throw new Lost(
                 createFailureError(
                   this.writer.absent(first, true),
-                  model["~"].names.ts!,
+                  nameOf(model),
                   this.operation.operation
                 )
               );
@@ -612,32 +610,26 @@ export class Store {
   #name(model: AnyModel, values: Input): string {
     const keys = this.operation.schema.keys(model);
     // Most rows have one key.
-    if (keys.length === 1) return `${model["~"].names.ts}:${values[keys[0]!]}`;
+    if (keys.length === 1) return `${nameOf(model)}:${values[keys[0]!]}`;
     // A row of a model without a key is no other row the call knows.
-    if (keys.length === 0) return `${model["~"].names.ts}#${++this.#made}`;
-    return `${model["~"].names.ts}:${this.operation.schema
+    if (keys.length === 0) return `${nameOf(model)}#${++this.#made}`;
+    return `${nameOf(model)}:${this.operation.schema
       .keys(model)
       .map((field) => String(values[field]))
       .join("|")}`;
   }
   /** What a row holds that makes other rows its members through a relation: asked of the row as it stands now, whatever the call writes of it next. */
   #of({ edge, of }: NonNullable<Question["member"]>): Input {
+    // What a link holds of the row: its key, or the fields the junction references of it.
     return Object.fromEntries(
-      (edge.kind === "reference"
-        ? [
-            ...edge.pairs.map((pair) => pair.source),
-            ...(edge.discriminator?.side === "source"
-              ? [edge.discriminator.field]
-              : []),
-          ]
-        : // What a link holds of the row: its key, or the fields the junction references of it.
-          [
-            ...new Set([
-              ...this.operation.schema.keys(edge.source),
-              ...edge.sourceSide.members.map((pair) => pair.referencedField),
-            ]),
-          ]
-      ).map((field) => [field, of[field]])
+      [
+        ...new Set([
+          ...(edge.kind === "reference"
+            ? []
+            : this.operation.schema.keys(edge.source)),
+          ...hopFieldsOf(edge),
+        ]),
+      ].map((field) => [field, of[field]])
     );
   }
   /** A question as a statement asks it: of a row it names the members of, what only the database holds written as what reads it. */
@@ -795,8 +787,7 @@ export class Store {
       named &&
       (question.member ||
         question.through ||
-        !this.operation.driver.adapter.capabilities
-          .supportsMutationTargetInSubquery)
+        !this.writer.adapter.capabilities.supportsMutationTargetInSubquery)
     )
       return undefined;
     const key = Object.fromEntries(pins);
@@ -975,7 +966,7 @@ export class Store {
     if (member && !this.#links(member)) return [];
     const after = late ? this.#log.length : 0;
     const id = text([
-      model["~"].names.ts,
+      nameOf(model),
       question.where,
       question.unique,
       member && [
@@ -1072,7 +1063,7 @@ export class Store {
     if (!row)
       throw createFailureError(
         this.writer.absent(question),
-        question.model["~"].names.ts!,
+        nameOf(question.model),
         this.operation.operation
       );
     return row;
@@ -1163,7 +1154,7 @@ export class Store {
    */
   #seen(row: Row, kind: WriteKind): void {
     const { model } = this.#meta.get(row)!;
-    const name = model["~"].names.ts!;
+    const name = nameOf(model);
     const { watch } = this;
     if (!watch?.wants(name, kind)) return;
     const q = this.operation.queries;
@@ -1360,7 +1351,7 @@ export class Store {
         if (!said)
           throw createFailureError(
             this.writer.absent(meta.question ?? { model }),
-            model["~"].names.ts!,
+            nameOf(model),
             this.operation.operation
           );
         for (const field of hears) row[field] = said[field];
@@ -1420,7 +1411,7 @@ export class Store {
     const { model } = question;
     if (question.member) this.#links(question.member);
     const q = this.operation.queries;
-    const name = model["~"].names.ts!;
+    const name = nameOf(model);
     const kind = set ? "update" : "delete";
     // Rows written through a relation are shown whole to what asked to see them.
     const watched =
@@ -1493,7 +1484,7 @@ export class Store {
       if (
         held &&
         this.#transport.holds &&
-        this.operation.driver.adapter.capabilities.supportsRowLocks &&
+        this.writer.adapter.capabilities.supportsRowLocks &&
         !(
           returns &&
           !this.operation.answersInStatement(model, returns, "update", marks)
@@ -1557,7 +1548,7 @@ export class Store {
   ): Later | undefined {
     const { model } = question;
     const q = this.operation.queries;
-    const { capabilities } = this.operation.driver.adapter;
+    const { capabilities } = this.writer.adapter;
     const selector = this.writer.selector(question);
     const pins = selector.uniqueValues;
     const row = this.values(model, "create", admitted, raw);
@@ -1585,12 +1576,12 @@ export class Store {
       return undefined;
     const later: Later = {};
     // Which of the two it was is told to what asked: by the statement itself where the provider marks a row it created, else by asking for the row just before it.
-    const name = model["~"].names.ts!;
+    const name = nameOf(model);
     const asked =
       this.watch?.wants(name, "create") || this.watch?.wants(name, "update");
     const marker =
       asked && returningSafeProjection(projection)
-        ? this.operation.driver.adapter.mutations.upserted
+        ? this.writer.adapter.mutations.upserted
         : undefined;
     let created: boolean | undefined;
     if (asked && !marker)
@@ -1882,7 +1873,7 @@ export class Store {
     projection?: PreparedProjection,
     passes = true
   ): Later | undefined {
-    const { mutations } = this.operation.driver.adapter;
+    const { mutations } = this.writer.adapter;
     // None where no one statement passes such rows by, or answers with those it wrote.
     if (
       (passes && mutations.skipDuplicatesStrategy !== "sql") ||
@@ -2000,7 +1991,7 @@ export class Store {
     ) => {
       const group = text([
         believed,
-        question.model["~"].names.ts,
+        nameOf(question.model),
         question.member ? own : question.through?.name,
         question.verb,
         question.intent,
@@ -2172,7 +2163,7 @@ export class Store {
       if (question && writer.count(sent) < (sizes?.get(entry) ?? 1))
         throw createFailureError(
           writer.absent(question),
-          question.model["~"].names.ts!,
+          nameOf(question.model),
           this.operation.operation
         );
     };

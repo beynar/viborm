@@ -14,6 +14,7 @@ import type { AnyModel } from "@schema/model";
 import { getModelKeyCatalog } from "@schema/model/keys";
 import type { WriteKind } from "../../write-sinks";
 import { Stored } from "../shared/insert-value";
+import { nameOf } from "../shared/names";
 import { readUpdate } from "../shared/query";
 import { parseStamped } from "../shared/row-scope";
 import type { Arguments, Input } from "../shared/schema";
@@ -240,9 +241,7 @@ export function verbs(store: Store) {
     return {
       ...schema.scalars(
         model,
-        store.copy(`moved ${model["~"].names.ts}`, () =>
-          schema.update(model, {})
-        )
+        store.copy(`moved ${nameOf(model)}`, () => schema.update(model, {}))
       ),
       ...takes,
     };
@@ -396,13 +395,30 @@ export function verbs(store: Store) {
     );
     const row = store.insert(model, data, stated(data), relation, takes);
     made.set(row, !arm);
+    after(row, model, relations, held, said);
+    return row;
+  };
+  /** What follows a row's own write: what the relations it holds left for then, and the relations whose rows hold its key. */
+  const after = (
+    row: Row,
+    model: AnyModel,
+    relations: ReturnType<typeof relationsOf>,
+    held: readonly { then: (() => void)[] }[],
+    said: Input
+  ) => {
     for (const own of held) for (const next of own.then) next();
     for (const { edge, payload } of relations)
       if (!holds(edge))
         if (edge.many) relate(row, edge, payload);
         else single(row, model, edge, payload, said);
-    return row;
   };
+  /** A key a relation is held by is given a value: what the database would compute of it names no row the relation could be asked of. */
+  const computed = (source: string, edge: Membership) =>
+    new NestedWriteError(
+      `Cannot update relation key field '${source}' with a non-literal operation while mutating relation '${edge.name}'. Use a literal value or '{ set: ... }'.`,
+      edge.name,
+      { meta: { operation: "update", field: source, relation: edge.name } }
+    );
   /** A row that is there takes what `data` states, then what its relations ask of the rows they reach. */
   const write = (
     model: AnyModel,
@@ -458,13 +474,7 @@ export function verbs(store: Store) {
           !keys.includes(source) &&
           readUpdate(said[source]).kind !== "value"
         )
-          throw new NestedWriteError(
-            `Cannot update relation key field '${source}' with a non-literal operation while mutating relation '${edge.name}'. Use a literal value or '{ set: ... }'.`,
-            edge.name,
-            {
-              meta: { operation: "update", field: source, relation: edge.name },
-            }
-          );
+          throw computed(source, edge);
       const moved = edge.pairs.filter((pair) =>
         moves(row[pair.source], said[pair.source])
       );
@@ -541,11 +551,7 @@ export function verbs(store: Store) {
       },
       writes(model, data)
     );
-    for (const each of singles) for (const next of each.then) next();
-    for (const { edge, payload } of relations)
-      if (!holds(edge))
-        if (edge.many) relate(row, edge, payload);
-        else single(row, model, edge, payload, said);
+    after(row, model, relations, singles, said);
   };
   /**
    * A relation that reaches one row: the row it reaches goes, another is
@@ -579,12 +585,7 @@ export function verbs(store: Store) {
     // A key the relation is held by is given a value: what the database would compute of it names no row the relation could be asked of.
     const stated = (field: string) => readUpdate(said[field]);
     for (const { source } of final)
-      if (stated(source).kind !== "value")
-        throw new NestedWriteError(
-          `Cannot update relation key field '${source}' with a non-literal operation while mutating relation '${edge.name}'. Use a literal value or '{ set: ... }'.`,
-          edge.name,
-          { meta: { operation: "update", field: source, relation: edge.name } }
-        );
+      if (stated(source).kind !== "value") throw computed(source, edge);
     const of =
       row && final.length > 0
         ? new Proxy(row, {
@@ -1053,7 +1054,7 @@ export function verbs(store: Store) {
     const projection = shows?.projection ?? q.prepareProjection(model, args);
     const said = (rows: Input[], kind = kinds[0]) => {
       if (rows.length === 0)
-        throw new NotFoundError(model["~"].names.ts!, operation.operation);
+        throw new NotFoundError(nameOf(model), operation.operation);
       const read = q.decodeResult(rows, operation.operation, (raw) =>
         q.decodeProjection(projection.shape, raw)
       );
@@ -1082,9 +1083,7 @@ export function verbs(store: Store) {
     !schema.keys(model).some((key) => set[key] !== undefined);
   /** What a delete does to a row of `model`: a row its model keeps is updated. */
   const removes = (model: AnyModel): WriteKind =>
-    operation.scope?.rows.tombstones?.has(model["~"].names.ts!)
-      ? "update"
-      : "delete";
+    operation.scope?.rows.tombstones?.has(nameOf(model)) ? "update" : "delete";
   /** A verb over many rows answers with them as the caller selected them, or with their number. */
   const many = (model: AnyModel, args: Arguments, kind: WriteKind) => {
     const select = args.select as Input | undefined;

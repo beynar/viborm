@@ -19,6 +19,7 @@ import { type Sql, sql } from "@sql";
 import type { PreparedGuardFailure } from "../../types";
 import { writeSinks } from "../../write-sinks";
 import { InsertValue, JoinedValue, Stored } from "../shared/insert-value";
+import { nameOf, tableOf } from "../shared/names";
 import type {
   PreparedProjection,
   PreparedSelector,
@@ -79,6 +80,8 @@ export interface Question {
 
 export class Writer {
   readonly operation: SqlOperationContext;
+  /** The dialect its statements are written in. */
+  readonly adapter: SqlOperationContext["driver"]["adapter"];
   readonly #q: SqlQueries;
   #projections: Map<AnyModel, PreparedProjection[]> | undefined;
   /** Asks the database in the call's unit, where what it says is heard before the next statement is written. */
@@ -93,10 +96,11 @@ export class Writer {
   }
   /** A question as a statement that stops its unit unless a row answers it, or where one does. */
   protected asserts(probe: Sql, premise: "exists" | "notExists"): Sql {
-    return this.operation.driver.adapter.assertions[premise](probe);
+    return this.adapter.assertions[premise](probe);
   }
   constructor(operation: SqlOperationContext, hears?: Writer["hears"]) {
     this.operation = operation;
+    this.adapter = operation.driver.adapter;
     this.#q = operation.queries as SqlQueries;
     this.hears = hears;
   }
@@ -108,7 +112,7 @@ export class Writer {
     const { writes } = question;
     if (!writes) return undefined;
     const tombstone = this.operation.scope?.rows.tombstones?.get(
-      question.model["~"].names.ts!
+      nameOf(question.model)
     );
     // A caller who writes what a delete that keeps its rows writes is judged as that delete is.
     return tombstone &&
@@ -136,8 +140,7 @@ export class Writer {
     const named = known
       ? found &&
         (found.facts.reads.length === 0 ||
-          this.operation.driver.adapter.capabilities
-            .supportsMutationTargetInSubquery)
+          this.adapter.capabilities.supportsMutationTargetInSubquery)
         ? q.andSelectors(model, [known, found])
         : known
       : q.prepareSelector(model, question.where, question.unique ?? false);
@@ -164,7 +167,7 @@ export class Writer {
       question.intent === "delete" &&
       scope &&
       scope.defaults !== scope.domain &&
-      scope.rows.tombstones?.has(model["~"].names.ts!)
+      scope.rows.tombstones?.has(nameOf(model))
         ? q.candidates(taken, this.#related(question), scope.defaults)
         : taken;
     if (!referenced) return chosen;
@@ -210,42 +213,69 @@ export class Writer {
   }
   /** The rows a write names, as its statement says them: among the members of the question's row, where it has one. */
   #among(question: Question, selector: PreparedSelector, alias: string) {
-    const named = this.#q.lowerSelector(selector, alias);
+    return this.#within(
+      question,
+      alias,
+      this.#q.lowerSelector(selector, alias)
+    );
+  }
+  /** `named`, among the members of the question's row where it has one. */
+  #within(question: Question, alias: string, named: Sql | undefined) {
     const { member } = question;
     if (!member) return named;
     // A write holds the links it reads its rows' membership from: one that goes while the statement waits is no longer read.
     const members = this.#q.memberWhere(member.edge, member.of, alias, true);
-    return named
-      ? this.operation.driver.adapter.operators.and(members, named)
-      : members;
+    return named ? this.adapter.operators.and(members, named) : members;
   }
-  #limited(question: Question, selector: PreparedSelector, keys: unknown) {
+  #limited(
+    question: Question,
+    selector: PreparedSelector,
+    keys: unknown
+  ): { where?: Sql; suffix?: Sql } {
     const { model, member } = question;
     const named = this.#q.lowerMutationLimit(
       model,
       selector,
       keys || member ? undefined : question.limit
     );
-    if (!member) return named;
     // Among the members of the question's row: said of the table the statement writes.
-    const members = this.#q.memberWhere(
-      member.edge,
-      member.of,
-      model["~"].names.sql!,
-      true
+    return member
+      ? { where: this.#within(question, tableOf(model), named.where) }
+      : named;
+  }
+  /** What a write sets of the rows it takes. */
+  #sets(model: AnyModel, set: Input): Sql {
+    return sql.join(
+      Object.entries(set).map(([field, value]) =>
+        this.#q.updateAssignment(model, field, value)
+      ),
+      ", "
     );
-    return {
-      where: named.where
-        ? this.operation.driver.adapter.operators.and(members, named.where)
-        : members,
-    };
+  }
+  /** A write of rows with what bounds it, answering with the rows it wrote as the caller reads them, or so that the call can count them where the provider's own count would count what a cascade changed besides. */
+  #answered(
+    model: AnyModel,
+    build: () => [write: Sql, suffix?: Sql],
+    projection: PreparedProjection | undefined,
+    counted: boolean
+  ): Sql {
+    const { capabilities, mutations } = this.adapter;
+    const statement = this.#q.sharing(() => {
+      const [write, suffix] = build();
+      return suffix ? sql`${write} ${suffix}` : write;
+    });
+    if (projection)
+      return this.operation.answering(model, statement, projection);
+    return counted && capabilities.countsCascadedChanges
+      ? sql`${statement} ${mutations.returning(sql.raw("1"))}`
+      : statement;
   }
   /** The rows questions of one model name, read whole in one statement; held where `hold`. */
   read(questions: readonly Question[], hold: boolean): Query {
     const [question] = questions as [Question];
     const selectors = questions.map((each) => this.selector(each));
     const { joined } = question;
-    const { filters, subqueries } = this.operation.driver.adapter;
+    const { filters, subqueries } = this.adapter;
     return this.#q.select(
       question.model,
       question.limit === undefined ? {} : { take: question.limit },
@@ -302,12 +332,11 @@ export class Writer {
     held = true
   ): Statement {
     const q = this.#q;
-    const { operators } = this.operation.driver.adapter;
+    const { operators } = this.adapter;
     const [[question]] = asked as [[Question]];
     const { model } = question;
     // The rows asked for are held from there to the end of their unit, where the database holds rows: what is written after stands on them.
-    const lock =
-      held && this.operation.driver.adapter.capabilities.supportsRowLocks;
+    const lock = held && this.adapter.capabilities.supportsRowLocks;
     const asking = (
       [each, key]: readonly [Question, (Input | Input[])?],
       more?: Sql
@@ -365,7 +394,7 @@ export class Writer {
     takes?: Input
   ): Input {
     const { scope, schema } = this.operation;
-    const stamps = scope?.rows.stamps?.get(model["~"].names.ts!)?.[kind];
+    const stamps = scope?.rows.stamps?.get(nameOf(model))?.[kind];
     let source = admitted;
     if (stamps) {
       const kept: Input = {};
@@ -434,7 +463,7 @@ export class Writer {
       premise: "exists",
       stops: {
         kind: "query",
-        message: `Created record '${model["~"].names.ts!}' changed across a generated-output segment boundary.`,
+        message: `Created record '${nameOf(model)}' changed across a generated-output segment boundary.`,
         raceable: false,
       },
     };
@@ -470,14 +499,14 @@ export class Writer {
     skips = false
   ): Promise<Statement> {
     const q = this.#q;
-    const { capabilities, mutations } = this.operation.driver.adapter;
+    const { capabilities, mutations } = this.adapter;
     const rows = await this.computed(model, values);
     const fields = Object.keys(rows[0]!);
     const placed = q.domain?.produced(model);
     // A row of defaults only has no value to judge before it is written.
     if (fields.length === 0 && placed)
       throw new UnsupportedOperationError(
-        `Cannot create a '${model["~"].names.ts!}' row that writes no field: its placement is judged on the values it writes.`
+        `Cannot create a '${nameOf(model)}' row that writes no field: its placement is judged on the values it writes.`
       );
     const select =
       placed && q.domain!.producedSource(q, model, fields, rows, placed);
@@ -539,7 +568,7 @@ export class Writer {
     const q = this.#q;
     const { model } = question;
     const limit = keys ? undefined : question.limit;
-    const { capabilities, mutations } = this.operation.driver.adapter;
+    const { mutations } = this.adapter;
     // A value read of rows the statement joins: each row takes its own.
     const joined = Object.values(values).find(
       (value): value is JoinedValue => value instanceof JoinedValue
@@ -548,58 +577,53 @@ export class Writer {
     const selector = this.selector(question, keys);
     const judged = this.judged(question);
     let stops: PreparedGuardFailure | undefined;
-    let statement = q.sharing(() => {
-      const produced =
-        judged &&
-        q.domain &&
-        q.domain.producedWhere(
-          q,
-          model,
-          (alias) => this.#among(question, selector, alias),
-          set!,
-          q.domain.produced(model, judged, Object.keys(set!)),
-          q.domain.cycles(model, judged),
-          limit
+    const statement = this.#answered(
+      model,
+      () => {
+        const produced =
+          judged &&
+          q.domain &&
+          q.domain.producedWhere(
+            q,
+            model,
+            (alias) => this.#among(question, selector, alias),
+            set!,
+            q.domain.produced(model, judged, Object.keys(set!)),
+            q.domain.cycles(model, judged),
+            limit
+          );
+        const edge = question.member?.edge ?? question.through;
+        if (produced)
+          stops = q.domain!.refusal(
+            this.operation.operation,
+            model,
+            judged,
+            edge && question.verb ? [question.verb, edge.name] : undefined
+          );
+        const named = produced
+          ? { where: produced, suffix: undefined }
+          : this.#limited(question, selector, keys);
+        const sets = this.#sets(model, set!);
+        const join = joined?.join(
+          q.spelling(model, this.operation.driver.dialect),
+          tableOf(model)
         );
-      const edge = question.member?.edge ?? question.through;
-      if (produced)
-        stops = q.domain!.refusal(
-          this.operation.operation,
-          model,
-          judged,
-          edge && question.verb ? [question.verb, edge.name] : undefined
-        );
-      const named = produced
-        ? { where: produced, suffix: undefined }
-        : this.#limited(question, selector, keys);
-      const sets = sql.join(
-        Object.entries(set!).map(([field, value]) =>
-          q.updateAssignment(model, field, value)
-        ),
-        ", "
-      );
-      const join = joined?.join(
-        q.spelling(model, this.operation.driver.dialect),
-        model["~"].names.sql!
-      );
-      const update = join
-        ? mutations.updateFrom(
-            q.table(model),
-            sets,
-            q.settleRows(join.source),
-            join.on,
-            named.where
-          )
-        : mutations.update(q.table(model), sets, named.where);
-      return named.suffix ? sql`${update} ${named.suffix}` : update;
-    });
-    // It answers with the rows it wrote as the caller reads them, or so that
-    // the call can count them, where the provider's own count would count
-    // what a cascade changed besides.
-    if (projection) {
-      statement = this.operation.answering(model, statement, projection);
-    } else if (counted && capabilities.countsCascadedChanges)
-      statement = sql`${statement} ${mutations.returning(sql.raw("1"))}`;
+        return [
+          join
+            ? mutations.updateFrom(
+                q.table(model),
+                sets,
+                q.settleRows(join.source),
+                join.on,
+                named.where
+              )
+            : mutations.update(q.table(model), sets, named.where),
+          named.suffix,
+        ];
+      },
+      projection,
+      counted
+    );
     return { model, sql: statement, stops };
   }
   /**
@@ -613,7 +637,7 @@ export class Writer {
     const { adapter } = this.operation.driver;
     const { capabilities, identifiers } = adapter;
     if (capabilities.supportsReturning) return undefined;
-    const table = model["~"].names.sql!;
+    const table = tableOf(model);
     const { where } = this.#limited(question, this.selector(question, [key]), [
       key,
     ]);
@@ -656,18 +680,22 @@ export class Writer {
   ): Statement {
     const q = this.#q;
     const { model } = question;
-    const { capabilities, mutations } = this.operation.driver.adapter;
     const selector = this.selector({ ...question, intent: "delete" }, keys);
-    let statement = q.sharing(() => {
-      const named = this.#limited(question, selector, keys);
-      const removal = mutations.delete(q.table(model), named.where);
-      return named.suffix ? sql`${removal} ${named.suffix}` : removal;
-    });
-    if (projection) {
-      statement = this.operation.answering(model, statement, projection);
-    } else if (counted && capabilities.countsCascadedChanges)
-      statement = sql`${statement} ${mutations.returning(sql.raw("1"))}`;
-    return { model, sql: statement };
+    return {
+      model,
+      sql: this.#answered(
+        model,
+        () => {
+          const named = this.#limited(question, selector, keys);
+          return [
+            this.adapter.mutations.delete(q.table(model), named.where),
+            named.suffix,
+          ];
+        },
+        projection,
+        counted
+      ),
+    };
   }
   /**
    * The row a question names by one of its model's keys takes `set`; where
@@ -683,13 +711,9 @@ export class Writer {
   ): Promise<Statement> {
     const q = this.#q;
     const { model } = question;
-    const {
-      identifiers,
-      mutations,
-      set: assignments,
-    } = this.operation.driver.adapter;
+    const { identifiers, mutations, set: assignments } = this.adapter;
     const insert = await this.insert(model, [row]);
-    const table = model["~"].names.sql!;
+    const table = tableOf(model);
     const conflict = mutations.onConflict(
       sql.join(
         this.selector(question).uniqueKey!.fields.map((field) =>
@@ -723,9 +747,7 @@ export class Writer {
   judges(question: Question): boolean {
     return Boolean(
       this.judged(question) &&
-        this.operation.scope?.rows.domain.verbs?.has(
-          question.model["~"].names.ts!
-        )
+        this.operation.scope?.rows.domain.verbs?.has(nameOf(question.model))
     );
   }
   /**
@@ -783,8 +805,7 @@ export class Writer {
     kept: readonly Input[]
   ): Statement {
     const q = this.#q;
-    const { identifiers, mutations, operators, subqueries } =
-      this.operation.driver.adapter;
+    const { identifiers, mutations, operators, subqueries } = this.adapter;
     const named = (side: Junction["sourceSide"], row: Input) =>
       Object.fromEntries(
         side.members.map((pair) => [
@@ -840,9 +861,9 @@ export class Writer {
     key: NonNullable<PreparedSelector["uniqueKey"]>,
     error: UniqueConstraintError
   ): boolean {
-    const table = model["~"].names.sql!;
+    const table = tableOf(model);
     const columns = key.fields.map((field) => this.#q.columnName(model, field));
-    const constraints = adapterConstraints(this.operation.driver.adapter);
+    const constraints = adapterConstraints(this.adapter);
     const { meta } = error;
     // A database whose refusals name no constraint says which columns it found.
     if (!constraints)
@@ -864,7 +885,7 @@ export class Writer {
   }
   /** Whether a write says what it wrote. */
   get says(): boolean {
-    return this.operation.driver.adapter.capabilities.supportsReturning;
+    return this.adapter.capabilities.supportsReturning;
   }
   /** Whether a write of rows by their keys says how many of them it found: MySQL counts the rows an update changed. */
   counts(kind: string): boolean {
@@ -875,7 +896,7 @@ export class Writer {
     id: string,
     model: AnyModel
   ): { open: Statement[]; close: Statement } {
-    const { batchRefs } = getAdapterInternals(this.operation.driver.adapter);
+    const { batchRefs } = getAdapterInternals(this.adapter);
     return {
       open: batchRefs.setup(id).map((statement) => ({ sql: statement, model })),
       close: { sql: batchRefs.cleanup(id), model },
@@ -946,7 +967,7 @@ export class Writer {
   }
   /** How many rows a set write that answers so wrote. */
   count(sent: Sent): number {
-    return this.operation.driver.adapter.capabilities.countsCascadedChanges
+    return this.adapter.capabilities.countsCascadedChanges
       ? sent.rows.length
       : sent.rowCount;
   }
@@ -964,10 +985,11 @@ export class Writer {
     const q = this.#q;
     const { schema, scope, attribution } = this.operation;
     const model = edge.declared!.model;
-    const name = model["~"].names.ts!;
-    const missing = schema
-      .linkRequired(model, new Set(columns))
-      .filter((field) => through?.[field] === undefined);
+    const name = nameOf(model);
+    const beside = schema.linkFields(model, columns);
+    const missing = beside.required.filter(
+      (field) => through?.[field] === undefined
+    );
     if (missing.length > 0)
       throw new NestedWriteError(
         `Cannot link relation '${edge.name}': '${name}' requires ${missing.map((field) => `$through.${field}`).join(", ")}, which a link cannot fill.`,
@@ -990,8 +1012,7 @@ export class Writer {
         ...schema.createValues(
           model,
           Object.fromEntries(
-            schema
-              .linkDefaults(model, new Set(columns))
+            beside.defaults
               .filter((field) => !(through && field in through))
               .map((field) => [field, undefined])
           )
@@ -1022,7 +1043,7 @@ export class Writer {
   ): Promise<Statement[]> {
     const q = this.#q;
     const { schema } = this.operation;
-    const { identifiers, mutations, set } = this.operation.driver.adapter;
+    const { identifiers, mutations, set } = this.adapter;
     const { uniqueSide, declared } = edge;
     const members = linkMembers(edge);
     const columns = members.map(({ pair }) => pair.junctionField);
@@ -1043,14 +1064,7 @@ export class Writer {
         columns.push(schema.physicalField(model, field).name);
         for (const row of rows) row.push(q.fieldValue(model, field, value));
       }
-      takes =
-        own.sets &&
-        sql.join(
-          Object.entries(own.sets).map(([field, value]) =>
-            q.updateAssignment(model, field, value)
-          ),
-          ", "
-        );
+      takes = own.sets && this.#sets(model, own.sets);
     }
     const table = identifiers.table(edge.table);
     const side = (name: "source" | "target") =>
@@ -1075,9 +1089,9 @@ export class Writer {
                 ),
                 ", "
               ),
-              this.operation.driver.adapter.operators.and(
+              this.adapter.operators.and(
                 ...other.map((column) =>
-                  this.operation.driver.adapter.operators.eq(
+                  this.adapter.operators.eq(
                     identifiers.column(edge.table, column),
                     row[columns.indexOf(column)]!
                   )

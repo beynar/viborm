@@ -64,6 +64,7 @@ import {
 } from "./identifier";
 import type { ModelSql } from "./insert-value";
 import { unreachable } from "./invariant";
+import { nameOf, tableOf } from "./names";
 import {
   AGGREGATES,
   type Aggregate,
@@ -79,6 +80,7 @@ import {
   COUNT_LEAF,
   CURSOR_ORDER_REFUSAL,
   callerText,
+  conjunction,
   distanceUpperBound,
   type Enclosing,
   type FlagChoice,
@@ -139,7 +141,12 @@ import {
   type ReadOperation,
   record,
 } from "./schema";
-import { linkMembers, type Membership, physicalField } from "./storage";
+import {
+  hopFieldsOf,
+  linkMembers,
+  type Membership,
+  physicalField,
+} from "./storage";
 
 /** A select's controls, and a condition spelled for the alias this language gives it. */
 export interface SqlSelectControls extends SelectControls {
@@ -947,7 +954,7 @@ export class SqlQueries extends Queries {
   }
   table(model: AnyModel, alias?: string): Sql {
     if (alias !== undefined) this.#rows.set(alias, model);
-    return this.#tableNamed(model["~"].names.sql!, alias);
+    return this.#tableNamed(tableOf(model), alias);
   }
   /** Every persistent table this lowering names: pinned under {@link rowsOf}. */
   #tableNamed(name: string, alias?: string): Sql {
@@ -994,7 +1001,7 @@ export class SqlQueries extends Queries {
       // Settled here, it would take this call's domain, not its own client's.
       if (node instanceof RawRows)
         throw new UnsupportedOperationError(
-          `${model["~"].names.ts}.$rows() is for a tagged $queryRaw only`
+          `${nameOf(model)}.$rows() is for a tagged $queryRaw only`
         );
       const domain = this.domainOf(model, "root", node.judgement);
       // A `where` the extension passes on is admitted as a `findMany`'s.
@@ -1440,7 +1447,7 @@ export class SqlQueries extends Queries {
     const update = this.#prepareUpdate(model, field, value);
     if (!this.named(model, field, update))
       throw new QueryEngineError(
-        `Cannot determine the updated value of '${model["~"].names.ts ?? "unknown"}.${field}' before '${update.operator}' executes: the database determines the stored result.`
+        `Cannot determine the updated value of '${nameOf(model) ?? "unknown"}.${field}' before '${update.operator}' executes: the database determines the stored result.`
       );
     if (update.kind === "value")
       return this.fieldValue(model, field, update.value);
@@ -1473,10 +1480,7 @@ export class SqlQueries extends Queries {
     if (selector?.predicate === undefined) return scope;
     return freeze({
       model,
-      predicate: freeze({
-        kind: "and",
-        predicates: freeze([selector.predicate, scope.predicate]),
-      }),
+      predicate: conjunction([selector.predicate, scope.predicate]),
     });
   }
   /** `undefined` where it states nothing, or the call drops all it states. */
@@ -1613,7 +1617,7 @@ export class SqlQueries extends Queries {
     // `deleteMany` removes the complement of the intended set. The shipped
     // engine passed the table name for exactly this reason
     // (`operations/update.ts:79-90`, `delete.ts:85-92`).
-    const mutated = model["~"].names.sql!;
+    const mutated = tableOf(model);
     // MySQL answers an UPDATE/DELETE's subquery row by row while the statement
     // and the referential actions it fires change the rows that subquery
     // reads, which is also why it refuses to read the mutated table there
@@ -2536,26 +2540,21 @@ export class SqlQueries extends Queries {
     predicate: Extract<PreparedPredicate, { kind: "relation" }>
   ): Quantified {
     const { filters } = this.adapter;
-    switch (predicate.quantifier) {
-      case "some":
-        return { of: (query) => filters.some(query), holds: true };
-      case "none":
-        return { of: (query) => filters.none(query), holds: false };
-      case "every":
-        return { of: (query) => filters.every(query), holds: false };
-      case "is":
-        return predicate.predicate
-          ? { of: (query) => filters.is(query), holds: true }
-          : { of: (query) => filters.isNot(query), holds: false };
-      default:
-        // `isNot`, the one quantifier left: every relation filter that spells
-        // quantifiers refuses a payload naming none of them in its own
-        // registered sentence, at admission, so this switch only ever
-        // receives an already-admitted quantifier.
-        return predicate.predicate
-          ? { of: (query) => filters.isNot(query), holds: false }
-          : { of: (query) => filters.is(query), holds: true };
-    }
+    const { quantifier } = predicate;
+    // `is` and `isNot` are the two left once the three of a list are told:
+    // every relation filter that spells quantifiers refuses a payload naming
+    // none of them in its own registered sentence, at admission, so only an
+    // already-admitted quantifier arrives. Of no row, each reads as the other.
+    const name =
+      quantifier === "some" || quantifier === "none" || quantifier === "every"
+        ? quantifier
+        : (quantifier === "is") === Boolean(predicate.predicate)
+          ? "is"
+          : "isNot";
+    return {
+      of: (query) => filters[name](query),
+      holds: name === "some" || name === "is",
+    };
   }
   /**
    * The related domain of a relation's rows, where `scoped`. Where the filter
@@ -2675,31 +2674,58 @@ export class SqlQueries extends Queries {
         ...(quantified.holds ? this.#setBound(edge.target, child) : [])
       ),
     });
-    const key = sharedKey(query);
+    const placed = this.#placed(
+      shared,
+      sharedKey(query),
+      () => ({ query, correlated: true }),
+      inline,
+      quantified,
+      parent,
+      edge.source,
+      edge.pairs.map((pair) => pair.source)
+    );
+    enclosing.body = placed.body;
+    return placed.slot;
+  }
+  /**
+   * A place the statement reads a shared body at: the body `key` names,
+   * stated once (`state`, where it is new), and the slot the statement
+   * settles to `inline`, or to a test of the body as `quantified` reads it:
+   * of the keys `fields` of `model` name on `alias`, where it has keys.
+   */
+  #placed(
+    shared: SharedBodies,
+    key: string,
+    state: (name: string) => Omit<SharedBody, "name" | "slots">,
+    inline: Sql,
+    quantified: Quantified,
+    alias: string,
+    model?: AnyModel,
+    fields: readonly string[] = [],
+    within?: PlacedBody["within"]
+  ): { readonly body: SharedBody; readonly slot: Sql } {
+    const a = this.adapter;
     let body = shared.byKey.get(key);
     if (body === undefined) {
-      body = {
-        name: `__shared_${shared.order.length}`,
-        query,
-        correlated: true,
-        slots: [],
-      };
+      const name = `__shared_${shared.order.length}`;
+      body = { name, slots: [], ...state(name) };
       shared.byKey.set(key, body);
       shared.order.push(body);
     }
-    enclosing.body = body;
     const { name } = body;
     const use = quantified.of(
       a.subqueries.existsCheck(
         memberRead(a, name),
-        a.operators.and(
-          ...edge.pairs.map((pair, index) =>
-            a.operators.eq(
-              this.column(edge.source, pair.source, parent),
-              a.identifiers.column(name, `k${index}`)
+        model
+          ? a.operators.and(
+              ...fields.map((field, index) =>
+                a.operators.eq(
+                  this.column(model, field, alias),
+                  a.identifiers.column(name, `k${index}`)
+                )
+              )
             )
-          )
-        )
+          : a.literals.true()
       )
     );
     const slot = new SqlSlot(use);
@@ -2708,14 +2734,15 @@ export class SqlQueries extends Queries {
       inline,
       use,
       test: {
-        alias: parent,
-        columns: edge.pairs.map((pair) =>
-          this.columnName(edge.source, pair.source)
-        ),
+        alias,
+        columns: model
+          ? fields.map((field) => this.columnName(model, field))
+          : [],
         holds: quantified.holds,
       },
+      within,
     });
-    return slot;
+    return { body, slot };
   }
   /**
    * A recursive filter's walk from `parent`, `inline`, inside a statement
@@ -2753,7 +2780,7 @@ export class SqlQueries extends Queries {
       a.capabilities.boundsRecursionIterations === true ||
       !(
         this.#rows.get(parent) === model ||
-        this.#hopFields(edge).every((field) => keys.includes(field))
+        hopFieldsOf(edge).every((field) => keys.includes(field))
       )
     )
       return inline;
@@ -2764,46 +2791,22 @@ export class SqlQueries extends Queries {
     const key = bounded
       ? `${sharedKey(walk)} bounded ${sharedKey(bound[0]!)}`
       : sharedKey(walk);
-    let body = shared.byKey.get(key);
-    if (body === undefined) {
-      const name = `__shared_${shared.order.length}`;
-      body = {
-        name,
+    const { body, slot } = this.#placed(
+      shared,
+      key,
+      (name) => ({
         query: this.#reachingSet(name, edge, child, closure, stated, bounded),
         correlated: false,
         recursive: true,
-        slots: [],
-      };
-      shared.byKey.set(key, body);
-      shared.order.push(body);
-    }
-    if (selective) body.selective = true;
-    const { name } = body;
-    const use = quantified.of(
-      a.subqueries.existsCheck(
-        memberRead(a, name),
-        a.operators.and(
-          ...keys.map((field, index) =>
-            a.operators.eq(
-              this.column(model, field, parent),
-              a.identifiers.column(name, `k${index}`)
-            )
-          )
-        )
-      )
-    );
-    const slot = new SqlSlot(use);
-    body.slots.push({
-      slot,
+      }),
       inline,
-      use,
-      test: {
-        alias: parent,
-        columns: keys.map((field) => this.columnName(model, field)),
-        holds: quantified.holds,
-      },
-      within: this.#enclosing.at(-1),
-    });
+      quantified,
+      parent,
+      model,
+      keys,
+      this.#enclosing.at(-1)
+    );
+    if (selective) body.selective = true;
     return slot;
   }
   /**
@@ -2838,8 +2841,6 @@ export class SqlQueries extends Queries {
     const domain = this.domainOf(edge.target, "related");
     const related = (alias: string) =>
       domain ? [this.lowerSelector(domain, alias)!] : [];
-    const conditions = (all: readonly Sql[]) =>
-      all.length === 0 ? undefined : a.operators.and(...all);
     const bound = bounded
       ? (alias: string) => this.#setBound(model, alias)
       : undefined;
@@ -2854,7 +2855,7 @@ export class SqlQueries extends Queries {
           ", "
         ),
         from: this.#attached(model, child),
-        where: conditions([...stated, ...(bound?.(child) ?? [])]),
+        where: this.#all([...stated, ...(bound?.(child) ?? [])]),
       });
     else {
       const first = this.#predecessor(
@@ -2871,7 +2872,7 @@ export class SqlQueries extends Queries {
           ", "
         ),
         from: sql.join([this.#attached(model, child), ...first.joins], " "),
-        where: conditions([...related(child), ...stated]),
+        where: this.#all([...related(child), ...stated]),
       });
     }
     const set = this.alias();
@@ -2916,7 +2917,7 @@ export class SqlQueries extends Queries {
         ],
         " "
       ),
-      where: conditions(
+      where: this.#all(
         depth === false
           ? []
           : [a.operators.lt(carried(depthColumn), this.value(depth))]
@@ -3019,10 +3020,7 @@ export class SqlQueries extends Queries {
     const link = this.alias();
     const linked = a.joins.inner(
       this.#tableNamed(edge.table, link),
-      a.operators.and(
-        ...this.junctionSideConditions(edge.targetSide, link, into),
-        ...this.#linkBound(edge, link)
-      )
+      this.#side(edge, "targetSide", link, into, true)
     );
     const referenced = edge.sourceSide.members.map(
       (member) => member.referencedField
@@ -3085,10 +3083,7 @@ export class SqlQueries extends Queries {
           )
         )
       )}`,
-      correlation: a.operators.and(
-        ...this.junctionSideConditions(edge.sourceSide, link, parent),
-        ...this.#linkBound(edge, link)
-      ),
+      correlation: this.#side(edge, "sourceSide", link, parent, true),
     };
   }
   /**
@@ -3138,29 +3133,14 @@ export class SqlQueries extends Queries {
       where,
       limit: this.value(1),
     });
-    const key = sharedKey(query);
-    let body = shared.byKey.get(key);
-    if (body === undefined) {
-      body = {
-        name: `__shared_${shared.order.length}`,
-        query,
-        correlated: false,
-        slots: [],
-      };
-      shared.byKey.set(key, body);
-      shared.order.push(body);
-    }
-    const use = a.filters.some(
-      a.subqueries.existsCheck(memberRead(a, body.name), a.literals.true())
-    );
-    const slot = new SqlSlot(use);
-    body.slots.push({
-      slot,
-      inline: a.filters.some(inline),
-      use,
-      test: { alias, columns: [], holds: true },
-    });
-    return slot;
+    return this.#placed(
+      shared,
+      sharedKey(query),
+      () => ({ query, correlated: false }),
+      a.filters.some(inline),
+      { of: (read) => a.filters.some(read), holds: true },
+      alias
+    ).slot;
   }
   /**
    * MySQL ERROR 1093: a subquery may not read the table its own statement is
@@ -3180,7 +3160,7 @@ export class SqlQueries extends Queries {
     if (
       mutationTarget === undefined ||
       this.adapter.capabilities.supportsMutationTargetInSubquery ||
-      child["~"].names.sql !== mutationTarget
+      tableOf(child) !== mutationTarget
     )
       return subquery;
     return throughDerived(this.adapter, subquery, this.alias());
@@ -3311,10 +3291,7 @@ export class SqlQueries extends Queries {
             ", "
           ),
           from: this.#tableNamed(edge.table, junction),
-          where: a.operators.and(
-            ...this.junctionSideConditions(edge.sourceSide, junction, source),
-            ...this.#linkBound(edge, junction)
-          ),
+          where: this.#side(edge, "sourceSide", junction, source, true),
           forUpdate: held,
         })
       )
@@ -3866,11 +3843,16 @@ export class SqlQueries extends Queries {
     membership?: { edge: Membership; parent: Input },
     controls: SqlSelectControls = {}
   ): Query {
-    if (!this.sharesBodies)
-      return this.#select(model, args, membership, controls);
+    return this.#sharingQuery(() =>
+      this.#select(model, args, membership, controls)
+    );
+  }
+  /** The query `build` makes, its statement sharing its bodies where the adapter does. */
+  #sharingQuery(build: () => Query): Query {
+    if (!this.sharesBodies) return build();
     let query: Query | undefined;
     const statement = this.#sharingBodies(() => {
-      query = this.#select(model, args, membership, controls);
+      query = build();
       return query.sql;
     });
     return statement === query!.sql ? query! : { ...query!, sql: statement };
@@ -4014,11 +3996,11 @@ export class SqlQueries extends Queries {
       (operation !== "groupBy" && args.take !== undefined);
     if (!this.sharesBodies) return this.#read(model, operation, args);
     let read: Read | undefined;
-    const statement = this.#sharingBodies(() => {
+    const query = this.#sharingQuery(() => {
       read = this.#read(model, operation, args);
-      return read.query.sql;
+      return read.query;
     });
-    return { ...read!, query: { ...read!.query, sql: statement } };
+    return { ...read!, query };
   }
   #read(model: AnyModel, operation: ReadOperation, args: Arguments): Read {
     switch (operation) {
@@ -4393,14 +4375,9 @@ export class SqlQueries extends Queries {
     identities: Input[],
     operation: "createMany" | "updateMany" = "createMany"
   ): Query {
-    if (!this.sharesBodies)
-      return this.#selectSeries(prepared, identities, operation);
-    let query: Query | undefined;
-    const statement = this.#sharingBodies(() => {
-      query = this.#selectSeries(prepared, identities, operation);
-      return query.sql;
-    });
-    return statement === query!.sql ? query! : { ...query!, sql: statement };
+    return this.#sharingQuery(() =>
+      this.#selectSeries(prepared, identities, operation)
+    );
   }
   #selectSeries(
     prepared: PreparedProjection,
@@ -4707,16 +4684,7 @@ export class SqlQueries extends Queries {
     )
       return projected;
     const a = this.adapter;
-    const junction = this.alias();
-    const members = a.subqueries.scalar(
-      assembleAdapterSelect(a, {
-        columns: a.aggregates.count(),
-        from: this.#tableNamed(edge.table, junction),
-        where: a.operators.and(
-          ...this.junctionSideConditions(edge.sourceSide, junction, parentAlias)
-        ),
-      })
-    );
+    const members = this.#links(edge, this.alias(), parentAlias);
     return a.expressions.caseWhen(
       [
         {
@@ -4734,6 +4702,39 @@ export class SqlQueries extends Queries {
     const a = this.adapter;
     const junction = this.alias();
     const target = this.alias();
+    return this.#links(
+      edge,
+      junction,
+      parentAlias,
+      a.filters.none(
+        a.subqueries.existsCheck(
+          this.table(edge.target, target),
+          this.#side(edge, "targetSide", junction, target)
+        )
+      )
+    );
+  }
+  /** What a link of `edge`, read as `link`, holds where its `side` reaches the row `endpoint` names: among the links a row scope lets be read, where `bound`. */
+  #side(
+    edge: Extract<Membership, { kind: "junction" }>,
+    side: "sourceSide" | "targetSide",
+    link: string,
+    endpoint: string | Input | CarriedRow,
+    bound = false
+  ): Sql {
+    return this.adapter.operators.and(
+      ...this.junctionSideConditions(edge[side], link, endpoint),
+      ...(bound ? this.#linkBound(edge, link) : [])
+    );
+  }
+  /** How many links of `edge`, read as `junction`, the row `parentAlias` reads holds, among those `more` holds of. */
+  #links(
+    edge: Extract<Membership, { kind: "junction" }>,
+    junction: string,
+    parentAlias: string,
+    ...more: Sql[]
+  ): Sql {
+    const a = this.adapter;
     return a.subqueries.scalar(
       assembleAdapterSelect(a, {
         columns: a.aggregates.count(),
@@ -4744,18 +4745,7 @@ export class SqlQueries extends Queries {
             junction,
             parentAlias
           ),
-          a.filters.none(
-            a.subqueries.existsCheck(
-              this.table(edge.target, target),
-              a.operators.and(
-                ...this.junctionSideConditions(
-                  edge.targetSide,
-                  junction,
-                  target
-                )
-              )
-            )
-          )
+          ...more
         ),
       })
     );
@@ -4968,10 +4958,7 @@ export class SqlQueries extends Queries {
     const link = this.alias();
     return sql`${a.joins.inner(
       this.#tableNamed(edge.table, link),
-      a.operators.and(
-        ...this.junctionSideConditions(edge.sourceSide, link, current),
-        ...this.#linkBound(edge, link)
-      )
+      this.#side(edge, "sourceSide", link, current, true)
     )} ${this.#junctionTarget(edge, link, next)}`;
   }
   /**
@@ -5000,9 +4987,7 @@ export class SqlQueries extends Queries {
       link,
       from: this.#tableNamed(edge.table, link),
       joins: [this.#junctionTarget(edge, link, child)],
-      where: this.adapter.operators.and(
-        ...this.junctionSideConditions(edge.sourceSide, link, parent)
-      ),
+      where: this.#side(edge, "sourceSide", link, parent),
     };
   }
   /** A junction's target joined from `link`, under the {@link related} domain. */
@@ -5014,13 +4999,7 @@ export class SqlQueries extends Queries {
     const a = this.adapter;
     return a.joins.inner(
       this.table(edge.target, next),
-      this.#related(
-        edge,
-        next,
-        a.operators.and(
-          ...this.junctionSideConditions(edge.targetSide, link, next)
-        )
-      )
+      this.#related(edge, next, this.#side(edge, "targetSide", link, next))
     );
   }
 
@@ -5089,9 +5068,9 @@ export class SqlQueries extends Queries {
       this.sharesBodies &&
       (!self ||
         this.#rows.get(parentAlias) === model ||
-        this.#hopFields(edge).every((field) => keys.includes(field)));
+        hopFieldsOf(edge).every((field) => keys.includes(field)));
     const hopFields = carries
-      ? this.#hopFields(edge).filter((field) => !keys.includes(field))
+      ? hopFieldsOf(edge).filter((field) => !keys.includes(field))
       : [];
     const hopColumns = hopFields.map((_, index) => `__${scope}_hop_${index}`);
     const row = (alias: string) => [
@@ -5165,9 +5144,6 @@ export class SqlQueries extends Queries {
       );
     }
     const next = this.alias();
-    // An unbounded, unfiltered walk states no WHERE rather than `WHERE TRUE`.
-    const all = (bounds: Sql[]) =>
-      bounds.length === 0 ? undefined : a.operators.and(...bounds);
     const recursive = assembleAdapterSelect(a, {
       columns: sql.join(
         [
@@ -5185,7 +5161,7 @@ export class SqlQueries extends Queries {
         ],
         " "
       ),
-      where: all([
+      where: this.#all([
         ...(depth === false
           ? []
           : [a.operators.lt(carried(depthColumn), this.value(depth))]),
@@ -5203,16 +5179,11 @@ export class SqlQueries extends Queries {
       depthColumn,
     };
   }
-  /** The fields of the row it leaves that one hop of `edge` reads. */
-  #hopFields(edge: Membership): readonly string[] {
-    return edge.kind === "reference"
-      ? [
-          ...(edge.discriminator?.side === "source"
-            ? [edge.discriminator.field]
-            : []),
-          ...edge.pairs.map((pair) => pair.source),
-        ]
-      : edge.sourceSide.members.map((member) => member.referencedField);
+  /** Every one of `conditions`: none states no WHERE rather than `WHERE TRUE`. */
+  #all(conditions: readonly Sql[]): Sql | undefined {
+    return conditions.length === 0
+      ? undefined
+      : this.adapter.operators.and(...conditions);
   }
   /** Each expression aliased as the column of the same index. */
   #aliased(names: readonly string[], expressions: readonly Sql[]): Sql[] {
@@ -5530,41 +5501,38 @@ export class SqlQueries extends Queries {
   }
   /** `having` is the same predicate vocabulary over aggregate targets. */
   #prepareHaving(model: AnyModel, having: Input): PreparedPredicate {
-    return freeze({
-      kind: "and",
-      predicates: freeze(
-        Object.entries(having).flatMap(([key, value]) => {
-          if (value === undefined) return [];
-          // Prisma negates each NOT arm and conjoins the negations.
-          if (this.combinator(model, key))
-            return [
-              this.combine(
-                key,
-                entries(value).map((clause) =>
-                  this.#prepareHaving(model, record(clause))
-                )
-              ),
-            ];
-          const scalar = this.scalar(model, key);
-          const filter = record(value);
-          const aggregated = AGGREGATES.filter(
-            (name) => filter[name] !== undefined
-          );
-          // A field-keyed condition names a grouped column: admission refuses
-          // one outside `by` at its path (`args/aggregate.ts`).
-          if (aggregated.length === 0)
-            return [
-              this.prepareOperations(freeze({ kind: "column", scalar }), value),
-            ];
-          return aggregated.map((aggregate) =>
-            this.prepareOperations(
-              freeze({ kind: "aggregate", aggregate, scalar }),
-              filter[aggregate]
-            )
-          );
-        })
-      ),
-    });
+    return conjunction(
+      Object.entries(having).flatMap(([key, value]) => {
+        if (value === undefined) return [];
+        // Prisma negates each NOT arm and conjoins the negations.
+        if (this.combinator(model, key))
+          return [
+            this.combine(
+              key,
+              entries(value).map((clause) =>
+                this.#prepareHaving(model, record(clause))
+              )
+            ),
+          ];
+        const scalar = this.scalar(model, key);
+        const filter = record(value);
+        const aggregated = AGGREGATES.filter(
+          (name) => filter[name] !== undefined
+        );
+        // A field-keyed condition names a grouped column: admission refuses
+        // one outside `by` at its path (`args/aggregate.ts`).
+        if (aggregated.length === 0)
+          return [
+            this.prepareOperations(freeze({ kind: "column", scalar }), value),
+          ];
+        return aggregated.map((aggregate) =>
+          this.prepareOperations(
+            freeze({ kind: "aggregate", aggregate, scalar }),
+            filter[aggregate]
+          )
+        );
+      })
+    );
   }
   /**
    * A grouped read orders by a grouped field or by an aggregate; admission
