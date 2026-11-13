@@ -40,7 +40,6 @@ import {
   createDirectionOrderBy,
   createIdentifiers,
   createInsertStatement,
-  createMembershipOperators,
   createNullOperators,
   createNumericSetOperations,
   createRangeOperators,
@@ -117,6 +116,27 @@ const SAME_MEMBER = sql`"m"."value" = "v"."value" AND ("m"."type" <> 1 OR ${exac
 
 /** `caseSensitiveText`'s results, each to the operand it compares exactly. */
 const exactOperands = new WeakMap<Sql, Sql>();
+
+/**
+ * The text columns the engine marks (`identifiers.text`): a unique selector
+ * and a relation's join compare them exactly, as a filter does, where the
+ * server's own unique index and foreign key pad.
+ */
+const textColumns = new WeakSet<Sql>();
+
+/** `column`, marked as text. */
+const markText = (column: Sql): Sql => {
+  textColumns.add(column);
+  return column;
+};
+
+/** Whether `left = right` compares a marked text column. */
+const comparesText = (left: Sql, right: Sql): boolean =>
+  textColumns.has(left) || textColumns.has(right);
+
+/** `left = right`, text compared exactly; the native `=` seeks an index. */
+const exactTextEquals = (left: Sql, right: Sql): Sql =>
+  sql`(${left} = ${right} AND ${exactKey(left)} = ${exactKey(right)})`;
 
 /** A list literal's members, for the exact comparisons that take one. */
 const listMembers = new WeakMap<Sql, readonly Sql[]>();
@@ -249,9 +269,13 @@ const condition = (value: Sql): Sql => {
 };
 
 const standardComparisons = createComparisonOperators();
+const exactEq = exactly("=", standardComparisons.eq);
 const exactComparisons = {
   ...standardComparisons,
-  eq: exactly("=", standardComparisons.eq),
+  eq: (left: Sql, right: Sql): Sql =>
+    comparesText(left, right)
+      ? exactTextEquals(left, right)
+      : exactEq(left, right),
   neq: exactly("<>", standardComparisons.neq),
   lt: exactly("<", standardComparisons.lt),
   lte: exactly("<=", standardComparisons.lte),
@@ -485,6 +509,7 @@ export class MssqlAdapter implements DatabaseAdapter {
       ...identifiers,
       aliased: (expression: Sql, alias: string): Sql =>
         identifiers.aliased(asValue(expression), alias),
+      text: markText,
     };
     installGeoPointSql(this, undefined);
     installAdapterInternals(this, {
@@ -550,16 +575,20 @@ export class MssqlAdapter implements DatabaseAdapter {
         : sql`(${column} LIKE ${`${escapeLikeLiteral(value).replaceAll("[", "\\[")}%`} ESCAPE '\\' AND ${this.operators.startsWithText(column, sql`${value}`)})`,
     // The collation-native comparison seeks the index; the binary comparison
     // and the padded lengths decide.
-    exactTextEq: (column: Sql, value: Sql): Sql =>
-      sql`(${column} = ${value} AND ${exactKey(column)} = ${exactKey(value)})`,
+    exactTextEq: exactTextEquals,
     exactTextIn: (column: Sql, values: Sql): Sql =>
       membersOf(values).length > SEEKING_LIST_LIMIT
         ? sql`${exactKey(column)} IN ${keysOf(values)}`
         : sql`(${column} IN ${values} AND ${exactKey(column)} IN ${keysOf(values)})`,
 
-    ...createMembershipOperators(),
+    in: (column: Sql, values: Sql): Sql =>
+      textColumns.has(column)
+        ? this.operators.exactTextIn(column, values)
+        : sql`${column} IN ${values}`,
     notIn: (column: Sql, values: Sql): Sql => {
-      const operand = exactOperands.get(column);
+      const operand =
+        exactOperands.get(column) ??
+        (textColumns.has(column) ? column : undefined);
       return operand
         ? sql`${exactKey(operand)} NOT IN ${keysOf(values)}`
         : sql`${column} NOT IN ${values}`;
@@ -587,14 +616,14 @@ export class MssqlAdapter implements DatabaseAdapter {
     // calls them); a bound is spelled column by column.
     rows: (items: readonly Sql[], other: Sql | readonly Sql[]): Sql => {
       if (isSqlList(other)) return rowAtMost(items, other, 0);
-      if (items.length === 1) return sql`${items[0]!} IN (${other})`;
+      if (items.length === 1 && !textColumns.has(items[0]!))
+        return sql`${items[0]!} IN (${other})`;
       const names = items.map((_, index) => `r${index}`);
       return sql`EXISTS (SELECT 1 FROM (${other}) AS "r" (${sql.raw(
         names.map(quoteIdent).join(", ")
       )}) WHERE ${sql.join(
-        items.map(
-          (item, index) =>
-            sql`${sql.raw(`"r".${quoteIdent(names[index]!)}`)} = ${item}`
+        items.map((item, index) =>
+          this.operators.eq(sql.raw(`"r".${quoteIdent(names[index]!)}`), item)
         ),
         " AND "
       )})`;

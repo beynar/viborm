@@ -950,9 +950,23 @@ export class SqlQueries extends Queries {
   #pinned: ((name: string, alias?: string) => Sql) | undefined;
   column(model: AnyModel, field: string, alias?: string): Sql {
     const name = this.columnName(model, field);
-    return alias
-      ? this.adapter.identifiers.column(alias, name)
-      : this.adapter.identifiers.escape(name);
+    return this.#text(
+      model,
+      field,
+      alias
+        ? this.adapter.identifiers.column(alias, name)
+        : this.adapter.identifiers.escape(name)
+    );
+  }
+  /** `column`, marked where the adapter compares a text column by its mark. */
+  #text(model: AnyModel, field: string, column: Sql): Sql {
+    const mark = this.adapter.identifiers.text;
+    if (!mark) return column;
+    const { type, array } = physicalField(this.schema, model, field).scalar["~"]
+      .state;
+    return !array && (type === "string" || type === "enum")
+      ? mark(column)
+      : column;
   }
   /**
    * A caller's fragment with every {@link RowsOf} in it settled to this
@@ -2097,13 +2111,17 @@ export class SqlQueries extends Queries {
     };
   }
   #preparedColumn(scalar: PreparedScalar, alias?: string): Sql {
-    return this.#guarded(
+    return this.#text(
       scalar.model,
       scalar.field,
-      alias
-        ? this.adapter.identifiers.column(alias, scalar.physical.name)
-        : this.adapter.identifiers.escape(scalar.physical.name),
-      alias
+      this.#guarded(
+        scalar.model,
+        scalar.field,
+        alias
+          ? this.adapter.identifiers.column(alias, scalar.physical.name)
+          : this.adapter.identifiers.escape(scalar.physical.name),
+        alias
+      )
     );
   }
   /**

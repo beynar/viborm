@@ -19,8 +19,9 @@ Server schema into a schema document.
   includes are built with `STRING_AGG` in their page's order; upserts take
   the locked branch (no `MERGE`); a statement binds at most 2,098 values:
   bulk writes split to stay under it, and a read that needs more is refused.
-  Text filters keep trailing spaces significant, as on PostgreSQL; unique
-  selectors and relations follow SQL Server's padded comparison. A
+  Text filters, unique selectors and relations keep trailing spaces
+  significant, as on PostgreSQL, where SQL Server's own index and foreign
+  key ignore them. A
   transaction the server rolls back itself, even inside a savepoint, and a
   COMMIT whose outcome is unknown fail with a `TransactionError` saying so
   (`meta.reason`). Tables
@@ -42,6 +43,10 @@ Server schema into a schema document.
   whose SQL is unchanged.
 - **`capabilities.padsTrailingSpaces`**: SQL Server holds `"a"` and `"a "` as
   one unique value, and `distinct` and `groupBy` group them.
+- **`adapter.identifiers.text`**, an optional adapter member: the engine marks
+  each text column's reference with it, so that a dialect whose `=` pads
+  trailing spaces compares unique selectors and joins exactly. Absent
+  elsewhere, whose SQL is unchanged.
 
 ### Fixed
 

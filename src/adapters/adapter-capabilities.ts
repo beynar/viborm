@@ -137,10 +137,9 @@ export interface DatabaseAdapterCapabilities {
    * Whether the database compares text with trailing spaces ignored: SQL
    * Server pads the shorter operand of `=` and `<` with spaces under every
    * collation, so a unique key holds `"a"` and `"a "` as one value. VibORM's
-   * own text filters still tell the two apart (`equals`, `in`, `notIn`, the
-   * ranges, `mode: "insensitive"`, list membership); a key the database
-   * enforces, a unique selector or a join on it, `distinct` and `groupBy`
-   * cannot. Absent: false.
+   * own comparisons still tell the two apart (filters, unique selectors and
+   * joins, through `identifiers.text`); a key the database enforces,
+   * `distinct` and `groupBy` cannot. Absent: false.
    */
   padsTrailingSpaces?: boolean;
 }

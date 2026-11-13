@@ -143,6 +143,14 @@ export interface DatabaseAdapter {
     table: (tableName: string, alias?: string) => Sql;
     /** Create aliased expression: expr AS "alias" */
     aliased: (expression: Sql, alias: string) => Sql;
+    /**
+     * A text column's reference, as the engine hands it to every comparison:
+     * for a dialect whose `=` and `IN` pad trailing spaces
+     * (`capabilities.padsTrailingSpaces`), so that a unique selector and a
+     * relation's join compare its text exactly, as a filter does. The
+     * reference renders as it did. Absent elsewhere.
+     */
+    text?: (column: Sql) => Sql;
   };
 
   /**

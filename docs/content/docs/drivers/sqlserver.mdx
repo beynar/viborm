@@ -86,17 +86,19 @@ follow that column's collation.
 SQL Server compares strings padded with spaces, under every collation: to
 the server, `"ab"` and `"ab "` are one value.
 
-- **Filters** tell them apart, as on PostgreSQL: `equals`, `in`, `notIn`,
-  `lt`/`gt`, `mode: "insensitive"`, `contains`, `startsWith`, `endsWith`, list
-  membership and the same filters on a JSON string at a path.
-- **Unique selectors** do not: `findUnique`, `update`, `delete`, `upsert` and
-  `connect` address a row by its unique key as the server's unique index does,
-  so with only `"ab "` stored, `findUnique({ where: { slug: "ab" } })` returns
-  it and `delete` deletes it, while `findFirst` with the same `where` returns
-  `null`. A cursor's anchor is found the same way.
-- **Relations** do not either: SQL Server's foreign key accepts a child whose
-  key is `"ab "` under a parent `"ab"`, and `include`, `is`/`some` and `_count`
-  count it there, while a filter on the foreign-key column itself does not.
+- **VibORM tells them apart** everywhere it compares a text column, as on
+  PostgreSQL: filters (`equals`, `in`, `notIn`, `lt`/`gt`,
+  `mode: "insensitive"`, `contains`, `startsWith`, `endsWith`, list
+  membership, the same filters on a JSON string at a path), unique selectors
+  (`findUnique`, `update`, `delete`, `upsert`, `connect`, a cursor's anchor)
+  and relations (`include`, `is`/`some`, `_count`, many-to-many links).
+- **The server does not**: its unique index holds `"ab"` and `"ab "` as one
+  value, so with `"ab "` stored, `findUnique({ where: { slug: "ab" } })`
+  returns `null` and an `upsert` of `"ab"` takes its create arm, which the
+  index refuses with a `UniqueConstraintError`. Its foreign key accepts a
+  child keyed `"ab "` under a parent `"ab"`: VibORM does not join them, so
+  such a child's required relation reads `null`. Keep keys free of trailing
+  spaces, or trim them before writing.
 - **`distinct` and `groupBy`** group `"ab"` with `"ab "`, and **`orderBy`**
   ties them. The order is UTF-16 code-unit order, padded: `"ab\t"` sorts
   before `"ab"`, and a character outside the Basic Multilingual Plane (an
