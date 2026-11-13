@@ -525,78 +525,51 @@ function settleTargets(
   issues: SchemaValidationIssue[]
 ): Settlement {
   const endpoints: Endpoint[] = [];
-  let order = 0;
   for (const node of nodes) {
     const target = node.state.target;
-    if (target.kind === "model") {
+    // A plain relation settles one target, under no variant name.
+    const variants =
+      target.kind === "model" ? [undefined] : Object.keys(target.entries);
+    for (const variant of variants) {
       let settled: unknown;
       try {
-        settled = node.relation["~"].settleTarget();
+        settled = node.relation["~"].settleTarget(variant);
       } catch (thrown) {
-        issues.push(thrownTargetIssue("R006", node, undefined, thrown));
+        issues.push(
+          thrownTargetIssue(
+            variant === undefined ? "R006" : "P001",
+            node,
+            variant,
+            thrown
+          )
+        );
         return { endpoints, cause: thrownAsError(thrown) };
       }
       const registered = byIdentity.get(settled);
       if (!registered) {
-        issues.push(unregisteredTargetIssue(node));
+        issues.push(unregisteredTargetIssue(node, variant));
         continue;
       }
-      endpoints.push(makeEndpoint(node, undefined, registered, order++));
-      continue;
+      endpoints.push(makeEndpoint(node, variant, registered, endpoints.length));
     }
-    const cause = settleVariantTargets(node, byIdentity, issues, endpoints);
-    if (cause) return { endpoints, cause };
-    order = endpoints.length;
   }
   return { endpoints, cause: undefined };
 }
 
-/** A polymorphic slot's variants, apart so ordinary schemas never compile it. */
-function settleVariantTargets(
+function unregisteredTargetIssue(
   node: SlotNode,
-  byIdentity: ReadonlyMap<unknown, RegisteredModel>,
-  issues: SchemaValidationIssue[],
-  endpoints: Endpoint[]
-): Error | undefined {
-  // The caller settles `kind: "model"` targets itself.
-  const target = node.state.target as Exclude<
-    SlotNode["state"]["target"],
-    { kind: "model" }
-  >;
-  let order = endpoints.length;
-  for (const variant of Object.keys(target.entries)) {
-    let settled: unknown;
-    try {
-      settled = node.relation["~"].settleTarget(variant);
-    } catch (thrown) {
-      issues.push(thrownTargetIssue("P001", node, variant, thrown));
-      return thrownAsError(thrown);
-    }
-    const registered = byIdentity.get(settled);
-    if (!registered) {
-      issues.push({
-        code: "P001",
-        message: `Variant '${variant}' in '${node.modelName}.${node.field}' is not registered in the schema`,
-        severity: "error",
-        model: node.modelName,
-        relation: node.field,
-        repair: `Register the '${variant}' target model in the schema`,
-      });
-      continue;
-    }
-    endpoints.push(makeEndpoint(node, variant, registered, order++));
-  }
-}
-
-function unregisteredTargetIssue(node: SlotNode): SchemaValidationIssue {
-  return {
-    code: "R006",
-    message: `'${node.field}' in '${node.modelName}' targets a model that is not registered in the schema`,
-    severity: "error",
-    model: node.modelName,
-    relation: node.field,
-    repair: "Register the target model in the schema passed to the client",
-  };
+  variant: string | undefined
+): SchemaValidationIssue {
+  return refusal(
+    variant === undefined ? "R006" : "P001",
+    node,
+    variant === undefined
+      ? `'${node.field}' in '${node.modelName}' targets a model that is not registered in the schema`
+      : `Variant '${variant}' in '${node.modelName}.${node.field}' is not registered in the schema`,
+    variant === undefined
+      ? "Register the target model in the schema passed to the client"
+      : `Register the '${variant}' target model in the schema`
+  );
 }
 
 function makeEndpoint(
@@ -760,9 +733,33 @@ function resolveOrdinaryPair(
   }
 
   const partner = owner === first ? second : first;
-  // `owners` IS the endpoints whose foreign key is defined, so re-asking here
-  // would be a second owner for the fact that filter already decided.
+  const unique = first.cardinality === "one" && second.cardinality === "one";
+  const reference = storedReference(owner, partner, unique, publication);
+  return (
+    reference && {
+      kind: "foreignKey",
+      endpoints,
+      owner: owner.node.slot,
+      reference,
+      unique,
+    }
+  );
+}
+
+/**
+ * The reference `owner` stores towards `partner`, checked, and published as
+ * the fact later name planning reads. A unique key under a collection is
+ * refused here, for an ordinary pair and for a junction model's side alike.
+ */
+function storedReference(
+  owner: Endpoint,
+  partner: Endpoint,
+  unique: boolean,
+  publication: Publication
+): ResolvedStoredReference | undefined {
   const foreignKey = owner.node.state.foreignKey!;
+  // The owner IS an endpoint whose foreign key is defined: its caller chose it
+  // for that, so the fact is not asked again here.
   const check = checkStoredReference({
     modelName: owner.node.modelName,
     model: owner.node.slot.source,
@@ -771,11 +768,11 @@ function resolveOrdinaryPair(
     target: partner.node.slot.source,
     foreignKey,
   });
-  issues.push(...check.issues);
-
-  const unique = first.cardinality === "one" && second.cardinality === "one";
+  publication.issues.push(...check.issues);
   if (!unique && declaresUniqueKey(owner.node.slot.source, foreignKey.fields)) {
-    issues.push(uniqueCollectionKeyIssue(owner, partner, foreignKey));
+    publication.issues.push(
+      uniqueCollectionKeyIssue(owner, partner, foreignKey)
+    );
     return undefined;
   }
   if (!check.reference) return undefined;
@@ -788,13 +785,7 @@ function resolveOrdinaryPair(
     fields: check.reference.members.map((member) => member.foreignField),
     unique,
   });
-  return {
-    kind: "foreignKey",
-    endpoints,
-    owner: owner.node.slot,
-    reference: check.reference,
-    unique,
-  };
+  return check.reference;
 }
 
 function resolveJunctionEdge(
@@ -808,15 +799,15 @@ function resolveJunctionEdge(
     (endpoint) => endpoint.node.state.junction !== undefined
   );
   if (configured.length === 2) {
-    issues.push({
-      code: "R011",
-      message: `'${first.node.modelName}.${first.node.field}' and '${second.node.modelName}.${second.node.field}' both configure this junction; exactly one endpoint owns every override`,
-      severity: "error",
-      model: first.node.modelName,
-      relation: first.node.field,
-      candidates: [path(first), path(second)],
-      repair: "Keep the junction configuration on one endpoint only",
-    });
+    issues.push(
+      refusal(
+        "R011",
+        first.node,
+        `'${first.node.modelName}.${first.node.field}' and '${second.node.modelName}.${second.node.field}' both configure this junction; exactly one endpoint owns every override`,
+        "Keep the junction configuration on one endpoint only",
+        [path(first), path(second)]
+      )
+    );
     return undefined;
   }
   // `configured` holds the endpoints whose junction value is set, so the sole
@@ -871,18 +862,16 @@ function resolveJunctionEdge(
     publication.junctionNames.push(names.table, topology.reverseIndexName());
     return { kind: "junction", endpoints, topology };
   } catch (error) {
-    issues.push({
-      code:
+    issues.push(
+      refusal(
         error instanceof JunctionPhysicalNameError && error.kind === "collision"
           ? "JT003"
           : "JT002",
-      message: thrownAsError(error).message,
-      severity: "error",
-      model: first.node.modelName,
-      relation: first.node.field,
-      repair:
-        "Give this junction an explicit .through(...) table and distinct .source(...)/.target(...) tokens",
-    });
+        first.node,
+        thrownAsError(error).message,
+        "Give this junction an explicit .through(...) table and distinct .source(...)/.target(...) tokens"
+      )
+    );
     return undefined;
   }
 }
@@ -1019,19 +1008,36 @@ function sideActions(
   };
 }
 
+/** A refusal about one declared slot: every such issue is an error on it. */
+function refusal(
+  code: string,
+  at: { readonly modelName: string; readonly field: string },
+  message: string,
+  repair: string,
+  candidates?: readonly string[]
+): SchemaValidationIssue {
+  return {
+    code,
+    message,
+    severity: "error",
+    model: at.modelName,
+    relation: at.field,
+    ...(candidates && { candidates }),
+    repair,
+  };
+}
+
 function misplaced(
   endpoint: Endpoint,
   what: string,
   where: string
 ): SchemaValidationIssue {
-  return {
-    code: "R012",
-    message: `${describe(endpoint)} declares ${what}, which only ${where} may carry`,
-    severity: "error",
-    model: endpoint.node.modelName,
-    relation: endpoint.node.field,
-    repair: `Remove ${what} from '${endpoint.node.modelName}.${endpoint.node.field}'`,
-  };
+  return refusal(
+    "R012",
+    endpoint.node,
+    `${describe(endpoint)} declares ${what}, which only ${where} may carry`,
+    `Remove ${what} from '${endpoint.node.modelName}.${endpoint.node.field}'`
+  );
 }
 
 function declaresUniqueKey(
@@ -1374,39 +1380,19 @@ function sideReference(
   }
   // A side with an inverse whose ordinary edge did not publish said why there.
   if (!publication.junctionSides.has(side)) return undefined;
-  const foreignKey = side.node.state.foreignKey!;
-  const check = checkStoredReference({
-    modelName: side.node.modelName,
-    model: side.node.slot.source,
-    relationName: side.node.field,
-    targetName: hoppedFrom.node.modelName,
-    target: hoppedFrom.node.slot.source,
-    foreignKey,
-  });
-  publication.issues.push(...check.issues);
-  if (declaresUniqueKey(side.node.slot.source, foreignKey.fields)) {
-    publication.issues.push(
-      uniqueCollectionKeyIssue(side, hoppedFrom, foreignKey)
-    );
-    return undefined;
-  }
-  if (!check.reference) return undefined;
-  publication.storedReferences.push({
-    owner: side.node.slot.source,
-    fields: check.reference.members.map((member) => member.foreignField),
-    unique: false,
-  });
+  const reference = storedReference(side, hoppedFrom, false, publication);
+  if (!reference) return undefined;
   const edge: ResolvedOrdinaryEdge = {
     kind: "foreignKey",
     endpoints: [side.node.slot, hoppedFrom.node.slot],
     owner: side.node.slot,
-    reference: check.reference,
+    reference,
     unique: false,
     junctionSide: true,
   };
   publication.edges.push(edge);
   publication.slots.push({ slot: side.node.slot, edge });
-  return check.reference;
+  return reference;
 }
 
 function resolveModelJunction(
@@ -1677,14 +1663,14 @@ function resolveRowCarrier(
     [...bound.values()].map((inverse) => inverse.cardinality)
   );
   if (cardinalities.size > 1) {
-    publication.issues.push({
-      code: "P012",
-      message: `Variant relation '${carrier.field}' in '${carrier.modelName}' cannot mix to-one and to-many inverses; one composite index serves the whole carrier`,
-      severity: "error",
-      model: carrier.modelName,
-      relation: carrier.field,
-      repair: "Give every bound inverse of this carrier the same cardinality",
-    });
+    publication.issues.push(
+      refusal(
+        "P012",
+        carrier,
+        `Variant relation '${carrier.field}' in '${carrier.modelName}' cannot mix to-one and to-many inverses; one composite index serves the whole carrier`,
+        "Give every bound inverse of this carrier the same cardinality"
+      )
+    );
     return undefined;
   }
   const storage = checkVariantRowStorage({
@@ -1838,71 +1824,60 @@ function buildIndex(
 // them.
 
 function missingInverseIssue(endpoint: Endpoint): SchemaValidationIssue {
-  return {
-    code: "R002",
-    message: `'${endpoint.node.modelName}.${endpoint.node.field}' has no inverse relation in '${endpoint.targetName}'`,
-    severity: "error",
-    model: endpoint.node.modelName,
-    relation: endpoint.node.field,
-    repair: `Declare a slot on '${endpoint.targetName}' whose target is '${endpoint.node.modelName}'`,
-  };
+  return refusal(
+    "R002",
+    endpoint.node,
+    `'${endpoint.node.modelName}.${endpoint.node.field}' has no inverse relation in '${endpoint.targetName}'`,
+    `Declare a slot on '${endpoint.targetName}' whose target is '${endpoint.node.modelName}'`
+  );
 }
 
 function competingInverseIssue(
   endpoint: Endpoint,
   competing: readonly Endpoint[]
 ): SchemaValidationIssue {
-  return {
-    code: "R009",
-    message: `${describe(endpoint)} has ${competing.length} competing inverse candidates in '${endpoint.targetName}'`,
-    severity: "error",
-    model: endpoint.node.modelName,
-    relation: endpoint.node.field,
-    candidates: competing.map(path),
-    repair:
-      "Give each intended pair the same distinct .name(...) on both endpoints",
-  };
+  return refusal(
+    "R009",
+    endpoint.node,
+    `${describe(endpoint)} has ${competing.length} competing inverse candidates in '${endpoint.targetName}'`,
+    "Give each intended pair the same distinct .name(...) on both endpoints",
+    competing.map(path)
+  );
 }
 
 function nameMismatchIssue(
   endpoint: Endpoint,
   candidates: readonly Endpoint[]
 ): SchemaValidationIssue {
-  return {
-    code: "R010",
-    message: `${describe(endpoint)} claims relation name ${label(endpoint.name)}, but no candidate in '${endpoint.targetName}' claims the same name`,
-    severity: "error",
-    model: endpoint.node.modelName,
-    relation: endpoint.node.field,
-    candidates: candidates.map(path),
-    repair: "Spell the same .name(...) on both endpoints, or omit it on both",
-  };
+  return refusal(
+    "R010",
+    endpoint.node,
+    `${describe(endpoint)} claims relation name ${label(endpoint.name)}, but no candidate in '${endpoint.targetName}' claims the same name`,
+    "Spell the same .name(...) on both endpoints, or omit it on both",
+    candidates.map(path)
+  );
 }
 
 function doubleOwnerIssue(
   first: Endpoint,
   second: Endpoint
 ): SchemaValidationIssue {
-  return {
-    code: "CM003",
-    message: `'${first.node.modelName}.${first.node.field}' and '${second.node.modelName}.${second.node.field}' both complete a foreign key; exactly one endpoint owns it`,
-    severity: "error",
-    model: first.node.modelName,
-    relation: first.node.field,
-    candidates: [path(first), path(second)],
-    repair: "Drop .fields(...).references(...) from one endpoint",
-  };
+  return refusal(
+    "CM003",
+    first.node,
+    `'${first.node.modelName}.${first.node.field}' and '${second.node.modelName}.${second.node.field}' both complete a foreign key; exactly one endpoint owns it`,
+    "Drop .fields(...).references(...) from one endpoint",
+    [path(first), path(second)]
+  );
 }
 
 function missingForeignKeyIssue(required: Endpoint): SchemaValidationIssue {
-  return {
-    code: "FK004",
-    message: `'${required.node.modelName}.${required.node.field}' stores no foreign key; one endpoint of this edge must complete .fields(...).references(...)`,
-    severity: "error",
-    model: required.node.modelName,
-    relation: required.node.field,
-    repair: `Complete .fields(...).references(...) on '${required.node.modelName}.${required.node.field}'`,
-  };
+  return refusal(
+    "FK004",
+    required.node,
+    `'${required.node.modelName}.${required.node.field}' stores no foreign key; one endpoint of this edge must complete .fields(...).references(...)`,
+    `Complete .fields(...).references(...) on '${required.node.modelName}.${required.node.field}'`
+  );
 }
 
 function uniqueCollectionKeyIssue(
@@ -1910,14 +1885,12 @@ function uniqueCollectionKeyIssue(
   partner: Endpoint,
   foreignKey: NonNullable<Endpoint["node"]["state"]["foreignKey"]>
 ): SchemaValidationIssue {
-  return {
-    code: "FK009",
-    message: `'${owner.node.modelName}.${owner.node.field}' stores a unique foreign key, which contradicts the collection '${partner.node.modelName}.${partner.node.field}' declares`,
-    severity: "error",
-    model: owner.node.modelName,
-    relation: owner.node.field,
-    repair: `Drop the unique key on [${foreignKey.fields.join(", ")}], or declare '${partner.node.modelName}.${partner.node.field}' with s.toOne`,
-  };
+  return refusal(
+    "FK009",
+    owner.node,
+    `'${owner.node.modelName}.${owner.node.field}' stores a unique foreign key, which contradicts the collection '${partner.node.modelName}.${partner.node.field}' declares`,
+    `Drop the unique key on [${foreignKey.fields.join(", ")}], or declare '${partner.node.modelName}.${partner.node.field}' with s.toOne`
+  );
 }
 
 function requiredCycleIssue(cycle: readonly string[]): SchemaValidationIssue {
