@@ -979,6 +979,11 @@ export class InvalidScalarResult extends TypeError {
   }
 }
 
+/** Refuses a value a provider returned: it is not of the kind the read asked for. */
+function refuseResult(scalarType: string, reason: string): never {
+  throw new InvalidScalarResult(scalarType, reason);
+}
+
 /**
  * A recursive projection decoded more occurrences under one outer row than
  * its budget (`recurse.maxOccurrences`). The decoder knows the slot; as for
@@ -1763,7 +1768,7 @@ export abstract class Queries {
           error instanceof VibORMError
         )
           throw error;
-        throw new InvalidScalarResult(type, "provider scalar decoding failed");
+        refuseResult(type, "provider scalar decoding failed");
       }
     };
   }
@@ -3514,10 +3519,7 @@ export abstract class Queries {
   ): unknown {
     const carrier = providerDocument(providerJson(value));
     if (!carrier)
-      throw new InvalidScalarResult(
-        "recursive carrier",
-        "the carrier is not an object"
-      );
+      refuseResult("recursive carrier", "the carrier is not an object");
     const root = own(carrier, RECURSIVE_CARRIER.root);
     const rawNodes = own(carrier, RECURSIVE_CARRIER.nodes);
     const rawEdges = own(carrier, RECURSIVE_CARRIER.edges);
@@ -3528,14 +3530,14 @@ export abstract class Queries {
         Array.isArray(rawEdges)
       )
     )
-      throw new InvalidScalarResult(
+      refuseResult(
         "recursive carrier",
         "the carrier's root, nodes or edges member is not an array"
       );
 
     const identity = (tuple: unknown): string => {
       if (!Array.isArray(tuple) || tuple.length !== shape.identity.length)
-        throw new InvalidScalarResult(
+        refuseResult(
           "recursive identity",
           "an identity is not a tuple of the key's width"
         );
@@ -3553,13 +3555,10 @@ export abstract class Queries {
     for (const rawNode of rawNodes) {
       const node = providerDocument(rawNode);
       if (!node)
-        throw new InvalidScalarResult(
-          "recursive node",
-          "a node entry is not an object"
-        );
+        refuseResult("recursive node", "a node entry is not an object");
       const key = identity(own(node, RECURSIVE_CARRIER.key));
       if (nodes.has(key))
-        throw new InvalidScalarResult(
+        refuseResult(
           "duplicate recursive node",
           "two nodes carry the same identity"
         );
@@ -3572,14 +3571,11 @@ export abstract class Queries {
     for (const rawEdge of rawEdges) {
       const edge = providerDocument(rawEdge);
       if (!edge)
-        throw new InvalidScalarResult(
-          "recursive edge",
-          "an edge entry is not an object"
-        );
+        refuseResult("recursive edge", "an edge entry is not an object");
       const parent = identity(own(edge, RECURSIVE_CARRIER.parent));
       const child = identity(own(edge, RECURSIVE_CARRIER.child));
       if (!nodes.has(child))
-        throw new InvalidScalarResult(
+        refuseResult(
           "recursive edge endpoint",
           "an edge's child is not a carried node"
         );
@@ -3587,7 +3583,7 @@ export abstract class Queries {
       let depth: number | undefined;
       if (shape.recurrence.depth === false) {
         if (rawDepth !== undefined)
-          throw new InvalidScalarResult(
+          refuseResult(
             "exhaustive recursive depth",
             "an exhaustive carrier states an edge depth"
           );
@@ -3598,7 +3594,7 @@ export abstract class Queries {
           rawDepth < 1 ||
           rawDepth > shape.recurrence.depth
         )
-          throw new InvalidScalarResult(
+          refuseResult(
             "recursive depth",
             "an edge depth is not an integer from 1 to the cutoff"
           );
@@ -3606,7 +3602,7 @@ export abstract class Queries {
       }
       const fact = JSON.stringify([parent, child, depth ?? null]);
       if (facts.has(fact))
-        throw new InvalidScalarResult(
+        refuseResult(
           "duplicate recursive edge",
           "an edge fact is carried twice"
         );
@@ -3631,13 +3627,13 @@ export abstract class Queries {
     const successors = new Map<string, readonly string[]>();
     for (const [parent, entries] of edges) {
       if (parent !== rootKey && !nodes.has(parent))
-        throw new InvalidScalarResult(
+        refuseResult(
           "recursive edge endpoint",
           "an edge's parent is neither the root nor a carried node"
         );
       const unique = [...new Set(entries.map((entry) => entry.child))];
       if (!shape.many && unique.length > 1)
-        throw new InvalidScalarResult(
+        refuseResult(
           "recursive singular relation",
           "a singular parent has several successors"
         );
@@ -3693,18 +3689,18 @@ export abstract class Queries {
         carriesRepeatedKey(shape.recurrence.depth, level) &&
         children.size !== (successors.get(parent)?.length ?? 0)
       )
-        throw new InvalidScalarResult(
+        refuseResult(
           "recursive depth",
           "a hop below the cutoff omits some of its parent's children"
         );
     }
     if (shape.recurrence.depth !== false && consumed.size !== facts.size)
-      throw new InvalidScalarResult(
+      refuseResult(
         "recursive depth",
         "an edge is not reachable at its recorded depth"
       );
     if (reached.size !== nodes.size)
-      throw new InvalidScalarResult(
+      refuseResult(
         "unreachable recursive node",
         "a carried node is not reachable from the root"
       );
@@ -3763,7 +3759,7 @@ export abstract class Queries {
       active.add(key);
       const decoded = readRow(nodes.get(key));
       if (decoded === null)
-        throw new InvalidScalarResult("recursive row", "a node's row is null");
+        refuseResult("recursive row", "a node's row is null");
       const depth = from + 1;
       stack.push({
         key,
@@ -3849,10 +3845,7 @@ export abstract class Queries {
         // 2026-09-25).
         const variants = providerDocument(providerJson(value));
         if (!variants)
-          throw new InvalidScalarResult(
-            "polymorphic slot",
-            "the slot is not an object"
-          );
+          refuseResult("polymorphic slot", "the slot is not an object");
         // The integrity probe first, and before any arm: a membership whose
         // row is gone is a fact about the SLOT, so `only` — which selects what
         // is read — cannot make it unobservable (Arnaud's D-26). One refusal,
@@ -3864,7 +3857,7 @@ export abstract class Queries {
         if (evidence === undefined) return variants;
         const orphans = providerDocument(evidence);
         if (!orphans)
-          throw new InvalidScalarResult(
+          refuseResult(
             "polymorphic slot",
             "the integrity entry is not an object"
           );
@@ -3948,10 +3941,7 @@ export abstract class Queries {
       const positions = fields.map((field) => columns.lastIndexOf(field));
       return (value) => {
         if (!Array.isArray(value))
-          throw new InvalidScalarResult(
-            "row",
-            "a positional row is not an array"
-          );
+          refuseResult("row", "a positional row is not an array");
         const document: Input = {};
         for (let index = 0; index < fields.length; index++) {
           const position = positions[index]!;
@@ -3966,17 +3956,11 @@ export abstract class Queries {
       const source = providerDocument(providerJson(value));
       if (source === null) {
         if (shape.nullable === false)
-          throw new InvalidScalarResult(
-            "row",
-            "a document the statement always builds is null"
-          );
+          refuseResult("row", "a document the statement always builds is null");
         return null;
       }
       if (source === undefined)
-        throw new InvalidScalarResult(
-          "row",
-          "a requested document is not a provider row"
-        );
+        refuseResult("row", "a requested document is not a provider row");
       // OWN-key semantics ({@link own}): a plain member read on a
       // `JSON.parse` result finds `Object.prototype`'s own members, so a
       // field named `toString` the provider OMITTED would inherit a function
@@ -4012,7 +3996,7 @@ export abstract class Queries {
     return (value) => {
       const decoded = providerJson(value);
       if (!Array.isArray(decoded))
-        throw new InvalidScalarResult(
+        refuseResult(
           "collection",
           "a requested relation is not a provider array"
         );
@@ -4041,13 +4025,12 @@ export abstract class Queries {
       if (raw === null) {
         if (nullable) return null;
         if (!allowsJsonNull)
-          throw new InvalidScalarResult(
+          refuseResult(
             leaf.type,
             leaf.list ? "a required list is null" : "a required scalar is null"
           );
       }
-      if (raw === undefined)
-        throw new InvalidScalarResult(leaf.type, "the value is absent");
+      if (raw === undefined) refuseResult(leaf.type, "the value is absent");
       return readValue(provider === undefined ? raw : provider(raw));
     };
     const join = this.splitSum(leaf)?.join;
@@ -4221,7 +4204,7 @@ export abstract class Queries {
           this.adapter.result
         );
         if (members === undefined)
-          throw new InvalidScalarResult(
+          refuseResult(
             leaf.type,
             "the value is not an exact decimal list in this column's declared domain"
           );
@@ -4243,16 +4226,10 @@ export abstract class Queries {
             ? providerArrayMembers(value)
             : JSON.parse(value);
       if (!Array.isArray(items))
-        throw new InvalidScalarResult(
-          leaf.type,
-          "a list scalar did not return an array"
-        );
+        refuseResult(leaf.type, "a list scalar did not return an array");
       return items.map((item, index) => {
         if (!Object.hasOwn(items, index))
-          throw new InvalidScalarResult(
-            leaf.type,
-            "a list scalar returned a sparse array"
-          );
+          refuseResult(leaf.type, "a list scalar returned a sparse array");
         return readMember(item);
       });
     };
@@ -4284,12 +4261,12 @@ export abstract class Queries {
       return value;
     if (typeof value === "number") {
       if (Number.isFinite(value)) return value;
-      throw new InvalidScalarResult("json", "a JSON number is not finite");
+      refuseResult("json", "a JSON number is not finite");
     }
     if (typeof value === "bigint") {
       const parsed = Number(value);
       if (Number.isFinite(parsed)) return parsed;
-      throw new InvalidScalarResult(
+      refuseResult(
         "json",
         "a JSON integer is outside the finite Number domain"
       );
@@ -4299,7 +4276,7 @@ export abstract class Queries {
       const members = new Array<unknown>(value.length);
       for (let index = 0; index < value.length; index += 1) {
         if (!Object.hasOwn(value, index))
-          throw new InvalidScalarResult("json", "a JSON array is sparse");
+          refuseResult("json", "a JSON array is sparse");
         members[index] = this.jsonValue(value[index], path);
       }
       path.pop();
@@ -4325,10 +4302,7 @@ export abstract class Queries {
       path.pop();
       return members;
     }
-    throw new InvalidScalarResult(
-      "json",
-      "the value is outside the JSON value domain"
-    );
+    refuseResult("json", "the value is outside the JSON value domain");
   }
   /**
    * The one entry into a JSON container: the containers already being
@@ -4342,7 +4316,7 @@ export abstract class Queries {
   ): object[] {
     const path = enclosing ?? [];
     if (path.includes(container))
-      throw new InvalidScalarResult("json", "a JSON value contains itself");
+      refuseResult("json", "a JSON value contains itself");
     path.push(container);
     return path;
   }
@@ -4364,17 +4338,14 @@ const TRAILING_FRACTION_ZEROS = /\.?0+$/;
 
 function decodeString(value: unknown): unknown {
   if (typeof value === "string") return value;
-  throw new InvalidScalarResult("string", "the value is not a string");
+  refuseResult("string", "the value is not a string");
 }
 
 function decodeBoolean(value: unknown): unknown {
   if (typeof value === "boolean") return value;
   if (value === 0 || value === 0n) return false;
   if (value === 1 || value === 1n) return true;
-  throw new InvalidScalarResult(
-    "boolean",
-    "the value is not true, false, zero, or one"
-  );
+  refuseResult("boolean", "the value is not true, false, zero, or one");
 }
 
 /** `sum`: an int `_sum` past 2^53 reads as the nearest double (a lossy sum). */
@@ -4386,15 +4357,9 @@ function decodeInt(value: unknown, sum = false): unknown {
         ? Number(value)
         : value;
   if (typeof parsed !== "number")
-    throw new InvalidScalarResult(
-      "int",
-      "the value is not a canonical integer"
-    );
+    refuseResult("int", "the value is not a canonical integer");
   if (!(sum ? Number.isInteger(parsed) : Number.isSafeInteger(parsed)))
-    throw new InvalidScalarResult(
-      "int",
-      "the integer is outside the safe range"
-    );
+    refuseResult("int", "the integer is outside the safe range");
   return parsed;
 }
 
@@ -4404,20 +4369,14 @@ function decodeBigint(value: unknown): bigint {
     return BigInt(value);
   if (typeof value === "string" && INTEGER_TEXT.test(value))
     return BigInt(value);
-  throw new InvalidScalarResult(
-    "bigint",
-    "the value is not a canonical integer"
-  );
+  refuseResult("bigint", "the value is not a canonical integer");
 }
 
 function decodeNumber(value: unknown): number {
   const parsed =
     typeof value === "string" && value.trim() !== "" ? Number(value) : value;
   if (typeof parsed !== "number" || !Number.isFinite(parsed))
-    throw new InvalidScalarResult(
-      "number",
-      "the value is not a canonical finite number"
-    );
+    refuseResult("number", "the value is not a canonical finite number");
   return parsed;
 }
 
@@ -4462,16 +4421,13 @@ function joinIntegerSum(value: unknown, type: string): string | null {
 
 function sumParts(value: unknown, type: string): [unknown, unknown] {
   if (!Array.isArray(value) || value.length !== 2)
-    throw new InvalidScalarResult(type, "the sum is not its two parts");
+    refuseResult(type, "the sum is not its two parts");
   return [value[0], value[1]];
 }
 
 function decodeTime(value: unknown): string {
   if (typeof value !== "string")
-    throw new InvalidScalarResult(
-      "time",
-      "the value is not a valid provider time"
-    );
+    refuseResult("time", "the value is not a valid provider time");
   const match = TIME_TEXT.exec(value);
   if (
     !(
@@ -4479,20 +4435,14 @@ function decodeTime(value: unknown): string {
       isDateTimeClock(Number(match[1]), Number(match[2]), Number(match[3]))
     )
   )
-    throw new InvalidScalarResult(
-      "time",
-      "the value is not a valid provider time"
-    );
+    refuseResult("time", "the value is not a valid provider time");
   if (Number(match[4] ?? 0) > 23 || Number(match[5] ?? 0) > 59)
-    throw new InvalidScalarResult("time", "the timezone suffix is invalid");
+    refuseResult("time", "the timezone suffix is invalid");
   let time = value.replace(TIME_ZONE_SUFFIX, "");
   if (time.includes(".")) time = time.replace(TRAILING_FRACTION_ZEROS, "");
   const fraction = time.split(".")[1];
   if (fraction && fraction.length > 3)
-    throw new InvalidScalarResult(
-      "time",
-      "the normalized precision exceeds milliseconds"
-    );
+    refuseResult("time", "the normalized precision exceeds milliseconds");
   return time;
 }
 
@@ -4504,16 +4454,13 @@ function decodeTime(value: unknown): string {
 function decodeBlob(value: unknown): Uint8Array {
   const { bytes } = normalizeBinaryValue(value);
   if (bytes) return bytes;
-  throw new InvalidScalarResult("blob", "the value is not a binary value");
+  refuseResult("blob", "the value is not a binary value");
 }
 
 /** One dimension of a provider's own array output text: `{a,"b,c",NULL}`. */
 function providerArrayMembers(text: string): unknown[] {
   if (!(text.startsWith("{") && text.endsWith("}")))
-    throw new InvalidScalarResult(
-      "enum",
-      "a list scalar did not return an array"
-    );
+    refuseResult("enum", "a list scalar did not return an array");
   const body = text.slice(1, -1);
   if (body.length === 0) return [];
   const members: unknown[] = [];
