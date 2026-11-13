@@ -6,7 +6,9 @@
  * before its form was exact. Set MSSQL_TEST_CONNECTION_STRING to run.
  */
 
+import { MssqlAdapter } from "@adapters/databases/mssql/mssql-adapter";
 import { createClient } from "@client/client";
+import { QueryEngineError } from "@errors";
 import { s } from "@schema";
 import { sql } from "@sql";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -131,6 +133,33 @@ describeIf("SQL Server compares values exactly", () => {
     // A tab is below the space: "ab\t" < "ab ".
     expect(await at({ lt: "ab " })).toEqual(["1-ab", "3-AB", "6-ab-tab"]);
     expect(await at({ gte: "ab ", lte: "ab " })).toEqual(["2-ab-space"]);
+  });
+
+  test("a text `in` binds each member once past 1,049 members: 2,000 run", async () => {
+    const fillers = Array.from({ length: 1999 }, (_, n) => `filler-${n}`);
+    expect(await ids({ name: { in: ["ab ", ...fillers] } })).toEqual([
+      "2-ab-space",
+    ]);
+    expect(await ids({ name: { in: ["ab", ...fillers] } })).toEqual(["1-ab"]);
+    expect(await ids({ name: { notIn: ["ab", "doc", ...fillers] } })).toEqual([
+      "2-ab-space",
+      "3-AB",
+      "4-abc",
+      "6-ab-tab",
+    ]);
+  });
+
+  test("an exact list comparison refuses a list it cannot read the members of", () => {
+    const adapter = new MssqlAdapter();
+    const column = adapter.expressions.caseSensitiveText(sql.raw('"name"'));
+    // A list `literals.list` did not build: its keys cannot be formed.
+    const foreign = sql`(${"ab"})`;
+    expect(() =>
+      adapter.operators.exactTextIn(sql.raw('"name"'), foreign)
+    ).toThrow(QueryEngineError);
+    expect(() => adapter.operators.notIn(column, foreign)).toThrow(
+      QueryEngineError
+    );
   });
 
   test("a list member keeps its trailing spaces", async () => {

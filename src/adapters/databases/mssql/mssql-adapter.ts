@@ -1,4 +1,8 @@
-import { FeatureNotSupportedError, unsupportedVector } from "@errors";
+import {
+  FeatureNotSupportedError,
+  QueryEngineError,
+  unsupportedVector,
+} from "@errors";
 import { Sql, sql } from "@sql";
 import type { DecimalDescriptor } from "@validation/primitives/decimal-codec";
 import { encodePhysicalDecimal } from "@validation/primitives/decimal-codec";
@@ -117,10 +121,27 @@ const exactOperands = new WeakMap<Sql, Sql>();
 /** A list literal's members, for the exact comparisons that take one. */
 const listMembers = new WeakMap<Sql, readonly Sql[]>();
 
-const keysOf = (list: Sql): Sql | undefined => {
+/** A list's members, which an exact text list comparison needs. */
+const membersOf = (list: Sql): readonly Sql[] => {
   const members = listMembers.get(list);
-  return members && sql`(${sql.join(members.map(exactKey), ", ")})`;
+  // A list built elsewhere would compare keys with raw values: nothing.
+  if (!members)
+    throw new QueryEngineError(
+      "An exact text list comparison needs a list built by `literals.list`."
+    );
+  return members;
 };
+
+const keysOf = (list: Sql): Sql =>
+  sql`(${sql.join(membersOf(list).map(exactKey), ", ")})`;
+
+/**
+ * The longest text list `in` keeps beside its keys a collation-native
+ * `IN`, which an index can seek: each member is then bound twice, so past
+ * half the bind budget (2,098) the list is compared by its keys alone,
+ * each member bound once.
+ */
+const SEEKING_LIST_LIMIT = 1049;
 
 /**
  * The longest prefix a `LIKE` pattern carries: a pattern is at most 4,000
@@ -532,14 +553,15 @@ export class MssqlAdapter implements DatabaseAdapter {
     exactTextEq: (column: Sql, value: Sql): Sql =>
       sql`(${column} = ${value} AND ${exactKey(column)} = ${exactKey(value)})`,
     exactTextIn: (column: Sql, values: Sql): Sql =>
-      sql`(${column} IN ${values} AND ${exactKey(column)} IN ${keysOf(values) ?? values})`,
+      membersOf(values).length > SEEKING_LIST_LIMIT
+        ? sql`${exactKey(column)} IN ${keysOf(values)}`
+        : sql`(${column} IN ${values} AND ${exactKey(column)} IN ${keysOf(values)})`,
 
     ...createMembershipOperators(),
     notIn: (column: Sql, values: Sql): Sql => {
       const operand = exactOperands.get(column);
-      const keys = operand && keysOf(values);
-      return operand && keys
-        ? sql`${exactKey(operand)} NOT IN ${keys}`
+      return operand
+        ? sql`${exactKey(operand)} NOT IN ${keysOf(values)}`
         : sql`${column} NOT IN ${values}`;
     },
     ...createNullOperators(),
