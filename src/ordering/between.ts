@@ -124,7 +124,8 @@ export const spellings: Readonly<Record<SqlDialect, Spelling>> = {
       sql`(SELECT CASE WHEN n > 999999999 THEN NULL ELSE CONCAT(CHAR_LENGTH(n), n, TRIM(TRAILING '0' FROM LPAD(FLOOR(RAND() * 1000000), 6, '0'))) END FROM (SELECT CASE WHEN k IS NULL OR LEFT(k, 1) = '0' THEN ${first} ELSE CAST(SUBSTRING(k, 2, CAST(LEFT(k, 1) AS UNSIGNED)) AS UNSIGNED) + ${next} END AS n FROM (${last}) AS m) AS x)`,
   },
   // T-SQL: SUBSTRING and LEN, no boolean literal, no WITH inside a derived
-  // table, and RAND() drawn once per statement (NEWID() is per row). LTRIM
+  // table, and RAND() drawn once per statement (NEWID() is per row; its
+  // CHECKSUM taken modulo first, since ABS of the least INT overflows). LTRIM
   // and RTRIM take the characters to trim from SQL Server 2022.
   mssql: {
     same: (a, b) => sql`(${a} = ${b} OR (${a} IS NULL AND ${b} IS NULL))`,
@@ -144,7 +145,7 @@ export const spellings: Readonly<Record<SqlDialect, Spelling>> = {
     selfJoin: (body, columns, on) =>
       sql`SELECT ${columns} FROM (${body}) AS t JOIN (${body}) AS m ON ${on}`,
     appended: (last, first, next) =>
-      sql`(SELECT CASE WHEN n > 999999999 THEN NULL ELSE CONCAT(LEN(CAST(n AS VARCHAR(10))), n, RTRIM(RIGHT(CONCAT('00000', ABS(CHECKSUM(NEWID())) % 1000000), 6), '0')) END FROM (SELECT CASE WHEN k IS NULL OR LEFT(k, 1) = '0' THEN ${first} ELSE CAST(SUBSTRING(k, 2, CAST(LEFT(k, 1) AS INT)) AS BIGINT) + ${next} END AS n FROM (${last}) AS m) AS x)`,
+      sql`(SELECT CASE WHEN n > 999999999 THEN NULL ELSE CONCAT(LEN(CAST(n AS VARCHAR(10))), n, RTRIM(RIGHT(CONCAT('00000', ABS(CHECKSUM(NEWID()) % 1000000)), 6), '0')) END FROM (SELECT CASE WHEN k IS NULL OR LEFT(k, 1) = '0' THEN ${first} ELSE CAST(SUBSTRING(k, 2, CAST(LEFT(k, 1) AS INT)) AS BIGINT) + ${next} END AS n FROM (${last}) AS m) AS x)`,
   },
 };
 

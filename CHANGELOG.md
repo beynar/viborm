@@ -11,14 +11,17 @@ Server schema into a schema document.
 ### Added
 
 - **`viborm/mssql`, a SQL Server driver** (the `mssql` package, tedious), for
-  SQL Server 2022 and later and Azure SQL. Every query, nested write,
-  transaction (savepoints are `SAVE TRANSACTION`, the isolation level is
-  `BEGIN TRANSACTION`'s own) and official extension runs on it. To-many
-  includes are built with `STRING_AGG` in their page's order; upserts take the
-  locked branch (no `MERGE`); a statement binds at most 2,098 values, and bulk
-  writes split to stay under it. Tables live in `dbo` unless `namespace` names
-  another schema. See the [SQL Server](https://viborm.dev/docs/drivers/sqlserver)
-  page.
+  SQL Server 2022 and later and Azure SQL. Queries, nested writes and
+  transactions run on it (savepoints are `SAVE TRANSACTION`, the isolation
+  level is `BEGIN TRANSACTION`'s own; a deadlock is `TransactionError` V5003),
+  and so do `viborm/ordering`, `viborm/soft-delete`, `viborm/on`, the cache
+  and `viborm/permissions` with a policy that does not recurse. To-many
+  includes are built with `STRING_AGG` in their page's order; upserts take
+  the locked branch (no `MERGE`); a statement binds at most 2,098 values:
+  bulk writes split to stay under it, and a read that needs more is refused.
+  Text filters keep trailing spaces significant, as on PostgreSQL. Tables
+  live in `dbo` unless `namespace` names another schema. See the
+  [SQL Server](https://viborm.dev/docs/drivers/sqlserver) page.
 - **`introspectSchema({ url: "mssql://…" })`** reads a SQL Server schema; the
   introspection-only migration driver is `viborm/migrations/mssql`. A type the
   document has no spelling for (`NVARCHAR(n)`, `SMALLINT`, `DATETIME`, …) is
@@ -29,15 +32,26 @@ Server schema into a schema document.
   `(k1, k2) <= (v1, v2)`, and takes its general cursor window where it is
   present. PostgreSQL, MySQL and SQLite do not declare it; their SQL is
   unchanged.
+- **`adapter.assertions.keptWhere`**, an optional adapter member for a
+  dialect that aggregates no subquery: a judged update folds its filter into
+  its guard instead of grouping its candidates by key. Absent elsewhere,
+  whose SQL is unchanged.
 - **`capabilities.padsTrailingSpaces`**: SQL Server holds `"a"` and `"a "` as
-  one unique value.
+  one unique value, and `distinct` and `groupBy` group them.
+
+### Fixed
+
+- **A statement over the bind budget inside a transaction** on better-sqlite3
+  was numbered with merged values its transport reads as names, and failed as
+  a raw `QueryError`; it is refused as it is outside one.
 
 ### Not supported on SQL Server
 
 - **Migrations**: `createMigrationClient` refuses a SQL Server client; VibORM
   generates and applies no DDL for it.
-- **Recursive queries** (`recurse`): T-SQL has no `WITH` inside a subquery and
-  no `UNION` in a recursive member.
+- **Recursive queries** (`recurse`), in a filter, a projection or a
+  `viborm/permissions` rule: T-SQL has no `WITH` inside a subquery and no
+  `UNION` in a recursive member. The refusal is a `FeatureNotSupportedError`.
 - **Geographic points and vectors.**
 - **Cloudflare Workers and Durable Objects**: tedious layers TLS over its own
   packets (or needs the `tds/8.0` ALPN), which a Worker socket cannot do.

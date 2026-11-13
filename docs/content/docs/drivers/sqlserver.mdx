@@ -6,7 +6,9 @@ description: Use VibORM with Microsoft SQL Server 2022 and Azure SQL
 `viborm/mssql` reads and writes SQL Server through the `mssql` package
 (tedious). SQL Server 2022 (16.x) is the oldest version it supports, and Azure
 SQL works too: 2022 is the first release with `JSON_OBJECT` and `JSON_ARRAY`,
-which nested reads are built from.
+which nested reads are built from. The version is not checked when the client
+connects (Azure SQL reports version 12): on an older server, the first read
+that nests a relation fails on `JSON_OBJECT`.
 
 ```bash
 npm install viborm mssql
@@ -47,6 +49,14 @@ tool). To start from an existing database,
 (`viborm/migrations/mssql`) reads its tables, columns, keys, indexes and foreign
 keys from `sys.*`, and refuses every DDL statement.
 
+A table the document cannot describe is left out whole and listed in
+`skipped` with its reason: one with a computed column, or with an index that
+has `INCLUDE` columns, a descending key or a type other than B-tree. Triggers,
+CHECK constraints, row-level security and a column collation other than the
+database's are reported as `unstated`, the binary collation recommended below
+included. An `IDENTITY(seed, step)` column is read as `.increment()` whatever
+its seed and step.
+
 The column types VibORM reads and writes:
 
 | Scalar | Column |
@@ -71,17 +81,32 @@ as on the tables it creates elsewhere. On a case-insensitive column, `orderBy`,
 - **Recursive queries** (`recurse` in a filter or a projection) are refused: T-SQL
   allows no `WITH` inside a subquery and no `UNION` in a recursive member.
 - **Trailing spaces**: SQL Server ignores them when it compares strings, so a
-  unique key holds `"a"` and `"a "` as the same value. VibORM's own text filters
-  (`equals` on a string, `contains`, `startsWith`, `endsWith`) still tell them
-  apart.
-- **Cascades**: SQL Server refuses `ON DELETE CASCADE` on two paths into one
-  table and on a self-reference; declare such keys `NO ACTION`, and deleting a
-  row its children still reference fails.
+  unique key holds `"a"` and `"a "` as the same value, and `distinct` and
+  `groupBy` group them. VibORM's filters still tell them apart: `equals`,
+  `in`, `notIn`, `lt`/`gt`, `mode: "insensitive"`, `contains`, `startsWith`,
+  `endsWith` and list membership.
+- **Cascades**: SQL Server refuses any `ON DELETE` action on a self-reference
+  and a second cascade path into one table; declare such keys `NO ACTION`.
+  Deleting a row its children still reference then fails with a
+  `ForeignKeyError`: detach them first (a reply's `parentId` set to `null`).
+- **Triggers**: a count VibORM answers (`createMany`, `updateMany`,
+  `deleteMany`) is the statement's own, a trigger's statements aside. Under an
+  `INSTEAD OF` trigger it is the trigger's last statement's.
+  `$executeRaw` returns the server's own count, trigger statements included.
+- **JSON equality** (`equals` on a JSON field or a list) compares the stored
+  text with VibORM's canonical text: a document another program wrote with
+  its keys in another order, or with spaces, equals nothing. Path filters
+  read the stored document whatever its spelling. They go through `OPENJSON`,
+  so an index on a computed `JSON_VALUE` column is not used, and an object
+  holding the same key twice fails the filter (Msg 512).
 - **A JSON column holding a scalar** (`42`, `"text"`) is read and written
   normally, and path filters do not match inside it.
 - **Geographic points and vectors** are not supported.
-- **Bound values**: one statement binds at most 2,098 values; VibORM splits
-  bulk writes to stay under it.
+- **Bound values**: one statement binds at most 2,098 values. VibORM splits
+  bulk writes to stay under it; a read that needs more (an `in` list of 3,000
+  ids) is refused with an `UnsupportedOperationError`, never sent.
+- **`viborm/permissions`**: a rule that walks a closure (`recurse`) is refused
+  as every recursive query is.
 
 ## Cloudflare Workers
 
