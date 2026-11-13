@@ -501,9 +501,18 @@ export class MssqlAdapter implements DatabaseAdapter {
   operators = markingPredicates({
     ...exactComparisons,
 
-    // `CHARINDEX` answers 0 for an empty needle, which every string contains.
-    containsText: (column: Sql, value: Sql): Sql =>
-      sql`(CHARINDEX(${binary(value)}, ${binary(column)}) > 0 OR (${column} IS NOT NULL AND ${textLength(value)} = 0))`,
+    // `CHARINDEX` answers 0 for an empty needle, which every string
+    // contains, and refuses one past 4,000 characters (Msg 8152), as LIKE
+    // and REPLACE refuse such a pattern. There, every window of the value
+    // as long as the needle is compared with it (GENERATE_SERIES, 2022+;
+    // same lengths, so no padding). Either side is negative on a match, 0
+    // otherwise and NULL for a NULL value; the CASE evaluates one.
+    containsText: (column: Sql, value: Sql): Sql => {
+      const needle = textLength(value);
+      const windows = sql`GENERATE_SERIES(CAST(1 AS BIGINT), CAST(${textLength(column)} - ${needle} + 1 AS BIGINT), CAST(1 AS BIGINT))`;
+      const scan = sql`CASE WHEN ${column} IS NULL THEN NULL WHEN EXISTS (SELECT 1 FROM ${windows} AS "g" WHERE SUBSTRING(${binary(sql`CAST(${column} AS NVARCHAR(MAX))`)}, "g"."value", ${needle}) = ${binary(value)}) THEN -1 ELSE 0 END`;
+      return sql`(CASE WHEN ${needle} > 4000 THEN ${scan} ELSE -CHARINDEX(${binary(value)}, ${binary(column)}) END < 0 OR (${column} IS NOT NULL AND ${needle} = 0))`;
+    },
     startsWithText: (column: Sql, value: Sql): Sql =>
       sql`(LEFT(${binary(column)}, ${textLength(value)}) = ${binary(value)} AND ${textLength(column)} >= ${textLength(value)})`,
     endsWithText: (column: Sql, value: Sql): Sql =>

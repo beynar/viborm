@@ -178,6 +178,23 @@ describeIf("SQL Server compares values exactly", () => {
     expect(await at({ gt: "x" })).toEqual(["5-doc"]);
   });
 
+  test("contains takes a needle past 4,000 characters, on a column and in a JSON string", async () => {
+    expect(await ids({ long: { contains: "x".repeat(4100) } })).toEqual([
+      "5-doc",
+    ]);
+    expect(
+      await ids({ long: { contains: "X".repeat(4100), mode: "insensitive" } })
+    ).toEqual(["5-doc"]);
+    expect(await ids({ long: { contains: `${"x".repeat(4100)}y` } })).toEqual(
+      []
+    );
+    expect(
+      await ids({
+        doc: { path: ["long"], string_contains: `${"y".repeat(4100)}needle` },
+      })
+    ).toEqual(["5-doc"]);
+  });
+
   test("a VARCHAR(8000) column's value past 4,000 characters compares whole", async () => {
     expect(await ids({ long: LONG_TEXT })).toEqual(["5-doc"]);
     expect(await ids({ long: { startsWith: "x".repeat(4100) } })).toEqual([
