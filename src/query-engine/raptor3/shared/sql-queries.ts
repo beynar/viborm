@@ -950,22 +950,9 @@ export class SqlQueries extends Queries {
   #pinned: ((name: string, alias?: string) => Sql) | undefined;
   column(model: AnyModel, field: string, alias?: string): Sql {
     const name = this.columnName(model, field);
-    return this.#text(
-      model,
-      field,
-      alias
-        ? this.adapter.identifiers.column(alias, name)
-        : this.adapter.identifiers.escape(name)
-    );
-  }
-  /** `column`, as the adapter marks it (`identifiers.text`). */
-  #text(model: AnyModel, field: string, column: Sql): Sql {
-    return (
-      this.adapter.identifiers.text?.(
-        column,
-        physicalField(this.schema, model, field).scalar
-      ) ?? column
-    );
+    return alias
+      ? this.adapter.identifiers.column(alias, name)
+      : this.adapter.identifiers.escape(name);
   }
   /**
    * A caller's fragment with every {@link RowsOf} in it settled to this
@@ -2110,17 +2097,13 @@ export class SqlQueries extends Queries {
     };
   }
   #preparedColumn(scalar: PreparedScalar, alias?: string): Sql {
-    return this.#text(
+    return this.#guarded(
       scalar.model,
       scalar.field,
-      this.#guarded(
-        scalar.model,
-        scalar.field,
-        alias
-          ? this.adapter.identifiers.column(alias, scalar.physical.name)
-          : this.adapter.identifiers.escape(scalar.physical.name),
-        alias
-      )
+      alias
+        ? this.adapter.identifiers.column(alias, scalar.physical.name)
+        : this.adapter.identifiers.escape(scalar.physical.name),
+      alias
     );
   }
   /**

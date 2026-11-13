@@ -19,13 +19,15 @@ Server schema into a schema document.
   includes are built with `STRING_AGG` in their page's order; upserts take
   the locked branch (no `MERGE`); a statement binds at most 2,098 values:
   bulk writes split to stay under it, and a read that needs more is refused.
-  Text filters, unique selectors and relations keep trailing spaces
-  significant, as on PostgreSQL, where SQL Server's own index and foreign
-  key ignore them. A
-  transaction the server rolls back itself, even inside a savepoint, and a
-  COMMIT whose outcome is unknown fail with a `TransactionError` saying so
-  (`meta.reason`). Tables
-  live in `dbo` unless `namespace` names another schema. See the
+  Text comparisons are sent as written, as Prisma and Drizzle do: the
+  column's type and collation decide case, accents and trailing spaces
+  (ignored by SQL Server's `=`), and `mode: "insensitive"` ignores case on
+  any collation; `contains`, `startsWith` and `endsWith` are `LIKE`, refused
+  past its 4,000-character pattern. Every statement runs at compatibility
+  level 150. A transaction the server rolls back itself, even inside a
+  savepoint, and a COMMIT whose outcome is unknown fail with a
+  `TransactionError` saying so (`meta.reason`). Tables live in `dbo` unless
+  `namespace` names another schema. See the
   [SQL Server](https://viborm.dev/docs/drivers/sqlserver) page.
 - **`introspectSchema({ url: "mssql://…" })`** reads a SQL Server schema; the
   introspection-only migration driver is `viborm/migrations/mssql`. A type the
@@ -43,10 +45,9 @@ Server schema into a schema document.
   whose SQL is unchanged.
 - **`capabilities.padsTrailingSpaces`**: SQL Server holds `"a"` and `"a "` as
   one unique value, and `distinct` and `groupBy` group them.
-- **`adapter.identifiers.text`**, an optional adapter member: the engine marks
-  each text column's reference with it, so that a dialect whose `=` pads
-  trailing spaces compares unique selectors and joins exactly. Absent
-  elsewhere, whose SQL is unchanged.
+- **An INSERT whose row the database does not hand back** (an `INSTEAD OF
+  INSERT` trigger on SQL Server) fails with a `QueryEngineError` that names
+  the cause and what works there.
 
 ### Fixed
 

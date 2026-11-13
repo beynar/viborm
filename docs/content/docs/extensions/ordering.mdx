@@ -51,7 +51,9 @@ one statement, and the constraint would refuse it midway.
 
 `within` fields are compared as the values they hold: a list field under a
 case-insensitive collation (`"a"` and `"A"` one list to the database, two to
-the extension) is not supported.
+the extension) is not supported. On SQL Server, which compares text as the
+column's collation says and ignores trailing spaces, `"k"` and `"k "` are one
+list.
 
 `orderingKey` is a validator for the key field: with it, a write that sets
 the key to something that is not one (in a nested write too), or to a key of

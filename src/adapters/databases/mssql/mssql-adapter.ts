@@ -1,9 +1,8 @@
 import {
   FeatureNotSupportedError,
-  QueryEngineError,
+  UnsupportedOperationError,
   unsupportedVector,
 } from "@errors";
-import type { Scalar } from "@schema/scalars/base";
 import { Sql, sql } from "@sql";
 import type { DecimalDescriptor } from "@validation/primitives/decimal-codec";
 import { encodePhysicalDecimal } from "@validation/primitives/decimal-codec";
@@ -41,6 +40,7 @@ import {
   createDirectionOrderBy,
   createIdentifiers,
   createInsertStatement,
+  createMembershipOperators,
   createNullOperators,
   createNumericSetOperations,
   createRangeOperators,
@@ -77,151 +77,48 @@ const INTEGER_SPLIT = sql.raw("CAST(4294967296 AS BIGINT)");
 /** The widest exact decimal T-SQL computes: `DECIMAL(38, s)`. */
 const MSSQL_EXACT_DIGITS = 38;
 
-/** Code-point comparison, independent of the column's or database's collation. */
-const BINARY_COLLATION = sql.raw("COLLATE Latin1_General_100_BIN2");
-
 /**
- * The length of a text operand in characters, trailing spaces included: `LEN`
- * ignores them, and `=` pads the shorter operand with them, so every exact
- * text predicate below compares lengths through a one-character suffix. The
- * operand is widened first: `VARCHAR(n) + N'.'` is `NVARCHAR(4000)` at most,
- * which cut an adopted `VARCHAR(4001…8000)` column's value short.
+ * The longest `LIKE` pattern: 4,000 characters (8,000 bytes); past it the
+ * server answers Msg 8152.
  */
-const textLength = (value: Sql): Sql =>
-  sql`(LEN(CAST(${value} AS NVARCHAR(MAX)) + N'.') - 1)`;
+const LIKE_PATTERN_LIMIT = 4000;
 
-/** Expressions already under the binary collation: T-SQL takes one `COLLATE`. */
-const collated = new WeakSet<Sql>();
-
-const binary = (expr: Sql): Sql => {
-  if (collated.has(expr)) return expr;
-  const result = sql`${expr} ${BINARY_COLLATION}`;
-  collated.add(result);
-  return result;
-};
-
-/**
- * Exact text comparison, the one mechanism every text filter uses: `=` and
- * `<` pad the shorter operand with spaces under every collation, `IN`,
- * `GROUP BY` and `DISTINCT` too, so `"ab"` and `"ab "` compare equal. An
- * operand compared as its key, under the binary collation with NCHAR(0)
- * appended, keeps its trailing spaces significant and sorts a prefix first
- * (NCHAR(0) is the lowest code unit, and BIN2 does not ignore it). A value
- * holding NCHAR(0) itself is the one it can misplace.
- */
-const exactKey = (text: Sql): Sql =>
-  sql`(CAST(${text} AS NVARCHAR(MAX)) + NCHAR(0)) ${BINARY_COLLATION}`;
-
-/** Two `OPENJSON` members `m` and `v` equal, a string exactly. */
-const SAME_MEMBER = sql`"m"."value" = "v"."value" AND ("m"."type" <> 1 OR ${exactKey(sql.raw('"m"."value"'))} = ${exactKey(sql.raw('"v"."value"'))})`;
-
-/** `caseSensitiveText`'s results, each to the operand it compares exactly. */
-const exactOperands = new WeakMap<Sql, Sql>();
-
-/**
- * The text columns the engine marks (`identifiers.text`): a unique selector
- * and a relation's join compare them exactly, as a filter does, where the
- * server's own unique index and foreign key pad.
- */
-const textColumns = new WeakSet<Sql>();
-
-/** `column`, marked where `scalar` is text. */
-const markText = (column: Sql, scalar: Scalar): Sql => {
-  const { type, array } = scalar["~"].state;
-  if (!array && (type === "string" || type === "enum")) textColumns.add(column);
-  return column;
-};
-
-/** Whether `left = right` compares a marked text column. */
-const comparesText = (left: Sql, right: Sql): boolean =>
-  textColumns.has(left) || textColumns.has(right);
-
-/** `left = right`, text compared exactly; the native `=` seeks an index. */
-const exactTextEquals = (left: Sql, right: Sql): Sql =>
-  sql`(${left} = ${right} AND ${exactKey(left)} = ${exactKey(right)})`;
-
-/** A list literal's members, for the exact comparisons that take one. */
-const listMembers = new WeakMap<Sql, readonly Sql[]>();
-
-/** A list's members, which an exact text list comparison needs. */
-const membersOf = (list: Sql): readonly Sql[] => {
-  const members = listMembers.get(list);
-  // A list built elsewhere would compare keys with raw values: nothing.
-  if (!members)
-    throw new QueryEngineError(
-      "An exact text list comparison needs a list built by `literals.list`."
-    );
-  return members;
-};
-
-const keysOf = (list: Sql): Sql =>
-  sql`(${sql.join(membersOf(list).map(exactKey), ", ")})`;
-
-/**
- * The longest text list `in` keeps beside its keys a collation-native
- * `IN`, which an index can seek: each member is then bound twice, so past
- * half the bind budget (2,098) the list is compared by its keys alone,
- * each member bound once.
- */
-const SEEKING_LIST_LIMIT = 1049;
-
-/**
- * The longest prefix a `LIKE` pattern carries: a pattern is at most 4,000
- * characters (8152 past it), and the prefix takes a `%`.
- */
-const LIKE_PREFIX_LIMIT = 3999;
-
-/** Whether `text` holds a character below the space a shorter operand pads with. */
-const holdsBelowSpace = (text: string): boolean => {
-  for (let index = 0; index < text.length; index++)
-    if (text.charCodeAt(index) < 32) return true;
-  return false;
-};
-
-/** `right`, where it is one bound string: the value a filter compares. */
-const boundText = (right: Sql): string | undefined => {
-  const { strings, values } = Sql.peek(right);
-  const [value] = values;
+/** `value`, where it is one bound string. */
+const boundText = (value: Sql): string | undefined => {
+  const { strings, values } = Sql.peek(value);
+  const [text] = values;
   return values.length === 1 &&
     strings.length === 2 &&
     strings[0] === "" &&
     strings[1] === "" &&
-    typeof value === "string"
-    ? value
+    typeof text === "string"
+    ? text
     : undefined;
 };
 
+/** `text` with `LIKE`'s wildcards escaped under `ESCAPE '\\'`. */
+const likeLiteral = (text: string): string =>
+  escapeLikeLiteral(text).replaceAll("[", "\\[");
+
 /**
- * A comparison whose left operand is `caseSensitiveText`'s, as their keys;
- * any other, as `plain` spells it.
- *
- * Keys are no index's: an ordering filter on a bound string keeps a
- * collation-native superset of its rows in front, under the binary
- * collation. Padded and exact order disagree only where one value is the
- * other followed by a character below the space, so for a bound value
- * holding none, `col <= v` holds of every row exactly below or at `v`, and
- * `col >= v OR col LIKE v%` of every row above or at it (a row extending
- * `v` with a tab pads below it). A bound value holding one has no such
- * superset and is compared by its keys alone.
+ * `value` as a `LIKE` pattern between `before` and `after` (`%` or nothing).
+ * A bound string is escaped here, and refused past the pattern limit before
+ * anything is sent; any other operand is escaped by the server.
  */
-const exactly =
-  (operator: string, plain: (left: Sql, right: Sql) => Sql) =>
-  (left: Sql, right: Sql): Sql => {
-    const operand = exactOperands.get(left);
-    if (operand === undefined) return plain(left, right);
-    const exact = sql`${exactKey(operand)} ${sql.raw(operator)} ${exactKey(right)}`;
-    const bound = boundText(right);
-    if (bound === undefined || holdsBelowSpace(bound)) return exact;
-    const native = binary(operand);
-    if (operator === "<" || operator === "<=")
-      return sql`(${native} <= ${right} AND ${exact})`;
-    if (
-      (operator === ">" || operator === ">=") &&
-      bound.length <= LIKE_PREFIX_LIMIT
-    )
-      return sql`((${native} >= ${right} OR ${native} LIKE ${`${escapeLikeLiteral(bound).replaceAll("[", "\\[")}%`} ESCAPE '\\') AND ${exact})`;
-    return exact;
-  };
+const likePattern = (value: Sql, before: string, after: string): Sql => {
+  const text = boundText(value);
+  if (text === undefined)
+    return sql`${sql.raw(before ? "N'%' + " : "")}REPLACE(REPLACE(REPLACE(REPLACE(CAST(${value} AS NVARCHAR(MAX)), N'\\', N'\\\\'), N'%', N'\\%'), N'_', N'\\_'), N'[', N'\\[')${sql.raw(after ? " + N'%'" : "")}`;
+  const pattern = `${before}${likeLiteral(text)}${after}`;
+  if (pattern.length > LIKE_PATTERN_LIMIT)
+    throw new UnsupportedOperationError(
+      `SQL Server matches text against a pattern of at most ${LIKE_PATTERN_LIMIT} characters; this one needs ${pattern.length}.`
+    );
+  return sql`${pattern}`;
+};
+
+/** Two `OPENJSON` members `m` and `v` equal, as the database compares them. */
+const SAME_MEMBER = sql.raw('"m"."value" = "v"."value"');
 
 /**
  * T-SQL has no boolean value: a predicate (`a = b`) is not an expression and
@@ -268,21 +165,6 @@ const condition = (value: Sql): Sql => {
   if (value === TRUE_VALUE) return TRUE_CONDITION;
   if (value === FALSE_VALUE) return FALSE_CONDITION;
   return value;
-};
-
-const standardComparisons = createComparisonOperators();
-const exactEq = exactly("=", standardComparisons.eq);
-const exactComparisons = {
-  ...standardComparisons,
-  eq: (left: Sql, right: Sql): Sql =>
-    comparesText(left, right)
-      ? exactTextEquals(left, right)
-      : exactEq(left, right),
-  neq: exactly("<>", standardComparisons.neq),
-  lt: exactly("<", standardComparisons.lt),
-  lte: exactly("<=", standardComparisons.lte),
-  gt: exactly(">", standardComparisons.gt),
-  gte: exactly(">=", standardComparisons.gte),
 };
 
 const isSqlList = (other: Sql | readonly Sql[]): other is readonly Sql[] =>
@@ -511,7 +393,6 @@ export class MssqlAdapter implements DatabaseAdapter {
       ...identifiers,
       aliased: (expression: Sql, alias: string): Sql =>
         identifiers.aliased(asValue(expression), alias),
-      text: markText,
     };
     installGeoPointSql(this, undefined);
     installAdapterInternals(this, {
@@ -527,12 +408,6 @@ export class MssqlAdapter implements DatabaseAdapter {
 
   literals = {
     ...createStandardLiterals(),
-    list: (values: Sql[]): Sql => {
-      const list =
-        values.length === 0 ? sql.raw("()") : sql`(${sql.join(values, ", ")})`;
-      listMembers.set(list, values);
-      return list;
-    },
     true: (): Sql => TRUE_VALUE,
     false: (): Sql => FALSE_VALUE,
     json: (v: unknown): Sql => sql`${canonicalJson(v)}`,
@@ -547,54 +422,25 @@ export class MssqlAdapter implements DatabaseAdapter {
   };
 
   operators = markingPredicates({
-    ...exactComparisons,
+    ...createComparisonOperators(),
 
-    // `CHARINDEX` answers 0 for an empty needle, which every string
-    // contains, and refuses one past 4,000 characters (Msg 8152), as LIKE
-    // and REPLACE refuse such a pattern. There, every window of the value
-    // as long as the needle is compared with it (GENERATE_SERIES, 2022+;
-    // same lengths, so no padding). Either side is negative on a match, 0
-    // otherwise and NULL for a NULL value; the CASE evaluates one.
-    containsText: (column: Sql, value: Sql): Sql => {
-      const needle = textLength(value);
-      const windows = sql`GENERATE_SERIES(CAST(1 AS BIGINT), CAST(${textLength(column)} - ${needle} + 1 AS BIGINT), CAST(1 AS BIGINT))`;
-      const scan = sql`CASE WHEN ${column} IS NULL THEN NULL WHEN EXISTS (SELECT 1 FROM ${windows} AS "g" WHERE SUBSTRING(${binary(sql`CAST(${column} AS NVARCHAR(MAX))`)}, "g"."value", ${needle}) = ${binary(value)}) THEN -1 ELSE 0 END`;
-      return sql`(CASE WHEN ${needle} > 4000 THEN ${scan} ELSE -CHARINDEX(${binary(value)}, ${binary(column)}) END < 0 OR (${column} IS NOT NULL AND ${needle} = 0))`;
-    },
+    // Under the column's own collation, as `=` is; `LIKE` takes every length
+    // `CHARINDEX` does and works at every compatibility level.
+    containsText: (column: Sql, value: Sql): Sql =>
+      sql`${column} LIKE ${likePattern(value, "%", "%")} ESCAPE '\\'`,
     startsWithText: (column: Sql, value: Sql): Sql =>
-      sql`(LEFT(${binary(column)}, ${textLength(value)}) = ${binary(value)} AND ${textLength(column)} >= ${textLength(value)})`,
+      sql`${column} LIKE ${likePattern(value, "", "%")} ESCAPE '\\'`,
     endsWithText: (column: Sql, value: Sql): Sql =>
-      sql`(RIGHT(${binary(column)}, ${textLength(value)}) = ${binary(value)} AND ${textLength(column)} >= ${textLength(value)})`,
+      sql`${column} LIKE ${likePattern(value, "%", "")} ESCAPE '\\'`,
     insensitiveText: (kind: TextMatch, column: Sql, value: Sql): Sql =>
-      this.operators[`${kind}Text`](
-        sql`LOWER(${column})`,
-        sql`LOWER(${value})`
-      ),
-    // The collation-native `LIKE` ranges an index; the exact conjunct decides.
+      sql`LOWER(${column}) LIKE LOWER(${likePattern(value, kind === "startsWith" ? "" : "%", kind === "endsWith" ? "" : "%")}) ESCAPE '\\'`,
+    // A bound prefix: the pattern the index ranges on.
     startsWithPrefix: (column: Sql, value: string): Sql =>
-      value.length > LIKE_PREFIX_LIMIT
-        ? this.operators.startsWithText(column, sql`${value}`)
-        : sql`(${column} LIKE ${`${escapeLikeLiteral(value).replaceAll("[", "\\[")}%`} ESCAPE '\\' AND ${this.operators.startsWithText(column, sql`${value}`)})`,
-    // The collation-native comparison seeks the index; the binary comparison
-    // and the padded lengths decide.
-    exactTextEq: exactTextEquals,
-    exactTextIn: (column: Sql, values: Sql): Sql =>
-      membersOf(values).length > SEEKING_LIST_LIMIT
-        ? sql`${exactKey(column)} IN ${keysOf(values)}`
-        : sql`(${column} IN ${values} AND ${exactKey(column)} IN ${keysOf(values)})`,
+      this.operators.startsWithText(column, sql`${value}`),
+    exactTextEq: (column: Sql, value: Sql): Sql => sql`${column} = ${value}`,
+    exactTextIn: (column: Sql, values: Sql): Sql => sql`${column} IN ${values}`,
 
-    in: (column: Sql, values: Sql): Sql =>
-      textColumns.has(column)
-        ? this.operators.exactTextIn(column, values)
-        : sql`${column} IN ${values}`,
-    notIn: (column: Sql, values: Sql): Sql => {
-      const operand =
-        exactOperands.get(column) ??
-        (textColumns.has(column) ? column : undefined);
-      return operand
-        ? sql`${exactKey(operand)} NOT IN ${keysOf(values)}`
-        : sql`${column} NOT IN ${values}`;
-    },
+    ...createMembershipOperators(),
     ...createNullOperators(),
     ...createRangeOperators(),
 
@@ -618,14 +464,14 @@ export class MssqlAdapter implements DatabaseAdapter {
     // calls them); a bound is spelled column by column.
     rows: (items: readonly Sql[], other: Sql | readonly Sql[]): Sql => {
       if (isSqlList(other)) return rowAtMost(items, other, 0);
-      if (items.length === 1 && !textColumns.has(items[0]!))
-        return sql`${items[0]!} IN (${other})`;
+      if (items.length === 1) return sql`${items[0]!} IN (${other})`;
       const names = items.map((_, index) => `r${index}`);
       return sql`EXISTS (SELECT 1 FROM (${other}) AS "r" (${sql.raw(
         names.map(quoteIdent).join(", ")
       )}) WHERE ${sql.join(
-        items.map((item, index) =>
-          this.operators.eq(sql.raw(`"r".${quoteIdent(names[index]!)}`), item)
+        items.map(
+          (item, index) =>
+            sql`${sql.raw(`"r".${quoteIdent(names[index]!)}`)} = ${item}`
         ),
         " AND "
       )})`;
@@ -660,11 +506,8 @@ export class MssqlAdapter implements DatabaseAdapter {
     upper: (expr: Sql): Sql => sql`UPPER(${expr})`,
     lower: (expr: Sql): Sql => sql`LOWER(${expr})`,
     caseFold: (expr: Sql): Sql => sql`LOWER(${expr})`,
-    caseSensitiveText: (expr: Sql): Sql => {
-      const result = binary(expr);
-      exactOperands.set(result, expr);
-      return result;
-    },
+    // The column's collation decides, as for every comparison.
+    caseSensitiveText: (expr: Sql): Sql => expr,
     decimalCast: (expr: Sql, descriptor: DecimalDescriptor): Sql =>
       sql`CAST(${expr} AS ${decimalType(descriptor)})`,
     idCast: (expr: Sql, representation: IdRepresentation): Sql =>
@@ -726,8 +569,7 @@ export class MssqlAdapter implements DatabaseAdapter {
 
   json = {
     // Both sides are canonical text (see `canonicalJson`).
-    equals: (left: Sql, right: Sql): Sql =>
-      predicate(sql`${exactKey(left)} = ${exactKey(right)}`),
+    equals: (left: Sql, right: Sql): Sql => predicate(sql`${left} = ${right}`),
     boolean: (inner: Sql): Sql =>
       sql`CASE WHEN ${condition(inner)} THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END`,
     document: (expression: Sql): Sql => {
@@ -758,22 +600,16 @@ export class MssqlAdapter implements DatabaseAdapter {
         : sql`COALESCE(${jsonValueAt(column, path)}, JSON_QUERY(${container(column)}, ${buildJsonPath(path)}))`,
     numberAtPath: (column: Sql, path: string[]): Sql =>
       sql`(CASE WHEN ${jsonTypeAt(column, path)} = 2 THEN CAST(${jsonValueAt(column, path)} AS FLOAT) END)`,
-    // Compared exactly, as a text column is (`exactly`): ranges at a path
-    // keep trailing spaces significant.
-    stringAtPath: (column: Sql, path: string[]): Sql => {
-      const text = sql`(CASE WHEN ${jsonTypeAt(column, path)} = 1 THEN ${jsonValueAt(column, path)} END)`;
-      const compared = binary(text);
-      exactOperands.set(compared, text);
-      return compared;
-    },
+    stringAtPath: (column: Sql, path: string[]): Sql =>
+      sql`(CASE WHEN ${jsonTypeAt(column, path)} = 1 THEN ${jsonValueAt(column, path)} END)`,
     foldableStringAtPath: (column: Sql, path: string[]): Sql =>
       sql`(CASE WHEN ${jsonTypeAt(column, path)} = 1 THEN ${jsonValueAt(column, path)} END)`,
     // Every member of `value` is a member of `target` of its type: `null`
     // (whose OPENJSON value is SQL NULL) equal to `null`, any other member's
-    // text compared exactly (trailing spaces count).
+    // text as the database compares it.
     contains: (target: Sql, value: Sql): Sql =>
       predicate(
-        sql`(ISJSON(${target}, ARRAY) = 1 AND NOT EXISTS (SELECT 1 FROM OPENJSON(${container(value)}) AS "c" WHERE NOT EXISTS (SELECT 1 FROM OPENJSON(${container(target)}) AS "t" WHERE "t"."type" = "c"."type" AND ("c"."type" = 0 OR ${exactKey(sql.raw('"t"."value"'))} = ${exactKey(sql.raw('"c"."value"'))}))))`
+        sql`(ISJSON(${target}, ARRAY) = 1 AND NOT EXISTS (SELECT 1 FROM OPENJSON(${container(value)}) AS "c" WHERE NOT EXISTS (SELECT 1 FROM OPENJSON(${container(target)}) AS "t" WHERE "t"."type" = "c"."type" AND ("c"."type" = 0 OR "t"."value" = "c"."value"))))`
       ),
     lastElement: (target: Sql): Sql =>
       sql`(SELECT TOP (1) ${OPENJSON_MEMBER} FROM OPENJSON(CASE WHEN ISJSON(${target}, ARRAY) = 1 THEN ${target} END) ORDER BY CAST("key" AS INT) DESC)`,
@@ -786,11 +622,7 @@ export class MssqlAdapter implements DatabaseAdapter {
     enumValue: jsonListValue,
     has: (column: Sql, value: Sql): Sql =>
       predicate(
-        // A bound string compares exactly; any other value (a `Date`)
-        // as T-SQL converts the member to it.
-        boundText(value) === undefined
-          ? sql`EXISTS (SELECT 1 FROM OPENJSON(${column}) AS "m" WHERE "m"."value" = ${value})`
-          : sql`EXISTS (SELECT 1 FROM OPENJSON(${column}) AS "m" WHERE "m"."type" = 1 AND ${exactKey(sql.raw('"m"."value"'))} = ${exactKey(value)})`
+        sql`EXISTS (SELECT 1 FROM OPENJSON(${column}) AS "m" WHERE "m"."value" = ${value})`
       ),
     hasEvery: (column: Sql, values: Sql): Sql =>
       predicate(
