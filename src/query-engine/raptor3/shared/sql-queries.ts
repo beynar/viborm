@@ -995,7 +995,6 @@ export class SqlQueries extends Queries {
     return alias ? this.#at(alias, name) : this.#escaped(name);
   }
   spelling(model: AnyModel, dialect: Dialect): ModelSql {
-    const { identifiers } = this.adapter;
     return {
       dialect,
       table: (alias) => this.table(model, alias),
@@ -1003,7 +1002,7 @@ export class SqlQueries extends Queries {
       value: (field, value) => this.fieldValue(model, field, value),
       name: (...path) =>
         sql.join(
-          path.map((part) => identifiers.escape(part)),
+          path.map((part) => this.adapter.identifiers.escape(part)),
           "."
         ),
       visible: (alias, options) =>
@@ -1724,7 +1723,6 @@ export class SqlQueries extends Queries {
     }
   }
   #lowerPredicate(predicate: PreparedPredicate, alias?: string): Sql {
-    const a = this.adapter;
     // biome-ignore lint/style/useDefaultSwitchClause: the prepared predicate union is exhaustive; a default would be dead code.
     switch (predicate.kind) {
       case "and":
@@ -1738,7 +1736,7 @@ export class SqlQueries extends Queries {
           (arms) => this.#or(...arms)
         );
       case "not":
-        return a.operators.not(
+        return this.adapter.operators.not(
           this.#opposite(() => this.#apart(predicate.predicate, alias))
         );
       case "always":
@@ -2367,7 +2365,6 @@ export class SqlQueries extends Queries {
     predicate: Extract<PreparedPredicate, { kind: "relation" }>,
     parentAlias?: string
   ): Sql {
-    const a = this.adapter;
     if (
       predicate.quantifier === "every" &&
       predicate.link === undefined &&
@@ -2455,7 +2452,11 @@ export class SqlQueries extends Queries {
       }
     }
     const stated = nested
-      ? [predicate.quantifier === "every" ? a.operators.not(nested) : nested]
+      ? [
+          predicate.quantifier === "every"
+            ? this.adapter.operators.not(nested)
+            : nested,
+        ]
       : [];
     const quantified = this.#quantified(predicate);
     // What the quantifier ranges over (membership, the related domain, a
@@ -2472,7 +2473,7 @@ export class SqlQueries extends Queries {
           parentAlias ?? "",
           closure
         );
-        const query = sql`${cte} ${a.subqueries.existsCheck(
+        const query = sql`${cte} ${this.adapter.subqueries.existsCheck(
           sql`${this.#named(this.#escaped(cteName), walk)} ${this.#inner(
             this.table(edge.target, childAlias),
             this.sameRow(
@@ -2518,7 +2519,6 @@ export class SqlQueries extends Queries {
   #quantified(
     predicate: Extract<PreparedPredicate, { kind: "relation" }>
   ): Quantified {
-    const { filters } = this.adapter;
     const { quantifier } = predicate;
     // `is` and `isNot` are the two left once the three of a list are told:
     // every relation filter that spells quantifiers refuses a payload naming
@@ -2531,7 +2531,7 @@ export class SqlQueries extends Queries {
           ? "is"
           : "isNot";
     return {
-      of: (query) => filters[name](query),
+      of: (query) => this.adapter.filters[name](query),
       holds: name === "some" || name === "is",
     };
   }
@@ -2676,7 +2676,6 @@ export class SqlQueries extends Queries {
     fields: readonly string[] = [],
     within?: PlacedBody["within"]
   ): { readonly body: SharedBody; readonly slot: Sql } {
-    const a = this.adapter;
     let body = shared.byKey.get(key);
     if (body === undefined) {
       const name = `__shared_${shared.order.length}`;
@@ -2686,8 +2685,8 @@ export class SqlQueries extends Queries {
     }
     const { name } = body;
     const use = quantified.of(
-      a.subqueries.existsCheck(
-        memberRead(a, name),
+      this.adapter.subqueries.existsCheck(
+        memberRead(this.adapter, name),
         model
           ? this.#and(
               ...fields.map((field, index) =>
@@ -2742,14 +2741,13 @@ export class SqlQueries extends Queries {
     quantified: Quantified,
     selective: boolean
   ): Sql {
-    const a = this.adapter;
     const shared = this.#shared;
     const model = edge.source;
     const keys = this.schema.keys(model);
     const inline = quantified.of(walk);
     if (
       shared === undefined ||
-      a.capabilities.boundsRecursionIterations === true ||
+      this.adapter.capabilities.boundsRecursionIterations === true ||
       !(
         this.#rows.get(parent) === model ||
         hopFieldsOf(edge).every((field) => keys.includes(field))
@@ -3190,7 +3188,6 @@ export class SqlQueries extends Queries {
     source: string | Input | CarriedRow,
     held = false
   ): Sql {
-    const a = this.adapter;
     if (edge.kind === "reference") {
       // The source row's own column, where the source is a row and not values.
       const given = typeof source === "object" ? source : undefined;
@@ -3229,7 +3226,7 @@ export class SqlQueries extends Queries {
     const junction = this.alias();
     // Membership first: the index on the source side finds the small target
     // worklist before the provider visits those target identities.
-    return a.operators.in(
+    return this.adapter.operators.in(
       rowValue(
         edge.targetSide.members.map((field) =>
           this.column(edge.target, field.referencedField, target)
@@ -3834,11 +3831,10 @@ export class SqlQueries extends Queries {
         ? given
         : this.#within(model, given, controls.purpose);
     const filter = selector ? this.lowerSelector(selector, alias) : undefined;
-    const a = this.adapter;
     const unless =
       controls.unless &&
-      a.operators.not(
-        a.expressions.coalesce(
+      this.adapter.operators.not(
+        this.adapter.expressions.coalesce(
           this.#opposite(() => this.lowerSelector(controls.unless!, alias)) ??
             this.#true(),
           this.#false()
@@ -4124,13 +4120,12 @@ export class SqlQueries extends Queries {
     columns: (alias: string) => [string, Sql][],
     shape: (alias: string) => Extract<Shape, { kind: "object" }>
   ): Query {
-    const a = this.adapter;
     const inner = this.rootAlias();
     // The default order only decides which rows a page holds.
     const page = this.#page(model, this.#ordered(model, args), inner, "root");
     const filter = this.lowerWhere(model, args.where, inner);
     const aggregate = (alias: string, from: Sql, where?: Sql): Query => ({
-      sql: assembleAdapterSelect(a, {
+      sql: assembleAdapterSelect(this.adapter, {
         columns: listed(
           columns(alias).map(([name, expression]) =>
             this.#named(expression, name)
@@ -4145,7 +4140,7 @@ export class SqlQueries extends Queries {
     // once per row, not once per aggregate over the field.
     if (!((page.limit ?? page.offset ?? page.cursor) || this.#masks(model)))
       return aggregate(inner, this.table(model, inner), filter);
-    const window = assembleAdapterSelect(a, {
+    const window = assembleAdapterSelect(this.adapter, {
       columns: fields.length
         ? listed(
             [...new Set(fields)].map((field) =>
@@ -4536,13 +4531,12 @@ export class SqlQueries extends Queries {
    * row. Without a domain, the bytes are the ones a plain client emits.
    */
   #missingArm(edge: Membership, parentAlias: string): Sql {
-    const a = this.adapter;
     if (this.domainOf(edge.target, "related") === undefined)
       return this.#object([]);
     const target = this.alias();
     return this.#when(
-      a.operators.exists(
-        a.subqueries.existsCheck(
+      this.adapter.operators.exists(
+        this.adapter.subqueries.existsCheck(
           this.table(edge.target, target),
           this.correlation(edge, parentAlias, target, false)
         )
@@ -4595,11 +4589,10 @@ export class SqlQueries extends Queries {
       edge.scope.edge.kind !== "variantJunctionCarrier"
     )
       return projected;
-    const a = this.adapter;
     const members = this.#links(edge, this.alias(), parentAlias);
     return this.#when(
-      a.operators.gt(members, this.value(1)),
-      a.json.emptyArray(),
+      this.adapter.operators.gt(members, this.value(1)),
+      this.adapter.json.emptyArray(),
       projected
     );
   }
@@ -4607,15 +4600,14 @@ export class SqlQueries extends Queries {
     edge: Extract<Membership, { kind: "junction" }>,
     parentAlias: string
   ): Sql {
-    const a = this.adapter;
     const junction = this.alias();
     const target = this.alias();
     return this.#links(
       edge,
       junction,
       parentAlias,
-      a.filters.none(
-        a.subqueries.existsCheck(
+      this.adapter.filters.none(
+        this.adapter.subqueries.existsCheck(
           this.table(edge.target, target),
           this.#side(edge, "targetSide", junction, target)
         )
@@ -4642,9 +4634,8 @@ export class SqlQueries extends Queries {
     parentAlias: string,
     ...more: Sql[]
   ): Sql {
-    const a = this.adapter;
     return this.#scalar({
-      columns: a.aggregates.count(),
+      columns: this.adapter.aggregates.count(),
       from: this.#tableNamed(edge.table, junction),
       where: this.#and(
         ...this.junctionSideConditions(edge.sourceSide, junction, parentAlias),
@@ -5273,7 +5264,6 @@ export class SqlQueries extends Queries {
     });
   }
   grouped(model: AnyModel, args: Arguments): Query {
-    const a = this.adapter;
     const alias = this.rootAlias();
     // The ONE `by` authority. Admission normalises `by` to an array and
     // refuses its duplicates; the grouped read computes the grouped column SET
@@ -5286,7 +5276,7 @@ export class SqlQueries extends Queries {
     // projection and the order would be three expressions to the provider.
     if (this.#masks(model)) {
       const inner = this.alias();
-      const window = assembleAdapterSelect(a, {
+      const window = assembleAdapterSelect(this.adapter, {
         columns: listed(
           this.schema
             .storedFields(model)
@@ -5319,7 +5309,6 @@ export class SqlQueries extends Queries {
     grouped: ReadonlySet<string>,
     rows: { readonly from: Sql; readonly where?: Sql }
   ): Query {
-    const a = this.adapter;
     const aggregates = this.#prepareAggregates(model, args);
     const fields: Record<string, Shape | Leaf> = {};
     const gates = this.#masked
@@ -5338,7 +5327,7 @@ export class SqlQueries extends Queries {
       columns.push(this.#named(expression, name));
     }
     return {
-      sql: assembleAdapterSelect(a, {
+      sql: assembleAdapterSelect(this.adapter, {
         columns: listed(columns),
         from: rows.from,
         where: rows.where,

@@ -474,17 +474,16 @@ export class Writer {
     count: number,
     row: Input
   ): boolean {
-    const q = this.#q;
     let fields = 0;
     for (const field in row) if (field !== columns[fields++]) return false;
     // A row of defaults only is a statement of its own.
     if (fields === 0 || fields !== columns.length) return false;
     const bound = this.operation.driver.maxBindParametersPerStatement;
     if (bound === undefined) return true;
-    const placed = q.domain?.produced(model);
+    const placed = this.#q.domain?.produced(model);
     return (
       (count + 1) * fields +
-        ((placed && q.lowerSelector(placed)?.values.length) ?? 0) <=
+        ((placed && this.#q.lowerSelector(placed)?.values.length) ?? 0) <=
       bound
     );
   }
@@ -633,8 +632,7 @@ export class Writer {
   computes(question: Question, key: Input, set: Input): Statement | undefined {
     const q = this.#q;
     const { model } = question;
-    const { adapter } = this.operation.driver;
-    const { capabilities, identifiers } = adapter;
+    const { capabilities, identifiers } = this.adapter;
     if (capabilities.supportsReturning) return undefined;
     const table = tableOf(model);
     const { where } = this.#limited(question, this.selector(question, [key]), [
@@ -654,10 +652,10 @@ export class Writer {
     });
     return {
       model,
-      sql: sql`${adapter.cte.with([
+      sql: sql`${this.adapter.cte.with([
         {
           name: source,
-          query: assembleAdapterSelect(adapter, {
+          query: assembleAdapterSelect(this.adapter, {
             columns: listed(columns),
             from: q.table(model),
             where,
@@ -677,7 +675,6 @@ export class Writer {
     projection?: PreparedProjection,
     counted = !keys
   ): Statement {
-    const q = this.#q;
     const { model } = question;
     const selector = this.selector({ ...question, intent: "delete" }, keys);
     return {
@@ -687,7 +684,7 @@ export class Writer {
         () => {
           const named = this.#limited(question, selector, keys);
           return [
-            this.adapter.mutations.delete(q.table(model), named.where),
+            this.adapter.mutations.delete(this.#q.table(model), named.where),
             named.suffix,
           ];
         },
@@ -910,8 +907,7 @@ export class Writer {
     fields: readonly string[],
     insert: Statement
   ): { statements: Statement[]; value: Sql } | undefined {
-    const { adapter } = this.operation.driver;
-    const { batchRefs } = getAdapterInternals(adapter);
+    const { batchRefs } = getAdapterInternals(this.adapter);
     const { model } = insert;
     const [field] = fields;
     const state = scalarsOf(model)[field!]?.["~"].state;
@@ -925,14 +921,14 @@ export class Writer {
       scratch,
       name,
       insert.sql,
-      adapter.identifiers.escape(this.#q.columnName(model, field!))
+      this.adapter.identifiers.escape(this.#q.columnName(model, field!))
     );
     return {
       statements: [
         { ...insert, sql: producing! },
         ...storing.map((statement) => ({ sql: statement, model })),
       ],
-      value: adapter.expressions.cast(
+      value: this.adapter.expressions.cast(
         batchRefs.read(scratch, name),
         state.type === "bigint" ? "bigint" : "integer"
       ),
@@ -979,7 +975,6 @@ export class Writer {
     columns: readonly string[],
     through?: Input
   ): Promise<{ row: Input; sets?: Input }> {
-    const q = this.#q;
     const { schema, scope, attribution } = this.operation;
     const model = edge.declared!.model;
     const name = nameOf(model);
@@ -996,7 +991,7 @@ export class Writer {
     // A written column is a write to the model: what would judge or observe a direct write refuses it.
     if (
       through &&
-      (q.domain?.restrictsLinkWrite(q, model) ||
+      (this.#q.domain?.restrictsLinkWrite(this.#q, model) ||
         scope?.rows.stamps?.has(name) ||
         sink?.wants(name, "create") ||
         sink?.wants(name, "update"))
@@ -1038,15 +1033,13 @@ export class Writer {
     pairs: readonly (readonly [Input, Input])[],
     through?: Input
   ): Promise<Statement[]> {
-    const q = this.#q;
-    const { schema } = this.operation;
     const { identifiers, mutations, set } = this.adapter;
     const { uniqueSide, declared } = edge;
     const members = linkMembers(edge);
     const columns = members.map(({ pair }) => pair.junctionField);
     const rows = pairs.map((pair) =>
       members.map(({ side, pair: member }) =>
-        q.fieldValue(
+        this.#q.fieldValue(
           side.model,
           member.referencedField,
           pair[side === edge.sourceSide ? 0 : 1][member.referencedField]
@@ -1058,8 +1051,9 @@ export class Writer {
     const own = model && (await this.linked(edge, columns, through));
     if (model && own) {
       for (const [field, value] of Object.entries(own.row)) {
-        columns.push(schema.physicalField(model, field).name);
-        for (const row of rows) row.push(q.fieldValue(model, field, value));
+        columns.push(this.operation.schema.physicalField(model, field).name);
+        for (const row of rows)
+          row.push(this.#q.fieldValue(model, field, value));
       }
       takes = own.sets && this.#sets(model, own.sets);
     }

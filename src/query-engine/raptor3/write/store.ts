@@ -1869,10 +1869,10 @@ export class Store {
     projection?: PreparedProjection,
     passes = true
   ): Later | undefined {
-    const { mutations } = this.writer.adapter;
     // None where no one statement passes such rows by, or answers with those it wrote.
     if (
-      (passes && mutations.skipDuplicatesStrategy !== "sql") ||
+      (passes &&
+        this.writer.adapter.mutations.skipDuplicatesStrategy !== "sql") ||
       (projection &&
         !this.operation.answersInStatement(model, projection, "insert"))
     )
