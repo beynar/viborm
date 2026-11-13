@@ -1585,20 +1585,16 @@ function resolveCarriers(
     publication.slots.push({ slot: carrier.slot, edge });
     // An inverse view points at the EXACT member object the carrier edge already
     // owns — `member.inverse` is the slot that member bound, so there is no
-    // second lookup that could miss. The two storage families are walked
-    // separately only because `ResolvedSlot` pairs each edge form with its own
-    // member type; the bodies are one rule.
-    if (edge.kind === "variantRowCarrier") {
-      for (const member of edge.members) {
-        if (member.inverse) {
-          publication.slots.push({ slot: member.inverse, edge, member });
-        }
-      }
-      continue;
-    }
+    // second lookup that could miss. `ResolvedSlot` pairs each edge form with
+    // its own member type; a member read from the edge's own list is of its
+    // form, which the one walk states with a cast.
     for (const member of edge.members) {
       if (member.inverse) {
-        publication.slots.push({ slot: member.inverse, edge, member });
+        publication.slots.push({
+          slot: member.inverse,
+          edge,
+          member,
+        } as ResolvedSlot);
       }
     }
   }
