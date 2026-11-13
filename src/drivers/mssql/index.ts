@@ -497,17 +497,23 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
         try {
           await transaction.commit();
         } catch (error) {
-          // `mssql` has released the connection, so there is no transaction
-          // left to roll back, and the COMMIT may have reached the server
-          // (a timeout) or not (a lost session): nobody can say which.
+          // `mssql` has released the connection, so there is nothing to roll
+          // back from here, and the COMMIT may have reached the server or
+          // not: nobody can say which.
           ABORTED_BY_SERVER.add(transaction);
-          throw new TransactionError(
+          const unknown = new TransactionError(
             'Driver "mssql" could not confirm the COMMIT: the transaction may or may not have been committed.',
             {
               cause: normalizeMssqlError(error) as Error,
               meta: { driver: "mssql", reason: "commit-outcome-unknown" },
             }
           );
+          // A lost session took its transaction with it. A live one (a
+          // timeout cancelled the COMMIT) may still hold it open, on a
+          // connection the pool lends again: the driver refuses further work.
+          if (!SESSION_GONE.test((error as Error).message))
+            this.transactionCleanupFailed(unknown);
+          throw unknown;
         }
       },
       rollback: async () => {

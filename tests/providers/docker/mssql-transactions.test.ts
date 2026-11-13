@@ -169,9 +169,10 @@ describeIf("SQL Server transactions the server rolls back", () => {
     expect(await victim.counter.count()).toBe(0);
   });
 
-  test("a COMMIT past its request timeout: an unknown outcome, though the server committed, and the client usable", async () => {
-    // One COMMIT with a 1 ms request timeout: tedious gives up waiting, the
-    // server commits anyway.
+  test("a COMMIT past its request timeout: an unknown outcome, and a client that refuses further work", async () => {
+    // One COMMIT with a 1 ms request timeout: tedious cancels it, and the
+    // server has committed, or not, leaving the transaction open on a
+    // connection `mssql` has handed back to its pool.
     const prototype = sqlServer.Transaction.prototype as unknown as {
       commit: (...args: unknown[]) => Promise<void>;
       _acquiredConnection?: { config: { options: { requestTimeout: number } } };
@@ -192,7 +193,7 @@ describeIf("SQL Server transactions the server rolls back", () => {
       committing.then(restore, restore);
       return committing;
     };
-    const slow = client();
+    const slow = open();
     const failure = await slow
       .$transaction(async (tx) => {
         await tx.$executeRaw(
@@ -207,7 +208,11 @@ describeIf("SQL Server transactions the server rolls back", () => {
       );
     prototype.commit = commit;
     expect(reported(failure)).toEqual(UNKNOWN_COMMIT);
-    expect(await client().counter.count()).toBe(3000);
-    expect(await slow.counter.count()).toBe(3000);
+    expect(
+      reported(await slow.counter.count().catch((error) => error))
+    ).toEqual({ typed: true, reason: undefined });
+    // Closing the pool ends whatever it held; the outcome is one or the other.
+    await slow.$disconnect();
+    expect([0, 3000]).toContain(await client().counter.count());
   });
 });
