@@ -230,8 +230,13 @@ by it carries a `ROW_NUMBER()` the aggregate states `WITHIN GROUP`, since
 `operators.rows` (declared by this adapter alone) spells `(k1, k2) IN (SELECT …)`
 as an `EXISTS` over the query as a derived table with named columns, and
 `(k1, k2) <= (v1, v2)` column by column; where it is present the engine also
-takes its general cursor window instead of the row-value seek. Recursive CTEs are refused (no `WITH` in
-a subquery, no `UNION` in a recursive member).
+takes its general cursor window instead of the row-value seek. T-SQL
+aggregates no subquery (Msg 130), so a judged update cannot keep
+`HAVING MIN(guard) = 1` per key: `assertions.keptWhere` (this adapter alone)
+folds the update's filter into the guard's own `CASE`, which then judges
+only the rows the filter keeps, and the engine keeps `kept AND guard = 1`.
+Recursive CTEs are refused (no `WITH` in a subquery, no `UNION` in a
+recursive member).
 
 `capabilities.sharesRelationBodies` is a transport fact, never a dialect
 one: declared by D1 (`SQLiteAdapter({ sharedRelationBodies: true })`) and by

@@ -22,6 +22,7 @@ import {
   type InsertValueContext,
 } from "../query-engine/raptor3/shared/insert-value";
 import type { Input } from "../query-engine/raptor3/shared/schema";
+import { spellings } from "./between";
 import { keysAfter } from "./keys";
 
 /** One group: the indexes of its rows, and its fields' values. */
@@ -83,13 +84,7 @@ export class AppendKey extends InsertValue {
         ? sql`${q.column(model, name)} IS NULL`
         : sql`${q.column(model, name)} = ${q.fieldValue(model, name, value)}`;
     });
-    where.push(
-      context.dialect === "postgresql"
-        ? sql`${key} ~ '^[0-9]{2,}$'`
-        : context.dialect === "mysql"
-          ? sql`${key} REGEXP '^[0-9]{2,}$'`
-          : sql`length(${key}) >= 2 AND ${key} NOT GLOB '*[^0-9]*'`
-    );
+    where.push(spellings[context.dialect].digits(key));
     return sql`SELECT MAX(${key}) AS k FROM ${q.table(model)} WHERE ${sql.join(where, " AND ")}`;
   }
 
@@ -99,16 +94,11 @@ export class AppendKey extends InsertValue {
    * `keysBetween(last, null, …)` computes it.
    */
   #expression(context: InsertValueContext, last: Sql, step: number): Sql {
-    const first = sql.raw(String(step - 1));
-    const next = sql.raw(String(step));
-    switch (context.dialect) {
-      case "postgresql":
-        return sql`(SELECT CASE WHEN n > 999999999 THEN NULL ELSE length(n::text)::text || n::text || rtrim(lpad(floor(random() * 1000000)::bigint::text, 6, '0'), '0') END FROM (SELECT CASE WHEN k IS NULL OR left(k, 1) = '0' THEN ${first} ELSE substr(k, 2, substr(k, 1, 1)::int)::bigint + ${next} END AS n FROM (${last}) AS m) AS x)`;
-      case "mysql":
-        return sql`(SELECT CASE WHEN n > 999999999 THEN NULL ELSE CONCAT(CHAR_LENGTH(n), n, TRIM(TRAILING '0' FROM LPAD(FLOOR(RAND() * 1000000), 6, '0'))) END FROM (SELECT CASE WHEN k IS NULL OR LEFT(k, 1) = '0' THEN ${first} ELSE CAST(SUBSTRING(k, 2, CAST(LEFT(k, 1) AS UNSIGNED)) AS UNSIGNED) + ${next} END AS n FROM (${last}) AS m) AS x)`;
-      default:
-        return sql`(SELECT CASE WHEN n > 999999999 THEN NULL ELSE length(n) || n || rtrim(printf('%06d', abs(random()) % 1000000), '0') END FROM (SELECT CASE WHEN k IS NULL OR substr(k, 1, 1) = '0' THEN ${first} ELSE CAST(substr(k, 2, CAST(substr(k, 1, 1) AS INTEGER)) AS INTEGER) + ${next} END AS n FROM (${last}) AS m) AS x)`;
-    }
+    return spellings[context.dialect].appended(
+      last,
+      sql.raw(String(step - 1)),
+      sql.raw(String(step))
+    );
   }
 
   async compute(

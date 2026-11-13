@@ -1513,7 +1513,8 @@ export class SqlQueries extends Queries {
     alias: string,
     nulls: ReadonlyMap<string, boolean>,
     from?: Sql,
-    acyclic: readonly string[] = NO_RELATIONS
+    acyclic: readonly string[] = NO_RELATIONS,
+    kept?: Sql
   ): Sql | undefined {
     const a = this.adapter;
     const outer = this.#known;
@@ -1531,8 +1532,12 @@ export class SqlQueries extends Queries {
       ),
     ];
     if (conditions.length === 0) return undefined;
+    const held = a.operators.and(...conditions);
     return a.subqueries.scalar(
-      a.assertions.holds(a.operators.and(...conditions), from)
+      a.assertions.holds(
+        kept ? a.assertions.keptWhere!(kept, held) : held,
+        from
+      )
     );
   }
   /**
@@ -1687,15 +1692,29 @@ export class SqlQueries extends Queries {
         nulls.set(field, whole.value === null);
     }
     const judgedSet = (): Sql | undefined => {
-      const guard = this.#holds(model, judged, produced, nulls, from, acyclic);
+      const where = candidates(row);
+      const kept = a.assertions.keptWhere && (where ?? a.literals.true());
+      const guard = this.#holds(
+        model,
+        judged,
+        produced,
+        nulls,
+        from,
+        acyclic,
+        kept
+      );
       if (guard === undefined) return undefined;
       const keys = this.keyOrder(model).map(current);
       return assembleAdapterSelect(a, {
         columns: sql.join(keys, ", "),
         from: this.table(model, row),
-        where: candidates(row),
-        groupBy: sql.join(keys, ", "),
-        having: sql`${a.aggregates.min(guard)} = 1`,
+        ...(kept
+          ? { where: a.operators.and(kept, sql`${guard} = 1`) }
+          : {
+              where,
+              groupBy: sql.join(keys, ", "),
+              having: sql`${a.aggregates.min(guard)} = 1`,
+            }),
         ...(limit !== undefined && {
           orderBy: this.#ascendingKeys(model, row),
           limit: this.value(limit),

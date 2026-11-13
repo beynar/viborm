@@ -941,6 +941,15 @@ export interface DatabaseAdapter {
      * scalar inside that write.
      */
     holds: (condition: Sql, from?: Sql) => Sql;
+    /**
+     * Where the dialect aggregates no subquery (SQL Server): the condition
+     * a judged update's `holds` judges over a candidate row, `condition` for
+     * a row `kept` keeps and true for any other. The update then keeps
+     * `kept AND guard = 1`, and a row it does not write is never refused,
+     * however the plan orders the two. Absent, it groups its candidates by
+     * key and keeps `MIN(guard) = 1`.
+     */
+    keptWhere?: (kept: Sql, condition: Sql) => Sql;
   };
 
   capabilities: DatabaseAdapterCapabilities;
