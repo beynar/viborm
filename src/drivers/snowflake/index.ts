@@ -31,6 +31,7 @@ import {
   VibORMErrorCode,
 } from "@errors";
 import { queryBackend } from "@query-engine/raptor3/shared/query-backend";
+import { isRecord } from "@validation/value-guards";
 import { Driver, type QueryExecutionContext } from "../driver";
 import type { TransactionOptionSupport } from "../shared";
 import {
@@ -63,7 +64,11 @@ export interface SnowflakeDriverOptions {
   /** The account identifier: `ORGNAME-ACCOUNTNAME`, or a locator (`xy12345.us-east-1`). */
   readonly account?: string;
   readonly username?: string;
-  /** The RSA private key of key-pair authentication: PKCS#8 or PKCS#1 PEM, unencrypted, or an imported `CryptoKey`. */
+  /**
+   * The RSA private key of key-pair authentication: PKCS#8 or PKCS#1 PEM,
+   * unencrypted, or an imported `CryptoKey` that is extractable (the driver
+   * reads its public half for the fingerprint Snowflake checks).
+   */
   readonly privateKey?: string | CryptoKey;
   /** An OAuth (or programmatic access) token, or a function answering a fresh one. */
   readonly token?: string | (() => string | Promise<string>);
@@ -81,7 +86,8 @@ export interface SnowflakeDriverOptions {
   readonly timeout?: number;
   /**
    * Where the API lives, when not `https://<account>.snowflakecomputing.com`
-   * (a proxy, a test server): the token goes wherever it says.
+   * (a proxy, a region outside `.com`): an `https://` URL, since the token
+   * goes wherever it says.
    */
   readonly host?: string;
   /** The `fetch` to send with: a Worker's, a proxy's, a test's. */
@@ -122,6 +128,8 @@ const SNOWFLAKE_CONFIG_KEYS: Record<keyof SnowflakeDriverOptions, true> = {
  */
 const SESSION = {
   TIMEZONE: "UTC",
+  // Every row: 0 is no cap, whatever the account or the user sets.
+  ROWS_PER_RESULTSET: "0",
 } as const;
 
 /**
@@ -144,14 +152,21 @@ function configuration(message: string): ClientInitializationError {
 }
 
 function callerParameters(
-  parameters: Readonly<Record<string, string>> = {}
+  parameters: unknown = {}
 ): Readonly<Record<string, string>> {
+  if (!isRecord(parameters))
+    throw configuration(
+      "The Snowflake parameters are an object of session parameter names and their values."
+    );
   for (const key of Object.keys(parameters))
     if (!CALLER_PARAMETERS.has(key.toLowerCase()))
       throw configuration(
         `VibORM does not pass the Snowflake session parameter ${key}: it decodes results in the formats and the time zone it fixes, and runs one statement at a time. It passes QUERY_TAG, USE_CACHED_RESULT and CLIENT_RESULT_CHUNK_SIZE.`
       );
-  return parameters;
+  // Admitted names only, so a string value is all the API takes.
+  return Object.fromEntries(
+    Object.entries(parameters).map(([key, value]) => [key, String(value)])
+  );
 }
 
 /**
@@ -167,6 +182,15 @@ function accountUrl(account: string): string {
   );
 }
 
+/** A caller's `host`: https only, since every request carries the token. */
+function secureHost(host: string): string {
+  if (URL.canParse(host) && new URL(host).protocol === "https:")
+    return host.replace(TRAILING_SLASHES, "");
+  throw configuration(
+    "The Snowflake host is an https:// URL: every request carries the token."
+  );
+}
+
 /** The fields a `snowflake://` URL names. */
 function parseSnowflakeUrl(url: string): SnowflakeDriverOptions {
   let parsed: URL;
@@ -178,6 +202,10 @@ function parseSnowflakeUrl(url: string): SnowflakeDriverOptions {
   if (parsed.protocol !== "snowflake:")
     throw configuration(
       `A Snowflake databaseUrl starts with snowflake://, not ${parsed.protocol}//.`
+    );
+  if (parsed.port)
+    throw configuration(
+      "A Snowflake databaseUrl names no port: the API answers https on 443. Pass host for any other endpoint."
     );
   if (parsed.password)
     throw configuration(
@@ -293,10 +321,10 @@ export class SnowflakeDriver extends Driver<
         "The Snowflake timeout is a positive whole number of seconds."
       );
     this.#options = resolved;
-    this.#baseUrl = (resolved.host ?? accountUrl(resolved.account)).replace(
-      TRAILING_SLASHES,
-      ""
-    );
+    this.#baseUrl =
+      resolved.host === undefined
+        ? accountUrl(resolved.account)
+        : secureHost(resolved.host);
     this.#parameters = { ...callerParameters(resolved.parameters), ...SESSION };
     this.#context = {
       ...(resolved.warehouse ? { warehouse: resolved.warehouse } : {}),

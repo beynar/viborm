@@ -84,7 +84,8 @@ function client() {
     database: "DB",
     namespace: "PUBLIC",
     role: "READER",
-    host: server.url,
+    host: server.host,
+    fetch: server.fetch,
   });
 }
 
@@ -293,7 +294,8 @@ describe("Snowflake vectors and points", () => {
       schema: { place },
       account: "a",
       token: "t",
-      host: server.url,
+      host: server.host,
+      fetch: server.fetch,
     });
 
   it("projects a point, a vector and a double in spellings no print rounds", async () => {
@@ -469,7 +471,8 @@ describe("Snowflake refusals", () => {
       },
       account: "a",
       token: "t",
-      host: server.url,
+      host: server.host,
+      fetch: server.fetch,
     });
     // 37 integer digits and 2 of scale: 39.
     await expect(
@@ -529,7 +532,8 @@ function docs() {
     schema: { doc, pair },
     account: "myorg-acct",
     token: "t",
-    host: server.url,
+    host: server.host,
+    fetch: server.fetch,
   });
 }
 
@@ -589,13 +593,19 @@ describe("Snowflake root pages and filters", () => {
       }),
       db.doc.count({ cursor: { id: 2 }, orderBy: { title: "asc" } }),
       db.pair.findMany({ cursor: { a_b: { a: 1, b: 2 } } }),
+      // The key twice is two terms: a row comparison again.
+      db.doc.findMany({
+        cursor: { id: 2 },
+        orderBy: [{ id: "asc" }, { id: "desc" }],
+      }),
       // No order stated: the one an extension gives the model is the order.
       ordering({ card: { key: "rank" } })(
         createClient({
           schema: { card },
           account: "myorg-acct",
           token: "t",
-          host: server.url,
+          host: server.host,
+          fetch: server.fetch,
         })
       ).card.findMany({ cursor: { id: 2 } }),
     ])
@@ -666,7 +676,8 @@ describe("Snowflake failures", () => {
           schema,
           account: "myorg-acct",
           token: "t",
-          host: server.url,
+          host: server.host,
+          fetch: server.fetch,
           parameters,
         })
       ).toThrow(ClientInitializationError);
@@ -678,14 +689,40 @@ describe("Snowflake failures", () => {
       schema,
       account: "myorg-acct",
       token: "t",
-      host: server.url,
+      host: server.host,
+      fetch: server.fetch,
       parameters: { QUERY_TAG: "reports" },
     });
     await db.$queryRaw`SELECT 1`;
+    // Every row whatever the account sets, in UTC.
     expect(server.statements()[0]!.parameters).toEqual({
       QUERY_TAG: "reports",
       TIMEZONE: "UTC",
+      ROWS_PER_RESULTSET: "0",
     });
+  });
+
+  it("refuses, before any request, a host that is not https, a port in the URL and parameters that are not an object", () => {
+    for (const options of [
+      { account: "myorg-acct", host: "http://evil.example" },
+      { account: "myorg-acct", host: "evil.example" },
+      {
+        databaseUrl:
+          "snowflake://u@myorg-acct/DB?host=http%3A%2F%2Fevil.example",
+      },
+      { databaseUrl: "snowflake://u@myorg-acct:443/DB" },
+      { account: "myorg-acct", parameters: null },
+      { account: "myorg-acct", parameters: ["QUERY_TAG"] },
+    ])
+      expect(() =>
+        createClient({
+          schema,
+          token: "t",
+          fetch: server.fetch,
+          ...(options as { account: string }),
+        })
+      ).toThrow(ClientInitializationError);
+    expect(server.requests).toHaveLength(0);
   });
 
   it("refuses, before any request, an account that would send the token to another host", async () => {

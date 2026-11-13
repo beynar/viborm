@@ -210,7 +210,8 @@ function answer({ statement }: FakeStatement) {
 
 function driver() {
   return new SnowflakeDriver({
-    databaseUrl: `snowflake://READER@myorg-acct/SALES/PUBLIC?warehouse=WH&host=${encodeURIComponent(server.url)}`,
+    databaseUrl: `snowflake://READER@myorg-acct/SALES/PUBLIC?warehouse=WH&host=${encodeURIComponent(server.host)}`,
+    fetch: server.fetch,
     token: "t",
   });
 }
@@ -347,10 +348,15 @@ describe("introspectSchema on Snowflake", () => {
 describe("migrations on Snowflake", () => {
   const schema = { item: s.model({ id: s.int().id() }).map("ITEMS") };
   const url = () =>
-    `snowflake://READER@myorg-acct/SALES/PUBLIC?host=${encodeURIComponent(server.url)}`;
+    `snowflake://READER@myorg-acct/SALES/PUBLIC?host=${encodeURIComponent(server.host)}`;
 
   it("refuses the migration client, so every command, before it reads storage or sends anything", () => {
-    const client = createClient({ schema, databaseUrl: url(), token: "t" });
+    const client = createClient({
+      schema,
+      databaseUrl: url(),
+      token: "t",
+      fetch: server.fetch,
+    });
     const storage = new MemoryEstateStorage();
     for (const options of [
       undefined,

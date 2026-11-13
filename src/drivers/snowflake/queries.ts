@@ -127,9 +127,13 @@ export class SnowflakeQueries extends SqlQueries {
     if (key === undefined || more.length > 0) return false;
     const order = orderBy ?? this.defaultOrder(model);
     const terms = Array.isArray(order) ? order : order ? [order] : [];
-    return [cursor, ...terms].every(
-      (term) =>
-        isRecord(term) && Object.keys(term).every((field) => field === key)
+    // One term at most: the key twice is two comparisons, a row again.
+    return (
+      terms.length <= 1 &&
+      [cursor, ...terms].every(
+        (term) =>
+          isRecord(term) && Object.keys(term).every((field) => field === key)
+      )
     );
   }
 

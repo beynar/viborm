@@ -205,6 +205,12 @@ describe("Snowflake credentials", () => {
         "-----BEGIN ENCRYPTED PRIVATE KEY-----\nAAAA\n-----END ENCRYPTED PRIVATE KEY-----"
       )
     ).toThrow("is encrypted");
+    // The way out it names is one the driver accepts.
+    expect(() =>
+      privateKeyBytes(
+        "-----BEGIN ENCRYPTED PRIVATE KEY-----\nAAAA\n-----END ENCRYPTED PRIVATE KEY-----"
+      )
+    ).toThrow("pass the CryptoKey, extractable");
     expect(() =>
       privateKeyBytes(
         "-----BEGIN PUBLIC KEY-----\nAAAA\n-----END PUBLIC KEY-----"

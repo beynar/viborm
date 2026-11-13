@@ -28,7 +28,7 @@ export type SnowflakeTokenType =
 export interface SnowflakeCredentials {
   readonly account: string;
   readonly username?: string;
-  /** PKCS#8 (`BEGIN PRIVATE KEY`) or PKCS#1 (`BEGIN RSA PRIVATE KEY`) PEM, or a key you imported. */
+  /** PKCS#8 (`BEGIN PRIVATE KEY`) or PKCS#1 (`BEGIN RSA PRIVATE KEY`) PEM, or a key you imported, extractable. */
   readonly privateKey?: string | CryptoKey;
   /** An OAuth or programmatic access token, or a function answering one. */
   readonly token?: string | (() => string | Promise<string>);
@@ -133,7 +133,7 @@ export function privateKeyBytes(pem: string): Uint8Array<ArrayBuffer> {
   if (label === "RSA PRIVATE KEY") return pkcs1ToPkcs8(base64ToBytes(body!));
   if (label === "ENCRYPTED PRIVATE KEY")
     throw configuration(
-      "The Snowflake private key is encrypted. Decrypt it first (openssl pkcs8 -in key.p8 -out key.pem), or import it yourself and pass the CryptoKey."
+      "The Snowflake private key is encrypted. Decrypt it first (openssl pkcs8 -in key.p8 -out key.pem), or import it yourself and pass the CryptoKey, extractable."
     );
   throw configuration(`A "${label}" PEM block is not an RSA private key.`);
 }

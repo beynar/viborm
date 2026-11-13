@@ -67,8 +67,15 @@ export interface RecordedRequest {
   readonly body?: FakeStatement;
 }
 
+/** The https host a driver is given; `fetch` sends it to the local server. */
+const FAKE_HOST = "https://fake.snowflakecomputing.test";
+
 export interface FakeSnowflake {
   readonly url: string;
+  /** What a driver's `host` names: the driver sends only to https. */
+  readonly host: string;
+  /** A `fetch` that sends a request for {@link host} to the local server. */
+  readonly fetch: (input: string, init: RequestInit) => Promise<Response>;
   readonly requests: RecordedRequest[];
   /** The statements POSTed, in order (a retried one appears again). */
   statements(): FakeStatement[];
@@ -238,8 +245,17 @@ export async function startFakeSnowflake(
   );
   const address = server.address();
   const port = typeof address === "object" && address ? address.port : 0;
+  const url = `http://127.0.0.1:${port}`;
   return {
-    url: `http://127.0.0.1:${port}`,
+    url,
+    host: FAKE_HOST,
+    fetch: (input, init) =>
+      fetch(
+        input.startsWith(FAKE_HOST)
+          ? url + input.slice(FAKE_HOST.length)
+          : input,
+        init
+      ),
     requests,
     statements: () =>
       requests
