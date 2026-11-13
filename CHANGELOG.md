@@ -27,8 +27,8 @@ VibORM reads Snowflake.
   filter and a root `cursor` not ordered by the model's single-field key are
   refused too, as Snowflake refuses the SQL they need. Only `QUERY_TAG`,
   `USE_CACHED_RESULT` and `CLIENT_RESULT_CHUNK_SIZE` pass as session
-  parameters, and an `account` that would send the token to another host is
-  refused.
+  parameters, and an `account` that would send the token to another host, or
+  a `host` that is not `https://`, is refused.
   `s.vector()` reads `VECTOR(FLOAT, n)` (`l2` and `cosine` distances) and
   `s.point()` reads `GEOGRAPHY` (equality, bounds, polygons, distance in the
   same metres as every provider; a point exactly on a polygon hole's edge reads

@@ -142,10 +142,25 @@ const note = s
     kind: s.string().nullable(),
     at: s.dateTime().nullable(),
     data: s.json().nullable(),
+    revisions: s.toMany(() => revision),
   })
   .map("NOTES");
 
-const schema = { author, post, tag, authorTag, place, note };
+const revision = s
+  .model({
+    noteId: s.int(),
+    rev: s.int(),
+    body: s.string().nullable(),
+    scores: s.number().array().nullable(),
+    note: s
+      .toOne(() => note)
+      .fields("noteId")
+      .references("id"),
+  })
+  .id(["noteId", "rev"])
+  .map("REVISIONS");
+
+const schema = { author, post, tag, authorTag, place, note, revision };
 
 const SEED = [
   `CREATE SCHEMA "${SCHEMA}"`,
@@ -181,7 +196,12 @@ const SEED = [
     (3, 'a\\\\b', '{"k":"3"}'),
     (4, 'A%b', '{"s":"hello","arr":[1,2]}'),
     (5, 'plain', NULL)`,
-  `CREATE TABLE "${SCHEMA}"."REVISIONS" ("noteId" NUMBER(9,0) NOT NULL REFERENCES "${SCHEMA}"."NOTES" ("id"), "rev" NUMBER(9,0) NOT NULL, "body" VARCHAR, PRIMARY KEY ("noteId", "rev"))`,
+  `UPDATE "${SCHEMA}"."NOTES" SET "at" = '1969-12-31 23:59:58.5' WHERE "id" = 5`,
+  `CREATE TABLE "${SCHEMA}"."REVISIONS" ("noteId" NUMBER(9,0) NOT NULL REFERENCES "${SCHEMA}"."NOTES" ("id"), "rev" NUMBER(9,0) NOT NULL, "body" VARCHAR, "scores" ARRAY, PRIMARY KEY ("noteId", "rev"))`,
+  // A list column: exact members, and one holding a null member.
+  `INSERT INTO "${SCHEMA}"."REVISIONS" SELECT column1, column2, column3, PARSE_JSON(column4)::ARRAY FROM VALUES
+    (1, 1, 'r1', '[1.5, 0.30000000000000004]'),
+    (1, 2, 'r2', '[1, null]')`,
   `CREATE SCHEMA "${ELSEWHERE}"`,
   `CREATE TABLE "${ELSEWHERE}"."CUSTOMERS" ("id" NUMBER(9,0) NOT NULL PRIMARY KEY)`,
   `CREATE TABLE "${SCHEMA}"."INVOICES" ("id" NUMBER(9,0) NOT NULL PRIMARY KEY, "customerId" NUMBER(9,0) REFERENCES "${ELSEWHERE}"."CUSTOMERS" ("id"))`,
@@ -473,13 +493,17 @@ describe.skipIf(credentials === undefined)("Snowflake, a real account", () => {
       fetch: send,
     });
     // No server-side timeout: past the 202 at 45 s, only the cancel stops it.
-    await tagged
+    const started = Date.now();
+    const failure = await tagged
       .run(
         "SELECT SYSTEM$WAIT(90) AS DONE",
         undefined,
         AbortSignal.timeout(50_000)
       )
       .catch((error: unknown) => error);
+    // The caller's reason, within the 2 s the cancel may take.
+    expect(failure).toMatchObject({ name: "TimeoutError" });
+    expect(Date.now() - started).toBeLessThan(53_000);
     expect(exchanges[0]).toMatchObject({ method: "POST", status: 202 });
     expect(
       exchanges.filter((exchange) => exchange.path.endsWith("/cancel"))
@@ -754,6 +778,47 @@ describe.skipIf(credentials === undefined)("Snowflake, a real account", () => {
       LIST: [1, null],
       DOC: { a: null },
     });
+  });
+
+  it("reads a list exactly, flat and nested, and refuses a null member either way", async () => {
+    const exact = await db!.revision.findUnique({
+      where: { noteId_rev: { noteId: 1, rev: 1 } },
+      select: { scores: true },
+    });
+    expect(exact).toEqual({ scores: [1.5, 0.300_000_000_000_000_04] });
+    const nested = await db!.note.findUnique({
+      where: { id: 1 },
+      select: { revisions: { where: { rev: 1 }, select: { scores: true } } },
+    });
+    expect(nested!.revisions).toEqual([exact]);
+    // A list member is never null in VibORM: the row is refused, nested
+    // (each member carried as text) as flat, not read as another value.
+    for (const read of [
+      db!.revision.findUnique({
+        where: { noteId_rev: { noteId: 1, rev: 2 } },
+        select: { scores: true },
+      }),
+      db!.note.findUnique({
+        where: { id: 1 },
+        select: { revisions: { where: { rev: 2 }, select: { scores: true } } },
+      }),
+    ])
+      await expect(read).rejects.toThrow("a required scalar is null");
+  });
+
+  it("reads and filters an instant before 1970 through a dateTime field", async () => {
+    const before = new Date("1969-12-31T23:59:58.500Z");
+    const note = await db!.note.findUnique({
+      where: { id: 5 },
+      select: { at: true },
+    });
+    expect(note).toEqual({ at: before });
+    const earlier = await db!.note.findMany({
+      where: { at: { lt: new Date(0) } },
+      select: { id: true },
+    });
+    expect(earlier).toEqual([{ id: 5 }]);
+    expect(await db!.note.count({ where: { at: { equals: before } } })).toBe(1);
   });
 
   it("filters text with LIKE's metacharacters, insensitively, and JSON at a path; omits", async () => {

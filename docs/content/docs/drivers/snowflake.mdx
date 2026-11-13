@@ -47,7 +47,7 @@ carries the key or the token: pass `privateKey` or `token` beside it.
 | `warehouse`, `database`, `role` | The context every statement runs in, spelled as the catalog spells them (usually upper case) |
 | `namespace` | The schema every statement runs in, and the one VibORM qualifies its tables with |
 | `timeout` | Seconds a statement may run (see [Timeouts](#timeouts)) |
-| `host` | The API's base URL, when it is not `https://<account>.snowflakecomputing.com`: a proxy, a test server. The token goes wherever it says |
+| `host` | The API's `https://` base URL, when it is not `https://<account>.snowflakecomputing.com`: the China region, a proxy. The token goes wherever it says |
 | `fetch` | The `fetch` to send with: any `(url, init) => Promise<Response>` |
 | `parameters` | `QUERY_TAG`, `USE_CACHED_RESULT` or `CLIENT_RESULT_CHUNK_SIZE`, added to every statement's session |
 
@@ -59,7 +59,9 @@ organization and account name (`myorg-myaccount`), a locator with its region
 (`xy12345.us-east-1`, `xy12345.us-east-1.aws`), or a private link
 (`xy12345.us-east-1.privatelink`). VibORM refuses, before sending anything, an
 account that would name another host: a scheme, a path, a user, a port or a
-query. Any other endpoint (`.snowflakecomputing.cn`, a proxy) is `host`.
+query. An account in Snowflake's China region answers under
+`.snowflakecomputing.cn`, and a proxy anywhere: pass it as `host`, an
+`https://` URL (VibORM refuses any other, since the token goes there).
 
 A `CryptoKey` must be extractable: the driver reads its public half to compute
 the fingerprint Snowflake checks, and refuses a key it cannot read with a
@@ -107,10 +109,9 @@ is correlated, by an equality, which Snowflake turns into a grouped join.
 
 That page reads the related table set-wise. On a large table, a nested read
 costs what its whole relation costs, not what the parent's rows reach. Two
-levels deep, Snowflake pushes the root's filter into the first level's page
-only (measured on a query plan): the second level's page scans every row of
-its relation, whichever parents the root keeps. `findUnique` with an
-`include` pays the same.
+levels deep, the second level's page carries no filter from the root: expect
+it to read every row of its relation, whichever parents the root keeps.
+`findUnique` with an `include` pays the same.
 
 ### Keys Snowflake does not enforce
 
@@ -123,10 +124,16 @@ keep the keys true with Snowflake's own tools.
 ### Timeouts
 
 A statement runs with `timeout` sent to Snowflake. The SQL API answers with a
-statement's handle only at its first `202`, after 45 seconds: before it,
-Snowflake's own timeout stops the statement; after it, the driver also cancels
-it, waits at most 2 seconds for the answer, and answers `QUERY_TIMEOUT` either
-way (both measured).
+statement's handle only at its first `202`, after 45 seconds. Before it,
+Snowflake's own timeout stops the statement (measured: no cancel is sent, and
+the account's query history shows the statement failed). After it, the driver
+also cancels the statement: Snowflake acknowledges the cancel and the
+statement fails (measured with a statement abandoned after its `202`). The
+driver waits at most 2 seconds for that answer, and answers `QUERY_TIMEOUT`
+whether it comes or not (tested against a local server).
+
+The driver takes no `AbortSignal` of the caller's: a read runs until its
+result, its `timeout`, or Snowflake's own limits.
 
 ## What is refused
 
@@ -193,7 +200,8 @@ The API answers every value as text. The driver reads each one exactly:
 | `GEOGRAPHY` | `{ longitude, latitude }` for `s.point()`; the GeoJSON object (`$queryRaw`) |
 
 Every statement runs with `TIMEZONE = 'UTC'`: a `TIMESTAMP_NTZ` holds a wall
-clock with no zone, and VibORM reads it, and compares it, as UTC. A `Date`
+clock with no zone, and VibORM reads it, and compares it, as UTC. It runs with
+`ROWS_PER_RESULTSET = 0` too, so no account or user setting caps a result. A `Date`
 operand binds as a `TIMESTAMP_TZ` at UTC.
 
 A JSON number inside a `VARIANT` read through `$queryRaw` is parsed by
