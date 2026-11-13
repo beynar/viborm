@@ -2215,8 +2215,7 @@ export class Store {
     const answered = (
       at: number,
       rows: readonly Row[],
-      effect: "insert" | "update" | "delete",
-      written?: Input
+      effect: "insert" | "delete"
     ) => {
       const next = log[at];
       return at < to &&
@@ -2224,12 +2223,7 @@ export class Store {
         next.projection &&
         next.rows.length === rows.length &&
         next.rows.every((row, place) => row === rows[place]) &&
-        this.operation.answersInStatement(
-          next.model,
-          next.projection,
-          effect,
-          written
-        )
+        this.operation.answersInStatement(next.model, next.projection, effect)
         ? next
         : undefined;
     };
