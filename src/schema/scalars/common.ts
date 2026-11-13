@@ -450,6 +450,32 @@ type Chain = abstract new <State>(
   state: State,
   nativeType?: NativeTypeDeclaration
 ) => TypedScalarChain;
+/**
+ * The list chain with its members left untyped, for a class that types them
+ * as methods of its own and hands their work back with `super`.
+ */
+export declare abstract class UntypedScalarChain extends TypedScalarChain {
+  nullable(): unknown;
+  array(): unknown;
+  default(value: unknown): unknown;
+  map(columnName: string): unknown;
+}
+export const untypedListScalarChain =
+  ListScalarChain as unknown as abstract new <State>(
+    state: State,
+    nativeType?: NativeTypeDeclaration
+  ) => UntypedScalarChain;
+/** The keyed chain, untyped in the same way. */
+export declare abstract class UntypedKeyedScalarChain extends UntypedScalarChain {
+  id(): unknown;
+  unique(): unknown;
+  schema(schema: StandardSchemaV1<any, any>): unknown;
+}
+export const untypedKeyedScalarChain =
+  KeyedScalarChain as unknown as abstract new <State>(
+    state: State,
+    nativeType?: NativeTypeDeclaration
+  ) => UntypedKeyedScalarChain;
 export const scalarChain = ScalarChain as unknown as Chain;
 export const listScalarChain = ListScalarChain as unknown as Chain;
 export const keyedScalarChain = KeyedScalarChain as unknown as Chain;
