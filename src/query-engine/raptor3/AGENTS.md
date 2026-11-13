@@ -159,9 +159,9 @@ was measured judging a row the update does not write, and a guard in `SET`
 is evaluated row by row by SQLite and MySQL and was measured seeing the
 statement's own earlier rows. The values a write sets fold into its
 judgement where they are null tests of the produced row's own columns
-(`foldKnownNulls`): an arm on a key the write leaves null never reaches the
+(`foldKnownNulls`, `src/extensions/layers.ts`): an arm on a key the write leaves null never reaches the
 statement. An acyclic relation is a physical walk under no domain
-(`#outsideOwnSubtree`). A refused write raises its adapter's refusal sentinel
+(`outsideOwnSubtree`, `src/extensions/produced.ts`). A refused write raises its adapter's refusal sentinel
 (`__viborm_refused__` under the `__viborm_judged__` alias, never a premise's
 division by zero or invalid JSON), which the driver maps to
 `NestedWriteAssertionError`, so a caller's own division by zero or invalid
@@ -2830,7 +2830,7 @@ dialect has a targeted upsert, the anti-join insert and an `UPDATE` elsewhere.
 `$through` is a read or a write of that model, unlike the hop beside it. The read
 projects the link the page already joins (`#memberSource`), the filter forces the
 join so a link's and a target's conditions test one pair, and what a direct call
-would hide or judge refuses it (`#refuseHiddenLinkRow`, `restrictsLinkWrite`,
+would hide or judge refuses it (the prepared domain's `refuseHiddenLinkRow` and `restrictsLinkWrite`, `src/extensions/row-domain.ts`,
 `#admitLink`). `#linkBound` applies a model's `tenant` bound at every hop's link
 alias, under the same polarity as `#setBound`, only over columns both of the
 link's keys hold: over any other, a link may disagree with the rows it joins.
