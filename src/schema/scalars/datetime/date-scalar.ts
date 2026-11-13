@@ -1,16 +1,17 @@
 // Date Scalar
-// Standalone scalar class with State generic pattern
+// The modifiers every scalar shares are implemented once, in the chain this
+// class extends; the class types them for this scalar's own state
 
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type { IsoDateSchema } from "@validation/primitives/iso";
 import v from "@validation/primitives/v";
+import type { ComputeInput, ComputeOutput } from "@validation/types";
 import {
   createDefaultState,
   type DefaultValueInput,
-  generatorDefault,
-  nullableDefault,
-  refuseListGenerator,
+  type GeneratorDefaultBrand,
   type ScalarState,
-  updateState,
+  type UpdateState,
 } from "../common";
 import { admitNativeType } from "../native-catalog";
 import type {
@@ -19,146 +20,176 @@ import type {
   NativeTypeArgument,
   NativeTypeDeclaration,
 } from "../native-types";
-import { currentTemporalValue } from "./current";
+import { temporalScalarChain } from "./chain";
 
-const defaultNow = generatorDefault(() => currentTemporalValue("date"));
-const defaultUpdatedAt = generatorDefault(() => currentTemporalValue("date"));
 const dateBase = v.isoDate();
 
-export class DateScalar<State extends ScalarState<"date">> {
-  private readonly state: State;
-  private readonly _nativeType?: NativeTypeDeclaration | undefined;
-
-  constructor(state: State, _nativeType?: NativeTypeDeclaration) {
-    this.state = state;
-    this._nativeType = _nativeType;
-  }
-
-  nullable() {
-    return new DateScalar(
-      updateState(this, {
-        nullable: true,
-        hasDefault: true,
-        default: nullableDefault(this.state),
-        optional: true,
-        base: v.isoDate<{
-          nullable: true;
-          array: State["array"];
-          schema: State["schema"];
-        }>({
-          nullable: true,
-          array: this.state.array,
-          schema: this.state.schema,
-        }),
-      }),
-      this._nativeType
-    );
-  }
-
-  array() {
-    if (
-      this.state.autoGenerate?.kind === "now" ||
-      this.state.autoGenerate?.kind === "updatedAt"
-    )
-      refuseListGenerator("s.date");
-    return new DateScalar(
-      updateState(this, {
-        array: true,
-        base: v.isoDate<{
-          nullable: State["nullable"];
-          array: true;
-          schema: State["schema"];
-        }>({
-          nullable: this.state.nullable,
-          array: true,
-          schema: this.state.schema,
-        }),
-      }),
-      this._nativeType
-    );
-  }
-
-  id() {
-    return new DateScalar(
-      updateState(this, { isId: true, isUnique: true }),
-      this._nativeType
-    );
-  }
-
-  unique() {
-    return new DateScalar(
-      updateState(this, { isUnique: true }),
-      this._nativeType
-    );
-  }
-
-  schema<S extends StandardSchemaV1<string>>(schema: S) {
-    return new DateScalar(
-      updateState(this, {
-        schema,
-        base: v.isoDate<{
-          nullable: State["nullable"];
-          array: State["array"];
-          schema: S;
-        }>({
-          nullable: this.state.nullable,
-          array: this.state.array,
-          schema,
-        }),
-      }),
-      this._nativeType
-    );
-  }
-
-  default<V extends DefaultValueInput<State>>(value: V) {
-    return new DateScalar(
-      updateState(this, {
-        hasDefault: true,
-        default: value,
-        optional: true,
-      }),
-      this._nativeType
-    );
-  }
-
+export class DateScalar<
+  State extends ScalarState<"date">,
+> extends temporalScalarChain<State> {
+  private declare readonly state: State;
+  declare readonly nullable: () => DateScalar<
+    UpdateState<
+      State,
+      {
+        readonly nullable: true;
+        readonly hasDefault: true;
+        readonly default: State["hasDefault"] extends true
+          ? State["default"]
+          : null;
+        readonly optional: true;
+        readonly base: IsoDateSchema<
+          ComputeInput<
+            string | Date,
+            {
+              nullable: true;
+              array: State["array"];
+              schema: State["schema"];
+            }
+          >,
+          ComputeOutput<
+            string,
+            {
+              nullable: true;
+              array: State["array"];
+              schema: State["schema"];
+            }
+          >
+        >;
+      }
+    >
+  >;
+  declare readonly array: () => DateScalar<
+    UpdateState<
+      State,
+      {
+        readonly array: true;
+        readonly base: IsoDateSchema<
+          ComputeInput<
+            string | Date,
+            {
+              nullable: State["nullable"];
+              array: true;
+              schema: State["schema"];
+            }
+          >,
+          ComputeOutput<
+            string,
+            {
+              nullable: State["nullable"];
+              array: true;
+              schema: State["schema"];
+            }
+          >
+        >;
+      }
+    >
+  >;
+  declare readonly id: () => DateScalar<
+    UpdateState<
+      State,
+      {
+        readonly isId: true;
+        readonly isUnique: true;
+      }
+    >
+  >;
+  declare readonly unique: () => DateScalar<
+    UpdateState<
+      State,
+      {
+        readonly isUnique: true;
+      }
+    >
+  >;
+  declare readonly schema: <S extends StandardSchemaV1<string>>(
+    schema: S
+  ) => DateScalar<
+    UpdateState<
+      State,
+      {
+        readonly schema: S;
+        readonly base: IsoDateSchema<
+          ComputeInput<
+            string | Date,
+            {
+              nullable: State["nullable"];
+              array: State["array"];
+              schema: S;
+            }
+          >,
+          ComputeOutput<
+            string,
+            {
+              nullable: State["nullable"];
+              array: State["array"];
+              schema: S;
+            }
+          >
+        >;
+      }
+    >
+  >;
+  declare readonly default: <V extends DefaultValueInput<State>>(
+    value: V
+  ) => DateScalar<
+    UpdateState<
+      State,
+      {
+        readonly hasDefault: true;
+        readonly default: V;
+        readonly optional: true;
+      }
+    >
+  >;
   /**
    * Maps this scalar to a custom column name in the database
    */
-  map(columnName: string) {
-    return new DateScalar(updateState(this, { columnName }), this._nativeType);
-  }
+  declare readonly map: (columnName: string) => DateScalar<
+    UpdateState<
+      State,
+      {
+        readonly columnName: string;
+      }
+    >
+  >;
+  declare readonly now: () => DateScalar<
+    UpdateState<
+      State,
+      {
+        readonly hasDefault: true;
+        readonly autoGenerate: {
+          readonly kind: "now";
+        };
+        readonly default: (() => string) & GeneratorDefaultBrand;
+        readonly optional: true;
+      }
+    >
+  >;
+  declare readonly updatedAt: () => DateScalar<
+    UpdateState<
+      State,
+      {
+        readonly hasDefault: true;
+        readonly autoGenerate: {
+          readonly kind: "updatedAt";
+        };
+        readonly default: (() => string) & GeneratorDefaultBrand;
+        readonly optional: true;
+      }
+    >
+  >;
+  declare readonly ["~"]: {
+    state: State;
+    nativeType: NativeTypeDeclaration | undefined;
+  };
 
-  now() {
-    if (this.state.array) refuseListGenerator("s.date");
-    return new DateScalar(
-      updateState(this, {
-        hasDefault: true,
-        autoGenerate: { kind: "now" },
-        default: defaultNow,
-        optional: true,
-      }),
-      this._nativeType
-    );
-  }
-
-  updatedAt() {
-    if (this.state.array) refuseListGenerator("s.date");
-    return new DateScalar(
-      updateState(this, {
-        hasDefault: true,
-        autoGenerate: { kind: "updatedAt" },
-        default: defaultUpdatedAt,
-        optional: true,
-      }),
-      this._nativeType
-    );
-  }
-
-  get ["~"]() {
-    return {
-      state: this.state,
-      nativeType: this._nativeType,
-    };
+  protected rebase(state: State) {
+    return v.isoDate({
+      nullable: state.nullable,
+      array: state.array,
+      schema: state.schema,
+    });
   }
 }
 
