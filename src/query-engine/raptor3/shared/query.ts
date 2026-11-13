@@ -400,27 +400,31 @@ export interface Read {
   readonly value: ProjectionShape | Leaf;
   result(rows: Input[]): unknown;
 }
+/**
+ * What a write asks of a selector before it trusts what it knows of a row:
+ * the row's own fields the selector reads, the values every row it takes
+ * holds, and the relations it reads other rows through.
+ */
 export interface SelectorFacts {
   fields: Set<string>;
+  /**
+   * The literal equalities the selector's own conjunction states: what every
+   * row it takes holds. An equality under an `OR` or a `NOT`, or inside a
+   * relation's body, is none.
+   */
   equals: Map<string, unknown>;
   /**
    * The admitted unique selector's DISCRIMINATOR pins: the literal equality of
    * every `key: true` prepared column, which is exactly what the shipped
    * `partitionWhereUnique` files under `entries`
-   * (`write-engine/shared.ts:154-166`). An extended `where`'s filter half, an
-   * `AND`/`OR`/`NOT` arm and every entry of a selector admitted as a filter are
-   * absent by construction — they are `equals` and not a pin.
+   * (`write-engine/shared.ts:154-166`). An extended `where`'s filter half and
+   * every entry of a selector admitted as a filter are absent by
+   * construction: they are `equals` and not a pin.
    */
   keys: Map<string, unknown>;
   exact: boolean;
-  reads: SelectorRead[];
-}
-export interface SelectorRead {
-  readonly model: AnyModel;
-  readonly path: readonly Membership[];
-  readonly fields: Set<string>;
-  readonly equals: Map<string, unknown>;
-  readonly exact: boolean;
+  /** The models, and the junction tables, whose rows the selector reads besides its own row. */
+  reads: Set<AnyModel | string>;
 }
 /** Expressions compared as one: a row value, or the expression itself alone. */
 export function rowValue(items: Sql[]): Sql {
@@ -443,9 +447,19 @@ export function newSelectorFacts(exact = true): SelectorFacts {
     equals: new Map(),
     keys: new Map(),
     exact,
-    reads: [],
+    reads: new Set(),
   };
 }
+/**
+ * The facts of what `facts`' selector holds apart: an arm of an `OR` or a
+ * `NOT` (`own`: it reads the same row's fields), a relation's body. It reads
+ * what the selector reads and pins nothing of the selector's row.
+ */
+const apart = (facts: SelectorFacts, own = false): SelectorFacts => ({
+  ...newSelectorFacts(false),
+  reads: facts.reads,
+  ...(own && { fields: facts.fields }),
+});
 export type PreparedScalar = {
   readonly model: AnyModel;
   readonly field: string;
@@ -963,12 +977,6 @@ export interface PreparedSelector {
    * alone to name the row must not.
    */
   readonly scoped?: true;
-  /**
-   * The verb a write's candidates were judged at ({@link Queries.candidates}):
-   * the row such a write produces is judged at the same predicates
-   * ({@link PreparedDomain.produced}).
-   */
-  readonly judgement?: RowJudgement;
 }
 /** The decoder identifies the invalid value; its operation owns public errors. */
 export class InvalidScalarResult extends TypeError {
@@ -1951,7 +1959,7 @@ export abstract class Queries {
         model,
         predicate: where
           ? this.#rooted(model, undefined, () =>
-              this.#prepareWhere(model, where, undefined, [], unique)
+              this.#prepareWhere(model, where, undefined, unique)
             )
           : undefined,
       });
@@ -1973,7 +1981,7 @@ export abstract class Queries {
         : undefined,
       predicate: where
         ? this.#rooted(model, facts, () =>
-            this.#prepareWhere(model, where, facts, [], unique)
+            this.#prepareWhere(model, where, facts, unique)
           )
         : undefined,
     });
@@ -2112,7 +2120,7 @@ export abstract class Queries {
       for (const [field, value] of selector.facts.keys)
         facts.keys.set(field, value);
       facts.exact &&= selector.facts.exact;
-      facts.reads.push(...selector.facts.reads);
+      for (const read of selector.facts.reads) facts.reads.add(read);
       if (selector.predicate) predicates.push(selector.predicate);
     }
     return freeze({
@@ -2149,7 +2157,6 @@ export abstract class Queries {
       uniqueKey: selector.uniqueKey,
       uniqueValues: selector.uniqueValues,
       scoped: true,
-      ...(judgement && { judgement }),
     });
   }
   abstract lowerSelector(
@@ -2169,8 +2176,7 @@ export abstract class Queries {
   abstract locatedValue(
     model: AnyModel,
     field: string,
-    selector: PreparedSelector,
-    mutating?: AnyModel
+    selector: PreparedSelector
   ): Sql;
   /**
    * The first `limit` rows of `selector` in key order, as prepared meaning: a
@@ -2229,7 +2235,6 @@ export abstract class Queries {
     model: AnyModel,
     where: Input,
     facts: SelectorFacts | undefined,
-    path: readonly Membership[],
     unique = false,
     positive = true
   ): PreparedPredicate {
@@ -2241,15 +2246,15 @@ export abstract class Queries {
     return conjunction(
       Object.entries(where).map(([field, operand]) => {
         if (this.combinator(model, field)) {
-          if (facts && field !== "AND") facts.exact = false;
+          const held = facts && field !== "AND" ? apart(facts, true) : facts;
+          if (held !== facts) facts!.exact = false;
           return this.combine(
             field,
             entries(operand).map((clause) =>
               this.#prepareWhere(
                 model,
                 clause,
-                facts,
-                path,
+                held,
                 false,
                 field === "NOT" ? !positive : positive
               )
@@ -2262,7 +2267,6 @@ export abstract class Queries {
             field,
             operand,
             facts,
-            path,
             positive
           );
         // An ordinary scalar predicate is not a unique discriminator. Only
@@ -2304,7 +2308,7 @@ export abstract class Queries {
     facts: SelectorFacts | undefined
   ): PreparedPredicate {
     const model = this.schema.schema[existence.model]!;
-    const nestedFacts = facts && newSelectorFacts(false);
+    const nestedFacts = facts && apart(facts);
     // One body below the row that holds it, joined to nothing: a
     // `{ $row, up }` inside it may read that row (or one above), and then it
     // is correlated; else it is the same wherever the statement holds it.
@@ -2312,13 +2316,13 @@ export abstract class Queries {
     this.#scopes = [...scopes, { model, facts: nestedFacts }];
     let predicate: PreparedPredicate;
     try {
-      predicate = this.#prepareWhere(model, existence.where, nestedFacts, []);
+      predicate = this.#prepareWhere(model, existence.where, nestedFacts);
     } finally {
       this.#scopes = scopes;
     }
-    if (facts && nestedFacts) {
+    if (facts) {
       facts.exact = false;
-      this.#nested(facts, nestedFacts, model, [], false);
+      facts.reads.add(model);
     }
     return freeze({
       kind: "exists",
@@ -2704,7 +2708,6 @@ export abstract class Queries {
     name: string,
     operand: unknown,
     facts: SelectorFacts | undefined,
-    path: readonly Membership[],
     positive = true
   ): PreparedPredicate {
     const resolved = this.schema.index.get(model)!.get(name)!;
@@ -2741,7 +2744,6 @@ export abstract class Queries {
             quantifier,
             value,
             facts,
-            path,
             positive,
             closure
           )
@@ -2789,7 +2791,6 @@ export abstract class Queries {
           edge,
           negated ? record(tagged.isNot) : (tagged.is as Input | undefined),
           facts,
-          path,
           inexact,
           positive,
           undefined,
@@ -2823,7 +2824,6 @@ export abstract class Queries {
                   "none",
                   undefined,
                   facts,
-                  path,
                   positive
                 )
               ),
@@ -2848,7 +2848,6 @@ export abstract class Queries {
     quantifier: string,
     value: unknown,
     facts: SelectorFacts | undefined,
-    path: readonly Membership[],
     positive = true,
     closure?: Closure
   ): PreparedPredicate {
@@ -2876,7 +2875,6 @@ export abstract class Queries {
         edge,
         link ? withoutLinkKey(body!) : body,
         facts,
-        path,
         quantifier === "none" ||
           quantifier === "every" ||
           quantifier === "isNot",
@@ -2886,88 +2884,43 @@ export abstract class Queries {
       ...(closure ? { closure } : {}),
     });
   }
-  /** One relation read: SQL meaning and dependency facts from one traversal. */
   /**
-   * `inexact` is also this arm's POLARITY: `none`, `isNot` and `every` consume
-   * their nested predicate under a negation — `every` emits `NOT(nested)`
-   * inside its `NOT EXISTS` — so a conjunct added there is a conjunct of what
-   * is negated. One fact, read twice, instead of a second flag that could
+   * One relation's body, and the read of other rows it is. `inexact` is also
+   * this arm's POLARITY: `none`, `isNot` and `every` consume their nested
+   * predicate under a negation — `every` emits `NOT(nested)` inside its
+   * `NOT EXISTS` — so a conjunct added there is a conjunct of what is
+   * negated. One fact, read twice, instead of a second flag that could
    * disagree with it.
    */
   #relationScope(
     edge: Membership,
     where: Input | undefined,
     facts: SelectorFacts | undefined,
-    path: readonly Membership[],
     inexact: boolean,
     positive = true,
     closure?: Closure,
     sealed: string | undefined = closure && "recursive"
   ): PreparedPredicate | undefined {
-    if (!where) return this.#relationFacts(edge, facts, path, inexact, closure);
+    facts?.reads.add(edge.target);
+    if (edge.kind === "junction") facts?.reads.add(edge.table);
+    if (!where) return;
     const scopes = this.#scopes;
-    const nestedFacts =
-      facts && newSelectorFacts(!inexact && closure === undefined);
+    const nestedFacts = facts && apart(facts);
     this.#scopes = [
       ...scopes,
       { model: edge.target, facts: nestedFacts, ...(sealed && { sealed }) },
     ];
     try {
-      const predicate = this.#prepareWhere(
+      return this.#prepareWhere(
         edge.target,
         where,
         nestedFacts,
-        facts ? [...path, edge] : path,
         false,
         positive && !inexact
       );
-      this.#relationFacts(edge, facts, path, inexact, closure, nestedFacts);
-      return predicate;
     } finally {
       this.#scopes = scopes;
     }
-  }
-  /** The reads a relation's scope adds to its parent's facts (§2.2). */
-  #relationFacts(
-    edge: Membership,
-    facts: SelectorFacts | undefined,
-    path: readonly Membership[],
-    inexact: boolean,
-    closure: Closure | undefined,
-    prepared?: SelectorFacts
-  ): undefined {
-    if (!facts) return;
-    const scope = [...path, edge];
-    // A closure's members are decided by every intermediate row's link, so no
-    // `equals` it states proves a write to another row disjoint, and a write
-    // to a link field changes who is a member.
-    const nestedFacts =
-      prepared ?? newSelectorFacts(!inexact && closure === undefined);
-    if (closure && edge.kind === "reference")
-      for (const pair of edge.pairs)
-        nestedFacts.fields.add(pair.source).add(pair.target);
-    this.#nested(facts, nestedFacts, edge.target, scope, nestedFacts.exact);
-  }
-  /**
-   * What a scope nested in another reads of `model`, reached by `path`, is
-   * read by the scope it is nested in. The related domain's fields are read
-   * by it too, so a lookup that reads through it depends on a write to them
-   * (§2.2).
-   */
-  #nested(
-    facts: SelectorFacts,
-    nested: SelectorFacts,
-    model: AnyModel,
-    path: SelectorFacts["reads"][number]["path"],
-    exact: boolean
-  ): void {
-    const domain = this.domain?.selector(model, "related");
-    if (domain)
-      for (const field of domain.facts.fields) nested.fields.add(field);
-    facts.reads.push(
-      { model, path, fields: nested.fields, equals: nested.equals, exact },
-      ...nested.reads
-    );
   }
   /** A field of a model as it is stored. */
   physical(model: AnyModel, field: string): PhysicalField {
@@ -3592,9 +3545,10 @@ export abstract class Queries {
         "createMany returned a different number of rows than expected."
       );
   }
-  decodeQuery(query: Query, rows: Input[], internal = false): Input[] {
+  /** A write's own read, decoded as the stored row it is (an internal read). */
+  decodeQuery(query: Query, rows: Input[]): Input[] {
     this.assertExpectedRows(query, rows.length);
-    return this.decodeProjection(query.shape, rows, internal);
+    return this.decodeProjection(query.shape, rows, true);
   }
   decodeProjection(
     shape: ProjectionShape,

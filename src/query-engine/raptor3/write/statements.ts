@@ -139,7 +139,7 @@ export class Writer {
         : undefined;
     const named = known
       ? found &&
-        (found.facts.reads.length === 0 ||
+        (found.facts.reads.size === 0 ||
           this.adapter.capabilities.supportsMutationTargetInSubquery)
         ? q.andSelectors(model, [known, found])
         : known

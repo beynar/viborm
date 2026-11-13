@@ -191,18 +191,16 @@ describe("post-G3 selector preparation", () => {
     prepared.facts.fields.add("leaked");
     assert.equal(excluded.facts.fields.has("leaked"), false);
 
-    const firstRelation = queries.prepareSelector(schema.row, {
+    const related = queries.prepareSelector(schema.row, {
       tenant: { is: { id: "t1" } },
-    }).facts.reads[0];
-    const secondRelation = queries.prepareSelector(schema.row, {
-      tenant: { is: { id: "t1" } },
-    }).facts.reads[0];
-    assert(firstRelation);
-    assert(secondRelation);
-    assert.notEqual(firstRelation.fields, secondRelation.fields);
-    assert.notEqual(firstRelation.equals, secondRelation.equals);
-    firstRelation.fields.add("leaked");
-    assert.equal(secondRelation.fields.has("leaked"), false);
+    }).facts.reads;
+    related.add("leaked");
+    assert.equal(
+      queries
+        .prepareSelector(schema.row, { tenant: { is: { id: "t1" } } })
+        .facts.reads.has("leaked"),
+      false
+    );
   });
 
   it("prepares mixed compound and relation facts without SQL or alias allocation", () => {
@@ -243,14 +241,7 @@ describe("post-G3 selector preparation", () => {
     assert.deepEqual([...prepared.facts.fields], ["tenantId", "left"]);
     assert.deepEqual([...prepared.facts.equals], [["tenantId", "t1"]]);
     assert.equal(prepared.facts.exact, false);
-    assert.equal(prepared.facts.reads.length, 1);
-    const relationRead = prepared.facts.reads[0];
-    assert(relationRead);
-    assert.equal(relationRead.model, schema.tenant);
-    assert.equal(relationRead.path.length, 1);
-    assert.deepEqual([...relationRead.fields], ["id"]);
-    assert.deepEqual([...relationRead.equals], [["id", "t1"]]);
-    assert.equal(relationRead.exact, true);
+    assert.deepEqual([...prepared.facts.reads], [schema.tenant]);
 
     const left = queries.lowerSelector(prepared, "left_source");
     const right = queries.lowerSelector(prepared, "right_source");

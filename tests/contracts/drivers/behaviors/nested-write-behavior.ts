@@ -330,6 +330,49 @@ export function runNestedWriteBehavior({
       ]);
     });
 
+    test("a row the call already read is found again through a NOT or an OR", async () => {
+      const currentClient = requireClient(client);
+      await currentClient.user.create({
+        data: {
+          id: "user-twice-owner",
+          name: "Hal",
+          posts: { create: { id: "post-twice", title: "Draft" } },
+        },
+      });
+      for (const [filter, title] of [
+        [{ NOT: { title: "Other" } }, "Not"],
+        [{ OR: [{ title: "Draft" }, { title: "Other" }] }, "Or"],
+      ] as const) {
+        await currentClient.post.update({
+          where: { id: "post-twice" },
+          data: { title: "Draft" },
+        });
+        // The first update reads the row whole; the second names it again,
+        // by an equality that is no conjunct of its filter.
+        await currentClient.user.update({
+          where: { id: "user-twice-owner" },
+          data: {
+            posts: {
+              update: [
+                {
+                  where: { id: "post-twice", ...filter },
+                  data: { title: "Draft" },
+                },
+                {
+                  where: { id: "post-twice", ...filter },
+                  data: { title },
+                },
+              ],
+            },
+          },
+        });
+        const post = await currentClient.post.findUnique({
+          where: { id: "post-twice" },
+        });
+        expect(post?.title).toBe(title);
+      }
+    });
+
     test("delete and deleteMany keep child mutations parent-correlated", async () => {
       const currentClient = requireClient(client);
       await currentClient.user.create({

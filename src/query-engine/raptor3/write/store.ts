@@ -532,11 +532,7 @@ export class Store {
       /** What each question of the group is answered with, once heard. */
       let found: [string, Question, Input[]][] | undefined;
       const take = ([sent]: Sent[]) => {
-        const rows = this.operation.queries.decodeQuery(
-          query,
-          sent!.rows,
-          true
-        ) as Input[];
+        const rows = this.operation.queries.decodeQuery(query, sent!.rows);
         for (const [at, row] of rows.entries())
           (this.#raw ??= new WeakMap()).set(row, sent!.rows[at]!);
         const before = found;
@@ -750,7 +746,7 @@ export class Store {
     if (
       was &&
       !meta.made &&
-      facts.reads.length === 0 &&
+      facts.reads.size === 0 &&
       !(meta.wrote && [...meta.wrote].some((field) => facts.fields.has(field)))
     )
       return true;
@@ -888,18 +884,13 @@ export class Store {
     const { facts } = this.writer.selector(question);
     return (
       (stale !== undefined &&
-        (facts.reads.length > 0 ||
+        (facts.reads.size > 0 ||
           [...stale].some((field) => facts.fields.has(field)) ||
           (member?.edge.kind === "reference" &&
             member.edge.pairs.some((pair) => stale.has(pair.target))))) ||
       // A filter that reads other rows reads what the call wrote of them.
-      facts.reads.some((read) =>
-        read.path.some(
-          (edge) =>
-            this.#touched.has(edge.target) ||
-            this.#stale.has(edge.target) ||
-            (edge.kind === "junction" && this.#touched.has(edge.table))
-        )
+      [...facts.reads].some(
+        (read) => this.#touched.has(read) || this.#stale.has(read as AnyModel)
       )
     );
   }

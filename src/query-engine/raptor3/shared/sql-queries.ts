@@ -1312,17 +1312,14 @@ export class SqlQueries extends Queries {
   }
   junctionWhere(
     edge: Extract<Membership, { kind: "junction" }>,
-    values: Input,
-    alias?: string
+    values: Input
   ): Sql {
     return this.#and(
       ...linkMembers(edge)
         .filter(({ pair }) => Object.hasOwn(values, pair.junctionField))
         .map(({ side, pair }) =>
           this.#eq(
-            alias
-              ? this.#at(alias, pair.junctionField)
-              : this.#escaped(pair.junctionField),
+            this.#escaped(pair.junctionField),
             this.fieldValue(
               side.model,
               pair.referencedField,
@@ -1597,27 +1594,22 @@ export class SqlQueries extends Queries {
    * differ from the stored value cannot change the answer (E1 U1, and the
    * create root's `toOneFkAssign` before it).
    *
-   * `mutating` is the model the enclosing statement writes: where the provider
-   * refuses to read the table its own statement mutates (MySQL ERROR 1093) the
-   * read hides behind a derived table, the same one condition
-   * {@link hideMutationTarget} already owns — the SELF relation's shape.
+   * Never asked where the provider refuses to read the table its own
+   * statement mutates (MySQL ERROR 1093): there the row is read first
+   * (`Store.#presume`).
    */
   override locatedValue(
     model: AnyModel,
     field: string,
-    selector: PreparedSelector,
-    mutating?: AnyModel
+    selector: PreparedSelector
   ): Sql {
     const alias = this.alias();
-    const located = assembleAdapterSelect(this.adapter, {
+    return this.#scalar({
       columns: this.column(model, field, alias),
       from: this.table(model, alias),
       where: this.lowerSelector(selector, alias),
       limit: this.value(1),
     });
-    return this.adapter.subqueries.scalar(
-      this.hideMutationTarget(located, model, mutating?.["~"].names.sql)
-    );
   }
   lowerMutationLimit(
     model: AnyModel,
@@ -1669,8 +1661,8 @@ export class SqlQueries extends Queries {
    * where the provider has no `UPDATE … LIMIT`, and a {@link window}; without
    * a `limit`, every row, a MySQL mutation's keyed snapshot
    * ({@link lowerMutationLimit}). Where the provider cannot read a mutation's
-   * own table in a subquery (MySQL), the read sits in a derived table, as
-   * {@link hideMutationTarget}'s does: MySQL also refuses a `LIMIT` directly
+   * own table in a subquery (MySQL, ERROR 1093), the read sits in a derived
+   * table, materialized before the write: MySQL also refuses a `LIMIT` directly
    * inside `IN (…)`, and the derived table answers both, in the premise's
    * SELECT and in the effect.
    */
@@ -3103,29 +3095,6 @@ export class SqlQueries extends Queries {
       { of: (read) => a.filters.some(read), holds: true },
       alias
     ).slot;
-  }
-  /**
-   * MySQL ERROR 1093: a subquery may not read the table its own statement is
-   * mutating. A derived table sidesteps it — it is materialized before the
-   * write — while the correlation to the outer mutation survives as an outer
-   * reference (MySQL 8.0.14+). The capability the adapter already declares
-   * (`supportsMutationTargetInSubquery`) is the whole condition; the wrap goes
-   * inside the caller's scalar subquery, which supplies its own parentheses.
-   * A mutation's own selector needs no wrap: on MySQL it is the keyed snapshot
-   * ({@link lowerMutationLimit}).
-   */
-  private hideMutationTarget(
-    subquery: Sql,
-    child: AnyModel,
-    mutationTarget: string | undefined
-  ): Sql {
-    if (
-      mutationTarget === undefined ||
-      this.adapter.capabilities.supportsMutationTargetInSubquery ||
-      tableOf(child) !== mutationTarget
-    )
-      return subquery;
-    return throughDerived(this.adapter, subquery, this.alias());
   }
   /**
    * Does the PARENT row claim a membership in this arm?
