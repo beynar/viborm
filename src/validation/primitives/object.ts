@@ -683,6 +683,19 @@ function createObjectValidator(
     return unmet ? gathered(issues, unmet) : issues;
   };
 
+  /** What a parse answers once every key is read: its issues, the object's own refusal, or the output. */
+  const settle = (
+    issues: ValidationIssue[] | undefined,
+    output: Record<string, unknown>
+  ): Result => {
+    if (issues) return { issues };
+    const refusal = refuse?.(output);
+    if (!refusal) return { value: output };
+    return {
+      issues: [typeof refusal === "string" ? { message: refusal } : refusal],
+    };
+  };
+
   // Fast path for fully-partial objects (where/select/orderBy args):
   // iterate input keys instead of all schema keys, and don't materialize
   // undefined entries for absent keys — output stays input-sized.
@@ -754,12 +767,7 @@ function createObjectValidator(
       }
     }
 
-    if (issues) return { issues };
-    const refusal = refuse?.(output);
-    if (!refusal) return { value: output };
-    return {
-      issues: [typeof refusal === "string" ? { message: refusal } : refusal],
-    };
+    return settle(issues, output);
   };
 
   // Slow path (partial: false or atLeast): output is intentionally DENSE —
@@ -847,12 +855,7 @@ function createObjectValidator(
       output[key] = result.value;
     }
 
-    if (issues) return { issues };
-    const refusal = refuse?.(output);
-    if (!refusal) return { value: output };
-    return {
-      issues: [typeof refusal === "string" ? { message: refusal } : refusal],
-    };
+    return settle(issues, output);
   };
 
   return partial && !atLeast ? parsePartial : parseDense;
