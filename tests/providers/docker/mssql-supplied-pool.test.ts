@@ -6,6 +6,7 @@
 
 import { createClient } from "@client/client";
 import { MssqlDriver } from "@drivers/mssql";
+import { ConnectionError } from "@errors";
 import { s } from "@schema";
 import { sql } from "@sql";
 import sqlServer from "mssql";
@@ -48,5 +49,34 @@ describeIf("SQL Server with a supplied pool", () => {
     } finally {
       await pool.close();
     }
+  });
+
+  test("a pool the caller closed, before or after handing it over, is never reopened: a typed ConnectionError", async () => {
+    const schema = { one: s.model({ id: s.int().id() }).map("unused") };
+    const before = poolOf(TEST_CONNECTION_STRING!);
+    await before.connect();
+    await before.close();
+    const late = createClient({
+      schema,
+      driver: new MssqlDriver({ pool: before }),
+    });
+    await expect(late.$queryRaw(sql`SELECT 1 AS one`)).rejects.toBeInstanceOf(
+      ConnectionError
+    );
+    expect(before.connected).toBe(false);
+    await late.$disconnect();
+
+    const after = poolOf(TEST_CONNECTION_STRING!);
+    const used = createClient({
+      schema,
+      driver: new MssqlDriver({ pool: after }),
+    });
+    await used.$queryRaw(sql`SELECT 1 AS one`);
+    await after.close();
+    await expect(used.$queryRaw(sql`SELECT 1 AS one`)).rejects.toBeInstanceOf(
+      ConnectionError
+    );
+    expect(after.connected).toBe(false);
+    await used.$disconnect();
   });
 });

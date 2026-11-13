@@ -225,6 +225,62 @@ describeIf("SQL Server transactions the server rolls back", () => {
     expect([0, 3000]).toContain(await client().counter.count());
   });
 
+  test("a trigger's ROLLBACK inside a savepoint: the same typed reason at every level", async () => {
+    const counters = `"${NAMESPACE}"."counters"`;
+    const trigger = `"${NAMESPACE}"."counters_refuse"`;
+    const strict = client();
+    await strict.$executeRaw(
+      sql.raw(
+        `CREATE TRIGGER ${trigger} ON ${counters} AFTER INSERT AS IF EXISTS (SELECT 1 FROM inserted WHERE "key" = 'refused') ROLLBACK TRANSACTION`
+      )
+    );
+    onTestFinished(async () => {
+      await strict.$executeRaw(sql.raw(`${"DR"}OP TRIGGER ${trigger}`));
+    });
+    const seen: Record<string, unknown> = {};
+    seen.outer = await strict
+      .$transaction(async (tx) => {
+        await tx.counter.create({ data: { key: "kept?", value: 1 } });
+        seen.inner = await tx
+          .$transaction((inner) =>
+            inner.counter.create({ data: { key: "refused", value: 1 } })
+          )
+          .then(
+            () => undefined,
+            (error: unknown) => error
+          );
+        seen.model = await tx.counter
+          .create({ data: { key: "after", value: 1 } })
+          .catch((error: unknown) => error);
+        seen.raw = await tx
+          .$queryRaw(sql`SELECT 1 AS one`)
+          .catch((error: unknown) => error);
+        seen.nested = await tx
+          .$transaction((inner) => inner.counter.count())
+          .catch((error: unknown) => error);
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error
+      );
+    const ROLLED_BACK = {
+      typed: true,
+      reason: "transaction-rolled-back-by-server",
+    };
+    expect(
+      Object.fromEntries(
+        Object.entries(seen).map(([level, error]) => [level, reported(error)])
+      )
+    ).toEqual({
+      inner: ROLLED_BACK,
+      model: ROLLED_BACK,
+      raw: ROLLED_BACK,
+      nested: ROLLED_BACK,
+      outer: ROLLED_BACK,
+    });
+    expect(await strict.counter.count()).toBe(0);
+  });
+
   test("after the server rolls back the whole transaction inside a savepoint, the next statement says so, typed", async () => {
     const strict = client({ options: { abortTransactionOnError: true } });
     await strict.counter.create({ data: { key: "taken", value: 0 } });

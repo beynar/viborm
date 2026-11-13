@@ -49,6 +49,7 @@ import {
   type TransactionOptionSupport,
 } from "../shared";
 import { refuseUnknownDriverConfigKeys } from "../shared/driver-options";
+import type { TransactionOptions } from "../shared/transaction-options";
 import type { QueryResult } from "../types";
 import { normalizeMssqlError, readErrorNumber } from "./errors";
 
@@ -157,14 +158,34 @@ const ABORTED_BY_SERVER = new WeakSet<Transaction>();
  * a deadlock, a statement under XACT_ABORT or a trigger's ROLLBACK, even
  * inside a savepoint, where PostgreSQL would lose the savepoint alone.
  */
-const rolledBack = () =>
+const rolledBack = (cause?: unknown) =>
   new TransactionError(
     "SQL Server rolled back the whole transaction (a deadlock, XACT_ABORT or a trigger's ROLLBACK, even inside a savepoint): nothing it wrote is kept, and no statement runs in it any more.",
-    { meta: { driver: "mssql", reason: "transaction-rolled-back-by-server" } }
+    {
+      cause: cause as Error | undefined,
+      meta: { driver: "mssql", reason: "transaction-rolled-back-by-server" },
+    }
   );
+
+/** Msg 3609: the transaction ended in the trigger, the batch aborted. */
+const TRIGGER_ENDED_TRANSACTION = 3609;
 
 /** tedious refusing a request on a connection that has closed. */
 const SESSION_GONE = /\bnot the Final state\b/;
+
+/** Socket failures: the session is gone, and its transaction with it. */
+const SOCKET_CODES = new Set(["ESOCKET", "ECONNRESET", "ECONNCLOSED"]);
+
+/** Whether `error` says the session (and so its transaction) is gone. */
+const sessionGone = (error: unknown): boolean =>
+  SESSION_GONE.test((error as Error).message) ||
+  SOCKET_CODES.has(Reflect.get(error as object, "code")) ||
+  SOCKET_CODES.has(
+    Reflect.get(
+      (Reflect.get(error as object, "originalError") ?? {}) as object,
+      "code"
+    )
+  );
 
 const ISOLATION_LEVELS: Record<TransactionIsolationLevel, string> = {
   ReadUncommitted: "READ_UNCOMMITTED",
@@ -302,6 +323,48 @@ class MssqlTransactionDriver extends TransactionBoundDriver<
   ConnectionPool,
   Transaction
 > {
+  readonly #tx: Transaction;
+
+  constructor(
+    base: Driver<ConnectionPool, Transaction>,
+    tx: Transaction,
+    context?: QueryExecutionContext
+  ) {
+    super(base, tx, context);
+    this.#tx = tx;
+  }
+
+  // After the server rolled the transaction back, every statement and nested
+  // transaction says so, as the statement that met it did.
+  override _execute<T = Record<string, unknown>>(
+    query: Sql,
+    context?: QueryExecutionContext
+  ): Promise<QueryResult<T>> {
+    return ABORTED_BY_SERVER.has(this.#tx)
+      ? Promise.reject(rolledBack())
+      : super._execute<T>(query, context);
+  }
+
+  override _executeRaw<T = Record<string, unknown>>(
+    sql: string,
+    params?: unknown[],
+    context?: QueryExecutionContext
+  ): Promise<QueryResult<T>> {
+    return ABORTED_BY_SERVER.has(this.#tx)
+      ? Promise.reject(rolledBack())
+      : super._executeRaw<T>(sql, params, context);
+  }
+
+  override _transaction<T>(
+    fn: (tx: Transaction) => Promise<T>,
+    options?: TransactionOptions,
+    context?: QueryExecutionContext
+  ): Promise<T> {
+    return ABORTED_BY_SERVER.has(this.#tx)
+      ? Promise.reject(rolledBack())
+      : super._transaction(fn, options, context);
+  }
+
   protected override buildStatement(query: Sql): string {
     return numberedStatement(query);
   }
@@ -373,7 +436,12 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
   protected async initClient(): Promise<ConnectionPool> {
     const mssql = await this.#provider();
     if (this.suppliedPool !== undefined) {
-      if (!this.suppliedPool.connected) await this.suppliedPool.connect();
+      // Connected once if it never was; a pool its owner closed stays closed,
+      // and its requests fail as a closed connection's (`ECONNCLOSED`).
+      const closed =
+        (this.suppliedPool as unknown as { pool?: unknown }).pool === null;
+      if (!(closed || this.suppliedPool.connected))
+        await this.suppliedPool.connect();
       return this.suppliedPool;
     }
     const pool = new mssql.ConnectionPool(
@@ -462,6 +530,11 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
       bind(mssql, request, params);
       result = await request.query(sql);
     } catch (error) {
+      // A trigger's ROLLBACK ended the transaction under this statement: it
+      // says so as every statement after it does. Any other error keeps its
+      // own (a deadlock, a constraint, a judged write's refusal).
+      if (readErrorNumber(error) === TRIGGER_ENDED_TRANSACTION)
+        throw rolledBack(error);
       if (raw) throw error;
       throw normalizeMssqlError(error);
     }
@@ -525,8 +598,7 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
           // A lost session took its transaction with it. A live one (a
           // timeout cancelled the COMMIT) may still hold it open, on a
           // connection the pool lends again: the driver refuses further work.
-          if (!SESSION_GONE.test((error as Error).message))
-            this.transactionCleanupFailed(unknown);
+          if (!sessionGone(error)) this.transactionCleanupFailed(unknown);
           throw unknown;
         }
       },
@@ -539,7 +611,7 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
           // went with it. Any other failure leaves a session whose state is
           // unknown, which `mssql` still hands back to the pool: the driver
           // then refuses further work (`transactionCleanupFailed`).
-          if (!SESSION_GONE.test((error as Error).message)) throw error;
+          if (!sessionGone(error)) throw error;
         }
       },
       phases: getExecutionTransactionPhases(context),

@@ -86,6 +86,11 @@ function sqlStateOf(number: number, message: string): string | undefined {
  */
 export function normalizeMssqlError(error: unknown): unknown {
   if (!(error instanceof Error)) return error;
+  // A request on a pool that was closed: the connection does not exist.
+  if (Reflect.get(error, "code") === "ECONNCLOSED")
+    return Object.assign(new Error(error.message, { cause: error }), {
+      sqlstate: "08003",
+    });
   const number = readErrorNumber(error);
   if (number === undefined) return error;
   const sqlstate = sqlStateOf(number, error.message);
