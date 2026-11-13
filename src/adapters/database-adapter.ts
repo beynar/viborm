@@ -1,3 +1,4 @@
+import type { Scalar } from "@schema/scalars/base";
 import type { NativeTypeDeclaration } from "@schema/scalars/native-types";
 import type { Sql } from "@sql";
 import type { DecimalDescriptor } from "@validation/primitives/decimal-codec";
@@ -144,13 +145,13 @@ export interface DatabaseAdapter {
     /** Create aliased expression: expr AS "alias" */
     aliased: (expression: Sql, alias: string) => Sql;
     /**
-     * A text column's reference, as the engine hands it to every comparison:
-     * for a dialect whose `=` and `IN` pad trailing spaces
-     * (`capabilities.padsTrailingSpaces`), so that a unique selector and a
-     * relation's join compare its text exactly, as a filter does. The
-     * reference renders as it did. Absent elsewhere.
+     * A column's reference, given its scalar, as the engine hands it to every
+     * comparison: for a dialect whose `=` and `IN` pad trailing spaces
+     * (`capabilities.padsTrailingSpaces`), which marks a text column so that a
+     * unique selector and a relation's join compare it exactly, as a filter
+     * does. The reference renders as it did. Absent elsewhere.
      */
-    text?: (column: Sql) => Sql;
+    text?: (column: Sql, scalar: Scalar) => Sql;
   };
 
   /**

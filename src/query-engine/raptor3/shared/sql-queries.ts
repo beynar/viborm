@@ -958,15 +958,14 @@ export class SqlQueries extends Queries {
         : this.adapter.identifiers.escape(name)
     );
   }
-  /** `column`, marked where the adapter compares a text column by its mark. */
+  /** `column`, as the adapter marks it (`identifiers.text`). */
   #text(model: AnyModel, field: string, column: Sql): Sql {
-    const mark = this.adapter.identifiers.text;
-    if (!mark) return column;
-    const { type, array } = physicalField(this.schema, model, field).scalar["~"]
-      .state;
-    return !array && (type === "string" || type === "enum")
-      ? mark(column)
-      : column;
+    return (
+      this.adapter.identifiers.text?.(
+        column,
+        physicalField(this.schema, model, field).scalar
+      ) ?? column
+    );
   }
   /**
    * A caller's fragment with every {@link RowsOf} in it settled to this

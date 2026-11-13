@@ -3,6 +3,7 @@ import {
   QueryEngineError,
   unsupportedVector,
 } from "@errors";
+import type { Scalar } from "@schema/scalars/base";
 import { Sql, sql } from "@sql";
 import type { DecimalDescriptor } from "@validation/primitives/decimal-codec";
 import { encodePhysicalDecimal } from "@validation/primitives/decimal-codec";
@@ -124,9 +125,10 @@ const exactOperands = new WeakMap<Sql, Sql>();
  */
 const textColumns = new WeakSet<Sql>();
 
-/** `column`, marked as text. */
-const markText = (column: Sql): Sql => {
-  textColumns.add(column);
+/** `column`, marked where `scalar` is text. */
+const markText = (column: Sql, scalar: Scalar): Sql => {
+  const { type, array } = scalar["~"].state;
+  if (!array && (type === "string" || type === "enum")) textColumns.add(column);
   return column;
 };
 
