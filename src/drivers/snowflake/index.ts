@@ -52,7 +52,7 @@ import {
   type SnowflakeContext,
   SnowflakeTransport,
 } from "./transport";
-import { decodeRow, encodeBindings } from "./values";
+import { decodeRows, encodeBindings } from "./values";
 
 export interface SnowflakeDriverOptions {
   /**
@@ -133,6 +133,8 @@ const SESSION = {
   TIMEZONE: "UTC",
   // Every row: 0 is no cap, whatever the account or the user sets.
   ROWS_PER_RESULTSET: "0",
+  // One statement per request, stated rather than left to the default.
+  MULTI_STATEMENT_COUNT: "1",
 } as const;
 
 /**
@@ -412,7 +414,7 @@ export class SnowflakeDriver extends Driver<
       throw readOnlyRefusal(context!.operation!);
     try {
       const result = await client.run(statement, encodeBindings(params));
-      const rows = result.rows.map((row) => decodeRow<T>(result.columns, row));
+      const rows = decodeRows<T>(result.columns, result.rows);
       return { rows, rowCount: rows.length };
     } catch (error) {
       throw snowflakeFailure(error);

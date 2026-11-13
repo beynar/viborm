@@ -8,7 +8,7 @@
 
 import { SnowflakeAuthenticator } from "@drivers/snowflake/auth";
 import { SnowflakeTransport } from "@drivers/snowflake/transport";
-import { QueryError, VibORMErrorCode } from "@errors";
+import { ConnectionError, QueryError, VibORMErrorCode } from "@errors";
 import {
   type FakeAnswer,
   type FakeSnowflake,
@@ -25,7 +25,10 @@ afterEach(async () => {
 
 async function transport(
   answer: () => FakeAnswer,
-  options: { timeout?: number } = {}
+  options: {
+    timeout?: number;
+    fetch?: (input: string, init: RequestInit) => Promise<Response>;
+  } = {}
 ): Promise<SnowflakeTransport> {
   server = await startFakeSnowflake(answer);
   return new SnowflakeTransport({
@@ -144,6 +147,53 @@ describe("Snowflake SQL API transport", () => {
       server!.requests.some((request) => request.path.endsWith("/cancel"))
     ).toBe(true);
   }, 10_000);
+
+  it("sends a submission again after a 500, and reads a 5xx still answered as a connection failure", async () => {
+    const client = await transport(() => ({
+      rowType: [column],
+      partitions: [[["1"]]],
+    }));
+    server!.failNext(500, 1);
+    expect((await client.run("SELECT 1", undefined)).rows).toEqual([["1"]]);
+    const posts = server!.requests.filter(
+      (request) => request.method === "POST"
+    );
+    expect(posts).toHaveLength(2);
+    expect(posts[1]!.path).toContain("&retry=true");
+    server!.failNext(500, 3);
+    const failure = await client
+      .run("SELECT 1", undefined)
+      .catch((error: unknown) => error);
+    // Not Snowflake refusing the statement: it never answered it.
+    expect(failure).toBeInstanceOf(ConnectionError);
+    expect(failure).not.toBeInstanceOf(QueryError);
+  });
+
+  it("cancels a statement whose status reads fail, after more tries than a submission gets", async () => {
+    let gets = 0;
+    const client = await transport(
+      () => ({ rowType: [column], partitions: [[["1"]]], pending: 10_000 }),
+      {
+        fetch: (input, init) => {
+          if ((init.method ?? "GET") === "GET") {
+            gets++;
+            return Promise.reject(new TypeError("fetch failed"));
+          }
+          return fetch(input, init);
+        },
+      }
+    );
+    const failure = await client
+      .run("SELECT 1", undefined)
+      .catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(ConnectionError);
+    // Three sends for a submission, three more for a status read.
+    expect(gets).toBe(6);
+    // The statement was left running: it is cancelled.
+    expect(
+      server!.requests.some((request) => request.path.endsWith("/cancel"))
+    ).toBe(true);
+  }, 15_000);
 
   it("refuses a 200 that does not state its rows, rather than answering none", async () => {
     const meta = {

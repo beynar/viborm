@@ -399,6 +399,8 @@ export class SnowflakeQueries extends SqlQueries {
         return a.relations.timestampText(column);
       case "date":
         return a.relations.dateText(column);
+      case "time":
+        return a.relations.timeText(column);
       case "blob":
         return a.expressions.caseWhen(
           [{ when: a.operators.isNull(column), then: a.literals.null() }],

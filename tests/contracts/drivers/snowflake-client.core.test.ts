@@ -537,6 +537,85 @@ function docs() {
   });
 }
 
+const shop = s
+  .model({
+    id: s.int().id(),
+    opensAt: s.time(),
+    shifts: s.toMany(() => shift),
+  })
+  .map("SHOPS");
+
+const shift = s
+  .model({
+    id: s.int().id(),
+    shopId: s.int(),
+    startsAt: s.time(),
+    shop: s
+      .toOne(() => shop)
+      .fields("shopId")
+      .references("id"),
+  })
+  .map("SHIFTS");
+
+describe("Snowflake times", () => {
+  const shops = () =>
+    createClient({
+      schema: { shop, shift },
+      account: "myorg-acct",
+      token: "t",
+      host: server.host,
+      fetch: server.fetch,
+    });
+
+  it("reads a TIME at the root, its fraction to the millisecond, and refuses a finer one", async () => {
+    const answer = (value: string) => () =>
+      rows([fixed("id"), { name: "opensAt", type: "time" }], [["1", value]]);
+    // TIME(0), TIME(3) and TIME(9): the API prints nine digits each time.
+    for (const [value, read] of [
+      ["45296.000000000", "12:34:56"],
+      ["45296.120000000", "12:34:56.12"],
+      ["0.001000000", "00:00:00.001"],
+    ] as const) {
+      respond = answer(value);
+      expect(
+        await shops().shop.findMany({ select: { opensAt: true } })
+      ).toEqual([{ opensAt: read }]);
+    }
+    respond = answer("45296.123456789");
+    await expect(
+      shops().shop.findMany({ select: { opensAt: true } })
+    ).rejects.toMatchObject({ code: VibORMErrorCode.QUERY_RESULT_INVALID });
+  });
+
+  it("carries a nested TIME as the root reads it, and reads it the same", async () => {
+    respond = () =>
+      rows(
+        [fixed("id"), { name: "shifts", type: "array" }],
+        [["1", '[{"startsAt": "12:34:56.12"}]']]
+      );
+    const found = await shops().shop.findMany({
+      select: { id: true, shifts: { select: { startsAt: true } } },
+    });
+    expect(found).toEqual([{ id: 1, shifts: [{ startsAt: "12:34:56.12" }] }]);
+    // A VARIANT drops a TIME's fraction (measured): it is spelled as text.
+    expect(server.statements()[0]!.statement).toContain(
+      `'startsAt', RTRIM(RTRIM(TO_VARCHAR("q2"."startsAt", 'HH24:MI:SS.FF9'), '0'), '.')`
+    );
+  });
+});
+
+describe("Snowflake raw results", () => {
+  it("refuses a result naming a column twice, rather than keep its last value", async () => {
+    respond = () => rows([fixed("ID"), fixed("ID")], [["1", "2"]]);
+    await expect(
+      client().$queryRaw`SELECT a.id, b.id FROM a, b`
+    ).rejects.toMatchObject({
+      code: VibORMErrorCode.QUERY_RESULT_INVALID,
+      message: expect.stringContaining("twice"),
+    });
+  });
+});
+
 describe("Snowflake root pages and filters", () => {
   it("refuses a recursive filter, the caller's or a permission rule's, before sending anything", async () => {
     const db = docs();
@@ -699,6 +778,7 @@ describe("Snowflake failures", () => {
       QUERY_TAG: "reports",
       TIMEZONE: "UTC",
       ROWS_PER_RESULTSET: "0",
+      MULTI_STATEMENT_COUNT: "1",
     });
   });
 
@@ -735,6 +815,7 @@ describe("Snowflake failures", () => {
       USE_CACHED_RESULT: "false",
       TIMEZONE: "UTC",
       ROWS_PER_RESULTSET: "0",
+      MULTI_STATEMENT_COUNT: "1",
     });
     expect({ ...given, parameters: bare!.parameters }).toEqual(bare);
     server.requests.length = 0;

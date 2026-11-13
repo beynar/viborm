@@ -164,6 +164,31 @@ describe("Snowflake answers", () => {
     expect(decodeValue(column("object"), '"text"')).toBe("text");
   });
 
+  it("reads a non-finite double inside a VARIANT as the string STRICT_JSON_OUTPUT prints", () => {
+    expect(
+      decodeValue(
+        column("object"),
+        '{"a": NaN, "b": [1, Infinity, -Infinity, undefined], "c": "NaN Infinity undefined"}'
+      )
+    ).toEqual({
+      a: "NaN",
+      b: [1, "Infinity", "-Infinity", null],
+      c: "NaN Infinity undefined",
+    });
+    expect(decodeValue(column("variant"), "NaN")).toBe("NaN");
+    // What an account with STRICT_JSON_OUTPUT prints reads the same.
+    expect(decodeValue(column("object"), '{"a": "NaN"}')).toEqual({ a: "NaN" });
+  });
+
+  it("refuses a timestamp past JavaScript's dates rather than spelling NaN", () => {
+    expect(() =>
+      decodeValue(column("timestamp_tz"), "1616173619000000000 960")
+    ).toThrow("cannot read");
+    expect(() =>
+      decodeValue(column("timestamp_ntz"), "9000000000000000.000000000")
+    ).toThrow("cannot read");
+  });
+
   it("answers null for NULL and the text for a type it does not know", () => {
     expect(decodeValue(column("fixed", 0), null)).toBeNull();
     expect(decodeValue(column("geography"), "POINT(1 2)")).toBe("POINT(1 2)");

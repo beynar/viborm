@@ -188,6 +188,18 @@ function noSpelling(statement: string): never {
 const VARIANT_TIMESTAMP =
   /^(\d{4,}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(?:\.(\d+))?(?: ?(Z|[+-]\d{2}:?\d{2}))?$/;
 
+/**
+ * A TIME as the driver answers it (`12:34:56.120000000`, nine digits) without
+ * its fraction's trailing zeros (`12:34:56.12`): the provider time grammar
+ * holds six digits, and VibORM's time milliseconds. A digit past the
+ * millisecond that is not zero stays, and the time decoder refuses it.
+ */
+export function normalizeSnowflakeTime(value: string): string {
+  return value.includes(".") ? value.replace(FRACTION_ZEROS, "") : value;
+}
+
+const FRACTION_ZEROS = /\.?0+$/;
+
 export function normalizeSnowflakeTimestamp(value: string): string {
   const match = VARIANT_TIMESTAMP.exec(value);
   if (!match) return value;
@@ -476,6 +488,13 @@ export class SnowflakeAdapter implements DatabaseAdapter {
       sql`TO_VARCHAR(CAST(${column} AS TIMESTAMP_TZ), 'YYYY-MM-DD"T"HH24:MI:SS.FF3TZH:TZM')`,
     dateText: (column: Sql): Sql => sql`TO_VARCHAR(${column}, 'YYYY-MM-DD')`,
     /**
+     * A time as {@link normalizeSnowflakeTime} spells the driver's: its nine
+     * digits without their trailing zeros. A VARIANT drops a TIME's fraction
+     * (`12:34:56.123456789` prints `"12:34:56"`, measured).
+     */
+    timeText: (column: Sql): Sql =>
+      sql`RTRIM(RTRIM(TO_VARCHAR(${column}, 'HH24:MI:SS.FF9'), '0'), '.')`,
+    /**
      * A vector as the JSON text of its members, each the exact double its
      * float32 widens to (`0.10000000149011612`): the SQL API prints a VECTOR
      * with six decimals, and a VARIANT prints a double with sixteen digits,
@@ -619,6 +638,8 @@ export class SnowflakeAdapter implements DatabaseAdapter {
     ): unknown => {
       if (scalarType === "datetime" && typeof value === "string")
         return next(normalizeSnowflakeTimestamp(value));
+      if (scalarType === "time" && typeof value === "string")
+        return next(normalizeSnowflakeTime(value));
       return next();
     },
   };

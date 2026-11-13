@@ -56,10 +56,28 @@ const OFFSET_BIAS = 1440;
 const NOT_HEX = /[^0-9a-fA-F]/;
 const INTEGER = /^-?\d+$/;
 /**
- * A JSON string, or the `undefined` Snowflake prints for a SQL NULL inside an
- * array (`ARRAY_CONSTRUCT(1, NULL)` prints `[1, undefined]`).
+ * A JSON string, or a token Snowflake prints that JSON has no spelling for:
+ * the `undefined` of a SQL NULL inside an array (`ARRAY_CONSTRUCT(1, NULL)`
+ * prints `[1, undefined]`), and a non-finite double (`NaN`, `Infinity`,
+ * `-Infinity`), unless the account sets `STRICT_JSON_OUTPUT`.
  */
-const UNDEFINED_MEMBER = /"(?:[^"\\]|\\.)*"|\bundefined\b/g;
+const UNSPELLED_MEMBER =
+  /"(?:[^"\\]|\\.)*"|\bundefined\b|-?\bInfinity\b|\bNaN\b/g;
+const UNSPELLED_HINT = /undefined|Infinity|NaN/;
+
+/**
+ * Semi-structured text as JSON: `undefined` reads as null, and a non-finite
+ * double as the string `STRICT_JSON_OUTPUT` would print (`"NaN"`), so the
+ * value is the same whatever the account sets.
+ */
+function spelledJson(value: string): string {
+  return UNSPELLED_HINT.test(value)
+    ? value.replace(UNSPELLED_MEMBER, (token) => {
+        if (token.startsWith('"')) return token;
+        return token === "undefined" ? "null" : `"${token}"`;
+      })
+    : value;
+}
 
 function hex(bytes: Uint8Array): string {
   let text = "";
@@ -176,7 +194,7 @@ function isoDate(date: Date): string {
 }
 
 /** Exact nanoseconds since the epoch as an ISO date-time, without a zone. */
-function isoLocal(nanos: bigint): string {
+function isoLocal(nanos: bigint, type: string, text: string): string {
   let seconds = nanos / NANOS_PER_SECOND;
   let fraction = nanos % NANOS_PER_SECOND;
   if (fraction < 0n) {
@@ -184,6 +202,8 @@ function isoLocal(nanos: bigint): string {
     seconds -= 1n;
   }
   const date = new Date(Number(seconds) * 1000);
+  // Past JavaScript's ±8.64e15 ms, no calendar date is read.
+  if (Number.isNaN(date.getTime())) throw malformed(type, text);
   const clock = `${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())}`;
   return `${isoDate(date)}T${clock}.${fraction.toString().padStart(9, "0")}`;
 }
@@ -226,10 +246,10 @@ export function decodeValue(column: SnowflakeColumn, value: unknown): unknown {
       return isoDate(new Date(Number(value) * 86_400_000));
     }
     case "time":
-      return isoLocal(nanoseconds(value, "TIME")).slice(11);
+      return isoLocal(nanoseconds(value, "TIME"), "TIME", value).slice(11);
     case "timestamp_ntz":
     case "timestamp_ltz":
-      return `${isoLocal(nanoseconds(value, column.type))}Z`;
+      return `${isoLocal(nanoseconds(value, column.type), column.type, value)}Z`;
     case "timestamp_tz": {
       const [instant, bias] = value.split(" ");
       const minutes = Number(bias) - OFFSET_BIAS;
@@ -238,7 +258,7 @@ export function decodeValue(column: SnowflakeColumn, value: unknown): unknown {
       const local =
         nanoseconds(instant, column.type) +
         BigInt(minutes) * 60n * NANOS_PER_SECOND;
-      return `${isoLocal(local)}${offsetText(minutes)}`;
+      return `${isoLocal(local, column.type, value)}${offsetText(minutes)}`;
     }
     case "binary":
       return unhex(value);
@@ -248,19 +268,37 @@ export function decodeValue(column: SnowflakeColumn, value: unknown): unknown {
     case "map":
     case "vector":
       try {
-        return JSON.parse(
-          value.includes("undefined")
-            ? value.replace(UNDEFINED_MEMBER, (token) =>
-                token === "undefined" ? "null" : token
-              )
-            : value
-        );
+        return JSON.parse(spelledJson(value));
       } catch {
         throw malformed(column.type.toUpperCase(), value);
       }
     default:
       return value;
   }
+}
+
+/**
+ * Every answered row, keyed by its columns' names. A row keys each value by
+ * its column's name, so a result naming one column twice (`SELECT a.id,
+ * b.id`) would keep only the last: it is refused.
+ */
+export function decodeRows<T = Record<string, unknown>>(
+  columns: readonly SnowflakeColumn[],
+  rows: readonly (readonly unknown[])[]
+): T[] {
+  const names = new Set<string>();
+  for (const { name } of columns) {
+    if (names.has(name))
+      throw new QueryError(
+        `The result names the column ${JSON.stringify(name)} twice, and a row holds one value per name: alias one of them (SELECT a.id AS a_id, b.id AS b_id).`,
+        {
+          code: VibORMErrorCode.QUERY_RESULT_INVALID,
+          meta: { driver: "snowflake" },
+        }
+      );
+    names.add(name);
+  }
+  return rows.map((row) => decodeRow<T>(columns, row));
 }
 
 /** One answered row, keyed by its columns' names. */

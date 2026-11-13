@@ -50,7 +50,10 @@ export interface SnowflakeTransportOptions {
   readonly pollIntervalMs?: number;
   /** Partitions read at once. */
   readonly partitionConcurrency?: number;
-  /** Sends of one request before its failure is final. */
+  /**
+   * Sends of one submission before its failure is final; a status or a
+   * partition read gets {@link MORE_READ_ATTEMPTS} more.
+   */
   readonly attempts?: number;
   readonly userAgent?: string;
 }
@@ -84,7 +87,11 @@ function isRows(value: unknown): value is unknown[][] {
 const MAX_POLL_MS = 2000;
 /** How long a cancel may hold the caller's error back. */
 const CANCEL_MS = 2000;
-const RETRYABLE_STATUS = new Set([429, 502, 503, 504]);
+/**
+ * More sends for a status read than for a submission: a GET changes nothing,
+ * and giving up on one leaves a statement running.
+ */
+const MORE_READ_ATTEMPTS = 3;
 
 /** A failure Snowflake answered, as the error mapping reads it. */
 export class SnowflakeApiError extends Error {
@@ -174,6 +181,9 @@ export class SnowflakeTransport {
     const onAbort = () => deadline.abort(signal?.reason);
     signal?.addEventListener("abort", onAbort, { once: true });
     let handle: string | undefined;
+    // Until Snowflake answers the statement's outcome, a failure here leaves
+    // it running: it is cancelled then, whatever the failure.
+    let settled = false;
     try {
       const requestId = crypto.randomUUID();
       const body = JSON.stringify({
@@ -206,6 +216,7 @@ export class SnowflakeTransport {
           deadline.signal
         );
       }
+      settled = true;
       if (answer.status !== 200)
         throw new SnowflakeApiError(
           answer.status,
@@ -248,7 +259,7 @@ export class SnowflakeTransport {
         );
       return { columns, rows, handle };
     } catch (error) {
-      if (deadline.signal.aborted && handle) await this.cancel(handle);
+      if (handle && !settled) await this.cancel(handle);
       throw deadline.signal.aborted && deadline.signal.reason instanceof Error
         ? deadline.signal.reason
         : error;
@@ -313,32 +324,46 @@ export class SnowflakeTransport {
   }
 
   /**
-   * One request, sent again while it failed before Snowflake ran it. A 4xx
-   * other than 429, and every 2xx, is Snowflake's answer and is returned.
+   * One request, sent again while it failed before Snowflake answered it: a
+   * network failure, a 5xx, or a 429 on a submission (the same `requestId`
+   * with `retry=true` never runs a statement twice). A 4xx other than 429,
+   * and every 2xx, is Snowflake's answer and is returned; a 5xx still
+   * answered after the last send is a connection failure, not a refusal.
    */
   async #send(
     path: (attempt: number) => string,
     init: { method: string; body?: string },
     signal: AbortSignal
   ): Promise<{ status: number; body: Body | undefined }> {
-    const attempts = this.#options.attempts ?? 3;
+    const attempts =
+      (this.#options.attempts ?? 3) +
+      (init.method === "GET" ? MORE_READ_ATTEMPTS : 0);
+    const pause = (attempt: number) =>
+      sleep(Math.min(200 * 2 ** attempt, MAX_POLL_MS), signal);
     for (let attempt = 0; ; attempt++) {
       let response: Response;
       try {
         response = await this.#request(path(attempt), init, signal);
       } catch (error) {
         if (signal.aborted || attempt + 1 >= attempts) throw error;
-        await sleep(200 * 2 ** attempt, signal);
+        await pause(attempt);
         continue;
       }
-      const retry =
-        RETRYABLE_STATUS.has(response.status) &&
+      const unanswered =
+        response.status >= 500 ||
         // A 429 while polling means "still running", not "send again".
-        !(response.status === 429 && init.method === "GET");
-      if (retry && attempt + 1 < attempts) {
+        (response.status === 429 && init.method !== "GET");
+      if (unanswered && attempt + 1 < attempts) {
         await response.body?.cancel();
-        await sleep(200 * 2 ** attempt, signal);
+        await pause(attempt);
         continue;
+      }
+      if (response.status >= 500) {
+        await response.body?.cancel();
+        throw new ConnectionError(
+          `Snowflake answered HTTP ${response.status} to ${attempts} sends: it did not run the request, which may be sent again.`,
+          { meta: { driver: "snowflake", status: response.status } }
+        );
       }
       if (response.status === 401 || response.status === 403) {
         const body = await readBody(response);

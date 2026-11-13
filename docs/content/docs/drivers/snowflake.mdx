@@ -43,10 +43,10 @@ carries the key or the token: pass `privateKey` or `token` beside it.
 | `username` | The user the key belongs to |
 | `privateKey` | The RSA private key of key-pair authentication (PKCS#8 or PKCS#1 PEM, its line breaks real or written `\n`), or an imported **extractable** `CryptoKey` |
 | `token` | An OAuth token, or a function answering a fresh one, asked before each request (for refreshing) |
-| `tokenType` | `"OAUTH"` (default) or `"PROGRAMMATIC_ACCESS_TOKEN"` |
+| `tokenType` | `"OAUTH"` (default) or `"PROGRAMMATIC_ACCESS_TOKEN"`; workload identity federation is not offered |
 | `warehouse`, `database`, `role` | The context every statement runs in, spelled as the catalog spells them (usually upper case) |
 | `namespace` | The schema every statement runs in, and the one VibORM qualifies its tables with |
-| `timeout` | Seconds a statement may run (see [Timeouts](#timeouts)) |
+| `timeout` | Seconds a statement may run (see [Timeouts](#timeouts)); set it |
 | `host` | The API's `https://` base URL, when it is not `https://<account>.snowflakecomputing.com`: the China region, a proxy. The token goes wherever it says |
 | `fetch` | The `fetch` to send with: any `(url, init) => Promise<Response>` |
 | `parameters` | `QUERY_TAG`, `USE_CACHED_RESULT` or `CLIENT_RESULT_CHUNK_SIZE`, added to every statement's session: a string, a number or a boolean, sent as text; one `undefined` is not sent |
@@ -132,8 +132,35 @@ statement fails (measured with a statement abandoned after its `202`). The
 driver waits at most 2 seconds for that answer, and answers `QUERY_TIMEOUT`
 whether it comes or not (tested against a local server).
 
+Without `timeout` none is sent, and the driver waits as long as Snowflake lets
+the statement run: `STATEMENT_TIMEOUT_IN_SECONDS`, two days unless the account,
+the user or the warehouse lowers it. Set `timeout`.
+
 The driver takes no `AbortSignal` of the caller's: a read runs until its
 result, its `timeout`, or Snowflake's own limits.
+
+### Requests that fail
+
+A submission that fails before Snowflake answers it (a network failure, any
+`5xx`, a `429`) is sent again with the same `requestId` and `retry=true`, which
+never runs a statement twice: three sends in all. Reading a statement's status
+or a partition gets three more, since a read changes nothing. A `5xx` still
+answered after the last send is a `ConnectionError`, never Snowflake refusing
+the statement. When reading a statement's status fails, the driver cancels it
+before it answers the failure, so it does not keep running on the warehouse.
+
+### Results are read whole
+
+Every row of every partition is read into memory before the call returns:
+about 100 MB for 200,000 rows of three columns (measured on a local server).
+Page a large read with `take` and `skip`, or a key `cursor`.
+
+### Collations
+
+VibORM compares text as Snowflake does for the column. A column declared with
+a case-insensitive collation (`COLLATE 'en-ci'`, or one inherited from
+`DEFAULT_DDL_COLLATION`) makes `equals`, `contains` and `startsWith`
+case-insensitive there (measured), and `endsWith` with them.
 
 ## What is refused
 
@@ -150,7 +177,8 @@ refused before it reads its storage or sends anything. Only
 [introspection](#introspection) reads a warehouse.
 
 A `$transaction`, callback or array, fails with a `TransactionError` before
-anything is sent: the SQL API runs each statement on its own.
+anything is sent: VibORM sends one statement per request and holds no session
+between two, and a read needs no transaction.
 
 And with an `UnsupportedOperationError`, before anything is sent:
 
@@ -188,21 +216,26 @@ The API answers every value as text. The driver reads each one exactly:
 | --- | --- |
 | `NUMBER(p,0)` | `number` while a safe integer, else `bigint` (`$queryRaw`); the field's scalar otherwise |
 | `NUMBER(p,s)`, s > 0 | exact decimal text (`$queryRaw`); a `Decimal` for `s.decimal()` |
-| `FLOAT` | `number`, `Infinity` and `NaN` included |
+| `FLOAT` | `number`, `Infinity` and `NaN` included (`$queryRaw`); `s.number()` refuses `NaN` and `Infinity`, as on every provider |
 | `VARCHAR`, `BOOLEAN` | `string`, `boolean` |
 | `DATE` | `"YYYY-MM-DD"` |
-| `TIME` | `"HH:MM:SS.fffffffff"` |
+| `TIME` | `"HH:MM:SS.fffffffff"` (`$queryRaw`); for `s.time()`, `"HH:MM:SS"` with its fraction to the millisecond (`"12:34:56.12"`), and a value finer than the millisecond is refused, flat or nested, since VibORM's time holds milliseconds |
 | `TIMESTAMP_NTZ`, `TIMESTAMP_LTZ` | an ISO instant to the nanosecond (`$queryRaw`); a `Date` for `s.dateTime()` |
 | `TIMESTAMP_TZ` | the same at its own offset (`…+05:30`) |
 | `BINARY` | `Uint8Array` |
-| `VARIANT`, `OBJECT`, `ARRAY` | the parsed JSON |
+| `VARIANT`, `OBJECT`, `ARRAY` | the parsed JSON; a `NaN` or `Infinity` inside reads as the string `"NaN"` or `"Infinity"`, as Snowflake prints it under `STRICT_JSON_OUTPUT` (which the SQL API refuses per request, measured), so the value is the same on every account |
 | `VECTOR(FLOAT, n)` | `number[]` for `s.vector()`, each member the exact double its float32 widens to (`0.10000000149011612`) |
 | `GEOGRAPHY` | `{ longitude, latitude }` for `s.point()`; the GeoJSON object (`$queryRaw`) |
 
 Every statement runs with `TIMEZONE = 'UTC'`: a `TIMESTAMP_NTZ` holds a wall
 clock with no zone, and VibORM reads it, and compares it, as UTC. It runs with
-`ROWS_PER_RESULTSET = 0` too, so no account or user setting caps a result. A `Date`
-operand binds as a `TIMESTAMP_TZ` at UTC.
+`ROWS_PER_RESULTSET = 0` too, so no account or user setting caps a result, and
+`MULTI_STATEMENT_COUNT = 1`. A `Date` operand binds as a `TIMESTAMP_TZ` at UTC,
+and a `bigint` inside a bound JSON object as a string (`{ a: 1n }` binds
+`{"a":"1"}`), so a JSON filter compares it with a string.
+
+A `$queryRaw` result naming one column twice (`SELECT a.id, b.id`) is refused:
+a row holds one value per name. Alias one of them.
 
 A JSON number inside a `VARIANT` read through `$queryRaw` is parsed by
 `JSON.parse`, so an integer past 2^53 there rounds, and the SQL API prints a

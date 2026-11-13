@@ -43,6 +43,7 @@ import { SnowflakeTransport } from "@drivers/snowflake/transport";
 import { QueryError, VibORMErrorCode } from "@errors";
 import { introspectSchema } from "@migrations/introspect";
 import { s } from "@schema";
+import { parseSchema } from "@schema/json";
 import { permissions } from "@src/permissions";
 import { v } from "@src/validation";
 import { GEO_POINT_EARTH_RADIUS_METERS } from "@validation/primitives/geo-area-codec";
@@ -160,7 +161,37 @@ const revision = s
   .id(["noteId", "rev"])
   .map("REVISIONS");
 
-const schema = { author, post, tag, authorTag, place, note, revision };
+const shop = s
+  .model({
+    id: s.int().id(),
+    opensAt: s.time().nullable(),
+    shifts: s.toMany(() => shift),
+  })
+  .map("SHOPS");
+
+const shift = s
+  .model({
+    id: s.int().id(),
+    shopId: s.int(),
+    startsAt: s.time(),
+    shop: s
+      .toOne(() => shop)
+      .fields("shopId")
+      .references("id"),
+  })
+  .map("SHIFTS");
+
+const schema = {
+  author,
+  post,
+  tag,
+  authorTag,
+  place,
+  note,
+  revision,
+  shop,
+  shift,
+};
 
 const SEED = [
   `CREATE SCHEMA "${SCHEMA}"`,
@@ -202,6 +233,11 @@ const SEED = [
   `INSERT INTO "${SCHEMA}"."REVISIONS" SELECT column1, column2, column3, PARSE_JSON(column4)::ARRAY FROM VALUES
     (1, 1, 'r1', '[1.5, 0.30000000000000004]'),
     (1, 2, 'r2', '[1, null]')`,
+  // TIME at three precisions; shop 3's has a digit past the millisecond.
+  `CREATE TABLE "${SCHEMA}"."SHOPS" ("id" NUMBER(9,0) NOT NULL PRIMARY KEY, "opensAt" TIME(9))`,
+  `INSERT INTO "${SCHEMA}"."SHOPS" VALUES (1, '12:34:56.12'), (2, '08:00:00'), (3, '12:34:56.123456789')`,
+  `CREATE TABLE "${SCHEMA}"."SHIFTS" ("id" NUMBER(9,0) NOT NULL PRIMARY KEY, "shopId" NUMBER(9,0) NOT NULL REFERENCES "${SCHEMA}"."SHOPS" ("id"), "startsAt" TIME(3) NOT NULL)`,
+  `INSERT INTO "${SCHEMA}"."SHIFTS" VALUES (1, 1, '09:15:30.5'), (2, 1, '00:00:00')`,
   `CREATE SCHEMA "${ELSEWHERE}"`,
   `CREATE TABLE "${ELSEWHERE}"."CUSTOMERS" ("id" NUMBER(9,0) NOT NULL PRIMARY KEY)`,
   `CREATE TABLE "${SCHEMA}"."INVOICES" ("id" NUMBER(9,0) NOT NULL PRIMARY KEY, "customerId" NUMBER(9,0) REFERENCES "${ELSEWHERE}"."CUSTOMERS" ("id"))`,
@@ -854,6 +890,82 @@ describe.skipIf(credentials === undefined)("Snowflake, a real account", () => {
       omit: { data: true, at: true },
     });
     expect(omitted).toEqual({ id: 1, body: "50% off", kind: "memo" });
+  });
+
+  it("reads a time field to the millisecond, flat and nested alike, and refuses a finer one", async () => {
+    const flat = await db!.shift.findMany({
+      orderBy: { id: "asc" },
+      select: { startsAt: true },
+    });
+    expect(flat).toEqual([
+      { startsAt: "09:15:30.5" },
+      { startsAt: "00:00:00" },
+    ]);
+    const nested = await db!.shop.findUnique({
+      where: { id: 1 },
+      select: {
+        opensAt: true,
+        shifts: { orderBy: { id: "asc" }, select: { startsAt: true } },
+      },
+    });
+    // A VARIANT would drop the fraction: the nested read spells it.
+    expect(nested).toEqual({ opensAt: "12:34:56.12", shifts: flat });
+    expect(
+      await db!.shop.findUnique({ where: { id: 2 }, select: { opensAt: true } })
+    ).toEqual({ opensAt: "08:00:00" });
+    await expect(
+      db!.shop.findUnique({ where: { id: 3 }, select: { opensAt: true } })
+    ).rejects.toMatchObject({ code: VibORMErrorCode.QUERY_RESULT_INVALID });
+  });
+
+  it("reads NaN and Infinity inside a VARIANT as the strings STRICT_JSON_OUTPUT prints", async () => {
+    const [row] = await db!.$queryRaw<{ V: unknown; W: unknown }>`
+      SELECT OBJECT_CONSTRUCT('a', 'NaN'::FLOAT, 'b', 'inf'::FLOAT) AS V,
+        ARRAY_CONSTRUCT('-inf'::FLOAT, 1) AS W`;
+    expect(row).toEqual({
+      V: { a: "NaN", b: "Infinity" },
+      W: ["-Infinity", 1],
+    });
+  });
+
+  it("introspects a TIME column as a time field a client then reads", async () => {
+    const { document } = await introspectSchema({
+      driver: new SnowflakeDriver({
+        account: credentials!.account,
+        username: credentials!.user,
+        privateKey: credentials!.privateKey,
+        warehouse: credentials!.warehouse,
+        database: credentials!.database,
+        namespace: SCHEMA,
+        ...(credentials!.role ? { role: credentials!.role } : {}),
+      }),
+      tables: ["SHOPS"],
+    });
+    expect(document.models.SHOPS!.fields.opensAt).toMatchObject({
+      type: "time",
+      nullable: true,
+    });
+    const introspected = createClient({
+      schema: parseSchema(document),
+      account: credentials!.account,
+      username: credentials!.user,
+      privateKey: credentials!.privateKey,
+      warehouse: credentials!.warehouse,
+      database: credentials!.database,
+      namespace: SCHEMA,
+      ...(credentials!.role ? { role: credentials!.role } : {}),
+    }) as unknown as {
+      SHOPS: {
+        findMany(args: object): Promise<{ opensAt: string | null }[]>;
+      };
+    };
+    expect(
+      await introspected.SHOPS.findMany({
+        where: { id: { in: [1, 2] } },
+        orderBy: { id: "asc" },
+        select: { opensAt: true },
+      })
+    ).toEqual([{ opensAt: "12:34:56.12" }, { opensAt: "08:00:00" }]);
   });
 
   it("introspects the schema, its declared keys as relations", async () => {

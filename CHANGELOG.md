@@ -28,7 +28,12 @@ VibORM reads Snowflake.
   refused too, as Snowflake refuses the SQL they need. Only `QUERY_TAG`,
   `USE_CACHED_RESULT` and `CLIENT_RESULT_CHUNK_SIZE` pass as session
   parameters, and an `account` that would send the token to another host, or
-  a `host` that is not `https://`, is refused.
+  a `host` that is not `https://`, is refused. `s.time()` reads a `TIME` to the
+  millisecond, flat and nested, and refuses a finer one. A `5xx` is sent again
+  (same `requestId`, `retry=true`) and, still answered, is a `ConnectionError`;
+  a statement whose status reads fail is cancelled. A `NaN` or `Infinity`
+  inside a `VARIANT` reads as the string `STRICT_JSON_OUTPUT` prints, whatever
+  the account sets, and a raw result naming one column twice is refused.
   `s.vector()` reads `VECTOR(FLOAT, n)` (`l2` and `cosine` distances) and
   `s.point()` reads `GEOGRAPHY` (equality, bounds, polygons, distance in the
   same metres as every provider; a point exactly on a polygon hole's edge reads

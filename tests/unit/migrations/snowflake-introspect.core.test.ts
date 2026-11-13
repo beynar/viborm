@@ -17,6 +17,7 @@ import { createMigrationClient } from "@migrations";
 import { introspectSchema } from "@migrations/introspect";
 import { MemoryEstateStorage } from "@migrations/storage/memory";
 import { s } from "@schema";
+import { parseSchema } from "@schema/json";
 import {
   type FakeColumn,
   type FakeSnowflake,
@@ -104,6 +105,7 @@ const CATALOG: Row[] = [
     scale: 0,
   }),
   column("ORDERS", "ARCHIVED_ID", "NUMBER", true, { precision: 38, scale: 0 }),
+  column("CUSTOMERS", "OPENS_AT", "TIME", true, { datetime: 9 }),
 ];
 
 /** One `SHOW IMPORTED KEYS` row: ORDERS's key into `[database, schema]`. */
@@ -129,6 +131,9 @@ const importedKey = (
 let server: FakeSnowflake;
 
 function answer({ statement }: FakeStatement) {
+  // A client's read of CUSTOMERS, as a TIME(9) column answers it.
+  if (statement.startsWith('SELECT "q0"."OPENS_AT"'))
+    return rows([{ name: "OPENS_AT", type: "time" }], [["45296.120000000"]]);
   if (statement.includes("CURRENT_DATABASE()"))
     return rows([text("database"), text("schema")], [["SALES", "PUBLIC"]]);
   if (statement.includes("INFORMATION_SCHEMA.TABLES"))
@@ -330,6 +335,27 @@ describe("introspectSchema on Snowflake", () => {
       // One table holds vectors: SHOW COLUMNS caps a whole schema at 10,000.
       'SHOW COLUMNS IN TABLE "SALES"."PUBLIC"."ORDERS"',
     ]);
+  });
+
+  it("writes a TIME column as a time field the client then reads", async () => {
+    const { document } = await introspectSchema({ driver: driver() });
+    expect(document.models.CUSTOMERS!.fields.OPENS_AT).toMatchObject({
+      type: "time",
+      nullable: true,
+    });
+    const db = createClient({
+      schema: parseSchema(document),
+      databaseUrl: `snowflake://READER@myorg-acct/SALES/PUBLIC?host=${encodeURIComponent(server.host)}`,
+      token: "t",
+      fetch: server.fetch,
+    }) as unknown as {
+      CUSTOMERS: {
+        findMany(args: object): Promise<{ OPENS_AT: string | null }[]>;
+      };
+    };
+    expect(await db.CUSTOMERS.findMany({ select: { OPENS_AT: true } })).toEqual(
+      [{ OPENS_AT: "12:34:56.12" }]
+    );
   });
 
   it("writes the light document a client reads", async () => {
