@@ -646,6 +646,27 @@ describe("GeoPoint query lowering", () => {
       select: { id: true },
     });
     expect(is.toStatement("$n")).toContain(" && ");
+
+    // A `NOT` inside a negated body writes the comparison plainly again.
+    for (const quantifier of ["none", "every"] as const) {
+      const twice = engine.build(region, "findMany", {
+        where: {
+          venues: { [quantifier]: { NOT: { location: { distance } } } },
+        },
+        select: { id: true },
+      });
+      expect(twice.toStatement("$n")).toContain(" && ");
+    }
+    // Under an outer `NOT`, a quantifier's body stays withheld: with the
+    // box under `every`, the same read was twice as slow (PGlite, 20,000
+    // venues: 22 ms against 55 ms).
+    const under = engine.build(region, "findMany", {
+      where: {
+        NOT: { venues: { every: { location: { distance } } } },
+      },
+      select: { id: true },
+    });
+    expect(under.toStatement("$n")).not.toContain(" && ");
   });
 
   test("combines every distance comparator and uses null-last point ordering", () => {
