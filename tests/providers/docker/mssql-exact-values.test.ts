@@ -60,6 +60,8 @@ describeIf("SQL Server compares values exactly", () => {
       name,
       tags,
       long: "short",
+      // A JSON string beside the column, for the path filters.
+      doc: { s: name },
     });
     await client.word.createMany({
       data: [
@@ -116,6 +118,19 @@ describeIf("SQL Server compares values exactly", () => {
       "1-ab",
       "3-AB",
     ]);
+  });
+
+  test("a JSON string at a path keeps its trailing spaces in ranges", async () => {
+    const at = (filter: object) =>
+      ids({ doc: { path: ["s"], ...filter }, name: { not: "doc" } });
+    expect(await at({ gt: "ab", lt: "b" })).toEqual([
+      "2-ab-space",
+      "4-abc",
+      "6-ab-tab",
+    ]);
+    // A tab is below the space: "ab\t" < "ab ".
+    expect(await at({ lt: "ab " })).toEqual(["1-ab", "3-AB", "6-ab-tab"]);
+    expect(await at({ gte: "ab ", lte: "ab " })).toEqual(["2-ab-space"]);
   });
 
   test("a list member keeps its trailing spaces", async () => {

@@ -696,8 +696,14 @@ export class MssqlAdapter implements DatabaseAdapter {
         : sql`COALESCE(${jsonValueAt(column, path)}, JSON_QUERY(${container(column)}, ${buildJsonPath(path)}))`,
     numberAtPath: (column: Sql, path: string[]): Sql =>
       sql`(CASE WHEN ${jsonTypeAt(column, path)} = 2 THEN CAST(${jsonValueAt(column, path)} AS FLOAT) END)`,
-    stringAtPath: (column: Sql, path: string[]): Sql =>
-      sql`(CASE WHEN ${jsonTypeAt(column, path)} = 1 THEN ${jsonValueAt(column, path)} ${BINARY_COLLATION} END)`,
+    // Compared exactly, as a text column is (`exactly`): ranges at a path
+    // keep trailing spaces significant.
+    stringAtPath: (column: Sql, path: string[]): Sql => {
+      const text = sql`(CASE WHEN ${jsonTypeAt(column, path)} = 1 THEN ${jsonValueAt(column, path)} END)`;
+      const compared = binary(text);
+      exactOperands.set(compared, text);
+      return compared;
+    },
     foldableStringAtPath: (column: Sql, path: string[]): Sql =>
       sql`(CASE WHEN ${jsonTypeAt(column, path)} = 1 THEN ${jsonValueAt(column, path)} END)`,
     // Every member of `value` is a member of `target` of its type: `null`
