@@ -42,7 +42,14 @@ import {
 import type { Membership } from "@query-engine/raptor3/shared/storage";
 import type { Operation, PreparedGuardFailure } from "@query-engine/types";
 import type { AnyModel } from "@schema/model";
-import { evidence, gatedDocument, gateHolds } from "./gates";
+import {
+  evidence,
+  gatedDocument,
+  gateHolds,
+  gating,
+  guarded,
+  refuseGatedRows,
+} from "./gates";
 import { layerOf } from "./layers";
 import { producedSource, producedWhere } from "./produced";
 import { admitProjected } from "./projected";
@@ -137,6 +144,11 @@ export class PreparedDomain {
   readonly gateHolds = gateHolds;
   readonly evidence = evidence;
   readonly gatedDocument = gatedDocument;
+  readonly gating = gating;
+  readonly guarded = guarded;
+  refuseGatedRows(model: AnyModel): void {
+    refuseGatedRows(this.projected(model), model["~"].names.ts!);
+  }
   admit(
     schema: EngineSchema,
     model: AnyModel,

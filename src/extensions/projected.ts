@@ -1,5 +1,4 @@
 import { ValidationError } from "@errors";
-import { namedGatedFields } from "@query-engine/raptor3/shared/query";
 import type {
   Arguments,
   EngineSchema,
@@ -8,6 +7,7 @@ import type {
 import type { Operation } from "@query-engine/types";
 import type { AnyModel } from "@schema/model";
 import { isPlainRecord } from "@schema/relation/terminal";
+import { namedGatedFields } from "./gates";
 import type { PreparedDomain } from "./row-domain";
 
 /**

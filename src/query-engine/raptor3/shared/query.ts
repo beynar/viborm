@@ -6,7 +6,6 @@ import {
   QueryEngineError,
   TransactionError,
   UnsupportedOperationError,
-  ValidationError,
   VibORMError,
 } from "@errors";
 import type { PreparedDomain } from "@extensions/row-domain";
@@ -16,7 +15,6 @@ import {
 } from "@query-engine/result/result-shape";
 import {
   EMPTY_ROW_RESULT_KEY,
-  gateResultKey,
   POLYMORPHIC_COLLECTION_ORPHANS_KEY,
 } from "@query-engine/result-aliases";
 import { fieldRefPayload, formatFieldRef, isFieldRef } from "@schema/field-ref";
@@ -1011,24 +1009,11 @@ export class RecursiveOutputOverBudget extends RangeError {
 }
 
 /**
- * A row the read returned lacks the gate of a field the caller named (K5,
- * OD-5): raised while decoding, after the statement and before any result.
- * Like {@link InvalidScalarResult}, its operation owns the public error.
+ * An error raised while a result is read that states its own refusal: as for
+ * {@link InvalidScalarResult}, its operation owns the public error.
  */
-export class GatedFieldRefusal extends Error {
-  readonly path: string;
-  constructor(path: string) {
-    super(`The selected field at '${path}' is not readable on a returned row`);
-    this.path = path;
-  }
-  /** The `ValidationError` of `operation`, at the path the caller named. */
-  refusal(operation: Operation, model: string): ValidationError {
-    return new ValidationError(
-      operation,
-      [{ path: this.path, message: "is not readable on a returned row" }],
-      { meta: { model } }
-    );
-  }
+export interface ResultRefusal {
+  refusal(operation: Operation, model: string): Error;
 }
 
 /** The public output name of a `_distance` projection, stated once. */
@@ -1622,13 +1607,6 @@ export interface ProjectedFacts {
   readonly keys: ReadonlyMap<string, DeclaredEvidence>;
   readonly gates: ReadonlyMap<string, FieldGate>;
 }
-/**
- * The selections a caller wrote, and the read-gated fields each names (K5):
- * admission marks them by identity, as `omit` and `include` desugar every
- * node into a `select` naming every scalar. A field a selection does not mark
- * is projected where its gate holds and left out elsewhere.
- */
-export const namedGatedFields = new WeakMap<object, ReadonlySet<string>>();
 
 export const NO_RELATIONS: readonly string[] = [];
 /** A relation node or body without its `$through`, which belongs to the link. */
@@ -3157,13 +3135,9 @@ export abstract class Queries {
       const resolved = defaults.get(model);
       if (resolved !== undefined) return resolved;
     }
-    const named =
-      projected && args.select !== undefined
-        ? namedGatedFields.get(args.select)
-        : undefined;
-    // Made only where the domain gates a field of `model` (K5).
-    const gated: Record<string, GatedMember> | undefined = projected && {};
-    const gates = projected && new Map<FieldGate, string>();
+    // What the domain's read gates add to this projection (K5).
+    const gating =
+      projected && this.domain!.gating(projected, args.select, path);
     // `omit` is desugared into `select` at admission; an explicit selection and
     // an include can therefore both be present and both belong to the result.
     let selected = args.select ?? defaultSelection(model);
@@ -3210,17 +3184,7 @@ export abstract class Queries {
       if (!model["~"].state.relations[name]) {
         prepared.push({ kind: "scalar", name });
         fields[name] = this.scalarShape(model, name);
-        const gate = projected?.gates.get(name);
-        if (gate === undefined) continue;
-        let member = gates!.get(gate);
-        if (member === undefined) {
-          member = gateResultKey(gates!.size);
-          gates!.set(gate, member);
-          prepared.push({ kind: "gate", name: member, gate });
-        }
-        gated![name] = named?.has(name)
-          ? { gate: member, refused: `${path}select.${name}` }
-          : { gate: member };
+        gating?.field(name, prepared);
         continue;
       }
       const resolved = this.schema.index.get(model)!.get(name)!;
@@ -3257,14 +3221,7 @@ export abstract class Queries {
     const projection: PreparedProjection = {
       model,
       fields: prepared,
-      shape: gates?.size
-        ? {
-            kind: "object",
-            fields,
-            gated: gated!,
-            gates: [...gates.values()],
-          }
-        : { kind: "object", fields },
+      shape: { kind: "object", fields, ...gating?.shape() },
     };
     if (shared) defaults.set(model, projection);
     return projection;

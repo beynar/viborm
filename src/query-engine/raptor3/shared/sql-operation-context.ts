@@ -28,12 +28,11 @@ import type { PreparedBatchOperation } from "../../types";
 import type { Sent, Statement } from "../write/send";
 import { InsertValue } from "./insert-value";
 import {
-  GatedFieldRefusal,
   InvalidScalarResult,
   type PreparedProjection,
   type Query,
   type Read,
-  RecursiveOutputOverBudget,
+  type ResultRefusal,
   refusesWhileDecoding,
   returningSafeProjection,
   throughDerived,
@@ -159,9 +158,8 @@ export class SqlOperationContext {
         }
       );
     }
-    return error instanceof RecursiveOutputOverBudget ||
-      error instanceof GatedFieldRefusal
-      ? error.refusal(this.operation, this.modelName)
+    return error instanceof Error && "refusal" in error
+      ? (error as Error & ResultRefusal).refusal(this.operation, this.modelName)
       : error;
   }
 

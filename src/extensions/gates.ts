@@ -4,19 +4,25 @@
  * leaves out or refuses what its gates do not hold. Declared by an extension's
  * `reads` and `evidence`; the engine lowers the predicates and decodes the rest.
  */
+import { UnsupportedOperationError, ValidationError } from "@errors";
 import {
   type FieldGate,
-  GatedFieldRefusal,
+  freeze,
+  type GatedMember,
   InvalidScalarResult,
   own,
   type PreparedProjectionField,
+  type ProjectedFacts,
   type ProjectionShape,
   providerDocument,
   providerJson,
   type Reader,
+  type ResultRefusal,
 } from "@query-engine/raptor3/shared/query";
 import type { Input } from "@query-engine/raptor3/shared/schema";
 import type { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
+import { gateResultKey } from "@query-engine/result-aliases";
+import type { Operation } from "@query-engine/types";
 import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
 
@@ -55,6 +61,99 @@ export function gateHolds(
     }
   });
   return held.length === 0 ? undefined : q.adapter.operators.and(...held);
+}
+/**
+ * `column`, `model`'s `field` at `alias`, as an operand the caller wrote
+ * (K5): NULL on a row that does not carry a read-gated field. Every row a
+ * caller's operand is read on is one the domain takes, so `read` holds there:
+ * the gate's own predicate decides.
+ */
+export function guarded(
+  q: SqlQueries,
+  model: AnyModel,
+  field: string,
+  column: Sql,
+  alias?: string
+): Sql {
+  const gate = q.domain!.projected(model)?.gates.get(field);
+  const holds = gate && gateHolds(q, model, gate, alias, true);
+  const a = q.adapter;
+  return holds === undefined
+    ? column
+    : a.expressions.caseWhen(
+        [{ when: holds, then: column }],
+        a.literals.null()
+      );
+}
+/**
+ * The selections a caller wrote, and the read-gated fields each names (K5):
+ * admission marks them by identity, as `omit` and `include` desugar every
+ * node into a `select` naming every scalar. A field a selection does not mark
+ * is projected where its gate holds and left out elsewhere.
+ */
+export const namedGatedFields = new WeakMap<object, ReadonlySet<string>>();
+/**
+ * What read gates add to one projection of a model (K5): each gate of a
+ * scalar it reads is projected once, and the shape says which member decides
+ * each gated field, and which of them the caller named.
+ */
+export function gating(
+  projected: ProjectedFacts,
+  select: unknown,
+  path: string
+) {
+  const named =
+    select === undefined ? undefined : namedGatedFields.get(select as object);
+  const gated: Record<string, GatedMember> = {};
+  const gates = new Map<FieldGate, string>();
+  return {
+    field(name: string, prepared: PreparedProjectionField[]): void {
+      const gate = projected.gates.get(name);
+      if (gate === undefined) return;
+      let member = gates.get(gate);
+      if (member === undefined) {
+        member = gateResultKey(gates.size);
+        gates.set(gate, member);
+        prepared.push(freeze({ kind: "gate", name: member, gate }));
+      }
+      gated[name] = named?.has(name)
+        ? freeze({ gate: member, refused: `${path}select.${name}` })
+        : freeze({ gate: member });
+    },
+    shape: () =>
+      gates.size > 0
+        ? { gated: freeze(gated), gates: freeze([...gates.values()]) }
+        : undefined,
+  };
+}
+/**
+ * A row the read returned lacks the gate of a field the caller named (K5,
+ * OD-5): raised while decoding, after the statement and before any result.
+ */
+export class GatedFieldRefusal extends Error implements ResultRefusal {
+  readonly path: string;
+  constructor(path: string) {
+    super(`The selected field at '${path}' is not readable on a returned row`);
+    this.path = path;
+  }
+  /** The `ValidationError` of `operation`, at the path the caller named. */
+  refusal(operation: Operation, model: string): ValidationError {
+    return new ValidationError(
+      operation,
+      [{ path: this.path, message: "is not readable on a returned row" }],
+      { meta: { model } }
+    );
+  }
+}
+/** `$rows()` hands a caller the table's columns as they are: refused where a field of them is read-gated. */
+export function refuseGatedRows(
+  projected: ProjectedFacts | undefined,
+  model: string
+): void {
+  if (projected !== undefined && projected.gates.size > 0)
+    throw new UnsupportedOperationError(
+      `${model}.$rows() refuses read-gated fields: ${[...projected.gates.keys()]}`
+    );
 }
 /**
  * A declared projection key's value on the row at `alias` (K5): the

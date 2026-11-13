@@ -1774,15 +1774,9 @@ export class SqlQueries extends Queries {
    * itself: they lower inside the layer.
    */
   #guarded(model: AnyModel, field: string, column: Sql, alias?: string): Sql {
-    if (this.#lowersLayer || this.#masked) return column;
-    const gate = this.domain?.projected(model)?.gates.get(field);
-    // Every row a caller's operand is read on is one the domain takes, so
-    // `read` holds there: the gate's own predicate decides.
-    const holds =
-      gate && this.domain!.gateHolds(this, model, gate, alias, true);
-    return holds === undefined
+    return this.#lowersLayer || this.#masked || !this.domain
       ? column
-      : this.#when(holds, column, this.#null());
+      : this.domain.guarded(this, model, field, column, alias);
   }
   /** `model`'s `field` at `alias` as an operand the caller wrote ({@link guarded}). */
   #operand(model: AnyModel, field: string, alias?: string): Sql {

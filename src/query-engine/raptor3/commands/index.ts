@@ -452,11 +452,7 @@ export function createCommandEngine(config: EngineConfig) {
         "$rows() needs a driver bound to its database (a MySQL namespace): a caller's CTE could otherwise stand for a table its rows read"
       );
     const scope = rows?.prepare(queries, instant);
-    const gated = scope?.domain.projected(model)?.gates;
-    if (gated !== undefined && gated.size > 0)
-      throw new UnsupportedOperationError(
-        `${nameOf(model)}.$rows() refuses read-gated fields: ${[...gated.keys()]}`
-      );
+    scope?.domain.refuseGatedRows(model);
     const view = (scope ? scope.domain.reads(scope) : queries) as SqlQueries;
     return view.rowsOf(model, alias);
   };
