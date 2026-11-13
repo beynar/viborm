@@ -16,7 +16,11 @@ import {
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
-import { ClientInitializationError, QueryError } from "@errors";
+import {
+  ClientInitializationError,
+  QueryError,
+  TransactionError,
+} from "@errors";
 import type { Sql } from "@sql";
 import type {
   ConnectionPool,
@@ -141,10 +145,10 @@ function savepointStatement(sql: string): string | null | undefined {
 }
 
 /**
- * Transactions the server rolled back itself: a deadlock victim, a
- * batch-aborting error. `mssql` has released their connection, so
- * there is nothing left to roll back, to a savepoint or whole, and the
- * statement's own error is the failure to report.
+ * Transactions whose connection `mssql` has already released: one the
+ * server rolled back itself (a deadlock victim, a batch-aborting error),
+ * and one whose COMMIT failed. There is nothing left to roll back, to a
+ * savepoint or whole, and the first error is the failure to report.
  */
 const ABORTED_BY_SERVER = new WeakSet<Transaction>();
 
@@ -489,7 +493,23 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
         );
       },
       callback: () => fn(transaction),
-      commit: () => transaction.commit(),
+      commit: async () => {
+        try {
+          await transaction.commit();
+        } catch (error) {
+          // `mssql` has released the connection, so there is no transaction
+          // left to roll back, and the COMMIT may have reached the server
+          // (a timeout) or not (a lost session): nobody can say which.
+          ABORTED_BY_SERVER.add(transaction);
+          throw new TransactionError(
+            'Driver "mssql" could not confirm the COMMIT: the transaction may or may not have been committed.',
+            {
+              cause: normalizeMssqlError(error) as Error,
+              meta: { driver: "mssql", reason: "commit-outcome-unknown" },
+            }
+          );
+        }
+      },
       rollback: async () => {
         if (ABORTED_BY_SERVER.has(transaction)) return;
         try {
