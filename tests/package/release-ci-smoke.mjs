@@ -705,10 +705,10 @@ test("release CI accepts only current complete exact-main proof", async () => {
   console.log("Release CI proof: pass");
 });
 
-test("a red Snowflake provider job alone does not hold a release back", async () => {
-  // ci.yml marks that job continue-on-error: GitHub then reports the run a
-  // success while the job itself stays red, and the proof reads the jobs a
-  // release waits on, which do not include it.
+test("a red job outside the release proof is not read", async () => {
+  // What this proves is release-ci's side only: the jobs it reads are the
+  // listed ones. That the run is a success when the Snowflake job is red is
+  // ci.yml's continue-on-error, pinned by scripts/credential-free-ci.test.mjs.
   const jobsPages = [
     {
       jobs: [

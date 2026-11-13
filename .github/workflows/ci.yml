@@ -479,6 +479,10 @@ jobs:
 
       - name: Read a real Snowflake account
         if: steps.account.outputs.configured == 'true'
+        # Under the job's own limit: an account that stops answering fails
+        # this step, and the job fails into continue-on-error, rather than
+        # the job being cancelled at its limit (about 3.5 min when it runs).
+        timeout-minutes: 10
         env:
           SNOWFLAKE_TEST_CREDENTIALS: ${{ secrets.SNOWFLAKE_TEST_CREDENTIALS }}
         run: node node_modules/vitest/vitest.mjs run --config vitest.workspace.ts --project provider-snowflake --testTimeout=120000 --hookTimeout=300000

@@ -131,6 +131,8 @@ function assertLocalProviderMatrix(localJob) {
 
 const snowflakeSecret = expression("secrets.SNOWFLAKE_TEST_CREDENTIALS");
 const snowflakeTestStep = "      - name: Read a real Snowflake account\n";
+const jobTimeout = /^ {4}timeout-minutes: (\d+)$/m;
+const stepTimeout = /^ {8}timeout-minutes: (\d+)$/m;
 
 /**
  * The Snowflake job reads a trial account that will expire: a red result
@@ -140,6 +142,11 @@ const snowflakeTestStep = "      - name: Read a real Snowflake account\n";
 function assertSnowflakeReports(job) {
   assert(job.includes("\n    continue-on-error: true\n"));
   const [setup, test] = job.split(snowflakeTestStep);
+  // The test step times out before the job does: a job cancelled at its
+  // limit is not a failure continue-on-error turns into a success.
+  const jobLimit = Number(job.match(jobTimeout)?.[1]);
+  const stepLimit = Number(test?.match(stepTimeout)?.[1]);
+  assert(stepLimit > 0 && stepLimit < jobLimit);
   assert(
     test?.includes(`          SNOWFLAKE_TEST_CREDENTIALS: ${snowflakeSecret}\n`)
   );
@@ -250,6 +257,11 @@ test("CI keeps every delegated check and shallow sparse checkout", () => {
   assertSnowflakeReports(snowflakeJob);
   for (const broken of [
     snowflakeJob.replace("    continue-on-error: true\n", ""),
+    snowflakeJob.replace("        timeout-minutes: 10\n", ""),
+    snowflakeJob.replace(
+      "        timeout-minutes: 10\n",
+      "        timeout-minutes: 20\n"
+    ),
     snowflakeJob.replace(
       "    timeout-minutes: 20\n",
       `    timeout-minutes: 20\n    env:\n      SNOWFLAKE_TEST_CREDENTIALS: ${snowflakeSecret}\n`
