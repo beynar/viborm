@@ -186,6 +186,22 @@ export class SqlQueries extends Queries {
   get #false() {
     return this.adapter.literals.false;
   }
+  get #null() {
+    return this.adapter.literals.null;
+  }
+  get #literal() {
+    return this.adapter.literals.value;
+  }
+  get #document() {
+    return this.adapter.json.document;
+  }
+  get #object() {
+    return this.adapter.json.object;
+  }
+  /** A query read aside, under an alias. */
+  get #aside() {
+    return this.adapter.subqueries.correlate;
+  }
   get #or() {
     return this.adapter.operators.or;
   }
@@ -206,7 +222,7 @@ export class SqlQueries extends Queries {
   value(value: unknown): Sql {
     return value instanceof Sql
       ? callerText(this.settleRows(value))
-      : this.adapter.literals.value(value);
+      : this.#literal(value);
   }
 
   #nextAlias = 0;
@@ -751,7 +767,7 @@ export class SqlQueries extends Queries {
     }
     const flags = bodies.map((_, index) => `f${index}`);
     // Typed: PostgreSQL types a bare NULL arm by arm, as text.
-    const absent = this.#cast(a.literals.null(), "integer");
+    const absent = this.#cast(this.#null(), "integer");
     const arms = bodies.map((body, member) =>
       assembleAdapterSelect(a, {
         columns: listed([
@@ -791,7 +807,7 @@ export class SqlQueries extends Queries {
           this.#named(a.aggregates.max(this.#at(held, flag)), flag)
         ),
       ]),
-      from: a.subqueries.correlate(union(arms), held),
+      from: this.#aside(union(arms), held),
       groupBy: listed(columns),
     });
   }
@@ -1099,8 +1115,8 @@ export class SqlQueries extends Queries {
     }
     const sentinel = jsonNullKindOf(value);
     if (sentinel)
-      return sentinel === "DbNull" ? a.literals.null() : a.json.value(null);
-    if (value === null || value === undefined) return a.literals.null();
+      return sentinel === "DbNull" ? this.#null() : a.json.value(null);
+    if (value === null || value === undefined) return this.#null();
     if (state.array === true && Array.isArray(value))
       return this.#listValue(state, value, field);
     // A COMPACT identifier binds its physical form — the payload's bytes, or
@@ -1111,7 +1127,7 @@ export class SqlQueries extends Queries {
       return a.literals.id(encodeIdentifier(id, value), id.representation);
     switch (state.type) {
       case "bigint":
-        return a.literals.value(state.array === true ? String(value) : value);
+        return this.#literal(state.array === true ? String(value) : value);
       case "decimal":
       case "json":
       case "point":
@@ -1121,7 +1137,7 @@ export class SqlQueries extends Queries {
       case "time":
         return this.#typedScalarValue(scalar, value, field);
       default:
-        return a.literals.value(value);
+        return this.#literal(value);
     }
   }
   /** The scalars whose operand spelling depends on their type, out of line. */
@@ -1141,7 +1157,7 @@ export class SqlQueries extends Queries {
     switch (state.type) {
       case "decimal":
         return member
-          ? a.literals.value(
+          ? this.#literal(
               decimalMembers(state, [value], field, this.adapter.result)[0]!
             )
           : a.literals.decimal(
@@ -1168,20 +1184,20 @@ export class SqlQueries extends Queries {
               member ? undefined : this.nativeType(scalar),
               member
             )
-          : a.literals.value(wire);
+          : this.#literal(wire);
       }
       case "time": {
         const admitted = validateIsoTime(value);
-        return a.literals.value("value" in admitted ? admitted.value : value);
+        return this.#literal("value" in admitted ? admitted.value : value);
       }
       case "date": {
         const wire = admittedTemporal(value, validateIsoDate);
         return typeof wire === "string"
           ? a.literals.dateTime(wire, undefined, member)
-          : a.literals.value(wire);
+          : this.#literal(wire);
       }
       default:
-        return a.literals.value(value);
+        return this.#literal(value);
     }
   }
   /** A whole list, bound as the container the destination column stores. */
@@ -1243,23 +1259,15 @@ export class SqlQueries extends Queries {
     const projected = this.adapter.json.objectFromColumns([
       [
         "longitude",
-        this.adapter.json.document(
-          this.adapter.json.number(geoPoint.longitude(column))
-        ),
+        this.#document(this.adapter.json.number(geoPoint.longitude(column))),
       ],
       [
         "latitude",
-        this.adapter.json.document(
-          this.adapter.json.number(geoPoint.latitude(column))
-        ),
+        this.#document(this.adapter.json.number(geoPoint.latitude(column))),
       ],
     ]);
     return state.nullable
-      ? this.#when(
-          this.#isNull(column),
-          this.adapter.literals.null(),
-          projected
-        )
+      ? this.#when(this.#isNull(column), this.#null(), projected)
       : projected;
   }
   /**
@@ -1267,7 +1275,7 @@ export class SqlQueries extends Queries {
    * JSON stays a document; a value the container would round stays exact text.
    */
   #carriedValue(leaf: Shape | Leaf, expression: Sql): Sql {
-    if (leaf.kind !== "scalar") return this.adapter.json.document(expression);
+    if (leaf.kind !== "scalar") return this.#document(expression);
     // A decimal crossed the projection in the spelling {@link projectedColumn}
     // states — a text cast for a scalar, the adapter's decimal array
     // projection for a list — and its codec reads an exact value only from
@@ -1287,13 +1295,13 @@ export class SqlQueries extends Queries {
       leaf.type === "point" ||
       leaf.type === "vector"
     )
-      return this.adapter.json.document(expression);
+      return this.#document(expression);
     if (leaf.type === "bigint") return this.#cast(expression, "text");
     if (leaf.type === "number") return this.adapter.json.number(expression);
     if (leaf.type === "blob")
       return this.#when(
         this.#isNull(expression),
-        this.adapter.literals.null(),
+        this.#null(),
         this.adapter.expressions.blobToHex(expression)
       );
     return expression;
@@ -1812,7 +1820,7 @@ export class SqlQueries extends Queries {
       gate && this.domain!.gateHolds(this, model, gate, alias, true);
     return holds === undefined
       ? column
-      : this.#when(holds, column, this.adapter.literals.null());
+      : this.#when(holds, column, this.#null());
   }
   /** `model`'s `field` at `alias` as an operand the caller wrote ({@link guarded}). */
   #operand(model: AnyModel, field: string, alias?: string): Sql {
@@ -2255,7 +2263,7 @@ export class SqlQueries extends Queries {
     const value = predicate.value;
     const target = a.json.extract(column, path);
     const text = (kind: TextMatch, member: unknown): Sql => {
-      const operand = a.literals.value(member);
+      const operand = this.#literal(member);
       return predicate.insensitive
         ? a.operators.insensitiveText(
             kind,
@@ -3747,7 +3755,7 @@ export class SqlQueries extends Queries {
     const window = a.operators.exists(
       assembleAdapterSelect(a, {
         columns: this.#true(),
-        from: a.subqueries.correlate(derived, cursorAlias),
+        from: this.#aside(derived, cursorAlias),
         where: this.#or(...afterTerms),
       })
     );
@@ -4166,9 +4174,7 @@ export class SqlQueries extends Queries {
     const outer = this.alias();
     // The window masks its read-gated columns: the aggregate reads them as
     // they are.
-    return this.#overMasked(() =>
-      aggregate(outer, a.subqueries.correlate(window, outer))
-    );
+    return this.#overMasked(() => aggregate(outer, this.#aside(window, outer)));
   }
   /** The admitted aggregate selections, as columns and as decoder leaves. */
   #prepareAggregates(
@@ -4398,7 +4404,7 @@ export class SqlQueries extends Queries {
           : [
               [
                 POLYMORPHIC_COLLECTION_ORPHANS_KEY,
-                a.json.document(
+                this.#document(
                   a.json.objectFromColumns(
                     field.memberships.map((member) => [
                       member.variant,
@@ -4441,10 +4447,10 @@ export class SqlQueries extends Queries {
         );
         integrity.push([
           POLYMORPHIC_COLLECTION_ORPHANS_KEY,
-          a.json.document(a.json.objectFromColumns([["$storage", invalid]])),
+          this.#document(a.json.objectFromColumns([["$storage", invalid]])),
         ]);
       }
-      expression = a.json.object([
+      expression = this.#object([
         ...field.arms.map((arm) => {
           const row = this.#lowerRelationProjection(arm, alias ?? "");
           const claim = field.many
@@ -4456,7 +4462,7 @@ export class SqlQueries extends Queries {
           // column). An unclaimed arm stays null, which is an empty slot.
           return [
             arm.variant,
-            a.json.document(
+            this.#document(
               claim
                 ? this.#when(
                     claim,
@@ -4464,7 +4470,7 @@ export class SqlQueries extends Queries {
                       row,
                       this.#missingArm(arm.edge, alias ?? "")
                     ),
-                    a.literals.null()
+                    this.#null()
                   )
                 : row
             ),
@@ -4481,12 +4487,11 @@ export class SqlQueries extends Queries {
     alias?: string,
     visible = false
   ): Sql {
-    const a = this.adapter;
     let expression: Sql;
     if (field.kind === "scalar") {
       expression = this.projectedColumn(projection.model, field.name, alias);
     } else if (field.kind === "sentinel") {
-      expression = this.#cast(a.literals.value(1), "integer");
+      expression = this.#cast(this.#literal(1), "integer");
     } else if (field.kind === "evidence") {
       expression = this.domain!.evidence(
         this,
@@ -4539,7 +4544,7 @@ export class SqlQueries extends Queries {
   #missingArm(edge: Membership, parentAlias: string): Sql {
     const a = this.adapter;
     if (this.domainOf(edge.target, "related") === undefined)
-      return a.json.object([]);
+      return this.#object([]);
     const target = this.alias();
     return this.#when(
       a.operators.exists(
@@ -4548,8 +4553,8 @@ export class SqlQueries extends Queries {
           this.correlation(edge, parentAlias, target, false)
         )
       ),
-      a.literals.null(),
-      a.json.object([])
+      this.#null(),
+      this.#object([])
     );
   }
   /**
@@ -4776,7 +4781,7 @@ export class SqlQueries extends Queries {
     if (linkRow)
       members.push([
         "$through",
-        a.json.object(
+        this.#object(
           linkRow.fields.map((field, index): [string, Sql] => [
             field,
             this.#carriedValue(
@@ -4786,10 +4791,10 @@ export class SqlQueries extends Queries {
           ])
         ),
       ]);
-    const object = a.json.object(members);
+    const object = this.#object(members);
     const expression = this.#scalar({
       columns: edge.many ? a.json.agg(object) : object,
-      from: a.subqueries.correlate(page, pageAlias),
+      from: this.#aside(page, pageAlias),
     });
     return expression;
   }
@@ -4999,7 +5004,7 @@ export class SqlQueries extends Queries {
               ...(depth === false ? [] : [depthColumn]),
             ].map((column) => this.#at(seed, column))
           ),
-          from: a.subqueries.correlate(
+          from: this.#aside(
             a.setOperations.union(
               a.clauses.select(
                 listed([
@@ -5124,7 +5129,7 @@ export class SqlQueries extends Queries {
       from: this.#named(this.#escaped(cteName), walk),
     });
     const node = this.#rowAlias(model);
-    const nodeDocument = a.json.object(
+    const nodeDocument = this.#object(
       relation.projection.fields.map((field) => [
         field.name,
         this.#carriedValue(
@@ -5134,14 +5139,14 @@ export class SqlQueries extends Queries {
         ),
       ])
     );
-    const nodeCarrier = a.json.object([
+    const nodeCarrier = this.#object([
       [
         RECURSIVE_CARRIER.key,
         this.#recursiveIdentity(model, this.#rowKey(model, node)),
       ],
       [RECURSIVE_CARRIER.row, nodeDocument],
     ]);
-    const idTable = a.subqueries.correlate(distinctIds, ids);
+    const idTable = this.#aside(distinctIds, ids);
     const table = this.table(model, node);
     const sameNode = this.sameRow(
       model,
@@ -5154,7 +5159,7 @@ export class SqlQueries extends Queries {
     const byKey =
       recurrence.fewRows &&
       a.capabilities.readsNodesByKey &&
-      a.json.document(
+      this.#document(
         this.#scalar({
           columns: nodeCarrier,
           from: table,
@@ -5182,7 +5187,7 @@ export class SqlQueries extends Queries {
     ];
     if (recurrence.depth !== false)
       edgePairs.push([RECURSIVE_CARRIER.depth, edgeColumn(depthColumn)]);
-    const edgeCarrier = a.json.object(edgePairs);
+    const edgeCarrier = this.#object(edgePairs);
     // Each parent's siblings in the caller's order, ties broken by the order
     // owner's one complete key — the ordinary window's tie-break, not another.
     // An order of key columns alone is read from the walk's own: joined
@@ -5229,19 +5234,19 @@ export class SqlQueries extends Queries {
     const edgePageAlias = this.alias();
     const edges = this.#scalar({
       columns: a.json.agg(
-        a.json.document(this.#at(edgePageAlias, edgeCarrierName))
+        this.#document(this.#at(edgePageAlias, edgeCarrierName))
       ),
-      from: a.subqueries.correlate(edgePage, edgePageAlias),
+      from: this.#aside(edgePage, edgePageAlias),
     });
 
     const carrier = (nodeFacts: Sql, edgeFacts: Sql) =>
-      a.json.object([
+      this.#object([
         [
           RECURSIVE_CARRIER.root,
           this.#recursiveIdentity(model, this.#rowKey(model, parentAlias)),
         ],
-        [RECURSIVE_CARRIER.nodes, a.json.document(nodeFacts)],
-        [RECURSIVE_CARRIER.edges, a.json.document(edgeFacts)],
+        [RECURSIVE_CARRIER.nodes, this.#document(nodeFacts)],
+        [RECURSIVE_CARRIER.edges, this.#document(edgeFacts)],
       ]);
     if (!a.capabilities.supportsLateralJoins)
       return a.subqueries.scalar(
@@ -5259,7 +5264,7 @@ export class SqlQueries extends Queries {
     const edgeFacts = `__${scope}_edges`;
     return this.#scalar({
       columns: carrier(this.#at(facts, nodeFacts), this.#at(facts, edgeFacts)),
-      from: a.subqueries.correlate(a.clauses.select(sql`1`), one),
+      from: this.#aside(a.clauses.select(sql`1`), one),
       joins: [
         a.joins.lateral(
           sql`${cte} ${a.clauses.select(
@@ -5303,7 +5308,7 @@ export class SqlQueries extends Queries {
       });
       return this.#overMasked(() =>
         this.#grouped(model, args, alias, by, grouped, {
-          from: a.subqueries.correlate(window, alias),
+          from: this.#aside(window, alias),
         })
       );
     }
