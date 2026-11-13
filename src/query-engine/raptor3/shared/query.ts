@@ -538,8 +538,6 @@ export type PreparedPredicate =
       readonly kind: "exists";
       readonly model: AnyModel;
       readonly predicate?: PreparedPredicate;
-      /** Its SQL, read under `alias`: said by what prepared it. */
-      readonly lower: (queries: Queries, alias: string) => Sql;
     }
   | {
       /**
@@ -1833,7 +1831,7 @@ export abstract class Queries {
    * identity: the decoder, the result codec and the shape readers all read its
    * fields.
    */
-  scalarShape(model: AnyModel, field: string): Leaf {
+  protected scalarShape(model: AnyModel, field: string): Leaf {
     let leaves = this.#views.leaves.get(model);
     if (leaves === undefined) {
       leaves = new Map();
@@ -1950,7 +1948,7 @@ export abstract class Queries {
         model,
         predicate: where
           ? this.#rooted(model, undefined, () =>
-              this.prepareWhere(model, where, undefined, [], unique)
+              this.#prepareWhere(model, where, undefined, [], unique)
             )
           : undefined,
       });
@@ -1972,7 +1970,7 @@ export abstract class Queries {
         : undefined,
       predicate: where
         ? this.#rooted(model, facts, () =>
-            this.prepareWhere(model, where, facts, [], unique)
+            this.#prepareWhere(model, where, facts, [], unique)
           )
         : undefined,
     });
@@ -1982,7 +1980,7 @@ export abstract class Queries {
    * body it is in: what a `{ $row, up }` names. `sealed` says why a reference
    * may not cross that body.
    */
-  scopes: readonly {
+  #scopes: readonly {
     readonly model: AnyModel;
     readonly facts: SelectorFacts | undefined;
     readonly sealed?: string;
@@ -1992,12 +1990,12 @@ export abstract class Queries {
     facts: SelectorFacts | undefined,
     prepare: () => T
   ): T {
-    const scopes = this.scopes;
-    this.scopes = [{ model, facts }];
+    const scopes = this.#scopes;
+    this.#scopes = [{ model, facts }];
     try {
       return prepare();
     } finally {
-      this.scopes = scopes;
+      this.#scopes = scopes;
     }
   }
   /** One row's identity as prepared meaning: its key fields' equalities. */
@@ -2236,7 +2234,7 @@ export abstract class Queries {
       predicates: freeze(predicates),
     });
   }
-  prepareWhere(
+  #prepareWhere(
     model: AnyModel,
     where: Input,
     facts: SelectorFacts | undefined,
@@ -2248,7 +2246,7 @@ export abstract class Queries {
       if (facts) facts.exact = false;
       return freeze({ kind: "condition", condition: where });
     }
-    if (where instanceof Existence) return where.prepare(this, facts);
+    if (where instanceof Existence) return this.#prepareExists(where, facts);
     return freeze({
       kind: "and",
       predicates: freeze(
@@ -2258,7 +2256,7 @@ export abstract class Queries {
             return this.combine(
               field,
               entries(operand).map((clause) =>
-                this.prepareWhere(
+                this.#prepareWhere(
                   model,
                   clause,
                   facts,
@@ -2312,8 +2310,49 @@ export abstract class Queries {
       ),
     });
   }
+  /**
+   * `$exists`: the target's rows, read by the statement wherever it sits, so
+   * a write to them orders before it (a read of the target with no path).
+   */
+  #prepareExists(
+    existence: Existence,
+    facts: SelectorFacts | undefined
+  ): PreparedPredicate {
+    const model = this.schema.schema[existence.model]!;
+    const nestedFacts = facts && newSelectorFacts(false);
+    // One body below the row that holds it, joined to nothing: a
+    // `{ $row, up }` inside it may read that row (or one above), and then it
+    // is correlated; else it is the same wherever the statement holds it.
+    const scopes = this.#scopes;
+    this.#scopes = [...scopes, { model, facts: nestedFacts }];
+    let predicate: PreparedPredicate;
+    try {
+      predicate = this.#prepareWhere(model, existence.where, nestedFacts, []);
+    } finally {
+      this.#scopes = scopes;
+    }
+    if (facts && nestedFacts) {
+      facts.exact = false;
+      const domain = this.domain?.selector(model, "related");
+      if (domain)
+        for (const field of domain.facts.fields) nestedFacts.fields.add(field);
+      facts.reads.push({
+        model,
+        path: [],
+        fields: nestedFacts.fields,
+        equals: nestedFacts.equals,
+        exact: false,
+      });
+      facts.reads.push(...nestedFacts.reads);
+    }
+    return freeze({
+      kind: "exists",
+      model,
+      ...(states(predicate) && { predicate }),
+    });
+  }
   /** One prepared scalar: the field and its memoised physical view. */
-  scalar(model: AnyModel, field: string): PreparedScalar {
+  protected scalar(model: AnyModel, field: string): PreparedScalar {
     return freeze({
       model,
       field,
@@ -2537,7 +2576,8 @@ export abstract class Queries {
   #prepareOperand(owner: PreparedScalar, value: unknown): PreparedOperand {
     if (value instanceof Parameter)
       return { kind: "parameter", parameter: value };
-    if (value instanceof OuterColumn) return value.prepare(this, owner);
+    if (value instanceof OuterColumn)
+      return this.#prepareOuterOperand(owner, value);
     if (isFieldRef(value)) {
       if (owner.physical.scalar["~"].state.type === "json")
         throw new UnsupportedOperationError(
@@ -2618,6 +2658,72 @@ export abstract class Queries {
     return {
       kind: "field",
       scalar: this.scalar(model, payload.field),
+    };
+  }
+  /**
+   * `{ $row, up }`: the column of the row `up` relation bodies above, which
+   * that row's scope reads, compared like a field reference. Refused when it
+   * leaves the predicate (or an `$exists` body), crosses a recursive or
+   * polymorphic relation, or names what a comparison cannot read.
+   */
+  #prepareOuterOperand(
+    owner: PreparedScalar,
+    value: OuterColumn
+  ): Extract<PreparedOperand, { kind: "field" }> {
+    const spelled = `{ $row: ${JSON.stringify(value.$row)}, up: ${value.up} }`;
+    const scopes = this.#scopes;
+    const at = scopes.length - 1 - value.up;
+    if (at < 0)
+      throw new UnsupportedOperationError(
+        `${spelled} reaches past the predicate it is written in: it is ${Math.max(scopes.length - 1, 0)} relation bodies deep.`
+      );
+    for (let index = at + 1; index < scopes.length; index++)
+      if (scopes[index]!.sealed !== undefined)
+        throw new UnsupportedOperationError(
+          `${spelled} crosses a ${scopes[index]!.sealed} relation: an enclosing row is read only through plain relations.`
+        );
+    const { model, facts } = scopes[at]!;
+    const name = model["~"].names.ts ?? "unknown";
+    const referenced = model["~"].state.scalars[value.$row];
+    const own = owner.physical.scalar["~"].state;
+    if (!referenced)
+      throw new UnsupportedOperationError(
+        `${spelled} does not name a scalar field of '${name}'.`
+      );
+    const other = referenced["~"].state;
+    const kinds = new Set([own.type, other.type]);
+    if (
+      own.array === true ||
+      other.array === true ||
+      own.type === "json" ||
+      !(
+        own.type === other.type ||
+        (kinds.size === 2 && kinds.has("string") && kinds.has("enum"))
+      )
+    )
+      throw new UnsupportedOperationError(
+        `${spelled} names '${name}.${value.$row}' (${other.array === true ? `${other.type}[]` : other.type}), which cannot be compared with '${owner.field}' (${own.array === true ? `${own.type}[]` : own.type}).`
+      );
+    const ownDomain = exactDecimalDomain(own);
+    const otherDomain = exactDecimalDomain(other);
+    if (ownDomain && otherDomain && !sameDecimalDomain(ownDomain, otherDomain))
+      throw new UnsupportedOperationError(
+        `${spelled} names a decimal(${otherDomain.precision},${otherDomain.scale}) and '${owner.field}' is decimal(${ownDomain.precision},${ownDomain.scale}): two decimals compare exactly only when they declare the same precision and scale.`
+      );
+    const storage = incomparableIdentifiers(
+      this.scalarShape(owner.model, owner.field).id,
+      this.scalarShape(model, value.$row).id,
+      owner.field,
+      value.$row
+    );
+    if (storage !== undefined)
+      throw new UnsupportedOperationError(`${spelled}: ${storage}`);
+    // The row that holds the column reads it: a write to it reorders.
+    facts?.fields.add(value.$row);
+    return {
+      kind: "field",
+      scalar: this.scalar(model, value.$row),
+      ...(value.up > 0 && { up: value.up }),
     };
   }
   /** One relation slot: ordinary quantifiers, to-one shorthand, or tagged arms. */
@@ -2839,15 +2945,15 @@ export abstract class Queries {
     sealed: string | undefined = closure && "recursive"
   ): PreparedPredicate | undefined {
     if (!where) return this.#relationFacts(edge, facts, path, inexact, closure);
-    const scopes = this.scopes;
+    const scopes = this.#scopes;
     const nestedFacts =
       facts && newSelectorFacts(!inexact && closure === undefined);
-    this.scopes = [
+    this.#scopes = [
       ...scopes,
       { model: edge.target, facts: nestedFacts, ...(sealed && { sealed }) },
     ];
     try {
-      const predicate = this.prepareWhere(
+      const predicate = this.#prepareWhere(
         edge.target,
         where,
         nestedFacts,
@@ -2858,7 +2964,7 @@ export abstract class Queries {
       this.#relationFacts(edge, facts, path, inexact, closure, nestedFacts);
       return predicate;
     } finally {
-      this.scopes = scopes;
+      this.#scopes = scopes;
     }
   }
   /** The reads a relation's scope adds to its parent's facts (§2.2). */

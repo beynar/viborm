@@ -20,7 +20,6 @@ import {
 } from "@validation/primitives/parameter";
 import type { SchemaRegistryLookup } from "@validation/types";
 import type { RowsContribution, RowsVerbs } from "./controls";
-import { prepareExistence, prepareOuterColumn } from "./row-references";
 
 /**
  * Each domain predicate admitted once, when its extension is applied, through
@@ -282,8 +281,7 @@ function conditionOf(spec: unknown): Condition | string {
 const MARKERS: DomainMarkers = {
   value: (value) => {
     if (isReference(value)) return new Parameter(value.control, value.path);
-    if (isOuterColumn(value))
-      return new OuterColumn(value.$row, value.up, prepareOuterColumn);
+    if (isOuterColumn(value)) return new OuterColumn(value.$row, value.up);
     return isInstant(value) ? new Parameter() : undefined;
   },
   condition: conditionOf,
@@ -417,7 +415,7 @@ export function admitRows(
           path: [model!, ...(issue!.path ?? [])],
         };
       }
-      return new Existence(model!, result.value as Input, prepareExistence);
+      return new Existence(model!, result.value as Input);
     },
   };
   const admit = (
