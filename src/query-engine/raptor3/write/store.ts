@@ -698,6 +698,10 @@ export class Store {
     const name = this.#name(meta.model, row);
     if (question.except?.some((key) => this.#name(meta.model, key) === name))
       return false;
+    /** Whether the call wrote, of the row, a field the question reads. */
+    const rewritten =
+      meta.wrote !== undefined &&
+      [...meta.wrote].some((field) => facts.fields.has(field));
     // A value the row holds that is not the one asked for: it does not answer, whose ever member it is. One spelled another way may be the one asked for: the database says.
     let unsure = false;
     for (const [field, value] of facts.equals) {
@@ -733,7 +737,9 @@ export class Store {
     } else if (member) {
       const linked = this.#linked(member.edge as Junction, member.of, row);
       if (linked === false) return false;
-      if (linked === undefined && !was) return was && undefined;
+      // A link the call did not make is the database's to say. A row that did not answer answers now only by what the call wrote of what the question reads.
+      if (linked === undefined && !was)
+        return was === false && !rewritten ? false : undefined;
     }
     for (const field of facts.equals.keys())
       if (row[field] instanceof Pending) return undefined;
@@ -745,13 +751,7 @@ export class Store {
     )
       return true;
     // What the call wrote of it changes nothing the question reads: it answers as it did.
-    if (
-      was &&
-      !meta.made &&
-      facts.reads.size === 0 &&
-      !(meta.wrote && [...meta.wrote].some((field) => facts.fields.has(field)))
-    )
-      return true;
+    if (was && !meta.made && facts.reads.size === 0 && !rewritten) return true;
     return undefined;
   }
   /** Whether the call itself linked or unlinked two rows through a junction: `undefined` where it did neither. */
