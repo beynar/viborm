@@ -96,9 +96,12 @@ export interface SnowflakeDriverOptions {
    * Session parameters added to every statement's: `QUERY_TAG`,
    * `USE_CACHED_RESULT` and `CLIENT_RESULT_CHUNK_SIZE`, in any case. Any other
    * is refused: the driver decodes results in the formats and the time zone
-   * it fixes, one statement at a time.
+   * it fixes, one statement at a time. A value is sent as text; one that is
+   * `undefined` is not sent.
    */
-  readonly parameters?: Readonly<Record<string, string>>;
+  readonly parameters?: Readonly<
+    Record<string, string | number | boolean | undefined>
+  >;
 }
 
 export type SnowflakeClientConfig<C extends DriverConfig> =
@@ -158,15 +161,25 @@ function callerParameters(
     throw configuration(
       "The Snowflake parameters are an object of session parameter names and their values."
     );
-  for (const key of Object.keys(parameters))
+  const sent: Record<string, string> = {};
+  for (const [key, value] of Object.entries(parameters)) {
+    // An undefined value is an absent key, as every driver option is.
+    if (value === undefined) continue;
     if (!CALLER_PARAMETERS.has(key.toLowerCase()))
       throw configuration(
         `VibORM does not pass the Snowflake session parameter ${key}: it decodes results in the formats and the time zone it fixes, and runs one statement at a time. It passes QUERY_TAG, USE_CACHED_RESULT and CLIENT_RESULT_CHUNK_SIZE.`
       );
-  // Admitted names only, so a string value is all the API takes.
-  return Object.fromEntries(
-    Object.entries(parameters).map(([key, value]) => [key, String(value)])
-  );
+    if (
+      typeof value !== "string" &&
+      typeof value !== "number" &&
+      typeof value !== "boolean"
+    )
+      throw configuration(
+        `The Snowflake session parameter ${key} is a string, a number or a boolean.`
+      );
+    sent[key] = String(value);
+  }
+  return sent;
 }
 
 /**

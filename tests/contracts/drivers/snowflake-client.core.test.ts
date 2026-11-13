@@ -702,6 +702,56 @@ describe("Snowflake failures", () => {
     });
   });
 
+  it("sends nothing for an option or a parameter set to undefined, and refuses a parameter that is not text, a number or a boolean", async () => {
+    const absent = createClient({
+      schema,
+      account: "myorg-acct",
+      token: "t",
+      host: server.host,
+      fetch: server.fetch,
+    });
+    const undefinedOptions = createClient({
+      schema,
+      databaseUrl: undefined,
+      account: "myorg-acct",
+      username: undefined,
+      privateKey: undefined,
+      token: "t",
+      tokenType: undefined,
+      warehouse: undefined,
+      database: undefined,
+      namespace: undefined,
+      role: undefined,
+      timeout: undefined,
+      host: server.host,
+      fetch: server.fetch,
+      parameters: { QUERY_TAG: undefined, USE_CACHED_RESULT: false },
+    });
+    await absent.$queryRaw`SELECT 1`;
+    await undefinedOptions.$queryRaw`SELECT 1`;
+    const [bare, given] = server.statements();
+    // QUERY_TAG: undefined is no tag (not "undefined"); a boolean is text.
+    expect(given!.parameters).toEqual({
+      USE_CACHED_RESULT: "false",
+      TIMEZONE: "UTC",
+      ROWS_PER_RESULTSET: "0",
+    });
+    expect({ ...given, parameters: bare!.parameters }).toEqual(bare);
+    server.requests.length = 0;
+    for (const value of [null, { tag: "x" }, ["x"]])
+      expect(() =>
+        createClient({
+          schema,
+          account: "myorg-acct",
+          token: "t",
+          host: server.host,
+          fetch: server.fetch,
+          parameters: { QUERY_TAG: value } as never,
+        })
+      ).toThrow(ClientInitializationError);
+    expect(server.requests).toHaveLength(0);
+  });
+
   it("refuses, before any request, a host that is not https, a port in the URL and parameters that are not an object", () => {
     for (const options of [
       { account: "myorg-acct", host: "http://evil.example" },

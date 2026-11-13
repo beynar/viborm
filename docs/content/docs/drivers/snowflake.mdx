@@ -49,7 +49,7 @@ carries the key or the token: pass `privateKey` or `token` beside it.
 | `timeout` | Seconds a statement may run (see [Timeouts](#timeouts)) |
 | `host` | The API's `https://` base URL, when it is not `https://<account>.snowflakecomputing.com`: the China region, a proxy. The token goes wherever it says |
 | `fetch` | The `fetch` to send with: any `(url, init) => Promise<Response>` |
-| `parameters` | `QUERY_TAG`, `USE_CACHED_RESULT` or `CLIENT_RESULT_CHUNK_SIZE`, added to every statement's session |
+| `parameters` | `QUERY_TAG`, `USE_CACHED_RESULT` or `CLIENT_RESULT_CHUNK_SIZE`, added to every statement's session: a string, a number or a boolean, sent as text; one `undefined` is not sent |
 
 A field given beside `databaseUrl` takes precedence over the URL's. Use exactly
 one credential: a `privateKey` (with `username`) or a `token`.
