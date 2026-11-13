@@ -24,10 +24,17 @@ Server schema into a schema document.
   (ignored by SQL Server's `=`), and `mode: "insensitive"` ignores case on
   any collation; `contains`, `startsWith` and `endsWith` are `LIKE`, refused
   past its 4,000-character pattern. Every statement runs at compatibility
-  level 150. A transaction the server rolls back itself, even inside a
-  savepoint, and a COMMIT whose outcome is unknown fail with a
-  `TransactionError` saying so (`meta.reason`). Tables live in `dbo` unless
-  `namespace` names another schema. See the
+  level 150. `isolationLevel` sets the transaction's level, and the pooled
+  connection goes back to its own. A transaction the server rolls back
+  itself, even inside a savepoint, a raw COMMIT or ROLLBACK inside
+  `$transaction`, and a COMMIT whose outcome is unknown fail with a
+  `TransactionError` saying so (`meta.reason`); every SQL Server error carries
+  its message number in `meta.providerErrno`, and a request timeout is a
+  `QueryError` V2002. An adopted table's `DATETIME2`, `DATETIMEOFFSET` and
+  `TIME` of any precision read the same nested as at the root, a `MONEY`
+  declared decimal keeps its four decimals, and an `IDENTITY` may start at 0
+  or below. Tables live in `dbo` unless `namespace` names another schema. See
+  the
   [SQL Server](https://viborm.dev/docs/drivers/sqlserver) page.
 - **`introspectSchema({ url: "mssql://…" })`** reads a SQL Server schema; the
   introspection-only migration driver is `viborm/migrations/mssql`. A type the
@@ -45,6 +52,17 @@ Server schema into a schema document.
   whose SQL is unchanged.
 - **`capabilities.padsTrailingSpaces`**: SQL Server holds `"a"` and `"a "` as
   one unique value, and `distinct` and `groupBy` group them.
+- **`MSSQL` native types** (`viborm/schema`): `MSSQL.STRING.VARCHAR(n)`,
+  `VARCHAR_MAX`, `CHAR(n)`, `NVARCHAR(n)`, `NVARCHAR_MAX`, `NCHAR(n)`,
+  `MSSQL.DATETIME.DATETIME` and `SMALLDATETIME`, and `mssql` as a key of a
+  native-type map. A `VARCHAR` or `CHAR` field's operands are bound as
+  `VARCHAR`, so its index is sought under a `SQL_*` collation; a `DATETIME`
+  field's as `DATETIME`. `introspectSchema` writes them for the columns it
+  reads.
+- **`adapter.literals.string`** and **`adapter.json.instant`**, optional
+  adapter members (SQL Server's): a string operand in its column's family, and
+  a date or time carried through JSON as the root read gives it. Absent
+  elsewhere, whose SQL is unchanged.
 - **An INSERT whose row the database does not hand back** (an `INSTEAD OF
   INSERT` trigger on SQL Server) fails with a `QueryEngineError` that names
   the cause and what works there.

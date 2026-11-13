@@ -80,6 +80,10 @@ const page2 = await client.user.findMany({
 - A bare ascending order places `null` last; a bare descending order places
   `null` first. Use `{ sort, nulls }` to choose explicitly.
 - A cursor that doesn't match an existing row returns an empty page.
+- In a nested read (`include: { posts: { cursor, take } }`), the cursor row is
+  found among every row, not only the parent's: a parent that does not own it
+  pages from that row's position in the sort, and gets its own rows after it
+  (Prisma returns an empty page there).
 - A `cursor` takes unique discriminators only. Unlike the `where` of
   [`findUnique`](/docs/client/find-unique#narrowing-a-unique-lookup), it does not
   accept extra scalar filters — a cursor is an exact row address, not a lookup to
