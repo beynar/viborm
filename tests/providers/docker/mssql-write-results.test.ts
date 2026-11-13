@@ -27,6 +27,10 @@ import {
   TEST_CONNECTION_STRING,
 } from "./mssql-fixtures";
 
+/** What a refused create under an INSTEAD OF INSERT trigger says to do. */
+const INSTEAD_OF_INSERT_ADVICE =
+  /INSTEAD OF INSERT trigger: use createMany without select/;
+
 const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
 const NAMESPACE = "viborm_write_results";
 const table = (name: string) => `"${NAMESPACE}"."${name}"`;
@@ -162,9 +166,12 @@ END`)
 END`)
     );
     try {
-      await expect(
-        client.counter.create({ data: { key: "a", value: 1 } })
-      ).rejects.toBeInstanceOf(QueryEngineError);
+      // The refusal names the trigger and what works under it.
+      const refusal = await client.counter
+        .create({ data: { key: "a", value: 1 } })
+        .catch((error: unknown) => error);
+      expect(refusal).toBeInstanceOf(QueryEngineError);
+      expect((refusal as Error).message).toMatch(INSTEAD_OF_INSERT_ADVICE);
       expect(
         await client.counter.createMany({
           data: [

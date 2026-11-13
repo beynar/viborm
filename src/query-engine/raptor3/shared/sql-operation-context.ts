@@ -75,6 +75,13 @@ import {
   physicalField,
 } from "./storage";
 
+/**
+ * An INSERT the database reports, whose row or generated key it does not
+ * hand back.
+ */
+const NOT_PRODUCED =
+  "INSERT did not produce the required record (on SQL Server, an INSTEAD OF INSERT trigger: use createMany without select)";
+
 export class SqlOperationContext extends OperationContext {
   declare readonly queries: SqlQueries;
   declare readonly driver: AnyDriver & { readonly adapter: DatabaseAdapter };
@@ -1107,9 +1114,7 @@ export class SqlOperationContext extends OperationContext {
         if (!identityPlans) continue;
         const generated = identityPlans[index];
         if (generated && response.insertId === undefined)
-          throw new QueryEngineError(
-            "INSERT did not produce the required record identity"
-          );
+          throw new QueryEngineError(NOT_PRODUCED);
         identities.push({
           ...this.schema.identity(model, row),
           ...(generated ? { [generated]: response.insertId } : {}),
@@ -1964,9 +1969,7 @@ export class SqlOperationContext extends OperationContext {
         ? q.decodeProjection(producedProjection.shape, producedRows, true)[0]
         : undefined;
       if (produced.length && producedValues === undefined)
-        throw new QueryEngineError(
-          "INSERT did not produce the required record"
-        );
+        throw new QueryEngineError(NOT_PRODUCED);
       if (answer) answer.row = response.rows[0];
       const written: Input = { ...values };
       for (const field of computed) delete written[field];
