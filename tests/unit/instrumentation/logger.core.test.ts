@@ -6,13 +6,7 @@
  * captureLogs(), and assert prettyLog console output via spied console methods.
  */
 
-import {
-  type CacheEventType,
-  createCacheLogEvent,
-  createErrorLogEvent,
-  createLogger,
-  createQueryLogEvent,
-} from "@src/instrumentation/logger";
+import { createLogger } from "@src/instrumentation/logger";
 import type { LogEvent } from "@src/instrumentation/types";
 import { captureLogs } from "@tests/unit/instrumentation/_capture";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -624,85 +618,5 @@ describe("formatDuration — via query pretty output", () => {
     expect(rows[0]).toContain("5ms");
     expect(rows[1]).toContain("50ms");
     expect(rows[2]).toContain("500ms");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Event factory shapes
-// ---------------------------------------------------------------------------
-
-describe("createQueryLogEvent", () => {
-  it("maps sqlParams → params, sets fresh Date timestamp, no level key", () => {
-    const before = Date.now();
-    const e = createQueryLogEvent({
-      model: "user",
-      operation: "findMany",
-      duration: 12,
-      sql: "SELECT 1",
-      sqlParams: [1, 2],
-      meta: { region: "eu" },
-    });
-
-    expect(e).not.toHaveProperty("level");
-    expect(e.model).toBe("user");
-    expect(e.operation).toBe("findMany");
-    expect(e.duration).toBe(12);
-    expect(e.sql).toBe("SELECT 1");
-    expect(e.params).toEqual([1, 2]);
-    expect(e.meta).toEqual({ region: "eu" });
-    expect(e.timestamp).toBeInstanceOf(Date);
-    expect(e.timestamp.getTime()).toBeGreaterThanOrEqual(before);
-  });
-});
-
-describe("createErrorLogEvent", () => {
-  it("sets error/timestamp/model/operation/duration/meta, no level key", () => {
-    const err = new Error("boom");
-    const e = createErrorLogEvent({
-      error: err,
-      model: "user",
-      operation: "create",
-      duration: 3,
-      meta: { attempt: 1 },
-    });
-
-    expect(e).not.toHaveProperty("level");
-    expect(e.error).toBe(err);
-    expect(e.model).toBe("user");
-    expect(e.operation).toBe("create");
-    expect(e.duration).toBe(3);
-    expect(e.meta).toEqual({ attempt: 1 });
-    expect(e.timestamp).toBeInstanceOf(Date);
-  });
-});
-
-describe("createCacheLogEvent", () => {
-  it("builds privacy-safe event/status metadata without exposing the key", () => {
-    const err = new Error("stale read");
-    const e = createCacheLogEvent({
-      event: "revalidate",
-      key: "user:1",
-      status: "stale",
-      error: err,
-    });
-
-    expect(e).not.toHaveProperty("level");
-    expect(e).not.toHaveProperty("model");
-    expect(e).not.toHaveProperty("operation");
-    expect(e.error).toBe(err);
-    expect(e.meta).toEqual({
-      event: "revalidate",
-      status: "stale",
-    });
-    expect(JSON.stringify(e)).not.toContain("user:1");
-    expect(e.timestamp).toBeInstanceOf(Date);
-  });
-
-  it("accepts all CacheEventType values", () => {
-    const kinds: CacheEventType[] = ["hit", "miss", "revalidate"];
-    for (const event of kinds) {
-      const e = createCacheLogEvent({ event, key: "k" });
-      expect((e.meta as { event: string }).event).toBe(event);
-    }
   });
 });

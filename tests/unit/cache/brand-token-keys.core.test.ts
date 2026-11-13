@@ -1,9 +1,12 @@
-import { generateCacheKey } from "@cache/key";
+import { cacheLookupOf } from "@cache/key";
 
 import { AnyNull, DbNull, JsonNull } from "@schema";
 import { FIELD_REF_BRAND } from "@schema/field-ref";
 import { sql } from "@sql";
 import { describe, expect, test } from "vitest";
+
+const cacheKeyOf = (model: string, operation: string, args: unknown) =>
+  cacheLookupOf(model, operation, args).key;
 
 /**
  * A cache key must separate a BRANDED TOKEN from a user document that merely
@@ -27,7 +30,7 @@ import { describe, expect, test } from "vitest";
  */
 
 const keyFor = (operand: unknown) =>
-  generateCacheKey("entry", "findMany", {
+  cacheKeyOf("entry", "findMany", {
     where: { meta: { equals: operand } },
   });
 
@@ -195,10 +198,10 @@ describe("the reserved namespace", () => {
 describe("a value reached twice is data, not a cycle", () => {
   test("one array under two keys keys like two equal arrays", () => {
     const ids = [1, 2];
-    const shared = generateCacheKey("user", "findMany", {
+    const shared = cacheKeyOf("user", "findMany", {
       where: { id: { in: ids }, parentId: { in: ids } },
     });
-    const separate = generateCacheKey("user", "findMany", {
+    const separate = cacheKeyOf("user", "findMany", {
       where: { id: { in: [1, 2] }, parentId: { in: [1, 2] } },
     });
     expect(shared).toBe(separate);
