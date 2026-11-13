@@ -215,4 +215,38 @@ describeIf("SQL Server transactions the server rolls back", () => {
     await slow.$disconnect();
     expect([0, 3000]).toContain(await client().counter.count());
   });
+
+  test("after the server rolls back the whole transaction inside a savepoint, the next statement says so, typed", async () => {
+    const strict = client({ options: { abortTransactionOnError: true } });
+    await strict.counter.create({ data: { key: "taken", value: 0 } });
+    let next: unknown;
+    const outcome = await strict
+      .$transaction(async (tx) => {
+        await tx.counter.create({ data: { key: "outer", value: 1 } });
+        // As on PostgreSQL: the inner failure is caught, the outer goes on.
+        await tx
+          .$transaction(async (inner) => {
+            await inner.counter.create({ data: { key: "taken", value: 1 } });
+          })
+          .catch(() => undefined);
+        next = await tx.counter
+          .create({ data: { key: "after", value: 1 } })
+          .catch((error: unknown) => error);
+        throw next;
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error
+      );
+    expect(reported(next)).toEqual({
+      typed: true,
+      reason: "transaction-rolled-back-by-server",
+    });
+    expect(reported(outcome)).toEqual(reported(next));
+    expect(
+      (await strict.counter.findMany({ orderBy: { key: "asc" } })).map(
+        (row) => row.key
+      )
+    ).toEqual(["taken"]);
+  });
 });

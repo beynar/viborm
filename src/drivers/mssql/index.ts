@@ -152,6 +152,17 @@ function savepointStatement(sql: string): string | null | undefined {
  */
 const ABORTED_BY_SERVER = new WeakSet<Transaction>();
 
+/**
+ * A statement, or the COMMIT, of a transaction the server rolled back whole:
+ * a deadlock, a statement under XACT_ABORT or a trigger's ROLLBACK, even
+ * inside a savepoint, where PostgreSQL would lose the savepoint alone.
+ */
+const rolledBack = () =>
+  new TransactionError(
+    "SQL Server rolled back the whole transaction (a deadlock, XACT_ABORT or a trigger's ROLLBACK, even inside a savepoint): nothing it wrote is kept, and no statement runs in it any more.",
+    { meta: { driver: "mssql", reason: "transaction-rolled-back-by-server" } }
+  );
+
 /** tedious refusing a request on a connection that has closed. */
 const SESSION_GONE = /\bnot the Final state\b/;
 
@@ -443,6 +454,7 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
     shape: ResultShape,
     raw = false
   ): Promise<QueryResult<T>> {
+    if (ABORTED_BY_SERVER.has(client as Transaction)) throw rolledBack();
     const mssql = await this.#provider();
     const request = client.request();
     let result: IResult<unknown>;
@@ -494,6 +506,8 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
       },
       callback: () => fn(transaction),
       commit: async () => {
+        // Rolled back by the server, the transaction's outcome is known.
+        if (ABORTED_BY_SERVER.has(transaction)) throw rolledBack();
         try {
           await transaction.commit();
         } catch (error) {
