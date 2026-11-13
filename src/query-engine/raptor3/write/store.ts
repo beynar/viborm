@@ -603,13 +603,14 @@ export class Store {
   }
   #name(model: AnyModel, values: Input): string {
     const keys = this.operation.schema.keys(model);
-    // Most rows have one key.
-    if (keys.length === 1) return `${nameOf(model)}:${values[keys[0]!]}`;
     // A row of a model without a key is no other row the call knows.
     if (keys.length === 0) return `${nameOf(model)}#${++this.#made}`;
-    return `${nameOf(model)}:${this.operation.schema
-      .keys(model)
-      .map((field) => String(values[field]))
+    // An instant names its row the same as a `Date` and as the text the engine writes of it.
+    return `${nameOf(model)}:${keys
+      .map((field) => {
+        const value = values[field];
+        return value instanceof Date ? value.toISOString() : String(value);
+      })
       .join("|")}`;
   }
   /** What a row holds that makes other rows its members through a relation: asked of the row as it stands now, whatever the call writes of it next. */
