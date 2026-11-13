@@ -244,13 +244,14 @@ describe("post-G3 selector preparation", () => {
   it("prepares mixed compound and relation facts without SQL or alias allocation", () => {
     const schema = selectorSchema();
     const adapter = new SQLiteAdapter();
-    const queries = new SqlQueries(new EngineSchema(schema), adapter);
     const refs = createModelFieldRefs("row", schema.row);
     const column = vi.spyOn(adapter.identifiers, "column");
     const conjunction = vi.spyOn(adapter.operators, "and");
     const equality = vi.spyOn(adapter.operators, "eq");
     const comparison = vi.spyOn(adapter.operators, "gt");
     const existence = vi.spyOn(adapter.subqueries, "existsCheck");
+    // The owner holds the adapter's spellings from its start: watched first.
+    const queries = new SqlQueries(new EngineSchema(schema), adapter);
 
     assert.equal(queries.alias(), "q0");
     const prepared = queries.prepareSelector(schema.row, {

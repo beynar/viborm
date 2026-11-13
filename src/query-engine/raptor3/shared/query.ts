@@ -87,7 +87,6 @@ import {
   memo,
   type QueryViews,
   type ReadOperation,
-  record,
 } from "./schema";
 import {
   bindMembership,
@@ -905,7 +904,7 @@ export function providerJson(value: unknown): unknown {
 export function providerDocument(value: unknown): Input | null | undefined {
   if (value === null) return null;
   return typeof value === "object" && !Array.isArray(value)
-    ? record(value)
+    ? (value as Input)
     : undefined;
 }
 /**
@@ -1165,7 +1164,9 @@ export function wholeValue(
   if (value instanceof Sql || value === null || typeof value !== "object")
     return { value };
   if (!isOperatorRecord(value)) return { value };
-  return Object.hasOwn(value, "set") ? { value: record(value).set } : undefined;
+  return Object.hasOwn(value, "set")
+    ? { value: (value as Input).set }
+    : undefined;
 }
 
 /**
@@ -1181,7 +1182,7 @@ export function wholeValue(
 export function readUpdate(value: unknown): PreparedUpdate {
   const whole = wholeValue(value);
   if (whole) return { kind: "value", value: whole.value };
-  const operation = record(value);
+  const operation = value as Input;
   for (const operator of ARITHMETIC_UPDATES)
     if (Object.hasOwn(operation, operator))
       return { kind: "arithmetic", operator, by: operation[operator] };
@@ -1291,7 +1292,7 @@ export function approximateOrder(
   const first = entries(args.orderBy)[0] ?? {};
   const field = Object.keys(first).find((key) => first[key] !== undefined);
   if (field === undefined) return undefined;
-  const distance = record(record(first[field])._distance);
+  const distance = (first[field] as Input)._distance as Input;
   return distance?.approximate === true && distance.sort !== "desc"
     ? { field, distance, take }
     : undefined;
@@ -1970,7 +1971,7 @@ export abstract class Queries {
       keys.length === 1 ? findAddressableKey(model, keys[0]!) : undefined;
     const selected = uniqueKey
       ? uniqueKey.name
-        ? record(where![uniqueKey.name])
+        ? (where![uniqueKey.name] as Input)
         : where!
       : undefined;
     return {
@@ -2282,7 +2283,7 @@ export abstract class Queries {
               this.#prepareScalarPredicate(
                 model,
                 member,
-                record(operand)[member],
+                (operand as Input)[member],
                 facts,
                 unique,
                 positive
@@ -2356,7 +2357,7 @@ export abstract class Queries {
         !(value instanceof Sql) &&
         !(value instanceof Parameter) &&
         !isFieldRef(value)
-          ? record(value)
+          ? (value as Input)
           : undefined;
       const hasEquality =
         filter === undefined ||
@@ -2401,7 +2402,7 @@ export abstract class Queries {
       typeof value !== "object" ||
       jsonNullKindOf(value) !== undefined ||
       (state?.array === true && Array.isArray(value)) ||
-      !addressesOperators(state, record(value));
+      !addressesOperators(state, value as Input);
     if (shorthand)
       return this.prepareOperation(
         target,
@@ -2420,7 +2421,7 @@ export abstract class Queries {
     positive: boolean
   ): PreparedPredicate {
     const state = target.scalar?.physical.state;
-    const filter = record(value);
+    const filter = value as Input;
     // D-22. A JSON filter's own `mode` wins in BOTH directions — a declared
     // `default` really does restore exact matching on that arm — while a
     // scalar filter's `mode` may only UPGRADE to insensitive. That asymmetry
@@ -2695,7 +2696,7 @@ export abstract class Queries {
     positive = true
   ): PreparedPredicate {
     const resolved = this.schema.index.get(model)!.get(name)!;
-    const entries = record(operand);
+    const entries = operand as Input;
     if (
       resolved.member ||
       (resolved.edge.kind !== "variantRowCarrier" &&
@@ -2762,7 +2763,7 @@ export abstract class Queries {
     const arms: [string | undefined, Input][] = many
       ? Object.entries(entries).map(([quantifier, tagged]) => [
           quantifier,
-          record(tagged),
+          tagged as Input,
         ])
       : [[undefined, entries]];
     return conjunction(
@@ -2773,7 +2774,7 @@ export abstract class Queries {
           negated || quantifier === "none" || quantifier === "every";
         const inner = this.#relationScope(
           edge,
-          negated ? record(tagged.isNot) : (tagged.is as Input | undefined),
+          negated ? (tagged.isNot as Input) : (tagged.is as Input | undefined),
           facts,
           inexact,
           positive,
@@ -2834,7 +2835,7 @@ export abstract class Queries {
     closure?: Closure
   ): PreparedPredicate {
     const body =
-      value === null || value === undefined ? undefined : record(value);
+      value === null || value === undefined ? undefined : (value as Input);
     const linkWhere =
       edge.kind === "junction" && edge.declared
         ? (body?.$through as Input | undefined)
@@ -3051,9 +3052,9 @@ export abstract class Queries {
       kind: "distance",
       name: DISTANCE_FIELD,
       field: name,
-      specification: record(distance),
+      specification: distance as Input,
     });
-    fields[DISTANCE_FIELD] = this.#distanceLeaf(model, name, record(distance));
+    fields[DISTANCE_FIELD] = this.#distanceLeaf(model, name, distance as Input);
   }
   /** A polymorphic slot's projection, out of line: most reads have none. */
   #projectVariants(
@@ -3181,7 +3182,7 @@ export abstract class Queries {
       }
       if (!model["~"].state.relations[name]) {
         const distance =
-          selection === true ? undefined : record(selection)._distance;
+          selection === true ? undefined : (selection as Input)._distance;
         if (distance !== undefined) {
           this.#projectDistance(
             model,
@@ -3349,7 +3350,7 @@ export abstract class Queries {
     };
     if (!asked) return { nested: rest };
     const model = edge.declared.model;
-    const named = Object.entries(record(record(asked).select))
+    const named = Object.entries((asked as Input).select as Input)
       .filter(([, wanted]) => wanted === true)
       .map(([field]) => field);
     this.domain?.refuseHiddenLinkRow(this, edge, named, "read");
@@ -3374,7 +3375,7 @@ export abstract class Queries {
   ): PreparedRelationProjection {
     const { nested: taken, linkRow } = this.#prepareLinkRow(
       edge,
-      selection === true ? {} : (record(selection) as Partial<Arguments>)
+      selection === true ? {} : (selection as Input as Partial<Arguments>)
     );
     const linkWhere =
       edge.kind === "junction" && edge.declared
@@ -3425,18 +3426,18 @@ export abstract class Queries {
     model: AnyModel,
     selection: unknown
   ): readonly PreparedCount[] {
-    const requested = record(record(selection).select);
+    const requested = (selection as Input).select as Input;
     const counts: PreparedCount[] = [];
     for (const [relation, configuration] of Object.entries(requested)) {
       if (!configuration) continue;
       const { edges, variants } = this.countedMemberships(model, relation);
       const where =
-        configuration === true ? undefined : record(configuration).where;
+        configuration === true ? undefined : (configuration as Input).where;
       if (where === undefined) {
         counts.push({ relation, edges });
         continue;
       }
-      const filter = record(where);
+      const filter = where as Input;
       if (!variants) {
         counts.push({
           relation,
@@ -3468,7 +3469,7 @@ export abstract class Queries {
         selector:
           inner === undefined
             ? undefined
-            : this.prepareSelector(arm.target, record(inner), false, false),
+            : this.prepareSelector(arm.target, inner as Input, false, false),
         ...(negated ? { negated: true as const } : {}),
       });
     }
@@ -3546,7 +3547,7 @@ export abstract class Queries {
     // compiles nothing.
     if (rows.length === 0) return [];
     const read = this.compileReader(shape, internal, false, columns);
-    return rows.map((row) => record(read(row)));
+    return rows.map((row) => read(row) as Input);
   }
   private decodeRecursiveCarrier(
     shape: Extract<Shape, { kind: "recursive" }>,
@@ -3810,7 +3811,7 @@ export abstract class Queries {
       stack.push({
         key,
         depth,
-        row: record(decoded),
+        row: decoded as Input,
         childKeys: cutoff(depth) ? [] : (successors.get(key) ?? []),
         childRows: [],
         next: 0,

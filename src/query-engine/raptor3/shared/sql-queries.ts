@@ -137,7 +137,6 @@ import {
   entries,
   type Input,
   type ReadOperation,
-  record,
 } from "./schema";
 import { hopFieldsOf, linkMembers, type Membership } from "./storage";
 import { listed, nameOf, tableOf } from "./terms";
@@ -152,59 +151,28 @@ export interface SqlSelectControls extends SelectControls {
 
 export class SqlQueries extends Queries {
   declare readonly adapter: DatabaseAdapter;
-  // What the statements say most, read of the adapter as it stands when they say it.
-  get #and() {
-    return this.adapter.operators.and;
+  // What the statements say most: the adapter's own, held from the start.
+  get #a(): DatabaseAdapter {
+    return this.adapter;
   }
-  get #eq() {
-    return this.adapter.operators.eq;
-  }
-  get #at() {
-    return this.adapter.identifiers.column;
-  }
-  get #named() {
-    return this.adapter.identifiers.aliased;
-  }
-  get #escaped() {
-    return this.adapter.identifiers.escape;
-  }
-  get #cast() {
-    return this.adapter.expressions.cast;
-  }
-  get #inner() {
-    return this.adapter.joins.inner;
-  }
-  get #true() {
-    return this.adapter.literals.true;
-  }
-  get #false() {
-    return this.adapter.literals.false;
-  }
-  get #null() {
-    return this.adapter.literals.null;
-  }
-  get #literal() {
-    return this.adapter.literals.value;
-  }
-  get #document() {
-    return this.adapter.json.document;
-  }
-  get #object() {
-    return this.adapter.json.object;
-  }
+  readonly #and = this.#a.operators.and;
+  readonly #eq = this.#a.operators.eq;
+  readonly #at = this.#a.identifiers.column;
+  readonly #named = this.#a.identifiers.aliased;
+  readonly #escaped = this.#a.identifiers.escape;
+  readonly #cast = this.#a.expressions.cast;
+  readonly #inner = this.#a.joins.inner;
+  readonly #true = this.#a.literals.true;
+  readonly #false = this.#a.literals.false;
+  readonly #null = this.#a.literals.null;
+  readonly #literal = this.#a.literals.value;
+  readonly #document = this.#a.json.document;
+  readonly #object = this.#a.json.object;
   /** A query read aside, under an alias. */
-  get #aside() {
-    return this.adapter.subqueries.correlate;
-  }
-  get #or() {
-    return this.adapter.operators.or;
-  }
-  get #isNull() {
-    return this.adapter.operators.isNull;
-  }
-  get #isNotNull() {
-    return this.adapter.operators.isNotNull;
-  }
+  readonly #aside = this.#a.subqueries.correlate;
+  readonly #or = this.#a.operators.or;
+  readonly #isNull = this.#a.operators.isNull;
+  readonly #isNotNull = this.#a.operators.isNotNull;
 
   /**
    * A raw `Sql` operand is PARENTHESIZED. A caller's fragment is an
@@ -2132,7 +2100,7 @@ export class SqlQueries extends Queries {
         // `prepareOperation` carries the key it admitted; there is no second
         // operator list here to disagree with it (AGENTS.md: "Do not add a
         // second operator switch").
-        const specification = record(predicate.value);
+        const specification = predicate.value as Input;
         const expression = this.#distanceExpression(
           column,
           state!,
@@ -3278,7 +3246,7 @@ export class SqlQueries extends Queries {
       return this.#relationOrderTerm(
         model,
         field,
-        record(direction),
+        direction as Input,
         alias,
         joins
       );
@@ -3287,7 +3255,7 @@ export class SqlQueries extends Queries {
     const column = this.#operand(model, field, alias);
     const nullable = physical.nullable || this.#gatedHere(model, field);
     if (direction !== "asc" && direction !== "desc") {
-      const specification = record(direction);
+      const specification = direction as Input;
       if (specification._distance !== undefined) {
         // A cursor's eligibility is a fact about the REQUEST; a provider's
         // vector support is a fact about the PROVIDER. Classifying the order
@@ -3295,7 +3263,7 @@ export class SqlQueries extends Queries {
         // happens not to support vectors — `distanceExpression` consults the
         // capability while it BUILDS, so it would otherwise pre-empt it.
         if (cursored) throw new UnsupportedOperationError(CURSOR_ORDER_REFUSAL);
-        const distance = record(specification._distance);
+        const distance = specification._distance as Input;
         const point = state.type === "point";
         return this.#sortKey(
           this.#distanceExpression(
@@ -3619,7 +3587,8 @@ export class SqlQueries extends Queries {
     for (const [name, value] of Object.entries(input)) {
       const key = findAddressableKey(model, name);
       if (key?.name)
-        for (const field of key.fields) identity[field] = record(value)[field];
+        for (const field of key.fields)
+          identity[field] = (value as Input)[field];
       else identity[name] = value;
     }
     return identity;
@@ -3999,7 +3968,7 @@ export class SqlQueries extends Queries {
         };
       }
       case "count": {
-        const selected = args.select ? record(args.select) : undefined;
+        const selected = args.select ? (args.select as Input) : undefined;
         const outputs: { name: string; field?: string }[] = selected
           ? [
               ...(selected._all ? [{ name: "_all" }] : []),
@@ -4157,7 +4126,7 @@ export class SqlQueries extends Queries {
         builders.push(() => ["_count", a.aggregates.count()]);
         continue;
       }
-      const selected = Object.entries(record(selection)).filter(
+      const selected = Object.entries(selection as Input).filter(
         ([, include]) => include
       );
       if (selected.length === 0) continue;
@@ -5302,7 +5271,7 @@ export class SqlQueries extends Queries {
         groupBy: listed(by.map((field) => this.column(model, field, alias))),
         having: args.having
           ? this.#lowerPredicate(
-              this.#prepareHaving(model, record(args.having)),
+              this.#prepareHaving(model, args.having as Input),
               alias
             )
           : undefined,
@@ -5326,12 +5295,12 @@ export class SqlQueries extends Queries {
             this.combine(
               key,
               entries(value).map((clause) =>
-                this.#prepareHaving(model, record(clause))
+                this.#prepareHaving(model, clause as Input)
               )
             ),
           ];
         const scalar = this.scalar(model, key);
-        const filter = record(value);
+        const filter = value as Input;
         const aggregated = AGGREGATES.filter(
           (name) => filter[name] !== undefined
         );
@@ -5363,7 +5332,7 @@ export class SqlQueries extends Queries {
         if (direction === undefined) return [];
         if (!isAggregate(name))
           return [this.#orderTerm(model, name, direction, alias)];
-        return Object.entries(record(direction)).flatMap(([field, sort]) => {
+        return Object.entries(direction as Input).flatMap(([field, sort]) => {
           const scalar =
             field === "_all" ? undefined : this.scalar(model, field);
           const split =
