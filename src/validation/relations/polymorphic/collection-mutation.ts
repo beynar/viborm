@@ -1,16 +1,18 @@
 import type { VariantRelationState } from "@schema/relation";
-import type { VariantEntries } from "@schema/relation/static-membership";
 import { refusingUndefinedOnlyWhere } from "@validation/model/args/bulk-write-where";
 import { refuseDefaultOnlySkipDuplicates } from "@validation/model/args/mutation";
 import v from "@validation/primitives/v";
 import type { VibSchema } from "@validation/types";
-import type {
-  CoreInputAt,
-  CoreOutputAt,
-  ExactPolymorphicTargetSchemaGetters,
-  PolymorphicTargetSchemaGetters,
+import {
+  type CoreInputAt,
+  type CoreOutputAt,
+  type ExactPolymorphicTargetSchemaGetters,
+  type PolymorphicTargetSchemaGetters,
+  type Side,
+  type Tagged,
+  type TaggedFields,
+  taggedVerbs,
 } from "./types";
-import { polymorphicPublicTypes } from "./types";
 
 /**
  * THE DIRECT POLYMORPHIC COLLECTION WRITE GRAMMAR (plan §9.1).
@@ -46,165 +48,89 @@ import { polymorphicPublicTypes } from "./types";
  * `m2mDisconnectRequiresSelector` refusal stays unreachable from this grammar.
  */
 
-type TaggedWhere<Getters, CoreKey extends PropertyKey> = {
-  [PublicType in Extract<keyof Getters, string>]: {
-    readonly type: PublicType;
-    readonly where: CoreInputAt<Getters, PublicType, CoreKey>;
-  };
-}[Extract<keyof Getters, string>];
+/**
+ * The item each of the eleven §9.1 verbs takes. Declaration order is message
+ * order. `createMany` is the one verb whose fields are not bare `core` schemas.
+ */
+interface CollectionItems<Getters, Direction extends Side> {
+  create: Tagged<Getters, { data: "create" }, Direction>;
+  createMany: {
+    [PublicType in Extract<keyof Getters, string>]: {
+      readonly type: PublicType;
+      readonly data: readonly (Direction extends "input"
+        ? CoreInputAt<Getters, PublicType, "create">
+        : CoreOutputAt<Getters, PublicType, "create">)[];
+      readonly skipDuplicates?: boolean;
+    };
+  }[Extract<keyof Getters, string>];
+  connect: Tagged<Getters, { where: "whereUnique" }, Direction>;
+  connectOrCreate: Tagged<
+    Getters,
+    { where: "whereUnique"; create: "create" },
+    Direction
+  >;
+  set: Tagged<Getters, { where: "whereUnique" }, Direction>;
+  disconnect: Tagged<Getters, { where: "whereUnique" }, Direction>;
+  delete: Tagged<Getters, { where: "whereUniqueExtended" }, Direction>;
+  deleteMany: Tagged<Getters, { where: "where" }, Direction>;
+  update: Tagged<
+    Getters,
+    { where: "whereUniqueExtended"; data: "update" },
+    Direction
+  >;
+  updateMany: Tagged<
+    Getters,
+    { where: "where"; data: "update" },
+    Direction,
+    "data"
+  >;
+  upsert: Tagged<
+    Getters,
+    { where: "whereUniqueExtended"; create: "create"; update: "update" },
+    Direction
+  >;
+}
 
-type TaggedWhereOutput<Getters, CoreKey extends PropertyKey> = {
-  [PublicType in Extract<keyof Getters, string>]: {
-    readonly type: PublicType;
-    readonly where: CoreOutputAt<Getters, PublicType, CoreKey>;
-  };
-}[Extract<keyof Getters, string>];
+type CollectionVerb = keyof CollectionItems<unknown, Side>;
 
-type TaggedCreateInput<Getters> = {
-  [PublicType in Extract<keyof Getters, string>]: {
-    readonly type: PublicType;
-    readonly data: CoreInputAt<Getters, PublicType, "create">;
-  };
-}[Extract<keyof Getters, string>];
-
-type TaggedCreateOutput<Getters> = {
-  [PublicType in Extract<keyof Getters, string>]: {
-    readonly type: PublicType;
-    readonly data: CoreOutputAt<Getters, PublicType, "create">;
-  };
-}[Extract<keyof Getters, string>];
-
-type TaggedConnectOrCreateInput<Getters> = {
-  [PublicType in Extract<keyof Getters, string>]: {
-    readonly type: PublicType;
-    readonly where: CoreInputAt<Getters, PublicType, "whereUnique">;
-    readonly create: CoreInputAt<Getters, PublicType, "create">;
-  };
-}[Extract<keyof Getters, string>];
-
-type TaggedConnectOrCreateOutput<Getters> = {
-  [PublicType in Extract<keyof Getters, string>]: {
-    readonly type: PublicType;
-    readonly where: CoreOutputAt<Getters, PublicType, "whereUnique">;
-    readonly create: CoreOutputAt<Getters, PublicType, "create">;
-  };
-}[Extract<keyof Getters, string>];
-
-type TaggedUpdateInput<Getters> = {
-  [PublicType in Extract<keyof Getters, string>]: {
-    readonly type: PublicType;
-    readonly where: CoreInputAt<Getters, PublicType, "whereUniqueExtended">;
-    readonly data: CoreInputAt<Getters, PublicType, "update">;
-  };
-}[Extract<keyof Getters, string>];
-
-type TaggedUpdateOutput<Getters> = {
-  [PublicType in Extract<keyof Getters, string>]: {
-    readonly type: PublicType;
-    readonly where: CoreOutputAt<Getters, PublicType, "whereUniqueExtended">;
-    readonly data: CoreOutputAt<Getters, PublicType, "update">;
-  };
-}[Extract<keyof Getters, string>];
-
-type TaggedUpdateManyInput<Getters> = {
-  [PublicType in Extract<keyof Getters, string>]: {
-    readonly type: PublicType;
-    readonly where?: CoreInputAt<Getters, PublicType, "where">;
-    readonly data: CoreInputAt<Getters, PublicType, "update">;
-  };
-}[Extract<keyof Getters, string>];
-
-type TaggedUpdateManyOutput<Getters> = {
-  [PublicType in Extract<keyof Getters, string>]: {
-    readonly type: PublicType;
-    readonly where?: CoreOutputAt<Getters, PublicType, "where">;
-    readonly data: CoreOutputAt<Getters, PublicType, "update">;
-  };
-}[Extract<keyof Getters, string>];
-
-type TaggedUpsertInput<Getters> = {
-  [PublicType in Extract<keyof Getters, string>]: {
-    readonly type: PublicType;
-    readonly where: CoreInputAt<Getters, PublicType, "whereUniqueExtended">;
-    readonly create: CoreInputAt<Getters, PublicType, "create">;
-    readonly update: CoreInputAt<Getters, PublicType, "update">;
-  };
-}[Extract<keyof Getters, string>];
-
-type TaggedUpsertOutput<Getters> = {
-  [PublicType in Extract<keyof Getters, string>]: {
-    readonly type: PublicType;
-    readonly where: CoreOutputAt<Getters, PublicType, "whereUniqueExtended">;
-    readonly create: CoreOutputAt<Getters, PublicType, "create">;
-    readonly update: CoreOutputAt<Getters, PublicType, "update">;
-  };
-}[Extract<keyof Getters, string>];
-
-type TaggedCreateManyInput<Getters> = {
-  [PublicType in Extract<keyof Getters, string>]: {
-    readonly type: PublicType;
-    readonly data: readonly CoreInputAt<Getters, PublicType, "create">[];
-    readonly skipDuplicates?: boolean;
-  };
-}[Extract<keyof Getters, string>];
-
-type TaggedCreateManyOutput<Getters> = {
-  [PublicType in Extract<keyof Getters, string>]: {
-    readonly type: PublicType;
-    readonly data: readonly CoreOutputAt<Getters, PublicType, "create">[];
-    readonly skipDuplicates?: boolean;
-  };
-}[Extract<keyof Getters, string>];
+/** The four supply verbs a FRESH owner can name. */
+type CollectionSupplyVerb =
+  | "create"
+  | "createMany"
+  | "connect"
+  | "connectOrCreate";
 
 /** Every verb accepts one tagged item or a list of them, and normalizes to a list. */
-type Many<Value> = Value | readonly Value[];
+type CollectionInput<Getters, Verb extends CollectionVerb> = {
+  readonly [Key in Verb]?:
+    | CollectionItems<Getters, "input">[Key]
+    | readonly CollectionItems<Getters, "input">[Key][];
+};
 
-/** The four supply verbs a FRESH owner can name. Declaration order is message order. */
-export interface PolymorphicCollectionCreateInput<Getters> {
-  readonly create?: Many<TaggedCreateInput<Getters>>;
-  readonly createMany?: Many<TaggedCreateManyInput<Getters>>;
-  readonly connect?: Many<TaggedWhere<Getters, "whereUnique">>;
-  readonly connectOrCreate?: Many<TaggedConnectOrCreateInput<Getters>>;
-}
+type CollectionOutput<Getters, Verb extends CollectionVerb> = {
+  readonly [Key in Verb]?: readonly CollectionItems<Getters, "output">[Key][];
+};
 
-export interface PolymorphicCollectionCreateOutput<Getters> {
-  readonly create?: readonly TaggedCreateOutput<Getters>[];
-  readonly createMany?: readonly TaggedCreateManyOutput<Getters>[];
-  readonly connect?: readonly TaggedWhereOutput<Getters, "whereUnique">[];
-  readonly connectOrCreate?: readonly TaggedConnectOrCreateOutput<Getters>[];
-}
+export type PolymorphicCollectionCreateInput<Getters> = CollectionInput<
+  Getters,
+  CollectionSupplyVerb
+>;
+
+export type PolymorphicCollectionCreateOutput<Getters> = CollectionOutput<
+  Getters,
+  CollectionSupplyVerb
+>;
 
 /** All eleven §9.1 verbs, on a LOCATED owner. */
-export interface PolymorphicCollectionUpdateInput<Getters> {
-  readonly create?: Many<TaggedCreateInput<Getters>>;
-  readonly createMany?: Many<TaggedCreateManyInput<Getters>>;
-  readonly connect?: Many<TaggedWhere<Getters, "whereUnique">>;
-  readonly connectOrCreate?: Many<TaggedConnectOrCreateInput<Getters>>;
-  readonly set?: Many<TaggedWhere<Getters, "whereUnique">>;
-  readonly disconnect?: Many<TaggedWhere<Getters, "whereUnique">>;
-  readonly delete?: Many<TaggedWhere<Getters, "whereUniqueExtended">>;
-  readonly deleteMany?: Many<TaggedWhere<Getters, "where">>;
-  readonly update?: Many<TaggedUpdateInput<Getters>>;
-  readonly updateMany?: Many<TaggedUpdateManyInput<Getters>>;
-  readonly upsert?: Many<TaggedUpsertInput<Getters>>;
-}
+export type PolymorphicCollectionUpdateInput<Getters> = CollectionInput<
+  Getters,
+  CollectionVerb
+>;
 
-export interface PolymorphicCollectionUpdateOutput<Getters> {
-  readonly create?: readonly TaggedCreateOutput<Getters>[];
-  readonly createMany?: readonly TaggedCreateManyOutput<Getters>[];
-  readonly connect?: readonly TaggedWhereOutput<Getters, "whereUnique">[];
-  readonly connectOrCreate?: readonly TaggedConnectOrCreateOutput<Getters>[];
-  readonly set?: readonly TaggedWhereOutput<Getters, "whereUnique">[];
-  readonly disconnect?: readonly TaggedWhereOutput<Getters, "whereUnique">[];
-  readonly delete?: readonly TaggedWhereOutput<
-    Getters,
-    "whereUniqueExtended"
-  >[];
-  readonly deleteMany?: readonly TaggedWhereOutput<Getters, "where">[];
-  readonly update?: readonly TaggedUpdateOutput<Getters>[];
-  readonly updateMany?: readonly TaggedUpdateManyOutput<Getters>[];
-  readonly upsert?: readonly TaggedUpsertOutput<Getters>[];
-}
+export type PolymorphicCollectionUpdateOutput<Getters> = CollectionOutput<
+  Getters,
+  CollectionVerb
+>;
 
 export type PolymorphicCollectionCreateSchema<Getters> = VibSchema<
   PolymorphicCollectionCreateInput<Getters> | undefined,
@@ -216,50 +142,6 @@ export type PolymorphicCollectionUpdateSchema<Getters> = VibSchema<
   PolymorphicCollectionUpdateOutput<Getters>
 >;
 
-/**
- * One verb's tagged union, built the way the to-one families build theirs: one
- * `v.object` per configured public type, discriminated by a `type` literal.
- */
-type TaggedVerbOptions = ({ partial: false } | { atLeast: string[] }) & {
-  refuse?: (value: Record<string, unknown>) => string | undefined;
-};
-
-function taggedVerb<State extends VariantRelationState>(
-  publicTypes: readonly Extract<keyof VariantEntries<State>, string>[],
-  fields: (
-    publicType: Extract<keyof VariantEntries<State>, string>
-  ) => Record<string, unknown>,
-  options: TaggedVerbOptions
-): VibSchema {
-  return v.singleOrArray(
-    v.union(
-      publicTypes.map((publicType) =>
-        v.object(
-          {
-            type: v.literal(publicType),
-            ...fields(publicType),
-          },
-          options
-        )
-      )
-    )
-  ) as unknown as VibSchema;
-}
-
-interface CollectionVerbs {
-  readonly create: VibSchema;
-  readonly createMany: VibSchema;
-  readonly connect: VibSchema;
-  readonly connectOrCreate: VibSchema;
-  readonly set: VibSchema;
-  readonly disconnect: VibSchema;
-  readonly delete: VibSchema;
-  readonly deleteMany: VibSchema;
-  readonly update: VibSchema;
-  readonly updateMany: VibSchema;
-  readonly upsert: VibSchema;
-}
-
 /** THE ELEVEN VERB BUILDERS — one owner, read by both context bags. */
 function collectionVerbs<
   State extends VariantRelationState,
@@ -267,54 +149,40 @@ function collectionVerbs<
 >(
   state: State,
   targetSchemas: ExactPolymorphicTargetSchemaGetters<State, Getters>
-): CollectionVerbs {
+): Record<CollectionVerb, VibSchema> {
   const schemaGetters: PolymorphicTargetSchemaGetters<State> = targetSchemas;
-  const publicTypes = polymorphicPublicTypes(state);
-  const tagged = (
-    fields: (
-      publicType: Extract<keyof VariantEntries<State>, string>
-    ) => Record<string, unknown>,
-    options: TaggedVerbOptions = { partial: false }
-  ) => taggedVerb<State>(publicTypes, fields, options);
+  const tagged = taggedVerbs<State, Getters>(state, targetSchemas);
+  const many = (
+    fields: TaggedFields,
+    atLeast?: string[]
+  ): VibSchema<unknown, unknown> =>
+    v.singleOrArray(tagged.core(fields, atLeast)) as unknown as VibSchema;
 
   return {
-    create: tagged((publicType) => ({
-      data: () => schemaGetters[publicType]().core.create,
-    })),
+    create: many({ data: "create" }),
     // The GROUP shape §9.1 pins — a `{data: [...], skipDuplicates?}` envelope —
     // carried per variant, several groups per call.
-    createMany: tagged(
-      (publicType) => ({
-        data: () => v.array(schemaGetters[publicType]().core.create),
-        skipDuplicates: v.boolean({ optional: true }),
-      }),
-      // The same admission fact the root and nested `createMany` arms ask
-      // ({@link refuseDefaultOnlySkipDuplicates}): this group is the third
-      // place the verb is spelled, and a default-only row has no conflict
-      // target to suppress on here either.
-      { atLeast: ["type", "data"], refuse: refuseDefaultOnlySkipDuplicates }
-    ),
-    connect: tagged((publicType) => ({
-      where: () => schemaGetters[publicType]().core.whereUnique,
-    })),
-    connectOrCreate: tagged((publicType) => ({
-      where: () => schemaGetters[publicType]().core.whereUnique,
-      create: () => schemaGetters[publicType]().core.create,
-    })),
-    set: tagged((publicType) => ({
-      where: () => schemaGetters[publicType]().core.whereUnique,
-    })),
+    createMany: v.singleOrArray(
+      tagged.custom(
+        (publicType) => ({
+          data: () => v.array(schemaGetters[publicType]().core.create),
+          skipDuplicates: v.boolean({ optional: true }),
+        }),
+        // The same admission fact the root and nested `createMany` arms ask
+        // ({@link refuseDefaultOnlySkipDuplicates}): this group is the third
+        // place the verb is spelled, and a default-only row has no conflict
+        // target to suppress on here either.
+        { atLeast: ["type", "data"], refuse: refuseDefaultOnlySkipDuplicates }
+      )
+    ) as unknown as VibSchema,
+    connect: many({ where: "whereUnique" }),
+    connectOrCreate: many({ where: "whereUnique", create: "create" }),
+    set: many({ where: "whereUnique" }),
     // UNCONDITIONAL: a member junction row always clears.
-    disconnect: tagged((publicType) => ({
-      where: () => schemaGetters[publicType]().core.whereUnique,
-    })),
-    delete: tagged((publicType) => ({
-      where: () => schemaGetters[publicType]().core.whereUniqueExtended,
-    })),
+    disconnect: many({ where: "whereUnique" }),
+    delete: many({ where: "whereUniqueExtended" }),
     deleteMany: refusingUndefinedOnlyWhere(
-      tagged((publicType) => ({
-        where: () => schemaGetters[publicType]().core.where,
-      })),
+      many({ where: "where" }),
       "deleteMany",
       true,
       "where"
@@ -322,30 +190,21 @@ function collectionVerbs<
     // `where` is MANDATORY and EXTENDED — exactly where the ordinary to-many
     // `update` addresses its member, and deliberately NOT the to-one polymorphic
     // reading where `where` merely filters the one connected record.
-    update: tagged(
-      (publicType) => ({
-        where: () => schemaGetters[publicType]().core.whereUniqueExtended,
-        data: () => schemaGetters[publicType]().core.update,
-      }),
-      { atLeast: ["type", "where", "data"] }
-    ),
+    update: many({ where: "whereUniqueExtended", data: "update" }, [
+      "where",
+      "data",
+    ]),
     updateMany: refusingUndefinedOnlyWhere(
-      tagged(
-        (publicType) => ({
-          where: () => schemaGetters[publicType]().core.where,
-          data: () => schemaGetters[publicType]().core.update,
-        }),
-        { atLeast: ["type", "data"] }
-      ),
+      many({ where: "where", data: "update" }, ["data"]),
       "updateMany",
       true,
       "where"
     ),
-    upsert: tagged((publicType) => ({
-      where: () => schemaGetters[publicType]().core.whereUniqueExtended,
-      create: () => schemaGetters[publicType]().core.create,
-      update: () => schemaGetters[publicType]().core.update,
-    })),
+    upsert: many({
+      where: "whereUniqueExtended",
+      create: "create",
+      update: "update",
+    }),
   };
 }
 
