@@ -79,9 +79,12 @@ const BINARY_COLLATION = sql.raw("COLLATE Latin1_General_100_BIN2");
 /**
  * The length of a text operand in characters, trailing spaces included: `LEN`
  * ignores them, and `=` pads the shorter operand with them, so every exact
- * text predicate below compares lengths through a one-character suffix.
+ * text predicate below compares lengths through a one-character suffix. The
+ * operand is widened first: `VARCHAR(n) + N'.'` is `NVARCHAR(4000)` at most,
+ * which cut an adopted `VARCHAR(4001…8000)` column's value short.
  */
-const textLength = (value: Sql): Sql => sql`(LEN(${value} + N'.') - 1)`;
+const textLength = (value: Sql): Sql =>
+  sql`(LEN(CAST(${value} AS NVARCHAR(MAX)) + N'.') - 1)`;
 
 /** Expressions already under the binary collation: T-SQL takes one `COLLATE`. */
 const collated = new WeakSet<Sql>();
@@ -92,6 +95,90 @@ const binary = (expr: Sql): Sql => {
   collated.add(result);
   return result;
 };
+
+/**
+ * Exact text comparison, the one mechanism every text filter uses: `=` and
+ * `<` pad the shorter operand with spaces under every collation, `IN`,
+ * `GROUP BY` and `DISTINCT` too, so `"ab"` and `"ab "` compare equal. An
+ * operand compared as its key, under the binary collation with NCHAR(0)
+ * appended, keeps its trailing spaces significant and sorts a prefix first
+ * (NCHAR(0) is the lowest code unit, and BIN2 does not ignore it). A value
+ * holding NCHAR(0) itself is the one it can misplace.
+ */
+const exactKey = (text: Sql): Sql =>
+  sql`(CAST(${text} AS NVARCHAR(MAX)) + NCHAR(0)) ${BINARY_COLLATION}`;
+
+/** Two `OPENJSON` members `m` and `v` equal, a string exactly. */
+const SAME_MEMBER = sql`"m"."value" = "v"."value" AND ("m"."type" <> 1 OR ${exactKey(sql.raw('"m"."value"'))} = ${exactKey(sql.raw('"v"."value"'))})`;
+
+/** `caseSensitiveText`'s results, each to the operand it compares exactly. */
+const exactOperands = new WeakMap<Sql, Sql>();
+
+/** A list literal's members, for the exact comparisons that take one. */
+const listMembers = new WeakMap<Sql, readonly Sql[]>();
+
+const keysOf = (list: Sql): Sql | undefined => {
+  const members = listMembers.get(list);
+  return members && sql`(${sql.join(members.map(exactKey), ", ")})`;
+};
+
+/**
+ * The longest prefix a `LIKE` pattern carries: a pattern is at most 4,000
+ * characters (8152 past it), and the prefix takes a `%`.
+ */
+const LIKE_PREFIX_LIMIT = 3999;
+
+/** Whether `text` holds a character below the space a shorter operand pads with. */
+const holdsBelowSpace = (text: string): boolean => {
+  for (let index = 0; index < text.length; index++)
+    if (text.charCodeAt(index) < 32) return true;
+  return false;
+};
+
+/** `right`, where it is one bound string: the value a filter compares. */
+const boundText = (right: Sql): string | undefined => {
+  const { strings, values } = Sql.peek(right);
+  const [value] = values;
+  return values.length === 1 &&
+    strings.length === 2 &&
+    strings[0] === "" &&
+    strings[1] === "" &&
+    typeof value === "string"
+    ? value
+    : undefined;
+};
+
+/**
+ * A comparison whose left operand is `caseSensitiveText`'s, as their keys;
+ * any other, as `plain` spells it.
+ *
+ * Keys are no index's: an ordering filter on a bound string keeps a
+ * collation-native superset of its rows in front, under the binary
+ * collation. Padded and exact order disagree only where one value is the
+ * other followed by a character below the space, so for a bound value
+ * holding none, `col <= v` holds of every row exactly below or at `v`, and
+ * `col >= v OR col LIKE v%` of every row above or at it (a row extending
+ * `v` with a tab pads below it). A bound value holding one has no such
+ * superset and is compared by its keys alone.
+ */
+const exactly =
+  (operator: string, plain: (left: Sql, right: Sql) => Sql) =>
+  (left: Sql, right: Sql): Sql => {
+    const operand = exactOperands.get(left);
+    if (operand === undefined) return plain(left, right);
+    const exact = sql`${exactKey(operand)} ${sql.raw(operator)} ${exactKey(right)}`;
+    const bound = boundText(right);
+    if (bound === undefined || holdsBelowSpace(bound)) return exact;
+    const native = binary(operand);
+    if (operator === "<" || operator === "<=")
+      return sql`(${native} <= ${right} AND ${exact})`;
+    if (
+      (operator === ">" || operator === ">=") &&
+      bound.length <= LIKE_PREFIX_LIMIT
+    )
+      return sql`((${native} >= ${right} OR ${native} LIKE ${`${escapeLikeLiteral(bound).replaceAll("[", "\\[")}%`} ESCAPE '\\') AND ${exact})`;
+    return exact;
+  };
 
 /**
  * T-SQL has no boolean value: a predicate (`a = b`) is not an expression and
@@ -138,6 +225,17 @@ const condition = (value: Sql): Sql => {
   if (value === TRUE_VALUE) return TRUE_CONDITION;
   if (value === FALSE_VALUE) return FALSE_CONDITION;
   return value;
+};
+
+const standardComparisons = createComparisonOperators();
+const exactComparisons = {
+  ...standardComparisons,
+  eq: exactly("=", standardComparisons.eq),
+  neq: exactly("<>", standardComparisons.neq),
+  lt: exactly("<", standardComparisons.lt),
+  lte: exactly("<=", standardComparisons.lte),
+  gt: exactly(">", standardComparisons.gt),
+  gte: exactly(">=", standardComparisons.gte),
 };
 
 const isSqlList = (other: Sql | readonly Sql[]): other is readonly Sql[] =>
@@ -229,6 +327,18 @@ const jsonObject = (pairs: [string, Sql][]): Sql => {
 };
 
 /**
+ * An `OPENJSON` row's member as JSON text: `null`, a string quoted and
+ * escaped, the rest as stored. STRING_ESCAPE writes `/` as `\/`, which
+ * JSON.stringify does not, so text equality with a bound value missed every
+ * string holding one, and a pushed member was stored so: the escape is
+ * undone. Each `/` it wrote follows its own `\`, so no backslash of the
+ * value is taken with it.
+ */
+const OPENJSON_MEMBER = sql.raw(
+  `CASE "type" WHEN 0 THEN N'null' WHEN 1 THEN N'"' + REPLACE(STRING_ESCAPE("value", 'json'), N'\\/', N'/') + N'"' ELSE "value" END`
+);
+
+/**
  * The JSON text at `path`, or NULL where it is absent: an object or array
  * through `JSON_QUERY`, a scalar re-encoded from `OPENJSON`'s typed row (`type`
  * 0 null, 1 string, 2 number, 3 boolean). `JSON_VALUE` alone cannot tell the
@@ -250,7 +360,7 @@ const rooted = (column: Sql, path: string[]): [Sql, string[]] =>
 const scalarAt = (column: Sql, path: string[]): Sql => {
   const parent = buildJsonPath(path.slice(0, -1));
   const key = path.at(-1)!;
-  return sql`(SELECT CASE "type" WHEN 0 THEN N'null' WHEN 1 THEN N'"' + STRING_ESCAPE("value", 'json') + N'"' ELSE "value" END FROM OPENJSON(${container(column)}, ${parent}) WHERE "key" = ${key})`;
+  return sql`(SELECT ${OPENJSON_MEMBER} FROM OPENJSON(${container(column)}, ${parent}) WHERE "key" = ${key})`;
 };
 
 /** The JSON type code `OPENJSON` reports at `path`, NULL where absent. */
@@ -259,10 +369,15 @@ const jsonTypeAt = (column: Sql, path: string[]): Sql => {
   return sql`(SELECT "type" FROM OPENJSON(${container(document)}, ${buildJsonPath(at.slice(0, -1))}) WHERE "key" = ${at.at(-1)!})`;
 };
 
-/** The scalar text at `path` (`JSON_VALUE`), the root included. */
+/**
+ * The scalar text at `path`, the root included; NULL for an object, an
+ * array, `null` or nothing. Read from `OPENJSON`'s `NVARCHAR(MAX)` value, as
+ * `jsonTypeAt` reads its type: `JSON_VALUE` answers NULL past 4,000
+ * characters.
+ */
 const jsonValueAt = (column: Sql, path: string[]): Sql => {
   const [document, at] = rooted(column, path);
-  return sql`JSON_VALUE(${container(document)}, ${buildJsonPath(at)})`;
+  return sql`(SELECT "value" FROM OPENJSON(${container(document)}, ${buildJsonPath(at.slice(0, -1))}) WHERE "key" = ${at.at(-1)!} AND "type" < 4)`;
 };
 
 /**
@@ -364,6 +479,12 @@ export class MssqlAdapter implements DatabaseAdapter {
 
   literals = {
     ...createStandardLiterals(),
+    list: (values: Sql[]): Sql => {
+      const list =
+        values.length === 0 ? sql.raw("()") : sql`(${sql.join(values, ", ")})`;
+      listMembers.set(list, values);
+      return list;
+    },
     true: (): Sql => TRUE_VALUE,
     false: (): Sql => FALSE_VALUE,
     json: (v: unknown): Sql => sql`${canonicalJson(v)}`,
@@ -378,7 +499,7 @@ export class MssqlAdapter implements DatabaseAdapter {
   };
 
   operators = markingPredicates({
-    ...createComparisonOperators(),
+    ...exactComparisons,
 
     // `CHARINDEX` answers 0 for an empty needle, which every string contains.
     containsText: (column: Sql, value: Sql): Sql =>
@@ -394,15 +515,24 @@ export class MssqlAdapter implements DatabaseAdapter {
       ),
     // The collation-native `LIKE` ranges an index; the exact conjunct decides.
     startsWithPrefix: (column: Sql, value: string): Sql =>
-      sql`(${column} LIKE ${`${escapeLikeLiteral(value).replaceAll("[", "\\[")}%`} ESCAPE '\\' AND ${this.operators.startsWithText(column, sql`${value}`)})`,
+      value.length > LIKE_PREFIX_LIMIT
+        ? this.operators.startsWithText(column, sql`${value}`)
+        : sql`(${column} LIKE ${`${escapeLikeLiteral(value).replaceAll("[", "\\[")}%`} ESCAPE '\\' AND ${this.operators.startsWithText(column, sql`${value}`)})`,
     // The collation-native comparison seeks the index; the binary comparison
     // and the padded lengths decide.
     exactTextEq: (column: Sql, value: Sql): Sql =>
-      sql`(${column} = ${value} AND ${binary(column)} = ${value} AND ${textLength(column)} = ${textLength(value)})`,
+      sql`(${column} = ${value} AND ${exactKey(column)} = ${exactKey(value)})`,
     exactTextIn: (column: Sql, values: Sql): Sql =>
-      sql`(${column} IN ${values} AND ${binary(column)} IN ${values})`,
+      sql`(${column} IN ${values} AND ${exactKey(column)} IN ${keysOf(values) ?? values})`,
 
     ...createMembershipOperators(),
+    notIn: (column: Sql, values: Sql): Sql => {
+      const operand = exactOperands.get(column);
+      const keys = operand && keysOf(values);
+      return operand && keys
+        ? sql`${exactKey(operand)} NOT IN ${keys}`
+        : sql`${column} NOT IN ${values}`;
+    },
     ...createNullOperators(),
     ...createRangeOperators(),
 
@@ -468,7 +598,11 @@ export class MssqlAdapter implements DatabaseAdapter {
     upper: (expr: Sql): Sql => sql`UPPER(${expr})`,
     lower: (expr: Sql): Sql => sql`LOWER(${expr})`,
     caseFold: (expr: Sql): Sql => sql`LOWER(${expr})`,
-    caseSensitiveText: (expr: Sql): Sql => binary(expr),
+    caseSensitiveText: (expr: Sql): Sql => {
+      const result = binary(expr);
+      exactOperands.set(result, expr);
+      return result;
+    },
     decimalCast: (expr: Sql, descriptor: DecimalDescriptor): Sql =>
       sql`CAST(${expr} AS ${decimalType(descriptor)})`,
     idCast: (expr: Sql, representation: IdRepresentation): Sql =>
@@ -531,9 +665,7 @@ export class MssqlAdapter implements DatabaseAdapter {
   json = {
     // Both sides are canonical text (see `canonicalJson`).
     equals: (left: Sql, right: Sql): Sql =>
-      predicate(
-        sql`(${binary(left)} = ${right} AND ${textLength(left)} = ${textLength(right)})`
-      ),
+      predicate(sql`${exactKey(left)} = ${exactKey(right)}`),
     boolean: (inner: Sql): Sql =>
       sql`CASE WHEN ${condition(inner)} THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END`,
     document: (expression: Sql): Sql => {
@@ -574,7 +706,7 @@ export class MssqlAdapter implements DatabaseAdapter {
         sql`(ISJSON(${target}, ARRAY) = 1 AND NOT EXISTS (SELECT 1 FROM OPENJSON(${container(value)}) AS "c" WHERE NOT EXISTS (SELECT 1 FROM OPENJSON(${container(target)}) AS "t" WHERE "t"."type" = "c"."type" AND "t"."value" ${BINARY_COLLATION} = "c"."value")))`
       ),
     lastElement: (target: Sql): Sql =>
-      sql`(SELECT TOP (1) CASE "type" WHEN 0 THEN N'null' WHEN 1 THEN N'"' + STRING_ESCAPE("value", 'json') + N'"' ELSE "value" END FROM OPENJSON(CASE WHEN ISJSON(${target}, ARRAY) = 1 THEN ${target} END) ORDER BY CAST("key" AS INT) DESC)`,
+      sql`(SELECT TOP (1) ${OPENJSON_MEMBER} FROM OPENJSON(CASE WHEN ISJSON(${target}, ARRAY) = 1 THEN ${target} END) ORDER BY CAST("key" AS INT) DESC)`,
     value: (v: unknown): Sql => sql`${canonicalJson(v)}`,
   };
 
@@ -584,15 +716,19 @@ export class MssqlAdapter implements DatabaseAdapter {
     enumValue: jsonListValue,
     has: (column: Sql, value: Sql): Sql =>
       predicate(
-        sql`EXISTS (SELECT 1 FROM OPENJSON(${column}) AS "m" WHERE "m"."value" = ${value})`
+        // A bound string compares exactly; any other value (a `Date`)
+        // as T-SQL converts the member to it.
+        boundText(value) === undefined
+          ? sql`EXISTS (SELECT 1 FROM OPENJSON(${column}) AS "m" WHERE "m"."value" = ${value})`
+          : sql`EXISTS (SELECT 1 FROM OPENJSON(${column}) AS "m" WHERE "m"."type" = 1 AND ${exactKey(sql.raw('"m"."value"'))} = ${exactKey(value)})`
       ),
     hasEvery: (column: Sql, values: Sql): Sql =>
       predicate(
-        sql`NOT EXISTS (SELECT 1 FROM OPENJSON(${values}) AS "v" WHERE NOT EXISTS (SELECT 1 FROM OPENJSON(${column}) AS "m" WHERE "m"."value" = "v"."value"))`
+        sql`NOT EXISTS (SELECT 1 FROM OPENJSON(${values}) AS "v" WHERE NOT EXISTS (SELECT 1 FROM OPENJSON(${column}) AS "m" WHERE ${SAME_MEMBER}))`
       ),
     hasSome: (column: Sql, values: Sql): Sql =>
       predicate(
-        sql`EXISTS (SELECT 1 FROM OPENJSON(${column}) AS "m" INNER JOIN OPENJSON(${values}) AS "v" ON "m"."value" = "v"."value")`
+        sql`EXISTS (SELECT 1 FROM OPENJSON(${column}) AS "m" INNER JOIN OPENJSON(${values}) AS "v" ON ${SAME_MEMBER})`
       ),
     isEmpty: (column: Sql): Sql =>
       predicate(
@@ -657,7 +793,7 @@ export class MssqlAdapter implements DatabaseAdapter {
   /** Two JSON arrays' members, in order, as one array's text. */
   #concatLists(first: Sql, second: Sql): Sql {
     const members = (list: Sql, rank: number) =>
-      sql`SELECT ${sql.raw(String(rank))} AS "r", CAST("key" AS INT) AS "k", CASE "type" WHEN 0 THEN N'null' WHEN 1 THEN N'"' + STRING_ESCAPE("value", 'json') + N'"' ELSE "value" END AS "j" FROM OPENJSON(${list})`;
+      sql`SELECT ${sql.raw(String(rank))} AS "r", CAST("key" AS INT) AS "k", ${OPENJSON_MEMBER} AS "j" FROM OPENJSON(${list})`;
     return sql`(SELECT N'[' + COALESCE(STRING_AGG(CAST("j" AS NVARCHAR(MAX)), N',') WITHIN GROUP (ORDER BY "r", "k"), N'') + N']' FROM (${members(first, 0)} UNION ALL ${members(second, 1)}) AS "l")`;
   }
 

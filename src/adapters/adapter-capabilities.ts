@@ -135,10 +135,11 @@ export interface DatabaseAdapterCapabilities {
   countsCascadedChanges?: boolean;
   /**
    * Whether the database compares text with trailing spaces ignored: SQL
-   * Server pads the shorter operand of `=` with spaces under every collation,
-   * so a unique key holds `"a"` and `"a "` as one value. VibORM's own text
-   * filters still tell the two apart; a key the database enforces cannot.
-   * Absent: false.
+   * Server pads the shorter operand of `=` and `<` with spaces under every
+   * collation, so a unique key holds `"a"` and `"a "` as one value. VibORM's
+   * own text filters still tell the two apart (`equals`, `in`, `notIn`, the
+   * ranges, `mode: "insensitive"`, list membership); a key the database
+   * enforces, `distinct` and `groupBy` cannot. Absent: false.
    */
   padsTrailingSpaces?: boolean;
 }
