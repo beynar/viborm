@@ -326,7 +326,8 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
       },
     };
     defineImmutableDriverFact(this, "adapter", new MssqlAdapter(namespace));
-    if (this.suppliedPool) this.client = this.suppliedPool;
+    // A supplied pool goes through `initClient` too, which connects it if
+    // the caller has not.
   }
 
   async #provider(): Promise<MssqlTypes> {
