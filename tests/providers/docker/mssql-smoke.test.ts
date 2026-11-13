@@ -52,7 +52,12 @@ describeIf("SQL Server smoke", () => {
     for (const statement of DDL) await client.$executeRawUnsafe(statement);
   });
   afterAll(async () => {
-    await client.$disconnect();
+    try {
+      for (const statement of DDL.slice(0, 2))
+        await client.$executeRawUnsafe(statement);
+    } finally {
+      await client.$disconnect();
+    }
   });
 
   test("creates, reads with includes, filters, updates, deletes", async () => {

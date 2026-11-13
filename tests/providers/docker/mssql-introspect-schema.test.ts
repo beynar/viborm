@@ -15,7 +15,7 @@ import { introspectSchema } from "@migrations/introspect";
 import { serializeModels } from "@migrations/serializer";
 import { parseSchema, serializeSchema } from "@schema/json";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { TEST_CONNECTION_STRING } from "./mssql-fixtures";
+import { dropSchema, TEST_CONNECTION_STRING } from "./mssql-fixtures";
 
 const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
 
@@ -80,6 +80,7 @@ describeIf("introspectSchema on SQL Server", () => {
   });
   afterAll(async () => {
     await driver.disconnect();
+    await dropSchema(SCHEMA);
   });
 
   it("reads a hand-written schema into a document with no drift", async () => {

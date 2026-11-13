@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: recursiveTest registers the test these assertions run in.
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
@@ -11,6 +12,10 @@ import {
 import { s } from "@schema";
 import { sql } from "@sql";
 import { expectChangeWalkingItsModel } from "@tests/contracts/engine/query/recursive-relation-filter-behavior";
+import {
+  type RecursionSupport,
+  recursiveTest,
+} from "@tests/contracts/recursion";
 import { failure } from "@tests/fixtures/failure";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
@@ -354,7 +359,8 @@ type RawClient = RowScopeFixture["base"];
  * keys off per connection and cannot drop a table-level UNIQUE (it answers
  * `false`); PostgreSQL drops them by name; MySQL drops them by name too, a
  * UNIQUE together with the table's foreign keys, since MySQL refuses to drop
- * an index a foreign key still needs. No other dialect runs the behaviour.
+ * an index a foreign key still needs; SQL Server drops them by name, a
+ * filtered unique index as an index. No other dialect runs the behaviour.
  */
 async function dropConstraints(
   client: RawClient,
@@ -385,6 +391,23 @@ async function dropConstraints(
     }
     return true;
   }
+  if (dialect === "mssql") {
+    // SQL Server: foreign keys and UNIQUE constraints by name; a nullable
+    // unique key is a filtered unique index, dropped as an index.
+    const schema = client.$driver.adapter.namespace ?? "dbo";
+    const named = await client.$queryRaw<{ name: string; index: number }>(
+      kind === "f"
+        ? sql`SELECT fk.name AS name, 0 AS "index" FROM sys.foreign_keys AS fk WHERE fk.parent_object_id = OBJECT_ID(${`${schema}.${name}`})`
+        : sql`SELECT i.name AS name, CASE WHEN i.is_unique_constraint = 1 THEN 0 ELSE 1 END AS "index" FROM sys.indexes AS i WHERE i.object_id = OBJECT_ID(${`${schema}.${name}`}) AND i.is_unique = 1 AND i.is_primary_key = 0`
+    );
+    for (const row of named)
+      await client.$executeRaw(
+        row.index === 1
+          ? sql`DROP INDEX ${ident(row.name)} ON ${table(name)}`
+          : sql`ALTER TABLE ${table(name)} DROP CONSTRAINT ${ident(row.name)}`
+      );
+    return true;
+  }
   if (dialect !== "postgresql")
     throw new Error(`no raw constraint helper for ${dialect}`);
   const named = await client.$queryRaw<{ conname: string }>(
@@ -412,7 +435,7 @@ async function hideSecondHop(
   await client.node.update({ where: { id: hidden }, data: { deletedAt: T } });
 }
 
-export interface RowScopeProvider {
+export interface RowScopeProvider extends RecursionSupport {
   readonly name: string;
   readonly createDriver: () => AnyDriver;
 }
@@ -684,31 +707,35 @@ export function runRowScopeBehavior(provider: RowScopeProvider): void {
       expect(ids(await base.board.findMany(every))).toEqual([]);
     });
 
-    test("a recursive to-many relation cuts the branch below a hidden node", async () => {
-      const { base, db } = context;
-      const tree = {
-        where: { id: 1 },
-        select: {
-          id: true,
-          children: {
-            recurse: { depth: 3 },
-            orderBy: { id: "asc" },
-            select: { id: true },
+    recursiveTest(
+      provider,
+      "a recursive to-many relation cuts the branch below a hidden node",
+      async () => {
+        const { base, db } = context;
+        const tree = {
+          where: { id: 1 },
+          select: {
+            id: true,
+            children: {
+              recurse: { depth: 3 },
+              orderBy: { id: "asc" },
+              select: { id: true },
+            },
           },
-        },
-      } as const;
-      expect(await db.node.findUnique(tree)).toEqual({
-        id: 1,
-        children: [{ id: 4, children: [] }],
-      });
-      expect(await base.node.findUnique(tree)).toEqual({
-        id: 1,
-        children: [
-          { id: 2, children: [{ id: 3, children: [] }] },
-          { id: 4, children: [] },
-        ],
-      });
-    });
+        } as const;
+        expect(await db.node.findUnique(tree)).toEqual({
+          id: 1,
+          children: [{ id: 4, children: [] }],
+        });
+        expect(await base.node.findUnique(tree)).toEqual({
+          id: 1,
+          children: [
+            { id: 2, children: [{ id: 3, children: [] }] },
+            { id: 4, children: [] },
+          ],
+        });
+      }
+    );
 
     test("a to-one projection reads a hidden target as null, required or optional, in the modes that hide it", async () => {
       const { base, db } = context;
@@ -829,170 +856,201 @@ export function runRowScopeBehavior(provider: RowScopeProvider): void {
       ).toEqual({ title: "a" });
     });
 
-    test("an upward recursion stops at a hidden node", async () => {
-      const { base, db } = context;
-      const ancestors = {
-        where: { id: 3 },
-        select: {
-          id: true,
-          parent: { recurse: { depth: 3 }, select: { id: true } },
-        },
-      } as const;
-      expect(await db.node.findUnique(ancestors)).toEqual({
-        id: 3,
-        parent: null,
-      });
-      expect(await base.node.findUnique(ancestors)).toEqual({
-        id: 3,
-        parent: { id: 2, parent: { id: 1, parent: null } },
-      });
-      expect(
-        await db.node.findUnique({ ...ancestors, deleted: "with" })
-      ).toEqual({ id: 3, parent: { id: 2, parent: { id: 1, parent: null } } });
-    });
-
-    test("the recursive step reads the related domain: upward, a node hidden two hops away ends the walk", async () => {
-      const { base, db } = context;
-      await hideSecondHop(base, 2, 1);
-      const ancestors = {
-        where: { id: 3 },
-        select: {
-          id: true,
-          parent: { recurse: { depth: 3 }, select: { id: true } },
-        },
-      } as const;
-      expect(await db.node.findUnique(ancestors)).toEqual({
-        id: 3,
-        parent: { id: 2, parent: null },
-      });
-      expect(await base.node.findUnique(ancestors)).toEqual({
-        id: 3,
-        parent: { id: 2, parent: { id: 1, parent: null } },
-      });
-    });
-
-    test("the recursive step reads the related domain: downward, a node hidden two hops away is cut", async () => {
-      const { base, db } = context;
-      await hideSecondHop(base, 2, 3);
-      const tree = {
-        where: { id: 1 },
-        select: {
-          id: true,
-          children: {
-            recurse: { depth: 3 },
-            orderBy: { id: "asc" },
-            select: { id: true },
+    recursiveTest(
+      provider,
+      "an upward recursion stops at a hidden node",
+      async () => {
+        const { base, db } = context;
+        const ancestors = {
+          where: { id: 3 },
+          select: {
+            id: true,
+            parent: { recurse: { depth: 3 }, select: { id: true } },
           },
-        },
-      } as const;
-      expect(await db.node.findUnique(tree)).toEqual({
-        id: 1,
-        children: [
-          { id: 2, children: [] },
-          { id: 4, children: [] },
-        ],
-      });
-      expect(await base.node.findUnique(tree)).toEqual({
-        id: 1,
-        children: [
-          { id: 2, children: [{ id: 3, children: [] }] },
-          { id: 4, children: [] },
-        ],
-      });
-    });
+        } as const;
+        expect(await db.node.findUnique(ancestors)).toEqual({
+          id: 3,
+          parent: null,
+        });
+        expect(await base.node.findUnique(ancestors)).toEqual({
+          id: 3,
+          parent: { id: 2, parent: { id: 1, parent: null } },
+        });
+        expect(
+          await db.node.findUnique({ ...ancestors, deleted: "with" })
+        ).toEqual({
+          id: 3,
+          parent: { id: 2, parent: { id: 1, parent: null } },
+        });
+      }
+    );
 
-    test("a recursive filter walks the related domain: a tombstoned intermediate stops it, and `with` sees through", async () => {
-      const { base, db } = context;
-      const ordered = { orderBy: { id: "asc" } } as const;
-      // Node 3's ancestors are 2 (a tombstone) and 1: the walk stops at 2.
-      const belowRoot = {
-        where: { parent: { recurse: true, some: { id: 1 } } },
-        ...ordered,
-      } as const;
-      expect(ids(await db.node.findMany(belowRoot))).toEqual([4]);
-      expect(await db.node.count({ where: belowRoot.where })).toBe(1);
-      expect(
-        ids(await db.node.findMany({ ...belowRoot, deleted: "with" }))
-      ).toEqual([2, 3, 4]);
-      expect(ids(await base.node.findMany(belowRoot))).toEqual([2, 3, 4]);
-      // Downward, node 1 reaches the leaf only through the tombstone.
-      const aboveLeaf = {
-        where: {
-          children: { recurse: { depth: false }, some: { label: "leaf" } },
-        },
-        ...ordered,
-      } as const;
-      expect(ids(await db.node.findMany(aboveLeaf))).toEqual([]);
-      expect(
-        ids(await db.node.findMany({ ...aboveLeaf, deleted: "with" }))
-      ).toEqual([1, 2]);
-      expect(ids(await base.node.findMany(aboveLeaf))).toEqual([1, 2]);
-    });
+    recursiveTest(
+      provider,
+      "the recursive step reads the related domain: upward, a node hidden two hops away ends the walk",
+      async () => {
+        const { base, db } = context;
+        await hideSecondHop(base, 2, 1);
+        const ancestors = {
+          where: { id: 3 },
+          select: {
+            id: true,
+            parent: { recurse: { depth: 3 }, select: { id: true } },
+          },
+        } as const;
+        expect(await db.node.findUnique(ancestors)).toEqual({
+          id: 3,
+          parent: { id: 2, parent: null },
+        });
+        expect(await base.node.findUnique(ancestors)).toEqual({
+          id: 3,
+          parent: { id: 2, parent: { id: 1, parent: null } },
+        });
+      }
+    );
 
-    test("a hidden descendant is not a member of a closure: some, every and none range over visible rows", async () => {
-      const { base, db } = context;
-      const visible = async (where: object) =>
-        ids(await db.node.findMany({ where, orderBy: { id: "asc" } }));
-      const physical = async (where: object) =>
-        ids(await base.node.findMany({ where, orderBy: { id: "asc" } }));
-      const some = { children: { recurse: true, some: { label: "mid" } } };
-      expect(await visible(some)).toEqual([]);
-      expect(await physical(some)).toEqual([1]);
-      // Node 1's visible closure is {4}; physically it is {2, 3, 4}.
-      const every = { children: { recurse: true, every: { label: "side" } } };
-      expect(await visible(every)).toEqual([1, 3, 4]);
-      expect(await physical(every)).toEqual([3, 4]);
-      const none = { children: { recurse: true, none: { label: "leaf" } } };
-      expect(await visible(none)).toEqual([1, 3, 4]);
-      expect(await physical(none)).toEqual([3, 4]);
-    });
-
-    test("a closure's self row is the outer row, never filtered again by the related domain", async () => {
-      const { db } = context;
-      // `only` selects the tombstone 2 at the root; its related domain hides
-      // tombstones, yet `self` keeps the row the call already selected.
-      const tombstoned = (self: boolean) =>
-        db.node.findMany({
-          deleted: "only",
-          where: {
-            parent: {
-              recurse: true,
-              self,
-              some: { deletedAt: { not: null } },
+    recursiveTest(
+      provider,
+      "the recursive step reads the related domain: downward, a node hidden two hops away is cut",
+      async () => {
+        const { base, db } = context;
+        await hideSecondHop(base, 2, 3);
+        const tree = {
+          where: { id: 1 },
+          select: {
+            id: true,
+            children: {
+              recurse: { depth: 3 },
+              orderBy: { id: "asc" },
+              select: { id: true },
             },
           },
-          orderBy: { id: "asc" },
-        });
-      expect(ids(await tombstoned(true))).toEqual([2]);
-      // Without self the closure is {1}, which is live.
-      expect(ids(await tombstoned(false))).toEqual([]);
-    });
-
-    test("a soft deleteMany whose closure walks its own model tombstones the visible match", async () => {
-      const { base, db } = context;
-      await expectChangeWalkingItsModel(
-        async () =>
-          (
-            await base.node.findMany({
-              orderBy: { id: "asc" },
-              select: { id: true, deletedAt: true },
-            })
-          ).map((row) => [row.id, row.deletedAt !== null]),
-        () =>
-          db.node.deleteMany({
-            where: { parent: { recurse: true, some: { id: 1 } } },
-          }),
-        {
-          result: { count: 1 },
-          state: [
-            [1, false],
-            [2, true],
-            [3, false],
-            [4, true],
+        } as const;
+        expect(await db.node.findUnique(tree)).toEqual({
+          id: 1,
+          children: [
+            { id: 2, children: [] },
+            { id: 4, children: [] },
           ],
-        }
-      );
-    });
+        });
+        expect(await base.node.findUnique(tree)).toEqual({
+          id: 1,
+          children: [
+            { id: 2, children: [{ id: 3, children: [] }] },
+            { id: 4, children: [] },
+          ],
+        });
+      }
+    );
+
+    recursiveTest(
+      provider,
+      "a recursive filter walks the related domain: a tombstoned intermediate stops it, and `with` sees through",
+      async () => {
+        const { base, db } = context;
+        const ordered = { orderBy: { id: "asc" } } as const;
+        // Node 3's ancestors are 2 (a tombstone) and 1: the walk stops at 2.
+        const belowRoot = {
+          where: { parent: { recurse: true, some: { id: 1 } } },
+          ...ordered,
+        } as const;
+        expect(ids(await db.node.findMany(belowRoot))).toEqual([4]);
+        expect(await db.node.count({ where: belowRoot.where })).toBe(1);
+        expect(
+          ids(await db.node.findMany({ ...belowRoot, deleted: "with" }))
+        ).toEqual([2, 3, 4]);
+        expect(ids(await base.node.findMany(belowRoot))).toEqual([2, 3, 4]);
+        // Downward, node 1 reaches the leaf only through the tombstone.
+        const aboveLeaf = {
+          where: {
+            children: { recurse: { depth: false }, some: { label: "leaf" } },
+          },
+          ...ordered,
+        } as const;
+        expect(ids(await db.node.findMany(aboveLeaf))).toEqual([]);
+        expect(
+          ids(await db.node.findMany({ ...aboveLeaf, deleted: "with" }))
+        ).toEqual([1, 2]);
+        expect(ids(await base.node.findMany(aboveLeaf))).toEqual([1, 2]);
+      }
+    );
+
+    recursiveTest(
+      provider,
+      "a hidden descendant is not a member of a closure: some, every and none range over visible rows",
+      async () => {
+        const { base, db } = context;
+        const visible = async (where: object) =>
+          ids(await db.node.findMany({ where, orderBy: { id: "asc" } }));
+        const physical = async (where: object) =>
+          ids(await base.node.findMany({ where, orderBy: { id: "asc" } }));
+        const some = { children: { recurse: true, some: { label: "mid" } } };
+        expect(await visible(some)).toEqual([]);
+        expect(await physical(some)).toEqual([1]);
+        // Node 1's visible closure is {4}; physically it is {2, 3, 4}.
+        const every = { children: { recurse: true, every: { label: "side" } } };
+        expect(await visible(every)).toEqual([1, 3, 4]);
+        expect(await physical(every)).toEqual([3, 4]);
+        const none = { children: { recurse: true, none: { label: "leaf" } } };
+        expect(await visible(none)).toEqual([1, 3, 4]);
+        expect(await physical(none)).toEqual([3, 4]);
+      }
+    );
+
+    recursiveTest(
+      provider,
+      "a closure's self row is the outer row, never filtered again by the related domain",
+      async () => {
+        const { db } = context;
+        // `only` selects the tombstone 2 at the root; its related domain hides
+        // tombstones, yet `self` keeps the row the call already selected.
+        const tombstoned = (self: boolean) =>
+          db.node.findMany({
+            deleted: "only",
+            where: {
+              parent: {
+                recurse: true,
+                self,
+                some: { deletedAt: { not: null } },
+              },
+            },
+            orderBy: { id: "asc" },
+          });
+        expect(ids(await tombstoned(true))).toEqual([2]);
+        // Without self the closure is {1}, which is live.
+        expect(ids(await tombstoned(false))).toEqual([]);
+      }
+    );
+
+    recursiveTest(
+      provider,
+      "a soft deleteMany whose closure walks its own model tombstones the visible match",
+      async () => {
+        const { base, db } = context;
+        await expectChangeWalkingItsModel(
+          async () =>
+            (
+              await base.node.findMany({
+                orderBy: { id: "asc" },
+                select: { id: true, deletedAt: true },
+              })
+            ).map((row) => [row.id, row.deletedAt !== null]),
+          () =>
+            db.node.deleteMany({
+              where: { parent: { recurse: true, some: { id: 1 } } },
+            }),
+          {
+            result: { count: 1 },
+            state: [
+              [1, false],
+              [2, true],
+              [3, false],
+              [4, true],
+            ],
+          }
+        );
+      }
+    );
 
     test("a hidden polymorphic arm stored on the parent row reads null (R1)", async () => {
       const { base, db } = context;

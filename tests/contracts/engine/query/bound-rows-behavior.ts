@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: recursiveTest registers the test these assertions run in.
 import type { CacheEntry } from "@cache/driver";
 import { MemoryCache } from "@cache/drivers/memory";
 import { cache } from "@cache/extension";
@@ -12,6 +13,10 @@ import {
 import { s } from "@schema";
 import { defineExtension } from "@src/index";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import {
+  type RecursionSupport,
+  recursiveTest,
+} from "@tests/contracts/recursion";
 import { tenancy } from "@tests/fixtures/extension-recipes";
 import { failure } from "@tests/fixtures/failure";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -139,7 +144,7 @@ class KeyRecordingCache extends MemoryCache {
   }
 }
 
-export interface BoundRowsProvider {
+export interface BoundRowsProvider extends RecursionSupport {
   readonly name: string;
   readonly createDriver: () => AnyDriver;
   /** Creates the tables (default: a live `push`; D1 runs the plan itself). */
@@ -347,41 +352,47 @@ export function runBoundRowsBehavior(provider: BoundRowsProvider): void {
       ).toEqual([1, 4, 2]);
     });
 
-    test("a page is cut from the tenant's rows, and a recursion stops at another tenant's row", async () => {
-      const { base, db } = context;
-      const page = (cursor: number) =>
-        ({
-          cursor: { id: cursor },
-          take: 2,
-          orderBy: { id: "asc" },
-          tenant: "acme",
-        }) as const;
-      expect(ids(await db.post.findMany(page(2)))).toEqual([2, 4]);
-      // Another tenant's anchor is a missing one.
-      expect(ids(await db.post.findMany(page(3)))).toEqual([]);
-      const thread = {
-        where: { id: 1 },
-        select: {
-          id: true,
-          replies: {
-            recurse: { depth: 3 },
+    recursiveTest(
+      provider,
+      "a page is cut from the tenant's rows, and a recursion stops at another tenant's row",
+      async () => {
+        const { base, db } = context;
+        const page = (cursor: number) =>
+          ({
+            cursor: { id: cursor },
+            take: 2,
             orderBy: { id: "asc" },
-            select: { id: true },
+            tenant: "acme",
+          }) as const;
+        expect(ids(await db.post.findMany(page(2)))).toEqual([2, 4]);
+        // Another tenant's anchor is a missing one.
+        expect(ids(await db.post.findMany(page(3)))).toEqual([]);
+        const thread = {
+          where: { id: 1 },
+          select: {
+            id: true,
+            replies: {
+              recurse: { depth: 3 },
+              orderBy: { id: "asc" },
+              select: { id: true },
+            },
           },
-        },
-      } as const;
-      expect(await db.post.findUnique({ ...thread, tenant: "acme" })).toEqual({
-        id: 1,
-        replies: [{ id: 2, replies: [] }],
-      });
-      expect(await base.post.findUnique(thread)).toEqual({
-        id: 1,
-        replies: [
-          { id: 2, replies: [] },
-          { id: 5, replies: [] },
-        ],
-      });
-    });
+        } as const;
+        expect(await db.post.findUnique({ ...thread, tenant: "acme" })).toEqual(
+          {
+            id: 1,
+            replies: [{ id: 2, replies: [] }],
+          }
+        );
+        expect(await base.post.findUnique(thread)).toEqual({
+          id: 1,
+          replies: [
+            { id: 2, replies: [] },
+            { id: 5, replies: [] },
+          ],
+        });
+      }
+    );
 
     test("nested writes cannot reach another tenant's rows: connect, set, update and delete find no target", async () => {
       const { base, db } = context;

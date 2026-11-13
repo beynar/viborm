@@ -856,10 +856,16 @@ export class MssqlAdapter implements DatabaseAdapter {
     const limit = unbounded ? undefined : parts.limit;
     const ordered = parts.orderBy !== undefined;
     const top = limit && !ordered && !parts.offset;
+    // A select of the bare true literal (a lock, an existence) may be a
+    // derived table, whose every column T-SQL wants named (Msg 8155).
+    const listed =
+      parts.columns === TRUE_VALUE
+        ? sql`${TRUE_VALUE} AS ${sql.raw(quoteIdent("__viborm_true"))}`
+        : asValue(parts.columns);
     const columns =
       ordinal && parts.orderBy
-        ? sql`${asValue(parts.columns)}, ROW_NUMBER() OVER (ORDER BY ${parts.orderBy}) AS ${sql.raw(quoteIdent(ORDINAL))}`
-        : asValue(parts.columns);
+        ? sql`${listed}, ROW_NUMBER() OVER (ORDER BY ${parts.orderBy}) AS ${sql.raw(quoteIdent(ORDINAL))}`
+        : listed;
     const fragments: Sql[] = [
       top ? sql`SELECT TOP (${limit}) ${columns}` : sql`SELECT ${columns}`,
       parts.forUpdate

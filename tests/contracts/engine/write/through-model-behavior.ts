@@ -1,7 +1,12 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: recursiveTest registers the test these assertions run in.
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { NestedWriteError } from "@errors";
+import { ForeignKeyError, NestedWriteError } from "@errors";
 import { s } from "@schema";
+import {
+  type RecursionSupport,
+  recursiveTest,
+} from "@tests/contracts/recursion";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { minLength, pipe, string } from "valibot";
 import {
@@ -147,12 +152,20 @@ const throughWithRole = () => {
   return { seat, room, guest };
 };
 
-export function runThroughModelBehavior(options: {
-  readonly name: string;
-  readonly createDriver: () => AnyDriver;
-  /** Where each test's storage is its own: push before every test. */
-  readonly prepare?: (client: never) => Promise<void>;
-}): void {
+export function runThroughModelBehavior(
+  options: RecursionSupport & {
+    readonly name: string;
+    readonly createDriver: () => AnyDriver;
+    /** Where each test's storage is its own: push before every test. */
+    readonly prepare?: (client: never) => Promise<void>;
+    /**
+     * The database refuses a second cascade path into one table (SQL Server):
+     * the junction's key to its parent holds NO ACTION, its key to its child
+     * keeps the cascade.
+     */
+    readonly heldParentPath?: true;
+  }
+): void {
   describe(`${options.name} a declared model as the junction`, () => {
     const client = createClient({
       schema: {
@@ -417,42 +430,51 @@ export function runThroughModelBehavior(options: {
       expect(direct.parent?.id).toBe("b");
     });
 
-    test("a recursive walk returns every ancestor, in projection and filter", async () => {
-      await client.team.update({
-        where: { id: "a" },
-        data: { parents: { connect: { id: "b" } } },
-      });
-      await client.team.update({
-        where: { id: "b" },
-        data: { parents: { connect: { id: "c" } } },
-      });
-      const walked = await client.team.findUniqueOrThrow({
-        where: { id: "a" },
-        select: {
-          parents: {
-            select: { id: true },
-            recurse: { depth: false },
+    recursiveTest(
+      options,
+      "a recursive walk returns every ancestor, in projection and filter",
+      async () => {
+        await client.team.update({
+          where: { id: "a" },
+          data: { parents: { connect: { id: "b" } } },
+        });
+        await client.team.update({
+          where: { id: "b" },
+          data: { parents: { connect: { id: "c" } } },
+        });
+        const walked = await client.team.findUniqueOrThrow({
+          where: { id: "a" },
+          select: {
+            parents: {
+              select: { id: true },
+              recurse: { depth: false },
+            },
           },
-        },
-      });
-      expect(walked).toEqual({
-        parents: [{ id: "b", parents: [{ id: "c", parents: [] }] }],
-      });
-      const reaching = await client.team.findMany({
-        where: {
-          parents: { recurse: { depth: false }, some: { id: "c" } },
-        },
-        orderBy: { id: "asc" },
-      });
-      expect(reaching.map((team) => team.id)).toEqual(["a", "b"]);
-    });
+        });
+        expect(walked).toEqual({
+          parents: [{ id: "b", parents: [{ id: "c", parents: [] }] }],
+        });
+        const reaching = await client.team.findMany({
+          where: {
+            parents: { recurse: { depth: false }, some: { id: "c" } },
+          },
+          orderBy: { id: "asc" },
+        });
+        expect(reaching.map((team) => team.id)).toEqual(["a", "b"]);
+      }
+    );
 
     test("deleting an endpoint follows the to-one's own action", async () => {
       await client.team.update({
         where: { id: "a" },
         data: { parents: { connect: { id: "b" } } },
       });
-      await client.team.delete({ where: { id: "b" } });
+      if (options.heldParentPath) {
+        await expect(
+          client.team.delete({ where: { id: "b" } })
+        ).rejects.toBeInstanceOf(ForeignKeyError);
+        await client.team.delete({ where: { id: "a" } });
+      } else await client.team.delete({ where: { id: "b" } });
       expect(await links()).toEqual([]);
     });
 

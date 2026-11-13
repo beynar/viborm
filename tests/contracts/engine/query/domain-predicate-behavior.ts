@@ -1,9 +1,14 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: recursiveTest registers the test these assertions run in.
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { ClientInitializationError } from "@errors";
 import { defineExtension } from "@extensions/definition";
 import { s } from "@schema";
 import { v } from "@src/validation";
+import {
+  type RecursionSupport,
+  recursiveTest,
+} from "@tests/contracts/recursion";
 import { tenancy } from "@tests/fixtures/extension-recipes";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, describe, expect, test } from "vitest";
@@ -36,7 +41,7 @@ import { afterEach, describe, expect, test } from "vitest";
  * files and grants as below, `deletedAt` set on the tombstones.
  */
 
-export interface DomainPredicateSubstrate {
+export interface DomainPredicateSubstrate extends RecursionSupport {
   readonly name: string;
   readonly createDriver: () => AnyDriver;
   /**
@@ -368,45 +373,49 @@ export function runDomainPredicateBehavior(
   };
 
   describe(`${substrate.name}: domain predicates admitted, layered and parameterized`, () => {
-    test("W-K1a: recurse true or {} is refused at $extends; a written depth: false reads the whole closure", async () => {
-      const base = await seeded();
-      for (const recurse of [true, {}])
-        expect(
-          refusal(() =>
-            base.$extends(
-              rows("closure", {
-                doc: {
-                  root: {
-                    parent: { recurse, self: true, some: { ownerId: "u1" } },
+    recursiveTest(
+      substrate,
+      "W-K1a: recurse true or {} is refused at $extends; a written depth: false reads the whole closure",
+      async () => {
+        const base = await seeded();
+        for (const recurse of [true, {}])
+          expect(
+            refusal(() =>
+              base.$extends(
+                rows("closure", {
+                  doc: {
+                    root: {
+                      parent: { recurse, self: true, some: { ownerId: "u1" } },
+                    },
                   },
+                })
+              )
+            ).message
+          ).toContain('rows.doc.on.root at "parent.recurse"');
+        const db = base.$extends(
+          rows("closure", {
+            doc: {
+              root: {
+                parent: {
+                  recurse: { depth: false },
+                  self: true,
+                  some: { ownerId: "u1" },
                 },
-              })
-            )
-          ).message
-        ).toContain('rows.doc.on.root at "parent.recurse"');
-      const db = base.$extends(
-        rows("closure", {
-          doc: {
-            root: {
-              parent: {
-                recurse: { depth: false },
-                self: true,
-                some: { ownerId: "u1" },
               },
             },
-          },
-        })
-      );
-      expect(shape(await db.doc.findMany({ select: { id: true } }))).toEqual(
-        shape(
-          idsOf(
-            DOCS.filter((d) =>
-              ancestorsAndSelf(d).some((m) => m.ownerId === "u1")
+          })
+        );
+        expect(shape(await db.doc.findMany({ select: { id: true } }))).toEqual(
+          shape(
+            idsOf(
+              DOCS.filter((d) =>
+                ancestorsAndSelf(d).some((m) => m.ownerId === "u1")
+              )
             )
           )
-        )
-      );
-    });
+        );
+      }
+    );
 
     test("W-K1b: a misspelt nested key is refused at $extends, naming the extension, model, predicate and path", async () => {
       const base = await seeded();
@@ -538,63 +547,69 @@ export function runDomainPredicateBehavior(
       );
     });
 
-    test("W-K1c S-X3 and S-X4: a self relation, related only, plain and as a closure", async () => {
-      const base = await seeded();
-      const plain = base.$extends(
-        rows("x3", { doc: { related: { parent: { is: { ownerId: "u1" } } } } })
-      );
-      expect(
-        shape(
-          await plain.doc.findMany({
-            select: { id: true, children: { select: { id: true } } },
+    recursiveTest(
+      substrate,
+      "W-K1c S-X3 and S-X4: a self relation, related only, plain and as a closure",
+      async () => {
+        const base = await seeded();
+        const plain = base.$extends(
+          rows("x3", {
+            doc: { related: { parent: { is: { ownerId: "u1" } } } },
           })
-        )
-      ).toEqual(
-        shape(
-          DOCS.map((d) => ({
-            id: d.id,
-            children: idsOf(
-              DOCS.filter(
-                (c) =>
-                  c.parentId === d.id &&
-                  byId(DOCS, c.parentId)?.ownerId === "u1"
-              )
-            ),
-          }))
-        )
-      );
-      const closure = base.$extends(
-        rows("x4", {
-          doc: {
-            related: {
-              parent: {
-                recurse: { depth: false },
-                self: true,
-                some: { ownerId: "u1" },
+        );
+        expect(
+          shape(
+            await plain.doc.findMany({
+              select: { id: true, children: { select: { id: true } } },
+            })
+          )
+        ).toEqual(
+          shape(
+            DOCS.map((d) => ({
+              id: d.id,
+              children: idsOf(
+                DOCS.filter(
+                  (c) =>
+                    c.parentId === d.id &&
+                    byId(DOCS, c.parentId)?.ownerId === "u1"
+                )
+              ),
+            }))
+          )
+        );
+        const closure = base.$extends(
+          rows("x4", {
+            doc: {
+              related: {
+                parent: {
+                  recurse: { depth: false },
+                  self: true,
+                  some: { ownerId: "u1" },
+                },
               },
             },
-          },
-        })
-      );
-      const visible = (c: Doc) =>
-        ancestorsAndSelf(c).some((m) => m.ownerId === "u1");
-      expect(
-        shape(
-          await closure.doc.findMany({
-            select: { id: true, children: { select: { id: true } } },
           })
-        )
-      ).toEqual(
-        shape(
-          DOCS.map((d) => ({
-            id: d.id,
-            children: idsOf(
-              DOCS.filter((c) => c.parentId === d.id && visible(c))
-            ),
-          }))
-        )
-      );
-    });
+        );
+        const visible = (c: Doc) =>
+          ancestorsAndSelf(c).some((m) => m.ownerId === "u1");
+        expect(
+          shape(
+            await closure.doc.findMany({
+              select: { id: true, children: { select: { id: true } } },
+            })
+          )
+        ).toEqual(
+          shape(
+            DOCS.map((d) => ({
+              id: d.id,
+              children: idsOf(
+                DOCS.filter((c) => c.parentId === d.id && visible(c))
+              ),
+            }))
+          )
+        );
+      }
+    );
 
     test("W-K1c: a ring of three layers terminates at the layer count, no depth written", async () => {
       const base = await seeded();
@@ -691,43 +706,47 @@ export function runDomainPredicateBehavior(
       );
     });
 
-    test("W-K1f: a predicate deeper than a caller's 16 levels is admitted, and a 101-deep tree inherits through a closure", async () => {
-      const base = await seeded();
-      let deep: Record<string, unknown> = { ownerId: "u1" };
-      for (let depth = 0; depth < 20; depth++) deep = { AND: [deep] };
-      const nested = base.$extends(rows("deep", { doc: { root: deep } }));
-      expect(
-        shape(await nested.doc.findMany({ select: { id: true } }))
-      ).toEqual(shape(idsOf(DOCS.filter((d) => d.ownerId === "u1"))));
-      // A chain of 101 documents below d10's sibling root r0, owned by u1 at
-      // its root only.
-      const chain = Array.from({ length: 102 }, (_, index) => ({
-        id: `r${index}`,
-        ownerId: index === 0 ? "u3" : null,
-        parentId: index === 0 ? null : `r${index - 1}`,
-      }));
-      for (const data of chain) await base.doc.create({ data });
-      const inherits = base.$extends(
-        rows("up", {
-          doc: {
-            root: {
-              id: { startsWith: "r" },
-              parent: {
-                recurse: { depth: false },
-                self: true,
-                some: { ownerId: "u3" },
+    recursiveTest(
+      substrate,
+      "W-K1f: a predicate deeper than a caller's 16 levels is admitted, and a 101-deep tree inherits through a closure",
+      async () => {
+        const base = await seeded();
+        let deep: Record<string, unknown> = { ownerId: "u1" };
+        for (let depth = 0; depth < 20; depth++) deep = { AND: [deep] };
+        const nested = base.$extends(rows("deep", { doc: { root: deep } }));
+        expect(
+          shape(await nested.doc.findMany({ select: { id: true } }))
+        ).toEqual(shape(idsOf(DOCS.filter((d) => d.ownerId === "u1"))));
+        // A chain of 101 documents below d10's sibling root r0, owned by u1 at
+        // its root only.
+        const chain = Array.from({ length: 102 }, (_, index) => ({
+          id: `r${index}`,
+          ownerId: index === 0 ? "u3" : null,
+          parentId: index === 0 ? null : `r${index - 1}`,
+        }));
+        for (const data of chain) await base.doc.create({ data });
+        const inherits = base.$extends(
+          rows("up", {
+            doc: {
+              root: {
+                id: { startsWith: "r" },
+                parent: {
+                  recurse: { depth: false },
+                  self: true,
+                  some: { ownerId: "u3" },
+                },
               },
             },
-          },
-        })
-      );
-      const leaf = await inherits.doc.findUnique({
-        where: { id: "r101" },
-        select: { id: true },
-      });
-      expect(leaf).toEqual({ id: "r101" });
-      expect(await inherits.doc.count()).toBe(102);
-    });
+          })
+        );
+        const leaf = await inherits.doc.findUnique({
+          where: { id: "r101" },
+          select: { id: true },
+        });
+        expect(leaf).toEqual({ id: "r101" });
+        expect(await inherits.doc.count()).toBe(102);
+      }
+    );
 
     test('W-K1g: deleted "with" / "only" and scope "all" revive nothing inside a traversal', async () => {
       const base = await seeded();

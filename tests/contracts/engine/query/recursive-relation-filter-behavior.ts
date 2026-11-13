@@ -3,6 +3,10 @@ import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { ForbiddenError } from "@errors";
 import { s } from "@schema";
+import {
+  type RecursionSupport,
+  recursiveTest,
+} from "@tests/contracts/recursion";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import {
   afterAll,
@@ -679,7 +683,7 @@ const FIXED_DOCUMENTS = ["R", "A", "G", "D3", "C1", "C2", "L"];
 /** The fixed documents under the personal root R, which Uma's grant is on. */
 const ROOTED = ["A", "D3", "G", "R"];
 
-export interface RecursiveFilterProvider {
+export interface RecursiveFilterProvider extends RecursionSupport {
   readonly name: string;
   readonly createDriver: () => AnyDriver;
   /** Empties a database that outlives its driver (a server's). */
@@ -726,36 +730,43 @@ export function runRecursiveRelationFilterBehavior(
 
     for (const slot of SLOTS)
       for (const quantifier of ["some", "every", "none"] as const)
-        test(`${slot.model}.${slot.relation}: ${quantifier} over the closure, at depth 1, 2, true and false, with and without self, per row`, async () => {
-          const { client, world } = context;
-          const actual: [string, string[]][] = [];
-          const expected: [string, string[]][] = [];
-          for (const { recurse, depth } of DEPTHS)
-            for (const self of [false, true])
-              for (const predicate of predicatesOf(world, slot.model)) {
-                const label = `${JSON.stringify(recurse)} self=${self} ${quantifier} ${predicate.label}`;
-                const where = {
-                  [slot.relation]: {
-                    recurse,
-                    self,
-                    [quantifier]: predicate.where,
-                  },
-                };
-                actual.push([label, await readIds(client, slot.model, where)]);
-                expected.push([
-                  label,
-                  expectedIds(
-                    world,
-                    slot,
-                    quantifier,
-                    depth,
-                    self,
-                    predicate.holds
-                  ),
-                ]);
-              }
-          expect(actual).toEqual(expected);
-        });
+        recursiveTest(
+          provider,
+          `${slot.model}.${slot.relation}: ${quantifier} over the closure, at depth 1, 2, true and false, with and without self, per row`,
+          async () => {
+            const { client, world } = context;
+            const actual: [string, string[]][] = [];
+            const expected: [string, string[]][] = [];
+            for (const { recurse, depth } of DEPTHS)
+              for (const self of [false, true])
+                for (const predicate of predicatesOf(world, slot.model)) {
+                  const label = `${JSON.stringify(recurse)} self=${self} ${quantifier} ${predicate.label}`;
+                  const where = {
+                    [slot.relation]: {
+                      recurse,
+                      self,
+                      [quantifier]: predicate.where,
+                    },
+                  };
+                  actual.push([
+                    label,
+                    await readIds(client, slot.model, where),
+                  ]);
+                  expected.push([
+                    label,
+                    expectedIds(
+                      world,
+                      slot,
+                      quantifier,
+                      depth,
+                      self,
+                      predicate.holds
+                    ),
+                  ]);
+                }
+            expect(actual).toEqual(expected);
+          }
+        );
 
     // Where the driver shares relation bodies (every PostgreSQL driver by
     // default), a statement states a closure it repeats once, as the key set
@@ -763,533 +774,607 @@ export function runRecursiveRelationFilterBehavior(
     // joins them once. Each statement here repeats two closures three times,
     // once under NOT, read with a related domain hiding rows and without.
     for (const slot of SLOTS)
-      test(`${slot.model}.${slot.relation}: closures repeated in one statement keep the oracle's rows, under a domain hiding rows and without`, async () => {
-        const { client, world } = context;
-        const hiddenIds = {
-          document: ["A", "C2", "r07", "r23", "r41"],
-          team: ["VN", "DL", "t05", "t31", "t44"],
-        };
-        const hidden = client.$extends({
-          name: "test.hiddenRows",
-          rows: {
-            control: "hidden",
-            default: "on",
-            models: {
-              document: {
-                on: { related: { id: { notIn: hiddenIds.document } } },
-                off: {},
-              },
-              team: {
-                on: { related: { id: { notIn: hiddenIds.team } } },
-                off: {},
+      recursiveTest(
+        provider,
+        `${slot.model}.${slot.relation}: closures repeated in one statement keep the oracle's rows, under a domain hiding rows and without`,
+        async () => {
+          const { client, world } = context;
+          const hiddenIds = {
+            document: ["A", "C2", "r07", "r23", "r41"],
+            team: ["VN", "DL", "t05", "t31", "t44"],
+          };
+          const hidden = client.$extends({
+            name: "test.hiddenRows",
+            rows: {
+              control: "hidden",
+              default: "on",
+              models: {
+                document: {
+                  on: { related: { id: { notIn: hiddenIds.document } } },
+                  off: {},
+                },
+                team: {
+                  on: { related: { id: { notIn: hiddenIds.team } } },
+                  off: {},
+                },
               },
             },
-          },
-        });
-        const read = async (where: object, mode: "on" | "off") =>
-          sorted(
-            slot.model === "document"
-              ? await hidden.document.findMany({
-                  where,
-                  select: { id: true },
-                  hidden: mode,
-                })
-              : await hidden.team.findMany({
-                  where,
-                  select: { id: true },
-                  hidden: mode,
-                })
-          );
-        const [, first, second] = predicatesOf(world, slot.model);
-        const actual: [string, string[]][] = [];
-        const expected: [string, string[]][] = [];
-        for (const mode of ["off", "on"] as const) {
-          const hops = hopsOf(world, slot).filter(
-            ([, to]) => mode === "off" || !hiddenIds[slot.model].includes(to)
-          );
-          for (const quantifier of ["some", "every", "none"] as const)
-            for (const { recurse, depth } of DEPTHS)
-              for (const self of [false, true]) {
-                const closure = (predicate: Predicate) => ({
-                  [slot.relation]: {
-                    recurse,
-                    self,
-                    [quantifier]: predicate.where,
-                  },
-                });
-                const holds = (predicate: Predicate, id: string) =>
-                  quantify(
-                    quantifier,
-                    closureOf(hops, id, { depth, self }),
-                    predicate.holds
-                  );
-                actual.push([
-                  `${mode} ${JSON.stringify(recurse)} self=${self} ${quantifier}`,
-                  await read(
-                    {
-                      OR: [
-                        { AND: [closure(first!), closure(second!)] },
-                        { AND: [closure(first!), { NOT: closure(second!) }] },
-                        { AND: [closure(second!), { NOT: closure(first!) }] },
-                      ],
+          });
+          const read = async (where: object, mode: "on" | "off") =>
+            sorted(
+              slot.model === "document"
+                ? await hidden.document.findMany({
+                    where,
+                    select: { id: true },
+                    hidden: mode,
+                  })
+                : await hidden.team.findMany({
+                    where,
+                    select: { id: true },
+                    hidden: mode,
+                  })
+            );
+          const [, first, second] = predicatesOf(world, slot.model);
+          const actual: [string, string[]][] = [];
+          const expected: [string, string[]][] = [];
+          for (const mode of ["off", "on"] as const) {
+            const hops = hopsOf(world, slot).filter(
+              ([, to]) => mode === "off" || !hiddenIds[slot.model].includes(to)
+            );
+            for (const quantifier of ["some", "every", "none"] as const)
+              for (const { recurse, depth } of DEPTHS)
+                for (const self of [false, true]) {
+                  const closure = (predicate: Predicate) => ({
+                    [slot.relation]: {
+                      recurse,
+                      self,
+                      [quantifier]: predicate.where,
                     },
-                    mode
-                  ),
-                ]);
-                expected.push([
-                  `${mode} ${JSON.stringify(recurse)} self=${self} ${quantifier}`,
-                  idsOf(slot.model, world)
-                    .filter((id) => holds(first!, id) || holds(second!, id))
-                    .sort(),
-                ]);
-              }
+                  });
+                  const holds = (predicate: Predicate, id: string) =>
+                    quantify(
+                      quantifier,
+                      closureOf(hops, id, { depth, self }),
+                      predicate.holds
+                    );
+                  actual.push([
+                    `${mode} ${JSON.stringify(recurse)} self=${self} ${quantifier}`,
+                    await read(
+                      {
+                        OR: [
+                          { AND: [closure(first!), closure(second!)] },
+                          { AND: [closure(first!), { NOT: closure(second!) }] },
+                          { AND: [closure(second!), { NOT: closure(first!) }] },
+                        ],
+                      },
+                      mode
+                    ),
+                  ]);
+                  expected.push([
+                    `${mode} ${JSON.stringify(recurse)} self=${self} ${quantifier}`,
+                    idsOf(slot.model, world)
+                      .filter((id) => holds(first!, id) || holds(second!, id))
+                      .sort(),
+                  ]);
+                }
+          }
+          expect(actual).toEqual(expected);
         }
-        expect(actual).toEqual(expected);
-      });
+      );
 
-    test("an empty closure: some is false, every and none are true; self makes it non-empty", async () => {
-      const { client } = context;
-      const lone = async (where: object) =>
-        (await readIds(client, "document", where)).includes("L");
-      expect({
-        some: await lone({ children: { recurse: true, some: {} } }),
-        every: await lone({
-          children: { recurse: true, every: { ownerId: "nobody" } },
-        }),
-        none: await lone({ children: { recurse: true, none: {} } }),
-        selfSome: await lone({
-          children: { recurse: true, self: true, some: {} },
-        }),
-        selfEvery: await lone({
-          children: { recurse: true, self: true, every: { ownerId: "nobody" } },
-        }),
-      }).toEqual({
-        some: false,
-        every: true,
-        none: true,
-        selfSome: true,
-        selfEvery: false,
-      });
-      // The same on a junction's lone team.
-      const loneTeam = await client.team.findMany({
-        where: {
-          id: "X",
-          parents: { recurse: { depth: false }, every: { id: "nobody" } },
-          children: { recurse: { depth: false }, none: {} },
-        },
-        select: { id: true },
-      });
-      expect(sorted(loneTeam)).toEqual(["X"]);
-    });
-
-    test("a junction's preventCycles admits the same closure", async () => {
-      const { client, world } = context;
-      const slot = { model: "team", relation: "children" } as const;
-      for (const preventCycles of [true, false]) {
-        const rows = await client.team.findMany({
-          where: {
+    recursiveTest(
+      provider,
+      "an empty closure: some is false, every and none are true; self makes it non-empty",
+      async () => {
+        const { client } = context;
+        const lone = async (where: object) =>
+          (await readIds(client, "document", where)).includes("L");
+        expect({
+          some: await lone({ children: { recurse: true, some: {} } }),
+          every: await lone({
+            children: { recurse: true, every: { ownerId: "nobody" } },
+          }),
+          none: await lone({ children: { recurse: true, none: {} } }),
+          selfSome: await lone({
+            children: { recurse: true, self: true, some: {} },
+          }),
+          selfEvery: await lone({
             children: {
-              recurse: { depth: 3, preventCycles },
-              some: { organizationId: "o2" },
+              recurse: true,
+              self: true,
+              every: { ownerId: "nobody" },
             },
+          }),
+        }).toEqual({
+          some: false,
+          every: true,
+          none: true,
+          selfSome: true,
+          selfEvery: false,
+        });
+        // The same on a junction's lone team.
+        const loneTeam = await client.team.findMany({
+          where: {
+            id: "X",
+            parents: { recurse: { depth: false }, every: { id: "nobody" } },
+            children: { recurse: { depth: false }, none: {} },
           },
           select: { id: true },
         });
-        expect(sorted(rows)).toEqual(
-          expectedIds(world, slot, "some", 3, false, (id) =>
-            world.teams.some(
-              (team) => team.id === id && team.organizationId === "o2"
-            )
-          )
-        );
+        expect(sorted(loneTeam)).toEqual(["X"]);
       }
-    });
+    );
 
-    test("every read verb takes the closure: findFirst, count, exist, aggregate and groupBy", async () => {
-      const { client, world } = context;
-      const where = {
-        parent: { recurse: { depth: 2 }, self: true, some: { ownerId: "cid" } },
-      } as const;
-      const matching = expectedIds(
-        world,
-        { model: "document", relation: "parent" },
-        "some",
-        2,
-        true,
-        (id) =>
-          world.documents.some((row) => row.id === id && row.ownerId === "cid")
-      );
-      for (const id of FIXED_DOCUMENTS) {
-        const first = await client.document.findFirst({
-          where: { AND: [{ id }, where] },
-          select: { id: true },
-        });
-        expect([id, first?.id ?? null]).toEqual([
-          id,
-          matching.includes(id) ? id : null,
-        ]);
-      }
-      expect(await client.document.count({ where })).toBe(matching.length);
-      expect(await client.document.exist({ where })).toBe(matching.length > 0);
-      expect(
-        (await client.document.aggregate({ where, _count: { _all: true } }))
-          ._count._all
-      ).toBe(matching.length);
-      const grouped = await client.document.groupBy({
-        by: ["organizationId"],
-        where,
-        _count: { _all: true },
-      });
-      const byOrganization = (organizationId: string) =>
-        matching.filter((id) =>
-          world.documents.some(
-            (row) => row.id === id && row.organizationId === organizationId
-          )
-        ).length;
-      expect(
-        grouped
-          .map((row) => [row.organizationId, row._count._all] as const)
-          .sort(([a], [b]) => a.localeCompare(b))
-      ).toEqual(
-        ["o1", "o2"]
-          .map(
-            (organizationId) =>
-              [organizationId, byOrganization(organizationId)] as const
-          )
-          .filter(([, count]) => count > 0)
-      );
-    });
-
-    test("a relation projection's where and a _count filter take the closure", async () => {
-      const { client, world } = context;
-      const where = {
-        children: {
-          recurse: true,
-          self: true,
-          some: { members: { some: { userId: "jon" } } },
-        },
-      } as const;
-      const admitted = new Set(
-        expectedIds(
-          world,
-          { model: "team", relation: "children" },
-          "some",
-          100,
-          true,
-          (id) =>
-            world.members.some(
-              (member) => member.teamId === id && member.userId === "jon"
+    recursiveTest(
+      provider,
+      "a junction's preventCycles admits the same closure",
+      async () => {
+        const { client, world } = context;
+        const slot = { model: "team", relation: "children" } as const;
+        for (const preventCycles of [true, false]) {
+          const rows = await client.team.findMany({
+            where: {
+              children: {
+                recurse: { depth: 3, preventCycles },
+                some: { organizationId: "o2" },
+              },
+            },
+            select: { id: true },
+          });
+          expect(sorted(rows)).toEqual(
+            expectedIds(world, slot, "some", 3, false, (id) =>
+              world.teams.some(
+                (team) => team.id === id && team.organizationId === "o2"
+              )
             )
-        )
-      );
-      const teams = await client.team.findMany({
-        select: {
-          id: true,
-          children: { where, select: { id: true } },
-          _count: { select: { children: { where } } },
-        },
-      });
-      const actual = teams
-        .map(
-          (team) =>
-            [team.id, sorted(team.children), team._count.children] as const
-        )
-        .sort(([a], [b]) => a.localeCompare(b));
-      const expected = world.teams
-        .map((team) => {
-          const children = world.teamLinks
-            .filter((link) => link.parentId === team.id)
-            .map((link) => link.childId)
-            .filter((id) => admitted.has(id))
-            .sort();
-          return [team.id, children, children.length] as const;
-        })
-        .sort(([a], [b]) => a.localeCompare(b));
-      expect(actual).toEqual(expected);
-    });
+          );
+        }
+      }
+    );
 
-    test("a recursive select's per-hop where takes a closure", async () => {
-      const { client, world } = context;
-      // Keep a node when a personal row is within two hops above it.
-      const keep = new Set(
-        expectedIds(
+    recursiveTest(
+      provider,
+      "every read verb takes the closure: findFirst, count, exist, aggregate and groupBy",
+      async () => {
+        const { client, world } = context;
+        const where = {
+          parent: {
+            recurse: { depth: 2 },
+            self: true,
+            some: { ownerId: "cid" },
+          },
+        } as const;
+        const matching = expectedIds(
           world,
           { model: "document", relation: "parent" },
           "some",
           2,
-          false,
-          (id) => world.documents.some((row) => row.id === id && row.personal)
-        )
-      );
-      interface Node {
-        readonly id: string;
-        readonly children: readonly Node[];
-      }
-      const below = (id: string): Node[] =>
-        world.documents
-          .filter((row) => row.parentId === id && keep.has(row.id))
-          .map((row) => ({ id: row.id, children: below(row.id) }));
-      expect(
-        await client.document.findUnique({
-          where: { id: "R" },
-          select: {
-            id: true,
-            children: {
-              recurse: { depth: false },
-              where: {
-                parent: { recurse: { depth: 2 }, some: { personal: true } },
-              },
-              select: { id: true },
-            },
-          },
-        })
-      ).toEqual({ id: "R", children: below("R") });
-      // Over the junction: the diamond's branches that reach Eve's team.
-      expect(
-        await client.team.findUnique({
-          where: { id: "DT" },
-          select: {
-            id: true,
-            children: {
-              recurse: { depth: 2 },
-              orderBy: { id: "asc" },
-              where: {
-                children: {
-                  recurse: true,
-                  self: true,
-                  some: { members: { some: { userId: "eve" } } },
-                },
-              },
-              select: { id: true },
-            },
-          },
-        })
-      ).toEqual({
-        id: "DT",
-        children: [
-          { id: "DL", children: [{ id: "DB" }] },
-          { id: "DR", children: [{ id: "DB" }] },
-        ],
-      });
-    });
-
-    test("AND, OR and NOT compose with a closure; closures nest in relation filters and in each other", async () => {
-      const { client, world } = context;
-      const parentHops = hopsOf(world, {
-        model: "document",
-        relation: "parent",
-      });
-      const childHops = hopsOf(world, {
-        model: "document",
-        relation: "children",
-      });
-      const row = (id: string) => world.documents.find((doc) => doc.id === id);
-      const ancestorPersonal = (id: string) =>
-        [...closureOf(parentHops, id, { depth: false, self: false })].some(
-          (member) => row(member)?.personal === true
-        );
-      const all = world.documents.map((doc) => doc.id);
-      const closure = {
-        parent: { recurse: { depth: false }, some: { personal: true } },
-      } as const;
-      expect(
-        await readIds(client, "document", {
-          AND: [closure, { ownerId: "ana" }],
-        })
-      ).toEqual(
-        all
-          .filter((id) => ancestorPersonal(id) && row(id)?.ownerId === "ana")
-          .sort()
-      );
-      expect(
-        await readIds(client, "document", { OR: [closure, { id: "L" }] })
-      ).toEqual(all.filter((id) => ancestorPersonal(id) || id === "L").sort());
-      expect(await readIds(client, "document", { NOT: closure })).toEqual(
-        all.filter((id) => !ancestorPersonal(id)).sort()
-      );
-      // A closure inside another relation filter, both cardinalities.
-      const grants = await client.accessGrant.findMany({
-        where: { document: closure },
-        select: { id: true },
-      });
-      expect(sorted(grants)).toEqual(
-        world.grants
-          .filter(
-            (entry) =>
-              entry.documentId !== null && ancestorPersonal(entry.documentId)
-          )
-          .map((entry) => entry.id)
-          .sort()
-      );
-      expect(
-        await readIds(client, "document", {
-          children: { some: { parent: { is: closure } } },
-        })
-      ).toEqual(
-        all
-          .filter((id) =>
+          true,
+          (id) =>
             world.documents.some(
-              (child) => child.parentId === id && ancestorPersonal(id)
+              (row) => row.id === id && row.ownerId === "cid"
             )
-          )
-          .sort()
-      );
-      // A closure inside a closure: an ancestor with a child owned by cid.
-      const childOwnedByCid = (id: string) =>
-        [...closureOf(childHops, id, { depth: 1, self: false })].some(
-          (member) => row(member)?.ownerId === "cid"
         );
-      expect(
-        await readIds(client, "document", {
-          parent: {
+        for (const id of FIXED_DOCUMENTS) {
+          const first = await client.document.findFirst({
+            where: { AND: [{ id }, where] },
+            select: { id: true },
+          });
+          expect([id, first?.id ?? null]).toEqual([
+            id,
+            matching.includes(id) ? id : null,
+          ]);
+        }
+        expect(await client.document.count({ where })).toBe(matching.length);
+        expect(await client.document.exist({ where })).toBe(
+          matching.length > 0
+        );
+        expect(
+          (await client.document.aggregate({ where, _count: { _all: true } }))
+            ._count._all
+        ).toBe(matching.length);
+        const grouped = await client.document.groupBy({
+          by: ["organizationId"],
+          where,
+          _count: { _all: true },
+        });
+        const byOrganization = (organizationId: string) =>
+          matching.filter((id) =>
+            world.documents.some(
+              (row) => row.id === id && row.organizationId === organizationId
+            )
+          ).length;
+        expect(
+          grouped
+            .map((row) => [row.organizationId, row._count._all] as const)
+            .sort(([a], [b]) => a.localeCompare(b))
+        ).toEqual(
+          ["o1", "o2"]
+            .map(
+              (organizationId) =>
+                [organizationId, byOrganization(organizationId)] as const
+            )
+            .filter(([, count]) => count > 0)
+        );
+      }
+    );
+
+    recursiveTest(
+      provider,
+      "a relation projection's where and a _count filter take the closure",
+      async () => {
+        const { client, world } = context;
+        const where = {
+          children: {
             recurse: true,
-            some: {
-              children: { recurse: { depth: 1 }, some: { ownerId: "cid" } },
-            },
+            self: true,
+            some: { members: { some: { userId: "jon" } } },
           },
-        })
-      ).toEqual(
-        all
-          .filter((id) =>
-            [...closureOf(parentHops, id, { depth: 100, self: false })].some(
-              childOwnedByCid
-            )
+        } as const;
+        const admitted = new Set(
+          expectedIds(
+            world,
+            { model: "team", relation: "children" },
+            "some",
+            100,
+            true,
+            (id) =>
+              world.members.some(
+                (member) => member.teamId === id && member.userId === "jon"
+              )
           )
-          .sort()
-      );
-    });
-
-    test("Pyxel case 1: a grant to Ventes reaches Dan in Ventes Nord, and Lea who leads Ventes without being a member", async () => {
-      const { client } = context;
-      const may = async (userId: string, id: string) =>
-        (
-          await client.page.findFirst({
-            where: { id, ...mayPage(userId, EDIT) },
-            select: { id: true },
+        );
+        const teams = await client.team.findMany({
+          select: {
+            id: true,
+            children: { where, select: { id: true } },
+            _count: { select: { children: { where } } },
+          },
+        });
+        const actual = teams
+          .map(
+            (team) =>
+              [team.id, sorted(team.children), team._count.children] as const
+          )
+          .sort(([a], [b]) => a.localeCompare(b));
+        const expected = world.teams
+          .map((team) => {
+            const children = world.teamLinks
+              .filter((link) => link.parentId === team.id)
+              .map((link) => link.childId)
+              .filter((id) => admitted.has(id))
+              .sort();
+            return [team.id, children, children.length] as const;
           })
-        )?.id ?? null;
-      expect(await may("dan", "pv")).toBe("pv");
-      expect(await may("lea", "pv")).toBe("pv");
-      expect(await may("mia", "pv")).toBe("pv");
-      // Ventes Nord's own grant reaches Dan; Lea leads the team above it.
-      expect(await may("dan", "pvn")).toBe("pvn");
-      expect(await may("lea", "pvn")).toBeNull();
-    });
+          .sort(([a], [b]) => a.localeCompare(b));
+        expect(actual).toEqual(expected);
+      }
+    );
 
-    test("Pyxel case 1: a grant to Ventes Nord does not reach Mia, a member of Ventes only", async () => {
-      const { client } = context;
-      expect(
-        await client.page.findFirst({
-          where: { id: "pvn", ...mayPage("mia", EDIT) },
-        })
-      ).toBeNull();
-      expect(
-        await client.team.findMany({
-          where: {
-            id: "VN",
-            children: {
+    recursiveTest(
+      provider,
+      "a recursive select's per-hop where takes a closure",
+      async () => {
+        const { client, world } = context;
+        // Keep a node when a personal row is within two hops above it.
+        const keep = new Set(
+          expectedIds(
+            world,
+            { model: "document", relation: "parent" },
+            "some",
+            2,
+            false,
+            (id) => world.documents.some((row) => row.id === id && row.personal)
+          )
+        );
+        interface Node {
+          readonly id: string;
+          readonly children: readonly Node[];
+        }
+        const below = (id: string): Node[] =>
+          world.documents
+            .filter((row) => row.parentId === id && keep.has(row.id))
+            .map((row) => ({ id: row.id, children: below(row.id) }));
+        expect(
+          await client.document.findUnique({
+            where: { id: "R" },
+            select: {
+              id: true,
+              children: {
+                recurse: { depth: false },
+                where: {
+                  parent: { recurse: { depth: 2 }, some: { personal: true } },
+                },
+                select: { id: true },
+              },
+            },
+          })
+        ).toEqual({ id: "R", children: below("R") });
+        // Over the junction: the diamond's branches that reach Eve's team.
+        expect(
+          await client.team.findUnique({
+            where: { id: "DT" },
+            select: {
+              id: true,
+              children: {
+                recurse: { depth: 2 },
+                orderBy: { id: "asc" },
+                where: {
+                  children: {
+                    recurse: true,
+                    self: true,
+                    some: { members: { some: { userId: "eve" } } },
+                  },
+                },
+                select: { id: true },
+              },
+            },
+          })
+        ).toEqual({
+          id: "DT",
+          children: [
+            { id: "DL", children: [{ id: "DB" }] },
+            { id: "DR", children: [{ id: "DB" }] },
+          ],
+        });
+      }
+    );
+
+    recursiveTest(
+      provider,
+      "AND, OR and NOT compose with a closure; closures nest in relation filters and in each other",
+      async () => {
+        const { client, world } = context;
+        const parentHops = hopsOf(world, {
+          model: "document",
+          relation: "parent",
+        });
+        const childHops = hopsOf(world, {
+          model: "document",
+          relation: "children",
+        });
+        const row = (id: string) =>
+          world.documents.find((doc) => doc.id === id);
+        const ancestorPersonal = (id: string) =>
+          [...closureOf(parentHops, id, { depth: false, self: false })].some(
+            (member) => row(member)?.personal === true
+          );
+        const all = world.documents.map((doc) => doc.id);
+        const closure = {
+          parent: { recurse: { depth: false }, some: { personal: true } },
+        } as const;
+        expect(
+          await readIds(client, "document", {
+            AND: [closure, { ownerId: "ana" }],
+          })
+        ).toEqual(
+          all
+            .filter((id) => ancestorPersonal(id) && row(id)?.ownerId === "ana")
+            .sort()
+        );
+        expect(
+          await readIds(client, "document", { OR: [closure, { id: "L" }] })
+        ).toEqual(
+          all.filter((id) => ancestorPersonal(id) || id === "L").sort()
+        );
+        expect(await readIds(client, "document", { NOT: closure })).toEqual(
+          all.filter((id) => !ancestorPersonal(id)).sort()
+        );
+        // A closure inside another relation filter, both cardinalities.
+        const grants = await client.accessGrant.findMany({
+          where: { document: closure },
+          select: { id: true },
+        });
+        expect(sorted(grants)).toEqual(
+          world.grants
+            .filter(
+              (entry) =>
+                entry.documentId !== null && ancestorPersonal(entry.documentId)
+            )
+            .map((entry) => entry.id)
+            .sort()
+        );
+        expect(
+          await readIds(client, "document", {
+            children: { some: { parent: { is: closure } } },
+          })
+        ).toEqual(
+          all
+            .filter((id) =>
+              world.documents.some(
+                (child) => child.parentId === id && ancestorPersonal(id)
+              )
+            )
+            .sort()
+        );
+        // A closure inside a closure: an ancestor with a child owned by cid.
+        const childOwnedByCid = (id: string) =>
+          [...closureOf(childHops, id, { depth: 1, self: false })].some(
+            (member) => row(member)?.ownerId === "cid"
+          );
+        expect(
+          await readIds(client, "document", {
+            parent: {
               recurse: true,
-              self: true,
-              some: { members: { some: { userId: "mia" } } },
+              some: {
+                children: { recurse: { depth: 1 }, some: { ownerId: "cid" } },
+              },
+            },
+          })
+        ).toEqual(
+          all
+            .filter((id) =>
+              [...closureOf(parentHops, id, { depth: 100, self: false })].some(
+                childOwnedByCid
+              )
+            )
+            .sort()
+        );
+      }
+    );
+
+    recursiveTest(
+      provider,
+      "Pyxel case 1: a grant to Ventes reaches Dan in Ventes Nord, and Lea who leads Ventes without being a member",
+      async () => {
+        const { client } = context;
+        const may = async (userId: string, id: string) =>
+          (
+            await client.page.findFirst({
+              where: { id, ...mayPage(userId, EDIT) },
+              select: { id: true },
+            })
+          )?.id ?? null;
+        expect(await may("dan", "pv")).toBe("pv");
+        expect(await may("lea", "pv")).toBe("pv");
+        expect(await may("mia", "pv")).toBe("pv");
+        // Ventes Nord's own grant reaches Dan; Lea leads the team above it.
+        expect(await may("dan", "pvn")).toBe("pvn");
+        expect(await may("lea", "pvn")).toBeNull();
+      }
+    );
+
+    recursiveTest(
+      provider,
+      "Pyxel case 1: a grant to Ventes Nord does not reach Mia, a member of Ventes only",
+      async () => {
+        const { client } = context;
+        expect(
+          await client.page.findFirst({
+            where: { id: "pvn", ...mayPage("mia", EDIT) },
+          })
+        ).toBeNull();
+        expect(
+          await client.team.findMany({
+            where: {
+              id: "VN",
+              children: {
+                recurse: true,
+                self: true,
+                some: { members: { some: { userId: "mia" } } },
+              },
+            },
+          })
+        ).toEqual([]);
+      }
+    );
+
+    recursiveTest(
+      provider,
+      "a junction walk reads the related domain at every hop",
+      async () => {
+        // Ventes and Nord Est are hidden wherever a relation reaches them, never
+        // at the root. Each is two hops from the other: the first hop reaches
+        // Ventes Nord, the second the hidden end.
+        const hidden = context.client.$extends({
+          name: "test.hiddenTeams",
+          rows: {
+            control: "hidden",
+            default: "on",
+            models: {
+              team: {
+                on: { related: { id: { notIn: ["V", "NE"] } } },
+                off: {},
+              },
             },
           },
-        })
-      ).toEqual([]);
-    });
+        });
+        const teams = async (where: object, mode: "on" | "off") =>
+          sorted(
+            await hidden.team.findMany({
+              where: { id: { in: ["V", "VN", "NE"] }, ...where },
+              select: { id: true },
+              hidden: mode,
+            })
+          );
+        const reachNordEst = {
+          children: { recurse: true, some: { id: "NE" } },
+        };
+        const belowVentes = { parents: { recurse: true, some: { id: "V" } } };
+        expect(await teams(reachNordEst, "on")).toEqual([]);
+        expect(await teams(reachNordEst, "off")).toEqual(["V", "VN"]);
+        expect(await teams(belowVentes, "on")).toEqual([]);
+        expect(await teams(belowVentes, "off")).toEqual(["NE", "VN"]);
+      }
+    );
 
-    test("a junction walk reads the related domain at every hop", async () => {
-      // Ventes and Nord Est are hidden wherever a relation reaches them, never
-      // at the root. Each is two hops from the other: the first hop reaches
-      // Ventes Nord, the second the hidden end.
-      const hidden = context.client.$extends({
-        name: "test.hiddenTeams",
-        rows: {
-          control: "hidden",
-          default: "on",
-          models: {
-            team: { on: { related: { id: { notIn: ["V", "NE"] } } }, off: {} },
-          },
-        },
-      });
-      const teams = async (where: object, mode: "on" | "off") =>
-        sorted(
-          await hidden.team.findMany({
-            where: { id: { in: ["V", "VN", "NE"] }, ...where },
-            select: { id: true },
-            hidden: mode,
+    recursiveTest(
+      provider,
+      "the written cycles A <-> B and cyc1 <-> cyc2 terminate with the oracle's rows",
+      async () => {
+        const { client } = context;
+        expect(
+          await readIds(client, "document", {
+            id: { in: FIXED_DOCUMENTS },
+            ...documentAccess("vic", EDIT),
           })
-        );
-      const reachNordEst = { children: { recurse: true, some: { id: "NE" } } };
-      const belowVentes = { parents: { recurse: true, some: { id: "V" } } };
-      expect(await teams(reachNordEst, "on")).toEqual([]);
-      expect(await teams(reachNordEst, "off")).toEqual(["V", "VN"]);
-      expect(await teams(belowVentes, "on")).toEqual([]);
-      expect(await teams(belowVentes, "off")).toEqual(["NE", "VN"]);
-    });
+        ).toEqual(["C1", "C2"]);
+        // No root above a cycle: neither member is personal.
+        expect(
+          await readIds(client, "document", {
+            id: { in: ["C1", "C2"] },
+            ...personal,
+          })
+        ).toEqual([]);
+        // A walk that comes back to its start makes the start a member, even
+        // without self.
+        expect(
+          await readIds(client, "team", {
+            children: { recurse: { depth: false }, some: { id: "cyc1" } },
+          })
+        ).toEqual(["cyc1", "cyc2"]);
+        expect(
+          await readIds(client, "document", {
+            parent: { recurse: true, some: { id: "C1" } },
+          })
+        ).toEqual(["C1", "C2"]);
+      }
+    );
 
-    test("the written cycles A <-> B and cyc1 <-> cyc2 terminate with the oracle's rows", async () => {
-      const { client } = context;
-      expect(
-        await readIds(client, "document", {
-          id: { in: FIXED_DOCUMENTS },
-          ...documentAccess("vic", EDIT),
-        })
-      ).toEqual(["C1", "C2"]);
-      // No root above a cycle: neither member is personal.
-      expect(
-        await readIds(client, "document", {
-          id: { in: ["C1", "C2"] },
-          ...personal,
-        })
-      ).toEqual([]);
-      // A walk that comes back to its start makes the start a member, even
-      // without self.
-      expect(
-        await readIds(client, "team", {
-          children: { recurse: { depth: false }, some: { id: "cyc1" } },
-        })
-      ).toEqual(["cyc1", "cyc2"]);
-      expect(
-        await readIds(client, "document", {
-          parent: { recurse: true, some: { id: "C1" } },
-        })
-      ).toEqual(["C1", "C2"]);
-    });
-
-    test("the diamond terminates and each team is counted once", async () => {
-      const { client } = context;
-      const below = { parents: { recurse: true, some: { id: "DT" } } } as const;
-      expect(await readIds(client, "team", below)).toEqual(["DB", "DL", "DR"]);
-      expect(await client.team.count({ where: below })).toBe(3);
-      expect(
-        await client.team.findUnique({
-          where: { id: "DT" },
-          select: {
-            _count: {
-              select: {
-                children: {
-                  where: {
-                    children: {
-                      recurse: true,
-                      self: true,
-                      some: { members: { some: { userId: "eve" } } },
+    recursiveTest(
+      provider,
+      "the diamond terminates and each team is counted once",
+      async () => {
+        const { client } = context;
+        const below = {
+          parents: { recurse: true, some: { id: "DT" } },
+        } as const;
+        expect(await readIds(client, "team", below)).toEqual([
+          "DB",
+          "DL",
+          "DR",
+        ]);
+        expect(await client.team.count({ where: below })).toBe(3);
+        expect(
+          await client.team.findUnique({
+            where: { id: "DT" },
+            select: {
+              _count: {
+                select: {
+                  children: {
+                    where: {
+                      children: {
+                        recurse: true,
+                        self: true,
+                        some: { members: { some: { userId: "eve" } } },
+                      },
                     },
                   },
                 },
               },
             },
-          },
-        })
-      ).toEqual({ _count: { children: 2 } });
-      expect(
-        sorted(
-          await client.page.findMany({
-            where: mayPage("eve", READ),
-            select: { id: true },
           })
-        )
-      ).toEqual(["pdt"]);
-    });
+        ).toEqual({ _count: { children: 2 } });
+        expect(
+          sorted(
+            await client.page.findMany({
+              where: mayPage("eve", READ),
+              select: { id: true },
+            })
+          )
+        ).toEqual(["pdt"]);
+      }
+    );
   });
 
   describe(`${provider.name}: recursive relation filters in changes`, () => {
@@ -1302,114 +1387,118 @@ export function runRecursiveRelationFilterBehavior(
       await context.client.$disconnect();
     });
 
-    test("updateMany and deleteMany walk the model they change: the oracle's rows, on every provider", async () => {
-      const { client, world } = context;
-      const holds =
-        (field: (row: DocumentRow) => boolean) =>
-        (id: string): boolean =>
-          world.documents.some((row) => row.id === id && field(row));
-      const documents = () => documentRows(client);
+    recursiveTest(
+      provider,
+      "updateMany and deleteMany walk the model they change: the oracle's rows, on every provider",
+      async () => {
+        const { client, world } = context;
+        const holds =
+          (field: (row: DocumentRow) => boolean) =>
+          (id: string): boolean =>
+            world.documents.some((row) => row.id === id && field(row));
+        const documents = () => documentRows(client);
 
-      // documents, upward: rows with a personal ancestor.
-      const touched = new Set(
-        expectedIds(
-          world,
-          { model: "document", relation: "parent" },
-          "some",
-          100,
-          false,
-          holds((row) => row.personal)
-        )
-      );
-      const updated = [...world.documents]
-        .sort(byId)
-        .map((row) =>
-          touched.has(row.id) ? { ...row, organizationId: "touched" } : row
+        // documents, upward: rows with a personal ancestor.
+        const touched = new Set(
+          expectedIds(
+            world,
+            { model: "document", relation: "parent" },
+            "some",
+            100,
+            false,
+            holds((row) => row.personal)
+          )
         );
-      await expectChangeWalkingItsModel(
-        documents,
-        () =>
-          client.document.updateMany({
-            where: { parent: { recurse: true, some: { personal: true } } },
-            data: { organizationId: "touched" },
-          }),
-        { result: { count: touched.size }, state: updated }
-      );
-
-      // documents, downward: a descendant within two hops owned by cid. The
-      // set is the statement's snapshot.
-      const gone = new Set(
-        expectedIds(
-          world,
-          { model: "document", relation: "children" },
-          "some",
-          2,
-          false,
-          holds((row) => row.ownerId === "cid")
-        )
-      );
-      await expectChangeWalkingItsModel(
-        documents,
-        () =>
-          client.document.deleteMany({
-            where: {
-              children: { recurse: { depth: 2 }, some: { ownerId: "cid" } },
-            },
-          }),
-        { result: { count: gone.size }, state: deleting(updated, gone) }
-      );
-
-      // teams, through the junction: rows at or below a team of o2.
-      const teams = async () =>
-        (await client.team.findMany({ select: { id: true, name: true } })).sort(
-          byId
+        const updated = [...world.documents]
+          .sort(byId)
+          .map((row) =>
+            touched.has(row.id) ? { ...row, organizationId: "touched" } : row
+          );
+        await expectChangeWalkingItsModel(
+          documents,
+          () =>
+            client.document.updateMany({
+              where: { parent: { recurse: true, some: { personal: true } } },
+              data: { organizationId: "touched" },
+            }),
+          { result: { count: touched.size }, state: updated }
         );
-      const renamed = new Set(
-        expectedIds(
-          world,
-          { model: "team", relation: "parents" },
-          "some",
-          100,
-          true,
-          (id) =>
-            world.teams.some(
-              (team) => team.id === id && team.organizationId === "o2"
-            )
-        )
-      );
-      const named = [...world.teams].sort(byId).map(({ id, name }) => ({
-        id,
-        name: renamed.has(id) ? "touched" : name,
-      }));
-      await expectChangeWalkingItsModel(
-        teams,
-        () =>
-          client.team.updateMany({
-            where: {
-              parents: {
-                recurse: true,
-                self: true,
-                some: { organizationId: "o2" },
+
+        // documents, downward: a descendant within two hops owned by cid. The
+        // set is the statement's snapshot.
+        const gone = new Set(
+          expectedIds(
+            world,
+            { model: "document", relation: "children" },
+            "some",
+            2,
+            false,
+            holds((row) => row.ownerId === "cid")
+          )
+        );
+        await expectChangeWalkingItsModel(
+          documents,
+          () =>
+            client.document.deleteMany({
+              where: {
+                children: { recurse: { depth: 2 }, some: { ownerId: "cid" } },
               },
-            },
-            data: { name: "touched" },
-          }),
-        { result: { count: renamed.size }, state: named }
-      );
-      // The leaf below Ventes with no members: Nord Est.
-      await expectChangeWalkingItsModel(
-        teams,
-        () =>
-          client.team.deleteMany({
-            where: {
-              parents: { recurse: true, some: { id: "V" } },
-              children: { none: {} },
-              members: { none: {} },
-            },
-          }),
-        { result: { count: 1 }, state: named.filter(({ id }) => id !== "NE") }
-      );
-    });
+            }),
+          { result: { count: gone.size }, state: deleting(updated, gone) }
+        );
+
+        // teams, through the junction: rows at or below a team of o2.
+        const teams = async () =>
+          (
+            await client.team.findMany({ select: { id: true, name: true } })
+          ).sort(byId);
+        const renamed = new Set(
+          expectedIds(
+            world,
+            { model: "team", relation: "parents" },
+            "some",
+            100,
+            true,
+            (id) =>
+              world.teams.some(
+                (team) => team.id === id && team.organizationId === "o2"
+              )
+          )
+        );
+        const named = [...world.teams].sort(byId).map(({ id, name }) => ({
+          id,
+          name: renamed.has(id) ? "touched" : name,
+        }));
+        await expectChangeWalkingItsModel(
+          teams,
+          () =>
+            client.team.updateMany({
+              where: {
+                parents: {
+                  recurse: true,
+                  self: true,
+                  some: { organizationId: "o2" },
+                },
+              },
+              data: { name: "touched" },
+            }),
+          { result: { count: renamed.size }, state: named }
+        );
+        // The leaf below Ventes with no members: Nord Est.
+        await expectChangeWalkingItsModel(
+          teams,
+          () =>
+            client.team.deleteMany({
+              where: {
+                parents: { recurse: true, some: { id: "V" } },
+                children: { none: {} },
+                members: { none: {} },
+              },
+            }),
+          { result: { count: 1 }, state: named.filter(({ id }) => id !== "NE") }
+        );
+      }
+    );
 
     // An update is judged on the row it produces, which the database does not
     // hold yet: the walk leaves it by the parent it is given. Ben owns A, an
@@ -1447,296 +1536,336 @@ export function runRecursiveRelationFilterBehavior(
     const parentOf = async (client: Client, id: string) =>
       (await client.document.findUnique({ where: { id } }))?.parentId;
 
-    test("a judged update reads a closure it states twice from the new row's parent", async () => {
-      const { client } = context;
-      const judged = judging(client, false);
-      await expect(
-        judged.document.update({ where: { id: "D3" }, data: { parentId: "L" } })
-      ).rejects.toBeInstanceOf(ForbiddenError);
-      expect(await parentOf(client, "D3")).toBe("G");
-      await judged.document.update({
-        where: { id: "D3" },
-        data: { parentId: "C1" },
-      });
-      expect(await parentOf(client, "D3")).toBe("C1");
-    });
+    recursiveTest(
+      provider,
+      "a judged update reads a closure it states twice from the new row's parent",
+      async () => {
+        const { client } = context;
+        const judged = judging(client, false);
+        await expect(
+          judged.document.update({
+            where: { id: "D3" },
+            data: { parentId: "L" },
+          })
+        ).rejects.toBeInstanceOf(ForbiddenError);
+        expect(await parentOf(client, "D3")).toBe("G");
+        await judged.document.update({
+          where: { id: "D3" },
+          data: { parentId: "C1" },
+        });
+        expect(await parentOf(client, "D3")).toBe("C1");
+      }
+    );
 
     // Pins the answer 1.3 gave, unchanged by the walk's trimming and sharing:
     // with `self`, the walk reads the start row from the table by its key,
     // and leaves the row stored there too, by its old parent.
-    test("a judged update's closure with self also leaves the stored row it replaces", async () => {
-      const { client } = context;
-      const judged = judging(client, true);
-      await judged.document.update({
-        where: { id: "D3" },
-        data: { parentId: "L" },
-      });
-      expect(await parentOf(client, "D3")).toBe("L");
-    });
+    recursiveTest(
+      provider,
+      "a judged update's closure with self also leaves the stored row it replaces",
+      async () => {
+        const { client } = context;
+        const judged = judging(client, true);
+        await judged.document.update({
+          where: { id: "D3" },
+          data: { parentId: "L" },
+        });
+        expect(await parentOf(client, "D3")).toBe("L");
+      }
+    );
 
-    test("a nested updateMany whose filter walks its own model, on every provider", async () => {
-      const { client } = context;
-      // R's one child A has D3 (cid) two hops below it.
-      await expectChangeWalkingItsModel(
-        () =>
-          client.document.findMany({
-            where: { id: { in: ["R", "A"] } },
-            select: { id: true, ownerId: true, personal: true },
-            orderBy: { id: "asc" },
-          }),
-        () =>
-          client.document.update({
-            where: { id: "R" },
-            data: {
-              ownerId: "zoe",
-              children: {
-                updateMany: {
-                  where: {
-                    children: { recurse: true, some: { ownerId: "cid" } },
+    recursiveTest(
+      provider,
+      "a nested updateMany whose filter walks its own model, on every provider",
+      async () => {
+        const { client } = context;
+        // R's one child A has D3 (cid) two hops below it.
+        await expectChangeWalkingItsModel(
+          () =>
+            client.document.findMany({
+              where: { id: { in: ["R", "A"] } },
+              select: { id: true, ownerId: true, personal: true },
+              orderBy: { id: "asc" },
+            }),
+          () =>
+            client.document.update({
+              where: { id: "R" },
+              data: {
+                ownerId: "zoe",
+                children: {
+                  updateMany: {
+                    where: {
+                      children: { recurse: true, some: { ownerId: "cid" } },
+                    },
+                    data: { personal: true },
                   },
-                  data: { personal: true },
                 },
               },
-            },
-          }),
-        {
-          result: expect.objectContaining({ id: "R", ownerId: "zoe" }),
-          state: [
-            { id: "A", ownerId: "ben", personal: true },
-            { id: "R", ownerId: "zoe", personal: true },
-          ],
-        }
-      );
-    });
+            }),
+          {
+            result: expect.objectContaining({ id: "R", ownerId: "zoe" }),
+            state: [
+              { id: "A", ownerId: "ben", personal: true },
+              { id: "R", ownerId: "zoe", personal: true },
+            ],
+          }
+        );
+      }
+    );
 
-    test("recurse: true follows 100 hops; { depth: false } follows the chain to its end", async () => {
-      const { client } = context;
-      // deep000 <- deep001 <- ... <- deep101: one hop longer than 100.
-      const chain = Array.from(
-        { length: 102 },
-        (_, index) => `deep${String(index).padStart(3, "0")}`
-      );
-      await client.document.createMany({
-        data: chain.map((id, index) => ({
-          id,
-          organizationId: "o3",
-          ownerId: "ana",
-          parentId: chain[index - 1] ?? null,
-        })),
-      });
-      const below = (recurse: true | { readonly depth: false }) =>
-        readIds(client, "document", {
-          organizationId: "o3",
-          parent: { recurse, some: { id: "deep000" } },
+    recursiveTest(
+      provider,
+      "recurse: true follows 100 hops; { depth: false } follows the chain to its end",
+      async () => {
+        const { client } = context;
+        // deep000 <- deep001 <- ... <- deep101: one hop longer than 100.
+        const chain = Array.from(
+          { length: 102 },
+          (_, index) => `deep${String(index).padStart(3, "0")}`
+        );
+        await client.document.createMany({
+          data: chain.map((id, index) => ({
+            id,
+            organizationId: "o3",
+            ownerId: "ana",
+            parentId: chain[index - 1] ?? null,
+          })),
         });
-      expect(await below(true)).toEqual(chain.slice(1, 101));
-      expect(await below({ depth: false })).toEqual(chain.slice(1));
-    });
+        const below = (recurse: true | { readonly depth: false }) =>
+          readIds(client, "document", {
+            organizationId: "o3",
+            parent: { recurse, some: { id: "deep000" } },
+          });
+        expect(await below(true)).toEqual(chain.slice(1, 101));
+        expect(await below({ depth: false })).toEqual(chain.slice(1));
+      }
+    );
 
-    test("Pyxel: the same fragment filters findMany, count, updateMany and deleteMany, on every provider", async () => {
-      const { client } = context;
-      const pages = async (userId: string, levels: readonly string[]) =>
-        sorted(
-          await client.page.findMany({
-            where: mayPage(userId, levels),
-            select: { id: true },
-          })
+    recursiveTest(
+      provider,
+      "Pyxel: the same fragment filters findMany, count, updateMany and deleteMany, on every provider",
+      async () => {
+        const { client } = context;
+        const pages = async (userId: string, levels: readonly string[]) =>
+          sorted(
+            await client.page.findMany({
+              where: mayPage(userId, levels),
+              select: { id: true },
+            })
+          );
+        expect({
+          dan: await pages("dan", EDIT),
+          lea: await pages("lea", EDIT),
+          mia: await pages("mia", EDIT),
+          eve: await pages("eve", READ),
+          eveEditing: await pages("eve", EDIT),
+          zed: await pages("zed", EDIT),
+          uma: await pages("uma", READ),
+          umaEditing: await pages("uma", EDIT),
+          vic: await pages("vic", EDIT),
+          nobody: await pages("nobody", READ),
+        }).toEqual({
+          dan: ["pv", "pvn"],
+          lea: ["pv"],
+          mia: ["pv"],
+          eve: ["pdt"],
+          eveEditing: [],
+          zed: ["pcy"],
+          uma: ["pg"],
+          umaEditing: [],
+          vic: ["pc"],
+          nobody: [],
+        });
+        expect(await client.page.count({ where: mayPage("dan", EDIT) })).toBe(
+          2
         );
-      expect({
-        dan: await pages("dan", EDIT),
-        lea: await pages("lea", EDIT),
-        mia: await pages("mia", EDIT),
-        eve: await pages("eve", READ),
-        eveEditing: await pages("eve", EDIT),
-        zed: await pages("zed", EDIT),
-        uma: await pages("uma", READ),
-        umaEditing: await pages("uma", EDIT),
-        vic: await pages("vic", EDIT),
-        nobody: await pages("nobody", READ),
-      }).toEqual({
-        dan: ["pv", "pvn"],
-        lea: ["pv"],
-        mia: ["pv"],
-        eve: ["pdt"],
-        eveEditing: [],
-        zed: ["pcy"],
-        uma: ["pg"],
-        umaEditing: [],
-        vic: ["pc"],
-        nobody: [],
-      });
-      expect(await client.page.count({ where: mayPage("dan", EDIT) })).toBe(2);
-      // The change targets `page`; the closures walk `team` and `document`.
-      expect(
-        await client.page.updateMany({
-          where: mayPage("dan", EDIT),
-          data: { title: "edited by Dan" },
-        })
-      ).toEqual({ count: 2 });
-      expect(
-        await client.page.updateMany({
-          where: { OR: [mayPage("vic", EDIT), mayPage("uma", READ)] },
-          data: { title: "edited through a document" },
-        })
-      ).toEqual({ count: 2 });
-      expect(
-        (
-          await client.page.findMany({ select: { id: true, title: true } })
-        ).sort((a, b) => a.id.localeCompare(b.id))
-      ).toEqual([
-        { id: "pc", title: "edited through a document" },
-        { id: "pcy", title: "Cycle notes" },
-        { id: "pdt", title: "Diamond notes" },
-        { id: "pg", title: "edited through a document" },
-        { id: "pv", title: "edited by Dan" },
-        { id: "pvn", title: "edited by Dan" },
-      ]);
-      expect(
-        await client.page.deleteMany({ where: mayPage("mia", EDIT) })
-      ).toEqual({ count: 1 });
-      expect(
-        await client.page.deleteMany({ where: mayPage("eve", READ) })
-      ).toEqual({ count: 1 });
-      expect(
-        sorted(await client.page.findMany({ select: { id: true } }))
-      ).toEqual(["pc", "pcy", "pg", "pvn"]);
-    });
-
-    test("Pyxel case 2: a grant on the root document reaches its grandchild, in every verb", async () => {
-      const { client, world } = context;
-      const access = (levels: readonly string[]) => ({
-        id: { in: FIXED_DOCUMENTS },
-        ...documentAccess("uma", levels),
-      });
-      expect(
-        (
-          await client.document.findFirst({
-            where: { id: "G", ...documentAccess("uma", READ) },
-            select: { id: true },
+        // The change targets `page`; the closures walk `team` and `document`.
+        expect(
+          await client.page.updateMany({
+            where: mayPage("dan", EDIT),
+            data: { title: "edited by Dan" },
           })
-        )?.id
-      ).toBe("G");
-      expect(
-        await client.document.findFirst({
-          where: { id: "L", ...documentAccess("uma", READ) },
-        })
-      ).toBeNull();
-      expect(await readIds(client, "document", access(READ))).toEqual(ROOTED);
-      expect(await client.document.count({ where: access(READ) })).toBe(4);
-      // The grant is `read`: an `edit` check does not reach anything.
-      expect(await client.document.count({ where: access(EDIT) })).toBe(0);
-      const owned = [...world.documents]
-        .sort(byId)
-        .map((row) =>
-          ROOTED.includes(row.id) ? { ...row, ownerId: "uma" } : row
+        ).toEqual({ count: 2 });
+        expect(
+          await client.page.updateMany({
+            where: { OR: [mayPage("vic", EDIT), mayPage("uma", READ)] },
+            data: { title: "edited through a document" },
+          })
+        ).toEqual({ count: 2 });
+        expect(
+          (
+            await client.page.findMany({ select: { id: true, title: true } })
+          ).sort((a, b) => a.id.localeCompare(b.id))
+        ).toEqual([
+          { id: "pc", title: "edited through a document" },
+          { id: "pcy", title: "Cycle notes" },
+          { id: "pdt", title: "Diamond notes" },
+          { id: "pg", title: "edited through a document" },
+          { id: "pv", title: "edited by Dan" },
+          { id: "pvn", title: "edited by Dan" },
+        ]);
+        expect(
+          await client.page.deleteMany({ where: mayPage("mia", EDIT) })
+        ).toEqual({ count: 1 });
+        expect(
+          await client.page.deleteMany({ where: mayPage("eve", READ) })
+        ).toEqual({ count: 1 });
+        expect(
+          sorted(await client.page.findMany({ select: { id: true } }))
+        ).toEqual(["pc", "pcy", "pg", "pvn"]);
+      }
+    );
+
+    recursiveTest(
+      provider,
+      "Pyxel case 2: a grant on the root document reaches its grandchild, in every verb",
+      async () => {
+        const { client, world } = context;
+        const access = (levels: readonly string[]) => ({
+          id: { in: FIXED_DOCUMENTS },
+          ...documentAccess("uma", levels),
+        });
+        expect(
+          (
+            await client.document.findFirst({
+              where: { id: "G", ...documentAccess("uma", READ) },
+              select: { id: true },
+            })
+          )?.id
+        ).toBe("G");
+        expect(
+          await client.document.findFirst({
+            where: { id: "L", ...documentAccess("uma", READ) },
+          })
+        ).toBeNull();
+        expect(await readIds(client, "document", access(READ))).toEqual(ROOTED);
+        expect(await client.document.count({ where: access(READ) })).toBe(4);
+        // The grant is `read`: an `edit` check does not reach anything.
+        expect(await client.document.count({ where: access(EDIT) })).toBe(0);
+        const owned = [...world.documents]
+          .sort(byId)
+          .map((row) =>
+            ROOTED.includes(row.id) ? { ...row, ownerId: "uma" } : row
+          );
+        await expectChangeWalkingItsModel(
+          () => documentRows(client),
+          () =>
+            client.document.updateMany({
+              where: access(READ),
+              data: { ownerId: "uma" },
+            }),
+          { result: { count: 4 }, state: owned }
         );
-      await expectChangeWalkingItsModel(
-        () => documentRows(client),
-        () =>
-          client.document.updateMany({
-            where: access(READ),
-            data: { ownerId: "uma" },
-          }),
-        { result: { count: 4 }, state: owned }
-      );
-      await expectChangeWalkingItsModel(
-        () => documentRows(client),
-        () =>
-          client.document.deleteMany({
-            where: { id: { in: ["G", "D3"] }, ...documentAccess("uma", READ) },
-          }),
-        { result: { count: 2 }, state: deleting(owned, new Set(["G", "D3"])) }
-      );
-    });
+        await expectChangeWalkingItsModel(
+          () => documentRows(client),
+          () =>
+            client.document.deleteMany({
+              where: {
+                id: { in: ["G", "D3"] },
+                ...documentAccess("uma", READ),
+              },
+            }),
+          { result: { count: 2 }, state: deleting(owned, new Set(["G", "D3"])) }
+        );
+      }
+    );
 
-    test("Pyxel case 2: a personal root makes its grandchild personal, in every verb", async () => {
-      const { client, world } = context;
-      expect(
-        (
-          await client.document.findFirst({
-            where: { id: "G", ...personal },
-            select: { id: true },
+    recursiveTest(
+      provider,
+      "Pyxel case 2: a personal root makes its grandchild personal, in every verb",
+      async () => {
+        const { client, world } = context;
+        expect(
+          (
+            await client.document.findFirst({
+              where: { id: "G", ...personal },
+              select: { id: true },
+            })
+          )?.id
+        ).toBe("G");
+        const fixed = { id: { in: FIXED_DOCUMENTS }, ...personal };
+        expect(await readIds(client, "document", fixed)).toEqual(ROOTED);
+        expect(await client.document.count({ where: fixed })).toBe(4);
+        // Through a page, the change of another model: allowed everywhere.
+        expect(
+          await client.page.updateMany({
+            where: { document: personal },
+            data: { title: "personal" },
           })
-        )?.id
-      ).toBe("G");
-      const fixed = { id: { in: FIXED_DOCUMENTS }, ...personal };
-      expect(await readIds(client, "document", fixed)).toEqual(ROOTED);
-      expect(await client.document.count({ where: fixed })).toBe(4);
-      // Through a page, the change of another model: allowed everywhere.
-      expect(
-        await client.page.updateMany({
-          where: { document: personal },
-          data: { title: "personal" },
-        })
-      ).toEqual({ count: 1 });
-      expect(
-        await client.page.findUnique({
-          where: { id: "pg" },
-          select: { title: true },
-        })
-      ).toEqual({ title: "personal" });
-      await expectChangeWalkingItsModel(
-        () => documentRows(client),
-        () => client.document.deleteMany({ where: fixed }),
-        {
-          result: { count: 4 },
-          state: deleting([...world.documents].sort(byId), new Set(ROOTED)),
-        }
-      );
-    });
+        ).toEqual({ count: 1 });
+        expect(
+          await client.page.findUnique({
+            where: { id: "pg" },
+            select: { title: true },
+          })
+        ).toEqual({ title: "personal" });
+        await expectChangeWalkingItsModel(
+          () => documentRows(client),
+          () => client.document.deleteMany({ where: fixed }),
+          {
+            result: { count: 4 },
+            state: deleting([...world.documents].sort(byId), new Set(ROOTED)),
+          }
+        );
+      }
+    );
   });
 
   // MySQL fires a delete's referential actions row by row, inside the
   // statement, where a correlated filter would read them for later rows.
   describe(`${provider.name}: recursive relation filters in a cascading delete`, () => {
-    test("a deleteMany whose closure walks a model its delete cascades into matches the rows it matched before the delete", async () => {
-      await provider.reset?.();
-      const client = createClient({
-        schema: cascadeSchema(),
-        driver: provider.createDriver(),
-      });
-      try {
-        await syncLiveSchema(client);
-        // R (label root, held by h1) <- M (h2) <- X (h3).
-        const seed = async () => {
-          await client.folder.deleteMany({});
-          await client.holder.deleteMany({});
-          await client.holder.createMany({
-            data: [{ id: "h1" }, { id: "h2" }, { id: "h3" }],
-          });
-          for (const [id, label, holderId, parentId] of [
-            ["R", "root", "h1", null],
-            ["M", "m", "h2", "R"],
-            ["X", "x", "h3", "M"],
-          ] as const)
-            await client.folder.create({
-              data: { id, label, holderId, parentId },
+    recursiveTest(
+      provider,
+      "a deleteMany whose closure walks a model its delete cascades into matches the rows it matched before the delete",
+      async () => {
+        await provider.reset?.();
+        const client = createClient({
+          schema: cascadeSchema(),
+          driver: provider.createDriver(),
+        });
+        try {
+          await syncLiveSchema(client);
+          // R (label root, held by h1) <- M (h2) <- X (h3).
+          const seed = async () => {
+            await client.folder.deleteMany({});
+            await client.holder.deleteMany({});
+            await client.holder.createMany({
+              data: [{ id: "h1" }, { id: "h2" }, { id: "h3" }],
             });
-        };
-        const holders = async () =>
-          sorted(await client.holder.findMany({ select: { id: true } }));
-        const belowRoot = {
-          parent: { recurse: true, some: { label: "root" } },
-        } as const;
-        await seed();
-        // Deleting h2 first would take M, and X's root with it.
-        expect(
-          await client.holder.deleteMany({
-            where: { folders: { some: belowRoot } },
-          })
-        ).toEqual({ count: 2 });
-        expect(await holders()).toEqual(["h1"]);
-        await seed();
-        // Deleting h1 first would leave M, then X, with no root above them.
-        expect(
-          await client.holder.deleteMany({
-            where: { folders: { none: belowRoot } },
-          })
-        ).toEqual({ count: 1 });
-        expect(await holders()).toEqual(["h2", "h3"]);
-      } finally {
-        await client.$disconnect();
+            for (const [id, label, holderId, parentId] of [
+              ["R", "root", "h1", null],
+              ["M", "m", "h2", "R"],
+              ["X", "x", "h3", "M"],
+            ] as const)
+              await client.folder.create({
+                data: { id, label, holderId, parentId },
+              });
+          };
+          const holders = async () =>
+            sorted(await client.holder.findMany({ select: { id: true } }));
+          const belowRoot = {
+            parent: { recurse: true, some: { label: "root" } },
+          } as const;
+          await seed();
+          // Deleting h2 first would take M, and X's root with it.
+          expect(
+            await client.holder.deleteMany({
+              where: { folders: { some: belowRoot } },
+            })
+          ).toEqual({ count: 2 });
+          expect(await holders()).toEqual(["h1"]);
+          await seed();
+          // Deleting h1 first would leave M, then X, with no root above them.
+          expect(
+            await client.holder.deleteMany({
+              where: { folders: { none: belowRoot } },
+            })
+          ).toEqual({ count: 1 });
+          expect(await holders()).toEqual(["h2", "h3"]);
+        } finally {
+          await client.$disconnect();
+        }
       }
-    });
+    );
   });
 }
