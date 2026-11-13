@@ -1,60 +1,32 @@
-import { VibORMError, VibORMErrorCode, type VibORMErrorOptions } from "./base";
+import { coded, VibORMErrorCode } from "./base";
 
 /**
  * Unique constraint violation
  */
-export class UniqueConstraintError extends VibORMError {
-  static override readonly diagnosticName = "UniqueConstraintError";
-
-  /** Literal discriminant: this class always carries `UNIQUE_CONSTRAINT`. */
-  declare readonly code: typeof VibORMErrorCode.UNIQUE_CONSTRAINT;
-
-  constructor(message: string, options?: VibORMErrorOptions) {
-    super(message, VibORMErrorCode.UNIQUE_CONSTRAINT, options);
-  }
-}
+export class UniqueConstraintError extends coded<
+  typeof VibORMErrorCode.UNIQUE_CONSTRAINT
+>("UniqueConstraintError", VibORMErrorCode.UNIQUE_CONSTRAINT) {}
 
 /**
  * Foreign key constraint violation
  */
-export class ForeignKeyError extends VibORMError {
-  static override readonly diagnosticName = "ForeignKeyError";
-
-  /** Literal discriminant: this class always carries `FOREIGN_KEY_CONSTRAINT`. */
-  declare readonly code: typeof VibORMErrorCode.FOREIGN_KEY_CONSTRAINT;
-
-  constructor(message: string, options?: VibORMErrorOptions) {
-    super(message, VibORMErrorCode.FOREIGN_KEY_CONSTRAINT, options);
-  }
-}
+export class ForeignKeyError extends coded<
+  typeof VibORMErrorCode.FOREIGN_KEY_CONSTRAINT
+>("ForeignKeyError", VibORMErrorCode.FOREIGN_KEY_CONSTRAINT) {}
 
 /**
  * Not-null constraint violation
  */
-export class NotNullConstraintError extends VibORMError {
-  static override readonly diagnosticName = "NotNullConstraintError";
-
-  /** Literal discriminant: this class always carries `NOT_NULL_CONSTRAINT`. */
-  declare readonly code: typeof VibORMErrorCode.NOT_NULL_CONSTRAINT;
-
-  constructor(message: string, options?: VibORMErrorOptions) {
-    super(message, VibORMErrorCode.NOT_NULL_CONSTRAINT, options);
-  }
-}
+export class NotNullConstraintError extends coded<
+  typeof VibORMErrorCode.NOT_NULL_CONSTRAINT
+>("NotNullConstraintError", VibORMErrorCode.NOT_NULL_CONSTRAINT) {}
 
 /**
  * Check constraint violation
  */
-export class CheckConstraintError extends VibORMError {
-  static override readonly diagnosticName = "CheckConstraintError";
-
-  /** Literal discriminant: this class always carries `CHECK_CONSTRAINT`. */
-  declare readonly code: typeof VibORMErrorCode.CHECK_CONSTRAINT;
-
-  constructor(message: string, options?: VibORMErrorOptions) {
-    super(message, VibORMErrorCode.CHECK_CONSTRAINT, options);
-  }
-}
+export class CheckConstraintError extends coded<
+  typeof VibORMErrorCode.CHECK_CONSTRAINT
+>("CheckConstraintError", VibORMErrorCode.CHECK_CONSTRAINT) {}
 
 /**
  * Value too long for the column's declared type (Prisma P2000)
@@ -70,16 +42,9 @@ export class CheckConstraintError extends VibORMError {
  * (`quaint/src/connector/sqlite/error.rs`). VibORM therefore keeps `QueryError` on SQLite
  * instead of manufacturing a P2000 that the engine cannot honestly promise.
  */
-export class ValueTooLongError extends VibORMError {
-  static override readonly diagnosticName = "ValueTooLongError";
-
-  /** Literal discriminant: this class always carries `VALUE_TOO_LONG`. */
-  declare readonly code: typeof VibORMErrorCode.VALUE_TOO_LONG;
-
-  constructor(message: string, options?: VibORMErrorOptions) {
-    super(message, VibORMErrorCode.VALUE_TOO_LONG, options);
-  }
-}
+export class ValueTooLongError extends coded<
+  typeof VibORMErrorCode.VALUE_TOO_LONG
+>("ValueTooLongError", VibORMErrorCode.VALUE_TOO_LONG) {}
 
 /**
  * Type guard for unique constraint errors
