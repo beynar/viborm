@@ -324,7 +324,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
     ]
   ),
   "./schema": surface(
-    ["MYSQL", "PG", "SQLITE", "s"],
+    ["MSSQL", "MYSQL", "PG", "SQLITE", "s"],
     [
       "AnyModel",
       "AnyRelation",
