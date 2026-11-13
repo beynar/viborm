@@ -39,7 +39,7 @@ import {
 import type { EngineSchema, Input } from "../shared/schema";
 import type { SqlOperationContext } from "../shared/sql-operation-context";
 import { hopFieldsOf, type Membership } from "../shared/storage";
-import { nameOf, scalarsOf } from "../shared/terms";
+import { nameOf, same, scalarsOf } from "../shared/terms";
 import {
   refusedBy,
   type Sent,
@@ -542,8 +542,8 @@ export class Store {
           asked.length === 1
             ? rows
             : rows.filter((row) =>
-                [...pins(question)!].every(
-                  ([field, value]) => String(row[field]) === String(value)
+                [...pins(question)!].every(([field, value]) =>
+                  same(row[field], value)
                 )
               ),
         ]);
@@ -695,18 +695,22 @@ export class Store {
     const { member } = question;
     const selector = this.writer.selector(question);
     const { facts } = selector;
-    const same = (a: unknown, b: unknown) => String(a) === String(b);
     const name = this.#name(meta.model, row);
     if (question.except?.some((key) => this.#name(meta.model, key) === name))
       return false;
-    // A value the row holds that is not the one asked for: it does not answer, whose ever member it is.
-    for (const [field, value] of facts.equals)
-      if (
-        Object.hasOwn(row, field) &&
-        !(row[field] instanceof Pending) &&
-        !same(row[field], value)
-      )
-        return false;
+    // A value the row holds that is not the one asked for: it does not answer, whose ever member it is. One spelled another way may be the one asked for: the database says.
+    let unsure = false;
+    for (const [field, value] of facts.equals) {
+      if (!Object.hasOwn(row, field) || row[field] instanceof Pending) continue;
+      const holds = this.operation.queries.told(
+        meta.model,
+        field,
+        row[field],
+        value
+      );
+      if (holds === false) return false;
+      unsure ||= holds === undefined;
+    }
     if (member?.edge.kind === "reference") {
       const { discriminator, pairs } = member.edge;
       // Of the variant the relation reaches.
@@ -731,14 +735,12 @@ export class Store {
       if (linked === false) return false;
       if (linked === undefined && !was) return was && undefined;
     }
-    for (const [field, value] of facts.equals) {
+    for (const field of facts.equals.keys())
       if (row[field] instanceof Pending) return undefined;
-      if (field in row && !same(row[field], value)) return false;
-    }
     // Stated in full by what the call knows of the row.
     if (
       facts.exact &&
-      !selector.scoped &&
+      !(selector.scoped || unsure) &&
       [...facts.equals.keys()].every((field) => field in row)
     )
       return true;
@@ -860,8 +862,7 @@ export class Store {
       if (
         this.#about(row).model !== question.model ||
         ![...pins].every(
-          ([field, value]) =>
-            field in row && String(row[field]) === String(value)
+          ([field, value]) => field in row && same(row[field], value)
         )
       )
         continue;
@@ -1203,7 +1204,7 @@ export class Store {
           !edge.pairs.every(
             (pair) =>
               Object.hasOwn(child, pair.target) &&
-              String(child[pair.target]) === String(before[pair.source])
+              same(child[pair.target], before[pair.source])
           )
         )
           continue;
@@ -1307,8 +1308,7 @@ export class Store {
       keys.some(
         (field) =>
           field in set &&
-          (row[field] instanceof Pending ||
-            String(row[field]) !== String(before[field]))
+          (row[field] instanceof Pending || !same(row[field], before[field]))
       )
     )
       meta.stood ??= before;
@@ -1614,11 +1614,7 @@ export class Store {
       const b = target[other.referencedField];
       const known = (value: unknown) =>
         !(value === undefined || value instanceof Pending);
-      const same =
-        a instanceof Date && b instanceof Date
-          ? a.getTime() === b.getTime()
-          : a === b;
-      if (known(a) && known(b) && !same)
+      if (known(a) && known(b) && !same(a, b))
         throw new NestedWriteError(
           `Cannot link relation '${edge.name}': the two rows hold different values for '${pair.junctionField}'.`,
           edge.name,

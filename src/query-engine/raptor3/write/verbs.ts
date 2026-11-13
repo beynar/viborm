@@ -18,7 +18,7 @@ import { readUpdate } from "../shared/query";
 import { parseStamped } from "../shared/row-scope";
 import type { Arguments, Input } from "../shared/schema";
 import type { Membership } from "../shared/storage";
-import { nameOf } from "../shared/terms";
+import { nameOf, same } from "../shared/terms";
 import type { Question } from "./statements";
 import type { Row, Store } from "./store";
 
@@ -73,9 +73,6 @@ export function verbs(store: Store) {
   /** The rows the call makes. Of those a `create` makes (`true`), the caller said everything they hold. */
   const made = new WeakMap<Row, boolean>();
   const fresh = { has: (row: Row) => made.get(row) === true };
-  /** An instant is the same said as a date or as its text. */
-  const instant = (value: unknown) =>
-    value instanceof Date ? value.toISOString() : value;
   /** A field of a row is decided once: by what was written of the row, or by one relation. */
   const once = (
     kind: "create" | "update",
@@ -94,8 +91,8 @@ export function verbs(store: Store) {
           ? written.set
           : written;
       if (
-        typeof instant(value) !== "object" &&
-        instant(plain) === instant(value)
+        (value instanceof Date || typeof value !== "object") &&
+        same(plain, value)
       )
         continue;
       throw new UnsupportedOperationError(
@@ -110,9 +107,9 @@ export function verbs(store: Store) {
   const moves = (held: unknown, written: unknown): boolean => {
     if (written === undefined) return false;
     if (written === null || typeof written !== "object")
-      return String(written) !== String(held);
+      return !same(written, held);
     const { set, increment, decrement, multiply, divide } = written as Input;
-    if (set !== undefined) return String(set) !== String(held);
+    if (set !== undefined) return !same(set, held);
     return !(
       [increment ?? 0, decrement ?? 0].every((by) => Number(by) === 0) &&
       [multiply ?? 1, divide ?? 1].every((by) => Number(by) === 1)
@@ -278,9 +275,7 @@ export function verbs(store: Store) {
       uniqueKey?.fields.every((field) => {
         const proposed = data[field];
         const named = uniqueValues?.get(field);
-        return proposed instanceof Date && named instanceof Date
-          ? proposed.getTime() === named.getTime()
-          : proposed !== undefined && Object.is(proposed, named);
+        return proposed !== undefined && same(proposed, named);
       }) === true
     );
   };

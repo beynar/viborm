@@ -95,7 +95,7 @@ import {
   type PhysicalField,
   physicalField,
 } from "./storage";
-import { listed, nameOf, scalarsOf, tableOf } from "./terms";
+import { listed, nameOf, same, scalarsOf, tableOf } from "./terms";
 
 /**
  * `Object.freeze`, named once: this module freezes every prepared structure it
@@ -1596,6 +1596,14 @@ function hasAliasLikeNames(schema: EngineSchema): boolean {
     return false;
   });
 }
+/** The scalar types a value of which has one spelling: two texts that differ are two values. */
+const SPELLED_ONCE: ReadonlySet<string> = new Set([
+  "string",
+  "enum",
+  "boolean",
+  "int",
+  "bigint",
+]);
 /** No layer is lowering. */
 export const NO_LAYERS: readonly number[] = Object.freeze([]);
 /** A projection that carries no gate member (K5). */
@@ -2925,6 +2933,24 @@ export abstract class Queries {
     } finally {
       this.#scopes = scopes;
     }
+  }
+  /**
+   * Whether a row that holds `held` of `field` holds the value `asked`:
+   * `undefined` where the two are spelled apart and may still be one value to
+   * the database (an instant, a decimal, a number, a document, an
+   * identifier), which then answers.
+   */
+  told(
+    model: AnyModel,
+    field: string,
+    held: unknown,
+    asked: unknown
+  ): boolean | undefined {
+    if (same(held, asked)) return true;
+    const leaf = this.scalarShape(model, field);
+    return leaf.list || leaf.id || !SPELLED_ONCE.has(leaf.type)
+      ? undefined
+      : false;
   }
   /** A field of a model as it is stored. */
   physical(model: AnyModel, field: string): PhysicalField {

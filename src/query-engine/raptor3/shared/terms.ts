@@ -9,3 +9,11 @@ export const tableOf = (model: AnyModel): string => model["~"].names.sql!;
 export const scalarsOf = (model: AnyModel) => model["~"].state.scalars;
 /** Parts of a statement, one after the other with a comma between. */
 export const listed = (parts: readonly Sql[]): Sql => sql.join(parts, ", ");
+/**
+ * Whether two values a field holds are one value: an instant is one as a
+ * `Date` and as its text, wherever that text places it.
+ */
+export const same = (a: unknown, b: unknown): boolean =>
+  a instanceof Date || b instanceof Date
+    ? a != null && b != null && +new Date(a as Date) === +new Date(b as Date)
+    : String(a) === String(b);
