@@ -92,6 +92,25 @@ describeIf("SQL Server judges the rows an update writes", () => {
     expect(await base.post.count({ where: { title: "theirs" } })).toBe(3000);
   });
 
+  test("an updateMany whose filter keeps none of the actor's rows writes nothing and refuses nothing", async () => {
+    // The rule reads `authorId`, which the update writes: each kept row's
+    // new image is judged. Bob's rows are not kept (the rule scopes the
+    // update to Ada's), and judged, they would be refused.
+    expect(
+      await ada.post.updateMany({
+        where: { authorId: "bob" },
+        data: { authorId: "bob" },
+      })
+    ).toEqual({ count: 0 });
+    expect(
+      await ada.post.updateMany({
+        where: { id: { in: [6, 7] } },
+        data: { authorId: "bob" },
+      })
+    ).toEqual({ count: 0 });
+    expect(await base.post.count({ where: { authorId: "ada" } })).toBe(1);
+  });
+
   test("a new row the actor may not write refuses the whole statement", async () => {
     await expect(
       ada.post.updateMany({

@@ -168,6 +168,24 @@ END`)
       ).rejects.toBeInstanceOf(UnsupportedOperationError);
   });
 
+  test("a statement binds 2,098 values at most: 2,098 run, 2,099 are refused", async () => {
+    // 2,100 per request, of which sp_executesql's text and declaration take
+    // two (Msg 8003 past it).
+    const ids = (count: number) => Array.from({ length: count }, (_, n) => n);
+    expect(
+      await client.counter.findMany({
+        where: { id: { in: ids(2098) } },
+        select: { id: true },
+      })
+    ).toEqual([]);
+    await expect(
+      client.counter.findMany({
+        where: { id: { in: ids(2099) } },
+        select: { id: true },
+      })
+    ).rejects.toBeInstanceOf(UnsupportedOperationError);
+  });
+
   test("a whole number past 2^53 is written and filtered", async () => {
     for (const ratio of [1e19, 1e308, -1e19]) {
       await client.counter.create({
