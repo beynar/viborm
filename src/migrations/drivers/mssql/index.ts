@@ -21,6 +21,7 @@
  */
 
 import type { Scalar, ScalarState } from "@schema/scalars";
+import { nativeTypeFor } from "@schema/scalars/native-types";
 import {
   FeatureNotSupportedError,
   MigrationError,
@@ -45,6 +46,7 @@ const MSSQL_HAZARDS_QUERY = `SELECT t.name AS table_name, CONCAT('trigger "', tr
 UNION ALL SELECT t.name, CONCAT('CHECK constraint "', cc.name, '"') FROM sys.check_constraints AS cc JOIN sys.tables AS t ON t.object_id = cc.parent_object_id WHERE t.schema_id = SCHEMA_ID(@p1)
 UNION ALL SELECT DISTINCT t.name, 'row-level security' FROM sys.security_predicates AS sp JOIN sys.tables AS t ON t.object_id = sp.target_object_id WHERE t.schema_id = SCHEMA_ID(@p1)
 UNION ALL SELECT t.name, CONCAT('the collation ', c.collation_name, ' on column "', c.name, '"') FROM sys.columns AS c JOIN sys.tables AS t ON t.object_id = c.object_id WHERE t.schema_id = SCHEMA_ID(@p1) AND c.collation_name IS NOT NULL AND c.collation_name <> CAST(DATABASEPROPERTYEX(DB_NAME(), 'Collation') AS NVARCHAR(128))
+UNION ALL SELECT t.name, CONCAT('the foreign key "', fk.name, '" of "', SCHEMA_NAME(o.schema_id), '"."', o.name, '", which references it from another schema') FROM sys.foreign_keys AS fk JOIN sys.tables AS t ON t.object_id = fk.referenced_object_id JOIN sys.tables AS o ON o.object_id = fk.parent_object_id WHERE t.schema_id = SCHEMA_ID(@p1) AND o.schema_id <> SCHEMA_ID(@p1)
 ORDER BY 1, 2`;
 
 /** Every DDL generator's answer: the one statement of what this driver is. */
@@ -131,7 +133,10 @@ export class MssqlMigrationDriver extends SqlMigrationDriver {
   // TYPE MAPPING
   // ===========================================================================
 
-  mapScalarType(_scalar: Scalar, scalarState: ScalarState): string {
+  mapScalarType(scalar: Scalar, scalarState: ScalarState): string {
+    // An adopted column's own type, declared on a scalar member.
+    const nativeType = nativeTypeFor(scalar["~"].nativeType, "mssql");
+    if (nativeType && !scalarState.array) return nativeType.type;
     if (scalarState.type === "point" || scalarState.type === "vector")
       throw new FeatureNotSupportedError(
         "mssql",

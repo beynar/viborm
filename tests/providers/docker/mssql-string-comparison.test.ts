@@ -9,7 +9,7 @@
 
 import { createClient } from "@client/client";
 import { UnsupportedOperationError } from "@errors";
-import { s } from "@schema";
+import { MSSQL, s } from "@schema";
 import { sql } from "@sql";
 import { ordering, orderingKey } from "@src/ordering";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
@@ -42,7 +42,10 @@ CREATE TABLE "${NS}"."cards" ("id" INT NOT NULL PRIMARY KEY, "columnId" NVARCHAR
 CREATE TABLE "${NS}"."parents" ("id" NVARCHAR(450) NOT NULL PRIMARY KEY, "name" NVARCHAR(40) NOT NULL);
 CREATE INDEX "parents_name" ON "${NS}"."parents" ("name");
 CREATE TABLE "${NS}"."children" ("id" INT NOT NULL PRIMARY KEY, "parentId" NVARCHAR(450) NOT NULL REFERENCES "${NS}"."parents" ("id"));
-CREATE INDEX "children_parentId" ON "${NS}"."children" ("parentId");`;
+CREATE INDEX "children_parentId" ON "${NS}"."children" ("parentId");
+CREATE TABLE "${NS}"."vk_ci" ("code" VARCHAR(40) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL PRIMARY KEY, "label" NVARCHAR(20) NOT NULL);
+CREATE TABLE "${NS}"."vk_cs" ("code" VARCHAR(40) COLLATE SQL_Latin1_General_CP1_CS_AS NOT NULL PRIMARY KEY, "label" NVARCHAR(20) NOT NULL);
+CREATE TABLE "${NS}"."stamps" ("id" INT NOT NULL PRIMARY KEY, "at" DATETIME NOT NULL);`;
 
 const FILL = `WITH n AS (SELECT TOP (${ROWS}) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS i FROM sys.all_objects AS a CROSS JOIN sys.all_objects AS b)
 INSERT INTO "${NS}"."parents" ("id", "name") SELECT CONCAT('id', i), CONCAT('name', i) FROM n;
@@ -51,6 +54,14 @@ INSERT INTO "${NS}"."accounts" VALUES (N'ab');
 INSERT INTO "${NS}"."orders" VALUES (1, 'ab');
 INSERT INTO "${NS}"."devices" VALUES ('6F9619FF-8B86-D011-B42D-00C04FC964FF');
 INSERT INTO "${NS}"."events" VALUES (1, N'6f9619ff-8b86-d011-b42d-00c04fc964ff');
+WITH n AS (SELECT TOP (${ROWS}) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS i FROM sys.all_objects AS a CROSS JOIN sys.all_objects AS b)
+INSERT INTO "${NS}"."vk_ci" ("code", "label") SELECT CONCAT('code', i), N'filler' FROM n;
+INSERT INTO "${NS}"."vk_ci" VALUES ('ss', N'ss'), (CHAR(223), N'eszett'), ('ab', N'ab'), ('abc', N'abc'), ('abd', N'abd'), ('ab-', N'ab-'), ('AbC0', N'AbC0');
+INSERT INTO "${NS}"."vk_cs" ("code", "label") SELECT "code", "label" FROM "${NS}"."vk_ci";
+INSERT INTO "${NS}"."vk_cs" VALUES ('AB', N'AB');
+INSERT INTO "${NS}"."stamps" VALUES (1, '2026-03-29 01:30:00.003'), (2, '2026-03-29 01:30:00.007'), (3, '2026-12-31 23:59:59.997');
+UPDATE STATISTICS "${NS}"."vk_ci" WITH FULLSCAN;
+UPDATE STATISTICS "${NS}"."vk_cs" WITH FULLSCAN;
 UPDATE STATISTICS "${NS}"."parents" WITH FULLSCAN;
 UPDATE STATISTICS "${NS}"."children" WITH FULLSCAN;`;
 
@@ -131,8 +142,24 @@ const child = s
   })
   .map("children");
 
+const varcharKeyed = (table: string) =>
+  s
+    .model({
+      code: s.string(MSSQL.STRING.VARCHAR(40)).id(),
+      label: s.string(),
+    })
+    .map(table);
+const vkCi = varcharKeyed("vk_ci");
+const vkCs = varcharKeyed("vk_cs");
+const stamp = s
+  .model({ id: s.int().id(), at: s.dateTime(MSSQL.DATETIME.DATETIME) })
+  .map("stamps");
+
 const db = createClient({
   schema: {
+    vkCi,
+    vkCs,
+    stamp,
     charParent: chars.parent,
     charKid: chars.kid,
     ncharParent: nchars.parent,
@@ -160,10 +187,10 @@ const KEYS: [Keyed, string][] = [
   ["guid", GUID],
 ];
 
-/** The physical operators of the last plan cached for a statement on `parents`/`children`. */
-const lastPlan = async (): Promise<string[]> => {
+/** The physical operators of the last plan cached for a statement on `table`. */
+const lastPlan = async (table = "parents"): Promise<string[]> => {
   const [row] = await db.$queryRaw<{ plan: string }>(
-    sql`SELECT TOP (1) CAST(p.query_plan AS NVARCHAR(MAX)) AS "plan" FROM sys.dm_exec_query_stats AS q CROSS APPLY sys.dm_exec_sql_text(q.sql_handle) AS t CROSS APPLY sys.dm_exec_query_plan(q.plan_handle) AS p WHERE t.text LIKE ${`%${NS}"."parents%`} AND t.text NOT LIKE N'%dm_exec_query_stats%' ORDER BY q.last_execution_time DESC`
+    sql`SELECT TOP (1) CAST(p.query_plan AS NVARCHAR(MAX)) AS "plan" FROM sys.dm_exec_query_stats AS q CROSS APPLY sys.dm_exec_sql_text(q.sql_handle) AS t CROSS APPLY sys.dm_exec_query_plan(q.plan_handle) AS p WHERE t.text LIKE ${`%${NS}"."${table}%`} AND t.text NOT LIKE N'%dm_exec_query_stats%' ORDER BY q.last_execution_time DESC`
   );
   return [...(row?.plan ?? "").matchAll(/PhysicalOp="([^"]+)"/g)].map(
     (match) => match[1]!
@@ -375,5 +402,80 @@ describeIf("SQL Server compares text as the column does", () => {
     await expect(
       db.parent.count({ where: { id: { in: members(2099) } } })
     ).rejects.toBeInstanceOf(UnsupportedOperationError);
+  });
+
+  test.each([
+    ["vk_ci", "CI"],
+    ["vk_cs", "CS"],
+  ] as const)("a VARCHAR(40) key declared MSSQL.STRING.VARCHAR (%s, collation %s) is sought, and compares as the column does", async (table, _collation) => {
+    const model = (table === "vk_ci" ? db.vkCi : db.vkCs) as typeof db.vkCi;
+    // The rows a non-Unicode literal finds: the column's own rules.
+    const native = async (where: string) =>
+      (
+        await db.$queryRaw<{ code: string }>(
+          sql.raw(
+            `SELECT "code" FROM "${NS}"."${table}" WHERE ${where} ORDER BY "code"`
+          )
+        )
+      ).map((row) => row.code);
+    const codes = async (where: object) =>
+      (
+        await model.findMany({
+          where,
+          select: { code: true },
+          orderBy: { code: "asc" },
+        })
+      ).map((row) => row.code);
+    expect(await codes({ code: "ss" })).toEqual(await native(`"code" = 'ss'`));
+    expect(await codes({ code: "ss" })).toEqual(["ss"]);
+    expect(await codes({ code: { gte: "ab", lte: "abc" } })).toEqual(
+      await native(`"code" >= 'ab' AND "code" <= 'abc'`)
+    );
+    expect(await codes({ code: { in: ["ss", "abd", "AB"] } })).toEqual(
+      await native(`"code" IN ('ss', 'abd', 'AB')`)
+    );
+
+    const plans: Record<string, ReturnType<typeof seeks>> = {};
+    const plan = async (name: string, call: () => Promise<unknown>) => {
+      await call();
+      plans[name] = seeks(await lastPlan(table));
+    };
+    await plan("findUnique", () =>
+      model.findUnique({ where: { code: "code12345" } })
+    );
+    await plan("equals", () =>
+      model.findMany({ where: { code: { equals: "code777" } } })
+    );
+    await plan("in", () =>
+      model.findMany({ where: { code: { in: ["code1", "code2", "code3"] } } })
+    );
+    await plan("range", () =>
+      model.findMany({ where: { code: { gte: "code500", lt: "code501" } } })
+    );
+    await plan("update", () =>
+      model.update({ where: { code: "code42" }, data: { label: "updated" } })
+    );
+    await plan("upsert", () =>
+      model.upsert({
+        where: { code: "code43" },
+        create: { code: "code43", label: "never" },
+        update: { label: "upserted" },
+      })
+    );
+    await plan("delete", () => model.delete({ where: { code: "code44" } }));
+    for (const [name, found] of Object.entries(plans))
+      expect({ name, ...found }).toEqual({ name, seek: true, scan: [] });
+  });
+
+  test("a DATETIME value read back finds its own row", async () => {
+    for (const row of await db.stamp.findMany({ orderBy: { id: "asc" } }))
+      expect(
+        (
+          await db.stamp.findMany({
+            where: { at: row.at },
+            select: { id: true },
+          })
+        ).map((found) => found.id)
+      ).toEqual([row.id]);
   });
 });

@@ -184,6 +184,13 @@ export interface DatabaseAdapter {
       member?: boolean
     ) => Sql;
     /**
+     * A string operand bound for a field with this native type, where the
+     * dialect converts the column, not the parameter, to compare two text
+     * types (SQL Server's `VARCHAR` beside an `NVARCHAR` parameter): the
+     * operand in the column's own family. Absent elsewhere.
+     */
+    string?: (value: string, nativeType?: NativeTypeDeclaration) => Sql;
+    /**
      * Decimal operand from a canonical decimal string, in the DOMAIN it is
      * being compared or assigned against.
      *
@@ -525,6 +532,12 @@ export interface DatabaseAdapter {
     document: (expression: Sql) => Sql;
     /** Carry a finite number through JSON without losing binary precision. */
     number: (expression: Sql) => Sql;
+    /**
+     * Carry a datetime or a time through JSON as the dialect's root read
+     * gives it, where its JSON writes more fractional digits than VibORM
+     * reads (SQL Server's seven). Absent elsewhere.
+     */
+    instant?: (expression: Sql, type: "datetime" | "time") => Sql;
     /** Build JSON object from key-value pairs */
     object: (pairs: [string, Sql][]) => Sql;
     /** Build JSON array from items */

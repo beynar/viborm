@@ -688,13 +688,19 @@ export function translateMysqlColumn(
 // =============================================================================
 
 const MSSQL_SIZED = /^(n?varchar|n?char|varbinary|binary)\((\d+|max)\)$/;
+
+function mssqlNative(type: string): { db: "mssql"; type: string } {
+  return { db: "mssql", type };
+}
 const MSSQL_TEMPORAL = /^(datetime2|time|datetimeoffset)\((\d)\)$/;
 
 /**
- * SQL Server has no native type vocabulary in VibORM yet: a column of the
- * type VibORM itself reads and writes for a scalar is that scalar; another
- * type of the same family is the scalar too, with what the document cannot
- * say about it (a length, a precision, a narrower range) as the reason.
+ * A column of the type VibORM itself reads and writes for a scalar is that
+ * scalar; a text column of another size or family, and a `DATETIME` or
+ * `SMALLDATETIME`, carry their SQL Server native type (`MSSQL`), which the
+ * adapter compares operands in; another type of the same family is the
+ * scalar too, with what the document cannot say about it (a precision, a
+ * narrower range) as the reason.
  */
 function mssqlBase(
   type: string,
@@ -713,7 +719,9 @@ function mssqlBase(
   if (type === "bit") return { draft: { type: "boolean" } };
   if (type === "date") return { draft: { type: "date" } };
   if (type === "datetime" || type === "smalldatetime")
-    return lossy({ type: "datetime" });
+    return {
+      draft: { type: "datetime", native: mssqlNative(type.toUpperCase()) },
+    };
   if (type === "uniqueidentifier") return lossy({ type: "string" });
   if (type.startsWith("decimal(") || type.startsWith("numeric(")) {
     const descriptor = column.decimal;
@@ -746,7 +754,14 @@ function mssqlBase(
       ? name === "varbinary" && size === "max"
       : name === "nvarchar" &&
         (size === "max" || (size === "450" && context.keyed));
-    return own ? { draft } : lossy(draft);
+    if (own) return { draft };
+    if (binary) return lossy(draft);
+    return {
+      draft: {
+        ...draft,
+        native: mssqlNative(`${name!.toUpperCase()}(${size!.toUpperCase()})`),
+      },
+    };
   }
   return `the type \`${column.type}\` has no VibORM scalar`;
 }

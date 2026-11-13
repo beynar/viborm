@@ -259,16 +259,17 @@ function readForeignKeys(
   for (const columns of grouped.values()) {
     const first = columns[0]!;
     const inside = first.table_schema === schema;
-    if (inside !== (first.referenced_schema === schema)) {
-      if (!selected(inside ? first.table_name : first.referenced_table))
-        continue;
+    // A key from another schema into this one leaves nothing for the document
+    // to state: `adoptionHazards` reports it on the table it references.
+    if (!inside) continue;
+    if (first.referenced_schema !== schema) {
+      if (!selected(first.table_name)) continue;
       throw new MigrationError(
         `Foreign key "${first.constraint_name}" crosses the schema boundary: "${first.table_schema}"."${first.table_name}" references "${first.referenced_schema}"."${first.referenced_table}", and this client reads only "${schema}".`,
         VibORMErrorCode.FEATURE_NOT_SUPPORTED,
         { meta: { dialect: "mssql", constraint: first.constraint_name } }
       );
     }
-    if (!inside) continue;
     const keys = byTable.get(first.table_name) ?? [];
     keys.push({
       name: first.constraint_name,

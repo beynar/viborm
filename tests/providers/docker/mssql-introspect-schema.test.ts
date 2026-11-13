@@ -86,13 +86,12 @@ describeIf("introspectSchema on SQL Server", () => {
   it("reads a hand-written schema into a document with no drift", async () => {
     const result = await introspectSchema({ driver, tables: TABLES });
     expect(result.dialect).toBe("mssql");
-    // NVARCHAR(2) has no document spelling (no SQL Server native type): the
-    // one drift, and the column says so.
+    // NVARCHAR(2) is spelled by its SQL Server native type: no drift.
     expect(
       result.warnings
         .filter(({ kind }) => kind === "drift")
         .map(({ table, name }) => `${table}.${name}`)
-    ).toEqual(["account.country"]);
+    ).toEqual([]);
     const { models } = result.document;
     expect(Object.keys(models).sort()).toEqual(["account", "post", "tag"]);
     expect(models.account!.fields).toMatchObject({
@@ -134,7 +133,10 @@ describeIf("introspectSchema on SQL Server", () => {
       (await diff(live, fromDocument)).operations.map(
         (operation) => operation.type
       )
-    ).toEqual(["alterColumn"]);
+    ).toEqual([]);
+    expect(JSON.stringify(models.account!.fields.country)).toContain(
+      "NVARCHAR(2)"
+    );
   });
 
   it("says what the document cannot carry", async () => {
@@ -156,13 +158,12 @@ describeIf("introspectSchema on SQL Server", () => {
       .map(({ table, message }) => `${table}: ${message}`);
     expect(unstated).toContainEqual(expect.stringMatching(TRIGGER_WARNING));
     expect(unstated).toContainEqual(expect.stringMatching(COLLATION_WARNING));
-    expect(result.warnings).toContainEqual(
-      expect.objectContaining({
-        kind: "approximated",
-        table: "account",
-        name: "country",
-      })
-    );
+    // A sized text column keeps its native type: nothing approximated.
+    expect(
+      result.warnings.filter(
+        ({ kind, name }) => kind === "approximated" && name === "country"
+      )
+    ).toEqual([]);
   });
 
   it("serves reads and writes through the document", async () => {

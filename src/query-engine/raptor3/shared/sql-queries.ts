@@ -1062,6 +1062,11 @@ export class SqlQueries extends Queries {
     switch (state.type) {
       case "bigint":
         return a.literals.value(state.array === true ? String(value) : value);
+      case "string":
+        return (
+          a.literals.string?.(value as string, this.nativeType(scalar)) ??
+          a.literals.value(value)
+        );
       case "decimal":
       case "json":
       case "point":
@@ -1255,6 +1260,8 @@ export class SqlQueries extends Queries {
         ],
         this.adapter.expressions.blobToHex(expression)
       );
+    if (leaf.type === "datetime" || leaf.type === "time")
+      return this.adapter.json.instant?.(expression, leaf.type) ?? expression;
     return expression;
   }
   junctionWhere(

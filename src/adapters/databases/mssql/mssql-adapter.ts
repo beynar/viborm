@@ -3,6 +3,10 @@ import {
   UnsupportedOperationError,
   unsupportedVector,
 } from "@errors";
+import {
+  type NativeTypeDeclaration,
+  nativeTypeFor,
+} from "@schema/scalars/native-types";
 import { Sql, sql } from "@sql";
 import type { DecimalDescriptor } from "@validation/primitives/decimal-codec";
 import { encodePhysicalDecimal } from "@validation/primitives/decimal-codec";
@@ -181,6 +185,16 @@ const rowAtMost = (
   if (index === items.length - 1) return sql`${item} <= ${limit}`;
   return sql`(${item} < ${limit} OR (${item} = ${limit} AND ${rowAtMost(items, bound, index + 1)}))`;
 };
+
+/**
+ * The widest decimal whose half-even product or quotient, scaled by
+ * `10^scale`, stays inside `DECIMAL(38)`: two such operands multiply to at
+ * most 38 digits.
+ */
+const EXACT_DECIMAL_ARITHMETIC_PRECISION = 19;
+
+/** A non-Unicode text column: `VARCHAR(n)`, `VARCHAR(MAX)`, `CHAR(n)`. */
+const NON_UNICODE_TEXT = /^(?:VARCHAR|CHAR)\(/;
 
 /**
  * T-SQL's exact integer arithmetic over `DECIMAL(38, 0)`. `%` is defined on
@@ -411,10 +425,24 @@ export class MssqlAdapter implements DatabaseAdapter {
     true: (): Sql => TRUE_VALUE,
     false: (): Sql => FALSE_VALUE,
     json: (v: unknown): Sql => sql`${canonicalJson(v)}`,
-    dateTime: (iso: string): Sql =>
-      iso.length === 10
-        ? sql`CAST(${iso} AS DATE)`
-        : sql`CAST(${naiveIso(iso)} AS DATETIME2(3))`,
+    // An instant compared as the column holds it: a `DATETIME` rounds to
+    // 1/300 s, so a value read from one finds its row only as a `DATETIME`.
+    dateTime: (iso: string, nativeType?: NativeTypeDeclaration): Sql => {
+      if (iso.length === 10) return sql`CAST(${iso} AS DATE)`;
+      const native = nativeTypeFor(nativeType, "mssql")?.type;
+      return sql`CAST(${naiveIso(iso)} AS ${sql.raw(
+        native === "DATETIME" || native === "SMALLDATETIME"
+          ? native
+          : "DATETIME2(3)"
+      )})`;
+    },
+    // A VARCHAR or CHAR column beside an NVARCHAR parameter is converted, so
+    // its index is scanned and Unicode rules compare it: the operand goes to
+    // the column's family instead (VARCHAR(MAX), never truncated).
+    string: (value: string, nativeType?: NativeTypeDeclaration): Sql =>
+      NON_UNICODE_TEXT.test(nativeTypeFor(nativeType, "mssql")?.type ?? "")
+        ? sql`CAST(${value} AS VARCHAR(MAX))`
+        : sql`${value}`,
     decimal: (canonical: string, descriptor: DecimalDescriptor): Sql =>
       sql`CAST(${encodePhysicalDecimal(canonical, descriptor, "text")} AS ${decimalType(descriptor)})`,
     id: (physical: string | Uint8Array, _representation: IdRepresentation) =>
@@ -521,17 +549,22 @@ export class MssqlAdapter implements DatabaseAdapter {
       expr: Sql,
       type: "text" | "integer" | "bigint" | "boolean" | "numeric"
     ) =>
-      sql`CAST(${expr} AS ${sql.raw(
-        {
-          text: "NVARCHAR(MAX)",
-          integer: "INT",
-          bigint: "BIGINT",
-          boolean: "BIT",
-          numeric: "FLOAT",
-        }[type]
-      )})`,
+      // Text in style 2: a MONEY keeps its four decimals (style 0 rounds to
+      // two); every other value this cast reads (an integer, a decimal, a
+      // string, a GUID) prints as in style 0.
+      type === "text"
+        ? sql`CONVERT(NVARCHAR(MAX), ${expr}, 2)`
+        : sql`CAST(${expr} AS ${sql.raw(
+            {
+              integer: "INT",
+              bigint: "BIGINT",
+              boolean: "BIT",
+              numeric: "FLOAT",
+            }[type]
+          )})`,
+    // A ROWVERSION converts as text, not as hex: as VARBINARY first.
     blobToHex: (expr: Sql): Sql =>
-      sql`LOWER(CONVERT(VARCHAR(MAX), ${expr}, 2))`,
+      sql`LOWER(CONVERT(VARCHAR(MAX), CAST(${expr} AS VARBINARY(MAX)), 2))`,
   };
 
   aggregates = {
@@ -576,6 +609,17 @@ export class MssqlAdapter implements DatabaseAdapter {
       const embedded = sql`JSON_QUERY(${expression})`;
       documents.set(embedded, expression);
       return embedded;
+    },
+    // `JSON_OBJECT` writes a `DATETIME2`, `DATETIMEOFFSET` or `TIME` with its
+    // seven digits; the root read (tedious) truncates them to milliseconds,
+    // in UTC, and rounds a `DATETIME`'s 1/300 s: the same value here.
+    instant: (expression: Sql, type: "datetime" | "time"): Sql => {
+      const subMillisecond = (value: Sql) =>
+        sql`DATEADD(NANOSECOND, -(DATEPART(NANOSECOND, ${value}) % 1000000), ${value})`;
+      if (type === "time")
+        return sql`CAST(${subMillisecond(expression)} AS TIME(3))`;
+      const utc = sql`SWITCHOFFSET(CAST(${expression} AS DATETIMEOFFSET(7)), '+00:00')`;
+      return sql`CASE WHEN SQL_VARIANT_PROPERTY(${expression}, 'BaseType') = 'datetime' THEN CAST(${expression} AS DATETIME2(3)) ELSE CAST(${subMillisecond(utc)} AS DATETIME2(3)) END`;
     },
     // `float` inside `JSON_OBJECT` keeps 16 digits; style 3 keeps 17.
     number: (expression: Sql): Sql =>
@@ -677,13 +721,18 @@ export class MssqlAdapter implements DatabaseAdapter {
 
   set = {
     ...createNumericSetOperations(),
+    // Half to even at the field's scale while the scaled product fits 38
+    // digits; past that, SQL Server's own result type (at least 6 decimals,
+    // rounded by the server), as a plain `*` or `/`.
     multiply: (column: Sql, by: Sql, target?: ArithmeticTarget): Sql =>
-      target?.decimal
+      target?.decimal &&
+      target.decimal.precision <= EXACT_DECIMAL_ARITHMETIC_PRECISION
         ? logicalDecimalMultiply(MSSQL_INTEGERS, column, by, target.decimal)
         : sql`${column} = ${column} * ${by}`,
     // Integer `/` already truncates toward zero.
     divide: (column: Sql, by: Sql, target?: ArithmeticTarget): Sql =>
-      target?.decimal
+      target?.decimal &&
+      target.decimal.precision <= EXACT_DECIMAL_ARITHMETIC_PRECISION
         ? logicalDecimalDivide(MSSQL_INTEGERS, column, by, target.decimal)
         : sql`${column} = ${column} / ${by}`,
     push: (column: Sql, values: Sql): Sql =>
