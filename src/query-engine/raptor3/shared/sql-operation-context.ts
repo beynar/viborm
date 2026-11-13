@@ -1107,7 +1107,7 @@ export class SqlOperationContext extends OperationContext {
         if (!identityPlans) continue;
         const generated = identityPlans[index];
         if (generated && response.insertId === undefined)
-          throw new TypeError(
+          throw new QueryEngineError(
             "INSERT did not produce the required record identity"
           );
         identities.push({
@@ -1964,7 +1964,9 @@ export class SqlOperationContext extends OperationContext {
         ? q.decodeProjection(producedProjection.shape, producedRows, true)[0]
         : undefined;
       if (produced.length && producedValues === undefined)
-        throw new TypeError("INSERT did not produce the required record");
+        throw new QueryEngineError(
+          "INSERT did not produce the required record"
+        );
       if (answer) answer.row = response.rows[0];
       const written: Input = { ...values };
       for (const field of computed) delete written[field];

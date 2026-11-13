@@ -7,7 +7,7 @@
  */
 
 import { createClient } from "@client/client";
-import { UnsupportedOperationError } from "@errors";
+import { QueryEngineError, UnsupportedOperationError } from "@errors";
 import { s } from "@schema";
 import { sql } from "@sql";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -149,6 +149,33 @@ END`)
     } finally {
       await client.$executeRaw(
         sql.raw(`DROP TRIGGER ${table("counters_instead")}`)
+      );
+    }
+  });
+
+  test("under an INSTEAD OF INSERT trigger, a create that reads its row back is refused, typed; a count is not", async () => {
+    // The trigger inserts the row in its own scope: SCOPE_IDENTITY() is NULL
+    // in the statement's, and the generated key cannot be read.
+    await client.$executeRaw(
+      sql.raw(`CREATE TRIGGER ${table("counters_insert")} ON ${table("counters")} INSTEAD OF INSERT AS BEGIN
+  INSERT INTO ${table("counters")} ("key", "team", "value", "big", "ratio") SELECT "key", "team", "value", "big", "ratio" FROM inserted;
+END`)
+    );
+    try {
+      await expect(
+        client.counter.create({ data: { key: "a", value: 1 } })
+      ).rejects.toBeInstanceOf(QueryEngineError);
+      expect(
+        await client.counter.createMany({
+          data: [
+            { key: "b", value: 1 },
+            { key: "c", value: 1 },
+          ],
+        })
+      ).toEqual({ count: 2 });
+    } finally {
+      await client.$executeRaw(
+        sql.raw(`DROP TRIGGER ${table("counters_insert")}`)
       );
     }
   });
