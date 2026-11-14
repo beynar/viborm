@@ -568,6 +568,23 @@ export interface UnitContext {
   readonly operation: string | undefined;
 }
 
+declare const rewritten: unique symbol;
+
+/**
+ * The unit a part declared `{ rewrites: true }` is handed: a statement about
+ * to be sent. A rewrite never sees a verbatim unsafe raw statement, so its
+ * `statement(u)` is always there.
+ */
+export interface StatementUnit extends UnitContext {
+  readonly kind: "statement";
+  readonly [rewritten]: true;
+}
+
+/** The unit a part's handler is handed: a statement one when it rewrites. */
+export type UnitOf<Rewrites extends true | undefined> = Rewrites extends true
+  ? StatementUnit
+  : UnitContext;
+
 /** How a unit ended: never the application's result. */
 export interface UnitOutcome {
   readonly status: "success" | "failure";
@@ -577,13 +594,14 @@ export interface UnitOutcome {
 
 export type UnitFunction<Bound extends AnyTarget | undefined> = <
   T extends Within<Bound>,
+  Rewrites extends true | undefined = undefined,
 >(
   around: (
-    unit: UnitContext,
+    unit: UnitOf<Rewrites>,
     next: (sql?: Sql) => Promise<UnitOutcome>
   ) => unknown,
   kinds?: readonly UnitKind[],
-  options?: { readonly rewrites?: true }
+  options?: { readonly rewrites?: Rewrites }
 ) => Part<T, EmptyFacts>;
 
 /** What an error may carry. */
@@ -721,22 +739,70 @@ type FilterObjects<V> = Exclude<
   readonly unknown[] | Date | FieldRef
 >;
 
+/** The operator words of a field's filter: `{ lt: now }`. */
+type OperatorWords<V, K extends string> = [FilterObjects<V>] extends [never]
+  ? never
+  : {
+      readonly [Op in FilterOperator]?:
+        | (FilterObjects<V> extends infer Filter
+            ? Filter extends unknown
+              ? Op extends keyof Filter
+                ? Filter[Op]
+                : never
+              : never
+            : never)
+        | Words<K>;
+    };
+
+/** A relation's filter operators: their operands are the target's `where`. */
+type RelationOperator = "is" | "isNot" | "some" | "every" | "none";
+
+/** The target's `where` under one relation operator of a field's filter. */
+type TargetWhere<V, Op> =
+  FilterObjects<V> extends infer Filter
+    ? Filter extends unknown
+      ? Op extends keyof Filter
+        ? Extract<NonNullable<Filter[Op]>, object>
+        : never
+      : never
+    : never;
+
+/**
+ * A relation's filter with the words accepted one level down: each field of
+ * the target's `where` takes a word, or an operator word, beside its own
+ * value (`author: { is: { orgId: arg("org") } }`). Deeper, the ORM's own
+ * type: a depth bound, so a recursive model ends.
+ */
+type RelationWords<V, K extends string> = [
+  TargetWhere<V, RelationOperator>,
+] extends [never]
+  ? never
+  : {
+      readonly [Op in RelationOperator]?: TargetWords<TargetWhere<V, Op>, K>;
+    };
+
+type TargetWords<W, K extends string> = [W] extends [never]
+  ? never
+  : {
+      readonly [F in keyof W & string]?:
+        | W[F]
+        | Words<K>
+        | OperatorWords<W[F], K>;
+    };
+
 type WordValue<V, K extends string> =
   | V
   | Words<K>
-  | ([FilterObjects<V>] extends [never]
-      ? never
-      : {
-          readonly [Op in FilterOperator]?:
-            | (FilterObjects<V> extends infer Filter
-                ? Filter extends unknown
-                  ? Op extends keyof Filter
-                    ? Filter[Op]
-                    : never
-                  : never
-                : never)
-            | Words<K>;
-        });
+  | OperatorWords<V, K>
+  | RelationWords<V, K>;
+
+/**
+ * The model of a target whose models are unknown (`Model<any>`): a part
+ * written apart from any client, typed under one literal model name. Its
+ * filters and values are open, checked where the extension is applied.
+ */
+type IsOpenModel<M> =
+  M extends Model<infer State> ? (0 extends 1 & State ? true : false) : false;
 
 type Connective<M, K extends string> =
   | RuleWhere<M, K>
@@ -745,9 +811,11 @@ type Connective<M, K extends string> =
   | ExistsWord;
 
 export type RuleWhere<in out M, in out K extends string> = {
-  readonly [F in keyof WhereOf<M> & string]?: F extends "AND" | "OR" | "NOT"
-    ? Connective<M, K> | readonly Connective<M, K>[]
-    : WordValue<WhereOf<M>[F], K>;
+  readonly [F in keyof WhereOf<M> & string]?: IsOpenModel<M> extends true
+    ? unknown
+    : F extends "AND" | "OR" | "NOT"
+      ? Connective<M, K> | readonly Connective<M, K>[]
+      : WordValue<WhereOf<M>[F], K>;
 };
 
 type CreateData<M> =
@@ -772,9 +840,11 @@ export type ScalarSlots<in out M, in out Value> = {
 
 /** A row's values: constants or words, per scalar field. */
 export type DataValues<in out M, in out K extends string> = {
-  readonly [F in keyof CreateData<M> & string]?: F extends ScalarKeysOf<M>
-    ? CreateData<M>[F] | Words<K> | { readonly increment: number }
-    : never;
+  readonly [F in keyof CreateData<M> & string]?: IsOpenModel<M> extends true
+    ? unknown
+    : F extends ScalarKeysOf<M>
+      ? CreateData<M>[F] | Words<K> | { readonly increment: number }
+      : never;
 };
 
 declare const gateWord: unique symbol;

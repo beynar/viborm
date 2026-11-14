@@ -7,13 +7,18 @@
  */
 import type { AnyDriver } from "@drivers/exports";
 import type { Sql } from "@sql";
-import type { UnitContext } from "./contract";
+import type { StatementUnit, UnitContext } from "./contract";
 import { Unit } from "./unit";
 
 const own = (u: UnitContext): Unit | undefined =>
   u instanceof Unit ? u : undefined;
 
-/** A statement unit's statement, before any part rewrote it. */
+/**
+ * A statement unit's statement, before any part rewrote it: always there in
+ * a part that rewrites.
+ */
+export function statement(u: StatementUnit): Sql;
+export function statement(u: UnitContext): Sql | undefined;
 export function statement(u: UnitContext): Sql | undefined {
   return own(u)?.statement;
 }
