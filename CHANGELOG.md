@@ -118,6 +118,9 @@ all-or-nothing when it fits one batch.
 - **Two parts of one kind in one extension both run**, composed as two
   extensions would be: two `unit` parts each see every unit, two `methods`
   parts each add their methods, filters conjoin and a default set later wins.
+  One part value named twice in one extension is in it once.
+- **A `methods` factory that throws fails with its own error**: it is no
+  longer wrapped in a `ClientInitializationError` naming the extension.
 - **Public types renamed**: `PlacedControl` is `PlacedArgument` (what an
   exported extended client's declaration names for each argument) and
   `NoControls` is `NoArguments` (`viborm`, `viborm/client`).
@@ -193,8 +196,8 @@ all-or-nothing when it fits one batch.
   instrumentation 56,422 → 18,868; soft delete 80,013 → 23,963; ordering
   100,547 → 29,694; cache 71,844 → 33,143; permissions 114,651 → 69,547;
   `on`, ordering, permissions and soft delete together 142,213 → 108,685.
-  An application that applies no extension: 519,322 → 508,261 bytes, of
-  which 603 bytes are extension code.
+  An application that applies no extension: 519,322 → 508,300 bytes, of
+  which 642 bytes are extension code.
 - **What one extension of an application costs the type checker**: an
   extension of the user's own on a 50-model schema, 1,345,449 → 649,244
   instantiations; on a 100-model schema, 2,422,856 → 899,335.

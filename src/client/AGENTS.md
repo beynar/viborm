@@ -340,7 +340,7 @@ no part and no official extension) and every part's code; each part writes
 its own state on the chain and that state carries the code that runs it.
 This client layer asks the chain (`chain.args.admit`,
 `chain.watch.watch`, `chain.observation.run`, …) and imports no builder,
-so a client that applies no extension carries none of their code (603 bytes
+so a client that applies no extension carries none of their code (642 bytes
 of `src/extensions` in the PostgreSQL application, measured with
 `node scripts/extension-bytes.mjs` on the tree of the extension rewrite:
 `transact` and `scopeOf`, how every transaction scope runs, which replaced

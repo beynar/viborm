@@ -125,32 +125,38 @@ export function transact<T>(
           ? Promise.reject(settled)
           : settled;
     };
-  return (
-    engine.driver
-      .withTransaction(
-        (driver) => {
-          scope = made ?? scopeOf(engine, root);
-          return body(driver, scope);
-        },
-        options,
-        // Only where a part may register: a chain of `call` parts, rules or
-        // defaults alone runs its transactions as an unextended client does.
-        parent || !(chain?.coordination || chain?.methods)
-          ? context
-          : appendExecutionTransactionPhases(context, {
-              readyToCommit: () => {
-                root.certainty = "may-have-committed";
-              },
-              committed: () => {
-                root.certainty = "committed";
-              },
-            })
-      )
-      // A savepoint that fails drops what it collected: no handler of its
-      // rejection, which only the caller's own observes (an unobserved one
-      // fails the outer transaction).
-      .then(end(), parent ? undefined : end(true))
-  );
+  const run = (driver: AnyDriver): Promise<T> => {
+    scope = made ?? scopeOf(engine, root);
+    return body(driver, scope);
+  };
+  // A savepoint hands what it collected to its parent before it is released,
+  // and nothing is chained on its driver's promise: its rejection is the
+  // caller's alone to observe (an unobserved one fails the outer
+  // transaction, and is no rejection without a handler).
+  if (parent)
+    return engine.driver.withTransaction(
+      (driver) => run(driver).then(end()),
+      options,
+      context
+    );
+  return engine.driver
+    .withTransaction(
+      run,
+      options,
+      // Only where a part may register: a chain of `call` parts, rules or
+      // defaults alone runs its transactions as an unextended client does.
+      chain?.coordination || chain?.methods
+        ? appendExecutionTransactionPhases(context, {
+            readyToCommit: () => {
+              root.certainty = "may-have-committed";
+            },
+            committed: () => {
+              root.certainty = "committed";
+            },
+          })
+        : context
+    )
+    .then(end(), end(true));
 }
 
 /**

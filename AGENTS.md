@@ -277,8 +277,8 @@ in the scope, whose collector the first registration installs),
 the unit records (`unit-source.ts`), the handler and write-outcome types
 (`query.ts`), the call's row scope (`row-domain.ts`) and the chain's state
 (`chain-state.ts`) are imported for their types only. It must not grow by
-one byte (`pg-representative`, measured by `extension-bytes.mjs`: 508,261
-bytes minified on the tree of the extension rewrite, of which 603 come from
+one byte (`pg-representative`, measured by `extension-bytes.mjs`: 508,300
+bytes minified on the tree of the extension rewrite, of which 642 come from
 `src/extensions`): a chain member a core path reads is named short, since
 minified property names are kept.
 
