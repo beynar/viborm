@@ -8,19 +8,19 @@ import type {
 import { PGliteDriver } from "@drivers/pglite";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { QueryError, UnsupportedOperationError } from "@errors";
-import { appendResolvedExtension } from "@tests/fixtures/host-definition";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { s } from "@schema";
 import { raw, type Sql, sql } from "@sql";
 import {
   extension as extExtension,
-  unit,
   statement as extStatement,
+  unit,
 } from "@src/index";
 import {
   BatchOnlyPGliteDriver,
   usePGliteSchemaFamily,
 } from "@tests/fixtures/drivers/pglite";
+import { appendResolvedExtension } from "@tests/fixtures/host-definition";
 import { readTestTransactionOperation } from "@tests/fixtures/transaction-operation";
 import { afterEach, describe, expect, onTestFinished, test, vi } from "vitest";
 

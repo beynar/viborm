@@ -6,6 +6,16 @@ import {
 } from "@errors";
 import { MemoryCache } from "@src/cache/drivers/memory";
 import { cache } from "@src/cache/exports";
+import {
+  accepts,
+  arg,
+  args,
+  defaults,
+  extension,
+  rule,
+  statement,
+  unit,
+} from "@src/index";
 import { permissions } from "@src/permissions";
 import { softDelete } from "@src/soft-delete/index";
 import { v } from "@src/validation";
@@ -41,16 +51,6 @@ import {
   type PermissionsAppClient,
   type PermissionsAppSubstrate,
 } from "./permissions-app-behavior";
-import {
-  accepts,
-  arg,
-  args,
-  defaults,
-  extension,
-  rule,
-  statement,
-  unit,
-} from "@src/index";
 
 /**
  * `viborm/permissions` itself (plan §1.1, §3.3 D0, D8, D11; §7 C1, C7, C10, C11,
@@ -1308,7 +1308,7 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
       );
       // Rules compile a model at a time: a call on the model is refused
       // before any statement, every time; another model is unaffected.
-      const call = loose((base as never).$extends(misspelt)).$as(actors.u01!);
+      const call = loose(base).$extends(misspelt).$as(actors.u01!);
       for (let attempt = 0; attempt < 2; attempt++)
         await expect(call.page!.findMany({})).rejects.toThrow(
           ClientInitializationError
@@ -1329,9 +1329,7 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
         },
       } as never);
       await expect(
-        loose((base as never).$extends(gated))
-          .$as(actors.u01!)
-          .page!.findMany({})
+        loose(base).$extends(gated).$as(actors.u01!).page!.findMany({})
       ).rejects.toThrow(
         'rows.verbs.page at "reads.groupId": names a key, a unique or a foreign key field'
       );
@@ -1348,9 +1346,7 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
         },
       } as never);
       await expect(
-        loose((base as never).$extends(unique))
-          .$as(actors.u01!)
-          .user!.findMany({})
+        loose(base).$extends(unique).$as(actors.u01!).user!.findMany({})
       ).rejects.toThrow(
         'rows.verbs.user at "reads.email": names a key, a unique or a foreign key field'
       );
@@ -1700,8 +1696,8 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
             update: false,
           },
         },
-      } as never) as unknown as (client: PermissionsAppClient) => Loose;
-      const call = base.$extends(gapped).$as(actors.u01!);
+      } as never);
+      const call = loose(base).$extends(gapped).$as(actors.u01!);
       expect(
         await holds(call.page!, ["read", "update", "full"], { id })
       ).toEqual({
@@ -1952,9 +1948,7 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
         // Declared: the read is served from the cache, stale after a write
         // the cache did not see, which is why it is refused by default.
         const allowing = permissions({ ...policy.config, cache: "allow" });
-        const call = loose(
-          (loose(base).$extends(memo()) as never).$extends(allowing)
-        ).$as(actor);
+        const call = loose(base).$extends(memo()).$extends(allowing).$as(actor);
         const [id] = at(actor, "page", "read", { tombstones: false });
         const read = async () =>
           await call.$withCache({ ttl: 60_000 }).page!.findMany({

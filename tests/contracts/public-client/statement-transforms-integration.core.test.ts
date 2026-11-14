@@ -2,18 +2,18 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import type { AnyDriver } from "@drivers";
 import { getExecutionExtensionChain } from "@drivers/execution-context";
 import { QueryError, UnsupportedOperationError } from "@errors";
-import { appendResolvedExtension } from "@tests/fixtures/host-definition";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { s } from "@schema";
 import { raw, type Sql, sql } from "@sql";
 import {
   createClient,
   extension as extExtension,
-  unit,
   statement,
+  unit,
 } from "@src/index";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
+import { appendResolvedExtension } from "@tests/fixtures/host-definition";
 import { afterEach, describe, expect, test } from "vitest";
 
 const author = s.model({ id: s.string().id(), name: s.string() });

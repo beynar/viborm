@@ -11,6 +11,20 @@ import {
 } from "@errors";
 import { s } from "@schema";
 import { Sql } from "@sql";
+import {
+  around,
+  call,
+  check,
+  defaults,
+  args as extArgs,
+  extension,
+  target as extTarget,
+  nothing,
+  oneOf,
+  rule,
+  statement,
+  unit,
+} from "@src/index";
 import { on } from "@src/on";
 import {
   isKey,
@@ -23,20 +37,6 @@ import { permissions } from "@src/permissions";
 import { softDelete } from "@src/soft-delete";
 import { v } from "@validation";
 import { describe, expect, test } from "vitest";
-import {
-  extension,
-  call,
-  unit,
-  rule,
-  defaults,
-  args as extArgs,
-  target as extTarget,
-  around,
-  nothing,
-  oneOf,
-  check,
-  statement,
-} from "@src/index";
 
 const column = s.model({
   id: s.string().id(),
@@ -1190,8 +1190,9 @@ export function describeOrdering(
       });
       const governed = (counted_ as any)
         .$extends(ordering({ card: { key: "rank", within: ["columnId"] } }))
-        .$extends(softDelete({ models: { card: { deletedAt: "deletedAt" } } }))
-        .card;
+        .$extends(
+          softDelete({ models: { card: { deletedAt: "deletedAt" } } })
+        ).card;
       await base_.column.create({ data: { id: "c3" } });
       const into = async (id: string, columnId: string) =>
         (await governed.move({ where: { id }, first: true, to: { columnId } }))

@@ -3,23 +3,21 @@
  * how a call's unit is sent, through public entry points only.
  */
 
-import type { Sql } from "@sql";
 import {
-  sql,
-  type WrittenWatch,
-  extension,
-  call as extCall,
-  unit,
-  target,
-  reads,
-  writes,
-  around,
-  watch,
-  settled,
   again,
-  via,
-  statement,
+  around,
+  call as extCall,
+  extension,
   run as extRun,
+  reads,
+  settled,
+  sql,
+  statement,
+  target,
+  unit,
+  via,
+  watch,
+  writes,
 } from "@src/index";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { failure } from "@tests/fixtures/failure";

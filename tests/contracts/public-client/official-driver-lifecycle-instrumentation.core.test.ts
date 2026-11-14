@@ -18,7 +18,7 @@ import {
 } from "@instrumentation/spans";
 import { trace } from "@opentelemetry/api";
 import type { ReadableSpan } from "@opentelemetry/sdk-trace-node";
-import { createClient, s, extension, unit } from "@src/index";
+import { createClient, extension, s, unit } from "@src/index";
 import { instrumentation } from "@src/instrumentation/exports";
 import { withOtelRecorder } from "@tests/unit/instrumentation/_capture";
 import { afterEach, describe, expect, test } from "vitest";
@@ -366,8 +366,7 @@ describe("official driver lifecycle instrumentation", () => {
           .filter(({ kind }) => kind === "savepoint")
           .every(
             ({ summary }) =>
-              summary?.status === "success" &&
-              summary.certainty === undefined
+              summary?.status === "success" && summary.certainty === undefined
           )
       ).toBe(true);
       expect(
@@ -448,9 +447,7 @@ describe("official driver lifecycle instrumentation", () => {
 
         const transaction = captures.find(({ kind }) => kind === "transaction");
         expect(transaction?.summary).toMatchObject({ status: "failure" });
-        expect(transaction?.summary?.certainty).toBe(
-          lifecycleCase.expected
-        );
+        expect(transaction?.summary?.certainty).toBe(lifecycleCase.expected);
         const span = driverSpans(recorder.spans(), lifecycleCase.name).find(
           ({ name }) => name === SPAN_TRANSACTION
         );

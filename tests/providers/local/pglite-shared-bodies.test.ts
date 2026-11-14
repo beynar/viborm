@@ -2,24 +2,25 @@
 
 import { createClient } from "@client/client";
 import { s } from "@schema";
+import {
+  accepts,
+  arg,
+  args,
+  exists,
+  extension,
+  nothing,
+  oneOf,
+  parts,
+  rule,
+  text,
+  unit,
+  when,
+} from "@src/index";
 import { v } from "@src/validation";
 import { runSharedBodiesBehavior } from "@tests/contracts/public-client/shared-bodies-behavior";
 import { createInMemoryPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, expect, test } from "vitest";
-import {
-  extension,
-  unit,
-  rule,
-  args,
-  nothing,
-  oneOf,
-  accepts,
-  arg,
-  exists,
-  when,
-  statement as extStatement,
-} from "@src/index";
 
 /** A relation body, read per row through its key: inlined. */
 const SHARED_RELATION_BODY =
@@ -64,16 +65,18 @@ const doc = s.model({
     .fields("orgId")
     .references("id"),
 });
-const user = { control: "user" } as const;
+/** The schema the two policies below are written for, away from a client. */
+const docs = { org, member, doc };
+const forDocs = parts<typeof docs>();
+const user = arg("user");
 const inOrg = { org: { members: { some: { userId: user } } } };
-const anyMembership = { $exists: { member: { userId: user } } };
-const policy = extension(
+const policy = forDocs.extension(
   "policy",
-  args({
+  forDocs.args({
     user: accepts(v.string()).required(["doc"]),
     scope: oneOf("all").default("all"),
   }),
-  rule({
+  forDocs.rule({
     doc: {
       read: {
         where: {
@@ -143,8 +146,8 @@ test("PGlite: a shared relation body reading no other is NOT MATERIALIZED; one r
         "statements",
         unit(
           (u, next) => {
-            statements.push(extStatement(u).toStatement());
-            return next(extStatement(u));
+            statements.push(text(u) ?? "");
+            return next();
           },
           ["statement"],
           { rewrites: true }
@@ -175,13 +178,13 @@ test("PGlite: a shared relation body reading no other is NOT MATERIALIZED; one r
 // one `WITH` member ahead of the `SELECT … FOR UPDATE`, which still locks
 // only the row it locates.
 test("PGlite: an upsert's locked lookup states its repeated body once, ahead of FOR UPDATE", async () => {
-  const scoped = extension(
+  const scoped = forDocs.extension(
     "scoped",
-    args({
+    forDocs.args({
       user: accepts(v.string()).required(["doc"]),
       scope: oneOf("member").default("member"),
     }),
-    rule({
+    forDocs.rule({
       doc: {
         root: when(arg("scope"), "member", {
           OR: [
@@ -216,8 +219,8 @@ test("PGlite: an upsert's locked lookup states its repeated body once, ahead of 
         "statements",
         unit(
           (u, next) => {
-            statements.push(extStatement(u).toStatement());
-            return next(extStatement(u));
+            statements.push(text(u) ?? "");
+            return next();
           },
           ["statement"],
           { rewrites: true }
@@ -333,8 +336,8 @@ test("PGlite: a shared relation body over a table named like a body is still NOT
         "statements",
         unit(
           (u, next) => {
-            statements.push(extStatement(u).toStatement());
-            return next(extStatement(u));
+            statements.push(text(u) ?? "");
+            return next();
           },
           ["statement"],
           { rewrites: true }

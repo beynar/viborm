@@ -1,4 +1,5 @@
 import { ValidationError } from "@errors";
+import { extension, statement, unit } from "@src/index";
 import type { CompiledPolicy } from "@src/permissions";
 import { verbsOf } from "@src/permissions/compile";
 import { v } from "@src/validation";
@@ -8,6 +9,7 @@ import {
   type PermissionsAppClient,
   type PermissionsAppSubstrate,
 } from "@tests/contracts/public-client/permissions-app-behavior";
+import { hostExtension } from "@tests/fixtures/host-definition";
 import {
   actionsOf,
   createOracle,
@@ -16,7 +18,6 @@ import {
   type OracleOptions,
   rowKey,
 } from "@tests/package/fixtures/permissions-app/oracle";
-import { hostExtension } from "@tests/fixtures/host-definition";
 import { schema } from "@tests/package/fixtures/permissions-app/schema";
 import {
   type Actor,
@@ -28,7 +29,6 @@ import {
   policy,
 } from "@tests/types/permissions/acceptance-policy";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
-import { extension, unit, statement } from "@src/index";
 
 /**
  * K5 against the oracle (plan §4.5, §3.3 D5/D6; §7 W-EV1..W-EV4 and

@@ -2,6 +2,7 @@ import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { ForbiddenError, NotFoundError, ValidationError } from "@errors";
 import { s } from "@schema";
+import { around, extension } from "@src/index";
 import { permissions, type Rule } from "@src/permissions";
 import { v } from "@src/validation";
 import {
@@ -12,7 +13,6 @@ import {
   expect,
   test,
 } from "vitest";
-import { extension, around } from "@src/index";
 
 const organization = s.model({
   id: s.string().id(),

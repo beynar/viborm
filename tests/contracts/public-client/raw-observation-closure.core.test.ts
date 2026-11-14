@@ -11,8 +11,8 @@ import type { QueryResult } from "@drivers";
 import { Driver } from "@drivers";
 import { s } from "@schema";
 import { sql } from "@sql";
-import { afterEach, describe, expect, test } from "vitest";
 import { extension, unit } from "@src/index";
+import { afterEach, describe, expect, test } from "vitest";
 
 const record = s.model({
   id: s.string().id(),

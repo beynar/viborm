@@ -7,10 +7,10 @@ import { runTransactionLifecycle } from "@drivers/shared/transactions";
 import type { CommittedBatchNotification } from "@drivers/types";
 import {
   createClient,
-  s,
   extension,
   unit as extUnit,
   methods,
+  s,
 } from "@src/index";
 import { readTestTransactionOperation } from "@tests/fixtures/transaction-operation";
 import { afterEach, describe, expect, test } from "vitest";

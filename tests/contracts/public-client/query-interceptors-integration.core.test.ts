@@ -11,17 +11,17 @@ import { runTransactionLifecycle } from "@drivers/shared/transactions";
 import { QueryError, ValidationError } from "@errors";
 import { s } from "@schema";
 import { Sql, sql } from "@sql";
-import { afterEach, describe, expect, test, vi } from "vitest";
 import {
-  extension,
+  around,
   call,
+  extension,
+  target as extTarget,
   unit as extUnit,
   methods,
-  target as extTarget,
-  around,
   settled,
   statement,
 } from "@src/index";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 const record = s.model({
   id: s.string().id(),
@@ -1261,7 +1261,9 @@ describe("public query-interceptor integration", () => {
         around(
           (c) => {
             let mode: string | undefined;
-            settled(c, ({ certainty }) => outcomes.push(`${mode}:${certainty}`));
+            settled(c, ({ certainty }) =>
+              outcomes.push(`${mode}:${certainty}`)
+            );
             return (run) => {
               mode = run.mode;
               return run();

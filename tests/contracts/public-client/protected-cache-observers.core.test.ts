@@ -4,7 +4,7 @@ import { CacheDriver, type CacheEntry } from "@cache/driver";
 import { cache as cacheExtension } from "@cache/extension";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { Driver } from "@drivers";
-import { createClient, s, extension, unit as extUnit } from "@src/index";
+import { createClient, extension, unit as extUnit, s } from "@src/index";
 import { createTestClock } from "@tests/fixtures/test-clock";
 import { readTestTransactionOperation } from "@tests/fixtures/transaction-operation";
 import { afterEach, describe, expect, test } from "vitest";

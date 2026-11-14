@@ -30,6 +30,7 @@ import type { AnyDriver } from "@drivers/driver";
 import { PgDriver } from "@drivers/pg";
 import { PGliteDriver } from "@drivers/pglite";
 import { PostgresDriver } from "@drivers/postgres";
+import { extension, text, unit } from "@src/index";
 import { softDelete } from "@src/soft-delete/index";
 import { runDomainPredicateBehavior } from "@tests/contracts/engine/query/domain-predicate-behavior";
 import {
@@ -45,7 +46,6 @@ import { actors } from "@tests/package/fixtures/permissions-app/seed";
 import { policy } from "@tests/types/permissions/acceptance-policy";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
-import { extension, unit, statement as extStatement } from "@src/index";
 
 const NEKI_URL = process.env.NEKI_DEV_CONNECTION_STRING;
 const TIMEOUT = 300_000;
@@ -137,8 +137,8 @@ function governed(driver: AnyDriver, statements: string[] = []) {
       "statements",
       unit(
         (u, next) => {
-          statements.push(extStatement(u).toStatement());
-          return next(extStatement(u));
+          statements.push(text(u) ?? "");
+          return next();
         },
         ["statement"],
         { rewrites: true }

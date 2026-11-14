@@ -8,13 +8,13 @@ import {
   ValidationError,
 } from "@src/errors";
 import {
-  createClient,
-  s,
-  extension,
-  call,
-  target,
   around,
+  call,
+  createClient,
+  extension,
+  s,
   settled,
+  target,
 } from "@src/index";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test, vi } from "vitest";

@@ -12,13 +12,13 @@ import {
 import { SpanStatusCode, trace } from "@opentelemetry/api";
 import { Sql } from "@sql";
 import {
+  around,
   createClient,
+  extension as extExtension,
+  statement as extStatement,
   s,
   sql,
-  extension as extExtension,
   unit,
-  around,
-  statement as extStatement,
 } from "@src/index";
 import { instrumentation } from "@src/instrumentation/exports";
 import {

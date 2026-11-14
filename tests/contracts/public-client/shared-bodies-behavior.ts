@@ -2,11 +2,11 @@ import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { s } from "@schema";
 import { sql } from "@sql";
+import { args, extension, nothing, oneOf, rule } from "@src/index";
 import { permissions } from "@src/permissions";
 import { v } from "@src/validation";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, describe, expect, test } from "vitest";
-import { extension, rule, args, nothing, oneOf } from "@src/index";
 
 /** Shared bodies preserve policy parameter tuples and native list members. */
 export function runSharedBodiesBehavior({
@@ -55,23 +55,29 @@ export function runSharedBodiesBehavior({
             embeddedSecond: "no",
           },
         });
-        for (const fields of [
-          ["first", "second"],
-          ["embeddedFirst", "embeddedSecond"],
+        // Each pair of fields written out: a computed key is any string to
+        // the types, which a rule's filter refuses.
+        for (const permitted of [
+          {
+            AND: [
+              { entries: { some: { first: "yes" } } },
+              { entries: { some: { second: "yes" } } },
+            ],
+          },
+          {
+            AND: [
+              { entries: { some: { embeddedFirst: "yes" } } },
+              { entries: { some: { embeddedSecond: "yes" } } },
+            ],
+          },
         ]) {
           const governed = base.$extends(
             extension(
               "physical-name-policy",
-              args({ scope: oneOf("all").default("all") }), // FIXME(extension-codemod): the filter `fields.map((field) => ({ ` is computed: check it names no call value
+              args({ scope: oneOf("all").default("all") }),
               rule({
                 container: {
-                  read: {
-                    where: {
-                      AND: fields.map((field) => ({
-                        entries: { some: { [field]: "yes" } },
-                      })),
-                    },
-                  },
+                  read: { where: permitted },
                   update: { where: nothing },
                   delete: { where: nothing },
                 },
@@ -129,13 +135,13 @@ export function runSharedBodiesBehavior({
           { grants: { some: { level: { equals: sql`'_q1_'` } } } },
           { grants: { some: { level: { equals: sql`'_q2_'` } } } },
         ];
-        for (const client of [base, governed]) {
-          const read = (where: object) =>
-            client.doc.findMany({
-              where,
-              select: { id: true },
-              orderBy: { id: "asc" },
-            });
+        const query = { select: { id: true }, orderBy: { id: "asc" } } as const;
+        // One read per client: an extended client's delegate and the base's
+        // are two signatures, which a union of the clients cannot call.
+        for (const read of [
+          (where: object) => base.doc.findMany({ where, ...query }),
+          (where: object) => governed.doc.findMany({ where, ...query }),
+        ]) {
           expect(await read({ OR: arms })).toEqual([
             { id: "d1" },
             { id: "d2" },

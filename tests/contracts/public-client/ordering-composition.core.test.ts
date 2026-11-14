@@ -15,6 +15,7 @@ import { NotFoundError } from "@errors";
 import { s } from "@schema";
 import { attachFieldSchemas } from "@schema/json";
 import { Sql } from "@sql";
+import { extension, statement, unit } from "@src/index";
 import { on } from "@src/on";
 import { isKey, ordering, orderingKey } from "@src/ordering";
 import { permissions } from "@src/permissions";
@@ -24,7 +25,6 @@ import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { v } from "@validation";
 import type Database from "better-sqlite3";
 import { describe, expect, test } from "vitest";
-import { extension, unit, statement } from "@src/index";
 
 class BatchOnlySQLite3Driver extends SQLite3Driver {
   override readonly supportsTransactions = false;

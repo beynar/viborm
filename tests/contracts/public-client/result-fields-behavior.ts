@@ -5,9 +5,9 @@ import { defaultOmit } from "@client/exports";
 import type { AnyDriver } from "@drivers";
 import { ValidationError } from "@errors";
 import { s } from "@schema";
+import { extension, fields } from "@src/index";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, describe, expect, test } from "vitest";
-import { extension, fields } from "@src/index";
 
 const user = s
   .model({
@@ -66,6 +66,13 @@ const fullName = {
   compute: (row: UserRow) => `${row.firstName} ${row.lastName}`,
 };
 
+/**
+ * A field part for the loose clients below (`Loose`): typed against no
+ * client, its declaration is taken as written, as the definition literals
+ * these tests passed to a loose `$extends` were.
+ */
+const looseFields = (declared: unknown) => fields(declared as never);
+
 const FIRST_NAME = /firstName/;
 const LAST_NAME = /lastName/;
 const UNNEEDED_COLUMNS = /email|password/;
@@ -93,7 +100,7 @@ const POSTS = [
 ];
 
 /**
- * `$extends({ result })` computed fields, as Prisma has them: on every row of
+ * `looseFields({ … })` computed fields, as Prisma has them: on every row of
  * the model an operation returns (reads, row-returning writes, nested
  * relation rows, array transactions), selected and omitted by name, their
  * `needs` read even when not selected and removed again, a later extension
@@ -138,7 +145,7 @@ export function runResultFieldsBehavior({
       });
       statements.length = 0;
       const db = base.$extends(
-        extension("names", fields({ user: { fullName } })) as never
+        extension("names", fields({ user: { fullName } }))
       ) as unknown as typeof base;
       return { base, db: db as Loose, statements };
     };
@@ -347,9 +354,7 @@ export function runResultFieldsBehavior({
         .$extends(
           cache({ driver: store, waitUntil: (work) => background.push(work) })
         )
-        .$extends(
-          extension("names", fields({ user: { fullName } })) as never
-        ) as Loose;
+        .$extends(extension("names", fields({ user: { fullName } }))) as Loose;
       const read = () =>
         db.$withCache().user.findUnique({
           where: { id: "u1" },
@@ -368,7 +373,7 @@ export function runResultFieldsBehavior({
         .$extends(
           extension(
             "greeting",
-            fields({
+            looseFields({
               user: {
                 greeting: {
                   needs: { fullName: true },
@@ -382,7 +387,7 @@ export function runResultFieldsBehavior({
         .$extends(
           extension(
             "shout",
-            fields({
+            looseFields({
               $allModels: {
                 ref: {
                   needs: { id: true },
@@ -428,7 +433,7 @@ export function runResultFieldsBehavior({
       const db = base.$extends(
         extension(
           "lower",
-          fields({
+          looseFields({
             user: {
               email: {
                 needs: { email: true },
@@ -466,7 +471,7 @@ export function runResultFieldsBehavior({
         .$extends(
           extension(
             "hint",
-            fields({
+            looseFields({
               user: {
                 hint: {
                   needs: { password: true },
@@ -497,7 +502,7 @@ export function runResultFieldsBehavior({
       const failing = base.$extends(
         extension(
           "failing",
-          fields({
+          looseFields({
             user: {
               broken: {
                 needs: {},
@@ -516,7 +521,7 @@ export function runResultFieldsBehavior({
       const constant = base.$extends(
         extension(
           "constant",
-          fields({ user: { one: { needs: {}, compute: () => 1 } } })
+          looseFields({ user: { one: { needs: {}, compute: () => 1 } } })
         ) as never
       ) as Loose;
       expect(
@@ -539,7 +544,7 @@ export function runResultFieldsBehavior({
       const db = base.$extends(
         extension(
           "counted",
-          fields({
+          looseFields({
             user: {
               fullName: {
                 needs: { firstName: true, lastName: true },
@@ -579,7 +584,7 @@ export function runResultFieldsBehavior({
       const db = base.$extends(
         extension(
           "profiles",
-          fields({
+          looseFields({
             profile: {
               theme: {
                 needs: { settings: true },
@@ -617,7 +622,7 @@ export function runResultFieldsBehavior({
       const failing = base.$extends(
         extension(
           "failing",
-          fields({
+          looseFields({
             user: {
               broken: {
                 needs: { id: true },
@@ -691,7 +696,7 @@ export function runResultFieldsBehavior({
       const db = base.$extends(
         extension(
           "labels",
-          fields({
+          looseFields({
             category: {
               label: {
                 needs: { name: true },
@@ -723,7 +728,7 @@ export function runResultFieldsBehavior({
     test(`${provider}: a definition is checked when it is applied`, async () => {
       const { base } = await open();
       const apply = (result: unknown) => () =>
-        base.$extends(extension("bad", fields(result)) as never);
+        base.$extends(extension("bad", looseFields(result)) as never);
       expect(
         apply({ user: { x: { needs: { nope: true }, compute: () => 1 } } })
       ).toThrow(

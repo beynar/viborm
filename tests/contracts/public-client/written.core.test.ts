@@ -7,14 +7,14 @@
 
 import { QueryError } from "@errors";
 import {
-  extension,
-  call as extCall,
   args,
+  call as extCall,
+  extension,
+  watch as extWatch,
+  oneOf,
+  settled,
   target,
   writes,
-  oneOf,
-  watch as extWatch,
-  settled,
 } from "@src/index";
 import { softDelete } from "@src/soft-delete";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
@@ -65,10 +65,7 @@ for (const [name, createDriver] of [
       const base = await open();
       const log: unknown[] = [];
       const db = base.$extends(
-        extension(
-          "watch",
-          extCall(recording(log), target(writes))
-        )
+        extension("watch", extCall(recording(log), target(writes)))
       );
       const value = await db.user.update({
         where: { id: "u1" },
@@ -144,12 +141,7 @@ for (const [name, createDriver] of [
       const log: unknown[] = [];
       const db = base
         .$extends(softDelete({ models: { post: { deletedAt: "deletedAt" } } }))
-        .$extends(
-          extension(
-            "watch",
-            extCall(recording(log), target(writes))
-          )
-        );
+        .$extends(extension("watch", extCall(recording(log), target(writes))));
       const upsert = (id: string) =>
         db.user.upsert({
           where: { id },
@@ -197,10 +189,7 @@ for (const [name, createDriver] of [
       if (!base.$driver.supportsTransactions) return;
       const log: unknown[] = [];
       const db = base.$extends(
-        extension(
-          "watch",
-          extCall(recording(log), target(writes))
-        )
+        extension("watch", extCall(recording(log), target(writes)))
       );
       await db.$transaction(async (tx) => {
         await tx.user.update({ where: { id: "u1" }, data: { name: "T" } });
@@ -226,10 +215,7 @@ for (const [name, createDriver] of [
       const base = await open();
       const log: unknown[] = [];
       const db = base.$extends(
-        extension(
-          "watch",
-          extCall(recording(log), target(writes))
-        )
+        extension("watch", extCall(recording(log), target(writes)))
       );
       await db.$transaction([
         db.user.update({ where: { id: "u1" }, data: { name: "One" } }),
@@ -253,16 +239,10 @@ for (const [name, createDriver] of [
       const log: unknown[] = [];
       const db = base
         .$extends(
-          extension(
-            "first",
-            extCall(recording(log, "1 "), target(writes))
-          )
+          extension("first", extCall(recording(log, "1 "), target(writes)))
         )
         .$extends(
-          extension(
-            "second",
-            extCall(recording(log, "2 "), target(writes))
-          )
+          extension("second", extCall(recording(log, "2 "), target(writes)))
         );
       await db.user.update({ where: { id: "u1" }, data: { name: "Both" } });
       expect(log).toEqual([

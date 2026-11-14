@@ -2,6 +2,7 @@ import { ForbiddenError, NestedWriteError, NotFoundError } from "@errors";
 import { defaults, extension } from "@src/index";
 import { permissions } from "@src/permissions";
 import { softDelete } from "@src/soft-delete/index";
+import { hostExtension } from "@tests/fixtures/host-definition";
 import {
   actionsOf,
   createOracle,
@@ -19,7 +20,6 @@ import {
   actors,
   seed,
 } from "@tests/package/fixtures/permissions-app/seed";
-import { hostExtension } from "@tests/fixtures/host-definition";
 import { policy } from "@tests/types/permissions/acceptance-policy";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import {

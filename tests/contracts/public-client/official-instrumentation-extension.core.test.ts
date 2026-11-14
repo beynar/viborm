@@ -10,13 +10,13 @@ import { getOfficialInstrumentationChainCapability } from "@extensions/observati
 import { ATTR_DB_OPERATION_NAME, SPAN_OPERATION } from "@instrumentation/spans";
 import { SpanStatusCode, trace } from "@opentelemetry/api";
 import {
+  around,
+  call,
   createClient,
+  extension as extExtension,
   s,
   sql,
-  extension as extExtension,
-  call,
   unit,
-  around,
 } from "@src/index";
 import { instrumentation } from "@src/instrumentation/exports";
 import { appendResolvedExtension } from "@tests/fixtures/host-definition";

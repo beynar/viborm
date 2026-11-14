@@ -7,6 +7,7 @@ import {
   type PermissionsAppClient,
   type PermissionsAppSubstrate,
 } from "@tests/contracts/public-client/permissions-app-behavior";
+import { hostExtension } from "@tests/fixtures/host-definition";
 import {
   actionsOf,
   createOracle,
@@ -16,7 +17,6 @@ import {
   type OracleOptions,
   rowKey,
 } from "@tests/package/fixtures/permissions-app/oracle";
-import { hostExtension } from "@tests/fixtures/host-definition";
 import { schema } from "@tests/package/fixtures/permissions-app/schema";
 import {
   type Actor,

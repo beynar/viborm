@@ -7,11 +7,11 @@
 
 import { createClient } from "@client/client";
 import { s } from "@schema";
+import { args as extArgs, extension, oneOf } from "@src/index";
 import { ordering, orderingKey } from "@src/ordering";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { expect, test } from "vitest";
-import { extension, args as extArgs, oneOf } from "@src/index";
 
 test("compound unique anchor is accepted by move", async () => {
   const card = s
