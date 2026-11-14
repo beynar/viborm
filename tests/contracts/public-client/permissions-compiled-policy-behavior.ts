@@ -7,6 +7,7 @@ import {
   type PermissionsAppClient,
   type PermissionsAppSubstrate,
 } from "@tests/contracts/public-client/permissions-app-behavior";
+import { hostExtension } from "@tests/fixtures/host-definition";
 import {
   actionsOf,
   createOracle,
@@ -126,7 +127,7 @@ export function runCompiledPolicyBehavior(
       let client = clients.get(name);
       if (client === undefined) {
         const unbound = base.$extends(
-          extensionOf(name, compiled) as never
+          hostExtension(extensionOf(name, compiled)) as never
         ) as unknown as { $unrestricted(): unknown };
         client = unbound.$unrestricted();
         clients.set(name, client);

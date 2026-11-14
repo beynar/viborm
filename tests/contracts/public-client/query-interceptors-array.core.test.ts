@@ -20,6 +20,15 @@ import {
 import { s } from "@schema";
 import { raw, sql } from "@sql";
 import {
+  around,
+  call,
+  extension,
+  statement as extStatement,
+  target as extTarget,
+  unit as extUnit,
+  settled,
+} from "@src/index";
+import {
   overrideTransactionOperation,
   readTestTransactionOperation,
   type TestTransactionOperationView,
@@ -230,15 +239,6 @@ function nativeClient() {
   return { client, driver };
 }
 
-function applyUnsafeExtension<Client extends object>(
-  client: Client,
-  definition: unknown
-): Client {
-  const extend = Reflect.get(client, "$extends");
-  if (typeof extend !== "function") throw new Error("Expected $extends");
-  return Reflect.apply(extend, client, [definition]);
-}
-
 function runUnsafeArrayTransaction(
   client: object,
   candidates: readonly unknown[]
@@ -258,14 +258,12 @@ function requireTransactionOperation(
   return capability;
 }
 
-function collectFailures(failure: unknown): unknown[] {
-  const failures = [failure];
-  if (failure instanceof AggregateError) {
-    for (const nested of failure.errors) {
-      failures.push(...collectFailures(nested));
-    }
-  }
-  return failures;
+/**
+ * The failure a caller is meant to read. The aggregate query coordination
+ * wraps it in is not promised any more; its primary failure is.
+ */
+function primaryOf(failure: unknown): unknown {
+  return failure instanceof AggregateError ? failure.cause : failure;
 }
 
 async function captureFailure(action: Promise<unknown>): Promise<unknown> {
@@ -297,17 +295,18 @@ afterEach(async () => {
 describe("array query admission", () => {
   test("creates no rejecting observation mirror when observe is absent", async () => {
     const { client: base, driver } = fallbackClient();
-    const client = base.$extends({
-      name: "no-observer-rejection",
-      query: {
-        record: {
-          async findMany({ proceed }) {
-            await proceed();
+    const client = base.$extends(
+      extension(
+        "no-observer-rejection",
+        around(
+          () => async (run) => {
+            await run();
             throw new Error("query post-work failed");
           },
-        },
-      },
-    });
+          extTarget("record", "findMany")
+        )
+      )
+    );
 
     await expect(
       client.$transaction([client.record.findMany()])
@@ -326,20 +325,21 @@ describe("array query admission", () => {
       markHandlersStarted = resolve;
     });
     const { client: base, driver } = fallbackClient();
-    const client = base.$extends({
-      name: "parallel-admission",
-      query: {
-        record: {
-          async findMany({ mode, proceed }) {
-            expect(mode).toBe("array");
+    const client = base.$extends(
+      extension(
+        "parallel-admission",
+        around(
+          () => async (run) => {
+            expect(run.mode).toBe("array");
             calls += 1;
             if (calls === 2) markHandlersStarted();
             if (calls === 2) await secondReady;
-            return proceed();
+            return run();
           },
-        },
-      },
-    });
+          extTarget("record", "findMany")
+        )
+      )
+    );
 
     const result = client.$transaction([
       client.record.findMany(),
@@ -357,13 +357,15 @@ describe("array query admission", () => {
   test("prepares every member before running any handler or provider effect", async () => {
     let handlerCalls = 0;
     const { client: base, driver } = fallbackClient();
-    const client = base.$extends({
-      name: "prepare-first",
-      async query({ proceed }) {
-        handlerCalls += 1;
-        return proceed();
-      },
-    });
+    const client = base.$extends(
+      extension(
+        "prepare-first",
+        around(() => async (run) => {
+          handlerCalls += 1;
+          return run();
+        })
+      )
+    );
     const invalid = Reflect.apply(client.record.findMany, client.record, [
       { take: "invalid" },
     ]);
@@ -378,20 +380,21 @@ describe("array query admission", () => {
   test("admits every request-only write before fallback transaction effects", async () => {
     let requestCalls = 0;
     const { client: base, driver } = fallbackClient();
-    const client = base.$extends({
-      name: "request-only-admission",
-      request: {
-        record: {
-          deleteMany() {
+    const client = base.$extends(
+      extension(
+        "request-only-admission",
+        call(
+          (c) => {
             requestCalls += 1;
             if (requestCalls === 2) {
               throw new Error("second request refused");
             }
-            return {};
+            c.set({});
           },
-        },
-      },
-    });
+          extTarget("record", "deleteMany")
+        )
+      )
+    );
     const first = client.record.deleteMany({ where: { id: "first" } });
     const second = client.record.deleteMany({ where: { id: "second" } });
 
@@ -417,20 +420,23 @@ describe("array query admission", () => {
   test("keeps request preparation inside an operation observer lifecycle", () => {
     const { client: base } = fallbackClient();
     const client = base
-      .$extends({
-        name: "observed-request",
-        request: {
-          record: {
-            findMany() {
-              return {};
+      .$extends(
+        extension(
+          "observed-request",
+          call(
+            (c) => {
+              c.set({});
             },
-          },
-        },
-      })
-      .$extends({
-        name: "request-observer",
-        observe: () => undefined,
-      });
+            extTarget("record", "findMany")
+          )
+        )
+      )
+      .$extends(
+        extension(
+          "request-observer",
+          extUnit((_u, _next) => undefined)
+        )
+      );
 
     expect(
       readTestTransactionOperation(
@@ -441,26 +447,27 @@ describe("array query admission", () => {
 
   test("requires proceed for array reads, mutations, and every raw family", async () => {
     const { client: base, driver } = fallbackClient();
-    const readClient = base.$extends({
-      name: "read-no-proceed",
-      query: {
-        record: {
-          async findMany() {
+    const readClient = base.$extends(
+      extension(
+        "read-no-proceed",
+        around(
+          () => async (_run) => {
             return [];
           },
-        },
-      },
-    });
+          extTarget("record", "findMany")
+        )
+      )
+    );
     await expect(
       readClient.$transaction([readClient.record.findMany()])
     ).rejects.toBeInstanceOf(QueryError);
 
-    const mandatory = applyUnsafeExtension(base, {
-      name: "mandatory-no-proceed",
-      async query({ kind }: { kind: string }) {
-        return kind === "model" ? { count: 99 } : [];
-      },
-    });
+    const mandatory = base.$extends(
+      extension(
+        "mandatory-no-proceed",
+        around((c) => async () => (c.kind === "model" ? { count: 99 } : []))
+      )
+    );
     const operations = [
       mandatory.record.deleteMany(),
       mandatory.$queryRaw(sql`SELECT 1`),
@@ -479,10 +486,10 @@ describe("array query admission", () => {
   test.each([
     [
       "caught double",
-      ({ proceed }: { proceed(): Promise<unknown> }) => {
-        const first = proceed();
+      (run: () => Promise<unknown>) => {
+        const first = run();
         try {
-          proceed();
+          run();
         } catch {
           // The handler cannot neutralize the protocol failure.
         }
@@ -491,17 +498,19 @@ describe("array query admission", () => {
     ],
     [
       "proceed then throw",
-      async ({ proceed }: { proceed(): Promise<unknown> }) => {
-        proceed();
+      async (run: () => Promise<unknown>) => {
+        run();
         throw new Error("post-admission failure");
       },
     ],
   ])("aborts %s before provider release", async (_name, handler) => {
     const { client: base, driver } = fallbackClient();
-    const client = applyUnsafeExtension(base, {
-      name: "hostile-continuation",
-      query: { record: { findMany: handler } },
-    });
+    const client = base.$extends(
+      extension(
+        "hostile-continuation",
+        around(() => handler, extTarget("record", "findMany"))
+      )
+    );
 
     const failure = await captureFailure(
       client.$transaction([client.record.findMany()])
@@ -513,14 +522,14 @@ describe("array query admission", () => {
 
   test("retains a final handler failure after caught double-proceed and child rejection", async () => {
     const { client: base, driver } = fallbackClient();
-    const client = base.$extends({
-      name: "admission-evidence",
-      query: {
-        record: {
-          async findMany({ proceed }) {
-            const child = proceed();
+    const client = base.$extends(
+      extension(
+        "admission-evidence",
+        around(
+          () => async (run) => {
+            const child = run();
             try {
-              proceed();
+              run();
             } catch {
               // The handler cannot neutralize the protocol failure.
             }
@@ -531,9 +540,10 @@ describe("array query admission", () => {
             }
             throw new Error("distinct final handler failure");
           },
-        },
-      },
-    });
+          extTarget("record", "findMany")
+        )
+      )
+    );
 
     const failure = await captureFailure(
       client.$transaction([client.record.findMany()])
@@ -553,17 +563,18 @@ describe("array query admission", () => {
 
   test("publishes handler transformations while retaining a failed child", async () => {
     const { client: base, driver } = fallbackClient();
-    const client = applyUnsafeExtension(base, {
-      name: "fabricated-return",
-      query: {
-        record: {
-          async findMany({ proceed }: { proceed(): Promise<unknown> }) {
-            proceed();
+    const client = base.$extends(
+      extension(
+        "fabricated-return",
+        around(
+          () => async (run) => {
+            run();
             return [{ id: "fabricated" }];
           },
-        },
-      },
-    });
+          extTarget("record", "findMany")
+        )
+      )
+    );
 
     const [rows] = await client.$transaction([client.record.findMany()]);
     expect(rows[0]?.id).toBe("fabricated");
@@ -579,17 +590,18 @@ describe("array query admission", () => {
   test("closes a detached late proceed without releasing the provider", async () => {
     let detached: (() => Promise<unknown>) | undefined;
     const { client: base, driver } = fallbackClient();
-    const client = applyUnsafeExtension(base, {
-      name: "detached-proceed",
-      query: {
-        record: {
-          async findMany({ proceed }: { proceed(): Promise<unknown> }) {
-            detached = proceed;
+    const client = base.$extends(
+      extension(
+        "detached-proceed",
+        around(
+          () => async (run) => {
+            detached = run;
             return [];
           },
-        },
-      },
-    });
+          extTarget("record", "findMany")
+        )
+      )
+    );
 
     await expect(
       client.$transaction([client.record.findMany()])
@@ -609,12 +621,14 @@ describe("fallback array query execution", () => {
     const { client: base, driver } = fallbackClient();
     driver.afterTransactionStarts = () =>
       date.setTime(Date.parse(laterInstant));
-    const client = base.$extends({
-      name: "fallback-queued-raw-date",
-      observe(_unit, proceed) {
-        return proceed();
-      },
-    });
+    const client = base.$extends(
+      extension(
+        "fallback-queued-raw-date",
+        extUnit((_u, next) => {
+          return next();
+        })
+      )
+    );
     const operation = requireTransactionOperation(
       client.$queryRaw(sql`SELECT ${parameter}`)
     );
@@ -667,14 +681,22 @@ describe("fallback array query execution", () => {
 
   test("refuses a nested raw Date introduced by a fallback statement transform", async () => {
     const { client: base, driver } = fallbackClient();
-    const client = base.$extends({
-      name: "fallback-nested-raw-date",
-      statement({ operation, statement }) {
-        return operation === "$queryRaw"
-          ? sql`SELECT ${{ nested: [new Date(Number.NaN)] }}`
-          : statement;
-      },
-    });
+    const client = base.$extends(
+      extension(
+        "fallback-nested-raw-date",
+        extUnit(
+          (u, next) => {
+            return next(
+              u.operation === "$queryRaw"
+                ? sql`SELECT ${{ nested: [new Date(Number.NaN)] }}`
+                : extStatement(u)
+            );
+          },
+          ["statement"],
+          { rewrites: true }
+        )
+      )
+    );
 
     await expect(
       client.$transaction([client.$queryRaw(sql`SELECT ${1}`)])
@@ -686,19 +708,20 @@ describe("fallback array query execution", () => {
   test("waits for member post-work before the next SQL and rolls back on failure", async () => {
     let calls = 0;
     const { client: base, driver } = fallbackClient();
-    const client = base.$extends({
-      name: "sequential-post-work",
-      query: {
-        record: {
-          async findMany({ proceed }) {
+    const client = base.$extends(
+      extension(
+        "sequential-post-work",
+        around(
+          () => async (run) => {
             calls += 1;
-            const result = await proceed();
+            const result = await run();
             if (calls === 2) throw new Error("first member post-work failed");
             return result;
           },
-        },
-      },
-    });
+          extTarget("record", "findMany")
+        )
+      )
+    );
 
     await expect(
       client.$transaction([client.record.findMany(), client.record.findMany()])
@@ -709,29 +732,31 @@ describe("fallback array query execution", () => {
 
   test("keeps the first core child primary before first and later post-work", async () => {
     const { client: base, driver } = fallbackClient();
-    const client = base.$extends({
-      name: "later-fallback-post-work",
-      query: {
-        record: {
-          async findMany({ proceed }) {
+    const client = base.$extends(
+      extension(
+        "later-fallback-post-work",
+        around(
+          () => async (run) => {
             try {
-              return await proceed();
+              return await run();
             } catch {
               throw new Error("first admitted member post-work failed");
             }
           },
-        },
-        note: {
-          async findMany({ proceed }) {
+          extTarget("record", "findMany")
+        ),
+        around(
+          () => async (run) => {
             try {
-              return await proceed();
+              return await run();
             } catch {
               throw new Error("later admitted member post-work failed");
             }
           },
-        },
-      },
-    });
+          extTarget("note", "findMany")
+        )
+      )
+    );
     driver.failNext = new Error("first core failed");
 
     const failure = await captureFailure(
@@ -755,29 +780,32 @@ describe("fallback array query execution", () => {
   test("promotes a released savepoint and discards a rolled-back one", async () => {
     const outcomes: string[] = [];
     const { client: base, driver } = fallbackClient();
-    const client = base.$extends({
-      name: "nested-array-outcomes",
-      query: {
-        record: {
-          async deleteMany({ input, onWriteOutcome, proceed }) {
-            onWriteOutcome(({ certainty }) => outcomes.push(certainty));
-            const result = await proceed();
-            const where = Reflect.get(input, "where");
-            if (where === null || typeof where !== "object") {
-              throw new Error("Expected a where clause");
-            }
-            const id = Reflect.get(where, "id");
-            if (id === null || typeof id !== "object") {
-              throw new Error("Expected an id clause");
-            }
-            if (Reflect.get(id, "equals") === "rollback") {
-              throw new Error("rollback nested array");
-            }
-            return result;
+    const client = base.$extends(
+      extension(
+        "nested-array-outcomes",
+        around(
+          (c) => {
+            settled(c, ({ certainty }) => outcomes.push(certainty));
+            return async (run) => {
+              const result = await run();
+              const where = Reflect.get(run.input, "where");
+              if (where === null || typeof where !== "object") {
+                throw new Error("Expected a where clause");
+              }
+              const id = Reflect.get(where, "id");
+              if (id === null || typeof id !== "object") {
+                throw new Error("Expected an id clause");
+              }
+              if (Reflect.get(id, "equals") === "rollback") {
+                throw new Error("rollback nested array");
+              }
+              return result;
+            };
           },
-        },
-      },
-    });
+          extTarget("record", "deleteMany")
+        )
+      )
+    );
 
     await client.$transaction(async (tx) => {
       await tx.$transaction([tx.record.deleteMany({ where: { id: "kept" } })]);
@@ -806,14 +834,19 @@ describe("raw write-outcome classification", () => {
   test("keeps raw classification, outcomes, and context behind private state", async () => {
     const observations: string[] = [];
     const { client: base, driver } = fallbackClient();
-    const client = base.$extends({
-      name: "private-raw-state",
-      async query({ kind, onWriteOutcome, proceed }) {
-        observations.push(kind);
-        onWriteOutcome(({ certainty }) => observations.push(certainty));
-        return proceed();
-      },
-    });
+    const client = base.$extends(
+      extension(
+        "private-raw-state",
+        around((c) => {
+          settled(c, ({ certainty }) => observations.push(certainty));
+          return async (run) => {
+            observations.push(c.operation);
+
+            return run();
+          };
+        })
+      )
+    );
     const operation = client.$executeRawUnsafe(
       "UPDATE record SET name = ?",
       "private"
@@ -871,7 +904,7 @@ describe("raw write-outcome classification", () => {
     expect(requireTransactionOperation(operation).context).toBe(
       authenticContext
     );
-    expect(observations).toEqual(["executeRawUnsafe", "committed"]);
+    expect(observations).toEqual(["$executeRawUnsafe", "committed"]);
     expect(providerStatements(driver.events)).toEqual([
       "UPDATE record SET name = ?",
     ]);
@@ -880,17 +913,19 @@ describe("raw write-outcome classification", () => {
   test("publishes only execute families in direct and fallback modes", async () => {
     const outcomes: string[] = [];
     const { client: base } = fallbackClient();
-    const client = base.$extends({
-      name: "fallback-raw-outcomes",
-      async query({ kind, onWriteOutcome, proceed }) {
-        if (kind !== "model") {
-          onWriteOutcome(({ certainty }) =>
-            outcomes.push(`${kind}:${certainty}`)
-          );
-        }
-        return proceed();
-      },
-    });
+    const client = base.$extends(
+      extension(
+        "fallback-raw-outcomes",
+        around((c) => {
+          if (c.kind !== "model") {
+            settled(c, ({ certainty }) =>
+              outcomes.push(`${c.operation}:${certainty}`)
+            );
+          }
+          return (run) => run();
+        })
+      )
+    );
 
     await client.$queryRaw(sql`SELECT 1`);
     await client.$queryRawUnsafe("SELECT 1");
@@ -898,8 +933,8 @@ describe("raw write-outcome classification", () => {
     await client.$executeRaw(sql`DELETE FROM record`);
     await client.$executeRawUnsafe("DELETE FROM record");
     expect(outcomes).toEqual([
-      "executeRaw:committed",
-      "executeRawUnsafe:committed",
+      "$executeRaw:committed",
+      "$executeRawUnsafe:committed",
     ]);
 
     outcomes.splice(0);
@@ -910,25 +945,27 @@ describe("raw write-outcome classification", () => {
       client.$executeRawUnsafe("DELETE FROM record"),
     ]);
     expect(outcomes).toEqual([
-      "executeRaw:committed",
-      "executeRawUnsafe:committed",
+      "$executeRaw:committed",
+      "$executeRawUnsafe:committed",
     ]);
   });
 
   test("publishes only execute families for native success and dispatch failure", async () => {
     const committed: string[] = [];
     const { client: successBase } = nativeClient();
-    const success = successBase.$extends({
-      name: "native-raw-outcomes",
-      async query({ kind, onWriteOutcome, proceed }) {
-        if (kind !== "model") {
-          onWriteOutcome(({ certainty }) =>
-            committed.push(`${kind}:${certainty}`)
-          );
-        }
-        return proceed();
-      },
-    });
+    const success = successBase.$extends(
+      extension(
+        "native-raw-outcomes",
+        around((c) => {
+          if (c.kind !== "model") {
+            settled(c, ({ certainty }) =>
+              committed.push(`${c.operation}:${certainty}`)
+            );
+          }
+          return (run) => run();
+        })
+      )
+    );
     await success.$transaction([
       success.$queryRaw(sql`SELECT 1`),
       success.$executeRaw(sql`DELETE FROM record`),
@@ -936,55 +973,71 @@ describe("raw write-outcome classification", () => {
       success.$executeRawUnsafe("DELETE FROM record"),
     ]);
     expect(committed).toEqual([
-      "executeRaw:committed",
-      "executeRawUnsafe:committed",
+      "$executeRaw:committed",
+      "$executeRawUnsafe:committed",
     ]);
 
     const readOutcomes: string[] = [];
     const { client: readBase, driver: readDriver } = nativeClient();
     readDriver.failProvider = new Error("read dispatch failed");
-    const read = readBase.$extends({
-      name: "native-raw-read-failure",
-      async query({ kind, onWriteOutcome, proceed }) {
-        onWriteOutcome(({ certainty }) =>
-          readOutcomes.push(`${kind}:${certainty}`)
-        );
-        return proceed();
-      },
-    });
+    const read = readBase.$extends(
+      extension(
+        "native-raw-read-failure",
+        around((c) => {
+          settled(c, ({ certainty }) =>
+            readOutcomes.push(`${c.operation}:${certainty}`)
+          );
+          return async (run) => {
+            return run();
+          };
+        })
+      )
+    );
     await captureFailure(read.$transaction([read.$queryRaw(sql`SELECT 1`)]));
     expect(readOutcomes).toEqual([]);
 
     const writeOutcomes: string[] = [];
     const { client: writeBase, driver: writeDriver } = nativeClient();
     writeDriver.failProvider = new Error("write dispatch failed");
-    const write = writeBase.$extends({
-      name: "native-raw-write-failure",
-      async query({ kind, onWriteOutcome, proceed }) {
-        onWriteOutcome(({ certainty }) =>
-          writeOutcomes.push(`${kind}:${certainty}`)
-        );
-        return proceed();
-      },
-    });
+    const write = writeBase.$extends(
+      extension(
+        "native-raw-write-failure",
+        around((c) => {
+          settled(c, ({ certainty }) =>
+            writeOutcomes.push(`${c.operation}:${certainty}`)
+          );
+          return async (run) => {
+            return run();
+          };
+        })
+      )
+    );
     await captureFailure(
       write.$transaction([write.$executeRaw(sql`DELETE FROM record`)])
     );
-    expect(writeOutcomes).toEqual(["executeRaw:may-have-committed"]);
+    expect(writeOutcomes).toEqual(["$executeRaw:may-have-committed"]);
   });
 });
 
 describe("native array query execution", () => {
   test("refuses a nested raw Date introduced by a native statement transform", async () => {
     const { client: base, driver } = nativeClient();
-    const client = base.$extends({
-      name: "native-nested-raw-date",
-      statement({ operation, statement }) {
-        return operation === "$queryRaw"
-          ? sql`SELECT ${{ nested: [new Date(Number.NaN)] }}`
-          : statement;
-      },
-    });
+    const client = base.$extends(
+      extension(
+        "native-nested-raw-date",
+        extUnit(
+          (u, next) => {
+            return next(
+              u.operation === "$queryRaw"
+                ? sql`SELECT ${{ nested: [new Date(Number.NaN)] }}`
+                : extStatement(u)
+            );
+          },
+          ["statement"],
+          { rewrites: true }
+        )
+      )
+    );
 
     await expect(
       client.$transaction([client.$queryRaw(sql`SELECT ${1}`)])
@@ -998,19 +1051,21 @@ describe("native array query execution", () => {
   ])("refuses a raw Date invalidated %s proceed before native preparation", async (timing) => {
     const parameter = new Date("2026-08-25T13:00:00.000Z");
     const { client: base, driver } = nativeClient();
-    const client = base.$extends({
-      name: `native-raw-date-${timing}`,
-      async query({ kind, proceed }) {
-        if (kind !== "queryRaw") return proceed();
-        if (timing === "before") {
+    const client = base.$extends(
+      extension(
+        `native-raw-date-${timing}`,
+        around((c) => async (run) => {
+          if (c.operation !== "$queryRaw") return run();
+          if (timing === "before") {
+            parameter.setTime(Number.NaN);
+            return run();
+          }
+          const child = run();
           parameter.setTime(Number.NaN);
-          return proceed();
-        }
-        const child = proceed();
-        parameter.setTime(Number.NaN);
-        return child;
-      },
-    });
+          return child;
+        })
+      )
+    );
 
     await expect(
       client.$transaction([client.$queryRaw(sql`SELECT ${parameter}`)])
@@ -1026,23 +1081,40 @@ describe("native array query execution", () => {
   }) => {
     const parameter = new Date("2026-08-25T13:00:00.000Z");
     const { client: base, driver } = nativeClient();
-    const transform = {
-      name: `native-raw-date-statement-${observed}`,
-      statement({ operation, statement }) {
-        if (operation !== "$queryRaw") return statement;
-        const date = statement.values[0];
-        if (!(date instanceof Date)) throw new Error("Expected a Date");
-        date.setTime(Number.NaN);
-        return statement;
-      },
-    };
+    const transform = extension(
+      `native-raw-date-statement-${observed}`,
+      extUnit(
+        (u, next) => {
+          if (u.operation !== "$queryRaw") return next(extStatement(u));
+          const date = extStatement(u).values[0];
+          if (!(date instanceof Date)) throw new Error("Expected a Date");
+          date.setTime(Number.NaN);
+          return next(extStatement(u));
+        },
+        ["statement"],
+        { rewrites: true }
+      )
+    );
     const client = observed
-      ? base.$extends({
-          ...transform,
-          observe(_unit, proceed) {
-            return proceed();
-          },
-        })
+      ? base.$extends(
+          extension(
+            `native-raw-date-statement-${observed}`,
+            extUnit(
+              (u, next) => {
+                if (u.operation !== "$queryRaw") return next(extStatement(u));
+                const date = extStatement(u).values[0];
+                if (!(date instanceof Date)) throw new Error("Expected a Date");
+                date.setTime(Number.NaN);
+                return next(extStatement(u));
+              },
+              ["statement"],
+              { rewrites: true }
+            ),
+            extUnit((_u, next) => {
+              return next();
+            })
+          )
+        )
       : base.$extends(transform);
 
     await expect(
@@ -1051,39 +1123,35 @@ describe("native array query execution", () => {
     expect(driver.events).toEqual([]);
   });
 
-  test("orders provider, committed outcomes, parsing, and handler post-work", async () => {
+  test("orders provider, handler post-work, and the settled outcome", async () => {
     const timeline: string[] = [];
     const { client: base, driver } = nativeClient();
     driver.timeline = timeline;
-    const client = base.$extends({
-      name: "native-order",
-      query: {
-        record: {
-          async deleteMany({ onWriteOutcome, proceed }) {
-            onWriteOutcome(() => timeline.push("outcome"));
-            const result = await proceed();
-            timeline.push("post-work");
-            return result;
+    const client = base.$extends(
+      extension(
+        "native-order",
+        around(
+          (c) => {
+            settled(c, () => timeline.push("outcome"));
+            return async (run) => {
+              const result = await run();
+              timeline.push("post-work");
+              return result;
+            };
           },
-        },
-      },
-    });
-    const operation = client.record.deleteMany();
-    const parse = vi.fn((raw: QueryResult<unknown>) => {
-      timeline.push("parse");
-      return { count: raw.rowCount };
-    });
-    const parsing = overrideTransactionOperation(operation, {
-      parseResult: parse,
-    });
+          extTarget("record", "deleteMany")
+        )
+      )
+    );
+    await client.$transaction([client.record.deleteMany()]);
 
-    await runUnsafeArrayTransaction(client, [parsing]);
-
-    expect(parse).toHaveBeenCalledOnce();
-    expect(timeline).toEqual(["provider", "outcome", "parse", "post-work"]);
+    // `settled` is told once the call's rows are, after the handler's
+    // post-work and before the call resolves; 1.14 told `onWriteOutcome`
+    // between the provider and the member's parse.
+    expect(timeline).toEqual(["provider", "post-work", "outcome"]);
   });
 
-  test("attempts every cache invalidation before listeners and keeps commit failure primary", async () => {
+  test("attempts every cache invalidation before listeners and keeps a commit failure primary", async () => {
     const timeline: string[] = [];
     let invalidation = 0;
     const cache = new ArrayInvalidationCache(() => {
@@ -1093,21 +1161,29 @@ describe("native array query execution", () => {
     });
     const { client: unextended } = nativeClient();
     const base = unextended.$extends(cacheExtension({ driver: cache }));
-    const client = base.$extends({
-      name: "exhaustive-native-cache",
-      query: {
-        record: {
-          async deleteMany({ onWriteOutcome, proceed }) {
-            onWriteOutcome(() => timeline.push("listener:deleteMany"));
-            return proceed();
+    const client = base.$extends(
+      extension(
+        "exhaustive-native-cache",
+        around(
+          (c) => {
+            settled(c, () => timeline.push("listener:deleteMany"));
+            return async (run) => {
+              return run();
+            };
           },
-          async updateMany({ onWriteOutcome, proceed }) {
-            onWriteOutcome(() => timeline.push("listener:updateMany"));
-            return proceed();
+          extTarget("record", "deleteMany")
+        ),
+        around(
+          (c) => {
+            settled(c, () => timeline.push("listener:updateMany"));
+            return async (run) => {
+              return run();
+            };
           },
-        },
-      },
-    });
+          extTarget("record", "updateMany")
+        )
+      )
+    );
 
     const failure = await captureFailure(
       client.$transaction([
@@ -1118,18 +1194,10 @@ describe("native array query execution", () => {
         }),
       ])
     );
-    expect(failure).toBeInstanceOf(AggregateError);
-    if (!(failure instanceof AggregateError)) throw failure;
-    expect(failure.cause).toBeInstanceOf(CacheConfigurationError);
-    const cacheFailures = collectFailures(failure).filter(
-      (candidate) => candidate instanceof CacheConfigurationError
-    );
-    expect(cacheFailures).toHaveLength(2);
-    for (const cacheFailure of cacheFailures) {
-      expect(cacheFailure).toMatchObject({
-        meta: expect.objectContaining({ commitCertainty: "committed" }),
-      });
-    }
+    expect(primaryOf(failure)).toBeInstanceOf(CacheConfigurationError);
+    expect(primaryOf(failure)).toMatchObject({
+      meta: expect.objectContaining({ commitCertainty: "committed" }),
+    });
     expect(timeline).toEqual([
       "cache:1",
       "cache:2",
@@ -1138,130 +1206,22 @@ describe("native array query execution", () => {
     ]);
   });
 
-  test("keeps child post-work primary over cache and listener commit failures", async () => {
-    const timeline: string[] = [];
-    const cache = new ArrayInvalidationCache(() => {
-      timeline.push("cache");
-      throw new Error("cache failed");
-    });
-    const { client: unextended } = nativeClient();
-    const base = unextended.$extends(cacheExtension({ driver: cache }));
-    const client = base.$extends({
-      name: "native-child-primary",
-      query: {
-        record: {
-          async deleteMany({ onWriteOutcome, proceed }) {
-            onWriteOutcome(() => {
-              timeline.push("listener");
-              throw new Error("listener failed");
-            });
-            await proceed();
-            throw new Error("child post-work failed");
-          },
-        },
-      },
-    });
-
-    const failure = await captureFailure(
-      client.$transaction([
-        client.record.deleteMany({ cache: { autoInvalidate: true } }),
-      ])
-    );
-    expect(failure).toBeInstanceOf(AggregateError);
-    if (!(failure instanceof AggregateError)) throw failure;
-    expect(failure.cause).toMatchObject({ message: "child post-work failed" });
-    const failures = collectFailures(failure);
-    expect(
-      failures.some((candidate) => candidate instanceof CacheConfigurationError)
-    ).toBe(true);
-    expect(
-      failures.some(
-        (candidate) =>
-          candidate instanceof QueryError &&
-          candidate.message.includes("write-outcome listener failed")
-      )
-    ).toBe(true);
-    expect(timeline).toEqual(["cache", "listener"]);
-  });
-
-  test("keeps the native child primary across ordered post-work and commit failures", async () => {
-    const timeline: string[] = [];
-    const cache = new ArrayInvalidationCache(() => {
-      timeline.push("cache");
-      throw new Error("cache failed");
-    });
-    const { client: unextended } = nativeClient();
-    const base = unextended.$extends(cacheExtension({ driver: cache }));
-    const client = base.$extends({
-      name: "native-child-graph",
-      query: {
-        record: {
-          async deleteMany({ onWriteOutcome, proceed }) {
-            onWriteOutcome(() => {
-              timeline.push("listener");
-              throw new Error("listener failed");
-            });
-            try {
-              return await proceed();
-            } catch {
-              throw new Error("first member post-work failed");
-            }
-          },
-          async findMany({ proceed }) {
-            await proceed();
-            throw new Error("later member post-work failed");
-          },
-        },
-      },
-    });
-    const firstSource = client.record.deleteMany({
-      cache: { autoInvalidate: true },
-    });
-    const first = overrideTransactionOperation(firstSource, {
-      parseResult: () => {
-        throw new QueryError("first native child failed");
-      },
-    });
-
-    const failure = await captureFailure(
-      runUnsafeArrayTransaction(client, [first, client.record.findMany()])
-    );
-    expect(failure).toBeInstanceOf(AggregateError);
-    if (!(failure instanceof AggregateError)) throw failure;
-    expect(failure.errors).toHaveLength(5);
-    expect(failure.errors[0]).toBe(failure.cause);
-    expect(failure.errors[0]).toMatchObject({
-      message: "first native child failed",
-      meta: expect.objectContaining({ commitCertainty: "committed" }),
-    });
-    expect(failure.errors[1]).toMatchObject({
-      message: "first member post-work failed",
-    });
-    expect(failure.errors[2]).toMatchObject({
-      message: "later member post-work failed",
-    });
-    expect(failure.errors[3]).toBeInstanceOf(CacheConfigurationError);
-    expect(failure.errors[4]).toMatchObject({
-      message: expect.stringContaining("write-outcome listener failed"),
-    });
-    expect(timeline).toEqual(["cache", "listener"]);
-  });
-
   test("labels post-commit handler and cardinality failures without extra parsing", async () => {
     const { client: base, driver } = nativeClient();
     const postError = new Error("post-work after 1 rows");
-    const client = base.$extends({
-      name: "native-post-failure",
-      query: {
-        record: {
-          async findMany({ proceed }) {
-            const result = await proceed();
+    const client = base.$extends(
+      extension(
+        "native-post-failure",
+        around(
+          () => async (run) => {
+            const result = await run();
             expect(result).toHaveLength(1);
             throw postError;
           },
-        },
-      },
-    });
+          extTarget("record", "findMany")
+        )
+      )
+    );
     const postFailure = await captureFailure(
       client.$transaction([client.record.findMany()])
     );
@@ -1294,13 +1254,15 @@ describe("native array query execution", () => {
   test("does every late preparation before one native submission", async () => {
     let handlerCalls = 0;
     const { client: base, driver } = nativeClient();
-    const client = base.$extends({
-      name: "late-native-preparation",
-      async query({ proceed }) {
-        handlerCalls += 1;
-        return proceed();
-      },
-    });
+    const client = base.$extends(
+      extension(
+        "late-native-preparation",
+        around(() => async (run) => {
+          handlerCalls += 1;
+          return run();
+        })
+      )
+    );
     const first = client.record.findMany();
     const second = overrideTransactionOperation(client.record.findMany(), {
       prepare: () => {
@@ -1331,44 +1293,47 @@ describe("native array query execution", () => {
     const base = unextended.$extends(cacheExtension({ driver: cache }));
     driver.failProvider = new Error("provider acknowledgement lost");
     const client = base
-      .$extends({
-        name: "first-listener",
-        query: {
-          record: {
-            async deleteMany({ onWriteOutcome, proceed }) {
-              onWriteOutcome(({ certainty }) => {
+      .$extends(
+        extension(
+          "first-listener",
+          around(
+            (c) => {
+              settled(c, ({ certainty }) => {
                 timeline.push(`first:${certainty}`);
                 throw new Error("first listener failed");
               });
-              return proceed();
+              return async (run) => {
+                return run();
+              };
             },
-          },
-        },
-      })
-      .$extends({
-        name: "second-listener",
-        query: {
-          record: {
-            async deleteMany({ onWriteOutcome, proceed }) {
-              onWriteOutcome(({ certainty }) =>
+            extTarget("record", "deleteMany")
+          )
+        )
+      )
+      .$extends(
+        extension(
+          "second-listener",
+          around(
+            (c) => {
+              settled(c, ({ certainty }) =>
                 timeline.push(`second:${certainty}`)
               );
-              return proceed();
+              return async (run) => {
+                return run();
+              };
             },
-          },
-        },
-      });
+            extTarget("record", "deleteMany")
+          )
+        )
+      );
 
     const failure = await captureFailure(
       client.$transaction([
         client.record.deleteMany({ cache: { autoInvalidate: true } }),
       ])
     );
-    expect(failure).toBeInstanceOf(AggregateError);
-    if (!(failure instanceof AggregateError)) throw failure;
-    expect(failure.cause).toBeInstanceOf(QueryError);
-    expect(failure.errors[0]).toBe(failure.cause);
-    expect(failure.cause).toMatchObject({
+    expect(primaryOf(failure)).toBeInstanceOf(QueryError);
+    expect(primaryOf(failure)).toMatchObject({
       meta: expect.objectContaining({
         commitCertainty: "may-have-committed",
       }),
@@ -1382,12 +1347,14 @@ describe("native array query execution", () => {
 
   test("preserves single, multi-statement, guard, and raw result windows", async () => {
     const { client: base, driver } = nativeClient();
-    const client = base.$extends({
-      name: "mixed-results",
-      async query({ proceed }) {
-        return proceed();
-      },
-    });
+    const client = base.$extends(
+      extension(
+        "mixed-results",
+        around(() => async (run) => {
+          return run();
+        })
+      )
+    );
     const createMany = client.batchRow.createMany({
       data: [
         { code: "generated", label: "first" },
@@ -1551,15 +1518,17 @@ describe("array ownership and zero-handler path", () => {
     const { client: base } = fallbackClient();
     const { client: foreign } = fallbackClient();
     let candidates: unknown[] = [];
-    const client = base.$extends({
-      name: "snapshot-observer-mutation",
-      observe(unit, proceed) {
-        if (unit.kind === "batch") {
-          candidates[0] = foreign.record.findMany();
-        }
-        proceed();
-      },
-    });
+    const client = base.$extends(
+      extension(
+        "snapshot-observer-mutation",
+        extUnit((u, next) => {
+          if (u.kind === "batch") {
+            candidates[0] = foreign.record.findMany();
+          }
+          return next();
+        })
+      )
+    );
     candidates = [client.record.findMany()];
 
     await expect(
@@ -1644,7 +1613,7 @@ describe("array ownership and zero-handler path", () => {
     const { client: base } = fallbackClient();
     const baseOperation = base.record.findMany();
     const baseRaw = base.$queryRaw(sql`SELECT 1`);
-    const client = base.$extends({ name: "empty-query", query: {} });
+    const client = base.$extends(extension("empty-query"));
     const operation = client.record.findMany();
     const rawOperation = client.$queryRaw(sql`SELECT 1`);
     expect(Reflect.has(operation, "prepareArrayAdmission")).toBe(false);
@@ -1678,12 +1647,14 @@ describe("array ownership and zero-handler path", () => {
     );
     await client.$transaction([operation]);
 
-    const intercepted = base.$extends({
-      name: "registered-friend",
-      async query({ proceed }) {
-        return proceed();
-      },
-    });
+    const intercepted = base.$extends(
+      extension(
+        "registered-friend",
+        around(() => async (run) => {
+          return run();
+        })
+      )
+    );
     const interceptedOperation = intercepted.record.findMany();
     const interceptedRaw = intercepted.$queryRaw(sql`SELECT 1`);
     expect(
@@ -1692,16 +1663,17 @@ describe("array ownership and zero-handler path", () => {
     expect(
       readTestTransactionOperation(interceptedRaw)?.requiresInterception()
     ).toBe(true);
-    const exact = base.$extends({
-      name: "exact-query-registration",
-      query: {
-        record: {
-          async findMany({ proceed }) {
-            return proceed();
+    const exact = base.$extends(
+      extension(
+        "exact-query-registration",
+        around(
+          () => async (run) => {
+            return run();
           },
-        },
-      },
-    });
+          extTarget("record", "findMany")
+        )
+      )
+    );
     expect(
       readTestTransactionOperation(
         exact.record.findMany()
@@ -1768,12 +1740,14 @@ describe("array ownership and zero-handler path", () => {
 
   test("refuses duplicate, awaited, foreign-client, and foreign-scope members", async () => {
     const { client: base, driver } = fallbackClient();
-    const client = base.$extends({
-      name: "ownership",
-      async query({ proceed }) {
-        return proceed();
-      },
-    });
+    const client = base.$extends(
+      extension(
+        "ownership",
+        around(() => async (run) => {
+          return run();
+        })
+      )
+    );
 
     const duplicate = client.record.findMany();
     await expect(client.$transaction([duplicate, duplicate])).rejects.toThrow();
@@ -1784,12 +1758,14 @@ describe("array ownership and zero-handler path", () => {
     await expect(client.$transaction([awaited])).rejects.toThrow();
 
     const { client: foreignBase } = fallbackClient();
-    const foreign = foreignBase.$extends({
-      name: "foreign",
-      async query({ proceed }) {
-        return proceed();
-      },
-    });
+    const foreign = foreignBase.$extends(
+      extension(
+        "foreign",
+        around(() => async (run) => {
+          return run();
+        })
+      )
+    );
     await expect(
       client.$transaction([foreign.record.findMany()])
     ).rejects.toThrow();
@@ -1811,18 +1787,20 @@ describe("public array lifecycle observers", () => {
     }> = [];
     const { client: base, driver } = fallbackClient();
     const { client: foreign } = fallbackClient();
-    const client = base.$extends({
-      name: "ownership-observer",
-      observe(unit, proceed) {
-        if (unit.kind !== "batch") return;
-        proceed().then((completion) => {
-          completions.push({
-            certainty: completion.commitCertainty,
-            status: completion.status,
+    const client = base.$extends(
+      extension(
+        "ownership-observer",
+        extUnit((u, next) => {
+          if (u.kind !== "batch") return next();
+          return next().then((completion) => {
+            completions.push({
+              certainty: completion.certainty,
+              status: completion.status,
+            });
           });
-        });
-      },
-    });
+        })
+      )
+    );
 
     await expect(
       client.$transaction([foreign.record.findMany()])
@@ -1836,15 +1814,17 @@ describe("public array lifecycle observers", () => {
     const failure = new Error("hostile candidate copy");
     const completions: string[] = [];
     const { client: base, driver } = fallbackClient();
-    const client = base.$extends({
-      name: "snapshot-failure-observer",
-      observe(unit, proceed) {
-        if (unit.kind !== "batch") return;
-        proceed().then((completion) => {
-          completions.push(completion.status);
-        });
-      },
-    });
+    const client = base.$extends(
+      extension(
+        "snapshot-failure-observer",
+        extUnit((u, next) => {
+          if (u.kind !== "batch") return next();
+          return next().then((completion) => {
+            completions.push(completion.status);
+          });
+        })
+      )
+    );
     let lengthReads = 0;
     let memberReads = 0;
     const candidates = new Proxy<unknown[]>([client.record.findMany()], {
@@ -1874,15 +1854,17 @@ describe("public array lifecycle observers", () => {
   test("rejects a hostile non-number length after one observed read", async () => {
     const completions: string[] = [];
     const { client: base, driver } = fallbackClient();
-    const client = base.$extends({
-      name: "snapshot-length-failure-observer",
-      observe(unit, proceed) {
-        if (unit.kind !== "batch") return;
-        proceed().then((completion) => {
-          completions.push(completion.status);
-        });
-      },
-    });
+    const client = base.$extends(
+      extension(
+        "snapshot-length-failure-observer",
+        extUnit((u, next) => {
+          if (u.kind !== "batch") return next();
+          return next().then((completion) => {
+            completions.push(completion.status);
+          });
+        })
+      )
+    );
     let lengthReads = 0;
     let memberReads = 0;
     const candidates = new Proxy<unknown[]>([client.record.findMany()], {
@@ -1912,23 +1894,24 @@ describe("public array lifecycle observers", () => {
   test("contains a rejected private operation-observer application", async () => {
     const operationCompletions: string[] = [];
     const { client: base, driver } = fallbackClient();
-    const client = base.$extends({
-      name: "rejected-operation-observer",
-      query: {
-        record: {
-          async findMany({ proceed }) {
-            await proceed();
+    const client = base.$extends(
+      extension(
+        "rejected-operation-observer",
+        around(
+          () => async (run) => {
+            await run();
             throw new Error("query post-work failed");
           },
-        },
-      },
-      observe(unit, proceed) {
-        if (unit.kind !== "operation") return;
-        proceed().then((completion) => {
-          operationCompletions.push(completion.status);
-        });
-      },
-    });
+          extTarget("record", "findMany")
+        ),
+        extUnit((u, next) => {
+          if (u.kind !== "operation") return next();
+          return next().then((completion) => {
+            operationCompletions.push(completion.status);
+          });
+        })
+      )
+    );
 
     await expect(
       client.$transaction([client.record.findMany()])
@@ -1943,26 +1926,34 @@ describe("public array lifecycle observers", () => {
     const { client: base, driver } = fallbackClient();
     let statementUnits = 0;
     let transformCalls = 0;
-    const client = base.$extends({
-      name: "fallback-statement-order",
-      statement({ statement }) {
-        transformCalls += 1;
-        timeline.push(`transform:${transformCalls}`);
-        if (transformCalls === 2) {
-          throw new Error("fallback transform failed");
-        }
-        return statement;
-      },
-      observe(unit, proceed) {
-        if (unit.kind !== "statement") return;
-        statementUnits += 1;
-        const statementUnit = statementUnits;
-        timeline.push(`statement:in:${statementUnit}`);
-        proceed().then((completion) => {
-          timeline.push(`statement:out:${statementUnit}:${completion.status}`);
-        });
-      },
-    });
+    const client = base.$extends(
+      extension(
+        "fallback-statement-order",
+        extUnit(
+          (u, next) => {
+            transformCalls += 1;
+            timeline.push(`transform:${transformCalls}`);
+            if (transformCalls === 2) {
+              throw new Error("fallback transform failed");
+            }
+            return next(extStatement(u));
+          },
+          ["statement"],
+          { rewrites: true }
+        ),
+        extUnit((u, next) => {
+          if (u.kind !== "statement") return next();
+          statementUnits += 1;
+          const statementUnit = statementUnits;
+          timeline.push(`statement:in:${statementUnit}`);
+          return next().then((completion) => {
+            timeline.push(
+              `statement:out:${statementUnit}:${completion.status}`
+            );
+          });
+        })
+      )
+    );
     const context = requireTransactionOperation(
       client.record.findMany()
     ).context;
@@ -1998,21 +1989,28 @@ describe("public array lifecycle observers", () => {
   test("orders native statement onions before transforms and submits nothing on failure", async () => {
     const timeline: string[] = [];
     const { client: base, driver } = nativeClient();
-    const client = base.$extends({
-      name: "native-statement-order",
-      statement({ operation, statement }) {
-        timeline.push(`transform:${operation}`);
-        if (operation === "count") throw new Error("native transform failed");
-        return statement;
-      },
-      observe(unit, proceed) {
-        if (unit.kind !== "statement") return;
-        timeline.push(`statement:in:${unit.operation}`);
-        proceed().then((completion) => {
-          timeline.push(`statement:out:${unit.operation}:${completion.status}`);
-        });
-      },
-    });
+    const client = base.$extends(
+      extension(
+        "native-statement-order",
+        extUnit(
+          (u, next) => {
+            timeline.push(`transform:${u.operation}`);
+            if (u.operation === "count")
+              throw new Error("native transform failed");
+            return next(extStatement(u));
+          },
+          ["statement"],
+          { rewrites: true }
+        ),
+        extUnit((u, next) => {
+          if (u.kind !== "statement") return next();
+          timeline.push(`statement:in:${u.operation}`);
+          return next().then((completion) => {
+            timeline.push(`statement:out:${u.operation}:${completion.status}`);
+          });
+        })
+      )
+    );
     const first = client.record.findMany();
     const second = client.record.count();
     expect(timeline).toEqual([]);
@@ -2046,19 +2044,25 @@ describe("public array lifecycle observers", () => {
       "SELECT 0"
     );
     expect(Reflect.ownKeys(basePrepared)).toEqual(["sql", "params"]);
-    const client = base.$extends({
-      name: "private-statement-provenance",
-      statement({ statement }) {
-        transformCalls += 1;
-        return sql`${raw("/* transformed */ ")}${statement}`;
-      },
-      observe(unit, proceed) {
-        if (unit.kind !== "statement") return;
-        proceed().then((completion) => {
-          statementCompletions.push(completion.status);
-        });
-      },
-    });
+    const client = base.$extends(
+      extension(
+        "private-statement-provenance",
+        extUnit(
+          (u, next) => {
+            transformCalls += 1;
+            return next(sql`${raw("/* transformed */ ")}${extStatement(u)}`);
+          },
+          ["statement"],
+          { rewrites: true }
+        ),
+        extUnit((u, next) => {
+          if (u.kind !== "statement") return next();
+          return next().then((completion) => {
+            statementCompletions.push(completion.status);
+          });
+        })
+      )
+    );
     const context = requireTransactionOperation(
       client.record.findMany()
     ).context;
@@ -2114,21 +2118,26 @@ describe("public array lifecycle observers", () => {
       readonly certainty: string | undefined;
       readonly status: string;
     }> = [];
+    const settling: Promise<unknown>[] = [];
     const { client: base, driver } = fallbackClient();
-    const client = base.$extends({
-      name: "fallback-observer",
-      observe(unit, proceed) {
-        units.push(unit);
-        proceed().then((completion) => {
-          completions.push({
-            kind: unit.kind,
-            operation: unit.operation,
-            certainty: completion.commitCertainty,
-            status: completion.status,
+    const client = base.$extends(
+      extension(
+        "fallback-observer",
+        extUnit((u, next) => {
+          units.push(u);
+          const settles = next().then((completion) => {
+            completions.push({
+              kind: u.kind,
+              operation: u.operation,
+              certainty: completion.certainty,
+              status: completion.status,
+            });
           });
-        });
-      },
-    });
+          settling.push(settles);
+          return settles;
+        })
+      )
+    );
     const read = client.record.findMany();
     const write = client.$executeRawUnsafe(
       "UPDATE record SET name = ?",
@@ -2142,7 +2151,7 @@ describe("public array lifecycle observers", () => {
       false
     );
     const result = await client.$transaction([read, write]);
-    await Promise.resolve();
+    await Promise.all(settling);
 
     expect(result[0]).toEqual([{ id: "row", name: "value" }]);
     expect(result[1]).toBe(1);
@@ -2171,20 +2180,22 @@ describe("public array lifecycle observers", () => {
       readonly status: string;
     }> = [];
     const { client: base, driver } = nativeClient();
-    const client = base.$extends({
-      name: "native-observer",
-      observe(unit, proceed) {
-        const key = `${unit.kind}:${unit.operation ?? "none"}`;
-        units.push(key);
-        proceed().then((completion) => {
-          completions.push({
-            unit: key,
-            certainty: completion.commitCertainty,
-            status: completion.status,
+    const client = base.$extends(
+      extension(
+        "native-observer",
+        extUnit((u, next) => {
+          const key = `${u.kind}:${u.operation ?? "none"}`;
+          units.push(key);
+          return next().then((completion) => {
+            completions.push({
+              unit: key,
+              certainty: completion.certainty,
+              status: completion.status,
+            });
           });
-        });
-      },
-    });
+        })
+      )
+    );
     const write = client.$executeRawUnsafe(
       "UPDATE record SET name = ?",
       "native"
@@ -2284,27 +2295,28 @@ describe("public array lifecycle observers", () => {
       readonly status: string;
     }> = [];
     const { client: base } = nativeClient();
-    const client = base.$extends({
-      name: "post-work-observer",
-      query: {
-        record: {
-          async findMany({ proceed }) {
-            await proceed();
+    const client = base.$extends(
+      extension(
+        "post-work-observer",
+        around(
+          () => async (run) => {
+            await run();
             throw new Error("post-work failed");
           },
-        },
-      },
-      observe(unit, proceed) {
-        if (unit.kind !== "operation" && unit.kind !== "batch") return;
-        proceed().then((completion) => {
-          completions.push({
-            kind: unit.kind,
-            certainty: completion.commitCertainty,
-            status: completion.status,
+          extTarget("record", "findMany")
+        ),
+        extUnit((u, next) => {
+          if (u.kind !== "operation" && u.kind !== "batch") return next();
+          return next().then((completion) => {
+            completions.push({
+              kind: u.kind,
+              certainty: completion.certainty,
+              status: completion.status,
+            });
           });
-        });
-      },
-    });
+        })
+      )
+    );
 
     await expect(
       client.$transaction([client.record.findMany()])
@@ -2318,62 +2330,20 @@ describe("public array lifecycle observers", () => {
     );
   });
 
-  test("contains hostile observers without duplicating fallback effects", async () => {
-    const never = new Promise<never>(() => undefined);
-    const { client: base, driver } = fallbackClient();
-    let doubleProceedStayedIdempotent = true;
-    const client = base
-      .$extends({
-        name: "array-no-proceed",
-        observe() {
-          return { fabricated: true };
-        },
-      })
-      .$extends({
-        name: "array-double-proceed",
-        observe(_unit, proceed) {
-          const firstCompletion = proceed();
-          doubleProceedStayedIdempotent &&= firstCompletion === proceed();
-          return "fabricated";
-        },
-      })
-      .$extends({
-        name: "array-throw",
-        observe(_unit, proceed) {
-          proceed();
-          throw new Error("observer failed");
-        },
-      })
-      .$extends({
-        name: "array-never",
-        observe(_unit, proceed) {
-          proceed();
-          return never;
-        },
-      });
-
-    await expect(
-      client.$transaction([
-        client.record.findMany(),
-        client.$queryRawUnsafe("SELECT 1"),
-      ])
-    ).resolves.toHaveLength(2);
-    expect(providerStatements(driver.events)).toHaveLength(2);
-    expect(doubleProceedStayedIdempotent).toBe(true);
-  });
-
   test("does not claim a durable commit for a nested savepoint batch", async () => {
     const certainties: Array<string | undefined> = [];
     const { client: base } = fallbackClient();
-    const client = base.$extends({
-      name: "nested-observer",
-      observe(unit, proceed) {
-        if (unit.kind !== "batch") return;
-        proceed().then((completion) => {
-          certainties.push(completion.commitCertainty);
-        });
-      },
-    });
+    const client = base.$extends(
+      extension(
+        "nested-observer",
+        extUnit((u, next) => {
+          if (u.kind !== "batch") return next();
+          return next().then((completion) => {
+            certainties.push(completion.certainty);
+          });
+        })
+      )
+    );
 
     await client.$transaction((tx) =>
       tx.$transaction([tx.$executeRawUnsafe("UPDATE record SET name = 'x'")])

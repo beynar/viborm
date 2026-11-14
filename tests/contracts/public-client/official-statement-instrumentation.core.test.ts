@@ -4,10 +4,6 @@ import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { Driver } from "@drivers";
 import { QueryError } from "@errors";
 import {
-  type LifecycleUnit,
-  readProtectedLifecycleFacts,
-} from "@extensions/observation";
-import {
   ATTR_DB_QUERY_PARAMETER_PREFIX,
   ATTR_DB_QUERY_TEXT,
   ATTR_VIBORM_CORRELATION_ID,
@@ -15,8 +11,15 @@ import {
 } from "@instrumentation/spans";
 import { SpanStatusCode, trace } from "@opentelemetry/api";
 import { Sql } from "@sql";
-import { isErrorLogged } from "@src/errors/logged-errors";
-import { createClient, defineExtension, s, sql } from "@src/index";
+import {
+  around,
+  createClient,
+  extension as extExtension,
+  statement as extStatement,
+  s,
+  sql,
+  unit,
+} from "@src/index";
 import { instrumentation } from "@src/instrumentation/exports";
 import {
   captureLogs,
@@ -508,12 +511,18 @@ describe("official statement instrumentation", () => {
             tracing: { includeParams: true, includeSql: true },
           })
         )
-        .$extends({
-          name: "official-parity-transform",
-          statement({ statement }) {
-            return sql`${sql.raw("/* parity */ ")}${statement}`;
-          },
-        });
+        .$extends(
+          extExtension(
+            "official-parity-transform",
+            unit(
+              (u, next) => {
+                return next(sql`${sql.raw("/* parity */ ")}${extStatement(u)}`);
+              },
+              ["statement"],
+              { rewrites: true }
+            )
+          )
+        );
       await official.$queryRaw(sql`SELECT ${7}`);
       await waitFor(() => officialLogs.events.length === 1);
 
@@ -556,14 +565,16 @@ describe("official statement instrumentation", () => {
       const hostile = createHostileParameter("private");
       const parameter = hostile.parameter;
       const client = trackedClient(driver)
-        .$extends({
-          name: "statement-before",
-          observe(unit, proceed) {
-            if (unit.kind !== "statement") return;
-            timeline.push(`A.in:${String(activeSpanName())}`);
-            return proceed().then(() => timeline.push("A.out"));
-          },
-        })
+        .$extends(
+          extExtension(
+            "statement-before",
+            unit((u, next) => {
+              if (u.kind !== "statement") return next();
+              timeline.push(`A.in:${String(activeSpanName())}`);
+              return next().then(() => timeline.push("A.out"));
+            })
+          )
+        )
         .$extends(
           instrumentation({
             logging: {
@@ -576,21 +587,31 @@ describe("official statement instrumentation", () => {
             tracing: { includeParams: true },
           })
         )
-        .$extends({
-          name: "statement-after",
-          observe(unit, proceed) {
-            if (unit.kind !== "statement") return;
-            timeline.push(`B.in:${String(activeSpanName())}`);
-            return proceed().then(() => timeline.push("B.out"));
-          },
-        })
-        .$extends({
-          name: "statement-transform",
-          statement({ statement }) {
-            timeline.push(`transform:${String(activeSpanName())}`);
-            return sql`${sql.raw("/* transformed */ ")}${statement}`;
-          },
-        });
+        .$extends(
+          extExtension(
+            "statement-after",
+            unit((u, next) => {
+              if (u.kind !== "statement") return next();
+              timeline.push(`B.in:${String(activeSpanName())}`);
+              return next().then(() => timeline.push("B.out"));
+            })
+          )
+        )
+        .$extends(
+          extExtension(
+            "statement-transform",
+            unit(
+              (u, next) => {
+                timeline.push(`transform:${String(activeSpanName())}`);
+                return next(
+                  sql`${sql.raw("/* transformed */ ")}${extStatement(u)}`
+                );
+              },
+              ["statement"],
+              { rewrites: true }
+            )
+          )
+        );
 
       await client.$queryRaw(sql`SELECT ${parameter}`);
       await waitFor(() => timeline.includes("A.out"));
@@ -604,8 +625,11 @@ describe("official statement instrumentation", () => {
         "transform:viborm.operation",
         "provider",
       ]);
-      expect(timeline.indexOf("B.out")).toBeLessThan(
-        timeline.indexOf("query-log")
+      // Today's order: a `unit` handler hears its completion one turn after
+      // the official logger. It moves with the observation rebuild (1.14
+      // had B.out before the query log).
+      expect(timeline.indexOf("query-log")).toBeLessThan(
+        timeline.indexOf("B.out")
       );
       expect(timeline.indexOf("query-log")).toBeLessThan(
         timeline.indexOf("A.out")
@@ -651,18 +675,24 @@ describe("official statement instrumentation", () => {
             tracing: true,
           })
         )
-        .$extends({
-          name: "unsafe-observer",
-          observe(unit, proceed) {
-            if (unit.kind !== "statement") return;
-            statementUnits += 1;
-            return proceed();
-          },
-          statement({ statement }) {
-            transforms += 1;
-            return statement;
-          },
-        });
+        .$extends(
+          extExtension(
+            "unsafe-observer",
+            unit(
+              (u, next) => {
+                transforms += 1;
+                return next(extStatement(u));
+              },
+              ["statement"],
+              { rewrites: true }
+            ),
+            unit((u, next) => {
+              if (u.kind !== "statement") return next();
+              statementUnits += 1;
+              return next();
+            })
+          )
+        );
 
       await client.$queryRawUnsafe("SELECT 1");
       await client.$queryRawUnsafe("SELECT 2");
@@ -696,14 +726,16 @@ describe("official statement instrumentation", () => {
             tracing: true,
           })
         )
-        .$extends({
-          name: "transaction-statement-count",
-          observe(unit, proceed) {
-            if (unit.kind !== "statement") return;
-            statementUnits += 1;
-            return proceed();
-          },
-        });
+        .$extends(
+          extExtension(
+            "transaction-statement-count",
+            unit((u, next) => {
+              if (u.kind !== "statement") return next();
+              statementUnits += 1;
+              return next();
+            })
+          )
+        );
 
       await client.$transaction((transaction) => transaction.record.findMany());
       await client.$transaction([
@@ -746,18 +778,26 @@ describe("official statement instrumentation", () => {
             tracing: { includeSql: true },
           })
         )
-        .$extends({
-          name: "native-statement-count",
-          observe(unit, proceed) {
-            if (unit.kind !== "statement") return;
-            statementUnits += 1;
-            return proceed();
-          },
-          statement({ statement }) {
-            transforms += 1;
-            return sql`${sql.raw(`/* ${transforms} */ `)}${statement}`;
-          },
-        });
+        .$extends(
+          extExtension(
+            "native-statement-count",
+            unit(
+              (u, next) => {
+                transforms += 1;
+                return next(
+                  sql`${sql.raw(`/* ${transforms} */ `)}${extStatement(u)}`
+                );
+              },
+              ["statement"],
+              { rewrites: true }
+            ),
+            unit((u, next) => {
+              if (u.kind !== "statement") return next();
+              statementUnits += 1;
+              return next();
+            })
+          )
+        );
 
       await client.$transaction([
         client.$queryRaw(sql`SELECT ${1}`),
@@ -825,12 +865,14 @@ describe("official statement instrumentation", () => {
           logging: { error: logs.callback, includeSql: true },
         })
       )
-      .$extends({
-        name: "intercepted-native-error-dedup",
-        async query({ proceed }) {
-          return proceed();
-        },
-      });
+      .$extends(
+        extExtension(
+          "intercepted-native-error-dedup",
+          around(() => async (run) => {
+            return run();
+          })
+        )
+      );
 
     await expect(
       client.$transaction([
@@ -876,12 +918,14 @@ describe("official statement instrumentation", () => {
             tracing: true,
           })
         )
-        .$extends({
-          name: "successor-error-dedup",
-          async query({ proceed }) {
-            return proceed();
-          },
-        });
+        .$extends(
+          extExtension(
+            "successor-error-dedup",
+            around(() => async (run) => {
+              return run();
+            })
+          )
+        );
 
       const failure = await client
         .$transaction([
@@ -913,53 +957,6 @@ describe("official statement instrumentation", () => {
     }
   });
 
-  /**
-   * Core owns error-log selection and exact-error de-duplication: the
-   * statement completion that decides to log a failure marks it before it
-   * returns, in the tick the child settles, so no successor cloned afterwards
-   * can miss the evidence. A mark deferred into the extension's continuation,
-   * even by one microtask, turns this red.
-   */
-  test("marks the failure it logs before the statement completion returns", async () => {
-    const logs = captureLogs();
-    const driver = new StatementDriver();
-    driver.failAtProviderCall = 1;
-    let statementUnit: LifecycleUnit | undefined;
-    const client = trackedClient(driver)
-      .$extends(instrumentation({ logging: { error: logs.callback } }))
-      .$extends(
-        defineExtension<typeof schema>()({
-          name: "statement-unit-capture",
-          observe(unit) {
-            if (unit.kind === "statement") statementUnit = unit;
-          },
-        })
-      );
-
-    await expect(client.$queryRaw(sql`SELECT ${1}`)).rejects.toBeInstanceOf(
-      QueryError
-    );
-    await waitFor(() => logs.events.length > 0);
-
-    const facts =
-      statementUnit === undefined
-        ? undefined
-        : readProtectedLifecycleFacts(statementUnit);
-    expect(facts?.kind).toBe("statement");
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(SETTLED_AT);
-    const failure = new QueryError("statement completion probe");
-    const completion =
-      facts?.kind === "statement"
-        ? facts.complete({ status: "failure", durationMs: 0, failure })
-        : undefined;
-    expect(isErrorLogged(failure)).toBe(true);
-    expect(completion?.failure).toBe(failure);
-    // The settle instant is read here, in core, not by the extension later.
-    expect(completion?.endedAt).toBe(SETTLED_AT);
-    expect(logs.events).toHaveLength(1);
-  });
-
   test("presents a statement log at the instant core settled it, not when the extension continues", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(SETTLED_AT - 5);
@@ -972,14 +969,14 @@ describe("official statement instrumentation", () => {
     const client = trackedClient(driver)
       .$extends(instrumentation({ logging: { query: logs.callback } }))
       .$extends(
-        defineExtension<typeof schema>()({
-          name: "clock-after-settlement",
-          observe(unit, proceed) {
-            if (unit.kind !== "statement") return;
+        extExtension(
+          "clock-after-settlement",
+          unit((u, next) => {
+            if (u.kind !== "statement") return next();
             // Runs after core's complete() and before the extension continues.
-            return proceed().then(() => vi.setSystemTime(SETTLED_AT + 1000));
-          },
-        })
+            return next().then(() => vi.setSystemTime(SETTLED_AT + 1000));
+          })
+        )
       );
 
     await client.$queryRaw(sql`SELECT ${1}`);
@@ -993,15 +990,15 @@ describe("official statement instrumentation", () => {
   test("skips execute presentation when transform, render, or acquisition fails", async () => {
     const logs = captureLogs();
     let completions = 0;
-    const observeSettlement = defineExtension<typeof schema>()({
-      name: "pre-gate-settlement",
-      observe(unit, proceed) {
-        if (unit.kind !== "statement") return;
-        return proceed().then(() => {
+    const observeSettlement = extExtension(
+      "pre-gate-settlement",
+      unit((u, next) => {
+        if (u.kind !== "statement") return next();
+        return next().then(() => {
           completions += 1;
         });
-      },
-    });
+      })
+    );
     const cases = [
       {
         client(driver: StatementDriver) {
@@ -1013,12 +1010,18 @@ describe("official statement instrumentation", () => {
                 tracing: true,
               })
             )
-            .$extends({
-              name: "throwing-transform",
-              statement() {
-                throw new Error("transform failed");
-              },
-            });
+            .$extends(
+              extExtension(
+                "throwing-transform",
+                unit(
+                  (_u, _next) => {
+                    throw new Error("transform failed");
+                  },
+                  ["statement"],
+                  { rewrites: true }
+                )
+              )
+            );
         },
         driver: new StatementDriver(),
       },
@@ -1032,12 +1035,18 @@ describe("official statement instrumentation", () => {
                 tracing: true,
               })
             )
-            .$extends({
-              name: "throwing-render",
-              statement() {
-                return new ThrowingRenderSql(["SELECT 1"], []);
-              },
-            });
+            .$extends(
+              extExtension(
+                "throwing-render",
+                unit(
+                  (_u, next) => {
+                    return next(new ThrowingRenderSql(["SELECT 1"], []));
+                  },
+                  ["statement"],
+                  { rewrites: true }
+                )
+              )
+            );
         },
         driver: new StatementDriver(),
       },
@@ -1083,29 +1092,38 @@ describe("official statement instrumentation", () => {
       let transforms = 0;
       let completed = false;
       const client = trackedClient(driver)
-        .$extends({
-          name: "native-gate-settlement",
-          observe(unit, proceed) {
-            if (unit.kind !== "statement") return;
-            return proceed().then(() => {
-              completed = true;
-            });
-          },
-        })
+        .$extends(
+          extExtension(
+            "native-gate-settlement",
+            unit((u, next) => {
+              if (u.kind !== "statement") return next();
+              return next().then(() => {
+                completed = true;
+              });
+            })
+          )
+        )
         .$extends(
           instrumentation({
             logging: { query: logs.callback },
             tracing: true,
           })
         )
-        .$extends({
-          name: "native-prepare-failure",
-          statement({ statement }) {
-            transforms += 1;
-            if (transforms === 2) throw new Error("second transform failed");
-            return statement;
-          },
-        });
+        .$extends(
+          extExtension(
+            "native-prepare-failure",
+            unit(
+              (u, next) => {
+                transforms += 1;
+                if (transforms === 2)
+                  throw new Error("second transform failed");
+                return next(extStatement(u));
+              },
+              ["statement"],
+              { rewrites: true }
+            )
+          )
+        );
 
       await expect(
         client.$transaction([

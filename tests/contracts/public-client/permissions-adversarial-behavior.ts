@@ -2,6 +2,7 @@ import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { ForbiddenError, NotFoundError, ValidationError } from "@errors";
 import { s } from "@schema";
+import { around, extension } from "@src/index";
 import { permissions, type Rule } from "@src/permissions";
 import { v } from "@src/validation";
 import {
@@ -349,16 +350,18 @@ export function runPermissionsAdversarialBehavior(substrate: {
     test("revocation committed while a prepared write waits is judged when it executes", async () => {
       const reached = signal();
       const resume = signal();
-      const db = alice().$extends({
-        name: "pause-before-write",
-        query: async ({ model, operation, proceed }) => {
-          if (model === "document" && operation === "update") {
-            reached.resolve();
-            await resume.promise;
-          }
-          return proceed();
-        },
-      });
+      const db = alice().$extends(
+        extension(
+          "pause-before-write",
+          around((c) => async (run) => {
+            if (c.model === "document" && c.operation === "update") {
+              reached.resolve();
+              await resume.promise;
+            }
+            return run();
+          })
+        )
+      );
       const pending = db.document.update({
         where: { id: "alice-a" },
         data: { title: "changed" },
