@@ -14,7 +14,6 @@
  * never sees a raw statement.
  */
 import type { Schema } from "@client/types";
-import type { AnyDriver } from "@drivers/exports";
 import { QueryError, VibORMError } from "@errors";
 import { isFunction, isRecord } from "@validation/value-guards";
 import { errorCause } from "../errors/diagnostic-safety";
@@ -399,7 +398,7 @@ export function call(
   selected?: unknown
 ): unknown {
   // Each overload types the handler against its client's context, which is
-  // a \`FirstContext\` at runtime.
+  // a `FirstContext` at runtime.
   if (!isFunction<CallSpec["handler"]>(handler))
     throw new TypeError("call() takes a function of the call");
   const on = selectionOf(selected);
@@ -430,7 +429,7 @@ export function around(
   options?: { readonly inner?: true }
 ): unknown {
   // Each overload types the handler against its client's context, which is
-  // a \`FirstContext\` at runtime.
+  // a `FirstContext` at runtime.
   if (!isFunction<CallSpec["handler"]>(handler))
     throw new TypeError("around() takes a function of the call");
   const on = selectionOf(selected);
