@@ -17,7 +17,7 @@ export function database(x: object): Database {
   const driver = engineOf(x)?.driver;
   if (driver === undefined)
     throw new TypeError(
-      "database() takes the context of a model call, its run, or a method's scope"
+      "database(x) takes the context of a model call, its run, or a method's scope"
     );
   return Object.freeze({
     dialect: driver.dialect,
