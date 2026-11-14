@@ -5,6 +5,7 @@
  * domain whose models may declare either.
  */
 import { assembleAdapterSelect } from "@adapters/adapter-internals";
+import { UnsupportedOperationError } from "@errors";
 import {
   BOOLEAN_LEAF,
   type DeclaredEvidence,
@@ -28,6 +29,7 @@ import {
   memo,
 } from "@query-engine/raptor3/shared/schema";
 import type { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
+import type { Membership } from "@query-engine/raptor3/shared/storage";
 import { listed } from "@query-engine/raptor3/shared/terms";
 import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
@@ -143,6 +145,25 @@ export class Projection {
     raw: unknown
   ): Arguments {
     return admitProjected(this, schema, model, operation, raw);
+  }
+  /**
+   * A `$through` that reads or tests a gated field of its junction `model`
+   * is refused before any statement, as a hidden link row is: the hop has no
+   * faithful answer for a field its reader may not see.
+   */
+  refuseGatedLink(
+    edge: Membership,
+    model: AnyModel,
+    fields: readonly string[],
+    use: "read" | "filter"
+  ): void {
+    const gates = this.projected(model)?.gates;
+    const gated = gates && fields.find((field) => gates.has(field));
+    const name = model["~"].names.ts;
+    if (gated !== undefined)
+      throw new UnsupportedOperationError(
+        `Cannot ${use} $through.${gated} of relation '${edge.name}': this client gates that field of '${name}'. Read it through the '${name}' delegate.`
+      );
   }
   refuseGatedRows(model: AnyModel): void {
     refuseGatedRows(this.projected(model), model["~"].names.ts!);

@@ -12,6 +12,7 @@ import {
 } from "@query-engine/raptor3/shared/query";
 import type {
   LazyRelations,
+  ModelVerbs,
   RowJudgement,
 } from "@query-engine/raptor3/shared/row-scope";
 import { type Input, memo } from "@query-engine/raptor3/shared/schema";
@@ -24,13 +25,26 @@ import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
 import { producedSource, producedWhere } from "./produced";
 import { readsAny } from "./reads";
-import { type PreparedDomain, verbInputs } from "./row-domain";
+import type { PreparedDomain } from "./row-domain";
 
 export class Judge {
   readonly #domain: PreparedDomain;
   readonly #produced = new Map<string, PreparedSelector | null>();
   constructor(domain: PreparedDomain) {
     this.#domain = domain;
+  }
+  /** The verb predicates one layer's `judgement` takes, each once. */
+  inputs(verbs: ModelVerbs, judgement: RowJudgement): Input[] {
+    if (judgement.verb === "delete") return [verbs.delete];
+    if (judgement.writes.length === 0) return [verbs.update];
+    return [
+      ...new Set([
+        ...judgement.writes.map(
+          (field) => verbs.writes.get(field) ?? verbs.update
+        ),
+        ...(judgement.marks ? [verbs.delete] : []),
+      ]),
+    ];
   }
   /**
    * The values the judgement of a created row of `model` binds, beside the
@@ -219,7 +233,7 @@ export class Judge {
           // assigns nothing it reads: then the new row's answer is the old
           // row's, which the statement's own candidates already state.
           const checked = judgement
-            ? [own.read, ...verbInputs(own, judgement)]
+            ? [own.read, ...this.inputs(own, judgement)]
             : [];
           const unchanged =
             changed !== undefined &&

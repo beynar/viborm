@@ -77,6 +77,7 @@ export interface VerbsBound {
   readonly confine?: ModelDomain;
   readonly judge?: RowDomain["judge"];
   readonly project?: RowDomain["project"];
+  readonly bound?: RowDomain["bound"];
   /** Whether one of their predicates may read a call value. */
   readonly reads: boolean;
 }
