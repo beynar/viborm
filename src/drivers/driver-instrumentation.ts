@@ -8,22 +8,10 @@ import {
   TransactionError,
   VibORMErrorCode,
 } from "@errors";
-import type {
-  LifecycleUnitKind,
-  ObservationCompletionFactsReader,
-} from "@extensions/observation";
-import type {
-  LifecycleBoundary,
-  LifecycleDispatch,
-  LifecycleFacts,
-  StatementDispatch,
-  StatementExecution,
-  StatementFacts,
-} from "@extensions/official-facts";
+import type { UnitKind } from "@extensions/unit-source";
 import type { QueryBackend } from "@query-engine/raptor3/shared/query-backend";
 import type { Operation } from "@query-engine/types";
 import type { Sql } from "@sql";
-import { markErrorLogged } from "../errors/logged-errors";
 import { NumberedSql } from "../sql/numbered";
 import {
   assertStatementBindParameterCapacity,
@@ -32,8 +20,6 @@ import {
 import {
   BATCH_DIAGNOSTIC_PARAMS,
   EMPTY_DIAGNOSTIC_PARAMS,
-  findUniqueErrorLogDetails,
-  getErrorExecutionContext,
   snapshotDiagnosticParameters,
 } from "./driver-diagnostics";
 import {
@@ -43,7 +29,6 @@ import {
 import {
   getExecutionCallsite,
   getExecutionExtensionChain,
-  isRecoverableExecution,
   snapshotExecutionContext,
 } from "./execution-context";
 import { readPreparedStatement } from "./prepared-statement-provenance";
@@ -95,97 +80,6 @@ export type { QueryExecutionContext } from "./types";
 export interface NestedTransactionObservation {
   failure?: Error;
   isRejectionObserved: boolean;
-}
-
-/**
- * @internal One provider statement dispatch. Without official observation it
- * runs the executor in place; the official gate first publishes the dispatch to
- * the trusted observer and starts the executor inside its span.
- */
-export interface OfficialStatementExecutionGate {
-  execute<Result>(
-    execution: StatementExecution,
-    executor: () => Promise<Result>
-  ): Promise<Result>;
-}
-
-/** @internal One driver lifecycle dispatch, gated the same way. */
-export interface OfficialDriverLifecycleExecutionGate {
-  execute<Result>(executor: () => Promise<Result>): Promise<Result>;
-}
-
-/** Statement dispatch when no official observer wants it. */
-export const ungatedStatementExecution: OfficialStatementExecutionGate =
-  Object.freeze({
-    execute: <Result>(
-      _execution: StatementExecution,
-      executor: () => Promise<Result>
-    ) => executor(),
-  });
-
-/** Lifecycle dispatch when no official observer wants it. */
-export const ungatedLifecycleExecution: OfficialDriverLifecycleExecutionGate =
-  Object.freeze({
-    execute: <Result>(executor: () => Promise<Result>) => executor(),
-  });
-
-/** A gate plus the private facts only the trusted observer reads. */
-type TrustedGate<Gate, Facts> = Gate & { readonly readFacts: () => Facts };
-
-interface DeferredDispatch<Dispatch> {
-  readonly dispatch: Promise<Dispatch | undefined>;
-  execute<Result>(
-    publish: (start: () => void) => Dispatch,
-    executor: () => Promise<Result>
-  ): Promise<Result>;
-  settleSkipped(): void;
-}
-
-/** One exact child remains gated until the trusted observer enters its span. */
-function createDeferredDispatch<Dispatch>(): DeferredDispatch<Dispatch> {
-  let resolveDispatch: ((dispatch: Dispatch | undefined) => void) | undefined;
-  const dispatch = new Promise<Dispatch | undefined>((resolve) => {
-    resolveDispatch = resolve;
-  });
-  let dispatchSettled = false;
-  const settleDispatch = (value: Dispatch | undefined): void => {
-    if (dispatchSettled) return;
-    dispatchSettled = true;
-    resolveDispatch?.(value);
-  };
-  const execute = <Result>(
-    publish: (start: () => void) => Dispatch,
-    executor: () => Promise<Result>
-  ): Promise<Result> => {
-    let resolveApplication:
-      | ((value: Result | PromiseLike<Result>) => void)
-      | undefined;
-    let rejectApplication: ((reason?: unknown) => void) | undefined;
-    const application = new Promise<Result>((resolve, reject) => {
-      resolveApplication = resolve;
-      rejectApplication = reject;
-    });
-    let started = false;
-    const start = (): void => {
-      if (started) return;
-      started = true;
-      let execution: Promise<Result>;
-      try {
-        execution = executor();
-      } catch (failure) {
-        rejectApplication?.(failure);
-        return;
-      }
-      execution.then(resolveApplication, rejectApplication);
-    };
-    settleDispatch(publish(start));
-    return application;
-  };
-  return Object.freeze({
-    dispatch,
-    execute,
-    settleSkipped: () => settleDispatch(undefined),
-  });
 }
 
 // ============================================================
@@ -435,67 +329,6 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
     return transformed;
   }
 
-  /** Whether trusted provenance carries at least one protected observer. */
-  protected hasTrustedObservers(
-    context: QueryExecutionContext | undefined
-  ): boolean {
-    const extensionChain =
-      getExecutionExtensionChain(context) ??
-      getExecutionExtensionChain(this.boundContext);
-    return extensionChain?.observation !== undefined;
-  }
-
-  /** Observe one physical statement without exposing SQL or provider state. */
-  protected observeTrustedStatement<Result>(
-    context: QueryExecutionContext,
-    child: (
-      gate: OfficialStatementExecutionGate | undefined
-    ) => Promise<Result>,
-    readCompletionFacts?: ObservationCompletionFactsReader
-  ): Promise<Result> {
-    const observation = getExecutionExtensionChain(context)?.observation;
-    if (observation === undefined) return child(undefined);
-    const gate = this.createOfficialStatementExecutionGate(context);
-    return observation.statement(
-      context.operation,
-      context.model,
-      () => child(gate),
-      readCompletionFacts,
-      gate?.readFacts
-    );
-  }
-
-  /** Observe one driver-owned lifecycle boundary without exposing its state. */
-  protected observeTrustedDriverLifecycle<Result>(
-    kind: Extract<
-      LifecycleUnitKind,
-      "connection" | "savepoint" | "transaction"
-    >,
-    context: QueryExecutionContext,
-    boundary: LifecycleBoundary,
-    child: (
-      gate: OfficialDriverLifecycleExecutionGate | undefined
-    ) => Promise<Result>,
-    readCompletionFacts?: ObservationCompletionFactsReader
-  ): Promise<Result> {
-    const observation = getExecutionExtensionChain(context)?.observation;
-    if (observation === undefined) {
-      return child(undefined);
-    }
-    const official = readOfficialCapability(context);
-    const gate =
-      official?.observesLifecycle === true && official.wants(boundary)
-        ? this.createOfficialDriverLifecycleExecutionGate(context, boundary)
-        : undefined;
-    return observation.lifecycle(
-      kind,
-      context.operation,
-      () => child(gate),
-      readCompletionFacts,
-      gate?.readFacts
-    );
-  }
-
   /** Apply a deferred transform to an internally prepared typed statement. */
   protected materializeTrustedBatchQuery(
     query: BatchQuery,
@@ -513,185 +346,6 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
       params: snapshotProviderParameters(transformed.values, context),
       ...(query.context === undefined ? {} : { context: query.context }),
     };
-  }
-
-  /** Form one protected statement onion around one native typed batch call. */
-  protected observeTrustedBatchStatements<Result>(
-    queries: readonly BatchQuery[],
-    context: QueryExecutionContext,
-    child: (
-      queries: readonly BatchQuery[],
-      gate: OfficialStatementExecutionGate | undefined
-    ) => Promise<Result>,
-    readCompletionFacts?: ObservationCompletionFactsReader
-  ): Promise<Result> {
-    const observation = getExecutionExtensionChain(context)?.observation;
-    if (observation === undefined) {
-      return child(
-        queries.map((query) =>
-          this.materializeTrustedBatchQuery(query, query.context ?? context)
-        ),
-        undefined
-      );
-    }
-    const gate = this.createOfficialStatementExecutionGate(context);
-    let factsAssigned = false;
-    const materializedQueries: BatchQuery[] = [];
-    const startAt = (index: number): Promise<Result> => {
-      for (let current = index; current < queries.length; current += 1) {
-        const query = queries[current];
-        if (query === undefined) continue;
-        const statementContext = query.context ?? context;
-        const readFacts = factsAssigned ? undefined : gate?.readFacts;
-        factsAssigned = true;
-        return observation.statement(
-          statementContext.operation,
-          statementContext.model,
-          () => {
-            materializedQueries.push(
-              this.materializeTrustedBatchQuery(query, statementContext)
-            );
-            return startAt(current + 1);
-          },
-          readCompletionFacts,
-          readFacts
-        );
-      }
-      return child(materializedQueries, gate);
-    };
-    return startAt(0);
-  }
-
-  /** Build one private provider-dispatch gate for the official statement rail. */
-  private createOfficialStatementExecutionGate(
-    context: QueryExecutionContext
-  ): TrustedGate<OfficialStatementExecutionGate, StatementFacts> | undefined {
-    const official = readOfficialCapability(context);
-    if (official?.observesLifecycle !== true) return undefined;
-    if (
-      !(
-        official.wants("statement") ||
-        official.wants("query-log") ||
-        official.wants("error-log")
-      )
-    ) {
-      return undefined;
-    }
-
-    const deferred = createDeferredDispatch<StatementDispatch>();
-    let published: StatementDispatch | undefined;
-    const facts: StatementFacts = Object.freeze({
-      kind: "statement",
-      dispatch: deferred.dispatch,
-      complete: (outcome) => {
-        if (published === undefined) {
-          deferred.settleSkipped();
-          return undefined;
-        }
-        // Core selects the log and marks its failure in the settling tick;
-        // the extension only formats what this returns.
-        const failure =
-          outcome.status === "failure" && outcome.failure instanceof Error
-            ? outcome.failure
-            : undefined;
-        if (outcome.status === "failure" && failure === undefined) {
-          return undefined;
-        }
-        // A failure its owner recovers is not the operation's: no error log,
-        // and its span ends without an error (a `findUnique` batch's shared
-        // read, whose callers each run alone).
-        if (
-          failure !== undefined &&
-          isRecoverableExecution(published.context)
-        ) {
-          const capability = readOfficialCapability(published.context);
-          return capability === undefined
-            ? undefined
-            : Object.freeze({
-                kind: "statement",
-                endedAt: Date.now(),
-                capability,
-                skipLog: true as const,
-                recovered: true as const,
-                context: published.context,
-                sql: published.sql,
-                params: published.params,
-              });
-        }
-        const member =
-          failure === undefined || published.forceErrorContext
-            ? undefined
-            : findUniqueErrorLogDetails(failure, published.members);
-        const logContext =
-          member?.context ??
-          (failure === undefined || published.forceErrorContext
-            ? published.context
-            : getErrorExecutionContext(failure, published.context));
-        const capability = readOfficialCapability(logContext);
-        if (capability === undefined) return undefined;
-        const log = capability.wants(
-          failure === undefined ? "query-log" : "error-log"
-        );
-        if (!(log || (failure && capability.wants("statement"))))
-          return undefined;
-        if (failure !== undefined && log) markErrorLogged(failure);
-        return Object.freeze({
-          kind: "statement",
-          endedAt: Date.now(),
-          capability,
-          ...(log ? {} : { skipLog: true as const }),
-          context: logContext,
-          sql: member?.sql ?? published.sql,
-          params: member?.params ?? published.params,
-          ...(failure === undefined ? {} : { failure }),
-        });
-      },
-    });
-    return Object.freeze({
-      readFacts: () => facts,
-      execute: <Result>(
-        execution: StatementExecution,
-        executor: () => Promise<Result>
-      ): Promise<Result> =>
-        deferred.execute((start) => {
-          published = Object.freeze({
-            ...execution,
-            driver: this,
-            startedAt: Date.now(),
-            start,
-          });
-          return published;
-        }, executor),
-    });
-  }
-
-  /** Build one late dispatch gate without moving the lifecycle across its queue. */
-  private createOfficialDriverLifecycleExecutionGate(
-    context: QueryExecutionContext,
-    boundary: LifecycleBoundary
-  ): TrustedGate<OfficialDriverLifecycleExecutionGate, LifecycleFacts> {
-    const deferred = createDeferredDispatch<LifecycleDispatch>();
-    const facts: LifecycleFacts = Object.freeze({
-      kind: "driver-lifecycle",
-      dispatch: deferred.dispatch,
-      complete: (outcome) => {
-        deferred.settleSkipped();
-        return outcome.status === "failure" && outcome.failure instanceof Error
-          ? Object.freeze({
-              kind: "driver-lifecycle",
-              failure: outcome.failure,
-            })
-          : undefined;
-      },
-    });
-    return Object.freeze({
-      readFacts: () => facts,
-      execute: <Result>(executor: () => Promise<Result>) =>
-        deferred.execute(
-          (start) => Object.freeze({ driver: this, context, boundary, start }),
-          executor
-        ),
-    });
   }
 
   /**
@@ -885,6 +539,36 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
     }
   }
 
+  /**
+   * `child` as one unit of real work of the context's chain, where the chain
+   * observes units; else `child` alone, with nothing built for a reader.
+   */
+  protected inUnit<Result>(
+    kind: UnitKind,
+    context: QueryExecutionContext,
+    child: () => Promise<Result>,
+    sql?: string,
+    params?: readonly unknown[],
+    batch?: readonly BatchQuery[]
+  ): Promise<Result> {
+    const observation = getExecutionExtensionChain(context)?.observation;
+    return observation === undefined
+      ? child()
+      : observation.run(
+          {
+            kind,
+            operation: context.operation,
+            model: context.model,
+            context,
+            driver: this,
+            sql,
+            params,
+            batch,
+          },
+          child
+        );
+  }
+
   protected resolveExecutionContext(
     context: QueryExecutionContext | undefined,
     fallbackOperation: string
@@ -897,23 +581,13 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
   }
 
   protected canDiscloseParameters(context?: QueryExecutionContext): boolean {
-    const official = readOfficialCapability(context);
-    return (
-      official !== undefined &&
-      (official.diagnostics.includeParams === true ||
-        official.wants("parameters"))
-    );
+    return this.getErrorDisclosure(context).includeParams === true;
   }
 
+  /** What a failure discloses: the chain's `disclosure` part, else nothing. */
   protected getErrorDisclosure(
     context?: QueryExecutionContext
   ): DiagnosticDisclosure {
-    return readOfficialCapability(context)?.diagnostics ?? EMPTY_DISCLOSURE;
+    return getExecutionExtensionChain(context)?.disclosure ?? EMPTY_DISCLOSURE;
   }
-}
-
-/** The official capability of the exact chain this trusted context carries. */
-function readOfficialCapability(context: QueryExecutionContext | undefined) {
-  const chain = getExecutionExtensionChain(context);
-  return chain?.observes?.capability(chain);
 }

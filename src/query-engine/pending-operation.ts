@@ -4,10 +4,7 @@
  * method is called. Every operation is served by the single (V2) engine.
  */
 
-import {
-  isCacheManagedExecution,
-  officialCacheRuntime,
-} from "@cache/capability";
+import { officialCacheRuntime } from "@cache/capability";
 import type { AnyDriver, QueryExecutionContext } from "@drivers/exports";
 import {
   InvalidTransactionInputError,
@@ -15,6 +12,7 @@ import {
 } from "@errors";
 import type { ResolvedOperationHandler } from "@extensions/chain";
 import type { AdmittedControls } from "@extensions/controls";
+import type { UnitSource } from "@extensions/unit-source";
 import type {
   PreparedModelQueryContext,
   QueryInterceptionMode,
@@ -25,7 +23,6 @@ import type { Sql } from "@sql";
 import type { CacheResultCodec } from "./cache-flow";
 import {
   createPendingOperationContext,
-  createPendingOperationInstrumentationFacts,
   type OperationExecutionContext,
   observeTransactionBatchPhase,
   withOperationErrorContext,
@@ -332,19 +329,7 @@ export class PendingOperation<T>
         ),
       isWrite: (operation) =>
         !isReadOperation(String(operation.#options.originalOperation)),
-      hasObservation: (operation) =>
-        operation.#engine.extensionChain?.observation !== undefined,
-      observe: (operation, child, readCompletionFacts) => {
-        const observation = operation.#engine.extensionChain?.observation;
-        if (observation === undefined) return child();
-        return observation.operation(
-          String(operation.#options.originalOperation),
-          operation.#modelName,
-          child,
-          readCompletionFacts,
-          operation.#readInstrumentationFacts()
-        );
-      },
+      unit: (operation) => operation.#unit(),
       reserveWith: (operation, driver) => {
         operation.#execution.reserveWith(driver);
       },
@@ -356,17 +341,8 @@ export class PendingOperation<T>
           );
         }
         return operation.#execution.executeWith(driver, () =>
-          observation.operation(
-            String(operation.#options.originalOperation),
-            operation.#modelName,
-            () => operation.#runCoreExecution(driver),
-            () =>
-              operation.#observationCommitCertainty === undefined
-                ? undefined
-                : {
-                    commitCertainty: operation.#observationCommitCertainty,
-                  },
-            operation.#readInstrumentationFacts()
+          observation.run(operation.#unit(true), () =>
+            operation.#runCoreExecution(driver)
           )
         );
       },
@@ -610,15 +586,8 @@ export class PendingOperation<T>
       if (observation === undefined) {
         return this.#finished(this.#runExecution());
       }
-      return observation.operation(
-        String(this.#options.originalOperation),
-        this.#modelName,
-        () => this.#finished(this.#runExecution()),
-        () =>
-          this.#observationCommitCertainty === undefined
-            ? undefined
-            : { commitCertainty: this.#observationCommitCertainty },
-        this.#readInstrumentationFacts()
+      return observation.run(this.#unit(true), () =>
+        this.#finished(this.#runExecution())
       );
     });
   }
@@ -629,16 +598,20 @@ export class PendingOperation<T>
     return finish ? value.then((result) => finish(result) as T) : value;
   }
 
-  #readInstrumentationFacts() {
-    return createPendingOperationInstrumentationFacts(
-      this.#engine.driver,
-      this.#context.attribution,
-      this.#modelName,
-      String(this.#options.originalOperation),
-      String(this.#operation),
-      this.#model["~"].names.sql ?? this.#modelName,
-      isCacheManagedExecution(this.#options)
-    );
+  /**
+   * This operation's `operation` unit. Its certainty is the operation's own,
+   * except for an array member, whose array reports it.
+   */
+  #unit(certain?: true): UnitSource {
+    return {
+      kind: "operation",
+      operation: String(this.#options.originalOperation),
+      model: this.#modelName,
+      context: this.#context.attribution,
+      driver: this.#engine.driver,
+      table: this.#model["~"].names.sql ?? this.#modelName,
+      ...(certain ? { certainty: () => this.#observationCommitCertainty } : {}),
+    };
   }
 
   #runExecution(

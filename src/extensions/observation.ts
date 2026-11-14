@@ -1,688 +1,262 @@
-import { sanitizeErrorForLogging } from "@errors";
-import { isFunction } from "@validation/value-guards";
-import { isError } from "../errors/diagnostic-safety";
-import type {
-  ExtensionPart,
-  ResolvedExtensionChain,
-  ResolvedExtensionHandler,
-} from "./chain";
+import { isRecoverableExecution } from "@drivers/execution-context";
+import { QueryError } from "@errors";
+import type { ExtensionPart, ResolvedExtensionHandler } from "./chain";
 import { ARRAYS, coordinate } from "./coordination";
-import { extensionError } from "./definition";
-import type {
-  OfficialLifecycleCompletionFacts,
-  OfficialLifecycleFacts,
-  OfficialLifecycleFactsReader,
-  OfficialObservationCapability,
-} from "./official-facts";
+import {
+  type TransactionStatementRunner,
+  type Unit,
+  type UnitEnd,
+  type UnitHandler,
+  type UnitSource,
+  unitOf,
+} from "./unit-source";
 
-/** The exact public facts carried by each protected lifecycle boundary. */
-export type LifecycleUnit =
-  | Readonly<{
-      kind: "operation";
-      operation: string;
-      model?: string;
-    }>
-  | Readonly<{
-      kind: "statement";
-      operation?: string;
-      model?: string;
-    }>
-  | Readonly<{
-      kind: "batch";
-      operation: string;
-    }>
-  | Readonly<{
-      kind: "transaction";
-      operation?: string;
-    }>
-  | Readonly<{
-      kind: "savepoint";
-      operation?: string;
-    }>
-  | Readonly<{
-      kind: "connection";
-      operation?: string;
-    }>
-  | Readonly<{
-      kind: "cache";
-      operation: "get" | "set" | "revalidate" | "invalidate";
-    }>;
+export type {
+  CommitCertainty,
+  Unit,
+  UnitEnd,
+  UnitHandler,
+  UnitKind,
+  UnitSource,
+} from "./unit-source";
 
-export type LifecycleUnitKind = LifecycleUnit["kind"];
+/** Kept under their former names for the entries that still export them. */
+export type ObservationUnit = Unit;
+export type ObservationCompletion = UnitEnd;
+export type ObserveHandler = UnitHandler;
+export type LifecycleUnit = Unit;
 
-export type CommitCertainty = "committed" | "may-have-committed";
+/** Formerly the facts handed to one observer; a unit's are read by words. */
+export type ObservedFacts = never;
 
-export interface ObservationErrorSummary {
-  readonly name: string;
-  readonly message: string;
-  readonly code?: string;
-}
-
-export interface ObservationCompletion {
-  readonly status: "success" | "failure";
-  readonly durationMs: number;
-  readonly error?: ObservationErrorSummary;
-  readonly commitCertainty?: CommitCertainty;
-}
-
-export interface ObservationCompletionFacts {
-  readonly commitCertainty?: CommitCertainty;
-}
-
-export type ObservationCompletionFactsReader = () =>
-  | ObservationCompletionFacts
-  | undefined;
-
-export type ObservationUnit = LifecycleUnit;
+const nothing = (): undefined => undefined;
 
 /**
- * What the observer of a definition that declares `observes` reads of the
- * unit it is called for: the facts core produced for what it said it wants,
- * and, once the unit settled, the facts of its completion.
+ * Runs one unit under `handlers`, the first one outermost. Each handler is a
+ * plain wrapper: the next one, and at the end the child, starts only when it
+ * calls `next()`, and the host waits for the promise it returns. The child's
+ * failure fails the unit; once the child succeeded, what a handler throws
+ * does. `next()` is called once: never calling it, or calling it again,
+ * fails the unit. The host contains nothing a handler does.
  */
-export interface ObservedFacts {
-  read(): OfficialLifecycleFacts | undefined;
-  completion(): OfficialLifecycleCompletionFacts | undefined;
-}
-
-export type ObserveHandler = (
-  unit: ObservationUnit,
-  proceed: () => Promise<ObservationCompletion>,
-  /** Present only where the definition declares `observes`. */
-  facts?: ObservedFacts
-) => unknown;
-
-type TrustedProtectedObserver = (
-  unit: LifecycleUnit,
-  proceed: () => Promise<ObservationCompletion>
-) => unknown;
-
-interface TrustedProtectedObserverRegistration {
-  readonly capability: OfficialObservationCapability;
-  readonly observer: TrustedProtectedObserver;
-}
-
-interface ProtectedLifecycleFactsState {
-  readonly facts: OfficialLifecycleFacts;
-  completion?: OfficialLifecycleCompletionFacts;
-}
-
-const trustedObservers = new WeakMap<
-  CallableFunction,
-  TrustedProtectedObserverRegistration
->();
-const lifecycleFacts = new WeakMap<
-  LifecycleUnit,
-  ProtectedLifecycleFactsState
->();
-const officialCapabilitiesByChain = new WeakMap<
-  ResolvedExtensionChain,
-  OfficialObservationCapability
->();
-const settleObserverReturn = (): undefined => undefined;
-
-/** The one official capability registered for this exact chain, if any. */
-export function getOfficialInstrumentationChainCapability(
-  chain: ResolvedExtensionChain | undefined
-): OfficialObservationCapability | undefined {
-  return chain === undefined
-    ? undefined
-    : officialCapabilitiesByChain.get(chain);
-}
-
-/** Bind the admitted official capability to one exact resolved chain. */
-export function registerOfficialInstrumentationChain(
-  chain: ResolvedExtensionChain,
-  capability: OfficialObservationCapability
-): void {
-  officialCapabilitiesByChain.set(chain, capability);
-}
-
-/** One observer that is handed facts, and what core asks of its declaration. */
-export function registerTrustedProtectedObserver(
-  handler: CallableFunction,
-  capability: OfficialObservationCapability,
-  observer: TrustedProtectedObserver
-): void {
-  trustedObservers.set(handler, { capability, observer });
-}
-
-/**
- * The observer of a definition that declares `observes`: it is handed the
- * facts of each unit, and core asks its declaration what to produce.
- */
-export function registerFactsObserver(
-  handler: ObserveHandler,
-  capability: OfficialObservationCapability
-): void {
-  registerTrustedProtectedObserver(handler, capability, (unit, proceed) =>
-    handler(unit, proceed, {
-      read: () => readProtectedLifecycleFacts(unit),
-      completion: () => readProtectedLifecycleCompletionFacts(unit),
-    })
-  );
-}
-
-/** Read facts only for the exact frozen unit created by this runner. */
-export function readProtectedLifecycleFacts(
-  unit: LifecycleUnit
-): OfficialLifecycleFacts | undefined {
-  return lifecycleFacts.get(unit)?.facts;
-}
-
-/** Read completion facts projected by core after the child settled. */
-export function readProtectedLifecycleCompletionFacts(
-  unit: LifecycleUnit
-): OfficialLifecycleCompletionFacts | undefined {
-  return lifecycleFacts.get(unit)?.completion;
-}
-
-/** Recognize the exact package-owned handler identity and nothing else. */
-export function getTrustedProtectedObserverCapability(
-  handler: unknown
-): OfficialObservationCapability | undefined {
-  return isFunction(handler)
-    ? trustedObservers.get(handler)?.capability
-    : undefined;
-}
-
-/**
- * The exact chain's one trusted observer, alone, or `undefined`. Dispatch
- * through it reaches no ordinary observer: cache backend delete/clear, which
- * have no public unit, run through the one runner this way.
- */
-export function selectTrustedObservers(
-  observers: readonly ResolvedExtensionHandler[] | undefined
-): readonly ResolvedExtensionHandler[] | undefined {
-  const trusted = observers?.find(({ handler }) =>
-    trustedObservers.has(handler)
-  );
-  return trusted === undefined ? undefined : [trusted];
-}
-
-/** Resolve the one trusted readiness once before a coordinated array starts. */
-export function prewarmProtectedObservers(
-  observers: readonly ResolvedExtensionHandler[] | undefined
-): void | Promise<void> {
-  if (observers === undefined || observers.length === 0) return;
-  for (const observer of observers) {
-    const registration = trustedObservers.get(observer.handler);
-    if (registration === undefined) continue;
-    const readiness = prewarmTrustedObserver(registration.capability);
-    if (readiness !== undefined) return readiness;
-  }
-}
-
-/**
- * Runs completion-only observers without giving their onion authority over the
- * application promise.
- */
-export function runProtectedObservers<Result>(
-  unit: LifecycleUnit,
-  observers: readonly ResolvedExtensionHandler[] | undefined,
+export function runUnit<Result>(
+  handlers: readonly ResolvedExtensionHandler[],
+  source: UnitSource,
   child: () => Promise<Result>,
-  readCompletionFacts?: ObservationCompletionFactsReader,
-  readInstrumentationFacts?: OfficialLifecycleFactsReader
+  reached?: () => void
 ): Promise<Result> {
-  if (observers === undefined || observers.length === 0) return child();
-
-  const startedAt = Date.now();
-  const immutableUnit = freezeLifecycleUnit(unit);
-  let trustedIndex = -1;
-  let trustedRegistration: TrustedProtectedObserverRegistration | undefined;
-  for (const [index, observer] of observers.entries()) {
-    const registration = trustedObservers.get(observer.handler);
-    if (registration !== undefined) {
-      trustedIndex = index;
-      trustedRegistration = registration;
-      break;
-    }
-  }
-  let resolveCompletion:
-    | ((completion: ObservationCompletion) => void)
-    | undefined;
-  let completionPromise: Promise<ObservationCompletion> | undefined;
-  let resolveOuterCompletion:
-    | ((completion: ObservationCompletion) => void)
-    | undefined;
-  const outerCompletionPromise =
-    trustedRegistration === undefined
-      ? undefined
-      : new Promise<ObservationCompletion>((resolve) => {
-          resolveOuterCompletion = resolve;
-        });
-  let settledCompletion: ObservationCompletion | undefined;
-  let trustedSetupSettled = trustedRegistration === undefined;
-  let applicationPromise: Promise<Result> | undefined;
-  let observesApplicationCompletion = false;
-
-  const resolveOuterWhenReady = (): void => {
-    if (trustedSetupSettled && settledCompletion !== undefined) {
-      resolveOuterCompletion?.(settledCompletion);
-    }
+  const unit = unitOf(source);
+  let core: Promise<Result> | undefined;
+  let entered = false;
+  const startCore = (): Promise<Result> => {
+    core ??= attempt(child);
+    return core;
   };
-
-  const settleCompletion = (
-    status: ObservationCompletion["status"],
-    failure?: unknown
-  ): void => {
-    const durationMs = Math.max(0, Date.now() - startedAt);
-    let commitCertainty: CommitCertainty | undefined;
-    try {
-      commitCertainty = readCompletionFacts?.()?.commitCertainty;
-    } catch {
-      commitCertainty = undefined;
+  const transaction =
+    source.kind === "transaction" ? openTransaction(source, startCore) : undefined;
+  const enter = (index: number): Promise<Result> => {
+    const resolved = handlers[index];
+    if (resolved === undefined) {
+      entered = true;
+      reached?.();
+      transaction?.enter();
+      return startCore();
     }
-    const completion = createCompletion(
-      status,
-      durationMs,
-      commitCertainty,
-      failure
-    );
-    settledCompletion = completion;
-    const factsState = lifecycleFacts.get(immutableUnit);
-    if (factsState !== undefined) {
-      try {
-        factsState.completion = factsState.facts.complete({
-          status,
-          durationMs,
-          ...(status === "failure" ? { failure } : {}),
-        });
-      } catch {
-        factsState.completion = undefined;
-      }
-    }
-    resolveCompletion?.(completion);
-    resolveOuterWhenReady();
+    return around(resolved, unit, source, () => enter(index + 1));
   };
-
-  const observeApplicationCompletion = (): void => {
-    if (
-      observesApplicationCompletion ||
-      completionPromise === undefined ||
-      applicationPromise === undefined
-    ) {
-      return;
-    }
-    observesApplicationCompletion = true;
-    applicationPromise.then(
-      () => settleCompletion("success"),
-      (failure: unknown) => settleCompletion("failure", failure)
-    );
-  };
-
-  const readCompletionPromise = (): Promise<ObservationCompletion> => {
-    if (completionPromise === undefined) {
-      completionPromise = new Promise<ObservationCompletion>((resolve) => {
-        resolveCompletion = resolve;
+  const result = enter(0);
+  return transaction === undefined
+    ? result
+    : result.catch(async (failure: unknown) => {
+        // A transaction `run(unit, sql)` opened whose body was never let run
+        // rolls back before the unit fails.
+        if (core !== undefined && !entered) {
+          transaction.abort(failure);
+          await core.catch(nothing);
+        }
+        throw failure;
       });
+}
+
+function attempt<Result>(child: () => Promise<Result>): Promise<Result> {
+  try {
+    return child();
+  } catch (failure) {
+    return Promise.reject(failure);
+  }
+}
+
+/** One handler around the rest of the unit. */
+async function around<Result>(
+  resolved: ResolvedExtensionHandler,
+  unit: Unit,
+  source: UnitSource,
+  rest: () => Promise<Result>
+): Promise<Result> {
+  let started: Promise<Result> | undefined;
+  let misuse: QueryError | undefined;
+  const next = (): Promise<UnitEnd> => {
+    if (started !== undefined) {
+      misuse ??= unitError(resolved, unit, "called next() more than once");
+      return Promise.reject(misuse);
     }
-    observeApplicationCompletion();
-    return completionPromise;
-  };
-
-  const startChild = (): Promise<Result> => {
-    let started: Promise<Result>;
-    try {
-      started = child();
-    } catch (failure) {
-      started = Promise.reject(failure);
-    }
-    applicationPromise = started;
-    observeApplicationCompletion();
-    return started;
-  };
-
-  const startObserver = (index: number): Promise<Result> => {
-    const observer = observers[index];
-    if (observer === undefined) return startChild();
-
-    const trustedObserver = trustedObservers.get(observer.handler);
-    if (trustedObserver !== undefined) {
-      if (readInstrumentationFacts !== undefined) {
-        try {
-          const facts = readInstrumentationFacts();
-          if (facts !== undefined) lifecycleFacts.set(immutableUnit, { facts });
-        } catch {
-          // Instrumentation fact production cannot stop the application.
-        }
-      }
-      // Promise executors run synchronously; TypeScript does not model that guarantee.
-      let resolveApplication!: (value: Result | PromiseLike<Result>) => void;
-      let rejectApplication!: (reason?: unknown) => void;
-      const applicationBridge = new Promise<Result>((resolve, reject) => {
-        resolveApplication = resolve;
-        rejectApplication = reject;
-      });
-      let proceeded = false;
-      const startNext = (): Promise<ObservationCompletion> => {
-        if (!proceeded) {
-          proceeded = true;
-          startObserver(index + 1).then(
-            (value) => resolveApplication(value),
-            (failure: unknown) => rejectApplication(failure)
-          );
-        }
-        return readCompletionPromise();
-      };
-      let setup: unknown;
-      try {
-        setup = trustedObserver.observer(immutableUnit, startNext);
-      } catch {
-        startNext();
-        trustedSetupSettled = true;
-        resolveOuterWhenReady();
-        return applicationBridge;
-      }
-      Promise.resolve(setup).then(
-        () => {
-          if (!proceeded) startNext();
-          trustedSetupSettled = true;
-          resolveOuterWhenReady();
-        },
-        () => {
-          if (!proceeded) startNext();
-          trustedSetupSettled = true;
-          resolveOuterWhenReady();
-        }
-      );
-      return applicationBridge;
-    }
-
-    let nextApplicationPromise: Promise<Result> | undefined;
-    const startNextApplication = (): Promise<Result> => {
-      if (nextApplicationPromise === undefined) {
-        nextApplicationPromise = startObserver(index + 1);
-      }
-      return nextApplicationPromise;
-    };
-    const proceed = (): Promise<ObservationCompletion> => {
-      startNextApplication();
-      return outerCompletionPromise !== undefined && index < trustedIndex
-        ? outerCompletionPromise
-        : readCompletionPromise();
-    };
-
-    let returned: unknown;
-    try {
-      returned = Reflect.apply(observer.handler, undefined, [
-        immutableUnit,
-        proceed,
-      ]);
-    } catch {
-      returned = undefined;
-    }
-    const nextApplication = startNextApplication();
-    consumeObserverReturn(returned);
-    return nextApplication;
-  };
-
-  const readiness =
-    readInstrumentationFacts === undefined || trustedRegistration === undefined
-      ? undefined
-      : prewarmTrustedObserver(trustedRegistration.capability);
-  if (readiness === undefined) return startObserver(0);
-
-  // Promise executors run synchronously; TypeScript does not model that guarantee.
-  let resolveApplication!: (value: Result | PromiseLike<Result>) => void;
-  let rejectApplication!: (reason?: unknown) => void;
-  const applicationBridge = new Promise<Result>((resolve, reject) => {
-    resolveApplication = resolve;
-    rejectApplication = reject;
-  });
-  const startAfterPrewarm = (): void => {
-    startObserver(0).then(
-      (value) => resolveApplication(value),
-      (failure: unknown) => rejectApplication(failure)
+    const at = Date.now();
+    started = rest();
+    return started.then(
+      () => settle(source, at, false, undefined),
+      (failure: unknown) => settle(source, at, true, failure)
     );
   };
-  readiness.then(startAfterPrewarm);
-  return applicationBridge;
-}
-
-function prewarmTrustedObserver(
-  capability: OfficialObservationCapability
-): void | Promise<void> {
-  const prewarm = capability.prewarm;
-  if (prewarm === undefined) return;
-  let readiness: void | Promise<void>;
+  let returned: unknown;
   try {
-    readiness = prewarm();
-  } catch {
-    return;
+    returned = Reflect.apply(resolved.handler, undefined, [unit, next]);
+  } catch (failure) {
+    returned = Promise.reject(failure);
   }
-  if (readiness === undefined) return;
-  return Promise.resolve(readiness).then(
-    () => undefined,
-    () => undefined
-  );
-}
-
-function freezeLifecycleUnit(unit: LifecycleUnit): LifecycleUnit {
-  return Object.freeze(unit);
-}
-
-function consumeObserverReturn(returned: unknown): void {
-  if (
-    returned === null ||
-    (typeof returned !== "object" && typeof returned !== "function")
-  ) {
-    return;
-  }
+  let handlerFailure: { readonly failure: unknown } | undefined;
   try {
-    const then = Reflect.get(returned, "then");
-    if (!isFunction(then)) return;
-    Reflect.apply(then, returned, [settleObserverReturn, settleObserverReturn]);
-  } catch {
-    // Observer returns cannot affect the application.
+    await returned;
+  } catch (failure) {
+    handlerFailure = { failure };
   }
+  if (started === undefined)
+    throw (
+      handlerFailure?.failure ??
+      unitError(resolved, unit, "settled without calling next()")
+    );
+  const value = await started;
+  if (handlerFailure !== undefined) throw handlerFailure.failure;
+  if (misuse !== undefined) throw misuse;
+  return value;
 }
 
-function createCompletion(
-  status: ObservationCompletion["status"],
-  durationMs: number,
-  commitCertainty: CommitCertainty | undefined,
+function settle(
+  source: UnitSource,
+  at: number,
+  failed: boolean,
   failure: unknown
-): ObservationCompletion {
-  const error = status === "failure" ? summarizeFailure(failure) : undefined;
-  return Object.freeze({
-    status,
-    durationMs,
-    ...(error === undefined ? {} : { error }),
-    ...(commitCertainty === undefined ? {} : { commitCertainty }),
+): UnitEnd {
+  source.failed = failed;
+  source.failure = failure;
+  const certainty = source.certainty?.();
+  return {
+    status: failed ? "failure" : "success",
+    duration: Math.max(0, Date.now() - at),
+    ...(certainty === undefined ? {} : { certainty }),
+    ...(failed && isRecoverableExecution(source.context)
+      ? { recovered: true as const }
+      : {}),
+  };
+}
+
+function unitError(
+  resolved: ResolvedExtensionHandler,
+  unit: Unit,
+  failure: string
+): QueryError {
+  return new QueryError(
+    `Extension "${resolved.extension}" unit handler for ${unit.kind} ${failure}.`,
+    { meta: { method: "unit", operation: unit.operation, model: unit.model } }
+  );
+}
+
+/**
+ * A transaction unit's `run(unit, sql)`: it opens the transaction if no
+ * `next()` has yet, and runs the statement there before the body. The body
+ * then waits for the innermost `next()`.
+ */
+function openTransaction<Result>(
+  source: UnitSource,
+  startCore: () => Promise<Result>
+) {
+  let runner: TransactionStatementRunner | undefined;
+  let ready: (() => void) | undefined;
+  let refuse: ((failure: unknown) => void) | undefined;
+  let aborted: { readonly failure: unknown } | undefined;
+  let bodyEntered = false;
+  let announce: ((run: TransactionStatementRunner) => void) | undefined;
+  const opened = new Promise<TransactionStatementRunner>((resolve) => {
+    announce = resolve;
   });
-}
-
-function summarizeFailure(failure: unknown): ObservationErrorSummary {
-  const normalized = isError(failure)
-    ? failure
-    : new Error("Application rejected with a non-Error value");
-  const sanitized = sanitizeErrorForLogging(normalized);
-  const code = Object.getOwnPropertyDescriptor(sanitized, "code")?.value;
-  return Object.freeze({
-    name: sanitized.name,
-    message: sanitized.message,
-    ...(typeof code === "string" ? { code } : {}),
-  });
-}
-
-/** Observe one logical operation without duplicating its completion protocol. */
-export function observeOperation<Result>(
-  observers: readonly ResolvedExtensionHandler[],
-  operation: string,
-  model: string | undefined,
-  child: () => Promise<Result>,
-  readCompletionFacts?: ObservationCompletionFactsReader,
-  readInstrumentationFacts?: OfficialLifecycleFactsReader
-): Promise<Result> {
-  return runProtectedObservers(
-    {
-      kind: "operation",
-      operation,
-      ...(model === undefined ? {} : { model }),
+  source.opened = (run) => {
+    runner = run;
+    announce?.(run);
+    if (aborted !== undefined) return Promise.reject(aborted.failure);
+    if (bodyEntered) return undefined;
+    return new Promise<void>((resolve, reject) => {
+      ready = resolve;
+      refuse = reject;
+    });
+  };
+  source.run = (statement) => {
+    if (runner !== undefined) return runner(statement);
+    const core = startCore();
+    return Promise.race([
+      opened,
+      core.then(() => {
+        throw new QueryError("run() was called on a transaction that ended.");
+      }),
+    ]).then((run) => run(statement));
+  };
+  return {
+    enter: () => {
+      bodyEntered = true;
+      ready?.();
     },
-    observers,
-    child,
-    readCompletionFacts,
-    readInstrumentationFacts
-  );
-}
-
-/** Observe one driver-owned physical statement boundary. */
-export function observeStatement<Result>(
-  observers: readonly ResolvedExtensionHandler[],
-  operation: string | undefined,
-  model: string | undefined,
-  child: () => Promise<Result>,
-  readCompletionFacts?: ObservationCompletionFactsReader,
-  readInstrumentationFacts?: OfficialLifecycleFactsReader
-): Promise<Result> {
-  return runProtectedObservers(
-    {
-      kind: "statement",
-      ...(operation === undefined ? {} : { operation }),
-      ...(model === undefined || model === "$raw" ? {} : { model }),
+    abort: (failure: unknown) => {
+      aborted = { failure };
+      refuse?.(failure);
     },
-    observers,
-    child,
-    readCompletionFacts,
-    readInstrumentationFacts
-  );
+  };
 }
 
-/** Observe one driver-owned connection, transaction, or savepoint boundary. */
-export function observeDriverLifecycle<Result>(
-  kind: Extract<LifecycleUnitKind, "connection" | "savepoint" | "transaction">,
-  observers: readonly ResolvedExtensionHandler[],
-  operation: string | undefined,
-  child: () => Promise<Result>,
-  readCompletionFacts?: ObservationCompletionFactsReader,
-  readInstrumentationFacts?: OfficialLifecycleFactsReader
-): Promise<Result> {
-  return runProtectedObservers(
-    {
-      kind,
-      ...(operation === undefined ? {} : { operation }),
-    },
-    observers,
-    child,
-    readCompletionFacts,
-    readInstrumentationFacts
-  );
-}
-
-/** What runs a unit under a chain's lifecycle observers. */
+/** What runs a unit under a chain's handlers. */
 export interface Observation {
+  readonly handlers: readonly ResolvedExtensionHandler[];
   readonly run: <Result>(
-    unit: LifecycleUnit,
-    child: () => Promise<Result>,
-    readCompletionFacts?: ObservationCompletionFactsReader,
-    readInstrumentationFacts?: OfficialLifecycleFactsReader
+    source: UnitSource,
+    child: () => Promise<Result>
   ) => Promise<Result>;
-  readonly operation: <Result>(
-    operation: string,
-    model: string | undefined,
-    child: () => Promise<Result>,
-    readCompletionFacts?: ObservationCompletionFactsReader,
-    readInstrumentationFacts?: OfficialLifecycleFactsReader
-  ) => Promise<Result>;
-  readonly statement: <Result>(
-    operation: string | undefined,
-    model: string | undefined,
-    child: () => Promise<Result>,
-    readCompletionFacts?: ObservationCompletionFactsReader,
-    readInstrumentationFacts?: OfficialLifecycleFactsReader
-  ) => Promise<Result>;
-  readonly lifecycle: <Result>(
-    kind: Extract<
-      LifecycleUnitKind,
-      "connection" | "savepoint" | "transaction"
-    >,
-    operation: string | undefined,
-    child: () => Promise<Result>,
-    readCompletionFacts?: ObservationCompletionFactsReader,
-    readInstrumentationFacts?: OfficialLifecycleFactsReader
-  ) => Promise<Result>;
-  /** The one readiness the observers ask for before a coordinated array starts. */
-  readonly prewarm: () => void | Promise<void>;
+  /**
+   * One member of `$transaction([...])`: its unit runs until its child is
+   * reached. The array waits for every member's `reached` before it prepares
+   * any: a handler that waits (for a tracer to load) does so before the
+   * array's work, and each member's work runs inside its unit.
+   */
+  readonly enter: <Result>(
+    source: UnitSource,
+    child: () => Promise<Result>
+  ) => { readonly done: Promise<Result>; readonly reached: Promise<void> };
 }
-
-/** What reads the declaration of the one observer of a chain handed facts. */
-export interface ObservesFacts {
-  readonly capability: (
-    chain: ResolvedExtensionChain | undefined
-  ) => OfficialObservationCapability | undefined;
-}
-
-/** What reads the facts declaration a chain is registered with. */
-export const OBSERVES: ObservesFacts = {
-  capability: getOfficialInstrumentationChainCapability,
-};
 
 function observationOf(
-  observers: readonly ResolvedExtensionHandler[]
+  handlers: readonly ResolvedExtensionHandler[]
 ): Observation {
-  const observation: Observation = {
-    run: (unit, child, completion, facts) =>
-      runProtectedObservers(unit, observers, child, completion, facts),
-    operation: (operation, model, child, completion, facts) =>
-      observeOperation(observers, operation, model, child, completion, facts),
-    statement: (operation, model, child, completion, facts) =>
-      observeStatement(observers, operation, model, child, completion, facts),
-    lifecycle: (kind, operation, child, completion, facts) =>
-      observeDriverLifecycle(
-        kind,
-        observers,
-        operation,
-        child,
-        completion,
-        facts
-      ),
-    prewarm: () => prewarmProtectedObservers(observers),
+  return {
+    handlers,
+    run: (source, child) => runUnit(handlers, source, child),
+    enter: (source, child) => {
+      let reach: (() => void) | undefined;
+      const reached = new Promise<void>((resolve) => {
+        reach = resolve;
+      });
+      const done = runUnit(handlers, source, child, reach);
+      done.then(reach, reach);
+      return { done, reached };
+    },
   };
-  return Object.freeze(observation);
 }
 
-/**
- * `observe` and `observes`: each unit of work and how it ended, and the facts
- * handed to the one observer that declares what it reads. Carried, so a
- * later extension's chain stays the one whose facts that observer reads.
- */
+/** `observe`: a handler around each unit of real work. */
 export const observePart: ExtensionPart = {
-  members: ["observe", "observes"],
-  carry: true,
-  admit({ chain, definition }) {
-    const declared = definition.observes;
-    if (declared === undefined) return;
-    if (getOfficialInstrumentationChainCapability(chain) !== undefined)
-      extensionError(
-        `Extension "${definition.name}" declares observes, which another extension on this client already declares: one observer is handed facts.`,
-        definition.name
-      );
-    // Normalization admits `observes` only beside an `observe` handler.
-    registerFactsObserver(definition.observe as ObserveHandler, declared);
-  },
+  members: ["observe"],
   join({ next, chain, definition, owner }) {
     const handler = definition.observe;
     if (handler === undefined) return;
-    const official = getTrustedProtectedObserverCapability(handler);
-    if (official !== undefined && !official.observesLifecycle) {
-      next.observe = chain?.observe ?? Object.freeze([]);
-      return;
-    }
-    const observers = Object.freeze([
-      ...(chain?.observe ?? []),
-      Object.freeze({ extension: owner.name, handler }),
+    next.observation = observationOf([
+      ...(chain?.observation?.handlers ?? []),
+      { extension: owner.name, handler },
     ]);
-    next.observe = observers;
-    next.observation = observationOf(observers);
     coordinate(next, ARRAYS);
-  },
-  seal({ next, chain, definition }) {
-    const official =
-      definition.observes ?? getOfficialInstrumentationChainCapability(chain);
-    if (official === undefined) return;
-    registerOfficialInstrumentationChain(next, official);
-    next.observes = OBSERVES;
   },
 };

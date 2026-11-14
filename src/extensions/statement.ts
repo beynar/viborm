@@ -5,6 +5,7 @@ import { isSql, type Sql } from "@sql";
 import { isFunction, isRecord } from "@validation/value-guards";
 import { isError } from "../errors/diagnostic-safety";
 import type { ExtensionPart, ResolvedExtensionHandler } from "./chain";
+import { type Unit, unitOf } from "./unit-source";
 
 /** The trusted identity exposed to one low-level statement transform. */
 export interface StatementContext {
@@ -14,6 +15,41 @@ export interface StatementContext {
 }
 
 export type StatementHandler = (context: StatementContext) => Sql;
+
+/** A unit declared `{ rewrites: true }`: `next(sql)` sends `sql` instead. */
+export type RewritingHandler = (
+  unit: Unit,
+  next: (statement?: Sql) => undefined
+) => unknown;
+
+/**
+ * A rewriting unit as the `statement` member runs it: once per logical
+ * statement, before rendering, in chain order. `statement(unit)` reads the
+ * statement as the earlier rewrites left it; `next(sql)`, called once and
+ * before the handler returns, hands on what is sent (unchanged without an
+ * argument). Rewriting units do not observe: the statement's own unit runs
+ * later, around the provider call.
+ */
+export function rewritingUnit(handler: RewritingHandler): StatementHandler {
+  return (context) => {
+    let rewritten: Sql | undefined;
+    handler(
+      unitOf({
+        kind: "statement",
+        operation: context.operation,
+        model: context.model,
+        statement: context.statement,
+      }),
+      (statement = context.statement) => {
+        rewritten ??= statement;
+        return undefined;
+      }
+    );
+    if (rewritten === undefined)
+      throw new TypeError("A rewriting unit returned without calling next().");
+    return rewritten;
+  };
+}
 
 /**
  * Applies resolved statement transforms before placeholder rendering.

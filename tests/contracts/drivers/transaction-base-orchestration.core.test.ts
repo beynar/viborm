@@ -451,8 +451,12 @@ describe("_prepare typed provenance", () => {
         },
         ...(observed
           ? {
-              observe(unit: LifecycleUnit) {
+              observe(
+                unit: LifecycleUnit,
+                next: () => Promise<ObservationCompletion>
+              ) {
                 if (unit.kind === "statement") calls.push("observe");
+                return next();
               },
             }
           : {}),
@@ -472,9 +476,13 @@ describe("_prepare typed provenance", () => {
 
     await driver._executeBatch([first, second], undefined, context);
 
+    // Every statement is transformed before the first is sent, and a unit
+    // starts at each physical send: one for a native batch.
     expect(calls).toEqual(
       observed
-        ? ["observe", "transform", "observe", "transform"]
+        ? native
+          ? ["transform", "transform", "observe"]
+          : ["transform", "transform", "observe", "observe"]
         : ["transform", "transform"]
     );
     const executed = native
@@ -531,7 +539,7 @@ describe("_prepare typed provenance", () => {
           unit: LifecycleUnit,
           proceed: () => Promise<ObservationCompletion>
         ) {
-          if (unit.kind !== "statement") return;
+          if (unit.kind !== "statement") return proceed();
           events.push(`observe:${unit.operation}`);
           return proceed().then((completion) => {
             events.push(`complete:${unit.operation}:${completion.status}`);
@@ -560,18 +568,16 @@ describe("_prepare typed provenance", () => {
     } else await expect(execution).resolves.toHaveLength(3);
     const executedCount = failAt || 3;
     await vi.waitFor(() => expect(logs).toHaveLength(executedCount));
-    expect(events.slice(0, 6)).toEqual([
-      "observe:statement1",
+    // Every statement is transformed first; each one sent is then its own
+    // unit, and a statement after the failing one is never sent.
+    expect(events.filter((event) => !event.startsWith("provider:"))).toEqual([
       "transform:statement1",
-      "observe:statement2",
       "transform:statement2",
-      "observe:statement3",
       "transform:statement3",
-    ]);
-    expect(events.filter((event) => event.startsWith("complete:"))).toEqual([
-      `complete:statement1:${failAt === 1 ? "failure" : "success"}`,
-      `complete:statement2:${failAt === 0 ? "success" : "failure"}`,
-      `complete:statement3:${failAt === 0 ? "success" : "failure"}`,
+      ...Array.from({ length: executedCount }, (_, index) => [
+        `observe:statement${index + 1}`,
+        `complete:statement${index + 1}:${failAt === index + 1 ? "failure" : "success"}`,
+      ]).flat(),
     ]);
     expect(
       logs.map(({ level, operation, sql: statement }) => ({
@@ -635,7 +641,7 @@ describe("_prepare typed provenance", () => {
                 unit: LifecycleUnit,
                 proceed: () => Promise<ObservationCompletion>
               ) {
-                if (unit.kind !== "statement") return;
+                if (unit.kind !== "statement") return proceed();
                 return proceed().then((completion) => {
                   completions.push(`${unit.model}:${completion.status}`);
                 });
@@ -661,9 +667,8 @@ describe("_prepare typed provenance", () => {
     });
     expect(transformed).toEqual(["first", "second"]);
     expect(driver.sqlOf()).toEqual(["BEGIN", "ROLLBACK"]);
-    expect(completions).toEqual(
-      observing ? ["second:failure", "first:failure"] : []
-    );
+    // The refusal comes before any statement is sent: no statement unit.
+    expect(completions).toEqual([]);
   });
 
   test.each([

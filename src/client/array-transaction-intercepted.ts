@@ -11,11 +11,7 @@ import type {
   BatchTransactionOptions,
   TransactionOptions,
 } from "@drivers/shared/transaction-options";
-import {
-  InvalidTransactionInputError,
-  isVibORMError,
-  retainWriteOutcomeFailure,
-} from "@errors";
+import { isVibORMError, retainWriteOutcomeFailure } from "@errors";
 import {
   admitArrayQueries,
   createArrayDeferred,
@@ -54,11 +50,9 @@ export async function executeInterceptedArray(
   const driver = engine.driver;
   assertAtomicArraySupport(driver);
 
-  const observerReadiness = engine.extensionChain?.observation?.prewarm();
-  if (observerReadiness !== undefined) await observerReadiness;
   const outcomes = new TransactionWriteOutcomes();
   const slots = operations.map(createArraySlot);
-  startArrayOperationObservers(slots, engine);
+  const units = await startArrayOperationUnits(slots, engine);
   try {
     for (const slot of slots) {
       slot.owner.reserveWith(slot.operation, driver);
@@ -93,26 +87,29 @@ export async function executeInterceptedArray(
     );
   }
 
-  if (!driver.supportsTransactions && driver.supportsBatch) {
-    return executeInterceptedNativeArray(
-      slots,
-      outcomes,
-      driver,
-      options,
-      context,
-      (certainty) => {
-        if (observation) observation.certainty = certainty;
-      }
-    );
-  }
-  return executeInterceptedFallback(
-    slots,
-    outcomes,
-    engine,
-    options,
-    context,
-    observation
-  );
+  const values = await (!driver.supportsTransactions && driver.supportsBatch
+    ? executeInterceptedNativeArray(
+        slots,
+        outcomes,
+        driver,
+        options,
+        context,
+        (certainty) => {
+          if (observation) observation.certainty = certainty;
+        }
+      )
+    : executeInterceptedFallback(
+        slots,
+        outcomes,
+        engine,
+        options,
+        context,
+        observation
+      ));
+  // What a member's unit handler threw, once its child succeeded, fails the
+  // array: the host contains nothing a handler does.
+  if (units !== undefined) await Promise.all(units);
+  return values;
 }
 
 function createArraySlot(operation: TransactionOperationCapability): ArraySlot {
@@ -124,27 +121,33 @@ function createArraySlot(operation: TransactionOperationCapability): ArraySlot {
   };
 }
 
-function startArrayOperationObservers(
+/**
+ * Each member's `operation` unit, started before any member is prepared, and
+ * the array waits until every unit's child is reached: a handler that waits
+ * first (for a tracer to load) does so before the array's work, which then
+ * runs inside each member's unit.
+ */
+async function startArrayOperationUnits(
   slots: readonly ArraySlot[],
   engine: QueryEngine
-): void {
-  if (engine.extensionChain?.observation === undefined) return;
-  for (const slot of slots) {
-    const observation = createArrayDeferred<unknown>();
-    slot.observation = observation;
-    if (!slot.owner.hasObservation(slot.operation))
-      throw new InvalidTransactionInputError();
-    slot.owner
-      .observe(
-        slot.operation,
-        () => observation.promise,
-        () =>
-          slot.certainty === undefined
-            ? undefined
-            : { commitCertainty: slot.certainty }
-      )
-      .catch(() => undefined);
-  }
+): Promise<readonly Promise<unknown>[] | undefined> {
+  const observation = engine.extensionChain?.observation;
+  if (observation === undefined) return undefined;
+  const units = slots.map((slot) => {
+    const child = createArrayDeferred<unknown>();
+    slot.observation = child;
+    const unit = observation.enter(
+      {
+        ...slot.owner.unit(slot.operation),
+        certainty: () => slot.certainty,
+      },
+      () => child.promise
+    );
+    unit.done.catch(() => undefined);
+    return unit;
+  });
+  await Promise.all(units.map((unit) => unit.reached));
+  return units.map((unit) => unit.done);
 }
 
 function closeArrayOperationObservers(

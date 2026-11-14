@@ -4,12 +4,12 @@ import type {
   QueryResult,
 } from "@drivers/exports";
 import { InvalidTransactionInputError } from "@errors";
-import type { ObservationCompletionFactsReader } from "@extensions/observation";
 import type {
   QueryInterceptorExecutionControl,
   TransactionWriteOutcomes,
   WriteOutcomeNotifications,
 } from "@extensions/query";
+import type { UnitSource } from "@extensions/unit-source";
 import type { PreparedBatchOperation, PreparedQuery } from "./types";
 
 /** One shared owner table registered once by each genuine operation class. */
@@ -37,12 +37,8 @@ export interface TransactionOperationOwner<Owner extends object = object> {
     notifications?: WriteOutcomeNotifications
   ): Promise<unknown>;
   isWrite(owner: Owner): boolean;
-  hasObservation(owner: Owner): boolean;
-  observe(
-    owner: Owner,
-    child: () => Promise<unknown>,
-    readCompletionFacts?: ObservationCompletionFactsReader
-  ): Promise<unknown>;
+  /** The member's `operation` unit, where its chain observes units. */
+  unit(owner: Owner): UnitSource;
   reserveWith(owner: Owner, driver: AnyDriver): void;
   executeWith(owner: Owner, driver: AnyDriver): Promise<unknown>;
   /** The member's value as its caller receives it (its computed fields). */

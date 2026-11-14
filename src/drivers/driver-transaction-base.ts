@@ -12,18 +12,13 @@ import type { Driver } from "./driver";
 import { prepareAtomicBatch } from "./driver-batch-preparation";
 import { isVerbatimBatchQuery } from "./driver-batch-query-kind";
 import { findUniqueExecutionContextIndex } from "./driver-diagnostics";
-import {
-  DriverInstrumentationBase,
-  type OfficialDriverLifecycleExecutionGate,
-  type OfficialStatementExecutionGate,
-  ungatedLifecycleExecution,
-  ungatedStatementExecution,
-} from "./driver-instrumentation";
+import { DriverInstrumentationBase } from "./driver-instrumentation";
 import { normalizeDriverError } from "./error-mapping";
 import {
   appendExecutionTransactionPhases,
   getExecutionExtensionChain,
 } from "./execution-context";
+import type { UnitSource } from "@extensions/unit-source";
 import {
   assertNormalizedBatchResults,
   assertNormalizedQueryResult,
@@ -232,67 +227,48 @@ export abstract class DriverTransactionBase<
     ) => Promise<Result>
   ): Promise<Result> {
     const executionContext = this.resolveExecutionContext(context, "execute");
-    const hasStatementObservers = this.hasTrustedObservers(executionContext);
-    let transformedQuery = hasStatementObservers
-      ? undefined
-      : this.applyTrustedStatementTransforms(
-          query,
-          executionContext,
-          "execute"
-        );
-    return this.dispatchStatement(
+    // A transform or bind-capacity refusal rejects: this function is async.
+    const transformedQuery = this.applyTrustedStatementTransforms(
+      query,
       executionContext,
-      hasStatementObservers,
-      // A transform or bind-capacity refusal must be a rejection, never a
-      // synchronous throw out of the queue or the observer; caught here rather
-      // than with an async wrapper, which costs a promise per statement.
-      (gate) => {
-        try {
-          transformedQuery ??= this.applyTrustedStatementTransforms(
-            query,
-            executionContext,
-            "execute"
-          );
-          return this.sendStatement(
-            this.buildStatement(transformedQuery),
-            transformedQuery.values,
-            executionContext,
-            executeProvider,
-            gate
-          );
-        } catch (error) {
-          return Promise.reject(error);
-        }
-      }
+      "execute"
+    );
+    return this.dispatchStatement(executionContext, () =>
+      this.sendStatement(
+        this.buildStatement(transformedQuery),
+        transformedQuery.values,
+        executionContext,
+        executeProvider
+      )
     );
   }
 
   /**
-   * One statement's dispatch: observed when a trusted observer wants it, and
-   * queued behind the connection's owner on a single-connection driver.
+   * One statement's dispatch, queued behind the connection's owner on a
+   * single-connection driver.
    */
   private dispatchStatement<Result>(
     executionContext: QueryExecutionContext,
-    observed: boolean,
-    executeQuery: (gate?: OfficialStatementExecutionGate) => Promise<Result>
+    executeQuery: () => Promise<Result>
   ): Promise<Result> {
-    const run = observed
-      ? () => this.observeTrustedStatement(executionContext, executeQuery)
-      : executeQuery;
     if (this.serializeTransactions && !this.inTransaction) {
       this.assertBaseOperationAllowedDuringTransaction(executionContext);
       return this.connectionQueue.run(
-        run,
+        executeQuery,
         connectionQueueWait(undefined, {
           driverName: this.driverName,
           form: "callback",
         })
       );
     }
-    return run();
+    return executeQuery();
   }
 
-  /** One statement's text and parameters through the gate to the provider. */
+  /**
+   * One statement's text and parameters to the provider: its `statement`
+   * unit starts here, once it is rendered, its parameters are detached and
+   * its connection is taken, around the provider call alone.
+   */
   private async sendStatement<Result>(
     sql: string,
     params: readonly unknown[],
@@ -302,8 +278,7 @@ export abstract class DriverTransactionBase<
       sql: string,
       executionParams: unknown[],
       executionContext: QueryExecutionContext
-    ) => Promise<Result>,
-    gate: OfficialStatementExecutionGate = ungatedStatementExecution
+    ) => Promise<Result>
   ): Promise<Result> {
     const executionParams = snapshotProviderParameters(
       params,
@@ -315,13 +290,9 @@ export abstract class DriverTransactionBase<
     );
     const client =
       this.connectedClient() ?? (await this.getClient(executionContext));
-    return gate.execute(
-      {
-        context: executionContext,
-        forceErrorContext: true,
-        params: diagnosticParams,
-        sql,
-      },
+    return this.inUnit(
+      "statement",
+      executionContext,
       () =>
         this.executeNormalizedStatement(
           sql,
@@ -336,7 +307,9 @@ export abstract class DriverTransactionBase<
               executionContext
             ),
           true
-        )
+        ),
+      sql,
+      executionParams
     );
   }
 
@@ -367,36 +340,85 @@ export abstract class DriverTransactionBase<
       context,
       "executeRaw"
     );
-    return this.dispatchStatement(
-      executionContext,
-      this.hasTrustedObservers(executionContext),
-      (gate) =>
-        this.sendStatement(
-          sql,
-          params ?? [],
-          executionContext,
-          (client, statement, executionParams) =>
-            this.executeNormalizedProvider<T>(
-              client,
-              statement,
-              executionParams,
-              executionContext,
-              true
-            ),
-          gate
-        )
+    return this.dispatchStatement(executionContext, () =>
+      this.sendStatement(
+        sql,
+        params ?? [],
+        executionContext,
+        (client, statement, executionParams) =>
+          this.executeNormalizedProvider<T>(
+            client,
+            statement,
+            executionParams,
+            executionContext,
+            true
+          )
+      )
     );
   }
 
   /**
-   * Execute one provider transaction after public option/context resolution.
-   * Queue ownership and protected lifecycle observation remain with callers.
+   * Execute one provider transaction after public option/context resolution,
+   * as one `transaction` or `savepoint` unit once its queue let it run.
+   * Queue ownership remains with callers.
    */
   protected runProviderTransactionCore<T>(
     fn: (tx: TTransaction) => Promise<T>,
     plan: TransactionPlan | undefined,
+    context: QueryExecutionContext,
+    kind: "savepoint" | "transaction"
+  ): Promise<T> {
+    const observation = getExecutionExtensionChain(context)?.observation;
+    if (observation === undefined)
+      return this.runProviderTransaction(fn, plan, context);
+    // A root transaction tracks its commit phases for the unit's certainty.
+    let phase: "pending" | "ready" | "committed" = "pending";
+    const executionContext =
+      kind === "transaction"
+        ? appendExecutionTransactionPhases(context, {
+            readyToCommit: () => {
+              phase = "ready";
+            },
+            committed: () => {
+              phase = "committed";
+            },
+          })
+        : context;
+    const source: UnitSource = {
+      kind,
+      operation: context.operation,
+      model: context.model,
+      context,
+      driver: this,
+      ...(kind === "transaction"
+        ? {
+            certainty: () =>
+              phase === "pending"
+                ? undefined
+                : phase === "committed"
+                  ? "committed"
+                  : "may-have-committed",
+          }
+        : {}),
+    };
+    return observation.run(source, async () => {
+      const result = await this.runProviderTransaction(
+        fn,
+        plan,
+        executionContext,
+        source
+      );
+      phase = "committed";
+      return result;
+    });
+  }
+
+  /** The provider transaction itself; `source` hears that it opened. */
+  private runProviderTransaction<T>(
+    fn: (tx: TTransaction) => Promise<T>,
+    plan: TransactionPlan | undefined,
     executionContext: QueryExecutionContext,
-    lifecycleGate = ungatedLifecycleExecution
+    source?: UnitSource
   ): Promise<T> {
     const noCallbackFailure = Symbol("noCallbackFailure");
     let callbackFailure: unknown = noCallbackFailure;
@@ -428,6 +450,16 @@ export abstract class DriverTransactionBase<
           operation: "transaction",
         });
       }
+      // What a unit runs in the transaction (`run(unit, sql)`), before the body.
+      await source?.opened?.(async (statement) => {
+        const result = await this.executeRaw<Record<string, unknown>>(
+          tx,
+          this.buildStatement(statement),
+          [...statement.values],
+          executionContext
+        );
+        return result.rows;
+      });
       return trackedCallback(tx);
     };
 
@@ -479,52 +511,7 @@ export abstract class DriverTransactionBase<
       }
     };
 
-    return lifecycleGate.execute(runTransaction);
-  }
-
-  /** Form one transaction/savepoint lifecycle outside its owning queue. */
-  protected observeTransactionLifecycle<T>(
-    kind: "savepoint" | "transaction",
-    executionContext: QueryExecutionContext,
-    child: (
-      context: QueryExecutionContext,
-      gate: OfficialDriverLifecycleExecutionGate | undefined
-    ) => Promise<T>
-  ): Promise<T> {
-    const observationState:
-      | { phase: "pending" | "ready" | "committed" }
-      | undefined = kind === "transaction" ? { phase: "pending" } : undefined;
-    const transactionExecutionContext = observationState
-      ? appendExecutionTransactionPhases(executionContext, {
-          readyToCommit: () => {
-            observationState.phase = "ready";
-          },
-          committed: () => {
-            observationState.phase = "committed";
-          },
-        })
-      : executionContext;
-    return this.observeTrustedDriverLifecycle(
-      kind,
-      executionContext,
-      kind,
-      async (gate) => {
-        const result = await child(transactionExecutionContext, gate);
-        if (observationState) observationState.phase = "committed";
-        return result;
-      },
-      observationState === undefined
-        ? undefined
-        : () =>
-            observationState.phase === "pending"
-              ? undefined
-              : {
-                  commitCertainty:
-                    observationState.phase === "committed"
-                      ? "committed"
-                      : "may-have-committed",
-                }
-    );
+    return runTransaction();
   }
 
   /**
@@ -565,26 +552,19 @@ export abstract class DriverTransactionBase<
       driverName: this.driverName,
       form: "callback",
     });
-    const executeTransaction = (
-      transactionContext: QueryExecutionContext,
-      gate?: OfficialDriverLifecycleExecutionGate
-    ) => {
-      const run = () =>
-        this.runProviderTransactionCore(fn, plan, transactionContext, gate);
-      return queued
-        ? this.connectionQueue.enqueue(
-            () => this.runConnectionTransactionLease(run),
-            wait
-          )
-        : run();
-    };
-    return this.hasTrustedObservers(executionContext)
-      ? this.observeTransactionLifecycle(
-          "transaction",
-          executionContext,
-          executeTransaction
+    const run = () =>
+      this.runProviderTransactionCore(
+        fn,
+        plan,
+        executionContext,
+        "transaction"
+      );
+    return queued
+      ? this.connectionQueue.enqueue(
+          () => this.runConnectionTransactionLease(run),
+          wait
         )
-      : executeTransaction(executionContext);
+      : run();
   }
 
   /**
@@ -694,121 +674,91 @@ export abstract class DriverTransactionBase<
     _options?: BatchTransactionOptions
   ): Promise<QueryResult<T>[]> {
     const batchContext = context ?? { operation: "executeBatch" };
+    // Every transform finishes before the first effect: a transform that
+    // refuses a later statement refuses the batch before any statement
+    // reaches the provider. Each statement sent is then one unit.
     const statements: {
-      execute(): Promise<QueryResult<T>>;
-      cancel(failure: unknown): Promise<QueryResult<T>>;
+      readonly statementContext: QueryExecutionContext;
+      readonly executionQuery: BatchQuery;
+      readonly diagnosticParams: unknown[];
+      readonly normalizeFailure: (error: unknown) => Error;
     }[] = [];
-    try {
-      // Every transform belongs to its statement observation, but must finish
-      // before the first effect: a transform that refuses a later statement
-      // then refuses the batch before any statement reaches the provider.
-      for (const [statementIndex, query] of queries.entries()) {
-        if (!query) continue;
-        const statementContext = query.context
-          ? this.resolveExecutionContext(
-              query.context,
-              query.context.operation ?? "executeBatch"
-            )
-          : batchContext;
-        let executionQuery = query;
-        let diagnosticParams = this.getBatchDiagnosticParameters(query);
-        const normalizeFailure = (error: unknown) =>
-          normalizeDriverError(error, {
-            driverName: this.driverName,
-            dialect: this.dialect,
-            model: statementContext.model,
-            operation: statementContext.operation,
-            correlationId: statementContext.correlationId,
-            statementIndex,
-            query: executionQuery.sql,
-            params: diagnosticParams,
-            diagnostics: this.getErrorDisclosure(statementContext),
-            forceContext: true,
-          });
-        statements.push(
-          await new Promise<(typeof statements)[number]>((ready, failed) => {
-            let resolveResult!: (result: QueryResult<T>) => void;
-            let rejectResult!: (failure: unknown) => void;
-            const result = new Promise<QueryResult<T>>((resolve, reject) => {
-              resolveResult = resolve;
-              rejectResult = reject;
-            });
-            const completion = this.observeTrustedStatement(
-              statementContext,
-              (gate = ungatedStatementExecution) => {
-                executionQuery = this.materializeTrustedBatchQuery(
-                  query,
-                  statementContext
-                );
-                diagnosticParams =
-                  this.getBatchDiagnosticParameters(executionQuery);
-                const { sql, params } = executionQuery;
-                const verbatim = isVerbatimBatchQuery(executionQuery);
-                ready({
-                  execute: async () => {
-                    try {
-                      resolveResult(
-                        await gate.execute(
-                          {
-                            context: statementContext,
-                            forceErrorContext: true,
-                            params: diagnosticParams,
-                            sql,
-                          },
-                          () =>
-                            this.executeNormalizedStatement(
-                              sql,
-                              diagnosticParams,
-                              statementContext,
-                              () =>
-                                verbatim
-                                  ? this.executeRaw<T>(
-                                      client,
-                                      sql,
-                                      params,
-                                      statementContext
-                                    )
-                                  : this.execute<T>(
-                                      client,
-                                      sql,
-                                      params ?? [],
-                                      statementContext
-                                    ),
-                              true
-                            )
-                        )
-                      );
-                    } catch (error) {
-                      rejectResult(normalizeFailure(error));
-                    }
-                    return completion;
-                  },
-                  cancel: (failure) => {
-                    rejectResult(failure);
-                    return completion;
-                  },
-                });
-                return result;
-              }
-            );
-            // This handles a transform/readiness failure before the entry is
-            // ready, and also observes canceled tail entries without dispatch.
-            completion.catch(failed);
-          }).catch((failure: unknown) => {
-            throw normalizeFailure(failure);
-          })
+    for (const [statementIndex, query] of queries.entries()) {
+      if (!query) continue;
+      const statementContext = query.context
+        ? this.resolveExecutionContext(
+            query.context,
+            query.context.operation ?? "executeBatch"
+          )
+        : batchContext;
+      let executionQuery = query;
+      let diagnosticParams = this.getBatchDiagnosticParameters(query);
+      const normalizeFailure = (error: unknown) =>
+        normalizeDriverError(error, {
+          driverName: this.driverName,
+          dialect: this.dialect,
+          model: statementContext.model,
+          operation: statementContext.operation,
+          correlationId: statementContext.correlationId,
+          statementIndex,
+          query: executionQuery.sql,
+          params: diagnosticParams,
+          diagnostics: this.getErrorDisclosure(statementContext),
+          forceContext: true,
+        });
+      try {
+        executionQuery = this.materializeTrustedBatchQuery(
+          query,
+          statementContext
         );
+      } catch (error) {
+        throw normalizeFailure(error);
       }
-      const results: QueryResult<T>[] = [];
-      for (const statement of statements)
-        results.push(await statement.execute());
-      return results;
-    } catch (failure) {
-      await Promise.allSettled(
-        statements.map((entry) => entry.cancel(failure))
-      );
-      throw failure;
+      diagnosticParams = this.getBatchDiagnosticParameters(executionQuery);
+      statements.push({
+        statementContext,
+        executionQuery,
+        diagnosticParams,
+        normalizeFailure,
+      });
     }
+    const results: QueryResult<T>[] = [];
+    for (const {
+      statementContext,
+      executionQuery,
+      diagnosticParams,
+      normalizeFailure,
+    } of statements) {
+      const { sql, params } = executionQuery;
+      const verbatim = isVerbatimBatchQuery(executionQuery);
+      results.push(
+        await this.inUnit(
+          "statement",
+          statementContext,
+          () =>
+            this.executeNormalizedStatement(
+              sql,
+              diagnosticParams,
+              statementContext,
+              () =>
+                verbatim
+                  ? this.executeRaw<T>(client, sql, params, statementContext)
+                  : this.execute<T>(
+                      client,
+                      sql,
+                      params ?? [],
+                      statementContext
+                    ),
+              true
+            ).catch((error: unknown) => {
+              throw normalizeFailure(error);
+            }),
+          sql,
+          params ?? []
+        )
+      );
+    }
+    return results;
   }
 
   /**
@@ -858,16 +808,16 @@ export abstract class DriverTransactionBase<
           `Driver '${this.driverName}' cannot acknowledge ordered committed segments.`
         );
       }
-      const executeNativeBatch = async (
-        sourceQueries: readonly BatchQuery[] = queries,
-        gate = ungatedStatementExecution
-      ) => {
-        const {
-          queries: batchQueries,
-          diagnosticParams,
-          members,
-        } = prepareAtomicBatch(
-          sourceQueries,
+      // One physical send, so one `statement` unit, once every member is
+      // transformed and rendered and the connection is taken.
+      const submitNativeBatch = async () => {
+        const { queries: batchQueries, diagnosticParams } = prepareAtomicBatch(
+          queries.map((query) =>
+            this.materializeTrustedBatchQuery(
+              query,
+              query.context ?? executionContext
+            )
+          ),
           executionContext,
           (params, statementContext) =>
             this.getDiagnosticParameters(
@@ -917,14 +867,9 @@ export abstract class DriverTransactionBase<
             });
           }
         };
-        return gate.execute(
-          {
-            context: executionContext,
-            forceErrorContext: false,
-            members,
-            params: diagnosticParams,
-            sql,
-          },
+        return this.inUnit(
+          "statement",
+          executionContext,
           () =>
             this.executeNormalizedStatement(
               sql,
@@ -932,15 +877,12 @@ export abstract class DriverTransactionBase<
               executionContext,
               executeProvider,
               false
-            )
+            ),
+          sql,
+          undefined,
+          batchQueries
         );
       };
-      const submitNativeBatch = () =>
-        this.observeTrustedBatchStatements(
-          queries,
-          executionContext,
-          executeNativeBatch
-        );
       if (this.serializeTransactions && !this.inTransaction) {
         this.assertBaseOperationAllowedDuringTransaction(executionContext);
         return this.connectionQueue.enqueue(

@@ -28,11 +28,6 @@ import {
 import type { QueryExecutionContext, QueryResult } from "@drivers/types";
 import { appendResolvedExtension } from "@extensions/chain";
 import type { ObservationCompletion } from "@extensions/observation";
-import {
-  getOfficialInstrumentationChainCapability,
-  registerOfficialInstrumentationChain,
-} from "@extensions/observation";
-import type { ObservationNeed } from "@extensions/official-facts";
 import { SPAN_TRANSACTION } from "@instrumentation/spans";
 import { sql } from "@sql";
 import {
@@ -90,7 +85,7 @@ function completionRecorder() {
     ) {
       const observed = proceed().then((completion) => {
         records.push(
-          `${unit.kind}:${completion.status}:${completion.commitCertainty ?? "none"}`
+          `${unit.kind}:${completion.status}:${completion.certainty ?? "none"}`
         );
       });
       pending.push(observed);
@@ -310,7 +305,7 @@ describe("observed transaction spans", () => {
     recorder = undefined;
   });
 
-  test("runs the whole transaction inside one traced lifecycle gate", async () => {
+  test("runs the whole transaction inside one traced lifecycle unit", async () => {
     recorder = withOtelRecorder();
     const driver = new PhasedDriver();
     const context = observedContext(
@@ -334,39 +329,27 @@ describe("observed transaction spans", () => {
   });
 });
 
-describe("observed lifecycle needs", () => {
+describe("observed lifecycle units", () => {
   /**
-   * Each lifecycle boundary asks the official capability for its own need at
-   * the gate: a connection splits into connect and disconnect, and a savepoint
-   * asks as a savepoint, not as its enclosing transaction. The span names the
-   * extension then applies cannot show a wrong question, because an ignored
-   * name is skipped by the tracer as well.
+   * Each lifecycle boundary is its own unit: a connection for connect and for
+   * disconnect, and a savepoint as a savepoint, not as its enclosing
+   * transaction.
    */
-  test("asks the capability for each boundary's own need", async () => {
-    const chain = appendResolvedExtension(
-      undefined,
-      instrumentation({ tracing: true }),
-      {}
-    );
-    const official = getOfficialInstrumentationChainCapability(chain);
-    if (official === undefined) {
-      throw new Error("Official instrumentation capability was not registered");
-    }
-    const needs: ObservationNeed[] = [];
-    registerOfficialInstrumentationChain(
-      chain,
-      Object.freeze({
-        ...official,
-        wants(need: ObservationNeed): boolean {
-          needs.push(need);
-          return official.wants(need);
-        },
-      })
-    );
-    const context = createExecutionContext(
+  test("runs each boundary as its own unit", async () => {
+    const kinds: string[] = [];
+    const context = observedContext(
+      QUIET_OBSERVATION,
       { operation: "$transaction" },
-      undefined,
-      chain
+      {
+        name: "lifecycle-recorder",
+        observe(
+          unit: { readonly kind: string },
+          next: () => Promise<ObservationCompletion>
+        ) {
+          kinds.push(unit.kind);
+          return next();
+        },
+      }
     );
     const driver = new PhasedDriver();
 
@@ -378,15 +361,12 @@ describe("observed lifecycle needs", () => {
     );
     await driver._disconnect(context);
 
-    expect(
-      needs.filter(
-        (need) =>
-          need === "connect" ||
-          need === "disconnect" ||
-          need === "transaction" ||
-          need === "savepoint"
-      )
-    ).toEqual(["connect", "transaction", "savepoint", "disconnect"]);
+    expect(kinds).toEqual([
+      "connection",
+      "transaction",
+      "savepoint",
+      "connection",
+    ]);
   });
 });
 
@@ -420,8 +400,9 @@ describe("observed queue-bounded maxWait", () => {
     await expect(holder).resolves.toBe("released");
     await recorder.settle();
 
+    // A transaction unit starts past the queue: the bounded one never did.
     expect(driver.shape()).toEqual(["BEGIN", "COMMIT"]);
-    expect(recorder.records).toContain("transaction:failure:none");
+    expect(recorder.records).toEqual(["transaction:success:committed"]);
   });
 });
 

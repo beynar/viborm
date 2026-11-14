@@ -10,16 +10,11 @@ import type { DriverIdentity } from "@drivers/driver-identity";
 import { getExecutionExtensionChain } from "@drivers/execution-context";
 import type { QueryExecutionContext } from "@drivers/exports";
 import { CacheInvalidKeyError } from "@errors";
-import {
-  getOfficialInstrumentationChainCapability,
-  runProtectedObservers,
-  selectTrustedObservers,
-} from "@extensions/observation";
 import type {
-  CacheCompletionFacts,
+  CacheCompletion,
   CacheOutcome,
-  CacheUnitFacts,
-} from "@extensions/official-facts";
+  CacheUnitSource,
+} from "@extensions/unit-source";
 import { type Clock, systemClock } from "../clock";
 import {
   REVALIDATING_SUFFIX,
@@ -35,6 +30,7 @@ import {
   type CacheInvalidationOptions,
   hasCacheInvalidationWork,
 } from "./schema";
+import { executionOutcomes } from "./unit-facts";
 
 /** Extend a request lifetime until background cache work settles. */
 export type WaitUntilFn = (promise: Promise<unknown>) => void;
@@ -108,20 +104,6 @@ let invalidateOfficialCacheFriend: InvalidateOfficialCache;
 
 const officialCacheNamespaces = new WeakMap<object, string>();
 
-interface CacheOutcomeList {
-  readonly outcomes: CacheOutcome[];
-  /** Set once the operation completion has read the list. */
-  completed: boolean;
-}
-
-/** One outcome list per logical cache execution, keyed by its context. */
-const executionOutcomes = new WeakMap<
-  QueryExecutionContext,
-  CacheOutcomeList
->();
-
-const completeWithoutFacts = (): undefined => undefined;
-
 function createCacheOutcome(
   event: CacheOutcome["event"],
   status?: string,
@@ -130,27 +112,18 @@ function createCacheOutcome(
   return { event, status, at: Date.now(), error };
 }
 
-/** Record one decision of this execution when its capability wants outcomes. */
+/**
+ * Record one decision of this execution, into the list its operation's
+ * observer opened (`cacheOutcomes`); with none open, nothing is recorded.
+ */
 function recordCacheOutcome(
   context: QueryExecutionContext | undefined,
   event: CacheOutcome["event"],
   status?: string,
   error?: unknown
 ): void {
-  if (
-    context === undefined ||
-    getOfficialInstrumentationChainCapability(
-      getExecutionExtensionChain(context)
-    )?.wants("cache-outcomes") !== true
-  ) {
-    return;
-  }
-  let list = executionOutcomes.get(context);
-  if (list === undefined) {
-    list = { outcomes: [], completed: false };
-    executionOutcomes.set(context, list);
-  }
-  list.outcomes.push(createCacheOutcome(event, status, error));
+  const list = context === undefined ? undefined : executionOutcomes.get(context);
+  list?.outcomes.push(createCacheOutcome(event, status, error));
 }
 
 /**
@@ -161,26 +134,14 @@ function recordCacheOutcome(
 function placeCacheSetFailure(
   context: QueryExecutionContext,
   failure: unknown
-): CacheCompletionFacts | undefined {
+): CacheCompletion | undefined {
   const outcome = createCacheOutcome("miss", "cache-set-failed", failure);
   const list = executionOutcomes.get(context);
   if (list !== undefined && !list.completed) {
     list.outcomes.push(outcome);
     return undefined;
   }
-  return Object.freeze({ kind: "cache", outcomes: [outcome] });
-}
-
-/** Close and read one execution's outcome list at its operation completion. */
-export function readCacheExecutionOutcomes(
-  context: QueryExecutionContext
-): (() => readonly CacheOutcome[]) | undefined {
-  const list = executionOutcomes.get(context);
-  if (list === undefined) return undefined;
-  return () => {
-    list.completed = true;
-    return Object.freeze([...list.outcomes]);
-  };
+  return { outcomes: [outcome] };
 }
 
 /** Create one opaque scope recognized only by this module's private namespace map. */
@@ -521,16 +482,14 @@ export abstract class CacheDriver {
       return;
     }
 
-    const observers = getExecutionExtensionChain(
+    const observation = getExecutionExtensionChain(
       options.executionContext
-    )?.observe;
+    )?.observation;
     const observedFailure: ObservedRevalidationFailure | undefined =
-      observers === undefined || observers.length === 0
-        ? undefined
-        : { failed: false, error: undefined };
-    // The observed child stores its terminal outcome before it settles, and the
-    // rail reads completion facts only after that.
-    let completion: CacheCompletionFacts | undefined;
+      observation === undefined ? undefined : { failed: false, error: undefined };
+    // The observed child stores its terminal outcome before it settles, and
+    // `cacheFacts` reads it only after that.
+    let completion: CacheCompletion | undefined;
 
     const doRevalidate = async (): Promise<CacheOutcome> => {
       let terminal: CacheOutcome;
@@ -585,30 +544,26 @@ export abstract class CacheDriver {
     };
 
     const revalidationPromise =
-      observedFailure === undefined
+      observation === undefined || observedFailure === undefined
         ? doRevalidate()
-        : runProtectedObservers(
-            { kind: "cache", operation: "revalidate" },
-            observers,
-            async () => {
-              completion = Object.freeze({
-                kind: "cache",
-                outcomes: [await doRevalidate()],
-              });
-              if (observedFailure.failed) throw observedFailure.error;
-            },
-            undefined,
-            (): CacheUnitFacts =>
-              Object.freeze({
-                kind: "cache",
-                context: options.executionContext,
-                read: Object.freeze({
+        : observation.run(
+            {
+              kind: "cache",
+              operation: "revalidate",
+              context: options.executionContext,
+              cache: {
+                read: {
                   model: modelName,
                   operation,
-                  identity: options.driverIdentity,
-                }),
+                  driver: options.driverIdentity,
+                },
                 complete: () => completion,
-              })
+              },
+            },
+            async () => {
+              completion = { outcomes: [await doRevalidate()] };
+              if (observedFailure.failed) throw observedFailure.error;
+            }
           );
 
     await revalidationPromise;
@@ -618,45 +573,31 @@ export abstract class CacheDriver {
   // PUBLIC API - Storage operations
   // ============================================================
 
-  /**
-   * Run one cache step inside its exact chain's observers. A backend delete or
-   * clear has no public unit and reaches only the trusted observer.
-   */
+  /** Run one cache step as a `cache` unit of its exact chain. */
   #observe<T>(
     step: "clear" | "delete" | "get" | "invalidate" | "set",
     context: QueryExecutionContext | undefined,
     execute: () => Promise<T>,
-    complete: CacheUnitFacts["complete"] = completeWithoutFacts,
+    complete?: CacheUnitSource["complete"],
     ttl?: number
   ): Promise<T> {
-    const observers = getExecutionExtensionChain(context)?.observe;
-    // An unobserved step builds no unit and no facts closure, as the
-    // revalidation above does. Measured on a no-op backend: without this, a get
-    // allocates about 330 B more and takes about 16 ns longer.
-    if (observers === undefined || observers.length === 0) return execute();
-    const backend = step === "clear" || step === "delete";
-    return runProtectedObservers(
-      { kind: "cache", operation: backend ? "invalidate" : step },
-      backend ? selectTrustedObservers(observers) : observers,
-      execute,
-      undefined,
-      () =>
-        Object.freeze(
-          backend
-            ? {
-                kind: "cache-backend",
-                boundary: step,
-                driverName: this.driverName,
-                complete: completeWithoutFacts,
-              }
-            : {
-                kind: "cache",
-                context,
-                driverName: this.driverName,
-                ...(ttl === undefined ? {} : { ttl }),
-                complete,
-              }
-        )
+    const observation = getExecutionExtensionChain(context)?.observation;
+    // An unobserved step builds no unit, as the revalidation above does.
+    // Measured on a no-op backend: without this, a get allocates about 330 B
+    // more and takes about 16 ns longer.
+    if (observation === undefined) return execute();
+    return observation.run(
+      {
+        kind: "cache",
+        operation: step,
+        context,
+        cache: {
+          driver: this.driverName,
+          ...(ttl === undefined ? {} : { ttl }),
+          ...(complete === undefined ? {} : { complete }),
+        },
+      },
+      execute
     );
   }
 
@@ -698,10 +639,7 @@ export abstract class CacheDriver {
         }
         return entry;
       },
-      () =>
-        cacheResult === undefined
-          ? undefined
-          : Object.freeze({ kind: "cache", result: cacheResult })
+      () => (cacheResult === undefined ? undefined : { result: cacheResult })
     );
   }
 
@@ -768,10 +706,8 @@ export abstract class CacheDriver {
       },
       backgroundOf === undefined
         ? undefined
-        : (outcome) =>
-            outcome.status === "failure"
-              ? placeCacheSetFailure(backgroundOf, outcome.failure)
-              : undefined,
+        : (failed, failure) =>
+            failed ? placeCacheSetFailure(backgroundOf, failure) : undefined,
       options.ttl
     );
   }

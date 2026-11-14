@@ -8,7 +8,7 @@ import type {
   BatchTransactionOptions,
   TransactionOptions,
 } from "@drivers/shared/transaction-options";
-import { InvalidTransactionInputError } from "@errors";
+import type { Observation } from "@extensions/observation";
 import type { QueryEngine } from "@query-engine/query-engine";
 import {
   type TransactionOperationCapability,
@@ -35,14 +35,14 @@ export async function executeLegacyArrayTransaction(
   const driver = engine.driver;
   const results: unknown[] = operations;
   if (!driver.supportsTransactions && driver.supportsBatch) {
-    if (observeArrayLifecycle) {
-      const observerReadiness = engine.extensionChain?.observation?.prewarm();
-      if (observerReadiness !== undefined) await observerReadiness;
+    const observation = engine.extensionChain?.observation;
+    if (observeArrayLifecycle && observation !== undefined) {
       return executeObservedNativeArray(
         operations,
         driver,
         options,
         context,
+        observation,
         reportCertainty
       );
     }
@@ -111,6 +111,7 @@ function runInOrder(
 
 interface ObservedNativeMember {
   readonly application: Promise<unknown>;
+  readonly reached: Promise<void>;
   readonly rejectChild: (reason?: unknown) => void;
   readonly resolveChild: (value: unknown) => void;
   settled: boolean;
@@ -122,20 +123,17 @@ async function executeObservedNativeArray(
   driver: AnyDriver,
   options: TransactionOptions | BatchTransactionOptions | undefined,
   context: QueryExecutionContext,
+  observation: Observation,
   reportCertainty:
     | ((certainty: "committed" | "may-have-committed") => void)
     | undefined
 ): Promise<unknown[]> {
   const results: unknown[] = operations;
-  const observations: ObservedNativeMember[] = [];
-  try {
-    for (const operation of operations) {
-      observations.push(startNativeObservation(operation));
-    }
-  } catch (error) {
-    rejectObservedMembers(observations, error);
-    throw error;
-  }
+  // Every member's unit reaches its child before any member is prepared.
+  const observations = operations.map((operation) =>
+    startNativeObservation(operation, observation)
+  );
+  await Promise.all(observations.map((member) => member.reached));
   let batch: PreparedNativeBatch;
   try {
     for (const operation of operations) {
@@ -224,33 +222,29 @@ async function executeObservedFallbackArray(
 }
 
 function startNativeObservation(
-  operation: TransactionOperationCapability
+  operation: TransactionOperationCapability,
+  observation: Observation
 ): ObservedNativeMember {
   const owner = transactionOperationOwner(operation);
-  if (!owner.hasObservation(operation))
-    throw new InvalidTransactionInputError();
   let rejectChild: (reason?: unknown) => void = () => undefined;
   let resolveChild: (value: unknown) => void = () => undefined;
   const child = new Promise<unknown>((resolve, reject) => {
     resolveChild = resolve;
     rejectChild = reject;
   });
-  let member: ObservedNativeMember;
-  const application = owner.observe(
-    operation,
-    () => child,
-    () =>
-      member.certainty === undefined
-        ? undefined
-        : { commitCertainty: member.certainty }
+  let member: ObservedNativeMember | undefined;
+  const { done, reached } = observation.enter(
+    { ...owner.unit(operation), certainty: () => member?.certainty },
+    () => child
   );
   member = {
-    application,
+    application: done,
+    reached,
     rejectChild,
     resolveChild,
     settled: false,
   };
-  member.application.catch(() => undefined);
+  done.catch(() => undefined);
   return member;
 }
 

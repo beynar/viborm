@@ -20,7 +20,7 @@ import {
   type OfficialCacheBindTarget,
   setOfficialCacheChainCapability,
 } from "./capability";
-import { createOfficialCacheScope, readCacheExecutionOutcomes } from "./driver";
+import { createOfficialCacheScope } from "./driver";
 import { createOfficialCacheNamespace } from "./key";
 import { routedCodec } from "./result-codec";
 
@@ -60,7 +60,6 @@ export const OFFICIAL_CACHE_RUNTIME = Object.freeze({
   executeCachedResultOperation,
   invalidateManualCache,
   prepareMutationCacheWriteOutcome,
-  readCacheExecutionOutcomes,
   readMutationCacheOptions,
   routedCodec,
   validateCacheableOperation,

@@ -1260,8 +1260,7 @@ export class VibORM<C extends VibORMConfig> {
       eager,
       (prop) => {
         if (prop === "$driver") return engine.driver;
-        if (prop === CLIENT_DIAGNOSTICS)
-          return chain?.observes?.capability(chain)?.diagnostics;
+        if (prop === CLIENT_DIAGNOSTICS) return chain?.disclosure;
         if (prop === "$extends") {
           return (
             extension:
