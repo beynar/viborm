@@ -100,14 +100,17 @@ export function defineHooks(definition: ClientExtension): unknown {
 }
 
 /**
- * A definition built with exactly `parts`: it carries them, and a program
- * that builds no other holds the code of those parts alone. What the
+ * What builds definitions with exactly `parts`: each carries them, and a
+ * program that builds no other holds the code of those parts alone. The
+ * parts are brought now, as `defineExtension()` brings everything. What the
  * official extensions build with, until the parts are the contract.
  */
-export const defineWith =
-  (...parts: readonly ExtensionPart[]) =>
-  <Definition extends object>(definition: Definition): Definition =>
-    withParts(definition, parts);
+export function defineWith(
+  ...parts: readonly ExtensionPart[]
+): <Definition extends object>(definition: Definition) => Definition {
+  for (const part of parts) part.bring?.();
+  return (definition) => withParts(definition, parts);
+}
 
 /**
  * Brings the code that runs extensions into a program that passes object

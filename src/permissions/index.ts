@@ -888,6 +888,9 @@ export function permissions<
 export function permissions<const Config extends PermissionsConfig>(
   config: Config & DeclarationCheck<Config>
 ): Policy<Config> {
+  // The parts that read the declarations made here, and only those,
+  // brought as the policy is made: compiling it reads its rows.
+  const define = defineWith(controlsPart, rowsPart, queryPart, methodsPart);
   const actor = actorContract(config.actor);
   const compile = (schema: Schema) => compilePolicy(config, schema, actor);
   // Public compile() remains an independent inspection result. Application
@@ -1023,7 +1026,7 @@ export function permissions<const Config extends PermissionsConfig>(
     return actions;
   };
   const rows = (base: VibORMClient<VibORMConfig, ExtensionState>) =>
-    extend(base, preparedFor(base.$schema as Schema).definition);
+    extend(base, define(preparedFor(base.$schema as Schema).definition));
   const withMethods = (
     client: VibORMClient<VibORMConfig, ExtensionState>,
     actions: ReadonlyMap<string, readonly string[]>
@@ -1071,12 +1074,15 @@ export function permissions<const Config extends PermissionsConfig>(
         };
       };
     };
-    return extend(client, {
-      name: `${NAME}.methods`,
-      model: Object.fromEntries(
-        [...actions.keys()].map((model) => [model, answers(model)])
-      ),
-    });
+    return extend(
+      client,
+      define({
+        name: `${NAME}.methods`,
+        model: Object.fromEntries(
+          [...actions.keys()].map((model) => [model, answers(model)])
+        ),
+      })
+    );
   };
   const methods = (client: VibORMClient<VibORMConfig, ExtensionState>) => {
     const entry = prepared.get(client.$schema as Schema);
@@ -1088,7 +1094,10 @@ export function permissions<const Config extends PermissionsConfig>(
   // One revision check serves both steps of an application.
   const apply = (base: VibORMClient<VibORMConfig, ExtensionState>) => {
     const entry = preparedFor(base.$schema as Schema);
-    return withMethods(extend(base, entry.definition), declaredActions(entry));
+    return withMethods(
+      extend(base, define(entry.definition)),
+      declaredActions(entry)
+    );
   };
   // The steps are typed by `Policy`: for a client generic over its state,
   // the client-method guard stays deferred and refuses every client method.
@@ -1116,12 +1125,9 @@ function deepFreeze(value: unknown): void {
   Object.freeze(value);
 }
 
-/** The parts that read the declarations made here, and only those. */
-const define = defineWith(controlsPart, rowsPart, queryPart, methodsPart);
-
 function extend(
   client: VibORMClient<VibORMConfig, ExtensionState>,
   definition: object
 ): VibORMClient<VibORMConfig, ExtensionState> {
-  return Reflect.apply(client.$extends, client, [define(definition)]);
+  return Reflect.apply(client.$extends, client, [definition]);
 }
