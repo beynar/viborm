@@ -9,7 +9,7 @@
  */
 
 import { ClientInitializationError } from "@errors";
-import { withRows } from "@extensions/rows-runtime";
+import { withRows, withVerbs } from "@extensions/rows-runtime";
 import {
   createProducedRowClient,
   policy,
@@ -24,6 +24,7 @@ import { afterEach, describe, expect, test } from "vitest";
 
 // These definitions are stated as plain objects: what reads their rows is brought here.
 withRows();
+withVerbs();
 
 runProducedRowBehavior({
   name: "SQLite3",

@@ -9,6 +9,7 @@ import type { AnyRelation } from "@schema/relation/types";
 import type { SchemaRegistryLookup } from "@validation/types";
 import { isFunction, isRecord } from "@validation/value-guards";
 import { errorCause } from "../errors/diagnostic-safety";
+import type { AdmittedRows } from "./admission";
 import type {
   ControlsContribution,
   DataContribution,
@@ -70,7 +71,8 @@ export interface RuntimeExtensionDefinition {
   readonly client?: RuntimeClientMethodContribution;
   readonly model?: RuntimeModelMethodContribution;
   readonly controls?: ControlsContribution;
-  readonly rows?: RowsContribution;
+  /** As admitted against a schema; as written without one. */
+  readonly rows?: AdmittedRows;
   readonly deletion?: DeletionContribution;
   readonly data?: DataContribution;
   readonly order?: OrderContribution;

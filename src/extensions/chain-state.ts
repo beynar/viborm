@@ -9,12 +9,12 @@ import type { ValidationError } from "@errors";
 import type { ModelStamps } from "@query-engine/raptor3/shared/row-scope";
 import type { Input } from "@query-engine/raptor3/shared/schema";
 import type { Operation } from "@query-engine/types";
+import type { AdmittedRows } from "./admission";
 import type { ExtensionPart } from "./chain";
 import type {
   AdmittedControls,
   ControlAdmission,
   ResolvedControl,
-  RowsContribution,
 } from "./controls";
 import type { Coordination } from "./coordination";
 import type { ControlLiteral } from "./definition";
@@ -127,11 +127,11 @@ export interface ResolvedExtensionChain {
   readonly coordination?: Coordination;
   readonly controls?: ResolvedControls;
   /**
-   * Every `rows` member, as declared (plain data): also a cached read's key,
-   * so two chains whose `rows` differ never share an entry and two that
-   * declare the same always do.
+   * Every `rows` member, as admitted: also a cached read's key, so two
+   * chains whose `rows` differ never share an entry and two that declare
+   * the same always do.
    */
-  readonly rows?: readonly RowsContribution[];
+  readonly rows?: readonly AdmittedRows[];
   readonly deletion?: Readonly<Record<string, ResolvedDeletion>>;
   /** Per model, every extension's `data` fields: a later one wins a field. */
   readonly data?: Readonly<Record<string, ModelStamps>>;

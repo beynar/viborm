@@ -9,7 +9,7 @@
 
 import { randomBytes } from "node:crypto";
 import { PgDriver } from "@drivers/pg";
-import { withRows } from "@extensions/rows-runtime";
+import { withRows, withVerbs } from "@extensions/rows-runtime";
 import { runProducedRowBehavior } from "@tests/contracts/engine/query/produced-row-behavior";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import pg from "pg";
@@ -18,6 +18,7 @@ import { TEST_CONNECTION_STRING } from "./pg-fixtures";
 
 // These definitions are stated as plain objects: what reads their rows is brought here.
 withRows();
+withVerbs();
 
 const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
 let namespace = "";

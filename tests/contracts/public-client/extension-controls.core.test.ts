@@ -35,7 +35,7 @@ import {
 import { defineExtension } from "@extensions/define";
 import type { ExtensionDefinitionInput } from "@extensions/definition";
 import { bindRows, callRows } from "@extensions/rows";
-import { withRows } from "@extensions/rows-runtime";
+import { withRows, withVerbs } from "@extensions/rows-runtime";
 import { Condition, Parameter } from "@query-engine/raptor3/shared/row-scope";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { s } from "@schema";
@@ -55,6 +55,7 @@ import { afterEach, describe, expect, test } from "vitest";
 
 // These definitions are stated as plain objects: what reads their rows is brought here.
 withRows();
+withVerbs();
 
 const user = s.model({
   id: s.string().id(),
@@ -1463,7 +1464,7 @@ describe("controls: rows bound to the call", () => {
       tenant: "acme",
       scope: "all",
     });
-    expect(operator.domain.related.has("post")).toBe(false);
+    expect(operator.domain.related.get("post")).toBeUndefined();
     expect(operator.defaults).toBe(binding.tombstoning[0]!.domain);
     expect(operator.tombstones).toBe(binding.tombstoning[1]!.tombstones);
     expect(operator.values?.controls).toEqual({ tenant: "acme", scope: "all" });

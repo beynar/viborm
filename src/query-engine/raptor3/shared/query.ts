@@ -3133,19 +3133,19 @@ export abstract class Queries {
     internal = false,
     path = ""
   ): PreparedProjection {
-    const projected = internal ? undefined : this.domain?.projected(model);
+    const project = internal ? undefined : this.domain?.project;
+    const projected = project?.projected(model);
     const shared = args.select === undefined && args.include === undefined;
     const defaults =
       projected === undefined
         ? this.#views.defaultProjections
-        : this.domain!.defaultProjections;
+        : project!.defaultProjections;
     if (shared) {
       const resolved = defaults.get(model);
       if (resolved !== undefined) return resolved;
     }
     // What the domain's read gates add to this projection (K5).
-    const gating =
-      projected && this.domain!.gating(projected, args.select, path);
+    const gating = projected && project!.gating(projected, args.select, path);
     // `omit` is desugared into `select` at admission; an explicit selection and
     // an include can therefore both be present and both belong to the result.
     let selected = args.select ?? defaultSelection(model);
@@ -3180,13 +3180,7 @@ export abstract class Queries {
       }
       const evidence = projected?.keys.get(name);
       if (evidence !== undefined) {
-        this.domain!.projectEvidence(
-          evidence,
-          name,
-          selection,
-          fields,
-          prepared
-        );
+        project!.projectEvidence(evidence, name, selection, fields, prepared);
         continue;
       }
       if (!model["~"].state.relations[name]) {
@@ -3931,7 +3925,7 @@ export abstract class Queries {
     // An internal read is the engine's own: it reads every member it asked
     // for, its gates unread (K5).
     if (shape.gates !== undefined && !internal)
-      return this.domain!.gatedDocument(
+      return this.domain!.project!.gatedDocument(
         this.compileReader(BOOLEAN_LEAF, false, carried),
         shape,
         fields,

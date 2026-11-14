@@ -1,7 +1,7 @@
 import { createClient } from "@drivers/sqlite3";
 import { ClientInitializationError } from "@errors";
 import { normalizeExtensionDefinition } from "@extensions/definition";
-import { withRows } from "@extensions/rows-runtime";
+import { withRows, withVerbs } from "@extensions/rows-runtime";
 import { s } from "@schema";
 import { v } from "@validation";
 import { createSchemaRegistry } from "@validation/builder";
@@ -9,6 +9,7 @@ import { expect, test } from "vitest";
 
 // These definitions are stated as plain objects: what reads their rows is brought here.
 withRows();
+withVerbs();
 
 function frozenRows(predicate: Readonly<Record<string, unknown>>) {
   return Object.freeze({
@@ -40,28 +41,25 @@ test("immutable row admission reuses facts within one registry only", () => {
   ).not.toBe(first.rows);
 });
 
-test("mutable predicates, frozen opaque leaves, and custom schemas are read afresh", () => {
-  const schema = { post: s.model({ id: s.string().id(), at: s.dateTime() }) };
+test("a declaration changed after it was applied is not read again; a field's own schema reads it at each application", () => {
+  const schema = { post: s.model({ id: s.string().id() }) };
   const registry = createSchemaRegistry(schema);
   const predicate = { id: "one" };
-  const definition = { name: "filter", rows: frozenRows(predicate) };
+  const definition = {
+    name: "filter",
+    rows: {
+      control: "visibility",
+      default: "visible",
+      models: { post: { visible: { root: predicate } } },
+    },
+  };
   const first = normalizeExtensionDefinition(definition, schema, registry);
   predicate.id = "two";
   const second = normalizeExtensionDefinition(definition, schema, registry);
-  expect(second.rows).not.toBe(first.rows);
+  expect(second.rows).toBe(first.rows);
   expect(second.rows?.models.post?.visible?.root).toEqual({
-    id: { equals: "two" },
+    id: { equals: "one" },
   });
-  const instant = Object.freeze(new Date("2025-01-01T00:00:00Z"));
-  const dated = {
-    name: "dated",
-    rows: frozenRows(Object.freeze({ at: instant })),
-  };
-  const earlier = normalizeExtensionDefinition(dated, schema, registry);
-  instant.setUTCFullYear(2026);
-  expect(normalizeExtensionDefinition(dated, schema, registry).rows).not.toBe(
-    earlier.rows
-  );
   const custom = {
     post: s.model({
       id: s.string().id(),
@@ -83,7 +81,7 @@ test("mutable predicates, frozen opaque leaves, and custom schemas are read afre
   ).not.toBe(admitted.rows);
 });
 
-test("schema edits and invalid predicates never inherit an earlier admission", () => {
+test("an edited schema, prepared again, and invalid predicates never inherit an earlier admission", () => {
   const schema = { post: s.model({ id: s.string().id() }) };
   const registry = createSchemaRegistry(schema);
   const definition = {
@@ -93,7 +91,11 @@ test("schema edits and invalid predicates never inherit an earlier admission", (
   const first = normalizeExtensionDefinition(definition, schema, registry);
   schema.post = s.model({ id: s.string().id() });
   expect(
-    normalizeExtensionDefinition(definition, schema, registry).rows
+    normalizeExtensionDefinition(
+      definition,
+      schema,
+      createSchemaRegistry(schema)
+    ).rows
   ).not.toBe(first.rows);
   const invalid = frozenRows(Object.freeze({ misspelled: true }));
   for (const name of ["first", "second"]) {
@@ -106,25 +108,35 @@ test("schema edits and invalid predicates never inherit an earlier admission", (
   }
 });
 
-test("a frozen sparse array with inherited values is not an immutable predicate", () => {
+test("a client created per request applies one declaration without reading its predicates again", async () => {
   const schema = { post: s.model({ id: s.string().id() }) };
-  const registry = createSchemaRegistry(schema);
-  const prototype = Object.create(Array.prototype);
-  prototype[0] = "one";
-  const values = new Array<string>(1);
-  Object.setPrototypeOf(values, prototype);
-  Object.freeze(values);
+  let reads = 0;
+  const predicate = {
+    get id() {
+      reads++;
+      return "one";
+    },
+  };
   const definition = {
     name: "filter",
-    rows: frozenRows(Object.freeze({ id: Object.freeze({ in: values }) })),
+    rows: {
+      control: "visibility",
+      default: "visible",
+      models: { post: { visible: { root: predicate } } },
+    },
   };
-  const first = normalizeExtensionDefinition(definition, schema, registry);
-  prototype[0] = "two";
-  const next = normalizeExtensionDefinition(definition, schema, registry);
-  expect(next.rows).not.toBe(first.rows);
-  expect(next.rows?.models.post?.visible?.root).toEqual({
-    id: { in: ["two"] },
-  });
+  const counts: number[] = [];
+  for (let request = 0; request < 3; request++) {
+    const client = createClient({ schema, dataDir: ":memory:" });
+    try {
+      client.$extends(definition);
+    } finally {
+      await client.$disconnect();
+    }
+    counts.push(reads);
+  }
+  expect(counts[0]).toBeGreaterThan(0);
+  expect(counts).toEqual([counts[0], counts[0], counts[0]]);
 });
 
 test("cached row references are checked against each receiving chain", () => {

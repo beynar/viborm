@@ -21,11 +21,14 @@ export class PartCarrier {
 }
 
 /**
- * The parts `enableExtensions()` brought for definitions written as object
- * literals, which carry none. The one slot of this kind, until definitions
- * are all built from parts.
+ * The parts brought for definitions written as object literals, which carry
+ * none: by `enableExtensions()`, and, as they always did, by what builds a
+ * definition whole (`defineExtension()`, `defineHooks()`). The one slot of
+ * this kind, until definitions are all built from parts.
  */
 let enabled: PartSet | undefined;
+
+export const enabledParts = (): PartSet | undefined => enabled;
 
 export const enableParts = (parts: PartSet): void => {
   enabled = parts;

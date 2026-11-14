@@ -38,7 +38,10 @@ function layerHolds(
   input: Input,
   alias?: string
 ): Sql | undefined {
-  return q.lowerSelector(q.domain!.layered(model, layer, input), alias);
+  return q.lowerSelector(
+    q.domain!.project!.layered(model, layer, input),
+    alias
+  );
 }
 /** Where a read-gated field's row carries it: every gating layer's `read` and predicate. */
 export function gateHolds(
@@ -75,7 +78,7 @@ export function guarded(
   column: Sql,
   alias?: string
 ): Sql {
-  const gate = q.domain!.projected(model)?.gates.get(field);
+  const gate = q.domain!.project!.projected(model)?.gates.get(field);
   const holds = gate && gateHolds(q, model, gate, alias, true);
   const a = q.adapter;
   return holds === undefined

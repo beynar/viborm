@@ -15,7 +15,7 @@ import { controlsPart } from "../extensions/controls";
 import { defineWith } from "../extensions/define";
 import { methodsPart } from "../extensions/methods";
 import { queryPart } from "../extensions/query";
-import { rowsPart } from "../extensions/rows-part";
+import { rowsPart, verbsPart } from "../extensions/rows-part";
 import type {
   ClientSchema,
   ClientTypeState,
@@ -39,11 +39,6 @@ import {
   policyCompiler,
   verbsOf,
 } from "./compile";
-import {
-  declarationRevision,
-  declarationSnapshot,
-  plainFreezer,
-} from "./reuse";
 import { FALSE, type PolicyModel, type Where } from "./rules";
 
 export type { ActorFacts, ActorPaths } from "./actor";
@@ -890,12 +885,19 @@ export function permissions<const Config extends PermissionsConfig>(
 ): Policy<Config> {
   // The parts that read the declarations made here, and only those,
   // brought as the policy is made: compiling it reads its rows.
-  const define = defineWith(controlsPart, rowsPart, queryPart, methodsPart);
+  const define = defineWith(
+    controlsPart,
+    rowsPart,
+    verbsPart,
+    queryPart,
+    methodsPart
+  );
   const actor = actorContract(config.actor);
   const compile = (schema: Schema) => compilePolicy(config, schema, actor);
-  // Public compile() remains an independent inspection result. Application
-  // caches only owned immutable data, never a client, actor, or driver.
-  const prepared = new WeakMap<Schema, Prepared>();
+  // Public compile() remains an independent inspection result. An application
+  // is kept per schema, never a client, actor or driver: every client of a
+  // schema shares one definition, so the host admits its predicates once.
+  const prepared = new WeakMap<Schema, object>();
   /** The `rows` definition over one compiled policy: everything but its verbs. */
   const definitionOf = (
     scopes: CompiledPolicy["scopes"],
@@ -935,24 +937,18 @@ export function permissions<const Config extends PermissionsConfig>(
     },
   });
   /**
-   * A plain declaration compiles a model at a time, the first time a call
-   * needs it: applying the policy checks what the declaration names, and a
-   * rule's own refusal comes at its model's first call. The models compile
-   * from a copy of the declaration taken here, into one state every client of
-   * the schema shares, each entry frozen so core admits it once per schema.
+   * The application of the policy to `schema`, made once: applying it checks
+   * what the declaration names, and each model compiles the first time a
+   * call needs it, into one state every client of the schema shares. A
+   * rule's own refusal comes at its model's first call.
    */
-  const lazyDefinition = (schema: Schema) => {
-    const opaque = new Set<object>([config.actor, ...Object.values(schema)]);
-    const declaration = declarationSnapshot(config, opaque);
-    const compiler = policyCompiler(
-      declaration,
-      Object.freeze({ ...schema }),
-      actor
-    );
-    const freeze = plainFreezer();
+  const preparedFor = (schema: Schema): object => {
+    const known = prepared.get(schema);
+    if (known !== undefined) return known;
+    const compiler = policyCompiler(config, schema, actor);
     const verbs = Object.fromEntries(
       Object.keys(schema).map((name) => {
-        if (!Object.hasOwn(declaration.models, name))
+        if (!Object.hasOwn(config.models, name))
           return [
             name,
             verbsOf({ models: { [name]: compiler.model(name) } })[name],
@@ -968,65 +964,32 @@ export function permissions<const Config extends PermissionsConfig>(
           const own = verbsOf({ models: { [name]: compiler.model(name) } })[
             name
           ]!;
-          const data = freeze(own) ?? own;
-          entry = Object.freeze(acyclic ? { ...data, acyclic } : { ...data });
+          entry = acyclic ? { ...own, acyclic } : own;
           return entry;
         };
         return [name, resolve];
       })
     );
     const definition = definitionOf(compiler.scopes, compiler.declared, verbs);
-    // Every object of these rows is this entry's own: frozen, core admits
-    // them once per schema and keys a cache on their digest once.
-    deepFreeze(definition.rows);
+    prepared.set(schema, definition);
     return definition;
-  };
-  /** Every model compiled when the policy is applied: a declaration we cannot copy. */
-  const eagerDefinition = (schema: Schema) => {
-    const compiler = policyCompiler(
-      config,
-      Object.freeze({ ...schema }),
-      actor
-    );
-    const compiled = compiler.policy();
-    return definitionOf(compiled.scopes, compiler.declared, verbsOf(compiled));
-  };
-  /**
-   * The application of the policy to `schema`: kept while the declaration
-   * and the schema are unchanged (the revision), rebuilt once either is not.
-   */
-  const preparedFor = (schema: Schema): Prepared => {
-    const prior = prepared.get(schema);
-    if (prior?.current()) return prior;
-    prepared.delete(schema);
-    const current = declarationRevision(
-      [config, schema],
-      new Set([config.actor, ...Object.values(schema)])
-    );
-    if (current === undefined)
-      return { current: () => false, definition: eagerDefinition(schema) };
-    const entry: Prepared = { current, definition: lazyDefinition(schema) };
-    if (current()) prepared.set(schema, entry);
-    return entry;
   };
   /**
    * Every listed model's actions, checked (a misspelled action is refused
-   * here): once per application while it is current, since the check
-   * measures edit distances against every reserved key and level.
+   * here): they depend on the declaration alone, so once per policy.
    */
-  const declaredActions = (entry: Prepared | undefined) => {
-    if (entry?.actions) return entry.actions;
-    const actions = new Map(
+  let actions: ReadonlyMap<string, readonly string[]> | undefined;
+  const declaredActions = () => {
+    actions ??= new Map(
       Object.keys(config.models).map((model) => [
         model,
         evidenceOf(config, model).names,
       ])
     );
-    if (entry) entry.actions = actions;
     return actions;
   };
   const rows = (base: VibORMClient<VibORMConfig, ExtensionState>) =>
-    extend(base, define(preparedFor(base.$schema as Schema).definition));
+    extend(base, define(preparedFor(base.$schema as Schema)));
   const withMethods = (
     client: VibORMClient<VibORMConfig, ExtensionState>,
     actions: ReadonlyMap<string, readonly string[]>
@@ -1084,45 +1047,21 @@ export function permissions<const Config extends PermissionsConfig>(
       })
     );
   };
-  const methods = (client: VibORMClient<VibORMConfig, ExtensionState>) => {
-    const entry = prepared.get(client.$schema as Schema);
-    return withMethods(
-      client,
-      declaredActions(entry?.current() ? entry : undefined)
+  const methods = (client: VibORMClient<VibORMConfig, ExtensionState>) =>
+    withMethods(client, declaredActions());
+  const apply = (base: VibORMClient<VibORMConfig, ExtensionState>) =>
+    withMethods(
+      extend(base, define(preparedFor(base.$schema as Schema))),
+      declaredActions()
     );
-  };
-  // One revision check serves both steps of an application.
-  const apply = (base: VibORMClient<VibORMConfig, ExtensionState>) => {
-    const entry = preparedFor(base.$schema as Schema);
-    return withMethods(
-      extend(base, define(entry.definition)),
-      declaredActions(entry)
-    );
-  };
   // The steps are typed by `Policy`: for a client generic over its state,
   // the client-method guard stays deferred and refuses every client method.
-  return Object.freeze(
-    Object.assign(apply, { config, compile, rows, methods })
-  ) as unknown as Policy<Config>;
-}
-
-/**
- * A policy applied to one schema: its `rows` definition and, once the
- * methods step has checked them, every listed model's action names. Both
- * hold while `current()` does.
- */
-interface Prepared {
-  readonly current: () => boolean;
-  readonly definition: object;
-  actions?: ReadonlyMap<string, readonly string[]>;
-}
-
-/** Freeze `value` and everything it holds; functions stay as they are. */
-function deepFreeze(value: unknown): void {
-  if (value === null || typeof value !== "object" || Object.isFrozen(value))
-    return;
-  for (const member of Object.values(value)) deepFreeze(member);
-  Object.freeze(value);
+  return Object.assign(apply, {
+    config,
+    compile,
+    rows,
+    methods,
+  }) as unknown as Policy<Config>;
 }
 
 function extend(

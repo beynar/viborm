@@ -5,13 +5,14 @@
  * independent oracle.
  */
 
-import { withRows } from "@extensions/rows-runtime";
+import { withRows, withVerbs } from "@extensions/rows-runtime";
 import { runBoundViewsBehavior } from "@tests/contracts/public-client/extension-bound-views-behavior";
 import { createInMemoryPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 // The behavior applies bare object literals that declare `rows`.
 withRows();
+withVerbs();
 
 runBoundViewsBehavior({
   name: "PGlite",

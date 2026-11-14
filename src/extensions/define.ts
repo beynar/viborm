@@ -19,13 +19,13 @@ import {
   normalizeExtensionDefinition,
   type SchemaGenericExtensionDefinition,
 } from "./definition";
-import { enableParts } from "./host-slot";
+import { enabledParts, enableParts } from "./host-slot";
 import { type EmptyClientExtensionState, methodsPart } from "./methods";
 import { observePart } from "./observation";
 import { queryPart } from "./query";
 import { requestPart } from "./request";
 import { resultPart } from "./result";
-import { rowsPart } from "./rows-part";
+import { rowsPart, verbsPart } from "./rows-part";
 import { statementPart } from "./statement";
 import { unitPart } from "./units";
 import { writtenPart } from "./written";
@@ -44,15 +44,40 @@ const handlerParts = (): readonly ExtensionPart[] => [
 ];
 
 /**
- * Every part, and what recognizes the official extensions a definition
- * written as one object may be a copy of.
+ * Every part but what reads `verbs` and `confine`, and what recognizes the
+ * official extensions a definition written as one object may be a copy of.
  */
-const everyPart = (): readonly ExtensionPart[] => [
+const filterParts = (): readonly ExtensionPart[] => [
   cacheIdentity,
   defaultOmitIdentity,
   ...handlerParts(),
   rowsPart,
 ];
+
+/** Every part. */
+const everyPart = (): readonly ExtensionPart[] => [...filterParts(), verbsPart];
+
+/**
+ * `parts` brought into the program, and added to those an object literal is
+ * applied with: what builds a definition whole has always let a literal be
+ * applied after it.
+ */
+function adapt(parts: readonly ExtensionPart[]): void {
+  for (const part of partSet(parts).parts) part.bring?.();
+  enableParts(partSet([...(enabledParts()?.parts ?? []), ...parts]));
+}
+
+/** The definition checked and built with `parts`, or, given none, what does so. */
+function checked(
+  definitions: [] | [definition: ClientExtension],
+  parts: readonly ExtensionPart[]
+): unknown {
+  adapt(parts);
+  return definitions.length === 0
+    ? (schemaDefinition: ExtensionDefinitionInput) =>
+        withParts(normalizeExtensionDefinition(schemaDefinition), parts)
+    : withParts(normalizeExtensionDefinition(definitions[0]), parts);
+}
 
 /**
  * Build an extension definition: it is checked, and it carries every part,
@@ -72,11 +97,7 @@ export function defineExtension<S extends Schema>(): DefineExtensionBinder<S>;
 export function defineExtension(
   ...definitions: [] | [definition: ClientExtension]
 ): unknown {
-  if (definitions.length === 0) {
-    return (schemaDefinition: ExtensionDefinitionInput) =>
-      withParts(normalizeExtensionDefinition(schemaDefinition), everyPart());
-  }
-  return withParts(normalizeExtensionDefinition(definitions[0]), everyPart());
+  return checked(definitions, everyPart());
 }
 
 /**
@@ -96,7 +117,31 @@ export function defineHooks<
     >
 ): NoInfer<Definition>;
 export function defineHooks(definition: ClientExtension): unknown {
-  return withParts(normalizeExtensionDefinition(definition), handlerParts());
+  return checked([definition], handlerParts());
+}
+
+/**
+ * `defineExtension()` for a definition whose `rows` only filter: it does not
+ * carry what reads `verbs` and `confine` (what judges the rows a write
+ * produces, and what a read carries beside them or hides), so an extension
+ * that declares neither weighs less. A definition that does declare one is
+ * refused when it is applied.
+ */
+export function defineFilters<
+  const Definition extends SchemaGenericExtensionDefinition,
+>(
+  definition: Definition &
+    ExactExtensionDefinition<
+      Definition,
+      ExtensionConfig<Schema>,
+      EmptyClientExtensionState
+    >
+): NoInfer<Definition>;
+export function defineFilters<S extends Schema>(): DefineExtensionBinder<S>;
+export function defineFilters(
+  ...definitions: [] | [definition: ClientExtension]
+): unknown {
+  return checked(definitions, filterParts());
 }
 
 /**
@@ -108,7 +153,7 @@ export function defineHooks(definition: ClientExtension): unknown {
 export function defineWith(
   ...parts: readonly ExtensionPart[]
 ): <Definition extends object>(definition: Definition) => Definition {
-  for (const part of parts) part.bring?.();
+  for (const part of partSet(parts).parts) part.bring?.();
   return (definition) => withParts(definition, parts);
 }
 

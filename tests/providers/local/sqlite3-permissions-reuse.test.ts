@@ -1,6 +1,5 @@
 import { performance } from "node:perf_hooks";
 import { createClient } from "@drivers/sqlite3";
-import { ForbiddenError } from "@errors";
 import { s } from "@schema";
 import { permissions } from "@src/permissions";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -34,56 +33,6 @@ test("reusing one policy on one base avoids recompiling its rules", async () => 
     expect(compiled).toBeGreaterThan(0);
     await base.$extends(policy).$as({ userId: "bob" }).post.findMany();
     expect(evaluations).toBe(compiled);
-  } finally {
-    await base.$disconnect();
-  }
-});
-
-test("policy reuse preserves declaration edits and schema replacement", async () => {
-  let evaluations = 0;
-  const schema = { post: s.model({ id: s.string().id() }) };
-  const base = createClient({ schema, dataDir: ":memory:" });
-  try {
-    await syncLiveSchema(base);
-    await base.post.createMany({ data: [{ id: "one" }, { id: "two" }] });
-    const config = {
-      actor: v.object({ userId: v.string() }),
-      models: {
-        post: {
-          read: () => {
-            evaluations++;
-            return { id: "one" };
-          },
-        },
-      },
-    };
-    const policy = permissions(config);
-    const actor = { userId: "alice" };
-    const before = base.$extends(policy).$as(actor);
-    expect(await before.post.findMany()).toEqual([{ id: "one" }]);
-    const first = evaluations;
-    await base.$extends(policy).$as(actor).post.findMany();
-    expect(evaluations).toBe(first);
-    config.models.post.read = () => {
-      evaluations++;
-      return { id: "two" };
-    };
-    const after = base.$extends(policy).$as(actor);
-    expect(await after.post.findMany()).toEqual([{ id: "two" }]);
-    expect(evaluations).toBeGreaterThan(first);
-    // A client keeps the declaration as it was applied, even for a model it
-    // compiles after the edit.
-    expect(await before.post.findMany()).toEqual([{ id: "one" }]);
-    const second = evaluations;
-    schema.post = s.model({ id: s.string().id() });
-    const replaced = createClient({ schema, dataDir: ":memory:" });
-    try {
-      await syncLiveSchema(replaced);
-      await replaced.$extends(policy).$as(actor).post.findMany();
-      expect(evaluations).toBeGreaterThan(second);
-    } finally {
-      await replaced.$disconnect();
-    }
   } finally {
     await base.$disconnect();
   }
@@ -256,70 +205,6 @@ test.skipIf(!process.env.VIBORM_POLICY_TIMINGS)(
   }
 );
 
-test("action enumeration changes invalidate reuse", async () => {
-  const base = createClient({
-    schema: { post: s.model({ id: s.string().id() }) },
-    dataDir: ":memory:",
-  });
-  const model = { read: true };
-  const policy = permissions({
-    actor: v.object({ userId: v.string() }),
-    models: { post: model },
-  });
-  base.$extends(policy);
-  Object.defineProperty(model, "read", { enumerable: false });
-  await expect(
-    base.$extends(policy).$as({ userId: "alice" }).post.findMany()
-  ).rejects.toBeInstanceOf(ForbiddenError);
-});
-
-test("can and assert answer the actions of the declaration as each application found it", async () => {
-  const base = createClient({
-    schema: { post: s.model({ id: s.string().id() }) },
-    dataDir: ":memory:",
-  });
-  try {
-    await syncLiveSchema(base);
-    await base.post.create({ data: { id: "one" } });
-    const model: { read: boolean; publish?: boolean } = { read: true };
-    const policy = permissions({
-      actor: v.object({ userId: v.string() }),
-      models: { post: model },
-    });
-    const actor = { userId: "alice" };
-    const before = base.$extends(policy).$as(actor);
-    const again = base.$extends(policy).$as(actor);
-    expect(await again.post.can("read", { id: "one" })).toBe(true);
-    await expect(again.post.can("publish", { id: "one" })).rejects.toThrow(
-      ForbiddenError
-    );
-    // An action added after an application is answered by the next one only.
-    model.publish = true;
-    const after = base.$extends(policy).$as(actor);
-    expect(await after.post.can("publish", { id: "one" })).toBe(true);
-    await expect(before.post.can("publish", { id: "one" })).rejects.toThrow(
-      ForbiddenError
-    );
-    // A misspelling introduced later is refused when the policy is applied
-    // again, every time, and an unchanged declaration is answered as before.
-    Reflect.set(model, "mandatroy", {});
-    for (let attempt = 0; attempt < 2; attempt++)
-      expect(() => base.$extends(policy)).toThrow('spelled like "mandatory"');
-    expect(() => policy.methods(base)).toThrow('spelled like "mandatory"');
-    Reflect.deleteProperty(model, "mandatroy");
-    const fixed = base.$extends(policy).$as(actor);
-    expect(await fixed.post.can(["read", "publish"], { id: "one" })).toEqual({
-      read: true,
-      publish: true,
-    });
-    expect(
-      await base.$extends(policy).$as(actor).post.can("publish", { id: "one" })
-    ).toBe(true);
-  } finally {
-    await base.$disconnect();
-  }
-});
-
 test("policy copying preserves non-enumerable array items and proxy operands", () => {
   const base = createClient({
     schema: { post: s.model({ id: s.string().id() }) },
@@ -333,94 +218,6 @@ test("policy copying preserves non-enumerable array items and proxy operands", (
       models: { post: { read: { id: { in: items } } } },
     });
     expect(() => base.$extends(policy)).not.toThrow();
-  }
-});
-
-test("proxy property reads cannot retain a revoked grant", async () => {
-  const base = createClient({
-    schema: { post: s.model({ id: s.string().id() }) },
-    dataDir: ":memory:",
-  });
-  let allowed = true;
-  const model = new Proxy(
-    { read: true },
-    {
-      get(target, key, receiver) {
-        return key === "read" ? allowed : Reflect.get(target, key, receiver);
-      },
-    }
-  );
-  const policy = permissions({
-    actor: v.object({ userId: v.string() }),
-    models: { post: model },
-  });
-  try {
-    await syncLiveSchema(base);
-    await base.post.create({ data: { id: "one" } });
-    expect(
-      await base.$extends(policy).$as({ userId: "alice" }).post.findMany()
-    ).toEqual([{ id: "one" }]);
-    allowed = false;
-    expect(
-      await base.$extends(policy).$as({ userId: "alice" }).post.findMany()
-    ).toEqual([]);
-  } finally {
-    await base.$disconnect();
-  }
-});
-
-test("getter-backed rules and mutable Date operands are read on each application", async () => {
-  const base = createClient({
-    schema: { post: s.model({ id: s.string().id(), at: s.dateTime() }) },
-    dataDir: ":memory:",
-  });
-  let allowed = true;
-  const policy = permissions({
-    actor: v.object({ userId: v.string() }),
-    models: {
-      post: {
-        get read() {
-          return allowed;
-        },
-      },
-    },
-  });
-  const instant = new Date("2025-01-01T00:00:00Z");
-  const dated = permissions({
-    actor: v.object({ userId: v.string() }),
-    models: { post: { read: { at: instant } } },
-  });
-  try {
-    await syncLiveSchema(base);
-    await base.post.createMany({
-      data: [
-        { id: "one", at: instant },
-        { id: "two", at: new Date("2026-01-01T00:00:00Z") },
-      ],
-    });
-    expect(
-      await base.$extends(policy).$as({ userId: "alice" }).post.count()
-    ).toBe(2);
-    allowed = false;
-    expect(
-      await base.$extends(policy).$as({ userId: "alice" }).post.count()
-    ).toBe(0);
-    expect(
-      await base
-        .$extends(dated)
-        .$as({ userId: "alice" })
-        .post.findMany({ select: { id: true } })
-    ).toEqual([{ id: "one" }]);
-    expect(Object.isFrozen(instant)).toBe(false);
-    instant.setUTCFullYear(2026);
-    expect(
-      await base
-        .$extends(dated)
-        .$as({ userId: "alice" })
-        .post.findMany({ select: { id: true } })
-    ).toEqual([{ id: "two" }]);
-  } finally {
-    await base.$disconnect();
   }
 });
 

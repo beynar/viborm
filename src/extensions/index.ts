@@ -2,6 +2,7 @@ export type { ExtensionPart } from "./chain";
 export { controlsPart } from "./controls";
 export {
   defineExtension,
+  defineFilters,
   defineHooks,
   defineWith,
   enableExtensions,
@@ -24,7 +25,7 @@ export type { WriteOutcome } from "./query";
 export { queryPart } from "./query";
 export { requestPart } from "./request";
 export { resultPart } from "./result";
-export { rowsPart } from "./rows-part";
+export { rowsPart, verbsPart } from "./rows-part";
 export type { StatementContext, StatementHandler } from "./statement";
 export { statementPart } from "./statement";
 export type {

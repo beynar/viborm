@@ -8,7 +8,7 @@ import type { Operation } from "@query-engine/types";
 import type { AnyModel } from "@schema/model";
 import { isPlainRecord } from "@schema/relation/terminal";
 import { namedGatedFields } from "./gates";
-import type { PreparedDomain } from "./row-domain";
+import type { Projection } from "./projection";
 
 /**
  * Projection keys a domain declares, admitted beside the shared schema (K5).
@@ -65,7 +65,7 @@ interface Plan {
  * values this walk read.
  */
 function strip(
-  domain: PreparedDomain,
+  domain: Projection,
   schema: EngineSchema,
   model: AnyModel,
   node: unknown
@@ -163,7 +163,7 @@ function strip(
 
 /** A key's admitted value: `true`, `false` or a list of the names it declares. */
 function admitKey(
-  domain: PreparedDomain,
+  domain: Projection,
   model: AnyModel,
   key: NonNullable<Plan["key"]>,
   path: string,
@@ -196,7 +196,7 @@ function admitKey(
 
 /** `admitted`, one node admission returned, with what its plan kept aside. */
 function attach(
-  domain: PreparedDomain,
+  domain: Projection,
   schema: EngineSchema,
   model: AnyModel,
   admitted: Input,
@@ -248,7 +248,7 @@ function attach(
  * of `domain` kept: as `admit(raw)` where the call names neither.
  */
 export function admitProjected(
-  domain: PreparedDomain,
+  domain: Projection,
   schema: EngineSchema,
   model: AnyModel,
   operation: Operation,

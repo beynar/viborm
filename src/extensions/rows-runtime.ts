@@ -1,27 +1,29 @@
 /**
  * What reads `rows`, `data`, `deletion` and `order` declarations, brought by
- * what declares one: `defineExtension()` and the official extensions.
+ * what declares one: `defineExtension()`, `defineFilters()` and the official
+ * extensions. What reads a `rows` member's `verbs` and `confine` comes apart,
+ * with `withVerbs()`.
  */
-import { admitRows, isAdmittedRows, isImmutableRowData } from "./admission";
+import { admitRows } from "./admission";
+import { bindRows, undeclaredControlReferencesOf } from "./rows";
 import {
-  admittedRowsOf,
-  bindRows,
-  checkingLazyReferences,
-  isLazy,
-  undeclaredControlReferencesOf,
-} from "./rows";
-import { installRowsRuntime, type RowsRuntime } from "./rows-slot";
+  installRowsRuntime,
+  installVerbs,
+  type RowsRuntime,
+} from "./rows-slot";
+import { VERBS } from "./verbs";
 
 const runtime: RowsRuntime = {
   admitRows,
-  isAdmittedRows,
-  isImmutableRowData,
   bindRows,
-  checkingLazyReferences,
   undeclaredControlReferencesOf,
-  isLazy,
-  admittedRowsOf,
 };
 
 /** Brings what reads these declarations to every client of this program. */
 export const withRows = (): void => installRowsRuntime(runtime);
+
+/**
+ * Brings what reads a `rows` member's `verbs` and `confine`: what judges the
+ * rows a write produces and what a read carries beside them or hides.
+ */
+export const withVerbs = (): void => installVerbs(VERBS);

@@ -14,7 +14,7 @@ import {
   type DeletionContribution,
 } from "./controls";
 import { extensionError } from "./definition";
-import { withRows } from "./rows-runtime";
+import { withRows, withVerbs } from "./rows-runtime";
 import { rowsRuntime } from "./rows-slot";
 
 const NO_ASSIGN: Readonly<Record<string, unknown>> = Object.freeze({});
@@ -88,30 +88,12 @@ export const rowsPart: ExtensionPart = {
         );
       }
     }
-    // A lazy `verbs` entry's references are checked when it is resolved,
-    // against what this chain declared here, as the loop above checks the
-    // rest.
-    const ownControls = new Set([
-      ...Object.keys(definition.controls ?? {}),
-      ...(definition.rows ? [definition.rows.control] : []),
-    ]);
-    const declaredHere = chain?.controls?.names;
+    // A lazy `verbs` entry's references are checked when it is resolved, by
+    // the binding, against what the chain declared where it was applied.
     const rows =
       definition.rows === undefined
         ? chain?.rows
-        : Object.freeze([
-            ...(chain?.rows ?? []),
-            rowsRuntime().checkingLazyReferences(
-              definition.rows,
-              (control) =>
-                ownControls.has(control) || declaredHere?.has(control) === true,
-              (control) =>
-                extensionError(
-                  `Extension "${name}" references undeclared control "${control}".`,
-                  name
-                )
-            ),
-          ]);
+        : Object.freeze([...(chain?.rows ?? []), definition.rows]);
     const deletion =
       definition.deletion === undefined
         ? chain?.deletion
@@ -153,4 +135,14 @@ export const rowsPart: ExtensionPart = {
       order
     );
   },
+};
+
+/**
+ * What reads a `rows` member's `verbs` and `confine`: what judges the rows a
+ * write produces and what a read carries beside them or hides. Apart from
+ * `rows`, so an extension whose rows only filter does not carry it.
+ */
+export const verbsPart: ExtensionPart = {
+  uses: [rowsPart],
+  bring: withVerbs,
 };
