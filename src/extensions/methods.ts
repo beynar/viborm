@@ -18,12 +18,10 @@ import { ClientInitializationError } from "@errors";
 import type { ModelSql } from "@query-engine/raptor3/shared/insert-value";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { isFunction, isRecord } from "@validation/value-guards";
-import type { OfficialCacheControls } from "../cache/schema";
 import { errorCause } from "../errors/diagnostic-safety";
 import type { ExtensionPart } from "./chain";
 import {
   type AdmittedControls,
-  type DefinitionControls,
   type NoControls,
   undeclaredBinding,
 } from "./controls";
@@ -31,9 +29,6 @@ import { extensionError } from "./definition";
 import type { MergeResultFields } from "./result-types";
 
 type NoMethods = Record<never, never>;
-type ExtensionMethod = (this: void, ...args: never[]) => unknown;
-export type ExtensionMethodRecord = Readonly<Record<string, ExtensionMethod>>;
-
 export type RuntimeExtensionMethodFunction = (...args: never[]) => unknown;
 
 declare const extensionCacheState: unique symbol;
@@ -49,7 +44,11 @@ export interface ExtensionResultConsumerState {
 export interface ClientExtensionState<
   ClientMethods extends object = NoMethods,
   ModelMethods extends object = NoMethods,
-  CacheState extends ExtensionCacheState | undefined = undefined,
+  // Without the cache, either: a client the cache extends stays assignable
+  // to the type of the client before it (the cache reads, it hides nothing).
+  CacheState extends ExtensionCacheState | undefined =
+    | ExtensionCacheState
+    | undefined,
   ResultConsumerState extends
     | ExtensionResultConsumerState
     | undefined = undefined,
@@ -92,24 +91,6 @@ export type HasExtensionCache<X extends ExtensionStateConstraint> = [
 ] extends [ExtensionCacheState]
   ? true
   : false;
-
-/**
- * Add the official cache capability without carrying its runtime config. Its
- * one control, `cache` on every write, joins the chain's controls as its
- * definition declares it.
- */
-export type EnableExtensionCache<X extends ExtensionStateConstraint> =
-  ClientExtensionState<
-    X["client"],
-    X["models"],
-    ExtensionCacheState,
-    X["resultConsumer"],
-    X["controls"] &
-      DefinitionControls<{ readonly controls: OfficialCacheControls }>,
-    X["rows"],
-    X["data"],
-    X["result"]
-  >;
 
 /** Whether an earlier extension was typed against result-bearing delegates. */
 export type HasResultConsumingExtension<X extends ExtensionStateConstraint> = [
@@ -290,7 +271,11 @@ export interface ExtensionContributionState<
   ConsumerContext extends string,
   // Defaulted: 1.3.3 exported this state with six parameters.
   Result extends object = Record<never, never>,
-  CacheState extends ExtensionCacheState | undefined = undefined,
+  // Without the cache, either: a client the cache extends stays assignable
+  // to the type of the client before it (the cache reads, it hides nothing).
+  CacheState extends ExtensionCacheState | undefined =
+    | ExtensionCacheState
+    | undefined,
 > extends ExtensionStateConstraint {
   readonly client: ClientMethods;
   readonly models: ModelMethods;

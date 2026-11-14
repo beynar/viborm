@@ -65,8 +65,6 @@ const MODULE_STATE_LEFT = Object.freeze([
   "src/extensions/plain-domain.ts prepared",
   "src/extensions/row-domain.ts preparedDomains",
   "src/extensions/unit-source.ts operations",
-  "src/extensions/unit-source.ts sources",
-  "src/extensions/verbs.ts lazyReferences",
   "src/extensions/watch-part.ts watched",
 ]);
 

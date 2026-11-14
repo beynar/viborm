@@ -1,7 +1,16 @@
 import { ValidationError } from "@errors";
-import { extension, statement, unit } from "@src/index";
+import {
+  accepts,
+  args,
+  bound,
+  extension,
+  methods,
+  rule,
+  statement,
+  unit,
+} from "@src/index";
 import type { CompiledPolicy } from "@src/permissions";
-import { verbsOf } from "@src/permissions/compile";
+import { ruleEntryOf } from "@src/permissions/compile";
 import { v } from "@src/validation";
 import {
   createPermissionsAppClient,
@@ -9,7 +18,6 @@ import {
   type PermissionsAppClient,
   type PermissionsAppSubstrate,
 } from "@tests/contracts/public-client/permissions-app-behavior";
-import { hostExtension } from "@tests/fixtures/host-definition";
 import {
   actionsOf,
   createOracle,
@@ -33,7 +41,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 /**
  * K5 against the oracle (plan §4.5, §3.3 D5/D6; §7 W-EV1..W-EV4 and
  * W-F1..W-F8): the compiled §1.1 policy exactly as `viborm/permissions` hands it
- * to its `rows.verbs` (`verbsOf`), which declares per listed model
+ * to its `rule` (`ruleEntryOf`), which declares per listed model
  * `evidence: { as: "$access", names }` with the model's actions and
  * `reads` as the policy compiled them (`collection.budget` at `full`). The
  * expectations read the oracle's own actions and order (`actionsOf`), never
@@ -61,45 +69,43 @@ interface Delegate {
 }
 type Client = Record<string, Delegate> & {
   $transaction<T>(body: (tx: Client) => Promise<T>): Promise<T>;
-  $extends(definition: object): Client;
+  $extends(definition: unknown): Client;
   $unrestricted(): Client;
 };
 
 const KEY = "$access";
-const MODE = "as";
 const ROLLBACK = new Error("rolled back");
 
 /**
- * The raw members carrying the compiled policy and K5's declarations, read
- * by the host parts as `viborm/permissions` hands them its compiled verbs.
+ * The compiled policy as `viborm/permissions` writes it (`ruleEntryOf`, one
+ * rule entry per model), and K5's arguments: the actor a call argument, the
+ * credential scopes bound by `$unrestricted()`.
  */
-export const evidenceExtension = (compiled: CompiledPolicy) => ({
-  name: "evidence",
-  controls: {
-    actor: { schema: ActorSchema, required: true },
-    scopes: {
-      schema: v.object({
-        unrestricted: v.boolean(),
-        allowed: v.array(v.string()),
-      }),
-      required: true,
-    },
-  },
-  client: (scope: {
-    $bind(values: Readonly<Record<string, unknown>>): unknown;
-  }) => ({
-    $unrestricted: () =>
-      scope.$bind({ scopes: { unrestricted: true, allowed: [] } }),
-  }),
-  rows: {
-    control: MODE,
-    default: "default",
-    models: Object.fromEntries(
-      GOVERNED_MODELS.map((model) => [model, { default: {} }])
+export const evidenceExtension = (compiled: CompiledPolicy) =>
+  extension(
+    "evidence",
+    args({
+      actor: accepts(ActorSchema).required(),
+      scopes: bound(
+        v.object({
+          unrestricted: v.boolean(),
+          allowed: v.array(v.string()),
+        })
+      ).required(),
+    }),
+    rule(
+      Object.fromEntries(
+        Object.entries(compiled.models).map(([name, model]) => [
+          name,
+          ruleEntryOf(model, () => []),
+        ])
+      )
     ),
-    verbs: verbsOf(compiled),
-  },
-});
+    methods((scope) => ({
+      $unrestricted: () =>
+        scope.$bind({ scopes: { unrestricted: true, allowed: [] } }),
+    }))
+  );
 
 const keyOf = (model: string) =>
   model === "teamMember" ? { teamId: true, userId: true } : { id: true };
@@ -213,7 +219,7 @@ export function runPermissionsEvidenceBehavior(
       await substrate.prepare(base);
       await loadPermissionsSeed(base);
       db = (base as unknown as Client)
-        .$extends(hostExtension(evidenceExtension(policy.compile(schema))))
+        .$extends(evidenceExtension(policy.compile(schema)))
         .$unrestricted()
         .$extends(
           extension(

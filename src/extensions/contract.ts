@@ -11,13 +11,17 @@
  * extension written apart from any client.
  */
 
-import type { ClientTypeState, VibORMConfig } from "@client/client";
+import type {
+  ClientTypeState,
+  LinkedConfigOf,
+  VibORMClientMembers,
+  VibORMConfig,
+} from "@client/client";
+import type { RawSurface } from "@client/raw";
 import type { ClientSchema, LinkedClientConfig } from "@client/schema-links";
 import type {
-  CacheableOperations,
   ClientRowsContext,
   ContextualOperationResult,
-  MutationOperations,
   OperationPayload,
   Operations,
 } from "@client/types";
@@ -29,6 +33,7 @@ import type { NoControls, PlacedControl, StampedFields } from "./controls";
 import type {
   ExtensionClientScope,
   ExtensionStateConstraint,
+  HasExtensionCache,
   MergeModelMethods,
 } from "./methods";
 import type { WriteOutcome } from "./query";
@@ -151,13 +156,14 @@ export type AnyTarget = Target<
 >;
 
 /**
- * What a part bound to a target accepts: that client, whatever the earlier
- * parts of its extension declared.
+ * What a part bound to a target is typed against: that client, whatever the
+ * earlier parts of its extension declared (it may follow any of them).
  */
-export type Within<Bound extends AnyTarget | undefined> =
-  Bound extends AnyTarget
-    ? Target<Bound["config"], Bound["state"], AnyFacts>
-    : AnyTarget;
+export type Within<T extends AnyTarget> = Target<
+  T["config"],
+  T["state"],
+  AnyFacts
+>;
 
 /** The target the next part of an extension sees: this part's facts added. */
 export type With<T extends AnyTarget, F extends AnyFacts> = Target<
@@ -225,39 +231,6 @@ export type MergeAll<
 >;
 
 /**
- * Parts are positional, not a rest parameter: a rest parameter's contextual
- * type is an element of a type parameter that a nested call cannot read
- * while it infers from its expected result (measured: `call`'s handler falls
- * back to the widest client). Positional parameters also let each part see
- * the facts of the parts before it (`With`). The runtime takes any number;
- * the types take eight.
- */
-export type FreeExtension = <
-  T extends AnyTarget,
-  F1 extends AnyFacts = EmptyFacts,
-  F2 extends AnyFacts = EmptyFacts,
-  F3 extends AnyFacts = EmptyFacts,
-  F4 extends AnyFacts = EmptyFacts,
-  F5 extends AnyFacts = EmptyFacts,
-  F6 extends AnyFacts = EmptyFacts,
-  F7 extends AnyFacts = EmptyFacts,
-  F8 extends AnyFacts = EmptyFacts,
->(
-  name: string,
-  p1?: Part<T, F1>,
-  p2?: Part<With<T, F1>, F2>,
-  p3?: Part<With<With<T, F1>, F2>, F3>,
-  p4?: Part<With<With<With<T, F1>, F2>, F3>, F4>,
-  p5?: Part<With<With<With<With<T, F1>, F2>, F3>, F4>, F5>,
-  p6?: Part<With<With<With<With<With<T, F1>, F2>, F3>, F4>, F5>, F6>,
-  p7?: Part<With<With<With<With<With<With<T, F1>, F2>, F3>, F4>, F5>, F6>, F7>,
-  p8?: Part<
-    With<With<With<With<With<With<With<T, F1>, F2>, F3>, F4>, F5>, F6>, F7>,
-    F8
-  >
-) => Extension<T, MergeAll<F1, F2, F3, F4, F5, F6, F7, F8>>;
-
-/**
  * The same with the target fixed (`parts<Of>()`): not generic in it, so its
  * parts are checked against the bound client, never an inferred wider one.
  */
@@ -285,9 +258,6 @@ export type BoundExtension<T extends AnyTarget> = <
   >
 ) => Extension<T, MergeAll<F1, F2, F3, F4, F5, F6, F7, F8>>;
 
-export type ExtensionFunction<Bound extends AnyTarget | undefined> =
-  Bound extends AnyTarget ? BoundExtension<Bound> : FreeExtension;
-
 // =============================================================================
 // target(...): the models and operations a call concerns
 // =============================================================================
@@ -309,14 +279,13 @@ export interface Selection<in T extends AnyTarget, out M, out O> {
   readonly [selection]: (target: T) => readonly [M, O];
 }
 
-export interface TargetFunction<Bound extends AnyTarget | undefined> {
+export interface TargetFunction<T extends AnyTarget> {
   /** Every model, these operations. */
-  <T extends Within<Bound>, O extends Operations>(
+  <O extends Operations>(
     operations: OperationSet<O>
   ): Selection<T, ModelName<T>, O>;
   /** One model (or several), these operations (every one when absent). */
   <
-    T extends Within<Bound>,
     const M extends ModelName<T> = ModelName<T>,
     const O extends Operations = Operations,
   >(
@@ -409,25 +378,28 @@ export interface CallContext<
   set(patch: RequestTransformPatch<O, PayloadOf<T, M, O>>): void;
 }
 
-/** Moment 2 of a call naming one (model, operation): around the prepared call. */
+/**
+ * Moment 2 of a call naming one (model, operation): around the prepared
+ * call. It returns what `run()` returned, or, for a read it answers in place
+ * of the core (a cache), a result of the operation's default shape: an
+ * answer built by hand cannot be typed by the call's own arguments, which
+ * are generic here. A partial row is still refused.
+ */
 export type Around<T extends AnyTarget, M, O extends Operations> = <
   A extends PayloadOf<T, M, O>,
 >(
   run: Run<A, CallResult<T, M, O, A>>
-) => Promise<CallResult<T, M, O, A>>;
+) => Promise<CallResult<T, M, O, A> | CallResult<T, M, O, NoArguments>>;
 
-/** Moment 1 of a call over several operations, models, or raw statements. */
-export interface GenericCallContext<T extends AnyTarget, M, O> {
-  readonly kind: "model" | "raw";
+type NoArguments = Record<never, never>;
+
+/** Moment 1 of a model call over several operations or models. */
+export interface ModelCallContext<T extends AnyTarget, M, O> {
+  readonly kind: "model";
   /** The schema the extension is applied to. */
   readonly schema: SchemaOf<T>;
-  readonly model: M | undefined;
-  readonly operation:
-    | O
-    | "$queryRaw"
-    | "$executeRaw"
-    | "$queryRawUnsafe"
-    | "$executeRawUnsafe";
+  readonly model: M;
+  readonly operation: O;
   readonly args: Readonly<Record<string, unknown>>;
   readonly values: OwnValues<T>;
   set(
@@ -435,25 +407,52 @@ export interface GenericCallContext<T extends AnyTarget, M, O> {
   ): void;
 }
 
+/**
+ * Moment 1 of a raw statement, which a call or an `around` without a target
+ * sees. It has no model and no arguments to set.
+ */
+export interface RawCallContext<T extends AnyTarget> {
+  readonly kind: "raw";
+  readonly schema: SchemaOf<T>;
+  readonly model: undefined;
+  readonly operation:
+    | "$queryRaw"
+    | "$executeRaw"
+    | "$queryRawUnsafe"
+    | "$executeRawUnsafe";
+  readonly args: Readonly<Record<string, unknown>>;
+  readonly values: OwnValues<T>;
+}
+
+/** Moment 1 of a call over several operations, models, or raw statements: `kind` tells them apart. */
+export type GenericCallContext<T extends AnyTarget, M, O> =
+  | ModelCallContext<T, M, O>
+  | RawCallContext<T>;
+
 /** Moment 2 of a generic call: the result is opaque, so only `run()`'s is returned. */
 export type GenericAround = <R>(run: Run<unknown, R>) => Promise<R>;
 
 type Single<M, O> =
   IsUnion<M> extends true ? false : IsUnion<O> extends true ? false : true;
 
+/**
+ * Without a target, a call also sees raw statements (spec 3), told apart by
+ * `kind`; a target names model operations only.
+ */
 export type MomentOne<T extends AnyTarget, M, O> = [M] extends [never]
   ? GenericCallContext<T, ModelName<T>, Operations>
   : Single<M, O> extends true
     ? O extends Operations
       ? CallContext<T, M, O>
       : never
-    : GenericCallContext<T, M, O>;
+    : ModelCallContext<T, M, O>;
 
 /**
  * Typed by one result only when `target` names one model and one operation;
  * otherwise the second moment's result is opaque (a union of contexts would
  * give the second moment no contextual signature at all, and with
- * `noImplicitAny` off, `run` would silently be `any`).
+ * `noImplicitAny` off, `run` would silently be `any`). Without a target, it
+ * also sees raw statements.
  */
 export type AroundHandler<T extends AnyTarget, M, O> = [M] extends [never]
   ? (
@@ -463,7 +462,7 @@ export type AroundHandler<T extends AnyTarget, M, O> = [M] extends [never]
     ? O extends Operations
       ? (c: CallContext<T, M, O>) => Around<T, M, O> | undefined | void
       : never
-    : (c: GenericCallContext<T, M, O>) => GenericAround | undefined | void;
+    : (c: ModelCallContext<T, M, O>) => GenericAround | undefined | void;
 
 /** A call typed against one result consumes it (the order rule). */
 export type AroundFacts<M, O> = [M] extends [never]
@@ -490,21 +489,13 @@ export type AroundFacts<M, O> = [M] extends [never]
  * second around the prepared call; `inner` places it nearest the core
  * whatever the chain's order.
  */
-export type CallFunction<Bound extends AnyTarget | undefined> = <
-  T extends Within<Bound>,
-  M = never,
-  O = never,
->(
+export type CallFunction<T extends AnyTarget> = <M = never, O = never>(
   handler: (c: MomentOne<T, M, O>) => void,
   target?: Selection<T, M, O>
 ) => Part<T, EmptyFacts>;
 
 /** `around(fn, target?, options?)`: both moments of a call. */
-export type AroundFunction<Bound extends AnyTarget | undefined> = <
-  T extends Within<Bound>,
-  M = never,
-  O = never,
->(
+export type AroundFunction<T extends AnyTarget> = <M = never, O = never>(
   handler: AroundHandler<T, M, O>,
   target?: Selection<T, M, O>,
   options?: { readonly inner?: true }
@@ -549,6 +540,23 @@ export interface UnitContext {
   readonly operation: string | undefined;
 }
 
+declare const rewritten: unique symbol;
+
+/**
+ * The unit a part declared `{ rewrites: true }` is handed: a statement about
+ * to be sent. A rewrite never sees a verbatim unsafe raw statement, so its
+ * `statement(u)` is always there.
+ */
+export interface StatementUnit extends UnitContext {
+  readonly kind: "statement";
+  readonly [rewritten]: true;
+}
+
+/** The unit a part's handler is handed: a statement one when it rewrites. */
+export type UnitOf<Rewrites extends true | undefined> = Rewrites extends true
+  ? StatementUnit
+  : UnitContext;
+
 /**
  * How a unit's child ended, as `next()` resolves it: never the application's
  * result; the failure itself is read by `failure(unit)`.
@@ -566,21 +574,19 @@ export interface UnitOutcome {
   readonly recovered?: true;
 }
 
-export type UnitFunction<Bound extends AnyTarget | undefined> = <
-  T extends Within<Bound>,
+export type UnitFunction<T extends AnyTarget> = <
+  Rewrites extends true | undefined = undefined,
 >(
   around: (
-    unit: UnitContext,
+    unit: UnitOf<Rewrites>,
     next: (sql?: Sql) => Promise<UnitOutcome>
   ) => unknown,
   kinds?: readonly UnitKind[],
-  options?: { readonly rewrites?: true }
+  options?: { readonly rewrites?: Rewrites }
 ) => Part<T, EmptyFacts>;
 
 /** What an error may carry. */
-export type DisclosureFunction<Bound extends AnyTarget | undefined> = <
-  T extends Within<Bound>,
->(policy: {
+export type DisclosureFunction<T extends AnyTarget> = (policy: {
   readonly sql?: boolean;
   readonly parameters?: boolean;
 }) => Part<T, EmptyFacts>;
@@ -611,6 +617,29 @@ declare const heldArg: unique symbol;
 export interface HeldArg {
   readonly [heldArg]: true;
 }
+
+/**
+ * Whether a word's operand type was read from no rule: `unknown` (written
+ * apart from any rule), or `never` (typed by another held word, as in an
+ * array of them). Such a word is held: any operand, refused or admitted by
+ * the rule's model where the extension is applied (spec 13, correction 5).
+ */
+export type IsHeld<W> = unknown extends W
+  ? true
+  : [W] extends [never]
+    ? true
+    : false;
+
+/**
+ * A word's operand: the filter its rule's place expects, anything when held.
+ * The filter stays the union's first member, never inside a conditional: a
+ * word written inside the operand (`{ ownerId: arg("user") }`) is typed by
+ * it while `W` is still being inferred.
+ */
+export type HeldOperand<W> = NoInfer<W> | HeldOnly<W>;
+
+/** What only a held word takes beside its filter: anything. */
+type HeldOnly<W> = IsHeld<W> extends true ? unknown : never;
 
 /** `now`: the call's one instant. */
 export interface NowWord {
@@ -697,33 +726,109 @@ type FilterObjects<V> = Exclude<
   readonly unknown[] | Date | FieldRef
 >;
 
-type WordValue<V, K extends string> =
+/** The operator words of a field's filter: `{ lt: now }`. */
+type OperatorWords<V, K extends string> = [FilterObjects<V>] extends [never]
+  ? never
+  : {
+      readonly [Op in FilterOperator]?:
+        | (FilterObjects<V> extends infer Filter
+            ? Filter extends unknown
+              ? Op extends keyof Filter
+                ? Filter[Op]
+                : never
+              : never
+            : never)
+        | Words<K>;
+    };
+
+/** A relation's filter operators: their operands are the target's `where`. */
+type RelationOperator = "is" | "isNot" | "some" | "every" | "none";
+
+/** The target's `where` under one relation operator of a field's filter. */
+type TargetWhere<V, Op> =
+  FilterObjects<V> extends infer Filter
+    ? Filter extends unknown
+      ? Op extends keyof Filter
+        ? Extract<NonNullable<Filter[Op]>, object>
+        : never
+      : never
+    : never;
+
+/** A to-one filter written as the target's `where` itself (`org: { name }`). */
+type DirectWhere<V> =
+  FilterObjects<V> extends infer Filter
+    ? Filter extends unknown
+      ? "AND" extends keyof Filter
+        ? Filter
+        : never
+      : never
+    : never;
+
+/** How many relations deep a rule's words reach; deeper, the ORM's own type. */
+type Deeper = [0, 0, 1, 2];
+
+/**
+ * A relation's filter with the words accepted in the target's `where`, under
+ * `is`, `isNot`, `some`, `every`, `none` or written directly on a to-one
+ * (`org: { members: { some: { userId: arg("user") } } }`). Bounded in depth,
+ * so a recursive model ends.
+ */
+type RelationWords<V, K extends string, Depth extends number> = Depth extends 0
+  ? never
+  : [TargetWhere<V, RelationOperator> | DirectWhere<V>] extends [never]
+    ? never
+    :
+        | {
+            readonly [Op in RelationOperator]?: TargetWords<
+              TargetWhere<V, Op>,
+              K,
+              Deeper[Depth]
+            >;
+          }
+        | TargetWords<DirectWhere<V>, K, Deeper[Depth]>;
+
+type TargetWords<W, K extends string, Depth extends number> = [W] extends [
+  never,
+]
+  ? never
+  : {
+      // A connective under a relation takes the same words as its target's
+      // fields (`folder: { is: { OR: [{ ownerId: arg("user") }, …] } }`).
+      readonly [F in keyof W & string]?: F extends "AND" | "OR" | "NOT"
+        ? TargetWords<W, K, Depth> | readonly TargetWords<W, K, Depth>[]
+        : WordValue<W[F], K, Depth>;
+    };
+
+type WordValue<V, K extends string, Depth extends number = 3> =
   | V
   | Words<K>
-  | ([FilterObjects<V>] extends [never]
-      ? never
-      : {
-          readonly [Op in FilterOperator]?:
-            | (FilterObjects<V> extends infer Filter
-                ? Filter extends unknown
-                  ? Op extends keyof Filter
-                    ? Filter[Op]
-                    : never
-                  : never
-                : never)
-            | Words<K>;
-        });
+  | OperatorWords<V, K>
+  | RelationWords<V, K, Depth>;
 
-type Connective<M, K extends string> =
+/**
+ * The model of a target whose models are unknown (`Model<any>`): a part
+ * written apart from any client, typed under one literal model name. Its
+ * filters and values are open, checked where the extension is applied.
+ */
+type IsOpenModel<M> =
+  M extends Model<infer State> ? (0 extends 1 & State ? true : false) : false;
+
+/** A condition: a filter, or a word that holds or not for a row. */
+type RuleCondition<M, K extends string> =
   | RuleWhere<M, K>
-  | WhenWord<K, RuleWhere<M, K>>
   | ProvidedWord<K>
   | ExistsWord;
 
-export type RuleWhere<M, K extends string> = {
-  readonly [F in keyof WhereOf<M> & string]?: F extends "AND" | "OR" | "NOT"
-    ? Connective<M, K> | readonly Connective<M, K>[]
-    : WordValue<WhereOf<M>[F], K>;
+type Connective<M, K extends string> =
+  | RuleCondition<M, K>
+  | WhenWord<K, RuleCondition<M, K>>;
+
+export type RuleWhere<in out M, in out K extends string> = {
+  readonly [F in keyof WhereOf<M> & string]?: IsOpenModel<M> extends true
+    ? unknown
+    : F extends "AND" | "OR" | "NOT"
+      ? Connective<M, K> | readonly Connective<M, K>[]
+      : WordValue<WhereOf<M>[F], K>;
 };
 
 type CreateData<M> =
@@ -740,17 +845,19 @@ type CreateData<M> =
  * TypeScript does not try to infer the client back from the literal (that
  * attempt overflowed: TS2589 on a typo). A relation key reads `never`.
  */
-export type ScalarSlots<M, Value> = {
+export type ScalarSlots<in out M, in out Value> = {
   readonly [F in keyof CreateData<M> & string]?: F extends ScalarKeysOf<M>
     ? Value
     : never;
 };
 
 /** A row's values: constants or words, per scalar field. */
-export type DataValues<M, K extends string> = {
-  readonly [F in keyof CreateData<M> & string]?: F extends ScalarKeysOf<M>
-    ? CreateData<M>[F] | Words<K> | { readonly increment: number }
-    : never;
+export type DataValues<in out M, in out K extends string> = {
+  readonly [F in keyof CreateData<M> & string]?: IsOpenModel<M> extends true
+    ? unknown
+    : F extends ScalarKeysOf<M>
+      ? CreateData<M>[F] | Words<K> | { readonly increment: number }
+      : never;
 };
 
 declare const gateWord: unique symbol;
@@ -801,8 +908,8 @@ export interface OmittedWord {
 
 type RuleFilter<M, K extends string> =
   | RuleWhere<M, K>
-  | WhenWord<K, RuleWhere<M, K>>
-  | readonly (RuleWhere<M, K> | WhenWord<K, RuleWhere<M, K>>)[];
+  | WhenWord<K, RuleCondition<M, K>>
+  | readonly (RuleWhere<M, K> | WhenWord<K, RuleCondition<M, K>>)[];
 
 type RelationKeysOf<M> =
   M extends Model<infer State>
@@ -844,10 +951,57 @@ export interface RuleEntry<M, K extends string> {
   readonly confine?: RuleWhere<M, K>;
 }
 
+/**
+ * An entry written apart from any client (`AnyTarget`, whose model names are
+ * `string`): its models are unknown, so its leaves are any filter, any value
+ * and any word, checked where the extension is applied, as the runtime
+ * checks every rule. Without it, a rule written in a function of model names
+ * (a recipe) types every leaf against `Model<any>` and overflows (TS2589).
+ */
+export interface WideRuleEntry {
+  readonly read?: {
+    readonly where?: object;
+    readonly fields?: Readonly<Record<string, GateWord<unknown>>>;
+    readonly select?: {
+      readonly [key: `$${string}`]: FactsWord<string, boolean>;
+    };
+  };
+  readonly root?: object;
+  readonly related?: object;
+  readonly create?: { readonly check?: CheckWord<unknown> };
+  readonly update?: {
+    readonly where?: OnlyWord<unknown>;
+    readonly check?: CheckWord<unknown>;
+    readonly fields?: Readonly<
+      Record<
+        string,
+        {
+          readonly where?: OnlyWord<unknown>;
+          readonly check?: CheckWord<unknown>;
+        }
+      >
+    >;
+  };
+  readonly delete?: {
+    readonly where?: OnlyWord<unknown>;
+    readonly instead?: KeepWord<unknown>;
+  };
+  readonly acyclic?: readonly string[] | (() => readonly string[]);
+  readonly confine?: object;
+}
+
+/**
+ * The key decides between the two: a model's literal name reads its fields;
+ * `string`, the key of a target whose models are unknown, reads none. The
+ * test is on the key, never on `T`: while a literal is typed `T` is still
+ * generic, and only the key is known at the property being typed.
+ */
 export type RuleInput<T extends AnyTarget> = {
-  readonly [M in keyof SchemaOf<T> & string]?:
-    | RuleEntry<SchemaOf<T>[M], KnownArgs<T>>
-    | LazyWord<RuleEntry<SchemaOf<T>[M], KnownArgs<T>>>;
+  readonly [M in keyof SchemaOf<T> & string]?: string extends M
+    ? WideRuleEntry | LazyWord<WideRuleEntry>
+    :
+        | RuleEntry<SchemaOf<T>[M], KnownArgs<T>>
+        | LazyWord<RuleEntry<SchemaOf<T>[M], KnownArgs<T>>>;
 };
 
 /** A model whose rows a call or a relation read can find hidden. */
@@ -880,30 +1034,64 @@ type EntryVerbs<E> = (E extends {
     ? { readonly reads: { readonly [F in keyof Gated]: string } }
     : unknown);
 
-type RuleVerbs<R> = {
-  readonly [M in keyof R as R[M] extends {
-    readonly read: { readonly select: object } | { readonly fields: object };
-  }
-    ? M
-    : never]: EntryVerbs<R[M]>;
+/** An entry as written, or as the function of a lazy entry returns it. */
+type EntryOf<E> = E extends () => infer Returned ? Returned : E;
+
+type RuleVerbs<R, Names extends string> = {
+  readonly [M in keyof R as M extends Names
+    ? EntryOf<R[M]> extends {
+        readonly read:
+          | { readonly select: object }
+          | { readonly fields: object };
+      }
+      ? M
+      : never
+    : never]: EntryVerbs<EntryOf<R[M]>>;
 };
 
-/** A rule's facts: the models whose rows it can hide (`| null`), its projections. */
-export type RuleFacts<R> = Facts<
+/**
+ * A rule's facts: the models whose rows it can hide (`| null`), its
+ * projections. Only models of the target (`Names`) count: one it does not
+ * have is refused at its key already, and `$extends` would refuse it again.
+ */
+export type RuleFacts<R, Names extends string = string> = EntryFacts<
+  Entries<R>,
+  Names
+>;
+
+/** A rule's entries: given as they are, or as a function of the schema returns them. */
+type Entries<R> = R extends (...args: never[]) => infer Returned ? Returned : R;
+
+/**
+ * A rule's facts from its entries. Entries keyed by any string (a function
+ * of the schema that builds every model's) can hide every model's rows.
+ */
+type EntryFacts<R, Names extends string> = Facts<
   NoMethods,
   NoMethods,
   NoControls,
-  Extract<
-    { [M in keyof R]-?: R[M] extends HidesRows ? M : never }[keyof R],
-    string
-  >,
+  string extends keyof R
+    ? string
+    : Extract<
+        { [M in keyof R]-?: R[M] extends HidesRows ? M : never }[keyof R],
+        Names
+      >,
   never,
   NoFields,
   NoFields,
   false,
   false,
-  RuleVerbs<R>
+  RuleVerbs<R, Names>
 >;
+
+/**
+ * A rule or a default read from the schema where the extension is applied:
+ * `rule((schema) => entries)`, the form of an extension that depends on the
+ * schema (`permissions`). Its returned entries are typed by the same input.
+ */
+export type FromSchema<T extends AnyTarget, Input> = (
+  schema: SchemaOf<T>
+) => Input;
 
 // =============================================================================
 // defaults({ model: { orderBy, create, update, fields } })
@@ -919,40 +1107,62 @@ export interface DefaultsEntry<M, K extends string> {
   readonly fields?: ScalarSlots<M, OmittedWord>;
 }
 
+/** `defaults` written apart from any client: see `WideRuleEntry`. */
+export interface WideDefaultsEntry {
+  readonly orderBy?:
+    | Readonly<Record<string, "asc" | "desc">>
+    | readonly Readonly<Record<string, "asc" | "desc">>[];
+  readonly create?: Readonly<Record<string, unknown>>;
+  readonly update?: Readonly<Record<string, unknown>>;
+  readonly fields?: Readonly<Record<string, OmittedWord>>;
+}
+
 export type DefaultsInput<T extends AnyTarget> = {
-  readonly [M in keyof SchemaOf<T> & string]?: DefaultsEntry<
-    SchemaOf<T>[M],
-    KnownArgs<T>
-  >;
+  readonly [M in keyof SchemaOf<T> & string]?: string extends M
+    ? WideDefaultsEntry
+    : DefaultsEntry<SchemaOf<T>[M], KnownArgs<T>>;
 };
 
 /**
  * Two facts: the fields a default writes on create (optional there, root
- * and nested), and the fields it omits (gone from default results).
+ * and nested), and the fields it omits (gone from default results). Only
+ * models of the target (`Names`) count, as in `RuleFacts`.
  */
-export type DefaultsFacts<D> = Facts<
-  NoMethods,
-  NoMethods,
-  NoControls,
-  never,
-  {
-    [M in keyof D]-?: D[M] extends { readonly create: infer Data }
-      ? StampedFields<M, keyof Data>
-      : never;
-  }[keyof D],
-  NoFields,
-  {
-    readonly [M in keyof D as D[M] extends { readonly fields: object }
-      ? M
-      : never]: D[M] extends { readonly fields: infer Fields }
-      ? {
-          readonly [F in keyof Fields as Fields[F] extends OmittedWord
-            ? F
-            : never]: true;
-        }
-      : never;
-  }
+export type DefaultsFacts<D, Names extends string = string> = DefaultFacts<
+  Entries<D>,
+  Names
 >;
+
+type DefaultFacts<D, Names extends string> = [D] extends [never]
+  ? // A refused literal (or one cast to `never`) contributes nothing.
+    EmptyFacts
+  : Facts<
+      NoMethods,
+      NoMethods,
+      NoControls,
+      never,
+      {
+        [M in keyof D]-?: M extends Names
+          ? D[M] extends { readonly create: infer Data }
+            ? StampedFields<M, keyof Data>
+            : never
+          : never;
+      }[keyof D],
+      NoFields,
+      {
+        readonly [M in keyof D as M extends Names
+          ? D[M] extends { readonly fields: object }
+            ? M
+            : never
+          : never]: D[M] extends { readonly fields: infer Fields }
+          ? {
+              readonly [F in keyof Fields as Fields[F] extends OmittedWord
+                ? F
+                : never]: true;
+            }
+          : never;
+      }
+    >;
 
 /**
  * The keys a literal names that its target type does not have, mapped to
@@ -962,36 +1172,61 @@ export type DefaultsFacts<D> = Facts<
  * the intersection `R & RuleInput<T>`, TypeScript skips its weak-type check,
  * so `title: 1` would pass against an all-optional operator object.
  */
-export type Exact<Given, Allowed> = Given extends
-  | ArgWord<string>
-  | HeldArg
-  | NowWord
-  | RowWord
-  | WhenWord<string, unknown>
-  | ProvidedWord<string>
-  | ExistsWord
-  | GateWord<unknown>
-  | CheckWord<unknown>
-  | FactsWord<string, boolean>
-  | KeepWord<unknown>
-  | OnlyWord<unknown>
-  | LazyWord<unknown>
-  | OmittedWord
-  | ((...args: never[]) => unknown)
-  ? Given
-  : Given extends readonly (infer Element)[]
-    ? readonly Exact<Element, ElementOf<Allowed>>[]
-    : Given extends object
-      ? {
-          readonly [Key in keyof Given]: Key extends KeysOf<ObjectsOf<Allowed>>
-            ? Exact<Given[Key], ValueAt<ObjectsOf<Allowed>, Key>>
-            : never;
-        }
-      : Given extends string | number | boolean
-        ? [Given] extends [Allowed]
-          ? Given
-          : never
-        : Given;
+export type Exact<Given, Allowed> = string extends keyof Allowed
+  ? // A map keyed by any string (a part written apart from any client) has
+    // no typo to refuse. Decided on `Allowed` alone, so that a literal built
+    // in a generic function (a recipe's map over its model names) is never
+    // deferred.
+    Given
+  : Given extends
+        | ArgWord<string>
+        | HeldArg
+        | NowWord
+        | RowWord
+        | WhenWord<string, unknown>
+        | ProvidedWord<string>
+        | ExistsWord
+        | GateWord<unknown>
+        | CheckWord<unknown>
+        | FactsWord<string, boolean>
+        | KeepWord<unknown>
+        | OnlyWord<unknown>
+        | LazyWord<unknown>
+        | OmittedWord
+        | ((...args: never[]) => unknown)
+    ? Given
+    : Given extends readonly (infer Element)[]
+      ? readonly Exact<Element, ElementOf<Allowed>>[]
+      : Given extends object
+        ? {
+            readonly [Key in keyof Given]: Key extends KeysOf<
+              ObjectsOf<Allowed>
+            >
+              ? Exact<Given[Key], ValueAt<ObjectsOf<Allowed>, Key>>
+              : never;
+          }
+        : Given extends string | number | boolean
+          ? [Given] extends [Allowed]
+            ? Given
+            : never
+          : Given;
+
+/**
+ * `Exact` of a rule's or a default's entries, given as they are or as a
+ * function of the schema returns them: the returned literal is refused key
+ * by key too, as an inline one is.
+ */
+export type ExactEntries<Given, Allowed> = string extends keyof Allowed
+  ? // Written apart from any client: decided on `Allowed` alone, never
+    // deferred on a recipe's generic map (see `Exact`).
+    Given
+  : Given extends (...args: infer Parameters) => infer Returned
+    ? string extends keyof Returned
+      ? // Entries built for every model at once: their names are the
+        // runtime's to check.
+        Given
+      : (...args: Parameters) => Exact<Returned, Allowed>
+    : Exact<Given, Allowed>;
 
 type ObjectsOf<Allowed> = Exclude<
   Extract<Allowed, object>,
@@ -1030,20 +1265,20 @@ type ElementOf<Allowed> = Allowed extends readonly (infer Element)[]
  * report a typo at the call instead of at its key. A rule read from the
  * schema (`(schema) => entries`) runs, untyped by this signature.
  */
-export type RuleFunction<Bound extends AnyTarget | undefined> = <
-  T extends Within<Bound>,
-  const R = RuleInput<T>,
->(
-  rules: R & RuleInput<T> & NoInfer<Exact<R, RuleInput<T>>>
-) => Part<T, RuleFacts<R>>;
+export type RuleFunction<T extends AnyTarget> = <const R = RuleInput<T>>(
+  rules: R &
+    (RuleInput<T> | FromSchema<T, RuleInput<T>>) &
+    NoInfer<ExactEntries<R, RuleInput<T>>>
+) => Part<T, RuleFacts<R, ModelName<T>>>;
 
 /** Same shape as `rule`: `D` unconstrained, typed by `DefaultsInput<T>` beside it. */
-export type DefaultsFunction<Bound extends AnyTarget | undefined> = <
-  T extends Within<Bound>,
+export type DefaultsFunction<T extends AnyTarget> = <
   const D = DefaultsInput<T>,
 >(
-  defaults: D & DefaultsInput<T> & NoInfer<Exact<D, DefaultsInput<T>>>
-) => Part<T, DefaultsFacts<D>>;
+  defaults: D &
+    (DefaultsInput<T> | FromSchema<T, DefaultsInput<T>>) &
+    NoInfer<ExactEntries<D, DefaultsInput<T>>>
+) => Part<T, DefaultsFacts<D, ModelName<T>>>;
 
 // =============================================================================
 // args({ name: declaration })
@@ -1114,8 +1349,7 @@ export type ArgsFacts<D> = Facts<
   }
 >;
 
-export type ArgsFunction<Bound extends AnyTarget | undefined> = <
-  T extends Within<Bound>,
+export type ArgsFunction<T extends AnyTarget> = <
   const D extends Readonly<Record<string, ArgSource>> = Readonly<
     Record<string, ArgSource>
   >,
@@ -1135,10 +1369,14 @@ type ClientKeys<R> = Extract<keyof R, `$${string}`>;
  * and types its methods' results from their delegate through a `this`
  * parameter.
  */
-export type MethodsFacts<R, Consumer extends boolean> = Facts<
+export type MethodsFacts<
+  R,
+  Consumer extends boolean,
+  Names extends string = string,
+> = Facts<
   { readonly [Key in ClientKeys<R>]: R[Key] },
   {
-    readonly [M in Exclude<keyof R, ClientKeys<R>>]: R[M] extends (
+    readonly [M in Exclude<keyof R, ClientKeys<R>> & Names]: R[M] extends (
       ...args: never[]
     ) => infer Methods
       ? Methods
@@ -1152,14 +1390,76 @@ export type MethodsFacts<R, Consumer extends boolean> = Facts<
   Consumer
 >;
 
+/**
+ * Whether a methods factory reads the client's types: it takes the scope,
+ * or one of its model entries is a function of the delegate (the runtime
+ * calls it with the delegate and the scope).
+ */
+export type ConsumesResults<F extends (...args: never[]) => unknown> =
+  Parameters<F> extends readonly []
+    ? [TakesDelegate<ReturnType<F>>] extends [never]
+      ? false
+      : true
+    : true;
+
+type TakesDelegate<R> = {
+  [M in keyof R]: M extends `$${string}`
+    ? never
+    : R[M] extends (...args: never[]) => unknown
+      ? R[M] extends () => unknown
+        ? never
+        : M
+      : never;
+}[keyof R];
+
 export type MethodsScope<T extends AnyTarget> = ExtensionClientScope<
   T["config"],
   T["state"]
 >;
 
-/** A returned key that is neither a `$` client method nor a model. */
-export type UnknownMethodKeys<R, T extends AnyTarget> = {
-  readonly [Key in Exclude<keyof R, ModelName<T> | `$${string}`>]: never;
+/**
+ * What a client method cannot be named: a core member, a model (a schema key
+ * may begin with `$`), a method an earlier extension or an earlier part
+ * added. A later model method of an earlier one's name is refused where it
+ * is applied only: a plugin generic over the chain cannot see that name.
+ */
+type TakenClientKey<T extends AnyTarget> =
+  | keyof VibORMClientMembers<VibORMConfig, ExtensionStateConstraint>
+  | keyof RawSurface
+  // The cache's own methods, once it is applied: its facts name them through
+  // the cache state, not as client methods, so the cache can declare them.
+  | (HasExtensionCache<T["state"]> extends true
+      ? "$withCache" | "$invalidate"
+      : never)
+  | (string extends ModelName<T> ? never : ModelName<T>)
+  | keyof T["state"]["client"]
+  | keyof T["own"]["client"];
+
+type IsMethod<V> = V extends (...args: never[]) => unknown ? unknown : never;
+
+/** A model's methods: functions, never a core operation nor `then` (the delegate would be a thenable). */
+type ModelMethodsCheck<E> = E extends (...args: never[]) => unknown
+  ? unknown
+  : {
+      readonly [Name in keyof E]: Name extends Operations | "then"
+        ? never
+        : IsMethod<E[Name]>;
+    };
+
+/**
+ * What the factory may return, key by key: a `$` client method under a
+ * free name, or a model's methods. A refused key reads `never`, so the
+ * error is at the key. A valid one reads `unknown`, never a signature (see
+ * `MethodsFunction`).
+ */
+export type MethodsCheck<R, T extends AnyTarget> = {
+  readonly [Key in keyof R]: Key extends `$${string}`
+    ? Key extends TakenClientKey<T>
+      ? never
+      : IsMethod<R[Key]>
+    : Key extends ModelName<T>
+      ? ModelMethodsCheck<R[Key]>
+      : never;
 };
 
 /**
@@ -1168,24 +1468,19 @@ export type UnknownMethodKeys<R, T extends AnyTarget> = {
  * type: TypeScript would instantiate a generic method such as
  * `restore<Self>(this: Self, …)` at once, and `Self` would be lost.
  */
-export type MethodsFunction<Bound extends AnyTarget | undefined> = <
-  T extends Within<Bound>,
-  F extends (scope: MethodsScope<T>) => UnknownMethodKeys<ReturnType<F>, T> = (
+export type MethodsFunction<T extends AnyTarget> = <
+  F extends (scope: MethodsScope<T>) => MethodsCheck<ReturnType<F>, T> = (
     scope: MethodsScope<T>
   ) => object,
 >(
   factory: F
-) => Part<
-  T,
-  MethodsFacts<ReturnType<F>, Parameters<F> extends readonly [] ? false : true>
->;
+) => Part<T, MethodsFacts<ReturnType<F>, ConsumesResults<F>, ModelName<T>>>;
 
 // =============================================================================
 // fields({ model: { name: { needs, compute } } })
 // =============================================================================
 
-export type FieldsFunction<Bound extends AnyTarget | undefined> = <
-  T extends Within<Bound>,
+export type FieldsFunction<T extends AnyTarget> = <
   const Declared extends object = object,
   Needs = unknown,
 >(
@@ -1201,7 +1496,12 @@ export type FieldsFunction<Bound extends AnyTarget | undefined> = <
     NoControls,
     never,
     never,
-    DefinitionResultFields<{ readonly result: Declared }>
+    DefinitionResultFields<{
+      readonly result: Pick<
+        Declared,
+        Extract<keyof Declared, ModelName<T> | "$allModels">
+      >;
+    }>
   >
 >;
 
@@ -1209,18 +1509,27 @@ export type FieldsFunction<Bound extends AnyTarget | undefined> = <
 // parts<Of>(): the vocabulary bound to one target
 // =============================================================================
 
+/**
+ * The vocabulary typed against one target. Each builder's target is fixed,
+ * never inferred: a bound part is often written alone (`typed.rule({…})`,
+ * passed to `extension` later), and an inferred target is still unresolved
+ * while its literal is typed, so a word inside it would read nothing. A
+ * bound part sees the client, not its siblings' arguments; inside a bound
+ * extension the free parts see those (`typed.extension("x", args(…),
+ * rule(…))`).
+ */
 export interface Parts<T extends AnyTarget> {
-  readonly extension: ExtensionFunction<T>;
-  readonly call: CallFunction<T>;
-  readonly around: AroundFunction<T>;
-  readonly target: TargetFunction<T>;
-  readonly unit: UnitFunction<T>;
-  readonly rule: RuleFunction<T>;
-  readonly defaults: DefaultsFunction<T>;
-  readonly disclosure: DisclosureFunction<T>;
-  readonly args: ArgsFunction<T>;
-  readonly methods: MethodsFunction<T>;
-  readonly fields: FieldsFunction<T>;
+  readonly extension: BoundExtension<T>;
+  readonly call: CallFunction<Within<T>>;
+  readonly around: AroundFunction<Within<T>>;
+  readonly target: TargetFunction<Within<T>>;
+  readonly unit: UnitFunction<Within<T>>;
+  readonly rule: RuleFunction<Within<T>>;
+  readonly defaults: DefaultsFunction<Within<T>>;
+  readonly disclosure: DisclosureFunction<Within<T>>;
+  readonly args: ArgsFunction<Within<T>>;
+  readonly methods: MethodsFunction<Within<T>>;
+  readonly fields: FieldsFunction<Within<T>>;
 }
 
 /**
@@ -1233,7 +1542,7 @@ export interface Parts<T extends AnyTarget> {
  */
 export type TargetOf<Of> =
   Of extends ClientTypeState<infer C, infer X>
-    ? Target<C, X, EmptyFacts>
+    ? Target<LinkedConfigOf<C>, X, EmptyFacts>
     : Of extends VibORMConfig["schema"]
       ? Target<
           LinkedClientConfig<VibORMConfig<Of>>,
@@ -1242,8 +1551,9 @@ export type TargetOf<Of> =
         >
       : never;
 
-/** The operation sets `on`, `.on(...)` and `.required(...)` take. */
-export type ReadOperations = CacheableOperations;
-export type WriteOperations = MutationOperations;
+/**
+ * The operation sets `target`, `.on(...)` and `.required(...)` take, beside
+ * the client's `CacheableOperations` (reads) and `MutationOperations` (writes).
+ */
 export type DeleteOperations = "delete" | "deleteMany";
 export type SelectingOperations = Exclude<Operations, "create" | "createMany">;

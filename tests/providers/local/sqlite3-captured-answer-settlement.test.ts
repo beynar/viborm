@@ -40,7 +40,14 @@ import type { BatchQuery, QueryExecutionContext } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import type { QueryResult } from "@drivers/types";
 import { s } from "@schema";
-import { around, extension, settled, target } from "@src/index";
+import {
+  around,
+  deletes,
+  extension,
+  settled,
+  target,
+  writes,
+} from "@src/index";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import type Database from "better-sqlite3";
 import { afterEach, describe, expect, test } from "vitest";
@@ -158,10 +165,11 @@ const withFailingOutcome = (client: SettlementClient) =>
             return run();
           };
         },
-        target("note", "deleteMany")
+        target("note", deletes)
       ),
       around(
         (c) => {
+          if (c.operation !== "updateMany") return;
           settled(c, () => {
             throw new Error(OUTCOME_THREW);
           });
@@ -169,7 +177,7 @@ const withFailingOutcome = (client: SettlementClient) =>
             return run();
           };
         },
-        target("note", "updateMany")
+        target("note", writes)
       )
     )
   );

@@ -24,6 +24,7 @@ import {
   extension,
   keep,
   methods,
+  models,
   now,
   omitted,
   oneOf,
@@ -168,7 +169,7 @@ describe("call: two moments", () => {
       extension(
         "shape",
         // The types refuse the key too: the runtime refusal is checked.
-        call((c) => c.set({ select: { id: true } } as never))
+        call((c) => c.set({ select: { id: true } } as never), target(models))
       )
     );
     expect(await rejection(shape.post.findMany({}))).toBeInstanceOf(QueryError);
@@ -179,7 +180,7 @@ describe("call: two moments", () => {
       .$extends(
         extension(
           "patcher",
-          call((c) => c.set({ tenant: "a" }))
+          call((c) => c.set({ tenant: "a" }), target(models))
         )
       );
     expect(await rejection(named.post.findMany({}))).toBeInstanceOf(QueryError);
@@ -1061,7 +1062,7 @@ describe("call: what the deleted request-transform tests promised", () => {
           call((c) => {
             seen.push({ ...c.args });
             c.set({ take: 5, skip: 0 });
-          })
+          }, target(models))
         )
       )
       .$extends(
@@ -1070,7 +1071,7 @@ describe("call: what the deleted request-transform tests promised", () => {
           call((c) => {
             seen.push({ ...c.args });
             c.set({ take: 1 });
-          })
+          }, target(models))
         )
       );
     const given = { where: { ownerId: "u1" } };
@@ -1087,7 +1088,7 @@ describe("call: what the deleted request-transform tests promised", () => {
     const client = (await seeded()).$extends(
       extension(
         "stray",
-        call((c) => c.set({ stray: true }))
+        call((c) => c.set({ stray: true }), target(models))
       )
     );
     expect(await rejection(client.post.findMany({}))).toBeInstanceOf(

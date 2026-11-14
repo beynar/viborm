@@ -242,7 +242,8 @@ export const projectionOf = (domain: PreparedDomain) => {
           domain.rows.verbs?.get(name) ?? []
         ).entries()) {
           if (verbs === undefined) continue;
-          const { as, facts, read = ALL } = verbs;
+          const { as, facts } = verbs;
+          const read = verbs.shown ?? verbs.read ?? ALL;
           if (as !== undefined)
             keys.set(as, freeze({ layer, read, names: [...facts!] }));
           for (const [field, input] of verbs.reads ?? [])

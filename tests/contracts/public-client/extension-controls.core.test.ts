@@ -39,6 +39,7 @@ import {
   target as extTarget,
   keep,
   methods,
+  models,
   oneOf,
   reads,
   rule,
@@ -267,7 +268,7 @@ describe("controls: admission and ownership", () => {
             };
             record("tenant-request", context);
             c.set({});
-          })
+          }, extTarget(models))
         )
       )
       .$extends(
@@ -282,7 +283,7 @@ describe("controls: admission and ownership", () => {
             };
             record("bystander-request", context);
             c.set({});
-          }),
+          }, extTarget(models)),
           around((c) => (run) => {
             const context = {
               proceed: run,
@@ -378,7 +379,7 @@ describe("controls: admission and ownership", () => {
           call((c) => {
             patches.push("own");
             c.set({ reason: "b" });
-          })
+          }, extTarget(models))
         )
       ),
       // An extension applied before the declaring one patches its control.
@@ -397,7 +398,7 @@ describe("controls: admission and ownership", () => {
                   },
                 })
               );
-            })
+            }, extTarget(models))
           )
         )
         .$extends(extension("declaring", extArgs({ reason: oneOf("a", "b") }))),
@@ -429,7 +430,7 @@ describe("controls: admission and ownership", () => {
             call((c) => {
               patches.push("later");
               c.set({ deleted: "with" });
-            })
+            }, extTarget(models))
           )
         ),
     ];
@@ -563,7 +564,7 @@ describe("controls: admission and ownership", () => {
       )
     );
     const db = base.$extends(
-      hostExtension({ name: "callable", controls: { reason: { schema } } })
+      extension("callable", extArgs({ reason: schema }))
     );
     await expect(db.post.findMany({ reason: "why" })).resolves.toHaveLength(1);
     const invalid = await failure(db.post.findMany({ reason: "because" }));
@@ -616,7 +617,7 @@ describe("controls: admission and ownership", () => {
         call((c) => {
           timeline.push("request");
           c.set({});
-        })
+        }, extTarget(models))
       )
     );
     const operation = db.post.findMany({ reason: "why", select: { id: true } });
@@ -1040,7 +1041,7 @@ describe("controls: rows bound to the call", () => {
   const deletion = {
     post: { extension: "managed", at: "deletedAt", assign: {} },
   } as const;
-  const bound = (...definitions: ExtensionDefinitionInput[]) => {
+  const bound = (...definitions: unknown[]) => {
     let chain: ReturnType<typeof appendResolvedExtension> | undefined;
     for (const definition of definitions)
       chain = appendResolvedExtension(chain, definition, scopedSchema);
@@ -1257,10 +1258,8 @@ describe("controls: the order a chain takes", () => {
     const consumer = definitionClient().$extends(
       extension(
         "consumer",
-        methods((scope) => {
-          const own = { models: { audited: () => ({ ping: () => "pong" }) } };
-          return { ...own.client?.(scope), ...own.models };
-        })
+        // Taking the scope makes it a result consumer.
+        methods((_scope) => ({ audited: () => ({ ping: () => "pong" }) }))
       )
     );
     const late = applyUnchecked(consumer, {
@@ -1549,6 +1548,7 @@ describe("controls: the cache key", () => {
     ] as const)
       await base.price.create({ data: { id, amount: new Decimal(amount) } });
     const recorder = new KeyRecordingCache();
+    const floor = arg("floor");
     const db = base
       .$extends(cache({ driver: recorder, version: "v" }))
       .$extends(
@@ -1561,7 +1561,9 @@ describe("controls: the cache key", () => {
           rule({
             price: {
               root: when(arg("scope"), "above", {
-                amount: { gte: arg("floor") },
+                // Held: under an operator, a word is typed before this
+                // extension's own arguments (a reported type defect).
+                amount: { gte: floor },
               }),
             },
           })

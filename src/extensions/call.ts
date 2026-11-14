@@ -109,12 +109,6 @@ export type FirstMoment = (
 export const AGAIN = Symbol("viborm.again");
 export const VIA = Symbol("viborm.via");
 
-/** What `again(run)` and `via(run, driver)` read of a `run`. */
-export interface RunCapabilities {
-  readonly [AGAIN]: () => boolean;
-  readonly [VIA]: (driver: AnyDriver) => Promise<unknown>;
-}
-
 type SecondMoment = (run: unknown) => unknown;
 
 const NO_VALUES: AdmittedControls = /* @__PURE__ */ Object.freeze({});

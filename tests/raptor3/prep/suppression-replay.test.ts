@@ -598,7 +598,7 @@ describe("G3P-04 exact suppression and replay scopes", () => {
     const logged = world.client.$extends(
       instrumentation({
         logging: {
-          warning: (event) => {
+          all: (event) => {
             events.push(event);
           },
         },
@@ -614,7 +614,8 @@ describe("G3P-04 exact suppression and replay scopes", () => {
             skipDuplicates: true,
           })
         ).rejects.toMatchObject({ code: "V8003" });
-      expect(events).toEqual([]);
+      // No level says "warning" (the level is gone, with its producer).
+      expect(events.map((event) => event.level)).not.toContain("warning");
       expect(warn).not.toHaveBeenCalled();
       await expect(world.client.post.findMany()).resolves.toEqual([]);
     } finally {

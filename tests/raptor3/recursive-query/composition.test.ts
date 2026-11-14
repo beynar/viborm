@@ -76,6 +76,7 @@ import {
   around,
   call as extCall,
   extension as extExtension,
+  models,
   target,
   unit,
 } from "@src/index";
@@ -1504,7 +1505,7 @@ describe("RQ-06 recursive projections composed through the shipped client", () =
       "$extends",
       extExtension(
         "rq06-top-level-recurse",
-        extCall((c) => c.set({ recurse: { depth: 3 } }))
+        extCall((c) => c.set({ recurse: { depth: 3 } }), target(models))
       )
     );
     const refused = await measure(driver, () =>

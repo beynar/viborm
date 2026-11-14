@@ -1450,7 +1450,7 @@ export function runOnBehavior(provider: OnProvider): void {
       test("a declaration naming an unknown model or hook, or a hook that is no function, is refused when applied", async () => {
         const { base } = await open();
         // Untyped JavaScript: the declaration's own types refuse all three.
-        const loose = on as unknown as (hooks: object) => (b: Base) => Base;
+        const loose = on as unknown as (hooks: object) => never;
         for (const hooks of [
           { usr: { update: () => undefined } },
           { user: { updated: () => undefined } },

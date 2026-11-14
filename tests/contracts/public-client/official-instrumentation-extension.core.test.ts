@@ -13,8 +13,10 @@ import {
   call,
   createClient,
   extension as extExtension,
+  models,
   s,
   sql,
+  target,
   unit,
 } from "@src/index";
 import { instrumentation } from "@src/instrumentation/exports";
@@ -574,7 +576,7 @@ describe("official array observation readiness", () => {
           call((c) => {
             timeline.push(`request:${c.operation}`);
             c.set({});
-          }),
+          }, target(models)),
           around((c) => async (run) => {
             timeline.push(`query:${c.operation}`);
             return run();
@@ -661,7 +663,7 @@ describe("official array observation readiness", () => {
           call((c) => {
             timeline.push(`request:${c.operation}`);
             c.set({});
-          }),
+          }, target(models)),
           around((c) => async (run) => {
             timeline.push(`query:${c.operation}`);
             return run();

@@ -128,6 +128,10 @@ describe("one instant per call, whatever is raced", () => {
   test("a domain bound to the call's value is resolved once, whatever is raced: only that author's rows go", async () => {
     const driver = new RacingSQLite3Driver({ dataDir: ":memory:" });
     const { base, db, ledger } = await fixture(driver);
+    // Held: inside a filter word, an argument is typed before this
+    // extension's own arguments once an earlier one declared any (a
+    // reported type defect); the name is checked where it is applied.
+    const author = arg("author");
     const own = db.$extends(
       extension(
         "test.byAuthor",
@@ -137,8 +141,8 @@ describe("one instant per call, whatever is raced", () => {
         }),
         rule({
           post: {
-            root: when(arg("authors"), "own", { authorId: arg("author") }),
-            related: when(arg("authors"), "own", { authorId: arg("author") }),
+            root: when(arg("authors"), "own", { authorId: author }),
+            related: when(arg("authors"), "own", { authorId: author }),
           },
         })
       )
@@ -323,6 +327,7 @@ describe("a chain's rows and deletion resolve to one call's facts", () => {
           args({ archived: oneOf("no").default("no") }),
           rule({
             item: { root: when(arg("archived"), "no", { hidden: false }) },
+            // @ts-expect-error - "ghost" is no model: the refusal tested is the runtime's
             ghost: { root: when(arg("archived"), "no", { gone: 1 }) },
           })
         )

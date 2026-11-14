@@ -126,7 +126,6 @@ function createProbedClient(createDriver: () => AnyDriver) {
         includeParams: true,
         includeSql: true,
         query: probe.callback,
-        warning: probe.callback,
       },
     })
   );

@@ -30,7 +30,7 @@ function createPlanningClient(
 }
 
 function createDefaultOmitUnsafe(config: unknown): unknown {
-  return Reflect.apply(defaultOmit<typeof schema>(), undefined, [config]);
+  return Reflect.apply(defaultOmit, undefined, [config]);
 }
 
 function extendUnsafe(client: object, extension: unknown): object {
@@ -66,43 +66,10 @@ afterEach(async () => {
 });
 
 describe("default omit public configuration boundary", () => {
+  // The configuration's shape is the types' to refuse (and a hostile one's
+  // reading is no longer guarded, decision D6): only a flag that is not
+  // `true` is the runtime's.
   test.each([
-    {
-      name: "a non-object configuration",
-      config: null,
-      message: "Default omit configuration must be an object.",
-    },
-    {
-      name: "a primitive configuration",
-      config: 42,
-      message: "Default omit configuration must be an object.",
-    },
-    {
-      name: "an array configuration",
-      config: [],
-      message: "Default omit configuration must be an object.",
-    },
-    {
-      name: "a non-string model key",
-      config: { [Symbol("model")]: { secret: true } },
-      message: "Default omit configuration contains a non-string model key.",
-    },
-    {
-      name: "a non-object model entry",
-      config: { record: null },
-      message: 'Default omit configuration member "record" must be an object.',
-    },
-    {
-      name: "an array model entry",
-      config: { record: [] },
-      message: 'Default omit configuration member "record" must be an object.',
-    },
-    {
-      name: "a non-string field key",
-      config: { record: { [Symbol("field")]: true } },
-      message:
-        'Default omit configuration member "record" contains a non-string field key.',
-    },
     {
       name: "a false field flag",
       config: { record: { secret: false } },
@@ -118,68 +85,16 @@ describe("default omit public configuration boundary", () => {
 
   test.each([
     {
-      name: "configuration record inspection",
-      create() {
-        const revoked = Proxy.revocable({}, {});
-        revoked.revoke();
-        return revoked.proxy;
-      },
-      message: "Default omit configuration could not be inspected.",
-    },
-    {
-      name: "nested record inspection",
-      create() {
-        const revoked = Proxy.revocable({}, {});
-        revoked.revoke();
-        return { record: revoked.proxy };
-      },
-      message: "Default omit configuration.record could not be inspected.",
-    },
-    {
-      name: "nested key inspection",
-      create: () => ({
-        record: new Proxy(
-          {},
-          {
-            ownKeys() {
-              throw new Error("private nested keys");
-            },
-          }
-        ),
-      }),
-      message:
-        "Default omit configuration.record members could not be inspected.",
-    },
-    {
-      name: "nested field reading",
-      create: () => ({
-        record: {
-          get secret() {
-            throw new Error("private nested field");
-          },
-        },
-      }),
-      message:
-        'Default omit configuration.record member "secret" could not be read.',
-    },
-  ])("contains hostile $name", ({ create, message }) => {
-    const failure = captureFailure(() => createDefaultOmitUnsafe(create()));
-
-    expect(failure).toBeInstanceOf(ClientInitializationError);
-    expect(failure).toMatchObject({ message });
-    expect(String(failure)).not.toContain("private nested");
-  });
-
-  test.each([
-    {
       name: "model",
       config: { ghost: { secret: true } },
-      message: "Client 'omit' names model 'ghost'",
-      meta: { model: "ghost" },
+      code: VibORMErrorCode.CLIENT_INITIALIZATION,
+      message: 'defaults names unknown model "ghost"',
+      meta: {},
     },
     {
       name: "field",
       config: { record: { missing: true } },
+      code: VibORMErrorCode.INVALID_INPUT,
       message: "Client 'omit' names field 'missing' on model 'record'",
       meta: { model: "record", field: "missing" },
     },
@@ -190,7 +105,7 @@ describe("default omit public configuration boundary", () => {
 
     expect(failure).toBeInstanceOf(VibORMError);
     expect(failure).toMatchObject({
-      code: VibORMErrorCode.INVALID_INPUT,
+      code: entry.code,
       message: expect.stringContaining(entry.message),
       meta: entry.meta,
     });

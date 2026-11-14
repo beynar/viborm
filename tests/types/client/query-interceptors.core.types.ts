@@ -49,6 +49,9 @@ type _handlerSurfaceIsExact = Expect<
     | "input"
     | "proceed"
     | "onWriteOutcome"
+    | "again"
+    | "proceedOn"
+    | "replay"
   >
 >;
 // A model operation's handler also reads its own extension's controls; a raw
@@ -62,8 +65,12 @@ type _modelHandlerSurfaceIsExact = Expect<
     | "operation"
     | "input"
     | "controls"
+    | "call"
     | "proceed"
     | "onWriteOutcome"
+    | "again"
+    | "proceedOn"
+    | "replay"
   >
 >;
 type _executionModeIsTruthful = Expect<

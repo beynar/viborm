@@ -9,9 +9,10 @@ import { PGliteDriver } from "@drivers/pglite";
 import {
   createClient,
   type ExtendedOperationResult,
-  s,
   extension,
   fields,
+  parts,
+  s,
 } from "@src/index";
 import { expectTypeOf } from "vitest";
 
@@ -180,7 +181,7 @@ function _definitionsAreChecked() {
       })
     )
   );
-  const reusable = extension(
+  const reusable = parts<typeof schema>().extension(
     "reusable",
     fields({
       post: {

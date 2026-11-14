@@ -5,17 +5,19 @@
  * data; the part that reads it resolves it against the schema it is joined
  * to. The types refuse an operation or a model a client does not have.
  */
-import type { Operations } from "@client/types";
+import type {
+  CacheableOperations,
+  MutationOperations,
+  Operations,
+} from "@client/types";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import type {
   AnyTarget,
   DeleteOperations,
   ModelName,
   OperationSet,
-  ReadOperations,
   SelectingOperations,
   Selection,
-  WriteOperations,
 } from "./contract";
 import { type WatchPart, watchPart } from "./watch-part";
 
@@ -41,7 +43,7 @@ function set(operations: readonly Operations[], watch?: WatchPart): unknown {
 export const MODEL_OPERATIONS: ReadonlySet<string> = ROUTED_OPERATIONS;
 
 /** Every read. */
-export const reads = /* @__PURE__ */ set<ReadOperations>([
+export const reads = /* @__PURE__ */ set<CacheableOperations>([
   "findMany",
   "findUnique",
   "findFirst",
@@ -53,7 +55,7 @@ export const reads = /* @__PURE__ */ set<ReadOperations>([
   "exist",
 ]);
 /** Every write: a `call` or an `around` on them may `watch` its rows and be `settled`. */
-export const writes = /* @__PURE__ */ set<WriteOperations>(
+export const writes = /* @__PURE__ */ set<MutationOperations>(
   [
     "create",
     "update",
@@ -127,11 +129,10 @@ export const operationsOf = (
       ? value
       : selectionOf(value)?.operations;
 
-/** Every model, these operations: `target(reads)`. */
-export function target<T extends AnyTarget, O extends Operations>(
-  operations: OperationSet<O>
-): Selection<T, ModelName<T>, O>;
-/** One model (or several), these operations (every one when absent). */
+/**
+ * One model (or several), these operations (every one when absent). First:
+ * an editor completes a string argument from the first signature.
+ */
 export function target<
   T extends AnyTarget,
   const M extends ModelName<T> = ModelName<T>,
@@ -140,6 +141,10 @@ export function target<
   models: M | readonly M[],
   operations?: O | readonly O[] | OperationSet<O>
 ): Selection<T, M, O>;
+/** Every model, these operations: `target(reads)`. */
+export function target<T extends AnyTarget, O extends Operations>(
+  operations: OperationSet<O>
+): Selection<T, ModelName<T>, O>;
 export function target(first: unknown, operations?: unknown): unknown {
   // An operation set alone: every model, those operations.
   if (typeof first === "object" && !Array.isArray(first)) return first;

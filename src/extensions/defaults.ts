@@ -22,7 +22,9 @@ import type {
   AnyTarget,
   DefaultsFacts,
   DefaultsInput,
-  Exact,
+  ExactEntries,
+  FromSchema,
+  ModelName,
   OmittedWord,
   Part,
 } from "./contract";
@@ -182,8 +184,10 @@ const defaultsPart: ExtensionPart = {
  * schema, it is read where the extension is applied.
  */
 export function defaults<T extends AnyTarget, const D = DefaultsInput<T>>(
-  defaults: D & DefaultsInput<T> & NoInfer<Exact<D, DefaultsInput<T>>>
-): Part<T, DefaultsFacts<D>>;
+  defaults: D &
+    (DefaultsInput<T> | FromSchema<T, DefaultsInput<T>>) &
+    NoInfer<ExactEntries<D, DefaultsInput<T>>>
+): Part<T, DefaultsFacts<D, ModelName<T>>>;
 export function defaults(
   entries: Entry | ((schema: Schema) => Entry)
 ): unknown {

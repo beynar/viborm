@@ -66,10 +66,16 @@ export type MergeResultFields<Previous extends object, Next extends object> = [
         >;
       };
 
-/** The row a model's `compute` reads from: its scalars and earlier fields. */
+/**
+ * The row a model's `compute` reads from: its scalars and earlier fields.
+ * A model whose state is unknown (a part written apart from any client, or
+ * applied to a loosely typed one) reads any field, unknown.
+ */
 type ComputeRow<M, Earlier> =
   M extends Model<infer State>
-    ? Override<InferModelOutput<State>, Earlier>
+    ? 0 extends 1 & State
+      ? Readonly<Record<string, unknown>>
+      : Override<InferModelOutput<State>, Earlier>
     : never;
 
 /** The keys a `needs` map asks for. */
@@ -152,17 +158,4 @@ export type ResultInference<
   } & Readonly<
     Record<Exclude<keyof Fields, keyof ClientSchema<C> | "$allModels">, never>
   >;
-};
-
-/**
- * The `result` member of the definition envelope: which keys it holds. The
- * types of `needs` and `compute` are {@link ResultInference}'s.
- */
-export type ResultDefinition<C extends VibORMConfig> = {
-  readonly [ModelName in keyof ClientSchema<C> | "$allModels"]?: {
-    readonly [field: string]: {
-      readonly needs?: object;
-      readonly compute: unknown;
-    };
-  };
 };

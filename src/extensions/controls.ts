@@ -317,21 +317,6 @@ type RowsControl<Definition> = Definition extends {
     }
   : NoControls;
 
-/**
- * The models one definition's `rows` can hide from a relation read: its
- * `models` and `verbs` keys. A to-one relation that targets one of them reads `null` when
- * its target is hidden, so the result types widen it (`result-types.ts`).
- */
-export type RowsModels<Definition> = Definition extends {
-  readonly rows: infer Rows extends RowsContribution;
-}
-  ? Extract<
-      | keyof Rows["models"]
-      | (Rows extends { readonly verbs: infer Verbs } ? keyof Verbs : never),
-      string
-    >
-  : never;
-
 /** The controls one definition places, keyed by control name. */
 export type DefinitionControls<Definition> = DeclaredControls<Definition> &
   RowsControl<Definition>;
@@ -366,28 +351,6 @@ export interface StampedFields<Models = PropertyKey, Fields = PropertyKey> {
   readonly models: Models;
   readonly fields: Fields;
 }
-
-type CreateStamps<Model, Entry> = "create" extends keyof Entry
-  ? Entry extends { readonly create?: infer Fields }
-    ? StampedFields<Model, keyof NonNullable<Fields>>
-    : never
-  : never;
-
-/**
- * What one definition's `data` writes on creates: one member per model. A
- * definition whose model names are lost (`{ [model: string]: ... }`, as a
- * recipe called with a plain `string[]` builds) writes nothing the types can
- * name: its required fields stay required in the payloads.
- */
-export type DefinitionData<Definition> = Definition extends {
-  readonly data: { readonly models: infer Models };
-}
-  ? string extends keyof Models
-    ? never
-    : {
-        [Model in keyof Models]: CreateStamps<Model, Models[Model]>;
-      }[keyof Models]
-  : never;
 
 /** The fields a chain writes on every create of one model. */
 export type StampedFieldNames<Data, ModelName> =

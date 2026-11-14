@@ -17,7 +17,9 @@ export {
   type WaitUntilFn,
 } from "./driver";
 export { type CacheExtensionConfig, cache } from "./extension";
+// Named so the declaration of an exported client with the cache can write it.
 export type {
   CacheInvalidationOptions,
+  OfficialCacheControls,
   WithCacheOptions,
 } from "./schema";

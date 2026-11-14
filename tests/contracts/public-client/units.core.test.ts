@@ -3,6 +3,7 @@
  * how a call's unit is sent, through public entry points only.
  */
 
+import type { Sql } from "@sql";
 import {
   again,
   around,
@@ -103,7 +104,8 @@ describe("retry, route, transaction", () => {
       extension(
         "resilient",
         around((c) => {
-          const retry = () => false;
+          const retry = (_error: unknown, _attempt: number, _call: object) =>
+            false;
           return async (run) => {
             for (let attempt = 1; ; attempt++) {
               try {
@@ -135,7 +137,8 @@ describe("retry, route, transaction", () => {
       extension(
         "resilient",
         around((c) => {
-          const retry = (_error, attempt) => attempt < 2;
+          const retry = (_error: unknown, attempt: number, _call: object) =>
+            attempt < 2;
           return async (run) => {
             for (let attempt = 1; ; attempt++) {
               try {
@@ -180,7 +183,7 @@ describe("retry, route, transaction", () => {
       extension(
         "resilient",
         around((c) => {
-          const retry = () => {
+          const retry = (_error: unknown, _attempt: number, _call: object) => {
             asked += 1;
             return true;
           };
@@ -218,7 +221,7 @@ describe("retry, route, transaction", () => {
       extension(
         "resilient",
         around((c) => {
-          const retry = () => {
+          const retry = (_error: unknown, _attempt: number, _call: object) => {
             asked += 1;
             return true;
           };
@@ -266,7 +269,11 @@ describe("retry, route, transaction", () => {
         extension(
           "resilient",
           around((c) => {
-            const retry = () => {
+            const retry = (
+              _error: unknown,
+              _attempt: number,
+              _call: object
+            ) => {
               asked += 1;
               return true;
             };
@@ -404,7 +411,7 @@ describe("retry, route, transaction", () => {
         "session",
         unit(
           async (u, next) => {
-            const open = () => {
+            const open = (_connect: (query: Sql) => Promise<unknown>) => {
               throw new Error("no session");
             };
             await open((query) => extRun(u, query));

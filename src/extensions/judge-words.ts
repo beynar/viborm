@@ -14,6 +14,8 @@ import type {
   CheckWord,
   FactsWord,
   GateWord,
+  HeldOperand,
+  IsHeld,
   KeepWord,
   LazyWord,
   OnlyWord,
@@ -53,8 +55,14 @@ class Only extends CarriedValue {
   }
 }
 
-/** A write takes only the rows that hold `where`. */
-export function only<W>(where: NoInfer<W>): OnlyWord<W>;
+/**
+ * A write takes only the rows that hold `where`. Written apart from a rule
+ * (a shared constant), nothing types its operand: any filter, which the
+ * rule's model admits where it is applied (as for `check`).
+ */
+export function only<W>(
+  where: HeldOperand<W>
+): IsHeld<W> extends true ? OnlyWord<never> : OnlyWord<W>;
 export function only(where: object): unknown {
   return new Only(where);
 }
@@ -81,8 +89,14 @@ class Checked extends CarriedValue {
   }
 }
 
-/** The row a write leaves (or creates) must hold `where`. */
-export function check<W>(where: NoInfer<W>): CheckWord<W>;
+/**
+ * The row a write leaves (or creates) must hold `where`. Written apart from
+ * a rule (a shared constant), nothing types its operand: it is a check of
+ * any filter, which the rule's model admits where it is applied.
+ */
+export function check<W>(
+  where: HeldOperand<W>
+): IsHeld<W> extends true ? CheckWord<never> : CheckWord<W>;
 export function check(where: object): unknown {
   return new Checked(where);
 }
@@ -137,7 +151,9 @@ class Gated extends CarriedValue {
  * The field is present where `where` holds, absent elsewhere, and read as
  * `NULL` by every operand a call writes over it.
  */
-export function gate<W>(where: NoInfer<W>): GateWord<W>;
+export function gate<W>(
+  where: HeldOperand<W>
+): IsHeld<W> extends true ? GateWord<never> : GateWord<W>;
 export function gate(where: object): unknown {
   return new Gated(where);
 }
@@ -313,8 +329,11 @@ class Lazy extends CarriedValue {
 /**
  * The entry is read the first time a call needs its model, a filter that
  * reads the model through a relation included; its refusals fail that call.
+ * Written apart from a rule, its entry is held, as `check`'s operand is.
  */
-export function lazy<E>(read: () => NoInfer<E>): LazyWord<E>;
+export function lazy<E>(
+  read: () => HeldOperand<E>
+): IsHeld<E> extends true ? LazyWord<never> : LazyWord<E>;
 export function lazy(read: () => unknown): unknown {
   return new Lazy(read);
 }

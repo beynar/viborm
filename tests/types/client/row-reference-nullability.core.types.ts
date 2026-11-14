@@ -16,11 +16,15 @@
 
 import { MemoryCache } from "@src/cache/drivers/memory";
 import { cache } from "@src/cache/exports";
-import type { VibORMClient } from "@src/client/client";
 import type { OperationResult } from "@src/client/exports";
 import { PGliteDriver } from "@src/drivers/pglite";
-import type { ContextualExtensionDefinition } from "@src/extensions/definition";
-import { createClient, type ExtendedOperationResult, s } from "@src/index";
+import {
+  type CallResult,
+  createClient,
+  type ExtendedOperationResult,
+  s,
+  type TargetOf,
+} from "@src/index";
 import { softDelete } from "@src/soft-delete";
 
 type Equal<Left, Right> =
@@ -275,31 +279,16 @@ type SchemaOnly = OperationResult<
 >;
 type _schemaOnly = Expect<Equal<SchemaOnly["post"], PostRow>>;
 
-// A model-mapped query handler applied to a rows client reads that client's
-// result context: `proceed()` says `| null` where the runtime can read null.
-// On the base client it stays precise. (TypeScript refuses `rows` after
-// such a handler, so no later extension changes what it sees.)
-type QueryHandlers<Client> =
-  Client extends VibORMClient<infer C, infer X>
-    ? Exclude<
-        NonNullable<ContextualExtensionDefinition<C, X>["query"]>,
-        (...args: never[]) => unknown
-      >
-    : never;
-type Proceeded<Handler extends (context: never) => unknown> = Awaited<
-  ReturnType<Parameters<Handler>[0]["proceed"]>
+// An `around` typed against one (model, operation) and applied to a rows
+// client reads that client's result context: `run()` says `| null` where the
+// runtime can read null. On the base client it stays precise. (TypeScript
+// refuses a rule hiding rows after such a part, so no later extension changes
+// what it sees.)
+type Proceeded<Client> = CallResult<
+  TargetOf<Client>,
+  "comment",
+  "findFirstOrThrow",
+  { include: { post: true } }
 >;
-declare const onRows: NonNullable<
-  NonNullable<QueryHandlers<typeof db>["comment"]>["findFirstOrThrow"]
->;
-declare const onBase: NonNullable<
-  NonNullable<QueryHandlers<typeof base>["comment"]>["findFirstOrThrow"]
->;
-const rowsHandler = onRows<{ include: { post: true } }>;
-const baseHandler = onBase<{ include: { post: true } }>;
-type _handlerRows = Expect<
-  Equal<Proceeded<typeof rowsHandler>["post"], PostRow | null>
->;
-type _handlerBase = Expect<
-  Equal<Proceeded<typeof baseHandler>["post"], PostRow>
->;
+type _handlerRows = Expect<Equal<Proceeded<typeof db>["post"], PostRow | null>>;
+type _handlerBase = Expect<Equal<Proceeded<typeof base>["post"], PostRow>>;

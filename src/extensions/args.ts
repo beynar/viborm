@@ -67,7 +67,11 @@ const isDeclared = (value: object): value is Declared =>
   "spec" in value && typeof value.spec === "object" && value.spec !== null;
 
 function specOf(name: string, value: unknown): ArgSpec {
-  if (typeof value === "object" && value !== null) {
+  // A schema may be callable (ArkType's types are functions).
+  if (
+    (typeof value === "object" && value !== null) ||
+    typeof value === "function"
+  ) {
     if (isSchema(value)) return { schema: value };
     if (isDeclared(value)) return value.spec;
   }

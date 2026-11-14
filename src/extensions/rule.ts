@@ -11,7 +11,15 @@
 import type { Schema } from "@client/types";
 import { isPlainRecord } from "@schema/relation/terminal";
 import type { VerbsDraft } from "./admission";
-import type { AnyTarget, Exact, Part, RuleFacts, RuleInput } from "./contract";
+import type {
+  AnyTarget,
+  ExactEntries,
+  FromSchema,
+  ModelName,
+  Part,
+  RuleFacts,
+  RuleInput,
+} from "./contract";
 import { extensionError } from "./definition";
 import { builtPart, type DefinitionDraft } from "./extension";
 import { rulePart } from "./rows";
@@ -107,6 +115,12 @@ export function draftOf(
     join(slot.where, `update.fields.${field}.where`, field);
     join(slot.check, `update.fields.${field}.check`, field);
   }
+  if (
+    !lazy &&
+    read.where !== undefined &&
+    (verbs?.as !== undefined || verbs?.reads !== undefined)
+  )
+    verbs.shown = read.where;
   const { acyclic } = entry;
   if (acyclic !== undefined) {
     if (!(Array.isArray(acyclic) || typeof acyclic === "function"))
@@ -171,8 +185,10 @@ function writeRule(
  * schema is written apart from any client).
  */
 export function rule<T extends AnyTarget, const R = RuleInput<T>>(
-  rules: R & RuleInput<T> & NoInfer<Exact<R, RuleInput<T>>>
-): Part<T, RuleFacts<R>>;
+  rules: R &
+    (RuleInput<T> | FromSchema<T, RuleInput<T>>) &
+    NoInfer<ExactEntries<R, RuleInput<T>>>
+): Part<T, RuleFacts<R, ModelName<T>>>;
 export function rule(rules: Entry | ((schema: Schema) => Entry)): unknown {
   return builtPart([rulePart], (draft, schema) =>
     writeRule(

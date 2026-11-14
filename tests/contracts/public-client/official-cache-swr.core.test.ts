@@ -61,7 +61,7 @@ interface ProviderRow {
 
 interface ObserverCompletion {
   readonly status: "success" | "failure";
-  readonly error?: Readonly<{ readonly name: string }>;
+  readonly error?: unknown;
 }
 
 class SwrDriver extends Driver<object, object> {

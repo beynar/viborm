@@ -540,3 +540,63 @@ describe("K5: variant projection admission", () => {
     );
   });
 });
+
+/**
+ * A row a write returns that the caller may not read (it fails `read.where`)
+ * shows no fact and no gated field: each holds beside the read predicate, as
+ * 1.14's `P(read) ∧ P(a)`. An eager entry's read filter is the layer's own,
+ * so the projection carries it apart (`shown`).
+ */
+describe("a created row the caller may not read", () => {
+  const task = s.model({
+    id: s.string().id(),
+    status: s.string(),
+    owner: s.string(),
+    note: s.string(),
+  });
+  const seen = { status: "open" };
+  const own = { owner: "ann" };
+  const governed = async () => {
+    const client = createClient({
+      schema: { task },
+      driver: createInMemorySQLite3Driver(),
+    });
+    await syncLiveSchema(client);
+    return client.$extends(
+      extension(
+        "evidence",
+        rule({
+          task: {
+            read: {
+              where: seen,
+              fields: { note: gate(own) },
+              select: { $access: facts({ seen, own }) },
+            },
+            create: { check: check(own) },
+            update: { where: only(nothing) },
+            delete: { where: only(nothing) },
+          },
+        })
+      )
+    );
+  };
+  const data = { status: "closed", owner: "ann", note: "private" };
+
+  test("reports every fact false", async () => {
+    const db = await governed();
+    await expect(
+      db.task.create({
+        data: { id: "a", ...data },
+        select: { id: true, $access: true },
+      })
+    ).resolves.toEqual({ id: "a", $access: { seen: false, own: false } });
+    await db.$disconnect();
+  });
+
+  test("leaves its gated field out", async () => {
+    const db = await governed();
+    const created = await db.task.create({ data: { id: "a", ...data } });
+    expect(created).not.toHaveProperty("note");
+    await db.$disconnect();
+  });
+});

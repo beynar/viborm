@@ -12,6 +12,7 @@ import type { QueryResult } from "@drivers";
 import { Driver } from "@drivers";
 import { ClientInitializationError, VibORMError } from "@errors";
 import { s } from "@schema";
+import { extension, methods } from "@src/index";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { afterEach, describe, expect, test } from "vitest";
 
@@ -142,23 +143,29 @@ describe("the concrete scope handed to an extension factory", () => {
     const base = trackedClient();
     const observed: Record<string, unknown> = {};
 
-    const first = applyUnsafe(base, {
-      name: "closure-scope-first",
-      client: () => ({ $first: () => "one" }),
-    });
-    const second = applyUnsafe(first, {
-      name: "closure-scope-second",
-      client: (scope: object) => {
-        observed.prior = callNoArgs(Reflect.get(scope, "$first"));
-        observed.schema = Reflect.get(scope, "$schema");
-        observed.transaction = typeof Reflect.get(scope, "$transaction");
-        observed.raw = typeof Reflect.get(scope, "$queryRaw");
-        observed.unknownDollar = Reflect.get(scope, "$notAClientMember");
-        // Reflection exposes declared models, not callable phantom delegates.
-        observed.plain = typeof Reflect.get(scope, "notAModelName");
-        return { $second: () => "two" };
-      },
-    });
+    const first = applyUnsafe(
+      base,
+      extension(
+        "closure-scope-first",
+        methods(() => ({ $first: () => "one" }))
+      )
+    );
+    const second = applyUnsafe(
+      first,
+      extension(
+        "closure-scope-second",
+        methods((scope: object) => {
+          observed.prior = callNoArgs(Reflect.get(scope, "$first"));
+          observed.schema = Reflect.get(scope, "$schema");
+          observed.transaction = typeof Reflect.get(scope, "$transaction");
+          observed.raw = typeof Reflect.get(scope, "$queryRaw");
+          observed.unknownDollar = Reflect.get(scope, "$notAClientMember");
+          // Reflection exposes declared models, not callable phantom delegates.
+          observed.plain = typeof Reflect.get(scope, "notAModelName");
+          return { $second: () => "two" };
+        })
+      )
+    );
 
     expect(observed.prior).toBe("one");
     expect(observed.schema).toBe(schema);

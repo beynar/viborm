@@ -3,7 +3,7 @@
  * fields computed from the columns each row a call returns reads. A part of
  * its own: an extension that does not import it carries none of it.
  */
-import type { AnyTarget, Facts, Part } from "./contract";
+import type { AnyTarget, Facts, ModelName, Part } from "./contract";
 import type { NoControls } from "./controls";
 import { builtPart } from "./extension";
 import {
@@ -33,7 +33,12 @@ export function fields<
     NoControls,
     never,
     never,
-    DefinitionResultFields<{ readonly result: Declared }>
+    DefinitionResultFields<{
+      readonly result: Pick<
+        Declared,
+        Extract<keyof Declared, ModelName<T> | "$allModels">
+      >;
+    }>
   >
 >;
 export function fields(

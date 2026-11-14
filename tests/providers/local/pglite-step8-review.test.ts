@@ -7,8 +7,20 @@
  * where the verbs come from a second extension; a gated field stays gated
  * there too.
  */
-import { defineExtension, defineFilters } from "@extensions/define";
 import { s } from "@schema";
+import {
+  accepts,
+  arg,
+  check,
+  args as extArgs,
+  extension,
+  gate,
+  nothing,
+  oneOf,
+  only,
+  rule,
+  when,
+} from "@src/index";
 import { v } from "@src/validation";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { beforeEach, describe, expect, test } from "vitest";
@@ -31,45 +43,45 @@ describe("step 8: a confinement, a judgement and a gate reach the engine from an
   });
   const family = usePGliteSchemaFamily({ page, grant });
   let base: ReturnType<typeof family>["client"];
-  const granted = { grants: { some: { userId: { control: "user" } } } };
-  const sharing = defineExtension({
-    name: "sharing",
-    controls: {
-      user: { schema: v.string(), required: true },
-      tenant: { schema: v.string() },
-    },
-    rows: {
-      control: "as",
-      default: "default",
-      models: { page: { default: {}, other: {} } },
-      verbs: {
-        page: {
-          predicates: {
-            seen: {
-              OR: [
-                { AND: [granted, { id: { not: "x" } }] },
-                { AND: [granted, { id: { not: "y" } }] },
-              ],
-            },
-            mine: { id: { startsWith: "p" } },
-          },
-          read: "seen",
-          update: "seen",
-          place: "mine",
-          reads: { note: "mine" },
-        },
+  const pageSeen = {
+    OR: [
+      {
+        AND: [
+          { grants: { some: { userId: arg("user") } } },
+          { id: { not: "x" } },
+        ],
       },
-      confine: { grant: { tenant: { control: "tenant" } } },
-    },
-  });
-  const filtering = defineFilters({
-    name: "filtering",
-    rows: {
-      control: "scope",
-      default: "all",
-      models: { grant: { all: { root: {} } } },
-    },
-  });
+      {
+        AND: [
+          { grants: { some: { userId: arg("user") } } },
+          { id: { not: "y" } },
+        ],
+      },
+    ],
+  };
+  const pageMine = { id: { startsWith: "p" } };
+  const sharing = extension(
+    "sharing",
+    extArgs({
+      user: accepts(v.string()).required(["page"]),
+      tenant: v.string(),
+      as: oneOf("default", "other").default("default"),
+    }),
+    rule({
+      page: {
+        read: { where: pageSeen, fields: { note: gate(pageMine) } },
+        create: { check: check(pageMine) },
+        update: { where: only(pageSeen), check: check(pageSeen) },
+        delete: { where: only(nothing) },
+      },
+      grant: { confine: { tenant: arg("tenant") } },
+    })
+  );
+  const filtering = extension(
+    "filtering",
+    extArgs({ scope: oneOf("all").default("all") }),
+    rule({ grant: { root: when(arg("scope"), "all", {}) } })
+  );
 
   beforeEach(async () => {
     base = family().client;

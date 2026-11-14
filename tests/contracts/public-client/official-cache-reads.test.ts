@@ -165,6 +165,22 @@ async function seed(target = family()): Promise<void> {
   });
 }
 
+/**
+ * `view.$withCache().author.findMany(…)` on a transaction's view, whose type
+ * does not show the cache's methods though the runtime serves them.
+ */
+function findThroughCache(view: object): Promise<unknown> {
+  const cached = new Object(
+    Reflect.apply(Reflect.get(view, "$withCache"), view, [])
+  );
+  const author = new Object(Reflect.get(cached, "author"));
+  return Promise.resolve(
+    Reflect.apply(Reflect.get(author, "findMany"), author, [
+      { where: { id: "a1" } },
+    ])
+  );
+}
+
 describe("official cache reads", () => {
   test("keys the post-request validated payload and applies client omit on hits", async () => {
     await seed();
@@ -459,17 +475,10 @@ describe("official cache reads", () => {
     // A transaction's view has the cache's methods (they are a part's, served
     // to every view); its reads see its own writes and never touch the cache.
     await arrayClient.$transaction(async (tx) => {
-      const withCache = Reflect.get(tx, "$withCache");
-      expect(withCache).toBeTypeOf("function");
-      await Reflect.apply(withCache, tx, []).author.findMany({
-        where: { id: "a1" },
-      });
+      expect(Reflect.get(tx, "$withCache")).toBeTypeOf("function");
+      await findThroughCache(tx);
       await tx.$transaction(async (nested) => {
-        await Reflect.apply(
-          Reflect.get(nested, "$withCache"),
-          nested,
-          []
-        ).author.findMany({ where: { id: "a1" } });
+        await findThroughCache(nested);
       });
     });
     const overridden = arrayClient

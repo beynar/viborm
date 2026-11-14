@@ -30,6 +30,8 @@ import type {
   ArgWord,
   ExistsWord,
   HeldArg,
+  HeldOperand,
+  IsHeld,
   NowWord,
   ProvidedWord,
   RowWord,
@@ -340,12 +342,21 @@ export function exists(spec: Readonly<Record<string, object>>): unknown {
   return new ExistsFilter(spec);
 }
 
+/**
+ * A `when` or `unless` written apart from a rule (a shared constant, a
+ * per-model callback): nothing types its filter, so it fits any filter's
+ * place, and the rule's model admits it where it is applied.
+ */
+type HeldWhen<N extends string, W> = IsHeld<W> extends true
+  ? WhenWord<never, never>
+  : WhenWord<N, W>;
+
 /** `then` applies where the argument passes the test; elsewhere, nothing. */
 export function when<N extends string, W>(
   tested: ArgWord<NoInfer<N>> | HeldArg,
   test: ArgTest,
-  then: NoInfer<W>
-): WhenWord<N, W>;
+  then: HeldOperand<W>
+): HeldWhen<N, W>;
 export function when(tested: unknown, test: ArgTest, then: unknown): unknown {
   return new ArgTestFilter("when", argValueOf(tested, "when"), test, then);
 }
@@ -354,8 +365,8 @@ export function when(tested: unknown, test: ArgTest, then: unknown): unknown {
 export function unless<N extends string, W>(
   tested: ArgWord<NoInfer<N>> | HeldArg,
   test: ArgTest,
-  then: NoInfer<W>
-): WhenWord<N, W>;
+  then: HeldOperand<W>
+): HeldWhen<N, W>;
 export function unless(tested: unknown, test: ArgTest, then: unknown): unknown {
   return new ArgTestFilter("unless", argValueOf(tested, "unless"), test, then);
 }
@@ -365,7 +376,7 @@ export function provided<N extends string>(
   tested: ArgWord<NoInfer<N>> | HeldArg,
   test: ArgTest,
   then?: object
-): ProvidedWord<N>;
+): string extends N ? ProvidedWord<never> : ProvidedWord<N>;
 export function provided(
   tested: unknown,
   test: ArgTest,

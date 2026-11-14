@@ -13,6 +13,7 @@
 import { createClient } from "@client/client";
 import { NestedWriteError, NotFoundError } from "@errors";
 import { s } from "@schema";
+import { extension, nothing, only, rule } from "@src/index";
 import {
   openRowScopeFixture,
   type RowScopeFixture,
@@ -22,26 +23,43 @@ import { failure } from "@tests/fixtures/failure";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
-/** Every row visible; `update` and the written relation each at its own name. */
-const judged = (verbs: Record<string, object>) => ({
-  name: "verbs",
-  rows: {
-    control: "as",
-    default: "all",
-    models: {},
-    verbs: Object.fromEntries(
-      Object.entries(verbs).map(([model, entry]) => [
-        model,
-        {
-          predicates: { open: {}, locked: { id: -1 } },
-          read: "open",
-          update: "open",
-          ...entry,
-        },
-      ])
-    ),
-  },
-});
+const predicates = { open: {}, locked: { id: -1 } };
+type Verb = keyof typeof predicates;
+
+/**
+ * Every row visible; `update` and the written relation each at its own
+ * predicate (`update.fields[f].where` is the old `writes[f]`); no row
+ * deleted, as an old entry without `delete` meant.
+ */
+const judged = (
+  verbs: Record<
+    string,
+    { readonly update?: Verb; readonly writes?: Record<string, Verb> }
+  >
+) =>
+  extension(
+    "verbs",
+    rule(
+      Object.fromEntries(
+        Object.entries(verbs).map(([model, entry]) => [
+          model,
+          {
+            read: { where: predicates.open },
+            update: {
+              where: only(predicates[entry.update ?? "open"]),
+              fields: Object.fromEntries(
+                Object.entries(entry.writes ?? {}).map(([field, verb]) => [
+                  field,
+                  { where: only(predicates[verb]) },
+                ])
+              ),
+            },
+            delete: { where: only(nothing) },
+          },
+        ])
+      )
+    )
+  );
 
 type Loose = Record<
   string,
@@ -168,16 +186,7 @@ describe("a nested delete judged at the target's delete verb", () => {
   });
   /** Each label once per slot: `open` may be deleted, `locked` is only seen, `hidden` is not seen. */
   const LABELS = ["open", "locked", "hidden"] as const;
-  const labelled = {
-    predicates: {
-      all: {},
-      seen: { label: { not: "hidden" } },
-      open: { label: "open" },
-    },
-    read: "seen",
-    update: "seen",
-    delete: "open",
-  };
+  const seen = { label: { not: "hidden" } };
   const opened = async () => {
     const base = createClient({
       schema: { holder, badge, card, crew },
@@ -196,25 +205,24 @@ describe("a nested delete judged at the target's delete verb", () => {
         data: { crewId: label },
       });
     }
+    const all = { read: { where: {} }, update: { where: only({}) } };
+    // Held, written apart from the rule: no row may be deleted.
+    const noDelete = { where: only(nothing) };
+    const labelled = {
+      read: { where: seen },
+      update: { where: only(seen) },
+      delete: { where: only({ label: "open" }) },
+    };
     const governed = Reflect.apply(Reflect.get(base, "$extends"), base, [
-      {
-        name: "verbs",
-        rows: {
-          control: "as",
-          default: "all",
-          models: {},
-          verbs: {
-            holder: {
-              predicates: { all: {} },
-              read: "all",
-              update: "all",
-            },
-            card: { predicates: { all: {} }, read: "all", update: "all" },
-            badge: labelled,
-            crew: labelled,
-          },
-        },
-      },
+      extension(
+        "verbs",
+        rule({
+          holder: { ...all, delete: noDelete },
+          card: { ...all, delete: noDelete },
+          badge: labelled,
+          crew: labelled,
+        })
+      ),
     ]) as Record<string, { update(args: object): Promise<unknown> }>;
     return { base, governed };
   };

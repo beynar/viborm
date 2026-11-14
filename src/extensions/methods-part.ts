@@ -8,11 +8,13 @@
 import { isFunction } from "@validation/value-guards";
 import type {
   AnyTarget,
+  ConsumesResults,
   EmptyFacts,
+  MethodsCheck,
   MethodsFacts,
   MethodsScope,
+  ModelName,
   Part,
-  UnknownMethodKeys,
 } from "./contract";
 import { builtPart } from "./extension";
 import { methodsPart } from "./methods";
@@ -20,15 +22,12 @@ import { methodsPart } from "./methods";
 /** Functions added to the client and to the models of the extension's chain. */
 export function methods<
   T extends AnyTarget,
-  F extends (scope: MethodsScope<T>) => UnknownMethodKeys<ReturnType<F>, T> = (
+  F extends (scope: MethodsScope<T>) => MethodsCheck<ReturnType<F>, T> = (
     scope: MethodsScope<T>
   ) => object,
 >(
   factory: F
-): Part<
-  T,
-  MethodsFacts<ReturnType<F>, Parameters<F> extends readonly [] ? false : true>
->;
+): Part<T, MethodsFacts<ReturnType<F>, ConsumesResults<F>, ModelName<T>>>;
 export function methods(factory: (scope: never) => unknown): unknown {
   return buildMethods(factory);
 }

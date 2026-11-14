@@ -41,7 +41,9 @@ import { s } from "@schema";
 import {
   call as extCall,
   extension as extExtension,
+  models,
   statement,
+  target,
   unit,
 } from "@src/index";
 import { ClockedMemoryCache } from "@tests/fixtures/clocked-memory-cache";
@@ -457,7 +459,7 @@ describe("RQ-05 recursive reads through the official cache", () => {
         assert.equal(typeof withCache, "function");
         const cached: unknown = Reflect.apply(withCache, tx, []);
         assert.deepStrictEqual(
-          await call(Reflect.get(Object(cached), "node"), "findMany", args),
+          await call(Reflect.get(new Object(cached), "node"), "findMany", args),
           value
         );
         assert.deepStrictEqual(await call(tx.node, "findMany", args), value);
@@ -587,7 +589,7 @@ describe("RQ-05 recursive reads through the official cache", () => {
             c.set({
               recurse: { depth: 3 },
             });
-          })
+          }, target(models))
         )
       )
       .$extends(state.extension)

@@ -161,14 +161,15 @@ export function createOperationSpanOptions(unit: Unit): VibORMSpanOptions {
   };
 }
 
-/** The error log of an operation's failure, at the instant it is presented. */
+/** The error log of an operation's failure, at the instant it settled. */
 export function createOperationErrorLogEvent(
   unit: Unit,
   failure: Error,
+  startedAt: number,
   duration: number
 ): PresentedLog {
   return Object.freeze({
-    timestamp: new Date(),
+    timestamp: new Date(startedAt + duration),
     error: sanitizeErrorForLogging(failure),
     model: unit.model,
     operation: resolvedOperation(unit),
@@ -243,16 +244,17 @@ export function createStatementLogEvent(
   logging: true | Readonly<DiagnosticDisclosure> | undefined,
   unit: Unit,
   startedAt: number,
+  duration: number,
   sql: string | undefined,
   params: readonly unknown[] | undefined,
   member?: BatchMember,
   failure?: Error
 ): PresentedLog {
   const disclosure = readChannelDisclosure(logging);
-  const endedAt = Date.now();
   return Object.freeze({
-    timestamp: new Date(endedAt),
-    duration: endedAt - startedAt,
+    // The instant the statement settled, not when this log is made.
+    timestamp: new Date(startedAt + duration),
+    duration,
     model: member === undefined ? unit.model : member.model,
     operation: member === undefined ? unit.operation : member.operation,
     correlationId:

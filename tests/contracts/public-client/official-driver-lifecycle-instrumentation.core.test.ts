@@ -18,7 +18,7 @@ import {
 } from "@instrumentation/spans";
 import { trace } from "@opentelemetry/api";
 import type { ReadableSpan } from "@opentelemetry/sdk-trace-node";
-import { createClient, extension, s, unit } from "@src/index";
+import { createClient, extension, s, type UnitKind, unit } from "@src/index";
 import { instrumentation } from "@src/instrumentation/exports";
 import { withOtelRecorder } from "@tests/unit/instrumentation/_capture";
 import { afterEach, describe, expect, test } from "vitest";
@@ -33,7 +33,7 @@ interface LifecycleSummary {
 
 interface CapturedLifecycle {
   readonly completion: Promise<LifecycleSummary>;
-  readonly kind: "connection" | "savepoint" | "transaction";
+  readonly kind: UnitKind;
   readonly operation: string | undefined;
   summary?: LifecycleSummary;
 }

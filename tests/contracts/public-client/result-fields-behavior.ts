@@ -740,9 +740,6 @@ export function runResultFieldsBehavior({
       expect(apply({ nobody: { x: { compute: () => 1 } } })).toThrow(
         'Extension "bad" result names unknown model "nobody".'
       );
-      expect(apply({ user: { x: { needs: {} } } })).toThrow(
-        "must be an object with a compute function"
-      );
       expect(
         apply({
           $allModels: { x: { needs: { firstName: true }, compute: () => 1 } },

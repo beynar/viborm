@@ -25,6 +25,7 @@ import type {
   ClientSchema,
   EmptyFacts,
   Extension,
+  Model,
   VibORMConfig,
   WriteKind,
   WriteOutcome,
@@ -42,11 +43,14 @@ export type OnKind = "create" | "update" | "delete";
  * from the schema alone. `defaultOmit()` does not hide a field from a hook,
  * and computed `result` fields are not attached.
  */
-export type OnRow<M extends AnyModel> = OperationResult<
-  "findMany",
-  M,
-  Record<never, never>
->[number];
+export type OnRow<M extends AnyModel> =
+  M extends Model<infer State>
+    ? 0 extends 1 & State
+      ? // Declared apart from any client, a hook's model is unknown: its rows
+        // are plain records.
+        Record<string, unknown>
+      : OperationResult<"findMany", M, Record<never, never>>[number]
+    : never;
 
 /** The write whose rows a hook receives. */
 export interface OnEvent<Model extends string = string> {
@@ -87,21 +91,16 @@ export type OnHook<
  * hook names and rows are its schema's; unbound (declared apart from any
  * client), any model name and plain records.
  */
-export type OnHooks<C extends VibORMConfig = VibORMConfig> =
-  string extends keyof ClientSchema<C>
-    ? {
-        readonly [model: string]:
-          | { readonly [K in OnKind]?: OnHook }
-          | undefined;
-      }
+export type OnHooks<C extends VibORMConfig = VibORMConfig> = {
+  readonly [M in keyof ClientSchema<C> & string]?: string extends M
+    ? { readonly [K in OnKind]?: OnHook }
     : {
-        readonly [M in keyof ClientSchema<C>]?: {
-          readonly [K in OnKind]?: OnHook<
-            HookRow<OnRow<ClientSchema<C>[M]>, GatedFields<C, M>>,
-            keyof ClientSchema<C> & string
-          >;
-        };
+        readonly [K in OnKind]?: OnHook<
+          HookRow<OnRow<ClientSchema<C>[M]>, GatedFields<C, M>>,
+          keyof ClientSchema<C> & string
+        >;
       };
+};
 
 /**
  * The fields a `rows` extension's `reads` gates on a model: the client omits

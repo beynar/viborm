@@ -107,6 +107,12 @@ export interface RowDomain {
  */
 export interface ModelVerbs {
   readonly read?: Input;
+  /**
+   * What a row a write returns holds for the layer's projection key and
+   * read-gated fields to show, where it is not `read` (an eager entry's
+   * read filter is the layer's own).
+   */
+  readonly shown?: Input;
   readonly update?: Input;
   readonly delete?: Input;
   readonly writes?: ReadonlyMap<string, Input>;

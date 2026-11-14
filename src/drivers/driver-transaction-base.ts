@@ -322,7 +322,8 @@ export abstract class DriverTransactionBase<
           true
         ),
       sql,
-      executionParams
+      executionParams,
+      diagnosticParams
     );
   }
 
@@ -779,7 +780,8 @@ export abstract class DriverTransactionBase<
                   );
                 }),
               sql,
-              params ?? []
+              params ?? [],
+              diagnosticParams
             )
           );
         }
@@ -927,6 +929,7 @@ export abstract class DriverTransactionBase<
               false
             ),
           sql,
+          undefined,
           undefined,
           batchQueries
         );

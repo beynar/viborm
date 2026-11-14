@@ -120,7 +120,7 @@ export const prepareJudged = /* @__PURE__ */ preparer(JudgedDomain);
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 /** The keys of a draft that hold one predicate, each admitted as one. */
-const SINGLE = ["read", "update", "delete", "place", "check"] as const;
+const SINGLE = ["read", "shown", "update", "delete", "place", "check"] as const;
 /** The keys of a draft that hold one predicate per field, and where each is written. */
 const PER_FIELD = [
   ["writes", "writes"],
@@ -254,12 +254,6 @@ export const VERBS: VerbsHost = {
     bindVerbs(chain),
 };
 
-/** What an entry given lazily's predicates read, recorded when it was first read. */
-const lazyReferences = new WeakMap<
-  AdmittedVerbs,
-  readonly (string | undefined)[]
->();
-
 /**
  * What `lazy` brings: an entry given as a function admitted once, the first
  * time its model is read, with its own references, checked then against
@@ -284,7 +278,8 @@ export const LAZY_VERBS: VerbsHost = {
         const admitted = admitDraft(admitting, name, given, own, at);
         if (root !== undefined || related !== undefined)
           admitted.filters = filtersOf(name, { root, related }, own, at);
-        lazyReferences.set(admitted, [...own]);
+        // Read after the filters: what they name is the entry's too.
+        admitted.references = [...own];
         resolved = admitted;
         return admitted;
       };
@@ -299,7 +294,7 @@ export const LAZY_VERBS: VerbsHost = {
       const names = new Set(
         chain.extensions.slice(0, at + 1).map((own) => own.name)
       );
-      for (const name of lazyReferences.get(draft)!)
+      for (const name of draft.references!)
         if (
           name !== undefined &&
           !chain.controls?.all.some(

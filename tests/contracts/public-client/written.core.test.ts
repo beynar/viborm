@@ -30,7 +30,11 @@ type Base = Awaited<ReturnType<typeof openOnFixture>>;
  * is asked for and what it is told.
  */
 function recording(log: unknown[], label = "") {
-  return (c: { readonly model: unknown; readonly operation: unknown }) => {
+  return (c: {
+    readonly kind: "model" | "raw";
+    readonly model: unknown;
+    readonly operation: unknown;
+  }) => {
     log.push(`${label}asked ${String(c.model)}.${String(c.operation)}`);
     extWatch(c, {
       wants: () => true,

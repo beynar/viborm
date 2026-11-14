@@ -39,7 +39,7 @@ export type References = Set<string | undefined>;
  * words' predicates raw): which rows a write may take (`update`, `delete`,
  * `writes`), what the rows it produces must hold (`place`, `check`,
  * `moves`, `acyclic`, with what judges them), and what a read carries or
- * hides (`evidence`, `reads`, with what projects them). `read` is an entry
+ * hides (`as` and `facts`, `reads`, with what projects them). `read` is an entry
  * given as a function's `read.where`: its filters are read there, since what
  * filters is bound before any entry is resolved. Admitted, it is the
  * layer's `ModelVerbs`.
@@ -48,6 +48,12 @@ export interface VerbsDraft {
   /** A check was written on the entry: the rows its writes produce are judged. */
   judge?: ModelVerbs["judge"];
   read?: unknown;
+  /**
+   * An eager entry's `read.where`, where it carries or hides fields: what a
+   * row a write returns must hold for its facts and gated fields to show.
+   * Its filters are the layer's own, so it is never read as one again.
+   */
+  shown?: unknown;
   update?: unknown;
   delete?: unknown;
   writes?: Map<string, unknown>;
@@ -63,9 +69,14 @@ export interface VerbsDraft {
   related?: readonly unknown[];
 }
 
-/** One model's admitted verbs, with an entry given lazily's filters per mode. */
+/**
+ * One model's admitted verbs, with an entry given lazily's filters per mode
+ * and the arguments its predicates name, checked against the chain it is
+ * bound to.
+ */
 export interface AdmittedVerbs extends ModelVerbs {
   readonly filters?: ModeFilters;
+  readonly references?: readonly (string | undefined)[];
 }
 
 /** The argument a layer's filters are decided by, one domain per value. */
@@ -362,8 +373,18 @@ export function admitLayer(
     ? host.admit(admitting, layer, filtersOf, references)
     : NO_VERBS;
   const confine: Record<string, Input> = {};
-  for (const [name, predicate] of Object.entries(layer.confine))
+  for (const [name, predicate] of Object.entries(layer.confine)) {
+    // The model's own columns: a confinement reads no relation, so lowering
+    // it never builds another set it would confine in turn.
+    const { scalars } = schema[name]!["~"].state;
+    for (const field of Object.keys(predicate ?? {}))
+      if (!Object.hasOwn(scalars, field))
+        throw new ClientInitializationError(
+          `Extension "${extension}" rule.${name}.confine: names "${field}", which is not a scalar field: a confinement states the model's own columns.`,
+          { meta: { extension, model: name } }
+        );
     confine[name] = admit(name, `${name}.confine`, predicate, references);
+  }
   const layered = layer.layered ?? admitting.layered;
   const out: AdmittedLayer = Object.freeze({
     extension,

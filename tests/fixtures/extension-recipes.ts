@@ -5,13 +5,18 @@
  * reader copies them from the guide: tenancy §1.1, audit §1.2 and the
  * optimistic lock §1.3, verbatim.
  *
- * Each recipe keeps the model names it is given (a `const` type parameter,
- * so the reader writes no `as const`), and `perModel` keys its map by them:
- * the client types then know which models a recipe writes, so a field it
- * writes may be left out of a create even where the schema requires it
- * (owner ruling, plan v4 §7.5), and a value the caller writes is the
- * caller's (owner ruling 2026-10-02, plan v4 §7.1). `perModel` holds the one
- * cast, the same key-map cast as the soft-delete entry's `perModel`.
+ * Each recipe is a function of model names, written apart from any client,
+ * so it applies to any client whose schema has those models: the names are
+ * checked where the extension is applied (`$extends`), and what the recipe
+ * adds (its arguments, the fields it writes on create) reaches that
+ * client's types. It keeps the model names it is given (a `const` type
+ * parameter, so the reader writes no `as const`), and `perModel` keys its
+ * map by them: the client types then know which models a recipe writes, so a
+ * field it writes may be left out of a create even where the schema requires
+ * it (owner ruling, plan v4 §7.5), and a value the caller writes is the
+ * caller's (owner ruling 2026-10-02, plan v4 §7.1). Written apart from any
+ * client, a rule's fields and argument names are checked where it is
+ * applied too, by the runtime. `perModel` holds the one cast.
  */
 
 import {
@@ -32,21 +37,13 @@ import { v } from "@src/validation";
  * names, so the cast gives them back: the types then know which models a
  * recipe writes.
  */
-export const perModel = <Models extends readonly string[], T>(
+export const perModel = <const Models extends readonly string[], T>(
   models: Models,
   build: () => T
 ) =>
-  Object.fromEntries(models.map((model) => [model, build()])) as Readonly<
-    Record<string, T>
-  >;
-
-// Each argument is read through a word written apart from the rule: the
-// recipe applies to any client, so its names are checked where it is applied.
-const tenant = arg("tenant");
-const scope = arg("scope");
-const actor = arg("actor");
-const expectedVersion = arg("expectedVersion");
-const versionCheck = arg("versionCheck");
+  Object.fromEntries(models.map((model) => [model, build()])) as {
+    readonly [M in Models[number]]: T;
+  };
 
 export const tenancy = <const Models extends readonly string[]>(
   models: Models
@@ -59,11 +56,11 @@ export const tenancy = <const Models extends readonly string[]>(
     }),
     rule(
       perModel(models, () => ({
-        root: when(scope, "tenant", { tenantId: tenant }),
-        related: when(scope, "tenant", { tenantId: tenant }),
+        root: when(arg("scope"), "tenant", { tenantId: arg("tenant") }),
+        related: when(arg("scope"), "tenant", { tenantId: arg("tenant") }),
       }))
     ),
-    defaults(perModel(models, () => ({ create: { tenantId: tenant } })))
+    defaults(perModel(models, () => ({ create: { tenantId: arg("tenant") } })))
   );
 
 export const audit = <const Models extends readonly string[]>(models: Models) =>
@@ -72,8 +69,8 @@ export const audit = <const Models extends readonly string[]>(models: Models) =>
     args({ actor: accepts(v.string()).on(writes).required(models) }),
     defaults(
       perModel(models, () => ({
-        create: { createdBy: actor },
-        update: { updatedBy: actor },
+        create: { createdBy: arg("actor") },
+        update: { updatedBy: arg("actor") },
       }))
     )
   );
@@ -89,8 +86,8 @@ export const optimisticLock = <const Models extends readonly string[]>(
     }),
     rule(
       perModel(models, () => ({
-        root: when(versionCheck, "checked", {
-          version: expectedVersion,
+        root: when(arg("versionCheck"), "checked", {
+          version: arg("expectedVersion"),
         }),
       }))
     ),
