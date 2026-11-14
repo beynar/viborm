@@ -48,6 +48,7 @@ const contracts = [
   "tests/contracts/public-client/ordering-composition.core.test.ts",
   "tests/contracts/public-client/ordering-identity.core.test.ts",
   "tests/contracts/public-client/ordering-keys.core.test.ts",
+  "tests/contracts/public-client/ordering-placed.core.test.ts",
   "tests/contracts/public-client/ordering-refusals.core.test.ts",
   "tests/contracts/public-client/ordering.core.test.ts",
   "tests/contracts/public-client/permissions-field-write-nested.core.test.ts",
