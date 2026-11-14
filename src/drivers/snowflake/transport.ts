@@ -328,7 +328,8 @@ export class SnowflakeTransport {
    * network failure, a 5xx, or a 429 on a submission (the same `requestId`
    * with `retry=true` never runs a statement twice). A 4xx other than 429,
    * and every 2xx, is Snowflake's answer and is returned; a 5xx still
-   * answered after the last send is a connection failure, not a refusal.
+   * answered after the last send is a connection failure, not a refusal,
+   * whose statement may have started.
    */
   async #send(
     path: (attempt: number) => string,
@@ -360,8 +361,12 @@ export class SnowflakeTransport {
       }
       if (response.status >= 500) {
         await response.body?.cancel();
+        // A 5xx can follow the start of the statement (a gateway's 504):
+        // its outcome is not known, and a submission's has no handle.
         throw new ConnectionError(
-          `Snowflake answered HTTP ${response.status} to ${attempts} sends: it did not run the request, which may be sent again.`,
+          init.method === "POST"
+            ? `Snowflake answered HTTP ${response.status} to ${attempts} sends of the statement: its outcome is not known, and it may have started, with no handle to cancel it by; its timeout bounds it.`
+            : `Snowflake answered HTTP ${response.status} to ${attempts} reads of the statement.`,
           { meta: { driver: "snowflake", status: response.status } }
         );
       }

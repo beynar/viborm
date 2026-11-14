@@ -160,13 +160,19 @@ describe("Snowflake SQL API transport", () => {
     );
     expect(posts).toHaveLength(2);
     expect(posts[1]!.path).toContain("&retry=true");
-    server!.failNext(500, 3);
+    server!.failNext(504, 3);
     const failure = await client
       .run("SELECT 1", undefined)
       .catch((error: unknown) => error);
     // Not Snowflake refusing the statement: it never answered it.
     expect(failure).toBeInstanceOf(ConnectionError);
     expect(failure).not.toBeInstanceOf(QueryError);
+    // A 504 may come after Snowflake started the statement: its outcome is
+    // not known, and without a handle nothing can cancel it.
+    expect(failure).toMatchObject({
+      message: expect.stringContaining("may have started"),
+    });
+    expect(String((failure as Error).message)).not.toContain("did not run");
   });
 
   it("cancels a statement whose status reads fail, after more tries than a submission gets", async () => {

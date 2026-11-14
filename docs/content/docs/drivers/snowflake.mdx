@@ -146,7 +146,9 @@ A submission that fails before Snowflake answers it (a network failure, any
 never runs a statement twice: three sends in all. Reading a statement's status
 or a partition gets three more, since a read changes nothing. A `5xx` still
 answered after the last send is a `ConnectionError`, never Snowflake refusing
-the statement. When reading a statement's status fails, the driver cancels it
+the statement. After a submission's last `5xx` the statement's outcome is not
+known: a gateway can answer `504` after Snowflake started it, and with no
+statement handle the driver cannot cancel it, so its timeout bounds it. When reading a statement's status fails, the driver cancels it
 before it answers the failure, so it does not keep running on the warehouse.
 
 ### Results are read whole
