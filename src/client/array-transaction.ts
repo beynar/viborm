@@ -84,15 +84,13 @@ export function executeArrayTransaction(
     if (operations === undefined) throw snapshotFailure;
     assertOwnedOperations(operations, engine);
     if (operations.length === 0) return Promise.resolve(operations);
-    if (batch === undefined) {
-      for (const operation of operations)
-        transactionOperationOwner(operation).prepareAdmission(operation);
-      for (const operation of operations)
-        transactionOperationOwner(operation).prepareAdmission(
-          operation,
-          "plan"
-        );
-    }
+    if (batch === undefined)
+      for (const phase of ["input", "plan"] as const)
+        for (const operation of operations)
+          transactionOperationOwner(operation).prepareAdmission(
+            operation,
+            phase
+          );
     return executeMembers(operations, engine, options, context, batch);
   };
   const observation = engine.extensionChain?.observation;
@@ -304,17 +302,10 @@ function sendTransaction(
         );
         continue;
       }
-      let core: Promise<unknown>;
-      try {
-        core = slot.owner.executeCore(
-          operation,
-          transactionDriver,
-          slot.notifications
-        );
-      } catch (error) {
-        core = Promise.reject(error);
-      }
-      core.then(slot.child.resolve, slot.child.reject);
+      // The reserved execution turns what its core throws into a rejection.
+      slot.owner
+        .executeCore(operation, transactionDriver, slot.notifications)
+        .then(slot.child.resolve, slot.child.reject);
       try {
         results[index] = await memberValue(slot);
       } catch (failure) {
@@ -370,8 +361,8 @@ async function sendNativeBatch(
     if (reached) return;
     reached = certainty;
     if (batch) batch.certainty = certainty;
-    for (const slot of slots!) slot.certainty = certainty;
-    for (const slot of slots!)
+    for (const slot of slots!) {
+      slot.certainty = certainty;
       try {
         // Only a write's handlers are handed notifications.
         await slot.notifications?.[
@@ -380,6 +371,7 @@ async function sendNativeBatch(
       } catch (error) {
         late.push(error);
       }
+    }
     try {
       await outcomes?.publish(certainty);
     } catch (error) {
