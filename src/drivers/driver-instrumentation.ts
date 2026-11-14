@@ -283,69 +283,83 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
     return true;
   }
 
-  /** Materialize one trusted typed statement and enforce its final bind budget. */
-  protected applyTrustedStatementTransforms(
-    query: Sql,
-    context: QueryExecutionContext | undefined,
-    fallbackOperation: string
-  ): Sql {
-    const extensionChain =
-      getExecutionExtensionChain(context) ??
-      getExecutionExtensionChain(this.boundContext);
-    const transforms = extensionChain?.statement;
-    let transformed = query;
-    if (transforms !== undefined) {
-      const executionContext = this.resolveExecutionContext(
-        context,
-        fallbackOperation
-      );
-      transformed = transforms.apply(
-        query,
-        executionContext.model,
-        executionContext.operation ?? fallbackOperation
-      );
-    }
+  /**
+   * A typed statement as it is sent: over the bind budget, equal values bind
+   * once where the transport numbers its placeholders (a governed read
+   * repeats its constants and values); the budget is then enforced.
+   */
+  protected boundStatement(statement: Sql): Sql {
     const limit = normalizedBindParameterLimit(
       this.maxBindParametersPerStatement
     );
-    // Over the budget, equal values bind once where the transport numbers
-    // its placeholders: a governed read repeats its constants and values.
-    if (
+    const bound =
       limit !== undefined &&
-      transformed.values.length > limit &&
+      statement.values.length > limit &&
       this.dialect !== "mysql" &&
       this.numbersPlaceholders
-    )
-      transformed = new NumberedSql(
-        transformed,
-        this.dialect === "postgresql" ? "$" : "?"
-      );
+        ? new NumberedSql(statement, this.dialect === "postgresql" ? "$" : "?")
+        : statement;
     assertStatementBindParameterCapacity(
-      transformed,
+      bound,
       this.driverName,
       limit,
       "operation"
     );
-    return transformed;
+    return bound;
   }
 
-  /** Apply a deferred transform to an internally prepared typed statement. */
+  /**
+   * One prepared batch member as it is sent: `statement` is its typed
+   * statement, as the chain's rewriting units left it. A verbatim member has
+   * none and is sent as it is.
+   */
   protected materializeTrustedBatchQuery(
     query: BatchQuery,
-    context: QueryExecutionContext
+    context: QueryExecutionContext,
+    statement = readPreparedStatement(query)
   ): BatchQuery {
-    const statement = readPreparedStatement(query);
     if (statement === undefined) return query;
-    const transformed = this.applyTrustedStatementTransforms(
-      statement,
-      context,
-      "executeBatch"
-    );
+    const bound = this.boundStatement(statement);
     return {
-      sql: this.buildStatement(transformed),
-      params: snapshotProviderParameters(transformed.values, context),
+      sql: this.buildStatement(bound),
+      params: snapshotProviderParameters(bound.values, context),
       ...(query.context === undefined ? {} : { context: query.context }),
     };
+  }
+
+  /**
+   * A batch's members under the chain's rewriting units: every member is
+   * rewritten before `send` sends any. Without rewriting units, each
+   * member's prepared statement as it is.
+   */
+  protected rewriteBatch<Result>(
+    queries: readonly BatchQuery[],
+    context: QueryExecutionContext,
+    send: (statements: readonly (Sql | undefined)[]) => Promise<Result>,
+    refuse: (index: number, failure: unknown) => unknown
+  ): Promise<Result> {
+    const statements = queries.map(readPreparedStatement);
+    const rewrites = getExecutionExtensionChain(context)?.statement;
+    if (rewrites === undefined) return send(statements);
+    return rewrites.together(
+      statements.map((statement, index) => {
+        if (statement === undefined) return undefined;
+        const member = this.resolveExecutionContext(
+          queries[index]?.context ?? context,
+          "executeBatch"
+        );
+        return {
+          kind: "statement",
+          operation: member.operation,
+          model: member.model,
+          context: member,
+          driver: this,
+          statement,
+        };
+      }),
+      send,
+      refuse
+    );
   }
 
   /**

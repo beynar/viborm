@@ -53,8 +53,11 @@ export interface UnitSource {
   readonly params?: readonly unknown[] | undefined;
   /** statement: a native batch's members, in order. */
   readonly batch?: readonly BatchQuery[] | undefined;
-  /** statement under a rewriting unit: the statement before its rewrite. */
-  readonly statement?: Sql | undefined;
+  /**
+   * A logical statement under rewriting units: the statement as the earlier
+   * ones left it (what `next(sql)` hands on replaces it).
+   */
+  statement?: Sql | undefined;
   /** How sure the child's commit is, read once it settled. */
   readonly certainty?: (() => CommitCertainty | undefined) | undefined;
   /** What extensions noted on the unit (`note`), in order. */

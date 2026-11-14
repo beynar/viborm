@@ -683,10 +683,12 @@ describe("_prepare typed provenance", () => {
     await expect(
       driver._executeBatch(batch, undefined, contexts[0])
     ).rejects.toMatchObject({
-      name: failure === "throw" ? "QueryError" : "UnsupportedOperationError",
+      // What a rewriting unit throws fails the call as it is (D5).
+      name: "UnsupportedOperationError",
       meta: { statementIndex: 1 },
     });
-    expect(transformed).toEqual(["first", "second"]);
+    // Every member is rewritten before any is sent.
+    expect(transformed).toEqual(["first", "second", "third"]);
     expect(driver.sqlOf()).toEqual(["BEGIN", "ROLLBACK"]);
     // The refusal comes before any statement is sent: no statement unit.
     expect(completions).toEqual([]);

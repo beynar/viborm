@@ -227,20 +227,33 @@ export abstract class DriverTransactionBase<
     ) => Promise<Result>
   ): Promise<Result> {
     const executionContext = this.resolveExecutionContext(context, "execute");
-    // A transform or bind-capacity refusal rejects: this function is async.
-    const transformedQuery = this.applyTrustedStatementTransforms(
-      query,
-      executionContext,
-      "execute"
-    );
-    return this.dispatchStatement(executionContext, () =>
-      this.sendStatement(
-        this.buildStatement(transformedQuery),
-        transformedQuery.values,
-        executionContext,
-        executeProvider
-      )
-    );
+    // A bind-capacity refusal rejects: this function is async.
+    const send = async (statement: Sql = query): Promise<Result> => {
+      const bound = this.boundStatement(statement);
+      return this.dispatchStatement(executionContext, () =>
+        this.sendStatement(
+          this.buildStatement(bound),
+          bound.values,
+          executionContext,
+          executeProvider
+        )
+      );
+    };
+    // The chain's rewriting units each run around the statement's rest.
+    const rewrites = getExecutionExtensionChain(executionContext)?.statement;
+    return rewrites === undefined
+      ? send()
+      : rewrites.run(
+          {
+            kind: "statement",
+            operation: executionContext.operation,
+            model: executionContext.model,
+            context: executionContext,
+            driver: this,
+            statement: query,
+          },
+          send
+        );
   }
 
   /**
@@ -659,91 +672,131 @@ export abstract class DriverTransactionBase<
     _options?: BatchTransactionOptions
   ): Promise<QueryResult<T>[]> {
     const batchContext = context ?? { operation: "executeBatch" };
-    // Every transform finishes before the first effect: a transform that
-    // refuses a later statement refuses the batch before any statement
-    // reaches the provider. Each statement sent is then one unit.
-    const statements: {
-      readonly statementContext: QueryExecutionContext;
-      readonly executionQuery: BatchQuery;
-      readonly diagnosticParams: unknown[];
-      readonly normalizeFailure: (error: unknown) => Error;
-    }[] = [];
-    for (const [statementIndex, query] of queries.entries()) {
-      if (!query) continue;
-      const statementContext = query.context
+    const contextOf = (query: BatchQuery) =>
+      query.context
         ? this.resolveExecutionContext(
             query.context,
             query.context.operation ?? "executeBatch"
           )
         : batchContext;
-      let executionQuery = query;
-      let diagnosticParams = this.getBatchDiagnosticParameters(query);
-      const normalizeFailure = (error: unknown) =>
-        normalizeDriverError(error, {
-          driverName: this.driverName,
-          dialect: this.dialect,
-          model: statementContext.model,
-          operation: statementContext.operation,
-          correlationId: statementContext.correlationId,
-          statementIndex,
-          query: executionQuery.sql,
-          params: diagnosticParams,
-          diagnostics: this.getErrorDisclosure(statementContext),
-          forceContext: true,
-        });
-      try {
-        executionQuery = this.materializeTrustedBatchQuery(
-          query,
-          statementContext
-        );
-      } catch (error) {
-        throw normalizeFailure(error);
-      }
-      diagnosticParams = this.getBatchDiagnosticParameters(executionQuery);
-      statements.push({
-        statementContext,
-        executionQuery,
-        diagnosticParams,
-        normalizeFailure,
+    const normalizeAt = (
+      statementIndex: number,
+      error: unknown,
+      query: BatchQuery,
+      params: unknown[]
+    ) => {
+      const statementContext = contextOf(query);
+      return normalizeDriverError(error, {
+        driverName: this.driverName,
+        dialect: this.dialect,
+        model: statementContext.model,
+        operation: statementContext.operation,
+        correlationId: statementContext.correlationId,
+        statementIndex,
+        query: query.sql,
+        params,
+        diagnostics: this.getErrorDisclosure(statementContext),
+        forceContext: true,
       });
-    }
-    const results: QueryResult<T>[] = [];
-    for (const {
-      statementContext,
-      executionQuery,
-      diagnosticParams,
-      normalizeFailure,
-    } of statements) {
-      const { sql, params } = executionQuery;
-      const verbatim = isVerbatimBatchQuery(executionQuery);
-      results.push(
-        await this.inUnit(
-          "statement",
+    };
+    // Every member is rewritten and bound before the first effect: a member
+    // refused refuses the batch before any statement reaches the provider.
+    // Each statement sent is then one unit.
+    return this.rewriteBatch(
+      queries,
+      batchContext,
+      async (rewritten) => {
+        const statements: {
+          readonly statementIndex: number;
+          readonly statementContext: QueryExecutionContext;
+          readonly executionQuery: BatchQuery;
+          readonly diagnosticParams: unknown[];
+        }[] = [];
+        for (const [statementIndex, query] of queries.entries()) {
+          if (!query) continue;
+          const statementContext = contextOf(query);
+          let executionQuery: BatchQuery;
+          try {
+            executionQuery = this.materializeTrustedBatchQuery(
+              query,
+              statementContext,
+              rewritten[statementIndex]
+            );
+          } catch (error) {
+            throw normalizeAt(
+              statementIndex,
+              error,
+              query,
+              this.getBatchDiagnosticParameters(query)
+            );
+          }
+          statements.push({
+            statementIndex,
+            statementContext,
+            executionQuery,
+            diagnosticParams: this.getBatchDiagnosticParameters(executionQuery),
+          });
+        }
+        const results: QueryResult<T>[] = [];
+        for (const {
+          statementIndex,
           statementContext,
-          () =>
-            this.executeNormalizedStatement(
-              sql,
-              diagnosticParams,
+          executionQuery,
+          diagnosticParams,
+        } of statements) {
+          const { sql, params } = executionQuery;
+          const verbatim = isVerbatimBatchQuery(executionQuery);
+          results.push(
+            await this.inUnit(
+              "statement",
               statementContext,
               () =>
-                verbatim
-                  ? this.executeRaw<T>(client, sql, params, statementContext)
-                  : this.execute<T>(
-                      client,
-                      sql,
-                      params ?? [],
-                      statementContext
-                    ),
-              true
-            ).catch((error: unknown) => {
-              throw normalizeFailure(error);
-            }),
-          sql,
-          params ?? []
-        )
-      );
-    }
-    return results;
+                this.executeNormalizedStatement(
+                  sql,
+                  diagnosticParams,
+                  statementContext,
+                  () =>
+                    verbatim
+                      ? this.executeRaw<T>(
+                          client,
+                          sql,
+                          params,
+                          statementContext
+                        )
+                      : this.execute<T>(
+                          client,
+                          sql,
+                          params ?? [],
+                          statementContext
+                        ),
+                  true
+                ).catch((error: unknown) => {
+                  throw normalizeAt(
+                    statementIndex,
+                    error,
+                    executionQuery,
+                    diagnosticParams
+                  );
+                }),
+              sql,
+              params ?? []
+            )
+          );
+        }
+        return results;
+      },
+      (index, failure) => {
+        const query = queries[index];
+        return query === undefined
+          ? failure
+          : normalizeAt(
+              index,
+              failure,
+              query,
+              this.getBatchDiagnosticParameters(query)
+            );
+      }
+    );
   }
 
   /**
@@ -795,12 +848,22 @@ export abstract class DriverTransactionBase<
       }
       // One physical send, so one `statement` unit, once every member is
       // transformed and rendered and the connection is taken.
-      const submitNativeBatch = async () => {
+      const submitNativeBatch = () =>
+        this.rewriteBatch(
+          queries,
+          executionContext,
+          (rewritten) => sendNativeBatch(rewritten),
+          (_index, failure) => failure
+        );
+      const sendNativeBatch = async (
+        rewritten: readonly (Sql | undefined)[]
+      ) => {
         const { queries: batchQueries, diagnosticParams } = prepareAtomicBatch(
-          queries.map((query) =>
+          queries.map((query, index) =>
             this.materializeTrustedBatchQuery(
               query,
-              query.context ?? executionContext
+              query.context ?? executionContext,
+              rewritten[index]
             )
           ),
           executionContext,

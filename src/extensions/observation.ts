@@ -8,6 +8,7 @@ import {
   trustedExecutionContext,
 } from "@drivers/execution-context";
 import { QueryError } from "@errors";
+import type { Sql } from "@sql";
 import type { ExtensionPart } from "./chain";
 import { coordinate, UNITS } from "./coordination";
 import {
@@ -20,6 +21,12 @@ import {
   type UnitSource,
   unitOf,
 } from "./unit-source";
+
+/**
+ * What a unit runs at its core, once every handler called `next()`: given
+ * the statement a logical statement's rewriting units handed on.
+ */
+export type Child<Result> = (statement?: Sql) => Promise<Result>;
 
 /** One `unit` part of a chain: its extension, its handler, its kinds. */
 export interface UnitLayer {
@@ -42,14 +49,14 @@ const nothing = (): undefined => undefined;
 export function runUnit<Result>(
   handlers: readonly UnitLayer[],
   source: UnitSource,
-  child: () => Promise<Result>,
+  child: Child<Result>,
   reached?: () => void
 ): Promise<Result> {
   const unit = unitOf(source);
   let core: Promise<Result> | undefined;
   let entered = false;
   const startCore = (): Promise<Result> => {
-    core ??= attempt(child);
+    core ??= attempt(() => child(source.statement));
     return core;
   };
   const transaction =
@@ -100,12 +107,15 @@ async function around<Result>(
 ): Promise<Result> {
   let started: Promise<Result> | undefined;
   let misuse: QueryError | undefined;
-  const next = (): Promise<UnitEnd> => {
+  // `next(sql)` hands on another statement to a logical statement's rest.
+  const next = (statement?: Sql): Promise<UnitEnd> => {
     if (started !== undefined) {
       misuse ??= unitError(resolved, unit, "called next() more than once");
       return Promise.reject(misuse);
     }
     const at = Date.now();
+    if (statement !== undefined && source.statement !== undefined)
+      source.statement = statement;
     started = rest();
     return started.then(
       () => settle(source, at, false, undefined),
@@ -220,7 +230,7 @@ export interface Observation {
   readonly handlers: readonly UnitLayer[];
   readonly run: <Result>(
     source: UnitSource,
-    child: () => Promise<Result>
+    child: Child<Result>
   ) => Promise<Result>;
   /**
    * One member of `$transaction([...])`: its unit runs until its child is
@@ -230,18 +240,18 @@ export interface Observation {
    */
   readonly enter: <Result>(
     source: UnitSource,
-    child: () => Promise<Result>
+    child: Child<Result>
   ) => { readonly done: Promise<Result>; readonly reached: Promise<void> };
   /**
    * Every member's unit, entered: resolves once each reached its child, with
    * what settles once every unit did (and fails as the first that failed).
    */
   readonly members: (
-    members: readonly (readonly [UnitSource, () => Promise<unknown>])[]
+    members: readonly (readonly [UnitSource, Child<unknown>])[]
   ) => Promise<{ readonly done: Promise<unknown> }>;
 }
 
-function observationOf(handlers: readonly UnitLayer[]): Observation {
+export function observationOf(handlers: readonly UnitLayer[]): Observation {
   const enter: Observation["enter"] = (source, child) => {
     let reach: (() => void) | undefined;
     const reached = new Promise<void>((resolve) => {

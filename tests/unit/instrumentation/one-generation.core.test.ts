@@ -338,7 +338,9 @@ describe("units at their physical boundary", () => {
     await client.$queryRaw(sql`SELECT ${1}`);
     expect(providerDriver.sent).toEqual(["SELECT ? /* first */ /* second */"]);
 
-    const refusing = (handler: () => unknown) =>
+    const refusing = (
+      handler: (u: UnitContext, next: () => Promise<UnitOutcome>) => unknown
+    ) =>
       createClient({ schema, driver: new RecordingDriver() })
         .$extends(
           extension(
@@ -347,17 +349,63 @@ describe("units at their physical boundary", () => {
           )
         )
         .$queryRaw(sql`SELECT ${1}`);
+    const refused = new Error("refused");
     await expect(
       refusing(() => {
-        throw new Error("refused");
+        throw refused;
       })
-    ).rejects.toMatchObject({
-      name: "QueryError",
-      message: expect.stringContaining("threw"),
-    });
+    ).rejects.toBe(refused);
+    // Thrown after its next() settled, too: the rewriting unit is a unit.
+    await expect(
+      refusing(async (_u: UnitContext, next: () => Promise<UnitOutcome>) => {
+        await next();
+        throw refused;
+      })
+    ).rejects.toBe(refused);
     await expect(refusing(() => undefined)).rejects.toMatchObject({
       message: expect.stringContaining("without calling next()"),
     });
+  });
+
+  test("a rewriting unit's late next(sql) is honoured, and next() resolves with the statement's real end", async () => {
+    const providerDriver = new RecordingDriver();
+    const ends: string[] = [];
+    const client = createClient({ schema, driver: providerDriver }).$extends(
+      extension(
+        "late",
+        unit(
+          async (u, next) => {
+            await new Promise((resolve) => setTimeout(resolve, 1));
+            const before = statement(u);
+            const end = await next(before && sql`${before} /* late */`);
+            ends.push(end.status);
+          },
+          ["statement"],
+          { rewrites: true }
+        )
+      )
+    );
+    await client.$queryRaw(sql`SELECT ${1}`);
+    expect(providerDriver.sent).toEqual(["SELECT ? /* late */"]);
+
+    const failing = new StatementDriver();
+    failing.failAtProviderCall = 1;
+    await createClient({ schema, driver: failing })
+      .$extends(
+        extension(
+          "ends",
+          unit(
+            async (_u, next) => {
+              ends.push((await next()).status);
+            },
+            ["statement"],
+            { rewrites: true }
+          )
+        )
+      )
+      .$queryRaw(sql`SELECT ${1}`)
+      .catch(() => undefined);
+    expect(ends).toEqual(["success", "failure"]);
   });
 
   test("a verbatim unsafe raw query is never rewritten, but its unit reads its text", async () => {
