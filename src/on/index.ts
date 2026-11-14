@@ -9,25 +9,25 @@
 // reach).
 
 import type { OperationResult } from "../client/exports"; // public today
-// The classes are imported where viborm defines them, so the built entry
-// shares the root's chunk.
+// The classes and the words are imported where viborm defines them.
 import { ClientInitializationError, QueryError } from "../errors";
-import {
-  type AnyModel,
-  type AnyRelation,
-  type AnyTarget,
-  type ClientSchema,
-  call,
-  type EmptyFacts,
-  type Extension,
-  extension,
-  settled,
-  target,
-  type VibORMConfig,
-  type WriteKind,
-  type WriteOutcome,
-  watch,
-  writes,
+import { call } from "../extensions/call";
+import { settled, watch } from "../extensions/call-words";
+import { extension } from "../extensions/extension";
+import { target, writes } from "../extensions/on";
+// Types only from the root: a value imported from it would make this entry
+// reach every module the root reaches, and the build would put them all in
+// the chunk this entry shares with the root.
+import type {
+  AnyModel,
+  AnyRelation,
+  AnyTarget,
+  ClientSchema,
+  EmptyFacts,
+  Extension,
+  VibORMConfig,
+  WriteKind,
+  WriteOutcome,
 } from "../index";
 
 const NAME = "viborm.on";
