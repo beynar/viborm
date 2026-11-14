@@ -14,12 +14,14 @@ import { Sql, sql } from "@sql";
 import {
   around,
   call,
+  deletes,
   extension,
   target as extTarget,
   unit as extUnit,
   methods,
   settled,
   statement,
+  writes,
 } from "@src/index";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
@@ -1111,7 +1113,7 @@ describe("public query-interceptor integration", () => {
                 return result;
               };
             },
-            extTarget("record", "deleteMany")
+            extTarget("record", deletes)
           )
         )
       )
@@ -1119,11 +1121,9 @@ describe("public query-interceptor integration", () => {
         extension(
           "B",
           around((c) => {
-            if (c.kind === "model") {
-              settled(c, ({ certainty }) => events.push(`B:${certainty}`));
-            }
+            settled(c, ({ certainty }) => events.push(`B:${certainty}`));
             return (run) => run();
-          })
+          }, extTarget(writes))
         )
       );
 
@@ -1161,7 +1161,7 @@ describe("public query-interceptor integration", () => {
               return run();
             };
           },
-          extTarget("record", "deleteMany")
+          extTarget("record", deletes)
         )
       )
     );
@@ -1235,7 +1235,7 @@ describe("public query-interceptor integration", () => {
               return run();
             };
           },
-          extTarget("record", "deleteMany")
+          extTarget("record", deletes)
         )
       )
     );
@@ -1267,7 +1267,7 @@ describe("public query-interceptor integration", () => {
               return run();
             };
           },
-          extTarget("record", "deleteMany")
+          extTarget("record", deletes)
         )
       )
     );
@@ -1308,7 +1308,7 @@ describe("public query-interceptor integration", () => {
                 return run();
               };
             },
-            extTarget("record", "deleteMany")
+            extTarget("record", deletes)
           )
         )
       )
@@ -1325,7 +1325,7 @@ describe("public query-interceptor integration", () => {
                 return run();
               };
             },
-            extTarget("record", "deleteMany")
+            extTarget("record", deletes)
           )
         )
       );
@@ -1365,7 +1365,7 @@ describe("public query-interceptor integration", () => {
               return run();
             };
           },
-          extTarget("record", "deleteMany")
+          extTarget("record", deletes)
         )
       )
     );
@@ -1404,7 +1404,7 @@ describe("public query-interceptor integration", () => {
               return run();
             };
           },
-          extTarget("record", "deleteMany")
+          extTarget("record", deletes)
         )
       )
     );
@@ -1442,7 +1442,7 @@ describe("public query-interceptor integration", () => {
               return run();
             };
           },
-          extTarget("record", "deleteMany")
+          extTarget("record", deletes)
         )
       )
     );
@@ -1476,7 +1476,7 @@ describe("public query-interceptor integration", () => {
               return run();
             };
           },
-          extTarget("record", "create")
+          extTarget("record", writes)
         )
       )
     );
@@ -1524,7 +1524,7 @@ describe("public query-interceptor integration", () => {
               return run();
             };
           },
-          extTarget("record", "create")
+          extTarget("record", writes)
         )
       )
     );
@@ -1568,7 +1568,7 @@ describe("public query-interceptor integration", () => {
               return run();
             };
           },
-          extTarget("record", "create")
+          extTarget("record", writes)
         )
       )
     );

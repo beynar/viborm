@@ -22,11 +22,13 @@ import { raw, sql } from "@sql";
 import {
   around,
   call,
+  deletes,
   extension,
   statement as extStatement,
   target as extTarget,
   unit as extUnit,
   settled,
+  writes,
 } from "@src/index";
 import {
   overrideTransactionOperation,
@@ -521,7 +523,7 @@ describe("array query admission", () => {
     expect(driver.events).toEqual([]);
   });
 
-  test("retains a final handler failure after caught double-proceed and child rejection", async () => {
+  test("keeps the protocol failure primary after caught double-proceed and child rejection", async () => {
     const { client: base, driver } = fallbackClient();
     const client = base.$extends(
       extension(
@@ -549,15 +551,10 @@ describe("array query admission", () => {
     const failure = await captureFailure(
       client.$transaction([client.record.findMany()])
     );
-    expect(failure).toBeInstanceOf(AggregateError);
-    if (!(failure instanceof AggregateError)) throw failure;
-    expect(failure.errors).toHaveLength(2);
-    expect(failure.errors[0]).toBe(failure.cause);
-    expect(failure.cause).toMatchObject({
+    // The protocol failure is primary (the aggregate that also carried the
+    // handler's later failure is no longer promised).
+    expect(primaryOf(failure)).toMatchObject({
       message: expect.stringContaining("called proceed more than once"),
-    });
-    expect(failure.errors[1]).toMatchObject({
-      message: "distinct final handler failure",
     });
     expect(driver.events).toEqual([]);
   });
@@ -764,16 +761,11 @@ describe("fallback array query execution", () => {
     const failure = await captureFailure(
       client.$transaction([client.record.findMany(), client.note.findMany()])
     );
-    expect(failure).toBeInstanceOf(AggregateError);
-    if (!(failure instanceof AggregateError)) throw failure;
-    expect(failure.errors).toHaveLength(3);
-    expect(failure.errors[0]).toBe(failure.cause);
-    expect(failure.cause).toBeInstanceOf(QueryError);
-    expect(failure.errors[1]).toMatchObject({
-      message: "first admitted member post-work failed",
-    });
-    expect(failure.errors[2]).toMatchObject({
-      message: "later admitted member post-work failed",
+    // The core's failure is primary; the members' post-work failures that
+    // an aggregate carried beside it are no longer promised.
+    expect(primaryOf(failure)).toBeInstanceOf(QueryError);
+    expect(primaryOf(failure)).toMatchObject({
+      message: "Query execution failed",
     });
     expect(providerStatements(driver.events)).toHaveLength(1);
     expect(driver.events.at(-1)).toBe("ROLLBACK");
@@ -804,7 +796,7 @@ describe("fallback array query execution", () => {
               return result;
             };
           },
-          extTarget("record", "deleteMany")
+          extTarget("record", deletes)
         )
       )
     );
@@ -1141,16 +1133,16 @@ describe("native array query execution", () => {
               return result;
             };
           },
-          extTarget("record", "deleteMany")
+          extTarget("record", deletes)
         )
       )
     );
     await client.$transaction([client.record.deleteMany()]);
 
-    // `settled` is told once the call's rows are, after the handler's
-    // post-work and before the call resolves; 1.14 told `onWriteOutcome`
-    // between the provider and the member's parse.
-    expect(timeline).toEqual(["provider", "post-work", "outcome"]);
+    // A native array commits with its provider batch: `settled` runs at once
+    // after that commit, before the handler's post-work, as after a direct
+    // call's own commit (and as 1.14 told `onWriteOutcome`).
+    expect(timeline).toEqual(["provider", "outcome", "post-work"]);
   });
 
   test("attempts every settled function, member by member in each call's chain order, and keeps a commit failure primary", async () => {
@@ -1173,16 +1165,17 @@ describe("native array query execution", () => {
               return run();
             };
           },
-          extTarget("record", "deleteMany")
+          extTarget("record", deletes)
         ),
         around(
           (c) => {
+            if (c.operation !== "updateMany") return;
             settled(c, () => timeline.push("listener:updateMany"));
             return async (run) => {
               return run();
             };
           },
-          extTarget("record", "updateMany")
+          extTarget("record", writes)
         )
       )
     );
@@ -1310,7 +1303,7 @@ describe("native array query execution", () => {
                 return run();
               };
             },
-            extTarget("record", "deleteMany")
+            extTarget("record", deletes)
           )
         )
       )
@@ -1326,7 +1319,7 @@ describe("native array query execution", () => {
                 return run();
               };
             },
-            extTarget("record", "deleteMany")
+            extTarget("record", deletes)
           )
         )
       );
