@@ -82,14 +82,16 @@ export function runUnit<Result>(
   const result = enter(0);
   return transaction === undefined
     ? result
-    : result.catch(async (failure: unknown) => {
+    : result.catch((failure: unknown) => {
+        // Thrown, not returned rejected: workerd reports a rejection that the
+        // promise taking it holds only a microtask later.
+        if (core === undefined || entered) throw failure;
         // A transaction `run(unit, sql)` opened whose body was never let run
         // rolls back before the unit fails.
-        if (core !== undefined && !entered) {
-          transaction.abort(failure);
-          await core.catch(nothing);
-        }
-        throw failure;
+        transaction.abort(failure);
+        return core.catch(nothing).then(() => {
+          throw failure;
+        });
       });
 }
 

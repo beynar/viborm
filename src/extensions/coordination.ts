@@ -120,11 +120,15 @@ export function transact<T>(
     (settled: T): T | Promise<T> => {
       // A driver that reports no phase still committed what resolved.
       if (!(failed || parent)) root.certainty = "committed";
-      return scope?.outcomes
-        ? scope.outcomes.end(scope, settled, failed)
-        : failed
-          ? Promise.reject(settled)
-          : settled;
+      if (!scope?.outcomes) {
+        if (failed) throw settled;
+        return settled;
+      }
+      // The promise this handler returns is taken a microtask later, and
+      // workerd reports a rejection no handler holds by then.
+      const ended = scope.outcomes.end(scope, settled, failed);
+      ended.catch(() => undefined);
+      return ended;
     };
   const ran = engine.driver.withTransaction(
     (driver) => {
