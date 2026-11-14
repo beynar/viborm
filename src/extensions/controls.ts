@@ -398,10 +398,11 @@ export interface ResolvedControl {
  * defaults or kept rows name, and on every model when they name none.
  */
 export function placeControls(
-  definition: RuntimeExtensionDefinition
+  definition: RuntimeExtensionDefinition,
+  controls: NonNullable<RuntimeExtensionDefinition["controls"]>
 ): readonly ResolvedControl[] {
   const placed: ResolvedControl[] = [];
-  const { name: extension, controls, rule, deletion, data } = definition;
+  const { name: extension, rule, deletion, data } = definition;
   const removeWhen = deletion?.removeWhen ?? {};
   const managed = new Set(Object.keys(deletion?.models ?? {}));
   const named = new Set([
@@ -412,7 +413,7 @@ export function placeControls(
     ...Object.keys(data ?? {}),
   ]);
   const requiredOn = named.size === 0 ? true : named;
-  for (const [name, declaration] of Object.entries(controls ?? {})) {
+  for (const [name, declaration] of Object.entries(controls)) {
     const removes = Object.hasOwn(removeWhen, name);
     const { required } = declaration;
     placed.push({
@@ -709,8 +710,9 @@ function appendControls(
 export const controlsPart: ExtensionPart = {
   declare(application) {
     const { definition, chain, next } = application;
-    if (definition.controls === undefined) return;
-    const declared = placeControls(definition);
+    const { controls } = definition;
+    if (controls === undefined) return;
+    const declared = placeControls(definition, controls);
     next.controls = appendControls(chain?.controls, declared);
     application.owner = {
       name: definition.name,

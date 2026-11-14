@@ -32,6 +32,7 @@ import {
   omitted,
   oneOf,
   only,
+  provided,
   rule,
   unless,
   when,
@@ -157,6 +158,18 @@ describe("defaults: an entry's shape", () => {
     ).toContain("defaults.post: fields.title is written omitted");
   });
 
+  test("a field of defaults takes omitted and no other word", () => {
+    // Beside a rule part, a judging word reaches the refusal.
+    expect(
+      refusal(
+        applying(
+          loose(rule, { user: { root: {} } }),
+          loose(defaults, { post: { fields: { title: check({}) } } })
+        )
+      )
+    ).toContain("defaults.post: fields.title is written omitted");
+  });
+
   test("omitted is a default, never a rule", () => {
     expect(
       refusal(
@@ -169,6 +182,15 @@ describe("defaults: an entry's shape", () => {
 });
 
 describe("rule: an entry's keys and the words they take", () => {
+  test("an entry given as a function is written lazy(() => entry)", () => {
+    expect(
+      refusal(applying(loose(rule, { post: () => ({ root: {} }) })))
+    ).toContain("an entry given as a function is written lazy(() => entry)");
+    expect(refusal(applying(loose(rule, { post: "mine" })))).toContain(
+      "an entry is an object"
+    );
+  });
+
   test("a key outside the rule's is refused", () => {
     expect(
       refusal(applying(loose(rule, { post: { sort: { title: "asc" } } })))
@@ -322,6 +344,15 @@ describe("keep(): what a delete writes instead", () => {
     expect(refusal(kept("deleted"))).toContain(
       "keep() takes the data the row is updated with"
     );
+    // provided() is a filter of rows, not a condition on what keep() writes.
+    expect(
+      refusal(
+        kept(
+          provided(arg("trash"), "keep", { deletedAt: now }),
+          args({ trash: oneOf("keep", "remove") })
+        )
+      )
+    ).toContain("keep() takes the data the row is updated with");
   });
 
   test("keep() writes constants and now, now in one field", () => {
