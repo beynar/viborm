@@ -129,7 +129,7 @@ function appendWith(
   const parts = chain?.carried
     ? [...new Set([...chain.carried, ...set.parts])]
     : set.parts;
-  const definition = normalizeExtensionDefinition(value, schema, registry);
+  const definition = normalizeExtensionDefinition(value, schema);
   const { name } = definition;
   const next: Draft = { ...chain, extensions: chain?.extensions ?? [] };
   const application: Application = {

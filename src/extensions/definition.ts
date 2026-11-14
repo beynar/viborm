@@ -4,9 +4,6 @@ import type { Operations, Schema } from "@client/types";
 import type { AnyDriver } from "@drivers/exports";
 import { ClientInitializationError } from "@errors";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
-import { getModelKeyCatalog } from "@schema/model/keys";
-import type { AnyRelation } from "@schema/relation/types";
-import type { SchemaRegistryLookup } from "@validation/types";
 import { isFunction, isRecord } from "@validation/value-guards";
 import { errorCause } from "../errors/diagnostic-safety";
 import type { AdmittedRows } from "./admission";
@@ -15,7 +12,6 @@ import type {
   DataContribution,
   DeletionContribution,
   OrderContribution,
-  OrderTerm,
   RowsContribution,
 } from "./controls";
 import type {
@@ -43,7 +39,6 @@ import type {
 } from "./request";
 import { type RuntimeResultContribution, snapshotResult } from "./result";
 import type { ResultDefinition, ResultInference } from "./result-types";
-import { rowsRuntime } from "./rows-slot";
 import type { StatementHandler } from "./statement";
 import type { RetryHandler, RouteHandler, TransactionHandler } from "./units";
 import type { WrittenHandler } from "./written";
@@ -121,7 +116,7 @@ export function extensionError(message: string, extension?: string): never {
   });
 }
 
-function readOwnKeys(
+export function readOwnKeys(
   value: Record<string, unknown>,
   extension?: string
 ): PropertyKey[] {
@@ -140,7 +135,7 @@ function readOwnKeys(
   }
 }
 
-function readOwn(
+export function readOwn(
   value: Record<string, unknown>,
   key: string,
   extension?: string
@@ -273,150 +268,16 @@ function snapshotModelFactories(
   return Object.freeze(factories);
 }
 
-/** Refuse named policy facts that could otherwise silently bind to nothing. */
-function validateNamedPolicies(
-  value: ExtensionDefinitionInput,
-  schema: Schema | undefined,
-  name: string
-): void {
-  if (!schema) return;
-  const components: ("rows" | "data" | "deletion")[] = [
-    "rows",
-    "data",
-    "deletion",
-  ];
-  for (const component of components) {
-    const declaration = readOwn(value, component, name);
-    if (declaration === undefined) continue;
-    if (!isRecord(declaration))
-      extensionError(
-        `Extension "${name}" ${component} must be an object.`,
-        name
-      );
-    const models = readOwn(declaration, "models", name);
-    if (!isRecord(models))
-      extensionError(
-        `Extension "${name}" ${component}.models must be an object.`,
-        name
-      );
-    let expectedModes: readonly string[] | undefined;
-    const defaultMode =
-      component === "rows" ? readOwn(declaration, "default", name) : undefined;
-    for (const modelName of readOwnKeys(models, name)) {
-      if (typeof modelName !== "string" || !Object.hasOwn(schema, modelName))
-        extensionError(
-          `Extension "${name}" ${component} names unknown model "${String(modelName)}".`,
-          name
-        );
-      const model = schema[modelName]!;
-      const entry = readOwn(models, modelName, name);
-      if (!isRecord(entry))
-        extensionError(
-          `Extension "${name}" ${component}.${modelName} must be an object.`,
-          name
-        );
-      // A row predicate's fields are its admission's (`admission.ts`).
-      const fields = (input: unknown): void => {
-        if (input === undefined) return;
-        if (!isRecord(input))
-          extensionError(
-            `Extension "${name}" ${component}.${modelName} fields must be an object.`,
-            name
-          );
-        for (const key of readOwnKeys(input, name)) {
-          if (
-            typeof key !== "string" ||
-            !Object.hasOwn(model["~"].state.scalars, key)
-          )
-            extensionError(
-              `Extension "${name}" ${component}.${modelName} names unknown field "${String(key)}".`,
-              name
-            );
-        }
-      };
-      if (component === "rows") {
-        const modes = readOwnKeys(entry, name).filter(
-          (key): key is string => typeof key === "string"
-        );
-        const priorModes = expectedModes;
-        if (
-          typeof defaultMode !== "string" ||
-          !modes.includes(defaultMode) ||
-          (priorModes &&
-            (priorModes.length !== modes.length ||
-              modes.some((mode) => !priorModes.includes(mode))))
-        )
-          extensionError(
-            `Extension "${name}" row models must share mode names and include the default mode.`,
-            name
-          );
-        expectedModes ??= modes;
-        for (const modeName of readOwnKeys(entry, name)) {
-          if (typeof modeName !== "string")
-            extensionError(
-              `Extension "${name}" row mode must be a string.`,
-              name
-            );
-          const mode = readOwn(entry, modeName, name);
-          if (!isRecord(mode))
-            extensionError(
-              `Extension "${name}" row mode must be an object.`,
-              name
-            );
-        }
-      } else if (component === "data") {
-        fields(readOwn(entry, "create", name));
-        fields(readOwn(entry, "update", name));
-      } else {
-        const holder = junctionHolder(schema, model);
-        if (holder !== undefined)
-          extensionError(
-            `Extension "${name}" deletion.${modelName}: the model is the junction of '${holder}', so a tombstoned link would still be followed. Delete the link with the relation's disconnect, or the row through its delegate.`,
-            name
-          );
-        const at = readOwn(entry, "at", name);
-        if (
-          at !== undefined &&
-          (typeof at !== "string" ||
-            !Object.hasOwn(model["~"].state.scalars, at))
-        )
-          extensionError(
-            `Extension "${name}" deletion.${modelName}.at names unknown scalar.`,
-            name
-          );
-        fields(readOwn(entry, "assign", name));
-      }
-    }
-  }
-}
-
-/** The slot a model is the declared junction of, for a refusal to name. */
-function junctionHolder(schema: Schema, model: Schema[string]) {
-  for (const [holder, candidate] of Object.entries(schema))
-    for (const [field, relation] of Object.entries(
-      candidate["~"].state.relations
-    )) {
-      const internal = (relation as AnyRelation)["~"];
-      if (
-        internal.state.junction?.model !== undefined &&
-        internal.settleJunctionModel!() === model
-      )
-        return `${holder}.${field}`;
-    }
-  return undefined;
-}
-
 /**
  * Read a caller-owned definition once. The six handler members are validated
  * and frozen as host-owned snapshots, so a failed application cannot mutate
- * the supplied value; against a schema, every `rows` predicate is admitted
- * through its model's `where` schema; `controls`, `deletion` and `data` are
- * bound as written.
+ * the supplied value. `controls`, `rows`, `deletion`, `data` and `order` are
+ * kept as written: what reads each checks it against the schema where the
+ * extension is applied (`rows.ts`, `kept.ts`, `stamps.ts`, `order.ts`).
  */
 export function normalizeExtensionDefinition(
   value: ExtensionDefinitionInput,
-  schema?: Schema,
-  registry?: SchemaRegistryLookup<Schema>
+  schema?: Schema
 ): RuntimeExtensionDefinition {
   if (!isRecord(value)) {
     extensionError("Client extension must be an object.");
@@ -514,16 +375,7 @@ export function normalizeExtensionDefinition(
     rawResult === undefined
       ? undefined
       : snapshotResult(rawResult, name, schema);
-  const { controls, deletion, data } = value;
-  validateNamedPolicies({ rows: value.rows, deletion, data }, schema, name);
-  const rows =
-    schema && value.rows
-      ? rowsRuntime().admitRows(value.rows, schema, name, registry)
-      : value.rows;
-  const order =
-    value.order === undefined
-      ? undefined
-      : admitOrder(value.order, schema, name);
+  const { controls, deletion, data, rows, order } = value;
 
   return Object.freeze({
     name,
@@ -544,64 +396,6 @@ export function normalizeExtensionDefinition(
     ...(result ? { result } : {}),
   });
 }
-
-/**
- * `order`, read once: per model, the terms its reads take when the caller
- * gives no `orderBy`, each `{ field: "asc" | "desc" }`. Against a schema, the
- * model must have a row key (its reads end with it, so the order is total)
- * and each field must be one of its scalars that orders as a value (not a
- * list, JSON, vector or point).
- */
-function admitOrder(
-  value: unknown,
-  schema: Schema | undefined,
-  name: string
-): OrderContribution {
-  const models = isRecord(value) ? readOwn(value, "models", name) : undefined;
-  const admitted: Record<string, readonly OrderTerm[]> = {};
-  for (const key of isRecord(models) ? readOwnKeys(models, name) : [""]) {
-    const model = schema?.[key as string];
-    const entry = isRecord(models)
-      ? readOwn(models, key as string, name)
-      : undefined;
-    const terms = Array.isArray(entry) ? entry : [entry];
-    const valid =
-      typeof key === "string" &&
-      (schema === undefined ||
-        (model !== undefined &&
-          getModelKeyCatalog(model).rowKey !== undefined)) &&
-      terms.length > 0 &&
-      terms.every((term) => {
-        const fields = isRecord(term) ? readOwnKeys(term, name) : [];
-        const field = fields[0];
-        const direction = isRecord(term) ? term[field as string] : undefined;
-        const state =
-          typeof field === "string" &&
-          model !== undefined &&
-          Object.hasOwn(model["~"].state.scalars, field)
-            ? model["~"].state.scalars[field]!["~"].state
-            : undefined;
-        return (
-          fields.length === 1 &&
-          (direction === "asc" || direction === "desc") &&
-          (schema === undefined ||
-            (state !== undefined &&
-              !state.array &&
-              !UNORDERED_SCALARS.has(state.type)))
-        );
-      });
-    if (!valid)
-      extensionError(
-        `Extension "${name}" order${isRecord(models) ? `.${String(key)}` : ""} must map a model with a key to { field: "asc" | "desc" } terms over its ordered scalars.`,
-        name
-      );
-    admitted[key as string] = Object.freeze(
-      terms.map((term) => Object.freeze({ ...(term as OrderTerm) }))
-    );
-  }
-  return Object.freeze({ models: Object.freeze(admitted) });
-}
-const UNORDERED_SCALARS = new Set(["json", "vector", "point", "blob"]);
 
 export type ExtensionConfig<S extends Schema> = {
   readonly schema: S;

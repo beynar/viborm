@@ -16,8 +16,6 @@ import { SQLite3Driver } from "@drivers/sqlite3";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import { ForeignKeyError, NotFoundError } from "@errors";
 import { appendResolvedExtension } from "@extensions/chain";
-import { callRows } from "@extensions/rows";
-import { withRows, withVerbs } from "@extensions/rows-runtime";
 import { s } from "@schema";
 import { openDeletionFixture } from "@tests/contracts/engine/write/deletion-capability-behavior";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
@@ -25,10 +23,6 @@ import { failure } from "@tests/fixtures/failure";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import type Database from "better-sqlite3";
 import { afterEach, describe, expect, test } from "vitest";
-
-// These definitions are stated as plain objects: what reads their rows is brought here.
-withRows();
-withVerbs();
 
 const UNKNOWN_MODEL_PATTERN = /unknown model/;
 
@@ -244,7 +238,7 @@ describe("a chain's rows and deletion resolve to one call's facts", () => {
       schema
     );
     const binding = chain.callRows!;
-    const defaults = callRows(binding, "item", undefined);
+    const defaults = binding.call("item", undefined);
     expect(defaults.domain).toBe(defaults.defaults);
     // Each predicate as admission left it, at its member's layer.
     expect(defaults.domain.root.get("item")).toEqual([
@@ -258,7 +252,7 @@ describe("a chain's rows and deletion resolve to one call's facts", () => {
     expect(defaults.tombstones?.get("item")).toMatchObject({
       at: "archivedAt",
     });
-    const archived = callRows(binding, "item", {
+    const archived = binding.call("item", {
       archived: "yes",
       hidden: "include",
     });
@@ -267,16 +261,14 @@ describe("a chain's rows and deletion resolve to one call's facts", () => {
       { archivedAt: { not: { equals: null } } },
     ]);
     // Explicit defaults resolve to the very same facts as absent controls.
-    expect(
-      callRows(binding, "item", { archived: "no", hidden: "exclude" })
-    ).toBe(defaults);
-    const purge = callRows(binding, "item", { purge: true });
+    expect(binding.call("item", { archived: "no", hidden: "exclude" })).toBe(
+      defaults
+    );
+    const purge = binding.call("item", { purge: true });
     expect(purge.tombstones).toBeUndefined();
     expect(purge.domain).toBe(defaults.domain);
     // `removeWhen` belongs to the managed model: another model never matches.
-    expect(
-      callRows(binding, "other", { purge: true }).tombstones
-    ).toBeDefined();
+    expect(binding.call("other", { purge: true }).tombstones).toBeDefined();
   });
 
   test("a rows member with no model entry reads its default; a chain without deletion writes no tombstone", () => {
@@ -285,7 +277,7 @@ describe("a chain's rows and deletion resolve to one call's facts", () => {
       { name: "empty", rows: { control: "scope", default: "all", models: {} } },
       schema
     );
-    const facts = callRows(chain.callRows!, "item", { scope: "all" });
+    const facts = chain.callRows!.call("item", { scope: "all" });
     expect(facts.domain.root.get("item")).toBeUndefined();
     expect(facts.tombstones).toBeUndefined();
     // A chain that declares neither binds nothing.

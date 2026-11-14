@@ -19,7 +19,7 @@ import { SQLite3Driver } from "@drivers/sqlite3";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import { NotFoundError, UniqueConstraintError } from "@errors";
 import { defineExtension } from "@extensions/define";
-import { PreparedDomain } from "@extensions/row-domain";
+import { FilterDomain } from "@extensions/row-domain";
 import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
 import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
@@ -310,7 +310,7 @@ describe("the key-preserving conjunction", () => {
   const engine = new EngineSchema(schema);
   const adapter = new SQLiteAdapter();
   const plain = new SqlQueries(engine, adapter);
-  const domain = new PreparedDomain(
+  const domain = new FilterDomain(
     {
       root: new Map([["post", [{ deletedAt: null }]]]),
       related: new Map(),

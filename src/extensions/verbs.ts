@@ -1,7 +1,7 @@
 /**
  * What reads a `rows` member's `verbs` and `confine`: their admission, their
  * binding to a chain, and what a prepared domain asks of them (`judge.ts`,
- * `projection.ts`). Brought by `withVerbs()`: a program whose extensions only
+ * `projection.ts`). Brought by `verbsPart`: a program whose extensions only
  * filter rows does not hold it, and the filters reach it only through what
  * its admission leaves in the admitted declaration (`bind`).
  */
@@ -411,7 +411,7 @@ const bindVerbs: VerbsBinder = (members, controls) => {
   };
 };
 
-/** What admits and binds `verbs` and `confine`: brought by `withVerbs()`. */
+/** What admits and binds `verbs` and `confine`: brought by `verbsPart`. */
 export const VERBS = Object.freeze({
   verbs: admitVerbs,
   named,
