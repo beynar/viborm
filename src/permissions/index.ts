@@ -19,7 +19,7 @@ import { lazy } from "../extensions/judge-words";
 import { methods } from "../extensions/methods-part";
 import { models as everyOperation, selecting, target } from "../extensions/on";
 import { rule } from "../extensions/rule";
-import { arg, nothing, when } from "../extensions/rule-words";
+import { arg, when } from "../extensions/rule-words";
 import type {
   AnyTarget,
   ClientSchema,
@@ -718,17 +718,12 @@ export function permissions<const Config extends PermissionsConfig>(
       model,
       // The default and the model's read action narrow nothing (`read`
       // holds in every mode); another of its actions or domains narrows by
-      // its predicate (R8); a mode it does not declare holds nothing.
+      // its predicate (R8). A mode it does not declare is refused before
+      // any statement (the `call` below).
       (P) =>
-        modes
-          .filter((mode) => mode !== DEFAULT_MODE && mode !== model.read)
-          .map((mode) =>
-            when(
-              arg(MODE),
-              mode,
-              Object.hasOwn(model.modes, mode) ? P(model.modes[mode]) : nothing
-            )
-          ),
+        Object.entries(model.modes)
+          .filter(([mode]) => mode !== DEFAULT_MODE && mode !== model.read)
+          .map(([mode, named]) => when(arg(MODE), mode, P(named))),
       // Knowing which self relations are kept acyclic takes every model
       // compiled: they are read when an update first writes a self key.
       () => compiler.acyclic(name)

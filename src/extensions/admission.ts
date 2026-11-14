@@ -70,32 +70,23 @@ export interface VerbsDraft {
 }
 
 /**
- * One model's admitted verbs, with an entry given lazily's filters per mode
- * and the arguments its predicates name, checked against the chain it is
- * bound to.
+ * One model's admitted verbs, with an entry given lazily's filters and the
+ * arguments its predicates name, checked against the chain it is bound to.
  */
 export interface AdmittedVerbs extends ModelVerbs {
-  readonly filters?: ModeFilters;
+  readonly filters?: Filters;
   readonly references?: readonly (string | undefined)[];
-}
-
-/** The argument a layer's filters are decided by, one domain per value. */
-export interface LayerMode {
-  readonly name: string;
-  readonly values: readonly string[];
-  readonly fallback: string;
 }
 
 /**
  * One extension's rule parts as written, per model: its filters by purpose
- * (each a list of `where`s and words), the argument they are decided by,
- * its other keys and its confinements. A function entry's keys are read
- * when its model is first read.
+ * (each a list of `where`s and words), its other keys and its
+ * confinements. A function entry's keys are read when its model is first
+ * read.
  */
 export interface RuleLayer {
   readonly root: Record<string, unknown[]>;
   readonly related: Record<string, unknown[]>;
-  mode?: LayerMode;
   readonly verbs: Record<string, VerbsDraft | (() => VerbsDraft)>;
   readonly confine: Record<string, unknown>;
   /**
@@ -119,15 +110,13 @@ export interface RuleLayer {
 /** What makes a layer's node of a predicate: `RowDomain.layered`. */
 export type Layered = NonNullable<RowDomain["layered"]>;
 
-/** One model's filters per value of its layer's mode argument (`""` without one). */
-export interface ModeFilters {
-  readonly [mode: string]: {
-    readonly root?: Input;
-    readonly related?: Input;
-  };
+/** One model's filters by purpose, as admitted. */
+export interface Filters {
+  readonly root?: Input;
+  readonly related?: Input;
 }
 
-/** What admits one model's filters, per mode, for what admits an entry read later. */
+/** What admits one model's filters, for what admits an entry read later. */
 export type FiltersOf = (
   name: string,
   lists: {
@@ -136,9 +125,9 @@ export type FiltersOf = (
   },
   references: References,
   of: string
-) => ModeFilters;
+) => Filters;
 
-/** What a layer's verbs bind to, for every mode combination of a chain. */
+/** What a layer's verbs bind to, for a chain. */
 export interface VerbsBound {
   readonly verbs?: RowDomain["verbs"];
   readonly judge?: RowDomain["judge"];
@@ -146,7 +135,7 @@ export interface VerbsBound {
   /** An entry given lazily is read: its calls carry their values. */
   readonly lazy?: boolean;
   /** A model's filters at one layer, held by an entry given lazily. */
-  readonly filters?: (model: string, layer: number) => ModeFilters | undefined;
+  readonly filters?: (model: string, layer: number) => Filters | undefined;
   /** What prepares the call facts, with what the verbs judge. */
   readonly prepare: CallRows["prepare"];
 }
@@ -168,15 +157,13 @@ export interface VerbsHost {
 }
 
 /**
- * A rule layer as admission left it: per model, each value of its mode's
- * argument (`""` without one) and its filters by purpose; its other keys
- * per model (a function entry's admitted when first read); its
+ * A rule layer as admission left it: per model, its filters by purpose; its
+ * other keys per model (a function entry's admitted when first read); its
  * confinements; and the arguments its predicates read.
  */
 export interface AdmittedLayer {
   readonly extension: string;
-  readonly mode?: LayerMode;
-  readonly models: { readonly [model: string]: ModeFilters };
+  readonly models: { readonly [model: string]: Filters };
   readonly verbs: {
     readonly [model: string]: AdmittedVerbs | (() => AdmittedVerbs);
   };
@@ -298,30 +285,14 @@ function nativeSchema(schema: Schema): boolean {
   });
 }
 
-/** The items of a filter list that hold in `mode`, as one `where`. */
-function filterIn(
-  items: readonly unknown[],
-  layer: RuleLayer,
-  mode: string | undefined
-): unknown {
-  const applied: unknown[] = [];
-  for (const item of items) {
-    const kept =
-      item instanceof PredicateWord && item.under
-        ? item.under(layer.mode, mode!)
-        : item;
-    if (kept !== undefined) applied.push(kept);
-  }
-  if (applied.length === 0) return undefined;
-  if (applied.length === 1) return applied[0];
-  return { AND: applied };
-}
+/** A filter list as one `where`. */
+const filterOf = (items: readonly unknown[]): unknown =>
+  items.length < 2 ? items[0] : { AND: items };
 
 /**
- * One extension's rule layer with every predicate admitted: each filter
- * once per value of its mode's argument, and each other key once. Admitted
- * once per schema registry, where the schema's scalars admit with the
- * engine's own schemas.
+ * One extension's rule layer with every predicate admitted once, its tests
+ * of an argument folded per call. Admitted once per schema registry, where
+ * the schema's scalars admit with the engine's own schemas.
  */
 export function admitLayer(
   layer: RuleLayer,
@@ -341,22 +312,17 @@ export function admitLayer(
   if (known) return known;
   const admitting = admission(schema, extension, registry);
   const { admit } = admitting;
-  const modes = layer.mode?.values ?? [""];
   const references: References = new Set();
-  const models: Record<string, ModeFilters> = {};
-  /** One model's filters, per mode, each purpose's admitted. */
+  const models: Record<string, Filters> = {};
+  /** One model's filters, each purpose's admitted. */
   const filtersOf: FiltersOf = (name, lists, read, of) => {
-    const byMode: Record<string, { root?: Input; related?: Input }> = {};
-    for (const mode of modes) {
-      const out: { root?: Input; related?: Input } = {};
-      for (const purpose of ["root", "related"] as const) {
-        const predicate = filterIn(lists[purpose] ?? [], layer, mode);
-        if (predicate !== undefined)
-          out[purpose] = admit(name, `${name}.${purpose}`, predicate, read, of);
-      }
-      byMode[mode] = Object.freeze(out);
+    const out: { root?: Input; related?: Input } = {};
+    for (const purpose of ["root", "related"] as const) {
+      const predicate = filterOf(lists[purpose] ?? []);
+      if (predicate !== undefined)
+        out[purpose] = admit(name, `${name}.${purpose}`, predicate, read, of);
     }
-    return Object.freeze(byMode);
+    return Object.freeze(out);
   };
   for (const name of new Set([
     ...Object.keys(layer.root),
@@ -388,7 +354,6 @@ export function admitLayer(
   const layered = layer.layered ?? admitting.layered;
   const out: AdmittedLayer = Object.freeze({
     extension,
-    ...(layer.mode && { mode: layer.mode }),
     models: Object.freeze(models),
     verbs,
     ...(host && { host }),

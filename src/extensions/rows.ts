@@ -1,9 +1,9 @@
 /**
  * What applies a `rule`: each extension's layer admitted once per schema
- * (`admission.ts`) and bound once per application into what each
- * combination of its mode arguments' values selects. A chain whose parts
- * filter, keep or judge rows binds its call facts here, with what its other
- * parts posed: the kept rows, the stamps and the order.
+ * (`admission.ts`) and bound once per application into one domain, whose
+ * predicates read each call's values. A chain whose parts filter, keep or
+ * judge rows binds its call facts here, with what its other parts posed: the
+ * kept rows, the stamps and the order.
  */
 import type { PreparedSelector } from "@query-engine/raptor3/shared/query";
 import type {
@@ -25,15 +25,13 @@ import type {
 import type { AdmittedControls } from "./controls";
 import { type PreparedDomain, prepareCall } from "./row-domain";
 
-/** What one combination of modes selects, with and without the tombstones. */
-interface Combination {
-  /** The call writes tombstones. */
-  readonly tombstoning: CallRows;
-  /** The call deletes physically. */
-  readonly physical: CallRows;
-}
-
 const NO_CONTROLS: AdmittedControls = Object.freeze({});
+
+/** Calls' shared facts, by the value of one closed argument, then the next. */
+interface Shared {
+  readonly next: Map<unknown, Shared>;
+  rows?: CallRows;
+}
 
 /**
  * The chain's `required` declarations as one test, by argument and model:
@@ -47,12 +45,11 @@ const requiredOn =
   };
 
 /**
- * One purpose's predicates per model, for one mode of every layer, each at
- * its layer's place in the chain: the layer the engine reads it as.
+ * One purpose's predicates per model, each at its layer's place in the
+ * chain: the layer the engine reads it as.
  */
 function modelDomain(
   layers: readonly AdmittedLayer[],
-  modes: readonly string[],
   purpose: "root" | "related",
   lazy: VerbsBound["filters"] | undefined
 ): ModelDomain {
@@ -64,14 +61,13 @@ function modelDomain(
         for (const [layer, member] of layers.entries()) {
           // An entry given lazily holds its filters: read it now.
           const filters = member.models[model] ?? lazy?.(model, layer);
-          const where = filters?.[modes[layer]!]?.[purpose];
+          const where = filters?.[purpose];
           if (where !== undefined) (list ??= [])[layer] = where;
         }
         return list;
       }) ?? undefined,
   };
 }
-
 /**
  * What an `excluded` layer states its own whole-table sets of a model hold
  * (`confine`), for one prepared domain: inside its own predicates a layer
@@ -105,29 +101,35 @@ function bound(domain: PreparedDomain) {
 }
 
 /**
- * A chain's row facts, resolved once when an extension is applied: what
- * each combination of its layers' modes selects, built the first time a
- * call takes it, with the chain's kept rows, stamps and order, so a call
- * only looks its facts up. The predicates hold the values they read as
- * parameters, prepared once for every call: where one of them reads a call
- * value, each call carries its values beside the shared domains.
+ * A chain's row facts, resolved once when an extension is applied: one
+ * domain, with the chain's kept rows, stamps and order, so a call only looks
+ * its facts up. The predicates hold the values they read as parameters,
+ * prepared once for every call: where one of them reads a call value, each
+ * call carries its values beside the shared domain, an argument with a
+ * default at its default where the call passes none.
  */
 export class RowsBinding implements CallRowsBinding {
-  readonly #chain: ResolvedExtensionChain;
-  readonly #layers: readonly AdmittedLayer[];
-  /** What the domains hold beside the filters: verbs, confinements. */
-  readonly #beside: Partial<RowDomain>;
-  readonly #lazy: VerbsBound["filters"] | undefined;
-  readonly #prepare: CallRows["prepare"];
+  readonly #kept: ResolvedExtensionChain["kept"];
+  readonly #stamps: ResolvedExtensionChain["stamps"];
   /** Some predicate reads a call value: every call carries its values. */
   readonly #parametric: boolean;
-  readonly #order: ReadonlyMap<string, readonly Input[]> | undefined;
   readonly #required: CallValues["required"];
-  /** Per combination of the layers' modes, its key: each value, then NUL. */
-  readonly #domains = new Map<string, RowDomain>();
-  readonly #combinations = new Map<string, Combination>();
-  /** The combination absent arguments select. */
-  readonly #fallback: string;
+  /** The value of each argument with a default: what a call that passes none takes. */
+  readonly #fallback: Readonly<Record<string, unknown>> | undefined;
+  /** The facts of a call that deletes physically. */
+  readonly #physical: CallRows;
+  /** The facts of a call whose deletes keep their rows. */
+  readonly #tombstoning: CallRows;
+  /**
+   * The arguments the predicates read, where each takes one of closed
+   * values (`oneOf`) and none reads the instant: calls that pass the same
+   * values share one facts object, and so one read view, as many as the
+   * values combine.
+   */
+  readonly #closed: readonly string[] | undefined;
+  /** The facts calls share, by the value of each closed argument in turn. */
+  readonly #shared: Shared = { next: new Map() };
+  readonly #sharedKept: Shared = { next: new Map() };
   constructor(chain: ResolvedExtensionChain) {
     const layers = chain.rows ?? [];
     // The verbs, where some word brought what binds them.
@@ -142,98 +144,109 @@ export class RowsBinding implements CallRowsBinding {
     for (const [layer, member] of layers.entries())
       for (const [model, where] of Object.entries(member.confine))
         memo(confine, model, () => [])[layer] = where;
-    this.#lazy = filters;
-    this.#prepare = prepare;
-    this.#chain = chain;
-    this.#layers = layers;
-    const layered = layers.find((layer) => layer.layered)?.layered;
-    this.#beside = {
-      ...verbs,
-      ...(confine.size > 0 && { confine, bound }),
-      ...(layered && { layered }),
-    };
     // An entry given lazily's predicates are not known yet: its calls
     // carry their values.
     this.#parametric =
       lazy || layers.some(({ references }) => references.length > 0);
-    this.#order = chain.order && new Map(Object.entries(chain.order));
+    const read = new Set(layers.flatMap(({ references }) => references));
+    const declared = chain.controls?.all ?? [];
+    // An entry given lazily may read any argument, known once it is read.
+    const defaulted = declared.filter(
+      ({ name, fallback }) => fallback !== undefined && (lazy || read.has(name))
+    );
+    this.#closed =
+      lazy ||
+      chain.stamps?.named === true ||
+      ![...read].every((name) =>
+        declared.some(
+          (control) => control.name === name && "oneOf" in control.declaration
+        )
+      )
+        ? undefined
+        : [...read].filter((name) => name !== undefined);
+    this.#fallback =
+      this.#parametric && defaulted.length > 0
+        ? Object.freeze(
+            Object.fromEntries(
+              defaulted.map(({ name, fallback }) => [name, fallback])
+            )
+          )
+        : undefined;
+    const layered = layers.find((layer) => layer.layered)?.layered;
+    const { kept, stamps, order } = chain;
+    this.#kept = kept;
+    this.#stamps = stamps;
     this.#required = requiredOn(chain.controls);
-    this.#fallback = this.#key(undefined);
-  }
-  /**
-   * The combination `controls` select: each layer's mode, the value its
-   * argument took, or its default where it took none of the mode's values.
-   */
-  #key(controls: AdmittedControls | undefined): string {
-    let key = "";
-    for (const { mode } of this.#layers) {
-      const value = mode && controls?.[mode.name];
-      const taken = mode?.values.find((name) => name === value);
-      key += `${taken ?? mode?.fallback ?? ""}\u0000`;
-    }
-    return key;
-  }
-  /** What `combination` selects, one domain for every call that takes it. */
-  #domain(combination: string): RowDomain {
-    return memo(this.#domains, combination, () => {
-      const modes = combination.split("\u0000");
-      return Object.freeze({
-        root: modelDomain(this.#layers, modes, "root", this.#lazy),
-        related: modelDomain(this.#layers, modes, "related", this.#lazy),
-        ...this.#beside,
-        ...(this.#order && { order: this.#order }),
-      });
+    const domain: RowDomain = Object.freeze({
+      root: modelDomain(layers, "root", filters),
+      related: modelDomain(layers, "related", filters),
+      ...verbs,
+      ...(confine.size > 0 && { confine, bound }),
+      ...(layered && { layered }),
+      ...(this.#fallback && { fallback: this.#fallback }),
+      ...(order && { order: new Map(Object.entries(order)) }),
     });
-  }
-  #combination(combination: string): Combination {
-    const { kept, stamps } = this.#chain;
-    const physical: CallRows = Object.freeze({
-      domain: this.#domain(combination),
-      defaults: this.#domain(this.#fallback),
+    this.#physical = Object.freeze({
+      domain,
       ...(stamps && { stamps: stamps.all }),
-      prepare: this.#prepare,
+      prepare,
     });
-    return {
-      physical,
-      tombstoning:
-        kept === undefined
-          ? physical
-          : Object.freeze({ ...physical, tombstones: kept }),
-    };
+    this.#tombstoning =
+      kept === undefined
+        ? this.#physical
+        : Object.freeze({ ...this.#physical, tombstones: kept });
   }
   /**
-   * One call's row facts, from the arguments it admitted: the value each
-   * layer's mode argument took (an absent one reads as its default), and
-   * whether it deletes physically ({@link Kept.removes}). When its
-   * predicates read a call value, the call carries its arguments; when a
-   * stamp names one, the call's values are put in.
+   * One call's row facts, from the arguments it admitted, and whether it
+   * deletes physically ({@link Kept.removes}). When its predicates read a
+   * call value, the call carries its arguments, each one with a default at
+   * it where the call passes none; when a stamp names one, the call's values
+   * are put in.
    */
   call(model: string, controls: AdmittedControls | undefined): CallRows {
-    const key = this.#key(controls);
-    // Looked up without a closure: every call of the chain passes here.
-    let combination = this.#combinations.get(key);
-    if (combination === undefined) {
-      combination = this.#combination(key);
-      this.#combinations.set(key, combination);
-    }
-    const { kept, stamps } = this.#chain;
+    const kept = this.#kept;
     const facts =
       kept?.removes(model, controls) === true
-        ? combination.physical
-        : combination.tombstoning;
+        ? this.#physical
+        : this.#tombstoning;
     const parametric = this.#parametric;
+    const stamps = this.#stamps;
     const stamped = stamps?.named === true;
     if (!(parametric || stamped)) return facts;
-    return Object.freeze({
-      ...facts,
-      ...(parametric && {
-        values: Object.freeze({
-          controls: controls ?? NO_CONTROLS,
-          required: this.#required,
+    let values = controls ?? NO_CONTROLS;
+    const fallback = this.#fallback;
+    if (fallback !== undefined)
+      for (const name in fallback)
+        if (!Object.hasOwn(values, name)) {
+          values = { ...fallback, ...values };
+          break;
+        }
+    const closed = this.#closed;
+    if (closed === undefined)
+      return Object.freeze({
+        ...facts,
+        ...(parametric && {
+          values: Object.freeze({ controls: values, required: this.#required }),
         }),
+        ...(stamped && { stamps: stamps.of(controls) }),
+      });
+    let node = facts === this.#physical ? this.#shared : this.#sharedKept;
+    for (const name of closed) {
+      const value = values[name];
+      let next = node.next.get(value);
+      if (next === undefined)
+        node.next.set(value, (next = { next: new Map() }));
+      node = next;
+    }
+    node.rows ??= Object.freeze({
+      ...facts,
+      values: Object.freeze({
+        controls: values,
+        required: this.#required,
+        shared: true as const,
       }),
-      ...(stamped && { stamps: stamps.of(controls) }),
     });
+    return node.rows;
   }
 }
 

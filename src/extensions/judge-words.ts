@@ -307,22 +307,6 @@ class Lazy extends CarriedValue {
         : { ...verbs, root, related };
     };
     layer.verbs[model] = read;
-    // Once every part wrote, where no eager filter of the extension decided
-    // its filters by an argument: the entry is read later, so they are
-    // decided by the first argument of the extension a value of which picks
-    // a mode.
-    draft.finish.push(() => {
-      if (layer.mode !== undefined) return;
-      for (const [name, spec] of Object.entries(draft.controls ?? {}))
-        if ("oneOf" in spec && spec.default !== undefined) {
-          layer.mode = {
-            name,
-            values: spec.oneOf.map(String),
-            fallback: String(spec.default),
-          };
-          return;
-        }
-    });
   }
 }
 

@@ -1051,14 +1051,17 @@ describe("controls: rows bound to the call", () => {
   test("a predicate's value is a parameter; an absent optional value travels as absent", () => {
     const binding = bound(optimisticLock(["post"]));
     const [checked] = binding.call("post", undefined).domain.root.get("post")!;
-    const operand = (checked as { version: { equals: unknown } }).version
-      .equals;
+    // `when` is folded per call: its filter is the second arm of its `OR`.
+    const operand = (
+      checked as { OR: [unknown, { version: { equals: unknown } }] }
+    ).OR[1].version.equals;
     expect(operand).toBeInstanceOf(Parameter);
     expect(operand).toMatchObject({ control: "expectedVersion" });
     // Absent, the lock's value still travels as absent: the engine drops it,
     // as no control of the chain is required.
+    // An argument with a default takes it where the call passes none.
     const absent = binding.call("post", undefined).values!;
-    expect(absent.controls).toEqual({});
+    expect(absent.controls).toEqual({ versionCheck: "checked" });
     expect(absent.required("expectedVersion", "post")).toBe(false);
     // `unchecked` names nothing, but its default domain does.
     const unchecked = binding.call("post", { versionCheck: "unchecked" });
@@ -1218,7 +1221,7 @@ describe("controls: rows bound to the call", () => {
     expect(await relatedIds({ view: "all" })).toEqual(["d1", "d2", "t1", "t2"]);
   });
 
-  test("a tombstoning call's default domain is the chain's; a physical one keeps the same domains", () => {
+  test("every call shares the chain's one domain, its values beside it; a physical one keeps it", () => {
     const [tenantRows] = appendResolvedExtension(
       undefined,
       tenancyRecipe(["post"]),
@@ -1232,12 +1235,9 @@ describe("controls: rows bound to the call", () => {
     });
     const defaults = binding.call("post", undefined);
     const operator = binding.call("post", { tenant: "acme", scope: "all" });
-    expect(operator.domain.related.get("post")).toBeUndefined();
-    expect(operator.defaults).toBe(defaults.domain);
+    expect(operator.domain).toBe(defaults.domain);
     expect(operator.tombstones).toBe(defaults.tombstones);
     expect(operator.values?.controls).toEqual({ tenant: "acme", scope: "all" });
-    const own = binding.call("post", { tenant: "acme" });
-    expect(own.defaults).toBe(own.domain);
     const physical = bindRows({
       extensions: [],
       rows: [tenantRows!],

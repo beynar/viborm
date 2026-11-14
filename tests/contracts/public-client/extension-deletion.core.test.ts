@@ -220,7 +220,7 @@ describe("a chain's rows and deletion resolve to one call's facts", () => {
     return value.append(previous, schema);
   };
 
-  test("every combination of two rows members, the default shared, a removeWhen match physical", () => {
+  test("two rule members share one domain, a call's values beside it, a removeWhen match physical", () => {
     let chain = chainOf(
       extension(
         "archive",
@@ -256,16 +256,20 @@ describe("a chain's rows and deletion resolve to one call's facts", () => {
     );
     const binding = chain.callRows!;
     const defaults = binding.call("item", undefined);
-    expect(defaults.domain).toBe(defaults.defaults);
-    // Each predicate as admission left it, at its member's layer.
-    expect(defaults.domain.root.get("item")).toEqual([
-      { archivedAt: { equals: null } },
-      { hidden: { equals: false } },
-    ]);
+    // One domain at each member's layer, its tests of an argument folded per
+    // call: a call that passes none reads each argument at its default.
+    expect(defaults.domain.root.get("item")).toHaveLength(2);
     const related = defaults.domain.related.get("item")!;
     expect(related).toHaveLength(2);
     expect(0 in related).toBe(false);
-    expect(related[1]).toEqual({ hidden: { equals: false } });
+    expect(defaults.domain.fallback).toEqual({
+      archived: "no",
+      hidden: "exclude",
+    });
+    expect(defaults.values?.controls).toEqual({
+      archived: "no",
+      hidden: "exclude",
+    });
     expect(defaults.tombstones?.get("item")).toMatchObject({
       at: "archivedAt",
     });
@@ -273,14 +277,11 @@ describe("a chain's rows and deletion resolve to one call's facts", () => {
       archived: "yes",
       hidden: "include",
     });
-    expect(archived.defaults).toBe(defaults.domain);
-    expect(archived.domain.root.get("item")).toEqual([
-      { archivedAt: { not: { equals: null } } },
-    ]);
-    // Explicit defaults resolve to the very same facts as absent controls.
-    expect(binding.call("item", { archived: "no", hidden: "exclude" })).toBe(
-      defaults
-    );
+    expect(archived.domain).toBe(defaults.domain);
+    expect(archived.values?.controls).toEqual({
+      archived: "yes",
+      hidden: "include",
+    });
     const purge = binding.call("item", { purge: true });
     expect(purge.tombstones).toBeUndefined();
     expect(purge.domain).toBe(defaults.domain);

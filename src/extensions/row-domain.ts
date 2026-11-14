@@ -20,6 +20,7 @@ import {
 import type {
   CallRows,
   CallScope,
+  CallValues,
   RowDomain,
   RowJudgement,
   RowPurpose,
@@ -145,11 +146,23 @@ export class FilterDomain implements PreparedDomain {
    * (`rows.confine`): nothing where no member confines one.
    */
   readonly bound: ReturnType<NonNullable<RowDomain["bound"]>>;
+  /** Read at the arguments' defaults: what its layers take as theirs. */
+  readonly #fallback: RowDomain["fallback"];
   #view: Queries | undefined;
-  constructor(rows: RowDomain, queries: Queries, defaults?: FilterDomain) {
+  /** One read view per shared values, which no call's instant is read under. */
+  readonly #views = new WeakMap<CallValues, Queries>();
+  /**
+   * The domain read with each call's values, and its default twin of the
+   * same class, made with it: where no argument has a default, itself.
+   */
+  constructor(rows: RowDomain, queries: Queries, atDefaults = false) {
     this.rows = rows;
     this.queries = queries;
-    this.defaults = defaults ?? this;
+    this.#fallback = atDefaults ? rows.fallback : undefined;
+    this.defaults =
+      atDefaults || rows.fallback === undefined
+        ? this
+        : new new.target(rows, queries, true);
     this.judge = rows.judge?.(this);
     this.project = rows.project?.(this);
     this.bound = rows.bound?.(this) ?? unbounded;
@@ -183,7 +196,10 @@ export class FilterDomain implements PreparedDomain {
         wheres.length === 1 ? wheres[0]! : queries.andSelectors(model, wheres);
       if (part.predicate !== undefined)
         parts.push(
-          freeze({ ...part, predicate: layered(layer, name, part.predicate) })
+          freeze({
+            ...part,
+            predicate: layered(layer, name, part.predicate, this.#fallback),
+          })
         );
       else if (!reading) parts.push(part);
     }
@@ -193,11 +209,13 @@ export class FilterDomain implements PreparedDomain {
   /**
    * The read view under this domain for `call`: one for every call, whose
    * lifetime is the domain's, unless the call carries the values its
-   * parameters read.
+   * parameters read; then one per values shared by calls, else the call's.
    */
   reads(call: CallScope): Queries {
-    return call.rows.values === undefined
-      ? (this.#view ??= this.queries.under(this))
+    const { values } = call.rows;
+    if (values === undefined) return (this.#view ??= this.queries.under(this));
+    return values.shared
+      ? memo(this.#views, values, () => this.queries.under(this, call))
       : this.queries.under(this, call);
   }
   /**
@@ -297,10 +315,8 @@ export class FilterDomain implements PreparedDomain {
 }
 /**
  * Each row domain a call selects, prepared once per query owner. A prepared
- * domain derives only from the domain, that owner (its adapter and result
- * parser) and its defaults, so clients sharing the owner share it too. The
- * domain alone keys it: a chain's binding builds each domain with its one
- * default domain and one class.
+ * domain derives only from the domain and that owner (its adapter and result
+ * parser), so clients sharing the owner share it too.
  */
 const preparedDomains = new WeakMap<
   Queries,
@@ -310,7 +326,8 @@ const preparedDomains = new WeakMap<
 /**
  * What prepares one call's row facts as the engine reads them, with
  * `Domain`: its domains prepared for `queries`. Stated on every
- * {@link CallRows}.
+ * {@link CallRows}. The default domain is the call's own where the call
+ * passed every argument with a default at its default.
  */
 export const preparer = (Domain: typeof FilterDomain) =>
   function prepare(
@@ -318,20 +335,21 @@ export const preparer = (Domain: typeof FilterDomain) =>
     queries: Queries,
     instant: () => Date
   ): CallScope {
-    const byDomain = memo(preparedDomains, queries, () => new WeakMap());
-    const defaults = memo(
-      byDomain,
-      this.defaults,
-      () => new Domain(this.defaults, queries)
+    const domain = memo(
+      memo(preparedDomains, queries, () => new WeakMap()),
+      this.domain,
+      () => new Domain(this.domain, queries)
     );
+    const { fallback } = this.domain;
+    const controls = this.values?.controls;
+    let departs = false;
+    if (fallback !== undefined && controls !== undefined)
+      for (const name in fallback)
+        departs ||= !Object.is(controls[name], fallback[name]);
     return {
       rows: this,
-      domain: memo(
-        byDomain,
-        this.domain,
-        () => new Domain(this.domain, queries, defaults)
-      ),
-      defaults,
+      domain,
+      defaults: departs ? domain.defaults : domain,
       instant,
     };
   };

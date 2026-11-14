@@ -18,13 +18,7 @@ import { isPlainRecord } from "@schema/relation/terminal";
 import { validateSchema } from "@validation/primitives/helpers";
 import type { FilterWord } from "@validation/primitives/parameter";
 import type { SchemaRegistryLookup } from "@validation/types";
-import type {
-  Layered,
-  LayerMode,
-  References,
-  RuleLayer,
-  VerbsDraft,
-} from "./admission";
+import type { Layered, References, VerbsDraft } from "./admission";
 import type {
   ArgTest,
   ArgWord,
@@ -38,7 +32,7 @@ import type {
   WhenWord,
 } from "./contract";
 import type { DefinitionDraft } from "./extension";
-import { layerOf } from "./layers";
+import { Choice, layerOf } from "./layers";
 import { NOW } from "./stamps";
 
 /**
@@ -72,21 +66,14 @@ export abstract class CarriedValue {
 /**
  * A word written inside a predicate: what the rule's admission makes of it
  * where it stands (`value` where a value goes, `filter` where a filter
- * goes), and, for a test of an argument, what decides a layer's mode. Each
- * word carries its own, so a program holds the code of the words it writes.
+ * goes). Each word carries its own, so a program holds the code of the words
+ * it writes.
  */
 export abstract class PredicateWord {
   /** What admission puts where the word stands as a value. */
   value?(at: Admitting): object;
   /** What admission puts where the word stands as a filter. */
   filter?(at: Admitting): FilterWord;
-  /** Where the word heads a filter list: its layer's mode, once known. */
-  place?(layer: RuleLayer, draft: DefinitionDraft): void;
-  /**
-   * The word in a list read under one value of its layer's mode: itself,
-   * what it applies there, or `undefined` where it applies nothing.
-   */
-  under?(mode: LayerMode | undefined, value: string): unknown;
   /** What a field of default or kept data writes for the word. */
   stamp?(): unknown;
   /** A `when` or an `unless`: its argument, its test and what it applies. */
@@ -203,12 +190,10 @@ function testOf(given: unknown): ConditionTest | string {
 }
 
 /**
- * `when`, `unless` and `provided`: a test of an argument's value. `when`
- * applies `then` where the test holds and nothing elsewhere; `unless` the
- * reverse; `provided` holds only where the test holds (and `then`, if any).
- * A `when` or `unless` heading a filter list, on an argument of the
- * extension with closed values and a default, decides its layer's mode: it
- * is read per mode, not per call.
+ * `when`, `unless` and `provided`: a test of an argument's value, folded per
+ * call. `when` applies `then` where the test holds and nothing elsewhere;
+ * `unless` the reverse; `provided` holds only where the test holds (and
+ * `then`, if any).
  */
 export class ArgTestFilter extends PredicateWord {
   readonly kind: "when" | "unless" | "provided";
@@ -233,7 +218,10 @@ export class ArgTestFilter extends PredicateWord {
     const { arg, kind, then } = this;
     at.references.add(arg.name);
     at.layered = layerOf;
-    const condition = new Condition(new Parameter(arg.name, arg.path), test);
+    const condition = new (kind === "provided" ? Condition : Choice)(
+      new Parameter(arg.name, arg.path),
+      test
+    );
     if (kind === "provided")
       return then === undefined
         ? { nodes: [condition] }
@@ -243,58 +231,9 @@ export class ArgTestFilter extends PredicateWord {
       where: { OR: [kind === "when" ? { NOT: condition } : condition, then] },
     };
   }
-  override place(layer: RuleLayer, draft: DefinitionDraft): void {
-    // Once every part wrote, before what decides from the mode: the
-    // argument is the extension's, declared by its `args` part wherever it
-    // stands. The first such test decides, root lists before related ones.
-    draft.finish.unshift(() => {
-      if (layer.mode !== undefined) return;
-      for (const item of [
-        ...Object.values(layer.root),
-        ...Object.values(layer.related),
-      ].flat()) {
-        if (
-          !(item instanceof ArgTestFilter) ||
-          item.kind === "provided" ||
-          item.arg.path !== undefined
-        )
-          continue;
-        const spec = draft.controls?.[item.arg.name];
-        if (
-          spec === undefined ||
-          !("oneOf" in spec) ||
-          spec.default === undefined
-        )
-          continue;
-        layer.mode = {
-          name: item.arg.name,
-          values: spec.oneOf.map(String),
-          fallback: String(spec.default),
-        };
-        return;
-      }
-    });
-  }
   override tested() {
     const { kind, arg, test, then } = this;
     return kind === "provided" ? undefined : { kind, arg, test, then };
-  }
-  override under(mode: LayerMode | undefined, value: string): unknown {
-    const { arg, kind, test } = this;
-    if (
-      kind === "provided" ||
-      arg.path !== undefined ||
-      arg.name !== mode?.name
-    )
-      return this;
-    const passed = isPlainRecord(test)
-      ? "in" in test && Array.isArray(test.in)
-        ? test.in.includes(value)
-        : "equals" in test
-          ? test.equals === value
-          : "exists" in test && test.exists === true
-      : test === value;
-    return passed === (kind === "when") ? this.then : undefined;
   }
 }
 

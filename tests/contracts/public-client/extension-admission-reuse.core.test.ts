@@ -56,7 +56,7 @@ test("a declaration changed after it was applied is not read again; a field's ow
   predicate.id = "two";
   const second = admitted(definition, schema, registry);
   expect(second).toBe(first);
-  expect(second.models.post?.[""]?.root).toEqual({
+  expect(second.models.post?.root).toEqual({
     id: { equals: "one" },
   });
   const custom = {

@@ -23,7 +23,7 @@ import type {
 import { extensionError } from "./definition";
 import { builtPart, type DefinitionDraft } from "./extension";
 import { rulePart } from "./rows";
-import { CarriedValue, PredicateWord } from "./rule-words";
+import { CarriedValue } from "./rule-words";
 
 type Entry = Readonly<Record<string, unknown>>;
 
@@ -163,9 +163,6 @@ function writeRule(
     for (const purpose of ["root", "related"] as const) {
       const items = listOf(written[purpose]);
       if (where !== undefined) items.unshift(where);
-      // A test heading a list may decide the layer's mode.
-      for (const item of items)
-        if (item instanceof PredicateWord) item.place?.(layer, draft);
       if (items.length > 0)
         layer[purpose][model] = [...(layer[purpose][model] ?? []), ...items];
     }

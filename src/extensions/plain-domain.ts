@@ -2,7 +2,7 @@
  * The call facts of a chain whose parts order and stamp rows but neither
  * filter, keep nor judge any (`order`, `data`): a domain that answers every
  * question as one with no layer does, so neither the prepared domain, its
- * layers, the mode table nor what admits predicates comes with them. Once a
+ * layers nor what admits predicates comes with them. Once a
  * part of the chain filters or keeps rows, its own binding reads the order
  * and the stamps too.
  */
@@ -95,7 +95,6 @@ class PlainBinding implements CallRowsBinding {
     this.#stamps = stamps;
     this.#facts = Object.freeze({
       domain,
-      defaults: domain,
       ...(stamps && { stamps: stamps.all }),
       prepare: preparePlain,
     });

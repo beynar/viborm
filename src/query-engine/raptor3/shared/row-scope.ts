@@ -48,13 +48,20 @@ export interface RowDomain {
   /**
    * What makes a layer's node of a predicate that reads its call (an
    * argument, the instant, a test of an argument): brought by the words
-   * that read it. Absent, a layer is what it states.
+   * that read it. Absent, a layer is what it states. Given `fallback`, the
+   * node reads each argument with a default at its default.
    */
   readonly layered?: (
     layer: number,
     model: string,
-    predicate: PreparedPredicate
+    predicate: PreparedPredicate,
+    fallback?: Readonly<Record<string, unknown>>
   ) => PreparedPredicate;
+  /**
+   * The value each argument with a default takes where a call passes none:
+   * what the default domain reads them as (`CallScope.defaults`).
+   */
+  readonly fallback?: Readonly<Record<string, unknown>>;
   /** What a layer's own whole-table sets hold (`rows.confine`), in every mode. */
   readonly confine?: ModelDomain;
   /**
@@ -237,16 +244,15 @@ export const parseStamped = <T>(
  * control are the call's own.
  */
 export interface CallRows {
-  /** The domain the call's own controls select. */
+  /**
+   * The rows the call may take: its predicates read the call's values, or,
+   * prepared as the default domain, each argument with a default at its
+   * default ({@link CallScope.defaults}).
+   */
   readonly domain: RowDomain;
   /**
-   * The domain an absent control selects: what a tombstoning delete takes,
-   * and every other layer a layer's own traversals read (R5).
-   */
-  readonly defaults: RowDomain;
-  /**
    * Per managed model, what its deletes write; absent when the call deletes
-   * physically (its controls match the declaration's `removeWhen`).
+   * physically (what its `keep` reads of the call says so).
    */
   readonly tombstones?: Tombstones;
   /** Per model (its TS name), the fields its creates and updates write. */
@@ -262,6 +268,11 @@ export interface CallValues {
   readonly controls: Readonly<Record<string, unknown>>;
   /** An absent value of `control` on `model` matches nothing; else it drops. */
   readonly required: (control: string, model: string) => boolean;
+  /**
+   * The same object serves every call that passes these values, and no
+   * predicate reads the instant: one read view serves them all.
+   */
+  readonly shared?: true;
 }
 
 /**
@@ -376,7 +387,11 @@ export interface CallScope {
   readonly rows: CallRows;
   /** The call's domain, prepared once per engine view. */
   readonly domain: PreparedDomain;
-  /** The default domain, prepared once per engine view. */
+  /**
+   * The domain read where every argument with a default takes it: what a
+   * tombstoning delete takes, and every other layer a layer's own
+   * traversals read (R5). The call's own where its values are the defaults.
+   */
   readonly defaults: PreparedDomain;
   /**
    * The call's one instant (a tombstone's, and `{ now: true }`'s): sampled at

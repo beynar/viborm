@@ -394,8 +394,11 @@ describe("one engine view", () => {
           [10, 14]
         )
       );
-      // As admission left it: the shorthand `{ deletedAt: null }` is `equals`.
-      expect([...first]).toContainEqual({ deletedAt: { equals: null } });
+      // As admission left it, its `when` folded per call: the shorthand
+      // `{ deletedAt: null }` is `equals`.
+      expect(JSON.stringify([...first])).toContain(
+        '{"deletedAt":{"equals":null}}'
+      );
       const second = await preparedIn(async () =>
         expect(await db.post.count({ where: { authorId: 2 } })).toBe(1)
       );
@@ -409,11 +412,12 @@ describe("one engine view", () => {
       const [only] = await readers(() => db.post.findMany({ deleted: "only" }));
       // Compared by identity alone: a `Queries` holds the client's schema,
       // which no assertion should print.
+      // Calls passing the same closed values share one view; others do not.
       expect({
         reused: scoped === again,
         plain: scoped === plain,
-        perMode: only === scoped,
-      }).toEqual({ reused: true, plain: false, perMode: false });
+        perValues: only === scoped,
+      }).toEqual({ reused: true, plain: false, perValues: false });
     } finally {
       await base.$disconnect();
     }
