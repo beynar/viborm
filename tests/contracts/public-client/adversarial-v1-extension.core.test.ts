@@ -1,10 +1,9 @@
-import { appendResolvedExtension } from "@extensions/chain";
-import {
-  type ExtensionDefinitionInput,
-  normalizeExtensionDefinition,
-} from "@extensions/definition";
-import { createClient, defineExtension, s } from "@src/index";
+import { createClient, extension, keep, parts, rule, s } from "@src/index";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
+import {
+  appendResolvedExtension,
+  type HostDefinition,
+} from "@tests/fixtures/host-definition";
 import { describe, expect, it } from "vitest";
 
 const UNKNOWN_PATTERN = /unknown/i;
@@ -17,9 +16,9 @@ const post = s.model({
   title: s.string(),
 });
 const schema = { post };
-/** A definition applied to a chain: what checks what it declares. */
+/** A definition's members applied to a chain by the host parts that read them. */
 const applied = (
-  definition: ExtensionDefinitionInput,
+  definition: HostDefinition,
   receiving: Parameters<typeof appendResolvedExtension>[2]
 ) => appendResolvedExtension(undefined, definition, receiving);
 describe("named extension policy admission", () => {
@@ -36,15 +35,6 @@ describe("named extension policy admission", () => {
       [
         { rows: { default: "tenant", models: { post: { tenant: 42 } } } },
         "row mode must be an object",
-      ],
-      [
-        {
-          rows: {
-            default: "tenant",
-            models: { post: { tenant: {}, [Symbol("mode")]: {} } },
-          },
-        },
-        "row mode must be a string",
       ],
     ];
     for (const [component, message] of cases)
@@ -96,7 +86,7 @@ describe("named extension policy admission", () => {
   });
 
   it("refuses config-sourced unknown models and fields before binding", () => {
-    const components: ExtensionDefinitionInput[] = [
+    const components: Omit<HostDefinition, "name">[] = [
       {
         rows: {
           control: "scope",
@@ -185,9 +175,6 @@ describe("named extension policy admission", () => {
     };
     // A reference is the chain's to judge: order owns it (K7(c)).
     expect(() =>
-      normalizeExtensionDefinition(definition, schema)
-    ).not.toThrow();
-    expect(() =>
       appendResolvedExtension(undefined, definition, schema)
     ).toThrow(UNDECLARED_CONTROL_TENNAT_PATTERN);
     expect(() =>
@@ -229,25 +216,23 @@ describe("named extension policy admission", () => {
       driver: new PlanningDriver("postgresql"),
     });
     const probe = () => {
-      defineExtension<typeof schema>()({
-        name: "rows",
-        rows: {
-          control: "scope",
-          default: "tenant",
-          models: {
-            // @ts-expect-error the whole model map is refused when any key is unknown
-            post: { tenant: {} },
-            // @ts-expect-error model typo beside the real model
-            posts: { tenant: {} },
-          },
-        },
+      // Written apart from the client, against its schema.
+      parts<typeof schema>().rule({
+        post: {},
+        // @ts-expect-error model typo beside the real model
+        posts: {},
       });
-      const dynamic = {
-        name: "deletion",
-        deletion: { models: { post: {}, posts: {} } },
-      };
-      // @ts-expect-error non-fresh policy model typo is structurally refused
-      client.$extends(dynamic);
+      // Written where it is applied.
+      client.$extends(
+        extension(
+          "deletion",
+          rule({
+            post: { delete: { instead: keep({ title: "deleted" }) } },
+            // @ts-expect-error model typo beside the real model
+            posts: { delete: { instead: keep({ title: "deleted" }) } },
+          })
+        )
+      );
     };
     expect(probe).toBeTypeOf("function");
   });

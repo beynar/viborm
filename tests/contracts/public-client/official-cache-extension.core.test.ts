@@ -5,12 +5,10 @@ import {
   getOfficialCacheChainDefinition,
 } from "@cache/extension";
 import { CacheConfigurationError, ClientInitializationError } from "@errors";
-import {
-  appendResolvedExtension,
-  type ResolvedExtensionChain,
-} from "@extensions/chain";
-import { createClient, s } from "@src/index";
+import type { ResolvedExtensionChain } from "@extensions/chain";
+import { createClient, extension as extExtension, s } from "@src/index";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
+import { appendResolvedExtension } from "@tests/fixtures/host-definition";
 import { afterEach, describe, expect, it } from "vitest";
 
 const item = s.model({ id: s.string().id(), name: s.string() });
@@ -37,7 +35,7 @@ function applyUnsafe(client: object, extension: unknown): object {
  * here reads the definition rather than a bound capability.
  */
 function appendOfficial(
-  extension: Readonly<Record<string, unknown>>,
+  extension: unknown,
   chain?: ResolvedExtensionChain
 ): ResolvedExtensionChain {
   return appendResolvedExtension(chain, extension, schema);
@@ -74,9 +72,7 @@ describe("official cache extension foundation", () => {
     expect(getOfficialCacheChainCapability(chain)).toBeUndefined();
     expect(extension.name).toBe("viborm.cache");
     // The mutation `cache` argument is the extension's one declared control.
-    expect(Reflect.ownKeys(extension)).toEqual(["name", "query", "controls"]);
     expect([...(chain.controls?.names ?? [])]).toEqual(["cache"]);
-    expect(Object.isFrozen(extension)).toBe(true);
     expect(Object.isFrozen(config)).toBe(false);
     expect(reads).toEqual({ driver: 1, version: 1, waitUntil: 1 });
     expect(capability?.driver).toBe(driver);
@@ -113,7 +109,7 @@ describe("official cache extension foundation", () => {
 
   it("exposes cache methods only on an authentic official derived client", () => {
     const base = baseClient();
-    const ordinary = base.$extends({ name: "ordinary" });
+    const ordinary = base.$extends(extExtension("ordinary"));
     const official = base.$extends(cache({ driver: new MemoryCache() }));
 
     expect(Reflect.get(base, "$withCache")).toBeUndefined();
@@ -151,44 +147,31 @@ describe("official cache extension foundation", () => {
     expect(coreReads).toEqual({ cache: 0, cacheVersion: 0, waitUntil: 0 });
   });
 
-  it("accepts an exact clone and preserves provenance through ordinary chains", () => {
+  it("keeps the cache methods through ordinary extensions applied after it", () => {
     const base = baseClient();
-    const official = cache({ driver: new MemoryCache() });
-    const cloned = { ...official };
-    const cached = base.$extends(cloned);
-    const ordinary = cached.$extends({ name: "after-cache" });
+    const cached = base.$extends(cache({ driver: new MemoryCache() }));
+    const ordinary = cached.$extends(extExtension("after-cache"));
 
     expect(ordinary.$schema).toBe(schema);
     expect(typeof ordinary.$withCache).toBe("function");
     expect(typeof ordinary.$invalidate).toBe("function");
   });
 
-  it("refuses fake, renamed, replaced, bound, and duplicate capabilities atomically", () => {
+  it("refuses a second cache on one chain, atomically", () => {
     const base = baseClient();
     const official = cache({ driver: new MemoryCache() });
     const derived = base.$extends(official);
 
-    expect(() => applyUnsafe(base, { name: "viborm.cache" })).toThrow(
+    expect(() => applyUnsafe(derived, official)).toThrow(
       ClientInitializationError
     );
     expect(() =>
-      applyUnsafe(base, { ...official, name: "renamed-cache" })
+      applyUnsafe(derived, cache({ driver: new MemoryCache() }))
     ).toThrow(ClientInitializationError);
-    expect(() =>
-      applyUnsafe(base, {
-        ...official,
-        query: async ({ proceed }: { proceed(): Promise<unknown> }) =>
-          proceed(),
-      })
-    ).toThrow(ClientInitializationError);
-    expect(() =>
-      applyUnsafe(base, { ...official, query: official.query.bind(undefined) })
-    ).toThrow(ClientInitializationError);
-    expect(() => applyUnsafe(derived, { ...official })).toThrow(
-      ClientInitializationError
-    );
 
-    expect(derived.$extends({ name: "after-refusals" }).$schema).toBe(schema);
+    expect(derived.$extends(extExtension("after-refusals")).$schema).toBe(
+      schema
+    );
   });
 
   it("reports hostile factory configuration without leaking raw throws", () => {

@@ -11,6 +11,17 @@ import {
 } from "@errors";
 import { s } from "@schema";
 import { sql } from "@sql";
+import {
+  accepts,
+  arg,
+  check,
+  args as extArgs,
+  extension,
+  nothing,
+  parts,
+  text,
+  unit,
+} from "@src/index";
 import { v } from "@src/validation";
 import { failure } from "@tests/fixtures/failure";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -32,7 +43,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
  * views folder 2 (grant 3); folder 4 is carl's and hidden from ann. Folder
  * 5 is ann's, under folder 1.
  *
- * The plain `rows` declaration is the policy: a folder is read where the
+ * The policy is one `rule`: a folder is read where the
  * caller owns it or holds a grant, edited where it owns it or holds `edit`;
  * a folder is placed by its owner, at the root or under a folder it edits,
  * and its parent never inside its own subtree; a grant is placed and moved
@@ -105,77 +116,98 @@ export const producedRowSchema = {
   aliased,
 };
 
-const me = { control: "user" };
+const me = arg("user");
 const viewFolder = {
   OR: [{ ownerId: me }, { grants: { some: { userId: me } } }],
 };
 const editFolder = {
   OR: [{ ownerId: me }, { grants: { some: { userId: me, level: "edit" } } }],
 };
-/** The new parent outside the folder's own subtree. */
-export const policy = {
-  name: "policy",
-  controls: { user: { schema: v.string(), required: true } },
-  rows: {
-    control: "as",
-    default: "all",
-    models: {},
-    verbs: {
-      folder: {
-        predicates: {
-          view: viewFolder,
-          edit: editFolder,
-          place: {
-            ownerId: me,
-            OR: [{ parentId: null }, { parent: { is: editFolder } }],
-          },
-        },
-        read: "view",
-        update: "edit",
-        delete: "edit",
-        place: "place",
-        moves: { parentId: "place" },
-        acyclic: ["parent"],
-      },
-      grant: {
-        predicates: {
-          view: { folder: { is: viewFolder } },
-          admin: { folder: { is: editFolder } },
-        },
-        read: "view",
-        update: "admin",
-        delete: "admin",
-        place: "admin",
-        moves: { folderId: "admin" },
-      },
-      item: {
-        predicates: {
-          view: { folder: { is: viewFolder } },
-          edit: { folder: { is: editFolder } },
-          tagged: { NOT: { tags: { has: "secret" } } },
-        },
-        read: "view",
-        update: "edit",
-        delete: "edit",
-        place: "edit",
-        moves: { folderId: "edit", tags: "tagged" },
-      },
-      tick: {
-        predicates: { anyone: {} },
-        read: "anyone",
-        update: "anyone",
-        place: "anyone",
-      },
-      counter: { predicates: { anyone: {} }, read: "anyone" },
-      aliased: {
-        predicates: { mine: { ownerId: me } },
-        read: "mine",
-        update: "mine",
-        place: "mine",
+const folderPlace = {
+  ownerId: me,
+  OR: [{ parentId: null }, { parent: { is: editFolder } }],
+};
+const grantView = { folder: { is: viewFolder } };
+const grantAdmin = { folder: { is: editFolder } };
+const itemView = { folder: { is: viewFolder } };
+const itemEdit = { folder: { is: editFolder } };
+const aliasedMine = { ownerId: me };
+const typed = parts<typeof producedRowSchema>();
+/**
+ * The policy's rules, per model. An updated row is judged again by the read
+ * predicate and the update's (what 1.14 did implicitly). A model whose
+ * delete is left out deletes no row.
+ */
+export const policyRules = {
+  folder: {
+    read: { where: viewFolder },
+    create: { check: check(folderPlace) },
+    update: {
+      where: editFolder,
+      check: check({ AND: [viewFolder, editFolder] }),
+      // The new parent outside the folder's own subtree.
+      fields: { parentId: { check: check(folderPlace) } },
+    },
+    delete: { where: editFolder },
+    acyclic: ["parent"],
+  },
+  grant: {
+    read: { where: grantView },
+    create: { check: check(grantAdmin) },
+    update: {
+      where: grantAdmin,
+      check: check({ AND: [grantView, grantAdmin] }),
+      fields: { folderId: { check: check(grantAdmin) } },
+    },
+    delete: { where: grantAdmin },
+  },
+  item: {
+    read: { where: itemView },
+    create: { check: check(itemEdit) },
+    update: {
+      where: itemEdit,
+      check: check({ AND: [itemView, itemEdit] }),
+      fields: {
+        folderId: { check: check(itemEdit) },
+        tags: { check: check({ NOT: { tags: { has: "secret" } } }) },
       },
     },
+    delete: { where: itemEdit },
   },
-};
+  tick: {
+    read: { where: {} },
+    create: { check: check({}) },
+    update: { where: {}, check: check({}) },
+    delete: { where: nothing },
+  },
+  counter: {
+    read: { where: {} },
+    update: { where: nothing },
+    delete: { where: nothing },
+  },
+  aliased: {
+    read: { where: aliasedMine },
+    create: { check: check(aliasedMine) },
+    update: { where: aliasedMine, check: check(aliasedMine) },
+    delete: { where: nothing },
+  },
+} as const;
+/** The policy's one argument: the caller. */
+export const policyArgs = extArgs({
+  user: accepts(v.string()).required([
+    "folder",
+    "grant",
+    "item",
+    "tick",
+    "counter",
+    "aliased",
+  ]),
+});
+export const policy = typed.extension(
+  "policy",
+  policyArgs,
+  typed.rule(policyRules)
+);
 
 const WRITES = /^(INSERT|UPDATE)/m;
 /** A statement carrying a judgement or a premise. */
@@ -203,33 +235,30 @@ export interface ProducedRowSubstrate {
    * driver reports no insert id).
    */
   readonly generatedKeys?: boolean;
-  /** Declare every `verbs` entry, and `acyclic`, as a function (resolved on first use). */
+  /** Declare every rule entry, and `acyclic`, as a function (resolved on first use). */
   readonly lazy?: boolean;
 }
 
 /**
- * `definition` with every `verbs` entry a function returning it, and each
- * `acyclic` list a function too: core resolves them when a call first needs
- * the model, and an update first writes a self key.
+ * The policy with every entry a function returning it, and each `acyclic`
+ * list a function too: core resolves them when a call first needs the model,
+ * and an update first writes a self key.
  */
-export function lazyVerbs<D extends { rows: { verbs: object } }>(
-  definition: D
-): D {
-  return {
-    ...definition,
-    rows: {
-      ...definition.rows,
-      verbs: Object.fromEntries(
-        Object.entries(definition.rows.verbs).map(([model, entry]) => {
-          const { acyclic, ...rest } = entry as { acyclic?: string[] };
-          const resolved =
-            acyclic === undefined ? rest : { ...rest, acyclic: () => acyclic };
-          return [model, () => resolved];
-        })
-      ),
-    },
-  };
-}
+export const lazyPolicy = typed.extension(
+  "policy",
+  policyArgs,
+  typed.rule({
+    folder: () => ({
+      ...policyRules.folder,
+      acyclic: () => ["parent"] as const,
+    }),
+    grant: () => policyRules.grant,
+    item: () => policyRules.item,
+    tick: () => policyRules.tick,
+    counter: () => policyRules.counter,
+    aliased: () => policyRules.aliased,
+  })
+);
 
 export function createProducedRowClient(driver: AnyDriver) {
   return createClient({ schema: producedRowSchema, driver });
@@ -315,17 +344,21 @@ export function runProducedRowBehavior(substrate: ProducedRowSubstrate): void {
       else await syncLiveSchema(base);
       await seedProducedRows(base, substrate.generatedKeys !== false);
       statements = [];
-      // The policy is plain data, typed loosely: its shape is the witness.
+      // The client is typed loosely: the policy's shape is the witness.
       const extensible = base as unknown as Extensible;
-      db = extensible
-        .$extends(substrate.lazy ? lazyVerbs(policy) : policy)
-        .$extends({
-          name: "statements",
-          statement(context: { statement: { toStatement(): string } }) {
-            statements.push(context.statement.toStatement());
-            return context.statement;
-          },
-        }) as unknown as Loose;
+      db = extensible.$extends(substrate.lazy ? lazyPolicy : policy).$extends(
+        extension(
+          "statements",
+          unit(
+            (u, next) => {
+              statements.push(text(u) ?? "");
+              return next();
+            },
+            ["statement"],
+            { rewrites: true }
+          )
+        )
+      ) as unknown as Loose;
     });
     afterEach(async () => {
       await base?.$disconnect();

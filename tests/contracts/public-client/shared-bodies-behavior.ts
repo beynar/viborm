@@ -2,6 +2,7 @@ import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { s } from "@schema";
 import { sql } from "@sql";
+import { nothing, parts } from "@src/index";
 import { permissions } from "@src/permissions";
 import { v } from "@src/validation";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -40,7 +41,9 @@ export function runSharedBodiesBehavior({
         });
         const driver = createDriver();
         driver.adapter.capabilities.sharesRelationBodies = shared;
-        const base = createClient({ schema: { container, entry }, driver });
+        const schema = { container, entry };
+        const typed = parts<typeof schema>();
+        const base = createClient({ schema, driver });
         clients.push(base);
         await syncLiveSchema(base);
         await base.container.create({ data: { id: 1 } });
@@ -58,26 +61,25 @@ export function runSharedBodiesBehavior({
           ["first", "second"],
           ["embeddedFirst", "embeddedSecond"],
         ]) {
-          const governed = base.$extends({
-            name: "physical-name-policy",
-            rows: {
-              control: "scope",
-              default: "all",
-              models: {},
-              verbs: {
+          // The field names are computed: the entry is handed through a
+          // rule read from the schema, the one form that takes it untyped.
+          const permitted = {
+            AND: fields.map((field) => ({
+              entries: { some: { [field]: "yes" } },
+            })),
+          };
+          const governed = base.$extends(
+            typed.extension(
+              "physical-name-policy",
+              typed.rule(() => ({
                 container: {
-                  predicates: {
-                    permitted: {
-                      AND: fields.map((field) => ({
-                        entries: { some: { [field]: "yes" } },
-                      })),
-                    },
-                  },
-                  read: "permitted",
+                  read: { where: permitted },
+                  update: { where: nothing },
+                  delete: { where: nothing },
                 },
-              },
-            },
-          });
+              }))
+            )
+          );
           expect(await governed.container.findMany()).toEqual([]);
         }
       });
@@ -161,9 +163,11 @@ export function runSharedBodiesBehavior({
           b: s.string(),
           tags: s.string().array(),
         });
+        const schema = { container, entry };
+        const typed = parts<typeof schema>();
         const driver = createDriver();
         driver.adapter.capabilities.sharesRelationBodies = shared;
-        const base = createClient({ schema: { container, entry }, driver });
+        const base = createClient({ schema, driver });
         clients.push(base);
         await syncLiveSchema(base);
         await base.container.create({ data: { id: 1 } });
@@ -176,27 +180,25 @@ export function runSharedBodiesBehavior({
             tags: ["a,string:b"],
           },
         });
-        const governed = base.$extends({
-          name: "collision-policy",
-          rows: {
-            control: "scope",
-            default: "all",
-            models: {},
-            verbs: {
+        const governed = base.$extends(
+          typed.extension(
+            "collision-policy",
+            typed.rule({
               container: {
-                predicates: {
-                  permitted: {
+                read: {
+                  where: {
                     AND: [
                       { entries: { some: { a: "a\u0002string:b", b: "c" } } },
                       { entries: { some: { a: "a", b: "b\u0002string:c" } } },
                     ],
                   },
                 },
-                read: "permitted",
+                update: { where: nothing },
+                delete: { where: nothing },
               },
-            },
-          },
-        });
+            })
+          )
+        );
         const arrayQuery = () =>
           base.container.findMany({
             where: {
