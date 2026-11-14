@@ -339,7 +339,12 @@ a call only looks its facts up. A key an entry leaves out adds no
 restriction; `update.fields[f].where` replaces `update.where` for a write of
 `f`; `check` is the only re-judgement and is stated in SQL only where the
 update writes a field its predicate reads; a `lazy` entry is read when its
-model is first needed. `defaults` (`defaults.ts`, `order.ts`, `stamps.ts`,
+model is first needed. A projection key a `facts` declares (`$access`) is
+admitted by the operation's own `select` and `include` schemas, inside
+`parseProviding` (`projected.ts`, `src/validation/primitives/object.ts`),
+never taken out before validation and put back after: it stays where the
+caller wrote it, an empty `select` holding it as `false` is refused as any
+empty `select`, and no `data` admits it. `defaults` (`defaults.ts`, `order.ts`, `stamps.ts`,
 `plain-domain.ts`) brings neither the prepared filter domain nor argument
 admission. Inside a filter's own relation reads every other layer reads at
 its default and never its own (`PreparedDomain.defaults`, the `Queries`

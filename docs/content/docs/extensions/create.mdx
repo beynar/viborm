@@ -1071,6 +1071,10 @@ await db.document.findMany({ user: "ada", select: { id: true, notes: true } }); 
   `read.where`, computed in the statement that reads the row (for a write,
   when its result row is read). `$access: ["own"]` asks for some names
   only.
+- The key is admitted by the operation's own validation, as a field of the
+  model is, for the calls of a chain that declares it: a `select` holding only
+  `$access: false` is empty and refused (`ValidationError`), the key comes
+  back where the `select` wrote it, and no `data` may write it.
 - A gated field is present where its predicate holds and absent elsewhere; the
   row is never dropped. A `select` (or an `omit: { notes: false }`) that names
   it fails with `ValidationError` at its path when a returned row lacks the

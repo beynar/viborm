@@ -860,6 +860,10 @@ row?.$access.update === true; // true only where the caller may update it
   and by TypeScript.
 - To refuse unless a permission is held, test the boolean and throw your own
   error.
+- `$access` is admitted by the operation's own validation, like a field:
+  `select: { $access: false }` alone is an empty `select`, refused with
+  `ValidationError`; in a `select`, the key comes back where you wrote it
+  among the fields, not last; it is never accepted in `data`.
 
 For a whole list, include `$access`: every row comes back with what the
 caller may do with it, computed in the same statement:
