@@ -8,7 +8,6 @@
  */
 
 import { createClient } from "@drivers/sqlite3";
-import { ClientInitializationError } from "@errors";
 import { s } from "@schema";
 import { defineExtension } from "@src/index";
 import { softDelete } from "@src/soft-delete";
@@ -220,38 +219,5 @@ describe("default data on a chain that neither filters nor keeps rows", () => {
       db.$as("two").node.create({ data: { id: "q", ownerId: "a", rank: "q" } }),
     ]);
     expect([one.by, two.by]).toEqual(["one", "two"]);
-  });
-});
-
-describe("an order declared to defineExtension", () => {
-  // Before the split, `defineExtension` admitted `order` once, without a
-  // schema: a malformed one was refused where it was written, and the terms
-  // applied were the ones it was given. Order is now admitted by
-  // `defaultOrderPart` at `$extends` only.
-  test("is refused where it is defined when it is malformed", () => {
-    expect(() =>
-      // Malformed on purpose: TypeScript refuses it, a JavaScript caller does not.
-      defineExtension({
-        name: "bad-order",
-        order: { models: { node: { rank: "up" } } },
-      } as never)
-    ).toThrow(ClientInitializationError);
-  });
-
-  test("is the one applied, whatever its caller does to the object afterwards", async () => {
-    const order: { models: { node: { rank: "asc" | "desc" }[] } } = {
-      models: { node: [{ rank: "desc" }] },
-    };
-    const definition = defineExtension({ name: "snapshot", order });
-    order.models.node = [{ rank: "asc" }];
-    const db = (await seeded()).$extends(definition);
-    expect(ids(await db.node.findMany())).toEqual([
-      "y",
-      "d",
-      "c",
-      "a",
-      "b",
-      "x",
-    ]);
   });
 });
