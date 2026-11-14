@@ -3,6 +3,7 @@
 import { defaultOmit } from "viborm/client";
 import { permissions } from "viborm/permissions";
 import { s } from "viborm/schema";
+import { v } from "viborm/validation";
 import { base, db, user } from "./soft-delete-schema";
 import { softDelete } from "viborm/soft-delete";
 
@@ -12,4 +13,7 @@ type Session = typeof session;
 declare const t: Date;
 declare const since: Date;
 declare const cutoff: Date;
-declare const policy: Parameters<typeof permissions>[0];
+const policy = {
+  actor: v.object({ userId: v.string() }),
+  models: { post: { read: true } },
+} as const;

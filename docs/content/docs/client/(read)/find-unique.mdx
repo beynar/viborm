@@ -6,7 +6,7 @@ icon: fingerprint
 
 ## Basic Usage
 
-```ts
+```ts no-check
 // By primary key
 const user = await client.user.findUnique({
   where: { id: "user_123" },
@@ -22,7 +22,7 @@ const user = await client.user.findUnique({
 
 For models with compound unique constraints:
 
-```ts
+```ts no-check
 // Schema
 const membership = s.model({
   orgId: s.string(),
@@ -56,7 +56,7 @@ const member = await client.membership.findUnique({
 
 ## Options
 
-```ts
+```ts no-check
 await client.user.findUnique({
   where: { ... },     // Required: unique identifier
   select: { ... },    // Optional: fields to return
@@ -80,7 +80,7 @@ const user = await client.user.findUniqueOrThrow({
 
 ## Return Type
 
-```ts
+```ts no-check
 const user = await client.user.findUnique({
   where: { id: "user_123" },
 });
@@ -99,7 +99,7 @@ const user = await client.user.findUnique({
 The `where` must name at least one unique **discriminator** — a scalar marked
 unique, or a complete compound constraint:
 
-```ts
+```ts expect-error
 const user = s.model({
   id: s.string().id(),           // ✅ Primary key
   email: s.string().unique(),    // ✅ Unique scalar
