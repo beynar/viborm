@@ -10,7 +10,6 @@ import {
 import type { AnyDriver, QueryExecutionContext } from "@drivers/exports";
 import { VibORMError } from "@errors";
 import type { ResolvedExtensionChain } from "@extensions/chain";
-import { getOfficialInstrumentationChainCapability } from "@extensions/host-slot";
 import type { OfficialLifecycleFactsReader } from "@extensions/official-facts";
 import { isErrorLogged } from "../errors/logged-errors";
 import type { Operation } from "./types";
@@ -22,13 +21,16 @@ export interface OperationExecutionContext {
   readonly attribution: QueryExecutionContext;
 }
 
+/** The declaration of the one observer of `chain` handed facts, if any. */
+const officialCapability = (chain: ResolvedExtensionChain | undefined) =>
+  chain?.observes?.capability(chain);
+
 export function createOperationExecutionContext(
   model: string,
   operation: Operation | string,
   extensionChain?: ResolvedExtensionChain
 ): QueryExecutionContext {
-  const disclosure =
-    getOfficialInstrumentationChainCapability(extensionChain)?.diagnostics;
+  const disclosure = officialCapability(extensionChain)?.diagnostics;
   // Capture before asynchronous request/plan/provider work, and allocate no stack by default.
   const origin =
     disclosure?.includeCallsite === true
@@ -67,7 +69,7 @@ export function withOperationErrorContext<T>(
 ): Promise<T> {
   const callsite = getExecutionCallsite(context);
   if (callsite === undefined) return execute();
-  const diagnostics = getOfficialInstrumentationChainCapability(
+  const diagnostics = officialCapability(
     getExecutionExtensionChain(context)
   )?.diagnostics;
   const annotate = (error: unknown): never => {
@@ -140,9 +142,7 @@ function createOperationInstrumentationFacts(
   collection: string | undefined,
   cacheManaged: boolean
 ): OfficialLifecycleFactsReader | undefined {
-  const official = getOfficialInstrumentationChainCapability(
-    getExecutionExtensionChain(context)
-  );
+  const official = officialCapability(getExecutionExtensionChain(context));
   if (official?.observesLifecycle !== true) return undefined;
 
   return () =>
@@ -198,7 +198,7 @@ export async function observeTransactionBatchPhase<R>(
   driver: AnyDriver,
   execute: () => R | Promise<R>
 ): Promise<R> {
-  const diagnostics = getOfficialInstrumentationChainCapability(
+  const diagnostics = officialCapability(
     getExecutionExtensionChain(executionContext)
   )?.diagnostics;
   try {

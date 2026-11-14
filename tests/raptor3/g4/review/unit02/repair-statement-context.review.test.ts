@@ -94,14 +94,6 @@ function tally(driver: Recorder): Record<string, number> {
 function caller(): QueryExecutionContext {
   const chain = {
     extensions: [],
-    hasCache: false,
-    hasRequestHandlers: false,
-    hasQueryHandlers: false,
-    hasResultConsumers: false,
-    request: {},
-    query: {},
-    statement: [],
-    observe: [],
   } as unknown as ResolvedExtensionChain;
   return createExecutionContext(
     { model: "author", operation: "update", correlationId: "rv2s" },

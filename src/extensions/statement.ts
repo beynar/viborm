@@ -4,7 +4,7 @@ import { QueryError } from "@errors";
 import { isSql, type Sql } from "@sql";
 import { isFunction, isRecord } from "@validation/value-guards";
 import { isError } from "../errors/diagnostic-safety";
-import type { ResolvedExtensionHandler } from "./chain";
+import type { ExtensionPart, ResolvedExtensionHandler } from "./chain";
 
 /** The trusted identity exposed to one low-level statement transform. */
 export interface StatementContext {
@@ -138,3 +138,30 @@ function statementTransformFailure(
     }
   );
 }
+
+/** A chain's statement transforms, and what applies them to one statement. */
+export interface StatementHandlers {
+  readonly handlers: readonly ResolvedExtensionHandler[];
+  readonly apply: (
+    statement: Sql,
+    model: string | undefined,
+    operation: string
+  ) => Sql;
+}
+
+/** `statement`: a rewrite of each statement before it is sent. */
+export const statementPart: ExtensionPart = {
+  members: ["statement"],
+  join({ next, chain, definition, owner }) {
+    if (definition.statement === undefined) return;
+    const handlers = Object.freeze([
+      ...(chain?.statement?.handlers ?? []),
+      Object.freeze({ extension: owner.name, handler: definition.statement }),
+    ]);
+    next.statement = Object.freeze({
+      handlers,
+      apply: (statement: Sql, model: string | undefined, operation: string) =>
+        applyStatementTransforms(statement, model, operation, handlers),
+    });
+  },
+};

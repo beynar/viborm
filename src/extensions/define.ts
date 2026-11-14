@@ -1,9 +1,15 @@
 /**
- * The two ways a definition is built. Building one is what brings the code
- * that admits and runs extensions into a program: the client carries none of
- * it, so an application that applies no extension pays nothing for them.
+ * The ways a definition is built, until each extension names its parts
+ * itself. Building one is what brings the code that admits and runs
+ * extensions into a program: the definition carries its parts, and the
+ * client carries none of them, so an application that applies no extension
+ * pays nothing for them.
  */
+import { cacheIdentity } from "@cache/identity";
+import { defaultOmitIdentity } from "@client/default-omit-identity";
 import type { Schema } from "@client/types";
+import { type ExtensionPart, partSet, withParts } from "./chain";
+import { controlsPart } from "./controls";
 import {
   type ClientExtension,
   type DefineExtensionBinder,
@@ -13,14 +19,44 @@ import {
   normalizeExtensionDefinition,
   type SchemaGenericExtensionDefinition,
 } from "./definition";
-import { withHost } from "./host";
-import type { EmptyClientExtensionState } from "./methods";
-import { withRows } from "./rows-runtime";
+import { enableParts } from "./host-slot";
+import { type EmptyClientExtensionState, methodsPart } from "./methods";
+import { observePart } from "./observation";
+import { queryPart } from "./query";
+import { requestPart } from "./request";
+import { resultPart } from "./result";
+import { rowsPart } from "./rows-part";
+import { statementPart } from "./statement";
+import { unitPart } from "./units";
+import { writtenPart } from "./written";
+
+/** Every part a definition made of handlers and methods may need. */
+const handlerParts = (): readonly ExtensionPart[] => [
+  controlsPart,
+  requestPart,
+  queryPart,
+  statementPart,
+  observePart,
+  writtenPart,
+  unitPart,
+  resultPart,
+  methodsPart,
+];
 
 /**
- * Build an extension definition: it is checked, and what admits and runs
- * extensions, with what reads `rows`, `data`, `deletion` and `order`
- * declarations, comes into the program.
+ * Every part, and what recognizes the official extensions a definition
+ * written as one object may be a copy of.
+ */
+const everyPart = (): readonly ExtensionPart[] => [
+  cacheIdentity,
+  defaultOmitIdentity,
+  ...handlerParts(),
+  rowsPart,
+];
+
+/**
+ * Build an extension definition: it is checked, and it carries every part,
+ * what reads `rows`, `data`, `deletion` and `order` declarations included.
  */
 export function defineExtension<
   const Definition extends SchemaGenericExtensionDefinition,
@@ -36,19 +72,16 @@ export function defineExtension<S extends Schema>(): DefineExtensionBinder<S>;
 export function defineExtension(
   ...definitions: [] | [definition: ClientExtension]
 ): unknown {
-  withHost();
-  // What a definition declares of rows is read by what this brings.
-  withRows();
   if (definitions.length === 0) {
     return (schemaDefinition: ExtensionDefinitionInput) =>
-      normalizeExtensionDefinition(schemaDefinition);
+      withParts(normalizeExtensionDefinition(schemaDefinition), everyPart());
   }
-  return normalizeExtensionDefinition(definitions[0]);
+  return withParts(normalizeExtensionDefinition(definitions[0]), everyPart());
 }
 
 /**
  * `defineExtension()` for a definition made of handlers and methods only: it
- * does not bring what reads `rows`, `data`, `deletion` and `order`, so an
+ * does not carry what reads `rows`, `data`, `deletion` and `order`, so an
  * extension that declares none of them weighs less. A definition that does
  * declare one is refused when it is applied.
  */
@@ -63,6 +96,24 @@ export function defineHooks<
     >
 ): NoInfer<Definition>;
 export function defineHooks(definition: ClientExtension): unknown {
-  withHost();
-  return normalizeExtensionDefinition(definition);
+  return withParts(normalizeExtensionDefinition(definition), handlerParts());
+}
+
+/**
+ * A definition built with exactly `parts`: it carries them, and a program
+ * that builds no other holds the code of those parts alone. What the
+ * official extensions build with, until the parts are the contract.
+ */
+export const defineWith =
+  (...parts: readonly ExtensionPart[]) =>
+  <Definition extends object>(definition: Definition): Definition =>
+    withParts(definition, parts);
+
+/**
+ * Brings the code that runs extensions into a program that passes object
+ * literals to `$extends` and builds no definition with `defineExtension()` or
+ * `defineHooks()`. Call it once.
+ */
+export function enableExtensions(): void {
+  enableParts(partSet(everyPart()));
 }

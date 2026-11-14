@@ -19,7 +19,9 @@ import {
   QueryError,
 } from "../errors";
 import { ValidationError } from "../errors/validation";
-import { defineExtension } from "../extensions/define";
+import { defineWith } from "../extensions/define";
+import { methodsPart } from "../extensions/methods";
+import { rowsPart } from "../extensions/rows-part";
 import type {
   ClientSchema,
   ClientTypeState,
@@ -1213,13 +1215,15 @@ function definitionOf<
   C extends Governed<Config>,
   X extends ExtensionState,
 >(config: Config, client: VibORMClient<C, X>) {
-  // `defineExtension` brings what reads the declarations made here.
-  defineExtension();
   const admitted = admit(client.$schema, config);
   // Respacing renders with the client's driver: the scope a method is given
   // has none.
   const { $driver } = client as unknown as { $driver: Driver };
-  return {
+  // The parts that read the declarations made here, and only those.
+  return defineWith(
+    rowsPart,
+    methodsPart
+  )({
     name: NAME,
     order: {
       models: Object.fromEntries(
@@ -1249,7 +1253,7 @@ function definitionOf<
         methods(ordered, $driver.dialect),
       ])
     ) as unknown as OrderingModels<VibORMClient<C, X>, C, Config>,
-  };
+  });
 }
 
 function apply<

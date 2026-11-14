@@ -29,6 +29,7 @@ import type { AnyModel } from "@schema/model";
 import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
 import { projectableScalarNames } from "@validation/model/core/projection";
 import { isFunction, isRecord } from "@validation/value-guards";
+import type { ExtensionPart } from "./chain";
 import { extensionError } from "./definition";
 
 type Row = Record<string, unknown>;
@@ -416,3 +417,37 @@ function detached(held: unknown): unknown {
   for (const key in held) copy[key] = detached((held as Row)[key]);
   return copy;
 }
+
+/** A chain's computed fields, and what plans one call's. */
+export interface ResultFields {
+  readonly fields: ResolvedResultFields;
+  readonly plan: (
+    relations: ResolvedRelationIndex,
+    model: AnyModel,
+    operation: string,
+    args: Row
+  ) => ReturnType<typeof planResultFields>;
+}
+
+/** `result`: fields computed from each row a call returns. */
+export const resultPart: ExtensionPart = {
+  members: ["result"],
+  join({ next, chain, definition, owner, schema }) {
+    if (definition.result === undefined) return;
+    const fields = appendResultFields(
+      chain?.result?.fields,
+      owner.name,
+      definition.result,
+      schema
+    );
+    next.result = Object.freeze({
+      fields,
+      plan: (
+        relations: ResolvedRelationIndex,
+        model: AnyModel,
+        operation: string,
+        args: Row
+      ) => planResultFields(fields, relations, model, operation, args),
+    });
+  },
+};

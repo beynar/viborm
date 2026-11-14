@@ -11,7 +11,11 @@
 
 import type { OperationPayload, RowsVerbs } from "../client/exports";
 import { ForbiddenError } from "../errors";
-import { defineExtension } from "../extensions/define";
+import { controlsPart } from "../extensions/controls";
+import { defineWith } from "../extensions/define";
+import { methodsPart } from "../extensions/methods";
+import { queryPart } from "../extensions/query";
+import { rowsPart } from "../extensions/rows-part";
 import type {
   ClientSchema,
   ClientTypeState,
@@ -884,8 +888,6 @@ export function permissions<
 export function permissions<const Config extends PermissionsConfig>(
   config: Config & DeclarationCheck<Config>
 ): Policy<Config> {
-  // `defineExtension` brings what reads the declarations made here.
-  defineExtension();
   const actor = actorContract(config.actor);
   const compile = (schema: Schema) => compilePolicy(config, schema, actor);
   // Public compile() remains an independent inspection result. Application
@@ -1114,9 +1116,12 @@ function deepFreeze(value: unknown): void {
   Object.freeze(value);
 }
 
+/** The parts that read the declarations made here, and only those. */
+const define = defineWith(controlsPart, rowsPart, queryPart, methodsPart);
+
 function extend(
   client: VibORMClient<VibORMConfig, ExtensionState>,
   definition: object
 ): VibORMClient<VibORMConfig, ExtensionState> {
-  return Reflect.apply(client.$extends, client, [definition]);
+  return Reflect.apply(client.$extends, client, [define(definition)]);
 }

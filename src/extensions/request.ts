@@ -2,8 +2,9 @@ import type { OperationPayload, Operations, Schema } from "@client/types";
 import { QueryError } from "@errors";
 import { isFunction, isRecord } from "@validation/value-guards";
 import { isError } from "../errors/diagnostic-safety";
-import type { ResolvedOperationHandler } from "./chain";
+import type { ExtensionPart, ResolvedOperationHandler } from "./chain";
 import { type AdmittedControls, controlsOwnedBy } from "./controls";
+import { compileHandlers } from "./handlers";
 
 /** Frozen runtime contribution after hostile definition normalization. */
 type RuntimeRequestFunction = (...args: never[]) => unknown;
@@ -461,3 +462,15 @@ function transformFailure(
     }
   );
 }
+
+/** `request`: a patch of each call's arguments, before they are validated. */
+export const requestPart: ExtensionPart = {
+  members: ["request"],
+  join({ next, chain, definition, owner }) {
+    if (definition.request === undefined) return;
+    next.request = Object.freeze({
+      ...compileHandlers(chain?.request, owner, definition.request, false),
+      apply: applyRequestTransforms,
+    });
+  },
+};

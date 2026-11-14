@@ -1,7 +1,13 @@
 import { sanitizeErrorForLogging } from "@errors";
 import { isFunction } from "@validation/value-guards";
 import { isError } from "../errors/diagnostic-safety";
-import type { ResolvedExtensionChain, ResolvedExtensionHandler } from "./chain";
+import type {
+  ExtensionPart,
+  ResolvedExtensionChain,
+  ResolvedExtensionHandler,
+} from "./chain";
+import { ARRAYS, coordinate } from "./coordination";
+import { extensionError } from "./definition";
 import type {
   OfficialLifecycleCompletionFacts,
   OfficialLifecycleFacts,
@@ -499,3 +505,184 @@ function summarizeFailure(failure: unknown): ObservationErrorSummary {
     ...(typeof code === "string" ? { code } : {}),
   });
 }
+
+/** Observe one logical operation without duplicating its completion protocol. */
+export function observeOperation<Result>(
+  observers: readonly ResolvedExtensionHandler[],
+  operation: string,
+  model: string | undefined,
+  child: () => Promise<Result>,
+  readCompletionFacts?: ObservationCompletionFactsReader,
+  readInstrumentationFacts?: OfficialLifecycleFactsReader
+): Promise<Result> {
+  return runProtectedObservers(
+    {
+      kind: "operation",
+      operation,
+      ...(model === undefined ? {} : { model }),
+    },
+    observers,
+    child,
+    readCompletionFacts,
+    readInstrumentationFacts
+  );
+}
+
+/** Observe one driver-owned physical statement boundary. */
+export function observeStatement<Result>(
+  observers: readonly ResolvedExtensionHandler[],
+  operation: string | undefined,
+  model: string | undefined,
+  child: () => Promise<Result>,
+  readCompletionFacts?: ObservationCompletionFactsReader,
+  readInstrumentationFacts?: OfficialLifecycleFactsReader
+): Promise<Result> {
+  return runProtectedObservers(
+    {
+      kind: "statement",
+      ...(operation === undefined ? {} : { operation }),
+      ...(model === undefined || model === "$raw" ? {} : { model }),
+    },
+    observers,
+    child,
+    readCompletionFacts,
+    readInstrumentationFacts
+  );
+}
+
+/** Observe one driver-owned connection, transaction, or savepoint boundary. */
+export function observeDriverLifecycle<Result>(
+  kind: Extract<LifecycleUnitKind, "connection" | "savepoint" | "transaction">,
+  observers: readonly ResolvedExtensionHandler[],
+  operation: string | undefined,
+  child: () => Promise<Result>,
+  readCompletionFacts?: ObservationCompletionFactsReader,
+  readInstrumentationFacts?: OfficialLifecycleFactsReader
+): Promise<Result> {
+  return runProtectedObservers(
+    {
+      kind,
+      ...(operation === undefined ? {} : { operation }),
+    },
+    observers,
+    child,
+    readCompletionFacts,
+    readInstrumentationFacts
+  );
+}
+
+/** What runs a unit under a chain's lifecycle observers. */
+export interface Observation {
+  readonly run: <Result>(
+    unit: LifecycleUnit,
+    child: () => Promise<Result>,
+    readCompletionFacts?: ObservationCompletionFactsReader,
+    readInstrumentationFacts?: OfficialLifecycleFactsReader
+  ) => Promise<Result>;
+  readonly operation: <Result>(
+    operation: string,
+    model: string | undefined,
+    child: () => Promise<Result>,
+    readCompletionFacts?: ObservationCompletionFactsReader,
+    readInstrumentationFacts?: OfficialLifecycleFactsReader
+  ) => Promise<Result>;
+  readonly statement: <Result>(
+    operation: string | undefined,
+    model: string | undefined,
+    child: () => Promise<Result>,
+    readCompletionFacts?: ObservationCompletionFactsReader,
+    readInstrumentationFacts?: OfficialLifecycleFactsReader
+  ) => Promise<Result>;
+  readonly lifecycle: <Result>(
+    kind: Extract<
+      LifecycleUnitKind,
+      "connection" | "savepoint" | "transaction"
+    >,
+    operation: string | undefined,
+    child: () => Promise<Result>,
+    readCompletionFacts?: ObservationCompletionFactsReader,
+    readInstrumentationFacts?: OfficialLifecycleFactsReader
+  ) => Promise<Result>;
+  /** The one readiness the observers ask for before a coordinated array starts. */
+  readonly prewarm: () => void | Promise<void>;
+}
+
+/** What reads the declaration of the one observer of a chain handed facts. */
+export interface ObservesFacts {
+  readonly capability: (
+    chain: ResolvedExtensionChain | undefined
+  ) => OfficialObservationCapability | undefined;
+}
+
+/** What reads the facts declaration a chain is registered with. */
+export const OBSERVES: ObservesFacts = {
+  capability: getOfficialInstrumentationChainCapability,
+};
+
+function observationOf(
+  observers: readonly ResolvedExtensionHandler[]
+): Observation {
+  const observation: Observation = {
+    run: (unit, child, completion, facts) =>
+      runProtectedObservers(unit, observers, child, completion, facts),
+    operation: (operation, model, child, completion, facts) =>
+      observeOperation(observers, operation, model, child, completion, facts),
+    statement: (operation, model, child, completion, facts) =>
+      observeStatement(observers, operation, model, child, completion, facts),
+    lifecycle: (kind, operation, child, completion, facts) =>
+      observeDriverLifecycle(
+        kind,
+        observers,
+        operation,
+        child,
+        completion,
+        facts
+      ),
+    prewarm: () => prewarmProtectedObservers(observers),
+  };
+  return Object.freeze(observation);
+}
+
+/**
+ * `observe` and `observes`: each unit of work and how it ended, and the facts
+ * handed to the one observer that declares what it reads. Carried, so a
+ * later extension's chain stays the one whose facts that observer reads.
+ */
+export const observePart: ExtensionPart = {
+  members: ["observe", "observes"],
+  carry: true,
+  admit({ chain, definition }) {
+    const declared = definition.observes;
+    if (declared === undefined) return;
+    if (getOfficialInstrumentationChainCapability(chain) !== undefined)
+      extensionError(
+        `Extension "${definition.name}" declares observes, which another extension on this client already declares: one observer is handed facts.`,
+        definition.name
+      );
+    // Normalization admits `observes` only beside an `observe` handler.
+    registerFactsObserver(definition.observe as ObserveHandler, declared);
+  },
+  join({ next, chain, definition, owner }) {
+    const handler = definition.observe;
+    if (handler === undefined) return;
+    const official = getTrustedProtectedObserverCapability(handler);
+    if (official !== undefined && !official.observesLifecycle) {
+      next.observe = chain?.observe ?? Object.freeze([]);
+      return;
+    }
+    const observers = Object.freeze([
+      ...(chain?.observe ?? []),
+      Object.freeze({ extension: owner.name, handler }),
+    ]);
+    next.observe = observers;
+    next.observation = observationOf(observers);
+    coordinate(next, ARRAYS);
+  },
+  seal({ next, chain, definition }) {
+    const official =
+      definition.observes ?? getOfficialInstrumentationChainCapability(chain);
+    if (official === undefined) return;
+    registerOfficialInstrumentationChain(next, official);
+    next.observes = OBSERVES;
+  },
+};

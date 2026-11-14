@@ -5,11 +5,14 @@ import { ClientInitializationError } from "../errors"; // viborm's own class
 import {
   type ClientSchema,
   type ClientTypeState,
+  controlsPart,
   type DelegateOperationArgs,
   type DelegateOperationResult,
-  defineExtension,
+  defineWith,
   type ExtensionState,
+  methodsPart,
   type PendingOperation,
+  rowsPart,
   type VibORMClient,
   type VibORMConfig,
 } from "../index";
@@ -130,8 +133,6 @@ function definitionOf<
   Config extends SoftDeleteConfig,
   C extends Governed<Config>,
 >(config: Config, schema: ClientSchema<C>) {
-  // `defineExtension` brings what reads the rows and the deletion declared here.
-  defineExtension();
   return {
     name: NAME,
     controls: { mode: { oneOf: ["soft", "hard"] } }, // deletion places it on managed deletes
@@ -208,7 +209,14 @@ function apply<
   X extends ExtensionState,
 >(config: Config, base: VibORMClient<C, X>) {
   admitMarkers(base.$schema, config);
-  return base.$extends(definitionOf<Config, C>(config, base.$schema));
+  // Built with the parts that read what it declares, and only those.
+  return base.$extends(
+    defineWith(
+      controlsPart,
+      rowsPart,
+      methodsPart
+    )(definitionOf<Config, C>(config, base.$schema))
+  );
 }
 
 // The two steps a chain written before 1.8 applies around another entry's
@@ -224,7 +232,7 @@ function rowsStep<
     base.$schema
   );
   admitMarkers(base.$schema, config);
-  return base.$extends(rows);
+  return base.$extends(defineWith(controlsPart, rowsPart)(rows));
 }
 function methodsStep<
   Config extends SoftDeleteConfig,
@@ -232,7 +240,9 @@ function methodsStep<
   X extends ExtensionState,
 >(config: Config, client: VibORMClient<C, X>) {
   const { model } = definitionOf<Config, C>(config, client.$schema);
-  return client.$extends({ name: `${NAME}.restore`, model });
+  return client.$extends(
+    defineWith(methodsPart)({ name: `${NAME}.restore`, model })
+  );
 }
 
 // A step takes its receiver whole and reads its C and X once from

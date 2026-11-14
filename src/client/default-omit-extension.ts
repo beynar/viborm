@@ -1,5 +1,5 @@
 import { ClientInitializationError } from "@errors";
-import { withHost } from "@extensions/host";
+import { withParts } from "@extensions/chain";
 import type {
   GenericRequestHandler,
   OfficialGenericRequestHandler,
@@ -7,6 +7,7 @@ import type {
 import { isFunction, isRecord } from "@validation/value-guards";
 import { errorCause } from "../errors/diagnostic-safety";
 import type { OfficialDefaultOmitCapability } from "./default-omit-chain";
+import { defaultOmitIdentity } from "./default-omit-identity";
 import type { ClientOmitConfig, ExactClientOmitConfig } from "./omit";
 
 export {
@@ -131,14 +132,12 @@ export type DefaultOmitBinder<S extends Schema> = <
 export function defaultOmit<S extends Schema>(): DefaultOmitBinder<S>;
 export function defaultOmit(): unknown {
   return (config: unknown): unknown => {
-    withHost();
     const capability = Object.freeze({ config: snapshotConfig(config) });
     const request: GenericRequestHandler = () => ({});
     capabilitiesByRequest.set(request, capability);
-    return Object.freeze({
-      name: OFFICIAL_DEFAULT_OMIT_NAME,
-      request,
-    });
+    return withParts({ name: OFFICIAL_DEFAULT_OMIT_NAME, request }, [
+      defaultOmitIdentity,
+    ]);
   };
 }
 

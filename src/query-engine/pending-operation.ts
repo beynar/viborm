@@ -13,14 +13,8 @@ import {
   InvalidTransactionInputError,
   retainWriteOutcomeFailure,
 } from "@errors";
+import type { ResolvedOperationHandler } from "@extensions/chain";
 import type { AdmittedControls } from "@extensions/controls";
-import {
-  executePreparedQuery,
-  extensionHost,
-  lookupPlacedControls,
-  lookupResolvedExtensionHandlers,
-  observeOperation,
-} from "@extensions/host-slot";
 import type {
   PreparedModelQueryContext,
   QueryInterceptionMode,
@@ -262,20 +256,16 @@ export class PendingOperation<T>
       context: (operation) => operation.#context.attribution,
       requiresInterception: (operation) => {
         const requestedOperation = String(operation.#options.originalOperation);
-        const requestHandlers = lookupResolvedExtensionHandlers(
-          operation.#engine.extensionChain,
-          "request",
+        const chain = operation.#engine.extensionChain;
+        const requestHandlers = chain?.request?.handlers(
           operation.#modelName,
           requestedOperation
         );
         const hasRequestHandlers =
           requestHandlers !== undefined && requestHandlers.length > 0;
         const requestNeedsObservedCoordination =
-          hasRequestHandlers &&
-          (operation.#engine.extensionChain?.observe.length ?? 0) > 0;
-        const queryHandlers = lookupResolvedExtensionHandlers(
-          operation.#engine.extensionChain,
-          "query",
+          hasRequestHandlers && chain?.observation !== undefined;
+        const queryHandlers = chain?.query?.handlers(
           operation.#modelName,
           requestedOperation
         );
@@ -299,18 +289,19 @@ export class PendingOperation<T>
       },
       startInterception: (operation, child, outcomes, control) => {
         const requestedOperation = String(operation.#options.originalOperation);
-        const handlers = lookupResolvedExtensionHandlers(
-          operation.#engine.extensionChain,
-          "query",
+        const chain = operation.#engine.extensionChain;
+        const handlers = chain?.query?.handlers(
           operation.#modelName,
           requestedOperation
         );
         const preparedInput = operation.#preparedInput();
         const writeOutcomeRegistration =
           operation.#resolveWriteOutcomeRegistration();
+        const coordination = chain?.coordination;
         if (
-          (handlers === undefined || handlers.length === 0) &&
-          writeOutcomeRegistration === undefined
+          coordination === undefined ||
+          ((handlers === undefined || handlers.length === 0) &&
+            writeOutcomeRegistration === undefined)
         ) {
           return child();
         }
@@ -318,7 +309,10 @@ export class PendingOperation<T>
           handlers === undefined || handlers.length === 0
             ? undefined
             : operation.#queryContext("array", preparedInput);
-        return executePreparedQuery<unknown, Record<string, unknown>>(
+        return coordination.executePreparedQuery<
+          unknown,
+          Record<string, unknown>
+        >(
           queryContext,
           handlers,
           child,
@@ -339,12 +333,11 @@ export class PendingOperation<T>
       isWrite: (operation) =>
         !isReadOperation(String(operation.#options.originalOperation)),
       hasObservation: (operation) =>
-        (operation.#engine.extensionChain?.observe.length ?? 0) > 0,
+        operation.#engine.extensionChain?.observation !== undefined,
       observe: (operation, child, readCompletionFacts) => {
-        const observers = operation.#engine.extensionChain?.observe;
-        if (observers === undefined || observers.length === 0) return child();
-        return observeOperation(
-          observers,
+        const observation = operation.#engine.extensionChain?.observation;
+        if (observation === undefined) return child();
+        return observation.operation(
           String(operation.#options.originalOperation),
           operation.#modelName,
           child,
@@ -356,15 +349,14 @@ export class PendingOperation<T>
         operation.#execution.reserveWith(driver);
       },
       executeWith: (operation, driver) => {
-        const observers = operation.#engine.extensionChain?.observe;
-        if (observers === undefined || observers.length === 0) {
+        const observation = operation.#engine.extensionChain?.observation;
+        if (observation === undefined) {
           return operation.#execution.executeWith(driver, () =>
             operation.#runCoreExecution(driver)
           );
         }
         return operation.#execution.executeWith(driver, () =>
-          observeOperation(
-            observers,
+          observation.operation(
             String(operation.#options.originalOperation),
             operation.#modelName,
             () => operation.#runCoreExecution(driver),
@@ -477,21 +469,13 @@ export class PendingOperation<T>
     if (preparation.status === "failure") throw preparation.error;
 
     try {
-      const placed = lookupPlacedControls(
-        this.#engine.extensionChain,
+      const admission = this.#engine.extensionChain?.controls?.admit(
         this.#modelName,
-        String(this.#options.originalOperation)
+        String(this.#options.originalOperation),
+        this.#operation,
+        this.#args,
+        this.#engine.bound
       );
-      const admission =
-        placed.length === 0
-          ? undefined
-          : extensionHost().admitControls(
-              this.#modelName,
-              this.#operation,
-              this.#args,
-              placed,
-              this.#engine.bound
-            );
       const args = preparation.prepare(
         admission?.args ?? this.#args,
         admission?.controls
@@ -622,12 +606,11 @@ export class PendingOperation<T>
 
   #getPromise(): Promise<T> {
     return this.#execution.executeDefault(() => {
-      const observers = this.#engine.extensionChain?.observe;
-      if (observers === undefined || observers.length === 0) {
+      const observation = this.#engine.extensionChain?.observation;
+      if (observation === undefined) {
         return this.#finished(this.#runExecution());
       }
-      return observeOperation(
-        observers,
+      return observation.operation(
         String(this.#options.originalOperation),
         this.#modelName,
         () => this.#finished(this.#runExecution()),
@@ -681,9 +664,7 @@ export class PendingOperation<T>
     const observerMayHaveCommitted =
       this.#observationNotification("may-have-committed");
     const requestedOperation = String(this.#options.originalOperation);
-    const handlers = lookupResolvedExtensionHandlers(
-      this.#engine.extensionChain,
-      "query",
+    const handlers = this.#engine.extensionChain?.query?.handlers(
       this.#modelName,
       requestedOperation
     );
@@ -710,7 +691,7 @@ export class PendingOperation<T>
 
   /** Query extensions and write-outcome registration, out of line. */
   #runExtendedExecution(
-    handlers: ReturnType<typeof lookupResolvedExtensionHandlers>,
+    handlers: readonly ResolvedOperationHandler[] | undefined,
     requestedOperation: string,
     observerCommitted: (() => Promise<void>) | undefined,
     observerMayHaveCommitted: (() => Promise<void>) | undefined,
@@ -725,9 +706,11 @@ export class PendingOperation<T>
       return Promise.reject(error);
     }
     const writeOutcomeRegistration = this.#resolveWriteOutcomeRegistration();
+    const coordination = this.#engine.extensionChain?.coordination;
     if (
-      (handlers === undefined || handlers.length === 0) &&
-      writeOutcomeRegistration === undefined
+      coordination === undefined ||
+      ((handlers === undefined || handlers.length === 0) &&
+        writeOutcomeRegistration === undefined)
     ) {
       return this.#runCoreExecution(
         driverOverride,
@@ -742,7 +725,7 @@ export class PendingOperation<T>
             this.#engine.transactionWriteOutcomes ? "transaction" : "direct",
             preparedInput
           );
-    return executePreparedQuery<T, Record<string, unknown>>(
+    return coordination.executePreparedQuery<T, Record<string, unknown>>(
       context,
       handlers,
       (notifications) =>
@@ -775,7 +758,7 @@ export class PendingOperation<T>
   ): (() => Promise<void>) | undefined {
     if (
       this.#engine.transactionWriteOutcomes !== undefined ||
-      (this.#engine.extensionChain?.observe.length ?? 0) === 0
+      this.#engine.extensionChain?.observation === undefined
     ) {
       return undefined;
     }
@@ -802,17 +785,16 @@ export class PendingOperation<T>
       this.#deferredExecution
         ? this.#deferredExecution(driver, committed, mayBeVisible)
         : this.#run(driver, committed, mayBeVisible);
-    const chain = this.#engine.extensionChain;
+    const units = this.#engine.extensionChain?.units;
     // A call inside a transaction, or a member of an array, is its owner's.
     if (
-      !(chain?.retry || chain?.route) ||
+      units === undefined ||
       driverOverride !== undefined ||
       this.#engine.transactionWriteOutcomes !== undefined
     )
       return run(driverOverride, committedWriteSegment, writeMayBeVisible);
     const operation = String(this.#options.originalOperation);
-    return extensionHost().sendUnit(
-      chain,
+    return units.send(
       { model: this.#modelName, operation },
       () => this.#resolveArgs(),
       !isReadOperation(operation),

@@ -1,10 +1,11 @@
 import { sanitizeErrorForLogging } from "@errors";
-import { withHost } from "@extensions/host";
-import type {
-  LifecycleUnit,
-  ObservationCompletion,
-  ObservedFacts,
-  ObserveHandler,
+import { withParts } from "@extensions/chain";
+import {
+  type LifecycleUnit,
+  type ObservationCompletion,
+  type ObservedFacts,
+  type ObserveHandler,
+  observePart,
 } from "@extensions/observation";
 import type {
   CacheBackendFacts,
@@ -77,7 +78,6 @@ const instrumentationContexts = new WeakMap<
 export function instrumentation<const Config>(
   config: Config & InstrumentationConfig & ExactInstrumentationConfig<Config>
 ): OfficialInstrumentationExtension {
-  withHost();
   const context = createInstrumentationContext(config);
   const capability: OfficialObservationCapability = Object.freeze({
     observesLifecycle:
@@ -91,16 +91,19 @@ export function instrumentation<const Config>(
     warn: (notice: WarningNotice) => warn(context, notice),
   });
   instrumentationContexts.set(capability, context);
-  return Object.freeze({
-    name: NAME,
-    observe(unit, proceed, facts) {
-      // Handed no facts, it is not the observer core asks: it does nothing.
-      if (!facts) return undefined;
-      observed.set(unit, facts);
-      return observeOfficialInstrumentation(context, unit, proceed);
+  return withParts<OfficialInstrumentationExtension>(
+    {
+      name: NAME,
+      observe(unit, proceed, facts) {
+        // Handed no facts, it is not the observer core asks: it does nothing.
+        if (!facts) return undefined;
+        observed.set(unit, facts);
+        return observeOfficialInstrumentation(context, unit, proceed);
+      },
+      observes: capability,
     },
-    observes: capability,
-  });
+    [observePart]
+  );
 }
 
 /** Answer one core enablement question from this chain's live context. */

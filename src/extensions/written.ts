@@ -7,8 +7,9 @@ import { type WriteKind, writeSinks } from "@query-engine/write-sinks";
 
 export type { WriteKind } from "@query-engine/write-sinks";
 
-import type { ResolvedOperationHandler } from "./chain";
+import type { ExtensionPart, ResolvedOperationHandler } from "./chain";
 import { type AdmittedControls, controlsOwnedBy } from "./controls";
+import { ARRAYS, coordinate } from "./coordination";
 import {
   publishWriteOutcomes,
   type WriteOutcome,
@@ -187,3 +188,41 @@ export function watchWrite(
     },
   });
 }
+
+/** A chain's `written` declarations, and what watches one write call under them. */
+export interface WrittenHandlers {
+  readonly handlers: readonly ResolvedOperationHandler[];
+  readonly watch: (
+    call: Omit<WrittenCall, "controls">,
+    controls: AdmittedControls | undefined,
+    context: QueryExecutionContext,
+    cached: WriteOutcomeRegistration | undefined,
+    late: (settle: () => Promise<void>) => void
+  ) => WriteOutcomeRegistration | undefined;
+}
+
+/** `written`: the rows a write call wrote, then its commit. */
+export const writtenPart: ExtensionPart = {
+  members: ["written"],
+  join({ next, chain, definition, owner }) {
+    if (definition.written === undefined) return;
+    const handlers = Object.freeze([
+      ...(chain?.written?.handlers ?? []),
+      Object.freeze(
+        owner.controls === undefined
+          ? { extension: owner.name, handler: definition.written }
+          : {
+              extension: owner.name,
+              handler: definition.written,
+              controls: owner.controls,
+            }
+      ),
+    ]);
+    next.written = Object.freeze({
+      handlers,
+      watch: (call, controls, context, cached, late) =>
+        watchWrite(handlers, call, controls, context, cached, late),
+    });
+    coordinate(next, ARRAYS);
+  },
+};

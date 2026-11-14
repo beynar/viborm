@@ -39,8 +39,10 @@ import {
 } from "../errors";
 import { errorCause } from "../errors/diagnostic-safety";
 import type { ResolvedExtensionChain } from "../extensions/chain";
-import { withHost } from "../extensions/host";
-import { registerOfficialInstrumentationChain } from "../extensions/observation";
+import {
+  OBSERVES,
+  registerOfficialInstrumentationChain,
+} from "../extensions/observation";
 import type { BoundMigrationDriver } from "./drivers";
 import { providerFacts, providerRefused } from "./execute-dispatch";
 import { liftForeignKeyPragmas, withForeignKeysLifted } from "./foreign-keys";
@@ -454,11 +456,6 @@ function connectionWaitError(driverName: string, ms: number): ConnectionError {
   );
 }
 
-const NO_HANDLERS = Object.freeze({
-  global: Object.freeze([]),
-  models: Object.freeze({}),
-});
-
 /**
  * A chain of no extension whose official capability is `diagnostics` alone:
  * a driver discloses a failure as an official instrumentation says, and this
@@ -469,16 +466,8 @@ function disclosingChain(
 ): ResolvedExtensionChain {
   const chain: ResolvedExtensionChain = Object.freeze({
     extensions: Object.freeze([]),
-    hasCache: false,
-    hasRequestHandlers: false,
-    hasQueryHandlers: false,
-    request: NO_HANDLERS,
-    query: NO_HANDLERS,
-    statement: Object.freeze([]),
-    observe: Object.freeze([]),
+    observes: OBSERVES,
   });
-  // The chain made here is read as any chain is.
-  withHost();
   registerOfficialInstrumentationChain(
     chain,
     Object.freeze({

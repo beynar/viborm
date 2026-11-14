@@ -84,7 +84,7 @@ describe("official cache extension foundation", () => {
     expect(capability?.waitUntil).toBe(firstWaitUntil);
     expect(chain.hasCache).toBe(true);
     expect(chain.hasQueryHandlers).toBe(false);
-    expect(chain.query.global).toHaveLength(0);
+    expect(chain.query!.global).toHaveLength(0);
   });
 
   it("keeps version and waitUntil isolated when one driver is shared", () => {

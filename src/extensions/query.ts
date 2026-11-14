@@ -3,8 +3,10 @@ import { QueryError } from "@errors";
 import { isReadOperation } from "@query-engine/routed-operations";
 import { isFunction } from "@validation/value-guards";
 import { isError } from "../errors/diagnostic-safety";
-import type { ResolvedOperationHandler } from "./chain";
+import type { ExtensionPart, ResolvedOperationHandler } from "./chain";
 import { type AdmittedControls, controlsOwnedBy } from "./controls";
+import { coordinate, QUERIES } from "./coordination";
+import { compileHandlers, hasCompiledHandlers } from "./handlers";
 
 /** Frozen runtime contribution after hostile definition normalization. */
 type RuntimeQueryFunction = (...args: never[]) => unknown;
@@ -238,6 +240,32 @@ export function executePreparedQuery<Result, Input extends object>(
     isWrite,
     transactionWriteOutcomes,
     control,
+    preRegisteredWriteOutcome,
+    runCompiledQueryInterceptors
+  );
+}
+
+/**
+ * {@link executePreparedQuery} on a chain without query handlers: what
+ * wraps the call is its write-outcome registration, the only reason it is
+ * asked, so the code that runs handlers is not carried.
+ */
+export function executeRegisteredQuery<Result, Input extends object>(
+  _context: PreparedQueryContext<Input> | undefined,
+  _interceptors: readonly ResolvedOperationHandler[] | undefined,
+  child: (notifications?: WriteOutcomeNotifications) => Promise<Result>,
+  isWrite: boolean,
+  transactionWriteOutcomes?: TransactionWriteOutcomes,
+  control?: QueryInterceptorExecutionControl,
+  preRegisteredWriteOutcome?: WriteOutcomeRegistration
+): Promise<Result> {
+  return executeInterceptedQuery(
+    undefined,
+    undefined,
+    child,
+    isWrite,
+    transactionWriteOutcomes,
+    control,
     preRegisteredWriteOutcome
   );
 }
@@ -253,7 +281,10 @@ async function executeInterceptedQuery<Result, Input extends object>(
   isWrite: boolean,
   transactionWriteOutcomes: TransactionWriteOutcomes | undefined,
   control: QueryInterceptorExecutionControl | undefined,
-  preRegisteredWriteOutcome: WriteOutcomeRegistration | undefined
+  preRegisteredWriteOutcome: WriteOutcomeRegistration | undefined,
+  // Passed by the caller that has handlers to run: the one that has none
+  // does not carry their runner.
+  intercept?: typeof runCompiledQueryInterceptors
 ): Promise<Result> {
   const registrations: WriteOutcomeRegistration[] =
     preRegisteredWriteOutcome === undefined ? [] : [preRegisteredWriteOutcome];
@@ -308,11 +339,12 @@ async function executeInterceptedQuery<Result, Input extends object>(
 
   try {
     const value =
+      intercept === undefined ||
       context === undefined ||
       interceptors === undefined ||
       interceptors.length === 0
         ? await executeChild()
-        : await runCompiledQueryInterceptors(
+        : await intercept(
             context,
             interceptors,
             executeChild,
@@ -821,3 +853,22 @@ import type {
   OperationPayload,
   Operations,
 } from "@client/types";
+
+/**
+ * `query`: handlers around each prepared call. A chain built with this part
+ * always holds a lookup, empty where no definition declared one.
+ */
+export const queryPart: ExtensionPart = {
+  members: ["query"],
+  join({ next, chain, definition, owner }) {
+    const query =
+      definition.query === undefined && chain?.query !== undefined
+        ? chain.query
+        : Object.freeze(
+            compileHandlers(chain?.query, owner, definition.query, true)
+          );
+    next.query = query;
+    next.hasQueryHandlers = hasCompiledHandlers(query);
+    if (next.hasQueryHandlers) coordinate(next, QUERIES);
+  },
+};

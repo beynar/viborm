@@ -190,7 +190,7 @@ function engineBatches(engine: QueryEngine): boolean {
   return (
     batchingRoutes.has(engine.route) &&
     driver === engine.route.driver &&
-    (engine.extensionChain?.statement.length ?? 0) === 0 &&
+    engine.extensionChain?.statement === undefined &&
     driver.result?.parseResult === undefined &&
     driver.adapter.result.parseResult === passThroughParseResult
   );

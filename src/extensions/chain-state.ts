@@ -1,0 +1,171 @@
+/**
+ * What a resolved chain holds: the names of its extensions, and what each
+ * part an extension was built from wrote on it. A part's state carries the
+ * code that runs it (`chain.written.watch`, `chain.controls.admit`), so the
+ * client asks the chain and imports nothing that runs extensions.
+ */
+
+import type { ValidationError } from "@errors";
+import type { ModelStamps } from "@query-engine/raptor3/shared/row-scope";
+import type { Input } from "@query-engine/raptor3/shared/schema";
+import type { Operation } from "@query-engine/types";
+import type { ExtensionPart } from "./chain";
+import type {
+  AdmittedControls,
+  ControlAdmission,
+  ResolvedControl,
+  RowsContribution,
+} from "./controls";
+import type { Coordination } from "./coordination";
+import type { ControlLiteral } from "./definition";
+import type { OperationHandlers, RequestHandlers } from "./handlers";
+import type { ExtensionMethodsState } from "./methods";
+import type { Observation, ObservesFacts } from "./observation";
+import type { ResultFields } from "./result";
+import type { RowsBinding } from "./rows";
+import type { StatementHandlers } from "./statement";
+import type { UnitHandlers } from "./units";
+import type { WrittenHandlers } from "./written";
+
+export interface ResolvedExtensionHandler<
+  Handler extends CallableFunction = CallableFunction,
+> {
+  readonly extension: string;
+  readonly handler: Handler;
+}
+
+/**
+ * A request or query handler. The controls its extension declares travel
+ * with it: the only ones its `context.controls` shows.
+ */
+export interface ResolvedOperationHandler<
+  Handler extends CallableFunction = CallableFunction,
+> extends ResolvedExtensionHandler<Handler> {
+  readonly controls?: readonly string[];
+}
+
+/** One precompiled handler array for each exact execution target. */
+export interface ResolvedExtensionOperationLookup {
+  readonly global: readonly ResolvedOperationHandler[];
+  readonly models: Readonly<
+    Record<
+      string,
+      Readonly<Record<string, readonly ResolvedOperationHandler[]>>
+    >
+  >;
+}
+
+export interface ResolvedExtension {
+  readonly name: string;
+}
+
+/** A chain's controls, the list one (model, operation) accepts, and what admits them. */
+export interface ResolvedControls {
+  /** Every control name on the chain: one name space. */
+  readonly names: ReadonlySet<string>;
+  /** Every control on the chain, in application order: the lists' one source. */
+  readonly all: readonly ResolvedControl[];
+  /**
+   * The controls placed on one model's operation, in application order. Each
+   * list is built the first time it is asked for and kept for the chain: a
+   * client created per request asks for the one its call needs, never for
+   * every operation of every model.
+   */
+  readonly placed: (
+    model: string,
+    operation: string
+  ) => readonly ResolvedControl[];
+  /**
+   * One call's controls taken out of its arguments and admitted, against
+   * the controls placed on `placement` (the operation the caller named);
+   * `undefined` when none is placed there.
+   */
+  readonly admit: (
+    model: string,
+    placement: string,
+    operation: Operation,
+    args: Record<string, unknown>,
+    bound: AdmittedControls | undefined
+  ) => ControlAdmission | undefined;
+  /** A view's `$bind`: one extension's own controls, bound over `previous`. */
+  readonly bind: (
+    extension: string,
+    values: Readonly<Record<string, unknown>>,
+    previous: AdmittedControls | undefined
+  ) => AdmittedControls;
+  /** Why a read holding a value of an `uncacheable` control is not cached. */
+  readonly uncacheable: (
+    admitted: AdmittedControls | undefined,
+    model: string,
+    operation: Operation
+  ) => ValidationError | undefined;
+}
+
+/** What a delete of one managed model writes, and who declared it. */
+export interface ResolvedDeletion {
+  readonly extension: string;
+  readonly at?: string;
+  readonly assign: Readonly<Record<string, unknown>>;
+  readonly removeWhen?: Readonly<Record<string, ControlLiteral>>;
+}
+
+/**
+ * Absent on an unextended client; frozen whenever it exists, except the
+ * `controls`, `rows`, `deletion` and `data` values a definition wrote, held
+ * as written. Each member is written by the part that reads it, and absent
+ * where no extension of the chain was built with that part.
+ */
+export interface ResolvedExtensionChain {
+  readonly extensions: readonly ResolvedExtension[];
+  /** The parts every later application runs again (`ExtensionPart.carry`). */
+  readonly carried?: readonly ExtensionPart[];
+  /**
+   * How a call whose execution an extension wraps is run, and how a
+   * transaction collects its write outcomes: present on a chain with query
+   * handlers, `written`, `retry`, `route`, a lifecycle observer or the cache.
+   */
+  readonly coordination?: Coordination;
+  readonly controls?: ResolvedControls;
+  /**
+   * Every `rows` member, as declared (plain data): also a cached read's key,
+   * so two chains whose `rows` differ never share an entry and two that
+   * declare the same always do.
+   */
+  readonly rows?: readonly RowsContribution[];
+  readonly deletion?: Readonly<Record<string, ResolvedDeletion>>;
+  /** Per model, every extension's `data` fields: a later one wins a field. */
+  readonly data?: Readonly<Record<string, ModelStamps>>;
+  /**
+   * Per model, the order its reads take when the caller gives none: a later
+   * extension's entry replaces an earlier one's. Also a cached read's key.
+   */
+  readonly order?: Readonly<Record<string, readonly Input[]>>;
+  /**
+   * Derived from `rows`, `deletion` and `data`: what each call's controls
+   * resolve to.
+   */
+  readonly callRows?: RowsBinding;
+  readonly request?: RequestHandlers;
+  readonly query?: OperationHandlers;
+  /** Whether `query` holds a handler for some call. */
+  readonly hasQueryHandlers?: boolean;
+  readonly statement?: StatementHandlers;
+  /** Every lifecycle observer, in chain order, as declared. */
+  readonly observe?: readonly ResolvedExtensionHandler[];
+  /** What runs a unit under `observe`: present when it holds one. */
+  readonly observation?: Observation;
+  /** What reads the declaration of the one observer handed facts. */
+  readonly observes?: ObservesFacts;
+  /** Every `written` declaration, in chain order: what watches a write call. */
+  readonly written?: WrittenHandlers;
+  /** Every `retry` and `route` declaration, and what sends a call under them. */
+  readonly units?: UnitHandlers;
+  /** Every `transaction` declaration, in chain order. */
+  readonly transaction?: readonly ResolvedExtensionHandler[];
+  /** Per model, every extension's computed fields, and what plans a call's. */
+  readonly result?: ResultFields;
+  /** Every extension's client and model methods, and what binds a view's. */
+  readonly methods?: ExtensionMethodsState;
+  /** Whether the chain carries the official cache. */
+  readonly hasCache?: boolean;
+}

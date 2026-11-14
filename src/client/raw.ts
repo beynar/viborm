@@ -30,13 +30,6 @@ import {
   VibORMErrorCode,
 } from "@errors";
 import type { ResolvedExtensionHandler } from "@extensions/chain";
-import {
-  executePreparedQuery,
-  extensionHost,
-  lookupPlacedControls,
-  lookupResolvedExtensionHandlers,
-  observeOperation,
-} from "@extensions/host-slot";
 import type {
   QueryInterceptionMode,
   RawQueryKind,
@@ -146,18 +139,10 @@ function settleRawRows(
   let facts: CallRows | undefined;
   if (binding !== undefined) {
     const name = model["~"].names.ts!;
-    const placed = lookupPlacedControls(chain, name, "findMany");
     facts = binding.call(
       name,
-      placed.length === 0
-        ? undefined
-        : extensionHost().admitControls(
-            name,
-            "findMany",
-            {},
-            placed,
-            client.bound
-          ).controls
+      chain?.controls?.admit(name, "findMany", "findMany", {}, client.bound)
+        ?.controls
     );
   }
   return engine.route.rowsOf(model, alias, facts, instant);
@@ -410,9 +395,18 @@ class DeferredRawOperation<T>
       stagePackageWriteOutcomes: () => undefined,
       startInterception: (operation, child, outcomes, control) => {
         const handlers = operation.#queryHandlers;
-        if (handlers === undefined || handlers.length === 0) return child();
+        const coordination = operation.#engine.extensionChain?.coordination;
+        if (
+          coordination === undefined ||
+          handlers === undefined ||
+          handlers.length === 0
+        )
+          return child();
         const query = operation.#resolve();
-        return executePreparedQuery<unknown, Record<string, unknown>>(
+        return coordination.executePreparedQuery<
+          unknown,
+          Record<string, unknown>
+        >(
           operation.#queryContext("array", query),
           handlers,
           child,
@@ -427,12 +421,11 @@ class DeferredRawOperation<T>
         ),
       isWrite: (operation) => isRawWrite(operation.#method),
       hasObservation: (operation) =>
-        (operation.#engine.extensionChain?.observe.length ?? 0) > 0,
+        operation.#engine.extensionChain?.observation !== undefined,
       observe: (operation, child, readCompletionFacts) => {
-        const observers = operation.#engine.extensionChain?.observe;
-        if (observers === undefined || observers.length === 0) return child();
-        return observeOperation(
-          observers,
+        const observation = operation.#engine.extensionChain?.observation;
+        if (observation === undefined) return child();
+        return observation.operation(
           operation.#method,
           undefined,
           child,
@@ -446,13 +439,12 @@ class DeferredRawOperation<T>
       executeWith: (operation, driver) => {
         const execute = () =>
           operation.#runResolved(driver, operation.#resolve());
-        const observers = operation.#engine.extensionChain?.observe;
-        if (observers === undefined || observers.length === 0) {
+        const observation = operation.#engine.extensionChain?.observation;
+        if (observation === undefined) {
           return operation.#execution.executeWith(driver, execute);
         }
         return operation.#execution.executeWith(driver, () =>
-          observeOperation(
-            observers,
+          observation.operation(
             operation.#method,
             undefined,
             execute,
@@ -509,9 +501,7 @@ class DeferredRawOperation<T>
     this.#method = method;
     this.#captured = captured;
     this.#parse = parse;
-    this.#queryHandlers = lookupResolvedExtensionHandlers(
-      engine.extensionChain,
-      "query",
+    this.#queryHandlers = engine.extensionChain?.query?.handlers(
       undefined,
       method
     );
@@ -614,7 +604,12 @@ class DeferredRawOperation<T>
 
   #runAttributed(driver: AnyDriver): Promise<T> {
     const handlers = this.#queryHandlers;
-    if (handlers === undefined || handlers.length === 0) {
+    const coordination = this.#engine.extensionChain?.coordination;
+    if (
+      coordination === undefined ||
+      handlers === undefined ||
+      handlers.length === 0
+    ) {
       return this.#runResolved(
         driver,
         this.#resolve(),
@@ -627,7 +622,7 @@ class DeferredRawOperation<T>
     } catch (error) {
       return Promise.reject(error);
     }
-    return executePreparedQuery<T, Record<string, unknown>>(
+    return coordination.executePreparedQuery<T, Record<string, unknown>>(
       this.#queryContext(
         this.#engine.transactionWriteOutcomes ? "transaction" : "direct",
         query
@@ -693,12 +688,11 @@ class DeferredRawOperation<T>
 
   #getPromise(): Promise<T> {
     return this.#execution.executeDefault(() => {
-      const observers = this.#engine.extensionChain?.observe;
-      if (observers === undefined || observers.length === 0) {
+      const observation = this.#engine.extensionChain?.observation;
+      if (observation === undefined) {
         return this.#run(this.#engine.driver);
       }
-      return observeOperation(
-        observers,
+      return observation.operation(
         this.#method,
         undefined,
         () => this.#run(this.#engine.driver),
@@ -724,7 +718,7 @@ class DeferredRawOperation<T>
   ): WriteOutcomeNotifications | undefined {
     if (
       this.#engine.transactionWriteOutcomes !== undefined ||
-      (this.#engine.extensionChain?.observe.length ?? 0) === 0
+      this.#engine.extensionChain?.observation === undefined
     ) {
       return notifications;
     }

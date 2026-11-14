@@ -8,12 +8,6 @@ import {
   TransactionError,
   VibORMErrorCode,
 } from "@errors";
-import {
-  extensionHost,
-  getOfficialInstrumentationChainCapability,
-  observeDriverLifecycle,
-  observeStatement,
-} from "@extensions/host-slot";
 import type {
   LifecycleUnitKind,
   ObservationCompletionFactsReader,
@@ -406,16 +400,15 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
       getExecutionExtensionChain(this.boundContext);
     const transforms = extensionChain?.statement;
     let transformed = query;
-    if (transforms !== undefined && transforms.length > 0) {
+    if (transforms !== undefined) {
       const executionContext = this.resolveExecutionContext(
         context,
         fallbackOperation
       );
-      transformed = extensionHost().applyStatementTransforms(
+      transformed = transforms.apply(
         query,
         executionContext.model,
-        executionContext.operation ?? fallbackOperation,
-        transforms
+        executionContext.operation ?? fallbackOperation
       );
     }
     const limit = normalizedBindParameterLimit(
@@ -449,7 +442,7 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
     const extensionChain =
       getExecutionExtensionChain(context) ??
       getExecutionExtensionChain(this.boundContext);
-    return (extensionChain?.observe.length ?? 0) > 0;
+    return extensionChain?.observation !== undefined;
   }
 
   /** Observe one physical statement without exposing SQL or provider state. */
@@ -460,12 +453,10 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
     ) => Promise<Result>,
     readCompletionFacts?: ObservationCompletionFactsReader
   ): Promise<Result> {
-    const observers = getExecutionExtensionChain(context)?.observe;
-    if (observers === undefined || observers.length === 0)
-      return child(undefined);
+    const observation = getExecutionExtensionChain(context)?.observation;
+    if (observation === undefined) return child(undefined);
     const gate = this.createOfficialStatementExecutionGate(context);
-    return observeStatement(
-      observers,
+    return observation.statement(
       context.operation,
       context.model,
       () => child(gate),
@@ -487,8 +478,8 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
     ) => Promise<Result>,
     readCompletionFacts?: ObservationCompletionFactsReader
   ): Promise<Result> {
-    const observers = getExecutionExtensionChain(context)?.observe;
-    if (observers === undefined || observers.length === 0) {
+    const observation = getExecutionExtensionChain(context)?.observation;
+    if (observation === undefined) {
       return child(undefined);
     }
     const official = readOfficialCapability(context);
@@ -496,9 +487,8 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
       official?.observesLifecycle === true && official.wants(boundary)
         ? this.createOfficialDriverLifecycleExecutionGate(context, boundary)
         : undefined;
-    return observeDriverLifecycle(
+    return observation.lifecycle(
       kind,
-      observers,
       context.operation,
       () => child(gate),
       readCompletionFacts,
@@ -535,8 +525,8 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
     ) => Promise<Result>,
     readCompletionFacts?: ObservationCompletionFactsReader
   ): Promise<Result> {
-    const observers = getExecutionExtensionChain(context)?.observe;
-    if (observers === undefined || observers.length === 0) {
+    const observation = getExecutionExtensionChain(context)?.observation;
+    if (observation === undefined) {
       return child(
         queries.map((query) =>
           this.materializeTrustedBatchQuery(query, query.context ?? context)
@@ -554,8 +544,7 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
         const statementContext = query.context ?? context;
         const readFacts = factsAssigned ? undefined : gate?.readFacts;
         factsAssigned = true;
-        return observeStatement(
-          observers,
+        return observation.statement(
           statementContext.operation,
           statementContext.model,
           () => {
@@ -925,7 +914,6 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
 
 /** The official capability of the exact chain this trusted context carries. */
 function readOfficialCapability(context: QueryExecutionContext | undefined) {
-  return getOfficialInstrumentationChainCapability(
-    getExecutionExtensionChain(context)
-  );
+  const chain = getExecutionExtensionChain(context);
+  return chain?.observes?.capability(chain);
 }
