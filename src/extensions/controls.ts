@@ -201,7 +201,7 @@ export function bindControls(
 /** The refusal of a `$bind` naming a control its extension does not declare. */
 export function undeclaredBinding(extension: string, name: string): never {
   throw new ClientInitializationError(
-    `Extension "${extension}" binds control "${name}", which it does not declare.`,
+    `Extension "${extension}" binds argument "${name}", which it does not declare.`,
     { meta: { extension } }
   );
 }
@@ -252,7 +252,7 @@ function admitControl(
       model,
       operation,
       "returned a promise",
-      new TypeError("Control validators must return synchronously")
+      new TypeError("Argument validators must return synchronously")
     );
   }
   if (result.issues)
@@ -277,7 +277,7 @@ function invalidControl(
       : { kind: "operation", operation, model },
     messages.map((message) => ({
       path: control.name,
-      message: `Control "${control.name}" ${message}`,
+      message: `Argument "${control.name}" ${message}`,
     })),
     { meta: { model, extension: control.extension } }
   );
@@ -291,7 +291,7 @@ function validatorFailure(
   cause: unknown
 ): QueryError {
   return new QueryError(
-    `Extension "${control.extension}" control "${control.name}" validator for ${operation === undefined ? "$bind" : `${model}.${operation}`} ${failure}.`,
+    `Extension "${control.extension}" argument "${control.name}" validator for ${operation === undefined ? "$bind" : `${model}.${operation}`} ${failure}.`,
     { cause: errorCause(cause), meta: { model, operation } }
   );
 }
@@ -320,7 +320,7 @@ function appendControls(
   for (const { name, extension } of all) {
     if (names.has(name))
       extensionError(
-        `Extension "${extension}" declares control "${name}", which extension "${all.find((control) => control.name === name)?.extension}" already declares.`,
+        `Extension "${extension}" declares argument "${name}", which extension "${all.find((control) => control.name === name)?.extension}" already declares.`,
         extension
       );
     names.add(name);

@@ -294,11 +294,11 @@ export function runBoundViewsBehavior(substrate: BoundViewsSubstrate): void {
       const pass = (client: typeof db) =>
         Reflect.apply(client.page.findMany, undefined, [{ actor: NAMES[0] }]);
       await expect(pass(db)).rejects.toBeInstanceOf(ValidationError);
-      await expect(pass(db)).rejects.toThrow('Control "actor" is required');
+      await expect(pass(db)).rejects.toThrow('Argument "actor" is required');
       await expect(pass(call)).rejects.toBeInstanceOf(ValidationError);
       await expect(pass(call)).rejects.toThrow("actor: Unknown key: actor");
       await expect(db.page.findMany()).rejects.toThrow(
-        'Control "actor" is required'
+        'Argument "actor" is required'
       );
       await expect(
         db.page.create({
@@ -310,7 +310,7 @@ export function runBoundViewsBehavior(substrate: BoundViewsSubstrate): void {
             position: 0,
           },
         })
-      ).rejects.toThrow('Control "actor" is required');
+      ).rejects.toThrow('Argument "actor" is required');
       expect(await base.page.count({ where: { id: "never" } })).toBe(0);
     });
 
@@ -421,10 +421,10 @@ export function runBoundViewsBehavior(substrate: BoundViewsSubstrate): void {
         ClientInitializationError
       );
       expect(() => bound.$with({ actor: NAMES[0] })).toThrow(
-        'Extension "binder" binds control "actor", which it does not declare.'
+        'Extension "binder" binds argument "actor", which it does not declare.'
       );
       expect(() => bound.$with({ nowhere: 1 })).toThrow(
-        'binds control "nowhere"'
+        'binds argument "nowhere"'
       );
       expect(() => bound.$with({ mine: 1 })).toThrow(ValidationError);
       expect(() => bound.$with({ mine: 1 })).toThrow(
@@ -432,7 +432,7 @@ export function runBoundViewsBehavior(substrate: BoundViewsSubstrate): void {
       );
       expect(() => bound.$with({ hostile: 1 })).toThrow(QueryError);
       expect(() => bound.$with({ hostile: 1 })).toThrow(
-        'Extension "binder" control "hostile" validator for $bind threw.'
+        'Extension "binder" argument "hostile" validator for $bind threw.'
       );
       expect(bound.$with({ mine: "ok" })).toBeTypeOf("object");
       // The other extension binds its own: the same values are refused here.

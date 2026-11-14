@@ -141,7 +141,7 @@ describe("extension parts", () => {
 
     expect(Reflect.get(client, "$schema")).toBe(schema);
     expect(() => scope?.$bind({ actor: "ada" })).toThrow(
-      'Extension "binder" binds control "actor", which it does not declare.'
+      'Extension "binder" binds argument "actor", which it does not declare.'
     );
     // Binding no value is a view of the same client.
     expect(() => scope?.$bind({})).not.toThrow();

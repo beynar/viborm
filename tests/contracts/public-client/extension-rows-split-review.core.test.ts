@@ -81,7 +81,7 @@ afterEach(async () => {
 
 const ids = (rows: Row[]) => rows.map((row) => row.id).sort();
 
-test("two lazy entries sharing a sub-predicate that names an undeclared control are each refused", async () => {
+test("two lazy entries sharing a sub-predicate that names an undeclared argument are each refused", async () => {
   // One `where` of node, read by node's entry and, under `$exists`, by note's.
   const ghost = { ownerId: arg("ghost") };
   const db = base.$extends(
@@ -106,7 +106,7 @@ test("two lazy entries sharing a sub-predicate that names an undeclared control 
     const call = db[model]!.findMany({ user: "alice" } as object);
     await expect(call).rejects.toBeInstanceOf(ClientInitializationError);
     await expect(call).rejects.toThrow(
-      'Extension "lazy" references undeclared control "ghost".'
+      'Extension "lazy" references undeclared argument "ghost".'
     );
   }
 });
@@ -136,7 +136,7 @@ test("a lazy entry shared by two chains is checked against each chain's own cont
       const call = db.note!.findMany({ user: "u", tenant: "bob" } as object);
       if (make === bare)
         await expect(call).rejects.toThrow(
-          'Extension "lazy" references undeclared control "tenant".'
+          'Extension "lazy" references undeclared argument "tenant".'
         );
       else expect(ids(await call)).toEqual(["n2"]);
     }
@@ -185,7 +185,7 @@ test("a control named only under NOT, $if, $exists, recurse, in confine or in a 
     const apply = () => base.$extends(definition);
     expect(apply, label).toThrow(ClientInitializationError);
     expect(apply, label).toThrow(
-      'Extension "named" references undeclared control "ghost".'
+      'Extension "named" references undeclared argument "ghost".'
     );
   }
 });

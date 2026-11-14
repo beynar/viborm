@@ -16,7 +16,7 @@ import { appendResolvedExtension } from "@tests/fixtures/host-definition";
 import { describe, expect, it } from "vitest";
 
 const UNKNOWN_PATTERN = /unknown/i;
-const UNDECLARED_CONTROL_TENNAT_PATTERN = /undeclared control "tennat"/;
+const UNDECLARED_CONTROL_TENNAT_PATTERN = /undeclared argument "tennat"/;
 
 const post = s.model({
   id: s.string().id(),

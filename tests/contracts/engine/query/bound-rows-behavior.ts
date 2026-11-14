@@ -196,7 +196,7 @@ export function runBoundRowsBehavior(provider: BoundRowsProvider): void {
       const refused = await failure(db.post.findMany());
       expect(refused).toBeInstanceOf(ValidationError);
       expect((refused as ValidationError).issues).toEqual([
-        { path: "tenant", message: 'Control "tenant" is required' },
+        { path: "tenant", message: 'Argument "tenant" is required' },
       ]);
     });
 

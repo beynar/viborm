@@ -224,7 +224,7 @@ describe("official cache mutation ownership", () => {
           (error: unknown) => error
         );
       expect(refusal).toBeInstanceOf(QueryError);
-      expect(String(refusal)).toContain('named control "cache"');
+      expect(String(refusal)).toContain('named argument "cache"');
       expect(timeline).toEqual(["request"]);
     }
     expect(cacheDriver.invalidations).toEqual([]);

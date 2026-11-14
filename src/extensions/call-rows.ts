@@ -19,7 +19,7 @@ export function refuseUndeclared(
   for (const control of names)
     if (control !== undefined && next.controls?.names.has(control) !== true)
       extensionError(
-        `Extension "${definition.name}" references undeclared control "${control}".`,
+        `Extension "${definition.name}" references undeclared argument "${control}".`,
         definition.name
       );
 }

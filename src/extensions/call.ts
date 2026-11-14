@@ -158,7 +158,7 @@ function firstOf(
               throw refusal(
                 shape
                   ? `set "${key}", which decides the result's shape`
-                  : `named control "${key}"`
+                  : `named argument "${key}"`
               );
           }
           state.args = Object.freeze({ ...state.args, ...patch });

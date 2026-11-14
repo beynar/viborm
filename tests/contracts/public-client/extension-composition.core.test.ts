@@ -258,7 +258,7 @@ describe("composition: one name, one control (K7(a))", () => {
     );
     expect(apply(governed, audit)).toThrow(ClientInitializationError);
     expect(apply(governed, audit)).toThrow(
-      'Extension "audit" declares control "actor", which extension "permissionsLike" already declares.'
+      'Extension "audit" declares argument "actor", which extension "permissionsLike" already declares.'
     );
     expect(
       apply(
@@ -268,7 +268,7 @@ describe("composition: one name, one control (K7(a))", () => {
         extension("other", extArgs({ as: oneOf("b").default("b") }))
       )
     ).toThrow(
-      'Extension "other" declares control "as", which extension "tenancy" already declares.'
+      'Extension "other" declares argument "as", which extension "tenancy" already declares.'
     );
     // Distinct names compose, the official cache's `cache` included.
     expect(
@@ -294,7 +294,7 @@ describe("composition: one name, one control (K7(a))", () => {
         )
       )
     ).toThrow(
-      'Extension "self" declares control "deleted", which extension "self" already declares.'
+      'Extension "self" declares argument "deleted", which extension "self" already declares.'
     );
   });
 });
@@ -310,10 +310,10 @@ describe("composition: references to earlier controls (K7(c))", () => {
       Reflect.apply(Reflect.get(client, "$extends"), client, [audit]);
     expect(apply(base)).toThrow(ClientInitializationError);
     expect(apply(base)).toThrow(
-      'Extension "audit" references undeclared control "actor".'
+      'Extension "audit" references undeclared argument "actor".'
     );
     expect(apply(base.$extends(tombstones))).toThrow(
-      'references undeclared control "actor"'
+      'references undeclared argument "actor"'
     );
   });
 
@@ -414,7 +414,7 @@ describe("composition: rows steps first (K7(b), OD-1 option (2))", () => {
       await u2.page.can("view", { id: "p3" }),
     ]).toEqual([true, false, true]);
     await expect(db.page.findMany()).rejects.toThrow(
-      'Control "actor" is required'
+      'Argument "actor" is required'
     );
     await expect(db.page.findMany()).rejects.toBeInstanceOf(ValidationError);
 

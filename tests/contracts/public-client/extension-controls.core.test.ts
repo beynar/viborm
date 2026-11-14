@@ -165,7 +165,7 @@ class KeyRecordingCache extends MemoryCache {
   }
 }
 
-const NAMED_CONTROL = /named control "(reason|deleted)"/;
+const NAMED_CONTROL = /named argument "(reason|deleted)"/;
 
 const softRows = {
   name: "rows",
@@ -486,7 +486,10 @@ describe("controls: admission and ownership", () => {
     expect(outside).toBeInstanceOf(ValidationError);
     if (!(outside instanceof ValidationError)) throw outside;
     expect(outside.issues).toEqual([
-      { path: "region", message: 'Control "region" must be one of "eu", "us"' },
+      {
+        path: "region",
+        message: 'Argument "region" must be one of "eu", "us"',
+      },
     ]);
     expect(outside.operation).toBe("findMany");
   });
@@ -516,7 +519,7 @@ describe("controls: admission and ownership", () => {
     expect(invalid).toBeInstanceOf(ValidationError);
     if (!(invalid instanceof ValidationError)) throw invalid;
     expect(invalid.issues).toEqual([
-      { path: "reason", message: 'Control "reason" too short' },
+      { path: "reason", message: 'Argument "reason" too short' },
     ]);
 
     const cases: ReadonlyArray<
@@ -571,7 +574,7 @@ describe("controls: admission and ownership", () => {
     expect(invalid).toBeInstanceOf(ValidationError);
     if (!(invalid instanceof ValidationError)) throw invalid;
     expect(invalid.issues).toEqual([
-      { path: "reason", message: 'Control "reason" is not why' },
+      { path: "reason", message: 'Argument "reason" is not why' },
     ]);
   });
 
@@ -799,7 +802,7 @@ describe("controls: placement", () => {
 
 describe("controls: required", () => {
   const REQUIRED = [
-    { path: "tenant", message: 'Control "tenant" is required' },
+    { path: "tenant", message: 'Argument "tenant" is required' },
   ];
 
   test("a required control is asked for on every model that accepts it: a call that does not pass it is refused at its path on every operation it is placed on, before it writes; passed, it is admitted", async () => {
@@ -895,7 +898,7 @@ describe("controls: required", () => {
       })
     );
     expect((unmoded as ValidationError).issues).toEqual([
-      { path: "mode", message: 'Control "mode" is required' },
+      { path: "mode", message: 'Argument "mode" is required' },
     ]);
   });
 
@@ -926,7 +929,7 @@ describe("controls: required", () => {
       expect(
         await issues(callUnchecked(db, "note", operation, {})),
         operation
-      ).toEqual([{ path: "tenant", message: 'Control "tenant" is required' }]);
+      ).toEqual([{ path: "tenant", message: 'Argument "tenant" is required' }]);
     }
     expect(
       await issues(
@@ -935,7 +938,7 @@ describe("controls: required", () => {
           tenant: "acme",
         })
       )
-    ).toEqual([{ path: "actor", message: 'Control "actor" is required' }]);
+    ).toEqual([{ path: "actor", message: 'Argument "actor" is required' }]);
     await expect(
       db.note.create({
         data: { id: "n1", body: "x" },
@@ -1020,7 +1023,7 @@ describe("controls: required", () => {
     );
     const refused = await failure(callUnchecked(db, "note", "findMany", {}));
     expect((refused as ValidationError).issues).toEqual([
-      { path: "tenant", message: 'Control "tenant" is required' },
+      { path: "tenant", message: 'Argument "tenant" is required' },
     ]);
     await expect(
       db.note.findMany({ tenant: "acme", select: { id: true } })
@@ -1122,7 +1125,7 @@ describe("controls: rows bound to the call", () => {
           })
         )
       )
-    ).toThrow('references undeclared control "x"');
+    ).toThrow('references undeclared argument "x"');
   });
 
   test("a remembered domain holds its own copy of the values it was bound from: a Date or an array the caller mutates after its call never reaches a later call with equal values (F1)", async () => {

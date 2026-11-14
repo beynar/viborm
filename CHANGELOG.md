@@ -105,7 +105,12 @@ all-or-nothing when it fits one batch.
 - **`instrumentation()` no longer takes a `logging.warning` level**: nothing
   produced warnings.
 - **Error texts changed throughout the extension host.** Match errors on their
-  class and code.
+  class and code. An argument's refusals name it an argument
+  (`Argument "tenant" is required`, `references undeclared argument "x"`)
+  where they said `Control`.
+- **`viborm/client` no longer exports `DefinitionControls` and `RowsVerbs`**,
+  the types of the earlier extension definition. An exported extended
+  client's declaration names `PlacedControl` for each argument, as before.
 - **What each extension adds to a PostgreSQL application, minified**
   (measured with `node scripts/extension-bytes.mjs`; before → now):
   default omission 45,233 → 6,479 bytes; `on` 47,016 → 16,451;
