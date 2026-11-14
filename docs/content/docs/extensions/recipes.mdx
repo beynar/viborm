@@ -86,7 +86,7 @@ through every relation, and every row it creates belongs to that tenant,
 unless the call writes `tenantId` or the tenant relation itself (see the last
 point below).
 
-```ts expect-error
+```ts
 export const tenancy = <const Models extends readonly string[]>(
   models: Models
 ) =>
@@ -141,7 +141,7 @@ await db.post.findMany(); // ValidationError: "tenant" is required
 Every create records who created the row, and every update who last changed
 it.
 
-```ts expect-error
+```ts
 export const audit = <const Models extends readonly string[]>(models: Models) =>
   extension(
     "audit",
@@ -176,7 +176,7 @@ An update or a delete says which version of the row it read. When the row
 has moved on since, the call finds nothing and changes nothing. Every update
 moves the version on.
 
-```ts expect-error
+```ts
 export const optimisticLock = <const Models extends readonly string[]>(
   models: Models
 ) =>
