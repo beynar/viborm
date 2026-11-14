@@ -159,65 +159,6 @@ export type RowsVerbs = {
   readonly reads?: { readonly [field: string]: string };
 };
 
-/**
- * What a delete does on the models named here: an update that stamps `at`
- * with the call's time and writes `assign`, unless the call's controls match
- * `removeWhen`.
- */
-export type DeletionContribution = {
-  readonly removeWhen?: {
-    readonly [control: string]: string | number | boolean;
-  };
-  readonly models: {
-    readonly [model: string]: {
-      readonly at?: string;
-      readonly assign?: ScalarFields;
-    };
-  };
-};
-
-/**
- * Fields an extension writes on the models named here: `create` on every
- * create of the model, `update` on every update of it, a soft delete's
- * included. A value is a constant, `{ control: "<name>", path?: "a.b" }` for
- * the value the call passed for that control or a field of it (a call that
- * passed none writes nothing there), `{ now: true }` for the call's instant,
- * or, on `update`, one of the field's update operators (`{ increment: 1 }`). A field is written only where the caller left it
- * out: a call that writes it itself, or writes the relation whose foreign key
- * holds it, keeps its own value there. A create may leave out such a field
- * even where the schema requires it: the call's data is checked with it
- * counted as given. When the model names here are known to the types
- * (written out, or kept by a `const` type parameter, not a plain
- * `string[]`), the extended client's types agree, nested creates included:
- * the field is optional on a create. When two extensions name a field, the
- * later one writes it, and a value the caller writes wins over both.
- */
-export type DataContribution = {
-  readonly models: {
-    readonly [model: string]: {
-      readonly create?: ScalarFields;
-      readonly update?: ScalarFields;
-    };
-  };
-};
-
-/** One `order` term: a scalar field and its direction. */
-export type OrderTerm = { readonly [field: string]: "asc" | "desc" };
-
-/**
- * Per model, the order its reads take when the caller gives no `orderBy`: a
- * root `findMany` or `findFirst`, a to-many relation read at any depth
- * (`include`, `select`, recursive), and the window of a paged aggregate. An
- * explicit `orderBy` replaces it (`orderBy: []` reads in key order). The
- * model's key always ends the order. A later extension's entry for a model
- * replaces an earlier one's.
- */
-export type OrderContribution = {
-  readonly models: {
-    readonly [model: string]: OrderTerm | readonly OrderTerm[];
-  };
-};
-
 // =============================================================================
 // CONTROL STATE: what a chain's controls add to each (model, operation)
 // =============================================================================

@@ -11,29 +11,23 @@
 
 import type { RowsVerbs } from "../client/exports";
 import { ForbiddenError } from "../errors";
+import { args, bound, oneOf } from "../extensions/args";
+import { call } from "../extensions/call";
 import type { DefinitionControls } from "../extensions/controls";
-import {
-  type AnyTarget,
-  arg,
-  args,
-  bound,
-  type ClientSchema,
-  call,
-  type EmptyFacts,
-  type Extension,
-  models as everyOperation,
-  extension,
-  type Facts,
-  lazy,
-  methods,
-  nothing,
-  oneOf,
-  rule,
-  selecting,
-  type Target,
-  target,
-  type VibORMConfig,
-  when,
+import { extension } from "../extensions/extension";
+import { lazy } from "../extensions/judge-words";
+import { methods } from "../extensions/methods-part";
+import { models as everyOperation, selecting, target } from "../extensions/on";
+import { rule } from "../extensions/rule";
+import { arg, nothing, when } from "../extensions/rule-words";
+import type {
+  AnyTarget,
+  ClientSchema,
+  EmptyFacts,
+  Extension,
+  Facts,
+  Target,
+  VibORMConfig,
 } from "../index";
 import type { InferOutput } from "../validation";
 import { type ActorFacts, type ActorPaths, actorContract } from "./actor";

@@ -9,6 +9,9 @@
  * - Cloudflare KV: "viborm/cache/cloudflare-kv"
  */
 
+// Named so the declaration of an exported client with the cache can write
+// its `cache` argument (the options, and the operations it is placed on).
+export type { MutationOperations } from "../client/exports";
 // Cache driver base
 export {
   CacheDriver,
@@ -17,9 +20,4 @@ export {
   type WaitUntilFn,
 } from "./driver";
 export { type CacheExtensionConfig, cache } from "./extension";
-// Named so the declaration of an exported client with the cache can write it.
-export type {
-  CacheInvalidationOptions,
-  OfficialCacheControls,
-  WithCacheOptions,
-} from "./schema";
+export type { CacheInvalidationOptions, WithCacheOptions } from "./schema";

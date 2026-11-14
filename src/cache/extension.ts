@@ -15,29 +15,18 @@
  */
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { MutationOperations } from "../client/exports";
-import {
-  type AnyTarget,
-  accepts,
-  args,
-  around,
-  bound,
-  CacheConfigurationError,
-  call,
-  codec,
-  database,
-  type Extension,
-  extension,
-  type Facts,
-  key,
-  methods,
-  type PlacedControl,
-  type Run,
-  reads,
-  settled,
-  target,
-  VibORMError,
-  writes,
-} from "../index";
+import { VibORMError } from "../errors/base";
+import { CacheConfigurationError } from "../errors/cache";
+import { accepts, args, bound } from "../extensions/args";
+import { around, call } from "../extensions/call";
+import { codec } from "../extensions/codec";
+import { database } from "../extensions/database";
+import { extension } from "../extensions/extension";
+import { key } from "../extensions/key";
+import { methods } from "../extensions/methods-part";
+import { reads, target, writes } from "../extensions/on";
+import { settled } from "../extensions/settled";
+import type { AnyTarget, Extension, Facts, PlacedControl, Run } from "../index";
 import {
   CacheDriver,
   invalidateOfficialCache,

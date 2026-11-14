@@ -57,7 +57,7 @@ const fresh = await client
 
 A read is keyed by the statement it would send: its model, its operation, its
 validated arguments, and the prepared statement's text and parameters
-(`key(run)`), inside a namespace made of the cache's private snapshot
+(`key(run)`), inside a namespace made of the cache's private storage
 revision, the database (dialect and SQL namespace, so one store can serve
 several databases) and the extension's `version`. A rule that changes the
 statement (a tenant, a soft-delete mode, a permission) changes the key; an
@@ -73,28 +73,42 @@ construction is private; no public helper can address the official namespace.
 
 ## Detached values
 
-The cache sits closest to the core (`around` with `{ inner: true }`), so
-it stores a backend-portable snapshot of the parsed core result before any
-other extension's second moment can change it. Every hit materializes a
-fresh complete public graph. Arrays, objects, dates, byte arrays, relations,
-JSON, decimals, bigints, aggregates, counts, and grouped results retain their
-documented public values without sharing mutable references between calls.
+The cache sits closest to the core (`around` with `{ inner: true }`), so it
+stores what the driver returned before any other extension's second moment
+can change the answer. An entry holds the driver's rows for the read's one
+statement, as JSON data, not a copy of the parsed result. A value JSON cannot
+carry (a bigint, a `Date`, bytes, a non-finite number, `-0`) is written as a
+tagged array, and every array is tagged, so no document a JSON column holds
+can be mistaken for one.
 
-Fixed decimals are snapshotted as validated canonical private strings, never as
-Decimal prototypes or JSON numbers. Every scalar and list member is rebuilt as
-a fresh `Decimal` on every hit. Compare those values with `.eq()` rather than
-object identity. A `Decimal` carries its state privately and the value type has
-no configuration, so neither a caller mutation nor an application setting can
-poison a later hit or change cache identity.
+Every hit hands the stored rows to the same decoding a driver's answer goes
+through: the driver's result parser, then the engine's result decoder. A hit
+is therefore a fresh complete graph, with no mutable reference shared between
+calls, and every value is decided again as on a miss: relations, JSON,
+decimals, bigints, dates, bytes, aggregates, counts and grouped results take
+their documented public values. Decimals are rebuilt as a fresh `Decimal` on
+every hit (compare them with `.eq()`, not by identity), and GeoPoint values as
+a fresh `{ longitude, latitude }`; a selected `_distance` remains a number (or
+null for a nullable point).
 
-GeoPoint values are snapshotted through the one coordinate codec. Every cache
-hit returns a fresh `{ longitude, latitude }` object, including nested and
-variant relation graphs. A selected `_distance` remains a number (or null for a
-nullable point); provider-owned row claims never enter cache storage.
+A driver result parser of your own (a custom driver's `result`) is called on
+hits too. It sees the restored values, which are the driver's values after a
+round trip through JSON: a `Uint8Array` where the driver gave a `Buffer`, a
+plain object or array where it gave one.
 
-Malformed stored snapshots fail at the cache boundary. VibORM does not route
-them back through the provider result parser or rerun custom JSON validation.
-Cache-managed reads remain outside consumable-provider-row optimization.
+A row value the cache cannot store (a class instance a driver did not turn
+into plain data) does not fail the read: the read answers uncached, and the
+operation records a `cache-set-failed` outcome. Entries are written under a
+private storage revision (`r6`); an entry written by an earlier VibORM version
+is never read. A stored entry that is malformed, or that the decoder refuses as
+it would refuse a driver's value, fails the read with a
+`CacheConfigurationError` whose `meta.method` is `"materialize"`; it exposes no
+stored value.
+
+Two checks are looser than when the cache stored the parsed result: a column
+the read does not decode is ignored, as it is in a driver's answer, and an
+object read through getters or a proxy (from an in-memory backend that hands
+back live objects) is read as the plain data it shows, not refused.
 
 ## Stale-while-revalidate
 
@@ -103,14 +117,14 @@ const cached = client.$withCache({ ttl: "5 minutes", swr: "1 hour" });
 ```
 
 - A fresh hit returns immediately.
-- A stale hit returns a fresh materialization of the old snapshot and schedules
-  one background promise covering claim, inner core replay, snapshot, set, and
-  marker cleanup.
-- A miss runs the inner prepared/core read and stores its snapshot.
+- A stale hit returns a fresh decoding of the old entry and schedules one
+  background promise covering claim, inner core replay, storing its rows, set,
+  and marker cleanup.
+- A miss runs the inner prepared/core read and stores the driver's rows.
 
 Background replay runs the core alone: it does not rerun any extension's
 first or second moment, or another logical application operation. The stale application
-result remains authoritative if replay, snapshot, storage, or cleanup fails.
+result remains authoritative if replay, storing, or cleanup fails.
 The built-in marker is best-effort; it is not an atomic distributed lock and
 does not promise a single winner across concurrent workers.
 

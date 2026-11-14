@@ -16,7 +16,7 @@ import { type AdmittedControls, controlsOwnedBy } from "./controls";
 import { coordinate, QUERIES, UNITS } from "./coordination";
 import { handlersOf, type PlacedHandler } from "./handlers";
 
-/** Frozen runtime contribution after hostile definition normalization. */
+/** The `query` member of a definition: only `tests/fixtures/host-definition.ts` writes it. */
 type RuntimeQueryFunction = (...args: never[]) => unknown;
 export type RuntimeQueryContribution =
   | RuntimeQueryFunction
@@ -75,50 +75,6 @@ export type WriteOutcomeListener = (
 ) => unknown | Promise<unknown>;
 
 export type GenericQueryKind = "model" | RawQueryKind;
-
-type GenericQueryContextBase<Result> = {
-  readonly mode: QueryInterceptionMode;
-  readonly input: Readonly<Record<string, unknown>>;
-  readonly proceed: () => Promise<Result>;
-  readonly onWriteOutcome: (listener: WriteOutcomeListener) => void;
-};
-
-type GenericModelQueryContext<Result> = GenericQueryContextBase<Result> & {
-  readonly kind: "model";
-  readonly model: string;
-  readonly operation: Operations;
-  /** The call's controls this handler's extension declares, and only those. */
-  readonly controls?: AdmittedControls;
-};
-
-type GenericRawQueryContext<Result> = GenericQueryContextBase<Result> &
-  {
-    [Kind in RawQueryKind]: {
-      readonly kind: Kind;
-      readonly model: undefined;
-      readonly operation: `$${Kind}`;
-    };
-  }[RawQueryKind];
-
-export type GenericQueryContext<Result> =
-  | GenericModelQueryContext<Result>
-  | GenericRawQueryContext<Result>;
-
-type GenericQueryHandlerCall = <Result>(
-  context: GenericQueryContext<Result>
-) => Promise<Result>;
-
-declare const officialQueryHandlerIdentity: unique symbol;
-
-/** Public ordinary query handler; official identities cannot be erased into it. */
-export type GenericQueryHandler = GenericQueryHandlerCall & {
-  readonly [officialQueryHandlerIdentity]?: never;
-};
-
-/** Internal nominal call shape used by official query-based capabilities. */
-export type OfficialGenericQueryHandler = GenericQueryHandlerCall & {
-  readonly [officialQueryHandlerIdentity]: true;
-};
 
 export interface WriteOutcomeRegistration {
   readonly extension: string;
@@ -724,8 +680,6 @@ export async function publishWriteOutcomes(
   }
   if (first !== undefined) throw first.failure;
 }
-
-import type { Operations } from "@client/types";
 
 /**
  * `query`: handlers around each prepared call, written as a definition's raw

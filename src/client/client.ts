@@ -682,6 +682,24 @@ export type ExtendedOperationResult<
   : never;
 
 /**
+ * The config of the client the model delegate `Delegate` belongs to: what a
+ * model method written apart from any client reads its model from, so its
+ * arguments are that client's, not its extension's own target's. `Fallback`
+ * where the delegate carries no chain.
+ */
+export type DelegateConfig<
+  Delegate,
+  Fallback extends VibORMConfig = never,
+> = Delegate extends DelegateState<
+  infer C extends VibORMConfig,
+  unknown,
+  unknown,
+  unknown
+>
+  ? C
+  : Fallback;
+
+/**
  * One operation's own arguments on the model delegate `Delegate`, read from
  * the client that delegate belongs to: what a model method written apart
  * from any client (an official extension's, its target unknown) takes.
