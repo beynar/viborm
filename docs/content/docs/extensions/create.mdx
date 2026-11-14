@@ -1084,8 +1084,9 @@ audit stamping.
 `fields: { passwordHash: omitted }` leaves the field out of every result of
 the client by default, root results and nested relation payloads alike. A
 query brings it back with `omit: { passwordHash: false }` or a `select` that
-names it. Two parts that omit fields of one model add up. A default does not
-change a bulk operation from `{ count }` to returned rows. The official
+names it. Two parts that omit fields of one model add up, in one extension or
+in two. A default does not change a bulk operation from `{ count }` to
+returned rows. The official
 [`defaultOmit()`](/docs/extensions/omit) is this word.
 
 ## Write values the statement computes
