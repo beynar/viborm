@@ -27,14 +27,10 @@ import type {
   QueryResult,
 } from "@drivers/types";
 import { UnsupportedOperationError } from "@errors";
-import { appendResolvedExtension } from "@extensions/chain";
-import type {
-  LifecycleUnit,
-  ObservationCompletion,
-} from "@extensions/observation";
-import type { StatementContext } from "@extensions/statement";
 import { sql } from "@sql";
+import { extension, statement as extStatement, unit } from "@src/index";
 import { instrumentation } from "@src/instrumentation/exports";
+import { appendResolvedExtension } from "@tests/fixtures/host-definition";
 import { createOfficialTestExecutionContext } from "@tests/unit/instrumentation/_official-context";
 import { describe, expect, test, vi } from "vitest";
 
@@ -443,20 +439,36 @@ describe("_prepare typed provenance", () => {
     const calls: string[] = [];
     const chain = appendResolvedExtension(
       undefined,
-      {
-        name: "dispatch-only",
-        statement({ statement }: StatementContext) {
-          calls.push("transform");
-          return sql`${statement} /* transformed */`;
-        },
-        ...(observed
-          ? {
-              observe(unit: LifecycleUnit) {
-                if (unit.kind === "statement") calls.push("observe");
+      observed
+        ? extension(
+            "dispatch-only",
+            unit(
+              (u, next) => {
+                calls.push("transform");
+                return next(sql`${extStatement(u)} /* transformed */`);
               },
-            }
-          : {}),
-      },
+              ["statement"],
+              { rewrites: true }
+            ),
+            unit(
+              (_u, next) => {
+                calls.push("observe");
+                return next();
+              },
+              ["statement"]
+            )
+          )
+        : extension(
+            "dispatch-only",
+            unit(
+              (u, next) => {
+                calls.push("transform");
+                return next(sql`${extStatement(u)} /* transformed */`);
+              },
+              ["statement"],
+              { rewrites: true }
+            )
+          ),
       {}
     );
     const context = createExecutionContext(
@@ -521,23 +533,27 @@ describe("_prepare typed provenance", () => {
     );
     const chain = appendResolvedExtension(
       official,
-      {
-        name: "prepared-sequential-completion",
-        statement({ statement, operation }: StatementContext) {
-          events.push(`transform:${operation}`);
-          return sql`${statement} /* ${sql.raw(operation ?? "unknown")} */`;
-        },
-        observe(
-          unit: LifecycleUnit,
-          proceed: () => Promise<ObservationCompletion>
-        ) {
-          if (unit.kind !== "statement") return;
-          events.push(`observe:${unit.operation}`);
-          return proceed().then((completion) => {
-            events.push(`complete:${unit.operation}:${completion.status}`);
-          });
-        },
-      },
+      extension(
+        "prepared-sequential-completion",
+        unit(
+          (u, next) => {
+            events.push(`transform:${u.operation}`);
+            return next(
+              sql`${extStatement(u)} /* ${sql.raw(u.operation ?? "unknown")} */`
+            );
+          },
+          ["statement"],
+          { rewrites: true }
+        ),
+        unit(
+          async (u, next) => {
+            events.push(`observe:${u.operation}`);
+            const outcome = await next();
+            events.push(`complete:${u.operation}:${outcome.status}`);
+          },
+          ["statement"]
+        )
+      ),
       {}
     );
     const contexts = [1, 2, 3].map((index) =>
@@ -616,33 +632,31 @@ describe("_prepare typed provenance", () => {
     const driver = new LimitedDriver();
     const completions: string[] = [];
     const transformed: string[] = [];
+    const transform = unit(
+      (u, next) => {
+        transformed.push(u.model ?? "unknown");
+        if (u.model === "second") {
+          if (failure === "throw")
+            throw new UnsupportedOperationError("transform refused");
+          return next(sql`${extStatement(u)}, ${2}`);
+        }
+        return next();
+      },
+      ["statement"],
+      { rewrites: true }
+    );
+    const complete = unit(
+      async (u, next) => {
+        const outcome = await next();
+        completions.push(`${u.model}:${outcome.status}`);
+      },
+      ["statement"]
+    );
     const chain = appendResolvedExtension(
       undefined,
-      {
-        name: "preparation-failure",
-        statement({ statement, model }: StatementContext) {
-          transformed.push(model ?? "unknown");
-          if (model === "second") {
-            if (failure === "throw")
-              throw new UnsupportedOperationError("transform refused");
-            return sql`${statement}, ${2}`;
-          }
-          return statement;
-        },
-        ...(observing
-          ? {
-              observe(
-                unit: LifecycleUnit,
-                proceed: () => Promise<ObservationCompletion>
-              ) {
-                if (unit.kind !== "statement") return;
-                return proceed().then((completion) => {
-                  completions.push(`${unit.model}:${completion.status}`);
-                });
-              },
-            }
-          : {}),
-      },
+      observing
+        ? extension("preparation-failure", transform, complete)
+        : extension("preparation-failure", transform),
       {}
     );
     const contexts = ["first", "second", "third"].map((model) =>
@@ -677,13 +691,17 @@ describe("_prepare typed provenance", () => {
     let calls = 0;
     const chain = appendResolvedExtension(
       undefined,
-      {
-        name: "bind-growth",
-        statement({ statement }: StatementContext) {
-          calls++;
-          return sql`${statement}, ${1}, ${2}`;
-        },
-      },
+      extension(
+        "bind-growth",
+        unit(
+          (u, next) => {
+            calls++;
+            return next(sql`${extStatement(u)}, ${1}, ${2}`);
+          },
+          ["statement"],
+          { rewrites: true }
+        )
+      ),
       {}
     );
     const context = createExecutionContext(
