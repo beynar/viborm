@@ -24,6 +24,8 @@ import {
 } from "@validation/primitives/parameter";
 import type { SchemaRegistryLookup } from "@validation/types";
 import type { ResolvedExtensionChain } from "./chain-state";
+import type { Projection } from "./projection";
+import type { PreparedDomain } from "./row-domain";
 import { type Admitting, PredicateWord } from "./rule-words";
 
 /**
@@ -43,8 +45,8 @@ export type References = Set<string | undefined>;
  * layer's `ModelVerbs`.
  */
 export interface VerbsDraft {
+  /** A check was written on the entry: the rows its writes produce are judged. */
   judge?: ModelVerbs["judge"];
-  project?: ModelVerbs["project"];
   read?: unknown;
   update?: unknown;
   delete?: unknown;
@@ -94,8 +96,11 @@ export interface RuleLayer {
   host?: VerbsHost;
   /** What lowers its layer, set where an entry read later may read its call. */
   layered?: Layered;
-  /** What judges and projects, set where an entry read later may ask either. */
-  lazily?: Pick<VerbsDraft, "judge" | "project">;
+  /** What judges and projects, brought by the words that ask either. */
+  brings?: {
+    judge?: ModelVerbs["judge"];
+    project?: (domain: PreparedDomain) => Projection;
+  };
 }
 
 /** What makes a layer's node of a predicate: `RowDomain.layered`. */
@@ -126,9 +131,9 @@ export interface VerbsBound {
   readonly judge?: RowDomain["judge"];
   readonly project?: RowDomain["project"];
   /** An entry given lazily is read: its calls carry their values. */
-  readonly lazy: boolean;
+  readonly lazy?: boolean;
   /** A model's filters at one layer, held by an entry given lazily. */
-  readonly filters: (model: string, layer: number) => ModeFilters | undefined;
+  readonly filters?: (model: string, layer: number) => ModeFilters | undefined;
   /** What prepares the call facts, with what the verbs judge. */
   readonly prepare: CallRows["prepare"];
 }
@@ -138,6 +143,8 @@ export interface VerbsBound {
  * verbs once per schema, and what binds a chain's for its calls.
  */
 export interface VerbsHost {
+  /** It admits and binds entries given lazily, beside eager ones. */
+  readonly lazy?: true;
   admit(
     admission: Admission,
     layer: RuleLayer,
@@ -164,8 +171,8 @@ export interface AdmittedLayer {
   readonly host?: VerbsHost;
   /** What lowers the layer, where some predicate of it reads its call. */
   readonly layered?: Layered;
-  /** What judges and projects, where an entry read later may ask either. */
-  readonly lazily?: RuleLayer["lazily"];
+  /** What judges and projects, brought by the words that ask either. */
+  readonly brings?: RuleLayer["brings"];
   readonly confine: { readonly [model: string]: Input };
   /** What its eager predicates read of their call (`References`). */
   readonly references: readonly (string | undefined)[];
@@ -363,7 +370,7 @@ export function admitLayer(
     verbs,
     ...(host && { host }),
     ...(layered && { layered }),
-    ...(layer.lazily && { lazily: layer.lazily }),
+    ...(layer.brings && { brings: layer.brings }),
     confine: Object.freeze(confine),
     references: Object.freeze([...references]),
   });

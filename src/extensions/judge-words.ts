@@ -25,7 +25,10 @@ import { projectionOf } from "./projection";
 import { draftOf, listOf } from "./rule";
 import { CarriedValue, PredicateWord, type Site } from "./rule-words";
 import { NOW } from "./stamps";
-import { VERBS, verbsOf } from "./verbs";
+import { LAZY_VERBS, verbsOf } from "./verbs";
+
+/** What the layer of a word's site brings beside its filters. */
+const brings = (site: Site) => (site.draft.rule!.brings ??= {});
 
 const UPDATE_FIELD = /^update\.fields\.[^.]+\.check$/;
 const FIELD_WHERE = /^update\.fields\.[^.]+\.where$/;
@@ -66,6 +69,7 @@ class Checked extends CarriedValue {
     const { key, field, refuse } = site;
     const own = verbsOf(site);
     own.judge = judgeOf;
+    brings(site).judge = judgeOf;
     if (key === "create.check") own.place = this.where;
     // The row an update leaves is judged again where the update writes a
     // field the predicate reads (`update.check`), or the field named.
@@ -123,7 +127,7 @@ class Gated extends CarriedValue {
     if (keyFields(state).has(field!))
       refuse(`${key} names a key, a unique or a foreign key field`);
     const own = verbsOf(site);
-    own.project = projectionOf;
+    brings(site).project = projectionOf;
     (own.reads ??= new Map()).set(field!, this.where);
   }
 }
@@ -159,7 +163,7 @@ class Facts extends CarriedValue {
     const own = verbsOf(site);
     if (own.evidence !== undefined)
       refuse("read.select holds one projection key");
-    own.project = projectionOf;
+    brings(site).project = projectionOf;
     own.evidence = { as: field!, names: Object.entries(this.predicates) };
   }
 }
@@ -258,11 +262,11 @@ class Lazy extends CarriedValue {
     const layer = draft.rule!;
     if (Object.hasOwn(layer.verbs, model))
       refuse("two rule parts of one extension judge the model");
-    layer.host = VERBS;
+    layer.host = LAZY_VERBS;
     // What the entry reads of its call, and whether its words judge or
     // project, are known once it is read.
     layer.layered = layerOf;
-    layer.lazily = { judge: judgeOf, project: projectionOf };
+    layer.brings = { judge: judgeOf, project: projectionOf };
     const read = (): VerbsDraft => {
       const given: unknown = Reflect.apply(this.read, undefined, []);
       const written: Readonly<Record<string, unknown>> = isPlainRecord(given)

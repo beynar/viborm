@@ -130,8 +130,6 @@ export interface ModelVerbs {
   readonly reads?: ReadonlyMap<string, Input>;
   /** A check was written on the entry: the rows its writes produce are judged. */
   readonly judge?: (domain: PreparedDomain) => Judge;
-  /** A gate or facts was written on the entry. */
-  readonly project?: (domain: PreparedDomain) => Projection;
 }
 
 /**
