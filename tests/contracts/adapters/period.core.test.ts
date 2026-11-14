@@ -14,10 +14,8 @@ import { describe, expect, test } from "vitest";
 
 const adapter = new PostgresAdapter();
 const column = sql.raw`"t"."at"`;
-const render = (
-  ...args: Parameters<NonNullable<PostgresAdapter["period"]>>
-) => {
-  const fragment = adapter.period(...args);
+const render = (...args: Parameters<PostgresAdapter["period"]["of"]>) => {
+  const fragment = adapter.period.of(...args);
   return { text: fragment.toStatement("$n"), values: fragment.values };
 };
 
@@ -110,6 +108,12 @@ describe("PostgreSQL period", () => {
         ).values,
         type
       ).toEqual([]);
+  });
+
+  test("the text of a period is to_char's, era included", () => {
+    expect(adapter.period.text(column).toStatement("$n")).toBe(
+      `to_char("t"."at", 'YYYY-MM-DD BC')`
+    );
   });
 
   test("each step is its own date_trunc field", () => {

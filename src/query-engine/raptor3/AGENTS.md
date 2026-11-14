@@ -344,9 +344,11 @@ and a paged aggregate, of a gated model reads a masked window of its
 filtered rows (`#overMasked`), so the gate is lowered once per row rather
 than once per grouped expression. A grouped read with a time step in
 `by` (`{ column: step }`, `validation/model/args/time-step.ts`) reads the same
-window, gated or not: each period is the adapter's `period` computed once
-there as a private column (`periodColumnKey`), which the grouping, the
-projection and the order all read. Written twice, its zone bound twice,
+window, gated or not: each period is the adapter's `period.of` computed once
+there as a private date column (`periodColumnKey`), which the grouping and
+the order read and the projection spells through `period.text`; the decoder
+reads that text as a calendar day (`decodePeriod`), since a period may begin
+outside the DateTime domain. Written twice, its zone bound twice,
 PostgreSQL no longer sees one grouped expression. An adapter without
 `period` is refused before any statement (`timeStepUnsupported`). A model whose verbs declare neither keeps
 its default projection and its bytes.

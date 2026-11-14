@@ -5,7 +5,10 @@
  */
 
 import { createClient } from "@client/client";
-import { runGroupByTimeStepBehavior } from "@tests/contracts/engine/query/groupby-time-step-behavior";
+import {
+  runGroupByDateStyleBehavior,
+  runGroupByTimeStepBehavior,
+} from "@tests/contracts/engine/query/groupby-time-step-behavior";
 import { groupByTimeStepSchema } from "@tests/contracts/engine/query/groupby-time-step-cases";
 import { createInMemoryPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -19,5 +22,13 @@ runGroupByTimeStepBehavior({
       createClient({ schema: groupByTimeStepSchema(table), driver })
     );
     await driver._executeRaw("SET TIME ZONE 'Asia/Tokyo'");
+  },
+});
+
+runGroupByDateStyleBehavior({
+  name: "PGlite",
+  createDriver: createInMemoryPGliteDriver,
+  inStyle: async (driver) => {
+    await driver._executeRaw("SET DateStyle = 'SQL, DMY'");
   },
 });

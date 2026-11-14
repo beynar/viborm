@@ -34,6 +34,7 @@ import {
   type GeoPointSql,
   installGeoPointSql,
   type PeriodSource,
+  type PeriodSql,
   type TextMatch,
   type VectorOrderKey,
 } from "../../database-adapter";
@@ -253,22 +254,26 @@ export class PostgresAdapter implements DatabaseAdapter {
    * `date_trunc` reads a `timestamptz` in the SESSION zone and turns a `date`
    * into one, so the wall time it truncates is always stated: the instant in
    * `zone`, a `timestamp` as stored, a `date` as a `timestamp`. The period is
-   * a `date`, read like a `date` column; grouped and ordered as one, it keeps
-   * its era (year zero is 1 BC to PostgreSQL). A `week` starts on Monday.
+   * a `date`, grouped and ordered as one, so it keeps its era (year zero is
+   * 1 BC here); its text is `to_char`'s, which no `DateStyle` changes. A
+   * `week` starts on Monday.
    */
-  period = (
-    column: Sql,
-    step: TimeStep,
-    source: PeriodSource,
-    zone: string
-  ): Sql => {
-    const wall = source.date
-      ? sql`CAST(${column} AS TIMESTAMP)`
-      : storesInstant(source)
-        ? sql`(${column} AT TIME ZONE ${zone})`
-        : column;
-    return sql`CAST(date_trunc(${PERIOD_FIELD[step]}, ${wall}) AS DATE)`;
-  };
+  period: PeriodSql = Object.freeze({
+    of: (
+      column: Sql,
+      step: TimeStep,
+      source: PeriodSource,
+      zone: string
+    ): Sql => {
+      const wall = source.date
+        ? sql`CAST(${column} AS TIMESTAMP)`
+        : storesInstant(source)
+          ? sql`(${column} AT TIME ZONE ${zone})`
+          : column;
+      return sql`CAST(date_trunc(${PERIOD_FIELD[step]}, ${wall}) AS DATE)`;
+    },
+    text: (period: Sql): Sql => sql`to_char(${period}, 'YYYY-MM-DD BC')`,
+  });
 
   identifiers: DatabaseAdapter["identifiers"];
 

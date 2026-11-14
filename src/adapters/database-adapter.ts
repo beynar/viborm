@@ -30,6 +30,27 @@ export interface PeriodSource {
   readonly nativeType: NativeTypeDeclaration | undefined;
 }
 
+/** A `groupBy` time step's period: computed once, then spelled. */
+export interface PeriodSql {
+  /**
+   * The first day of the `step` period holding `column`, as a date: what a
+   * grouped read groups and orders. A column that stores an instant is read
+   * as wall time in `zone` (an admitted IANA name); a date, or a date and
+   * time with no zone, as written.
+   */
+  readonly of: (
+    column: Sql,
+    step: TimeStep,
+    source: PeriodSource,
+    zone: string
+  ) => Sql;
+  /**
+   * That date as the text the engine publishes from, `YYYY-MM-DD AD` or
+   * `YYYY-MM-DD BC`, whatever the session's date style or the driver.
+   */
+  readonly text: (period: Sql) => Sql;
+}
+
 /** The one physical SQL vocabulary for a logical EPSG:4326 GeoPoint. */
 export interface GeoPointSql {
   /** Construct a stored point from already-bound longitude and latitude. */
@@ -1071,19 +1092,11 @@ export interface DatabaseAdapter {
   readonly geoPoint?: GeoPointSql;
 
   /**
-   * The first day of the `step` period holding `column`, as a date read like
-   * a `date` column: what a grouped read groups, orders and publishes for a
-   * `by` member grouped by a time step. A column that stores an instant is read as wall
-   * time in `zone` (an admitted IANA name); a date, or a date and time with no
-   * zone, as written. Absence means this adapter groups by no time step, and
-   * the engine refuses such a call before any statement is sent.
+   * The periods of a `by` member grouped by a time step. Absence means this
+   * adapter groups by no time step, and the engine refuses such a call before
+   * any statement is sent.
    */
-  readonly period?: (
-    column: Sql,
-    step: TimeStep,
-    source: PeriodSource,
-    zone: string
-  ) => Sql;
+  readonly period?: PeriodSql;
 
   result: AdapterResultParser;
 }

@@ -277,30 +277,72 @@ const matrix: Case[] = STEPPED.flatMap((column) =>
 const MONTREAL = "America/Montreal";
 const month = (row: Facture) => periodOf(row, "date", "month", MONTREAL);
 
+/** Rows at both ends of the DateTime domain, and beside them. */
 const ANCIENS = [
+  "0000-01-01T12:00:00.000Z", // a Saturday: its week began in year -1
   "0000-01-15T12:00:00.000Z",
   "0000-12-31T23:00:00.000Z",
   "0001-01-15T12:00:00.000Z",
   "2026-01-15T12:00:00.000Z",
+  "9999-12-31T23:00:00.000Z", // 10000-01-01 04:30 in Kolkata
 ];
+const KOLKATA = "Asia/Kolkata";
+/** Kolkata keeps +05:30 all year: plain arithmetic, at any year. */
+const KOLKATA_OFFSET = 5.5 * 3_600_000;
+
+/**
+ * A period's first day by UTC arithmetic, which `Intl` cannot spell outside
+ * years 1-9999: the astronomical year, `0000` for 1 BC, `-0001` before it.
+ */
+const astronomicalPeriod = (epoch: number, step: "week" | "year"): string => {
+  const day = new Date(epoch);
+  day.setUTCHours(0, 0, 0, 0);
+  if (step === "year") day.setUTCMonth(0, 1);
+  else day.setUTCDate(day.getUTCDate() - ((day.getUTCDay() + 6) % 7));
+  const year = day.getUTCFullYear();
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${year < 0 ? "-" : ""}${String(Math.abs(year)).padStart(4, "0")}-${pad(day.getUTCMonth() + 1)}-${pad(day.getUTCDate())}`;
+};
+
+/** The groups of the old rows by `step`, counted, in period order. */
+export const ancientGroups = (step: "week" | "year", offset: number) => {
+  const groups = new Map<string, number>();
+  for (const date of ANCIENS) {
+    const period = astronomicalPeriod(Date.parse(date) + offset, step);
+    groups.set(period, (groups.get(period) ?? 0) + 1);
+  }
+  const order = (period: string) =>
+    period.startsWith("-")
+      ? -Number(period.slice(1, 5))
+      : Number(period.slice(0, period.indexOf("-", 1)));
+  return [...groups]
+    .sort(([a], [b]) => order(a) - order(b) || (a < b ? -1 : 1))
+    .map(([date, count]) => ({ date, _count: count }));
+};
 
 export const GROUPBY_TIME_STEP_CASES: readonly Case[] = [
   ...matrix,
   {
-    name: "year zero and year one are two years",
+    name: "year zero and year one are two years; periods past the domain's ends",
     run: async ({ base }) => {
-      const years = new Map<string, number>();
-      for (const date of ANCIENS) {
-        const year = `${date.slice(0, 4)}-01-01`;
-        years.set(year, (years.get(year) ?? 0) + 1);
-      }
-      return {
-        actual: await base.ancien.groupBy({
-          by: [{ date: "year" }],
+      const asked = (step: "week" | "year", timeZone?: string) =>
+        base.ancien.groupBy({
+          by: [{ date: step }],
+          ...(timeZone ? { timeZone } : {}),
           _count: true,
           orderBy: { date: "asc" },
-        }),
-        expected: [...years].map(([date, count]) => ({ date, _count: count })),
+        });
+      return {
+        actual: [
+          await asked("year"),
+          await asked("week"),
+          await asked("year", KOLKATA),
+        ],
+        expected: [
+          ancientGroups("year", 0),
+          ancientGroups("week", 0),
+          ancientGroups("year", KOLKATA_OFFSET),
+        ],
       };
     },
   },

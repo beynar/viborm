@@ -2,6 +2,7 @@ import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { ForbiddenError } from "@errors";
 import {
+  ancientGroups,
   type Clients,
   GROUPBY_TIME_STEP_CASES,
   groupByTimeStepClients,
@@ -99,5 +100,41 @@ export function runGroupByTimeStepBehavior(
         const { actual, expected } = await run(clients);
         expect(actual).toEqual(expected);
       });
+  });
+}
+
+/**
+ * A period's text never follows the session's `DateStyle`: PostgreSQL spells
+ * a `date` as `01/01/2026` under `SQL, DMY`, and the period is published as
+ * `2026-01-01` all the same. `prepare` puts the driver's session in that style
+ * after the rows are written (other reads of dates are not this check's).
+ */
+export function runGroupByDateStyleBehavior(provider: {
+  readonly name: string;
+  readonly createDriver: () => AnyDriver;
+  readonly inStyle: (driver: AnyDriver) => Promise<void>;
+}): void {
+  test(`${provider.name}: a period's text ignores the session's DateStyle`, async () => {
+    const driver = provider.createDriver();
+    const { ancien } = groupByTimeStepSchema("groupby_datestyle");
+    const client = createClient({ schema: { ancien }, driver });
+    try {
+      await syncLiveSchema(client);
+      await client.ancien.createMany({ data: groupByTimeStepRows.ancien });
+      await provider.inStyle(driver);
+      const { rows } = await driver._executeRaw<{ style: string }>(
+        "SELECT current_setting('DateStyle') AS style"
+      );
+      expect(rows[0]?.style).toBe("SQL, DMY");
+      expect(
+        await client.ancien.groupBy({
+          by: [{ date: "year" }],
+          _count: true,
+          orderBy: { date: "asc" },
+        })
+      ).toEqual(ancientGroups("year", 0));
+    } finally {
+      await client.$disconnect();
+    }
   });
 }

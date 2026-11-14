@@ -7,17 +7,22 @@
  */
 
 import { PgDriver } from "@drivers/pg";
-import { runGroupByTimeStepBehavior } from "@tests/contracts/engine/query/groupby-time-step-behavior";
+import {
+  runGroupByDateStyleBehavior,
+  runGroupByTimeStepBehavior,
+} from "@tests/contracts/engine/query/groupby-time-step-behavior";
 import { dropEveryLiveTable, TEST_CONNECTION_STRING } from "./pg-fixtures";
 
 const SESSION_ZONE = "Pacific/Chatham";
 
-/** `url`'s sessions in {@link SESSION_ZONE}, whatever else its options set. */
-const inSessionZone = (url: string): string => {
+/** `url`'s sessions with `setting` added to whatever its options set. */
+const withSession = (url: string, setting: string): string => {
   const parsed = new URL(url);
   const options = parsed.searchParams.get("options");
-  const zone = `-c TimeZone=${SESSION_ZONE}`;
-  parsed.searchParams.set("options", options ? `${options} ${zone}` : zone);
+  parsed.searchParams.set(
+    "options",
+    options ? `${options} ${setting}` : setting
+  );
   return parsed.href;
 };
 
@@ -30,6 +35,27 @@ describe.skipIf(!TEST_CONNECTION_STRING)("pg Driver", () => {
     name: "pg",
     sessionZone: SESSION_ZONE,
     createDriver: () =>
-      new PgDriver({ databaseUrl: inSessionZone(TEST_CONNECTION_STRING!) }),
+      new PgDriver({
+        databaseUrl: withSession(
+          TEST_CONNECTION_STRING!,
+          `-c TimeZone=${SESSION_ZONE}`
+        ),
+      }),
+  });
+  describe("DateStyle", () => {
+    // A schema of its own: the tables above are not this push's.
+    beforeAll(dropEveryLiveTable);
+    // Every session of this driver is in the style from its first connection.
+    runGroupByDateStyleBehavior({
+      name: "pg",
+      createDriver: () =>
+        new PgDriver({
+          databaseUrl: withSession(
+            TEST_CONNECTION_STRING!,
+            "-c DateStyle=SQL,DMY"
+          ),
+        }),
+      inStyle: async () => undefined,
+    });
   });
 });

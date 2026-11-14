@@ -5239,7 +5239,7 @@ export class SqlQueries extends Queries {
         const state = scalar["~"].state;
         columns.push(
           this.#named(
-            this.adapter.period!(
+            this.adapter.period!.of(
               this.#operand(model, field, inner),
               step,
               {
@@ -5292,7 +5292,7 @@ export class SqlQueries extends Queries {
     };
     const columns: Sql[] = by.map(({ field, step }) => {
       const declared = this.scalarShape(model, field);
-      // A period is the adapter's date, published as its `YYYY-MM-DD` day.
+      // A period travels as the adapter's text, published as an ISO day.
       const leaf: Leaf =
         step === undefined
           ? declared
@@ -5307,7 +5307,7 @@ export class SqlQueries extends Queries {
       return this.#named(
         step === undefined
           ? this.projectedColumn(model, field, alias)
-          : key(field),
+          : this.adapter.period!.text(key(field)),
         field
       );
     });
