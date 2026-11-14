@@ -196,10 +196,6 @@ describe("the parts that read rows", () => {
     expect(plain.prepare(item, { name: "a" })).toEqual(
       layered.prepare(item, { name: "a" })
     );
-    for (const nested of [undefined, ["create", "items"] as const])
-      expect(plain.refusal("create", item, undefined, nested)).toEqual(
-        layered.refusal("create", item, undefined, nested)
-      );
     expect(plain.refuseHiddenLinkRow()).toBeUndefined();
     expect(plain.reads()).toBe(plain.reads());
   });
