@@ -209,9 +209,10 @@ export function on(hooks: RuntimeHooks, options?: OnOptions): unknown {
       ? []
       : [call(() => undefined, target(hooked, "create"))]),
     call((c) => {
-      if (c.kind !== "model" || c.model === undefined) return;
-      const watching = watchOf(own, report, c.schema[c.model]!, {
-        model: c.model,
+      // target(writes) selects model calls only: each names its model.
+      const model = c.model!;
+      const watching = watchOf(own, report, c.schema[model]!, {
+        model,
         operation: c.operation,
         args: c.args,
       });

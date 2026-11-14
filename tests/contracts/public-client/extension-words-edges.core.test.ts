@@ -35,6 +35,7 @@ import {
   unless,
   when,
 } from "@src/index";
+import { on } from "@src/on";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, describe, expect, test } from "vitest";
 
@@ -187,6 +188,17 @@ describe("fields gated by one predicate", () => {
       ["p1", true, true],
       ["p2", false, false],
     ]);
+  });
+});
+
+describe("on() with no hook", () => {
+  test("applies, and every write runs as it would", async () => {
+    const db = (await seeded()).$extends(on({} as never));
+    expect(
+      (await db.post.create({ data: { id: "p3", title: "c", ownerId: "u1" } }))
+        .id
+    ).toBe("p3");
+    expect(ids(await db.post.findMany({}))).toEqual(["p1", "p2", "p3"]);
   });
 });
 
