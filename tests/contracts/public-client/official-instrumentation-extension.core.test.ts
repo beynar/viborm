@@ -159,7 +159,7 @@ afterEach(async () => {
 });
 
 describe("official instrumentation extension construction", () => {
-  test("snapshots hostile config once and keeps one fixed private capability", () => {
+  test("snapshots hostile config once and declares what it observes", () => {
     const reads = { diagnostics: 0, includeSql: 0, logging: 0, tracing: 0 };
     const tracing = {
       get includeSql(): true {
@@ -186,7 +186,7 @@ describe("official instrumentation extension construction", () => {
 
     expect(extension.name).toBe("viborm.instrumentation");
     expect(Object.isFrozen(extension)).toBe(true);
-    expect(Reflect.ownKeys(extension)).toEqual(["name", "observe"]);
+    expect(Reflect.ownKeys(extension)).toEqual(["name", "observe", "observes"]);
     expect(reads).toEqual({
       diagnostics: 1,
       includeSql: 1,
@@ -195,22 +195,20 @@ describe("official instrumentation extension construction", () => {
     });
   });
 
-  test("refuses a cloned, renamed, or structurally forged instance", () => {
+  test("one extension on a client declares observes: a second is refused under any name, and an ordinary observer takes any name", () => {
     const { client: base } = baseClient();
     const official = instrumentation({ logging: { error: true } });
     const derived = base.$extends(official);
-    const cloned = { ...official };
-    const renamedClone = { ...official, name: "renamed-official" };
 
-    expect(() => applyUnsafe(derived, cloned)).toThrow(
+    // A second declaration, whatever it is called.
+    expect(() => applyUnsafe(derived, { ...official })).toThrow(
       ClientInitializationError
     );
-    expect(() => applyUnsafe(derived, renamedClone)).toThrow(
-      ClientInitializationError
-    );
-    expect(() => applyUnsafe(base, renamedClone)).toThrow(
-      ClientInitializationError
-    );
+    expect(() =>
+      applyUnsafe(derived, { ...official, name: "renamed" })
+    ).toThrow("declares observes");
+    // The name is no longer reserved: an observer that declares nothing is
+    // an extension like any other.
     expect(() =>
       applyUnsafe(base, {
         name: "viborm.instrumentation",
@@ -218,7 +216,18 @@ describe("official instrumentation extension construction", () => {
           return undefined;
         },
       })
-    ).toThrow(ClientInitializationError);
+    ).not.toThrow();
+    // What it declares must be a declaration.
+    expect(() =>
+      applyUnsafe(base, {
+        name: "bad",
+        observe: () => undefined,
+        observes: {},
+      })
+    ).toThrow("observes must be an object with a wants function");
+    expect(() =>
+      applyUnsafe(base, { name: "bad", observes: official.observes })
+    ).toThrow("observes must be an object with a wants function");
   });
 
   test("does not read or activate a hostile removed core config key", async () => {

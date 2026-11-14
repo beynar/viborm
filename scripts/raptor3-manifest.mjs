@@ -15,7 +15,6 @@ export const RAPTOR3_TESTS = Object.freeze([
 export const G1_COMPARISON_COUNTS = Object.freeze({
   "tests/raptor3/candidate.test.ts": 24,
   "tests/raptor3/candidate-handoff.test.ts": 6,
-  "tests/raptor3/candidate-ordering.test.ts": 2,
   "tests/raptor3/candidate-pagination.test.ts": 4,
 });
 export const G1_COMPARISON_TESTS = Object.freeze(
@@ -43,7 +42,6 @@ export const G2_BASELINE_COUNTS = Object.freeze({
   "tests/raptor3/transitions/junctions-legacy.test.ts": 26,
   "tests/raptor3/transitions/junction-identity-legacy.test.ts": 2,
   "tests/raptor3/transitions/membership-own-write-legacy.test.ts": 8,
-  "tests/raptor3/transitions/series-staleness-legacy.test.ts": 4,
   "tests/raptor3/transitions/required-legacy.test.ts": 8,
   "tests/raptor3/transitions/own-write-legacy.test.ts": 18,
   "tests/raptor3/transitions/occupied-keys-legacy.test.ts": 8,
@@ -61,7 +59,6 @@ export const G2_CONTRACT_COUNTS = Object.freeze({
   "tests/raptor3/transitions/junctions-commands.test.ts": 26,
   "tests/raptor3/transitions/junction-identity-commands.test.ts": 2,
   "tests/raptor3/transitions/membership-own-write-commands.test.ts": 8,
-  "tests/raptor3/transitions/series-staleness-commands.test.ts": 4,
   "tests/raptor3/transitions/required-commands.test.ts": 8,
   "tests/raptor3/transitions/own-write-commands.test.ts": 18,
   "tests/raptor3/transitions/occupied-keys-commands.test.ts": 8,
@@ -107,9 +104,7 @@ export const G27_MYSQL_CONTRACT_COUNTS = G27_PROVIDER_CONTRACT_COUNTS;
 export const G27_MYSQL_CONTRACT_TESTS = Object.freeze(
   Object.keys(G27_MYSQL_CONTRACT_COUNTS)
 );
-export const G3P02_CONTRACT_COUNTS = Object.freeze({
-  "tests/raptor3/transport.test.ts": 4,
-});
+export const G3P02_CONTRACT_COUNTS = Object.freeze({});
 export const G3P02_CONTRACT_TESTS = Object.freeze(
   Object.keys(G3P02_CONTRACT_COUNTS)
 );
@@ -142,7 +137,7 @@ export const G3P03_MYSQL_CONTRACT_TESTS = Object.freeze(
   Object.keys(G3P03_MYSQL_CONTRACT_COUNTS)
 );
 export const G3P04_CONTRACT_COUNTS = Object.freeze({
-  "tests/raptor3/prep/suppression-replay.test.ts": 5,
+  "tests/raptor3/prep/suppression-replay.test.ts": 7,
 });
 export const G3P04_CONTRACT_TESTS = Object.freeze(
   Object.keys(G3P04_CONTRACT_COUNTS)
@@ -195,13 +190,13 @@ export const POST_G3_SCHEMA_VIEW_TESTS = Object.freeze(
   Object.keys(POST_G3_SCHEMA_VIEW_COUNTS)
 );
 export const POST_G3_PROJECTION_PREPARATION_COUNTS = Object.freeze({
-  "tests/raptor3/post-prep/projection-preparation.test.ts": 8,
+  "tests/raptor3/post-prep/projection-preparation.test.ts": 6,
 });
 export const POST_G3_PROJECTION_PREPARATION_TESTS = Object.freeze(
   Object.keys(POST_G3_PROJECTION_PREPARATION_COUNTS)
 );
 export const POST_G3_SELECTOR_PREPARATION_COUNTS = Object.freeze({
-  "tests/raptor3/post-prep/selector-preparation.test.ts": 7,
+  "tests/raptor3/post-prep/selector-preparation.test.ts": 6,
 });
 export const POST_G3_SELECTOR_PREPARATION_TESTS = Object.freeze(
   Object.keys(POST_G3_SELECTOR_PREPARATION_COUNTS)
@@ -227,7 +222,7 @@ export const POST_G3_SELECTOR_PREPARATION_TESTS = Object.freeze(
 // children locks once, then checks, then tombstones (+1 on each of three
 // drivers).
 export const POST_G3_DELETION_SITE_COUNTS = Object.freeze({
-  "tests/raptor3/post-prep/deletion-sites.test.ts": 111,
+  "tests/raptor3/post-prep/deletion-sites.test.ts": 126,
 });
 export const POST_G3_DELETION_SITE_TESTS = Object.freeze(
   Object.keys(POST_G3_DELETION_SITE_COUNTS)
@@ -253,20 +248,16 @@ export const POST_G3_DELETION_SITE_TESTS = Object.freeze(
 // SQLite substrates, and one prepared predicate for 10,000 actors (+49);
 // the composed chain's SQL against its pre-K1 golden (W-K1e, +1).
 export const POST_G3_ROW_SCOPE_COUNTS = Object.freeze({
-  "tests/raptor3/post-prep/row-scopes.test.ts": 174,
+  "tests/raptor3/post-prep/row-scopes.test.ts": 183,
 });
 export const POST_G3_ROW_SCOPE_TESTS = Object.freeze(
   Object.keys(POST_G3_ROW_SCOPE_COUNTS)
 );
-export const POST_G3_HISTORY_ANALYSIS_COUNTS = Object.freeze({
-  "tests/raptor3/post-prep/history-analysis.test.ts": 5,
-});
+export const POST_G3_HISTORY_ANALYSIS_COUNTS = Object.freeze({});
 export const POST_G3_HISTORY_ANALYSIS_TESTS = Object.freeze(
   Object.keys(POST_G3_HISTORY_ANALYSIS_COUNTS)
 );
-export const G29_MEMBER_DEPENDENCY_COUNTS = Object.freeze({
-  "tests/raptor3/post-prep/g29-member-dependency.test.ts": 14,
-});
+export const G29_MEMBER_DEPENDENCY_COUNTS = Object.freeze({});
 export const G29_MEMBER_DEPENDENCY_TESTS = Object.freeze(
   Object.keys(G29_MEMBER_DEPENDENCY_COUNTS)
 );
@@ -276,9 +267,7 @@ export const G29_DEPENDENCY_BOUNDARY_COUNTS = Object.freeze({
 export const G29_DEPENDENCY_BOUNDARY_TESTS = Object.freeze(
   Object.keys(G29_DEPENDENCY_BOUNDARY_COUNTS)
 );
-export const G29_DEPENDENCY_CHOICE_COUNTS = Object.freeze({
-  "tests/raptor3/post-prep/g29-dependency-choices.test.ts": 10,
-});
+export const G29_DEPENDENCY_CHOICE_COUNTS = Object.freeze({});
 export const G29_DEPENDENCY_CHOICE_TESTS = Object.freeze(
   Object.keys(G29_DEPENDENCY_CHOICE_COUNTS)
 );
@@ -288,9 +277,7 @@ export const G29_RESULT_PROGRESS_COUNTS = Object.freeze({
 export const G29_RESULT_PROGRESS_TESTS = Object.freeze(
   Object.keys(G29_RESULT_PROGRESS_COUNTS)
 );
-export const CS01_STRUCTURAL_REFERENCE_COUNTS = Object.freeze({
-  "tests/raptor3/core-structure/structural-reference.test.ts": 10,
-});
+export const CS01_STRUCTURAL_REFERENCE_COUNTS = Object.freeze({});
 export const CS01_STRUCTURAL_REFERENCE_TESTS = Object.freeze(
   Object.keys(CS01_STRUCTURAL_REFERENCE_COUNTS)
 );
@@ -315,7 +302,7 @@ export const CS01_EXTENSION_COMPOSITION_TESTS = Object.freeze(
 // Scope causal oracle: actual nested admission -> acknowledged effect -> outside
 // actual admission; interactive rolls back while batch retains that prefix.
 export const CS03_MEMBER_SCOPE_COUNTS = Object.freeze({
-  "tests/raptor3/core-structure/member-scope.contract.test.ts": 8,
+  "tests/raptor3/core-structure/member-scope.contract.test.ts": 6,
 });
 export const CS03_MEMBER_SCOPE_TESTS = Object.freeze(
   Object.keys(CS03_MEMBER_SCOPE_COUNTS)
@@ -347,28 +334,21 @@ export const CS03_EXTENSION_CAMPAIGNS = Object.freeze({
     profiles: CS03_EXTENSION_PROFILES,
   }),
 });
-export const CS03_EXTENSION_CAMPAIGN_COUNTS = Object.freeze({
-  "tests/raptor3/core-structure/measurement/extension-campaign.test.ts": 1,
-});
+export const CS03_EXTENSION_CAMPAIGN_COUNTS = Object.freeze({});
 export const CS03_EXTENSION_CAMPAIGN_TESTS = Object.freeze(
   Object.keys(CS03_EXTENSION_CAMPAIGN_COUNTS)
 );
 export const CS03_EXTENSION_SUPPORT_COUNTS = Object.freeze({
   "tests/raptor3/core-structure/measurement/extension-recipes.selftest.test.ts": 5,
-  "tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts": 42,
 });
 export const CS03_EXTENSION_SUPPORT_TESTS = Object.freeze(
   Object.keys(CS03_EXTENSION_SUPPORT_COUNTS)
 );
-export const CS02_REPEATED_OCCURRENCE_COUNTS = Object.freeze({
-  "tests/raptor3/core-structure/repeated-occurrence-ownership.test.ts": 5,
-});
+export const CS02_REPEATED_OCCURRENCE_COUNTS = Object.freeze({});
 export const CS02_REPEATED_OCCURRENCE_TESTS = Object.freeze(
   Object.keys(CS02_REPEATED_OCCURRENCE_COUNTS)
 );
-export const CS02_STRUCTURE_MEASUREMENT_COUNTS = Object.freeze({
-  "tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts": 1,
-});
+export const CS02_STRUCTURE_MEASUREMENT_COUNTS = Object.freeze({});
 export const CS02_STRUCTURE_MEASUREMENT_TESTS = Object.freeze(
   Object.keys(CS02_STRUCTURE_MEASUREMENT_COUNTS)
 );
@@ -449,9 +429,7 @@ export const G3_GENERATED_SMOKE_COUNTS = Object.freeze({
 export const G3_GENERATED_SMOKE_TESTS = Object.freeze(
   Object.keys(G3_GENERATED_SMOKE_COUNTS)
 );
-export const G3_GENERATED_TRANSPORT_SMOKE_COUNTS = Object.freeze({
-  "tests/raptor3/g3/generation/generated-transport-smoke.test.ts": 1,
-});
+export const G3_GENERATED_TRANSPORT_SMOKE_COUNTS = Object.freeze({});
 export const G3_GENERATED_TRANSPORT_SMOKE_TESTS = Object.freeze(
   Object.keys(G3_GENERATED_TRANSPORT_SMOKE_COUNTS)
 );
@@ -649,7 +627,7 @@ export const G4_UNIT01_AUTHOR_COUNTS = Object.freeze({
   "tests/raptor3/g4/unit01/repair2.test.ts": 22,
   "tests/raptor3/g4/unit01/repair3.test.ts": 14,
   "tests/raptor3/g4/unit01/repairs.test.ts": 13,
-  "tests/raptor3/g4/unit01/variants.test.ts": 3,
+  "tests/raptor3/g4/unit01/variants.test.ts": 4,
 });
 export const G4_UNIT01_AUTHOR_TESTS = Object.freeze(
   Object.keys(G4_UNIT01_AUTHOR_COUNTS)
@@ -829,9 +807,7 @@ export const G2_CAMPAIGN = Object.freeze({
   completionLimit: 5000,
   profiles: ["sqlite-interactive", "sqlite-atomic-batch"],
 });
-export const G2_CAMPAIGN_TESTS = Object.freeze([
-  "tests/raptor3/g2-campaign.test.ts",
-]);
+export const G2_CAMPAIGN_TESTS = Object.freeze([]);
 export const G2_GENERATED_COUNTS = Object.freeze({
   "tests/raptor3/g2-generated.test.ts": 46,
   "tests/raptor3/g2-harness.test.ts": 6,
@@ -839,22 +815,16 @@ export const G2_GENERATED_COUNTS = Object.freeze({
 export const G2_GENERATED_TESTS = Object.freeze(
   Object.keys(G2_GENERATED_COUNTS)
 );
-export const G1_TRANSPORT_COUNTS = Object.freeze({
-  "tests/raptor3/transport.test.ts": 44,
-});
+export const G1_TRANSPORT_COUNTS = Object.freeze({});
 export const G1_TRANSPORT_TESTS = Object.freeze(
   Object.keys(G1_TRANSPORT_COUNTS)
 );
-export const G1_TRANSPORT_CAMPAIGN_TESTS = Object.freeze([
-  "tests/raptor3/transport-campaign.test.ts",
-]);
+export const G1_TRANSPORT_CAMPAIGN_TESTS = Object.freeze([]);
 export const G1_TRANSPORT_CAMPAIGN = Object.freeze({
   ...G1_CAMPAIGN,
   profiles: ["scripted-returning-weak", "scripted-returning-ack"],
 });
-export const G2_TRANSPORT_COUNTS = Object.freeze({
-  "tests/raptor3/g2-transport.test.ts": 16,
-});
+export const G2_TRANSPORT_COUNTS = Object.freeze({});
 export const G2_TRANSPORT_TESTS = Object.freeze(
   Object.keys(G2_TRANSPORT_COUNTS)
 );
@@ -1538,7 +1508,6 @@ export const G4_PARITY_COUNTS = Object.freeze({
   "tests/raptor3/g4/parity/series-member-premise.test.ts": 4,
   "tests/raptor3/g4/parity/singular-slot-transition.test.ts": 10,
   "tests/raptor3/g4/parity/member-boundary-packaging.test.ts": 5,
-  "tests/raptor3/g4/parity/blind-premise-attribution.test.ts": 1,
   "tests/raptor3/g4/parity/correlated-membership.test.ts": 5,
   "tests/raptor3/g4/parity/suppressed-membership-target.test.ts": 7,
   "tests/raptor3/g4/parity/exclusive-member-cardinality.test.ts": 14,
@@ -1549,7 +1518,7 @@ export const G4_PARITY_COUNTS = Object.freeze({
   "tests/raptor3/g4/parity/one-write-outcome-composition.test.ts": 4,
   "tests/raptor3/g4/parity/cacheable-read-vocabulary.test.ts": 3,
   "tests/raptor3/g4/parity/fresh-member-placement.test.ts": 16,
-  "tests/raptor3/g4/parity/prepared-set-predicates.test.ts": 9,
+  "tests/raptor3/g4/parity/prepared-set-predicates.test.ts": 8,
   "tests/raptor3/g4/parity/cascaded-current-identity.test.ts": 21,
   "tests/raptor3/g4/parity/generated-key-reach.test.ts": 7,
   "tests/raptor3/g4/parity/read-only-build-contract.test.ts": 3,

@@ -2,15 +2,16 @@
 
 import type { OperationPayload } from "../client/exports"; // public today
 import { ClientInitializationError } from "../errors"; // viborm's own class
-import type {
-  ClientSchema,
-  ClientTypeState,
-  DelegateOperationArgs,
-  DelegateOperationResult,
-  ExtensionState,
-  PendingOperation,
-  VibORMClient,
-  VibORMConfig,
+import {
+  type ClientSchema,
+  type ClientTypeState,
+  type DelegateOperationArgs,
+  type DelegateOperationResult,
+  defineExtension,
+  type ExtensionState,
+  type PendingOperation,
+  type VibORMClient,
+  type VibORMConfig,
 } from "../index";
 
 export interface SoftDeleteModel {
@@ -129,6 +130,8 @@ function definitionOf<
   Config extends SoftDeleteConfig,
   C extends Governed<Config>,
 >(config: Config, schema: ClientSchema<C>) {
+  // `defineExtension` brings what reads the rows and the deletion declared here.
+  defineExtension();
   return {
     name: NAME,
     controls: { mode: { oneOf: ["soft", "hard"] } }, // deletion places it on managed deletes

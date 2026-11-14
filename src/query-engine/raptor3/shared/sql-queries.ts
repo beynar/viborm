@@ -16,11 +16,8 @@ import type {
   GeoPointSql,
   TextMatch,
 } from "@adapters/database-adapter";
-import {
-  FeatureNotSupportedError,
-  QueryEngineError,
-  UnsupportedOperationError,
-} from "@errors";
+import type { Dialect } from "@drivers/types";
+import { FeatureNotSupportedError, QueryEngineError } from "@errors";
 import {
   CURSOR_CARRIER_PREFIX,
   POLYMORPHIC_COLLECTION_ORPHANS_KEY,
@@ -61,6 +58,7 @@ import {
   isCompact,
   transportedIdentifier,
 } from "./identifier";
+import type { ModelSql } from "./insert-value";
 import { unreachable } from "./invariant";
 import {
   AGGREGATES,
@@ -77,22 +75,19 @@ import {
   COUNT_LEAF,
   CURSOR_ORDER_REFUSAL,
   callerText,
+  conjunction,
   distanceUpperBound,
   type Enclosing,
-  type FieldGate,
   type FlagChoice,
   type FlagMember,
   type FlagPlan,
   firstRow,
-  foldKnownNulls,
-  freeze,
   isAggregate,
   isParameterOperand,
   type Leaf,
   type LoweringFrame,
   memberRead,
   NO_GATES,
-  NO_RELATIONS,
   type OperationPredicate,
   type OrderJoins,
   type OrderTerm,
@@ -113,8 +108,6 @@ import {
   RECURSIVE_CARRIER,
   type Read,
   ROOT_CANDIDATES,
-  type RowCondition,
-  readsAny,
   readsRelation,
   readUpdate,
   relations,
@@ -132,7 +125,6 @@ import {
   states,
   type TestedColumns,
   throughDerived,
-  wholeValue,
 } from "./query";
 import { type CallScope, Parameter, type RowPurpose } from "./row-scope";
 import { RawRows, RowsOf } from "./rows-of";
@@ -141,9 +133,9 @@ import {
   entries,
   type Input,
   type ReadOperation,
-  record,
 } from "./schema";
-import { linkMembers, type Membership, physicalField } from "./storage";
+import { hopFieldsOf, linkMembers, type Membership } from "./storage";
+import { engineFault, listed, nameOf, tableOf, unsupported } from "./terms";
 
 /** A select's controls, and a condition spelled for the alias this language gives it. */
 export interface SqlSelectControls extends SelectControls {
@@ -153,8 +145,45 @@ export interface SqlSelectControls extends SelectControls {
   approximate?: boolean;
 }
 
+/** The adapter's arithmetic for each update operator that names one; a division is chosen by the column. */
+const ARITHMETIC: Partial<Record<string, "add" | "subtract" | "multiply">> = {
+  increment: "add",
+  decrement: "subtract",
+  multiply: "multiply",
+};
+
+/** The body each slot of a statement was settled from. */
+const bySlot = (bodies: readonly SharedBody[]): Map<Sql, SharedBody> => {
+  const of = new Map<Sql, SharedBody>();
+  for (const body of bodies)
+    for (const placed of body.slots) of.set(placed.slot, body);
+  return of;
+};
+
 export class SqlQueries extends Queries {
   declare readonly adapter: DatabaseAdapter;
+  // What the statements say most: the adapter's own, held from the start.
+  get #a(): DatabaseAdapter {
+    return this.adapter;
+  }
+  readonly #and = this.#a.operators.and;
+  readonly #eq = this.#a.operators.eq;
+  readonly #at = this.#a.identifiers.column;
+  readonly #named = this.#a.identifiers.aliased;
+  readonly #escaped = this.#a.identifiers.escape;
+  readonly #cast = this.#a.expressions.cast;
+  readonly #inner = this.#a.joins.inner;
+  readonly #true = this.#a.literals.true;
+  readonly #false = this.#a.literals.false;
+  readonly #null = this.#a.literals.null;
+  readonly #literal = this.#a.literals.value;
+  readonly #document = this.#a.json.document;
+  readonly #object = this.#a.json.object;
+  /** A query read aside, under an alias. */
+  readonly #aside = this.#a.subqueries.correlate;
+  readonly #or = this.#a.operators.or;
+  readonly #isNull = this.#a.operators.isNull;
+  readonly #isNotNull = this.#a.operators.isNotNull;
 
   /**
    * A raw `Sql` operand is PARENTHESIZED. A caller's fragment is an
@@ -166,7 +195,7 @@ export class SqlQueries extends Queries {
   value(value: unknown): Sql {
     return value instanceof Sql
       ? callerText(this.settleRows(value))
-      : this.adapter.literals.value(value);
+      : this.#literal(value);
   }
 
   #nextAlias = 0;
@@ -181,7 +210,7 @@ export class SqlQueries extends Queries {
    * it is read under, and per field whether the value the write sets is
    * null, where the write states it.
    */
-  #known:
+  known:
     | { readonly alias: string; readonly nulls: ReadonlyMap<string, boolean> }
     | undefined;
   /**
@@ -257,7 +286,7 @@ export class SqlQueries extends Queries {
       );
     const materialized = new Set<SharedBody>();
     let query = settle(new Set(), undefined, materialized);
-    // A walk its author states selective (the teams the actor belongs to,
+    // A walk its author states selective (the teams a member belongs to,
     // through their subteams), read only inside bodies computed over their
     // whole tables, walks once per row of each in place: it is computed
     // once as a set instead, from the few rows it reaches back from. Read in
@@ -338,14 +367,12 @@ export class SqlQueries extends Queries {
       for (const slot of slots) slot.settle(sql.empty);
     // A relation body is inlined where it reads no other shared body: a
     // nested one, inlined into every use of every body that reads it,
-    // multiplies the plan (a 40-model policy's `can`: 9.8 s materialized,
+    // multiplies the plan (one row domain over 40 models: 9.8 s materialized,
     // 113 s inlined, 11 s inlining the leaves only).
     // By the slots a stated body settled to, not by text: a table may be
     // named like a body. The same pass finds the aliases each body joins
     // flags after ({@link flagging}).
-    const uses = new Map<Sql, SharedBody>();
-    for (const body of stated)
-      for (const placed of body.slots) uses.set(placed.slot, body);
+    const uses = bySlot(stated);
     // How many places the statement reads each stated body at.
     const readers = new Map<SharedBody, number>();
     const attached = new Map<Sql, string>();
@@ -413,9 +440,7 @@ export class SqlQueries extends Queries {
     query: Sql,
     walks: readonly SharedBody[]
   ): { readonly body: SharedBody; readonly saves: number }[] {
-    const of = new Map<Sql, SharedBody>();
-    for (const body of walks)
-      for (const placed of body.slots) of.set(placed.slot, body);
+    const of = bySlot(walks);
     const read = new Map<SharedBody, Sql[]>();
     relations(query, (fragment) => {
       const body = of.get(fragment);
@@ -609,18 +634,18 @@ export class SqlQueries extends Queries {
       ]);
       for (const { test, placed } of groups) {
         const flag = this.alias();
-        const member = a.identifiers.aliased(a.identifiers.escape(name), flag);
+        const member = this.#named(this.#escaped(name), flag);
         const joined = joins.get(test.alias) ?? [];
         joined.push(
           held
             ? a.joins.cross(member)
             : a.joins.left(
                 member,
-                a.operators.and(
+                this.#and(
                   ...test.columns.map((column, index) =>
-                    a.operators.eq(
-                      a.identifiers.column(flag, keys[index]!),
-                      a.identifiers.column(test.alias, column)
+                    this.#eq(
+                      this.#at(flag, keys[index]!),
+                      this.#at(test.alias, column)
                     )
                   )
                 )
@@ -630,7 +655,7 @@ export class SqlQueries extends Queries {
         for (const [body, slot] of placed) {
           const index = sets.indexOf(body);
           if (held) {
-            const column = a.identifiers.column(flag, `f${index}`);
+            const column = this.#at(flag, `f${index}`);
             // Two-valued as the EXISTS it replaces: a NULL key, or a key an
             // array holding a NULL does not hold, is not held.
             const holds =
@@ -639,25 +664,20 @@ export class SqlQueries extends Queries {
                 : a.expressions.coalesce(
                     a.arrays.has(
                       column,
-                      a.identifiers.column(
-                        slot.test.alias,
-                        slot.test.columns[0]!
-                      )
+                      this.#at(slot.test.alias, slot.test.columns[0]!)
                     ),
-                    a.literals.false()
+                    this.#false()
                   );
             atoms.set(slot, slot.test.holds ? holds : a.operators.not(holds));
             continue;
           }
-          const flagged = a.identifiers.column(
+          const flagged = this.#at(
             flag,
             sets.length === 1 ? keys[0]! : `f${index}`
           );
           atoms.set(
             slot,
-            slot.test.holds
-              ? a.operators.isNotNull(flagged)
-              : a.operators.isNull(flagged)
+            slot.test.holds ? this.#isNotNull(flagged) : this.#isNull(flagged)
           );
         }
       }
@@ -678,9 +698,9 @@ export class SqlQueries extends Queries {
   #keyArrays(bodies: readonly SharedBody[], own: ReadonlySet<SharedBody>): Sql {
     const a = this.adapter;
     return a.clauses.select(
-      sql.join(
+      listed(
         bodies.map((body, index) =>
-          a.identifiers.aliased(
+          this.#named(
             body.slots[0]!.test.columns.length === 0
               ? own.has(body)
                 ? a.filters.some(body.query)
@@ -689,14 +709,13 @@ export class SqlQueries extends Queries {
                   own.has(body)
                     ? body.query
                     : assembleAdapterSelect(a, {
-                        columns: a.identifiers.column(body.name, "k0"),
+                        columns: this.#at(body.name, "k0"),
                         from: memberRead(a, body.name),
                       })
                 ),
             `f${index}`
           )
-        ),
-        ", "
+        )
       )
     );
   }
@@ -708,31 +727,24 @@ export class SqlQueries extends Queries {
   #flagSet(bodies: readonly SharedBody[], keys: readonly string[]): Sql {
     const a = this.adapter;
     if (bodies.length === 1) {
-      const columns = keys.map((key) =>
-        a.identifiers.column(bodies[0]!.name, key)
-      );
+      const columns = keys.map((key) => this.#at(bodies[0]!.name, key));
       return assembleAdapterSelect(a, {
-        columns: sql.join(columns, ", "),
+        columns: listed(columns),
         from: memberRead(a, bodies[0]!.name),
-        groupBy: sql.join(columns, ", "),
+        groupBy: listed(columns),
       });
     }
     const flags = bodies.map((_, index) => `f${index}`);
     // Typed: PostgreSQL types a bare NULL arm by arm, as text.
-    const absent = a.expressions.cast(a.literals.null(), "integer");
+    const absent = this.#cast(this.#null(), "integer");
     const arms = bodies.map((body, member) =>
       assembleAdapterSelect(a, {
-        columns: sql.join(
-          [
-            ...keys.map((key) =>
-              a.identifiers.aliased(a.identifiers.column(body.name, key), key)
-            ),
-            ...flags.map((flag, index) =>
-              a.identifiers.aliased(index === member ? sql`1` : absent, flag)
-            ),
-          ],
-          ", "
-        ),
+        columns: listed([
+          ...keys.map((key) => this.#named(this.#at(body.name, key), key)),
+          ...flags.map((flag, index) =>
+            this.#named(index === member ? sql`1` : absent, flag)
+          ),
+        ]),
         from: memberRead(a, body.name),
       })
     );
@@ -756,22 +768,16 @@ export class SqlQueries extends Queries {
             )
           );
     const held = this.alias();
-    const columns = keys.map((key) => a.identifiers.column(held, key));
+    const columns = keys.map((key) => this.#at(held, key));
     return assembleAdapterSelect(a, {
-      columns: sql.join(
-        [
-          ...columns,
-          ...flags.map((flag) =>
-            a.identifiers.aliased(
-              a.aggregates.max(a.identifiers.column(held, flag)),
-              flag
-            )
-          ),
-        ],
-        ", "
-      ),
-      from: a.subqueries.correlate(union(arms), held),
-      groupBy: sql.join(columns, ", "),
+      columns: listed([
+        ...columns,
+        ...flags.map((flag) =>
+          this.#named(a.aggregates.max(this.#at(held, flag)), flag)
+        ),
+      ]),
+      from: this.#aside(union(arms), held),
+      groupBy: listed(columns),
     });
   }
   /**
@@ -779,19 +785,31 @@ export class SqlQueries extends Queries {
    * repeated body its WHERE (and its produced row's judgement) lowers is one
    * `WITH` member ahead of the `UPDATE` or `DELETE`, as a read's is.
    */
-  sharing(build: () => Sql): Sql {
-    return this.#sharing(build)!;
+  sharing(build: () => Sql): Sql;
+  sharing(build: () => Sql | undefined): Sql | undefined;
+  sharing(build: () => Sql | undefined): Sql | undefined {
+    return this.#shares(
+      build,
+      (statement) => statement,
+      (_, statement) => statement
+    );
   }
-  /** `build`'s statement, sharing its bodies where the adapter does. */
-  #sharing(build: () => Sql | undefined): Sql | undefined {
+  /**
+   * What `build` makes, the statement `of` it sharing its bodies where the
+   * adapter does and put back by `into`; as made where it holds none.
+   */
+  #shares<T>(
+    build: () => T,
+    of: (made: T) => Sql | undefined,
+    into: (made: T, statement: Sql) => T
+  ): T {
     if (!this.sharesBodies) return build();
-    let built = true;
+    let made!: T;
     const statement = this.#sharingBodies(() => {
-      const made = build();
-      built = made !== undefined;
-      return made ?? sql.empty;
+      made = build();
+      return of(made) ?? sql.empty;
     });
-    return built ? statement : undefined;
+    return of(made) === undefined ? made : into(made, statement);
   }
   /** `args`, ordered by {@link defaultOrder} when it states no order. */
   #ordered(model: AnyModel, args: Arguments): Arguments {
@@ -817,7 +835,7 @@ export class SqlQueries extends Queries {
   /**
    * What a declared junction's link rows may hold while a layer's predicates
    * lower here, where a positive test reads them ({@link setBound}), so a walk
-   * reads its tenant's links rather than filtering the whole table's. Only a
+   * reads its bound's links rather than filtering the whole table's. Only a
    * bound over columns both of a link's keys hold: their foreign keys make them
    * the joined rows' own, so it changes no answer. Over any other column a link
    * may disagree with the rows it joins, and a bound would drop it. A generated
@@ -849,6 +867,15 @@ export class SqlQueries extends Queries {
   }
   /** How many read gates are lowering here: none of their sets is bounded. */
   #unbounded = 0;
+  /** `fn` lowered where no set it reads is bounded: what masks a value tests nothing. */
+  unbounded<T>(fn: () => T): T {
+    this.#unbounded++;
+    try {
+      return fn();
+    } finally {
+      this.#unbounded--;
+    }
+  }
   /** The relation bodies lowering here, innermost last ({@link Enclosing}). */
   readonly #enclosing: Enclosing[] = [];
   /** `lower`, read inside `enclosing`'s body ({@link Enclosing}). */
@@ -892,8 +919,8 @@ export class SqlQueries extends Queries {
    * (`commands/index.ts`) minted `q0, q1, … q10000` for the SAME
    * `findUnique`, so its statement text was unique per call — measured as an
    * obstacle by the cutover protocol (`g4/cutover/protocol.md` §7.2) and a
-   * guaranteed miss for any transport that caches by statement text
-   * (PostgreSQL named statements, `mysql2`'s prepare cache, D1/PlanetScale).
+   * guaranteed miss for any transport that keeps statements by their text
+   * (PostgreSQL named statements, `mysql2`'s prepared ones, D1/PlanetScale).
    *
    * The statement owners are {@link select}, {@link aggregated},
    * {@link grouped}, {@link selectSeries} and {@link junction} — every method
@@ -908,7 +935,7 @@ export class SqlQueries extends Queries {
    * the parent's scope, which is why the nested relation projection, the
    * correlated count and the cursor window mint plain {@link alias}es.
    */
-  #rootAlias(): string {
+  rootAlias(): string {
     this.#nextAlias = 0;
     this.#rows.clear();
     return this.alias();
@@ -940,7 +967,7 @@ export class SqlQueries extends Queries {
   }
   table(model: AnyModel, alias?: string): Sql {
     if (alias !== undefined) this.#rows.set(alias, model);
-    return this.#tableNamed(model["~"].names.sql!, alias);
+    return this.#tableNamed(tableOf(model), alias);
   }
   /** Every persistent table this lowering names: pinned under {@link rowsOf}. */
   #tableNamed(name: string, alias?: string): Sql {
@@ -949,9 +976,27 @@ export class SqlQueries extends Queries {
   #pinned: ((name: string, alias?: string) => Sql) | undefined;
   column(model: AnyModel, field: string, alias?: string): Sql {
     const name = this.columnName(model, field);
-    return alias
-      ? this.adapter.identifiers.column(alias, name)
-      : this.adapter.identifiers.escape(name);
+    return alias ? this.#at(alias, name) : this.#escaped(name);
+  }
+  spelling(model: AnyModel, dialect: Dialect): ModelSql {
+    return {
+      dialect,
+      table: (alias) => this.table(model, alias),
+      column: (field, alias) => this.column(model, field, alias),
+      value: (field, value) => this.fieldValue(model, field, value),
+      name: (...path) =>
+        sql.join(
+          path.map((part) => this.adapter.identifiers.escape(part)),
+          "."
+        ),
+      visible: (alias, options) =>
+        new RowsOf(
+          model,
+          alias,
+          options?.update && { verb: "update", writes: options.update },
+          options?.where
+        ),
+    };
   }
   /**
    * A caller's fragment with every {@link RowsOf} in it settled to this
@@ -965,9 +1010,7 @@ export class SqlQueries extends Queries {
       const { model } = node;
       // Settled here, it would take this call's domain, not its own client's.
       if (node instanceof RawRows)
-        throw new UnsupportedOperationError(
-          `${model["~"].names.ts}.$rows() is for a tagged $queryRaw only`
-        );
+        unsupported(`${nameOf(model)}.$rows() is for a tagged $queryRaw only`);
       const domain = this.domainOf(model, "root", node.judgement);
       // A `where` the extension passes on is admitted as a `findMany`'s.
       const named =
@@ -995,7 +1038,7 @@ export class SqlQueries extends Queries {
    * alias, so no name the caller chooses meets one the lowering writes.
    */
   rowsOf(model: AnyModel, alias: string): Sql {
-    const row = this.#rootAlias();
+    const row = this.rootAlias();
     const domain = this.domainOf(model, "root");
     // Every table pinned: the caller's text around it may define a CTE named
     // like a table the domain reads, which would otherwise stand for it.
@@ -1019,7 +1062,7 @@ export class SqlQueries extends Queries {
    */
   fieldValue(model: AnyModel, field: string, value: unknown): Sql {
     return this.#scalarValue(
-      physicalField(this.schema, model, field).scalar,
+      this.physical(model, field).scalar,
       value,
       field,
       this.scalarShape(model, field).id
@@ -1048,8 +1091,8 @@ export class SqlQueries extends Queries {
     }
     const sentinel = jsonNullKindOf(value);
     if (sentinel)
-      return sentinel === "DbNull" ? a.literals.null() : a.json.value(null);
-    if (value === null || value === undefined) return a.literals.null();
+      return sentinel === "DbNull" ? this.#null() : a.json.value(null);
+    if (value === null || value === undefined) return this.#null();
     if (state.array === true && Array.isArray(value))
       return this.#listValue(state, value, field);
     // A COMPACT identifier binds its physical form — the payload's bytes, or
@@ -1060,7 +1103,7 @@ export class SqlQueries extends Queries {
       return a.literals.id(encodeIdentifier(id, value), id.representation);
     switch (state.type) {
       case "bigint":
-        return a.literals.value(state.array === true ? String(value) : value);
+        return this.#literal(state.array === true ? String(value) : value);
       case "decimal":
       case "json":
       case "point":
@@ -1070,7 +1113,7 @@ export class SqlQueries extends Queries {
       case "time":
         return this.#typedScalarValue(scalar, value, field);
       default:
-        return a.literals.value(value);
+        return this.#literal(value);
     }
   }
   /** The scalars whose operand spelling depends on their type, out of line. */
@@ -1090,7 +1133,7 @@ export class SqlQueries extends Queries {
     switch (state.type) {
       case "decimal":
         return member
-          ? a.literals.value(
+          ? this.#literal(
               decimalMembers(state, [value], field, this.adapter.result)[0]!
             )
           : a.literals.decimal(
@@ -1117,20 +1160,20 @@ export class SqlQueries extends Queries {
               member ? undefined : this.nativeType(scalar),
               member
             )
-          : a.literals.value(wire);
+          : this.#literal(wire);
       }
       case "time": {
         const admitted = validateIsoTime(value);
-        return a.literals.value("value" in admitted ? admitted.value : value);
+        return this.#literal("value" in admitted ? admitted.value : value);
       }
       case "date": {
         const wire = admittedTemporal(value, validateIsoDate);
         return typeof wire === "string"
           ? a.literals.dateTime(wire, undefined, member)
-          : a.literals.value(wire);
+          : this.#literal(wire);
       }
       default:
-        return a.literals.value(value);
+        return this.#literal(value);
     }
   }
   /** A whole list, bound as the container the destination column stores. */
@@ -1166,9 +1209,9 @@ export class SqlQueries extends Queries {
   projectedColumn(model: AnyModel, field: string, alias?: string): Sql {
     const column = this.column(model, field, alias);
     const leaf = this.scalarShape(model, field);
-    const state = physicalField(this.schema, model, field).scalar["~"].state;
+    const state = this.physical(model, field).state;
     if (state.type === "bigint" && state.array !== true)
-      return this.adapter.expressions.cast(column, "text");
+      return this.#cast(column, "text");
     if (
       state.array === true &&
       (state.type === "bigint" || state.type === "number")
@@ -1186,33 +1229,21 @@ export class SqlQueries extends Queries {
     if (state.type === "decimal")
       return state.array === true
         ? this.adapter.arrays.exactNumericProjection(column)
-        : this.adapter.expressions.cast(column, "text");
+        : this.#cast(column, "text");
     // A scalar point: a JSON document of its two coordinates.
     const geoPoint = this.#geoPoint("projection");
     const projected = this.adapter.json.objectFromColumns([
       [
         "longitude",
-        this.adapter.json.document(
-          this.adapter.json.number(geoPoint.longitude(column))
-        ),
+        this.#document(this.adapter.json.number(geoPoint.longitude(column))),
       ],
       [
         "latitude",
-        this.adapter.json.document(
-          this.adapter.json.number(geoPoint.latitude(column))
-        ),
+        this.#document(this.adapter.json.number(geoPoint.latitude(column))),
       ],
     ]);
     return state.nullable
-      ? this.adapter.expressions.caseWhen(
-          [
-            {
-              when: this.adapter.operators.isNull(column),
-              then: this.adapter.literals.null(),
-            },
-          ],
-          projected
-        )
+      ? this.#when(this.#isNull(column), this.#null(), projected)
       : projected;
   }
   /**
@@ -1220,7 +1251,7 @@ export class SqlQueries extends Queries {
    * JSON stays a document; a value the container would round stays exact text.
    */
   #carriedValue(leaf: Shape | Leaf, expression: Sql): Sql {
-    if (leaf.kind !== "scalar") return this.adapter.json.document(expression);
+    if (leaf.kind !== "scalar") return this.#document(expression);
     // A decimal crossed the projection in the spelling {@link projectedColumn}
     // states — a text cast for a scalar, the adapter's decimal array
     // projection for a list — and its codec reads an exact value only from
@@ -1233,42 +1264,34 @@ export class SqlQueries extends Queries {
     )
       return leaf.list
         ? this.adapter.arrays.exactNumericProjection(expression)
-        : this.adapter.expressions.cast(expression, "text");
+        : this.#cast(expression, "text");
     if (
       leaf.list ||
       leaf.type === "json" ||
       leaf.type === "point" ||
       leaf.type === "vector"
     )
-      return this.adapter.json.document(expression);
-    if (leaf.type === "bigint")
-      return this.adapter.expressions.cast(expression, "text");
+      return this.#document(expression);
+    if (leaf.type === "bigint") return this.#cast(expression, "text");
     if (leaf.type === "number") return this.adapter.json.number(expression);
     if (leaf.type === "blob")
-      return this.adapter.expressions.caseWhen(
-        [
-          {
-            when: this.adapter.operators.isNull(expression),
-            then: this.adapter.literals.null(),
-          },
-        ],
+      return this.#when(
+        this.#isNull(expression),
+        this.#null(),
         this.adapter.expressions.blobToHex(expression)
       );
     return expression;
   }
   junctionWhere(
     edge: Extract<Membership, { kind: "junction" }>,
-    values: Input,
-    alias?: string
+    values: Input
   ): Sql {
-    return this.adapter.operators.and(
+    return this.#and(
       ...linkMembers(edge)
         .filter(({ pair }) => Object.hasOwn(values, pair.junctionField))
         .map(({ side, pair }) =>
-          this.adapter.operators.eq(
-            alias
-              ? this.adapter.identifiers.column(alias, pair.junctionField)
-              : this.adapter.identifiers.escape(pair.junctionField),
+          this.#eq(
+            this.#escaped(pair.junctionField),
             this.fieldValue(
               side.model,
               pair.referencedField,
@@ -1283,12 +1306,11 @@ export class SqlQueries extends Queries {
     junctionAlias: string | undefined,
     endpoint: string | Input | CarriedRow
   ): Sql[] {
-    const a = this.adapter;
     return side.members.map((pair) =>
-      a.operators.eq(
+      this.#eq(
         junctionAlias
-          ? a.identifiers.column(junctionAlias, pair.junctionField)
-          : a.identifiers.escape(pair.junctionField),
+          ? this.#at(junctionAlias, pair.junctionField)
+          : this.#escaped(pair.junctionField),
         typeof endpoint === "string"
           ? this.column(side.model, pair.referencedField, endpoint)
           : typeof endpoint === "function"
@@ -1300,37 +1322,6 @@ export class SqlQueries extends Queries {
               )
       )
     );
-  }
-  override junction(
-    edge: Extract<Membership, { kind: "junction" }>,
-    values: Input,
-    forUpdate = false
-  ): Query {
-    const a = this.adapter;
-    const alias = this.#rootAlias();
-    const owner =
-      edge.uniqueSide === "target" ? edge.sourceSide : edge.targetSide;
-    const fields: Record<string, Leaf> = {};
-    const columns = owner.members.map((pair) => {
-      const shape = this.scalarShape(owner.model, pair.referencedField);
-      fields[pair.junctionField] = shape;
-      const column = a.identifiers.column(alias, pair.junctionField);
-      return a.identifiers.aliased(
-        shape.type === "decimal" || shape.type === "bigint"
-          ? a.expressions.cast(column, "text")
-          : transportedIdentifier(a, shape.id, column, shape.nullable),
-        pair.junctionField
-      );
-    });
-    return {
-      sql: assembleAdapterSelect(a, {
-        columns: sql.join(columns, ", "),
-        from: this.#tableNamed(edge.table, alias),
-        where: this.junctionWhere(edge, values, alias),
-        forUpdate,
-      }),
-      shape: { kind: "object", fields },
-    };
   }
   /** The payload {@link readUpdate} reads, refused where it cannot run. */
   #prepareUpdate(
@@ -1346,14 +1337,10 @@ export class SqlQueries extends Queries {
     if (
       update.kind === "arithmetic" &&
       update.operator === "divide" &&
-      exactDecimalDomain(
-        physicalField(this.schema, model, field).scalar["~"].state
-      ) &&
+      exactDecimalDomain(this.physical(model, field).state) &&
       dividesByZero(update.by)
     )
-      throw new QueryEngineError(
-        `Cannot divide decimal field '${field}' by zero.`
-      );
+      engineFault(`Cannot divide decimal field '${field}' by zero.`);
     return update;
   }
   /**
@@ -1362,7 +1349,7 @@ export class SqlQueries extends Queries {
    * The adapter owns both spellings; this only names the destination.
    */
   #arithmeticTarget(model: AnyModel, field: string): ArithmeticTarget {
-    const state = physicalField(this.schema, model, field).scalar["~"].state;
+    const state = this.physical(model, field).state;
     return {
       integer: state.type === "int" || state.type === "bigint",
       decimal: exactDecimalDomain(state),
@@ -1442,278 +1429,21 @@ export class SqlQueries extends Queries {
     const a = this.adapter;
     const update = this.#prepareUpdate(model, field, value);
     if (!this.named(model, field, update))
-      throw new QueryEngineError(
-        `Cannot determine the updated value of '${model["~"].names.ts ?? "unknown"}.${field}' before '${update.operator}' executes: the database determines the stored result.`
+      engineFault(
+        `Cannot determine the updated value of '${nameOf(model) ?? "unknown"}.${field}' before '${update.operator}' executes: the database determines the stored result.`
       );
     if (update.kind === "value")
       return this.fieldValue(model, field, update.value);
-    const state = physicalField(this.schema, model, field).scalar["~"].state;
-    const base =
-      state.type === "int" ? a.expressions.cast(before, "integer") : before;
+    const state = this.physical(model, field).state;
+    const base = state.type === "int" ? this.#cast(before, "integer") : before;
     const operand = this.fieldValue(model, field, update.by);
-    if (update.operator === "increment")
-      return a.expressions.add(base, operand);
-    if (update.operator === "decrement")
-      return a.expressions.subtract(base, operand);
-    if (update.operator === "multiply")
-      return a.expressions.multiply(base, operand);
-    return state.type === "int" || state.type === "bigint"
-      ? a.expressions.integerDivide(base, operand)
-      : a.expressions.divide(base, operand);
-  }
-  /**
-   * The rows of `model` a write produces, as ONE FROM item read under
-   * `alias`: every stored field, each row's value as `row` lowers it (NULL
-   * where it says nothing). The model's own columns type them, through an
-   * empty read of the table, so a bound value takes its column's type where
-   * PostgreSQL would resolve a bare parameter as text; how the rows follow
-   * it is the dialect's (`setOperations.typedRows`), so a chunk is bounded
-   * by its binds alone.
-   */
-  #producedRows(
-    model: AnyModel,
-    rows: readonly ((field: string) => Sql | undefined)[],
-    alias: string
-  ): Sql {
-    const a = this.adapter;
-    const fields = this.schema.storedFields(model);
-    const typed = this.alias();
-    const from = this.table(model, typed);
-    const head = assembleAdapterSelect(a, {
-      columns: sql.join(
-        fields.map((field) => this.column(model, field, typed)),
-        ", "
-      ),
-      from,
-      where: a.literals.false(),
-    });
-    return a.setOperations.typedRows(
-      {
-        head,
-        from,
-        table: this.table(model),
-        alias: typed,
-        columns: fields.map((field) => this.columnName(model, field)),
-      },
-      rows.map((row) => fields.map((field) => row(field) ?? a.literals.null())),
-      alias
-    );
-  }
-  /**
-   * `judged` over the produced row `from` reads (and, for each `acyclic`
-   * relation, the row outside its own subtree), as the adapter's assertion:
-   * 1, or the statement that carries it fails before it writes. `undefined`
-   * where nothing is left to judge: the call drops every layer `judged` is
-   * made of (R6).
-   */
-  #holds(
-    model: AnyModel,
-    judged: Pick<PreparedSelector, "model" | "predicate"> | undefined,
-    alias: string,
-    nulls: ReadonlyMap<string, boolean>,
-    from?: Sql,
-    acyclic: readonly string[] = NO_RELATIONS
-  ): Sql | undefined {
-    const a = this.adapter;
-    const outer = this.#known;
-    this.#known = { alias, nulls };
-    let lowered: Sql | undefined;
-    try {
-      lowered = judged && this.lowerSelector(judged, alias);
-    } finally {
-      this.#known = outer;
-    }
-    const conditions = [
-      ...(lowered === undefined ? [] : [lowered]),
-      ...acyclic.map((relation) =>
-        this.#outsideOwnSubtree(model, relation, alias)
-      ),
-    ];
-    if (conditions.length === 0) return undefined;
-    return a.subqueries.scalar(
-      a.assertions.holds(a.operators.and(...conditions), from)
-    );
-  }
-  /**
-   * The row read as `alias` does not reach itself through `relation`, a
-   * to-one relation of its model to itself: no row its new target leads to,
-   * that target included, is the row. The walk is physical, read under no
-   * domain: a cycle through a row the caller cannot see is still a cycle.
-   */
-  #outsideOwnSubtree(model: AnyModel, relation: string, alias: string): Sql {
-    const a = this.adapter;
-    const edge = this.schema.membership(model, relation);
-    const { cte, cteName, walk, childColumns } = this.#walk(
-      edge,
-      alias,
-      { depth: false, self: false },
-      false
-    );
-    return a.filters.none(
-      sql`${cte} ${assembleAdapterSelect(a, {
-        columns: sql.raw("1"),
-        from: a.identifiers.aliased(a.identifiers.escape(cteName), walk),
-        where: this.#sameRow(
-          model,
-          alias,
-          childColumns.map((name) => a.identifiers.column(walk, name))
-        ),
-      })}`
-    );
-  }
-  /**
-   * The SELECT an INSERT of `rows` reads its values from when the rows it
-   * creates are judged (R4): each row a value of the derived table, kept
-   * where `judged` holds of it and failing the statement where it does not,
-   * before any row is written or any constraint is checked. One statement:
-   * nothing it writes is visible to its own judgement.
-   */
-  producedSource(
-    model: AnyModel,
-    columns: readonly string[],
-    rows: readonly Input[],
-    judged: PreparedSelector
-  ): Sql | undefined {
-    const a = this.adapter;
-    const alias = this.alias();
-    const written = new Set(columns);
-    const from = this.#producedRows(
-      model,
-      rows.map(
-        (row) => (field) =>
-          written.has(field)
-            ? this.fieldValue(model, field, row[field])
-            : undefined
-      ),
-      alias
-    );
-    // A field's nullness folds where every row states the same one; a field
-    // no row writes is null in each.
-    const nulls = new Map<string, boolean>();
-    for (const field of this.schema.storedFields(model)) {
-      const states = new Set(
-        rows.map((row) => {
-          const value = written.has(field) ? row[field] : null;
-          return value instanceof Sql
-            ? undefined
-            : value === null || value === undefined;
-        })
-      );
-      const [state] = states;
-      if (states.size === 1 && state !== undefined) nulls.set(field, state);
-    }
-    return this.#sharing(() => {
-      const guard = this.#holds(model, judged, alias, nulls);
-      if (guard === undefined) return undefined;
-      return assembleAdapterSelect(a, {
-        columns: sql.join(
-          columns.map((field) => this.column(model, field, alias)),
-          ", "
-        ),
-        from,
-        where: sql`${guard} = 1`,
-      });
-    });
-  }
-  /**
-   * The WHERE of an UPDATE of `model` assigning `values` that judges the
-   * rows it produces (R4): the keys of the rows `candidates` selects
-   * (lowered at the alias it is handed; the first `limit` in key order),
-   * read ONCE, before the statement writes any of them, each group of one
-   * key kept where its produced row's assertion holds (the row as it stands
-   * with the assignments applied, typed as {@link producedRows}): 1, or the
-   * statement fails before it writes.
-   *
-   * An aggregate is computed over the rows its WHERE kept, so a row the
-   * update does not write is never judged: a guard in a select list or a
-   * WHERE is not, since PostgreSQL and MySQL flatten an `IN` subquery and
-   * order its conditions by cost (measured: a viewed row's refused guard
-   * raised before the predicate that excludes it). A set read once is
-   * judged against the rows as they stand before the write, never against
-   * a row the statement wrote earlier: SQLite and MySQL evaluate an
-   * UPDATE's own SET row by row (measured: a team's lead demoted early made
-   * its other members' new rows unwritable). On MySQL, which refuses to read
-   * the written table from its own subquery, the set is a derived table,
-   * materialized before the write (`#capped`'s form). `undefined` where
-   * nothing is left to judge.
-   */
-  producedWhere(
-    model: AnyModel,
-    candidates: (alias: string) => Sql | undefined,
-    values: Input,
-    judged: PreparedSelector | undefined,
-    acyclic: readonly string[] = NO_RELATIONS,
-    limit?: number
-  ): Sql | undefined {
-    if (judged === undefined && acyclic.length === 0) return undefined;
-    const a = this.adapter;
-    const row = this.alias();
-    const produced = this.alias();
-    const current = (field: string) => this.column(model, field, row);
-    const rowKeys = this.schema.keys(model);
-    // A value only the database computes (a list append, an exact
-    // decimal's multiply or divide) has no value to judge: it is refused
-    // where the judgement reads it (`updateValue`), and stands as it was
-    // where nothing does, since no answer depends on it.
-    const unread = (field: string) =>
-      !(
-        this.namesUpdate(model, field, values[field]) ||
-        (judged?.predicate &&
-          readsAny(judged.predicate, new Set([field]), rowKeys)) ||
-        acyclic.some((relation) => {
-          const edge = this.schema.membership(model, relation);
-          return (
-            edge.kind === "reference" &&
-            edge.pairs.some((pair) => pair.source === field)
-          );
-        })
-      );
-    const from = this.#producedRows(
-      model,
-      [
-        (field) =>
-          values[field] === undefined || unread(field)
-            ? current(field)
-            : this.updateValue(model, field, values[field], current(field)),
-      ],
-      produced
-    );
-    const nulls = new Map<string, boolean>();
-    for (const [field, value] of Object.entries(values)) {
-      if (value === undefined) continue;
-      const whole = wholeValue(value);
-      if (whole && !(whole.value instanceof Sql))
-        nulls.set(field, whole.value === null);
-    }
-    const judgedSet = (): Sql | undefined => {
-      const guard = this.#holds(model, judged, produced, nulls, from, acyclic);
-      if (guard === undefined) return undefined;
-      const keys = this.keyOrder(model).map(current);
-      return assembleAdapterSelect(a, {
-        columns: sql.join(keys, ", "),
-        from: this.table(model, row),
-        where: candidates(row),
-        groupBy: sql.join(keys, ", "),
-        having: sql`${a.aggregates.min(guard)} = 1`,
-        ...(limit !== undefined && {
-          orderBy: this.#ascendingKeys(model, row),
-          limit: this.value(limit),
-        }),
-      });
-    };
-    const set = this.#sharing(judgedSet);
-    if (set === undefined) return undefined;
-    const table = model["~"].names.sql!;
-    return a.operators.in(
-      rowValue(
-        this.keyOrder(model).map((field) => this.column(model, field, table))
-      ),
-      a.subqueries.scalar(
-        a.capabilities.supportsMutationTargetInSubquery
-          ? set
-          : throughDerived(a, set, this.alias())
-      )
-    );
+    // A division of integers is the dialect's integer division.
+    return a.expressions[
+      ARITHMETIC[update.operator] ??
+        (state.type === "int" || state.type === "bigint"
+          ? "integerDivide"
+          : "divide")
+    ](base, operand);
   }
   /**
    * A read's own candidates: `selector` (absent: every row) under `purpose`.
@@ -1728,13 +1458,10 @@ export class SqlQueries extends Queries {
     const scope = this.scope(model, purpose);
     if (scope?.predicate === undefined) return selector;
     if (selector?.predicate === undefined) return scope;
-    return freeze({
+    return {
       model,
-      predicate: freeze({
-        kind: "and",
-        predicates: freeze([selector.predicate, scope.predicate]),
-      }),
-    });
+      predicate: conjunction([selector.predicate, scope.predicate]),
+    };
   }
   /** `undefined` where it states nothing, or the call drops all it states. */
   override lowerSelector(
@@ -1765,7 +1492,7 @@ export class SqlQueries extends Queries {
     const at = frames.length - 1 - (up ?? 0);
     const owner = up === undefined || up === 0 ? alias : frames[at]?.alias;
     if (owner === undefined)
-      throw new UnsupportedOperationError(
+      unsupported(
         "An enclosing row's column ({ $row, up }) has no row to read here."
       );
     for (let index = at + 1; index < frames.length; index++)
@@ -1778,11 +1505,8 @@ export class SqlQueries extends Queries {
    */
   #lowerStated(predicate: PreparedPredicate, alias?: string): Sql | undefined {
     if (predicate.kind === "layer") {
-      let resolved = this.resolve(predicate);
+      const resolved = predicate.resolve(this, alias);
       if (resolved === undefined) return undefined;
-      const known = this.#known;
-      if (known !== undefined && alias === known.alias)
-        resolved = foldKnownNulls(resolved, known.nulls);
       // A stack, made at the first layer this `Queries` lowers: what reads
       // it reads it while it lowers (the selectors' memo keys its content).
       const excluded = (this.excluded ??= []);
@@ -1798,7 +1522,7 @@ export class SqlQueries extends Queries {
     const { predicates } = predicate;
     if (predicates.length === 1) {
       const only = this.#lowerStated(predicates[0]!, alias);
-      return only && this.adapter.operators.and(only);
+      return only && this.#and(only);
     }
     const members: Sql[] = [];
     // biome-ignore lint/style/useForOf: no iterator at every filter node (E5.1, measured).
@@ -1808,7 +1532,7 @@ export class SqlQueries extends Queries {
     }
     return members.length === 0 && predicates.length > 0
       ? undefined
-      : this.adapter.operators.and(...members);
+      : this.#and(...members);
   }
   /** An aggregate read's root filter: its `where` under the root domain. */
   lowerWhere(
@@ -1838,27 +1562,22 @@ export class SqlQueries extends Queries {
    * differ from the stored value cannot change the answer (E1 U1, and the
    * create root's `toOneFkAssign` before it).
    *
-   * `mutating` is the model the enclosing statement writes: where the provider
-   * refuses to read the table its own statement mutates (MySQL ERROR 1093) the
-   * read hides behind a derived table, the same one condition
-   * {@link hideMutationTarget} already owns — the SELF relation's shape.
+   * Never asked where the provider refuses to read the table its own
+   * statement mutates (MySQL ERROR 1093): there the row is read first
+   * (`Store.#presume`).
    */
   override locatedValue(
     model: AnyModel,
     field: string,
-    selector: PreparedSelector,
-    mutating?: AnyModel
+    selector: PreparedSelector
   ): Sql {
     const alias = this.alias();
-    const located = assembleAdapterSelect(this.adapter, {
+    return this.#scalar({
       columns: this.column(model, field, alias),
       from: this.table(model, alias),
       where: this.lowerSelector(selector, alias),
       limit: this.value(1),
     });
-    return this.adapter.subqueries.scalar(
-      this.hideMutationTarget(located, model, mutating?.["~"].names.sql)
-    );
   }
   lowerMutationLimit(
     model: AnyModel,
@@ -1873,7 +1592,7 @@ export class SqlQueries extends Queries {
     // `deleteMany` removes the complement of the intended set. The shipped
     // engine passed the table name for exactly this reason
     // (`operations/update.ts:79-90`, `delete.ts:85-92`).
-    const mutated = model["~"].names.sql!;
+    const mutated = tableOf(model);
     // MySQL answers an UPDATE/DELETE's subquery row by row while the statement
     // and the referential actions it fires change the rows that subquery
     // reads, which is also why it refuses to read the mutated table there
@@ -1900,30 +1619,7 @@ export class SqlQueries extends Queries {
       };
     return {
       where,
-      suffix: sql`${adapter.clauses.orderBy(this.#ascendingKeys(model))} ${adapter.clauses.limit(this.value(limit))}`,
-    };
-  }
-  /**
-   * Every row of `selector` locked, answered as ONE row: the inner read takes
-   * the row locks (`FOR UPDATE`), and the count over it, which must consume
-   * every row, is all that crosses the wire. Locking a million candidates
-   * then costs one row back, not a million keys.
-   */
-  override lockAll(selector: PreparedSelector): Query {
-    const a = this.adapter;
-    const inner = this.#rootAlias();
-    const locked = assembleAdapterSelect(a, {
-      columns: a.literals.true(),
-      from: this.table(selector.model, inner),
-      where: this.lowerSelector(selector, inner),
-      forUpdate: true,
-    });
-    return {
-      sql: assembleAdapterSelect(a, {
-        columns: a.identifiers.aliased(a.aggregates.count(), "_count"),
-        from: a.subqueries.correlate(locked, this.alias()),
-      }),
-      shape: { kind: "object", fields: { _count: COUNT_LEAF } },
+      suffix: sql`${adapter.clauses.orderBy(this.ascendingKeys(model))} ${adapter.clauses.limit(this.value(limit))}`,
     };
   }
   /**
@@ -1933,8 +1629,8 @@ export class SqlQueries extends Queries {
    * where the provider has no `UPDATE … LIMIT`, and a {@link window}; without
    * a `limit`, every row, a MySQL mutation's keyed snapshot
    * ({@link lowerMutationLimit}). Where the provider cannot read a mutation's
-   * own table in a subquery (MySQL), the read sits in a derived table, as
-   * {@link hideMutationTarget}'s does: MySQL also refuses a `LIMIT` directly
+   * own table in a subquery (MySQL, ERROR 1093), the read sits in a derived
+   * table, materialized before the write: MySQL also refuses a `LIMIT` directly
    * inside `IN (…)`, and the derived table answers both, in the premise's
    * SELECT and in the effect.
    */
@@ -1944,16 +1640,13 @@ export class SqlQueries extends Queries {
     const inner = this.alias();
     const keys = this.keyOrder(model);
     const capped = assembleAdapterSelect(adapter, {
-      columns: sql.join(
-        keys.map((field) => this.column(model, field, inner)),
-        ", "
-      ),
+      columns: listed(keys.map((field) => this.column(model, field, inner))),
       from: this.table(model, inner),
       where: this.lowerSelector(selector, inner),
       ...(limit === undefined
         ? {}
         : {
-            orderBy: this.#ascendingKeys(model, inner),
+            orderBy: this.ascendingKeys(model, inner),
             limit: this.value(limit),
           }),
     });
@@ -1967,18 +1660,17 @@ export class SqlQueries extends Queries {
     );
   }
   /** `<key> ASC, …` in {@link keyOrder}, the keys addressed through `alias`. */
-  #ascendingKeys(model: AnyModel, alias?: string): Sql {
-    return sql.join(
+  ascendingKeys(model: AnyModel, alias?: string): Sql {
+    return listed(
       this.keyOrder(model).map((field) =>
         this.adapter.orderBy.asc(this.column(model, field, alias))
-      ),
-      ", "
+      )
     );
   }
   lowerIdentity(model: AnyModel, identity: Input, alias?: string): Sql {
-    return this.adapter.operators.and(
+    return this.#and(
       ...Object.entries(identity).map(([field, value]) =>
-        this.adapter.operators.eq(
+        this.#eq(
           this.column(model, field, alias),
           this.fieldValue(model, field, value)
         )
@@ -2001,29 +1693,28 @@ export class SqlQueries extends Queries {
     }
   }
   #lowerPredicate(predicate: PreparedPredicate, alias?: string): Sql {
-    const a = this.adapter;
     // biome-ignore lint/style/useDefaultSwitchClause: the prepared predicate union is exhaustive; a default would be dead code.
     switch (predicate.kind) {
       case "and":
       case "layer":
-        return this.#lowerStated(predicate, alias) ?? a.literals.true();
+        return this.#lowerStated(predicate, alias) ?? this.#true();
       case "or":
         // A balanced tree, not a chain: SQLite parses `a OR b OR …` one
         // expression level deep per arm and refuses depth 1000 (platform-15).
         return balancedOr(
           predicate.predicates.map((member) => this.#apart(member, alias)),
-          (arms) => a.operators.or(...arms)
+          (arms) => this.#or(...arms)
         );
       case "not":
-        return a.operators.not(
+        return this.adapter.operators.not(
           this.#opposite(() => this.#apart(predicate.predicate, alias))
         );
       case "always":
-        return predicate.value ? a.literals.true() : a.literals.false();
+        return predicate.value ? this.#true() : this.#false();
       case "condition":
         return predicate.condition.holds(this.values, this.instant)
-          ? a.literals.true()
-          : a.literals.false();
+          ? this.#true()
+          : this.#false();
       case "operation":
         return this.lowerOperation(this.#bound(predicate), alias);
       case "relation":
@@ -2032,16 +1723,6 @@ export class SqlQueries extends Queries {
         return this.#lowerExists(predicate, alias ?? "");
       case "window":
         return this.#capped(predicate.selector, predicate.limit, alias);
-      case "through": {
-        const { model, last } = predicate;
-        const keys = this.keyOrder(model);
-        return a.operators.lte(
-          rowValue(keys.map((field) => this.column(model, field, alias))),
-          rowValue(
-            keys.map((field) => this.fieldValue(model, field, last[field]))
-          )
-        );
-      }
     }
   }
   /**
@@ -2082,8 +1763,8 @@ export class SqlQueries extends Queries {
       scalar.model,
       scalar.field,
       alias
-        ? this.adapter.identifiers.column(alias, scalar.physical.name)
-        : this.adapter.identifiers.escape(scalar.physical.name),
+        ? this.#at(alias, scalar.physical.name)
+        : this.#escaped(scalar.physical.name),
       alias
     );
   }
@@ -2094,17 +1775,9 @@ export class SqlQueries extends Queries {
    * itself: they lower inside the layer.
    */
   #guarded(model: AnyModel, field: string, column: Sql, alias?: string): Sql {
-    if (this.#lowersLayer || this.#masked) return column;
-    const gate = this.domain?.projected(model)?.gates.get(field);
-    // Every row a caller's operand is read on is one the domain takes, so
-    // `read` holds there: the gate's own predicate decides.
-    const holds = gate && this.#gateHolds(model, gate, alias, true);
-    return holds === undefined
+    return this.#lowersLayer || this.#masked || !this.domain
       ? column
-      : this.adapter.expressions.caseWhen(
-          [{ when: holds, then: column }],
-          this.adapter.literals.null()
-        );
+      : this.domain.guarded(this, model, field, column, alias);
   }
   /** `model`'s `field` at `alias` as an operand the caller wrote ({@link guarded}). */
   #operand(model: AnyModel, field: string, alias?: string): Sql {
@@ -2153,7 +1826,7 @@ export class SqlQueries extends Queries {
     // fact is stated once, here.
     const counted =
       target.kind === "aggregate" && target.aggregate === "_count";
-    const state = counted ? undefined : scalar?.physical.scalar["~"].state;
+    const state = counted ? undefined : scalar?.physical.state;
     const column = this.#lowerTarget(target, alias);
     if (state?.type === "json" && state.array !== true)
       return this.#lowerJsonOperation(predicate, column);
@@ -2183,11 +1856,11 @@ export class SqlQueries extends Queries {
       text
         ? a.expressions.caseSensitiveText(
             expression,
-            field?.physical.scalar["~"].nativeType,
+            field?.physical.nativeType,
             pattern || insensitive
           )
         : expression;
-    const nativeType = scalar?.physical.scalar["~"].nativeType;
+    const nativeType = scalar?.physical.nativeType;
     // The database's own case fold, compared exactly: case is the one
     // difference `mode: "insensitive"` ignores, and which letters have a case
     // is the database's answer.
@@ -2211,12 +1884,9 @@ export class SqlQueries extends Queries {
      */
     const spelledAsText = (member: BoundOperand): boolean =>
       member.kind === "field" &&
-      (state?.type === "enum" ||
-        member.scalar.physical.scalar["~"].state.type === "enum");
+      (state?.type === "enum" || member.scalar.physical.state.type === "enum");
     const comparableColumn = (member: BoundOperand): Sql =>
-      exact(
-        spelledAsText(member) ? a.expressions.cast(column, "text") : column
-      );
+      exact(spelledAsText(member) ? this.#cast(column, "text") : column);
     /** An operand as it stands: neither folded nor compared exactly. */
     const raw = (member: BoundOperand): Sql => {
       if (member.kind === "field") {
@@ -2225,7 +1895,7 @@ export class SqlQueries extends Queries {
           member.up === undefined ? alias : this.#outerAlias(member.up, alias)
         );
         return spelledAsText(member)
-          ? a.expressions.cast(reference, "text")
+          ? this.#cast(reference, "text")
           : reference;
       }
       if (member.kind === "sql")
@@ -2249,10 +1919,7 @@ export class SqlQueries extends Queries {
         return fold ? a.expressions.caseFold(operand) : operand;
       return fold
         ? a.expressions.caseSensitiveText(
-            a.expressions.caseFold(
-              operand,
-              member.scalar.physical.scalar["~"].nativeType
-            )
+            a.expressions.caseFold(operand, member.scalar.physical.nativeType)
           )
         : exact(operand, member.scalar);
     };
@@ -2261,25 +1928,21 @@ export class SqlQueries extends Queries {
         const single = operand!;
         const literal = single.kind === "value" ? single.value : undefined;
         if (single.kind === "value" && literal === null)
-          return a.operators.isNull(column);
+          return this.#isNull(column);
         if (state?.type === "point" && state.array !== true)
           return this.#geoPoint("equals").equals(column, literal as GeoPoint);
         if (state?.array === true && Array.isArray(literal))
-          return a.operators.eq(column, bind(single));
+          return this.#eq(column, bind(single));
         if (
           insensitive &&
           (single.kind !== "value" ||
             typeof literal === "string" ||
             literal instanceof Sql)
         )
-          return a.operators.eq(folded, bind(single, true));
+          return this.#eq(folded, bind(single, true));
         if (text && single.kind === "value" && !(literal instanceof Sql))
-          return a.operators.exactTextEq(
-            column,
-            bind(single),
-            scalar?.physical.scalar["~"].nativeType
-          );
-        return a.operators.eq(comparableColumn(single), bind(single));
+          return a.operators.exactTextEq(column, bind(single), nativeType);
+        return this.#eq(comparableColumn(single), bind(single));
       }
       case "lt":
       case "lte":
@@ -2353,26 +2016,22 @@ export class SqlQueries extends Queries {
         const negated = operator === "notIn";
         const operands = members();
         if (operands.length === 0)
-          return negated ? a.literals.true() : a.literals.false();
+          return negated ? this.#true() : this.#false();
         if (insensitive) {
           const comparisons = operands.map((member) =>
             negated
               ? a.operators.neq(folded, bind(member, true))
-              : a.operators.eq(folded, bind(member, true))
+              : this.#eq(folded, bind(member, true))
           );
           // One comparison per member: balanced, as an `OR` is (platform-15).
           return balancedOr(comparisons, (arms) =>
-            negated ? a.operators.and(...arms) : a.operators.or(...arms)
+            negated ? this.#and(...arms) : this.#or(...arms)
           );
         }
         const list = a.literals.list(operands.map((member) => bind(member)));
         if (negated) return a.operators.notIn(exact(column), list);
         return text
-          ? a.operators.exactTextIn(
-              column,
-              list,
-              scalar?.physical.scalar["~"].nativeType
-            )
+          ? a.operators.exactTextIn(column, list, nativeType)
           : a.operators.in(column, list);
       }
       case "contains":
@@ -2392,7 +2051,7 @@ export class SqlQueries extends Queries {
           : a.operators[`${operator}Text`](column, bind(operand!));
       case "has":
         return predicate.value === null
-          ? a.literals.false()
+          ? this.#false()
           : a.arrays.has(
               column,
               this.#scalarValue(
@@ -2401,23 +2060,18 @@ export class SqlQueries extends Queries {
                 scalar!.field
               )
             );
-      case "hasEvery": {
-        const values = predicate.value as unknown[];
-        return values.length === 0
-          ? a.operators.isNotNull(column)
-          : a.arrays.hasEvery(
-              column,
-              this.#scalarValue(scalar!.physical.scalar, values, scalar!.field)
-            );
-      }
+      case "hasEvery":
       case "hasSome": {
         const values = predicate.value as unknown[];
-        return values.length === 0
-          ? a.literals.false()
-          : a.arrays.hasSome(
-              column,
-              this.#scalarValue(scalar!.physical.scalar, values, scalar!.field)
-            );
+        // Every member of none holds of any list there is; some member of none, of no list.
+        if (values.length === 0)
+          return operator === "hasEvery"
+            ? this.#isNotNull(column)
+            : this.#false();
+        return a.arrays[operator](
+          column,
+          this.#scalarValue(scalar!.physical.scalar, values, scalar!.field)
+        );
       }
       case "isEmpty":
         return predicate.value
@@ -2441,7 +2095,7 @@ export class SqlQueries extends Queries {
         // `prepareOperation` carries the key it admitted; there is no second
         // operator list here to disagree with it (AGENTS.md: "Do not add a
         // second operator switch").
-        const specification = record(predicate.value);
+        const specification = predicate.value as Input;
         const expression = this.#distanceExpression(
           column,
           state!,
@@ -2466,7 +2120,7 @@ export class SqlQueries extends Queries {
                   geoBoundsForDistance(specification.to as GeoPoint, upper)
                 ),
               ];
-        return a.operators.and(
+        return this.#and(
           ...probe,
           ...(["lt", "lte", "gt", "gte"] as const)
             .filter((bound) => specification[bound] !== undefined)
@@ -2523,7 +2177,7 @@ export class SqlQueries extends Queries {
     value: unknown,
     id: IdentifierColumn | undefined
   ): Sql {
-    const state = scalar.physical.scalar["~"].state;
+    const state = scalar.physical.state;
     const domain = exactDecimalDomain(state);
     const operand = domain ? decimalSumOperand(value, domain) : undefined;
     // A value that is not an exact decimal is the ordinary binder's refusal.
@@ -2536,7 +2190,7 @@ export class SqlQueries extends Queries {
       const digits = coefficient.startsWith("-")
         ? coefficient.length - 1
         : coefficient.length;
-      throw new QueryEngineError(
+      engineFault(
         `The 'having' _sum operand for decimal field '${scalar.field}' needs ${digits} coefficient digits, but its value is outside this provider's exact HAVING operand cast domain. ` +
           "The provider may compute a wider sum, but VibORM cannot express this operand through its exact decimal cast without changing or refusing the value written."
       );
@@ -2566,7 +2220,7 @@ export class SqlQueries extends Queries {
     const value = predicate.value;
     const target = a.json.extract(column, path);
     const text = (kind: TextMatch, member: unknown): Sql => {
-      const operand = a.literals.value(member);
+      const operand = this.#literal(member);
       return predicate.insensitive
         ? a.operators.insensitiveText(
             kind,
@@ -2582,14 +2236,13 @@ export class SqlQueries extends Queries {
       case "equals": {
         const sentinel = jsonNullKindOf(value);
         if (sentinel) {
-          const isDatabaseNull = a.operators.isNull(column);
+          const isDatabaseNull = this.#isNull(column);
           const isJsonNull = a.json.equals(target, a.json.value(null));
           if (sentinel === "DbNull") return isDatabaseNull;
           if (sentinel === "JsonNull") return isJsonNull;
-          return a.operators.or(isDatabaseNull, isJsonNull);
+          return this.#or(isDatabaseNull, isJsonNull);
         }
-        if (value === null && path.length === 0)
-          return a.operators.isNull(column);
+        if (value === null && path.length === 0) return this.#isNull(column);
         return a.json.equals(target, a.json.value(value));
       }
       case "lt":
@@ -2601,7 +2254,7 @@ export class SqlQueries extends Queries {
           return compare(a.json.numberAtPath(column, path), this.value(value));
         if (typeof value === "string")
           return compare(a.json.stringAtPath(column, path), this.value(value));
-        throw new QueryEngineError(
+        return engineFault(
           `JSON filter '${predicate.operator}' requires a number or string operand.`
         );
       }
@@ -2649,7 +2302,7 @@ export class SqlQueries extends Queries {
       const to = specification.to as number[];
       const { dimension } = state;
       if (dimension !== undefined && to.length !== dimension)
-        throw new UnsupportedOperationError(
+        unsupported(
           `Vector distance ${usage} dimension mismatch for '${field}': expected ${dimension} values, received ${to.length}.`
         );
       const metric = specification.metric === "cosine" ? "cosine" : "l2";
@@ -2676,13 +2329,12 @@ export class SqlQueries extends Queries {
     predicate: Extract<PreparedPredicate, { kind: "relation" }>,
     parentAlias?: string
   ): Sql {
-    const a = this.adapter;
     if (
       predicate.quantifier === "every" &&
       predicate.link === undefined &&
       !(predicate.predicate && states(predicate.predicate))
     )
-      return a.literals.true();
+      return this.#true();
     const { edge, closure } = predicate;
     const childAlias = this.#rowAlias(edge.target);
     const linkAlias = predicate.link ? this.alias() : undefined;
@@ -2725,12 +2377,17 @@ export class SqlQueries extends Queries {
       this.#frames.pop();
     }
     if (predicate.link) {
-      // A policy's own rule reads what it states; a caller's filter is a test
+      // A layer's own rule reads what it states; a caller's filter is a test
       // of a column a direct read of it could hide.
       if (!this.#lowersLayer)
-        this.refuseHiddenLinkRow(edge, predicate.linkFields!, "filter");
+        this.domain?.refuseHiddenLinkRow(
+          this,
+          edge,
+          predicate.linkFields!,
+          "filter"
+        );
       const held = this.#lowerPredicate(predicate.link, linkAlias);
-      nested = nested ? a.operators.and(nested, held) : held;
+      nested = nested ? this.#and(nested, held) : held;
     }
     if (joinable) {
       const above = parent!.escaped;
@@ -2743,7 +2400,7 @@ export class SqlQueries extends Queries {
         // outer row and parent row; joined, the outer one is one semijoin
         // (PGlite, 200k rows: a count 864 ms to 87 ms).
         parent!.joins!.push(
-          a.joins.inner(
+          this.#inner(
             this.table(edge.target, childAlias),
             this.#correlated(
               edge,
@@ -2759,7 +2416,11 @@ export class SqlQueries extends Queries {
       }
     }
     const stated = nested
-      ? [predicate.quantifier === "every" ? a.operators.not(nested) : nested]
+      ? [
+          predicate.quantifier === "every"
+            ? this.adapter.operators.not(nested)
+            : nested,
+        ]
       : [];
     const quantified = this.#quantified(predicate);
     // What the quantifier ranges over (membership, the related domain, a
@@ -2771,21 +2432,21 @@ export class SqlQueries extends Queries {
         // or a LATERAL: MySQL answers every outer row from one evaluation of a
         // wrapped correlated recursive CTE wherever the EXISTS is not flattened.
         // The walk owns membership and visibility; the reader joins by key.
-        const { cte, cteName, walk, childColumns } = this.#walk(
+        const { cte, cteName, walk, childColumns } = this.walk(
           edge,
           parentAlias ?? "",
           closure
         );
-        const query = sql`${cte} ${a.subqueries.existsCheck(
-          sql`${a.identifiers.aliased(a.identifiers.escape(cteName), walk)} ${a.joins.inner(
+        const query = sql`${cte} ${this.adapter.subqueries.existsCheck(
+          sql`${this.#named(this.#escaped(cteName), walk)} ${this.#inner(
             this.table(edge.target, childAlias),
-            this.#sameRow(
+            this.sameRow(
               edge.target,
               childAlias,
-              childColumns.map((name) => a.identifiers.column(walk, name))
+              childColumns.map((name) => this.#at(walk, name))
             )
           )}${this.#attachPoint(childAlias)}`,
-          a.operators.and(...stated)
+          this.#and(...stated)
         )}`;
         // Admission refuses a `$row` across a recursive relation: what the
         // walk states reads no row above the one it reaches.
@@ -2818,31 +2479,20 @@ export class SqlQueries extends Queries {
     };
     return quantified.holds ? range() : this.#opposite(range);
   }
-  /** How `predicate`'s quantifier tests its relation's subquery. */
+  /**
+   * How `predicate`'s quantifier tests its relation's subquery: a row exists
+   * (`some`, an `is` with a body, an `isNot` without one) or none does. Of no
+   * row, `is` and `isNot` read as each other; `every` tests that no row
+   * fails its body.
+   */
   #quantified(
     predicate: Extract<PreparedPredicate, { kind: "relation" }>
   ): Quantified {
-    const { filters } = this.adapter;
-    switch (predicate.quantifier) {
-      case "some":
-        return { of: (query) => filters.some(query), holds: true };
-      case "none":
-        return { of: (query) => filters.none(query), holds: false };
-      case "every":
-        return { of: (query) => filters.every(query), holds: false };
-      case "is":
-        return predicate.predicate
-          ? { of: (query) => filters.is(query), holds: true }
-          : { of: (query) => filters.isNot(query), holds: false };
-      default:
-        // `isNot`, the one quantifier left: every relation filter that spells
-        // quantifiers refuses a payload naming none of them in its own
-        // registered sentence, at admission, so this switch only ever
-        // receives an already-admitted quantifier.
-        return predicate.predicate
-          ? { of: (query) => filters.isNot(query), holds: false }
-          : { of: (query) => filters.is(query), holds: true };
-    }
+    const { quantifier } = predicate;
+    const holds =
+      quantifier === "some" ||
+      quantifier === (predicate.predicate ? "is" : "isNot");
+    return { of: this.adapter.filters[holds ? "some" : "none"], holds };
   }
   /**
    * The related domain of a relation's rows, where `scoped`. Where the filter
@@ -2873,7 +2523,7 @@ export class SqlQueries extends Queries {
   ): Sql {
     const member = this.#membershipWhere(edge, child, parent);
     const related = this.#relatedWhere(edge, child, scoped, deeper);
-    return related ? this.adapter.operators.and(member, related) : member;
+    return related ? this.#and(member, related) : member;
   }
   /**
    * `EXISTS (SELECT 1 FROM target WHERE correlation AND stated)`: inside a
@@ -2920,7 +2570,7 @@ export class SqlQueries extends Queries {
     );
     // A flag join keeps SQLite from flattening the derived table each level
     // of a nested filter reads from on D1, adding the level's height to every
-    // level above it (a three-arm policy at 15 levels passes depth 100).
+    // level above it (a three-arm rule at 15 levels passes depth 100).
     const table =
       joined?.from ??
       (a.capabilities.boundsExpressionDepth === true
@@ -2929,10 +2579,7 @@ export class SqlQueries extends Queries {
     const inline = quantified.of(
       a.subqueries.existsCheck(
         joins.length === 0 ? table : sql`${table} ${sql.join(joins, " ")}`,
-        a.operators.and(
-          related ? a.operators.and(member, related) : member,
-          ...stated
-        )
+        this.#and(related ? this.#and(member, related) : member, ...stated)
       )
     );
     const shared = this.#shared;
@@ -2947,46 +2594,68 @@ export class SqlQueries extends Queries {
     )
       return inline;
     const query = assembleAdapterSelect(a, {
-      columns: sql.join(
+      columns: listed(
         edge.pairs.map((pair, index) =>
-          a.identifiers.aliased(
-            this.column(edge.target, pair.target, child),
-            `k${index}`
-          )
-        ),
-        ", "
+          this.#named(this.column(edge.target, pair.target, child), `k${index}`)
+        )
       ),
       from: this.#attached(edge.target, child),
-      where: a.operators.and(
+      where: this.#and(
         ...conditions,
         ...(quantified.holds ? this.#setBound(edge.target, child) : [])
       ),
     });
-    const key = sharedKey(query);
+    const placed = this.#placed(
+      shared,
+      sharedKey(query),
+      () => ({ query, correlated: true }),
+      inline,
+      quantified,
+      parent,
+      edge.source,
+      edge.pairs.map((pair) => pair.source)
+    );
+    enclosing.body = placed.body;
+    return placed.slot;
+  }
+  /**
+   * A place the statement reads a shared body at: the body `key` names,
+   * stated once (`state`, where it is new), and the slot the statement
+   * settles to `inline`, or to a test of the body as `quantified` reads it:
+   * of the keys `fields` of `model` name on `alias`, where it has keys.
+   */
+  #placed(
+    shared: SharedBodies,
+    key: string,
+    state: (name: string) => Omit<SharedBody, "name" | "slots">,
+    inline: Sql,
+    quantified: Quantified,
+    alias: string,
+    model?: AnyModel,
+    fields: readonly string[] = [],
+    within?: PlacedBody["within"]
+  ): { readonly body: SharedBody; readonly slot: Sql } {
     let body = shared.byKey.get(key);
     if (body === undefined) {
-      body = {
-        name: `__shared_${shared.order.length}`,
-        query,
-        correlated: true,
-        slots: [],
-      };
+      const name = `__shared_${shared.order.length}`;
+      body = { name, slots: [], ...state(name) };
       shared.byKey.set(key, body);
       shared.order.push(body);
     }
-    enclosing.body = body;
     const { name } = body;
     const use = quantified.of(
-      a.subqueries.existsCheck(
-        memberRead(a, name),
-        a.operators.and(
-          ...edge.pairs.map((pair, index) =>
-            a.operators.eq(
-              this.column(edge.source, pair.source, parent),
-              a.identifiers.column(name, `k${index}`)
+      this.adapter.subqueries.existsCheck(
+        memberRead(this.adapter, name),
+        model
+          ? this.#and(
+              ...fields.map((field, index) =>
+                this.#eq(
+                  this.column(model, field, alias),
+                  this.#at(name, `k${index}`)
+                )
+              )
             )
-          )
-        )
+          : this.#true()
       )
     );
     const slot = new SqlSlot(use);
@@ -2995,14 +2664,15 @@ export class SqlQueries extends Queries {
       inline,
       use,
       test: {
-        alias: parent,
-        columns: edge.pairs.map((pair) =>
-          this.columnName(edge.source, pair.source)
-        ),
+        alias,
+        columns: model
+          ? fields.map((field) => this.columnName(model, field))
+          : [],
         holds: quantified.holds,
       },
+      within,
     });
-    return slot;
+    return { body, slot };
   }
   /**
    * A recursive filter's walk from `parent`, `inline`, inside a statement
@@ -3030,17 +2700,16 @@ export class SqlQueries extends Queries {
     quantified: Quantified,
     selective: boolean
   ): Sql {
-    const a = this.adapter;
     const shared = this.#shared;
     const model = edge.source;
     const keys = this.schema.keys(model);
     const inline = quantified.of(walk);
     if (
       shared === undefined ||
-      a.capabilities.boundsRecursionIterations === true ||
+      this.adapter.capabilities.boundsRecursionIterations === true ||
       !(
         this.#rows.get(parent) === model ||
-        this.#hopFields(edge).every((field) => keys.includes(field))
+        hopFieldsOf(edge).every((field) => keys.includes(field))
       )
     )
       return inline;
@@ -3051,46 +2720,22 @@ export class SqlQueries extends Queries {
     const key = bounded
       ? `${sharedKey(walk)} bounded ${sharedKey(bound[0]!)}`
       : sharedKey(walk);
-    let body = shared.byKey.get(key);
-    if (body === undefined) {
-      const name = `__shared_${shared.order.length}`;
-      body = {
-        name,
+    const { body, slot } = this.#placed(
+      shared,
+      key,
+      (name) => ({
         query: this.#reachingSet(name, edge, child, closure, stated, bounded),
         correlated: false,
         recursive: true,
-        slots: [],
-      };
-      shared.byKey.set(key, body);
-      shared.order.push(body);
-    }
-    if (selective) body.selective = true;
-    const { name } = body;
-    const use = quantified.of(
-      a.subqueries.existsCheck(
-        memberRead(a, name),
-        a.operators.and(
-          ...keys.map((field, index) =>
-            a.operators.eq(
-              this.column(model, field, parent),
-              a.identifiers.column(name, `k${index}`)
-            )
-          )
-        )
-      )
-    );
-    const slot = new SqlSlot(use);
-    body.slots.push({
-      slot,
+      }),
       inline,
-      use,
-      test: {
-        alias: parent,
-        columns: keys.map((field) => this.columnName(model, field)),
-        holds: quantified.holds,
-      },
-      within: this.#enclosing.at(-1),
-    });
+      quantified,
+      parent,
+      model,
+      keys,
+      this.#enclosing.at(-1)
+    );
+    if (selective) body.selective = true;
     return slot;
   }
   /**
@@ -3121,27 +2766,22 @@ export class SqlQueries extends Queries {
     const keyColumns = keys.map((_, index) => `k${index}`);
     const depthColumn = "depth";
     const at = (value: Sql) =>
-      depth === false ? [] : [a.identifiers.aliased(value, depthColumn)];
+      depth === false ? [] : [this.#named(value, depthColumn)];
     const domain = this.domainOf(edge.target, "related");
     const related = (alias: string) =>
       domain ? [this.lowerSelector(domain, alias)!] : [];
-    const conditions = (all: readonly Sql[]) =>
-      all.length === 0 ? undefined : a.operators.and(...all);
     const bound = bounded
       ? (alias: string) => this.#setBound(model, alias)
       : undefined;
     let anchor: Sql;
     if (self)
       anchor = assembleAdapterSelect(a, {
-        columns: sql.join(
-          [
-            ...this.#aliased(keyColumns, this.#rowKey(model, child)),
-            ...at(a.expressions.cast(this.value(0), "integer")),
-          ],
-          ", "
-        ),
+        columns: listed([
+          ...this.#aliased(keyColumns, this.#rowKey(model, child)),
+          ...at(this.#cast(this.value(0), "integer")),
+        ]),
         from: this.#attached(model, child),
-        where: conditions([...stated, ...(bound?.(child) ?? [])]),
+        where: this.#all([...stated, ...(bound?.(child) ?? [])]),
       });
     else {
       const first = this.#predecessor(
@@ -3150,19 +2790,16 @@ export class SqlQueries extends Queries {
         bound
       );
       anchor = assembleAdapterSelect(a, {
-        columns: sql.join(
-          [
-            ...this.#aliased(keyColumns, first.key),
-            ...at(a.expressions.cast(this.value(1), "integer")),
-          ],
-          ", "
-        ),
+        columns: listed([
+          ...this.#aliased(keyColumns, first.key),
+          ...at(this.#cast(this.value(1), "integer")),
+        ]),
         from: sql.join([this.#attached(model, child), ...first.joins], " "),
-        where: conditions([...related(child), ...stated]),
+        where: this.#all([...related(child), ...stated]),
       });
     }
     const set = this.alias();
-    const carried = (column: string) => a.identifiers.column(set, column);
+    const carried = (column: string) => this.#at(set, column);
     // Every key the set states is a stored row's where its predecessors are
     // joined rows: with no domain to read, the row is not joined again.
     const reached =
@@ -3178,23 +2815,20 @@ export class SqlQueries extends Queries {
       bound
     );
     const recursive = assembleAdapterSelect(a, {
-      columns: sql.join(
-        [
-          ...this.#aliased(keyColumns, before.key),
-          ...at(a.expressions.add(carried(depthColumn), this.value(1))),
-        ],
-        ", "
-      ),
+      columns: listed([
+        ...this.#aliased(keyColumns, before.key),
+        ...at(a.expressions.add(carried(depthColumn), this.value(1))),
+      ]),
       from: sql.join(
         [
-          a.identifiers.aliased(a.identifiers.escape(name), set),
+          this.#named(this.#escaped(name), set),
           ...(reached === undefined
             ? []
             : [
-                a.joins.inner(
+                this.#inner(
                   this.table(model, reached),
-                  a.operators.and(
-                    this.#sameRow(model, reached, keyColumns.map(carried)),
+                  this.#and(
+                    this.sameRow(model, reached, keyColumns.map(carried)),
                     ...related(reached)
                   )
                 ),
@@ -3203,7 +2837,7 @@ export class SqlQueries extends Queries {
         ],
         " "
       ),
-      where: conditions(
+      where: this.#all(
         depth === false
           ? []
           : [a.operators.lt(carried(depthColumn), this.value(depth))]
@@ -3256,7 +2890,6 @@ export class SqlQueries extends Queries {
     into: CarriedRow,
     bound?: (row: string) => readonly Sql[]
   ): { readonly key: readonly Sql[]; readonly joins: readonly Sql[] } {
-    const a = this.adapter;
     const model = edge.source;
     const keys = this.schema.keys(model);
     if (edge.kind === "reference") {
@@ -3278,13 +2911,13 @@ export class SqlQueries extends Queries {
       return {
         key: this.#rowKey(model, row),
         joins: [
-          a.joins.inner(
+          this.#inner(
             this.table(model, row),
-            a.operators.and(
+            this.#and(
               ...(arm === undefined
                 ? []
                 : [
-                    a.operators.eq(
+                    this.#eq(
                       arm.side === "source"
                         ? this.column(model, arm.field, row)
                         : into(arm.field),
@@ -3292,7 +2925,7 @@ export class SqlQueries extends Queries {
                     ),
                   ]),
               ...edge.pairs.map((pair) =>
-                a.operators.eq(
+                this.#eq(
                   this.column(model, pair.source, row),
                   into(pair.target)
                 )
@@ -3304,12 +2937,9 @@ export class SqlQueries extends Queries {
       };
     }
     const link = this.alias();
-    const linked = a.joins.inner(
+    const linked = this.#inner(
       this.#tableNamed(edge.table, link),
-      a.operators.and(
-        ...this.junctionSideConditions(edge.targetSide, link, into),
-        ...this.#linkBound(edge, link)
-      )
+      this.#side(edge, "targetSide", link, into, true)
     );
     const referenced = edge.sourceSide.members.map(
       (member) => member.referencedField
@@ -3317,7 +2947,7 @@ export class SqlQueries extends Queries {
     if (bound === undefined && this.#covers(referenced, keys))
       return {
         key: keys.map((field) =>
-          a.identifiers.column(
+          this.#at(
             link,
             edge.sourceSide.members[referenced.indexOf(field)]!.junctionField
           )
@@ -3329,9 +2959,9 @@ export class SqlQueries extends Queries {
       key: this.#rowKey(model, row),
       joins: [
         linked,
-        a.joins.inner(
+        this.#inner(
           this.table(model, row),
-          a.operators.and(
+          this.#and(
             ...this.junctionSideConditions(edge.sourceSide, link, row),
             ...(bound?.(row) ?? [])
           )
@@ -3359,23 +2989,19 @@ export class SqlQueries extends Queries {
     parent: string,
     link = this.alias()
   ): { readonly from: Sql; readonly correlation: Sql } {
-    const a = this.adapter;
     return {
-      from: sql`${this.#tableNamed(edge.table, link)} ${a.joins.inner(
+      from: sql`${this.#tableNamed(edge.table, link)} ${this.#inner(
         this.table(edge.target, child),
-        a.operators.and(
+        this.#and(
           ...edge.targetSide.members.map((field) =>
-            a.operators.eq(
+            this.#eq(
               this.column(edge.target, field.referencedField, child),
-              a.identifiers.column(link, field.junctionField)
+              this.#at(link, field.junctionField)
             )
           )
         )
       )}`,
-      correlation: a.operators.and(
-        ...this.junctionSideConditions(edge.sourceSide, link, parent),
-        ...this.#linkBound(edge, link)
-      ),
+      correlation: this.#side(edge, "sourceSide", link, parent, true),
     };
   }
   /**
@@ -3409,9 +3035,7 @@ export class SqlQueries extends Queries {
         : lowered;
     const conditions = related ? [related, ...stated] : stated;
     const where =
-      conditions.length === 0
-        ? a.literals.true()
-        : a.operators.and(...conditions);
+      conditions.length === 0 ? this.#true() : this.#and(...conditions);
     const inline = a.subqueries.existsCheck(
       this.#attached(model, child),
       where
@@ -3425,52 +3049,14 @@ export class SqlQueries extends Queries {
       where,
       limit: this.value(1),
     });
-    const key = sharedKey(query);
-    let body = shared.byKey.get(key);
-    if (body === undefined) {
-      body = {
-        name: `__shared_${shared.order.length}`,
-        query,
-        correlated: false,
-        slots: [],
-      };
-      shared.byKey.set(key, body);
-      shared.order.push(body);
-    }
-    const use = a.filters.some(
-      a.subqueries.existsCheck(memberRead(a, body.name), a.literals.true())
-    );
-    const slot = new SqlSlot(use);
-    body.slots.push({
-      slot,
-      inline: a.filters.some(inline),
-      use,
-      test: { alias, columns: [], holds: true },
-    });
-    return slot;
-  }
-  /**
-   * MySQL ERROR 1093: a subquery may not read the table its own statement is
-   * mutating. A derived table sidesteps it — it is materialized before the
-   * write — while the correlation to the outer mutation survives as an outer
-   * reference (MySQL 8.0.14+). The capability the adapter already declares
-   * (`supportsMutationTargetInSubquery`) is the whole condition; the wrap goes
-   * inside the caller's scalar subquery, which supplies its own parentheses.
-   * A mutation's own selector needs no wrap: on MySQL it is the keyed snapshot
-   * ({@link lowerMutationLimit}).
-   */
-  private hideMutationTarget(
-    subquery: Sql,
-    child: AnyModel,
-    mutationTarget: string | undefined
-  ): Sql {
-    if (
-      mutationTarget === undefined ||
-      this.adapter.capabilities.supportsMutationTargetInSubquery ||
-      child["~"].names.sql !== mutationTarget
-    )
-      return subquery;
-    return throughDerived(this.adapter, subquery, this.alias());
+    return this.#placed(
+      shared,
+      sharedKey(query),
+      () => ({ query, correlated: false }),
+      a.filters.some(inline),
+      { of: (read) => a.filters.some(read), holds: true },
+      alias
+    ).slot;
   }
   /**
    * Does the PARENT row claim a membership in this arm?
@@ -3491,16 +3077,13 @@ export class SqlQueries extends Queries {
       edge.discriminator?.side !== "source"
     )
       return undefined;
-    const a = this.adapter;
-    return a.operators.and(
-      a.operators.eq(
+    return this.#and(
+      this.#eq(
         this.column(edge.source, edge.discriminator.field, parentAlias),
         this.value(edge.discriminator.value)
       ),
       ...edge.pairs.map((pair) =>
-        a.operators.isNotNull(
-          this.column(edge.source, pair.source, parentAlias)
-        )
+        this.#isNotNull(this.column(edge.source, pair.source, parentAlias))
       )
     );
   }
@@ -3524,48 +3107,23 @@ export class SqlQueries extends Queries {
   #related(edge: Membership, target: string, member: Sql): Sql {
     const domain = this.domainOf(edge.target, "related");
     if (domain === undefined) return member;
-    return this.adapter.operators.and(
-      member,
-      this.lowerSelector(domain, target)!
-    );
+    return this.#and(member, this.lowerSelector(domain, target)!);
   }
-  memberWhere(edge: Membership, parent: Input, alias: string): Sql {
-    return this.#membershipWhere(edge, alias, parent);
-  }
-  /**
-   * The rows OUTSIDE a membership, in three-valued logic: a member-side
-   * column left NULL, or a parent that holds no key, is outside — where a
-   * plain negation of {@link memberWhere} would answer NULL and select nothing
-   * (an ordered observation's found requirement, N1).
-   */
-  outsideWhere(edge: Membership, parent: Input, alias: string): Sql {
-    const a = this.adapter;
-    const inside = this.#membershipWhere(edge, alias, parent);
-    if (edge.kind !== "reference") return a.operators.not(inside);
-    const unbound = edge.pairs.some(
-      (pair) =>
-        parent[pair.source] === null || parent[pair.source] === undefined
-    );
-    if (unbound) return sql`1 = 1`;
-    const columns = [
-      ...(edge.discriminator?.side === "target"
-        ? [edge.discriminator.field]
-        : []),
-      ...edge.pairs.map((pair) => pair.target),
-    ];
-    return a.operators.or(
-      a.operators.not(inside),
-      ...columns.map((field) =>
-        a.operators.isNull(this.column(edge.target, field, alias))
-      )
-    );
+  /** `held` locks the links a junction's membership is read from, where the provider can. */
+  memberWhere(
+    edge: Membership,
+    parent: Input,
+    alias: string,
+    held = false
+  ): Sql {
+    return this.#membershipWhere(edge, alias, parent, held);
   }
   #membershipWhere(
     edge: Membership,
     target: string,
-    source: string | Input | CarriedRow
+    source: string | Input | CarriedRow,
+    held = false
   ): Sql {
-    const a = this.adapter;
     if (edge.kind === "reference") {
       // The source row's own column, where the source is a row and not values.
       const given = typeof source === "object" ? source : undefined;
@@ -3575,10 +3133,10 @@ export class SqlQueries extends Queries {
           : typeof source === "function"
             ? source
             : undefined;
-      return a.operators.and(
+      return this.#and(
         ...(edge.discriminator
           ? [
-              a.operators.eq(
+              this.#eq(
                 edge.discriminator.side === "source"
                   ? read
                     ? read(edge.discriminator.field)
@@ -3590,11 +3148,11 @@ export class SqlQueries extends Queries {
           : []),
         ...edge.pairs.map((pair) =>
           read
-            ? a.operators.eq(
+            ? this.#eq(
                 read(pair.source),
                 this.column(edge.target, pair.target, target)
               )
-            : a.operators.eq(
+            : this.#eq(
                 this.column(edge.target, pair.target, target),
                 this.fieldValue(edge.target, pair.target, given![pair.source])
               )
@@ -3604,33 +3162,28 @@ export class SqlQueries extends Queries {
     const junction = this.alias();
     // Membership first: the index on the source side finds the small target
     // worklist before the provider visits those target identities.
-    return a.operators.in(
+    return this.adapter.operators.in(
       rowValue(
         edge.targetSide.members.map((field) =>
           this.column(edge.target, field.referencedField, target)
         )
       ),
-      a.subqueries.scalar(
-        assembleAdapterSelect(a, {
-          columns: sql.join(
-            edge.targetSide.members.map((field) =>
-              a.identifiers.column(junction, field.junctionField)
-            ),
-            ", "
-          ),
-          from: this.#tableNamed(edge.table, junction),
-          where: a.operators.and(
-            ...this.junctionSideConditions(edge.sourceSide, junction, source),
-            ...this.#linkBound(edge, junction)
-          ),
-        })
-      )
+      this.#scalar({
+        columns: listed(
+          edge.targetSide.members.map((field) =>
+            this.#at(junction, field.junctionField)
+          )
+        ),
+        from: this.#tableNamed(edge.table, junction),
+        where: this.#side(edge, "sourceSide", junction, source, true),
+        forUpdate: held,
+      })
     );
   }
   #lowerOrder(terms: readonly OrderTerm[]): Sql | undefined {
     if (terms.length === 0) return undefined;
     const a = this.adapter;
-    return sql.join(
+    return listed(
       terms.map((term) => {
         const direction = term.descending ? "desc" : "asc";
         if (!term.nullable || term.nulls === undefined)
@@ -3638,8 +3191,7 @@ export class SqlQueries extends Queries {
         return term.nulls === "first"
           ? a.orderBy.nullsFirst(term.expression, direction)
           : a.orderBy.nullsLast(term.expression, direction);
-      }),
-      ", "
+      })
     );
   }
   /**
@@ -3689,24 +3241,24 @@ export class SqlQueries extends Queries {
       return this.#relationOrderTerm(
         model,
         field,
-        record(direction),
+        direction as Input,
         alias,
         joins
       );
-    const physical = physicalField(this.schema, model, field);
-    const state = physical.scalar["~"].state;
+    const physical = this.physical(model, field);
+    const state = physical.state;
     const column = this.#operand(model, field, alias);
     const nullable = physical.nullable || this.#gatedHere(model, field);
     if (direction !== "asc" && direction !== "desc") {
-      const specification = record(direction);
+      const specification = direction as Input;
       if (specification._distance !== undefined) {
         // A cursor's eligibility is a fact about the REQUEST; a provider's
         // vector support is a fact about the PROVIDER. Classifying the order
         // first is what keeps `page`'s sentence the answer on a driver that
         // happens not to support vectors — `distanceExpression` consults the
         // capability while it BUILDS, so it would otherwise pre-empt it.
-        if (cursored) throw new UnsupportedOperationError(CURSOR_ORDER_REFUSAL);
-        const distance = record(specification._distance);
+        if (cursored) unsupported(CURSOR_ORDER_REFUSAL);
+        const distance = specification._distance as Input;
         const point = state.type === "point";
         return this.#sortKey(
           this.#distanceExpression(
@@ -3838,28 +3390,26 @@ export class SqlQueries extends Queries {
     field?: string,
     expressionNulls?: true
   ): OrderTerm {
-    return freeze({
+    return {
       expression,
       descending,
       nulls: nulls ?? (descending ? "first" : "last"),
       expressionNulls,
       nullable,
       field,
-    });
+    };
   }
   #reverseOrder(terms: readonly OrderTerm[]): OrderTerm[] {
-    return terms.map((term) =>
-      freeze({
-        ...term,
-        descending: !term.descending,
-        nulls:
-          term.nulls === undefined || term.expressionNulls
-            ? term.nulls
-            : term.nulls === "first"
-              ? ("last" as const)
-              : ("first" as const),
-      })
-    );
+    return terms.map((term) => ({
+      ...term,
+      descending: !term.descending,
+      nulls:
+        term.nulls === undefined || term.expressionNulls
+          ? term.nulls
+          : term.nulls === "first"
+            ? ("last" as const)
+            : ("first" as const),
+    }));
   }
   /**
    * One page owner: the root read and every nested node use it, so a nested
@@ -3903,7 +3453,7 @@ export class SqlQueries extends Queries {
     // The single raise point for every other non-scalar key: a relation term
     // builds with `field: undefined` and is classified here.
     if (cursored && requested.some((term) => term.field === undefined))
-      throw new UnsupportedOperationError(CURSOR_ORDER_REFUSAL);
+      unsupported(CURSOR_ORDER_REFUSAL);
     const terms = total ?? requested;
     const presented = backward ? this.#reverseOrder(terms) : terms;
     const distinct = (args.distinct?.length ?? 0) > 0;
@@ -3929,9 +3479,8 @@ export class SqlQueries extends Queries {
               purpose
             ),
       distinct: args.distinct?.length
-        ? sql.join(
-            args.distinct.map((field) => this.#operand(model, field, alias)),
-            ", "
+        ? listed(
+            args.distinct.map((field) => this.#operand(model, field, alias))
           )
         : undefined,
     };
@@ -3948,18 +3497,14 @@ export class SqlQueries extends Queries {
     terms: readonly OrderTerm[],
     presented: readonly OrderTerm[]
   ): QueryParts["distinctOrder"] {
-    const a = this.adapter;
     return {
-      keys: sql.join(
-        terms.map((term, index) =>
-          a.identifiers.aliased(term.expression, `_ord${index}`)
-        ),
-        ", "
+      keys: listed(
+        terms.map((term, index) => this.#named(term.expression, `_ord${index}`))
       ),
       orderBy: this.#lowerOrder(
         presented.map((term, index) => ({
           ...term,
-          expression: a.identifiers.escape(`_ord${index}`),
+          expression: this.#escaped(`_ord${index}`),
         }))
       )!,
     };
@@ -3985,10 +3530,10 @@ export class SqlQueries extends Queries {
     for (let index = 0; index < terms.length; index++) {
       const term = terms[index]!;
       if (term.nulls === undefined && (term.nullable || cursor !== undefined)) {
-        terms[index] = freeze({
+        terms[index] = {
           ...term,
           nulls: term.descending ? "first" : "last",
-        });
+        };
       }
     }
     return terms;
@@ -4018,7 +3563,7 @@ export class SqlQueries extends Queries {
     for (const field of completion) {
       if (ordered.has(field)) continue;
       ordered.add(field);
-      const physical = physicalField(this.schema, model, field);
+      const physical = this.physical(model, field);
       terms.push(
         this.#sortKey(
           this.#operand(model, field, alias),
@@ -4037,7 +3582,8 @@ export class SqlQueries extends Queries {
     for (const [name, value] of Object.entries(input)) {
       const key = findAddressableKey(model, name);
       if (key?.name)
-        for (const field of key.fields) identity[field] = record(value)[field];
+        for (const field of key.fields)
+          identity[field] = (value as Input)[field];
       else identity[name] = value;
     }
     return identity;
@@ -4060,14 +3606,14 @@ export class SqlQueries extends Queries {
     const sourceAlias = this.alias();
     // The anchor is a candidate like any other: a hidden one is a missing one.
     const scope = purpose && this.domainOf(model, purpose);
-    const where = a.operators.and(
+    const where = this.#and(
       ...(scope ? [this.lowerSelector(scope, sourceAlias)!] : []),
       ...Object.entries(identity).map(([field, value]) => {
         if (value === null)
-          throw new QueryEngineError(
+          engineFault(
             `Cursor field '${field}' cannot be null. Cursor must point to a specific record.`
           );
-        return a.operators.eq(
+        return this.#eq(
           this.#operand(model, field, sourceAlias),
           this.fieldValue(model, field, value)
         );
@@ -4079,7 +3625,7 @@ export class SqlQueries extends Queries {
     );
     const cursorRow = (columns: Sql[]) =>
       assembleAdapterSelect(a, {
-        columns: sql.join(columns, ", "),
+        columns: listed(columns),
         from: this.table(model, sourceAlias),
         where,
         limit: this.value(1),
@@ -4095,64 +3641,56 @@ export class SqlQueries extends Queries {
     const cursorAlias = this.alias();
     const carrier = (index: number) => `${CURSOR_CARRIER_PREFIX}${index}`;
     const derived = cursorRow(
-      keyColumns.map((column, index) =>
-        a.identifiers.aliased(column, carrier(index))
-      )
+      keyColumns.map((column, index) => this.#named(column, carrier(index)))
     );
     const comparisons = order.map((term, index) => ({
       row: term.expression,
-      cursor: a.identifiers.column(cursorAlias, carrier(index)),
+      cursor: this.#at(cursorAlias, carrier(index)),
       term,
     }));
     const equalities: Sql[] = [];
     const afterTerms: Sql[] = [];
     for (const { row, cursor: key, term } of comparisons) {
       const compare = term.descending ? a.operators.lt : a.operators.gt;
-      const strict = a.operators.and(
-        a.operators.isNotNull(row),
-        compare(row, key)
-      );
+      const strict = this.#and(this.#isNotNull(row), compare(row, key));
       afterTerms.push(
-        a.operators.and(
+        this.#and(
           ...equalities,
           term.nulls === "first"
-            ? a.operators.or(
-                a.operators.and(
-                  a.operators.isNull(key),
-                  a.operators.isNotNull(row)
-                ),
-                a.operators.and(a.operators.isNotNull(key), strict)
+            ? this.#or(
+                this.#and(this.#isNull(key), this.#isNotNull(row)),
+                this.#and(this.#isNotNull(key), strict)
               )
-            : a.operators.and(
-                a.operators.isNotNull(key),
-                a.operators.or(a.operators.isNull(row), strict)
+            : this.#and(
+                this.#isNotNull(key),
+                this.#or(this.#isNull(row), strict)
               )
         )
       );
       equalities.push(
-        a.operators.or(
-          a.operators.and(a.operators.isNull(row), a.operators.isNull(key)),
-          a.operators.and(
-            a.operators.isNotNull(row),
-            a.operators.isNotNull(key),
-            a.operators.eq(row, key)
+        this.#or(
+          this.#and(this.#isNull(row), this.#isNull(key)),
+          this.#and(
+            this.#isNotNull(row),
+            this.#isNotNull(key),
+            this.#eq(row, key)
           )
         )
       );
     }
-    afterTerms.push(a.operators.and(...equalities));
+    afterTerms.push(this.#and(...equalities));
     const window = a.operators.exists(
       assembleAdapterSelect(a, {
-        columns: a.literals.true(),
-        from: a.subqueries.correlate(derived, cursorAlias),
-        where: a.operators.or(...afterTerms),
+        columns: this.#true(),
+        from: this.#aside(derived, cursorAlias),
+        where: this.#or(...afterTerms),
       })
     );
     // Every row after the anchor sorts at or past its NOT NULL leading key:
     // that bound, implied by the window, is the range a planner can seek.
     const [lead] = order;
     if (lead!.nullable) return window;
-    return a.operators.and(
+    return this.#and(
       (lead!.descending ? a.operators.lte : a.operators.gte)(
         lead!.expression,
         a.subqueries.scalar(cursorRow([keyColumns[0]!]))
@@ -4170,27 +3708,28 @@ export class SqlQueries extends Queries {
   override select(
     model: AnyModel,
     args: Partial<Arguments>,
-    membership?: { edge: Membership; parent: Input; outside?: boolean },
+    membership?: { edge: Membership; parent: Input },
     controls: SqlSelectControls = {}
   ): Query {
-    if (!this.sharesBodies)
-      return this.#select(model, args, membership, controls);
-    let query: Query | undefined;
-    const statement = this.#sharingBodies(() => {
-      query = this.#select(model, args, membership, controls);
-      return query.sql;
-    });
-    return statement === query!.sql ? query! : { ...query!, sql: statement };
+    return this.#sharingQuery(() =>
+      this.#select(model, args, membership, controls)
+    );
+  }
+  /** The query `build` makes, its statement sharing its bodies where the adapter does. */
+  #sharingQuery(build: () => Query): Query {
+    return this.#shares(
+      build,
+      (query) => query.sql,
+      (query, statement) => ({ ...query, sql: statement })
+    );
   }
   #select(
     model: AnyModel,
     args: Partial<Arguments>,
-    membership:
-      | { edge: Membership; parent: Input; outside?: boolean }
-      | undefined,
+    membership: { edge: Membership; parent: Input } | undefined,
     controls: SqlSelectControls
   ): Query {
-    const alias = this.#rootAlias();
+    const alias = this.rootAlias();
     if (controls.source === undefined) this.#rows.set(alias, model);
     // The shipped owner sequence, and the reason it is stated here: when one
     // call violates two contracts at once, the refusal the caller sees is the
@@ -4225,17 +3764,16 @@ export class SqlQueries extends Queries {
         ? given
         : this.#within(model, given, controls.purpose);
     const filter = selector ? this.lowerSelector(selector, alias) : undefined;
-    const a = this.adapter;
     const unless =
       controls.unless &&
-      a.operators.not(
-        a.expressions.coalesce(
+      this.adapter.operators.not(
+        this.adapter.expressions.coalesce(
           this.#opposite(() => this.lowerSelector(controls.unless!, alias)) ??
-            a.literals.true(),
-          a.literals.false()
+            this.#true(),
+          this.#false()
         )
       );
-    const columns = sql.join(projection, ", ");
+    const columns = listed(projection);
     const where = this.#selectWhere(
       model,
       alias,
@@ -4257,10 +3795,7 @@ export class SqlQueries extends Queries {
               controls.forUpdate
               ? this.table(model, alias)
               : this.#attached(model, alias)
-            : a.identifiers.aliased(
-                a.identifiers.escape(controls.source),
-                alias
-              ),
+            : this.#named(this.#escaped(controls.source), alias),
         joins: page.joins,
         where,
         orderBy: page.orderBy,
@@ -4283,62 +3818,26 @@ export class SqlQueries extends Queries {
   #selectWhere(
     model: AnyModel,
     alias: string,
-    membership:
-      | { edge: Membership; parent: Input; outside?: boolean }
-      | undefined,
+    membership: { edge: Membership; parent: Input } | undefined,
     filter: Sql | undefined,
     unless: Sql | undefined,
     cursor: Sql | undefined,
-    controls: Pick<SqlSelectControls, "condition" | "identity" | "row">
+    controls: Pick<SqlSelectControls, "condition" | "identity">
   ): Sql | undefined {
     const where: Sql[] = [];
     if (membership)
-      where.push(
-        membership.outside
-          ? this.outsideWhere(membership.edge, membership.parent, alias)
-          : this.memberWhere(membership.edge, membership.parent, alias)
-      );
+      where.push(this.memberWhere(membership.edge, membership.parent, alias));
     if (filter) where.push(filter);
     if (unless) where.push(unless);
     if (cursor) where.push(cursor);
     if (controls.identity)
       where.push(this.lowerIdentity(model, controls.identity, alias));
-    if (controls.row) where.push(this.#rowCondition(model, controls.row));
     const { condition } = controls;
     if (condition)
       where.push(
         typeof condition === "function" ? condition(alias) : condition
       );
-    return where.length === 0
-      ? undefined
-      : this.adapter.operators.and(...where);
-  }
-  #rowCondition(model: AnyModel, row: RowCondition): Sql {
-    const a = this.adapter;
-    switch (row.kind) {
-      case "fieldNull":
-        return a.operators.isNull(this.column(model, row.field));
-      case "notIdentity":
-        return a.operators.not(
-          a.operators.or(
-            ...row.identities.map((identity) =>
-              this.lowerIdentity(model, identity)
-            )
-          )
-        );
-      default:
-        return a.operators.or(
-          ...row.fields.map((field) => {
-            const held = this.fieldValue(row.model, field, row.before[field]);
-            return a.operators.not(
-              a.operators.eq(
-                held,
-                this.updateValue(row.model, field, row.after[field], held)
-              )
-            );
-          })
-        );
-    }
+    return where.length === 0 ? undefined : this.#and(...where);
   }
   /**
    * Every read verb is one cardinality and shape decision over the same
@@ -4355,13 +3854,14 @@ export class SqlQueries extends Queries {
       operation === "findFirst" ||
       operation === "exist" ||
       (operation !== "groupBy" && args.take !== undefined);
-    if (!this.sharesBodies) return this.#read(model, operation, args);
-    let read: Read | undefined;
-    const statement = this.#sharingBodies(() => {
-      read = this.#read(model, operation, args);
-      return read.query.sql;
-    });
-    return { ...read!, query: { ...read!.query, sql: statement } };
+    return this.#shares(
+      () => this.#read(model, operation, args),
+      (read) => read.query.sql,
+      (read, statement) => ({
+        ...read,
+        query: { ...read.query, sql: statement },
+      })
+    );
   }
   #read(model: AnyModel, operation: ReadOperation, args: Arguments): Read {
     switch (operation) {
@@ -4437,7 +3937,7 @@ export class SqlQueries extends Queries {
         // Existence is order-blind and `exist` admits only `where`: the
         // filtered table itself, with no total order to sort or scan by.
         const a = this.adapter;
-        const alias = this.#rootAlias();
+        const alias = this.rootAlias();
         const rows = assembleAdapterSelect(a, {
           columns: a.literals.true(),
           from: this.table(model, alias),
@@ -4463,7 +3963,7 @@ export class SqlQueries extends Queries {
         };
       }
       case "count": {
-        const selected = args.select ? record(args.select) : undefined;
+        const selected = args.select ? (args.select as Input) : undefined;
         const outputs: { name: string; field?: string }[] = selected
           ? [
               ...(selected._all ? [{ name: "_all" }] : []),
@@ -4554,18 +4054,16 @@ export class SqlQueries extends Queries {
     columns: (alias: string) => [string, Sql][],
     shape: (alias: string) => Extract<Shape, { kind: "object" }>
   ): Query {
-    const a = this.adapter;
-    const inner = this.#rootAlias();
+    const inner = this.rootAlias();
     // The default order only decides which rows a page holds.
     const page = this.#page(model, this.#ordered(model, args), inner, "root");
     const filter = this.lowerWhere(model, args.where, inner);
     const aggregate = (alias: string, from: Sql, where?: Sql): Query => ({
-      sql: assembleAdapterSelect(a, {
-        columns: sql.join(
+      sql: assembleAdapterSelect(this.adapter, {
+        columns: listed(
           columns(alias).map(([name, expression]) =>
-            a.identifiers.aliased(expression, name)
-          ),
-          ", "
+            this.#named(expression, name)
+          )
         ),
         from,
         where,
@@ -4576,21 +4074,20 @@ export class SqlQueries extends Queries {
     // once per row, not once per aggregate over the field.
     if (!((page.limit ?? page.offset ?? page.cursor) || this.#masks(model)))
       return aggregate(inner, this.table(model, inner), filter);
-    const window = assembleAdapterSelect(a, {
+    const window = assembleAdapterSelect(this.adapter, {
       columns: fields.length
-        ? sql.join(
+        ? listed(
             [...new Set(fields)].map((field) =>
-              a.identifiers.aliased(
+              this.#named(
                 this.#operand(model, field, inner),
                 this.columnName(model, field)
               )
-            ),
-            ", "
+            )
           )
-        : a.identifiers.aliased(this.value(1), "0viborm_row"),
+        : this.#named(this.value(1), "0viborm_row"),
       from: this.table(model, inner),
       joins: page.joins,
-      where: a.operators.and(
+      where: this.#and(
         ...(filter ? [filter] : []),
         ...(page.cursor ? [page.cursor] : [])
       ),
@@ -4601,9 +4098,7 @@ export class SqlQueries extends Queries {
     const outer = this.alias();
     // The window masks its read-gated columns: the aggregate reads them as
     // they are.
-    return this.#overMasked(() =>
-      aggregate(outer, a.subqueries.correlate(window, outer))
-    );
+    return this.#overMasked(() => aggregate(outer, this.#aside(window, outer)));
   }
   /** The admitted aggregate selections, as columns and as decoder leaves. */
   #prepareAggregates(
@@ -4626,7 +4121,7 @@ export class SqlQueries extends Queries {
         builders.push(() => ["_count", a.aggregates.count()]);
         continue;
       }
-      const selected = Object.entries(record(selection)).filter(
+      const selected = Object.entries(selection as Input).filter(
         ([, include]) => include
       );
       if (selected.length === 0) continue;
@@ -4675,13 +4170,13 @@ export class SqlQueries extends Queries {
     if (aggregate === "_count") return COUNT_LEAF;
     const leaf = this.scalarShape(model, field);
     if (aggregate === "_avg" && leaf.type !== "decimal")
-      return freeze({ kind: "scalar", type: "number", nullable: true });
+      return { kind: "scalar", type: "number", nullable: true };
     // Admission admits `_sum` only on the summable types, every one widened.
-    return freeze({
+    return {
       ...leaf,
       nullable: true,
       widened: aggregate === "_sum" ? true : undefined,
-    });
+    };
   }
   /**
    * A split `_sum` as `having` compares it and a grouped `orderBy` sorts it:
@@ -4700,7 +4195,7 @@ export class SqlQueries extends Queries {
   ): Sql {
     const a = this.adapter;
     const column = scalar ? this.#preparedColumn(scalar, alias) : undefined;
-    const state = scalar?.physical.scalar["~"].state;
+    const state = scalar?.physical.state;
     // biome-ignore lint/style/useDefaultSwitchClause: the Aggregate union is exhaustive; a default would be dead code.
     switch (aggregate) {
       case "_count":
@@ -4736,25 +4231,33 @@ export class SqlQueries extends Queries {
     identities: Input[],
     operation: "createMany" | "updateMany" = "createMany"
   ): Query {
+    return this.#sharingQuery(() =>
+      this.#selectSeries(prepared, identities, operation)
+    );
+  }
+  #selectSeries(
+    prepared: PreparedProjection,
+    identities: Input[],
+    operation: "createMany" | "updateMany"
+  ): Query {
     const model = prepared.model;
-    const alias = this.#rootAlias();
+    const alias = this.rootAlias();
     const projection = this.lowerProjection(prepared, alias);
     const predicates = identities.map((identity) =>
       this.lowerIdentity(model, identity, alias)
     );
     return {
       sql: assembleAdapterSelect(this.adapter, {
-        columns: sql.join(projection, ", "),
+        columns: listed(projection),
         from: this.table(model, alias),
-        where: balancedOr(predicates, (arms) =>
-          this.adapter.operators.or(...arms)
-        ),
+        where: balancedOr(predicates, (arms) => this.#or(...arms)),
+        // The place of each row is a number the statement states: one it binds is text to a provider that is told no type, and ten sorts before two.
         orderBy: this.adapter.expressions.caseWhen(
           predicates.map((when, index) => ({
             when,
-            then: this.value(index),
+            then: sql.raw(String(index)),
           })),
-          this.value(identities.length)
+          sql.raw(String(identities.length))
         ),
       }),
       shape: prepared.shape,
@@ -4774,7 +4277,7 @@ export class SqlQueries extends Queries {
     const columns: Sql[] = [];
     for (const field of projection.fields) {
       columns.push(
-        this.adapter.identifiers.aliased(
+        this.#named(
           this.#lowerProjectionField(projection, field, alias, visible),
           field.name
         )
@@ -4808,8 +4311,7 @@ export class SqlQueries extends Queries {
     } else if (field.kind === "distance") {
       expression = this.#distanceExpression(
         this.column(projection.model, field.field, alias),
-        physicalField(this.schema, projection.model, field.field).scalar["~"]
-          .state,
+        this.physical(projection.model, field.field).scalar["~"].state,
         field.field,
         field.specification,
         "select"
@@ -4825,7 +4327,7 @@ export class SqlQueries extends Queries {
           : [
               [
                 POLYMORPHIC_COLLECTION_ORPHANS_KEY,
-                a.json.document(
+                this.#document(
                   a.json.objectFromColumns(
                     field.memberships.map((member) => [
                       member.variant,
@@ -4851,26 +4353,27 @@ export class SqlQueries extends Queries {
           alias
         );
         const empty = slotMayBeEmpty(resolved)
-          ? a.operators.and(a.operators.isNull(type), a.operators.isNull(id))
-          : a.literals.false();
-        const valid = a.operators.and(
-          a.operators.isNotNull(id),
-          a.operators.or(
+          ? this.#and(this.#isNull(type), this.#isNull(id))
+          : this.#false();
+        const valid = this.#and(
+          this.#isNotNull(id),
+          this.#or(
             ...edge.members.map((member) =>
-              a.operators.eq(type, this.value(member.entry.storedValue))
+              this.#eq(type, this.value(member.entry.storedValue))
             )
           )
         );
-        const invalid = a.expressions.caseWhen(
-          [{ when: a.operators.or(empty, valid), then: this.value(0) }],
+        const invalid = this.#when(
+          this.#or(empty, valid),
+          this.value(0),
           this.value(1)
         );
         integrity.push([
           POLYMORPHIC_COLLECTION_ORPHANS_KEY,
-          a.json.document(a.json.objectFromColumns([["$storage", invalid]])),
+          this.#document(a.json.objectFromColumns([["$storage", invalid]])),
         ]);
       }
-      expression = a.json.object([
+      expression = this.#object([
         ...field.arms.map((arm) => {
           const row = this.#lowerRelationProjection(arm, alias ?? "");
           const claim = field.many
@@ -4882,19 +4385,15 @@ export class SqlQueries extends Queries {
           // column). An unclaimed arm stays null, which is an empty slot.
           return [
             arm.variant,
-            a.json.document(
+            this.#document(
               claim
-                ? a.expressions.caseWhen(
-                    [
-                      {
-                        when: claim,
-                        then: a.expressions.coalesce(
-                          row,
-                          this.#missingArm(arm.edge, alias ?? "")
-                        ),
-                      },
-                    ],
-                    a.literals.null()
+                ? this.#when(
+                    claim,
+                    a.expressions.coalesce(
+                      row,
+                      this.#missingArm(arm.edge, alias ?? "")
+                    ),
+                    this.#null()
                   )
                 : row
             ),
@@ -4911,17 +4410,28 @@ export class SqlQueries extends Queries {
     alias?: string,
     visible = false
   ): Sql {
-    const a = this.adapter;
     let expression: Sql;
     if (field.kind === "scalar") {
       expression = this.projectedColumn(projection.model, field.name, alias);
     } else if (field.kind === "sentinel") {
-      expression = a.expressions.cast(a.literals.value(1), "integer");
+      expression = this.#cast(this.#literal(1), "integer");
     } else if (field.kind === "evidence") {
-      expression = this.#lowerEvidence(projection.model, field, alias, visible);
+      expression = this.domain!.evidence(
+        this,
+        projection.model,
+        field,
+        alias,
+        visible
+      );
     } else if (field.kind === "gate") {
-      expression = this.#truth(
-        this.#gateHolds(projection.model, field.gate, alias, visible)
+      expression = this.truth(
+        this.domain!.gateHolds(
+          this,
+          projection.model,
+          field.gate,
+          alias,
+          visible
+        )
       );
     } else if (field.kind === "relation") {
       expression = this.#duplicateMembershipGuard(
@@ -4940,97 +4450,11 @@ export class SqlQueries extends Queries {
     }
     return expression;
   }
-  /**
-   * Where `input`, one of `model`'s predicates in `layer`, holds on the row
-   * at `alias`, as that layer's node: R5 and R6 judge it as they judge the
-   * layer's filter. `undefined` where the call drops it (it holds).
-   */
-  #layerHolds(
-    model: AnyModel,
-    layer: number,
-    input: Input,
-    alias?: string
-  ): Sql | undefined {
-    return this.lowerSelector(this.domain!.layered(model, layer, input), alias);
-  }
-  /** Where a read-gated field's row carries it: every gating layer's `read` and predicate. */
-  #gateHolds(
-    model: AnyModel,
-    gate: FieldGate,
-    alias: string | undefined,
-    visible: boolean
-  ): Sql | undefined {
-    const held: Sql[] = [];
-    // A gate masks a value: neither a positive nor a negative test, so no
-    // set it reads is bounded ({@link setBound}) and it holds where it would.
-    this.#unbounded++;
-    try {
-      for (const [layer, read, input] of gate) {
-        const tested = input === read ? [read] : [read, input];
-        for (const where of visible ? tested.slice(1) : tested) {
-          const lowered = this.#layerHolds(model, layer, where, alias);
-          if (lowered !== undefined) held.push(lowered);
-        }
-      }
-    } finally {
-      this.#unbounded--;
-    }
-    return held.length === 0 ? undefined : this.adapter.operators.and(...held);
-  }
   /** A condition as a value: true or false, never NULL; `undefined` holds. */
-  #truth(condition: Sql | undefined): Sql {
-    const a = this.adapter;
+  truth(condition: Sql | undefined): Sql {
     return condition === undefined
-      ? a.literals.true()
-      : a.expressions.caseWhen(
-          [{ when: condition, then: a.literals.true() }],
-          a.literals.false()
-        );
-  }
-  /**
-   * A declared projection key's value on the row at `alias` (K5): the
-   * layer's `read` once, around one test per name. Ordered, the last name
-   * that holds; else a document of one boolean per name.
-   */
-  #lowerEvidence(
-    model: AnyModel,
-    field: Extract<PreparedProjectionField, { kind: "evidence" }>,
-    alias: string | undefined,
-    taken: boolean
-  ): Sql {
-    const a = this.adapter;
-    const { layer, read, ordered } = field.evidence;
-    const visible = taken
-      ? undefined
-      : this.#layerHolds(model, layer, read, alias);
-    const test = (input: Input) =>
-      input === read ? undefined : this.#layerHolds(model, layer, input, alias);
-    if (ordered) {
-      const highest = a.expressions.caseWhen(
-        [...field.names].reverse().map(([name, input]) => ({
-          when: test(input) ?? a.literals.true(),
-          then: a.expressions.cast(this.value(name), "text"),
-        })),
-        a.literals.null()
-      );
-      return visible === undefined
-        ? highest
-        : a.expressions.caseWhen(
-            [{ when: visible, then: highest }],
-            a.literals.null()
-          );
-    }
-    const held = a.json.objectFromColumns(
-      field.names.map(([name, input]) => [name, this.#truth(test(input))])
-    );
-    return visible === undefined
-      ? held
-      : a.expressions.caseWhen(
-          [{ when: visible, then: held }],
-          a.json.objectFromColumns(
-            field.names.map(([name]) => [name, a.literals.false()])
-          )
-        );
+      ? this.#true()
+      : this.#when(condition, this.#true(), this.#false());
   }
   /**
    * What a claimed arm whose row did not come back carries: the empty
@@ -5041,23 +4465,18 @@ export class SqlQueries extends Queries {
    * row. Without a domain, the bytes are the ones a plain client emits.
    */
   #missingArm(edge: Membership, parentAlias: string): Sql {
-    const a = this.adapter;
     if (this.domainOf(edge.target, "related") === undefined)
-      return a.json.object([]);
+      return this.#object([]);
     const target = this.alias();
-    return a.expressions.caseWhen(
-      [
-        {
-          when: a.operators.exists(
-            a.subqueries.existsCheck(
-              this.table(edge.target, target),
-              this.correlation(edge, parentAlias, target, false)
-            )
-          ),
-          then: a.literals.null(),
-        },
-      ],
-      a.json.object([])
+    return this.#when(
+      this.adapter.operators.exists(
+        this.adapter.subqueries.existsCheck(
+          this.table(edge.target, target),
+          this.correlation(edge, parentAlias, target, false)
+        )
+      ),
+      this.#null(),
+      this.#object([])
     );
   }
   /**
@@ -5104,24 +4523,10 @@ export class SqlQueries extends Queries {
       edge.scope.edge.kind !== "variantJunctionCarrier"
     )
       return projected;
-    const a = this.adapter;
-    const junction = this.alias();
-    const members = a.subqueries.scalar(
-      assembleAdapterSelect(a, {
-        columns: a.aggregates.count(),
-        from: this.#tableNamed(edge.table, junction),
-        where: a.operators.and(
-          ...this.junctionSideConditions(edge.sourceSide, junction, parentAlias)
-        ),
-      })
-    );
-    return a.expressions.caseWhen(
-      [
-        {
-          when: a.operators.gt(members, this.value(1)),
-          then: a.json.emptyArray(),
-        },
-      ],
+    const members = this.#links(edge, this.alias(), parentAlias);
+    return this.#when(
+      this.adapter.operators.gt(members, this.value(1)),
+      this.adapter.json.emptyArray(),
       projected
     );
   }
@@ -5129,34 +4534,48 @@ export class SqlQueries extends Queries {
     edge: Extract<Membership, { kind: "junction" }>,
     parentAlias: string
   ): Sql {
-    const a = this.adapter;
     const junction = this.alias();
     const target = this.alias();
-    return a.subqueries.scalar(
-      assembleAdapterSelect(a, {
-        columns: a.aggregates.count(),
-        from: this.#tableNamed(edge.table, junction),
-        where: a.operators.and(
-          ...this.junctionSideConditions(
-            edge.sourceSide,
-            junction,
-            parentAlias
-          ),
-          a.filters.none(
-            a.subqueries.existsCheck(
-              this.table(edge.target, target),
-              a.operators.and(
-                ...this.junctionSideConditions(
-                  edge.targetSide,
-                  junction,
-                  target
-                )
-              )
-            )
-          )
-        ),
-      })
+    return this.#links(
+      edge,
+      junction,
+      parentAlias,
+      this.adapter.filters.none(
+        this.adapter.subqueries.existsCheck(
+          this.table(edge.target, target),
+          this.#side(edge, "targetSide", junction, target)
+        )
+      )
     );
+  }
+  /** What a link of `edge`, read as `link`, holds where its `side` reaches the row `endpoint` names: among the links a row scope lets be read, where `bound`. */
+  #side(
+    edge: Extract<Membership, { kind: "junction" }>,
+    side: "sourceSide" | "targetSide",
+    link: string,
+    endpoint: string | Input | CarriedRow,
+    bound = false
+  ): Sql {
+    return this.#and(
+      ...this.junctionSideConditions(edge[side], link, endpoint),
+      ...(bound ? this.#linkBound(edge, link) : [])
+    );
+  }
+  /** How many links of `edge`, read as `junction`, the row `parentAlias` reads holds, among those `more` holds of. */
+  #links(
+    edge: Extract<Membership, { kind: "junction" }>,
+    junction: string,
+    parentAlias: string,
+    ...more: Sql[]
+  ): Sql {
+    return this.#scalar({
+      columns: this.adapter.aggregates.count(),
+      from: this.#tableNamed(edge.table, junction),
+      where: this.#and(
+        ...this.junctionSideConditions(edge.sourceSide, junction, parentAlias),
+        ...more
+      ),
+    });
   }
   /**
    * One slot's correlated count, shared by the `_count` projection and `_count`
@@ -5179,49 +4598,16 @@ export class SqlQueries extends Queries {
           ? this.#opposite(() => this.lowerSelector(selector, childAlias)!)
           : this.lowerSelector(selector, childAlias)!
         : undefined;
-      return a.subqueries.scalar(
-        assembleAdapterSelect(a, {
-          columns: a.aggregates.count(),
-          from: this.table(edge.target, childAlias),
-          where: a.operators.and(
-            this.correlation(edge, parentAlias, childAlias),
-            ...(filter ? [negated ? a.operators.not(filter) : filter] : [])
-          ),
-        })
-      );
+      return this.#scalar({
+        columns: a.aggregates.count(),
+        from: this.table(edge.target, childAlias),
+        where: this.#and(
+          this.correlation(edge, parentAlias, childAlias),
+          ...(filter ? [negated ? a.operators.not(filter) : filter] : [])
+        ),
+      });
     });
     return counted.reduce((total, arm) => a.expressions.add(total, arm));
-  }
-  /**
-   * One value this unit PRODUCED, published as the field it belongs to.
-   *
-   * `SELECT <expression> AS <field>` — no FROM, so one row by construction —
-   * composed from the owners that already hold the parts: the field's own
-   * physical value ({@link fieldValue}, the one destination-aware operand
-   * owner) and its own decode leaf ({@link scalarShape}), read back by
-   * {@link decodeQuery} like every other row. That is the composition
-   * {@link grouped} and {@link junction} already state for every scalar they
-   * publish.
-   *
-   * A user projection was never the question: D-58's segment boundary asks for
-   * exactly ONE field, so preparing one to borrow its shape and its lowering
-   * was a detour through arms — relation, variant, `_count`, `_distance`,
-   * sentinel — that a produced scalar cannot reach, and it ended in a cast back
-   * to the scalar arm the caller already knew it had.
-   */
-  scalarQuery(model: AnyModel, field: string, value: unknown): Query {
-    return {
-      shape: {
-        kind: "object",
-        fields: { [field]: this.scalarShape(model, field) },
-      },
-      sql: this.adapter.clauses.select(
-        this.adapter.identifiers.aliased(
-          this.fieldValue(model, field, value),
-          field
-        )
-      ),
-    };
   }
   #lowerRelationProjection(
     relation: PreparedRelationProjection,
@@ -5251,19 +4637,19 @@ export class SqlQueries extends Queries {
     if (linkRow)
       for (const [index, field] of linkRow.fields.entries())
         child.push(
-          a.identifiers.aliased(
+          this.#named(
             this.projectedColumn(linkRow.model, field, source.link),
             linkColumn(index)
           )
         );
     const page = assembleAdapterSelect(a, {
-      columns: sql.join(child, ", "),
+      columns: listed(child),
       from: source.from,
       joins:
         source.joins && window.joins
           ? [...source.joins, ...window.joins]
           : (source.joins ?? window.joins),
-      where: a.operators.and(
+      where: this.#and(
         source.where,
         ...(nested.selector
           ? [this.lowerSelector(nested.selector, childAlias)!]
@@ -5306,31 +4692,29 @@ export class SqlQueries extends Queries {
       field,
       this.#carriedValue(
         projection.shape.fields[field]!,
-        a.identifiers.column(pageAlias, field)
+        this.#at(pageAlias, field)
       ),
     ]);
     for (const gate of projection.shape.gates ?? NO_GATES)
-      members.push([gate, a.identifiers.column(pageAlias, gate)]);
+      members.push([gate, this.#at(pageAlias, gate)]);
     if (linkRow)
       members.push([
         "$through",
-        a.json.object(
+        this.#object(
           linkRow.fields.map((field, index): [string, Sql] => [
             field,
             this.#carriedValue(
               linkRow.shape.fields[field]!,
-              a.identifiers.column(pageAlias, linkColumn(index))
+              this.#at(pageAlias, linkColumn(index))
             ),
           ])
         ),
       ]);
-    const object = a.json.object(members);
-    const expression = a.subqueries.scalar(
-      assembleAdapterSelect(a, {
-        columns: edge.many ? a.json.agg(object) : object,
-        from: a.subqueries.correlate(page, pageAlias),
-      })
-    );
+    const object = this.#object(members);
+    const expression = this.#scalar({
+      columns: edge.many ? a.json.agg(object) : object,
+      from: this.#aside(page, pageAlias),
+    });
     return expression;
   }
 
@@ -5365,11 +4749,10 @@ export class SqlQueries extends Queries {
       .map((field) => this.column(model, field, alias));
   }
   /** The complete-key join of one model alias to carried key columns. */
-  #sameRow(model: AnyModel, alias: string, carried: readonly Sql[]): Sql {
-    const a = this.adapter;
-    return a.operators.and(
+  sameRow(model: AnyModel, alias: string, carried: readonly Sql[]): Sql {
+    return this.#and(
       ...this.#rowKey(model, alias).map((column, index) =>
-        a.operators.eq(column, carried[index]!)
+        this.#eq(column, carried[index]!)
       )
     );
   }
@@ -5388,19 +4771,15 @@ export class SqlQueries extends Queries {
     next: string,
     scoped = true
   ): Sql {
-    const a = this.adapter;
     if (edge.kind !== "junction")
-      return a.joins.inner(
+      return this.#inner(
         this.table(edge.target, next),
         this.correlation(edge, current, next, scoped)
       );
     const link = this.alias();
-    return sql`${a.joins.inner(
+    return sql`${this.#inner(
       this.#tableNamed(edge.table, link),
-      a.operators.and(
-        ...this.junctionSideConditions(edge.sourceSide, link, current),
-        ...this.#linkBound(edge, link)
-      )
+      this.#side(edge, "sourceSide", link, current, true)
     )} ${this.#junctionTarget(edge, link, next)}`;
   }
   /**
@@ -5429,9 +4808,7 @@ export class SqlQueries extends Queries {
       link,
       from: this.#tableNamed(edge.table, link),
       joins: [this.#junctionTarget(edge, link, child)],
-      where: this.adapter.operators.and(
-        ...this.junctionSideConditions(edge.sourceSide, link, parent)
-      ),
+      where: this.#side(edge, "sourceSide", link, parent),
     };
   }
   /** A junction's target joined from `link`, under the {@link related} domain. */
@@ -5440,16 +4817,9 @@ export class SqlQueries extends Queries {
     link: string,
     next: string
   ): Sql {
-    const a = this.adapter;
-    return a.joins.inner(
+    return this.#inner(
       this.table(edge.target, next),
-      this.#related(
-        edge,
-        next,
-        a.operators.and(
-          ...this.junctionSideConditions(edge.targetSide, link, next)
-        )
-      )
+      this.#related(edge, next, this.#side(edge, "targetSide", link, next))
     );
   }
 
@@ -5483,7 +4853,7 @@ export class SqlQueries extends Queries {
    * hop is an index probe (10× the acceptance fixture: an `accessGrant` read
    * 124 → 785 ms with the start row alone).
    */
-  #walk(
+  walk(
     edge: Membership,
     parentAlias: string,
     start:
@@ -5509,7 +4879,7 @@ export class SqlQueries extends Queries {
     const depthColumn = `__${scope}_depth`;
     const selector = edges ? start.selector : undefined;
     const hop = (value: Sql) =>
-      depth === false ? [] : [a.identifiers.aliased(value, depthColumn)];
+      depth === false ? [] : [this.#named(value, depthColumn)];
     const reached = (alias: string) =>
       selector ? [this.lowerSelector(selector, alias)!] : [];
 
@@ -5518,9 +4888,9 @@ export class SqlQueries extends Queries {
       this.sharesBodies &&
       (!self ||
         this.#rows.get(parentAlias) === model ||
-        this.#hopFields(edge).every((field) => keys.includes(field)));
+        hopFieldsOf(edge).every((field) => keys.includes(field)));
     const hopFields = carries
-      ? this.#hopFields(edge).filter((field) => !keys.includes(field))
+      ? hopFieldsOf(edge).filter((field) => !keys.includes(field))
       : [];
     const hopColumns = hopFields.map((_, index) => `__${scope}_hop_${index}`);
     const row = (alias: string) => [
@@ -5532,16 +4902,13 @@ export class SqlQueries extends Queries {
     ];
     const anchorChild = this.alias();
     const firstHop = assembleAdapterSelect(a, {
-      columns: sql.join(
-        [
-          ...this.#aliased(parentColumns, this.#rowKey(model, parentAlias)),
-          ...row(anchorChild),
-          ...hop(a.expressions.cast(this.value(1), "integer")),
-        ],
-        ", "
-      ),
+      columns: listed([
+        ...this.#aliased(parentColumns, this.#rowKey(model, parentAlias)),
+        ...row(anchorChild),
+        ...hop(this.#cast(this.value(1), "integer")),
+      ]),
       from: this.table(model, anchorChild),
-      where: a.operators.and(
+      where: this.#and(
         this.correlation(edge, parentAlias, anchorChild, scoped),
         ...reached(anchorChild)
       ),
@@ -5549,24 +4916,20 @@ export class SqlQueries extends Queries {
     const seed = self ? this.alias() : undefined;
     const anchor = seed
       ? assembleAdapterSelect(a, {
-          columns: sql.join(
+          columns: listed(
             [
               ...childColumns,
               ...hopColumns,
               ...(depth === false ? [] : [depthColumn]),
-            ].map((column) => a.identifiers.column(seed, column)),
-            ", "
+            ].map((column) => this.#at(seed, column))
           ),
-          from: a.subqueries.correlate(
+          from: this.#aside(
             a.setOperations.union(
               a.clauses.select(
-                sql.join(
-                  [
-                    ...row(parentAlias),
-                    ...hop(a.expressions.cast(this.value(0), "integer")),
-                  ],
-                  ", "
-                )
+                listed([
+                  ...row(parentAlias),
+                  ...hop(this.#cast(this.value(0), "integer")),
+                ])
               ),
               firstHop
             ),
@@ -5576,7 +4939,7 @@ export class SqlQueries extends Queries {
       : firstHop;
 
     const walk = this.alias();
-    const carried = (column: string) => a.identifiers.column(walk, column);
+    const carried = (column: string) => this.#at(walk, column);
     let current: string | CarriedRow;
     let reread: Sql | undefined;
     if (carries)
@@ -5588,33 +4951,27 @@ export class SqlQueries extends Queries {
         );
     else {
       current = this.alias();
-      reread = a.joins.inner(
+      reread = this.#inner(
         this.table(model, current),
-        this.#sameRow(model, current, childColumns.map(carried))
+        this.sameRow(model, current, childColumns.map(carried))
       );
     }
     const next = this.alias();
-    // An unbounded, unfiltered walk states no WHERE rather than `WHERE TRUE`.
-    const all = (bounds: Sql[]) =>
-      bounds.length === 0 ? undefined : a.operators.and(...bounds);
     const recursive = assembleAdapterSelect(a, {
-      columns: sql.join(
-        [
-          ...this.#aliased(parentColumns, childColumns.map(carried)),
-          ...row(next),
-          ...hop(a.expressions.add(carried(depthColumn), this.value(1))),
-        ],
-        ", "
-      ),
+      columns: listed([
+        ...this.#aliased(parentColumns, childColumns.map(carried)),
+        ...row(next),
+        ...hop(a.expressions.add(carried(depthColumn), this.value(1))),
+      ]),
       from: sql.join(
         [
-          a.identifiers.aliased(a.identifiers.escape(cteName), walk),
+          this.#named(this.#escaped(cteName), walk),
           ...(reread ? [reread] : []),
           this.#step(edge, current, next, scoped),
         ],
         " "
       ),
-      where: all([
+      where: this.#all([
         ...(depth === false
           ? []
           : [a.operators.lt(carried(depthColumn), this.value(depth))]),
@@ -5632,22 +4989,23 @@ export class SqlQueries extends Queries {
       depthColumn,
     };
   }
-  /** The fields of the row it leaves that one hop of `edge` reads. */
-  #hopFields(edge: Membership): readonly string[] {
-    return edge.kind === "reference"
-      ? [
-          ...(edge.discriminator?.side === "source"
-            ? [edge.discriminator.field]
-            : []),
-          ...edge.pairs.map((pair) => pair.source),
-        ]
-      : edge.sourceSide.members.map((member) => member.referencedField);
+  /** `then` where `when` holds, `otherwise` where it does not. */
+  #when(when: Sql, then: Sql, otherwise: Sql): Sql {
+    return this.adapter.expressions.caseWhen([{ when, then }], otherwise);
+  }
+  /** One value, read by a subquery. */
+  #scalar(parts: Parameters<typeof assembleAdapterSelect>[1]): Sql {
+    return this.adapter.subqueries.scalar(
+      assembleAdapterSelect(this.adapter, parts)
+    );
+  }
+  /** Every one of `conditions`: none states no WHERE rather than `WHERE TRUE`. */
+  #all(conditions: readonly Sql[]): Sql | undefined {
+    return conditions.length === 0 ? undefined : this.#and(...conditions);
   }
   /** Each expression aliased as the column of the same index. */
   #aliased(names: readonly string[], expressions: readonly Sql[]): Sql[] {
-    return names.map((name, index) =>
-      this.adapter.identifiers.aliased(expressions[index]!, name)
-    );
+    return names.map((name, index) => this.#named(expressions[index]!, name));
   }
 
   /**
@@ -5674,26 +5032,23 @@ export class SqlQueries extends Queries {
       parentColumns,
       childColumns,
       depthColumn,
-    } = this.#walk(relation.edge, parentAlias, {
+    } = this.walk(relation.edge, parentAlias, {
       depth: recurrence.depth,
       edges: true,
       selector: relation.arguments.selector,
     });
-    const walkColumn = (name: string) => a.identifiers.column(walk, name);
+    const walkColumn = (name: string) => this.#at(walk, name);
 
     const ids = this.alias();
     const idColumns = childColumns.map((_, index) => `__${scope}_id_${index}`);
     const distinctIds = assembleAdapterSelect(a, {
-      distinct: sql.join(childColumns.map(walkColumn), ", "),
+      distinct: listed(childColumns.map(walkColumn)),
       distinctColumnAliases: idColumns,
-      columns: sql.join(
-        this.#aliased(idColumns, childColumns.map(walkColumn)),
-        ", "
-      ),
-      from: a.identifiers.aliased(a.identifiers.escape(cteName), walk),
+      columns: listed(this.#aliased(idColumns, childColumns.map(walkColumn))),
+      from: this.#named(this.#escaped(cteName), walk),
     });
     const node = this.#rowAlias(model);
-    const nodeDocument = a.json.object(
+    const nodeDocument = this.#object(
       relation.projection.fields.map((field) => [
         field.name,
         this.#carriedValue(
@@ -5703,19 +5058,19 @@ export class SqlQueries extends Queries {
         ),
       ])
     );
-    const nodeCarrier = a.json.object([
+    const nodeCarrier = this.#object([
       [
         RECURSIVE_CARRIER.key,
         this.#recursiveIdentity(model, this.#rowKey(model, node)),
       ],
       [RECURSIVE_CARRIER.row, nodeDocument],
     ]);
-    const idTable = a.subqueries.correlate(distinctIds, ids);
+    const idTable = this.#aside(distinctIds, ids);
     const table = this.table(model, node);
-    const sameNode = this.#sameRow(
+    const sameNode = this.sameRow(
       model,
       node,
-      idColumns.map((name) => a.identifiers.column(ids, name))
+      idColumns.map((name) => this.#at(ids, name))
     );
     // Where the caller states each walk reaches few rows (`fewRows`), each is
     // read by its key (`capabilities.readsNodesByKey`): joined, PostgreSQL,
@@ -5723,27 +5078,21 @@ export class SqlQueries extends Queries {
     const byKey =
       recurrence.fewRows &&
       a.capabilities.readsNodesByKey &&
-      a.json.document(
-        a.subqueries.scalar(
-          assembleAdapterSelect(a, {
-            columns: nodeCarrier,
-            from: table,
-            where: sameNode,
-          })
-        )
+      this.#document(
+        this.#scalar({
+          columns: nodeCarrier,
+          from: table,
+          where: sameNode,
+        })
       );
-    const nodes = a.subqueries.scalar(
-      assembleAdapterSelect(a, {
-        columns: a.json.agg(byKey || nodeCarrier),
-        from: byKey
-          ? idTable
-          : sql`${idTable} ${a.joins.inner(table, sameNode)}`,
-      })
-    );
+    const nodes = this.#scalar({
+      columns: a.json.agg(byKey || nodeCarrier),
+      from: byKey ? idTable : sql`${idTable} ${this.#inner(table, sameNode)}`,
+    });
 
     const edgeWalk = this.alias();
     const edgeChild = this.alias();
-    const edgeColumn = (name: string) => a.identifiers.column(edgeWalk, name);
+    const edgeColumn = (name: string) => this.#at(edgeWalk, name);
     const edgeCarrierName = `__${scope}_edge`;
     const edgePairs: [string, Sql][] = [
       [
@@ -5757,7 +5106,7 @@ export class SqlQueries extends Queries {
     ];
     if (recurrence.depth !== false)
       edgePairs.push([RECURSIVE_CARRIER.depth, edgeColumn(depthColumn)]);
-    const edgeCarrier = a.json.object(edgePairs);
+    const edgeCarrier = this.#object(edgePairs);
     // Each parent's siblings in the caller's order, ties broken by the order
     // owner's one complete key — the ordinary window's tie-break, not another.
     // An order of key columns alone is read from the walk's own: joined
@@ -5784,47 +5133,39 @@ export class SqlQueries extends Queries {
             expression: edgeColumn(childColumns[keyed[index]!]!),
           }))
     );
-    const walked = a.identifiers.aliased(
-      a.identifiers.escape(cteName),
-      edgeWalk
-    );
+    const walked = this.#named(this.#escaped(cteName), edgeWalk);
     const edgePage = assembleAdapterSelect(a, {
-      columns: a.identifiers.aliased(edgeCarrier, edgeCarrierName),
+      columns: this.#named(edgeCarrier, edgeCarrierName),
       from: joins
-        ? sql`${walked} ${a.joins.inner(
+        ? sql`${walked} ${this.#inner(
             this.table(model, edgeChild),
-            this.#sameRow(model, edgeChild, childColumns.map(edgeColumn))
+            this.sameRow(model, edgeChild, childColumns.map(edgeColumn))
           )}`
         : walked,
-      orderBy: sql.join(
-        [
-          ...parentColumns.map((name) => a.orderBy.asc(edgeColumn(name))),
-          ...(siblingOrder ? [siblingOrder] : []),
-        ],
-        ", "
-      ),
+      orderBy: listed([
+        ...parentColumns.map((name) => a.orderBy.asc(edgeColumn(name))),
+        ...(siblingOrder ? [siblingOrder] : []),
+      ]),
       // MySQL otherwise merges the derived page into the aggregate reader and
       // drops its ORDER BY. The adapter's unbounded LIMIT prevents that merge.
       limit: a.noLimitValue,
     });
     const edgePageAlias = this.alias();
-    const edges = a.subqueries.scalar(
-      assembleAdapterSelect(a, {
-        columns: a.json.agg(
-          a.json.document(a.identifiers.column(edgePageAlias, edgeCarrierName))
-        ),
-        from: a.subqueries.correlate(edgePage, edgePageAlias),
-      })
-    );
+    const edges = this.#scalar({
+      columns: a.json.agg(
+        this.#document(this.#at(edgePageAlias, edgeCarrierName))
+      ),
+      from: this.#aside(edgePage, edgePageAlias),
+    });
 
     const carrier = (nodeFacts: Sql, edgeFacts: Sql) =>
-      a.json.object([
+      this.#object([
         [
           RECURSIVE_CARRIER.root,
           this.#recursiveIdentity(model, this.#rowKey(model, parentAlias)),
         ],
-        [RECURSIVE_CARRIER.nodes, a.json.document(nodeFacts)],
-        [RECURSIVE_CARRIER.edges, a.json.document(edgeFacts)],
+        [RECURSIVE_CARRIER.nodes, this.#document(nodeFacts)],
+        [RECURSIVE_CARRIER.edges, this.#document(edgeFacts)],
       ]);
     if (!a.capabilities.supportsLateralJoins)
       return a.subqueries.scalar(
@@ -5840,33 +5181,24 @@ export class SqlQueries extends Queries {
     const facts = this.alias();
     const nodeFacts = `__${scope}_nodes`;
     const edgeFacts = `__${scope}_edges`;
-    return a.subqueries.scalar(
-      assembleAdapterSelect(a, {
-        columns: carrier(
-          a.identifiers.column(facts, nodeFacts),
-          a.identifiers.column(facts, edgeFacts)
+    return this.#scalar({
+      columns: carrier(this.#at(facts, nodeFacts), this.#at(facts, edgeFacts)),
+      from: this.#aside(a.clauses.select(sql`1`), one),
+      joins: [
+        a.joins.lateral(
+          sql`${cte} ${a.clauses.select(
+            listed([
+              this.#named(nodes, nodeFacts),
+              this.#named(edges, edgeFacts),
+            ])
+          )}`,
+          facts
         ),
-        from: a.subqueries.correlate(a.clauses.select(sql`1`), one),
-        joins: [
-          a.joins.lateral(
-            sql`${cte} ${a.clauses.select(
-              sql.join(
-                [
-                  a.identifiers.aliased(nodes, nodeFacts),
-                  a.identifiers.aliased(edges, edgeFacts),
-                ],
-                ", "
-              )
-            )}`,
-            facts
-          ),
-        ],
-      })
-    );
+      ],
+    });
   }
   grouped(model: AnyModel, args: Arguments): Query {
-    const a = this.adapter;
-    const alias = this.#rootAlias();
+    const alias = this.rootAlias();
     // The ONE `by` authority. Admission normalises `by` to an array and
     // refuses its duplicates; the grouped read computes the grouped column SET
     // once and hands it to the two owners that have to know it — `having` and
@@ -5878,24 +5210,23 @@ export class SqlQueries extends Queries {
     // projection and the order would be three expressions to the provider.
     if (this.#masks(model)) {
       const inner = this.alias();
-      const window = assembleAdapterSelect(a, {
-        columns: sql.join(
+      const window = assembleAdapterSelect(this.adapter, {
+        columns: listed(
           this.schema
             .storedFields(model)
             .map((field) =>
-              a.identifiers.aliased(
+              this.#named(
                 this.#operand(model, field, inner),
                 this.columnName(model, field)
               )
-            ),
-          ", "
+            )
         ),
         from: this.table(model, inner),
         where: this.lowerWhere(model, args.where, inner),
       });
       return this.#overMasked(() =>
         this.#grouped(model, args, alias, by, grouped, {
-          from: a.subqueries.correlate(window, alias),
+          from: this.#aside(window, alias),
         })
       );
     }
@@ -5912,7 +5243,6 @@ export class SqlQueries extends Queries {
     grouped: ReadonlySet<string>,
     rows: { readonly from: Sql; readonly where?: Sql }
   ): Query {
-    const a = this.adapter;
     const aggregates = this.#prepareAggregates(model, args);
     const fields: Record<string, Shape | Leaf> = {};
     const gates = this.#masked
@@ -5921,30 +5251,22 @@ export class SqlQueries extends Queries {
     const columns: Sql[] = by.map((field) => {
       const leaf = this.scalarShape(model, field);
       // A masked group reads a gated key as absent: the NULL group.
-      fields[field] = gates?.has(field)
-        ? freeze({ ...leaf, nullable: true })
-        : leaf;
-      return a.identifiers.aliased(
-        this.projectedColumn(model, field, alias),
-        field
-      );
+      fields[field] = gates?.has(field) ? { ...leaf, nullable: true } : leaf;
+      return this.#named(this.projectedColumn(model, field, alias), field);
     });
     for (const [name, expression] of aggregates.columns(alias)) {
       fields[name] = aggregates.fields_[name]!;
-      columns.push(a.identifiers.aliased(expression, name));
+      columns.push(this.#named(expression, name));
     }
     return {
-      sql: assembleAdapterSelect(a, {
-        columns: sql.join(columns, ", "),
+      sql: assembleAdapterSelect(this.adapter, {
+        columns: listed(columns),
         from: rows.from,
         where: rows.where,
-        groupBy: sql.join(
-          by.map((field) => this.column(model, field, alias)),
-          ", "
-        ),
+        groupBy: listed(by.map((field) => this.column(model, field, alias))),
         having: args.having
           ? this.#lowerPredicate(
-              this.#prepareHaving(model, record(args.having)),
+              this.#prepareHaving(model, args.having as Input),
               alias
             )
           : undefined,
@@ -5959,41 +5281,36 @@ export class SqlQueries extends Queries {
   }
   /** `having` is the same predicate vocabulary over aggregate targets. */
   #prepareHaving(model: AnyModel, having: Input): PreparedPredicate {
-    return freeze({
-      kind: "and",
-      predicates: freeze(
-        Object.entries(having).flatMap(([key, value]) => {
-          if (value === undefined) return [];
-          // Prisma negates each NOT arm and conjoins the negations.
-          if (this.combinator(model, key))
-            return [
-              this.combine(
-                key,
-                entries(value).map((clause) =>
-                  this.#prepareHaving(model, record(clause))
-                )
-              ),
-            ];
-          const scalar = this.scalar(model, key);
-          const filter = record(value);
-          const aggregated = AGGREGATES.filter(
-            (name) => filter[name] !== undefined
-          );
-          // A field-keyed condition names a grouped column: admission refuses
-          // one outside `by` at its path (`args/aggregate.ts`).
-          if (aggregated.length === 0)
-            return [
-              this.prepareOperations(freeze({ kind: "column", scalar }), value),
-            ];
-          return aggregated.map((aggregate) =>
-            this.prepareOperations(
-              freeze({ kind: "aggregate", aggregate, scalar }),
-              filter[aggregate]
-            )
-          );
-        })
-      ),
-    });
+    return conjunction(
+      Object.entries(having).flatMap(([key, value]) => {
+        if (value === undefined) return [];
+        // Prisma negates each NOT arm and conjoins the negations.
+        if (this.combinator(model, key))
+          return [
+            this.combine(
+              key,
+              entries(value).map((clause) =>
+                this.#prepareHaving(model, clause as Input)
+              )
+            ),
+          ];
+        const scalar = this.scalar(model, key);
+        const filter = value as Input;
+        const aggregated = AGGREGATES.filter(
+          (name) => filter[name] !== undefined
+        );
+        // A field-keyed condition names a grouped column: admission refuses
+        // one outside `by` at its path (`args/aggregate.ts`).
+        if (aggregated.length === 0)
+          return [this.prepareOperations({ kind: "column", scalar }, value)];
+        return aggregated.map((aggregate) =>
+          this.prepareOperations(
+            { kind: "aggregate", aggregate, scalar },
+            filter[aggregate]
+          )
+        );
+      })
+    );
   }
   /**
    * A grouped read orders by a grouped field or by an aggregate; admission
@@ -6010,7 +5327,7 @@ export class SqlQueries extends Queries {
         if (direction === undefined) return [];
         if (!isAggregate(name))
           return [this.#orderTerm(model, name, direction, alias)];
-        return Object.entries(record(direction)).flatMap(([field, sort]) => {
+        return Object.entries(direction as Input).flatMap(([field, sort]) => {
           const scalar =
             field === "_all" ? undefined : this.scalar(model, field);
           const split =

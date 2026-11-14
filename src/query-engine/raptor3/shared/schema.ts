@@ -18,16 +18,16 @@ import type { NormalizedRecurrence } from "@validation/relations/recurrence";
 import type { VibSchema } from "@validation/types";
 import { isRecord } from "@validation/value-guards";
 import { InsertValue, Stored } from "./insert-value";
-import { parseValidated, upsertEnvelopeSchema } from "./parse-boundary";
+import { parseValidated } from "./parse-boundary";
 import type { Leaf, PreparedProjection } from "./query";
 import {
   buildMembershipView,
   buildPhysicalFieldView,
   buildStoredFieldsView,
-  freezeMembershipView,
   type Membership,
   type PhysicalField,
 } from "./storage";
+import { scalarsOf } from "./terms";
 
 export type Input = Record<string, unknown>;
 export type ReadOperation =
@@ -178,11 +178,18 @@ const createQueryViews = (): QueryViews => ({
   defaultProjections: new WeakMap(),
 });
 
+const NO_KEY: readonly string[] = [];
+
 export class EngineSchema {
   readonly index;
   readonly registry;
-  readonly #linkDefaults = new WeakMap<AnyModel, readonly string[]>();
-  readonly #linkRequired = new WeakMap<AnyModel, readonly string[]>();
+  readonly #linkFields = new WeakMap<
+    AnyModel,
+    {
+      readonly required: readonly string[];
+      readonly defaults: readonly string[];
+    }
+  >();
   readonly #membershipViews = new WeakMap<
     AnyModel,
     Map<string, Map<string | undefined, Membership>>
@@ -210,14 +217,9 @@ export class EngineSchema {
     this.registry = createResolvedSchemaRegistry(schema, this.index);
   }
   admit(model: AnyModel, operation: Operation, raw: unknown): Arguments {
-    const admitted =
-      operation === "upsert"
-        ? this.#upsert(model, raw)
-        : this.#admitArguments(model, operation, raw);
-    // WHERE the shipped engine states the key's portability contract, mirrored:
-    // `update`/`updateMany` assert at admission (`assertPortablePrimaryKeyUpdateInput`
-    // from their own validator); an `upsert` asserts on its FOUND arm and only
-    // when the update payload names relations, which `Commands` attaches there.
+    const admitted = this.#admitArguments(model, operation, raw);
+    // What a key may be rewritten with is judged where an update is admitted;
+    // an upsert's update arm is judged where it runs, on the row found.
     if (operation === "update" || operation === "updateMany") {
       const refusal = this.keyPortabilityRefusal(model, admitted.data);
       if (refusal) throw refusal;
@@ -230,7 +232,7 @@ export class EngineSchema {
     raw: unknown
   ): Arguments {
     const schema = this.registry.getModelSchemas(model).args[operation];
-    // A value an official extension computes in the statement (`InsertValue`)
+    // A value the statement computes (`InsertValue`)
     // is no payload: it is set aside here and written as it is. A field kept
     // as stored (`Stored`) is set aside too, so no generated update value
     // (`updatedAt()`) fills it, and is then not written at all.
@@ -274,14 +276,6 @@ export class EngineSchema {
     };
     for (const field of kept) delete data[field];
     return { ...admitted, data };
-  }
-  /**
-   * Does this payload name a relation of the model? One spelling, asked by the
-   * upsert's create arm below and by the found-arm key-portability gate in
-   * `commands.ts`.
-   */
-  namesRelation(model: AnyModel, data: Input): boolean {
-    return model["~"].relationNames.some((name) => data[name] !== undefined);
   }
   /**
    * The row key's PORTABILITY contract for the two operators phase 2 made
@@ -333,7 +327,7 @@ export class EngineSchema {
         );
       const operation = named[0]!;
       if (operation === "set") continue;
-      const scalarType = model["~"].state.scalars[keyField]?.["~"].state.type;
+      const scalarType = scalarsOf(model)[keyField]?.["~"].state.type;
       if (
         scalarType === "number" ||
         (scalarType === "decimal" && ROUNDING_KEY_UPDATES.includes(operation))
@@ -347,175 +341,6 @@ export class EngineSchema {
         );
     }
     return undefined;
-  }
-  /**
-   * The key TRANSITION's own refusal — the shipped engine's THIRD key owner,
-   * and a different question from {@link keyPortabilityRefusal}.
-   *
-   * A child-held relation written beside a key update forces the parent's
-   * POST-transition key value to be named at ANALYSIS: the child rows this
-   * payload writes reference it, and the compiler builds their FK before any
-   * row is located. The shipped engine names it in
-   * `RecordUpdateCompilerState.interpretReferencedKeyTransition`
-   * (`write-engine/RecordUpdateCompiler.ts:3319` ->
-   * `operations/mutation-identity.ts:357`), reached from the `UpsertOperation`
-   * CONSTRUCTOR (`:480`) — so for an upsert it runs before either arm is
-   * selected, and a payload whose post-value cannot be computed is refused
-   * with the transition's own sentence rather than the validator's, before
-   * either arm writes anything. Two payloads cannot be computed, and they are
-   * the two `getSafeUpdatedScalarValue` refuses (`mutation-identity.ts:298`,
-   * `:336`): a key naming anything other than exactly one operation, which is
-   * R-D2 (c)'s `set`-beside-an-operator shape and answers `:187`'s sentence,
-   * and a `divide` by zero, which has no value at all.
-   *
-   * Its three structural conditions are the shipped ones, measured
-   * (`upsert-key-portability.test.ts`, the third describe):
-   *
-   * - the relation is CHILD-held and references the key being rewritten. That
-   *   fact is NOT re-derived here: the command tree already records it while it
-   *   expands the payload (`RelationBody.relation` ->
-   *   `RecordCommand.transitions`), and this method reads that list. A
-   *   parent-held relation beside the same `divide` builds no transition, and
-   *   both engines answer the validator's sentence;
-   * - the reference key has exactly ONE member (`RecordUpdateCompiler.ts:3310`
-   *   `referencedFields.length === 1`, whose comment is explicit that "a
-   *   compound one falls through to the per-member compile-time source rather
-   *   than borrowing member zero's answer") — a compound reference key reaches
-   *   the validator's sentence on both engines;
-   * - the locator's DISCRIMINATOR pins the pre-value as a literal, which is
-   *   what makes the transition nameable at analysis. `pinned` is the prepared
-   *   selector's `facts.keys` — the `key: true` columns, which are the shipped
-   *   `pinnedTargetValues` entries (`write-engine/shared.ts:154-166`) — never
-   *   its `facts.equals`, which also collects an extended `where`'s filter half
-   *   and its `AND`/`OR`/`NOT` arms.
-   *
-   * A payload naming exactly one computable operation — `set`, or an
-   * arithmetic one the provider can carry — builds its transition and is not
-   * this owner's business; the found arm's {@link keyPortabilityRefusal} is
-   * what still judges the operator's portability, exactly as shipped.
-   */
-  keyTransitionRefusal(
-    model: AnyModel,
-    data: unknown,
-    pinned: ReadonlyMap<string, unknown>,
-    transitions: readonly Extract<Membership, { kind: "reference" }>[]
-  ): Error | undefined {
-    if (!isRecord(data)) return undefined;
-    for (const keyField of this.keys(model)) {
-      if (!pinned.has(keyField)) continue;
-      const update = data[keyField];
-      if (!isRecord(update)) continue;
-      if (
-        !transitions.some(
-          (edge) =>
-            edge.pairs.length === 1 && edge.pairs[0]!.source === keyField
-        )
-      )
-        continue;
-      const named = KEY_UPDATE_OPERATIONS.filter(
-        (operation) => update[operation] !== undefined
-      );
-      if (named.length !== 1)
-        return new UnsupportedOperationError(
-          `Cannot determine the updated primary key for model '${model["~"].names.ts!}' because field '${keyField}' uses an unsupported operation.`
-        );
-      if (update.divide === 0 || update.divide === 0n)
-        return new UnsupportedOperationError(
-          "Cannot divide a primary key by zero."
-        );
-    }
-    return undefined;
-  }
-  #upsert(model: AnyModel, raw: unknown): Arguments {
-    const envelope = parseValidated(
-      upsertEnvelopeSchema,
-      raw,
-      "upsert",
-      "",
-      model
-    );
-    const schemas = this.registry.getModelSchemas(model);
-    const createHasRelations = this.namesRelation(model, envelope.create);
-    const updateScalars = Object.fromEntries(
-      Object.entries(envelope.update).filter(
-        ([name]) => !model["~"].relationNames.includes(name)
-      )
-    );
-    const where = parseValidated(
-      schemas.core.whereUniqueExtended,
-      envelope.where,
-      "upsert",
-      "where",
-      model
-    );
-    const scalarCreate = createHasRelations
-      ? undefined
-      : parseValidated(
-          schemas.core.scalarCreate,
-          envelope.create,
-          "upsert",
-          "create",
-          model
-        );
-    const update = parseValidated(
-      schemas.core.scalarUpdate,
-      updateScalars,
-      "upsert",
-      "update",
-      model
-    );
-    const projection = parseValidated(
-      schemas.core.upsertProjection,
-      {
-        select: envelope.select,
-        include: envelope.include,
-        omit: envelope.omit,
-      },
-      "upsert",
-      "",
-      model
-    );
-    const conditions: Pick<Arguments, "targetWhere" | "setWhere"> = {
-      targetWhere: undefined,
-      setWhere: undefined,
-    };
-    for (const field of ["targetWhere", "setWhere"] as const) {
-      const input = envelope[field];
-      if (input === undefined) continue;
-      const parsed = parseValidated(
-        schemas.core.where,
-        input,
-        "upsert",
-        field,
-        model
-      );
-      if (isRecord(parsed) && Object.keys(parsed).length)
-        conditions[field] = record(parsed);
-    }
-    const create = createHasRelations
-      ? parseValidated(
-          schemas.core.create,
-          envelope.create,
-          "create",
-          "data",
-          model
-        )
-      : scalarCreate;
-    const admittedUpdate = this.update(
-      model,
-      envelope.update,
-      false,
-      record(update)
-    );
-    // Operation dispatch supplies the correlation: upsert owns create/update, not data.
-    return record({
-      ...envelope,
-      ...record(projection),
-      ...conditions,
-      where,
-      create,
-      update: admittedUpdate,
-    }) as Arguments;
   }
   /**
    * Scalar values admitted as a create admits them, field by field through
@@ -540,113 +365,59 @@ export class EngineSchema {
     return admitted;
   }
   /**
-   * The fields a link through a declared junction writes beside its members:
-   * each one its own create schema fills when it is given nothing. A field
-   * whose schema answers nothing (nullable, or the database's own default)
-   * stays out of the INSERT, and the column takes what it takes for any row.
-   * Asked once per model: a junction model holds one pair (JT010).
+   * The fields of a declared junction beside its two sides' (`members`).
+   * `required`: those a link cannot fill itself, required as a create
+   * requires them; a write must state them. `defaults`: those its own create
+   * schema fills when it is given nothing; a field whose schema answers
+   * nothing (nullable, or the database's own default) stays out of the
+   * INSERT, and the column takes what it takes for any row. Asked once per
+   * model: a junction model holds one pair (JT010).
    */
-  /**
-   * The columns of a declared junction a link cannot fill itself: not one of its
-   * two sides', and required as a create requires them. A write must state them.
-   */
-  linkRequired(
-    model: AnyModel,
-    members: ReadonlySet<string>
-  ): readonly string[] {
-    return memo(this.#linkRequired, model, () => {
-      const scalars = model["~"].state.scalars;
-      return Object.freeze(
-        Object.keys(scalars).filter((field) => {
-          const state = scalars[field]!["~"].state;
-          return (
-            !members.has(this.physicalField(model, field).name) &&
-            state.optional !== true
-          );
-        })
+  linkFields(model: AnyModel, members: readonly string[]) {
+    return memo(this.#linkFields, model, () => {
+      const scalars = scalarsOf(model);
+      const beside = Object.keys(scalars).filter(
+        (field) => !members.includes(this.physicalField(model, field).name)
       );
-    });
-  }
-  linkDefaults(
-    model: AnyModel,
-    members: ReadonlySet<string>
-  ): readonly string[] {
-    return memo(this.#linkDefaults, model, () => {
-      const scalars = model["~"].state.scalars;
-      return Object.freeze(
-        Object.keys(scalars).filter(
+      return {
+        required: beside.filter(
+          (field) => scalars[field]!["~"].state.optional !== true
+        ),
+        defaults: beside.filter(
           (field) =>
-            !members.has(this.physicalField(model, field).name) &&
             scalars[field]!["~"].state.hasDefault === true &&
             this.createValues(model, { [field]: undefined })[field] !==
               undefined
-        )
-      );
+        ),
+      };
     });
   }
-  update(
-    model: AnyModel,
-    source: Input,
-    captured: boolean,
-    envelope?: Input
-  ): Input {
-    const schemas = this.registry.getModelSchemas(model);
-    if (captured)
-      return record(
-        parseValidated(schemas.core.update, source, "updateMany", "data", model)
-      );
-    const admitted = { ...(envelope ?? source) };
-    const names = Object.keys(source).filter((name) =>
-      model["~"].relationNames.includes(name)
-    );
-    const isVariant = (name: string) =>
-      model["~"].state.relations[name]!["~"].state.target.kind === "variants";
-    // Admission phases are ordinary relations then carriers, retaining raw order within each.
-    for (const name of names.sort(
-      (a, b) => Number(isVariant(a)) - Number(isVariant(b))
-    )) {
-      if (source[name] !== undefined) {
-        admitted[name] = parseValidated(
-          (isVariant(name)
-            ? schemas.polymorphic[name]!
-            : schemas.relations[name]!
-          ).update,
-          source[name],
-          "update",
-          `data.${name}`,
-          model
-        );
-      }
-    }
-    return admitted;
-  }
-  member(model: AnyModel, relation: string, source: Input): Input {
-    const schema =
-      this.registry.getModelSchemas(model).relations[relation]!.update;
-    const parsed = record(
+  /** What an update writes of a row, admitted as an update's data is. */
+  update(model: AnyModel, source: Input): Input {
+    return record(
       parseValidated(
-        schema,
-        { updateMany: { data: source } },
-        "update",
-        `data.${relation}`,
+        this.registry.getModelSchemas(model).core.update,
+        source,
+        "updateMany",
+        "data",
         model
       )
     );
-    return record(entries(parsed.updateMany)[0]!.data);
   }
+  /** The fields of a model's row key: none where the model has no key. */
   keys(model: AnyModel): readonly string[] {
-    return getModelKeyCatalog(model).rowKey!.fields;
+    return getModelKeyCatalog(model).rowKey?.fields ?? NO_KEY;
   }
   identity(model: AnyModel, row: Input): Input {
-    return Object.fromEntries(
-      this.keys(model).map((field) => [field, row[field]])
-    );
+    const identity: Input = {};
+    for (const field of this.keys(model)) identity[field] = row[field];
+    return identity;
   }
   membership(model: AnyModel, name: string, variant?: string): Membership {
     const modelViews = memo(this.#membershipViews, model, () => new Map());
     const slotViews = memo(modelViews, name, () => new Map());
     return memo(slotViews, variant, () =>
-      freezeMembershipView(buildMembershipView(this, model, name, variant))
+      buildMembershipView(this, model, name, variant)
     );
   }
   /**
@@ -671,14 +442,14 @@ export class EngineSchema {
               : undefined;
         if (action === "restrict" || action === "noAction") found.push(name);
       }
-      return Object.freeze(found);
+      return found;
     });
   }
   clearability(resolved: ResolvedSlot): ClearableMembership {
     return memo(this.#clearabilityViews, resolved, () => {
       const view = clearableMembership(resolved);
-      if (view.kind === "columns") Object.freeze(view.fields);
-      return Object.freeze(view);
+      if (view.kind === "columns") view.fields;
+      return view;
     });
   }
   physicalField(model: AnyModel, field: string): PhysicalField {
@@ -689,7 +460,7 @@ export class EngineSchema {
     }
     let descriptor = fields.get(field);
     if (!descriptor) {
-      descriptor = Object.freeze(buildPhysicalFieldView(this, model, field));
+      descriptor = buildPhysicalFieldView(this, model, field);
       fields.set(field, descriptor);
     }
     return descriptor;
@@ -718,7 +489,7 @@ export class EngineSchema {
   }
   storedFields(model: AnyModel): readonly string[] {
     return memo(this.#storedFieldLists, model, () =>
-      Object.freeze(buildStoredFieldsView(this, model))
+      buildStoredFieldsView(this, model)
     );
   }
   /**

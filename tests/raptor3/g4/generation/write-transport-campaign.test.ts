@@ -20,7 +20,11 @@ import {
 import { runG3TransportBatch } from "../../g3/generation/transport-campaign";
 
 it("executes one complete G4 write-envelope transport seed batch", async () => {
-  const firstSeed = Number(process.env.VIBORM_RAPTOR3_GENERATED_FIRST_SEED);
+  // Run alone, with no runner to hand it a batch, it runs its campaign's first.
+  const firstSeed = Number(
+    process.env.VIBORM_RAPTOR3_GENERATED_FIRST_SEED ??
+      G4_WRITE_TRANSPORT_CAMPAIGN.firstSeed
+  );
   assert(Number.isInteger(firstSeed), "Missing generated G4 write first seed");
   // The child holds the frozen batch, never an ambient count — see the SQLite
   // lane's child for the failure this closes.

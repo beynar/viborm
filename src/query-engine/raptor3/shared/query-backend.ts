@@ -5,8 +5,9 @@
  * does not compile.
  */
 
-import type { OperationContext } from "./operation-context";
+import type { Writer } from "../write/statements";
 import type { Queries } from "./query";
+import type { SqlOperationContext } from "./sql-operation-context";
 
 declare const OPAQUE: unique symbol;
 
@@ -27,11 +28,11 @@ export const queryBackend = (backend: EngineBackend): QueryBackend =>
 export const engineBackend = (backend: QueryBackend): EngineBackend =>
   backend as never;
 
+/** What a language supplies: how its statements read, what one call is in it, and what writes the write path's statements. */
 export interface EngineBackend {
   readonly queries: new (
     ...args: ConstructorParameters<typeof Queries>
   ) => Queries;
-  readonly context: new (
-    ...args: ConstructorParameters<typeof OperationContext>
-  ) => OperationContext;
+  readonly context: typeof SqlOperationContext;
+  readonly writer: new (operation: SqlOperationContext) => Writer;
 }

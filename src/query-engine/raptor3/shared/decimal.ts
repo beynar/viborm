@@ -13,7 +13,6 @@
  * `decimal-result-decode` and `decimal-field` modules.
  */
 import type { DatabaseAdapter } from "@adapters/database-adapter";
-import { QueryEngineError } from "@errors";
 import type { ScalarState } from "@schema/scalars/common";
 import {
   canonicalizeDecimal,
@@ -28,6 +27,7 @@ import {
   sameDecimalDescriptor,
   toDecimal,
 } from "@validation/primitives/decimal-codec";
+import { engineFault } from "./terms";
 
 export type { DecimalDescriptor } from "@validation/primitives/decimal-codec";
 
@@ -53,7 +53,7 @@ export function requireDecimal(
   field: string
 ): DecimalDescriptor {
   if (!state.decimal)
-    throw new QueryEngineError(
+    engineFault(
       `Decimal field '${field}' has no declared precision and scale, so it has no exact value to bind.`
     );
   return state.decimal;
@@ -63,7 +63,7 @@ export function requireDecimal(
 export function canonicalDecimal(value: unknown, field: string): string {
   const canonical = canonicalizeDecimal(value);
   if (canonical === undefined)
-    throw new QueryEngineError(
+    engineFault(
       `Decimal field '${field}' received a value that is not an exact decimal.`
     );
   return canonical;
@@ -82,7 +82,7 @@ export function decimalMembers(
     result.decimalListRepresentation ?? "text"
   );
   if (members === undefined)
-    throw new QueryEngineError(
+    engineFault(
       `Decimal list '${field}' received a member that is not an exact decimal.`
     );
   return members;

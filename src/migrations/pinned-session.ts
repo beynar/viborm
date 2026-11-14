@@ -39,6 +39,7 @@ import {
 } from "../errors";
 import { errorCause } from "../errors/diagnostic-safety";
 import type { ResolvedExtensionChain } from "../extensions/chain";
+import { withHost } from "../extensions/host";
 import { registerOfficialInstrumentationChain } from "../extensions/observation";
 import type { BoundMigrationDriver } from "./drivers";
 import { providerFacts, providerRefused } from "./execute-dispatch";
@@ -476,6 +477,8 @@ function disclosingChain(
     statement: Object.freeze([]),
     observe: Object.freeze([]),
   });
+  // The chain made here is read as any chain is.
+  withHost();
   registerOfficialInstrumentationChain(
     chain,
     Object.freeze({

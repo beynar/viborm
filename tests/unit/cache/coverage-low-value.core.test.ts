@@ -21,11 +21,7 @@ import {
   getOfficialCacheQueryCapability,
   registerOfficialCacheChain,
 } from "@cache/extension";
-import {
-  CACHE_PREFIX,
-  generateCacheKey,
-  generateCachePrefix,
-} from "@cache/key";
+import { CACHE_PREFIX, cacheLookupOf } from "@cache/key";
 import { hasCacheInvalidationWork } from "@cache/schema";
 import { parseTTL } from "@cache/ttl";
 import type { KVNamespace } from "@cloudflare/workers-types";
@@ -42,6 +38,9 @@ import {
 import { instrumentation } from "@instrumentation/extension";
 import { createTestClock } from "@tests/fixtures/test-clock";
 import { describe, expect, test, vi } from "vitest";
+
+const cacheKeyOf = (model: string, operation: string, args: unknown) =>
+  cacheLookupOf(model, operation, args).key;
 
 class RecordingCache extends CacheDriver {
   readonly entries = new Map<string, CacheEntry>();
@@ -152,45 +151,37 @@ describe("cache duration and key contracts", () => {
 
   test("keeps public prefixes and canonical argument identity deterministic", () => {
     expect(CACHE_PREFIX).toBe("viborm");
-    expect(generateCachePrefix()).toBe("viborm");
-    expect(generateCachePrefix("user")).toBe("viborm:user");
-    expect(generateCachePrefix("user", 2)).toBe("viborm:v2:user");
-    expect(generateCachePrefix(undefined, "blue")).toBe("viborm:vblue");
-
-    expect(generateCacheKey("user", "findMany", { b: 2, a: 1 })).toBe(
-      generateCacheKey("user", "findMany", { a: 1, b: 2 })
+    expect(cacheKeyOf("user", "findMany", { b: 2, a: 1 })).toBe(
+      cacheKeyOf("user", "findMany", { a: 1, b: 2 })
     );
-    expect(generateCacheKey("user", "findMany", null)).not.toBe(
-      generateCacheKey("user", "findMany", undefined)
+    expect(cacheKeyOf("user", "findMany", null)).not.toBe(
+      cacheKeyOf("user", "findMany", undefined)
     );
-    expect(generateCacheKey("user", "findMany", { present: 1 })).toBe(
-      generateCacheKey("user", "findMany", {
+    expect(cacheKeyOf("user", "findMany", { present: 1 })).toBe(
+      cacheKeyOf("user", "findMany", {
         omitted: undefined,
         present: 1,
       })
     );
-    expect(generateCacheKey("user", "findMany", true, "blue")).toContain(
-      "viborm:vblue:user:findMany:"
-    );
   });
 
   test("refuses values whose identity cannot be serialized", () => {
-    expect(() => generateCacheKey("user", "findMany", Symbol("x"))).toThrow(
+    expect(() => cacheKeyOf("user", "findMany", Symbol("x"))).toThrow(
       CacheInvalidKeyError
     );
-    expect(() => generateCacheKey("user", "findMany", () => 1)).toThrow(
+    expect(() => cacheKeyOf("user", "findMany", () => 1)).toThrow(
       CacheInvalidKeyError
     );
 
     const circularArray: unknown[] = [];
     circularArray.push(circularArray);
-    expect(() => generateCacheKey("user", "findMany", circularArray)).toThrow(
+    expect(() => cacheKeyOf("user", "findMany", circularArray)).toThrow(
       CacheInvalidKeyError
     );
 
     const circularObject: Record<string, unknown> = {};
     circularObject.self = circularObject;
-    expect(() => generateCacheKey("user", "findMany", circularObject)).toThrow(
+    expect(() => cacheKeyOf("user", "findMany", circularObject)).toThrow(
       CacheInvalidKeyError
     );
   });
@@ -1068,9 +1059,9 @@ describe("coverage low value", () => {
     const nodeBuffer = globalThis.Buffer;
     vi.stubGlobal("Buffer", undefined);
     try {
-      expect(
-        generateCacheKey("blob", "findMany", new Uint8Array([1, 2, 3]))
-      ).toEqual(expect.any(String));
+      expect(cacheKeyOf("blob", "findMany", new Uint8Array([1, 2, 3]))).toEqual(
+        expect.any(String)
+      );
     } finally {
       vi.stubGlobal("Buffer", nodeBuffer);
     }

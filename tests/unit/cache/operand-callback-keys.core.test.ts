@@ -1,5 +1,5 @@
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
-import { generateCacheKey } from "@cache/key";
+import { cacheLookupOf } from "@cache/key";
 import { createClient } from "@client/client";
 import { CacheInvalidKeyError } from "@errors";
 import { sql } from "@sql";
@@ -7,6 +7,9 @@ import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
 import { fieldRefSchema } from "@tests/fixtures/field-ref-schema";
 import type { OperandCtx } from "@validation/primitives/operand";
 import { describe, expect, test } from "vitest";
+
+const cacheKeyOf = (model: string, operation: string, args: unknown) =>
+  cacheLookupOf(model, operation, args).key;
 
 /**
  * Cache keys and operand callbacks (W8-A Unit 3).
@@ -33,7 +36,7 @@ describe("keying a payload that carries an operand callback", () => {
     // The falsification. If the cache flow keyed the caller's args, THIS is what
     // every callback payload would do.
     expect(() =>
-      generateCacheKey("post", "findMany", {
+      cacheKeyOf("post", "findMany", {
         where: { views: { gt: (ctx: PostCtx) => ctx.fields.likes } },
       })
     ).toThrow(CacheInvalidKeyError);
@@ -42,7 +45,7 @@ describe("keying a payload that carries an operand callback", () => {
 
 describe("keying a fragment operand", () => {
   const keyFor = (fragment: unknown) =>
-    generateCacheKey("post", "findMany", {
+    cacheKeyOf("post", "findMany", {
       where: { views: { gt: fragment } },
     });
 
@@ -68,7 +71,7 @@ describe("keying a fragment operand", () => {
   });
 
   test("a field reference keys by what it names", () => {
-    const key = generateCacheKey("post", "findMany", {
+    const key = cacheKeyOf("post", "findMany", {
       where: {
         views: {
           gt: { model: "post", field: "likes", type: "int", list: false },

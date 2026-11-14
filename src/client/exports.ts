@@ -72,6 +72,7 @@ export type {
   Client,
   InferDatabase,
   MutationOperations,
+  NoExtraOperationKeys,
   OperationPayload,
   OperationPayloadSchema,
   OperationResult,

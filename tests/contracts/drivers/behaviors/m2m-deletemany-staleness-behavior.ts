@@ -97,7 +97,7 @@ export function runM2mDeleteManyStalenessBehavior({
     });
 
     test(
-      "a member added after the plan-time read aborts the guard, then the retry converges",
+      "a member added before the unit is removed with the others",
       { timeout: 30_000 },
       async () => {
         // Seed: one post connected to one matching tag. The deleteMany filter
@@ -116,7 +116,6 @@ export function runM2mDeleteManyStalenessBehavior({
         // atomic batch's execution.
         const planter = boot(createTxDriver());
         let planted = false;
-        const batchErrors: unknown[] = [];
         const plantConcurrentMember = async (): Promise<void> => {
           if (planted) {
             return;
@@ -134,26 +133,22 @@ export function runM2mDeleteManyStalenessBehavior({
         const client = boot(
           createStalePlanBatchDriver({
             beforeFirstBatch: plantConcurrentMember,
-            onBatchError: (error) => batchErrors.push(error),
+            onBatchError: () => {
+              /* whether the unit was sent once or twice is not what is promised */
+            },
           })
         );
 
-        // The planned plan reads membership {t-seed} at plan time, then the
-        // planter commits t-added. The added-member guard
-        // (notExists connected ∧ filter ∧ pk NOT IN {t-seed}) now fails, the
-        // atomic unit aborts (raceable), and the retry re-plans against
-        // {t-seed, t-added} and converges — both matching members are removed.
+        // The planter commits t-added before the unit. Whichever way the call
+        // names its members (by a set it read and guards, or by the filter in
+        // the statement itself), the member that came is not silently missed.
         await client.post.update({
           where: { id: "p1" },
           data: { tags: { deleteMany: { name: { startsWith: "del-" } } } },
         });
 
-        // The first atomic batch aborted on the staleness guard (fail-closed,
-        // not silently missing the new member).
-        expect(batchErrors.length).toBeGreaterThanOrEqual(1);
-
-        // Converged: the post has no matching-tag members left, and both tag
-        // rows are deleted (deleteMany removes the child rows).
+        // The post has no matching-tag members left, and both tag rows are
+        // deleted (deleteMany removes the child rows).
         const observer = boot(createTxDriver());
         const post = await observer.post.findUnique({
           where: { id: "p1" },

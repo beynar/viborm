@@ -110,13 +110,6 @@ export function createOfficialCacheNamespace(
   ].join(":");
 }
 
-/**
- * Build the versioned prefix
- */
-function buildPrefix(version?: string | number): string {
-  return version !== undefined ? `${CACHE_PREFIX}:v${version}` : CACHE_PREFIX;
-}
-
 /** Hash for storage lookup, exact identity for collision verification. */
 export function cacheLookupOf(
   model: string,
@@ -131,53 +124,6 @@ export function cacheLookupOf(
     key: `${model}:${operation}:${fastHash(serialized)}`,
     identity: JSON.stringify([model, operation, serialized]),
   };
-}
-
-/**
- * Generate a deterministic cache key from operation parameters
- *
- * Returns a FULLY PREFIXED key for external use (manual invalidation, etc.)
- *
- * Key structure: viborm[:v<version>]:<model>:<operation>:<hash>
- *
- * @example
- * generateCacheKey("user", "findMany", { where: { active: true } })
- * // "viborm:user:findMany:abc123..."
- *
- * generateCacheKey("user", "findMany", { where: { active: true } }, 2)
- * // "viborm:v2:user:findMany:abc123..."
- */
-export function generateCacheKey(
-  modelName: string,
-  operation: string,
-  args: unknown,
-  version?: string | number
-): string {
-  const prefix = buildPrefix(version);
-  const argsHash = hashArgs(args);
-  return `${prefix}:${modelName}:${operation}:${argsHash}`;
-}
-
-/**
- * Generate prefix for cache invalidation
- * Used to clear all cached queries for a model
- *
- * Returns a FULLY PREFIXED prefix for external use.
- */
-export function generateCachePrefix(
-  modelName?: string,
-  version?: string | number
-): string {
-  const prefix = buildPrefix(version);
-  return modelName ? `${prefix}:${modelName}` : prefix;
-}
-
-/**
- * Generate a deterministic hash from query arguments
- */
-function hashArgs(args: unknown): string {
-  const serialized = stableStringify(args);
-  return fastHash(serialized);
 }
 
 /**

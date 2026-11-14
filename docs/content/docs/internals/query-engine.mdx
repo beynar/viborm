@@ -19,12 +19,16 @@ statements. Observation has separate operation and statement boundaries.
 
 The current implementation is under `raptor3/`:
 
-- `route/client-route.ts` composes admission, read/write routing, and execution.
-- `shared/operation-context.ts` binds the schema, resolved relation topology,
-  driver capabilities, and adapter needed by that operation.
-- `shared/query.ts` lowers reads, filters, projections, and aggregates.
-- `commands/` prepares and executes writes, including nested relation work.
-- `result/` parses provider rows into the public scalar and relation domains.
+- `commands/index.ts` admits an operation and runs it: on the client's own
+  driver, or inside the transaction an owner lends it.
+- `shared/sql-operation-context.ts` binds the schema, the driver and the call
+  for one execution.
+- `shared/query.ts` prepares reads, filters, projections and aggregates, and
+  decodes provider rows into the public scalar and relation domains;
+  `shared/sql-queries.ts` lowers what was prepared to SQL.
+- `write/` runs writes, nested relation work included: the verbs say what a
+  write means, the store holds what the call believes of its rows, and the
+  transports send its statements one unit at a time.
 
 Those paths describe the installed implementation. They are not package entry
 points, supported extension hooks, or APIs applications should import.

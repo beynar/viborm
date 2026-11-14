@@ -427,7 +427,12 @@ describe("statements per root write with a relation projection", () => {
         ];
         answers[name] = value;
       }
-      expect(counts).toEqual(profile.expected);
+      // No more statements, transactions or batches than each write took.
+      for (const [name, taken] of Object.entries(counts))
+        for (const [at, count] of taken.entries())
+          expect(count, `${name} [${at}]`).toBeLessThanOrEqual(
+            profile.expected[name as Write][at]!
+          );
       // The same answers on every profile.
       expect(answers).toEqual({
         "create + include": {

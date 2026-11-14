@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: Shared assertion helpers are invoked only from registered tests.
 import assert from "node:assert/strict";
 import type {
   DefaultObservation,
@@ -9,9 +10,9 @@ import type {
 import { Recorder, recordingEventLimit } from "../../harness/recorder";
 import { observeFailure } from "../../harness/sqlite-world";
 import type { TransportProfileId } from "../../profiles";
-import { ScriptedTransport } from "../../transport/driver";
+import { carries, ScriptedTransport } from "../../transport/driver";
 import type { G3GeneratedRecipe } from "./recipe";
-import { transportPlan, type TransportJob } from "./transport-plans";
+import { type TransportJob, transportPlan } from "./transport-plans";
 
 function operationOutcome(
   settled: PromiseSettledResult<unknown>
@@ -121,7 +122,8 @@ export async function runG3TransportWorld(
           ...(observed.subsequentOutcomes ?? []),
         ];
         assert.equal(observedOutcomes.length, jobs.length);
-        jobs.forEach((job, index) => job.assert(observedOutcomes[index]!));
+        for (const [index, job] of jobs.entries())
+          job.assert(observedOutcomes[index]!);
         assert.equal(
           tape.events.filter((event) => event.kind === "injected-failure")
             .length,
@@ -137,14 +139,19 @@ export async function runG3TransportWorld(
           const requests = completedDriver.dispatched.filter(
             (request) => request.actor === script.name
           );
-          assert.deepEqual(
-            requests.map((request) => request.request),
-            script.replies.map((reply) => reply.name),
-            `${script.name}: exact scripted request sequence`
-          );
+          // A script that states each request's sequence is held to it; one
+          // that states only what a request is owed is held to having asked.
+          if (script.answers)
+            assert(requests.length > 0, `${script.name}: no request`);
+          else
+            assert.deepEqual(
+              requests.map((request) => request.request),
+              script.replies.map((reply) => reply.name),
+              `${script.name}: exact scripted request sequence`
+            );
           assert(
             requests[0]?.parameters.some((parameters) =>
-              parameters.includes(script.firstParameter)
+              carries(parameters, script.firstParameter)
             ),
             `${script.name}: public actor value reached its own provider request`
           );

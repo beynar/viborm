@@ -9,7 +9,6 @@ import type { AnyRelation } from "@schema/relation/types";
 import type { SchemaRegistryLookup } from "@validation/types";
 import { isFunction, isRecord } from "@validation/value-guards";
 import { errorCause } from "../errors/diagnostic-safety";
-import { admitRows } from "./admission";
 import type {
   ControlsContribution,
   DataContribution,
@@ -30,6 +29,7 @@ import type {
   RuntimeModelMethodContribution,
 } from "./methods";
 import type { ObserveHandler } from "./observation";
+import type { OfficialObservationCapability } from "./official-facts";
 import type {
   GenericQueryHandler,
   QueryHandlerMap,
@@ -42,7 +42,10 @@ import type {
 } from "./request";
 import { type RuntimeResultContribution, snapshotResult } from "./result";
 import type { ResultDefinition, ResultInference } from "./result-types";
+import { rowsRuntime } from "./rows-slot";
 import type { StatementHandler } from "./statement";
+import type { RetryHandler, RouteHandler, TransactionHandler } from "./units";
+import type { WrittenHandler } from "./written";
 
 type RuntimeExtensionFunction = (...args: never[]) => unknown;
 
@@ -58,6 +61,12 @@ export interface RuntimeExtensionDefinition {
   readonly query?: RuntimeQueryContribution;
   readonly statement?: RuntimeExtensionFunction;
   readonly observe?: RuntimeExtensionFunction;
+  /** What `observe` is handed facts for, as the definition wrote it. */
+  readonly observes?: OfficialObservationCapability;
+  readonly written?: RuntimeExtensionFunction;
+  readonly retry?: RuntimeExtensionFunction;
+  readonly route?: RuntimeExtensionFunction;
+  readonly transaction?: RuntimeExtensionFunction;
   readonly client?: RuntimeClientMethodContribution;
   readonly model?: RuntimeModelMethodContribution;
   readonly controls?: ControlsContribution;
@@ -89,6 +98,11 @@ const DEFINITION_KEYS = new Set([
   "query",
   "statement",
   "observe",
+  "observes",
+  "written",
+  "retry",
+  "route",
+  "transaction",
   "client",
   "model",
   "controls",
@@ -451,6 +465,32 @@ export function normalizeExtensionDefinition(
     rawObserve === undefined
       ? undefined
       : requireFunction(rawObserve, "observe", name);
+  const observes = ownKeys.includes("observes")
+    ? (readOwn(value, "observes", name) as OfficialObservationCapability)
+    : undefined;
+  if (
+    observes !== undefined &&
+    !(isRecord(observes) && isFunction(observes.wants) && observe)
+  )
+    extensionError(
+      `Extension "${name}" observes must be an object with a wants function, beside an observe handler.`,
+      name
+    );
+  const rawWritten = ownKeys.includes("written")
+    ? readOwn(value, "written", name)
+    : undefined;
+  const written =
+    rawWritten === undefined
+      ? undefined
+      : requireFunction(rawWritten, "written", name);
+  const units: {
+    retry?: RuntimeExtensionFunction;
+    route?: RuntimeExtensionFunction;
+    transaction?: RuntimeExtensionFunction;
+  } = {};
+  for (const point of ["retry", "route", "transaction"] as const)
+    if (ownKeys.includes(point))
+      units[point] = requireFunction(readOwn(value, point, name), point, name);
   const rawClient = ownKeys.includes("client")
     ? readOwn(value, "client", name)
     : undefined;
@@ -476,7 +516,7 @@ export function normalizeExtensionDefinition(
   validateNamedPolicies({ rows: value.rows, deletion, data }, schema, name);
   const rows =
     schema && value.rows
-      ? admitRows(value.rows, schema, name, registry)
+      ? rowsRuntime().admitRows(value.rows, schema, name, registry)
       : value.rows;
   const order =
     value.order === undefined
@@ -489,6 +529,9 @@ export function normalizeExtensionDefinition(
     ...(query ? { query } : {}),
     ...(statement ? { statement } : {}),
     ...(observe ? { observe } : {}),
+    ...(observes ? { observes } : {}),
+    ...(written ? { written } : {}),
+    ...units,
     ...(client ? { client } : {}),
     ...(model ? { model } : {}),
     ...(controls ? { controls } : {}),
@@ -558,7 +601,7 @@ function admitOrder(
 }
 const UNORDERED_SCALARS = new Set(["json", "vector", "point", "blob"]);
 
-type ExtensionConfig<S extends Schema> = {
+export type ExtensionConfig<S extends Schema> = {
   readonly schema: S;
   readonly driver: AnyDriver;
 };
@@ -630,6 +673,11 @@ type ExtensionMembers<
   readonly query?: GenericQueryHandler | QueryHandlerMap<C, X["rows"]>;
   readonly statement?: StatementHandler;
   readonly observe?: ObserveHandler;
+  readonly observes?: OfficialObservationCapability;
+  readonly written?: WrittenHandler;
+  readonly retry?: RetryHandler;
+  readonly route?: RouteHandler;
+  readonly transaction?: TransactionHandler;
   readonly controls?: ControlsContribution;
   readonly rows?: RowsContribution;
   readonly deletion?: DeletionContribution;
@@ -640,7 +688,7 @@ type ExtensionMembers<
   ) => ExtensionMethodRecord;
 };
 
-type SchemaGenericExtensionDefinition = Omit<
+export type SchemaGenericExtensionDefinition = Omit<
   ContextualExtensionDefinition<
     ExtensionConfig<Schema>,
     EmptyClientExtensionState
@@ -778,24 +826,3 @@ export type DefineExtensionBinder<S extends Schema> = <
     > &
     ResultInference<ExtensionConfig<S>, Record<never, never>, Fields>
 ) => SchemaBoundExtension<NoInfer<Definition>>;
-
-export function defineExtension<
-  const Definition extends SchemaGenericExtensionDefinition,
->(
-  definition: Definition &
-    ExactExtensionDefinition<
-      Definition,
-      ExtensionConfig<Schema>,
-      EmptyClientExtensionState
-    >
-): NoInfer<Definition>;
-export function defineExtension<S extends Schema>(): DefineExtensionBinder<S>;
-export function defineExtension(
-  ...definitions: [] | [definition: ClientExtension]
-): unknown {
-  if (definitions.length === 0) {
-    return (schemaDefinition: ExtensionDefinitionInput) =>
-      normalizeExtensionDefinition(schemaDefinition);
-  }
-  return normalizeExtensionDefinition(definitions[0]);
-}

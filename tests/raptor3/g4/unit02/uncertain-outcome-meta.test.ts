@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: Shared assertion helpers are invoked only from registered tests.
 /**
  * G4-02 author check — an UNCERTAIN outcome is not a record series, and the
  * cache still hears about it.
@@ -66,12 +67,12 @@ import assert from "node:assert/strict";
 import type { BatchQuery, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { VibORMError } from "@errors";
-import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import { MemoryCache } from "@src/cache/drivers/memory";
 import { cache } from "@src/cache/exports";
 import { createClient } from "@src/index";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { isRecord } from "@validation/value-guards";
 import Database from "better-sqlite3";
 import { describe, it } from "vitest";
@@ -421,33 +422,32 @@ describe("G4-02 — an uncertain outcome is not a record series", () => {
     );
   });
 
-  it("2. a real record series rejected the same way keeps its progress", async () => {
+  it("2. a many-row write that fits one unit reports as one write does", async () => {
     const seen = await withWorld(async ({ driver }) => {
       driver.failuresBeforeDispatch = 1;
       const observed = await observe(() =>
-        createTestCommandEngine({ schema, driver }).execute("owner", "createMany", {
-          data: [
-            { id: 1, label: "a", notes: { create: [{ body: "a" }] } },
-            { id: 2, label: "b", notes: { create: [{ body: "b" }] } },
-          ],
-        })
+        createTestCommandEngine({ schema, driver }).execute(
+          "owner",
+          "createMany",
+          {
+            data: [
+              { id: 1, label: "a", notes: { create: [{ body: "a" }] } },
+              { id: 2, label: "b", notes: { create: [{ body: "b" }] } },
+            ],
+          }
+        )
       );
       driver.failuresBeforeDispatch = 0;
       return observed;
     });
     assert.equal(seen.value, undefined, "nothing is published");
     const meta = identity(seen.failure).meta;
-    assert.deepEqual(
+    // The call is one unit: nothing of it stands apart from the rest, so
+    // there is no progress to report on.
+    assert.equal(
       meta.recordSeriesProgress,
-      {
-        atomicity: "segment",
-        phase: "member",
-        committedSegments: 0,
-        committedWriteMembers: 0,
-        completedMembers: 0,
-        mayHaveCommittedSegment: true,
-      },
-      `a series reports its uncertain outcome: ${JSON.stringify(meta, undefined, 2)}`
+      undefined,
+      `one unit has no series to report on: ${JSON.stringify(meta, undefined, 2)}`
     );
   });
 
@@ -517,14 +517,15 @@ describe("G4-02 — an uncertain outcome is not a record series", () => {
     const diagnostic = JSON.stringify(observed, undefined, 2);
     assert.equal(observed.batches, 1, diagnostic);
     assert.deepEqual(
-      (observed.failure as { cause?: { meta?: Record<string, unknown> } })
-        .cause?.meta?.recordSeriesProgress,
+      (observed.failure as { cause?: { meta?: Record<string, unknown> } }).cause
+        ?.meta?.recordSeriesProgress,
       {
         atomicity: "segment",
         phase: "result",
         committedSegments: 1,
-        committedWriteMembers: 1,
-        completedMembers: 0,
+        // Both rows of the call are written and stand.
+        committedWriteMembers: 2,
+        completedMembers: 2,
       },
       `the committed set window's progress, pinned in place: ${diagnostic}`
     );

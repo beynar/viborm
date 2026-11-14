@@ -1,7 +1,7 @@
 import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PgDriver } from "@drivers/pg";
-import { TransactionError } from "@errors";
+import { UnsupportedOperationError } from "@errors";
 import {
   runSkipSelectCaptureBehavior,
   skipSelectCaptureSchema,
@@ -26,11 +26,15 @@ import { describe, expect, test } from "vitest";
 
 const PG = process.env.PG_TEST_CONNECTION_STRING;
 const MYSQL = process.env.MYSQL_TEST_CONNECTION_STRING;
-const NO_ROLLBACK = /public result parsing cannot be rolled back/;
+const NO_SAVEPOINT = /a member savepoint is required/;
 
 runSkipSelectCaptureBehavior({
   name: "Docker MySQL",
-  createDriver: () => new MySQL2Driver({ databaseUrl: MYSQL as string }),
+  createDriver: () =>
+    new MySQL2Driver({
+      databaseUrl: MYSQL as string,
+      migrationNamespaceAttestation: "non-redirecting",
+    }),
   dropTablesFirst: true,
   supportsReturning: false,
   register: MYSQL ? describe : describe.skip,
@@ -45,23 +49,17 @@ runSkipSelectCaptureBehavior({
 });
 
 /**
- * THE ATOMIC BATCH STAYS REFUSED, on the driver the absorption is about.
- *
- * A non-returning driver forced onto the batch substrate cannot hand these rows back at
- * all — public result parsing happens after the atomic unit commits and cannot be rolled
- * back (ATOM §7, the constructor's own refusal). That answer comes first and covers this
- * shape whole, so the skip effect's separate wall
- * (`OperationExecutor.compileToEntries`: "carries an onUniqueConflict skip effect that has
- * no atomic-batch lowering") never has to speak. Both reasons point the same way; a second
- * skip-specific throw would be a redundant guard, so there is not one — and this witness
- * pins WHICH refusal answers, so a future edit cannot quietly swap it for a raw driver
- * error.
+ * A batch-only driver has no savepoint, and MySQL passes a duplicate row by
+ * only inside one: the call is refused before it writes, as documented
+ * (`create-many.mdx`). The test expected `TransactionError` and a sentence of
+ * an engine that is gone; it failed on 1.14.0 too, where it never ran (its
+ * MySQL driver could not create its tables).
  */
 (MYSQL ? describe : describe.skip)(
   "E6.9 — the atomic batch stays refused (Docker MySQL)",
   () => {
     test(
-      "a batch-only non-returning driver refuses the whole select arm, typed",
+      "a batch-only driver that cannot pass a duplicate by refuses the call, typed",
       { timeout: 120_000 },
       async () => {
         class BatchOnlyMySQLDriver extends MySQL2Driver {
@@ -70,7 +68,10 @@ runSkipSelectCaptureBehavior({
         }
         const setupClient = createClient({
           schema: skipSelectCaptureSchema,
-          driver: new MySQL2Driver({ databaseUrl: MYSQL as string }),
+          driver: new MySQL2Driver({
+            databaseUrl: MYSQL as string,
+            migrationNamespaceAttestation: "non-redirecting",
+          }),
         });
         for (const table of skipSelectCaptureTables) {
           await (setupClient as any).$executeRawUnsafe(
@@ -82,7 +83,10 @@ runSkipSelectCaptureBehavior({
 
         const client = createClient({
           schema: skipSelectCaptureSchema,
-          driver: new BatchOnlyMySQLDriver({ databaseUrl: MYSQL as string }),
+          driver: new BatchOnlyMySQLDriver({
+            databaseUrl: MYSQL as string,
+            migrationNamespaceAttestation: "non-redirecting",
+          }),
         });
         try {
           await expect(
@@ -91,14 +95,14 @@ runSkipSelectCaptureBehavior({
               skipDuplicates: true,
               select: { id: true, sku: true },
             })
-          ).rejects.toThrow(TransactionError);
+          ).rejects.toThrow(UnsupportedOperationError);
           await expect(
             client.widget.createMany({
               data: [{ sku: "batch", name: "n" }],
               skipDuplicates: true,
               select: { id: true, sku: true },
             })
-          ).rejects.toThrow(NO_ROLLBACK);
+          ).rejects.toThrow(NO_SAVEPOINT);
         } finally {
           await client.$disconnect();
         }

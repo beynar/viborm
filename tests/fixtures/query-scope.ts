@@ -13,9 +13,6 @@
  * value it hands back is the gate's own published index.
  */
 
-import type { DatabaseAdapter } from "@adapters";
-import { createQueryScope } from "@query-engine/context";
-import type { QueryScope } from "@query-engine/types";
 import { hydrateSchemaNames } from "@schema/hydration";
 import type { AnyModel } from "@schema/model";
 import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
@@ -37,14 +34,6 @@ export function prepareSchema(
   const relations = resolveSchemaOrThrow(schema);
   for (const model of Object.values(schema)) indexByModel.set(model, relations);
   return relations;
-}
-
-/** Open a root scope over a model prepared by {@link prepareSchema}. */
-export function scopeFor(
-  adapter: DatabaseAdapter,
-  model: AnyModel
-): QueryScope {
-  return createQueryScope({ adapter, relations: indexFor(model) }, model);
 }
 
 /** The index of the schema one prepared model belongs to. */

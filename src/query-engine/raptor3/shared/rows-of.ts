@@ -5,7 +5,7 @@ import type { RowJudgement } from "./row-scope";
 
 /**
  * The rows of `model` the operation rendering it may see, under `alias`: a
- * condition an extension that writes its own SQL (ordering's subqueries)
+ * condition a fragment written by hand (a subquery beside the engine's own)
  * puts beside a read of `model AS alias`, so that read takes the call's row
  * domain as every read of the engine does. The operation's `Queries`
  * settles it when it lowers the caller's fragment holding it (the call's

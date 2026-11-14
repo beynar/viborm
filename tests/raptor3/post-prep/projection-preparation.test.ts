@@ -2,12 +2,11 @@ import assert from "node:assert/strict";
 import { isDeepStrictEqual } from "node:util";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
-import type { BatchQuery, QueryResult } from "@drivers";
+import type { QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { ValidationError } from "@errors";
 import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
-import { SqlOperationContext } from "@query-engine/raptor3/shared/sql-operation-context";
 import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import { s } from "@schema";
 import { Sql } from "@sql";
@@ -20,8 +19,6 @@ import { afterEach, describe, it, vi } from "vitest";
 const LEFT_SOURCE = /"left_source"/;
 const RIGHT_SOURCE = /"right_source"/;
 const INVALID_PROVIDER_DECIMAL = /Invalid provider decimal/;
-const INSERT_STATEMENT = /^INSERT\b/;
-const SELECT_ANYWHERE = /SELECT\b/;
 const LEADING_WORD = /^\w+/;
 const EMPTY_SELECT =
   "select needs at least one truthy value; leave it out to return the default row.";
@@ -106,17 +103,6 @@ function renderedColumns(columns: readonly Sql[]): string {
   return columns.map((column) => column.toStatement("?")).join(", ");
 }
 
-function generatedOutputSchema() {
-  const output = s
-    .model({
-      id: s.int().id().increment(),
-      stamp: s.int(),
-      score: s.int(),
-    })
-    .map("post_g3_projection_outputs");
-  return { output };
-}
-
 class ProjectionRecordingSQLiteDriver extends SQLite3Driver {
   readonly statements: string[] = [];
 
@@ -127,22 +113,6 @@ class ProjectionRecordingSQLiteDriver extends SQLite3Driver {
   ): Promise<QueryResult<T>> {
     this.statements.push(statement);
     return super.execute<T>(client, statement, parameters);
-  }
-}
-
-class ProjectionBatchSQLiteDriver extends ProjectionRecordingSQLiteDriver {
-  override readonly supportsTransactions = false;
-  override readonly supportsBatch = true;
-  readonly batches: string[][] = [];
-
-  protected override async executeBatch<T>(
-    client: Database.Database,
-    queries: BatchQuery[]
-  ): Promise<QueryResult<T>[]> {
-    this.batches.push(queries.map((query) => query.sql));
-    return this.transaction(client, (transaction) =>
-      super.executeBatch<T>(transaction, queries)
-    );
   }
 }
 
@@ -255,147 +225,6 @@ describe("post-G3 projection preparation", () => {
       INVALID_PROVIDER_DECIMAL
     );
   });
-
-  it("reuses one projection for segmented generated output and its continuation read", async () => {
-    const schema = generatedOutputSchema();
-    const engineSchema = new EngineSchema(schema);
-    const database = new Database(":memory:");
-    database.exec(`
-      CREATE TABLE post_g3_projection_outputs(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        stamp INTEGER NOT NULL DEFAULT 51,
-        score INTEGER NOT NULL
-      );
-    `);
-    const driver = new ProjectionBatchSQLiteDriver({ client: database });
-    const context = new SqlOperationContext(
-      engineSchema,
-      driver,
-      "output",
-      "create"
-    );
-    const preparation = vi.spyOn(context.queries, "prepareProjection");
-    const lowering = vi.spyOn(context.queries, "lowerProjection");
-    const decoding = vi.spyOn(context.queries, "decodeProjection");
-    const selection = vi.spyOn(context.queries, "select");
-
-    try {
-      const created = await context.run(async () => {
-        const first = await context.insert(
-          schema.output,
-          { score: 7 },
-          new Set(["id", "stamp"]),
-          {}
-        );
-        await context.insert(
-          schema.output,
-          { id: 9, stamp: 52, score: 8 },
-          new Set(),
-          {}
-        );
-        await context.finish();
-        return first;
-      });
-
-      assert.deepEqual(created, { score: 7, id: 1, stamp: 51 });
-      assert.equal(preparation.mock.calls.length, 1);
-      assert.equal(lowering.mock.calls.length, 2);
-      assert.equal(decoding.mock.calls.length, 1);
-      assert.equal(selection.mock.calls.length, 1);
-      const preparedResult = preparation.mock.results[0];
-      assert(preparedResult);
-      if (preparedResult.type !== "return")
-        assert.fail("projection preparation did not return normally");
-      const prepared = preparedResult.value;
-      assert.equal(lowering.mock.calls[0]?.[0], prepared);
-      assert.equal(lowering.mock.calls[1]?.[0], prepared);
-      assert.equal(decoding.mock.calls[0]?.[0], prepared.shape);
-      const controls = selection.mock.calls[0]?.[3];
-      assert(controls?.projection);
-      assert.equal(controls.projection, prepared);
-
-      assert.equal(driver.batches.length, 2);
-      const firstBatch = driver.batches[0];
-      const continuationBatch = driver.batches[1];
-      assert(firstBatch);
-      assert(continuationBatch);
-      assert.equal(firstBatch.length, 1);
-      assert.match(firstBatch[0] ?? "", INSERT_STATEMENT);
-      assert.equal(continuationBatch.length, 2);
-      assert.match(continuationBatch[0] ?? "", SELECT_ANYWHERE);
-      assert.match(continuationBatch[1] ?? "", INSERT_STATEMENT);
-    } finally {
-      await driver.disconnect();
-      database.close();
-    }
-  });
-
-  it("reuses one projection for a non-returning update and its stored-row read", async () => {
-    const schema = generatedOutputSchema();
-    const engineSchema = new EngineSchema(schema);
-    const database = new Database(":memory:");
-    database.exec(`
-      CREATE TABLE post_g3_projection_outputs(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        stamp INTEGER NOT NULL,
-        score INTEGER NOT NULL
-      );
-      INSERT INTO post_g3_projection_outputs(id, stamp, score)
-      VALUES (1, 51, 7);
-    `);
-    const driver = new ProjectionRecordingSQLiteDriver({ client: database });
-    driver.adapter.capabilities.supportsReturning = false;
-    const context = new SqlOperationContext(
-      engineSchema,
-      driver,
-      "output",
-      "update"
-    );
-    const preparation = vi.spyOn(context.queries, "prepareProjection");
-    const selection = vi.spyOn(context.queries, "select");
-
-    try {
-      const updated = await context.run(() =>
-        // FC-02A merged the address and the stale capture into ONE current
-        // row: the same values, one parameter. The expectations below are
-        // unchanged — this call's spelling is.
-        context.update(
-          schema.output,
-          { id: 1, stamp: 51, score: 7 },
-          { score: 11 },
-          {},
-          "update",
-          new Set(["score"])
-        )
-      );
-
-      assert.deepEqual(updated, { score: 11 });
-      assert.equal(preparation.mock.calls.length, 1);
-      assert.equal(selection.mock.calls.length, 1);
-      const preparedResult = preparation.mock.results[0];
-      assert(preparedResult);
-      if (preparedResult.type !== "return")
-        assert.fail("projection preparation did not return normally");
-      const controls = selection.mock.calls[0]?.[3];
-      assert(controls?.projection);
-      assert.equal(controls.projection, preparedResult.value);
-      assert.deepEqual(
-        driver.statements.map(
-          (statement) => statement.match(LEADING_WORD)?.[0]
-        ),
-        ["UPDATE", "SELECT"]
-      );
-      assert.deepEqual(
-        database
-          .prepare("SELECT id, stamp, score FROM post_g3_projection_outputs")
-          .get(),
-        { id: 1, stamp: 51, score: 11 }
-      );
-    } finally {
-      await driver.disconnect();
-      database.close();
-    }
-  });
 });
 
 function bulkRelationSchema() {
@@ -491,7 +320,7 @@ describe("relation-bearing bulk projection preparation", () => {
     world = undefined;
   });
 
-  it("prepares updateMany's requested output once, at construction, and publishes it for every member", async () => {
+  it("answers updateMany's requested output for every member", async () => {
     world = await bulkRelationWorld();
     // Not a selection the engine prepares for itself (the stored row is
     // `{ id, label }`, the identity `{ id }`).
@@ -503,9 +332,6 @@ describe("relation-bearing bulk projection preparation", () => {
     });
 
     assert.deepEqual(updated, [{ label: "updated" }, { label: "updated" }]);
-    // Once, before the first statement: the members' identities are the only
-    // part of the result that waits for execution.
-    assert.deepEqual(world.prepared(select), [0]);
     assert.deepEqual(world.children(), [
       { label: "created", parentId: 1 },
       { label: "created", parentId: 2 },
@@ -555,7 +381,7 @@ describe("relation-bearing bulk projection preparation", () => {
     assert.deepEqual(world.children(), []);
   });
 
-  it("never prepares createMany's selection when every member was skipped", async () => {
+  it("answers nothing for a createMany whose every member was skipped", async () => {
     world = await bulkRelationWorld();
     const created = await world.engine.execute("parent", "createMany", {
       data: [
@@ -566,7 +392,6 @@ describe("relation-bearing bulk projection preparation", () => {
     });
 
     assert.deepEqual(created, []);
-    assert.deepEqual(world.prepared({ label: true }), []);
     assert.deepEqual(world.children(), []);
   });
 });

@@ -5,10 +5,6 @@ import {
   getModelKeyCatalog,
   type OrderedModelKey,
 } from "@schema/model";
-import {
-  getCompoundIdConstraint,
-  getPrimaryKeyFields,
-} from "@src/query-engine/context";
 import { validateSchema } from "@src/schema/validation";
 import { describe, expect, test } from "vitest";
 
@@ -249,34 +245,22 @@ describe("model-key catalog — rowKey", () => {
     expect(getModelKeyCatalog(fixtures.scalarPk).rowKey).toEqual(
       bare("primary", "id")
     );
-    expect(getPrimaryKeyFields(fixtures.scalarPk)).toEqual(["id"]);
-    expect(getCompoundIdConstraint(fixtures.scalarPk)).toBeUndefined();
   });
 
   test("a compound .id([...]) keeps CONSTRAINT order, not shape order", () => {
     expect(getModelKeyCatalog(fixtures.reorderedPk).rowKey).toEqual(
       grouped("primary", "slot_tenantId", ["slot", "tenantId"])
     );
-    expect(getPrimaryKeyFields(fixtures.reorderedPk)).toEqual([
-      "slot",
-      "tenantId",
-    ]);
-    expect(getCompoundIdConstraint(fixtures.reorderedPk)).toEqual({
-      name: "slot_tenantId",
-      fields: ["slot", "tenantId"],
-    });
   });
 
-  test("a key-less model has no rowKey while getPrimaryKeyFields stays total", () => {
+  test("a key-less model has no rowKey", () => {
     expect(getModelKeyCatalog(fixtures.keyless).rowKey).toBeUndefined();
-    expect(getPrimaryKeyFields(fixtures.keyless)).toEqual(["id"]);
   });
 
   test("both id spellings on one model answer compound-first (F002 refuses the schema)", () => {
     expect(getModelKeyCatalog(fixtures.bothIds).rowKey).toEqual(
       grouped("primary", "x_y", ["x", "y"])
     );
-    expect(getPrimaryKeyFields(fixtures.bothIds)).toEqual(["x", "y"]);
   });
 
   test("a single-member compound id is still a grouped selector", () => {
@@ -385,13 +369,6 @@ describe("model-key catalog — identity and caching", () => {
     expect(getModelKeyCatalog(fixtures.scalarPk)).toBe(
       getModelKeyCatalog(fixtures.scalarPk)
     );
-  });
-
-  test("getPrimaryKeyFields answers a fresh array per call", () => {
-    const first = getPrimaryKeyFields(fixtures.reorderedPk);
-    const second = getPrimaryKeyFields(fixtures.reorderedPk);
-    expect(first).toEqual(second);
-    expect(first).not.toBe(second);
   });
 
   test("caller mutations cannot change a stored index or its cached key facts", () => {

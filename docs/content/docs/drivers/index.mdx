@@ -99,8 +99,8 @@ differs by driver, and these are the facts the engine relies on and verifies:
 | mysql2 | one interactive transaction | rolled back | 65 535 | local MySQL qualification; see below |
 | planetscale | one single-shard transaction | rolled back within the supported shard | 65 535 | controlled transport contracts; hosted qualification remains separate |
 | sqlite3, libsql, bun-sqlite | one interactive transaction | rolled back | 32 766 | actual better-sqlite3 and local libSQL regressions; Bun uses its own provider tests |
-| neon-http | atomic batches, one per segment; work that must observe an earlier write takes another committed batch | the failing batch rolls back; earlier acknowledged batches remain committed, reported through `committedSegments`; an uncertain outcome uses `mayHaveCommittedSegment` | 65 535 | actual Neon HTTP 1.2: failed-batch atomicity, Serializable batch options, durable commit notification, and post-commit result failure; credential-gated by `NEON_DATABASE_URL` or `NEON_TEST_DATABASE_URL` |
-| d1 | committed segments; generated references use the ordinary emptied `__viborm_batch_refs` scratch table | the failing batch rolls back; earlier acknowledged batches remain committed | 100 | local Workers D1 tests (`provider-d1`); no hosted Cloudflare D1 qualification |
+| neon-http | one atomic batch; work that must read the database after an earlier write takes another committed batch | the failing batch rolls back; earlier acknowledged batches remain committed, reported through `committedSegments`; an uncertain outcome uses `mayHaveCommittedSegment` | 65 535 | actual Neon HTTP 1.2: failed-batch atomicity, Serializable batch options, durable commit notification, and post-commit result failure; credential-gated by `NEON_DATABASE_URL` or `NEON_TEST_DATABASE_URL` |
+| d1 | one atomic batch, or one batch after another where a part must read between two writes; generated references use the ordinary emptied `__viborm_batch_refs` scratch table | the failing batch rolls back; earlier acknowledged batches remain committed | 100 | local Workers D1 tests (`provider-d1`); no hosted Cloudflare D1 qualification |
 | durable-object | one `ctx.storage.transaction()` | rolled back | 100 | local workerd tests (`provider-durable-object`); no hosted Cloudflare qualification |
 
 A scalar `in` / `notIn` list is one bound value on PostgreSQL (pg, postgres, pglite, bun-sql, neon-http), SQLite (sqlite3, libsql, bun-sqlite) and D1, so it does not count against these limits. On mysql2 and planetscale each member is one bound value. On every driver a `mode: "insensitive"` list binds one value per member. On SQLite, libSQL, bun-sqlite and D1 a list of non-integer numbers also binds one value per member.
@@ -119,50 +119,48 @@ more than one batch can, and there the error carries how many segments
 committed so the caller can decide what to do with them.
 
 **What travels in one batch follows the work's own dependencies, not the verb.**
-A `create` or `update` with everything nested under it, a nested `createMany`
-included, is dispatched as ONE batch while no part of the write has to read
-what another part of it wrote. A ROOT `createMany` of relation-bearing rows is
-different outside `$transaction([...])`: on d1 (measured) and neon-http (the
-same batch route) each row is its own committed segment, so a later row's
-failure leaves the earlier rows written and counted in `committedSegments`;
-inside `$transaction([...])` the rows share the array's one batch. A part that
-must observe an earlier write — a later row's `connectOrCreate` that has to
-find the row an earlier row created, a nested `delete` addressed by a value an
-earlier nested `update` set — takes the boundary: the queued statements are
-dispatched first (on neon-http and d1 that dispatch is a committed segment,
-which is what `committedSegments` counts) and the observing work follows in the
-next one. A key the database generated in one segment crosses into the next as
-a literal, so none of this depends on the transport keeping a session between
-requests.
+A `create` or `update` with everything nested under it, and a `createMany` or
+`updateMany` of relation-bearing rows, at the root or nested, is dispatched as
+ONE batch while no part of the write has to hear the database before the next
+part can be written. The call knows the rows it creates: a later row's
+`connectOrCreate` finds the row an earlier row created without a batch being
+sent in between. A key the database generates reaches the
+statements that need it inside the same batch. A part that must read what the
+database alone can say after an earlier write — rows a cascade or a trigger may
+have changed — takes the boundary: what is written so far is dispatched first
+(on neon-http and d1 that dispatch is a committed segment, which is what
+`committedSegments` counts) and the reading work follows in the next one.
 :::
 
 ### Captured-set mutations, per route
 
-A selected `updateMany` or `deleteMany` captures the identities it will mutate
-and then consumes them. **Both routes give the same answer**: the consuming
-statement carries the captured identities AND the statement's own original
-selector, so a row that stopped matching between the capture and the effect is
-not mutated — on an interactive transaction (`pg`, `postgres`, `pglite`,
-`bun-sql`, `mysql2`, `planetscale`, the three SQLite drivers) and on the
-batch-only routes (`neon-http`, `d1`) alike. When fewer rows are affected than
-were captured, the answer is the `selected-row cardinality changed` error.
+A selected `updateMany` or `deleteMany` on a provider that cannot return the
+rows it writes reads the rows it will write, then writes them. **Both routes
+give the same answer**: a row that stopped matching between the read and the
+write is not written. On an interactive transaction (`pg`, `postgres`,
+`pglite`, `bun-sql`, `mysql2`, `planetscale`, the three SQLite drivers) the
+rows are held from the read to the write. On the batch-only routes
+(`neon-http`, `d1`) the batch first asks again for the rows the call read, and
+the writing statement names those rows and repeats the call's own filter. A
+change seen before the batch writes makes the call plan again. When the write
+itself takes fewer rows than were read, the answer is the
+`selected-row cardinality changed` error.
 
-Where the two routes still differ is what a failure at that point leaves
-behind, and the difference is the transport's, not the rule's. On an
-interactive transaction the operation's owner rolls back and nothing is
-committed. On a batch-only route the batch that carried the mutation has
-already been acknowledged when the count is checked, so the error reports the
-acknowledged effects alongside the result-phase failure rather than claiming a
-rollback that no longer exists. A check after dispatch cannot undo a committed
-batch.
+What that error leaves behind is the transport's. On a batch-only route the
+batch that carried the write has already been acknowledged when the count is
+checked, so the error reports the acknowledged effects alongside the
+result-phase failure rather than claiming a rollback that no longer exists. A
+check after dispatch cannot undo a committed batch.
 
-A nested captured series is bounded the same way on every driver: the filter
-selects the worklist once, and a qualifying row that joins after that boundary
-is not adopted into it. The identity, parent and relation-membership
-requirements are still enforced at their own consumption boundaries, so a
-member that loses or changes its membership is not consumed either way.
-`SELECT … FOR UPDATE` locks the rows it reads; it does not exclude rows that
-appear afterwards, and no driver here claims that it does.
+A nested `updateMany` or `deleteMany` that writes nothing under the members it
+names is one statement on every driver: its filter and the membership are read
+when it runs, once. It holds the junction links it reads the membership from,
+so a member that left the relation before it ran is not written, and one that
+joined is. Where each member has writes of its own under it, the call reads the
+members first; the unit that writes them asks for them again and holds them, so
+a member that changed before the unit stops it before any write and the call
+plans again once. `SELECT … FOR UPDATE` locks the rows it reads; it does not
+exclude rows that appear afterwards, and no driver here claims that it does.
 
 ### MySQL, locally qualified
 

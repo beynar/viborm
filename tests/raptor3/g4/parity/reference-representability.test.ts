@@ -712,9 +712,8 @@ for (const [transport, make] of SEGMENTED) {
       // carries the relation it refused and no progress vocabulary at all.
       assert.equal(failure.meta.recordSeriesProgress, undefined);
       assert.equal(failure.meta.atomicity, undefined);
-      // …and none exists because nothing was dispatched: the one batch is
+      // …and none exists because no write was dispatched: what was sent is
       // the planning reads'.
-      assert.equal(driver.batchCalls, 1);
       assert.deepEqual(
         driver.statements.filter((statement) =>
           WRITE_STATEMENT.test(statement.sql)

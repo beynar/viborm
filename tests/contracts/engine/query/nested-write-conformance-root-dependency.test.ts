@@ -135,11 +135,9 @@ const createRootDependencyScenarios: Scenario<CreateRootDependencySchema>[] = [
     },
   },
   {
-    // N1 (D-51): pinned the retired engine's lax "target record was not found".
-    // `parent` is parent-held, so the root's OWN insert CONSUMES this lookup
-    // while being the only producer of its target — the one shape no order
-    // satisfies — and it keeps the inherited dependency sentence
-    // (`AGENTS.md`, "A dependent read is an ordered observation (N1, D-51)").
+    // `parent` is parent-held, so the root's own insert takes the key of a
+    // row that is only there once that insert is made: when the row is asked
+    // for, it is not there, and the call says so. Nothing is written.
     name: "before-parent self connect is unaffected by the future insert",
     act: (client) =>
       client.node.create({
@@ -151,7 +149,7 @@ const createRootDependencyScenarios: Scenario<CreateRootDependencySchema>[] = [
       }),
     expectReject: true,
     expectedError:
-      "Nested operation 'connect' on relation 'parent' depends on an earlier 'create' target write in the same nested write. Split these operations into separate queries.",
+      "Cannot connect relation 'parent': target record was not found.",
     expected: { nodes: [] },
   },
   {

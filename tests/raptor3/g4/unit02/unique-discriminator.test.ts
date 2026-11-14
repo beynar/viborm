@@ -520,8 +520,8 @@ async function scopeSqliteWorld() {
        "ownerId" TEXT NOT NULL,
        "tagId" TEXT NOT NULL,
        PRIMARY KEY ("ownerId","tagId"),
-       FOREIGN KEY ("ownerId") REFERENCES "${SCOPE_OWNERS}" ("id"),
-       FOREIGN KEY ("tagId") REFERENCES "${SCOPE_TAGS}" ("id")
+       FOREIGN KEY ("ownerId") REFERENCES "${SCOPE_OWNERS}" ("id") ON DELETE CASCADE,
+       FOREIGN KEY ("tagId") REFERENCES "${SCOPE_TAGS}" ("id") ON DELETE CASCADE
      );
      INSERT INTO ${SCOPE_OWNERS} (id,email,name) VALUES ('wanted','claim@x','winner');
      INSERT INTO ${SCOPE_NOTES} (id,title,ownerId) VALUES ('n1','T','wanted');
@@ -579,13 +579,13 @@ async function scopeSqliteRun(
 }
 
 describe("G4-02 — the junction delete removes the link row, then the target", () => {
-  // R-B5, repaired here: the candidate used to place the target's DELETE alone,
-  // so the link row still referenced the row being deleted and the provider
-  // refused the whole write with a foreign-key violation. The shipped engine
-  // states the order in `write-engine/RelationJunctionPart.ts:911-937`
-  // (`compileDelete`: "locate the connected child, DELETE its join rows, then
-  // the child"), and the candidate now states it in the one owner that places
-  // a junction removal, `commands/relation-body.ts`'s `disconnect`/`delete` arm.
+  // R-B5: the link row must not still reference the row being deleted. The
+  // engine of 1.14.0 always deleted the join rows first. The engine now does
+  // what the schema declares of the junction: where its foreign key cascades
+  // (the default, and what a push creates) the database takes the link with
+  // the target; where it restricts, the engine removes the link first
+  // (`write/verbs.ts`, the nested `delete`). This table is created by hand,
+  // so it states the action the schema declares.
   for (const id of ["g1", "G1"] as const) {
     it(`deletes the link and the target, addressed by ${id === "g1" ? "exact bytes" : "a collation-equal key"}`, async () => {
       const request = (call: ScopeCall) =>

@@ -8,16 +8,18 @@
 // too long, or tie, is repaired (`move` does it on its own when it must).
 
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import type { DatabaseAdapter } from "../adapters/database-adapter";
-import type { OperationPayload, OperationResult } from "../client/exports"; // public today
-import type { NoExtraOperationKeys } from "../client/types";
+import type {
+  NoExtraOperationKeys,
+  OperationPayload,
+  OperationResult,
+} from "../client/exports";
 import {
   ClientInitializationError,
   NotFoundError,
   QueryError,
 } from "../errors";
 import { ValidationError } from "../errors/validation";
-import type { OrderTerm } from "../extensions/controls";
+import { defineExtension } from "../extensions/define";
 import type {
   ClientSchema,
   ClientTypeState,
@@ -25,24 +27,17 @@ import type {
   DelegateOperationResult,
   ExtendedClient,
   ExtensionState,
+  ModelSql,
   VibORMClient,
   VibORMConfig,
 } from "../index";
-import {
-  type InsertValueContext,
-  type JoinedPlan,
-  JoinedValue,
-  renderers,
-  Stored,
-} from "../query-engine/raptor3/shared/insert-value";
-import type { RowJudgement } from "../query-engine/raptor3/shared/row-scope";
-import { RowsOf } from "../query-engine/raptor3/shared/rows-of";
-import type { SqlQueries } from "../query-engine/raptor3/shared/sql-queries";
-import { getModelKeyCatalog } from "../schema/model/keys";
+import { computed, joined, stored } from "../index";
+import { getRowKey } from "../schema/model/keys";
 import { type Sql, sql } from "../sql/sql";
-import { AppendKey } from "./append";
-import { between, Computed, jitter, spellings } from "./between";
+import { appendKey } from "./append";
+import { between, jitter, spellings } from "./between";
 import { isKeyFormat, keyBetween } from "./keys";
+import { placed } from "./placed";
 
 export { isKey, isKeyFormat, keyBetween, MAX_KEY_LENGTH } from "./keys";
 
@@ -86,13 +81,14 @@ type Schema = VibORMConfig["schema"];
 type AnyModel = Schema[string];
 type Names<Config extends OrderingConfig> = keyof Config & string;
 type Row = Readonly<Record<string, unknown>>;
+/** One term of a model's default order, as the `order` capability takes it. */
+type OrderTerm = { readonly [field: string]: "asc" | "desc" };
 type Delegate = Readonly<
   Record<string, (args: object) => PromiseLike<unknown>>
 >;
 /** What respacing reads off the client's driver. */
 interface Driver {
   readonly dialect: string;
-  readonly adapter: DatabaseAdapter;
   readonly maxBindParametersPerStatement?: number;
 }
 
@@ -119,7 +115,7 @@ interface Ordered {
 }
 
 /**
- * The model's `updatedAt()` fields, each kept as stored ({@link Stored}):
+ * The model's `updatedAt()` fields, each kept as stored (`stored()`):
  * ordering's own writes (move, respace, rekey) place a row, they do not
  * change it. A field a move's `data` names is written as named.
  */
@@ -131,7 +127,7 @@ const storedOf = (model: AnyModel): Row => {
         const { autoGenerate, array } = scalars[field]!["~"].state;
         return autoGenerate?.kind === "updatedAt" && !array;
       })
-      .map((field) => [field, new Stored()])
+      .map((field) => [field, stored()])
   );
 };
 
@@ -146,8 +142,7 @@ function admit(schema: Schema, config: OrderingConfig): readonly Ordered[] {
     if (!Object.hasOwn(schema, name)) refuse(`unknown model "${name}".`);
     const model = schema[name] as AnyModel;
     const scalars = model["~"].state.scalars;
-    const identity: readonly string[] | undefined =
-      getModelKeyCatalog(model).rowKey?.fields;
+    const identity: readonly string[] | undefined = getRowKey(model)?.fields;
     if (identity === undefined)
       refuse(`${name} needs a primary or unique key.`);
     const key = entry.key;
@@ -209,37 +204,12 @@ function invalid(model: string, message: string): never {
   ]);
 }
 
-/** The engine's renderer for one client: its namespace, columns and
- * value encodings, so a respace names what a query would. */
-interface Engine {
-  readonly queries: SqlQueries;
-  readonly dialect: string;
-}
-
-function engineOf(schema: Schema, driver: Driver): () => Engine {
-  let engine: Engine | undefined;
-  return () =>
-    (engine ??= {
-      // Registered when the client's engine was built.
-      queries: renderers.get(schema)!.get(driver.adapter)! as SqlQueries,
-      dialect: driver.dialect,
-    });
-}
-
 /** A delegate's write, as respacing calls it. */
 interface Writes {
   readonly updateMany: (args: object) => PromiseLike<unknown>;
 }
 
 type Order = readonly Readonly<Record<string, "asc" | "desc">>[];
-
-/**
- * The members respacing may rewrite: those the call may update by writing
- * the key, the rows its `updateMany` writes. Every other member (hidden, or
- * seen and not writable) holds its place and its key.
- */
-const movable = (key: string): RowJudgement =>
-  Object.freeze({ verb: "update", writes: Object.freeze([key]) });
 
 /**
  * Respacing's keys, read from a derived table the `updateMany` joins (one
@@ -259,43 +229,126 @@ const movable = (key: string): RowJudgement =>
  * A column of respacing's joined table: named `0viborm_…`, which no schema
  * identifier can be (they start with a letter or `_`).
  */
-const joined = (q: SqlQueries, name: string): Sql =>
-  q.adapter.identifiers.column("r", `0viborm_${name}`);
+const named = (q: ModelSql, name: string): Sql =>
+  q.name("r", `0viborm_${name}`);
 
-class Respace extends JoinedValue {
-  readonly #ordered: Ordered;
-  readonly #dialect: "postgresql" | "sqlite" | "mysql";
-  readonly #where: unknown;
-  readonly #order: Order;
-  constructor(ordered: Ordered, dialect: string, where: unknown, order: Order) {
-    super();
-    this.#ordered = ordered;
-    this.#dialect = dialect as "postgresql" | "sqlite" | "mysql";
-    this.#where = where;
-    this.#order = order;
-  }
-  compute({ queries }: InsertValueContext): readonly unknown[] {
-    return [joined(queries as SqlQueries, "nk")];
-  }
-  plan(): JoinedPlan {
-    const { key, within, identity } = this.#ordered;
-    const order = this.#order.flatMap(
-      (term) => Object.entries(term) as [string, "asc" | "desc"][]
+const respacing = (ordered: Ordered, where: unknown, order: Order): string =>
+  joined<string>({
+    value: (q) => named(q, "nk"),
+    rows: (q, read) => respaceRows(ordered, where, order, q, read),
+    join: (q, target) => respaceJoin(ordered, where, order, q, target),
+  });
+
+/**
+ * Respacing's keys as a list, for a database whose UPDATE joins no derived
+ * table (SurrealDB): every member of each list respaced is read, in the
+ * call's unit, each list is placed as the joined statement places it
+ * (`placed.ts`), and a member is named by its identity, its list and the key
+ * it was ranked with, so one another writer moved meanwhile keeps that
+ * writer's place.
+ */
+async function respaceRows(
+  ordered: Ordered,
+  where: unknown,
+  order: Order,
+  q: ModelSql,
+  read: (statement: Sql) => Promise<readonly Row[]>
+): Promise<{ where: Row; value: unknown }[]> {
+  const { key, within, identity } = ordered;
+  const terms = order.flatMap(
+    (term) => Object.entries(term) as [string, "asc" | "desc"][]
+  );
+  const table = q.table();
+  const as = (fields: readonly string[], prefix: string) =>
+    fields.map(
+      (field, at) => sql`${q.column(field)} AS ${sql.raw(`${prefix}${at}`)}`
     );
-    return {
-      key,
+  // The lists respaced: those holding a member the call sees `where` matches.
+  const seen = sql`WHERE ${q.visible("", { where: where as object | undefined })}`;
+  let lists: readonly Row[];
+  if (within.length > 0)
+    lists = await read(
+      sql`SELECT ${sql.join(as(within, "w"), ", ")} FROM ${table} ${seen} GROUP BY ${sql.join(
+        within.map((_, at) => sql.raw(`w${at}`)),
+        ", "
+      )}`
+    );
+  else
+    lists =
+      where === undefined ||
+      (await read(sql`SELECT VALUE { id: id } FROM ${table} ${seen} LIMIT 1`))
+        .length > 0
+        ? [{}]
+        : [];
+  const movable = sql`(IF ${q.visible("", { update: [key] })} { true } ELSE { false })`;
+  const entries: { where: Row; value: unknown }[] = [];
+  for (const list of lists) {
+    const held = fieldsOf(
       within,
-      identity,
-      order,
-      where: this.#where,
-    };
+      Object.fromEntries(within.map((field, at) => [field, list[`w${at}`]]))
+    );
+    const conditions = within.map((field) =>
+      held[field] === null
+        ? sql`${q.column(field)} = NONE`
+        : sql`${q.column(field)} = ${q.value(field, held[field])}`
+    );
+    const rows = await read(
+      sql`SELECT ${sql.join(
+        [
+          sql`${q.column(key)} AS k`,
+          ...as(identity, "i"),
+          ...as(
+            terms.map(([field]) => field),
+            "o"
+          ),
+          sql`${movable} AS v`,
+        ],
+        ", "
+      )} FROM ${table}${
+        conditions.length > 0
+          ? sql` WHERE ${sql.join(conditions, " AND ")}`
+          : sql.empty
+      }`
+    );
+    const next = placed(
+      rows.map((row) => ({
+        key: row.k ?? null,
+        identity: identity.map((_, at) => row[`i${at}`]),
+        order: terms.map((_, at) => row[`o${at}`] ?? null),
+        movable: row.v === true,
+      })),
+      terms.map(([, way]) => way)
+    );
+    for (const [index, row] of rows.entries()) {
+      const value = next[index];
+      if (value === null || value === undefined) continue;
+      entries.push({
+        where: {
+          ...Object.fromEntries(
+            identity.map((field, at) => [field, row[`i${at}`]])
+          ),
+          ...held,
+          [key]: row.k ?? null,
+        },
+        value,
+      });
+    }
   }
-  join(q: SqlQueries, target: string): { source: Sql; on: Sql } {
-    const { model, key, within, identity } = this.#ordered;
-    const s = spellings[this.#dialect];
-    const terms = this.#order.flatMap((term) => Object.entries(term));
-    const column = (field: string, alias?: string) =>
-      q.column(model, field, alias);
+  return entries;
+}
+
+function respaceJoin(
+  ordered: Ordered,
+  where: unknown,
+  order: Order,
+  q: ModelSql,
+  target: string
+): { source: Sql; on: Sql } {
+  {
+    const { key, within, identity } = ordered;
+    const s = spellings[q.dialect as "postgresql" | "sqlite" | "mysql"];
+    const terms = order.flatMap((term) => Object.entries(term));
+    const column = (field: string, alias?: string) => q.column(field, alias);
     const at = (alias: string, prefix: string, count: number) =>
       Array.from({ length: count }, (_, n) =>
         sql.raw(`${alias}.${prefix}${n}`)
@@ -309,18 +362,18 @@ class Respace extends JoinedValue {
     const current = (alias: string) =>
       sql.join([sql.raw(`${alias}.k`), ...ids(alias)], ", ");
     // The lists respaced: those holding a member the call sees `where` matches.
-    const seen = new RowsOf(model, "w", undefined, this.#where);
-    const named =
+    const seen = q.visible("w", { where: where as object | undefined });
+    const listed =
       within.length > 0
-        ? sql`EXISTS (SELECT 1 FROM ${q.table(model, "w")} WHERE ${sql.join(
+        ? sql`EXISTS (SELECT 1 FROM ${q.table("w")} WHERE ${sql.join(
             within.map((field) =>
               s.same(column(field, "w"), column(field, "s"))
             ),
             " AND "
           )} AND ${seen})`
-        : this.#where === undefined
+        : where === undefined
           ? sql`1 = 1`
-          : sql`EXISTS (SELECT 1 FROM ${q.table(model, "w")} WHERE ${seen})`;
+          : sql`EXISTS (SELECT 1 FROM ${q.table("w")} WHERE ${seen})`;
     const members = sql`SELECT ${sql.join(
       [
         ...identity.map(
@@ -333,10 +386,10 @@ class Respace extends JoinedValue {
         ...terms.map(
           ([field], n) => sql`${column(field, "s")} AS ${sql.raw(`o${n}`)}`
         ),
-        sql`(CASE WHEN ${new RowsOf(model, "s", movable(key))} THEN 1 ELSE 0 END) AS v`,
+        sql`(CASE WHEN ${q.visible("s", { update: [key] })} THEN 1 ELSE 0 END) AS v`,
       ],
       ", "
-    )} FROM ${q.table(model, "s")} WHERE ${named}`;
+    )} FROM ${q.table("s")} WHERE ${listed}`;
     const bound = sql`(p.v = 0 AND ${s.digits(sql.raw("p.k"))})`;
     const picked = [
       ...terms.map(
@@ -394,12 +447,12 @@ class Respace extends JoinedValue {
       "nk",
     ];
     const source = sql`SELECT ${sql.join(
-      names.map((name) =>
-        q.adapter.identifiers.aliased(sql.raw(`x.${name}`), `0viborm_${name}`)
+      names.map(
+        (name) => sql`${sql.raw(`x.${name}`)} AS ${q.name(`0viborm_${name}`)}`
       ),
       ", "
     )} FROM (${keyed}) AS x`;
-    const r = (name: string) => joined(q, name);
+    const r = (name: string) => named(q, name);
     return {
       source: sql`(${source}) AS r`,
       on: sql.join(
@@ -422,13 +475,12 @@ class Respace extends JoinedValue {
 
 /**
  * Respace through the client: one `updateMany` of the lists' members the
- * call may update, its keys a {@link Respace}, so every extension applies
+ * call may update, its keys read from a joined table, so every extension applies
  * (rows, permissions, hooks, the cache); `updatedAt` stays as stored.
  * Returns the rows rewritten.
  */
 async function respace(
   ordered: Ordered,
-  dialect: string,
   writes: Writes,
   controls: Row,
   where: unknown,
@@ -438,18 +490,18 @@ async function respace(
     ...controls,
     data: {
       ...storedOf(ordered.model),
-      [ordered.key]: new Respace(ordered, dialect, where, order),
+      [ordered.key]: respacing(ordered, where, order),
     },
   })) as { count: number };
   return written.count;
 }
 
-function methods(ordered: Ordered, engine: () => Engine) {
+function methods(ordered: Ordered, dialect: string) {
   const { name, key, within, identity, model } = ordered;
   const scalars = model["~"].state.scalars;
   const stored = storedOf(model);
   /** A row read with its key: the unique selector naming it, a cursor. */
-  const rowKey = getModelKeyCatalog(model).rowKey!;
+  const rowKey = getRowKey(model)!;
   const selectorOf = (row: Row): Row =>
     rowKey.name === undefined
       ? { [rowKey.fields[0]!]: row[rowKey.fields[0]!] }
@@ -511,9 +563,9 @@ function methods(ordered: Ordered, engine: () => Engine) {
     },
     to: Row | undefined,
     recognised: Row,
+    q: ModelSql,
     write: (guard: Sql, data: Row) => PromiseLike<unknown>
   ): Promise<unknown> {
-    const { queries: q, dialect } = engine();
     // MySQL locks every row a statement's subqueries read (the locating
     // SELECT … FOR UPDATE and the UPDATE alike): concurrent moves into one
     // list deadlocked 37 times in 240 there (measured), none on the read
@@ -527,15 +579,14 @@ function methods(ordered: Ordered, engine: () => Engine) {
     )
       return MISSED;
     const s = spellings[dialect];
-    const table = q.table(model);
-    const column = (field: string, alias?: string) =>
-      q.column(model, field, alias);
+    const table = q.table();
+    const column = (field: string, alias?: string) => q.column(field, alias);
     const matches = (alias: string, fields: Row) =>
       sql.join(
         Object.entries(fields).map(([field, value]) =>
           value === null
             ? sql`${column(field, alias)} IS NULL`
-            : sql`${column(field, alias)} = ${q.fieldValue(model, field, value)}`
+            : sql`${column(field, alias)} = ${q.value(field, value)}`
         ),
         " AND "
       );
@@ -548,7 +599,7 @@ function methods(ordered: Ordered, engine: () => Engine) {
     // engine does, so a hidden anchor is a missing one and a hidden member
     // is no neighbour. The moved row is the UPDATE's own target, which the
     // UPDATE reads under that domain already.
-    const seen = (alias: string) => new RowsOf(model, alias);
+    const seen = (alias: string) => q.visible(alias);
     const of = (alias: string, fields: Row, field: string) =>
       sql`(SELECT ${column(field, alias)} FROM ${table} AS ${sql.raw(alias)} WHERE ${matches(alias, fields)}${
         alias === "a" ? sql` AND ${seen("a")}` : sql.empty
@@ -560,7 +611,7 @@ function methods(ordered: Ordered, engine: () => Engine) {
         : to !== undefined
           ? to[field] === null
             ? sql`NULL`
-            : q.fieldValue(model, field, to[field])
+            : q.value(field, to[field])
           : of("m", recognised, field);
     // A required list field compares with `=`; a nullable one NULL-safely.
     const inList = (alias?: string) =>
@@ -597,7 +648,7 @@ function methods(ordered: Ordered, engine: () => Engine) {
         : place.after
           ? [anchorKey, nearest("MIN")]
           : [nearest("MAX"), anchorKey];
-    const computed = between(
+    const placed = between(
       s,
       lower,
       upper,
@@ -608,10 +659,10 @@ function methods(ordered: Ordered, engine: () => Engine) {
     // read path answers it unchanged.
     const away = sql`NOT ((${lower}) IS NULL OR ${column(key)} > (${lower})) OR NOT ((${upper}) IS NULL OR ${column(key)} < (${upper}))`;
     const guard = (condition?: Sql) =>
-      sql`CASE WHEN ${computed} IS NOT NULL${
+      sql`CASE WHEN ${placed} IS NOT NULL${
         condition === undefined ? sql.empty : sql` AND (${condition})`
       } THEN ${column(key)} END`;
-    const keyed = { [key]: new Computed(computed) };
+    const keyed = { [key]: computed(() => [placed]) };
     const attempt = async (condition: Sql | undefined, data: Row) => {
       try {
         return await write(guard(condition), data);
@@ -628,7 +679,7 @@ function methods(ordered: Ordered, engine: () => Engine) {
       ...Object.fromEntries(
         within.map((field) => [
           field,
-          anchored === undefined ? to![field] : new Computed(listed(field)),
+          anchored === undefined ? to![field] : computed(() => [listed(field)]),
         ])
       ),
     };
@@ -765,6 +816,7 @@ function methods(ordered: Ordered, engine: () => Engine) {
         { where, anchor, after: after !== undefined, first: first === true },
         to as Row | undefined,
         recognised,
+        (delegate as unknown as { $sql: ModelSql }).$sql,
         (guard, data) =>
           delegate.update!({
             ...controls,
@@ -878,7 +930,6 @@ function methods(ordered: Ordered, engine: () => Engine) {
           // list is respaced, then read again.
           await respace(
             ordered,
-            engine().dialect,
             delegate as unknown as Writes,
             controls,
             within.length === 0 ? undefined : group
@@ -968,7 +1019,6 @@ function methods(ordered: Ordered, engine: () => Engine) {
           // UPDATE itself, through the caller's view (`Respace`).
           const count = await respace(
             ordered,
-            engine().dialect,
             delegate as unknown as Writes,
             controls,
             where,
@@ -1163,11 +1213,12 @@ function definitionOf<
   C extends Governed<Config>,
   X extends ExtensionState,
 >(config: Config, client: VibORMClient<C, X>) {
+  // `defineExtension` brings what reads the declarations made here.
+  defineExtension();
   const admitted = admit(client.$schema, config);
   // Respacing renders with the client's driver: the scope a method is given
   // has none.
   const { $driver } = client as unknown as { $driver: Driver };
-  const engine = engineOf(client.$schema, $driver);
   return {
     name: NAME,
     order: {
@@ -1184,7 +1235,7 @@ function definitionOf<
       models: Object.fromEntries(
         admitted.map(({ name, key, within }) => [
           name,
-          { create: { [key]: new AppendKey(within) as unknown as string } },
+          { create: { [key]: appendKey(within) } },
         ])
       ) as {
         readonly [K in Names<Config> & keyof C["schema"]]: {
@@ -1193,7 +1244,10 @@ function definitionOf<
       },
     },
     model: Object.fromEntries(
-      admitted.map((ordered) => [ordered.name, methods(ordered, engine)])
+      admitted.map((ordered) => [
+        ordered.name,
+        methods(ordered, $driver.dialect),
+      ])
     ) as unknown as OrderingModels<VibORMClient<C, X>, C, Config>,
   };
 }

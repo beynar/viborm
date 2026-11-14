@@ -128,9 +128,6 @@ function ownDatabaseUrl(admin: string): string {
   return url.toString();
 }
 
-/** The replacement race the `connectOrCreate` arm already owns. */
-const REPLACED =
-  "Record was replaced by another transaction during nested connectOrCreate";
 /** The relation's one inherited representability sentence (R1). */
 const NULL_CODE =
   "Cannot connect relation 'badge': the located target's referenced field 'code' is null.";
@@ -431,7 +428,7 @@ describeIf("pg Driver batch reference reuse", () => {
   );
 
   test(
-    "a located target that disappears before the unit aborts it with the arm's own failure",
+    "a located target that disappears before the unit is not connected: the call made again creates it",
     { timeout: 90_000 },
     async () => {
       const seeder = interactive();
@@ -450,25 +447,19 @@ describeIf("pg Driver batch reference reuse", () => {
       );
       const client = boot(driver);
 
-      const raised = await client.holder
-        .update({
+      // The unit stops on the row that is gone, and the call is made again:
+      // no row answers the selector, so one is created, and the row that took
+      // the old one's referenced value is never connected.
+      expect(
+        await client.holder.update({
           where: { id: "h1" },
           data: { name: "connected", badge: connectChosen },
         })
-        .then(
-          () => undefined,
-          (error: unknown) => error
-        );
-
-      expect(messageOf(raised)).toContain(REPLACED);
-      expect(await seeder.holder.findMany()).toEqual([
-        { id: "h1", name: "one", badgeCode: null },
+      ).toEqual({ id: "h1", name: "connected", badgeCode: "NEW" });
+      expect(await membership(seeder)).toEqual([
+        ["b2", []],
+        ["b9", ["h1"]],
       ]);
-      expect(
-        (await seeder.badge.findMany({ orderBy: { id: "asc" } })).map(
-          (row) => row.id
-        )
-      ).toEqual(["b2"]);
     }
   );
 

@@ -9,10 +9,8 @@ import {
   sanitizeAllowedRecord,
   sanitizeDiagnosticParameters,
   sanitizeErrorForLogging,
-  type VibORMError,
 } from "@errors";
 import { isString } from "@validation/value-guards";
-import type { Operation } from "../query-engine/types";
 import type {
   LogEvent,
   LoggingConfig,
@@ -197,74 +195,4 @@ export function createLogger(config: LoggingConfig): Logger {
       return handlers[level] !== undefined;
     },
   });
-}
-
-/**
- * Helper to create a query log event
- */
-export function createQueryLogEvent(params: {
-  model?: string | undefined;
-  operation?: Operation | string | undefined;
-  correlationId?: string | undefined;
-  duration?: number | undefined;
-  sql?: string | undefined;
-  sqlParams?: unknown[] | undefined;
-  meta?: Record<string, unknown> | undefined;
-}): Omit<LogEvent, "level"> {
-  return {
-    timestamp: new Date(),
-    model: params.model,
-    operation: params.operation,
-    correlationId: params.correlationId,
-    duration: params.duration,
-    sql: params.sql,
-    params: params.sqlParams,
-    meta: params.meta,
-  };
-}
-
-/**
- * Helper to create an error log event
- */
-export function createErrorLogEvent(params: {
-  error: Error | VibORMError;
-  model?: string | undefined;
-  operation?: Operation | string | undefined;
-  correlationId?: string | undefined;
-  duration?: number | undefined;
-  meta?: Record<string, unknown> | undefined;
-}): Omit<LogEvent, "level"> {
-  return {
-    timestamp: new Date(),
-    error: params.error,
-    model: params.model,
-    operation: params.operation,
-    correlationId: params.correlationId,
-    duration: params.duration,
-    meta: params.meta,
-  };
-}
-
-/**
- * Cache event types
- */
-export type CacheEventType = "hit" | "miss" | "revalidate";
-
-/**
- * Helper to create a cache log event
- */
-export function createCacheLogEvent(params: {
-  event: CacheEventType;
-  key: string;
-  status?: string | undefined;
-  error?: Error | undefined;
-}): Omit<LogEvent, "level"> {
-  return {
-    timestamp: new Date(),
-    error: params.error,
-    meta: {
-      event: params.event,
-      status: params.status,
-    },
-  };
 }

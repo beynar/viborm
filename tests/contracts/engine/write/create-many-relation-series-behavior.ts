@@ -596,7 +596,10 @@ export function registerCreateManySeriesBehavior(
       const stored: StoredAttachment[] = await client.$queryRawUnsafe(
         client.$driver.dialect === "surrealql"
           ? "SELECT id, media_type, media_id FROM jseries_attachments ORDER BY id"
-          : `SELECT id, media_type, media_id FROM "${client.$driver.adapter.namespace}"."jseries_attachments" ORDER BY id`
+          : // MySQL quotes a name with backticks; left bare, the table is the connection's own.
+            client.$driver.dialect === "mysql"
+            ? "SELECT id, media_type, media_id FROM jseries_attachments ORDER BY id"
+            : `SELECT id, media_type, media_id FROM "${client.$driver.adapter.namespace}"."jseries_attachments" ORDER BY id`
       );
       // Byte-identical private columns: the route changed, the stored pair did not.
       expect(stored.map((row) => [row.media_type, row.media_id])).toEqual([

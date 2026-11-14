@@ -2,7 +2,7 @@
  * FC-04 — the route's cached-result vocabulary boundary, executed (closure
  * inventory row J-13).
  *
- * `RoutedCandidateOperation.cacheResultCodec()` refuses a verb that publishes
+ * `routedCodec()` of a routed operation refuses a verb that publishes
  * no prepared read. WHICH verbs can reach it is decided in another layer: the
  * official cache admits `CACHEABLE_OPERATIONS` (`query-engine/cache-flow.ts`,
  * nine names, both `…OrThrow` variants among them) while the engine's own
@@ -27,6 +27,7 @@
  */
 
 // The route's cache codec belongs to the cache runtime `viborm/cache` loads.
+import { routedCodec } from "@cache/result-codec";
 import "@cache/runtime";
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
@@ -37,7 +38,7 @@ import {
   UnsupportedOperationError,
 } from "@errors";
 import { validateCacheableOperation } from "@query-engine/cache-flow";
-import { createCandidateRoute } from "@query-engine/raptor3/route/client-route";
+import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { hydrateSchemaNames, s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import type Database from "better-sqlite3";
@@ -121,7 +122,7 @@ async function world() {
       },
     ],
   });
-  const route = createCandidateRoute(schema, driver);
+  const route = createCommandEngine({ schema, driver });
   closers.push(async () => {
     await client.$disconnect();
     database.close();
@@ -139,9 +140,9 @@ describe("FC-04 — the route's cached-result vocabulary boundary", () => {
         () => validateCacheableOperation(operation),
         `${operation}: the cache layer no longer offers this verb`
       );
-      const codec = route
-        .operation(author as never, operation, { ...args })
-        .cacheResultCodec();
+      const codec = routedCodec(
+        route.prepare("author", operation as never, { ...args })
+      );
       const value = await model[operation]!({ ...args });
       assert.notEqual(
         value,
@@ -183,9 +184,11 @@ describe("FC-04 — the route's cached-result vocabulary boundary", () => {
 
   it("both …OrThrow names are served by the read their base verb admits to", async () => {
     const { client, route } = await world();
-    const codec = route
-      .operation(author as never, "findUniqueOrThrow", { where: { id: 1 } })
-      .cacheResultCodec();
+    const codec = routedCodec(
+      route.prepare("author", "findUniqueOrThrow", {
+        where: { id: 1 },
+      })
+    );
     const located = await client.author.findUniqueOrThrow({ where: { id: 1 } });
     assert.deepEqual(located, {
       id: 1,
@@ -197,17 +200,17 @@ describe("FC-04 — the route's cached-result vocabulary boundary", () => {
     // The base read is `findUnique`, whose own publication for zero rows is
     // `null`; the `…OrThrow` name inherits that codec, absent arm included.
     assert.equal(codec.materialize(codec.snapshot(null)), null);
-    const base = route
-      .operation(author as never, "findUnique", { where: { id: 1 } })
-      .cacheResultCodec();
+    const base = routedCodec(
+      route.prepare("author", "findUnique", { where: { id: 1 } })
+    );
     assert.deepEqual(base.snapshot(located), codec.snapshot(located));
 
     // The second place the two vocabularies differ, mirrored: `findFirstOrThrow`
     // against the `findFirst` its base verb admits to, absent arm included.
     const firstOrder = { orderBy: { id: "asc" } } as const;
-    const firstCodec = route
-      .operation(author as never, "findFirstOrThrow", { ...firstOrder })
-      .cacheResultCodec();
+    const firstCodec = routedCodec(
+      route.prepare("author", "findFirstOrThrow", { ...firstOrder })
+    );
     const first = await client.author.findFirstOrThrow({ ...firstOrder });
     assert.deepEqual(first, {
       id: 1,
@@ -217,20 +220,20 @@ describe("FC-04 — the route's cached-result vocabulary boundary", () => {
     });
     assert.deepEqual(firstCodec.materialize(firstCodec.snapshot(first)), first);
     assert.equal(firstCodec.materialize(firstCodec.snapshot(null)), null);
-    const firstBase = route
-      .operation(author as never, "findFirst", { ...firstOrder })
-      .cacheResultCodec();
+    const firstBase = routedCodec(
+      route.prepare("author", "findFirst", { ...firstOrder })
+    );
     assert.deepEqual(firstBase.snapshot(first), firstCodec.snapshot(first));
   });
 
   it("a verb the cache layer never offers reaches the retained boundary, before anything runs", async () => {
     const { driver, route } = await world();
     driver.sent.length = 0;
-    const operation = route.operation(author as never, "create", {
+    const operation = route.prepare("author", "create", {
       data: { id: 9, name: "Dee", age: 20, joinedAt: new Date() },
     });
     assert.throws(
-      () => operation.cacheResultCodec(),
+      () => routedCodec(operation),
       (error: unknown) =>
         error instanceof UnsupportedOperationError &&
         error.message ===

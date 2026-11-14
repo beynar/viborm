@@ -820,39 +820,6 @@ describe("E2-U1 provenance: the deeper key comes from the row the probe locked",
     ).resolves.toMatchObject({ bio: "before" });
   }, 30_000);
 
-  test("the atomic batch re-checks the located key against the correlation and aborts", async () => {
-    const { database: db, namespace } = getFamily();
-    const stateClient = makeClient(new PGliteDriver({ client: db, namespace }));
-    await seed(stateClient);
-    // Same corruption, other substrate. The presence guard re-asserts
-    // `fk = parent AND pk = <located>` on ONE row, so a located key belonging to another
-    // parent never reaches a write — stronger than the transaction leg, and for that
-    // reason blind to provenance, which is why the claim above is measured there.
-    const client = makeClient(
-      new CorruptProbeBatchDriver(
-        { client: db, namespace },
-        {
-          table: "e2u1_profiles",
-          column: "id",
-          mode: "wrong",
-          wrongValue: "p-decoy",
-        }
-      )
-    );
-    await expect(client.user.update(deepCreate)).rejects.toThrow(
-      PROFILE_NOT_FOUND
-    );
-    await expect(
-      stateClient.note.findUnique({ where: { id: "n-prov" } })
-    ).resolves.toBeNull();
-    await expect(
-      stateClient.profile.findMany({ orderBy: { id: "asc" } })
-    ).resolves.toEqual([
-      { id: "p-decoy", bio: "decoy", userId: "decoy" },
-      { id: "p-owner", bio: "before", userId: "owner" },
-    ]);
-  }, 30_000);
-
   for (const substrate of ["transaction", "atomic batch"] as const) {
     test(`a probe row without the located key fails closed at planning (${substrate})`, async () => {
       const { database: db, namespace } = getFamily();

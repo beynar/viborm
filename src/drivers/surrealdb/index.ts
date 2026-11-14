@@ -1,6 +1,6 @@
 /**
  * `viborm/surrealdb`: a driver whose database reads SurrealQL. {@link SurrealQueries}
- * and {@link SurrealOperationContext} write its statements, and it declares only what
+ * and {@link SurrealWriter} write its statements, and it declares only what
  * the engine asks of any driver. `docs/architecture/query-backend-frontier.md`.
  */
 
@@ -16,8 +16,8 @@ import {
 import type { Schema } from "@client/types";
 import {
   ClientInitializationError,
-  ForbiddenError,
   ForeignKeyError,
+  NestedWriteAssertionError,
   QueryError,
   TransactionError,
   UniqueConstraintError,
@@ -48,16 +48,20 @@ import type {
 } from "../shared";
 import { refuseUnknownDriverConfigKeys } from "../shared/driver-options";
 import { createTransactionCleanupError } from "../shared/transactions";
-import type { QueryExecutionContext, QueryResult } from "../types";
-import { SurrealOperationContext } from "./operation-context";
+import type { BatchQuery, QueryExecutionContext, QueryResult } from "../types";
 import { SurrealQueries } from "./queries";
 import {
   COMMITS,
   FORBIDDEN_ROW,
   isConflict,
   ReplayedTransaction,
-  WAITING_FAILED,
+  STOPPED,
 } from "./transaction";
+import { SurrealCall, SurrealWriter } from "./writer";
+
+/** In a text of several statements, where one's answers end: a statement may hold several of its own ahead of itself. */
+const MARKED = "viborm:|";
+const NAMED_PARAMETER = /\$p(\d+)\b/g;
 
 /**
  * A statement that holds what it reads ahead of itself, where no transaction
@@ -142,10 +146,9 @@ function refusal(error: unknown): unknown {
   const message = error instanceof Error ? error.message : String(error);
   const cause = error instanceof Error ? error : undefined;
   if (isConflict(error)) return new TransactionError(message, { cause });
-  // Its operation's own error, which it reads from the mark.
-  if (WAITING_FAILED.test(message)) return new QueryError(message, { cause });
-  if (message.includes(FORBIDDEN_ROW))
-    return new ForbiddenError("row", "write", { cause });
+  // The statement stopped itself: its call says what it refuses with.
+  if (message.includes(FORBIDDEN_ROW) || message.includes(STOPPED))
+    return new NestedWriteAssertionError(message, { cause });
   if (UNIQUE_REFUSAL.test(message))
     return new UniqueConstraintError(`Unique constraint failed: ${message}`, {
       cause,
@@ -246,10 +249,11 @@ export class SurrealDriver
   readonly adapter = FACTS;
   override readonly backend = queryBackend({
     queries: SurrealQueries,
-    context: SurrealOperationContext,
+    context: SurrealCall,
+    writer: SurrealWriter,
   });
   readonly supportsTransactions = true;
-  readonly supportsBatch = false;
+  readonly supportsBatch = true;
   readonly supportsOrderedCommittedSegments = false;
 
   readonly #rerunsOnConflict: number;
@@ -352,6 +356,43 @@ export class SurrealDriver
       const result = answers.at(stated.endsWith("; COMMIT;") ? -2 : -1);
       const rows = Array.isArray(result) ? result : [];
       return { rows: plain(rows) as T[], rowCount: rows.length };
+    } catch (error) {
+      throw refusal(error);
+    }
+  }
+
+  /**
+   * Statements that go together, as one text: a transaction of its own
+   * outside any, and part of the one that holds it inside. A text that fails
+   * says the failure of its first statement, whichever failed.
+   */
+  protected override async executeBatch<T>(
+    client: Surreal | ReplayedTransaction,
+    queries: BatchQuery[]
+  ): Promise<QueryResult<T>[]> {
+    const values: Record<string, unknown> = {};
+    let bound = 0;
+    const texts = queries.map(({ sql, params = [] }) => {
+      const from = bound;
+      for (const value of params) values[`p${++bound}`] = value;
+      return `${sql.replace(NAMED_PARAMETER, (_, at) => `$p${from + Number(at)}`)}; RETURN "${MARKED}";`;
+    });
+    const whole = !(client instanceof ReplayedTransaction);
+    try {
+      const answers = await (client as ReplayedTransaction).query<unknown[]>(
+        whole ? `BEGIN; ${texts.join(" ")} COMMIT;` : texts.join(" "),
+        values
+      );
+      const results: QueryResult<T>[] = [];
+      let last: unknown;
+      for (const answer of answers) {
+        if (answer === MARKED) {
+          const rows = Array.isArray(last) ? last : [];
+          results.push({ rows: plain(rows) as T[], rowCount: rows.length });
+        }
+        last = answer;
+      }
+      return results;
     } catch (error) {
       throw refusal(error);
     }

@@ -46,6 +46,7 @@ export default defineConfig({
       "tests/fixtures/reset-modules-per-file.ts",
       "tests/contracts/public-client/cli/_clack.ts",
       "tests/fixtures/register-migration-drivers.ts",
+      "tests/fixtures/extension-host.ts",
     ],
     // Database behavior suites provision one schema family and reset its rows.
     // The remaining fresh-database tests inject races or destructive state and

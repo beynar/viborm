@@ -1,14 +1,16 @@
 // Enum Scalar
-// Standalone scalar class with State generic pattern
+// The modifiers every scalar shares are implemented once, in the chain this
+// class extends; an enum keeps them as methods, typed on its own values
 
-import type { EnumValues } from "@validation/primitives/enum";
+import type { EnumSchema } from "@validation/primitives/enum";
 import v from "@validation/primitives/v";
+import type { ComputeInput, ComputeOutput, VibSchema } from "@validation/types";
 import {
   createDefaultState,
   type DefaultValueInput,
-  nullableDefault,
   type ScalarState,
-  updateState,
+  type UpdateState,
+  untypedListScalarChain,
 } from "../common";
 import { admitNativeType } from "../native-catalog";
 import type {
@@ -18,74 +20,99 @@ import type {
   NativeTypeDeclaration,
 } from "../native-types";
 
-export class EnumScalar<State extends ScalarState<"enum">> {
-  private readonly state: State;
-  private readonly _nativeType?: NativeTypeDeclaration | undefined;
-  constructor(state: State, _nativeType?: NativeTypeDeclaration) {
-    this.state = state;
-    this._nativeType = _nativeType;
-  }
+/**
+ * The values of an enum in this state. A state that names no values (the wide
+ * one a model's fields are read through) has some strings, not none: a precise
+ * enum is then an enum of the wide kind member by member.
+ */
+type Values<State extends ScalarState<"enum">> =
+  State["base"] extends EnumSchema<infer T, any, any> ? T : readonly string[];
+
+export class EnumScalar<
+  out State extends ScalarState<"enum">,
+> extends untypedListScalarChain<State> {
+  private declare readonly state: State;
+  private declare readonly _nativeType: NativeTypeDeclaration | undefined;
 
   get enumValues() {
     return (
       "values" in this.state.base ? this.state.base.values : []
-    ) as EnumValues<State["base"]>;
+    ) as Values<State>;
   }
 
-  nullable() {
-    return new EnumScalar(
-      updateState(this, {
-        nullable: true,
-        hasDefault: true,
-        default: nullableDefault(this.state),
-        optional: true,
-        base: v.enum<
-          typeof this.enumValues,
-          {
-            nullable: true;
-            array: State["array"];
-          }
-        >(this.enumValues, {
-          nullable: true,
-          array: this.state.array,
-        }),
-      }),
-      this._nativeType
-    );
+  protected rebase(state: State): VibSchema {
+    return v.enum(this.enumValues, {
+      nullable: state.nullable,
+      array: state.array,
+    });
   }
 
-  array() {
-    return new EnumScalar(
-      updateState(this, {
-        array: true,
-        base: v.enum<
-          typeof this.enumValues,
-          {
-            nullable: State["nullable"];
-            array: true;
-          }
-        >(this.enumValues, {
-          nullable: this.state.nullable,
-          array: true,
-        }),
-      }),
-      this._nativeType
-    );
+  override nullable() {
+    return super.nullable() as EnumScalar<
+      UpdateState<
+        this["~"]["state"],
+        {
+          readonly nullable: true;
+          readonly hasDefault: true;
+          readonly default: State["hasDefault"] extends false
+            ? null
+            : State["default"];
+          readonly optional: true;
+          readonly base: EnumSchema<
+            Values<State>,
+            ComputeInput<
+              Values<State>[number],
+              { nullable: true; array: State["array"] }
+            >,
+            ComputeOutput<
+              Values<State>[number],
+              { nullable: true; array: State["array"] }
+            >
+          >;
+        }
+      >
+    >;
   }
 
-  default<V extends DefaultValueInput<State>>(value: V) {
-    return new EnumScalar(
-      updateState(this, {
-        hasDefault: true,
-        default: value,
-        optional: true,
-      }),
-      this._nativeType
-    );
+  override array() {
+    return super.array() as EnumScalar<
+      UpdateState<
+        this["~"]["state"],
+        {
+          readonly array: true;
+          readonly base: EnumSchema<
+            Values<State>,
+            ComputeInput<
+              Values<State>[number],
+              { nullable: State["nullable"]; array: true }
+            >,
+            ComputeOutput<
+              Values<State>[number],
+              { nullable: State["nullable"]; array: true }
+            >
+          >;
+        }
+      >
+    >;
   }
 
-  map(columnName: string) {
-    return new EnumScalar(updateState(this, { columnName }), this._nativeType);
+  override default<V extends DefaultValueInput<State>>(value: V) {
+    return super.default(value) as EnumScalar<
+      UpdateState<
+        this["~"]["state"],
+        {
+          readonly hasDefault: true;
+          readonly default: V;
+          readonly optional: true;
+        }
+      >
+    >;
+  }
+
+  override map(columnName: string) {
+    return super.map(columnName) as EnumScalar<
+      UpdateState<this["~"]["state"], { readonly columnName: string }>
+    >;
   }
 
   /**
@@ -101,7 +128,13 @@ export class EnumScalar<State extends ScalarState<"enum">> {
    * ```
    */
   name(enumName: string) {
-    return new EnumScalar(updateState(this, { enumName }), this._nativeType);
+    return new EnumScalar(
+      { ...this.state, enumName } as UpdateState<
+        State,
+        { readonly enumName: string }
+      >,
+      this._nativeType
+    );
   }
 
   get ["~"]() {

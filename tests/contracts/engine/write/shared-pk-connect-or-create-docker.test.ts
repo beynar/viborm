@@ -65,7 +65,11 @@ function suite(
 
 suite(
   "Docker MySQL",
-  () => new MySQL2Driver({ databaseUrl: MYSQL as string }),
+  () =>
+    new MySQL2Driver({
+      databaseUrl: MYSQL as string,
+      migrationNamespaceAttestation: "non-redirecting",
+    }),
   MYSQL
 );
 suite(

@@ -7,18 +7,13 @@
   ],
   "create post nested comments": [
     {
-      "sql": "INSERT INTO \"post\" (\"id\", \"tenantId\", \"title\", \"authorId\", \"deletedAt\", \"version\") VALUES (?, ?, ?, ?, NULL, ?)",
+      "sql": "INSERT INTO \"post\" (\"id\", \"tenantId\", \"title\", \"authorId\", \"deletedAt\", \"version\") VALUES (?, ?, ?, ?, NULL, ?) RETURNING \"id\" AS \"id\", \"tenantId\" AS \"tenantId\", \"title\" AS \"title\", \"authorId\" AS \"authorId\", \"deletedAt\" AS \"deletedAt\", \"version\" AS \"version\"",
       "params": [10, "acme", "t", 1, 0],
       "batch": 1
     },
     {
       "sql": "INSERT INTO \"comment\" (\"id\", \"tenantId\", \"body\", \"deletedAt\", \"version\", \"postId\") VALUES (?, ?, ?, NULL, ?, ?)",
       "params": [100, "acme", "b", 0, 10],
-      "batch": 1
-    },
-    {
-      "sql": "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"tenantId\" AS \"tenantId\", \"q0\".\"title\" AS \"title\", \"q0\".\"authorId\" AS \"authorId\", \"q0\".\"deletedAt\" AS \"deletedAt\", \"q0\".\"version\" AS \"version\" FROM \"post\" AS \"q0\" WHERE \"q0\".\"id\" = ? ORDER BY \"q0\".\"id\" ASC",
-      "params": [10],
       "batch": 1
     }
   ],
@@ -98,13 +93,13 @@
   ],
   "relation filters": [
     {
-      "sql": "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"tenantId\" AS \"tenantId\", \"q0\".\"name\" AS \"name\", \"q0\".\"deletedAt\" AS \"deletedAt\", \"q0\".\"version\" AS \"version\" FROM \"author\" AS \"q0\" WHERE ((EXISTS (SELECT 1 FROM \"post\" AS \"q1\" WHERE ((\"q0\".\"id\" = \"q1\".\"authorId\" AND (\"q1\".\"tenantId\" COLLATE BINARY = ? AND \"q1\".\"deletedAt\" IS NULL)) AND \"q1\".\"title\" COLLATE BINARY = ?)) AND NOT EXISTS (SELECT 1 FROM \"post\" AS \"q2\" WHERE ((\"q0\".\"id\" = \"q2\".\"authorId\" AND (\"q2\".\"tenantId\" COLLATE BINARY = ? AND \"q2\".\"deletedAt\" IS NULL)) AND \"q2\".\"title\" COLLATE BINARY = ?)) AND NOT EXISTS (SELECT 1 FROM \"post\" AS \"q3\" WHERE ((\"q0\".\"id\" = \"q3\".\"authorId\" AND (\"q3\".\"tenantId\" COLLATE BINARY = ? AND \"q3\".\"deletedAt\" IS NULL)) AND NOT (\"q3\".\"authorId\" = ?)))) AND (\"q0\".\"tenantId\" COLLATE BINARY = ? AND \"q0\".\"deletedAt\" IS NULL)) ORDER BY \"q0\".\"id\" ASC",
+      "sql": "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"tenantId\" AS \"tenantId\", \"q0\".\"name\" AS \"name\", \"q0\".\"deletedAt\" AS \"deletedAt\", \"q0\".\"version\" AS \"version\" FROM \"author\" AS \"q0\" WHERE ((EXISTS (SELECT 1 FROM (SELECT 1 FROM \"post\" AS \"q1\" WHERE ((\"q0\".\"id\" = \"q1\".\"authorId\" AND (\"q1\".\"tenantId\" COLLATE BINARY = ? AND \"q1\".\"deletedAt\" IS NULL)) AND \"q1\".\"title\" COLLATE BINARY = ?))) AND (NOT EXISTS (SELECT 1 FROM (SELECT 1 FROM \"post\" AS \"q2\" WHERE ((\"q0\".\"id\" = \"q2\".\"authorId\" AND (\"q2\".\"tenantId\" COLLATE BINARY = ? AND \"q2\".\"deletedAt\" IS NULL)) AND \"q2\".\"title\" COLLATE BINARY = ?))) AND NOT EXISTS (SELECT 1 FROM (SELECT 1 FROM \"post\" AS \"q3\" WHERE ((\"q0\".\"id\" = \"q3\".\"authorId\" AND (\"q3\".\"tenantId\" COLLATE BINARY = ? AND \"q3\".\"deletedAt\" IS NULL)) AND NOT (\"q3\".\"authorId\" = ?)))))) AND (\"q0\".\"tenantId\" COLLATE BINARY = ? AND \"q0\".\"deletedAt\" IS NULL)) ORDER BY \"q0\".\"id\" ASC",
       "params": ["acme", "t", "acme", "x", "acme", 1, "acme"]
     }
   ],
   "is filter": [
     {
-      "sql": "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"tenantId\" AS \"tenantId\", \"q0\".\"title\" AS \"title\", \"q0\".\"authorId\" AS \"authorId\", \"q0\".\"deletedAt\" AS \"deletedAt\", \"q0\".\"version\" AS \"version\" FROM \"post\" AS \"q0\" WHERE (EXISTS (SELECT 1 FROM \"author\" AS \"q1\" WHERE ((\"q0\".\"authorId\" = \"q1\".\"id\" AND (\"q1\".\"tenantId\" COLLATE BINARY = ? AND \"q1\".\"deletedAt\" IS NULL)) AND \"q1\".\"name\" COLLATE BINARY = ?)) AND (\"q0\".\"tenantId\" COLLATE BINARY = ? AND \"q0\".\"deletedAt\" IS NULL)) ORDER BY \"q0\".\"id\" ASC",
+      "sql": "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"tenantId\" AS \"tenantId\", \"q0\".\"title\" AS \"title\", \"q0\".\"authorId\" AS \"authorId\", \"q0\".\"deletedAt\" AS \"deletedAt\", \"q0\".\"version\" AS \"version\" FROM \"post\" AS \"q0\" WHERE (EXISTS (SELECT 1 FROM (SELECT 1 FROM \"author\" AS \"q1\" WHERE ((\"q0\".\"authorId\" = \"q1\".\"id\" AND (\"q1\".\"tenantId\" COLLATE BINARY = ? AND \"q1\".\"deletedAt\" IS NULL)) AND \"q1\".\"name\" COLLATE BINARY = ?))) AND (\"q0\".\"tenantId\" COLLATE BINARY = ? AND \"q0\".\"deletedAt\" IS NULL)) ORDER BY \"q0\".\"id\" ASC",
       "params": ["acme", "a", "acme"]
     }
   ],
@@ -152,7 +147,7 @@
   ],
   "update locked": [
     {
-      "sql": "UPDATE \"post\" SET \"title\" = ? WHERE (\"post\".\"id\" = ? AND (\"post\".\"tenantId\" COLLATE BINARY = ? AND \"post\".\"deletedAt\" IS NULL AND \"post\".\"version\" = ?)) RETURNING \"id\" AS \"id\", \"tenantId\" AS \"tenantId\", \"title\" AS \"title\", \"authorId\" AS \"authorId\", \"deletedAt\" AS \"deletedAt\", \"version\" AS \"version\"",
+      "sql": "UPDATE \"post\" SET \"title\" = ? WHERE (\"post\".\"id\" = ? AND (\"post\".\"tenantId\" COLLATE BINARY = ? AND (\"post\".\"deletedAt\" IS NULL AND \"post\".\"version\" = ?))) RETURNING \"id\" AS \"id\", \"tenantId\" AS \"tenantId\", \"title\" AS \"title\", \"authorId\" AS \"authorId\", \"deletedAt\" AS \"deletedAt\", \"version\" AS \"version\"",
       "params": ["t3", 10, "acme", 0]
     }
   ],
@@ -164,61 +159,43 @@
   ],
   "upsert": [
     {
-      "sql": "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"tenantId\" AS \"tenantId\", \"q0\".\"title\" AS \"title\", \"q0\".\"authorId\" AS \"authorId\", \"q0\".\"deletedAt\" AS \"deletedAt\", \"q0\".\"version\" AS \"version\" FROM \"post\" AS \"q0\" WHERE (\"q0\".\"id\" = ? AND (\"q0\".\"tenantId\" COLLATE BINARY = ? AND \"q0\".\"deletedAt\" IS NULL)) ORDER BY \"q0\".\"id\" ASC LIMIT ?",
-      "params": [13, "acme", 1]
+      "sql": "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"tenantId\" AS \"tenantId\", \"q0\".\"title\" AS \"title\", \"q0\".\"authorId\" AS \"authorId\", \"q0\".\"deletedAt\" AS \"deletedAt\", \"q0\".\"version\" AS \"version\" FROM \"post\" AS \"q0\" WHERE (\"q0\".\"id\" = ? AND (\"q0\".\"tenantId\" COLLATE BINARY = ? AND \"q0\".\"deletedAt\" IS NULL)) ORDER BY \"q0\".\"id\" ASC",
+      "params": [13, "acme"]
     },
     {
-      "sql": "INSERT INTO \"post\" (\"id\", \"tenantId\", \"title\", \"authorId\", \"deletedAt\", \"version\") VALUES (?, ?, ?, ?, NULL, ?)",
-      "params": [13, "acme", "w", 1, 0],
-      "batch": 1
-    },
-    {
-      "sql": "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"tenantId\" AS \"tenantId\", \"q0\".\"title\" AS \"title\", \"q0\".\"authorId\" AS \"authorId\", \"q0\".\"deletedAt\" AS \"deletedAt\", \"q0\".\"version\" AS \"version\" FROM \"post\" AS \"q0\" WHERE \"q0\".\"id\" = ? ORDER BY \"q0\".\"id\" ASC",
-      "params": [13],
-      "batch": 1
+      "sql": "INSERT INTO \"post\" (\"id\", \"tenantId\", \"title\", \"authorId\", \"deletedAt\", \"version\") VALUES (?, ?, ?, ?, NULL, ?) RETURNING \"id\" AS \"id\", \"tenantId\" AS \"tenantId\", \"title\" AS \"title\", \"authorId\" AS \"authorId\", \"deletedAt\" AS \"deletedAt\", \"version\" AS \"version\"",
+      "params": [13, "acme", "w", 1, 0]
     }
   ],
   "nested update": [
     {
-      "sql": "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"tenantId\" AS \"tenantId\", \"q0\".\"name\" AS \"name\", \"q0\".\"deletedAt\" AS \"deletedAt\", \"q0\".\"version\" AS \"version\" FROM \"author\" AS \"q0\" WHERE (\"q0\".\"id\" = ? AND (\"q0\".\"tenantId\" COLLATE BINARY = ? AND \"q0\".\"deletedAt\" IS NULL)) ORDER BY \"q0\".\"id\" ASC LIMIT ?",
-      "params": [1, "acme", 1]
-    },
-    {
-      "sql": "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"tenantId\" AS \"tenantId\", \"q0\".\"title\" AS \"title\", \"q0\".\"authorId\" AS \"authorId\", \"q0\".\"deletedAt\" AS \"deletedAt\", \"q0\".\"version\" AS \"version\" FROM \"post\" AS \"q0\" WHERE (\"q0\".\"authorId\" = ? AND (\"q0\".\"id\" = ? AND (\"q0\".\"tenantId\" COLLATE BINARY = ? AND \"q0\".\"deletedAt\" IS NULL))) ORDER BY \"q0\".\"id\" ASC LIMIT ?",
-      "params": [1, 13, "acme", 1]
-    },
-    {
-      "sql": "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"tenantId\" AS \"tenantId\", \"q0\".\"title\" AS \"title\", \"q0\".\"authorId\" AS \"authorId\", \"q0\".\"deletedAt\" AS \"deletedAt\", \"q0\".\"version\" AS \"version\" FROM \"post\" AS \"q0\" WHERE (\"q0\".\"authorId\" = ? AND (\"q0\".\"id\" = ? AND (\"q0\".\"tenantId\" COLLATE BINARY = ? AND \"q0\".\"deletedAt\" IS NULL))) ORDER BY \"q0\".\"id\" ASC LIMIT ?",
-      "params": [1, 10, "acme", 1]
-    },
-    {
-      "sql": "SELECT CASE WHEN EXISTS (SELECT \"q0\".\"id\" AS \"id\" FROM \"author\" AS \"q0\" WHERE ((\"q0\".\"id\" = ? AND (\"q0\".\"tenantId\" COLLATE BINARY = ? AND \"q0\".\"deletedAt\" IS NULL)) AND \"q0\".\"id\" = ?) ORDER BY \"q0\".\"id\" ASC LIMIT ?) THEN 1 ELSE json_extract('x', '$') END AS \"__viborm_assert__\"",
-      "params": [1, "acme", 1, 1],
+      "sql": "SELECT CASE WHEN EXISTS (SELECT \"q0\".\"id\" AS \"id\" FROM \"author\" AS \"q0\" WHERE (\"q0\".\"id\" = ? AND (\"q0\".\"tenantId\" COLLATE BINARY = ? AND \"q0\".\"deletedAt\" IS NULL)) ORDER BY \"q0\".\"id\" ASC LIMIT ?) THEN 1 ELSE json_extract('x', '$') END AS \"__viborm_assert__\"",
+      "params": [1, "acme", 1],
       "batch": 1
     },
     {
-      "sql": "SELECT CASE WHEN EXISTS (SELECT \"q0\".\"id\" AS \"id\" FROM \"post\" AS \"q0\" WHERE (\"q0\".\"authorId\" = ? AND (\"q0\".\"id\" = ? AND (\"q0\".\"tenantId\" COLLATE BINARY = ? AND \"q0\".\"deletedAt\" IS NULL)) AND \"q0\".\"id\" = ?) ORDER BY \"q0\".\"id\" ASC) THEN 1 ELSE json_extract('x', '$') END AS \"__viborm_assert__\"",
-      "params": [1, 13, "acme", 13],
+      "sql": "SELECT CASE WHEN EXISTS (SELECT \"q0\".\"id\" AS \"id\" FROM \"post\" AS \"q0\" WHERE (\"q0\".\"authorId\" = ? AND (\"q0\".\"id\" = ? AND (\"q0\".\"tenantId\" COLLATE BINARY = ? AND \"q0\".\"deletedAt\" IS NULL))) ORDER BY \"q0\".\"id\" ASC LIMIT ?) THEN 1 ELSE json_extract('x', '$') END AS \"__viborm_assert__\"",
+      "params": [1, 13, "acme", 1],
       "batch": 1
     },
     {
-      "sql": "SELECT CASE WHEN NOT EXISTS (SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"tenantId\" AS \"tenantId\", \"q0\".\"title\" AS \"title\", \"q0\".\"authorId\" AS \"authorId\", \"q0\".\"deletedAt\" AS \"deletedAt\", \"q0\".\"version\" AS \"version\" FROM \"post\" AS \"q0\" WHERE (\"q0\".\"authorId\" = ? AND ((\"q0\".\"id\" = ? AND (\"q0\".\"tenantId\" COLLATE BINARY = ? AND \"q0\".\"deletedAt\" IS NULL)) AND EXISTS (SELECT 1 FROM \"comment\" AS \"q1\" WHERE (\"q0\".\"id\" = \"q1\".\"postId\" AND (\"q1\".\"tenantId\" COLLATE BINARY = ? AND \"q1\".\"deletedAt\" IS NULL))))) ORDER BY \"q0\".\"id\" ASC LIMIT ?) THEN 1 ELSE json_extract('x', '$') END AS \"__viborm_assert__\"",
-      "params": [1, 13, "acme", "acme", 1],
+      "sql": "SELECT CASE WHEN EXISTS (SELECT \"q0\".\"id\" AS \"id\" FROM \"post\" AS \"q0\" WHERE (\"q0\".\"authorId\" = ? AND (\"q0\".\"id\" = ? AND (\"q0\".\"tenantId\" COLLATE BINARY = ? AND \"q0\".\"deletedAt\" IS NULL))) ORDER BY \"q0\".\"id\" ASC LIMIT ?) THEN 1 ELSE json_extract('x', '$') END AS \"__viborm_assert__\"",
+      "params": [1, 10, "acme", 1],
       "batch": 1
     },
     {
-      "sql": "UPDATE \"post\" SET \"deletedAt\" = ? WHERE \"id\" = ?",
-      "params": ["<instant>", 13],
+      "sql": "SELECT CASE WHEN NOT EXISTS (SELECT \"q0\".\"id\" AS \"id\" FROM \"post\" AS \"q0\" WHERE ((\"q0\".\"id\" = ? AND (\"q0\".\"tenantId\" COLLATE BINARY = ? AND \"q0\".\"deletedAt\" IS NULL)) AND EXISTS (SELECT 1 FROM (SELECT 1 FROM \"comment\" AS \"q1\" WHERE (\"q0\".\"id\" = \"q1\".\"postId\" AND (\"q1\".\"tenantId\" COLLATE BINARY = ? AND \"q1\".\"deletedAt\" IS NULL))))) ORDER BY \"q0\".\"id\" ASC LIMIT ?) THEN 1 ELSE json_extract('x', '$') END AS \"__viborm_assert__\"",
+      "params": [13, "acme", "acme", 1],
       "batch": 1
     },
     {
-      "sql": "SELECT CASE WHEN EXISTS (SELECT \"q0\".\"id\" AS \"id\" FROM \"post\" AS \"q0\" WHERE (\"q0\".\"authorId\" = ? AND (\"q0\".\"id\" = ? AND (\"q0\".\"tenantId\" COLLATE BINARY = ? AND \"q0\".\"deletedAt\" IS NULL)) AND \"q0\".\"id\" = ?) ORDER BY \"q0\".\"id\" ASC LIMIT ?) THEN 1 ELSE json_extract('x', '$') END AS \"__viborm_assert__\"",
-      "params": [1, 10, "acme", 10, 1],
+      "sql": "UPDATE \"post\" SET \"deletedAt\" = ? WHERE ((\"post\".\"id\" IN (?) AND \"post\".\"id\" = ?) AND (\"post\".\"tenantId\" COLLATE BINARY = ? AND \"post\".\"deletedAt\" IS NULL)) RETURNING 1",
+      "params": ["<instant>", 13, 13, "acme"],
       "batch": 1
     },
     {
-      "sql": "UPDATE \"post\" SET \"title\" = ? WHERE \"id\" = ?",
-      "params": ["n", 10],
+      "sql": "UPDATE \"post\" SET \"title\" = ? WHERE ((\"post\".\"id\" IN (?) AND \"post\".\"id\" = ?) AND (\"post\".\"tenantId\" COLLATE BINARY = ? AND \"post\".\"deletedAt\" IS NULL)) RETURNING 1",
+      "params": ["n", 10, 10, "acme"],
       "batch": 1
     },
     {
@@ -229,7 +206,7 @@
   ],
   "delete tombstone": [
     {
-      "sql": "SELECT CASE WHEN NOT EXISTS (SELECT \"q0\".\"id\" AS \"id\" FROM \"post\" AS \"q0\" WHERE ((\"q0\".\"id\" = ? AND (\"q0\".\"tenantId\" COLLATE BINARY = ? AND \"q0\".\"deletedAt\" IS NULL)) AND EXISTS (SELECT 1 FROM \"comment\" AS \"q1\" WHERE (\"q0\".\"id\" = \"q1\".\"postId\" AND (\"q1\".\"tenantId\" COLLATE BINARY = ? AND \"q1\".\"deletedAt\" IS NULL)))) ORDER BY \"q0\".\"id\" ASC LIMIT ?) THEN 1 ELSE json_extract('x', '$') END AS \"__viborm_assert__\"",
+      "sql": "SELECT CASE WHEN NOT EXISTS (SELECT \"q0\".\"id\" AS \"id\" FROM \"post\" AS \"q0\" WHERE ((\"q0\".\"id\" = ? AND (\"q0\".\"tenantId\" COLLATE BINARY = ? AND \"q0\".\"deletedAt\" IS NULL)) AND EXISTS (SELECT 1 FROM (SELECT 1 FROM \"comment\" AS \"q1\" WHERE (\"q0\".\"id\" = \"q1\".\"postId\" AND (\"q1\".\"tenantId\" COLLATE BINARY = ? AND \"q1\".\"deletedAt\" IS NULL))))) ORDER BY \"q0\".\"id\" ASC LIMIT ?) THEN 1 ELSE json_extract('x', '$') END AS \"__viborm_assert__\"",
       "params": [12, "acme", "acme", 1],
       "batch": 1
     },

@@ -1,4 +1,5 @@
 import { CacheConfigurationError } from "@errors";
+import { withHost } from "@extensions/host";
 import type { GenericQueryHandler } from "@extensions/query";
 import {
   isFunction,
@@ -127,6 +128,7 @@ export function cache<const Config>(
     NoInfer<CacheExtensionConfig & ExactCacheExtensionConfig<Config>>
 ): OfficialCacheExtension;
 export function cache(config: CacheExtensionConfig): unknown {
+  withHost();
   const capability = snapshotConfig(config);
   const query: GenericQueryHandler = ({ proceed }) => proceed();
   registerOfficialCacheQuery(query, capability, OFFICIAL_CACHE_RUNTIME);

@@ -457,8 +457,9 @@ describe("G4-02 D-7 — a lone statement leaves the batch", () => {
           atomicity: "segment",
           phase: "result",
           committedSegments: 1,
-          committedWriteMembers: 1,
-          completedMembers: 0,
+          // Both rows of the call are written and stand.
+          committedWriteMembers: 2,
+          completedMembers: 2,
         },
         diagnostic
       );

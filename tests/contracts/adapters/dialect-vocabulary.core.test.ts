@@ -192,18 +192,7 @@ describe("shared adapter SQL vocabulary", () => {
 
         const subquery = sql`SELECT ${1}`;
         expectSql(adapter.filters.some(subquery), "EXISTS (SELECT ?)", [1]);
-        expectSql(
-          adapter.filters.every(subquery),
-          "NOT EXISTS (SELECT ?)",
-          [1]
-        );
         expectSql(adapter.filters.none(subquery), "NOT EXISTS (SELECT ?)", [1]);
-        expectSql(adapter.filters.is(subquery), "EXISTS (SELECT ?)", [1]);
-        expectSql(
-          adapter.filters.isNot(subquery),
-          "NOT EXISTS (SELECT ?)",
-          [1]
-        );
         expectSql(adapter.subqueries.scalar(subquery), "(SELECT ?)", [1]);
         expect(adapter.subqueries.correlate(subquery, "q").values).toEqual([1]);
         expectSql(

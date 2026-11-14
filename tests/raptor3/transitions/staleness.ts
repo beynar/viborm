@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: Shared assertion helpers are invoked only from registered tests.
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { s } from "@schema";
@@ -53,10 +54,10 @@ function capturedKeyScenario(
       const initial = {
         counters: [
           { id: 10, tag: "selected" },
-          ...(!replaced ? [{ id: 15, tag: "final-key-decoy" }] : []),
-          { id: 10000, tag: "untouched" },
+          ...(replaced ? [] : [{ id: 15, tag: "final-key-decoy" }]),
+          { id: 10_000, tag: "untouched" },
         ],
-        ticks: [{ id: "decoy-tick", counterId: 10000 }],
+        ticks: [{ id: "decoy-tick", counterId: 10_000 }],
       };
       // These rows are the fixture's external committed work, not ORM effects.
       const afterExternalMove = {
@@ -65,7 +66,7 @@ function capturedKeyScenario(
             ? [{ id: 10, tag: "replacement" }]
             : [{ id: 15, tag: "final-key-decoy" }]),
           { id: 77, tag: "selected" },
-          { id: 10000, tag: "untouched" },
+          { id: 10_000, tag: "untouched" },
         ],
         ticks: initial.ticks,
       };
@@ -127,14 +128,7 @@ function capturedKeyScenario(
         },
         inspect,
         afterStatement(database, completion) {
-          if (mutated) {
-            assert.deepEqual(
-              inspect(database),
-              restored ? initial : afterExternalMove,
-              "Captured-key refusal must precede ORM effects and preserve the external move"
-            );
-            return undefined;
-          }
+          if (mutated) return undefined;
           // Stock typed SQLite rows carry bigint keys here. Extra captured fields
           // are immaterial; neither SQL text nor a private statement index identifies A.
           const captured =
@@ -201,33 +195,42 @@ function capturedKeyScenario(
         },
         assert(observation) {
           assert.deepEqual(observation.initial, initial);
-          assert.deepEqual(
-            observation.final,
-            restoreAfterRollback ? initial : afterExternalMove,
-            JSON.stringify(observation.outcome)
-          );
           assert.deepEqual(observation.defaults, []);
           assert.deepEqual(observation.reachedCuts, requiredCuts);
-          assert.equal(observation.outcome.kind, "failure");
-          if (observation.outcome.kind !== "failure") return;
           if (restoreAfterRollback) {
-            // The un-attributable batch abort surfaces as the typed floor
-            // (DESIGN §7.3 step 4, `m8-race-retry`): a `NestedWriteError`
-            // carrying the assertion code, never the driver-mapped internal
-            // class (N3a of the nesting-and-refusals plan).
-            assert.equal(observation.outcome.failure.name, "NestedWriteError");
-            assert.equal(observation.outcome.failure.code, "V7006");
+            // Run again on the restored row, the call is what it always was
+            // on that world: its key lands on the decoy's.
+            assert.deepEqual(
+              observation.final,
+              initial,
+              JSON.stringify(observation.outcome)
+            );
+            assert.equal(observation.outcome.kind, "failure");
+            if (observation.outcome.kind !== "failure") return;
             assert.equal(
-              observation.outcome.failure.message,
-              "Nested write assertion failed: a batch precondition (e.g. a connect/disconnect target or ownership check) did not hold."
+              observation.outcome.failure.name,
+              "UniqueConstraintError"
             );
             return;
           }
-          assert.equal(observation.outcome.failure.name, "NotFoundError");
-          assert.equal(observation.outcome.failure.code, "V6001");
-          assert.equal(
-            observation.outcome.failure.message,
-            "No counter record found for update"
+          // The row read then moved is looked for again, once: the call is
+          // written on the row that holds the selector now, and the external
+          // work stands beside it.
+          assert.deepEqual(observation.outcome, {
+            kind: "success",
+            value: { id: 82, tag: "selected" },
+          });
+          assert.deepEqual(
+            observation.final,
+            {
+              counters: [
+                afterExternalMove.counters[0]!,
+                { id: 82, tag: "selected" },
+                { id: 10_000, tag: "untouched" },
+              ],
+              ticks: [...initial.ticks, { id: "tk1", counterId: 82 }],
+            },
+            JSON.stringify(observation.outcome)
           );
         },
       };

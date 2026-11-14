@@ -76,8 +76,6 @@ const post = s
 const schema = { user, post };
 
 const DELETE_POSTS = /^DELETE FROM "n4p_posts"/;
-const CHANGED = (verb: string) =>
-  `${verb} selected-row cardinality changed during its locked mutation.`;
 
 describe("N4-25: a captured selected bulk mutation on a batch-only transport", () => {
   let driver: BatchOnlyDriver;
@@ -134,49 +132,46 @@ describe("N4-25: a captured selected bulk mutation on a batch-only transport", (
     );
   });
 
-  it("a captured row lost between the capture and the batch aborts before the write", async () => {
+  it("a captured row lost between the capture and the batch is not answered as deleted", async () => {
     const client = await world(() => new NonReturningBatchOnlyDriver());
     driver.plant = (database) => {
       database.exec(`DELETE FROM "n4p_posts" WHERE "id" = 'p1'`);
     };
-    await assert.rejects(
-      async () => {
-        await client.post.deleteMany({
-          where: { userId: "u1" },
-          select: { id: true },
-        });
-      },
-      (error: unknown) =>
-        (error as Error).message.includes(CHANGED("deleteMany"))
+    // The unit that writes asks again what the call read: the set changed,
+    // so the call plans again and answers the rows it deleted itself.
+    assert.deepEqual(
+      await client.post.deleteMany({
+        where: { userId: "u1" },
+        select: { id: true },
+      }),
+      [{ id: "p2" }]
     );
-    // Nothing of the unit committed: the row the race left is still there.
-    assert.deepEqual(await remaining(client), ["p2"]);
+    assert.deepEqual(await remaining(client), []);
   });
 
-  it("a row that JOINED the selection after the capture aborts before the write", async () => {
+  it("a row that JOINED the selection after the capture is answered with the rows it was written with", async () => {
     const client = await world(() => new NonReturningBatchOnlyDriver());
     driver.plant = (database) => {
       database.exec(
         `INSERT INTO "n4p_posts" ("id", "title", "userId") VALUES ('p3', 'Three', 'u1')`
       );
     };
-    await assert.rejects(
-      async () => {
-        await client.post.updateMany({
-          where: { userId: "u1" },
-          data: { title: "Renamed" },
-          select: { id: true },
-        });
-      },
-      (error: unknown) =>
-        (error as Error).message.includes(CHANGED("updateMany"))
-    );
-    assert.deepEqual(
-      (await client.post.findMany({ orderBy: { id: "asc" } })).map(
-        (row) => row.title
-      ),
-      ["One", "Two", "Three"]
-    );
+    // The answer names exactly the rows the call wrote, whichever side of
+    // the race the new row fell on.
+    const answered = (
+      await client.post.updateMany({
+        where: { userId: "u1" },
+        data: { title: "Renamed" },
+        select: { id: true },
+      })
+    )
+      .map((row) => row.id)
+      .sort();
+    const renamed = (await client.post.findMany({ orderBy: { id: "asc" } }))
+      .filter((row) => row.title === "Renamed")
+      .map((row) => row.id);
+    assert.deepEqual(answered, renamed);
+    assert(renamed.includes("p1") && renamed.includes("p2"));
   });
 
   it("a relation-bearing selected root delete captures on a RETURNING batch transport too", async () => {

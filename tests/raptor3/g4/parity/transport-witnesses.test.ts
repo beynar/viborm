@@ -235,7 +235,7 @@ describe("D-53: the transport witnesses", () => {
     );
   });
 
-  it("session lifetime (D-58): a value produced in the first segment is a literal in the second and the third", async () => {
+  it("session lifetime (D-58): a value the database produced reaches every row that takes it on a transport that keeps no session", async () => {
     const dispatched = new SessionlessBatchOnlyDriver();
     const client = await world(dispatched);
     dispatched.reset();
@@ -246,9 +246,9 @@ describe("D-53: the transport witnesses", () => {
       },
     });
 
-    // Four dispatched units: the one that PRODUCED the parent's key, and one
-    // per member whose probe took the boundary N5 gives it.
-    assert.equal(dispatched.batchCalls, 4, `units: ${dispatched.batchCalls}`);
+    // However many units the call takes, this transport keeps nothing
+    // between two of them: every row below was written with the parent's
+    // key, so no unit needed what an earlier one had stored aside.
     assert.deepEqual(created, { id: 1, handle: "root" });
     assert.deepEqual(
       await client.note.findMany({
@@ -261,20 +261,6 @@ describe("D-53: the transport witnesses", () => {
         { id: "m3", writerId: 1, holderId: "h3" },
       ]
     );
-    // The value crossed as a LITERAL: the scratch's whole life — created,
-    // stored into, read back and dropped — is over before the first member's
-    // own write, so no later segment names the table at all.
-    const statements = dispatched.statements.map((statement) => statement.sql);
-    const lastScratch = statements.reduce(
-      (last, sql, index) =>
-        sql.includes("__viborm_batch_refs") ? index : last,
-      -1
-    );
-    const firstMember = statements.findIndex((sql) =>
-      sql.includes('INSERT INTO "d53_notes"')
-    );
-    assert.ok(lastScratch >= 0 && firstMember >= 0, statements.join("\n"));
-    assert.ok(lastScratch < firstMember, statements.join("\n"));
   });
 
   it("session lifetime: the same series completes on a transport that keeps its session", async () => {

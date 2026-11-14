@@ -1,36 +1,55 @@
 import { ValidationError } from "@errors";
+import type { GeoPoint } from "@validation/primitives/geo-point-codec";
 import { validateSchema } from "@validation/primitives/helpers";
+import type { PointSchema } from "@validation/primitives/point";
 import v from "@validation/primitives/v";
 import {
   createDefaultState,
   type DefaultValueInput,
-  nullableDefault,
   type ScalarState,
+  scalarChain,
+  type UpdateState,
   updateState,
 } from "../common";
 
 const pointBase = v.point();
 
-export class PointScalar<State extends ScalarState<"point">> {
-  private readonly state: State;
-  constructor(state: State) {
-    this.state = state;
+export class PointScalar<
+  State extends ScalarState<"point">,
+> extends scalarChain<State> {
+  private declare readonly state: State;
+  declare readonly nullable: () => PointScalar<
+    UpdateState<
+      State,
+      {
+        readonly nullable: true;
+        readonly hasDefault: true;
+        readonly default: State["hasDefault"] extends true
+          ? State["default"]
+          : null;
+        readonly optional: true;
+        readonly base: PointSchema<GeoPoint | null, GeoPoint | null>;
+      }
+    >
+  >;
+  declare readonly map: (columnName: string) => PointScalar<
+    UpdateState<
+      State,
+      {
+        readonly columnName: string;
+      }
+    >
+  >;
+
+  protected rebase(state: State) {
+    return v.point({
+      nullable: state.nullable,
+    });
   }
 
-  nullable() {
-    return new PointScalar(
-      updateState(this, {
-        nullable: true,
-        hasDefault: true,
-        default: nullableDefault(this.state),
-        optional: true,
-        base: v.point<{
-          nullable: true;
-        }>({
-          nullable: true,
-        }),
-      })
-    );
+  // biome-ignore lint/complexity/noUselessConstructor: a point has no native type, so its constructor takes none
+  constructor(state: State) {
+    super(state);
   }
 
   default<V extends DefaultValueInput<State>>(value: V) {
@@ -41,10 +60,6 @@ export class PointScalar<State extends ScalarState<"point">> {
         optional: true,
       })
     );
-  }
-
-  map(columnName: string) {
-    return new PointScalar(updateState(this, { columnName }));
   }
 
   get ["~"](): { state: State; nativeType?: undefined } {

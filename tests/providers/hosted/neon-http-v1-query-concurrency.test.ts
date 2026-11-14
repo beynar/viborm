@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { createClient } from "@client/client";
 import type { QueryExecutionContext } from "@drivers";
 import { PgDriver } from "@drivers/pg";
-import { UniqueConstraintError } from "@errors";
+import { TransactionError, UniqueConstraintError } from "@errors";
 import { s } from "@schema";
 import { sql } from "@sql";
 import { Pool, type PoolClient } from "pg";
@@ -140,20 +140,26 @@ describe.skipIf(!databaseUrl)(
           `INSERT INTO "public"."${itemTable}" VALUES(5,'other',0,NULL)`
         );
       };
-      await db.$transaction(async (tx) => {
-        await expect(
-          tx.item.upsert({
-            where: { name: "missing" },
-            create: { id: 5, name: "missing", n: 0 },
-            update: { n: { increment: 1 } },
-          })
-        ).rejects.toBeInstanceOf(UniqueConstraintError);
-        await tx.owner.create({ data: { id: 30 } });
-      });
+      // The upsert is one statement, refused as it is. An operation that
+      // fails fails its transaction: none of its operations are applied
+      // (docs, client/transactions).
+      await expect(
+        db.$transaction(async (tx) => {
+          await tx.owner.create({ data: { id: 30 } });
+          await expect(
+            tx.item.upsert({
+              where: { name: "missing" },
+              create: { id: 5, name: "missing", n: 0 },
+              update: { n: { increment: 1 } },
+            })
+          ).rejects.toBeInstanceOf(UniqueConstraintError);
+          await tx.owner.create({ data: { id: 31 } });
+        })
+      ).rejects.toBeInstanceOf(TransactionError);
       expect(
         await db.item.findUnique({ where: { name: "missing" } })
       ).toBeNull();
-      expect(await db.owner.count({ where: { id: 30 } })).toBe(1);
+      expect(await db.owner.count({ where: { id: { in: [30, 31] } } })).toBe(0);
     });
     for (const operation of ["updateMany", "deleteMany"] as const) {
       it(`rechecks a limited ${operation} after the locked row leaves its filter`, async () => {

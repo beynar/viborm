@@ -119,7 +119,7 @@ test("update, create and upsert answer an include in one statement", async () =>
   expect(roundTrips(recording)).toBe(1);
 });
 
-test("a delete with an include keeps its capture-then-read route", async () => {
+test("a delete with an include reads its row and removes it in one batch", async () => {
   const { client, recording } = await boot();
   expect(
     await client.post.delete({ where: { id: 10 }, include: { author: true } })
@@ -129,5 +129,6 @@ test("a delete with an include keeps its capture-then-read route", async () => {
     authorId: 1,
     author: { id: 1, email: "e1", name: "n1" },
   });
-  expect(roundTrips(recording)).toBe(3);
+  // Three round trips on 1.14.0 (capture, read, delete).
+  expect(roundTrips(recording)).toBe(1);
 });

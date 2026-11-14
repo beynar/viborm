@@ -2,11 +2,13 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { DecimalDescriptor } from "@validation/primitives/decimal-codec";
 import type { Decimal } from "@validation/primitives/decimal-value";
 import v from "@validation/primitives/v";
+import type { VibSchema } from "@validation/types";
 import {
   createDefaultState,
   type DefaultValueInput,
-  nullableDefault,
   type ScalarState,
+  type UpdateState,
+  untypedKeyedScalarChain,
   updateState,
 } from "../common";
 import {
@@ -56,77 +58,95 @@ type DecimalScalarState<State extends ScalarState<"decimal">> = State & {
   readonly decimal: DecimalDescriptor;
 };
 
-export class DecimalScalar<State extends ScalarState<"decimal">> {
-  private readonly state: DecimalScalarState<State>;
+export class DecimalScalar<
+  out State extends ScalarState<"decimal">,
+> extends untypedKeyedScalarChain<DecimalScalarState<State>> {
+  private declare readonly state: DecimalScalarState<State>;
 
-  constructor(state: DecimalScalarState<State>) {
-    this.state = state;
+  protected rebase(state: DecimalScalarState<State>): VibSchema {
+    return v.decimal({
+      nullable: state.nullable,
+      array: state.array,
+      decimal: state.decimal,
+      schema: state.schema,
+    });
   }
 
-  /** The frozen domain, carried by reference so identity survives a chain. */
-  private get descriptor(): DecimalDescriptor {
-    return this.state.decimal;
+  /**
+   * A literal default follows the base it was normalized through: a modifier
+   * that rebuilds the base normalizes the default again, through the new one.
+   */
+  private again<Next extends { "~": { state: ScalarState } }>(next: Next) {
+    if (this.state.hasDefault && typeof this.state.default !== "function") {
+      next["~"].state.default = normalizeDecimalDefault(
+        this.state.default,
+        next["~"].state.base
+      );
+    }
+    return next;
   }
 
-  nullable() {
-    return new DecimalScalar(
-      updateState(this, {
-        nullable: true,
-        hasDefault: true,
-        default: nullableDefault(this.state),
-        optional: true,
-        // The custom schema travels with the rebuilt base. `create` reads
-        // `state.schema` directly, but `set`, `equals` and the field's own
-        // value schema all read `state.base` — dropping it here would make one
-        // field refine on create and not on update.
-        base: v.decimal<{
-          nullable: true;
-          array: State["array"];
-          decimal: DecimalDescriptor;
-          schema: State["schema"];
-        }>({
-          nullable: true,
-          array: this.state.array,
-          decimal: this.descriptor,
-          schema: this.state.schema,
-        }),
-      })
+  override nullable() {
+    return super.nullable() as DecimalScalar<
+      UpdateState<
+        this["~"]["state"],
+        {
+          readonly nullable: true;
+          readonly hasDefault: true;
+          readonly default: State["hasDefault"] extends false
+            ? null
+            : State["default"];
+          readonly optional: true;
+          readonly base: ReturnType<
+            typeof v.decimal<{
+              nullable: true;
+              array: State["array"];
+              decimal: DecimalDescriptor;
+              schema: State["schema"];
+            }>
+          >;
+        }
+      >
+    >;
+  }
+
+  override array(this: DecimalScalar<State> & NotAKey<State>) {
+    if (this.state.isId || this.state.isUnique) refuseDecimalListKey("array");
+    return this.again(
+      super.array() as DecimalScalar<
+        UpdateState<
+          DecimalScalarState<State>,
+          {
+            readonly array: true;
+            readonly base: ReturnType<
+              typeof v.decimal<{
+                nullable: State["nullable"];
+                array: true;
+                decimal: DecimalDescriptor;
+                schema: State["schema"];
+              }>
+            >;
+          }
+        >
+      >
     );
   }
 
-  array(this: DecimalScalar<State> & NotAKey<State>) {
-    if (this.state.isId || this.state.isUnique) refuseDecimalListKey("array");
-    const base = v.decimal<{
-      nullable: State["nullable"];
-      array: true;
-      decimal: DecimalDescriptor;
-      schema: State["schema"];
-    }>({
-      nullable: this.state.nullable,
-      array: true,
-      decimal: this.descriptor,
-      schema: this.state.schema,
-    });
-    const state = updateState(this, { array: true, base });
-    if (this.state.hasDefault && typeof this.state.default !== "function") {
-      Object.defineProperty(state, "default", {
-        value: normalizeDecimalDefault(this.state.default, base),
-        configurable: true,
-        enumerable: true,
-        writable: true,
-      });
-    }
-    return new DecimalScalar(state);
-  }
-
-  id(this: DecimalScalar<State> & NotAList<State>) {
+  override id(this: DecimalScalar<State> & NotAList<State>) {
     if (this.state.array) refuseDecimalListKey("id");
-    return new DecimalScalar(updateState(this, { isId: true, isUnique: true }));
+    return super.id() as DecimalScalar<
+      UpdateState<
+        DecimalScalarState<State>,
+        { readonly isId: true; readonly isUnique: true }
+      >
+    >;
   }
 
-  unique(this: DecimalScalar<State> & NotAList<State>) {
+  override unique(this: DecimalScalar<State> & NotAList<State>) {
     if (this.state.array) refuseDecimalListKey("unique");
-    return new DecimalScalar(updateState(this, { isUnique: true }));
+    return super.unique() as DecimalScalar<
+      UpdateState<DecimalScalarState<State>, { readonly isUnique: true }>
+    >;
   }
 
   /**
@@ -135,7 +155,7 @@ export class DecimalScalar<State extends ScalarState<"decimal">> {
    * a schema document round-trips to the same declaration. A value outside the
    * declared domain fails at the call that wrote it, not at the first write.
    */
-  default<V extends DefaultValueInput<State>>(value: V) {
+  override default<V extends DefaultValueInput<State>>(value: V) {
     return withValidatedDecimalDefault(
       this,
       normalizeDecimalDefault(value, this.state.base)
@@ -148,43 +168,37 @@ export class DecimalScalar<State extends ScalarState<"decimal">> {
    * LAST, so a custom schema can narrow the domain but never escape it, and it
    * cannot change the value family the field reads back as.
    */
-  schema<S extends StandardSchemaV1<Decimal>>(schema: S) {
-    const base = v.decimal<{
-      nullable: State["nullable"];
-      array: State["array"];
-      decimal: DecimalDescriptor;
-      schema: S;
-    }>({
-      nullable: this.state.nullable,
-      array: this.state.array,
-      decimal: this.descriptor,
-      schema,
-    });
-    const state = updateState(this, { schema, base });
-    if (this.state.hasDefault && typeof this.state.default !== "function") {
-      Object.defineProperty(state, "default", {
-        value: normalizeDecimalDefault(this.state.default, base),
-        configurable: true,
-        enumerable: true,
-        writable: true,
-      });
-    }
-    return new DecimalScalar(state);
+  override schema<S extends StandardSchemaV1<Decimal>>(schema: S) {
+    return this.again(
+      super.schema(schema) as DecimalScalar<
+        UpdateState<
+          this["~"]["state"],
+          {
+            readonly schema: S;
+            readonly base: ReturnType<
+              typeof v.decimal<{
+                nullable: State["nullable"];
+                array: State["array"];
+                decimal: DecimalDescriptor;
+                schema: S;
+              }>
+            >;
+          }
+        >
+      >
+    );
   }
 
-  map(columnName: string) {
-    return new DecimalScalar(updateState(this, { columnName }));
+  override map(columnName: string) {
+    return super.map(columnName) as DecimalScalar<
+      UpdateState<this["~"]["state"], { readonly columnName: string }>
+    >;
   }
 
   get ["~"](): {
     state: DecimalScalarState<State>;
     nativeType?: undefined;
   } {
-    // A fixed decimal has no native-type override: PostgreSQL's `NUMERIC(p,s)`,
-    // MySQL's `DECIMAL(p,s)` and SQLite's checked scaled `INTEGER` are all
-    // DERIVED from the declared domain, and a second spelling beside it would
-    // be a second answer to what the column is. The absence is DECLARED so the
-    // scalar union keeps one internal shape for every reader.
     return { state: this.state };
   }
 }

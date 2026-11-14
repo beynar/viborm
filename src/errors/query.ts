@@ -1,4 +1,5 @@
 import {
+  coded,
   VibORMError,
   VibORMErrorCode,
   type VibORMErrorMeta,
@@ -18,19 +19,10 @@ export type ConnectionErrorCode =
 /**
  * Connection-related errors
  */
-export class ConnectionError extends VibORMError {
-  static override readonly diagnosticName = "ConnectionError";
-
-  /** Discriminant: one of {@link ConnectionErrorCode}, never a code outside the family. */
-  declare readonly code: ConnectionErrorCode;
-
-  constructor(
-    message: string,
-    options?: VibORMErrorOptions & { code?: ConnectionErrorCode | undefined }
-  ) {
-    super(message, options?.code ?? VibORMErrorCode.CONNECTION_FAILED, options);
-  }
-}
+export class ConnectionError extends coded<
+  ConnectionErrorCode,
+  VibORMErrorOptions & { code?: ConnectionErrorCode | undefined }
+>("ConnectionError", VibORMErrorCode.CONNECTION_FAILED, true) {}
 
 /**
  * Client construction failures (Prisma P1012)
@@ -45,16 +37,9 @@ export class ConnectionError extends VibORMError {
  * a client that cannot be constructed from the given schema and configuration. VibORM
  * publishes it through the shared `prismaCode` getter.
  */
-export class ClientInitializationError extends VibORMError {
-  static override readonly diagnosticName = "ClientInitializationError";
-
-  /** Literal discriminant: this class always carries `CLIENT_INITIALIZATION`. */
-  declare readonly code: typeof VibORMErrorCode.CLIENT_INITIALIZATION;
-
-  constructor(message: string, options?: VibORMErrorOptions) {
-    super(message, VibORMErrorCode.CLIENT_INITIALIZATION, options);
-  }
-}
+export class ClientInitializationError extends coded<
+  typeof VibORMErrorCode.CLIENT_INITIALIZATION
+>("ClientInitializationError", VibORMErrorCode.CLIENT_INITIALIZATION) {}
 
 /**
  * Type guard for client initialization errors
@@ -86,19 +71,10 @@ export type QueryErrorCode =
 /**
  * Query execution errors
  */
-export class QueryError extends VibORMError {
-  static override readonly diagnosticName = "QueryError";
-
-  /** Discriminant: one of {@link QueryErrorCode}, never a code outside the family. */
-  declare readonly code: QueryErrorCode;
-
-  constructor(
-    message: string,
-    options?: VibORMErrorOptions & { code?: QueryErrorCode | undefined }
-  ) {
-    super(message, options?.code ?? VibORMErrorCode.QUERY_FAILED, options);
-  }
-}
+export class QueryError extends coded<
+  QueryErrorCode,
+  VibORMErrorOptions & { code?: QueryErrorCode | undefined }
+>("QueryError", VibORMErrorCode.QUERY_FAILED, true) {}
 
 /**
  * Record not found (for OrThrow operations)
@@ -214,16 +190,9 @@ export const NESTED_WRITE_ASSERTION_FLOOR_MESSAGE =
  * raw error (PG: division by zero, MySQL/SQLite: invalid JSON); the driver
  * error mapping normalizes all of them to this type.
  */
-export class NestedWriteAssertionError extends VibORMError {
-  static override readonly diagnosticName = "NestedWriteAssertionError";
-
-  /** Literal discriminant: this class always carries `NESTED_WRITE_ASSERTION_FAILED`. */
-  declare readonly code: typeof VibORMErrorCode.NESTED_WRITE_ASSERTION_FAILED;
-
-  constructor(message: string, options?: VibORMErrorOptions) {
-    super(message, VibORMErrorCode.NESTED_WRITE_ASSERTION_FAILED, options);
-  }
-}
+export class NestedWriteAssertionError extends coded<
+  typeof VibORMErrorCode.NESTED_WRITE_ASSERTION_FAILED
+>("NestedWriteAssertionError", VibORMErrorCode.NESTED_WRITE_ASSERTION_FAILED) {}
 
 /**
  * Feature not supported errors

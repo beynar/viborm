@@ -1,32 +1,25 @@
-import { VibORMError, VibORMErrorCode, type VibORMErrorMeta } from "./base";
+import {
+  coded,
+  VibORMError,
+  VibORMErrorCode,
+  type VibORMErrorMeta,
+} from "./base";
 
 /**
  * Invalid TTL format or value
  */
-export class CacheInvalidTTLError extends VibORMError {
-  static override readonly diagnosticName = "CacheInvalidTTLError";
-
-  /** Literal discriminant: this class always carries `CACHE_INVALID_TTL`. */
-  declare readonly code: typeof VibORMErrorCode.CACHE_INVALID_TTL;
-
-  constructor(message: string, options?: { meta?: VibORMErrorMeta }) {
-    super(message, VibORMErrorCode.CACHE_INVALID_TTL, options);
-  }
-}
+export class CacheInvalidTTLError extends coded<
+  typeof VibORMErrorCode.CACHE_INVALID_TTL,
+  { meta?: VibORMErrorMeta }
+>("CacheInvalidTTLError", VibORMErrorCode.CACHE_INVALID_TTL) {}
 
 /**
  * Invalid cache key (circular reference, uncacheable type)
  */
-export class CacheInvalidKeyError extends VibORMError {
-  static override readonly diagnosticName = "CacheInvalidKeyError";
-
-  /** Literal discriminant: this class always carries `CACHE_INVALID_KEY`. */
-  declare readonly code: typeof VibORMErrorCode.CACHE_INVALID_KEY;
-
-  constructor(message: string, options?: { meta?: VibORMErrorMeta }) {
-    super(message, VibORMErrorCode.CACHE_INVALID_KEY, options);
-  }
-}
+export class CacheInvalidKeyError extends coded<
+  typeof VibORMErrorCode.CACHE_INVALID_KEY,
+  { meta?: VibORMErrorMeta }
+>("CacheInvalidKeyError", VibORMErrorCode.CACHE_INVALID_KEY) {}
 
 /**
  * Operation cannot be cached (e.g., mutation operations)
@@ -55,16 +48,7 @@ export class CacheOperationNotCacheableError extends VibORMError {
 /**
  * Invalid or missing cache configuration (options or driver)
  */
-export class CacheConfigurationError extends VibORMError {
-  static override readonly diagnosticName = "CacheConfigurationError";
-
-  /** Literal discriminant: this class always carries `CACHE_CONFIGURATION`. */
-  declare readonly code: typeof VibORMErrorCode.CACHE_CONFIGURATION;
-
-  constructor(
-    message: string,
-    options?: { cause?: Error | undefined; meta?: VibORMErrorMeta }
-  ) {
-    super(message, VibORMErrorCode.CACHE_CONFIGURATION, options);
-  }
-}
+export class CacheConfigurationError extends coded<
+  typeof VibORMErrorCode.CACHE_CONFIGURATION,
+  { cause?: Error | undefined; meta?: VibORMErrorMeta }
+>("CacheConfigurationError", VibORMErrorCode.CACHE_CONFIGURATION) {}
