@@ -301,10 +301,10 @@ test("a lazy entry function that throws fails the call and every later call on i
       "lazy",
       extArgs({ user: v.string() }),
       typed.rule({
-        note: () => {
+        note: lazy((): never => {
           calls++;
           throw new Error("compile failed");
-        },
+        }),
       })
     )
   );

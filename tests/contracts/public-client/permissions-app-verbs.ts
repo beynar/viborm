@@ -129,7 +129,7 @@ function declaration(actor: Actor, now: Date, stamped = false) {
         fields: Object.fromEntries(
           Object.entries(writes).map(([field, action]) => [
             field,
-            { where: of(action) },
+            { where: only(of(action)) },
           ])
         ),
       },
@@ -417,12 +417,12 @@ export function runPermissionsAppVerbs(
           expect(both.value, `${name} archive and update`).toEqual({
             count: update.length,
           });
-          const only = minus(archive, update)[0];
-          if (only === undefined) continue;
+          const archiveOnly = minus(archive, update)[0];
+          if (archiveOnly === undefined) continue;
           archivers += 1;
           const write = (data: object) =>
             probe(db, (tx) =>
-              tx.document!.update({ where: { id: only }, data })
+              tx.document!.update({ where: { id: archiveOnly }, data })
             );
           expect((await write({ archivedAt: instant })).outcome).toBe(
             entry ? NotFoundError.name : "ok"
@@ -447,8 +447,11 @@ export function runPermissionsAppVerbs(
         for (const name of writers) {
           const actor = actors[name]!;
           const archive = at(actor, "document", "archive");
-          const only = minus(archive, at(actor, "document", "update"))[0];
-          if (only === undefined) continue;
+          const archiveOnly = minus(
+            archive,
+            at(actor, "document", "update")
+          )[0];
+          if (archiveOnly === undefined) continue;
           archivers += 1;
           const db = governed(actor, true);
           const stamped = await probe(db, async (tx) => {
@@ -472,7 +475,7 @@ export function runPermissionsAppVerbs(
           });
           const one = await probe(db, (tx) =>
             tx.document!.update({
-              where: { id: only },
+              where: { id: archiveOnly },
               data: { archivedAt: instant },
               select: { searchKey: true },
             })

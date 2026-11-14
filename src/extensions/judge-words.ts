@@ -259,8 +259,10 @@ class Lazy extends CarriedValue {
     if (Object.hasOwn(layer.verbs, model))
       refuse("two rule parts of one extension judge the model");
     layer.host = VERBS;
-    // What the entry reads of its call is known once it is read.
+    // What the entry reads of its call, and whether its words judge or
+    // project, are known once it is read.
     layer.layered = layerOf;
+    layer.lazily = { judge: judgeOf, project: projectionOf };
     const read = (): VerbsDraft => {
       const given: unknown = Reflect.apply(this.read, undefined, []);
       const written: Readonly<Record<string, unknown>> = isPlainRecord(given)

@@ -29,9 +29,7 @@ import type {
   VerbsHost,
 } from "./admission";
 import type { ResolvedExtensionChain } from "./chain-state";
-import type { Judge } from "./judge";
-import type { Projection } from "./projection";
-import { FilterDomain, type PreparedDomain, preparer } from "./row-domain";
+import { FilterDomain, preparer } from "./row-domain";
 import type { Site } from "./rule-words";
 
 /** No restriction: what a verb an entry leaves out takes, read as no predicate. */
@@ -89,94 +87,6 @@ function layerVerbs(draft: VerbsDraft): ModelVerbs {
     reads: fields(draft.reads),
     ...(draft.judge && { judged: true }),
   });
-}
-
-/**
- * What judges for a chain with an entry given as a function: each question
- * asked of a model first reads the model's entries, then goes to what their
- * words brought, made once for the domain.
- */
-class LazyJudge implements Judge {
-  readonly #of: (model: AnyModel) => Judge | undefined;
-  constructor(of: (model: AnyModel) => Judge | undefined) {
-    this.#of = of;
-  }
-  binds(...args: Parameters<Judge["binds"]>) {
-    return this.#of(args[1])?.binds(...args) ?? 0;
-  }
-  inserted(...args: Parameters<Judge["inserted"]>) {
-    return this.#of(args[2])?.inserted(...args);
-  }
-  updated(...args: Parameters<Judge["updated"]>) {
-    return this.#of(args[2].model)?.updated(...args);
-  }
-  located(model: AnyModel) {
-    return this.#of(model)?.located(model);
-  }
-  produced(...args: Parameters<Judge["produced"]>) {
-    return this.#of(args[0])?.produced(...args);
-  }
-  cycles(...args: Parameters<Judge["cycles"]>) {
-    return this.#of(args[0])?.cycles(...args) ?? NO_RELATIONS;
-  }
-  refusal(...args: Parameters<Judge["refusal"]>) {
-    return (
-      this.#of(args[1])?.refusal(...args) ?? {
-        kind: "forbidden",
-        message: `${args[0]} produced a row that is not permitted.`,
-        raceable: false,
-      }
-    );
-  }
-}
-
-/** What projects for a chain with an entry given as a function, as {@link LazyJudge} judges. */
-class LazyProjection implements Projection {
-  readonly #from: (model: AnyModel) => Projection | undefined;
-  /** What the first model read brought: what a question naming no model goes to. */
-  #any: Projection | undefined;
-  constructor(of: (model: AnyModel) => Projection | undefined) {
-    this.#from = of;
-  }
-  #of(model: AnyModel): Projection | undefined {
-    const found = this.#from(model);
-    this.#any ??= found;
-    return found;
-  }
-  lower(...args: Parameters<Projection["lower"]>) {
-    return this.#of(args[1])!.lower(...args);
-  }
-  window(...args: Parameters<Projection["window"]>) {
-    return this.#of(args[1])?.window(...args);
-  }
-  gatedDocument(...args: Parameters<Projection["gatedDocument"]>) {
-    // Asked only of a projection whose model said it gates a field.
-    return this.#any!.gatedDocument(...args);
-  }
-  guarded(...args: Parameters<Projection["guarded"]>) {
-    return this.#of(args[1])?.guarded(...args) ?? args[3];
-  }
-  admit(...args: Parameters<Projection["admit"]>) {
-    const [schema, model, operation, raw] = args;
-    return (
-      this.#of(model)?.admit(...args) ?? schema.admit(model, operation, raw)
-    );
-  }
-  refuseGatedLink(...args: Parameters<Projection["refuseGatedLink"]>) {
-    this.#of(args[1])?.refuseGatedLink(...args);
-  }
-  refuseGatedRows(model: AnyModel) {
-    this.#of(model)?.refuseGatedRows(model);
-  }
-  layered(...args: Parameters<Projection["layered"]>) {
-    return this.#of(args[0])!.layered(...args);
-  }
-  projected(model: AnyModel) {
-    return this.#of(model)?.projected(model);
-  }
-  preparing(...args: Parameters<Projection["preparing"]>) {
-    return this.#of(args[0])?.preparing(...args);
-  }
 }
 
 /**
@@ -428,39 +338,20 @@ function bindVerbs(chain: ResolvedExtensionChain): VerbsBound {
     for (const model of Object.keys(layer.verbs))
       if (layers.every((other) => typeof other.verbs[model] !== "function"))
         verbs!.get(model);
-  /** What the words of the eager entries brought, of one kind. */
-  const eager = <K extends "judge" | "project">(kind: K) => {
-    for (const layer of layers)
+  /**
+   * What the words brought, of one kind: an eager entry's, else what an
+   * entry given lazily brings, since its words are known only once read.
+   */
+  const brought = <K extends "judge" | "project">(kind: K) => {
+    for (const layer of layers) {
       for (const entry of Object.values(layer.verbs))
         if (typeof entry !== "function" && entry[kind] !== undefined)
           return entry[kind];
-    return undefined;
+    }
+    return layers.find((layer) => layer.lazily)?.lazily?.[kind];
   };
-  /** What a model's entries brought of one kind, made once per domain. */
-  const forModel = <T>(kind: "judge" | "project", domain: PreparedDomain) => {
-    const made = new Map<unknown, T>();
-    return (model: AnyModel): T | undefined => {
-      const name = model["~"].names.ts!;
-      if (!declares(name)) return undefined;
-      verbs!.get(name);
-      const make = draftsOf(name).find((draft) => draft?.[kind])?.[kind] as
-        | ((domain: PreparedDomain) => T)
-        | undefined;
-      return make && memo(made, make, () => make(domain));
-    };
-  };
-  const judge =
-    eager("judge") ??
-    (lazy
-      ? (domain: PreparedDomain) =>
-          new LazyJudge(forModel<Judge>("judge", domain))
-      : undefined);
-  const project =
-    eager("project") ??
-    (lazy
-      ? (domain: PreparedDomain) =>
-          new LazyProjection(forModel<Projection>("project", domain))
-      : undefined);
+  const judge = brought("judge");
+  const project = brought("project");
   return {
     ...(verbs && { verbs }),
     ...(judge && { judge }),

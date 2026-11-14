@@ -101,6 +101,8 @@ export interface RuleLayer {
   host?: VerbsHost;
   /** What lowers its layer, set where an entry read later may read its call. */
   layered?: Layered;
+  /** What judges and projects, set where an entry read later may ask either. */
+  lazily?: Pick<VerbsDraft, "judge" | "project">;
 }
 
 /** What makes a layer's node of a predicate: `RowDomain.layered`. */
@@ -169,6 +171,8 @@ export interface AdmittedLayer {
   readonly host?: VerbsHost;
   /** What lowers the layer, where some predicate of it reads its call. */
   readonly layered?: Layered;
+  /** What judges and projects, where an entry read later may ask either. */
+  readonly lazily?: RuleLayer["lazily"];
   readonly confine: { readonly [model: string]: Input };
   /** What its eager predicates read of their call (`References`). */
   readonly references: readonly (string | undefined)[];
@@ -366,6 +370,7 @@ export function admitLayer(
     verbs,
     ...(host && { host }),
     ...(layered && { layered }),
+    ...(layer.lazily && { lazily: layer.lazily }),
     confine: Object.freeze(confine),
     references: Object.freeze([...references]),
   });

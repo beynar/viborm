@@ -400,11 +400,11 @@ test("rows.verbs: keys of rule; a predicate used twice is a const declared above
   has(r, "create: { check: check(documentOwn) }");
   has(
     r,
-    "update: { where: documentOwn, check: check(documentOwn), fields: { archivedAt: { where: documentArch, check: check(documentArch) }, parentId: { check: check(documentSeen) } } }"
+    "update: { where: only(documentOwn), check: check(documentOwn), fields: { archivedAt: { where: only(documentArch), check: check(documentArch) }, parentId: { check: check(documentSeen) } } }"
   );
   has(
     r,
-    "delete: { where: documentOwn }",
+    "delete: { where: only(documentOwn) }",
     `acyclic: ["parent"]`,
     "confine: { orgId: 1 }"
   );
@@ -417,7 +417,7 @@ test("rows.verbs, lazy entry: the model's whole entry becomes a function and its
   verbs: { doc: () => { const id = load(); return { predicates: { own: { ownerId: id } }, read: "own", delete: "own" }; } } } });`);
   has(
     r,
-    `doc: () => { const id = load(); const docOwn = { ownerId: id }; return { read: { where: docOwn }, root: when(arg("m"), "on", docOwn), update: { where: nothing }, delete: { where: docOwn } }; }`
+    `doc: lazy(() => { const id = load(); const docOwn = { ownerId: id }; return { read: { where: docOwn }, root: when(arg("m"), "on", docOwn), update: { where: only(nothing) }, delete: { where: only(docOwn) } }; })`
   );
 });
 

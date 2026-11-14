@@ -53,6 +53,8 @@ export const WORDS = [
   "gate",
   "facts",
   "keep",
+  "only",
+  "lazy",
   "watch",
   "settled",
   "again",
@@ -221,11 +223,13 @@ export function printers(w) {
       return `${w("rule")}(${models})`;
     },
 
-    /** A lazy rule entry: `() => { prelude; return entry; }`. */
+    /** A lazy rule entry: `lazy(() => { prelude; return entry; })`. */
     printLazyEntry(parameters, prelude, entry) {
-      return prelude.length === 0
-        ? `(${parameters}) => (${entry})`
-        : `(${parameters}) => { ${prelude.join(" ")} return ${entry}; }`;
+      return `${w("lazy")}(${
+        prelude.length === 0
+          ? `(${parameters}) => (${entry})`
+          : `(${parameters}) => { ${prelude.join(" ")} return ${entry}; }`
+      })`;
     },
 
     /** Several conditions where a rule takes one filter. */
@@ -256,6 +260,8 @@ export function printers(w) {
     printUnless: (value, test, then) =>
       `${w("unless")}(${value}, ${test}, ${then})`,
     printCheck: (where) => `${w("check")}(${where})`,
+    /** Which rows a write may take: `only(where)`. */
+    printOnly: (where) => `${w("only")}(${where})`,
     printGate: (where) => `${w("gate")}(${where})`,
     /** `facts({ name: where })`; `ordered` keeps the last that holds (no spelling in spec v0). */
     printFacts(entries, ordered) {

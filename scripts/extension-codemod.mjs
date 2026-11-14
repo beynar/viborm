@@ -2255,21 +2255,31 @@ function convertRows(ctx, property, rules, argEntries, flags, consts) {
     );
     if (members.has("update")) {
       const where = refOf("update");
-      rules.set(member, target, ["update", "where"], where);
+      rules.set(member, target, ["update", "where"], P.printOnly(where));
       rules.set(member, target, ["update", "check"], where, "checks");
     } else if (!members.has("writes"))
-      rules.set(member, target, ["update", "where"], P.printNothing());
+      rules.set(
+        member,
+        target,
+        ["update", "where"],
+        P.printOnly(P.printNothing())
+      );
     rules.set(
       member,
       target,
       ["delete", "where"],
-      members.has("delete") ? refOf("delete") : P.printNothing()
+      P.printOnly(members.has("delete") ? refOf("delete") : P.printNothing())
     );
     if (members.has("place"))
       rules.set(member, target, ["create", "check"], refOf("place"), "checks");
     if (members.has("writes"))
       for (const [field, where] of fieldMap("writes")) {
-        rules.set(member, target, ["update", "fields", field, "where"], where);
+        rules.set(
+          member,
+          target,
+          ["update", "fields", field, "where"],
+          P.printOnly(where)
+        );
         rules.set(
           member,
           target,
