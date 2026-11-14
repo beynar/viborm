@@ -27,12 +27,7 @@ import { methods } from "../extensions/methods-part";
 import { reads, target, writes } from "../extensions/on";
 import { settled } from "../extensions/settled";
 import type { AnyTarget, Extension, Facts, PlacedControl, Run } from "../index";
-import {
-  CacheDriver,
-  invalidateOfficialCache,
-  serveOfficialRead,
-  type WaitUntilFn,
-} from "./driver";
+import { CacheDriver, INVALIDATE, SERVE, type WaitUntilFn } from "./driver";
 import { createOfficialCacheNamespace } from "./key";
 import { cacheCodec } from "./result-codec";
 import {
@@ -138,13 +133,7 @@ export function cache(config: CacheExtensionConfig): unknown {
   const invalidate = (
     origin: object,
     options: CacheInvalidationOptions | undefined
-  ) =>
-    invalidateOfficialCache(
-      driver,
-      options,
-      origin,
-      namespaceOf(database(origin))
-    );
+  ) => driver[INVALIDATE]("", options, origin, namespaceOf(database(origin)));
 
   return extension(
     "viborm.cache",
@@ -197,7 +186,7 @@ export function cache(config: CacheExtensionConfig): unknown {
           const id = key(run);
           if (id === undefined) return run();
           const db = database(run);
-          return serveOfficialRead(driver, {
+          return driver[SERVE]({
             id,
             codec: cacheCodec(codec(run), c.operation),
             read,

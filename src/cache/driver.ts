@@ -102,16 +102,13 @@ export interface CacheServe<T> {
   readonly database: Database;
 }
 
-type Serve = <T>(cache: CacheDriver, request: CacheServe<T>) => Promise<T>;
-let serveFriend: Serve;
-
-type Invalidate = (
-  cache: CacheDriver,
-  options: CacheInvalidationOptions | undefined,
-  origin: object | undefined,
-  namespace: string
-) => Promise<void>;
-let invalidateFriend: Invalidate;
+/**
+ * The keys of the two methods a driver serves its extension with: one read
+ * through the store, and a namespace's invalidation. No package entry
+ * exports them, so only the cache's own extension calls them.
+ */
+export const SERVE = Symbol("serve");
+export const INVALIDATE = Symbol("invalidate");
 
 interface PreparedInvalidationTarget {
   readonly kind: "clear" | "delete";
@@ -136,12 +133,6 @@ export abstract class CacheDriver {
    * through a TTL. Defaults to the host clock.
    */
   protected readonly clock: CacheClock;
-
-  static {
-    serveFriend = (cache, request) => cache.#serve(request);
-    invalidateFriend = (cache, options, origin, namespace) =>
-      cache.#invalidateScoped("", options, origin, namespace);
-  }
 
   constructor(driverName: string, clock: CacheClock = hostClock) {
     this.driverName = driverName;
@@ -185,7 +176,7 @@ export abstract class CacheDriver {
   // CACHE ORCHESTRATION - Hit/Miss/Stale/SWR logic
   // ============================================================
 
-  async #serve<T>(request: CacheServe<T>): Promise<T> {
+  async [SERVE]<T>(request: CacheServe<T>): Promise<T> {
     const { id, read, namespace, codec, model, operation, origin } = request;
     const cacheKey = `${model}:${operation}:${fastHash(id)}${read.key === undefined ? "" : `:${read.key}`}`;
     const identity = JSON.stringify([id, read.key]);
@@ -548,10 +539,14 @@ export abstract class CacheDriver {
     options?: CacheInvalidationOptions,
     origin?: object
   ): Promise<void> {
-    return this.#invalidateScoped(modelName, options, origin);
+    return this[INVALIDATE](modelName, options, origin);
   }
 
-  async #invalidateScoped(
+  /**
+   * Invalidate after a mutation: `modelName`'s entries, or, inside an
+   * extension's `namespace`, the whole of it (`modelName` empty).
+   */
+  async [INVALIDATE](
     modelName: string,
     options?: CacheInvalidationOptions,
     origin?: object,
@@ -667,22 +662,4 @@ export abstract class CacheDriver {
     }
     return prefixedKey;
   }
-}
-
-/** Serve one official read: the extension's seam, absent from the package barrel. */
-export function serveOfficialRead<T>(
-  cache: CacheDriver,
-  request: CacheServe<T>
-): Promise<T> {
-  return serveFriend(cache, request);
-}
-
-/** Invalidate inside one official namespace: absent from the package barrel. */
-export function invalidateOfficialCache(
-  cache: CacheDriver,
-  options: CacheInvalidationOptions | undefined,
-  origin: object | undefined,
-  namespace: string
-): Promise<void> {
-  return invalidateFriend(cache, options, origin, namespace);
 }

@@ -3,7 +3,7 @@ import {
   CacheDriver,
   type CacheEntry,
   type DetachedCacheResultCodec,
-  serveOfficialRead,
+  SERVE,
   type WaitUntilFn,
 } from "@cache/driver";
 import { CloudflareKVCache } from "@cache/drivers/cloudflare-kv";
@@ -82,7 +82,7 @@ function executeCachedWithResultCodec<T>(
   codec: AnswerCodec<T>,
   namespace: string
 ): Promise<T> {
-  return serveOfficialRead(driver, {
+  return driver[SERVE]({
     id: cacheKeyOf(model, operation, args),
     codec: served(run, codec),
     read: {

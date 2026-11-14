@@ -40,7 +40,7 @@ its own `CacheClock` (`driver.ts`), which a test hands a virtual one.
 | Owner | Responsibility |
 |---|---|
 | `src/cache/extension.ts` | `cache(config)`: the configuration read once (a `CacheDriver`, a string or finite `version`, a function `waitUntil`, else `CacheConfigurationError`), and the extension `viborm.cache`: `args` (`cache` on `writes`; `cacheRead`, `bound`, which `$withCache()` binds), a `call` on `target(writes)` whose `settled` invalidates, an `around` on `target(reads)` with `{ inner: true }`, and `methods` (`$withCache`, `$invalidate`) |
-| `driver.ts` | `CacheDriver`: get/set/SWR/invalidation orchestration; `serveOfficialRead` (one read through the store) and `invalidateOfficialCache` (a write's or `$invalidate`'s targets, validated whole before any backend effect) |
+| `driver.ts` | `CacheDriver`: get/set/SWR/invalidation orchestration; `[SERVE]` (one read through the store) and `[INVALIDATE]` (a write's or `$invalidate`'s targets, validated whole before any backend effect), methods keyed by symbols no package entry exports, so only the extension calls them and no module holds a friend |
 | `key.ts` | The official namespace (`createOfficialCacheNamespace`), its injective encoding, and the hash that names an entry inside it |
 | `src/extensions/codec.ts` | `codec(run)`: `run()` keeps the driver's rows for the read's one statement, `snapshot()` gives them as JSON data, `materialize(stored)` decodes them again through the read's own parser |
 | `result-codec.ts` | `cacheCodec`: the call's `codec(run)` with its failures made the cache's (`CacheConfigurationError`, naming the step, exposing no value) |

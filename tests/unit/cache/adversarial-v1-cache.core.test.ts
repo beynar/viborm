@@ -1,8 +1,4 @@
-import {
-  type CacheEntry,
-  invalidateOfficialCache,
-  serveOfficialRead,
-} from "@cache/driver";
+import { type CacheEntry, INVALIDATE, SERVE } from "@cache/driver";
 import { MemoryCache } from "@cache/drivers/memory";
 import { parseTTL } from "@cache/ttl";
 import { stableStringify } from "@extensions/key";
@@ -52,7 +48,7 @@ function reader(
   return {
     scope,
     read: (args: unknown, execute: () => Promise<number>) =>
-      serveOfficialRead(cache, {
+      cache[SERVE]({
         id: stableStringify(["post", "count", args]),
         codec: codec(execute),
         read: { ttlMs: 10, swr, bypass: false },
@@ -132,7 +128,7 @@ describe("adversarial cache boundaries", () => {
         })
     );
     await begun;
-    await invalidateOfficialCache(cache, undefined, undefined, scope);
+    await cache[INVALIDATE]("", undefined, undefined, scope);
     resolve(1);
     expect(await old).toBe(1);
     await Promise.all(pending.splice(0));
@@ -170,7 +166,7 @@ describe("adversarial cache boundaries", () => {
     const { scope, read } = reader(cache, pending);
     expect(await read({}, async () => 1)).toBe(1);
     await started;
-    await invalidateOfficialCache(cache, undefined, undefined, scope);
+    await cache[INVALIDATE]("", undefined, undefined, scope);
     release();
     await Promise.all(pending.splice(0));
     expect(await read({}, async () => 2)).toBe(2);
@@ -201,7 +197,7 @@ describe("adversarial cache boundaries", () => {
     const { scope, read } = reader(cache, pending);
     await read({}, async () => 1);
     await Promise.all(pending.splice(0));
-    await invalidateOfficialCache(cache, undefined, undefined, scope);
+    await cache[INVALIDATE]("", undefined, undefined, scope);
     expect(await read({}, async () => 2)).toBe(2);
     await Promise.all(pending.splice(0));
     await cache.disconnect();
