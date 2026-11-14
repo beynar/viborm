@@ -2238,6 +2238,8 @@ describe("a model at a time, and a rule checked where it compiles", () => {
       const compiler = policyCompiler(policy.config, schema);
       for (const name of order) compiler.model(name);
       expect(JSON.stringify(compiler.policy())).toBe(whole);
+      // Compiled once: asking again answers the same object.
+      expect(compiler.policy()).toBe(compiler.policy());
     }
   });
 
@@ -2513,8 +2515,14 @@ describe("a model at a time, and a rule checked where it compiles", () => {
       })
     ).not.toContain('"exists"');
     // A body the summaries cannot read (an unknown field, refused by core when
-    // admitted) keeps its rule as written.
+    // admitted) keeps its rule as written, even beside a wider one: the proof
+    // cannot show the reads stay the same without it.
     expect(read({ $exists: { note: { nope: 1 } } })).toContain('"nope":1');
+    expect(
+      read({
+        OR: [{ $exists: { note: { nope: 1 } } }, { $exists: { note: {} } }],
+      })
+    ).toContain('"nope":1');
     // A recursion inside a body keeps that relation acyclic.
     expect(
       compiler({
@@ -2559,6 +2567,15 @@ describe("a model at a time, and a rule checked where it compiles", () => {
       "authorId",
       "orgId",
     ]);
+    // A `{ $row, up: 0 }` below the root names the body's own row: the
+    // placement reads no further field of the created one.
+    expect(
+      moves({
+        read: true,
+        update: true,
+        create: { author: { orgId: { $row: "orgId", up: 0 } } },
+      })
+    ).toEqual(["authorId"]);
     // `manage` implies `create`: its predicate is a branch of the placement.
     expect(
       moves({
@@ -2632,5 +2649,59 @@ describe("a model at a time, and a rule checked where it compiles", () => {
     expect((caught as Error).cause).toBeInstanceOf(Error);
     expect(compiler.model("note").read).toBe("read");
     expect(compiler.acyclic("note")).toEqual([]);
+    // What is not an Error becomes one; the model's own refusal passes as is.
+    const own = new ClientInitializationError("the application's own refusal");
+    const thrower = (thrown: unknown) =>
+      policyCompiler(
+        {
+          actor: v.object({}),
+          models: {
+            post: {
+              read: () => {
+                throw thrown;
+              },
+            },
+          },
+        },
+        { post, note }
+      );
+    let wrapped: unknown;
+    try {
+      thrower("not an error").model("post");
+    } catch (error) {
+      wrapped = error;
+    }
+    expect(wrapped).toBeInstanceOf(ClientInitializationError);
+    expect((wrapped as Error).cause).toBeInstanceOf(Error);
+    expect(() => thrower(own).model("post")).toThrow(own);
+  });
+
+  test("acyclic relations surface an error that is no refusal, from any model", () => {
+    const folder = s.model({
+      id: s.string().id(),
+      parentId: s.string().nullable(),
+      parent: s
+        .toOne(() => folder)
+        .fields("parentId")
+        .references("id")
+        .name("tree"),
+      children: s.toMany(() => folder).name("tree"),
+    });
+    const note = s.model({ id: s.string().id() });
+    const failure = new TypeError("a getter that throws");
+    const read = Object.defineProperty({}, "id", {
+      enumerable: true,
+      get: () => {
+        throw failure;
+      },
+    });
+    const compiler = policyCompiler(
+      {
+        actor: v.object({}),
+        models: { folder: { read: true }, note: { read } },
+      },
+      { folder, note }
+    );
+    expect(() => compiler.acyclic("folder")).toThrow(failure);
   });
 });

@@ -1117,3 +1117,66 @@ test("a refused new row names the key an update writes through a nested to-one d
     await base.$disconnect();
   }
 });
+
+test("a tenant bounds the policy's own sets and reads the same rows as without it", async () => {
+  const page = s.model({
+    id: s.string().id(),
+    organizationId: s.string(),
+    grants: s.toMany(() => grant),
+  });
+  const grant = s.model({
+    id: s.string().id(),
+    organizationId: s.string(),
+    userId: s.string(),
+    pageId: s.string(),
+    page: s
+      .toOne(() => page)
+      .fields("pageId")
+      .references("id"),
+  });
+  const base = createClient({ schema: { page, grant }, dataDir: ":memory:" });
+  try {
+    await syncLiveSchema(base);
+    await base.page.createMany({
+      data: [
+        { id: "a1", organizationId: "a" },
+        { id: "a2", organizationId: "a" },
+        { id: "b1", organizationId: "b" },
+      ],
+    });
+    await base.grant.createMany({
+      data: [
+        { id: "g1", organizationId: "a", userId: "ada", pageId: "a1" },
+        { id: "g2", organizationId: "b", userId: "ada", pageId: "b1" },
+      ],
+    });
+    const read = async (tenant: boolean) =>
+      (
+        await base
+          .$extends(
+            permissions({
+              actor: v.object({
+                userId: v.string(),
+                organizationId: v.string(),
+              }),
+              ...(tenant && {
+                tenant: { field: "organizationId", actor: "organizationId" },
+              }),
+              models: {
+                page: {
+                  mandatory: { organizationId: { actor: "organizationId" } },
+                  read: { grants: { some: { userId: { actor: "userId" } } } },
+                },
+                grant: { read: true },
+              },
+            })
+          )
+          .$as({ userId: "ada", organizationId: "a" })
+          .page.findMany({ select: { id: true } })
+      ).map(({ id }) => id);
+    expect(await read(true)).toEqual(["a1"]);
+    expect(await read(false)).toEqual(["a1"]);
+  } finally {
+    await base.$disconnect();
+  }
+});
