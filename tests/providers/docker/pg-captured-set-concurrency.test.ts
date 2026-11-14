@@ -79,7 +79,13 @@ import type { QueryExecutionContext } from "@drivers/driver";
 import { PgDriver } from "@drivers/pg";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import { s } from "@schema";
-import { around, extension, settled as extSettled, target } from "@src/index";
+import {
+  around,
+  extension,
+  settled as extSettled,
+  target,
+  writes,
+} from "@src/index";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { Client as NativePgClient, type Pool, type PoolClient } from "pg";
 import {
@@ -400,27 +406,16 @@ const withFailingOutcome = (client: FcpgClient) =>
   client.$extends(
     extension(
       "failing-outcome",
+      // `writes` is what brings the watch of a write's outcome; the cells
+      // here only send `deleteMany` and `updateMany`.
       around(
         (c) => {
           extSettled(c, () => {
             throw new Error(OUTCOME_THREW);
           });
-          return (run) => {
-            return run();
-          };
+          return (run) => run();
         },
-        target("note", "deleteMany")
-      ),
-      around(
-        (c) => {
-          extSettled(c, () => {
-            throw new Error(OUTCOME_THREW);
-          });
-          return (run) => {
-            return run();
-          };
-        },
-        target("note", "updateMany")
+        target("note", writes)
       )
     )
   );
