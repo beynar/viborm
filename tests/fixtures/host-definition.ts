@@ -16,18 +16,10 @@ import {
 } from "@extensions/extension";
 import { keptRowsPart } from "@extensions/kept";
 import { methodsPart } from "@extensions/methods";
-import { queryPart } from "@extensions/query";
 import { resultPart } from "@extensions/result";
 import { rulePart } from "@extensions/rows";
 
-const hosts = [
-  controlsPart,
-  rulePart,
-  keptRowsPart,
-  resultPart,
-  methodsPart,
-  queryPart,
-];
+const hosts = [controlsPart, rulePart, keptRowsPart, resultPart, methodsPart];
 
 /** A definition's members as the host parts read them. */
 export type HostDefinition = { readonly name: string } & Readonly<
@@ -54,7 +46,7 @@ export function appendResolvedExtension(
 
 /**
  * An extension value made of raw members, applied by the host parts that
- * read them (`query` by the query host, `rows` by the rows host): for the
+ * read them (`rows` by the rows host): for the
  * tests of a host part through `$extends`.
  */
 export function hostExtension(definition: HostDefinition): unknown {

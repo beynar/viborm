@@ -43,7 +43,6 @@ import {
   oneOf,
   reads,
   rule,
-  settled,
   statement,
   unit,
   unless,
@@ -165,7 +164,7 @@ class KeyRecordingCache extends MemoryCache {
   }
 }
 
-const NAMED_CONTROL = /named control "(reason|deleted)"/;
+const NAMED_CONTROL = /set argument "(reason|deleted)"/;
 
 const softRows = {
   name: "rows",
@@ -188,16 +187,12 @@ const softRows = {
 describe("controls: admission and ownership", () => {
   test("two contributing extensions: each owner's handlers see only their own admitted controls; inputs never carry one", async () => {
     const seen: string[] = [];
-    const record = (label: string, context: object) => {
-      const input = Reflect.get(context, "input");
+    const record = (label: string, input: object, controls: object) => {
       const leaked = ["deleted", "reason", "region"].filter((key) =>
         Reflect.has(input, key)
       );
-      seen.push(
-        `${label}:${JSON.stringify(Reflect.get(context, "controls") ?? null)}:${leaked.join(",")}`
-      );
+      seen.push(`${label}:${JSON.stringify(controls)}:${leaked.join(",")}`);
     };
-    // `rows` goes first: it may not follow a model-mapped query handler.
     const db = (await seededBase())
       .$extends(
         extension(
@@ -224,32 +219,13 @@ describe("controls: admission and ownership", () => {
           "audit",
           extArgs({ reason: standard((value) => ({ value })) }),
           call(
-            (c) => {
-              const context = {
-                input: c.args,
-                controls: c.values,
-                model: c.model,
-                operation: c.operation,
-              };
-              record("audit-request", context);
-              c.set({});
-            },
+            (c) => record("audit-request", c.args, c.values),
             extTarget("post", "findMany")
           ),
           around(
             (c) => (run) => {
-              const context = {
-                proceed: run,
-                input: run.input,
-                mode: run.mode,
-                kind: c.kind,
-                model: c.model,
-                operation: c.operation,
-                controls: c.values,
-                onWriteOutcome: (listener) => settled(c, listener),
-              };
-              record("audit-query", context);
-              return context.proceed();
+              record("audit-query", run.input, c.values);
+              return run();
             },
             extTarget("post", "findMany")
           )
@@ -259,44 +235,22 @@ describe("controls: admission and ownership", () => {
         extension(
           "tenant",
           extArgs({ region: oneOf("eu", "us").on(reads) }),
-          call((c) => {
-            const context = {
-              input: c.args,
-              controls: c.values,
-              model: c.model,
-              operation: c.operation,
-            };
-            record("tenant-request", context);
-            c.set({});
-          }, extTarget(models))
+          call(
+            (c) => record("tenant-request", c.args, c.values),
+            extTarget(models)
+          )
         )
       )
       .$extends(
         extension(
           "bystander",
-          call((c) => {
-            const context = {
-              input: c.args,
-              controls: c.values,
-              model: c.model,
-              operation: c.operation,
-            };
-            record("bystander-request", context);
-            c.set({});
-          }, extTarget(models)),
+          call(
+            (c) => record("bystander-request", c.args, c.values),
+            extTarget(models)
+          ),
           around((c) => (run) => {
-            const context = {
-              proceed: run,
-              input: run.input,
-              mode: run.mode,
-              kind: c.kind,
-              model: c.model,
-              operation: c.operation,
-              controls: c.values,
-              onWriteOutcome: (listener) => settled(c, listener),
-            };
-            record("bystander-query", context);
-            return context.proceed();
+            record("bystander-query", run.input, c.values);
+            return run();
           })
         )
       );

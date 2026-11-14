@@ -4,10 +4,7 @@
  * a (model, operation) asks, and kept for the chain.
  */
 import type { FirstMoment, runFirstMoments } from "./call";
-import type {
-  ResolvedExtensionChain,
-  ResolvedOperationHandler,
-} from "./chain-state";
+import type { ResolvedOperationHandler } from "./chain-state";
 
 /** One handler of a chain, and the calls it concerns. */
 export interface PlacedHandler<
@@ -65,14 +62,4 @@ export function handlersOf<Handler extends CallableFunction>(
       return list.length > 0 ? list : undefined;
     },
   };
-}
-
-/** The handlers one call of `chain` runs, as its `request` or `query` answers. */
-export function lookupResolvedExtensionHandlers(
-  chain: ResolvedExtensionChain | undefined,
-  component: "request" | "query",
-  model: string | undefined,
-  operation: string
-): readonly ResolvedOperationHandler[] | undefined {
-  return chain?.[component]?.handlers(model, operation);
 }

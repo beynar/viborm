@@ -4,8 +4,8 @@ import type {
   QueryResult,
 } from "@drivers/exports";
 import { InvalidTransactionInputError } from "@errors";
-import type { ResolvedOperationHandler } from "@extensions/chain";
 import type {
+  AroundHandlers,
   PreparedQueryContext,
   WriteOutcomeNotifications,
   WriteOutcomeRegistration,
@@ -16,7 +16,7 @@ import type { PreparedBatchOperation, PreparedQuery } from "./types";
 /** What may intercept one array member (see `interception`). */
 export interface MemberInterception {
   readonly context: PreparedQueryContext | undefined;
-  readonly handlers: readonly ResolvedOperationHandler[] | undefined;
+  readonly handlers: AroundHandlers | undefined;
   readonly write: boolean;
   readonly registration?: WriteOutcomeRegistration | undefined;
 }

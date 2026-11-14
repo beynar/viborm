@@ -7,6 +7,7 @@
  */
 import type { Application, ExtensionPart } from "./chain";
 import { ARRAYS, coordinate } from "./coordination";
+import type { CallOrigin } from "./origin";
 import { type WrittenWatch, watchWrite } from "./written";
 
 /** The key a first moment's context registers watches through. */
@@ -21,11 +22,8 @@ export interface Watching {
   readonly show?: WrittenWatch["show"];
 }
 
-/**
- * Per call, what each extension's first moments registered to watch: kept
- * beside the call, which neither a part nor a chain outlives less.
- */
-const watched = new WeakMap<object, Map<string, Watching[]>>();
+/** A call's `watched`: what each extension's first moments registered. */
+export type Watched = Map<string, Watching[]>;
 
 /** What one extension's first moments registered for a write call, as one watch. */
 function watchOf(own: readonly Watching[]): WrittenWatch {
@@ -56,15 +54,13 @@ export interface WatchPart extends ExtensionPart {
    * watch part, a raw statement) has nothing to register through, which
    * `call-words.ts` refuses.
    */
-  readonly registering: (call: object, extension: string) => Registering;
+  readonly registering: (call: CallOrigin, extension: string) => Registering;
 }
 
 export const watchPart: WatchPart = {
   registering: (call, extension) => ({
     [REGISTER](watching) {
-      let byExtension = watched.get(call);
-      if (byExtension === undefined)
-        watched.set(call, (byExtension = new Map()));
+      const byExtension = (call.watched ??= new Map());
       byExtension.set(extension, [
         ...(byExtension.get(extension) ?? []),
         watching,
@@ -80,8 +76,7 @@ export const watchPart: WatchPart = {
     next.written = Object.freeze({
       extensions,
       watch: (written, _controls, context, late) => {
-        const byExtension =
-          written.call === undefined ? undefined : watched.get(written.call);
+        const byExtension = written.call?.watched;
         const watches: (readonly [string, WrittenWatch])[] = [];
         for (const extension of extensions) {
           const own = byExtension?.get(extension);

@@ -1,6 +1,5 @@
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { ClientInitializationError, PendingOperationError } from "@errors";
-import { lookupResolvedExtensionHandlers } from "@extensions/handlers";
 import {
   around,
   call,
@@ -79,53 +78,47 @@ describe("client extension foundation", () => {
       model: string | undefined,
       operation: string
     ) =>
-      lookupResolvedExtensionHandlers(chain, component, model, operation)?.map(
-        ({ extension }) => extension
-      );
+      chain[component]
+        ?.handlers(model, operation)
+        ?.map(({ extension }) => extension);
     expect(order("request", "item", "findMany")).toEqual(["A", "B", "C"]);
     expect(order("query", "item", "findMany")).toEqual(["A", "B", "C"]);
     // The lookup is the precompiled array itself.
-    expect(
-      lookupResolvedExtensionHandlers(chain, "query", "item", "findMany")
-    ).toBe(lookupResolvedExtensionHandlers(chain, "query", "item", "findMany"));
+    expect(chain.query?.handlers("item", "findMany")).toBe(
+      chain.query?.handlers("item", "findMany")
+    );
     expect(order("request", "audit", "findMany")).toEqual(["B"]);
     // A raw statement reaches both moments of a part without a target.
     expect(order("query", undefined, "$queryRaw")).toEqual(["B"]);
     expect(order("request", undefined, "$queryRaw")).toEqual(["B"]);
     expect(Object.isFrozen(chain)).toBe(true);
 
-    const genericOnly = appendResolvedExtension(
+    // A part without a target is the lookup's `global`: a model call finds
+    // the same handlers, and a raw statement the list itself.
+    const untargeted = appendResolvedExtension(
       undefined,
-      { name: "generic-only", query: async () => [] },
+      extExtension("untargeted", around(wrap)),
       schema
     );
-    expect(genericOnly.query!.global).toHaveLength(1);
-    expect(
-      lookupResolvedExtensionHandlers(genericOnly, "query", "item", "findMany")
-    ).toEqual(genericOnly.query!.global);
-    expect(
-      lookupResolvedExtensionHandlers(
-        genericOnly,
-        "query",
-        undefined,
-        "$queryRaw"
-      )
-    ).toBe(genericOnly.query!.global);
+    expect(untargeted.query?.global).toHaveLength(1);
+    expect(untargeted.query?.handlers("item", "findMany")).toEqual(
+      untargeted.query?.global
+    );
+    expect(untargeted.query?.handlers(undefined, "$queryRaw")).toBe(
+      untargeted.query?.global
+    );
 
-    const emptyQuery = appendResolvedExtension(
+    // A chain of first moments alone wraps no call.
+    const firstOnly = appendResolvedExtension(
       undefined,
-      { name: "empty-query", query: {} },
+      extExtension(
+        "first-only",
+        call(() => undefined)
+      ),
       schema
     );
-    const emptyModelQuery = appendResolvedExtension(
-      undefined,
-      { name: "empty-model-query", query: { item: {} } },
-      schema
-    );
-    // A chain without a handler wraps no call.
-    expect(emptyQuery.query!.placed).toEqual([]);
-    expect(emptyModelQuery.query!.placed).toEqual([]);
-    expect(emptyQuery.coordination).toBeUndefined();
+    expect(firstOnly.query).toBeUndefined();
+    expect(firstOnly.coordination).toBeUndefined();
   });
 
   it("threads the exact chain through derived and transaction engine scopes", () => {
@@ -140,7 +133,10 @@ describe("client extension foundation", () => {
     );
     const siblingChain = appendResolvedExtension(
       undefined,
-      { name: "sibling", query: async () => [] },
+      extExtension(
+        "sibling",
+        around(() => (run) => run())
+      ),
       schema
     );
 
@@ -211,14 +207,6 @@ describe("client extension foundation", () => {
       { name: " " },
       { name: "unknown-envelope", cliet: () => ({}) },
       { name: "unknown-model", model: { ghost: () => ({}) } },
-      {
-        name: "unknown-query-model",
-        query: { ghost: { findMany: () => Promise.resolve(null) } },
-      },
-      {
-        name: "unknown-operation",
-        query: { item: { findManny: () => Promise.resolve(null) } },
-      },
     ]) {
       expect(() => applyUnsafe(base, definition)).toThrow(
         ClientInitializationError
@@ -253,7 +241,6 @@ describe("client extension foundation", () => {
       {
         name: "revoked-factory-throw",
         client() {
-          // biome-ignore lint/style/useThrowOnlyError: hostile JavaScript can throw any value.
           throw revoked.proxy;
         },
       },
@@ -314,10 +301,10 @@ describe("client extension foundation", () => {
     );
     const withMethods = appendResolvedExtension(
       withHandlers,
-      {
-        name: "methods-only",
-        client: () => ({ $ready: () => true }),
-      },
+      extExtension(
+        "methods-only",
+        extMethods(() => ({ $ready: () => true }))
+      ),
       schema
     );
 
@@ -432,13 +419,5 @@ describe("client extension foundation", () => {
     await expect(
       first.$transaction([second.item.findMany()])
     ).rejects.toBeInstanceOf(PendingOperationError);
-  });
-});
-
-describe("coverage low value", () => {
-  it("returns no handlers for an absent compiled chain", () => {
-    expect(
-      lookupResolvedExtensionHandlers(undefined, "query", "item", "findMany")
-    ).toBeUndefined();
   });
 });

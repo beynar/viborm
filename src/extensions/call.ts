@@ -35,8 +35,8 @@ import { extensionError } from "./definition";
 import { builtPart, type DefinitionDraft } from "./extension";
 import { handlersOf, type PlacedHandler } from "./handlers";
 import { MODEL_OPERATIONS, type SelectionValue, selectionOf } from "./on";
-import { CALL } from "./origin";
-import type { QueryInterceptorContext } from "./query";
+import { CALL, type CallOrigin } from "./origin";
+import type { AroundRunner } from "./query";
 import { SHAPE_KEYS } from "./request";
 import { REGISTER, type Registering, type WatchPart } from "./watch-part";
 
@@ -66,7 +66,7 @@ interface CallSpec {
   readonly on: SelectionValue | undefined;
   /** `around` only: keeps the second moment a first returned, for the call. */
   readonly keep?: (
-    call: object,
+    call: CallOrigin,
     first: FirstMoment,
     second: SecondMoment
   ) => void;
@@ -74,7 +74,7 @@ interface CallSpec {
    * `around` only: what a raw statement's first moment registers `settled`
    * through, kept for its second moment, which the host tells the outcome.
    */
-  readonly told?: (call: object, first: FirstMoment) => Registering;
+  readonly told?: (call: CallOrigin, first: FirstMoment) => Registering;
   /** What registers `watch` and `settled`, where the part brings what tells them. */
   readonly watch?: WatchPart | undefined;
   /** `around` only: placed nearest the core. */
@@ -99,14 +99,10 @@ export type FirstMoment = (
   model: string | undefined,
   operation: string,
   state: { args: Readonly<Record<string, unknown>> },
-  call: object,
+  call: CallOrigin,
   controls: ResolvedControls | undefined,
   admitted: AdmittedControls | undefined
 ) => void;
-
-/** The keys a second moment's `run` carries for `again` and `via`. */
-export const AGAIN = Symbol("viborm.again");
-export const VIA = Symbol("viborm.via");
 
 type SecondMoment = (run: unknown) => unknown;
 
@@ -134,7 +130,7 @@ function firstOf(
   ) => {
     const refusal = (problem: string, cause?: unknown) =>
       new QueryError(
-        `Extension "${extension}" request handler for ${model === undefined ? operation : `${model}.${operation}`} ${problem}.`,
+        `Extension "${extension}" first moment for ${model === undefined ? operation : `${model}.${operation}`} ${problem}.`,
         { cause: errorCause(cause), meta: { model, operation } }
       );
     let returned: unknown;
@@ -158,7 +154,7 @@ function firstOf(
               throw refusal(
                 shape
                   ? `set "${key}", which decides the result's shape`
-                  : `named control "${key}"`
+                  : `set argument "${key}"`
               );
           }
           state.args = Object.freeze({ ...state.args, ...patch });
@@ -198,7 +194,7 @@ export function runFirstMoments(
   operation: string,
   input: Readonly<Record<string, unknown>>,
   handlers: readonly ResolvedOperationHandler<FirstMoment>[],
-  call: object,
+  call: CallOrigin,
   model?: string,
   controls?: ResolvedControls,
   admitted?: AdmittedControls
@@ -219,16 +215,11 @@ interface Kept {
   settled?: ((outcome: Outcome) => unknown)[];
 }
 
-/**
- * Per call, what each `around` part's first moment left for its second:
- * kept beside the call, never on a chain or a part (both outlive the call),
- * and gone with the call.
- */
-const seconds = new WeakMap<object, Map<FirstMoment, Kept>>();
+/** A call's `seconds`: by the first moment of each `around` part. */
+export type Seconds = Map<FirstMoment, Kept>;
 
-function keptFor(call: object, first: FirstMoment): Kept {
-  let byFirst = seconds.get(call);
-  if (byFirst === undefined) seconds.set(call, (byFirst = new Map()));
+function keptFor(call: CallOrigin, first: FirstMoment): Kept {
+  const byFirst = (call.seconds ??= new Map());
   let kept = byFirst.get(first);
   if (kept === undefined) byFirst.set(first, (kept = {}));
   return kept;
@@ -236,7 +227,7 @@ function keptFor(call: object, first: FirstMoment): Kept {
 
 /** What `around` hands its first moments: the call's second moments kept. */
 function keepSecond(
-  call: object,
+  call: CallOrigin,
   first: FirstMoment,
   second: SecondMoment
 ): void {
@@ -248,7 +239,7 @@ function keepSecond(
  * functions, kept for the second moment. A raw statement shows no rows: a
  * `watch` would never be told, and is refused.
  */
-const rawTold = (call: object, first: FirstMoment): Registering => ({
+const rawTold = (call: CallOrigin, first: FirstMoment): Registering => ({
   [REGISTER](watching) {
     if (watching.settled === undefined) return false;
     (keptFor(call, first).settled ??= []).push(watching.settled);
@@ -257,41 +248,18 @@ const rawTold = (call: object, first: FirstMoment): Registering => ({
 });
 
 /**
- * The second moment of one `around` part, as a query handler: the second
- * its first returned for this call, run around the child. The runner makes
- * the child's failure the call's.
+ * The second moment of one `around` part: the second its first returned for
+ * this call, run around `run`. The runner makes the child's failure the
+ * call's.
  */
 const secondMoment =
-  (first: FirstMoment) =>
-  async (context: QueryInterceptorContext<unknown>): Promise<unknown> => {
-    // The object both moments of the call were handed: a model call's
-    // own, and for a raw statement its input, which `raw.ts` hands both.
-    const call = context.kind === "model" ? context.call : context.input;
-    const kept = call && seconds.get(call)?.get(first);
+  (first: FirstMoment): AroundRunner =>
+  (prepared, run, register) => {
+    const kept = prepared.call?.seconds?.get(first);
     // The host tells a raw execute family's outcome to what its first
     // moment registered; a raw read's outcome is no write and is dropped.
-    for (const listener of kept?.settled ?? [])
-      context.onWriteOutcome(listener);
-    const second = kept?.second;
-    if (second === undefined) return context.proceed();
-    // Once the second moment returned, `run()` is a direct read's refresh:
-    // the core alone, never awaited by the call.
-    let returned = false;
-    const run = Object.defineProperties(
-      () => (returned ? context.replay() : context.proceed()),
-      {
-        input: { get: () => context.input },
-        mode: { value: context.mode },
-        [CALL]: {
-          value: context.kind === "model" ? context.call : undefined,
-        },
-        [AGAIN]: { value: context.again },
-        [VIA]: { value: context.proceedOn },
-      }
-    );
-    const value = await second(run);
-    returned = true;
-    return value;
+    for (const listener of kept?.settled ?? []) register(listener);
+    return kept?.second === undefined ? run() : kept.second(run);
   };
 
 /**

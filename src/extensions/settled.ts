@@ -1,18 +1,14 @@
 /**
- * The word `settled`, in a module of its own: importing it brings the write
- * rail (`WRITE_RAIL`) to every chain whose parts wrap calls, since what it
- * registers on a raw statement or a method's scope is published after the
- * outermost commit. A program that never imports it registers nothing
- * there, and a chain of `around` parts alone runs its transactions plainly.
+ * The word `settled`. On a call it registers through what the call's part
+ * brought; on a method's scope it publishes at once outside a transaction,
+ * and inside one through the transaction's collector, which a part that
+ * hears writes brought to the chain (`coordination.ts`).
  */
 
 import { registerOn } from "./call-words";
 import type { Outcome } from "./contract";
-import { brought, WRITE_RAIL } from "./coordination";
 import { scopeOf } from "./origin";
-import { publishWriteOutcomes } from "./query";
-
-brought.rail = WRITE_RAIL;
+import { publishWriteOutcomes, refuseUncollected } from "./query";
 
 /**
  * Be told when the call's write is durable: after its commit, after the
@@ -44,8 +40,10 @@ export function settled(
   }
   const registration = { extension: scope.extension, listener };
   const outcomes = scope.engine.transactionWriteOutcomes;
-  if (outcomes === undefined)
+  if (outcomes === undefined) {
+    if (scope.engine.inTransaction) refuseUncollected();
     return publishWriteOutcomes([registration], { certainty: "committed" });
+  }
   outcomes.stage(registration);
   outcomes.confirm([registration]);
   return Promise.resolve();
