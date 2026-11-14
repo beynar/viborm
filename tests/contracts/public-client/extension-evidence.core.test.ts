@@ -9,7 +9,21 @@
  */
 
 import { ClientInitializationError, ValidationError } from "@errors";
-import { createClient, s } from "@src/index";
+import {
+  arg,
+  check,
+  createClient,
+  extension,
+  facts,
+  gate,
+  nothing,
+  oneOf,
+  parts,
+  rule,
+  s,
+  text,
+  unit,
+} from "@src/index";
 import {
   createPermissionsAppClient,
   loadPermissionsSeed,
@@ -26,46 +40,53 @@ type Delegate = Record<string, (args?: object) => Promise<any>>;
 type Loose = Record<string, Delegate> & { $extends(d: object): Loose };
 
 const OWNER = "user-05";
-const mine = { ownerId: { control: "who" } };
+const who = arg("who");
+const mine = { ownerId: who };
+const archived = { archivedAt: { not: null } };
+const self = { id: who };
 
-/** Documents and users with hand-written predicates; K5's declarations by `k5`. */
-const definition = (
-  k5: { document?: object; user?: object; organization?: object } = {},
-  name = "k5",
-  control = "as"
-) => ({
-  name,
-  controls: { who: { oneOf: seed.user.map((user) => user.id) } },
-  rows: {
-    control,
-    default: "all",
-    models: {},
-    verbs: {
-      document: {
-        predicates: { all: {}, mine, archived: { archivedAt: { not: null } } },
-        read: "all",
-        update: "all",
-        ...k5.document,
-      },
-      user: {
-        predicates: { all: {}, self: { id: { control: "who" } } },
-        read: "all",
-        ...k5.user,
-      },
-      organization: {
-        predicates: { all: {} },
-        read: "all",
-        ...k5.organization,
-      },
+/** K5's declarations: what each model's `read` adds beside its `where`. */
+type K5 = { document?: object; user?: object; organization?: object };
+/**
+ * Documents, users and organizations read in full, with K5's declarations
+ * by `k5`; `declares: false` for an extension applied after one that
+ * declares `who`. The entries are handed through a rule read from the
+ * schema, the one form that takes them untyped: some are refused, which is
+ * what is tested.
+ */
+const typed = parts<PermissionsAppClient>();
+const definition = (k5: K5 = {}, name = "k5", declares = true) => {
+  const rules = typed.rule(() => ({
+    document: {
+      read: { where: {}, ...k5.document },
+      update: { where: {}, check: check({}) },
+      delete: { where: nothing },
     },
-  },
-});
+    user: {
+      read: { where: {}, ...k5.user },
+      update: { where: nothing },
+      delete: { where: nothing },
+    },
+    organization: {
+      read: { where: {}, ...k5.organization },
+      update: { where: nothing },
+      delete: { where: nothing },
+    },
+  }));
+  return declares
+    ? typed.extension(
+        name,
+        typed.args({ who: oneOf(...seed.user.map((user) => user.id)) }),
+        rules
+      )
+    : typed.extension(name, rules);
+};
 const DECLARED = {
   document: {
-    evidence: { as: "$own", names: ["mine", "archived"] },
-    reads: { title: "mine" },
+    select: { $own: facts({ mine, archived }) },
+    fields: { title: gate(mine) },
   },
-  user: { reads: { name: "self" } },
+  user: { fields: { name: gate(self) } },
 };
 
 describe("K5: declared projection keys and read-gated fields", () => {
@@ -73,13 +94,19 @@ describe("K5: declared projection keys and read-gated fields", () => {
   let db: Loose;
   const statements: string[] = [];
   const metered = (client: Loose) =>
-    client.$extends({
-      name: "meter",
-      statement: (context: { statement: { toStatement(): string } }) => {
-        statements.push(context.statement.toStatement());
-        return context.statement;
-      },
-    });
+    client.$extends(
+      extension(
+        "meter",
+        unit(
+          (u, next) => {
+            statements.push(text(u) ?? "");
+            return next();
+          },
+          ["statement"],
+          { rewrites: true }
+        )
+      )
+    );
   beforeAll(async () => {
     base = createPermissionsAppClient(createInMemorySQLite3Driver());
     await syncLiveSchema(base);
@@ -92,24 +119,16 @@ describe("K5: declared projection keys and read-gated fields", () => {
   const apply = (k5: Parameters<typeof definition>[0]) => () =>
     (base as unknown as Loose).$extends(definition(k5));
 
-  test("admission refuses a key not spelled `$` and an identifier, an unknown name, and a gate on a key, a foreign key, a relation or no field", async () => {
+  test("admission refuses a key not spelled `$` and an identifier, and a gate on a key, a foreign key, a relation or no field", async () => {
     const refused = [
+      [{ document: { select: { own: facts({ mine }) } } }, "evidence.as"],
+      [{ document: { fields: { id: gate(mine) } } }, "reads.id"],
       [
-        { document: { evidence: { as: "own", names: ["mine"] } } },
-        "evidence.as",
-      ],
-      [
-        { document: { evidence: { as: "$own", names: ["nope"] } } },
-        "evidence.names.0",
-      ],
-      [{ document: { reads: { title: "nope" } } }, "reads.title"],
-      [{ document: { reads: { id: "mine" } } }, "reads.id"],
-      [
-        { document: { reads: { organizationId: "mine" } } },
+        { document: { fields: { organizationId: gate(mine) } } },
         "reads.organizationId",
       ],
-      [{ document: { reads: { parent: "mine" } } }, "reads.parent"],
-      [{ document: { reads: { nothing: "mine" } } }, "reads.nothing"],
+      [{ document: { fields: { parent: gate(mine) } } }, "reads.parent"],
+      [{ document: { fields: { nothing: gate(mine) } } }, "reads.nothing"],
     ] as const;
     for (const [k5, at] of refused) {
       const error = await failure(Promise.resolve().then(apply(k5)));
@@ -119,21 +138,18 @@ describe("K5: declared projection keys and read-gated fields", () => {
     // A member of a compound key is a key too.
     const compound = await failure(
       Promise.resolve().then(() =>
-        (base as unknown as Loose).$extends({
-          name: "compound",
-          rows: {
-            control: "as",
-            default: "all",
-            models: {},
-            verbs: {
+        (base as unknown as Loose).$extends(
+          extension(
+            "compound",
+            typed.rule(() => ({
               teamMember: {
-                predicates: { all: {} },
-                read: "all",
-                reads: { teamId: "all" },
+                read: { where: {}, fields: { teamId: gate({}) } },
+                update: { where: nothing },
+                delete: { where: nothing },
               },
-            },
-          },
-        })
+            }))
+          )
+        )
       )
     );
     expect(compound).toBeInstanceOf(ClientInitializationError);
@@ -142,18 +158,17 @@ describe("K5: declared projection keys and read-gated fields", () => {
 
   test("two extensions of one chain declaring one key on one model are refused", async () => {
     const once = (base as unknown as Loose).$extends(
-      definition({ document: { evidence: { as: "$own", names: ["mine"] } } })
+      definition({ document: { select: { $own: facts({ mine }) } } })
     );
     const error = await failure(
       Promise.resolve().then(() =>
-        once.$extends({
-          ...definition(
-            { document: { evidence: { as: "$own", names: ["all"] } } },
+        once.$extends(
+          definition(
+            { document: { select: { $own: facts({ all: {} }) } } },
             "again",
-            "as2"
-          ),
-          controls: {},
-        })
+            false
+          )
+        )
       )
     );
     expect(error).toBeInstanceOf(ClientInitializationError);
@@ -231,7 +246,7 @@ describe("K5: declared projection keys and read-gated fields", () => {
       expect(
         () =>
           (base as unknown as Loose).$extends(
-            definition({ user: { reads: { [field]: "self" } } })
+            definition({ user: { fields: { [field]: gate(self) } } })
           ),
         field
       ).toThrow(
@@ -316,7 +331,7 @@ describe("K5: declared projection keys and read-gated fields", () => {
       );
     const keyed = metered(
       (base as unknown as Loose).$extends(
-        definition({ organization: { evidence: { as: "$k", names: ["all"] } } })
+        definition({ organization: { select: { $k: facts({ all: {} }) } } })
       )
     );
     expect(await capture(keyed, "organization", {})).toEqual(
@@ -338,33 +353,36 @@ describe("K5: variant projection admission", () => {
     schema: { holder, alpha, beta },
     driver: createInMemorySQLite3Driver(),
   });
-  const db = base.$extends({
-    name: "variant evidence",
-    rows: {
-      control: "visibility",
-      default: "all",
-      models: {},
-      verbs: {
+  const secret = { id: "allowed" };
+  const db = base.$extends(
+    extension(
+      "variant evidence",
+      rule({
         holder: {
-          predicates: { read: {} },
-          read: "read",
-          update: "read",
-          evidence: { as: "$access", names: ["read"] },
+          read: { where: {}, select: { $access: facts({ read: {} }) } },
+          update: { where: {}, check: check({}) },
+          delete: { where: nothing },
         },
         alpha: {
-          predicates: { read: {}, secret: { id: "allowed" } },
-          read: "read",
-          evidence: { as: "$access", names: ["read", "secret"] },
-          reads: { secret: "secret" },
+          read: {
+            where: {},
+            fields: { secret: gate(secret) },
+            select: { $access: facts({ read: {}, secret }) },
+          },
+          update: { where: nothing },
+          delete: { where: nothing },
         },
         beta: {
-          predicates: { read: {}, edit: {} },
-          read: "read",
-          evidence: { as: "$access", names: ["read", "edit"] },
+          read: {
+            where: {},
+            select: { $access: facts({ read: {}, edit: {} }) },
+          },
+          update: { where: nothing },
+          delete: { where: nothing },
         },
-      },
-    },
-  });
+      })
+    )
+  );
   beforeAll(async () => {
     await syncLiveSchema(base);
     await base.alpha.createMany({

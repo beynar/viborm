@@ -32,11 +32,10 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
  * K5 against the oracle (plan §4.5, §3.3 D5/D6; §7 W-EV1..W-EV4 and
  * W-F1..W-F8): the compiled §1.1 policy exactly as `viborm/permissions` hands it
  * to its `rows.verbs` (`verbsOf`), which declares per listed model
- * `evidence: { as: "$access", names }` with the model's actions (`ordered`
- * where they are exactly the levels chain) and `reads` as the policy
- * compiled them (`collection.budget` at `full`). The expectations read the
- * oracle's own actions and order (`actionsOf`, `ordered`), never the
- * compiled ones. A plain extension carries it, its actor an argument; no
+ * `evidence: { as: "$access", names }` with the model's actions and
+ * `reads` as the policy compiled them (`collection.budget` at `full`). The
+ * expectations read the oracle's own actions and order (`actionsOf`), never
+ * the compiled ones. A plain extension carries it, its actor an argument; no
  * other layer, so the oracle is read without tombstones.
  *
  * What a caller observes of a row at action `a` is `P(read) ∧ P(a)` (R2), so

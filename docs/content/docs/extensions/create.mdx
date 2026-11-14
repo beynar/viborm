@@ -893,9 +893,8 @@ await db.document.findMany({ user: "ada", select: { id: true, notes: true } }); 
 - The key is spelled `$` and an identifier, so no field of the model can take
   its name. Each name reports whether its predicate holds on the row beside
   `read.where`, computed in the statement that reads the row (for a write,
-  when its result row is read). `facts({ … }, { ordered: true })` reports
-  instead the last name that holds, or `null`. `$access: ["own"]` asks for
-  some names only.
+  when its result row is read). `$access: ["own"]` asks for some names
+  only.
 - A gated field is present where its predicate holds and absent elsewhere; the
   row is never dropped. A `select` (or an `omit: { notes: false }`) that names
   it fails with `ValidationError` at its path when a returned row lacks the

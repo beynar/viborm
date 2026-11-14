@@ -20,8 +20,17 @@
 
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { createClient } from "@client/client";
-import { defineExtension } from "@extensions/define";
 import { s } from "@schema";
+import {
+  accepts,
+  arg,
+  extension,
+  oneOf,
+  parts,
+  text,
+  unit,
+  when,
+} from "@src/index";
 import { v } from "@src/validation";
 import { runSharedBodiesBehavior } from "@tests/contracts/public-client/shared-bodies-behavior";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
@@ -56,33 +65,33 @@ const doc = s.model({
 const schema = { org, member, doc };
 
 /** The caller's membership of the row's organization: the repeated body. */
-const inOrg = { org: { members: { some: { userId: { control: "user" } } } } };
+const inOrg = { org: { members: { some: { userId: arg("user") } } } };
 const admin = {
   org: {
-    members: { some: { userId: { control: "user" }, role: "admin" } },
+    members: { some: { userId: arg("user"), role: "admin" } },
   },
 };
-const policy = defineExtension({
-  name: "policy",
-  controls: { user: { schema: v.string(), required: true } },
-  rows: {
-    control: "scope",
-    default: "member",
-    models: {
-      doc: {
+const typed = parts<typeof schema>();
+const policy = typed.extension(
+  "policy",
+  typed.args({
+    user: accepts(v.string()).required(["doc"]),
+    scope: oneOf("member", "single").default("member"),
+  }),
+  typed.rule({
+    doc: {
+      root: [
         // `inOrg` twice: in each arm, as a policy's arms repeat `mandatory`.
-        member: {
-          root: {
-            OR: [{ AND: [inOrg, { title: "a" }] }, { AND: [inOrg, admin] }],
-          },
-          related: inOrg,
-        },
+        when(arg("scope"), "member", {
+          OR: [{ AND: [inOrg, { title: "a" }] }, { AND: [inOrg, admin] }],
+        }),
         // No body repeats.
-        single: { root: inOrg, related: inOrg },
-      },
+        when(arg("scope"), "single", inOrg),
+      ],
+      related: inOrg,
     },
-  },
-});
+  })
+);
 
 const clients: { $disconnect(): Promise<void> }[] = [];
 afterEach(async () => {
@@ -113,13 +122,19 @@ async function open(shared: boolean) {
     ],
   });
   const statements: string[] = [];
-  const db = base.$extends(policy).$extends({
-    name: "statements",
-    statement(context) {
-      statements.push(context.statement.toStatement());
-      return context.statement;
-    },
-  });
+  const db = base.$extends(policy).$extends(
+    extension(
+      "statements",
+      unit(
+        (u, next) => {
+          statements.push(text(u) ?? "");
+          return next();
+        },
+        ["statement"],
+        { rewrites: true }
+      )
+    )
+  );
   return { db, statements };
 }
 
@@ -251,13 +266,19 @@ describe("relation bodies a statement repeats, stated once", () => {
       clients.push(base);
       await base
         .$extends(policy)
-        .$extends({
-          name: "statements",
-          statement(context) {
-            statements.push(context.statement.toStatement());
-            return context.statement;
-          },
-        })
+        .$extends(
+          extension(
+            "statements",
+            unit(
+              (u, next) => {
+                statements.push(text(u) ?? "");
+                return next();
+              },
+              ["statement"],
+              { rewrites: true }
+            )
+          )
+        )
         .doc.findMany({ user: "ann", select: { id: true } });
     }
     const [sharedRead, plainRead] = statements;
@@ -290,40 +311,43 @@ describe("relation bodies a statement repeats, stated once", () => {
   });
   const underAnn = {
     parent: { recurse: { depth: false }, self: true, some: { owner: "ann" } },
-  };
-  const folders = defineExtension({
-    name: "folders",
-    rows: {
-      control: "scope",
-      default: "ann",
-      models: {
-        folder: {
-          ann: {
-            root: {
-              OR: [
-                { AND: [underAnn, { archived: false }] },
-                { AND: [underAnn, { archived: true }] },
-                { AND: [underAnn, { owner: "cid" }] },
-              ],
-            },
-          },
-        },
+  } as const;
+  const folderSchema = { folder };
+  const forFolders = parts<typeof folderSchema>();
+  const folders = forFolders.extension(
+    "folders",
+    forFolders.args({ scope: oneOf("ann").default("ann") }),
+    forFolders.rule({
+      folder: {
+        root: when(arg("scope"), "ann", {
+          OR: [
+            { AND: [underAnn, { archived: false }] },
+            { AND: [underAnn, { archived: true }] },
+            { AND: [underAnn, { owner: "cid" }] },
+          ],
+        }),
       },
-    },
-  });
+    })
+  );
   const readFolders = async (
     driver: SqlOnlyDriver | ReturnType<typeof createInMemorySQLite3Driver>
   ) => {
     const statements: string[] = [];
-    const base = createClient({ schema: { folder }, driver });
+    const base = createClient({ schema: folderSchema, driver });
     clients.push(base);
-    const db = base.$extends(folders).$extends({
-      name: "statements",
-      statement(context) {
-        statements.push(context.statement.toStatement());
-        return context.statement;
-      },
-    });
+    const db = base.$extends(folders).$extends(
+      extension(
+        "statements",
+        unit(
+          (u, next) => {
+            statements.push(text(u) ?? "");
+            return next();
+          },
+          ["statement"],
+          { rewrites: true }
+        )
+      )
+    );
     return { base, db, statements };
   };
 
