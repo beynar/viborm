@@ -20,7 +20,7 @@ import type {
   Extension,
   Facts,
   PendingOperation,
-  PlacedControl,
+  PlacedArgument,
   Target,
   VibORMConfig,
 } from "../index";
@@ -125,7 +125,7 @@ type SoftDeleteFacts<T extends AnyTarget, Models> = Facts<
   {
     // A mode chooses rows a call selects: a create selects none. Spelled
     // out, so an exported client's declaration needs no other name.
-    readonly deleted: PlacedControl<
+    readonly deleted: PlacedArgument<
       "without" | "with" | "only",
       PropertyKey,
       | "findMany"
@@ -143,7 +143,7 @@ type SoftDeleteFacts<T extends AnyTarget, Models> = Facts<
       | "delete"
       | "deleteMany"
     >;
-    readonly mode: PlacedControl<
+    readonly mode: PlacedArgument<
       "soft" | "hard",
       keyof Models,
       "delete" | "deleteMany"

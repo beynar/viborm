@@ -7,8 +7,8 @@
 import type { QueryExecutionContext } from "@drivers/types";
 import type { QueryEngine } from "@query-engine/query-engine";
 import type { PreparedOperation } from "@query-engine/raptor3/commands";
+import type { AdmittedArgs } from "./arguments";
 import type { Seconds } from "./call";
-import type { AdmittedControls } from "./controls";
 import type { Watched } from "./watch-part";
 
 /** The key of the call a first moment's context and a `run` belong to. */
@@ -27,7 +27,7 @@ export const VIA = Symbol("viborm.via");
  */
 export interface CallOrigin {
   /** The arguments of the extensions the call admitted. */
-  readonly controls?: AdmittedControls;
+  readonly values?: AdmittedArgs;
   /** Set once the call is an operation of an engine: absent on a raw statement. */
   of?: {
     readonly engine: QueryEngine;

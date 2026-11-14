@@ -8,13 +8,13 @@ import {
   Parameter,
 } from "@query-engine/raptor3/shared/row-scope";
 import type { Input } from "@query-engine/raptor3/shared/schema";
-import type { AdmittedControls } from "./controls";
+import type { AdmittedArgs } from "./arguments";
 
 /** The call's one instant, where a field writes `now`. */
 export const NOW = /* @__PURE__ */ new Parameter();
 
 const NO_VALUES = /* @__PURE__ */ Object.freeze({
-  controls: {},
+  args: {},
   required: () => false,
 });
 
@@ -23,15 +23,15 @@ const instant = () => new Date();
 
 /** Whether a field writes an argument's value, read per call. */
 const named = (value: unknown): value is Parameter =>
-  value instanceof Parameter && value.control !== undefined;
+  value instanceof Parameter && value.arg !== undefined;
 
 /** A stamp with its arguments' values put in: a field whose argument the call left out is not written. */
 function boundStamp(
   stamp: Input | undefined,
-  controls: AdmittedControls | undefined
+  given: AdmittedArgs | undefined
 ): Input | undefined {
   if (stamp === undefined || !Object.values(stamp).some(named)) return stamp;
-  const values = controls ? { ...NO_VALUES, controls } : NO_VALUES;
+  const values = given ? { ...NO_VALUES, args: given } : NO_VALUES;
   const out: Record<string, unknown> = {};
   for (const [field, value] of Object.entries(stamp)) {
     const given = named(value) ? value.read(values, instant) : value;
@@ -58,11 +58,11 @@ export class Stamps {
     );
   }
   /** One call's stamps, from the arguments it admitted. */
-  of(controls: AdmittedControls | undefined): ReadonlyMap<string, ModelStamps> {
+  of(given: AdmittedArgs | undefined): ReadonlyMap<string, ModelStamps> {
     const bound = new Map<string, ModelStamps>();
     for (const [model, entry] of this.all) {
-      const create = boundStamp(entry.create, controls);
-      const update = boundStamp(entry.update, controls);
+      const create = boundStamp(entry.create, given);
+      const update = boundStamp(entry.update, given);
       bound.set(
         model,
         create === entry.create && update === entry.update

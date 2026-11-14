@@ -26,7 +26,13 @@ import { key } from "../extensions/key";
 import { methods } from "../extensions/methods-part";
 import { reads, target, writes } from "../extensions/on";
 import { settled } from "../extensions/settled";
-import type { AnyTarget, Extension, Facts, PlacedControl, Run } from "../index";
+import type {
+  AnyTarget,
+  Extension,
+  Facts,
+  PlacedArgument,
+  Run,
+} from "../index";
 import { CacheDriver, INVALIDATE, SERVE, type WaitUntilFn } from "./driver";
 import { createOfficialCacheNamespace } from "./key";
 import { cacheCodec } from "./result-codec";
@@ -58,7 +64,7 @@ export type CacheFacts = Facts<
   Record<never, never>,
   Record<never, never>,
   {
-    readonly cache: PlacedControl<
+    readonly cache: PlacedArgument<
       CacheInvalidationOptions,
       PropertyKey,
       MutationOperations

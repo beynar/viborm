@@ -17,9 +17,10 @@ import type { Schema } from "@client/types";
 import { QueryError, VibORMError } from "@errors";
 import { isFunction, isRecord } from "@validation/value-guards";
 import { errorCause } from "../errors/diagnostic-safety";
+import type { AdmittedArgs } from "./arguments";
 import type { Application, ExtensionPart } from "./chain";
 import { extensionError } from "./chain";
-import type { ResolvedControls, ResolvedOperationHandler } from "./chain-state";
+import type { ResolvedArgs, ResolvedOperationHandler } from "./chain-state";
 import type {
   AnyTarget,
   AroundFacts,
@@ -29,7 +30,6 @@ import type {
   Part,
   Selection,
 } from "./contract";
-import type { AdmittedControls } from "./controls";
 import { coordinate, QUERIES } from "./coordination";
 import { handlersOf, type PlacedHandler } from "./handlers";
 import { MODEL_OPERATIONS, type SelectionValue, selectionOf } from "./on";
@@ -53,7 +53,7 @@ interface FirstContext extends Partial<Registering> {
   readonly model: string | undefined;
   readonly operation: string;
   readonly args: Readonly<Record<string, unknown>>;
-  readonly values: AdmittedControls;
+  readonly values: AdmittedArgs;
   set(patch: unknown): void;
   /** A model call itself, for the words that read it (`database`, `key`). */
   readonly [CALL]: object | undefined;
@@ -89,18 +89,18 @@ interface CallSpec {
  * `runFirstMoments`, it keeps the second moment its handler returned.
  */
 export type FirstMoment = (
-  owner: Pick<ResolvedOperationHandler, "extension" | "controls">,
+  owner: Pick<ResolvedOperationHandler, "extension" | "args">,
   model: string | undefined,
   operation: string,
   state: { args: Readonly<Record<string, unknown>> },
   call: CallOrigin,
-  controls: ResolvedControls | undefined,
-  admitted: AdmittedControls | undefined
+  declared: ResolvedArgs | undefined,
+  admitted: AdmittedArgs | undefined
 ) => void;
 
 type SecondMoment = (run: unknown) => unknown;
 
-const NO_VALUES: AdmittedControls = /* @__PURE__ */ Object.freeze({});
+const NO_VALUES: AdmittedArgs = /* @__PURE__ */ Object.freeze({});
 
 /**
  * One part's first moment against one schema. What the handler throws
@@ -114,12 +114,12 @@ function firstOf(
   schema: Schema
 ): FirstMoment {
   const first: FirstMoment = (
-    { extension, controls: own },
+    { extension, args: own },
     model,
     operation,
     state,
     call,
-    controls,
+    declared,
     admitted
   ) => {
     const refusal = (problem: string, cause?: unknown) =>
@@ -137,14 +137,14 @@ function firstOf(
         get args() {
           return state.args;
         },
-        // An extension that declares arguments brings the chain's controls.
-        values: (own && controls?.owned(admitted, own)) ?? NO_VALUES,
+        // An extension that declares arguments brings the chain's arguments.
+        values: (own && declared?.owned(admitted, own)) ?? NO_VALUES,
         set(patch: unknown) {
           if (model === undefined || !isRecord(patch))
             throw refusal("set no model call's arguments");
           for (const key of Object.keys(patch)) {
             const shape = SHAPE_KEYS.has(key);
-            if (shape || controls?.names.has(key))
+            if (shape || declared?.names.has(key))
               throw refusal(
                 shape
                   ? `set "${key}", which decides the result's shape`
@@ -178,7 +178,7 @@ function firstOf(
 
 /**
  * Every first moment of one call, in chain order, over its arguments with
- * the controls taken out: what `chain.request.apply` runs before a model
+ * the arguments taken out: what `chain.request.apply` runs before a model
  * call is validated, and before a raw statement is sent (`raw.ts`, with no
  * model and its input for arguments). The arguments each sees are those the
  * moments before it left. `call` is the one object both moments of the call
@@ -190,15 +190,15 @@ export function runFirstMoments(
   handlers: readonly ResolvedOperationHandler<FirstMoment>[],
   call: CallOrigin,
   model?: string,
-  controls?: ResolvedControls,
-  admitted?: AdmittedControls
+  declared?: ResolvedArgs,
+  admitted?: AdmittedArgs
 ): Record<string, unknown> {
   // An argument that is no object is validation's to refuse, as it is.
   const state = {
     args: isRecord(input) ? Object.freeze({ ...input }) : input,
   };
   for (const handler of handlers)
-    handler.handler(handler, model, operation, state, call, controls, admitted);
+    handler.handler(handler, model, operation, state, call, declared, admitted);
   return state.args;
 }
 
@@ -268,7 +268,7 @@ function placed<H extends CallableFunction>(
   handler: H,
   { schema, owner }: Application
 ): PlacedHandler<H> {
-  const own = { extension: owner.name, handler, controls: owner.controls };
+  const own = { extension: owner.name, handler, args: owner.args };
   if (selection === undefined) return Object.freeze({ ...own, inner });
   const known = (names: readonly string[], holds: (name: string) => boolean) =>
     new Set(
@@ -303,9 +303,9 @@ function appendFirst(
   first: FirstMoment
 ): void {
   const { next } = application;
-  next.request = Object.freeze({
+  next.call = Object.freeze({
     ...handlersOf([
-      ...(next.request?.placed ?? []),
+      ...(next.call?.placed ?? []),
       placed(spec, first, application),
     ]),
     apply: runFirstMoments,
@@ -337,8 +337,8 @@ function aroundPart(spec: CallSpec): ExtensionPart {
       const first = firstOf(spec, application.schema);
       appendFirst(application, spec, first);
       const handler = placed(spec, secondMoment(first), application);
-      const list = next.query?.placed ?? [];
-      next.query = Object.freeze(
+      const list = next.around?.placed ?? [];
+      next.around = Object.freeze(
         handlersOf(
           handler.inner
             ? [...list, handler]

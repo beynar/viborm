@@ -73,10 +73,10 @@ export const watchPart: WatchPart = {
   }),
   join({ next, chain, owner }: Application) {
     const extensions = Object.freeze([
-      ...(chain?.written?.extensions ?? []),
+      ...(chain?.watch?.extensions ?? []),
       owner.name,
     ]);
-    next.written = Object.freeze({
+    next.watch = Object.freeze({
       extensions,
       watch: (written, _controls, context, late) => {
         const byExtension = written.call?.watched;

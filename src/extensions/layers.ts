@@ -2,7 +2,7 @@
  * A layer of a row domain as the engine lowers it, where its predicate reads
  * its call (brought by `arg`, `now`, `when`, `unless`, `provided`): what its
  * predicate is for one call. Its conditions fold per call, a value it still reads that is
- * absent makes it false where its control is required and drops it otherwise
+ * absent makes it false where its argument is required and drops it otherwise
  * (R6), and over a produced row what judges it folds the nullness the write
  * states into it.
  * The engine asks a layer what it resolves to; this module, loaded with the
@@ -264,7 +264,7 @@ export function layerOf(
       const [parameter, spread] = parameters[index]!;
       const value = parameter.read(values, instant);
       if (value !== undefined && (!spread || Array.isArray(value))) continue;
-      if (values?.required(parameter.control!, model)) return VACUOUS_FALSE;
+      if (values?.required(parameter.arg!, model)) return VACUOUS_FALSE;
       dropped = true;
     }
     if (dropped) return undefined;

@@ -25,7 +25,7 @@ import type {
   EmptyFacts,
   Extension,
   Facts,
-  PlacedControl,
+  PlacedArgument,
   Target,
   VibORMConfig,
 } from "../index";
@@ -369,8 +369,8 @@ type ModelVerbs<Config extends PermissionsConfig, K extends Listed<Config>> = {
  * operation that selects rows. `actor` and `scopes` are bound: no call
  * passes them.
  */
-type PolicyControls<Config extends PermissionsConfig> = {
-  readonly [MODE]: PlacedControl<
+type PolicyArguments<Config extends PermissionsConfig> = {
+  readonly [MODE]: PlacedArgument<
     ModeOf<Config>,
     PropertyKey,
     Exclude<Operations, "create" | "createMany">
@@ -388,7 +388,7 @@ type PermissionsFacts<
 > = Facts<
   AsMethod<ActorFacts<InferOutput<Config["actor"]>>, ScopeOf<Config>>,
   Record<never, never>,
-  PolicyControls<Config>,
+  PolicyArguments<Config>,
   keyof ClientSchema<T["config"]> & string,
   never,
   Record<never, never>,
@@ -440,7 +440,7 @@ interface Reach {
 }
 
 /**
- * Every model's modes, alike in name (one control): the default and the
+ * Every model's modes, alike in name (one argument): the default and the
  * model's read action narrow nothing (`read` already ANDs with every mode,
  * K3); another of its actions or domains narrows by its predicate (R8); a
  * mode it does not declare holds nothing, and a root call naming it is

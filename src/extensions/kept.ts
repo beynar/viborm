@@ -31,10 +31,10 @@ import type { Writer } from "@query-engine/raptor3/write/statements";
 import type { PreparedGuardFailure } from "@query-engine/types";
 import type { AnyModel } from "@schema/model";
 import type { AnyRelation } from "@schema/relation/types";
+import type { AdmittedArgs } from "./arguments";
 import { rebind, refuseUndeclared } from "./call-rows";
 import type { ExtensionPart } from "./chain";
 import { extensionError } from "./chain";
-import type { AdmittedControls } from "./controls";
 import { bindRows } from "./rows";
 
 /** No argument a kept delete's test reads is required: absent, it is absent. */
@@ -49,14 +49,12 @@ export class Kept extends Map<string, ResolvedKept> implements Tombstones {
    * where its test holds (`when`) or fails (`unless`), and the call's
    * arguments say otherwise, where its argument's `.on()` accepts it.
    */
-  removes(model: string, controls: AdmittedControls | undefined): boolean {
+  removes(model: string, values: AdmittedArgs | undefined): boolean {
     const kept = this.get(model);
     return (
       kept?.test !== undefined &&
-      kept.test.holds(
-        { controls: controls ?? {}, required: optional },
-        unread
-      ) !== kept.keeps
+      kept.test.holds({ args: values ?? {}, required: optional }, unread) !==
+        kept.keeps
     );
   }
   marks(writer: Writer, model: AnyModel): Input | undefined {
@@ -225,7 +223,7 @@ export function keptPart(model: string, entry: KeptModel): ExtensionPart {
   return {
     join(application) {
       const { next, schema, name: extension } = application;
-      refuseUndeclared(application, [entry.test?.parameter.control]);
+      refuseUndeclared(application, [entry.test?.parameter.arg]);
       const holder = junctionHolder(schema, schema[model]!);
       if (holder !== undefined)
         extensionError(

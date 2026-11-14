@@ -157,10 +157,10 @@ function defaultsPart(read: (schema: Schema) => Entry): ExtensionPart {
       );
       for (const omits of brought) application.bring(omits);
       if (Object.keys(order).length > 0)
-        next.order = Object.freeze({ ...next.order, ...order });
+        next.defaultOrder = Object.freeze({ ...next.defaultOrder, ...order });
       if (Object.keys(data).length === 0) return;
       const names: string[] = [];
-      const entries: Record<string, ModelStamps> = { ...next.data };
+      const entries: Record<string, ModelStamps> = { ...next.defaultData };
       for (const [model, entry] of Object.entries(data)) {
         const known = entries[model];
         entries[model] = Object.freeze({
@@ -171,12 +171,12 @@ function defaultsPart(read: (schema: Schema) => Entry): ExtensionPart {
           ...Object.values(entry.create ?? {}),
           ...Object.values(entry.update ?? {}),
         ])
-          if (value instanceof Parameter && value.control !== undefined)
-            names.push(value.control);
+          if (value instanceof Parameter && value.arg !== undefined)
+            names.push(value.arg);
       }
       refuseUndeclared(application, names);
-      next.data = Object.freeze(entries);
-      next.stamps = new Stamps(next.data);
+      next.defaultData = Object.freeze(entries);
+      next.stamps = new Stamps(next.defaultData);
     },
     seal(application) {
       rebind(application, bindPlain);

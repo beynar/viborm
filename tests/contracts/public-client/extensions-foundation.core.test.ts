@@ -74,23 +74,23 @@ describe("client extension foundation", () => {
       schema
     );
     const order = (
-      component: "request" | "query",
+      component: "call" | "around",
       model: string | undefined,
       operation: string
     ) =>
       chain[component]
         ?.handlers(model, operation)
         ?.map(({ extension }) => extension);
-    expect(order("request", "item", "findMany")).toEqual(["A", "B", "C"]);
-    expect(order("query", "item", "findMany")).toEqual(["A", "B", "C"]);
+    expect(order("call", "item", "findMany")).toEqual(["A", "B", "C"]);
+    expect(order("around", "item", "findMany")).toEqual(["A", "B", "C"]);
     // The lookup is the precompiled array itself.
-    expect(chain.query?.handlers("item", "findMany")).toBe(
-      chain.query?.handlers("item", "findMany")
+    expect(chain.around?.handlers("item", "findMany")).toBe(
+      chain.around?.handlers("item", "findMany")
     );
-    expect(order("request", "audit", "findMany")).toEqual(["B"]);
+    expect(order("call", "audit", "findMany")).toEqual(["B"]);
     // A raw statement reaches both moments of a part without a target.
-    expect(order("query", undefined, "$queryRaw")).toEqual(["B"]);
-    expect(order("request", undefined, "$queryRaw")).toEqual(["B"]);
+    expect(order("around", undefined, "$queryRaw")).toEqual(["B"]);
+    expect(order("call", undefined, "$queryRaw")).toEqual(["B"]);
     expect(Object.isFrozen(chain)).toBe(true);
 
     // A part without a target is the lookup's `global`: a model call finds
@@ -100,12 +100,12 @@ describe("client extension foundation", () => {
       extExtension("untargeted", around(wrap)),
       schema
     );
-    expect(untargeted.query?.global).toHaveLength(1);
-    expect(untargeted.query?.handlers("item", "findMany")).toEqual(
-      untargeted.query?.global
+    expect(untargeted.around?.global).toHaveLength(1);
+    expect(untargeted.around?.handlers("item", "findMany")).toEqual(
+      untargeted.around?.global
     );
-    expect(untargeted.query?.handlers(undefined, "$queryRaw")).toBe(
-      untargeted.query?.global
+    expect(untargeted.around?.handlers(undefined, "$queryRaw")).toBe(
+      untargeted.around?.global
     );
 
     // A chain of first moments alone wraps no call.
@@ -117,7 +117,7 @@ describe("client extension foundation", () => {
       ),
       schema
     );
-    expect(firstOnly.query).toBeUndefined();
+    expect(firstOnly.around).toBeUndefined();
     expect(firstOnly.coordination).toBeUndefined();
   });
 
@@ -304,9 +304,9 @@ describe("client extension foundation", () => {
       schema
     );
 
-    expect(withMethods.request).toBe(withHandlers.request);
-    expect(withMethods.query).toBe(withHandlers.query);
-    expect(withMethods.statement).toBe(withHandlers.statement);
+    expect(withMethods.call).toBe(withHandlers.call);
+    expect(withMethods.around).toBe(withHandlers.around);
+    expect(withMethods.rewrites).toBe(withHandlers.rewrites);
     expect(withMethods.observation).toBe(withHandlers.observation);
   });
 

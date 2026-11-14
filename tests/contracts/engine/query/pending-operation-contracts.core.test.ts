@@ -549,7 +549,7 @@ describe("pending operation transaction coordination", () => {
     );
     // The first moments run where the client runs them, at the operation's
     // preparation, over the one call object both moments are handed.
-    const request = chain.request;
+    const request = chain.call;
     const firstMoments = request?.handlers("user", "findMany");
     if (request === undefined || firstMoments === undefined)
       throw new Error("an around part places a first moment");
@@ -565,7 +565,7 @@ describe("pending operation transaction coordination", () => {
           firstMoments,
           call,
           "user",
-          chain.controls,
+          chain.args,
           controls
         )
     );

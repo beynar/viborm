@@ -52,7 +52,7 @@ type BatchParser = (batchResults: QueryResult<unknown>[]) => Promise<unknown>;
 
 /**
  * Execute one root or nested array transaction. Without an observer, every
- * member's request work (control admission included) settles before any
+ * member's request work (argument admission included) settles before any
  * provider effect; an observer runs it inside each member's unit instead.
  */
 export function executeArrayTransaction(
@@ -123,7 +123,7 @@ function finishArrayResults(
   run: () => Promise<unknown[]>
 ): Promise<unknown[]> {
   const chain = engine.extensionChain;
-  if (chain?.result === undefined && chain?.written === undefined) return run();
+  if (chain?.fields === undefined && chain?.watch === undefined) return run();
   const members = [...(operations ?? [])] as object[];
   return run().then(async (values) => {
     // One member at a time: a member's write hooks run in member order, and

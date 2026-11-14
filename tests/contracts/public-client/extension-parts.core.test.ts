@@ -70,9 +70,9 @@ describe("extension parts", () => {
         }, target(writes))
       )
     );
-    expect(watching.request?.handlers("item", "create")).toHaveLength(1);
-    expect(watching.written?.extensions).toEqual(["watching"]);
-    expect(watching.query).toBeUndefined();
+    expect(watching.call?.handlers("item", "create")).toHaveLength(1);
+    expect(watching.watch?.extensions).toEqual(["watching"]);
+    expect(watching.around).toBeUndefined();
     expect(watching.methods).toBeUndefined();
 
     const tools = chainOf(
@@ -82,8 +82,8 @@ describe("extension parts", () => {
       )
     );
     expect(tools.methods).toBeDefined();
-    expect(tools.request).toBeUndefined();
-    expect(tools.written).toBeUndefined();
+    expect(tools.call).toBeUndefined();
+    expect(tools.watch).toBeUndefined();
   });
 
   it("coordinates a chain as the most its parts need, never less", () => {

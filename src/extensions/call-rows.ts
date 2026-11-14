@@ -17,7 +17,7 @@ export function refuseUndeclared(
   names: Iterable<string | undefined>
 ): void {
   for (const name of names)
-    if (name !== undefined && next.controls?.names.has(name) !== true)
+    if (name !== undefined && next.args?.names.has(name) !== true)
       extensionError(
         `Extension "${extension}" references undeclared argument "${name}".`,
         extension
@@ -37,10 +37,10 @@ export function rebind(
 ): void {
   if (
     next.callRows !== chain?.callRows ||
-    (next.rows === chain?.rows &&
+    (next.rules === chain?.rules &&
       next.kept === chain?.kept &&
       next.stamps === chain?.stamps &&
-      next.order === chain?.order)
+      next.defaultOrder === chain?.defaultOrder)
   )
     return;
   next.callRows = (next.bindRows ?? plain)(next);

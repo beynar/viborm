@@ -18,7 +18,7 @@ import {
   transactionOperationOwner,
 } from "@query-engine/transaction-operation";
 import {
-  type AroundExecutionControl,
+  type AdmissionHooks,
   type executePreparedQuery,
   executeRegisteredQuery,
   type TransactionScope,
@@ -91,11 +91,11 @@ export function admitArray(
       scope.outcomes?.stage(interception.registration);
     return interception;
   });
-  return admitArrayQueries(slots, (slot, child, control) => {
+  return admitArrayQueries(slots, (slot, child, hooks) => {
     const { context, handlers, write, registration } =
       facts[slots.indexOf(slot)]!;
     return handlers?.length || registration
-      ? execute(context, handlers, child, write, scope, control, registration)
+      ? execute(context, handlers, child, write, scope, hooks, registration)
       : child();
   });
 }
@@ -110,7 +110,7 @@ export async function admitArrayQueries<Slot extends AdmissionSlot>(
   start: (
     slot: Slot,
     child: (notifications?: WriteOutcomeNotifications) => Promise<unknown>,
-    control: AroundExecutionControl
+    hooks: AdmissionHooks
   ) => Promise<unknown>
 ): Promise<readonly unknown[] | undefined> {
   let failed: { readonly failure: unknown } | undefined;

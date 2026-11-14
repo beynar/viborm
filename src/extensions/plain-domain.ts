@@ -18,8 +18,8 @@ import type {
 } from "@query-engine/raptor3/shared/row-scope";
 import { type Input, memo } from "@query-engine/raptor3/shared/schema";
 import type { AnyModel } from "@schema/model";
+import type { AdmittedArgs } from "./arguments";
 import type { CallRowsBinding, ResolvedExtensionChain } from "./chain-state";
-import type { AdmittedControls } from "./controls";
 import type { PreparedDomain } from "./row-domain";
 import type { Stamps } from "./stamps";
 
@@ -82,11 +82,11 @@ function preparePlain(
 /** No model is restricted. */
 const NONE: ModelDomain = new Map();
 
-/** The facts every call of a plain chain shares; its stamps are its own where they name a control. */
+/** The facts every call of a plain chain shares; its stamps are its own where they name an argument. */
 class PlainBinding implements CallRowsBinding {
   readonly #facts: CallRows;
   readonly #stamps: Stamps | undefined;
-  constructor({ order, stamps }: ResolvedExtensionChain) {
+  constructor({ defaultOrder: order, stamps }: ResolvedExtensionChain) {
     const domain: RowDomain = Object.freeze({
       root: NONE,
       related: NONE,
@@ -99,10 +99,10 @@ class PlainBinding implements CallRowsBinding {
       prepare: preparePlain,
     });
   }
-  call(_model: string, controls: AdmittedControls | undefined): CallRows {
+  call(_model: string, values: AdmittedArgs | undefined): CallRows {
     const stamps = this.#stamps;
     return stamps?.named
-      ? Object.freeze({ ...this.#facts, stamps: stamps.of(controls) })
+      ? Object.freeze({ ...this.#facts, stamps: stamps.of(values) })
       : this.#facts;
   }
 }

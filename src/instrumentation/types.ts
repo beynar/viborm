@@ -209,7 +209,7 @@ export interface LoggingConfig {
  */
 export interface InstrumentationConfig {
   /**
-   * Control SQL and parameter disclosure on thrown/serialized errors.
+   * Argument SQL and parameter disclosure on thrown/serialized errors.
    * This policy is independent from logging and tracing disclosure.
    * Both fields default to false.
    */

@@ -34,7 +34,7 @@ import type {
   Extension,
   Facts,
   ModelSql,
-  NoControls,
+  NoArguments,
   Target,
   VibORMClient,
   VibORMConfig,
@@ -481,12 +481,12 @@ function respaceJoin(
 async function respace(
   ordered: Ordered,
   writes: Writes,
-  controls: Row,
+  passed: Row,
   where: unknown,
   order: Order = []
 ): Promise<number> {
   const written = (await writes.updateMany({
-    ...controls,
+    ...passed,
     data: {
       ...storedOf(ordered.model),
       [ordered.key]: respacing(ordered, where, order),
@@ -713,7 +713,7 @@ function methods(ordered: Ordered) {
         select,
         include,
         omit,
-        ...controls
+        ...passed
       } = args as Record<string, unknown> & { where: Row };
       const chosen = PLACEMENTS.filter((option) => args[option] !== undefined);
       if (chosen.length > 1 || (chosen.length === 0 && to === undefined))
@@ -766,7 +766,7 @@ function methods(ordered: Ordered) {
       if (given !== undefined)
         try {
           return await delegate.update!({
-            ...controls,
+            ...passed,
             where,
             data: {
               ...writing,
@@ -794,7 +794,7 @@ function methods(ordered: Ordered) {
         if (Object.keys(extra).length > 0)
           try {
             return await delegate.update!({
-              ...controls,
+              ...passed,
               where,
               data: writing,
               ...projection,
@@ -805,7 +805,7 @@ function methods(ordered: Ordered) {
               : error;
           }
         const row = await delegate.findUnique!({
-          ...controls,
+          ...passed,
           where,
           ...projection,
         });
@@ -819,7 +819,7 @@ function methods(ordered: Ordered) {
         (delegate as unknown as { $sql: ModelSql }).$sql,
         (guard, data) =>
           delegate.update!({
-            ...controls,
+            ...passed,
             where: { ...where, [key]: { equals: () => guard } },
             data: { ...writing, ...data },
             ...projection,
@@ -845,7 +845,7 @@ function methods(ordered: Ordered) {
           const at =
             open || Object.keys(anchor).length > 1
               ? ((await delegate.findUnique!({
-                  ...controls,
+                  ...passed,
                   where: anchor,
                   select: reading,
                 })) as Row | null)
@@ -854,7 +854,7 @@ function methods(ordered: Ordered) {
             at === null
               ? []
               : ((await delegate.findMany!({
-                  ...controls,
+                  ...passed,
                   ...(at && { where: fieldsOf(within, at), orderBy: keyOrder }),
                   cursor: at ? selectorOf(at) : anchor,
                   take: after === undefined ? -3 : 3,
@@ -892,7 +892,7 @@ function methods(ordered: Ordered) {
           if (to === undefined && within.length > 0) {
             // First or last of its own list: the one read of the row.
             const moved = (await delegate.findUnique!({
-              ...controls,
+              ...passed,
               where,
               select: selection,
             })) as Row | null;
@@ -902,7 +902,7 @@ function methods(ordered: Ordered) {
           } else group = (to as Row | undefined) ?? {};
           // The list's two rows at that end, the moved row recognised.
           const rows = (await delegate.findMany!({
-            ...controls,
+            ...passed,
             where: group,
             take: first === true ? 2 : -2,
             select: reading,
@@ -931,7 +931,7 @@ function methods(ordered: Ordered) {
           await respace(
             ordered,
             delegate as unknown as Writes,
-            controls,
+            passed,
             within.length === 0 ? undefined : group
           );
           continue;
@@ -961,7 +961,7 @@ function methods(ordered: Ordered) {
         for (const write of writes)
           try {
             return await delegate.update!({
-              ...controls,
+              ...passed,
               ...write,
               ...projection,
             });
@@ -995,7 +995,7 @@ function methods(ordered: Ordered) {
         lazily(() => place(args)),
       rekey: (args: Readonly<Record<string, unknown>> = {}) =>
         lazily(async () => {
-          const { where, orderBy, ...controls } = args;
+          const { where, orderBy, ...passed } = args;
           const order = (
             orderBy === undefined
               ? []
@@ -1020,7 +1020,7 @@ function methods(ordered: Ordered) {
           const count = await respace(
             ordered,
             delegate as unknown as Writes,
-            controls,
+            passed,
             where,
             order
           );
@@ -1209,7 +1209,7 @@ export type OrderingMethods<
     this: Self,
     args: A & SealedMove<A, Moved<Self, M, C, Config, K>>
   ): PromiseLike<DelegateOperationResult<Self, "update", A>>;
-  // Generic as `move` is, so a call's controls (`deleted`, …) pass along.
+  // Generic as `move` is, so a call's arguments (`deleted`, …) pass along.
   rekey<Self, A extends Moved<Self, M, C, Config, K>["rekey"]>(
     this: Self,
     args?: A
@@ -1276,7 +1276,7 @@ type OrderingFacts<T extends AnyTarget, Config extends OrderingConfig> = Facts<
       K
     >;
   },
-  NoControls,
+  NoArguments,
   never,
   {
     [K in Names<Config>]: StampedFields<K, Config[K]["key"]>;

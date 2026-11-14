@@ -212,7 +212,7 @@ export interface Tombstones extends ReadonlyMap<string, Tombstone> {
 /**
  * A model's stamps: what the call's extensions write on every create, and on
  * every update, tombstones too. Each is scalar `data` input, as declared with
- * the call's control values put in: constants and, on an update, the field's
+ * the call's argument values put in: constants and, on an update, the field's
  * update operators.
  */
 export interface ModelStamps {
@@ -224,7 +224,7 @@ export interface ModelStamps {
  * Parse the caller's data where validation knows what the call's create
  * stamps write ({@link parseProviding}, by the model's TS name): a required
  * field a stamp writes may be left out, as the stamp writes it after
- * admission. A field whose control the call left out is not written, so it
+ * admission. A field whose argument the call left out is not written, so it
  * is still asked for. `parse` is synchronous; a call without stamps never
  * comes here.
  */
@@ -238,11 +238,11 @@ export const parseStamped = <T>(
   );
 
 /**
- * One root call's row facts, resolved from its controls outside the engine:
- * the engine never sees a mode or an extension's name, and a control's only
+ * One root call's row facts, resolved from its arguments outside the engine:
+ * the engine never sees a mode or an extension's name, and an argument's only
  * as the key a parameter reads its value under ({@link CallValues}). Its domains
  * are shared by every call that resolves to the same ones; stamps that name a
- * control are the call's own.
+ * argument are the call's own.
  */
 export interface CallRows {
   /**
@@ -264,11 +264,11 @@ export interface CallRows {
   readonly prepare: (queries: Queries, instant: () => Date) => CallScope;
 }
 
-/** A call's admitted controls, and how an absent value resolves (R6). */
+/** A call's admitted arguments, and how an absent value resolves (R6). */
 export interface CallValues {
-  readonly controls: Readonly<Record<string, unknown>>;
-  /** An absent value of `control` on `model` matches nothing; else it drops. */
-  readonly required: (control: string, model: string) => boolean;
+  readonly args: Readonly<Record<string, unknown>>;
+  /** An absent value of `arg` on `model` matches nothing; else it drops. */
+  readonly required: (arg: string, model: string) => boolean;
   /**
    * The same object serves every call that passes these values, and no
    * predicate reads the instant: one read view serves them all.
@@ -283,28 +283,28 @@ export interface CallValues {
 
 /**
  * A value a domain predicate reads from its call, prepared once and read at
- * lowering: a control's value, or a field of it along `path`; with no
- * control, the call's one instant. `null` is absent: a parameter never lowers
- * to `IS NULL`. Its own fields are its spelling (`{ control, path }` or
+ * lowering: an argument's value, or a field of it along `path`; with no
+ * argument, the call's one instant. `null` is absent: a parameter never lowers
+ * to `IS NULL`. Its own fields are its spelling (`{ argument, path }` or
  * `{ now: true }`), which no literal of a declaration can be, so a key
  * over declarations tells the two apart.
  */
 export class Parameter {
-  readonly control?: string;
+  readonly arg?: string;
   readonly path?: string;
   readonly now?: true;
   readonly #keys: readonly string[];
-  constructor(control?: string, path?: string) {
-    if (control === undefined) this.now = true;
-    else this.control = control;
+  constructor(arg?: string, path?: string) {
+    if (arg === undefined) this.now = true;
+    else this.arg = arg;
     if (path !== undefined) this.path = path;
     this.#keys = path === undefined ? [] : path.split(".");
     Object.freeze(this);
   }
   /** The call's value, `undefined` when absent. */
   read(values: CallValues | undefined, instant: () => Date): unknown {
-    if (this.control === undefined) return instant();
-    let value = values?.controls[this.control];
+    if (this.arg === undefined) return instant();
+    let value = values?.args[this.arg];
     for (const key of this.#keys) {
       if (value === null || typeof value !== "object") return undefined;
       value = Object.hasOwn(value, key) ? (value as Input)[key] : undefined;

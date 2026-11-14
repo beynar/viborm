@@ -1,6 +1,6 @@
 import type { AnyDriver } from "@drivers/exports";
+import type { AdmittedArgs } from "@extensions/arguments";
 import type { ResolvedExtensionChain } from "@extensions/chain";
-import type { AdmittedControls } from "@extensions/controls";
 import type { TransactionScope } from "@extensions/query";
 import type { Model } from "@schema/model";
 import {
@@ -22,10 +22,10 @@ export class QueryEngine {
    */
   readonly transaction: TransactionScope | undefined;
   /**
-   * The control values this view binds, admitted on each of its calls as if
+   * The argument values this view binds, admitted on each of its calls as if
    * passed. Every engine bound from it keeps them (transactions, `$extends`).
    */
-  readonly bound: AdmittedControls | undefined;
+  readonly bound: AdmittedArgs | undefined;
 
   /**
    * Identity of the originating client lineage. Transaction-bound engines
@@ -49,7 +49,7 @@ export class QueryEngine {
     scopeId = Symbol("viborm.scope"),
     extensionChain?: ResolvedExtensionChain,
     transaction?: TransactionScope,
-    bound?: AdmittedControls
+    bound?: AdmittedArgs
   ) {
     this.driver = driver;
     this.route = route;
@@ -64,7 +64,7 @@ export class QueryEngine {
    * This engine with other bound values: the same scope, so operations of
    * both may share one array transaction.
    */
-  withBound(bound: AdmittedControls): QueryEngine {
+  withBound(bound: AdmittedArgs): QueryEngine {
     return new QueryEngine(
       this.driver,
       this.route,

@@ -14,9 +14,9 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { discardAsyncValidationResult } from "@validation/parse-failure";
 import { errorCause } from "../errors/diagnostic-safety";
 import { extensionError } from "./chain";
-import type { ResolvedControls } from "./chain-state";
+import type { ResolvedArgs } from "./chain-state";
 
-export type ControlLiteral = string | number | boolean;
+export type ArgLiteral = string | number | boolean;
 
 /**
  * One argument an extension declares. Its values are a closed list or a
@@ -30,7 +30,7 @@ export type ControlLiteral = string | number | boolean;
  * has no key (`key(run)`): a read that holds one is never served from a
  * store nor kept in one.
  */
-export type ControlDeclaration = (
+export type ArgDeclaration = (
   | { readonly oneOf: readonly (string | number | boolean)[] }
   | { readonly schema: StandardSchemaV1 }
 ) & {
@@ -38,13 +38,13 @@ export type ControlDeclaration = (
   readonly models?: readonly string[];
   readonly required?: true | readonly string[];
   /** The value a call that passes none reads. */
-  readonly default?: ControlLiteral;
+  readonly default?: ArgLiteral;
   readonly bound?: boolean;
   readonly volatile?: boolean;
 };
 
 export type ControlsContribution = {
-  readonly [name: string]: ControlDeclaration;
+  readonly [name: string]: ArgDeclaration;
 };
 
 /**
@@ -52,19 +52,19 @@ export type ControlsContribution = {
  * extension that declares it. Its declaration alone places it: no other part
  * moves it.
  */
-export type ResolvedControl = ControlDeclaration & {
+export type ResolvedArg = ArgDeclaration & {
   readonly name: string;
   readonly extension: string;
 };
 
 /** The arguments one call admitted, by name; one it did not pass is absent. */
-export type AdmittedControls = Readonly<Record<string, unknown>>;
+export type AdmittedArgs = Readonly<Record<string, unknown>>;
 
-export interface ControlAdmission {
+export interface ArgAdmission {
   /** The call's arguments without the chain's; the input itself when it passed none. */
   readonly args: Record<string, unknown>;
   /** `undefined` when the call admitted no value. */
-  readonly controls: AdmittedControls | undefined;
+  readonly values: AdmittedArgs | undefined;
 }
 
 /**
@@ -79,13 +79,13 @@ function admitArguments(
   model: string,
   operation: Operation,
   input: Record<string, unknown>,
-  placed: readonly ResolvedControl[],
-  bound?: AdmittedControls
-): ControlAdmission {
+  placed: readonly ResolvedArg[],
+  bound?: AdmittedArgs
+): ArgAdmission {
   // Arguments that are not an object hold no extension argument: core
   // validation refuses them as it does on a client without extensions.
   if (typeof input !== "object" || input === null) {
-    return { args: input, controls: undefined };
+    return { args: input, values: undefined };
   }
   const admitted: [string, unknown][] = [];
   let args: Record<string, unknown> | undefined;
@@ -109,7 +109,7 @@ function admitArguments(
   }
   return {
     args: args ?? input,
-    controls: admitted.length === 0 ? undefined : Object.fromEntries(admitted),
+    values: admitted.length === 0 ? undefined : Object.fromEntries(admitted),
   };
 }
 
@@ -119,11 +119,11 @@ function admitArguments(
  * an earlier one.
  */
 function bindArguments(
-  all: readonly ResolvedControl[],
+  all: readonly ResolvedArg[],
   extension: string,
   values: Readonly<Record<string, unknown>>,
-  previous: AdmittedControls | undefined
-): AdmittedControls {
+  previous: AdmittedArgs | undefined
+): AdmittedArgs {
   const next: Record<string, unknown> = { ...previous };
   for (const [name, raw] of Object.entries(values)) {
     const argument = all.find(
@@ -145,10 +145,10 @@ export function undeclaredBinding(extension: string, name: string): never {
 }
 
 /** One extension's own admitted arguments, as its parts see them (`c.values`). */
-export function controlsOwnedBy(
-  admitted: AdmittedControls | undefined,
+export function argsOwnedBy(
+  admitted: AdmittedArgs | undefined,
   names: readonly string[]
-): AdmittedControls {
+): AdmittedArgs {
   const owned: [string, unknown][] = [];
   for (const name of names) {
     if (admitted !== undefined && Object.hasOwn(admitted, name)) {
@@ -160,7 +160,7 @@ export function controlsOwnedBy(
 
 /** One value admitted for a call's (model, operation), or, without them, a binding. */
 function admitValue(
-  argument: ResolvedControl,
+  argument: ResolvedArg,
   value: unknown,
   model?: string,
   operation?: Operation
@@ -203,7 +203,7 @@ function admitValue(
 }
 
 function invalidArgument(
-  argument: ResolvedControl,
+  argument: ResolvedArg,
   model: string | undefined,
   operation: Operation | undefined,
   messages: readonly string[]
@@ -221,7 +221,7 @@ function invalidArgument(
 }
 
 function validatorFailure(
-  argument: ResolvedControl,
+  argument: ResolvedArg,
   model: string | undefined,
   operation: Operation | undefined,
   failure: string,
@@ -233,7 +233,7 @@ function validatorFailure(
   );
 }
 
-const NO_ARGUMENTS: readonly ResolvedControl[] = [];
+const NO_ARGUMENTS: readonly ResolvedArg[] = [];
 
 /**
  * The chain's arguments with one extension's added, each (model, operation)
@@ -243,9 +243,9 @@ const NO_ARGUMENTS: readonly ResolvedControl[] = [];
  * that passes either value, and a binding would answer for both.
  */
 export function appendArguments(
-  previous: ResolvedControls | undefined,
-  declared: readonly ResolvedControl[]
-): ResolvedControls {
+  previous: ResolvedArgs | undefined,
+  declared: readonly ResolvedArg[]
+): ResolvedArgs {
   const all = [...(previous?.all ?? []), ...declared];
   const names = new Set<string>();
   for (const { name, extension } of all) {
@@ -256,11 +256,8 @@ export function appendArguments(
       );
     names.add(name);
   }
-  const lists = new Map<string, readonly ResolvedControl[]>();
-  const placed = (
-    model: string,
-    operation: string
-  ): readonly ResolvedControl[] => {
+  const lists = new Map<string, readonly ResolvedArg[]>();
+  const placed = (model: string, operation: string): readonly ResolvedArg[] => {
     const key = `${model}\u0000${operation}`;
     let list = lists.get(key);
     if (list === undefined) {
@@ -278,13 +275,13 @@ export function appendArguments(
     names,
     all,
     placed,
-    owned: controlsOwnedBy,
+    owned: argsOwnedBy,
     admit: (
       model: string,
       placement: string,
       operation: Operation,
       args: Record<string, unknown>,
-      bound: AdmittedControls | undefined
+      bound: AdmittedArgs | undefined
     ) => {
       const list = placed(model, placement);
       return list.length === 0
@@ -294,7 +291,7 @@ export function appendArguments(
     bind: (
       extension: string,
       values: Readonly<Record<string, unknown>>,
-      previous: AdmittedControls | undefined
+      previous: AdmittedArgs | undefined
     ) => bindArguments(all, extension, values, previous),
   };
 }

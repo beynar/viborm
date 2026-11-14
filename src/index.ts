@@ -53,8 +53,8 @@ export {
 } from "./client/schema-introspection.js";
 export type { Schema } from "./client/types.js";
 export type {
-  NoControls,
-  PlacedControl,
+  NoArguments,
+  PlacedArgument,
   StampedFields,
 } from "./extensions/contract.js";
 export * from "./extensions/index.js";

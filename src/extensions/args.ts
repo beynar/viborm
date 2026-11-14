@@ -1,4 +1,5 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import { type ArgDeclaration, appendArguments } from "./arguments";
 import type { ExtensionPart } from "./chain";
 import type {
   Accepted,
@@ -8,16 +9,15 @@ import type {
   BoundAccepted,
   Part,
 } from "./contract";
-import { appendArguments, type ControlDeclaration } from "./controls";
 import { operationsOf } from "./on";
 
 /** A declaration `oneOf`, `accepts` or `bound` made: what it reads as. */
 interface Declared {
-  readonly spec: ControlDeclaration;
+  readonly spec: ArgDeclaration;
 }
 
 /** A declaration with its modifiers, each returning a new one. */
-function declared(spec: ControlDeclaration): Declared {
+function declared(spec: ArgDeclaration): Declared {
   return Object.freeze({
     spec,
     default: (fallback: string | number | boolean) =>
@@ -66,7 +66,7 @@ const isSchema = (value: object): value is StandardSchemaV1 =>
 const isDeclared = (value: object): value is Declared =>
   "spec" in value && typeof value.spec === "object" && value.spec !== null;
 
-function specOf(name: string, value: unknown): ControlDeclaration {
+function specOf(name: string, value: unknown): ArgDeclaration {
   // A schema may be callable (ArkType's types are functions).
   if (
     (typeof value === "object" && value !== null) ||
@@ -101,8 +101,8 @@ export function args(declarations: Readonly<Record<string, unknown>>): unknown {
     // refused as two extensions declaring it would be.
     declare(application) {
       const { next, chain, owner, name: extension } = application;
-      next.controls = appendArguments(
-        next.controls ?? chain?.controls,
+      next.args = appendArguments(
+        next.args ?? chain?.args,
         Object.entries(specs).map(([name, declaration]) => ({
           ...declaration,
           name,
@@ -111,7 +111,7 @@ export function args(declarations: Readonly<Record<string, unknown>>): unknown {
       );
       application.owner = {
         name: extension,
-        controls: [...(owner.controls ?? []), ...names],
+        args: [...(owner.args ?? []), ...names],
       };
     },
   };

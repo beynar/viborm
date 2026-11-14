@@ -921,7 +921,7 @@ To investigate a concrete row in a development fixture:
 1. Bind the same actor and scopes. Check that actor paths contain the intended values:
    an absent or `null` value read outside a `$if` that tests it closes the whole
    permission ([Optional actor values](#optional-actor-values)). Account separately for a call's
-   `as` domain and other extension controls: they can narrow the operation beyond
+   `as` domain and other extensions' arguments: they can narrow the operation beyond
    the named permission that `$access` reports.
 2. Read `$access` for the action named by `operations`, plus any higher
    permissions required by fields the update writes. `$access.update` does not

@@ -9,7 +9,7 @@ import { type WriteKind, writeSinks } from "@query-engine/write-sinks";
 
 export type { WriteKind } from "@query-engine/write-sinks";
 
-import type { AdmittedControls } from "./controls";
+import type { AdmittedArgs } from "./arguments";
 import type { CallOrigin } from "./origin";
 import {
   publishWriteOutcomes,
@@ -212,7 +212,7 @@ export interface WrittenHandlers {
   readonly extensions: readonly string[];
   readonly watch: (
     call: WrittenCall,
-    controls: AdmittedControls | undefined,
+    values: AdmittedArgs | undefined,
     context: QueryExecutionContext,
     late: (settle: () => Promise<void>) => void
   ) => WriteOutcomeRegistration | undefined;

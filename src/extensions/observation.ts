@@ -182,7 +182,7 @@ function unitError(
   failure: string
 ): QueryError {
   return new QueryError(
-    `Extension "${resolved.extension}" unit handler for ${unit.kind} ${failure}.`,
+    `Extension "${resolved.extension}" unit() for ${unit.kind} ${failure}.`,
     { meta: { method: "unit", operation: unit.operation, model: unit.model } }
   );
 }

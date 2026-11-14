@@ -242,7 +242,7 @@ export abstract class DriverTransactionBase<
         );
       });
     // The chain's rewriting units each run around the statement's rest.
-    const rewrites = getExecutionExtensionChain(executionContext)?.statement;
+    const rewrites = getExecutionExtensionChain(executionContext)?.rewrites;
     return rewrites === undefined
       ? send()
       : rewrites.run(

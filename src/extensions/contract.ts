@@ -55,7 +55,7 @@ type NoFields = Record<never, never>;
  * One declared argument as the delegates read it: its value, the models and
  * the operations that accept it.
  */
-export interface PlacedControl<
+export interface PlacedArgument<
   Value = unknown,
   Models = PropertyKey,
   Placed = Operations,
@@ -65,11 +65,11 @@ export interface PlacedControl<
   readonly operations: Placed;
 }
 
-export type NoControls = Record<never, never>;
+export type NoArguments = Record<never, never>;
 
 /** The optional arguments one (model, operation) accepts. */
-export type OperationControls<Controls, ModelName, Operation> = {
-  readonly [Name in keyof Controls as Controls[Name] extends PlacedControl<
+export type OperationArguments<Arguments, ModelName, Operation> = {
+  readonly [Name in keyof Arguments as Arguments[Name] extends PlacedArgument<
     unknown,
     infer Models,
     infer Placed
@@ -79,7 +79,7 @@ export type OperationControls<Controls, ModelName, Operation> = {
         ? Name
         : never
       : never
-    : never]?: Controls[Name] extends PlacedControl<infer Value>
+    : never]?: Arguments[Name] extends PlacedArgument<infer Value>
     ? Value
     : never;
 };
@@ -117,7 +117,7 @@ export type StampedFieldNames<Data, ModelName> =
 export interface Facts<
   Client extends object = NoMethods,
   Models extends object = NoMethods,
-  Controls extends object = NoControls,
+  Arguments extends object = NoArguments,
   Rows extends string = never,
   Data = never,
   Result extends object = NoFields,
@@ -128,7 +128,7 @@ export interface Facts<
 > {
   readonly client: Client;
   readonly models: Models;
-  readonly controls: Controls;
+  readonly args: Arguments;
   readonly rows: Rows;
   readonly data: Data;
   readonly result: Result;
@@ -170,7 +170,7 @@ type MergeObjects<Left extends object, Right extends object> = [
 export type MergeFacts<Left extends AnyFacts, Right extends AnyFacts> = Facts<
   Left["client"] & Right["client"],
   MergeModelMethods<Left["models"], Right["models"]>,
-  Left["controls"] & Right["controls"],
+  Left["args"] & Right["args"],
   Left["rows"] | Right["rows"],
   Left["data"] | Right["data"],
   MergeResultFields<Left["result"], Right["result"]>,
@@ -250,13 +250,13 @@ export type ModelName<T extends AnyTarget> = keyof SchemaOf<T> & string;
 
 /** Every argument name a rule or a call of this part may read. */
 export type KnownArgs<T extends AnyTarget> = Extract<
-  keyof T["state"]["controls"] | keyof T["own"]["controls"],
+  keyof T["state"]["args"] | keyof T["own"]["args"],
   string
 >;
 
 /** The values a call receives for its own extension's arguments. */
 type OwnValues<T extends AnyTarget> = {
-  readonly [Name in keyof T["own"]["controls"]]?: T["own"]["controls"][Name] extends PlacedControl<
+  readonly [Name in keyof T["own"]["args"]]?: T["own"]["args"][Name] extends PlacedArgument<
     infer Value
   >
     ? Value
@@ -445,8 +445,6 @@ export type Around<T extends AnyTarget, M, O extends Operations> = <
   run: Run<A, CallResult<T, M, O, A>>
 ) => Promise<CallResult<T, M, O, A> | CallResult<T, M, O, NoArguments>>;
 
-type NoArguments = Record<never, never>;
-
 /** Moment 1 of a model call over several operations or models. */
 export interface ModelCallContext<T extends AnyTarget, M, O> {
   readonly kind: "model";
@@ -525,7 +523,7 @@ export type AroundFacts<M, O> = [M] extends [never]
     ? Facts<
         NoMethods,
         NoMethods,
-        NoControls,
+        NoArguments,
         never,
         never,
         NoFields,
@@ -1123,7 +1121,7 @@ type Entries<R> = R extends (...args: never[]) => infer Returned ? Returned : R;
 type EntryFacts<R, Names extends string> = Facts<
   NoMethods,
   NoMethods,
-  NoControls,
+  NoArguments,
   string extends keyof R
     ? string
     : Extract<
@@ -1193,7 +1191,7 @@ type DefaultFacts<D, Names extends string> = [D] extends [never]
   : Facts<
       NoMethods,
       NoMethods,
-      NoControls,
+      NoArguments,
       never,
       {
         [M in keyof D]-?: M extends Names
@@ -1395,7 +1393,7 @@ export type ArgsFacts<D> = Facts<
   NoMethods,
   NoMethods,
   {
-    readonly [Name in keyof D]: PlacedControl<
+    readonly [Name in keyof D]: PlacedArgument<
       ValueOf<D[Name]>,
       PropertyKey,
       OperationsOf<D[Name]>
@@ -1436,7 +1434,7 @@ export type MethodsFacts<
       ? Methods
       : R[M];
   },
-  NoControls,
+  NoArguments,
   never,
   never,
   NoFields,
@@ -1547,7 +1545,7 @@ export type FieldsFunction<T extends AnyTarget> = <
   Facts<
     NoMethods,
     NoMethods,
-    NoControls,
+    NoArguments,
     never,
     never,
     DefinitionResultFields<{

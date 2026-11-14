@@ -433,12 +433,12 @@ export function fieldsPart(
   return {
     join({ next, name, schema }) {
       const fields = appendResultFields(
-        next.result?.fields,
+        next.fields?.fields,
         name,
         snapshotResult(declared, name, schema),
         schema
       );
-      next.result = Object.freeze({
+      next.fields = Object.freeze({
         fields,
         plan: (
           relations: ResolvedRelationIndex,

@@ -199,7 +199,7 @@ function admitDraft(
  * application's, as they would be at admission.
  */
 function bindVerbs(chain: ResolvedExtensionChain): VerbsBound {
-  const layers = chain.rows ?? [];
+  const layers = chain.rules ?? [];
   const brought = <K extends keyof NonNullable<RuleLayer["brings"]>>(kind: K) =>
     layers.find((layer) => layer.brings?.[kind])?.brings?.[kind];
   const keys = brought("keys");
@@ -288,8 +288,8 @@ export const LAZY_ENTRIES: LazyEntries = {
     for (const name of draft.references!)
       if (
         name !== undefined &&
-        !chain.controls?.all.some(
-          (control) => control.name === name && names.has(control.extension)
+        !chain.args?.all.some(
+          (argument) => argument.name === name && names.has(argument.extension)
         )
       )
         throw new ClientInitializationError(

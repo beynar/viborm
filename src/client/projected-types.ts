@@ -29,8 +29,8 @@ import type {
   ContextualOperationResult,
   NoExtraOperationKeys,
   OperationPayload,
-  PlacedOperationControls,
-  WithControlArgs,
+  PlacedOperationArguments,
+  WithArguments,
 } from "./types";
 
 /** The row operations a projection key reaches. */
@@ -354,7 +354,7 @@ type ProjectedMethod<
   Pending extends boolean = true,
   M extends Model<any> = ClientSchema<C>[ModelName],
   Payload = OperationPayload<O, M>,
-  Placed = PlacedOperationControls<Controls, ModelName, O>,
+  Placed = PlacedOperationArguments<Controls, ModelName, O>,
 > = <
   Arg extends ProjectedArgs<
     Exclude<Payload, undefined>,
@@ -364,7 +364,7 @@ type ProjectedMethod<
   >,
 >(
   args: Arg &
-    WithControlArgs<
+    WithArguments<
       NoExtraOperationKeys<
         O,
         WithoutKey<Arg, Key>,

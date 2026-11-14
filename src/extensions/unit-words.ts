@@ -141,7 +141,7 @@ export function run(
   const send = sourceOf(u)?.run;
   return send === undefined
     ? Promise.reject(
-        new QueryError("run() needs the transaction unit a handler received.")
+        new QueryError("run() needs the transaction unit a unit() received.")
       )
     : send(sql);
 }

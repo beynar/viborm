@@ -339,7 +339,7 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
     refuse: (index: number, failure: unknown) => unknown
   ): Promise<Result> {
     const statements = queries.map(readPreparedStatement);
-    const rewrites = getExecutionExtensionChain(context)?.statement;
+    const rewrites = getExecutionExtensionChain(context)?.rewrites;
     if (rewrites === undefined) return send(statements);
     return rewrites.together(
       statements.map((statement, index) => {

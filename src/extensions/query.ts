@@ -8,8 +8,8 @@ import {
 } from "@errors";
 import { isReadOperation } from "@query-engine/routed-operations";
 import { isError } from "../errors/diagnostic-safety";
+import type { AdmittedArgs } from "./arguments";
 import type { ResolvedOperationHandler } from "./chain";
-import type { AdmittedControls } from "./controls";
 import { AGAIN, CALL, type CallOrigin, VIA } from "./origin";
 
 export type QueryInterceptionMode = "direct" | "transaction" | "array";
@@ -38,10 +38,10 @@ export interface PreparedModelQueryContext<Input extends object>
   readonly model: string;
   readonly operation: string;
   /**
-   * The call's admitted controls. A handler sees only its own extension's,
+   * The call's admitted arguments. A handler sees only its own extension's,
    * and only when that extension declares any.
    */
-  readonly controls?: AdmittedControls;
+  readonly values?: AdmittedArgs;
 }
 
 export interface PreparedRawQueryContext<Input extends object>
@@ -109,7 +109,7 @@ export type AroundHandlers = readonly ResolvedOperationHandler<AroundRunner>[];
 type ReadCommitCertainty = () => WriteOutcome["certainty"] | undefined;
 
 /** Private coordination hooks used only while array members await admission. */
-export interface AroundExecutionControl {
+export interface AdmissionHooks {
   readonly reportAdmissionFailure?: (failure: unknown) => void;
   readonly readCommitCertainty?: ReadCommitCertainty;
 }
@@ -129,7 +129,7 @@ export function executePreparedQuery<Result, Input extends object>(
   ) => Promise<Result>,
   isWrite: boolean,
   scope?: TransactionScope,
-  control?: AroundExecutionControl,
+  hooks?: AdmissionHooks,
   preRegisteredWriteOutcome?: WriteOutcomeRegistration
 ): Promise<Result> {
   if (
@@ -150,8 +150,8 @@ export function executePreparedQuery<Result, Input extends object>(
       arounds,
       (driver) => child(undefined, driver),
       discardReadWriteOutcomeRegistration,
-      control?.readCommitCertainty,
-      control?.reportAdmissionFailure
+      hooks?.readCommitCertainty,
+      hooks?.reportAdmissionFailure
     );
   }
   return executeInterceptedQuery(
@@ -160,7 +160,7 @@ export function executePreparedQuery<Result, Input extends object>(
     child,
     isWrite,
     scope,
-    control,
+    hooks,
     preRegisteredWriteOutcome,
     runArounds
   );
@@ -180,7 +180,7 @@ export function executeRegisteredQuery<Result, Input extends object>(
   ) => Promise<Result>,
   isWrite: boolean,
   scope?: TransactionScope,
-  control?: AroundExecutionControl,
+  hooks?: AdmissionHooks,
   preRegisteredWriteOutcome?: WriteOutcomeRegistration
 ): Promise<Result> {
   return executeInterceptedQuery(
@@ -189,7 +189,7 @@ export function executeRegisteredQuery<Result, Input extends object>(
     child,
     isWrite,
     scope,
-    control,
+    hooks,
     preRegisteredWriteOutcome
   );
 }
@@ -207,7 +207,7 @@ async function executeInterceptedQuery<Result, Input extends object>(
   ) => Promise<Result>,
   isWrite: boolean,
   scope: TransactionScope | undefined,
-  control: AroundExecutionControl | undefined,
+  hooks: AdmissionHooks | undefined,
   preRegisteredWriteOutcome: WriteOutcomeRegistration | undefined,
   // Passed by the caller that has handlers to run: the one that has none
   // does not carry their runner.
@@ -273,8 +273,8 @@ async function executeInterceptedQuery<Result, Input extends object>(
             arounds,
             executeChild,
             captureWriteOutcome,
-            () => directCommitCertainty ?? control?.readCommitCertainty?.(),
-            control?.reportAdmissionFailure
+            () => directCommitCertainty ?? hooks?.readCommitCertainty?.(),
+            hooks?.reportAdmissionFailure
           );
     return value;
   } catch (error) {

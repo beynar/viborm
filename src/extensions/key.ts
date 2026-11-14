@@ -28,13 +28,13 @@ export function key(run: Run<unknown, unknown>): string | undefined {
   const of = call?.of;
   if (of === undefined) return undefined;
   const chain = of.engine.extensionChain;
-  if (chain?.statement !== undefined) return undefined;
-  const admitted = call?.controls;
+  if (chain?.rewrites !== undefined) return undefined;
+  const admitted = call?.values;
   if (
     admitted !== undefined &&
-    chain?.controls?.all.some(
-      (control) =>
-        control.volatile === true && admitted[control.name] !== undefined
+    chain?.args?.all.some(
+      (argument) =>
+        argument.volatile === true && admitted[argument.name] !== undefined
     )
   )
     return undefined;

@@ -109,8 +109,13 @@ all-or-nothing when it fits one batch.
   (`Argument "tenant" is required`, `references undeclared argument "x"`)
   where they said `Control`.
 - **`viborm/client` no longer exports `DefinitionControls` and `RowsVerbs`**,
-  the types of the earlier extension definition. An exported extended
-  client's declaration names `PlacedControl` for each argument, as before.
+  the types of the earlier extension definition. Two public types speak the
+  new vocabulary: `PlacedControl` is `PlacedArgument` (what an exported
+  extended client's declaration names for each argument) and `NoControls` is
+  `NoArguments` (`viborm`, `viborm/client`).
+- **A unit's failure names its part:** `Extension "x" unit() for statement
+  …` where it said `unit handler`, and `run()` outside a transaction unit
+  says `the transaction unit a unit() received`.
 - **What each extension adds to a PostgreSQL application, minified**
   (measured with `node scripts/extension-bytes.mjs`; before → now):
   default omission 45,233 → 6,479 bytes; `on` 47,016 → 16,451;

@@ -85,7 +85,7 @@ const unbounded = (): undefined => undefined;
  */
 export interface PreparedDomain {
   readonly rows: RowDomain;
-  /** The domain absent controls select: what a layer's traversals read (R5). */
+  /** The domain absent arguments select: what a layer's traversals read (R5). */
   readonly defaults: PreparedDomain;
   /** The view that prepares this domain's predicates. */
   readonly queries: Queries;

@@ -114,7 +114,7 @@ export function createRowsFragment(
 /**
  * The `FROM` item a `$rows` fragment stands for in a raw call of `engine`:
  * the domain a `findMany` of its model on that same view would take,
- * controls bound to it included, read at the raw call's one instant.
+ * arguments bound to it included, read at the raw call's one instant.
  */
 function settleRawRows(
   engine: QueryEngine,
@@ -123,7 +123,7 @@ function settleRawRows(
   instant: () => Date
 ): Sql {
   const { client, model, alias } = rows;
-  // The raw call's own view only: its chain and the controls it binds. A
+  // The raw call's own view only: its chain and the arguments it binds. A
   // fragment of the base client or another `$as` would read other rows.
   if (
     client.route !== engine.route ||
@@ -142,8 +142,7 @@ function settleRawRows(
     const name = model["~"].names.ts!;
     facts = binding.call(
       name,
-      chain?.controls?.admit(name, "findMany", "findMany", {}, client.bound)
-        ?.controls
+      chain?.args?.admit(name, "findMany", "findMany", {}, client.bound)?.values
     );
   }
   return engine.route.rowsOf(model, alias, facts, instant);
@@ -477,7 +476,7 @@ class DeferredRawOperation<T>
     this.#method = method;
     this.#captured = captured;
     this.#parse = parse;
-    this.#queryHandlers = engine.extensionChain?.query?.handlers(
+    this.#queryHandlers = engine.extensionChain?.around?.handlers(
       undefined,
       method
     );
@@ -503,7 +502,7 @@ class DeferredRawOperation<T>
     // The first moments of the parts without a target (the lookup's
     // `global`) see the statement once it is known, before anything sends
     // it: what they throw refuses it.
-    const request = this.#engine.extensionChain?.request;
+    const request = this.#engine.extensionChain?.call;
     request?.apply(this.#method, inputOf(resolved), request.global, resolved);
     this.#resolved = resolved;
     return resolved;

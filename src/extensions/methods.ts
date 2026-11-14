@@ -19,10 +19,10 @@ import type { ModelSql } from "@query-engine/raptor3/shared/insert-value";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { isFunction, isRecord } from "@validation/value-guards";
 import { errorCause } from "../errors/diagnostic-safety";
+import { type AdmittedArgs, undeclaredBinding } from "./arguments";
 import type { ExtensionPart } from "./chain";
 import { extensionError } from "./chain";
-import type { NoControls } from "./contract";
-import { type AdmittedControls, undeclaredBinding } from "./controls";
+import type { NoArguments } from "./contract";
 import type { MergeResultFields } from "./result-types";
 
 type NoMethods = Record<never, never>;
@@ -49,7 +49,7 @@ export interface ClientExtensionState<
   ResultConsumerState extends
     | ExtensionResultConsumerState
     | undefined = undefined,
-  Controls extends object = NoControls,
+  Arguments extends object = NoArguments,
   RowModels extends string = never,
   Data = never,
   Result extends object = Record<never, never>,
@@ -58,8 +58,8 @@ export interface ClientExtensionState<
   readonly models: ModelMethods;
   readonly cache: CacheState;
   readonly resultConsumer: ResultConsumerState;
-  /** The controls the chain declares: each one's values and placement. */
-  readonly controls: Controls;
+  /** The arguments the chain declares: each one's values and placement. */
+  readonly args: Arguments;
   /** The models the chain's `rows` can hide from a relation read. */
   readonly rows: RowModels;
   /** The fields the chain's `data` writes, which a caller no longer writes. */
@@ -132,7 +132,7 @@ type DelegateLink<
   : DelegateState<C, X["rows"], X["result"], ModelName>;
 
 /**
- * One model's delegate after the chain's methods and controls. On a chain
+ * One model's delegate after the chain's methods and arguments. On a chain
  * that declares create `data`, its writes may leave out the fields the chain
  * writes on a create.
  */
@@ -141,15 +141,15 @@ export type ExtensionModelDelegate<
   X extends ExtensionStateConstraint,
   ModelName extends keyof ClientSchema<C>,
 > = ([X["data"]] extends [never]
-  ? Client<C, ClientRowsContext<C, X["rows"]>, X["controls"]>[ModelName]
+  ? Client<C, ClientRowsContext<C, X["rows"]>, X["args"]>[ModelName]
   : Omit<
-      Client<C, ClientRowsContext<C, X["rows"]>, X["controls"]>[ModelName],
+      Client<C, ClientRowsContext<C, X["rows"]>, X["args"]>[ModelName],
       StampedOperation
     > &
       StampedOperations<
         C,
         ClientRowsContext<C, X["rows"]>,
-        X["controls"],
+        X["args"],
         X["data"],
         ModelName
       >) &
@@ -163,7 +163,7 @@ interface ModelRows {
    * The rows of this model this client may read, as a `FROM` item of a
    * tagged `$queryRaw` named `alias`: a derived table filtered by the row
    * domain a `findMany` of this model on this client takes (permissions,
-   * soft delete, bound controls). Refused anywhere else.
+   * soft delete, bound arguments). Refused anywhere else.
    *
    * @example
    * ```ts
@@ -195,7 +195,7 @@ type ComputedModelDelegate<
   ComputedOperations<
     C,
     ClientRowsContext<C, X["rows"]>,
-    X["controls"],
+    X["args"],
     X["data"],
     ModelName,
     X["result"]
@@ -240,8 +240,8 @@ export type ExtensionClientScope<
     readonly $transaction: TransactionClient<C, X>["$transaction"];
     /**
      * The client this scope's methods are called on, its calls admitting
-     * these values of this extension's own controls as if passed (a
-     * `bound: true` control only from here). Its type is that client's,
+     * these values of this extension's own arguments as if passed (a
+     * `bound: true` argument only from here). Its type is that client's,
      * which only the method knows: declare it with a `this` parameter,
      * `$with<Self>(this: Self, value: Value): Self`, outside the returned
      * literal (inside it, the factory's contextual type makes `Self` void).
@@ -262,7 +262,7 @@ export type MergeModelMethods<Left extends object, Right extends object> = {
 export interface ExtensionContributionState<
   ClientMethods extends object,
   ModelMethods extends object,
-  Controls extends object,
+  Arguments extends object,
   RowModels extends string,
   Data,
   ConsumerContext extends string,
@@ -280,7 +280,7 @@ export interface ExtensionContributionState<
   readonly resultConsumer: ConsumerContext extends "result-consuming"
     ? ExtensionResultConsumerState
     : undefined;
-  readonly controls: Controls;
+  readonly args: Arguments;
   readonly rows: RowModels;
   readonly data: Data;
   readonly result: Result;
@@ -299,7 +299,7 @@ export interface AccumulatedExtensionState<
   readonly resultConsumer: HasResultConsumingExtension<Contribution> extends true
     ? ExtensionResultConsumerState
     : X["resultConsumer"];
-  readonly controls: X["controls"] & Contribution["controls"];
+  readonly args: X["args"] & Contribution["args"];
   readonly rows: X["rows"] | Contribution["rows"];
   readonly data: X["data"] | Contribution["data"];
   readonly result: MergeResultFields<X["result"], Contribution["result"]>;
@@ -372,7 +372,7 @@ export function bindExtensionMethods(
   const made: (() => Readonly<Record<string, unknown>>)[] = [];
   for (const { name, factory, schema } of entries) {
     const prior = layers.at(-1)!;
-    // Typed where it is declared, so a call to it ends the control flow.
+    // Typed where it is declared, so a call to it ends the argument flow.
     const refuse: (problem: string) => never = (problem) =>
       extensionError(`Extension "${name}" ${problem}.`, name);
     let scope: object | undefined;
@@ -488,14 +488,14 @@ export interface ExtensionMethodsState {
     createScope: (prior: ExtensionMethods, extension: string) => object
   ) => BoundExtensionMethods;
   /**
-   * A factory scope's `$bind` on a chain that declares no control: it binds
-   * nothing, and refuses any control it is asked to.
+   * A factory scope's `$bind` on a chain that declares no argument: it binds
+   * nothing, and refuses any argument it is asked to.
    */
   readonly bindNone: (
     extension: string,
     values: Readonly<Record<string, unknown>>,
-    previous: AdmittedControls | undefined
-  ) => AdmittedControls;
+    previous: AdmittedArgs | undefined
+  ) => AdmittedArgs;
 }
 
 /** `methods`: what a view answers, in chain order. */
@@ -514,10 +514,10 @@ export function methodsPart(factory: RuntimeMethodsFactory): ExtensionPart {
         bindNone: (
           extension: string,
           values: Readonly<Record<string, unknown>>,
-          previous: AdmittedControls | undefined
+          previous: AdmittedArgs | undefined
         ) => {
-          for (const control of Object.keys(values))
-            undeclaredBinding(extension, control);
+          for (const name of Object.keys(values))
+            undeclaredBinding(extension, name);
           return Object.freeze({ ...previous });
         },
       });

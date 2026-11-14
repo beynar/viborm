@@ -603,7 +603,7 @@ const report = extension(
 
 - `work(origin, { kind, operation, model?, note? }, fn)` runs `fn` as a unit
   under every `unit` part of the chain `origin` belongs to: `origin` is a
-  call's `c` or `run`, a unit a handler received, one `work` made, or a
+  call's `c` or `run`, a unit a `unit()` received, one `work` made, or a
   method's scope (whose unit is an execution of its own, with its own
   correlation). When no part listens, `fn` runs alone. `note`, given, is the
   unit's first fact, noted before any handler sees it. The official

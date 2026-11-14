@@ -248,7 +248,7 @@ export interface ProjectedContribution<
   readonly models: MergeModelMethods<Contribution["models"], Projected>;
   readonly cache: Contribution["cache"];
   readonly resultConsumer: Contribution["resultConsumer"];
-  readonly controls: Contribution["controls"];
+  readonly args: Contribution["args"];
   readonly rows: Contribution["rows"];
   readonly data: Contribution["data"];
   readonly result: Contribution["result"];
@@ -266,7 +266,7 @@ type VerbsDefinition<F extends AnyFacts> = [keyof F["verbs"]] extends [never]
 type ContributionOf<F extends AnyFacts> = ExtensionContributionState<
   F["client"],
   F["models"],
-  F["controls"],
+  F["args"],
   F["rows"],
   F["data"],
   F["consumer"] extends true ? "result-consuming" : "result-independent",
@@ -295,7 +295,7 @@ type ProjectedStateOf<
           AppliedClientConfig<C, F>,
           X["rows"] | Contribution["rows"]
         >,
-        X["controls"] & Contribution["controls"],
+        X["args"] & Contribution["args"],
         VerbsDefinition<F>
       >
     >;
@@ -505,7 +505,7 @@ export type VibORMClient<
       ) => CachedClient<
         C,
         ClientRowsContext<C, X["rows"]>,
-        X["controls"],
+        X["args"],
         X["models"]
       >;
       /** Invalidate cache entries by keys or patterns (use * suffix for prefix matching) */
@@ -886,16 +886,16 @@ export class VibORM<C extends VibORMConfig> {
     const isWrite = isWriteOperation(operation);
     const chain = engine.extensionChain;
 
-    const request = chain?.request;
+    const request = chain?.call;
     const requestHandlers = request?.handlers(modelNameStr, operation);
     const hasOperationObservers = chain?.observation !== undefined;
-    const hasPlacedControls =
-      (chain?.controls?.placed(modelNameStr, operation).length ?? 0) > 0;
+    const hasPlacedArguments =
+      (chain?.args?.placed(modelNameStr, operation).length ?? 0) > 0;
     let operationArgs: Record<string, unknown> = rawArgs;
     let prepareInput: PrepareOperationInput | undefined;
-    const resultFields = chain?.result;
+    const resultFields = chain?.fields;
     let finishResult: ((value: unknown) => unknown) | undefined;
-    const written = isWrite ? chain?.written : undefined;
+    const written = isWrite ? chain?.watch : undefined;
     /** The call's arguments as what watches its writes is told them. */
     let callArgs: Record<string, unknown> | undefined;
     /** What watches the call's writes is told late that they settled: the call's value runs it and waits. */
@@ -921,7 +921,7 @@ export class VibORM<C extends VibORMConfig> {
 
     if (
       requestHandlers === undefined &&
-      !hasPlacedControls &&
+      !hasPlacedArguments &&
       !hasOperationObservers
     ) {
       operationArgs = finish(rawArgs);
@@ -929,19 +929,19 @@ export class VibORM<C extends VibORMConfig> {
       // Request code stays behind PendingOperation's first preparation
       // boundary. That boundary memoizes both this callback's value and its
       // failure when several lifecycle entry points observe the same
-      // operation, and hands it the arguments with their controls removed.
-      prepareInput = (controlFreeArgs, controls, call) => {
+      // operation, and hands it the arguments with their arguments removed.
+      prepareInput = (strippedArgs, values, call) => {
         const transformed =
           request === undefined || requestHandlers === undefined
-            ? controlFreeArgs
+            ? strippedArgs
             : request.apply(
                 operation,
-                controlFreeArgs,
+                strippedArgs,
                 requestHandlers,
                 call,
                 modelNameStr,
-                chain?.controls,
-                controls
+                chain?.args,
+                values
               );
         return finish(transformed);
       };
@@ -952,10 +952,10 @@ export class VibORM<C extends VibORMConfig> {
       | undefined =
       written === undefined
         ? undefined
-        : (context, controls, call) =>
+        : (context, values, call) =>
             written.watch(
               { model: modelNameStr, operation, args: callArgs!, call },
-              controls,
+              values,
               context,
               (late) => {
                 settle = late;
@@ -1081,7 +1081,7 @@ export class VibORM<C extends VibORMConfig> {
                   ? (values: Readonly<Record<string, unknown>>) =>
                       rebuild!(
                         engine.withBound(
-                          (chain?.controls?.bind ?? declared.bindNone)(
+                          (chain?.args?.bind ?? declared.bindNone)(
                             extension,
                             values,
                             engine.bound

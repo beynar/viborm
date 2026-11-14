@@ -34,10 +34,10 @@ export function rewritePart(handler: UnitHandler): ExtensionPart {
   return {
     join({ next, owner }) {
       const observation = observationOf([
-        ...(next.statement?.handlers ?? []),
+        ...(next.rewrites?.handlers ?? []),
         { extension: owner.name, handler },
       ]);
-      next.statement = {
+      next.rewrites = {
         ...observation,
         together: async (members, send, refuse) => {
           const statements: (Sql | undefined)[] = [];

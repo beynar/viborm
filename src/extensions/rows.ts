@@ -20,17 +20,17 @@ import {
   type RuleLayer,
   type VerbsBound,
 } from "./admission";
+import type { AdmittedArgs } from "./arguments";
 import { rebind, refuseUndeclared } from "./call-rows";
 import type {
   CallRowsBinding,
   ExtensionPart,
-  ResolvedControls,
+  ResolvedArgs,
   ResolvedExtensionChain,
 } from "./chain";
-import type { AdmittedControls } from "./controls";
 import { type PreparedDomain, prepareCall } from "./row-domain";
 
-const NO_CONTROLS: AdmittedControls = Object.freeze({});
+const NO_VALUES: AdmittedArgs = Object.freeze({});
 
 /** Calls' shared facts, by the value of one closed argument, then the next. */
 interface Shared {
@@ -43,9 +43,9 @@ interface Shared {
  * asked only where a value a predicate reads is absent.
  */
 const requiredOn =
-  (controls: ResolvedControls | undefined): CallValues["required"] =>
-  (control, model) => {
-    const on = controls?.all.find(({ name }) => name === control)?.required;
+  (declared: ResolvedArgs | undefined): CallValues["required"] =>
+  (argument, model) => {
+    const on = declared?.all.find(({ name }) => name === argument)?.required;
     return on === true || on?.includes(model) === true;
   };
 
@@ -136,7 +136,7 @@ export class RowsBinding implements CallRowsBinding {
   readonly #shared: Shared = { next: new Map() };
   readonly #sharedKept: Shared = { next: new Map() };
   constructor(chain: ResolvedExtensionChain) {
-    const layers = chain.rows ?? [];
+    const layers = chain.rules ?? [];
     // The verbs, where some word brought what binds them.
     const host = layers.find((layer) => layer.host)?.host;
     const {
@@ -154,7 +154,7 @@ export class RowsBinding implements CallRowsBinding {
     this.#parametric =
       lazy || layers.some(({ references }) => references.length > 0);
     const read = new Set(layers.flatMap(({ references }) => references));
-    const declared = chain.controls?.all ?? [];
+    const declared = chain.args?.all ?? [];
     // An entry given lazily may read any argument, known once it is read.
     const defaulted = declared.filter(
       ({ name, default: fallback }) =>
@@ -164,7 +164,9 @@ export class RowsBinding implements CallRowsBinding {
       lazy ||
       chain.stamps?.named === true ||
       ![...read].every((name) =>
-        declared.some((control) => control.name === name && "oneOf" in control)
+        declared.some(
+          (argument) => argument.name === name && "oneOf" in argument
+        )
       )
         ? undefined
         : [...read].filter((name) => name !== undefined);
@@ -177,10 +179,10 @@ export class RowsBinding implements CallRowsBinding {
           )
         : undefined;
     const layered = layers.find((layer) => layer.layered)?.layered;
-    const { kept, stamps, order } = chain;
+    const { kept, stamps, defaultOrder: order } = chain;
     this.#kept = kept;
     this.#stamps = stamps;
-    this.#required = requiredOn(chain.controls);
+    this.#required = requiredOn(chain.args);
     const domain: RowDomain = Object.freeze({
       root: modelDomain(layers, "root", filters),
       related: modelDomain(layers, "related", filters),
@@ -205,8 +207,8 @@ export class RowsBinding implements CallRowsBinding {
    * it where the call passes none, and, where they differ from the
    * defaults, the defaults too (`CallValues.defaults`).
    */
-  #values(controls: AdmittedControls | undefined, shared?: true): CallValues {
-    let given = controls ?? NO_CONTROLS;
+  #values(values: AdmittedArgs | undefined, shared?: true): CallValues {
+    let given = values ?? NO_VALUES;
     const fallback = this.#fallback;
     let departs = false;
     if (fallback !== undefined)
@@ -216,12 +218,12 @@ export class RowsBinding implements CallRowsBinding {
         else given = { ...fallback, ...given };
     const required = this.#required;
     return Object.freeze({
-      controls: given,
+      args: given,
       required,
       ...(shared && { shared }),
       ...(departs && {
         defaults: Object.freeze({
-          controls: { ...given, ...fallback },
+          args: { ...given, ...fallback },
           required,
         }),
       }),
@@ -234,10 +236,10 @@ export class RowsBinding implements CallRowsBinding {
    * it where the call passes none; when a stamp names one, the call's values
    * are put in.
    */
-  call(model: string, controls: AdmittedControls | undefined): CallRows {
+  call(model: string, values: AdmittedArgs | undefined): CallRows {
     const kept = this.#kept;
     const facts =
-      kept?.removes(model, controls) === true
+      kept?.removes(model, values) === true
         ? this.#physical
         : this.#tombstoning;
     const parametric = this.#parametric;
@@ -248,12 +250,12 @@ export class RowsBinding implements CallRowsBinding {
     if (closed === undefined)
       return Object.freeze({
         ...facts,
-        ...(parametric && { values: this.#values(controls) }),
-        ...(stamped && { stamps: stamps.of(controls) }),
+        ...(parametric && { values: this.#values(values) }),
+        ...(stamped && { stamps: stamps.of(values) }),
       });
     let node = facts === this.#physical ? this.#shared : this.#sharedKept;
     for (const name of closed) {
-      const value = controls?.[name];
+      const value = values?.[name];
       let next = node.next.get(value);
       if (next === undefined)
         node.next.set(value, (next = { next: new Map() }));
@@ -261,7 +263,7 @@ export class RowsBinding implements CallRowsBinding {
     }
     node.rows ??= Object.freeze({
       ...facts,
-      values: this.#values(controls, true),
+      values: this.#values(values, true),
     });
     return node.rows;
   }
@@ -283,7 +285,7 @@ export function layerPart(layer: RuleLayer): ExtensionPart {
       const { name, next, schema, registry } = application;
       const admitted = admitLayer(layer, schema, name, registry);
       refuseUndeclared(application, admitted.references);
-      next.rows = Object.freeze([...(next.rows ?? []), admitted]);
+      next.rules = Object.freeze([...(next.rules ?? []), admitted]);
       next.bindRows = bindRows;
     },
     seal(application) {

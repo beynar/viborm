@@ -1008,12 +1008,12 @@ describe("controls: rows bound to the call", () => {
       checked as { OR: [unknown, { version: { equals: unknown } }] }
     ).OR[1].version.equals;
     expect(operand).toBeInstanceOf(Parameter);
-    expect(operand).toMatchObject({ control: "expectedVersion" });
+    expect(operand).toMatchObject({ arg: "expectedVersion" });
     // Absent, the lock's value still travels as absent: the engine drops it,
     // as no control of the chain is required.
     // An argument with a default takes it where the call passes none.
     const absent = binding.call("post", undefined).values!;
-    expect(absent.controls).toEqual({ versionCheck: "checked" });
+    expect(absent.args).toEqual({ versionCheck: "checked" });
     expect(absent.required("expectedVersion", "post")).toBe(false);
     // `unchecked` names nothing, but its default domain does.
     const unchecked = binding.call("post", { versionCheck: "unchecked" });
@@ -1178,21 +1178,21 @@ describe("controls: rows bound to the call", () => {
       undefined,
       tenancyRecipe(["post"]),
       scopedSchema
-    ).rows!;
+    ).rules!;
     const kept = (entry: ResolvedKept) => new Kept([["post", entry]]);
     const binding = bindRows({
       extensions: [],
-      rows: [tenantRows!],
+      rules: [tenantRows!],
       kept: kept(deletion.post),
     });
     const defaults = binding.call("post", undefined);
     const operator = binding.call("post", { tenant: "acme", scope: "all" });
     expect(operator.domain).toBe(defaults.domain);
     expect(operator.tombstones).toBe(defaults.tombstones);
-    expect(operator.values?.controls).toEqual({ tenant: "acme", scope: "all" });
+    expect(operator.values?.args).toEqual({ tenant: "acme", scope: "all" });
     const physical = bindRows({
       extensions: [],
-      rows: [tenantRows!],
+      rules: [tenantRows!],
       // `keep(unless(arg("mode"), "hard", …))`: kept unless the test holds.
       kept: kept({
         ...deletion.post,

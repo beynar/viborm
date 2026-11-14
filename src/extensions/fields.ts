@@ -3,7 +3,13 @@
  * fields computed from the columns each row a call returns reads. A part of
  * its own: an extension that does not import it carries none of it.
  */
-import type { AnyTarget, Facts, ModelName, NoControls, Part } from "./contract";
+import type {
+  AnyTarget,
+  Facts,
+  ModelName,
+  NoArguments,
+  Part,
+} from "./contract";
 import { type ComputedFieldDeclaration, fieldsPart } from "./result";
 import type { DefinitionResultFields, ResultInference } from "./result-types";
 
@@ -24,7 +30,7 @@ export function fields<
   Facts<
     NoMethods,
     NoMethods,
-    NoControls,
+    NoArguments,
     never,
     never,
     DefinitionResultFields<{

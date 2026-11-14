@@ -266,7 +266,7 @@ describe("a chain's rows and deletion resolve to one call's facts", () => {
       archived: "no",
       hidden: "exclude",
     });
-    expect(defaults.values?.controls).toEqual({
+    expect(defaults.values?.args).toEqual({
       archived: "no",
       hidden: "exclude",
     });
@@ -278,7 +278,7 @@ describe("a chain's rows and deletion resolve to one call's facts", () => {
       hidden: "include",
     });
     expect(archived.domain).toBe(defaults.domain);
-    expect(archived.values?.controls).toEqual({
+    expect(archived.values?.args).toEqual({
       archived: "yes",
       hidden: "include",
     });

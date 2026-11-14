@@ -31,7 +31,7 @@ export interface Application {
   /** The chain being built: each part writes its own state on it. */
   readonly next: Draft;
   /** Who owns the handlers appended: the extension and its own arguments. */
-  owner: { readonly name: string; readonly controls?: readonly string[] };
+  owner: { readonly name: string; readonly args?: readonly string[] };
   readonly schema: Schema;
   readonly registry?: SchemaRegistryLookup<Schema>;
   /**

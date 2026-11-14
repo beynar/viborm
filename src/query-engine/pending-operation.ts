@@ -9,7 +9,7 @@ import {
   InvalidTransactionInputError,
   retainWriteOutcomeFailure,
 } from "@errors";
-import type { AdmittedControls } from "@extensions/controls";
+import type { AdmittedArgs } from "@extensions/arguments";
 import type { CallOrigin } from "@extensions/origin";
 import type {
   AroundHandlers,
@@ -84,12 +84,12 @@ function combineWriteNotifications(
 
 /**
  * Client-owned work that must finish before operation construction starts. It
- * receives the arguments without their controls, and the controls admitted
+ * receives the arguments without their arguments, and the arguments admitted
  * from them.
  */
 export type PrepareOperationInput = (
   args: Record<string, unknown>,
-  controls: AdmittedControls | undefined,
+  values: AdmittedArgs | undefined,
   /** One object per call: what an extension's two moments of it share. */
   call: object
 ) => Record<string, unknown>;
@@ -97,7 +97,7 @@ export type PrepareOperationInput = (
 /** Package-owned write listener prepared only after the operation input is trusted. */
 export type PrepareWriteOutcomeRegistration = (
   context: QueryExecutionContext,
-  controls: AdmittedControls | undefined,
+  values: AdmittedArgs | undefined,
   call: object | undefined
 ) => WriteOutcomeRegistration | undefined;
 
@@ -106,7 +106,7 @@ interface OperationInputPreparation extends CallOrigin {
   status: "pending" | "success" | "failure";
   args?: Record<string, unknown>;
   /** The operation's one admission record, settled with its arguments. */
-  controls?: AdmittedControls;
+  values?: AdmittedArgs;
   error?: unknown;
 }
 
@@ -198,7 +198,7 @@ export class PendingOperation<T>
       },
       interception: (operation) => {
         const requestedOperation = String(operation.#options.originalOperation);
-        const handlers = operation.#engine.extensionChain?.query?.handlers(
+        const handlers = operation.#engine.extensionChain?.around?.handlers(
           operation.#modelName,
           requestedOperation
         );
@@ -324,7 +324,7 @@ export class PendingOperation<T>
 
   /**
    * Resolve client request preparation once, caching both values and throws.
-   * The operation's controls leave its arguments and are admitted first, so
+   * The operation's arguments leave its arguments and are admitted first, so
    * the record is settled with the arguments and no request handler sees one.
    */
   #resolveArgs(): Record<string, unknown> {
@@ -336,7 +336,7 @@ export class PendingOperation<T>
     if (preparation.status === "failure") throw preparation.error;
 
     try {
-      const admission = this.#engine.extensionChain?.controls?.admit(
+      const admission = this.#engine.extensionChain?.args?.admit(
         this.#modelName,
         String(this.#options.originalOperation),
         this.#operation,
@@ -345,11 +345,11 @@ export class PendingOperation<T>
       );
       const args = preparation.prepare(
         admission?.args ?? this.#args,
-        admission?.controls,
+        admission?.values,
         preparation
       );
       preparation.args = args;
-      preparation.controls = admission?.controls;
+      preparation.values = admission?.values;
       preparation.status = "success";
       return args;
     } catch (error) {
@@ -366,7 +366,7 @@ export class PendingOperation<T>
     }
     this.#writeOutcomeRegistration = this.#prepareWriteOutcomeRegistration?.(
       this.#context.attribution,
-      this.#inputPreparation?.controls,
+      this.#inputPreparation?.values,
       this.#inputPreparation
     );
     this.#writeOutcomeRegistrationResolved = true;
@@ -402,10 +402,10 @@ export class PendingOperation<T>
     return routed;
   }
 
-  /** The row facts this call's admitted controls resolve to, if any. */
+  /** The row facts this call's admitted arguments resolve to, if any. */
   #callRows() {
     const binding = this.#engine.extensionChain?.callRows;
-    return binding?.call(this.#modelName, this.#inputPreparation?.controls);
+    return binding?.call(this.#modelName, this.#inputPreparation?.values);
   }
 
   /**
@@ -444,7 +444,7 @@ export class PendingOperation<T>
     mode: QueryInterceptionMode,
     preparedInput: Record<string, unknown>
   ): PreparedModelQueryContext<Record<string, unknown>> {
-    const controls = this.#inputPreparation?.controls;
+    const values = this.#inputPreparation?.values;
     let input: Readonly<Record<string, unknown>> | undefined;
     return Object.freeze({
       mode,
@@ -455,7 +455,7 @@ export class PendingOperation<T>
         input ??= snapshotQueryInput(preparedInput);
         return input;
       },
-      ...(controls === undefined ? {} : { controls }),
+      ...(values === undefined ? {} : { values }),
       call: this.#inputPreparation,
     });
   }
@@ -517,7 +517,7 @@ export class PendingOperation<T>
     const observerMayHaveCommitted =
       this.#observationNotification("may-have-committed");
     const requestedOperation = String(this.#options.originalOperation);
-    const handlers = this.#engine.extensionChain?.query?.handlers(
+    const handlers = this.#engine.extensionChain?.around?.handlers(
       this.#modelName,
       requestedOperation
     );
@@ -676,7 +676,7 @@ export class PendingOperation<T>
         model: this.#model,
         requested: String(this.#options.originalOperation),
         args: this.#resolveArgs(),
-        controls: this.#inputPreparation?.controls,
+        values: this.#inputPreparation?.values,
         rows: () => this.#callRows(),
         routed,
         context: this.#context.attribution,
