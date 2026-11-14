@@ -551,7 +551,7 @@ describe("a declared junction model", () => {
   test("leaves every other model's `deletion` alone", () => {
     expect(() => client().$extends(deletion("other"))).not.toThrow();
     expect(() => client().$extends(deletion("node"))).toThrow(
-      "deletion.node.at names unknown scalar"
+      'rule.node: keep() names unknown field "removedAt"'
     );
   });
 });
