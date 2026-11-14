@@ -75,6 +75,13 @@ function stampOf(
   return Object.freeze(out);
 }
 
+/** One kind's fields with an extension's own merged in: it wins a field. */
+const merged = (
+  previous: Input | undefined,
+  fields: Input | undefined
+): Input | undefined =>
+  fields === undefined ? previous : Object.freeze({ ...previous, ...fields });
+
 /** One defaults part's entries, written on its extension's members. */
 function writeDefaults(
   draft: DefinitionDraft,
@@ -104,15 +111,14 @@ function writeDefaults(
         refuse(
           'orderBy maps a model with a key to { field: "asc" | "desc" } terms over its ordered scalars'
         );
-    const create = stampOf(entry.create, scalars, refuse);
-    const update = stampOf(entry.update, scalars, refuse);
-    if (create !== undefined || update !== undefined) {
+    for (const kind of ["create", "update"] as const) {
+      const stamp = stampOf(entry[kind], scalars, refuse);
+      if (stamp === undefined) continue;
       const data = (draft.data ??= {});
-      const prior = data[model];
-      data[model] = Object.freeze({
-        create: create ? { ...prior?.create, ...create } : prior?.create,
-        update: update ? { ...prior?.update, ...update } : prior?.update,
-      });
+      data[model] = {
+        ...data[model],
+        [kind]: merged(data[model]?.[kind], stamp),
+      };
     }
     if (entry.fields === undefined) continue;
     if (!isPlainRecord(entry.fields)) refuse("fields is an object");
@@ -133,13 +139,6 @@ function writeDefaults(
   }
 }
 
-/** One kind's fields with an extension's own merged in: it wins a field. */
-const merged = (
-  previous: Input | undefined,
-  fields: Input | undefined
-): Input | undefined =>
-  fields === undefined ? previous : Object.freeze({ ...previous, ...fields });
-
 /**
  * `defaults`: the default order (a later extension's entry for a model
  * replaces one) and the default data (a later extension wins a field). The
@@ -156,15 +155,17 @@ const defaultsPart: ExtensionPart = {
     const names: string[] = [];
     const entries: Record<string, ModelStamps> = { ...chain?.data };
     for (const [model, entry] of Object.entries(data)) {
-      for (const stamp of [entry.create, entry.update])
-        for (const value of Object.values(stamp ?? {}))
-          if (value instanceof Parameter && value.control !== undefined)
-            names.push(value.control);
       const known = entries[model];
       entries[model] = Object.freeze({
         create: merged(known?.create, entry.create),
         update: merged(known?.update, entry.update),
       });
+      for (const value of [
+        ...Object.values(entry.create ?? {}),
+        ...Object.values(entry.update ?? {}),
+      ])
+        if (value instanceof Parameter && value.control !== undefined)
+          names.push(value.control);
     }
     refuseUndeclared(application, names);
     next.data = Object.freeze(entries);
