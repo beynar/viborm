@@ -125,27 +125,32 @@ export function transact<T>(
           ? Promise.reject(settled)
           : settled;
     };
-  return engine.driver
-    .withTransaction(
-      (driver) => {
-        scope = made ?? scopeOf(engine, root);
-        return body(driver, scope);
-      },
-      options,
-      // Only where a part may register: a chain of `call` parts, rules or
-      // defaults alone runs its transactions as an unextended client does.
-      parent || !(chain?.coordination || chain?.methods)
-        ? context
-        : appendExecutionTransactionPhases(context, {
-            readyToCommit: () => {
-              root.certainty = "may-have-committed";
-            },
-            committed: () => {
-              root.certainty = "committed";
-            },
-          })
-    )
-    .then(end(), end(true));
+  return (
+    engine.driver
+      .withTransaction(
+        (driver) => {
+          scope = made ?? scopeOf(engine, root);
+          return body(driver, scope);
+        },
+        options,
+        // Only where a part may register: a chain of `call` parts, rules or
+        // defaults alone runs its transactions as an unextended client does.
+        parent || !(chain?.coordination || chain?.methods)
+          ? context
+          : appendExecutionTransactionPhases(context, {
+              readyToCommit: () => {
+                root.certainty = "may-have-committed";
+              },
+              committed: () => {
+                root.certainty = "committed";
+              },
+            })
+      )
+      // A savepoint that fails drops what it collected: no handler of its
+      // rejection, which only the caller's own observes (an unobserved one
+      // fails the outer transaction).
+      .then(end(), parent ? undefined : end(true))
+  );
 }
 
 /**
