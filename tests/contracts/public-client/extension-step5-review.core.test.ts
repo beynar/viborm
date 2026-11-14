@@ -31,6 +31,7 @@ import {
   rule,
   settled,
   target,
+  unit,
   unless,
   via,
   when,
@@ -1088,5 +1089,61 @@ describe("call: what the deleted request-transform tests promised", () => {
     expect(await rejection(client.post.findMany({}))).toBeInstanceOf(
       ValidationError
     );
+  });
+});
+
+describe("unit: next() is the unit's own end", () => {
+  const ending = (
+    log: string[],
+    kinds?: readonly ("transaction" | "operation")[]
+  ) =>
+    extension(
+      "units",
+      unit(async (u, next) => {
+        const end = await next();
+        log.push(`${u.kind}:${end.status}`);
+      }, kinds as never)
+    );
+
+  test("a transaction unit rolled back ends in failure, with or without kinds named", async () => {
+    for (const kinds of [undefined, ["transaction"] as const]) {
+      const log: string[] = [];
+      const client = (await seeded()).$extends(ending(log, kinds));
+      await rejection(
+        client.$transaction(async (tx) => {
+          await tx.post.findMany({});
+          throw new Error("roll back");
+        })
+      );
+      expect({
+        kinds,
+        ends: log.filter((line) => line.startsWith("transaction")),
+      }).toEqual({ kinds, ends: ["transaction:failure"] });
+    }
+  });
+
+  test("the host awaits an operation unit's handler before the call resolves", async () => {
+    const log: string[] = [];
+    const client = (await seeded()).$extends(ending(log, ["operation"]));
+    await client.post.findMany({});
+    log.push("resolved");
+    expect(log).toEqual(["operation:success", "resolved"]);
+  });
+
+  test("what a rewriting unit throws fails the call (D5)", async () => {
+    const client = (await seeded()).$extends(
+      extension(
+        "rewrites",
+        unit(
+          async (_u, next) => {
+            await next();
+            throw new Error("observer fault");
+          },
+          ["statement"],
+          { rewrites: true }
+        )
+      )
+    );
+    expect(await rejection(client.post.findMany({}))).toBeInstanceOf(Error);
   });
 });
