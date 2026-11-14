@@ -45,12 +45,13 @@ export function codec<R>(run: Run<unknown, R>): Codec<R> {
       "codec() takes the run of a model's read."
     );
   let kept: readonly unknown[] | undefined;
+  const keep = (rows: readonly unknown[]): void => {
+    kept = rows;
+  };
   return {
     run() {
       kept = undefined;
-      prepared.seen = (rows) => {
-        kept = rows;
-      };
+      prepared.seen = keep;
       return run();
     },
     snapshot() {
