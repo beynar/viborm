@@ -13,8 +13,8 @@
 
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
-import { defineExtension } from "@extensions/define";
 import { s } from "@schema";
+import { accepts, arg, extension, parts, text, unit } from "@src/index";
 import { v } from "@src/validation";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -46,16 +46,13 @@ const doc = s.model({
 const schema = { org, member, doc };
 
 /** A document is read where the caller is a member of its organization. */
-const inOrg = { org: { members: { some: { userId: { control: "user" } } } } };
-const membership = defineExtension({
-  name: "membership",
-  controls: { user: { schema: v.string(), required: true } },
-  rows: {
-    control: "scope",
-    default: "member",
-    models: { doc: { member: { root: inOrg, related: inOrg } } },
-  },
-});
+const inOrg = { org: { members: { some: { userId: arg("user") } } } };
+const typed = parts<typeof schema>();
+const membership = typed.extension(
+  "membership",
+  typed.args({ user: accepts(v.string()).required(["doc"]) }),
+  typed.rule({ doc: { root: inOrg, related: inOrg } })
+);
 
 const clients: { $disconnect(): Promise<void> }[] = [];
 afterEach(async () => {
@@ -89,13 +86,19 @@ async function open(deepExpressions: boolean) {
     ],
   });
   const statements: string[] = [];
-  const db = base.$extends(membership).$extends({
-    name: "statements",
-    statement(context) {
-      statements.push(context.statement.toStatement());
-      return context.statement;
-    },
-  });
+  const db = base.$extends(membership).$extends(
+    extension(
+      "statements",
+      unit(
+        (u, next) => {
+          statements.push(text(u) ?? "");
+          return next();
+        },
+        ["statement"],
+        { rewrites: true }
+      )
+    )
+  );
   return { db, statements };
 }
 

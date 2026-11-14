@@ -1,6 +1,7 @@
 import { ForbiddenError, NestedWriteError, NotFoundError } from "@errors";
 import { verbsOf } from "@src/permissions/compile";
 import { v } from "@src/validation";
+import { hostExtension } from "@tests/fixtures/host-definition";
 import {
   CREATES,
   createOracle,
@@ -159,7 +160,9 @@ export function runPermissionsAppPlacement(
       base = createPermissionsAppClient(substrate.createDriver());
       await substrate.prepare(base);
       await loadPermissionsSeed(base);
-      const unbound = base.$extends(declaration as never) as unknown as {
+      const unbound = base.$extends(
+        hostExtension(declaration) as never
+      ) as unknown as {
         $unrestricted(): Loose;
       };
       db = unbound.$unrestricted();

@@ -15,6 +15,7 @@ import { getExecutionTransactionPhases } from "@drivers/execution-context";
 import { runTransactionLifecycle } from "@drivers/shared/transactions";
 import { InvalidTransactionInputError, TransactionError } from "@errors";
 import { s } from "@schema";
+import { around, extension, unit as extUnit, target } from "@src/index";
 import { overrideTransactionOperation } from "@tests/fixtures/transaction-operation";
 import { afterEach, describe, expect, test } from "vitest";
 
@@ -166,13 +167,15 @@ describe("array transaction member admission", () => {
   test("resolves an empty observed array without opening a transaction", async () => {
     const base = trackedClient(new ArrayLifecycleDriver());
     const units: string[] = [];
-    const client = base.$extends({
-      name: "closure-empty-observed",
-      async observe(unit, proceed) {
-        const completion = await proceed();
-        units.push(`${unit.kind}:${unit.operation}:${completion.status}`);
-      },
-    });
+    const client = base.$extends(
+      extension(
+        "closure-empty-observed",
+        extUnit(async (u, next) => {
+          const completion = await next();
+          units.push(`${u.kind}:${u.operation}:${completion.status}`);
+        })
+      )
+    );
 
     await expect(client.$transaction([])).resolves.toEqual([]);
     await flushObservations();
@@ -187,22 +190,23 @@ describe("intercepted array fallback commit certainty", () => {
   ] as const)("reports an intercepted array's %s-stage failure as %s", async (failurePoint, expectedCertainty) => {
     const base = trackedClient(new ArrayLifecycleDriver(failurePoint));
     const facts: Array<string | undefined> = [];
-    const client = base.$extends({
-      name: `closure-intercepted-${failurePoint}`,
-      query: {
-        record: {
-          async findMany({ proceed }) {
-            return await proceed();
+    const client = base.$extends(
+      extension(
+        `closure-intercepted-${failurePoint}`,
+        around(
+          () => async (run) => {
+            return await run();
           },
-        },
-      },
-      observe(unit, proceed) {
-        if (unit.kind !== "batch") return;
-        proceed().then((completion) => {
-          facts.push(completion.commitCertainty);
-        });
-      },
-    });
+          target("record", "findMany")
+        ),
+        extUnit((u, next) => {
+          if (u.kind !== "batch") return next();
+          next().then((completion) => {
+            facts.push(completion.certainty);
+          });
+        })
+      )
+    );
 
     await expect(
       client.$transaction([client.record.findMany()])
@@ -217,13 +221,15 @@ describe("native array closures", () => {
     const driver = new ArrayNativeDriver();
     const base = trackedClient(driver);
     const units: string[] = [];
-    const client = base.$extends({
-      name: "closure-observed-unbatchable",
-      async observe(unit, proceed) {
-        const completion = await proceed();
-        units.push(`${unit.kind}:${unit.operation}:${completion.status}`);
-      },
-    });
+    const client = base.$extends(
+      extension(
+        "closure-observed-unbatchable",
+        extUnit(async (u, next) => {
+          const completion = await next();
+          units.push(`${u.kind}:${u.operation}:${completion.status}`);
+        })
+      )
+    );
     const unbatchable = overrideTransactionOperation(client.record.findMany(), {
       prepare: () => undefined,
       prepareBatch: () => Promise.resolve(undefined),
@@ -247,13 +253,15 @@ describe("native array closures", () => {
     const driver = new ArrayNativeDriver();
     const base = trackedClient(driver);
     const units: string[] = [];
-    const client = base.$extends({
-      name: "closure-observed-parse",
-      async observe(unit, proceed) {
-        const completion = await proceed();
-        units.push(`${unit.kind}:${unit.operation}:${completion.status}`);
-      },
-    });
+    const client = base.$extends(
+      extension(
+        "closure-observed-parse",
+        extUnit(async (u, next) => {
+          const completion = await next();
+          units.push(`${u.kind}:${u.operation}:${completion.status}`);
+        })
+      )
+    );
     const failingParse = overrideTransactionOperation(
       client.record.findMany(),
       {
@@ -278,16 +286,17 @@ describe("native array closures", () => {
   test("refuses an intercepted native member with no atomic batch form", async () => {
     const driver = new ArrayNativeDriver();
     const base = trackedClient(driver);
-    const client = base.$extends({
-      name: "closure-intercepted-unbatchable",
-      query: {
-        record: {
-          async findMany({ proceed }) {
-            return await proceed();
+    const client = base.$extends(
+      extension(
+        "closure-intercepted-unbatchable",
+        around(
+          () => async (run) => {
+            return await run();
           },
-        },
-      },
-    });
+          target("record", "findMany")
+        )
+      )
+    );
     const unbatchable = overrideTransactionOperation(client.record.findMany(), {
       prepare: () => undefined,
       prepareBatch: () => Promise.resolve(undefined),
@@ -309,16 +318,17 @@ describe("native array closures", () => {
     const driver = new ArrayNativeDriver();
     driver.dropLastResult = true;
     const base = trackedClient(driver);
-    const client = base.$extends({
-      name: "closure-intercepted-short-window",
-      query: {
-        record: {
-          async findMany({ proceed }) {
-            return await proceed();
+    const client = base.$extends(
+      extension(
+        "closure-intercepted-short-window",
+        around(
+          () => async (run) => {
+            return await run();
           },
-        },
-      },
-    });
+          target("record", "findMany")
+        )
+      )
+    );
 
     await expect(
       client.$transaction([client.record.findMany()])

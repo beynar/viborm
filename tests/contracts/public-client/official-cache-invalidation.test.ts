@@ -62,13 +62,12 @@ function encodeNamespaceComponent(schemaName: string): string {
  * differs per suite and per run — so it alone is encoded, by the local encoder
  * above, and every other byte of the join stays spelled out.
  *
- * The revision reads `r5`: the dialect and SQL namespace entered the derivation
- * at `r2`, a stored decimal changed meaning at `r3`, r4 verifies exact query
- * identity, and r5 keys an entry by the prepared call. No entry of an older
+ * The revision reads `r4`: the dialect and SQL namespace entered the derivation
+ * at `r2`, a stored decimal changed meaning at `r3`, and r4 verifies exact query identity. No entry of an older
  * revision may be served to a reader holding the newer contract.
  */
 function officialNamespaces(schemaName: string) {
-  const scope = `viborm:cache:r5:d:0070006f0073007400670072006500730071006c:k:${encodeNamespaceComponent(schemaName)}`;
+  const scope = `viborm:cache:r4:d:0070006f0073007400670072006500730071006c:k:${encodeNamespaceComponent(schemaName)}`;
   return Object.freeze({
     one: `${scope}:s:006f006e0065`,
     tx: `${scope}:s:00740078`,
@@ -272,7 +271,7 @@ describe("official cache mutation ownership", () => {
         extension(
           "request-refusal",
           call(
-            (c) => {
+            (_c) => {
               throw new Error("request refused");
             },
             target("user", "create")
@@ -296,7 +295,8 @@ describe("official cache mutation ownership", () => {
     const operation = Reflect.apply(client.user.create, undefined, [input]);
     expect(cacheReads).toBe(0);
     await expect(operation).rejects.toBeInstanceOf(QueryError);
-    // Admitted before the transform refused the call.
+    // Admitted before the transform failed. How many times the caller's
+    // value is read is no longer promised: the core keeps no copy of it.
     expect(cacheReads).toBeGreaterThan(0);
     expect(cacheDriver.invalidations).toEqual([]);
   });
@@ -515,12 +515,20 @@ describe("official cache mutation ownership", () => {
     expect(certainties).toEqual(["may-have-committed"]);
   });
 
-  test("an invalidation-driver Error after commit rejects the write as a CacheConfigurationError", async () => {
+  test("normalizes a hostile invalidation-driver Error after commit", async () => {
     const { driver, namespace } = fallbackFamily();
     const NAMESPACE = officialNamespaces(namespace);
     const cacheDriver = new RecordingCache();
     const client = officialClient(driver, cacheDriver, "one");
-    cacheDriver.failNextClear(new Error("private invalidation failure"));
+    const hostileFailure = new Proxy(
+      new Error("private invalidation failure"),
+      {
+        getPrototypeOf() {
+          throw new Error("hostile invalidation error prototype read");
+        },
+      }
+    );
+    cacheDriver.failNextClear(hostileFailure);
 
     const failure = await client.user
       .create({
@@ -543,6 +551,7 @@ describe("official cache mutation ownership", () => {
       }),
       originalCause: expect.any(Error),
     });
+    expect(failure.originalCause).not.toBe(hostileFailure);
     expect(cacheDriver.invalidations).toEqual([`clear:${NAMESPACE.one}:`]);
   });
 });

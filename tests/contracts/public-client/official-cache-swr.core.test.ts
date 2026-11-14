@@ -582,11 +582,14 @@ describe("official cache stale-while-revalidate", () => {
             "official-swr-observer",
             unit((u, next) => {
               if (u.kind !== "cache" || u.operation !== "revalidate") {
-                return;
+                return next();
               }
-              completions.push(
-                next().then((outcome) => ({ ...outcome, error: failure(u) }))
-              );
+              const completion = next().then((outcome) => ({
+                ...outcome,
+                error: failure(u),
+              }));
+              completions.push(completion);
+              return completion;
             })
           )
         )

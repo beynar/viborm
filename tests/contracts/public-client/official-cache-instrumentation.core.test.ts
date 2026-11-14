@@ -245,7 +245,7 @@ describe("official cache instrumentation", () => {
             extension(
               "cache-disclosure-observer",
               unit((u, next) => {
-                if (u.kind !== "cache") return;
+                if (u.kind !== "cache") return next();
                 publicUnits.push({ ...u });
                 return next();
               })
@@ -684,7 +684,7 @@ describe("official cache instrumentation", () => {
     }
   });
 
-  test("keeps invalidation children nested and contains independent ordinary observers", async () => {
+  test("keeps invalidation children nested under ordinary observers on either side of instrumentation", async () => {
     const recorder = withOtelRecorder();
     try {
       const cacheDriver = new ObservableInstrumentationCache(createTestClock());
@@ -698,9 +698,10 @@ describe("official cache instrumentation", () => {
             extension(
               "cache-observer-before",
               unit((u, next) => {
-                if (u.kind !== "cache") return;
-                first.push({ operation: u.operation, completion: next() });
-                throw new Error("contained observer failure");
+                if (u.kind !== "cache") return next();
+                const completion = next();
+                first.push({ operation: u.operation, completion });
+                return completion;
               })
             )
           )
@@ -709,11 +710,10 @@ describe("official cache instrumentation", () => {
             extension(
               "cache-observer-after",
               unit((u, next) => {
-                if (u.kind !== "cache") return;
-                second.push({ operation: u.operation, completion: next() });
-                return Promise.reject(
-                  new Error("contained observer rejection")
-                );
+                if (u.kind !== "cache") return next();
+                const completion = next();
+                second.push({ operation: u.operation, completion });
+                return completion;
               })
             )
           )
@@ -796,7 +796,7 @@ describe("official cache instrumentation", () => {
               "swr-completion-observer",
               unit((u, next) => {
                 if (u.kind !== "cache" || u.operation !== "revalidate") {
-                  return;
+                  return next();
                 }
                 revalidations.push({
                   operation: u.operation,

@@ -7,6 +7,17 @@
 import { createClient } from "@drivers/sqlite3";
 import { ClientInitializationError } from "@errors";
 import { s } from "@schema";
+import {
+  arg,
+  check,
+  exists,
+  gate,
+  nothing,
+  oneOf,
+  parts,
+  provided,
+  when,
+} from "@src/index";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { v } from "@validation";
 import { afterEach, beforeEach, expect, test } from "vitest";
@@ -26,6 +37,9 @@ const node = s.model({
 });
 const note = s.model({ id: s.string().id(), ownerId: s.string() });
 const schema = { node, note };
+// The extensions are written apart from the client they are applied to.
+const typed = parts<typeof schema>();
+const extArgs = typed.args;
 
 type Row = Record<string, unknown>;
 interface Delegate {
@@ -67,23 +81,25 @@ const ids = (rows: Row[]) => rows.map((row) => row.id).sort();
 
 test("two lazy entries sharing a sub-predicate that names an undeclared control are each refused", async () => {
   // One `where` of node, read by node's entry and, under `$exists`, by note's.
-  const ghost = { ownerId: { control: "ghost" } };
-  const db = base.$extends({
-    name: "lazy",
-    controls: { user: { schema: v.string() } },
-    rows: {
-      control: "as",
-      default: "all",
-      models: {},
-      verbs: {
-        node: () => ({ predicates: { own: ghost }, read: "own" }),
-        note: () => ({
-          predicates: { own: { $exists: { node: ghost } } },
-          read: "own",
+  const ghost = { ownerId: arg("ghost") };
+  const db = base.$extends(
+    typed.extension(
+      "lazy",
+      extArgs({ user: v.string() }),
+      typed.rule({
+        node: () => ({
+          read: { where: ghost },
+          update: { where: nothing },
+          delete: { where: nothing },
         }),
-      },
-    },
-  });
+        note: () => ({
+          read: { where: exists({ node: ghost }) },
+          update: { where: nothing },
+          delete: { where: nothing },
+        }),
+      })
+    )
+  );
   for (const model of ["node", "note"]) {
     const call = db[model]!.findMany({ user: "alice" } as object);
     await expect(call).rejects.toBeInstanceOf(ClientInitializationError);
@@ -94,25 +110,19 @@ test("two lazy entries sharing a sub-predicate that names an undeclared control 
 });
 
 test("a lazy entry shared by two chains is checked against each chain's own controls, in either order", async () => {
-  const declaration = {
-    name: "lazy",
-    controls: { user: { schema: v.string() } },
-    rows: {
-      control: "as",
-      default: "all",
-      models: {},
-      verbs: {
-        note: () => ({
-          predicates: { own: { ownerId: { control: "tenant" } } },
-          read: "own",
-        }),
-      },
-    },
-  };
-  const tenancy = {
-    name: "tenant",
-    controls: { tenant: { schema: v.string() } },
-  };
+  const tenant = arg("tenant");
+  const declaration = typed.extension(
+    "lazy",
+    extArgs({ user: v.string() }),
+    typed.rule({
+      note: () => ({
+        read: { where: { ownerId: tenant } },
+        update: { where: nothing },
+        delete: { where: nothing },
+      }),
+    })
+  );
+  const tenancy = typed.extension("tenant", extArgs({ tenant: v.string() }));
   const bare = () => base.$extends(declaration);
   const declared = () => base.$extends(tenancy).$extends(declaration);
   for (const order of [
@@ -131,64 +141,72 @@ test("a lazy entry shared by two chains is checked against each chain's own cont
 });
 
 test("a control named only under NOT, $if, $exists, recurse, in confine or in a stamp is refused at $extends when undeclared", () => {
-  const ghost = { control: "ghost" };
+  const ghost = arg("ghost");
   const filters: object[] = [
     { NOT: { ownerId: ghost } },
-    { OR: [{ $if: { control: "ghost", exists: true } }] },
-    { $exists: { note: { ownerId: ghost } } },
+    { OR: [provided(ghost, { exists: true })] },
+    exists({ note: { ownerId: ghost } }),
     { children: { recurse: { depth: 2 }, some: { ownerId: ghost } } },
   ];
-  const definitions: object[] = [
-    ...filters.map((where) => ({
-      rows: {
-        control: "as",
-        default: "m",
-        models: { node: { m: { root: where } } },
-      },
-    })),
-    ...filters.map((where) => ({
-      rows: {
-        control: "as",
-        default: "m",
-        models: {},
-        verbs: { node: { predicates: { p: where }, read: "p" } },
-      },
-    })),
-    {
-      rows: {
-        control: "as",
-        default: "m",
-        models: {},
-        confine: { node: { ownerId: ghost } },
-      },
-    },
-    { data: { models: { note: { create: { ownerId: ghost } } } } },
+  // Rules read from the schema are untyped: the refusal is the runtime's.
+  const definitions: [string, object][] = [
+    ...filters.map((where): [string, object] => [
+      "root",
+      typed.extension(
+        "named",
+        typed.rule(() => ({ node: { root: where } }))
+      ),
+    ]),
+    ...filters.map((where): [string, object] => [
+      "read.where",
+      typed.extension(
+        "named",
+        typed.rule(() => ({ node: { read: { where } } }))
+      ),
+    ]),
+    [
+      "confine",
+      typed.extension(
+        "named",
+        typed.rule(() => ({ node: { confine: { ownerId: ghost } } }))
+      ),
+    ],
+    [
+      "stamp",
+      typed.extension(
+        "named",
+        typed.defaults({ note: { create: { ownerId: ghost } } })
+      ),
+    ],
   ];
-  for (const definition of definitions) {
-    const apply = () => base.$extends({ name: "named", ...definition });
-    expect(apply, JSON.stringify(definition)).toThrow(
-      ClientInitializationError
-    );
-    expect(apply, JSON.stringify(definition)).toThrow(
+  for (const [label, definition] of definitions) {
+    const apply = () => base.$extends(definition);
+    expect(apply, label).toThrow(ClientInitializationError);
+    expect(apply, label).toThrow(
       'Extension "named" references undeclared control "ghost".'
     );
   }
 });
 
 test("one predicate object shared by two modes and two models filters under each; an absent optional control drops only the layers that name it", async () => {
-  const owned = { ownerId: { control: "owner" } };
-  const db = base.$extends({
-    name: "scoped",
-    controls: { owner: { schema: v.string() } },
-    rows: {
-      control: "as",
-      default: "a",
-      models: {
-        node: { a: { root: owned }, b: { root: owned } },
-        note: { a: { root: owned }, b: { root: { ownerId: "alice" } } },
-      },
-    },
-  });
+  const owned = { ownerId: arg("owner") };
+  const db = base.$extends(
+    typed.extension(
+      "scoped",
+      extArgs({ owner: v.string(), as: oneOf("a", "b").default("a") }),
+      typed.rule({
+        node: {
+          root: [when(arg("as"), "a", owned), when(arg("as"), "b", owned)],
+        },
+        note: {
+          root: [
+            when(arg("as"), "a", owned),
+            when(arg("as"), "b", { ownerId: "alice" }),
+          ],
+        },
+      })
+    )
+  );
   for (const as of ["a", "b"]) {
     expect(
       ids(await db.node!.findMany({ as, owner: "bob" } as object))
@@ -207,54 +225,46 @@ test("one declaration applied to two schemas whose models share names is admitte
     schema: { node: thin, note },
     dataDir: ":memory:",
   }) as unknown as Loose;
-  const declaration = {
-    name: "gates",
-    controls: { user: { schema: v.string() } },
-    rows: {
-      control: "as",
-      default: "all",
-      models: { node: { all: { root: { secret: { not: "" } } } } },
-      verbs: {
-        node: {
-          predicates: { own: { ownerId: { control: "user" } } },
-          read: "own",
-          reads: { secret: "own" },
-        },
+  const own = { ownerId: arg("user") };
+  const declaration = typed.extension(
+    "gates",
+    extArgs({ user: v.string() }),
+    typed.rule({
+      node: {
+        read: { where: own, fields: { secret: gate(own) } },
+        root: { secret: { not: "" } },
+        update: { where: nothing },
+        delete: { where: nothing },
       },
-    },
-  };
+    })
+  );
   // Admitted against the schema that holds `secret` first.
   base.$extends(declaration);
   expect(() => other.$extends(declaration)).toThrow(ClientInitializationError);
   await other.$disconnect();
 });
 
+const own = { ownerId: arg("user") };
 /** Hides a gated field, refuses a created row its `place` refuses. */
-const judged = {
-  name: "judged",
-  controls: { user: { schema: v.string() } },
-  rows: {
-    control: "judgedAs",
-    default: "all",
-    models: {},
-    verbs: {
-      node: {
-        predicates: { own: { ownerId: { control: "user" } }, any: {} },
-        read: "any",
-        place: "own",
-        reads: { secret: "own" },
-      },
+const judged = typed.extension(
+  "judged",
+  extArgs({ user: v.string() }),
+  typed.rule({
+    node: {
+      read: { where: {}, fields: { secret: gate(own) } },
+      create: { check: check(own) },
+      update: { where: nothing },
+      delete: { where: nothing },
     },
-  },
-};
-const filtering = {
-  name: "filtering",
-  rows: {
-    control: "filteringAs",
-    default: "live",
-    models: { node: { live: { root: { deletedAt: null } } } },
-  },
-};
+  })
+);
+const filtering = typed.extension(
+  "filtering",
+  extArgs({ filteringAs: oneOf("live").default("live") }),
+  typed.rule({
+    node: { root: when(arg("filteringAs"), "live", { deletedAt: null }) },
+  })
+);
 
 test("a chain where only one of two `rows` members declares verbs still judges and gates, in either order", async () => {
   await (
@@ -284,21 +294,18 @@ test("a chain where only one of two `rows` members declares verbs still judges a
 
 test("a lazy entry function that throws fails the call and every later call on its model", async () => {
   let calls = 0;
-  const db = base.$extends({
-    name: "lazy",
-    controls: { user: { schema: v.string() } },
-    rows: {
-      control: "as",
-      default: "all",
-      models: {},
-      verbs: {
+  const db = base.$extends(
+    typed.extension(
+      "lazy",
+      extArgs({ user: v.string() }),
+      typed.rule({
         note: () => {
           calls++;
           throw new Error("compile failed");
         },
-      },
-    },
-  });
+      })
+    )
+  );
   for (let attempt = 0; attempt < 2; attempt++)
     await expect(
       db.note!.findMany({ user: "alice" } as object)
