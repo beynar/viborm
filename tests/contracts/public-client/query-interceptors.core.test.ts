@@ -731,6 +731,44 @@ describe("settled, as the runner tells it", () => {
   });
 });
 
+describe("an array a part hears without wrapping it", () => {
+  test("a read member runs bare, a write under its registration, told after the commit; a failed array tells nothing", async () => {
+    const told: string[] = [];
+    const db = (await seededClient()).$extends(
+      extension(
+        "hears",
+        call((c) => {
+          settled(c, ({ certainty }) => {
+            told.push(`${c.operation}:${certainty}`);
+          });
+        }, target(writes))
+      )
+    );
+
+    await expect(
+      db.$transaction([
+        db.post.findMany({ select: { id: true } }),
+        db.post.update({ where: { id: "p1" }, data: { title: "two" } }),
+      ])
+    ).resolves.toEqual([[{ id: "p1" }], { id: "p1", title: "two" }]);
+    expect(told).toEqual(["update:committed"]);
+
+    told.length = 0;
+    // The first member fails: the second is never read, and the rollback
+    // tells neither.
+    await expect(
+      db.$transaction([
+        db.post.create({ data: { id: "p1", title: "duplicate" } }),
+        db.post.update({ where: { id: "p1" }, data: { title: "three" } }),
+      ])
+    ).rejects.toThrow();
+    expect(told).toEqual([]);
+    await expect(db.post.findMany()).resolves.toEqual([
+      { id: "p1", title: "two" },
+    ]);
+  });
+});
+
 describe("settled where nothing collects a transaction's outcomes", () => {
   // A chain of around parts and methods alone runs its transactions as an
   // unextended client does: nothing would hold what settled registers there

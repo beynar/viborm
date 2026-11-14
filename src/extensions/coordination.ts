@@ -14,7 +14,7 @@
  * would hold it until the commit.
  */
 import type { ArraySlot } from "@client/array-transaction";
-import { admitArray, interceptsArray } from "./array-admission";
+import { admitArray, interceptsArray, stageArray } from "./array-admission";
 import type { ResolvedExtensionChain } from "./chain-state";
 import {
   executePreparedQuery,
@@ -71,14 +71,16 @@ export const UNITS: Coordination = {
   executePreparedQuery: (_context, _handlers, child) => child(),
 };
 
-/** For `written`, observers and the cache: an array member is intercepted. */
+/**
+ * For the part that watches writes: an array member it hears runs under its
+ * registration, and nothing waits, since no handler wraps it.
+ */
 export const ARRAYS: Coordination = {
   rank: 1,
   rail: WRITE_RAIL,
   executePreparedQuery: executeRegisteredQuery,
   intercepts: interceptsArray,
-  admit: (slots, outcomes) =>
-    admitArray(slots, outcomes, executeRegisteredQuery),
+  admit: stageArray,
 };
 
 /** For `around` parts: what runs their second moments around a call, too. */
