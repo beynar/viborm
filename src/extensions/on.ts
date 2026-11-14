@@ -36,7 +36,7 @@ function set<O extends Operations>(
   watch?: WatchPart
 ): OperationSet<O>;
 function set(operations: readonly Operations[], watch?: WatchPart): unknown {
-  return Object.freeze({ operations, watch });
+  return { operations, watch };
 }
 
 /** Every operation a model has. */

@@ -5,7 +5,7 @@
  */
 
 import { createClient } from "@drivers/sqlite3";
-import { ClientInitializationError, QueryError } from "@errors";
+import { QueryError } from "@errors";
 import { s } from "@schema";
 import { call, extension, methods } from "@src/index";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -52,28 +52,19 @@ const returning = (name: string, value: unknown) =>
   );
 
 describe("methods: what the factory returns", () => {
-  test("a factory that throws, or returns no object, is refused where the view is made", async () => {
+  test("a factory that throws fails where the view is made with its own error; one that returns no object is refused", async () => {
     const base = await seeded();
+    const own = new Error("no");
     expect(() =>
       base.$extends(
         extension(
           "throws",
           methods(() => {
-            throw new Error("no");
+            throw own;
           })
         )
       )
-    ).toThrow(ClientInitializationError);
-    expect(() =>
-      base.$extends(
-        extension(
-          "throws-again",
-          methods(() => {
-            throw new Error("no");
-          })
-        )
-      )
-    ).toThrow('Extension "throws-again" methods factory failed.');
+    ).toThrow(own);
     expect(() => base.$extends(returning("number", 1))).toThrow(
       'Extension "number" methods factory must return an object.'
     );

@@ -17,6 +17,7 @@ import type { AnyModel } from "@schema/model";
 import {
   type AdmittedLayer,
   admitLayer,
+  nativeSchema,
   type RuleLayer,
   type VerbsBound,
 } from "./admission";
@@ -172,10 +173,8 @@ export class RowsBinding implements CallRowsBinding {
         : [...read].filter((name) => name !== undefined);
     this.#fallback =
       this.#parametric && defaulted.length > 0
-        ? Object.freeze(
-            Object.fromEntries(
-              defaulted.map(({ name, default: fallback }) => [name, fallback])
-            )
+        ? Object.fromEntries(
+            defaulted.map(({ name, default: fallback }) => [name, fallback])
           )
         : undefined;
     const layered = layers.find((layer) => layer.layered)?.layered;
@@ -183,7 +182,7 @@ export class RowsBinding implements CallRowsBinding {
     this.#kept = kept;
     this.#stamps = stamps;
     this.#required = requiredOn(chain.args);
-    const domain: RowDomain = Object.freeze({
+    const domain: RowDomain = {
       root: modelDomain(layers, "root", filters),
       related: modelDomain(layers, "related", filters),
       ...verbs,
@@ -191,16 +190,16 @@ export class RowsBinding implements CallRowsBinding {
       ...(layered && { layered }),
       ...(this.#fallback && { fallback: this.#fallback }),
       ...(order && { order: new Map(Object.entries(order)) }),
-    });
-    this.#physical = Object.freeze({
+    };
+    this.#physical = {
       domain,
       ...(stamps && { stamps: stamps.all }),
       prepare,
-    });
+    };
     this.#tombstoning =
       kept === undefined
         ? this.#physical
-        : Object.freeze({ ...this.#physical, tombstones: kept });
+        : { ...this.#physical, tombstones: kept };
   }
   /**
    * What a call's predicates read: its arguments, each one with a default at
@@ -217,17 +216,17 @@ export class RowsBinding implements CallRowsBinding {
           departs ||= !Object.is(given[name], fallback[name]);
         else given = { ...fallback, ...given };
     const required = this.#required;
-    return Object.freeze({
+    return {
       args: given,
       required,
       ...(shared && { shared }),
       ...(departs && {
-        defaults: Object.freeze({
+        defaults: {
           args: { ...given, ...fallback },
           required,
-        }),
+        },
       }),
-    });
+    };
   }
   /**
    * One call's row facts, from the arguments it admitted, and whether it
@@ -248,23 +247,20 @@ export class RowsBinding implements CallRowsBinding {
     if (!(parametric || stamped)) return facts;
     const closed = this.#closed;
     if (closed === undefined)
-      return Object.freeze({
+      return {
         ...facts,
         ...(parametric && { values: this.#values(values) }),
         ...(stamped && { stamps: stamps.of(values) }),
-      });
+      };
     let node = facts === this.#physical ? this.#shared : this.#sharedKept;
     for (const name of closed) {
       const value = values?.[name];
-      let next = node.next.get(value);
-      if (next === undefined)
-        node.next.set(value, (next = { next: new Map() }));
-      node = next;
+      node = memo(node.next, value, () => ({ next: new Map() }));
     }
-    node.rows ??= Object.freeze({
+    node.rows ??= {
       ...facts,
       values: this.#values(values, true),
-    });
+    };
     return node.rows;
   }
 }
@@ -274,18 +270,23 @@ export const bindRows = (chain: ResolvedExtensionChain): RowsBinding =>
   new RowsBinding(chain);
 
 /**
- * `rule`: one extension's layer admitted where it is applied (once per
- * schema whose scalars admit with the engine's own schemas), the arguments
+ * `rule`: one extension's layer admitted where it is applied, the arguments
  * its predicates read checked against the chain's (an entry given lazily's
- * when it is first read), and the chain's call facts bound again.
+ * when it is first read), and the chain's call facts bound again. The layer
+ * is the extension's for one schema: admitted once where the schema's
+ * scalars admit with the engine's own schemas (a field's own schema may
+ * read its value differently on another call).
  */
 export function layerPart(layer: RuleLayer): ExtensionPart {
+  let native: boolean | undefined;
+  let admitted: AdmittedLayer | undefined;
   return {
     join(application) {
       const { name, next, schema, registry } = application;
-      const admitted = admitLayer(layer, schema, name, registry);
-      refuseUndeclared(application, admitted.references);
-      next.rules = Object.freeze([...(next.rules ?? []), admitted]);
+      const own = admitted ?? admitLayer(layer, schema, name, registry);
+      if ((native ??= nativeSchema(schema))) admitted = own;
+      refuseUndeclared(application, own.references);
+      next.rules = [...(next.rules ?? []), own];
       next.bindRows = bindRows;
     },
     seal(application) {

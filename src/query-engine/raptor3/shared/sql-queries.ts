@@ -116,6 +116,7 @@ import {
   rowSet,
   rowValue,
   type ScalarStateOf,
+  type KnownRow,
   type SelectControls,
   type Shape,
   type SharedBodies,
@@ -210,16 +211,7 @@ export class SqlQueries extends Queries {
    * it is read under, per field whether the value the write sets is null,
    * where the write states it, and what folds that into a predicate over it.
    */
-  known:
-    | {
-        readonly alias: string;
-        readonly nulls: ReadonlyMap<string, boolean>;
-        readonly fold: (
-          predicate: PreparedPredicate,
-          nulls: ReadonlyMap<string, boolean>
-        ) => PreparedPredicate;
-      }
-    | undefined;
+  declare known: KnownRow | undefined;
   /**
    * The statement part lowering here reads a masked window (K5): its read-
    * gated columns are already NULL where their rows do not carry them.

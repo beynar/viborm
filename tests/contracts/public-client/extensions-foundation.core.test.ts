@@ -91,7 +91,6 @@ describe("client extension foundation", () => {
     // A raw statement reaches both moments of a part without a target.
     expect(order("around", undefined, "$queryRaw")).toEqual(["B"]);
     expect(order("call", undefined, "$queryRaw")).toEqual(["B"]);
-    expect(Object.isFrozen(chain)).toBe(true);
 
     // A part without a target is the lookup's `global`: a model call finds
     // the same handlers, and a raw statement the list itself.

@@ -213,6 +213,7 @@ export function gatedDocument(
     ...gates.map((gate) => columns.lastIndexOf(gate)),
   ];
   const cell = (source: unknown, index: number, key: string): unknown => {
+    // Without columns a source row is a record, with them an array of cells.
     if (positions === undefined) return own(source as Input, key);
     const position = positions[index]!;
     return position < 0 ? undefined : (source as unknown[])[position];

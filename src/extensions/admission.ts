@@ -6,6 +6,7 @@
  * (parameters), `row` an enclosing column, `when`, `unless` and `provided`
  * conditions folded per call, `exists` another model's rows.
  */
+
 import type { Schema } from "@client/types";
 import { ClientInitializationError } from "@errors";
 import type {
@@ -14,6 +15,7 @@ import type {
   RowDomain,
 } from "@query-engine/raptor3/shared/row-scope";
 import type { Input } from "@query-engine/raptor3/shared/schema";
+import { memo } from "@query-engine/raptor3/shared/schema";
 import type { ModelState } from "@schema/model";
 import { createSchemaRegistry } from "@validation/builder";
 import { validateSchema } from "@validation/primitives/helpers";
@@ -200,23 +202,6 @@ export interface Admission {
   layered?: Layered;
 }
 
-/**
- * The where schemas of a schema no client prepared (an extension applied
- * without one), built once; a client hands admission its own.
- */
-const registries = new WeakMap<Schema, SchemaRegistryLookup<Schema>>();
-
-/**
- * Each layer's admission, per schema registry: a registry is prepared once
- * per schema, and so is the layer an extension writes, so a client created
- * per request over the same schema applies the same layer without reading
- * its predicates again.
- */
-const admitted = new WeakMap<
-  SchemaRegistryLookup<Schema>,
-  WeakMap<RuleLayer, AdmittedLayer>
->();
-
 /** A layer without verbs. */
 const NO_VERBS: AdmittedLayer["verbs"] = Object.freeze({});
 
@@ -255,14 +240,14 @@ export function admission(
       word instanceof PredicateWord ? word.value?.(at) : undefined;
     const filter = (word: object): FilterWord | undefined =>
       word instanceof PredicateWord ? word.filter?.(at) : undefined;
-    let filters = filtersOf.get(of);
-    if (filters === undefined) filtersOf.set(of, (filters = new WeakMap()));
+    const filters = memo(filtersOf, of, () => new WeakMap());
     const result = admittingDomainPredicate(
       { value, filter },
       () => validateSchema(where, predicate),
       filters
     );
     admitting.layered ??= at.layered;
+    // The model's where schema admitted the predicate: an Input.
     if (!result.issues) return result.value as Input;
     const [issue] = result.issues;
     return refuse(
@@ -276,7 +261,7 @@ export function admission(
 }
 
 /** Whether every scalar of the schema reads its value with the engine's own schema. */
-function nativeSchema(schema: Schema): boolean {
+export function nativeSchema(schema: Schema): boolean {
   return Object.values(schema).every((model) => {
     const state: ModelState = model["~"].state;
     return Object.values(state.scalars).every(
@@ -300,16 +285,7 @@ export function admitLayer(
   extension: string,
   given?: SchemaRegistryLookup<Schema>
 ): AdmittedLayer {
-  let registry = given ?? registries.get(schema);
-  if (registry === undefined) {
-    registry = createSchemaRegistry(schema);
-    registries.set(schema, registry);
-  }
-  // A field's own schema may read its value differently on another call.
-  const native = nativeSchema(schema);
-  let byLayer = admitted.get(registry);
-  const known = native ? byLayer?.get(layer) : undefined;
-  if (known) return known;
+  const registry = given ?? createSchemaRegistry(schema);
   const admitting = admission(schema, extension, registry);
   const { admit } = admitting;
   const references: References = new Set();
@@ -322,7 +298,7 @@ export function admitLayer(
       if (predicate !== undefined)
         out[purpose] = admit(name, `${name}.${purpose}`, predicate, read, of);
     }
-    return Object.freeze(out);
+    return out;
   };
   for (const name of new Set([
     ...Object.keys(layer.root),
@@ -352,20 +328,15 @@ export function admitLayer(
     confine[name] = admit(name, `${name}.confine`, predicate, references);
   }
   const layered = layer.layered ?? admitting.layered;
-  const out: AdmittedLayer = Object.freeze({
+  const out: AdmittedLayer = {
     extension,
-    models: Object.freeze(models),
+    models,
     verbs,
     ...(host && { host }),
     ...(layered && { layered }),
     ...(layer.brings && { brings: layer.brings }),
-    confine: Object.freeze(confine),
-    references: Object.freeze([...references]),
-  });
-  if (native) {
-    if (byLayer === undefined)
-      admitted.set(registry, (byLayer = new WeakMap()));
-    byLayer.set(layer, out);
-  }
+    confine,
+    references: [...references],
+  };
   return out;
 }

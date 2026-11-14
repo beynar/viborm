@@ -22,9 +22,9 @@ export function database(x: object): Database {
     throw new TypeError(
       "database(x) takes the context of a model call, its run, or a method's scope"
     );
-  return Object.freeze({
+  return {
     dialect: driver.dialect,
     namespace: driver.adapter.namespace,
     driverName: driver.driverName,
-  });
+  };
 }

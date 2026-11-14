@@ -48,7 +48,7 @@ class Omitted extends CarriedValue {
 export const omitted: OmittedWord = /* @__PURE__ */ omittedValue();
 function omittedValue(): OmittedWord;
 function omittedValue(): unknown {
-  return Object.freeze(new Omitted());
+  return new Omitted();
 }
 
 /**
@@ -69,7 +69,7 @@ function stampOf(
     out[field] =
       value instanceof PredicateWord && value.stamp ? value.stamp() : value;
   }
-  return Object.freeze(out);
+  return out;
 }
 
 /** One kind's fields with an extension's own merged in: it wins a field. */
@@ -77,7 +77,7 @@ const merged = (
   previous: Input | undefined,
   fields: Input | undefined
 ): Input | undefined =>
-  fields === undefined ? previous : Object.freeze({ ...previous, ...fields });
+  fields === undefined ? previous : { ...previous, ...fields };
 
 /** What one defaults part writes of one schema. */
 interface Written {
@@ -157,16 +157,16 @@ function defaultsPart(read: (schema: Schema) => Entry): ExtensionPart {
       );
       for (const omits of brought) application.bring(omits);
       if (Object.keys(order).length > 0)
-        next.defaultOrder = Object.freeze({ ...next.defaultOrder, ...order });
+        next.defaultOrder = { ...next.defaultOrder, ...order };
       if (Object.keys(data).length === 0) return;
       const names: string[] = [];
       const entries: Record<string, ModelStamps> = { ...next.defaultData };
       for (const [model, entry] of Object.entries(data)) {
         const known = entries[model];
-        entries[model] = Object.freeze({
+        entries[model] = {
           create: merged(known?.create, entry.create),
           update: merged(known?.update, entry.update),
-        });
+        };
         for (const value of [
           ...Object.values(entry.create ?? {}),
           ...Object.values(entry.update ?? {}),
@@ -175,7 +175,7 @@ function defaultsPart(read: (schema: Schema) => Entry): ExtensionPart {
             names.push(value.arg);
       }
       refuseUndeclared(application, names);
-      next.defaultData = Object.freeze(entries);
+      next.defaultData = entries;
       next.stamps = new Stamps(next.defaultData);
     },
     seal(application) {

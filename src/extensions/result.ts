@@ -95,13 +95,13 @@ export function snapshotResult(
       );
     const fields: Record<string, RuntimeComputedField> = Object.create(null);
     for (const [name, { needs = {}, compute }] of Object.entries(entries))
-      fields[name] = Object.freeze({
-        needs: Object.freeze(Object.keys(needs).filter((need) => needs[need])),
+      fields[name] = {
+        needs: Object.keys(needs).filter((need) => needs[need]),
         compute,
-      });
-    models[modelKey] = Object.freeze(fields);
+      };
+    models[modelKey] = fields;
   }
-  return Object.freeze(models);
+  return models;
 }
 
 /**
@@ -150,7 +150,7 @@ export function appendResultFields(
     }
     if (fields.length > 0) next[modelName] = fields;
   }
-  return Object.freeze(next);
+  return next;
 }
 
 /**
@@ -409,6 +409,7 @@ function detached(held: unknown): unknown {
   const prototype = Object.getPrototypeOf(held);
   if (prototype !== Object.prototype && prototype !== null) return held;
   const copy: Row = {};
+  // A plain object past the checks above: a record of values.
   for (const key in held) copy[key] = detached((held as Row)[key]);
   return copy;
 }
@@ -438,7 +439,7 @@ export function fieldsPart(
         snapshotResult(declared, name, schema),
         schema
       );
-      next.fields = Object.freeze({
+      next.fields = {
         fields,
         plan: (
           relations: ResolvedRelationIndex,
@@ -446,7 +447,7 @@ export function fieldsPart(
           operation: string,
           args: Row
         ) => planResultFields(fields, relations, model, operation, args),
-      });
+      };
     },
   };
 }

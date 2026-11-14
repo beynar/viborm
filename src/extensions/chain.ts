@@ -98,10 +98,7 @@ export function appendParts(
   for (const part of named) bring(part);
   const next: Draft = {
     ...chain,
-    extensions: Object.freeze([
-      ...(chain?.extensions ?? []),
-      Object.freeze({ name }),
-    ]),
+    extensions: [...(chain?.extensions ?? []), { name }],
   };
   const application: Application = {
     name,
@@ -119,5 +116,5 @@ export function appendParts(
   };
   for (const phase of PHASES)
     for (const part of parts) part[phase]?.(application);
-  return Object.freeze(next);
+  return next;
 }

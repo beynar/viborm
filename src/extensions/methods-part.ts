@@ -8,7 +8,6 @@
 import type {
   AnyTarget,
   ConsumesResults,
-  EmptyFacts,
   MethodsCheck,
   MethodsFacts,
   MethodsScope,
@@ -27,16 +26,5 @@ export function methods<
   factory: F
 ): Part<T, MethodsFacts<ReturnType<F>, ConsumesResults<F>, ModelName<T>>>;
 export function methods(factory: (scope: never) => unknown): unknown {
-  return buildMethods(factory);
-}
-
-/**
- * `methods` untyped: what an official extension builds its methods with,
- * typed by its own entry point rather than by an inferred target.
- */
-export function buildMethods(
-  factory: (scope: never) => unknown
-): Part<AnyTarget, EmptyFacts>;
-export function buildMethods(factory: (scope: never) => unknown): unknown {
   return methodsPart(factory);
 }

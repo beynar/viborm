@@ -31,6 +31,7 @@ export function orderOf(
         field !== undefined && Object.hasOwn(scalars, field)
           ? scalars[field]!["~"].state
           : undefined;
+      // A field was read off `term`, so it is a record.
       const direction = state && (term as Input)[field!];
       return (
         others.length === 0 &&
@@ -39,7 +40,5 @@ export function orderOf(
         !UNORDERED_SCALARS.has(state.type)
       );
     });
-  return valid
-    ? Object.freeze(terms.map((term) => Object.freeze({ ...term })))
-    : undefined;
+  return valid ? terms.map((term) => ({ ...term })) : undefined;
 }

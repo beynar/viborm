@@ -274,6 +274,7 @@ export const judgeOf = (domain: PreparedDomain) => {
       for (const own of verbs) {
         const acyclic = own?.cycles;
         if (acyclic === undefined) continue;
+        // Not a list, the cycles are the lazy relations `cyclesOf` made.
         const named = Array.isArray(acyclic)
           ? acyclic
           : (acyclic as LazyRelations).candidates.some(written)

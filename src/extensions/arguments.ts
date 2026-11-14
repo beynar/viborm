@@ -3,12 +3,14 @@
  * call. Brought by `args` alone: an extension that declares no argument
  * carries none of it.
  */
+
 import {
   ClientInitializationError,
   QueryError,
   ValidationError,
   VibORMError,
 } from "@errors";
+import { memo } from "@query-engine/raptor3/shared/schema";
 import type { Operation } from "@query-engine/types";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { discardAsyncValidationResult } from "@validation/parse-failure";
@@ -41,10 +43,6 @@ export type ArgDeclaration = (
   readonly default?: ArgLiteral;
   readonly bound?: boolean;
   readonly volatile?: boolean;
-};
-
-export type ControlsContribution = {
-  readonly [name: string]: ArgDeclaration;
 };
 
 /**
@@ -259,17 +257,14 @@ export function appendArguments(
   const lists = new Map<string, readonly ResolvedArg[]>();
   const placed = (model: string, operation: string): readonly ResolvedArg[] => {
     const key = `${model}\u0000${operation}`;
-    let list = lists.get(key);
-    if (list === undefined) {
+    return memo(lists, key, () => {
       const found = all.filter(
         ({ on, models }) =>
           (on === undefined || on.includes(operation)) &&
           (models === undefined || models.includes(model))
       );
-      list = found.length === 0 ? NO_ARGUMENTS : found;
-      lists.set(key, list);
-    }
-    return list;
+      return found.length === 0 ? NO_ARGUMENTS : found;
+    });
   };
   return {
     names,

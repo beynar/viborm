@@ -87,22 +87,22 @@ class PlainBinding implements CallRowsBinding {
   readonly #facts: CallRows;
   readonly #stamps: Stamps | undefined;
   constructor({ defaultOrder: order, stamps }: ResolvedExtensionChain) {
-    const domain: RowDomain = Object.freeze({
+    const domain: RowDomain = {
       root: NONE,
       related: NONE,
       ...(order && { order: new Map(Object.entries(order)) }),
-    });
+    };
     this.#stamps = stamps;
-    this.#facts = Object.freeze({
+    this.#facts = {
       domain,
       ...(stamps && { stamps: stamps.all }),
       prepare: preparePlain,
-    });
+    };
   }
   call(_model: string, values: AdmittedArgs | undefined): CallRows {
     const stamps = this.#stamps;
     return stamps?.named
-      ? Object.freeze({ ...this.#facts, stamps: stamps.of(values) })
+      ? { ...this.#facts, stamps: stamps.of(values) }
       : this.#facts;
   }
 }

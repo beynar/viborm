@@ -37,7 +37,7 @@ function boundStamp(
     const given = named(value) ? value.read(values, instant) : value;
     if (given !== undefined) out[field] = given;
   }
-  return Object.freeze(out);
+  return out;
 }
 
 /**
@@ -67,7 +67,7 @@ export class Stamps {
         model,
         create === entry.create && update === entry.update
           ? entry
-          : Object.freeze({ create, update })
+          : { create, update }
       );
     }
     return bound;

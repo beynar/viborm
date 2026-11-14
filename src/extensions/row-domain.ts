@@ -40,16 +40,7 @@ export function overKnown(
   alias: string | undefined,
   predicate: PreparedPredicate
 ): PreparedPredicate {
-  const { known } = queries as Queries & {
-    known?: {
-      alias: string;
-      nulls: ReadonlyMap<string, boolean>;
-      fold: (
-        predicate: PreparedPredicate,
-        nulls: ReadonlyMap<string, boolean>
-      ) => PreparedPredicate;
-    };
-  };
+  const { known } = queries;
   return known !== undefined && alias === known.alias
     ? known.fold(predicate, known.nulls)
     : predicate;
@@ -231,15 +222,14 @@ export class FilterDomain implements PreparedDomain {
   ): PreparedSelector | undefined {
     const name = model["~"].names.ts!;
     const key = this.key(name, excluded, judgement);
-    let prepared = this.#prepared[purpose].get(key);
-    if (prepared === undefined)
-      prepared = memo(this.#prepared[purpose], key, () =>
+    return (
+      memo(this.#prepared[purpose], key, () =>
         this.conjunction(
           model,
           this.layers(name, this.rows[purpose].get(name), excluded, judgement)
         )
-      );
-    return prepared ?? undefined;
+      ) ?? undefined
+    );
   }
   /** The plain key allocates nothing: a read takes it at every lookup. */
   protected key(
@@ -300,6 +290,7 @@ export class FilterDomain implements PreparedDomain {
     fields: readonly string[],
     use: "read" | "filter"
   ): void {
+    // Only a junction membership reaches a declared junction model here.
     const model = (edge as Extract<Membership, { kind: "junction" }>).declared!
       .model;
     const name = model["~"].names.ts;

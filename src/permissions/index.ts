@@ -682,35 +682,25 @@ export function permissions<const Config extends PermissionsConfig>(
    * names, checked once, and what a root call may reach. Each model
    * compiles the first time a call needs it, into one state every client of
    * the schema shares; a rule's own refusal comes at its model's first call.
+   * Made by the first rule part, which the extension runs once per schema,
+   * and again for a schema object that gained or swapped a model: a model
+   * the policy lacks would be left open (R9).
    */
   const applied = new WeakMap<
     Schema,
     {
-      readonly models: Schema;
       readonly compiler: PolicyCompiler;
       readonly reach: ReadonlyMap<string, Reach>;
     }
   >();
-  const appliedTo = (schema: Schema) => {
-    let known = applied.get(schema);
-    // A schema object that gained or swapped a model is applied again: a
-    // model the policy lacks would be left open (R9).
-    const keys = Object.keys(schema);
-    if (
-      known === undefined ||
-      keys.length !== Object.keys(known.models).length ||
-      keys.some((name) => known?.models[name] !== schema[name])
-    ) {
-      const models = { ...schema };
-      const compiler = policyCompiler(config, models, actor);
-      known = { models, compiler, reach: reachOf(config, compiler.declared) };
-      applied.set(schema, known);
-    }
+  const apply = (schema: Schema) => {
+    const compiler = policyCompiler(config, { ...schema }, actor);
+    const known = { compiler, reach: reachOf(config, compiler.declared) };
+    applied.set(schema, known);
     return known;
   };
   /** One model's compiled predicates as a rule entry. */
-  const entryOf = (schema: Schema, name: string) => {
-    const { compiler } = appliedTo(schema);
+  const entryOf = (compiler: PolicyCompiler, name: string) => {
     const model = compiler.model(name);
     return ruleEntryOf(
       model,
@@ -730,19 +720,21 @@ export function permissions<const Config extends PermissionsConfig>(
   const governed = extension(
     NAME,
     // Every model of the schema, each read when a call first needs it.
-    rule<Untyped, (schema: Schema) => object>((schema) =>
-      Object.fromEntries(
-        Object.keys(appliedTo(schema).compiler.declared).map((name) => [
+    rule<Untyped, (schema: Schema) => object>((schema) => {
+      const { compiler } = apply(schema);
+      return Object.fromEntries(
+        Object.keys(compiler.declared).map((name) => [
           name,
-          lazy(() => entryOf(schema, name)),
+          lazy(() => entryOf(compiler, name)),
         ])
-      )
-    ),
+      );
+    }),
     // The tenant the policy's own whole-table sets stay in (`tenant`).
     rule<Untyped, (schema: Schema) => object>((schema) => {
       const known = new WeakMap<object, unknown>();
       return Object.fromEntries(
-        Object.entries(appliedTo(schema).compiler.declared).flatMap(
+        // The first rule part, declared before this one, applied the policy.
+        Object.entries(applied.get(schema)?.compiler.declared ?? {}).flatMap(
           ([name, model]) =>
             model.bound === undefined
               ? []

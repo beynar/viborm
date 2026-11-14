@@ -18,7 +18,7 @@ interface Declared {
 
 /** A declaration with its modifiers, each returning a new one. */
 function declared(spec: ArgDeclaration): Declared {
-  return Object.freeze({
+  const value: Declared & Record<string, unknown> = {
     spec,
     default: (fallback: string | number | boolean) =>
       declared({ ...spec, default: fallback }),
@@ -29,7 +29,8 @@ function declared(spec: ArgDeclaration): Declared {
     required: (models?: readonly string[]) =>
       declared({ ...spec, required: models ?? true }),
     volatile: () => declared({ ...spec, volatile: true }),
-  });
+  };
+  return value;
 }
 
 /** An argument whose value is one of `values`. */

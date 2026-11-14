@@ -21,12 +21,12 @@ export function disclosure<T extends AnyTarget>(
   policy: DisclosurePolicy
 ): Part<T, EmptyFacts>;
 export function disclosure(policy: DisclosurePolicy): unknown {
-  const disclosed: DiagnosticDisclosure = Object.freeze({
+  const disclosed: DiagnosticDisclosure = {
     includeSql: policy.sql === true,
     includeParams: policy.parameters === true,
     includeProviderDetails: policy.providerDetails === true,
     includeCallsite: policy.callsite === true,
-  });
+  };
   const part: ExtensionPart = {
     join({ next }) {
       next.disclosure = disclosed;

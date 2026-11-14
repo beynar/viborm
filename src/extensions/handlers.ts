@@ -3,6 +3,7 @@
  * its target selects, and the handlers one call runs: found the first time
  * a (model, operation) asks, and kept for the chain.
  */
+import { memo } from "@query-engine/raptor3/shared/schema";
 import type { FirstMoment, runFirstMoments } from "./call";
 import type { ResolvedOperationHandler } from "./chain-state";
 
@@ -41,7 +42,7 @@ export interface RequestHandlers extends OperationHandlers<FirstMoment> {
 export function handlersOf<Handler extends CallableFunction>(
   placed: readonly PlacedHandler<Handler>[]
 ): OperationHandlers<Handler> {
-  const global = Object.freeze(placed.filter((entry) => !entry.on));
+  const global = placed.filter((entry) => !entry.on);
   const found = new Map<string, readonly PlacedHandler<Handler>[]>();
   return {
     placed,
@@ -49,16 +50,12 @@ export function handlersOf<Handler extends CallableFunction>(
     handlers(model, operation) {
       if (model === undefined) return global.length > 0 ? global : undefined;
       const key = `${model}.${operation}`;
-      let list = found.get(key);
-      if (list === undefined) {
-        list = Object.freeze(
-          placed.filter(
-            ({ on }) =>
-              !on || (on.models.has(model) && on.operations.has(operation))
-          )
-        );
-        found.set(key, list);
-      }
+      const list = memo(found, key, () =>
+        placed.filter(
+          ({ on }) =>
+            !on || (on.models.has(model) && on.operations.has(operation))
+        )
+      );
       return list.length > 0 ? list : undefined;
     },
   };

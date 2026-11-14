@@ -2,7 +2,6 @@ import {
   CacheConfigurationError,
   CacheOperationNotCacheableError,
 } from "@errors";
-import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { parse } from "@validation";
 import v, { type V } from "@validation/primitives/v";
 import { parseTTL } from "./ttl";
@@ -210,14 +209,3 @@ export function admitReadOptions(value: unknown): CacheReadOptions {
     ...(key === undefined ? {} : { key }),
   });
 }
-
-/**
- * A write's `cache` argument as the extension declares it: a value only
- * the cache's own validator admits, refused as `CacheConfigurationError`.
- */
-export type OfficialCacheControls = {
-  readonly cache: {
-    readonly schema: StandardSchemaV1<CacheInvalidationOptions>;
-    readonly on: "writes";
-  };
-};

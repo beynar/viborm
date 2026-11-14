@@ -209,6 +209,7 @@ export function stableStringify(
   if (Array.isArray(value)) {
     serialized = `[${value.map((v) => stableStringify(v, seen)).join(",")}]`;
   } else {
+    // Neither null nor an array: an object, whose own keys are read.
     const obj = value as Record<string, unknown>;
     const pairs = Object.keys(obj)
       .sort()

@@ -244,10 +244,10 @@ async function executeInterceptedQuery<Result, Input extends object>(
     if (registrations.length === 0) return;
     await publishWriteOutcomes(registrations, { certainty });
   };
-  const notifications: WriteOutcomeNotifications = Object.freeze({
+  const notifications: WriteOutcomeNotifications = {
     committed: () => publish("committed"),
     mayHaveCommitted: () => publish("may-have-committed"),
-  });
+  };
   const executeChild = async (driver?: AnyDriver): Promise<Result> => {
     try {
       const value = await child(notifications, driver);

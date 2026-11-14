@@ -13,8 +13,10 @@
  * statement; `target(...)` names model operations only, so a targeted part
  * never sees a raw statement.
  */
+
 import type { Schema } from "@client/types";
 import { QueryError, VibORMError } from "@errors";
+import { memo } from "@query-engine/raptor3/shared/schema";
 import { isFunction, isRecord } from "@validation/value-guards";
 import { errorCause } from "../errors/diagnostic-safety";
 import type { AdmittedArgs } from "./arguments";
@@ -213,10 +215,7 @@ interface Kept {
 export type Seconds = Map<FirstMoment, Kept>;
 
 function keptFor(call: CallOrigin, first: FirstMoment): Kept {
-  const byFirst = (call.seconds ??= new Map());
-  let kept = byFirst.get(first);
-  if (kept === undefined) byFirst.set(first, (kept = {}));
-  return kept;
+  return memo((call.seconds ??= new Map()), first, () => ({}));
 }
 
 /** What `around` hands its first moments: the call's second moments kept. */
@@ -269,7 +268,7 @@ function placed<H extends CallableFunction>(
   { schema, owner }: Application
 ): PlacedHandler<H> {
   const own = { extension: owner.name, handler, args: owner.args };
-  if (selection === undefined) return Object.freeze({ ...own, inner });
+  if (selection === undefined) return { ...own, inner };
   const known = (names: readonly string[], holds: (name: string) => boolean) =>
     new Set(
       names.map((name) =>
@@ -281,7 +280,7 @@ function placed<H extends CallableFunction>(
             )
       )
     );
-  return Object.freeze({
+  return {
     ...own,
     inner,
     on: {
@@ -293,7 +292,7 @@ function placed<H extends CallableFunction>(
         (operation) => MODEL_OPERATIONS.has(operation)
       ),
     },
-  });
+  };
 }
 
 /** One first moment appended to the chain's, in the order the parts join. */
@@ -303,13 +302,13 @@ function appendFirst(
   first: FirstMoment
 ): void {
   const { next } = application;
-  next.call = Object.freeze({
+  next.call = {
     ...handlersOf([
       ...(next.call?.placed ?? []),
       placed(spec, first, application),
     ]),
     apply: runFirstMoments,
-  });
+  };
 }
 
 /** What `call` returns: its first moment, made against the schema it joins. */
@@ -338,16 +337,14 @@ function aroundPart(spec: CallSpec): ExtensionPart {
       appendFirst(application, spec, first);
       const handler = placed(spec, secondMoment(first), application);
       const list = next.around?.placed ?? [];
-      next.around = Object.freeze(
-        handlersOf(
-          handler.inner
-            ? [...list, handler]
-            : [
-                ...list.filter((other) => !other.inner),
-                handler,
-                ...list.filter((other) => other.inner),
-              ]
-        )
+      next.around = handlersOf(
+        handler.inner
+          ? [...list, handler]
+          : [
+              ...list.filter((other) => !other.inner),
+              handler,
+              ...list.filter((other) => other.inner),
+            ]
       );
       coordinate(next, QUERIES);
     },

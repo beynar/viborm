@@ -172,6 +172,7 @@ export class ExistsFilter extends PredicateWord {
         path: [model!, ...(issue!.path ?? [])],
       };
     }
+    // The model's where schema admitted the filter: an Input.
     return { nodes: [new Existence(model!, result.value as Input)] };
   }
 }
@@ -190,7 +191,7 @@ export function testOf(given: unknown): ConditionTest | string {
     ((kind === "in" || kind === "hasSome") && !Array.isArray(operand))
     ? `a test is a value or exactly one of ${TESTS.join(", ")}`
     : // Exactly one known test, its operand checked above.
-      (Object.freeze({ ...test }) as ConditionTest);
+      ({ ...test } as ConditionTest);
 }
 
 /**
@@ -266,7 +267,7 @@ export const nothing: { readonly OR: readonly never[] } =
 export const now: NowWord = /* @__PURE__ */ nowValue();
 function nowValue(): NowWord;
 function nowValue(): unknown {
-  return Object.freeze(new NowValue());
+  return new NowValue();
 }
 
 /** A column of the row `up` relation bodies above (0: the row itself). */

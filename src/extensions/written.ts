@@ -129,7 +129,7 @@ export function watchWrite(
       if (outcome) late(() => publishWriteOutcomes(seeing, outcome));
     }
   );
-  return Object.freeze({
+  return {
     extension: first.extension,
     // Each listener's failure is already said as its own.
     failurePolicy: "boundary-owned",
@@ -140,7 +140,7 @@ export function watchWrite(
       heard = outcome;
       if (blind.length > 0) return publishWriteOutcomes(blind, outcome);
     },
-  });
+  };
 }
 
 /** The engine shows the rows of one call's writes that `wants` wants. */
@@ -158,6 +158,7 @@ export const showRows: ShowRows = (context, wants, told) => {
         own(queries, model, args, kinds) {
           const name = model["~"].names.ts!;
           if (!kinds.some((kind) => wants(name, kind))) return undefined;
+          // An operation's `select` is a record of fields where present.
           const select = args.select as Record<string, unknown> | undefined;
           const { scalars } = model["~"].state;
           // What the caller asked for beside the row's own fields: what its

@@ -136,8 +136,8 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
 
   /**
    * The SQL family this driver speaks. It is a CACHE IDENTITY fact and not only
-   * a rendering switch: `bindOfficialCacheChain` derives the official cache
-   * scope from this value together with `adapter.namespace`, and a PostgreSQL
+   * a rendering switch: the official cache derives its scope from this value
+   * together with `adapter.namespace` (`database(x)`, `cache/extension.ts`), and a PostgreSQL
    * schema `alpha` and a MySQL database `alpha` spell that qualifier the same
    * way — so the dialect is the only thing separating those two scopes. The
    * adapter reference and the namespace on it are already installed

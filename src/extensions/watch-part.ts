@@ -72,11 +72,8 @@ export const watchPart: WatchPart = {
     },
   }),
   join({ next, chain, owner }: Application) {
-    const extensions = Object.freeze([
-      ...(chain?.watch?.extensions ?? []),
-      owner.name,
-    ]);
-    next.watch = Object.freeze({
+    const extensions = [...(chain?.watch?.extensions ?? []), owner.name];
+    next.watch = {
       extensions,
       watch: (written, _controls, context, late) => {
         const byExtension = written.call?.watched;
@@ -87,7 +84,7 @@ export const watchPart: WatchPart = {
         }
         return watchWrite(watches, context, late);
       },
-    });
+    };
     coordinate(next, ARRAYS, collect);
   },
 };

@@ -14,11 +14,9 @@ import type {
   StampedOperation,
   StampedOperations,
 } from "@client/types";
-import { ClientInitializationError } from "@errors";
 import type { ModelSql } from "@query-engine/raptor3/shared/insert-value";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { isFunction, isRecord } from "@validation/value-guards";
-import { errorCause } from "../errors/diagnostic-safety";
 import { type AdmittedArgs, undeclaredBinding } from "./arguments";
 import type { ExtensionPart } from "./chain";
 import { extensionError } from "./chain";
@@ -382,15 +380,7 @@ export function bindExtensionMethods(
     // model's come from it.
     const answer = (): Readonly<Record<string, unknown>> => {
       if (returned !== undefined) return returned;
-      let value: unknown;
-      try {
-        value = Reflect.apply(factory, undefined, [scopeOf()]);
-      } catch (cause) {
-        throw new ClientInitializationError(
-          `Extension "${name}" methods factory failed.`,
-          { cause: errorCause(cause), meta: { extension: name } }
-        );
-      }
+      const value: unknown = Reflect.apply(factory, undefined, [scopeOf()]);
       if (!isRecord(value)) refuse("methods factory must return an object");
       for (const key of Object.keys(value))
         if (!(key.startsWith("$") || Object.hasOwn(schema, key)))
@@ -502,11 +492,11 @@ export interface ExtensionMethodsState {
 export function methodsPart(factory: RuntimeMethodsFactory): ExtensionPart {
   return {
     join({ next, name, schema }) {
-      const entries = Object.freeze([
+      const entries = [
         ...(next.methods?.entries ?? []),
-        Object.freeze({ name, factory, schema }),
-      ]);
-      next.methods = Object.freeze({
+        { name, factory, schema },
+      ];
+      next.methods = {
         entries,
         bind: (
           createScope: (prior: ExtensionMethods, extension: string) => object
@@ -518,9 +508,9 @@ export function methodsPart(factory: RuntimeMethodsFactory): ExtensionPart {
         ) => {
           for (const name of Object.keys(values))
             undeclaredBinding(extension, name);
-          return Object.freeze({ ...previous });
+          return { ...previous };
         },
-      });
+      };
     },
   };
 }

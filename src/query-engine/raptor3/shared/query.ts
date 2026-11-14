@@ -1637,6 +1637,16 @@ export function balancedOr<T>(
   return build(0, items.length);
 }
 
+/** A produced row a judgement reads: its alias, which written fields are null, and what folds them in. */
+export interface KnownRow {
+  readonly alias: string;
+  readonly nulls: ReadonlyMap<string, boolean>;
+  readonly fold: (
+    predicate: PreparedPredicate,
+    nulls: ReadonlyMap<string, boolean>
+  ) => PreparedPredicate;
+}
+
 export abstract class Queries {
   readonly schema: EngineSchema;
   readonly adapter: EngineFacts;
@@ -1657,6 +1667,11 @@ export abstract class Queries {
    * every path of a client without `rows`.
    */
   readonly domain: PreparedDomain | undefined;
+  /**
+   * The produced row a judgement is lowering over, where one is: declared
+   * here for what a layer folds over it (`overKnown`), held by `SqlQueries`.
+   */
+  declare known?: KnownRow;
   /** The call whose values the domain's parameters read. */
   readonly #call: CallScope | undefined;
   /**

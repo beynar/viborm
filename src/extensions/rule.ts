@@ -132,6 +132,7 @@ export function draftOf(
         "acyclic is judged with the rows a write produces: write a check() on the model beside it"
       );
     // Each relation it names is checked where it is admitted (`cyclesOf`).
+    // A list or a function, as checked above; its names are checked at admission.
     verbs.acyclic = acyclic as VerbsDraft["acyclic"];
   }
   return verbs;

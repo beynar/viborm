@@ -113,6 +113,7 @@ export class Kept extends Map<string, ResolvedKept> implements Tombstones {
    * then costs one row back, not a million keys.
    */
   lock(queries: Queries, selector: PreparedSelector): Query {
+    // Tombstones lock only on a SQL write: the engine hands its SqlQueries.
     const q = queries as SqlQueries;
     const a = q.adapter;
     const inner = q.rootAlias();
@@ -161,20 +162,20 @@ export class Kept extends Map<string, ResolvedKept> implements Tombstones {
             ])
           );
         // Visibility is the given domain's, never the lowering call's own.
-        return Object.freeze({
+        return {
           kind: "relation",
           edge,
           quantifier: "some",
           predicate:
             arms.length === 0 ? undefined : queries.combine("AND", arms),
           unscoped: true,
-        });
+        };
       });
-    return Object.freeze({
+    return {
       model,
       facts: newSelectorFacts(false),
       predicate: queries.combine("OR", predicates),
-    });
+    };
   }
 }
 
@@ -184,6 +185,7 @@ function junctionHolder(schema: Schema, model: AnyModel) {
     for (const [field, relation] of Object.entries(
       candidate["~"].state.relations
     )) {
+      // A model state types its relations loosely; each is a relation.
       const internal = (relation as AnyRelation)["~"];
       if (
         internal.state.junction?.model !== undefined &&
@@ -231,7 +233,7 @@ export function keptPart(model: string, entry: KeptModel): ExtensionPart {
           extension
         );
       const kept = new Kept(next.kept);
-      kept.set(model, Object.freeze({ extension, ...entry }));
+      kept.set(model, { extension, ...entry });
       next.kept = kept;
       next.bindRows = bindRows;
     },

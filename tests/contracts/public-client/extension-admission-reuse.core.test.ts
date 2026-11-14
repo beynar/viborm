@@ -1,99 +1,58 @@
 import type { Schema } from "@client/types";
 import { createClient } from "@drivers/sqlite3";
 import { ClientInitializationError } from "@errors";
-import { admitLayer, type RuleLayer } from "@extensions/admission";
 import { s } from "@schema";
 import { arg, args, bound, extension, oneOf, rule, when } from "@src/index";
+import { appendExtension } from "@tests/fixtures/extension-chain";
 import { v } from "@validation";
-import { createSchemaRegistry } from "@validation/builder";
-import type { SchemaRegistryLookup } from "@validation/types";
 import { expect, test } from "vitest";
 
-/** An extension's rule layer as applying it admits it. */
-const admitted = (
-  definition: { readonly name: string; readonly rows: RuleLayer },
-  schema: Schema,
-  registry: SchemaRegistryLookup<Schema>
-) => admitLayer(definition.rows, schema, definition.name, registry);
+/** The admitted rule layers `value` puts on a chain over `schema`. */
+const rulesOf = (value: unknown, schema: Schema) =>
+  appendExtension(undefined, value, schema).rules ?? [];
 
-/** A rule layer filtering `post` by one predicate, frozen as a value is. */
-function frozenRows(predicate: Readonly<Record<string, unknown>>): RuleLayer {
-  const post = [predicate];
-  const layer: RuleLayer = {
-    root: { post },
-    related: {},
-    verbs: {},
-    confine: {},
-  };
-  for (const part of [post, ...Object.values(layer), layer])
-    Object.freeze(part);
-  return layer;
-}
-
-test("immutable row admission reuses facts within one registry only", () => {
+test("a rule is admitted once per schema: every application over it reuses the admitted layer", () => {
   const schema = { post: s.model({ id: s.string().id() }) };
-  const registry = createSchemaRegistry(schema);
-  const definition = {
-    name: "filter",
-    rows: frozenRows(Object.freeze({ id: "one" })),
-  };
-  const first = admitted(definition, schema, registry);
-  expect(admitted(definition, schema, registry)).toBe(first);
-  expect(admitted(definition, schema, createSchemaRegistry(schema))).not.toBe(
-    first
-  );
+  const value = extension("filter", rule({ post: { root: { id: "one" } } }));
+  const [first] = rulesOf(value, schema);
+  expect(first).toBeDefined();
+  expect(rulesOf(value, schema)[0]).toBe(first);
 });
 
 test("a declaration changed after it was applied is not read again; a field's own schema reads it at each application", () => {
   const schema = { post: s.model({ id: s.string().id() }) };
-  const registry = createSchemaRegistry(schema);
   const predicate = { id: "one" };
-  const definition = {
-    name: "filter",
-    rows: { root: { post: [predicate] }, related: {}, verbs: {}, confine: {} },
-  };
-  const first = admitted(definition, schema, registry);
+  const value = extension("filter", rule({ post: { root: predicate } }));
+  const [first] = rulesOf(value, schema);
   predicate.id = "two";
-  const second = admitted(definition, schema, registry);
+  const [second] = rulesOf(value, schema);
   expect(second).toBe(first);
-  expect(second.models.post?.root).toEqual({
-    id: { equals: "one" },
-  });
+  expect(second?.models.post?.root).toEqual({ id: { equals: "one" } });
   const custom = {
     post: s.model({
       id: s.string().id(),
       value: s.string().schema(v.string()),
     }),
   };
-  const customRegistry = createSchemaRegistry(custom);
-  const immutable = {
-    name: "custom",
-    rows: frozenRows(Object.freeze({ id: "one" })),
-  };
-  const once = admitted(immutable, custom, customRegistry);
-  expect(admitted(immutable, custom, customRegistry)).not.toBe(once);
+  const own = extension("custom", rule({ post: { root: { id: "one" } } }));
+  const [once] = rulesOf(own, custom);
+  expect(rulesOf(own, custom)[0]).not.toBe(once);
 });
 
 test("an edited schema, prepared again, and invalid predicates never inherit an earlier admission", () => {
-  const schema = { post: s.model({ id: s.string().id() }) };
-  const registry = createSchemaRegistry(schema);
-  const definition = {
-    name: "filter",
-    rows: frozenRows(Object.freeze({ id: "one" })),
-  };
-  const first = admitted(definition, schema, registry);
+  const schema: Schema = { post: s.model({ id: s.string().id() }) };
+  const value = extension("filter", rule({ post: { root: { id: "one" } } }));
+  const [first] = rulesOf(value, schema);
   schema.post = s.model({ id: s.string().id() });
-  expect(admitted(definition, schema, createSchemaRegistry(schema))).not.toBe(
-    first
-  );
-  const invalid = frozenRows(Object.freeze({ misspelled: true }));
+  expect(rulesOf(value, schema)[0]).not.toBe(first);
   for (const name of ["first", "second"]) {
-    expect(() => admitted({ name, rows: invalid }, schema, registry)).toThrow(
-      ClientInitializationError
+    const invalid = extension(
+      name,
+      // A field the types refuse: applied anyway, as JavaScript would.
+      rule({ post: { root: { misspelled: true } } } as never)
     );
-    expect(() => admitted({ name, rows: invalid }, schema, registry)).toThrow(
-      name
-    );
+    expect(() => rulesOf(invalid, schema)).toThrow(ClientInitializationError);
+    expect(() => rulesOf(invalid, schema)).toThrow(name);
   }
 });
 

@@ -59,8 +59,6 @@ const OFFICIAL_EXTENSION_WORD =
  * this list when its module stops holding it, and nothing joins it.
  */
 const MODULE_STATE_LEFT = Object.freeze([
-  "src/extensions/admission.ts admitted",
-  "src/extensions/admission.ts registries",
   "src/extensions/gates.ts namedGatedFields",
   "src/extensions/plain-domain.ts NONE",
   "src/extensions/plain-domain.ts prepared",

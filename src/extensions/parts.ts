@@ -19,7 +19,7 @@ import { unit } from "./unit";
 /** The builders, typed against `Of`: a client's type, or a schema. */
 export function parts<Of>(): Parts<TargetOf<Of>>;
 export function parts(): unknown {
-  return Object.freeze({
+  return {
     extension,
     call,
     around,
@@ -31,5 +31,5 @@ export function parts(): unknown {
     args,
     methods,
     fields,
-  });
+  };
 }
