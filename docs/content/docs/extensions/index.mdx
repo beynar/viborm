@@ -9,11 +9,11 @@ and the derived client carries one ordered extension chain and its own operation
 scope.
 
 ```ts
-import { call, extension } from "viborm";
+import { around, extension } from "viborm";
 
 const timing = extension(
   "timing",
-  call.around(() => async (run) => {
+  around(() => async (run) => {
     const startedAt = performance.now();
     const value = await run();
     recordDuration(performance.now() - startedAt);
@@ -56,13 +56,25 @@ it, and nothing else:
 | Part | Boundary | Authority |
 |---|---|---|
 | `call` | A logical model or raw call, before validation | Patch the arguments with a synchronous shallow patch, or refuse the call |
-| `call.around` | The prepared call | Wrap execution; a read outside an array can answer without it |
+| `around` | The prepared call | Wrap execution; a read outside an array can answer without it |
 | `unit` | A real unit of work: operation, statement, batch, transaction, savepoint, connection | Observe its end; a declared part may rewrite a statement |
 | `args` | A call's arguments | Declare an argument; only the declaring extension's parts and the chain's rules read its value |
 | `rule` | The rows every call of the client reads and writes | Filters, write judgements, gated fields and kept rows, per model, in the ORM's own `where` and `data` |
 | `defaults` | What a call gets when it says nothing | Default order, default data and default omission, per model; the caller can override them |
 | `methods` | The derived client and its model delegates | Add typed `$`-prefixed client methods and model methods |
 | `fields` | The rows an operation returns | Fields computed from each row's `needs`, selectable and omittable by name |
+| `disclosure` | The errors a call throws | Whether they may carry SQL, parameters, provider details and the call site |
+
+Inside the parts, words imported from `viborm` carry the rest, each with its
+own code: `target(...)` and the sets `reads`, `writes`, `deletes`,
+`selecting`, `models` say which calls a `call` or an `around` concerns;
+`watch`, `settled`, `again`, `via`, `key`, `codec` and `database` serve the
+moments of a call; `arg`, `now`, `row`, `exists`, `when`, `unless`,
+`provided`, `nothing`, `only`, `check`, `gate`, `facts`, `keep` and `lazy`
+write rules; `omitted` writes a default omission; `text`, `parameters`,
+`driver`, `failure`, `statement`, `statements`, `run`, `work`, `note`,
+`notes` and the others read and emit units. See
+[Create an extension](/docs/extensions/create).
 
 These are one extension language, not one universal hook. A first moment is
 synchronous and runs before validation. A second moment is asynchronous and
@@ -74,7 +86,10 @@ so an extension declares what it wants instead of rewriting queries.
 ## Official extensions
 
 Official extensions are built from the same public parts and applied in one
-step:
+step, `client.$extends(softDelete(config))`. Soft delete, ordering,
+permissions and the write hooks import only names any author can import; the
+cache and instrumentation still read a few private helpers (execution
+context, error sanitizers, driver identity), which is being removed:
 
 <CardGroup>
   <Card
@@ -128,7 +143,7 @@ unit `operation` begins                                     [unit]
   default omission                                          [defaults]
   computed fields planned                                   [fields]
   validation and preparation
-  second moments, nested, the first applied outermost       [call.around]
+  second moments, nested, the first applied outermost       [around]
     { inner: true } parts (the official cache), closest to the core
       planning and compilation
       for each logical statement
@@ -156,7 +171,7 @@ physical execution is still a `statement` unit.
 
 ## Continuation authority
 
-For writes and raw queries, a matched `call.around` must call `run()` exactly
+For writes and raw queries, a matched `around` must call `run()` exactly
 once. Reads outside an array may deliberately return without it. Once `run()`
 starts, the child's result or error is authoritative: returning a fabricated
 value does not replace a failure, and a child that fails fails the call with
@@ -185,11 +200,11 @@ const audit = extension(
 ```
 
 Units are `operation`, `statement`, `batch`, `transaction`, `savepoint`,
-`connection`, and the kinds extensions emit (the official cache emits
-`cache`). The end has the status, duration, and commit certainty where there
+`connection`, and the kinds extensions emit with `work` (the official cache
+emits `cache`): a kind is an open string. The end has the status, duration, and commit certainty where there
 is a commit; it never carries the application result.
 
-Facts are read on demand, through words imported from `viborm`: `sql(u)`,
+Facts are read on demand, through words imported from `viborm`: `text(u)`,
 `parameters(u)`, `driver(u)`, `failure(u)` and the others in
 [Create an extension](/docs/extensions/create#unit-around-physical-work). A
 fact no word reads is never produced.

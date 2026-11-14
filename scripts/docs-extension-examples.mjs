@@ -319,11 +319,14 @@ export function placeOf(module, line) {
 export function judge(located, modules) {
   const failing = new Map();
   const errors = [];
+  const library = [];
   for (const entry of located) {
-    // A diagnostic outside any block (the shared preamble module) fails the
-    // check as it is.
+    // A diagnostic outside any block fails the check when it is in a
+    // preamble module; one in the library's own files (reached through a
+    // block's imports) is the type tests' to fail, and is only listed.
     if (entry.module === undefined) {
-      errors.push(entry);
+      if (resolve(OUT, entry.where).startsWith(PREAMBLES)) errors.push(entry);
+      else library.push(entry);
       continue;
     }
     const list = failing.get(entry.module) ?? [];
@@ -348,7 +351,7 @@ export function judge(located, modules) {
     if (found.length === 0) compiled += 1;
     else errors.push(...found);
   }
-  return { compiled, marked, errors };
+  return { compiled, marked, errors, library };
 }
 
 function main() {
@@ -444,7 +447,13 @@ function main() {
     if (entry !== undefined) located.push(entry);
   }
   for (const module of unparsable) modules.set(Symbol("unparsed"), module);
-  const { compiled, marked, errors } = judge(located, modules);
+  const { compiled, marked, errors, library } = judge(located, modules);
+  if (library.length > 0) {
+    console.log("Library diagnostics the examples reach (not counted):");
+    for (const entry of library)
+      console.log(`  ${relative(ROOT, resolve(OUT, entry.where))}:${entry.line} ${entry.code} ${entry.message}`);
+    console.log("");
+  }
   for (const error of errors)
     console.log(
       `${error.where}:${error.line}${error.column ? `:${error.column}` : ""} ${error.code ?? ""} ${error.message}`
@@ -456,7 +465,9 @@ function main() {
   for (const { page, block } of marked)
     console.log(`  expect-error  docs/content/docs/${page}:${block.line}`);
   const blocks = modules.size + skipped.length;
-  const failed = new Set(errors.map((error) => `${error.where}:${error.module?.block.line ?? error.line}`)).size;
+  const failed = new Set(
+    errors.map((error) => error.module ?? `${error.where}:${error.line}`)
+  ).size;
   console.log("");
   console.log(
     `${blocks} blocks: ${compiled} compile, ${skipped.length + marked.length} marked (${skipped.length} no-check, ${marked.length} expect-error), ${failed} failing; ${((performance.now() - started) / 1000).toFixed(1)} s`
