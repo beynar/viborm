@@ -1147,3 +1147,23 @@ describe("unit: next() is the unit's own end", () => {
     expect(await rejection(client.post.findMany({}))).toBeInstanceOf(Error);
   });
 });
+
+describe("call: raw statements", () => {
+  test("a call without a target sees raw statements, so its refusal holds there (spec 3: without target, every model and raw statement)", async () => {
+    const seen: string[] = [];
+    const client = (await seeded()).$extends(
+      extension(
+        "read-only",
+        call((c) => {
+          seen.push(`${c.kind}:${c.operation}`);
+          if (c.kind === "raw") throw new ForbiddenError("raw", c.operation);
+        })
+      )
+    );
+    const raw = client.$executeRawUnsafe as (sql: string) => Promise<unknown>;
+    expect(await rejection(raw("DELETE FROM post"))).toBeInstanceOf(
+      ForbiddenError
+    );
+    expect(seen).toEqual(["raw:$executeRawUnsafe"]);
+  });
+});
