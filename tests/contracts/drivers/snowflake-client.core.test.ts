@@ -764,6 +764,39 @@ describe("Snowflake root pages and filters", () => {
     expect(sent!.statement).toContain("WITHIN GROUP");
   });
 
+  it("orders a nested page by a read-gated field through its gate, as the root does", async () => {
+    const gated = client()
+      .$extends(
+        permissions({
+          actor: v.object({ userId: v.number() }),
+          levels: ["read", "full"],
+          models: {
+            author: { read: true },
+            tag: { read: true },
+            post: {
+              operations: { read: "read" },
+              read: true,
+              full: { actor: { userId: 0 } },
+              fields: { views: { read: "full" } },
+            },
+          },
+        })
+      )
+      .$as({ userId: 1 });
+    await gated.author.findMany({
+      select: {
+        id: true,
+        posts: { orderBy: { views: "desc" }, take: 1, select: { id: true } },
+      },
+    });
+    const [sent] = server.statements();
+    // Never the protected column itself: its gate reads NULL here.
+    expect(sent!.statement).not.toContain('ORDER BY "q1"."views"');
+    expect(sent!.statement).toContain(
+      'ORDER BY CASE WHEN FALSE THEN "q1"."views" ELSE NULL END DESC NULLS FIRST'
+    );
+  });
+
   it("reads a JSON number at a path with AS_DOUBLE, which no other member fails", async () => {
     await docs().doc.findMany({ where: { data: { path: ["k"], gt: 1 } } });
     expect(server.statements()[0]!.statement).toContain(

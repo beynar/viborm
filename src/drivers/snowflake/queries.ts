@@ -339,11 +339,18 @@ export class SnowflakeQueries extends SqlQueries {
             nulls = direction.nulls;
         } else continue;
         ordered.add(field);
+        // An operand the caller wrote, as the backend's own order spells it:
+        // a read-gated field reads NULL on a row that does not carry it.
+        const column = this.column(model, field, alias);
         keys.push({
-          expression: this.column(model, field, alias),
+          expression: this.domain
+            ? this.domain.guarded(this, model, field, column, alias)
+            : column,
           descending,
           nulls: nulls ?? (descending ? "first" : "last"),
-          nullable: physicalField(this.schema, model, field).nullable,
+          nullable:
+            physicalField(this.schema, model, field).nullable ||
+            this.domain?.projected(model)?.gates.has(field) === true,
         });
       }
     }
