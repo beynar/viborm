@@ -134,6 +134,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "computed",
       "createModelFieldRefs",
       "defineExtension",
+      "defineFilters",
       "defineHooks",
       "empty",
       "enableExtensions",

@@ -18,14 +18,13 @@ import {
   CacheConfigurationError,
   CacheOperationNotCacheableError,
 } from "@errors";
+import type { AdmittedRows } from "@extensions/admission";
 import type { ResolvedExtensionChain } from "@extensions/chain";
-import type { RowsContribution } from "@extensions/controls";
 import {
   type AdmittedControls,
   isStableControlValue,
 } from "@extensions/controls";
 import type { WriteOutcomeRegistration } from "@extensions/query";
-import { rowsRuntime } from "@extensions/rows-slot";
 import type { LazyRelations } from "@query-engine/raptor3/shared/row-scope";
 import type { Input } from "@query-engine/raptor3/shared/schema";
 import { parse } from "@validation";
@@ -264,43 +263,30 @@ function resolveSwr(
   return ttlMs + swr;
 }
 
-/** What admission leaves in place of a lazy entry's predicate: its resolver. */
-type Lazy<T> = () => T;
-
 /**
- * `rows` with every lazy entry resolved, for what reads the definition as a
- * whole (a cache key): the same object when it names none. Resolving one
- * compiles it, so this is never on a call's own path.
+ * A `rows` member as a cache key holds it: everything it declares, every
+ * lazy entry resolved (a cache shared across isolates must tell two policies
+ * apart by content). Resolving one compiles it, so this is never on a call's
+ * own path.
  */
-const settled = new WeakMap<RowsContribution, RowsContribution>();
-function settledRows(rows: RowsContribution): RowsContribution {
-  const lazyCycles = Object.values(rows.verbs ?? {}).some(
-    (entry) =>
-      typeof entry !== "function" &&
-      typeof entry.acyclic === "object" &&
-      !Array.isArray(entry.acyclic)
-  );
-  if (!(rowsRuntime().isLazy(rows) || lazyCycles)) return rows;
-  const known = settled.get(rows);
-  if (known) return known;
-  const verbs = Object.fromEntries(
-    Object.entries(rows.verbs!).map(([model, entry]) => {
-      const resolved = typeof entry === "function" ? entry() : entry;
-      const acyclic = resolved.acyclic as
-        | readonly string[]
-        | LazyRelations
-        | undefined;
-      return [
-        model,
-        acyclic === undefined || Array.isArray(acyclic)
-          ? resolved
-          : Object.freeze({
-              ...resolved,
-              acyclic: (acyclic as LazyRelations).resolve(),
-            }),
-      ];
-    })
-  );
+function settledRows(rows: AdmittedRows): object {
+  const verbs =
+    rows.verbs &&
+    Object.fromEntries(
+      Object.entries(rows.verbs).map(([model, entry]) => {
+        const resolved = typeof entry === "function" ? entry() : entry;
+        const acyclic = resolved.acyclic as
+          | readonly string[]
+          | LazyRelations
+          | undefined;
+        return [
+          model,
+          acyclic === undefined || Array.isArray(acyclic)
+            ? resolved
+            : { ...resolved, acyclic: (acyclic as LazyRelations).resolve() },
+        ];
+      })
+    );
   const models = Object.fromEntries(
     Object.entries(rows.models).map(([model, modes]) => [
       model,
@@ -310,43 +296,35 @@ function settledRows(rows: RowsContribution): RowsContribution {
           Object.fromEntries(
             Object.entries(purposes).map(([purpose, where]) => [
               purpose,
-              typeof where === "function" ? (where as Lazy<Input>)() : where,
+              // What admission leaves in place of a lazy entry's predicate:
+              // its resolver.
+              typeof where === "function" ? (where as () => Input)() : where,
             ])
           ),
         ])
       ),
     ])
   );
-  const result = Object.freeze({ ...rows, models, verbs });
-  settled.set(rows, result);
-  return result;
+  return {
+    control: rows.control,
+    default: rows.default,
+    models,
+    verbs,
+    confine: rows.confine,
+  };
 }
 
 /**
- * A `rows` member as a cache key holds it: everything it says, every lazy
- * entry resolved (a cache shared across isolates must tell two policies apart
- * by content). For rows admission owns and nobody can change, a SHA-256
- * digest computed once; other rows are keyed by their content, read afresh.
+ * A `rows` member's digest, computed once: admission reads a declaration
+ * once per schema, and what it admitted is what calls read.
  */
-const identities = new WeakMap<RowsContribution, string>();
-function rowsIdentity(chained: RowsContribution): unknown {
-  const { admittedRowsOf, isAdmittedRows, isImmutableRowData } = rowsRuntime();
-  const rows = admittedRowsOf(chained);
+const identities = new WeakMap<AdmittedRows, string>();
+function rowsIdentity(rows: AdmittedRows): string {
   const known = identities.get(rows);
   if (known !== undefined) return known;
-  const settled = settledRows(rows);
-  // Memoised only where nothing it says can change: rows admission owns, and
-  // every entry they resolved to deeply frozen.
-  if (
-    !(
-      isAdmittedRows(rows) &&
-      Object.values(settled.verbs ?? {}).every((entry) =>
-        isImmutableRowData(entry)
-      )
-    )
-  )
-    return settled;
-  const digest = sha256(new TextEncoder().encode(stableStringify(settled)));
+  const digest = sha256(
+    new TextEncoder().encode(stableStringify(settledRows(rows)))
+  );
   const identity = Array.from(digest, (byte) =>
     byte.toString(16).padStart(2, "0")
   ).join("");

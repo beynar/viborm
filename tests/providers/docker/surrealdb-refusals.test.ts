@@ -4,7 +4,7 @@
  */
 
 import { createClient } from "@client/client";
-import { withRows } from "@extensions/rows-runtime";
+import { withRows, withVerbs } from "@extensions/rows-runtime";
 import { s } from "@schema";
 import { softDelete } from "@src/soft-delete";
 import {
@@ -17,6 +17,7 @@ import { caught, compare, rows } from "./surrealdb-parity-fixture";
 
 // These definitions are stated as plain objects: what reads their rows is brought here.
 withRows();
+withVerbs();
 
 const counted = () => {
   const item = s.model({ id: s.int().id(), label: s.string() });

@@ -1275,7 +1275,7 @@ export function verbs(store: Store) {
         !found &&
         key &&
         keyed(question, create) &&
-        operation.queries.domain?.located(model);
+        operation.queries.domain?.judge?.located(model);
       if (refuses)
         store.saying((failure) =>
           failure instanceof UniqueConstraintError &&

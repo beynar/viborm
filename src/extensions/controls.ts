@@ -79,8 +79,9 @@ type ScalarFields = { readonly [field: string]: unknown };
  * only narrows them (R8). A model's entry may be a function returning it:
  * it is called when a call of the chain first needs that model, and its
  * entry admitted then, so a refusal of it fails that call instead of
- * `$extends`. A function returning deeply frozen plain data is called once
- * per schema; one returning anything else, once per client.
+ * `$extends`. It is called once for the declaration it belongs to, which is
+ * admitted once per schema: a declaration changed after it was applied is
+ * not read again.
  */
 export type RowsContribution = {
   readonly control: string;

@@ -17,7 +17,7 @@ import type { BatchQuery, QueryResult } from "@drivers/types";
 import { ForeignKeyError, NotFoundError } from "@errors";
 import { appendResolvedExtension } from "@extensions/chain";
 import { callRows } from "@extensions/rows";
-import { withRows } from "@extensions/rows-runtime";
+import { withRows, withVerbs } from "@extensions/rows-runtime";
 import { s } from "@schema";
 import { openDeletionFixture } from "@tests/contracts/engine/write/deletion-capability-behavior";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
@@ -28,6 +28,7 @@ import { afterEach, describe, expect, test } from "vitest";
 
 // These definitions are stated as plain objects: what reads their rows is brought here.
 withRows();
+withVerbs();
 
 const UNKNOWN_MODEL_PATTERN = /unknown model/;
 
@@ -285,7 +286,7 @@ describe("a chain's rows and deletion resolve to one call's facts", () => {
       schema
     );
     const facts = callRows(chain.callRows!, "item", { scope: "all" });
-    expect(facts.domain.root.size).toBe(0);
+    expect(facts.domain.root.get("item")).toBeUndefined();
     expect(facts.tombstones).toBeUndefined();
     // A chain that declares neither binds nothing.
     expect(

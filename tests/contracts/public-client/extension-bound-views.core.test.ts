@@ -8,7 +8,7 @@
  */
 
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
-import { withRows } from "@extensions/rows-runtime";
+import { withRows, withVerbs } from "@extensions/rows-runtime";
 import { createClient, s } from "@src/index";
 import { v } from "@src/validation";
 import { runBoundViewsBehavior } from "@tests/contracts/public-client/extension-bound-views-behavior";
@@ -19,6 +19,7 @@ import { describe, expect, test } from "vitest";
 
 // These definitions are stated as plain objects: what reads their rows is brought here.
 withRows();
+withVerbs();
 
 runBoundViewsBehavior({
   name: "SQLite3",

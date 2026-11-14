@@ -13,6 +13,7 @@ import {
   type UniqueConstraintError,
   UnsupportedOperationError,
 } from "@errors";
+import { writeRefusal } from "@extensions/row-domain";
 import { dividesByZero } from "@query-engine/raptor3/shared/decimal";
 import { JoinedValue } from "@query-engine/raptor3/shared/insert-value";
 import {
@@ -555,14 +556,14 @@ export class SurrealWriter extends Writer {
     judgement: RowJudgement | undefined,
     candidatesJudged = true
   ): Ahead {
-    const domain = this.#q.domain;
-    if (judgement === undefined || domain === undefined) return NOTHING_AHEAD;
-    const judge = domain.produced(
+    const judges = this.#q.domain?.judge;
+    if (judgement === undefined || judges === undefined) return NOTHING_AHEAD;
+    const judge = judges.produced(
       model,
       judgement,
       candidatesJudged ? assigned : undefined
     );
-    const cycles = domain.cycles(model, judgement);
+    const cycles = judges.cycles(model, judgement);
     if (!judge?.predicate && cycles.length === 0) return NOTHING_AHEAD;
     const { lets, checks } = this.#judges("$next", judge);
     return {
@@ -625,11 +626,16 @@ export class SurrealWriter extends Writer {
   ): PreparedGuardFailure | undefined {
     if (!(judgement && this.#q.domain)) return undefined;
     const edge = question.member?.edge ?? question.through;
-    return this.#q.domain.refusal(
-      this.operation.operation,
-      question.model,
-      judgement,
-      edge && question.verb ? [question.verb, edge.name] : undefined
+    const nested =
+      edge && question.verb ? ([question.verb, edge.name] as const) : undefined;
+    // Where nothing judges the rows a write leaves, its refusal says no why.
+    return (
+      this.#q.domain.judge?.refusal(
+        this.operation.operation,
+        question.model,
+        judgement,
+        nested
+      ) ?? writeRefusal(this.operation.operation, nested)
     );
   }
 
@@ -644,7 +650,7 @@ export class SurrealWriter extends Writer {
     const low = this.#low;
     const rows = await this.computed(model, values);
     const table = fieldName(model["~"].names.sql!);
-    const judge = this.#q.domain?.produced(model);
+    const judge = this.#q.domain?.judge?.produced(model);
     const judged = judge?.predicate !== undefined;
     const verb = sql.raw(skips ? "INSERT IGNORE" : "INSERT");
     const statement = low.hoisted(() => {
@@ -679,7 +685,7 @@ export class SurrealWriter extends Writer {
       model,
       sql: statement,
       ...(judged && {
-        stops: this.#q.domain!.refusal(
+        stops: this.#q.domain!.judge!.refusal(
           this.operation.operation,
           model,
           undefined,
