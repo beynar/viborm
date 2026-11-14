@@ -32,6 +32,7 @@ const hosts = partSet([
   verbsPart,
   resultPart,
   methodsPart,
+  queryPart,
 ]);
 
 /** A definition's members as the host parts read them. */
@@ -61,7 +62,7 @@ export function hostExtension(definition: HostDefinition): unknown {
   const { name, ...members } = definition;
   return extension(
     name,
-    builtPart([...hosts.parts, queryPart], (draft) => {
+    builtPart(hosts.parts, (draft) => {
       Object.assign(draft, members);
     })
   );
