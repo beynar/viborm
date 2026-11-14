@@ -12,7 +12,7 @@
  *   reversed  `base.$extends(policy).$extends(tombstones)`
  *
  * and reads through the result: a relation the rows can hide reads `| null`,
- * `restore` narrows to its `select`, `$as`, `can` and `$access` keep each
+ * `restore` narrows to its `select`, `$as` and `$access` keep each
  * model's actions, and each `@ts-expect-error` must bite (a client that
  * collapsed to `any` leaves them unused, an error).
  *
@@ -158,8 +158,8 @@ export const db = ${order === "soft-first" ? "base.$extends(tombstones).$extends
 export async function reads() {
   const call = db.$as({ userId: "u" });
   const same: typeof db = call;
-  const [held] = await call.m0.findMany({ select: { $access: ["delete"] } });
-  const may: boolean | undefined = held?.$access.delete;
+  const [access] = await call.m0.findMany({ select: { $access: ["delete"] } });
+  const may: boolean | undefined = access?.$access.delete;
   // @ts-expect-error - "publish" is not an action of m0
   call.m0.findMany({ select: { $access: ["delete", "publish"] } });
   // @ts-expect-error - the actor schema is checked

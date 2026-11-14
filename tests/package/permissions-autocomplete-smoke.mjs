@@ -33,7 +33,7 @@ base.$extends(permissions({ actor, models: { post: { "read, update": { /*groupFi
 const dynamic = base.$extends(permissions({ actor, models: { post: { actions: { read: [], update: ["read"] }, "read, update": (action, model) => ({ OR: [{ id: action }, (requested, current) => ({ ownerId: current.name })] }) } } }));
 dynamic.post.findMany({ select: { $access: ["update"] } });
 /*dynamicEnd*/
-db.post.findMany({ select: { $access: ["/*actions*/"] } });
+db.post.findMany({ as: "/*actions*/" });
 db.$as({ /*binding*/ });
 db.$as({ userId: "u", organizationId: "o" }, ["/*scopes*/"]);
 `;
