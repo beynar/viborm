@@ -4,8 +4,8 @@ import { REPOSITORY_ROOT, SOURCE_ROOT } from "@tests/fixtures/repo-paths";
 import ts from "typescript";
 import { describe, expect, test } from "vitest";
 
-/** The one function that appends an extension to a chain: `partSet(…).append`. */
-const CANONICAL_CHAIN_OWNER = "src/extensions/chain.ts appendWith";
+/** The one function that appends an extension to a chain. */
+const CANONICAL_CHAIN_OWNER = "src/extensions/chain.ts appendParts";
 const SUPERSEDED_EXTENSION_OWNERS = Object.freeze([
   // The host before one mechanism: a definition read by host tables.
   "src/extensions/define.ts",
@@ -63,7 +63,6 @@ const MODULE_STATE_LEFT = Object.freeze([
   "src/extensions/gates.ts namedGatedFields",
   "src/extensions/plain-domain.ts NONE",
   "src/extensions/plain-domain.ts prepared",
-  "src/extensions/query.ts queryCoordinationFailures",
   "src/extensions/row-domain.ts preparedDomains",
   "src/extensions/unit-source.ts operations",
   "src/extensions/unit-source.ts sources",

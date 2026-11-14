@@ -5,7 +5,7 @@
  * client asks the chain and imports nothing that runs extensions.
  */
 
-import type { OfficialDefaultOmitCapability } from "@client/default-omit-chain";
+import type { ChainOmit } from "@client/default-omit-chain";
 import type { DiagnosticDisclosure } from "@errors";
 import type {
   CallRows,
@@ -172,7 +172,7 @@ export interface ResolvedExtensionChain {
   /** Every extension's client and model methods, and what binds a view's. */
   readonly methods?: ExtensionMethodsState;
   /** The fields every extension's `defaults` leaves out of results, per model. */
-  readonly omit?: OfficialDefaultOmitCapability;
+  readonly omit?: ChainOmit;
   /** What an error of a call may carry, as the last `disclosure` part says. */
   readonly disclosure?: DiagnosticDisclosure;
 }

@@ -7,6 +7,6 @@
 import type { ClientOmitConfig } from "./omit";
 import type { Schema } from "./types";
 
-export interface OfficialDefaultOmitCapability {
+export interface ChainOmit {
   readonly config: ClientOmitConfig<Schema>;
 }

@@ -71,13 +71,11 @@ export function appendParts(
       `Extension "${name}" is already present on this client.${definition.duplicate ?? ""}`,
       name
     );
-  const next: Draft = {
-    ...chain,
-    extensions: Object.freeze([
-      ...(chain?.extensions ?? []),
-      Object.freeze({ name }),
-    ]),
-  };
+  const next: Draft = { ...chain, extensions: chain?.extensions ?? [] };
+  next.extensions = Object.freeze([
+    ...next.extensions,
+    Object.freeze({ name }),
+  ]);
   const application: Application = {
     definition,
     chain,

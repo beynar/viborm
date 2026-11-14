@@ -265,13 +265,12 @@ const rawTold = (call: object, first: FirstMoment): Registering => ({
 
 /**
  * The second moment of one `around` part, as a query handler: the second
- * its first returned for this call, run around the child. Once the child
- * failed, the call fails with the child's error.
+ * its first returned for this call, run around the child. The runner makes
+ * the child's failure the call's.
  */
-function secondMoment(first: FirstMoment) {
-  const handler = async (
-    context: QueryInterceptorContext<unknown>
-  ): Promise<unknown> => {
+const secondMoment =
+  (first: FirstMoment) =>
+  async (context: QueryInterceptorContext<unknown>): Promise<unknown> => {
     // The object both moments of the call were handed: a model call's
     // own, and for a raw statement its input, which `raw.ts` hands both.
     const call = context.kind === "model" ? context.call : context.input;
@@ -282,23 +281,11 @@ function secondMoment(first: FirstMoment) {
       context.onWriteOutcome(listener);
     const second = kept?.second;
     if (second === undefined) return context.proceed();
-    let failed: { readonly error: unknown } | undefined;
-    const settle = (promise: Promise<unknown>) =>
-      promise.then(
-        (value) => {
-          failed = undefined;
-          return value;
-        },
-        (error: unknown) => {
-          failed = { error };
-          throw error;
-        }
-      );
     // Once the second moment returned, `run()` is a direct read's refresh:
     // the core alone, never awaited by the call.
     let returned = false;
     const run = Object.defineProperties(
-      () => (returned ? context.replay() : settle(context.proceed())),
+      () => (returned ? context.replay() : context.proceed()),
       {
         input: { get: () => context.input },
         mode: { value: context.mode },
@@ -306,24 +293,13 @@ function secondMoment(first: FirstMoment) {
           value: context.kind === "model" ? context.call : undefined,
         },
         [AGAIN]: { value: context.again },
-        [VIA]: {
-          value: (driver: AnyDriver) => settle(context.proceedOn(driver)),
-        },
+        [VIA]: { value: context.proceedOn },
       }
     );
-    let value: unknown;
-    try {
-      value = await second(run);
-    } catch (error) {
-      // Once the child failed, its error is the call's.
-      throw failed === undefined ? error : failed.error;
-    }
+    const value = await second(run);
     returned = true;
-    if (failed !== undefined) throw failed.error;
     return value;
   };
-  return handler;
-}
 
 /**
  * One part's handler, placed on the calls of its target; on every call
