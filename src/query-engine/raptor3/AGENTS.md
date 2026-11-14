@@ -342,7 +342,13 @@ terms and cursors, `distinct`, aggregates) reads `CASE WHEN <gate> THEN
 <column> END`; inside a layer the column is read as it is. A grouped read,
 and a paged aggregate, of a gated model reads a masked window of its
 filtered rows (`#overMasked`), so the gate is lowered once per row rather
-than once per grouped expression. A model whose verbs declare neither keeps
+than once per grouped expression. A grouped read with a time step in
+`by` (`{ column: step }`, `validation/model/args/time-step.ts`) reads the same
+window, gated or not: each period is the adapter's `period` computed once
+there as a private column (`periodColumnKey`), which the grouping, the
+projection and the order all read. Written twice, its zone bound twice,
+PostgreSQL no longer sees one grouped expression. An adapter without
+`period` is refused before any statement (`timeStepUnsupported`). A model whose verbs declare neither keeps
 its default projection and its bytes.
 
 *Tombstones (extension `deletion`, plan v3.1 §2.3).* A call whose facts carry
@@ -1611,8 +1617,11 @@ is about a FILTER, not about a `where`. A JSON `path` is parsed into segments
 at admission, in both spellings, with the six grammar refusals and the one
 portable-path rule asked on every dialect; the preparer consumes segments only
 and the SQLite adapter's throw stays the defensive backstop it says it is.
-`groupBy`'s `by` is admitted as an array, a duplicate member and a grouped
-column named like a selected aggregate are refused there, and a default-only
+`groupBy`'s `by` is admitted as an array of columns and `{ column: step }`
+members, read once by `groupedColumn`; a duplicate column in any spelling, a
+grouped column named like a selected aggregate, a step on a column that is not
+a single date, a `having` comparison of a stepped column and a `timeZone`
+that is not an IANA name are refused there, and a default-only
 row under `skipDuplicates` is refused wherever the `createMany` verb is
 admitted — root, nested in a create, nested in an update, and a polymorphic
 collection group. At admission the

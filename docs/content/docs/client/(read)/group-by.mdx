@@ -52,11 +52,68 @@ const stats = await client.post.groupBy({
 });
 ```
 
+## By a time step
+
+A `date` or `dateTime` column can be grouped by period: write the member as
+`{ column: step }`, one column per member, beside plain columns if you like.
+The steps are `day`, `week`, `month`, `quarter` and `year`.
+
+```ts
+const monthly = await client.facture.groupBy({
+  by: ["statut", { date: "month" }],
+  where: { date: { gte: "2026-01-01T00:00:00-05:00" } },
+  _sum: { montant: true },
+  _count: true,
+  orderBy: { date: "asc" },
+  timeZone: "America/Montreal",
+});
+
+// [
+//   { statut: "payee", date: "2026-01-01", _sum: { montant: 12400 }, _count: 9 },
+//   { statut: "payee", date: "2026-02-01", _sum: { montant: 8100 }, _count: 6 },
+//   …
+// ]
+```
+
+The grouping happens in the database, in the one statement.
+
+- **What comes back.** Under the column's name, the first day of the period
+  as a `YYYY-MM-DD` string (typed `string`, not `Date`). A week starts on
+  Monday. A nullable column keeps its `null` group.
+- **`timeZone`.** An IANA name (`"America/Montreal"`, `"Asia/Kolkata"`,
+  `"UTC"`), checked before anything is sent: an offset (`"+05:00"`,
+  `"UTC+5"`) or an abbreviation (`"EST"`) is refused. Without it, periods are
+  taken in UTC. The database session's own zone never counts. A column that
+  stores an instant (`s.dateTime()`, PostgreSQL `timestamptz`) is placed by
+  its day in that zone, daylight-saving changes included. A `s.date()` column,
+  or a date and time with no zone (`s.dateTime().withoutTimezone()`,
+  `timestamp`), is placed as written: `timeZone` is accepted and changes
+  nothing for it.
+- **`orderBy`.** A column grouped by a step counts as grouped: ordering by it
+  orders by period.
+- **`having`.** Aggregates over the column work as usual
+  (`having: { date: { _count: { gt: 1 } } }`); comparing the column itself is
+  refused for now. Filter the rows with `where` instead.
+
+:::warning
+`timeZone` does not change `where`. The bounds in `where` are instants: write
+them with their offset (`"2026-01-01T00:00:00-05:00"`), or the first and last
+periods will miss rows or take some from their neighbours.
+:::
+
+:::info
+Grouping by a time step is supported on PostgreSQL, on every driver (`pg`,
+`postgres.js`, Neon HTTP, PGlite, Bun SQL). The other databases refuse such a
+call with a `FeatureNotSupportedError` before any statement is sent. Periods
+with no rows are not filled in.
+:::
+
 ## Options
 
 ```ts
 await client.post.groupBy({
-  by: ["field1", "field2"],  // Group by fields
+  by: ["field1", { date: "month" }], // Group by fields, or by period
+  timeZone: "America/Montreal", // Where periods begin (default UTC)
   where: { ... },            // Filter before grouping
   having: { ... },           // Filter after grouping
   orderBy: { ... },          // Sort groups

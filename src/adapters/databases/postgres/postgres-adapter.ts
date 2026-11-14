@@ -9,6 +9,7 @@ import {
 } from "@schema/scalars/native-types";
 import { idStorageOf } from "@schema/scalars/string/id-domain";
 import { Sql, sql } from "@sql";
+import type { TimeStep } from "@validation/model/args/time-step";
 import { encodePostgresTemporal } from "@validation/primitives/datetime-physical-codec";
 import {
   type DecimalDescriptor,
@@ -32,6 +33,7 @@ import {
   type DatabaseAdapter,
   type GeoPointSql,
   installGeoPointSql,
+  type PeriodSource,
   type TextMatch,
   type VectorOrderKey,
 } from "../../database-adapter";
@@ -185,6 +187,21 @@ const POSTGRES_INTEGERS: ExactIntegerArithmetic = {
   remainder: (n: Sql, d: Sql): Sql => sql`mod(${n}, ${d})`,
 };
 
+/** `date_trunc`'s field for each step: a closed table, never caller text. */
+const PERIOD_FIELD: Readonly<Record<TimeStep, Sql>> = Object.freeze({
+  day: sql.raw`'day'`,
+  week: sql.raw`'week'`,
+  month: sql.raw`'month'`,
+  quarter: sql.raw`'quarter'`,
+  year: sql.raw`'year'`,
+});
+
+/** Whether the column stores an instant: `timestamptz`, declared or native. */
+const storesInstant = ({ withTimezone, nativeType }: PeriodSource): boolean => {
+  const native = nativeTypeFor(nativeType, "pg");
+  return native ? native.type.startsWith("timestamptz") : withTimezone;
+};
+
 /** The two characters PostgreSQL reads structurally inside a quoted member. */
 
 /**
@@ -225,6 +242,27 @@ export class PostgresAdapter implements DatabaseAdapter {
   }
 
   raw = createRawSql();
+
+  /**
+   * `date_trunc` reads a `timestamptz` in the SESSION zone and turns a `date`
+   * into one, so the wall time it truncates is always stated: the instant in
+   * `zone`, a `timestamp` as stored, a `date` as a `timestamp`. `to_char` then
+   * spells the day whatever the session's `DateStyle`. A `week` starts on
+   * Monday.
+   */
+  period = (
+    column: Sql,
+    step: TimeStep,
+    source: PeriodSource,
+    zone: string
+  ): Sql => {
+    const wall = source.date
+      ? sql`CAST(${column} AS TIMESTAMP)`
+      : storesInstant(source)
+        ? sql`(${column} AT TIME ZONE ${zone})`
+        : column;
+    return sql`to_char(date_trunc(${PERIOD_FIELD[step]}, ${wall}), 'YYYY-MM-DD')`;
+  };
 
   identifiers: DatabaseAdapter["identifiers"];
 

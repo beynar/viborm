@@ -12,6 +12,14 @@ it fits one batch.
 
 ### Added
 
+- **`groupBy` by a time step.** A `date` or `dateTime` column groups by
+  `day`, `week`, `month`, `quarter` or `year`: `by: ["statut", { date:
+  "month" }]`, in the one statement. The column comes back as the period's
+  first day, a `YYYY-MM-DD` string (Monday for a week), and orders as a
+  grouped column. `timeZone` (an IANA name, checked before sending, UTC when
+  absent) decides where an instant's periods begin; the session's zone never
+  does. PostgreSQL on every driver; the other databases refuse it before any
+  statement. `timeZone` does not change `where`. See the `groupBy` page.
 - **`written`, a new extension capability.** A definition is asked once per
   write call and can return a watch: which rows it wants (`wants`), the whole
   rows the call wrote, nested writes included (`rows`), then the commit

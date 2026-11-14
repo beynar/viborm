@@ -1,5 +1,6 @@
 import type { NativeTypeDeclaration } from "@schema/scalars/native-types";
 import type { Sql } from "@sql";
+import type { TimeStep } from "@validation/model/args/time-step";
 import type { DecimalDescriptor } from "@validation/primitives/decimal-codec";
 import type {
   GeoBounds,
@@ -17,6 +18,17 @@ export type {
   CastType,
 } from "./adapter-core-types";
 export type { AdapterResultParser } from "./adapter-result-parser";
+
+/**
+ * The column a time-step period is taken of: a calendar date or a date and
+ * time, whether it declares a zone, and its native type, which may state the
+ * zone instead.
+ */
+export interface PeriodSource {
+  readonly date: boolean;
+  readonly withTimezone: boolean;
+  readonly nativeType: NativeTypeDeclaration | undefined;
+}
 
 /** The one physical SQL vocabulary for a logical EPSG:4326 GeoPoint. */
 export interface GeoPointSql {
@@ -1057,6 +1069,21 @@ export interface DatabaseAdapter {
    * GeoPoint tier; optional members distinguish the full polygon/distance tier.
    */
   readonly geoPoint?: GeoPointSql;
+
+  /**
+   * The first day of the `step` period holding `column`, as `YYYY-MM-DD`
+   * text: what a grouped read groups, orders and publishes for a `by` member
+   * grouped by a time step. A column that stores an instant is read as wall
+   * time in `zone` (an admitted IANA name); a date, or a date and time with no
+   * zone, as written. Absence means this adapter groups by no time step, and
+   * the engine refuses such a call before any statement is sent.
+   */
+  readonly period?: (
+    column: Sql,
+    step: TimeStep,
+    source: PeriodSource,
+    zone: string
+  ) => Sql;
 
   result: AdapterResultParser;
 }

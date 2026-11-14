@@ -1347,6 +1347,19 @@ export type AggregateResultType<T extends ModelShape, Args> = Prettify<
 // =============================================================================
 
 /**
+ * The fields a `by` member grouped by a time step publishes: the period's
+ * first day as `YYYY-MM-DD`, the string an `s.date()` value is written as,
+ * `null` too where the column is nullable (the rows with no date).
+ */
+type GroupedPeriods<T extends ModelShape, K> = {
+  [F in (K extends object ? keyof K : never) &
+    ScalarKeys<T> &
+    keyof T]: ExtractScalarState<T[F]>["nullable"] extends true
+    ? string | null
+    : string;
+};
+
+/**
  * Result type for groupBy operations
  * Includes the grouped-by fields plus any requested aggregates
  */
@@ -1356,10 +1369,14 @@ export type GroupByResultType<T extends ModelShape, Args> = Args extends {
   ? Prettify<
       // Grouped-by fields
       (B extends readonly (infer K)[]
-        ? { [F in Extract<K, ScalarKeys<T> & keyof T>]: InferScalarBase<T[F]> }
+        ? {
+            [F in Extract<K, ScalarKeys<T> & keyof T>]: InferScalarBase<T[F]>;
+          } & GroupedPeriods<T, K>
         : B extends ScalarKeys<T> & keyof T
           ? { [F in B]: InferScalarBase<T[F]> }
-          : never) &
+          : B extends object
+            ? GroupedPeriods<T, B>
+            : never) &
         // Aggregate fields
         AggregateResultType<T, Args>
     >

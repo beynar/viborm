@@ -2212,12 +2212,20 @@ type DirectWriteKeysGuard<
         ClauseGuard<Arg, { update: Record<Keys, unknown> }, "update">
     : unknown;
 
+/** The field a `by` member groups: a column, or the key of `{ column: step }`. */
+type GroupedField<Member> = Member extends PropertyKey
+  ? Member
+  : Member extends object
+    ? keyof Member
+    : never;
+
 /**
- * groupBy `orderBy` names an aggregate or a field the literal `by` grouped.
- * Aggregates are admitted before `by` is read, so a `by` list that is a type
- * parameter still orders by aggregates, while a field beside it is refused:
- * no grouped key can be proven. An empty `by` stays a runtime refusal (V4001)
- * because refusing `[]` here would refuse every generic `by` list too.
+ * groupBy `orderBy` names an aggregate or a field the literal `by` grouped,
+ * by a time step or not. Aggregates are admitted before `by` is read, so a
+ * `by` list that is a type parameter still orders by aggregates, while a field
+ * beside it is refused: no grouped key can be proven. An empty `by` stays a
+ * runtime refusal (V4001) because refusing `[]` here would refuse every
+ * generic `by` list too.
  */
 type GroupByOrderGuard<
   O extends Operations,
@@ -2230,7 +2238,7 @@ type GroupByOrderGuard<
         orderBy?: NoExtraClauseKeys<
           NonNullable<Arg["orderBy"]>,
           Record<
-            Extract<ElementOf<NonNullable<ValueAt<Arg, "by">>>, PropertyKey>,
+            GroupedField<ElementOf<NonNullable<ValueAt<Arg, "by">>>>,
             unknown
           >,
           Exclude<

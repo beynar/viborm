@@ -21,6 +21,7 @@ import { FeatureNotSupportedError, QueryEngineError } from "@errors";
 import {
   CURSOR_CARRIER_PREFIX,
   POLYMORPHIC_COLLECTION_ORPHANS_KEY,
+  periodColumnKey,
 } from "@query-engine/result-aliases";
 import { jsonNullKindOf } from "@schema/json-null";
 import {
@@ -34,6 +35,11 @@ import type { Scalar } from "@schema/scalars/base";
 import type { ScalarState } from "@schema/scalars/common";
 import type { NativeTypeDeclaration } from "@schema/scalars/native-types";
 import { Sql, sql } from "@sql";
+import {
+  type GroupedColumn,
+  groupedColumn,
+  timeStepUnsupported,
+} from "@validation/model/args/time-step";
 import { geoBoundsForDistance } from "@validation/primitives/geo-area-codec";
 import type { GeoArea, GeoPoint } from "@validation/primitives/geo-values";
 import {
@@ -5200,37 +5206,65 @@ export class SqlQueries extends Queries {
   grouped(model: AnyModel, args: Arguments): Query {
     const alias = this.rootAlias();
     // The ONE `by` authority. Admission normalises `by` to an array and
-    // refuses its duplicates; the grouped read computes the grouped column SET
-    // once and hands it to the two owners that have to know it — `having` and
-    // the grouped `orderBy` — instead of each re-reading `args`.
-    const by = args.by!;
-    const grouped: ReadonlySet<string> = new Set(by);
+    // refuses its duplicates; the grouped read reads each member once and
+    // hands the grouped column SET to the two owners that have to know it —
+    // `having` and the grouped `orderBy` — instead of each re-reading `args`.
+    const by = args.by!.map(groupedColumn);
+    const grouped: ReadonlySet<string> = new Set(by.map(({ field }) => field));
+    const stepped = by.some(({ step }) => step !== undefined);
+    // A dialect with no period vocabulary refuses before any statement.
+    if (stepped && !this.adapter.period) throw timeStepUnsupported();
     // A read-gated model groups a masked window of its filtered rows (K5): a
     // gate lowered once per row, where a gate repeated in the grouping, the
     // projection and the order would be three expressions to the provider.
-    if (this.#masks(model)) {
+    // A period is computed once in such a window too: written twice, with its
+    // zone bound twice, PostgreSQL no longer sees one grouped expression.
+    const masks = this.#masks(model);
+    if (masks || stepped) {
       const inner = this.alias();
+      const periods = new Map<string, string>();
+      const columns = this.schema
+        .storedFields(model)
+        .map((field) =>
+          this.#named(
+            this.#operand(model, field, inner),
+            this.columnName(model, field)
+          )
+        );
+      for (const { field, step } of by) {
+        if (step === undefined) continue;
+        const name = periodColumnKey(periods.size);
+        periods.set(field, name);
+        const { scalar } = this.physical(model, field);
+        const state = scalar["~"].state;
+        columns.push(
+          this.#named(
+            this.adapter.period!(
+              this.#operand(model, field, inner),
+              step,
+              {
+                date: state.type === "date",
+                withTimezone: state.withTimezone === true,
+                nativeType: this.nativeType(scalar),
+              },
+              args.timeZone ?? "UTC"
+            ),
+            name
+          )
+        );
+      }
       const window = assembleAdapterSelect(this.adapter, {
-        columns: listed(
-          this.schema
-            .storedFields(model)
-            .map((field) =>
-              this.#named(
-                this.#operand(model, field, inner),
-                this.columnName(model, field)
-              )
-            )
-        ),
+        columns: listed(columns),
         from: this.table(model, inner),
         where: this.lowerWhere(model, args.where, inner),
       });
-      return this.#overMasked(() =>
-        this.#grouped(model, args, alias, by, grouped, {
+      const lower = () =>
+        this.#grouped(model, args, alias, by, grouped, periods, {
           from: this.#aside(window, alias),
-        })
-      );
+        });
+      return masks ? this.#overMasked(lower) : lower();
     }
-    return this.#grouped(model, args, alias, by, grouped, {
+    return this.#grouped(model, args, alias, by, grouped, undefined, {
       from: this.table(model, alias),
       where: this.lowerWhere(model, args.where, alias),
     });
@@ -5239,8 +5273,9 @@ export class SqlQueries extends Queries {
     model: AnyModel,
     args: Arguments,
     alias: string,
-    by: readonly string[],
+    by: readonly GroupedColumn[],
     grouped: ReadonlySet<string>,
+    periods: ReadonlyMap<string, string> | undefined,
     rows: { readonly from: Sql; readonly where?: Sql }
   ): Query {
     const aggregates = this.#prepareAggregates(model, args);
@@ -5248,11 +5283,28 @@ export class SqlQueries extends Queries {
     const gates = this.#masked
       ? this.domain?.projected(model)?.gates
       : undefined;
-    const columns: Sql[] = by.map((field) => {
-      const leaf = this.scalarShape(model, field);
+    // A grouped key: the column, or the window's period column.
+    const key = (field: string): Sql => {
+      const period = periods?.get(field);
+      return period === undefined
+        ? this.column(model, field, alias)
+        : this.#at(alias, period);
+    };
+    const columns: Sql[] = by.map(({ field, step }) => {
+      const declared = this.scalarShape(model, field);
+      // A period is the adapter's `YYYY-MM-DD` text: published as a string.
+      const leaf: Leaf =
+        step === undefined
+          ? declared
+          : { kind: "scalar", type: "string", nullable: declared.nullable };
       // A masked group reads a gated key as absent: the NULL group.
       fields[field] = gates?.has(field) ? { ...leaf, nullable: true } : leaf;
-      return this.#named(this.projectedColumn(model, field, alias), field);
+      return this.#named(
+        step === undefined
+          ? this.projectedColumn(model, field, alias)
+          : key(field),
+        field
+      );
     });
     for (const [name, expression] of aggregates.columns(alias)) {
       fields[name] = aggregates.fields_[name]!;
@@ -5263,7 +5315,7 @@ export class SqlQueries extends Queries {
         columns: listed(columns),
         from: rows.from,
         where: rows.where,
-        groupBy: listed(by.map((field) => this.column(model, field, alias))),
+        groupBy: listed(by.map(({ field }) => key(field))),
         having: args.having
           ? this.#lowerPredicate(
               this.#prepareHaving(model, args.having as Input),
@@ -5271,7 +5323,7 @@ export class SqlQueries extends Queries {
             )
           : undefined,
         orderBy: this.#lowerOrder(
-          this.#groupOrderTerms(model, args.orderBy, alias, grouped)
+          this.#groupOrderTerms(model, args.orderBy, alias, grouped, periods)
         ),
         limit: args.take === undefined ? undefined : this.value(args.take),
         offset: args.skip === undefined ? undefined : this.value(args.skip),
@@ -5320,13 +5372,30 @@ export class SqlQueries extends Queries {
     model: AnyModel,
     input: Arguments["orderBy"],
     alias: string,
-    grouped: ReadonlySet<string>
+    grouped: ReadonlySet<string>,
+    periods: ReadonlyMap<string, string> | undefined
   ): OrderTerm[] {
+    // A field grouped by a time step sorts by its period, as a column would.
+    const term = (name: string, direction: unknown): OrderTerm => {
+      const period = periods?.get(name);
+      if (period === undefined)
+        return this.#orderTerm(model, name, direction, alias);
+      const specification =
+        direction === "asc" || direction === "desc"
+          ? { sort: direction }
+          : (direction as Input);
+      return this.#sortKey(
+        this.#at(alias, period),
+        specification.sort === "desc",
+        specification.nulls as "first" | "last" | undefined,
+        this.physical(model, name).nullable || this.#gatedHere(model, name),
+        name
+      );
+    };
     const terms = entries(input ?? {}).flatMap((order) =>
       Object.entries(order).flatMap(([name, direction]) => {
         if (direction === undefined) return [];
-        if (!isAggregate(name))
-          return [this.#orderTerm(model, name, direction, alias)];
+        if (!isAggregate(name)) return [term(name, direction)];
         return Object.entries(direction as Input).flatMap(([field, sort]) => {
           const scalar =
             field === "_all" ? undefined : this.scalar(model, field);
@@ -5343,8 +5412,7 @@ export class SqlQueries extends Queries {
     );
     const ordered = new Set(terms.map((term) => term.field));
     for (const field of grouped)
-      if (!ordered.has(field))
-        terms.push(this.#orderTerm(model, field, "asc", alias));
+      if (!ordered.has(field)) terms.push(term(field, "asc"));
     return terms;
   }
 }

@@ -387,8 +387,8 @@ export function buildExpectedResultShape(
   }
   if (operation === "aggregate") return buildAggregateShape(args);
   if (operation === "groupBy") {
-    const groupedFields = getGroupByFields(getOwnValue(args, "by"));
-    return buildAggregateShape(args, groupedFields);
+    const { fields, periods } = getGroupByFields(getOwnValue(args, "by"));
+    return { ...buildAggregateShape(args, fields), periods };
   }
   if (MODEL_ROW_OPERATIONS.has(operation)) {
     return buildModelShape(model, args, relations);
