@@ -3,9 +3,10 @@
  * The leaves are the ORM's own `where`, checked once where the extension is
  * applied by the model's `where` schema (`admission.ts`), with the words of
  * `rule-words.ts` where a value or a filter goes. The part reads the keys it
- * owns, the filters by role and which rows a write may take; every other
- * value is a word that carries what applies it (`judge-words.ts`), called
- * where it is written and never named here.
+ * owns, the filters by role and the confinements; every other value is a
+ * word that carries what applies it (`judge-words.ts`), which rows a write
+ * may take and an entry given lazily included, called where it is written
+ * and never named here.
  */
 import type { Schema } from "@client/types";
 import { isPlainRecord } from "@schema/relation/terminal";
@@ -31,13 +32,13 @@ const RULE_KEYS = new Set([
 
 const isPlain = isPlainRecord;
 const own = (value: unknown): Entry => (isPlain(value) ? value : {});
-const listOf = (value: unknown): unknown[] =>
+export const listOf = (value: unknown): unknown[] =>
   value === undefined ? [] : Array.isArray(value) ? value : [value];
 
 /**
  * One entry's keys beyond its filters as a draft, each word called where it
- * is written: `undefined` where it holds none. Inside an entry given as a
- * function (`lazy`), its `read.where` is one of them.
+ * is written: `undefined` where it holds none. Inside an entry given lazily
+ * (`lazy`), its `read.where` is one of them.
  */
 export function draftOf(
   entry: unknown,
@@ -47,15 +48,16 @@ export function draftOf(
   refuse: (problem: string) => never,
   lazy: boolean
 ): VerbsDraft | undefined {
-  if (!isPlain(entry)) return refuse("an entry is an object or a function");
+  if (!isPlain(entry)) return refuse("an entry is an object");
   for (const key of Object.keys(entry))
     if (!RULE_KEYS.has(key)) refuse(`"${key}" is not a rule key`);
   let verbs: VerbsDraft | undefined;
-  const made = () => (verbs ??= {});
   const join = (value: unknown, key: string, field?: string) => {
     if (value === undefined) return;
     if (!(value instanceof CarriedValue))
-      refuse(`${key} is written with a word`);
+      refuse(
+        `${key} is written ${key.endsWith("where") ? "only(where)" : "with a word"}`
+      );
     value.join({
       model,
       key,
@@ -63,20 +65,20 @@ export function draftOf(
       schema,
       draft,
       lazy,
-      verbs: made,
+      verbs: () => (verbs ??= {}),
       refuse,
     });
   };
   const { state } = schema[model]!["~"];
   const read = own(entry.read);
-  if (lazy && read.where !== undefined) made().read = read.where;
+  if (lazy && read.where !== undefined) (verbs ??= {}).read = read.where;
   for (const [field, word] of Object.entries(own(read.fields)))
     join(word, `read.fields.${field}`, field);
   for (const [key, word] of Object.entries(own(read.select)))
     join(word, `read.select.${key}`, key);
   join(own(entry.create).check, "create.check");
   const update = own(entry.update);
-  if (update.where !== undefined) made().update = update.where;
+  join(update.where, "update.where");
   join(update.check, "update.check");
   for (const [field, slot] of Object.entries(own(update.fields))) {
     if (
@@ -87,23 +89,22 @@ export function draftOf(
     )
       refuse(`update.fields names unknown field "${field}"`);
     if (!isPlain(slot)) refuse(`update.fields.${field} is { where?, check? }`);
-    if (slot.where !== undefined)
-      made().writes = { ...verbs!.writes, [field]: slot.where };
+    join(slot.where, `update.fields.${field}.where`, field);
     join(slot.check, `update.fields.${field}.check`, field);
   }
   const remove = own(entry.delete);
-  if (remove.where !== undefined) made().delete = remove.where;
+  join(remove.where, "delete.where");
   join(remove.instead, "delete.instead");
   const { acyclic } = entry;
   if (acyclic !== undefined) {
     if (!(Array.isArray(acyclic) || typeof acyclic === "function"))
       refuse("acyclic lists relations, or is a function returning them");
-    made().acyclic = acyclic as VerbsDraft["acyclic"];
     // A loop is refused where the row an update produces is judged.
-    if (verbs!.judge === undefined)
+    if (verbs?.judge === undefined)
       refuse(
         "acyclic is judged with the rows a write produces: write a check() on the model beside it"
       );
+    verbs.acyclic = acyclic as VerbsDraft["acyclic"];
   }
   return verbs;
 }
@@ -137,21 +138,6 @@ function layerOf(draft: DefinitionDraft): RuleLayer {
       };
       return;
     }
-    // An entry given as a function is read later: its filters are decided
-    // by the first argument of the extension a value of which picks a mode.
-    if (
-      !Object.values(layer.verbs).some((entry) => typeof entry === "function")
-    )
-      return;
-    for (const [name, spec] of Object.entries(draft.args ?? {}))
-      if ("oneOf" in spec && spec.default !== undefined) {
-        layer.mode = {
-          name,
-          values: spec.oneOf.map(String),
-          fallback: String(spec.default),
-        };
-        return;
-      }
   });
   return layer;
 }
@@ -176,23 +162,22 @@ function writeRule(
       if (Object.hasOwn(layer.verbs, model))
         refuse("two rule parts of one extension judge the model");
     };
-    if (typeof entry === "function") {
+    // `lazy(() => entry)`: it brings what reads the entry later.
+    if (entry instanceof CarriedValue) {
       judged();
-      const read = () => {
-        const given: unknown = Reflect.apply(entry, undefined, []);
-        const written = own(given);
-        if (written.confine !== undefined)
-          refuse("an entry given as a function holds no confine");
-        const verbs = draftOf(given, model, schema, draft, refuse, true) ?? {};
-        const root = listOf(written.root);
-        const related = listOf(written.related);
-        return root.length + related.length === 0
-          ? verbs
-          : { ...verbs, root, related };
-      };
-      layer.verbs[model] = read;
+      entry.join({
+        model,
+        key: "the entry",
+        schema,
+        draft,
+        lazy: false,
+        verbs: () => refuse("the entry is written lazy(() => entry)"),
+        refuse,
+      });
       continue;
     }
+    if (typeof entry === "function")
+      refuse("an entry given as a function is written lazy(() => entry)");
     const verbs = draftOf(entry, model, schema, draft, refuse, false);
     // `draftOf` refused an entry that is no object.
     const written = own(entry);

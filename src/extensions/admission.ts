@@ -9,12 +9,14 @@
 import type { Schema } from "@client/types";
 import { ClientInitializationError } from "@errors";
 import {
+  type CallRows,
   Condition,
   type ConditionTest,
   Existence,
   type LazyRelations,
   OuterColumn,
   Parameter,
+  type RowDomain,
 } from "@query-engine/raptor3/shared/row-scope";
 import type { Input } from "@query-engine/raptor3/shared/schema";
 import type { ModelState } from "@schema/model";
@@ -27,6 +29,7 @@ import {
   type FilterWord,
 } from "@validation/primitives/parameter";
 import type { SchemaRegistryLookup } from "@validation/types";
+import type { ResolvedExtensionChain } from "./chain-state";
 import type { Judge } from "./judge";
 import type { Projection } from "./projection";
 import type { PreparedDomain } from "./row-domain";
@@ -75,12 +78,7 @@ export interface VerbsDraft {
    */
   root?: readonly unknown[];
   related?: readonly unknown[];
-  filters?: {
-    readonly [mode: string]: {
-      readonly root?: Input;
-      readonly related?: Input;
-    };
-  };
+  filters?: ModeFilters;
   /** `acyclic` as admission checked it against the model's self relations. */
   cycles?: readonly string[] | LazyRelations;
   /** What judges the rows a write produces: brought by the word that asks it. */
@@ -108,6 +106,57 @@ export interface RuleLayer {
   mode?: LayerMode;
   readonly verbs: Record<string, VerbsDraft | (() => VerbsDraft)>;
   readonly confine: Record<string, unknown>;
+  /**
+   * What admits and binds `verbs`: set by the words that write them
+   * (`verbs.ts`), so a rule that only filters holds none of that code.
+   */
+  host?: VerbsHost;
+}
+
+/** One model's filters per value of its layer's mode argument (`""` without one). */
+export interface ModeFilters {
+  readonly [mode: string]: {
+    readonly root?: Input;
+    readonly related?: Input;
+  };
+}
+
+/** What admits one model's filters, per mode, for what admits an entry read later. */
+export type FiltersOf = (
+  name: string,
+  lists: {
+    readonly root?: readonly unknown[];
+    readonly related?: readonly unknown[];
+  },
+  referencesOf: (mode: string) => References,
+  of: string
+) => ModeFilters;
+
+/** What a layer's verbs bind to, for every mode combination of a chain. */
+export interface VerbsBound {
+  readonly verbs?: RowDomain["verbs"];
+  readonly judge?: RowDomain["judge"];
+  readonly project?: RowDomain["project"];
+  /** An entry given lazily is read: its calls carry their values. */
+  readonly lazy: boolean;
+  /** A model's filters at one layer, held by an entry given lazily. */
+  readonly filters: (model: string, layer: number) => ModeFilters | undefined;
+  /** What prepares the call facts, with what the verbs judge. */
+  readonly prepare: CallRows["prepare"];
+}
+
+/**
+ * What the words that write verbs bring (`verbs.ts`): what admits a layer's
+ * verbs once per schema, and what binds a chain's for its calls.
+ */
+export interface VerbsHost {
+  admit(
+    admission: Admission,
+    layer: RuleLayer,
+    filtersOf: FiltersOf,
+    references: References
+  ): AdmittedLayer["verbs"];
+  bind(chain: ResolvedExtensionChain): VerbsBound;
 }
 
 /**
@@ -119,17 +168,12 @@ export interface RuleLayer {
 export interface AdmittedLayer {
   readonly extension: string;
   readonly mode?: LayerMode;
-  readonly models: {
-    readonly [model: string]: {
-      readonly [mode: string]: {
-        readonly root?: Input;
-        readonly related?: Input;
-      };
-    };
-  };
+  readonly models: { readonly [model: string]: ModeFilters };
   readonly verbs: {
     readonly [model: string]: VerbsDraft | (() => VerbsDraft);
   };
+  /** What admitted `verbs`, and binds them. */
+  readonly host?: VerbsHost;
   readonly confine: { readonly [model: string]: Input };
   /** Per mode, its filters'; then its eager keys' and confinements'. */
   readonly references: {
@@ -177,11 +221,8 @@ const admitted = new WeakMap<
   WeakMap<RuleLayer, AdmittedLayer>
 >();
 
-/** What a function entry's predicates read, recorded when it was first read. */
-export const lazyReferences = new WeakMap<
-  VerbsDraft,
-  readonly (string | undefined)[]
->();
+/** A layer without verbs. */
+const NO_VERBS: AdmittedLayer["verbs"] = Object.freeze({});
 
 /** A condition's tests, the filter vocabulary's own words (OD-12). */
 const TESTS = ["exists", "equals", "in", "has", "hasSome"];
@@ -383,79 +424,6 @@ function holds(filter: ArgTestFilter, mode: string): boolean {
   return filter.kind === "when" ? passed : !passed;
 }
 
-/** The keys of a draft that hold one predicate, each admitted as one. */
-const SINGLE = ["read", "update", "delete", "place", "check"] as const;
-/** The keys of a draft that hold one predicate per field. */
-const PER_FIELD = ["writes", "moves", "reads"] as const;
-
-/**
- * The self relations `acyclic` names, each checked to be one of `model`'s
- * to itself holding its key: only those can loop. Given as a function, they
- * are read and checked when an update first writes one of those keys.
- */
-function cyclesOf(
-  { schema, refuse }: Admission,
-  name: string,
-  declared: NonNullable<VerbsDraft["acyclic"]>
-): readonly string[] | LazyRelations {
-  const model = schema[name]!;
-  const { relations } = model["~"].state;
-  const keyed = Object.keys(relations).filter((relation) => {
-    const held = relations[relation]!["~"];
-    return held.state.foreignKey !== undefined && held.settleTarget() === model;
-  });
-  const checked = (listed: readonly string[]): readonly string[] => {
-    for (const relation of listed)
-      if (!keyed.includes(relation))
-        refuse(
-          name,
-          `${name}.acyclic.${relation}`,
-          "names no to-one relation of the model to itself holding its key"
-        );
-    return Object.freeze([...listed]);
-  };
-  if (typeof declared !== "function") return checked(declared);
-  let resolved: readonly string[] | undefined;
-  return Object.freeze({
-    candidates: Object.freeze(keyed),
-    resolve: () => (resolved ??= checked(declared())),
-  });
-}
-
-/** One model's draft with every predicate admitted. */
-export function admitDraft(
-  admission: Admission,
-  name: string,
-  draft: VerbsDraft,
-  references: References,
-  of?: string
-): VerbsDraft {
-  const { admit } = admission;
-  const out: VerbsDraft = { ...draft };
-  if (draft.acyclic !== undefined)
-    out.cycles = cyclesOf(admission, name, draft.acyclic);
-  for (const key of SINGLE)
-    if (draft[key] !== undefined)
-      out[key] = admit(name, `${name}.${key}`, draft[key], references, of);
-  for (const key of PER_FIELD)
-    if (draft[key] !== undefined)
-      out[key] = Object.fromEntries(
-        Object.entries(draft[key]).map(([field, where]) => [
-          field,
-          admit(name, `${name}.${key}.${field}`, where, references, of),
-        ])
-      );
-  if (draft.evidence !== undefined)
-    out.evidence = {
-      as: draft.evidence.as,
-      names: draft.evidence.names.map(([fact, where]) => [
-        fact,
-        admit(name, `${name}.read.select.${fact}`, where, references, of),
-      ]),
-    };
-  return Object.freeze(out);
-}
-
 /**
  * One extension's rule layer with every predicate admitted: each filter
  * once per value of its mode's argument, and each other key once. Admitted
@@ -482,17 +450,9 @@ export function admitLayer(
   const { admit } = admitting;
   const modes = layer.mode?.values ?? [""];
   const modeReferences: Record<string, References> = {};
-  const models: Record<string, Record<string, object>> = {};
+  const models: Record<string, ModeFilters> = {};
   /** One model's filters, per mode, each purpose's admitted. */
-  const filtersOf = (
-    name: string,
-    lists: {
-      readonly root?: readonly unknown[];
-      readonly related?: readonly unknown[];
-    },
-    referencesOf: (mode: string) => References,
-    of: string
-  ) => {
+  const filtersOf: FiltersOf = (name, lists, referencesOf, of) => {
     const byMode: Record<string, { root?: Input; related?: Input }> = {};
     for (const mode of modes) {
       const out: { root?: Input; related?: Input } = {};
@@ -522,43 +482,10 @@ export function admitLayer(
       "mode"
     );
   const verbsReferences: References = new Set();
-  const verbs: Record<string, VerbsDraft | (() => VerbsDraft)> = {};
-  for (const [name, draft] of Object.entries(layer.verbs)) {
-    if (typeof draft !== "function") {
-      verbs[name] = admitDraft(admitting, name, draft, verbsReferences);
-      continue;
-    }
-    // Read and admitted once, the first time the model is read; its own
-    // references are checked then, against the chain it is bound to.
-    let resolved: VerbsDraft | undefined;
-    const resolve = (): VerbsDraft => {
-      if (resolved !== undefined) return resolved;
-      const references: References = new Set();
-      const { root, related, ...given } = draft();
-      const own = admitDraft(
-        admitting,
-        name,
-        given,
-        references,
-        `lazy ${name}`
-      );
-      resolved =
-        root === undefined && related === undefined
-          ? own
-          : Object.freeze({
-              ...own,
-              filters: filtersOf(
-                name,
-                { root, related },
-                () => references,
-                `lazy ${name}`
-              ),
-            });
-      lazyReferences.set(resolved, [...references]);
-      return resolved;
-    };
-    verbs[name] = resolve;
-  }
+  const { host } = layer;
+  const verbs = host
+    ? host.admit(admitting, layer, filtersOf, verbsReferences)
+    : NO_VERBS;
   const confine: Record<string, Input> = {};
   for (const [name, predicate] of Object.entries(layer.confine))
     confine[name] = admit(name, `${name}.confine`, predicate, verbsReferences);
@@ -566,7 +493,8 @@ export function admitLayer(
     extension,
     ...(layer.mode && { mode: layer.mode }),
     models: Object.freeze(models),
-    verbs: Object.freeze(verbs),
+    verbs,
+    ...(host && { host }),
     confine: Object.freeze(confine),
     references: Object.freeze({
       modes: Object.fromEntries(

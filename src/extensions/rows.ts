@@ -5,6 +5,7 @@
  * filter, keep or judge rows binds its call facts here, with what its other
  * parts posed: the kept rows, the stamps and the order.
  */
+import type { PreparedSelector } from "@query-engine/raptor3/shared/query";
 import type {
   CallRows,
   CallValues,
@@ -12,7 +13,8 @@ import type {
   RowDomain,
 } from "@query-engine/raptor3/shared/row-scope";
 import { type Input, memo } from "@query-engine/raptor3/shared/schema";
-import { type AdmittedLayer, admitLayer } from "./admission";
+import type { AnyModel } from "@schema/model";
+import { type AdmittedLayer, admitLayer, type VerbsBound } from "./admission";
 import { rebind, refuseUndeclared } from "./call-rows";
 import type {
   CallRowsBinding,
@@ -20,9 +22,8 @@ import type {
   ResolvedControls,
   ResolvedExtensionChain,
 } from "./chain";
-import { type AdmittedControls, controlsPart } from "./controls";
-import { prepareCall } from "./row-domain";
-import { bindVerbs, type VerbsBound } from "./verbs";
+import type { AdmittedControls } from "./controls";
+import { type PreparedDomain, prepareCall } from "./row-domain";
 
 /** One layer's mode: its argument, and where each of its values sits. */
 interface BoundMode {
@@ -70,7 +71,7 @@ function modelDomain(
   layers: readonly AdmittedLayer[],
   modes: readonly string[],
   purpose: "root" | "related",
-  drafts: VerbsBound["drafts"]
+  lazy: VerbsBound["filters"] | undefined
 ): ModelDomain {
   const built = new Map<string, readonly Input[] | null>();
   return {
@@ -78,17 +79,45 @@ function modelDomain(
       memo(built, model, () => {
         let list: Input[] | null = null;
         for (const [layer, member] of layers.entries()) {
-          // An entry given as a function holds its filters: read it now.
-          const filters =
-            member.models[model] ??
-            (typeof member.verbs[model] === "function"
-              ? drafts(model)[layer]?.filters
-              : undefined);
+          // An entry given lazily holds its filters: read it now.
+          const filters = member.models[model] ?? lazy?.(model, layer);
           const where = filters?.[modes[layer]!]?.[purpose];
           if (where !== undefined) (list ??= [])[layer] = where;
         }
         return list;
       }) ?? undefined,
+  };
+}
+
+/**
+ * What an `excluded` layer states its own whole-table sets of a model hold
+ * (`confine`), for one prepared domain: inside its own predicates a layer
+ * reads nothing of itself, but a set the statement computes over a whole
+ * table (a shared body, a reaching set) still holds only what it bounds.
+ * `undefined` where none states one.
+ */
+function bound(domain: PreparedDomain) {
+  const bounds = new Map<string, PreparedSelector | null>();
+  return (
+    model: AnyModel,
+    excluded: readonly number[]
+  ): PreparedSelector | undefined => {
+    const name = model["~"].names.ts!;
+    const inputs = domain.rows.confine?.get(name);
+    if (inputs === undefined) return undefined;
+    // Every excluded layer's: each only narrows, and one left out would let
+    // another's widen what it bounds.
+    return (
+      memo(bounds, `${name} ${excluded}`, () =>
+        domain.conjunction(
+          model,
+          excluded.map((layer) => {
+            const input = inputs[layer];
+            return [layer, input === undefined ? [] : [input]] as const;
+          })
+        )
+      ) ?? undefined
+    );
   };
 }
 
@@ -104,8 +133,10 @@ export class RowsBinding implements CallRowsBinding {
   readonly #modes: readonly BoundMode[];
   readonly #chain: ResolvedExtensionChain;
   readonly #layers: readonly AdmittedLayer[];
-  readonly #verbs: Omit<VerbsBound, "reads" | "drafts">;
-  readonly #drafts: VerbsBound["drafts"];
+  /** What the domains hold beside the filters: verbs, confinements. */
+  readonly #beside: Partial<RowDomain>;
+  readonly #lazy: VerbsBound["filters"] | undefined;
+  readonly #prepare: CallRows["prepare"];
   /** Some predicate reads a call value: every call carries its values. */
   readonly #parametric: boolean;
   readonly #order: ReadonlyMap<string, readonly Input[]> | undefined;
@@ -131,15 +162,31 @@ export class RowsBinding implements CallRowsBinding {
       stride *= names.length;
       return bound;
     });
-    const { reads, drafts, ...verbs } = bindVerbs(chain);
-    this.#drafts = drafts;
+    // The verbs, where some word brought what binds them.
+    const host = layers.find((layer) => layer.host)?.host;
+    const {
+      lazy = false,
+      filters,
+      prepare = prepareCall,
+      ...verbs
+    } = host?.bind(chain) ?? {};
+    const confine = new Map<string, Input[]>();
+    for (const [layer, member] of layers.entries())
+      for (const [model, where] of Object.entries(member.confine))
+        memo(confine, model, () => [])[layer] = where;
+    this.#lazy = filters;
+    this.#prepare = prepare;
     this.#chain = chain;
     this.#layers = layers;
-    this.#verbs = verbs;
+    this.#beside = { ...verbs, ...(confine.size > 0 && { confine, bound }) };
+    // An entry given lazily's predicates are not known yet: its calls
+    // carry their values.
     this.#parametric =
-      reads ||
-      layers.some((layer) =>
-        Object.values(layer.references.modes).some((names) => names.length)
+      lazy ||
+      layers.some(
+        ({ references }) =>
+          references.verbs.length > 0 ||
+          Object.values(references.modes).some((names) => names.length)
       );
     this.#order = chain.order && new Map(Object.entries(chain.order));
     this.#required = requiredOn(chain.controls);
@@ -160,9 +207,9 @@ export class RowsBinding implements CallRowsBinding {
     return memo(this.#domains, combination, () => {
       const modes = this.#names(combination);
       return Object.freeze({
-        root: modelDomain(this.#layers, modes, "root", this.#drafts),
-        related: modelDomain(this.#layers, modes, "related", this.#drafts),
-        ...this.#verbs,
+        root: modelDomain(this.#layers, modes, "root", this.#lazy),
+        related: modelDomain(this.#layers, modes, "related", this.#lazy),
+        ...this.#beside,
         ...(this.#order && { order: this.#order }),
       });
     });
@@ -173,7 +220,7 @@ export class RowsBinding implements CallRowsBinding {
       domain: this.#domain(combination),
       defaults: this.#domain(this.#fallback),
       ...(stamps && { stamps: stamps.all }),
-      prepare: prepareCall,
+      prepare: this.#prepare,
     });
     return {
       physical,
@@ -235,7 +282,6 @@ export const bindRows = (chain: ResolvedExtensionChain): RowsBinding =>
  * function's when it is first read), and the chain's call facts bound again.
  */
 export const rulePart: ExtensionPart = {
-  uses: [controlsPart],
   join(application) {
     const { definition, chain, next, schema, registry } = application;
     const { rule } = definition;

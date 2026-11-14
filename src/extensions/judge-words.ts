@@ -1,16 +1,26 @@
 /**
- * The words of a rule that judge or project rows: `check` (the row a write
- * leaves must hold a predicate), `gate` (a field is present only where a
- * predicate holds), `facts` (per row, which named predicates hold, under a
- * projection key) and `keep` (a delete updates the row instead). Each
- * carries what applies it, so a rule that only filters holds none of it.
+ * The words of a rule that judge or project rows: `only` (which rows a
+ * write may take), `check` (the row a write leaves must hold a predicate),
+ * `gate` (a field is present only where a predicate holds), `facts` (per
+ * row, which named predicates hold, under a projection key), `keep` (a
+ * delete updates the row instead) and `lazy` (an entry read when its model
+ * is first read). Each carries what applies it, so a rule that only filters
+ * holds none of it.
  */
 import type { ModelState } from "@schema/model";
 import { isPlainRecord } from "@schema/relation/terminal";
-import type { CheckWord, FactsWord, GateWord, KeepWord } from "./contract";
+import type {
+  CheckWord,
+  FactsWord,
+  GateWord,
+  KeepWord,
+  LazyWord,
+  OnlyWord,
+} from "./contract";
 import { judgeOf } from "./judge";
 import { keptRowsPart } from "./kept";
 import { projectionOf } from "./projection";
+import { draftOf, listOf } from "./rule";
 import {
   ArgTestFilter,
   ArgValue,
@@ -19,8 +29,35 @@ import {
   RowValue,
   type Site,
 } from "./rule-words";
+import { VERBS, verbsOf } from "./verbs";
 
 const UPDATE_FIELD = /^update\.fields\.[^.]+\.check$/;
+const FIELD_WHERE = /^update\.fields\.[^.]+\.where$/;
+
+/** `only(where)`'s value: the rows a write may take. */
+class Only extends CarriedValue {
+  readonly where: object;
+  constructor(where: object) {
+    super();
+    this.where = where;
+  }
+  join(site: Site): void {
+    const { key, field, refuse } = site;
+    const own = verbsOf(site);
+    if (key === "update.where") own.update = this.where;
+    else if (key === "delete.where") own.delete = this.where;
+    // An update writing the field takes this instead of `update.where`.
+    else if (FIELD_WHERE.test(key))
+      own.writes = { ...own.writes, [field!]: this.where };
+    else refuse(`${key} does not take only()`);
+  }
+}
+
+/** A write takes only the rows that hold `where`. */
+export function only<W>(where: NoInfer<W>): OnlyWord<W>;
+export function only(where: object): unknown {
+  return new Only(where);
+}
 
 /** `check(where)`'s value: what the row a write produces must hold. */
 class Checked extends CarriedValue {
@@ -29,8 +66,9 @@ class Checked extends CarriedValue {
     super();
     this.where = where;
   }
-  join({ key, field, verbs, refuse }: Site): void {
-    const own = verbs();
+  join(site: Site): void {
+    const { key, field, refuse } = site;
+    const own = verbsOf(site);
     own.judge = judgeOf;
     if (key === "create.check") own.place = this.where;
     // The row an update leaves is judged again where the update writes a
@@ -78,7 +116,8 @@ class Gated extends CarriedValue {
     super();
     this.where = where;
   }
-  join({ key, field, model, schema, verbs, refuse }: Site): void {
+  join(site: Site): void {
+    const { key, field, model, schema, refuse } = site;
     if (key !== `read.fields.${field}`) refuse(`${key} does not take gate()`);
     const { state } = schema[model]!["~"];
     if (!Object.hasOwn(state.scalars, field!))
@@ -87,7 +126,7 @@ class Gated extends CarriedValue {
     // a key would answer through a relation what a filter hides.
     if (keyFields(state).has(field!))
       refuse(`${key} names a key, a unique or a foreign key field`);
-    const own = verbs();
+    const own = verbsOf(site);
     own.project = projectionOf;
     own.reads = { ...own.reads, [field!]: this.where };
   }
@@ -116,11 +155,12 @@ class Facts extends CarriedValue {
     super();
     this.predicates = predicates;
   }
-  join({ key, field, verbs, refuse }: Site): void {
+  join(site: Site): void {
+    const { key, field, refuse } = site;
     if (key !== `read.select.${field}`) refuse(`${key} does not take facts()`);
     if (!PROJECTION_KEY.test(field!))
       refuse(`${key} is not \`$\` and an identifier`);
-    const own = verbs();
+    const own = verbsOf(site);
     if (own.evidence !== undefined)
       refuse("read.select holds one projection key");
     own.project = projectionOf;
@@ -208,4 +248,57 @@ class Kept extends CarriedValue {
 export function keep<D>(data: D): KeepWord<D>;
 export function keep(data: object): unknown {
   return new Kept(data);
+}
+
+/** `lazy(() => entry)`'s value: an entry read when its model is first read. */
+class Lazy extends CarriedValue {
+  readonly read: () => unknown;
+  constructor(read: () => unknown) {
+    super();
+    this.read = read;
+  }
+  join({ key, model, schema, draft, refuse }: Site): void {
+    if (key !== "the entry") refuse(`${key} does not take lazy()`);
+    const layer = draft.rule!;
+    layer.host = VERBS;
+    layer.verbs[model] = () => {
+      const given: unknown = Reflect.apply(this.read, undefined, []);
+      const written: Readonly<Record<string, unknown>> = isPlainRecord(given)
+        ? given
+        : {};
+      if (written.confine !== undefined)
+        refuse("an entry given lazily holds no confine");
+      const verbs = draftOf(given, model, schema, draft, refuse, true) ?? {};
+      const root = listOf(written.root);
+      const related = listOf(written.related);
+      return root.length + related.length === 0
+        ? verbs
+        : { ...verbs, root, related };
+    };
+    // Once every part wrote, where no eager filter of the extension decided
+    // its filters by an argument: the entry is read later, so they are
+    // decided by the first argument of the extension a value of which picks
+    // a mode.
+    draft.finish.push(() => {
+      if (layer.mode !== undefined) return;
+      for (const [name, spec] of Object.entries(draft.args ?? {}))
+        if ("oneOf" in spec && spec.default !== undefined) {
+          layer.mode = {
+            name,
+            values: spec.oneOf.map(String),
+            fallback: String(spec.default),
+          };
+          return;
+        }
+    });
+  }
+}
+
+/**
+ * The entry is read the first time a call needs its model, a filter that
+ * reads the model through a relation included; its refusals fail that call.
+ */
+export function lazy<E>(read: () => NoInfer<E>): LazyWord<E>;
+export function lazy(read: () => unknown): unknown {
+  return new Lazy(read);
 }
