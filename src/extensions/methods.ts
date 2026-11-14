@@ -10,7 +10,6 @@ import type {
   ClientRowsContext,
   ComputedOperation,
   ComputedOperations,
-  Operations,
   StampedOperation,
   StampedOperations,
 } from "@client/types";
@@ -24,13 +23,11 @@ import type { ExtensionPart } from "./chain";
 import {
   type AdmittedControls,
   type DefinitionControls,
-  type DefinitionData,
   type NoControls,
-  type RowsModels,
   undeclaredBinding,
 } from "./controls";
 import { extensionError } from "./definition";
-import type { DefinitionResultFields, MergeResultFields } from "./result-types";
+import type { MergeResultFields } from "./result-types";
 
 type NoMethods = Record<never, never>;
 type ExtensionMethod = (this: void, ...args: never[]) => unknown;
@@ -277,120 +274,6 @@ export type ExtensionClientScope<
     readonly $bind: (values: Readonly<Record<string, unknown>>) => unknown;
   };
 
-type NonFunctionKeys<Methods extends object> = {
-  [Key in keyof Methods]: Methods[Key] extends CallableFunction ? never : Key;
-}[keyof Methods];
-
-type InvalidClientMethodKeys<
-  Methods extends object,
-  C extends VibORMConfig,
-  X extends ExtensionStateConstraint,
-> =
-  | Exclude<keyof Methods, `$${string}`>
-  | Extract<
-      keyof Methods,
-      | keyof RawSurface
-      | "$driver"
-      | "$schema"
-      | "$transaction"
-      | "$connect"
-      | "$disconnect"
-      | "$withCache"
-      | "$invalidate"
-      | "$extends"
-      | keyof X["client"]
-    >
-  | (string extends keyof C["schema"]
-      ? never
-      : Extract<keyof Methods, keyof C["schema"]>)
-  | NonFunctionKeys<Methods>;
-
-type GuardMethodFactory<
-  Factory,
-  Forbidden extends PropertyKey,
-> = Factory extends (...args: infer Params) => infer Methods
-  ? Methods extends object
-    ? (...args: Params) => Methods & Record<Forbidden, never>
-    : (...args: Params) => never
-  : never;
-
-type ClientFactoryGuard<
-  Definition,
-  C extends VibORMConfig,
-  X extends ExtensionStateConstraint,
-> = Definition extends { readonly client: infer Factory }
-  ? Factory extends (...args: never[]) => infer Methods
-    ? Methods extends object
-      ? {
-          readonly client: GuardMethodFactory<
-            Factory,
-            InvalidClientMethodKeys<Methods, C, X>
-          >;
-        }
-      : { readonly client: never }
-    : { readonly client: never }
-  : unknown;
-
-/**
- * What every model factory may not return: a core operation or `then`. That
- * each returned member is a function is the definition's own factory type
- * (`ModelMethodFactory` returns an `ExtensionMethodRecord`), not this guard;
- * `object` only keeps the all-optional key list from being a weak type, which
- * would refuse every return that names none of those keys. Stated as a target
- * shape, not a conditional over the factory, so a factory map generic over the
- * client is checked rather than deferred. A method a prior extension put on
- * the model cannot be named here for a client generic over its extension
- * state: the runtime refuses that replacement when the extension is applied.
- */
-type ModelFactoryGuard = (...args: never[]) => object & {
-  readonly [Name in Operations | "$rows" | "then"]?: never;
-};
-
-/**
- * Model keys outside the schema are refused by the definition's own `model`
- * type (its per-schema factory table); this guard checks each factory's
- * methods.
- */
-type ModelFactoriesGuard<Definition> = Definition extends {
-  readonly model: infer Factories;
-}
-  ? {
-      readonly model: {
-        readonly [ModelName in keyof Factories]: ModelFactoryGuard;
-      };
-    }
-  : unknown;
-
-export type ExtensionMethodDefinitionGuard<
-  Definition,
-  C extends VibORMConfig,
-  X extends ExtensionStateConstraint,
-> = ClientFactoryGuard<Definition, C, X> & ModelFactoriesGuard<Definition>;
-
-type ClientMethodsOf<Definition> = Definition extends {
-  readonly client: (...args: never[]) => infer Methods;
-}
-  ? Methods extends object
-    ? Methods
-    : NoMethods
-  : NoMethods;
-
-type ModelMethodsOf<Definition> = Definition extends {
-  readonly model: infer Factories;
-}
-  ? Factories extends object
-    ? {
-        readonly [ModelName in keyof Factories]: Factories[ModelName] extends (
-          ...args: never[]
-        ) => infer Methods
-          ? Methods extends object
-            ? Methods
-            : NoMethods
-          : NoMethods;
-      }
-    : NoMethods
-  : NoMethods;
-
 export type MergeModelMethods<Left extends object, Right extends object> = {
   readonly [ModelName in
     | keyof Left
@@ -399,65 +282,6 @@ export type MergeModelMethods<Left extends object, Right extends object> = {
     : NoMethods) &
     (ModelName extends keyof Right ? Right[ModelName] : NoMethods);
 };
-
-/** Whether one parameter list holds an argument typed other than `never` or `unknown` (`any` counts as typed). */
-type TypedParameters<Given extends readonly unknown[]> = true extends {
-  [Index in keyof Given]: 0 extends 1 & Given[Index]
-    ? true
-    : [Given[Index]] extends [never]
-      ? false
-      : unknown extends Given[Index]
-        ? false
-        : true;
-}[number]
-  ? true
-  : false;
-
-/**
- * Whether a client or model factory is typed against the client it is
- * applied to: one of its signatures takes an argument typed other than
- * `never` or `unknown`. A factory that takes none reads nothing typed at its
- * step, so a later `rows` or `defaultOmit` cannot make its types lie: its
- * methods type their results from the client they are called on (a `this`
- * parameter), and it is no result consumer. Matched against four
- * signatures, so an overloaded factory is read by its last four (one
- * signature repeats).
- */
-type ReadsTyped<Factory> = Factory extends {
-  (...args: infer First): unknown;
-  (...args: infer Second): unknown;
-  (...args: infer Third): unknown;
-  (...args: infer Fourth): unknown;
-}
-  ? true extends
-      | TypedParameters<First>
-      | TypedParameters<Second>
-      | TypedParameters<Third>
-      | TypedParameters<Fourth>
-    ? true
-    : false
-  : true;
-
-type TypedFactories<Definition> =
-  | (Definition extends { readonly client: infer Factory }
-      ? ReadsTyped<Factory>
-      : false)
-  | (Definition extends { readonly model: infer Factories }
-      ? Factories extends object
-        ? {
-            [ModelName in keyof Factories]: ReadsTyped<Factories[ModelName]>;
-          }[keyof Factories]
-        : true
-      : false);
-
-export type ResultConsumerContextOf<Definition> =
-  true extends TypedFactories<Definition>
-    ? "result-consuming"
-    : Definition extends { readonly query: infer Query }
-      ? Query extends CallableFunction
-        ? "result-independent"
-        : "result-consuming"
-      : "result-independent";
 
 /** Incoming facts keep their nominal bit derivation inside this named state. */
 export interface ExtensionContributionState<
@@ -469,10 +293,11 @@ export interface ExtensionContributionState<
   ConsumerContext extends string,
   // Defaulted: 1.3.3 exported this state with six parameters.
   Result extends object = Record<never, never>,
+  CacheState extends ExtensionCacheState | undefined = undefined,
 > extends ExtensionStateConstraint {
   readonly client: ClientMethods;
   readonly models: ModelMethods;
-  readonly cache: undefined;
+  readonly cache: CacheState;
   readonly resultConsumer: ConsumerContext extends "result-consuming"
     ? ExtensionResultConsumerState
     : undefined;
@@ -482,21 +307,6 @@ export interface ExtensionContributionState<
   readonly result: Result;
 }
 
-/** Retain contribution facts, never the factory's contextual argument surface. */
-export type ExtensionStateContributionOf<Definition> = [Definition] extends [
-  unknown,
-]
-  ? ExtensionContributionState<
-      ClientMethodsOf<Definition>,
-      ModelMethodsOf<Definition>,
-      DefinitionControls<Definition>,
-      RowsModels<Definition>,
-      DefinitionData<Definition>,
-      ResultConsumerContextOf<Definition>,
-      DefinitionResultFields<Definition>
-    >
-  : never;
-
 /** Accumulate the same seven facts lazily, without retaining callback definitions. */
 export interface AccumulatedExtensionState<
   X extends ExtensionStateConstraint,
@@ -504,7 +314,9 @@ export interface AccumulatedExtensionState<
 > extends ExtensionStateConstraint {
   readonly client: X["client"] & Contribution["client"];
   readonly models: MergeModelMethods<X["models"], Contribution["models"]>;
-  readonly cache: X["cache"];
+  readonly cache: [Contribution["cache"]] extends [ExtensionCacheState]
+    ? ExtensionCacheState
+    : X["cache"];
   readonly resultConsumer: HasResultConsumingExtension<Contribution> extends true
     ? ExtensionResultConsumerState
     : X["resultConsumer"];
@@ -513,12 +325,6 @@ export interface AccumulatedExtensionState<
   readonly data: X["data"] | Contribution["data"];
   readonly result: MergeResultFields<X["result"], Contribution["result"]>;
 }
-
-/** Public compatibility surface: the incoming argument remains a definition. */
-export type MergeExtensionState<
-  X extends ExtensionStateConstraint,
-  Definition,
-> = AccumulatedExtensionState<X, ExtensionStateContributionOf<Definition>>;
 
 type MethodRecord = Readonly<Record<string, RuntimeExtensionMethodFunction>>;
 
@@ -553,46 +359,20 @@ function readMethodRecord(
   label: string,
   extension: string
 ): Record<string, RuntimeExtensionMethodFunction> {
-  if (!isRecord(value)) {
+  if (!isRecord(value))
     extensionError(
       `Extension "${extension}" ${label} factory must return an object.`,
       extension
     );
-  }
   const methods: Record<string, RuntimeExtensionMethodFunction> =
     Object.create(null);
-  let names: PropertyKey[];
-  try {
-    names = Reflect.ownKeys(value);
-  } catch (cause) {
-    throw new ClientInitializationError(
-      `Extension "${extension}" ${label} methods could not be inspected.`,
-      { cause: errorCause(cause), meta: { extension } }
-    );
-  }
-  for (const name of names) {
-    if (typeof name !== "string") {
-      extensionError(
-        `Extension "${extension}" ${label} returned a non-string method key.`,
-        extension
-      );
-    }
-    let method: unknown;
-    try {
-      method = value[name];
-    } catch (cause) {
-      throw new ClientInitializationError(
-        `Extension "${extension}" ${label} method "${name}" could not be read.`,
-        { cause: errorCause(cause), meta: { extension } }
-      );
-    }
-    if (!isFunction(method)) {
+  for (const [name, method] of Object.entries(value)) {
+    if (!isFunction(method))
       extensionError(
         `Extension "${extension}" ${label} method "${name}" must be a function.`,
         extension
       );
-    }
-    methods[name] = bindExtensionMethod(method);
+    methods[name] = method;
   }
   return methods;
 }
@@ -616,12 +396,6 @@ function invokeFactory(
       { cause: errorCause(cause), meta: { extension } }
     );
   }
-}
-
-function bindExtensionMethod(
-  method: RuntimeExtensionMethodFunction
-): RuntimeExtensionMethodFunction {
-  return (...args: never[]) => Reflect.apply(method, undefined, args);
 }
 
 /** The methods before one extension with its own added, each name checked. */

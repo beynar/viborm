@@ -25,12 +25,16 @@ export interface OperationExecutionContext {
 const officialCapability = (chain: ResolvedExtensionChain | undefined) =>
   chain?.observes?.capability(chain);
 
+/** What an error of a call on `chain` may carry: its `disclosure`, else the observer's. */
+const disclosureOf = (chain: ResolvedExtensionChain | undefined) =>
+  chain?.disclosure ?? officialCapability(chain)?.diagnostics;
+
 export function createOperationExecutionContext(
   model: string,
   operation: Operation | string,
   extensionChain?: ResolvedExtensionChain
 ): QueryExecutionContext {
-  const disclosure = officialCapability(extensionChain)?.diagnostics;
+  const disclosure = disclosureOf(extensionChain);
   // Capture before asynchronous request/plan/provider work, and allocate no stack by default.
   const origin =
     disclosure?.includeCallsite === true
@@ -69,9 +73,7 @@ export function withOperationErrorContext<T>(
 ): Promise<T> {
   const callsite = getExecutionCallsite(context);
   if (callsite === undefined) return execute();
-  const diagnostics = officialCapability(
-    getExecutionExtensionChain(context)
-  )?.diagnostics;
+  const diagnostics = disclosureOf(getExecutionExtensionChain(context));
   const annotate = (error: unknown): never => {
     throw error instanceof VibORMError
       ? attachExecutionContext(error, {
@@ -198,9 +200,9 @@ export async function observeTransactionBatchPhase<R>(
   driver: AnyDriver,
   execute: () => R | Promise<R>
 ): Promise<R> {
-  const diagnostics = officialCapability(
+  const diagnostics = disclosureOf(
     getExecutionExtensionChain(executionContext)
-  )?.diagnostics;
+  );
   try {
     return await execute();
   } catch (error) {

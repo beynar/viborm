@@ -1,44 +1,65 @@
-export type { ExtensionPart } from "./chain";
-export { controlsPart } from "./controls";
-export {
-  defineExtension,
-  defineFilters,
-  defineHooks,
-  defineWith,
-  enableExtensions,
-} from "./define";
-export type { ClientExtension } from "./definition";
-export { methodsPart } from "./methods";
+/**
+ * The public vocabulary of extensions: `extension(name, ...parts)` and the
+ * builders of its parts, each in its own module so a program carries only
+ * what it imports.
+ */
+export { accepts, args, bound, oneOf } from "./args";
+export { around, call } from "./call";
+export { again, settled, via, watch } from "./call-words";
 export type {
-  ObservationCompletion,
-  ObservationUnit,
-  ObservedFacts,
-  ObserveHandler,
-} from "./observation";
-export { observePart } from "./observation";
-export type {
-  ObservationNeed,
-  OfficialLifecycleFacts as ObservationFacts,
-  OfficialObservationCapability as ObservesDeclaration,
-} from "./official-facts";
+  Accepted,
+  AnyFacts,
+  AnyTarget,
+  ArgTest,
+  BoundAccepted,
+  CallContext,
+  CallResult,
+  ConfiguredBy,
+  EmptyFacts,
+  Extension,
+  Facts,
+  GenericCallContext,
+  OperationSet,
+  Outcome,
+  Part,
+  Parts,
+  Run,
+  Selection,
+  Target,
+  TargetOf,
+  UnitContext,
+  UnitKind,
+  UnitOutcome,
+  Watcher,
+  With,
+} from "./contract";
+export { defaults, omitted } from "./defaults";
+export { type DisclosurePolicy, disclosure } from "./disclosure";
+export { extension } from "./extension";
+export { fields } from "./fields";
+export { check, facts, gate, keep } from "./judge-words";
+export { methods } from "./methods-part";
+export { deletes, models, reads, selecting, target, writes } from "./on";
+export { parts } from "./parts";
 export type { WriteOutcome } from "./query";
-export { queryPart } from "./query";
-export { requestPart } from "./request";
-export { resultPart } from "./result";
-export { rowsPart, verbsPart } from "./rows-part";
-export type { StatementContext, StatementHandler } from "./statement";
-export { statementPart } from "./statement";
-export type {
-  RetryHandler,
-  RouteHandler,
-  TransactionHandler,
-  UnitCall,
-} from "./units";
-export { unitPart } from "./units";
-export type {
-  WriteKind,
-  WrittenCall,
-  WrittenHandler,
-  WrittenWatch,
-} from "./written";
-export { writtenPart } from "./written";
+export { rule } from "./rule";
+export {
+  arg,
+  exists,
+  nothing,
+  now,
+  provided,
+  row,
+  unless,
+  when,
+} from "./rule-words";
+export { unit } from "./unit";
+export {
+  driver,
+  failure,
+  parameters,
+  run,
+  statement,
+  text,
+} from "./unit-words";
+export type { WriteKind } from "./written";

@@ -4,6 +4,7 @@
  * every other call.
  */
 import { isFunction } from "@validation/value-guards";
+import type { runFirstMoments } from "./call";
 import type { Application } from "./chain";
 import type {
   ResolvedExtensionChain,
@@ -11,7 +12,6 @@ import type {
   ResolvedOperationHandler,
 } from "./chain-state";
 import type { RuntimeExtensionDefinition } from "./definition";
-import type { applyRequestTransforms } from "./request";
 
 /** A compiled lookup, and the handlers one call runs. */
 export interface OperationHandlers extends ResolvedExtensionOperationLookup {
@@ -27,7 +27,7 @@ export interface OperationHandlers extends ResolvedExtensionOperationLookup {
 }
 
 export interface RequestHandlers extends OperationHandlers {
-  readonly apply: typeof applyRequestTransforms;
+  readonly apply: typeof runFirstMoments;
 }
 
 /**

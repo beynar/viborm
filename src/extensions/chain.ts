@@ -1,20 +1,15 @@
 /**
  * The one mechanism that hosts extensions. A chain is the ordered list of the
  * extensions applied to a client, with what the parts each was built from
- * wrote on it. The chain knows no member: a definition carries its parts
- * (`withParts`), each part reads its members and writes its own state, and
- * a program that builds no part of a kind holds no code of that kind.
+ * wrote on it. The chain knows no member: an extension value carries its
+ * parts (`extension.ts`), each part reads what its builder wrote and writes
+ * its own state, and a program that builds no part of a kind holds no code
+ * of that kind.
  */
 import type { Schema } from "@client/types";
 import type { SchemaRegistryLookup } from "@validation/types";
 import type { ResolvedExtensionChain } from "./chain-state";
-import {
-  type ExtensionDefinitionInput,
-  extensionError,
-  normalizeExtensionDefinition,
-  type RuntimeExtensionDefinition,
-} from "./definition";
-import { extensionParts, PartCarrier } from "./host-slot";
+import { extensionError, type RuntimeExtensionDefinition } from "./definition";
 
 export type * from "./chain-state";
 
@@ -24,7 +19,7 @@ type Draft = {
 
 /** One application of one definition: what a part reads and writes. */
 export interface Application {
-  /** The definition as written, once read: what an `admit` recognizes. */
+  /** The definition as its parts wrote it: what an `admit` recognizes. */
   readonly declared: RuntimeExtensionDefinition;
   /** The definition as the parts read it: a part's `admit` may replace it. */
   definition: RuntimeExtensionDefinition;
@@ -44,7 +39,7 @@ export interface Application {
  * order the parts were named in.
  */
 export interface ExtensionPart {
-  /** The members of a definition this part reads. */
+  /** The members of a definition this part reads: said for the reader only. */
   readonly members?: readonly string[];
   /** The parts this one needs beside it, brought with it. */
   readonly uses?: readonly ExtensionPart[];
@@ -53,7 +48,7 @@ export interface ExtensionPart {
    * definition was built with: what must follow the chain, not a definition.
    */
   readonly carry?: boolean;
-  /** Brought into the program when a definition is built with this part. */
+  /** Brought into the program when an extension is built with this part. */
   readonly bring?: () => void;
   /** Refuse the definition, or replace it, before its name is checked. */
   readonly admit?: (application: Application) => void;
@@ -64,12 +59,12 @@ export interface ExtensionPart {
   readonly seal?: (application: Application) => void;
 }
 
-/** The parts a definition was built with, and what applies it to a chain. */
+/** The parts an extension was built with, and what applies it to a chain. */
 export interface PartSet {
   readonly parts: readonly ExtensionPart[];
   readonly append: (
     chain: ResolvedExtensionChain | undefined,
-    value: ExtensionDefinitionInput,
+    definition: RuntimeExtensionDefinition,
     schema: Schema,
     registry?: SchemaRegistryLookup<Schema>
   ) => ResolvedExtensionChain;
@@ -86,50 +81,22 @@ export function partSet(parts: readonly ExtensionPart[]): PartSet {
   for (const part of parts) add(part);
   const set: PartSet = Object.freeze({
     parts: Object.freeze([...all]),
-    append: (chain, value, schema, registry) =>
-      appendWith(set, chain, value, schema, registry),
+    append: (chain, definition, schema, registry) =>
+      appendWith(set, chain, definition, schema, registry),
   });
   return set;
-}
-
-/**
- * `definition` built with `parts`: a copy that inherits them, so its own
- * members are exactly the definition's and a spread of it is a plain object
- * again. Each part brings what it needs into the program.
- */
-export function withParts<Definition extends object>(
-  definition: Definition,
-  parts: readonly ExtensionPart[]
-): Definition {
-  const set = partSet(parts);
-  for (const part of set.parts) part.bring?.();
-  const built = { ...definition };
-  Object.setPrototypeOf(built, Object.freeze(new PartCarrier(set)));
-  Object.freeze(built);
-  return built;
-}
-
-/** `chain` with one more definition, applied by the parts it carries. */
-export function appendResolvedExtension(
-  chain: ResolvedExtensionChain | undefined,
-  value: ExtensionDefinitionInput,
-  schema: Schema,
-  registry?: SchemaRegistryLookup<Schema>
-): ResolvedExtensionChain {
-  return extensionParts(value).append(chain, value, schema, registry);
 }
 
 function appendWith(
   set: PartSet,
   chain: ResolvedExtensionChain | undefined,
-  value: ExtensionDefinitionInput,
+  definition: RuntimeExtensionDefinition,
   schema: Schema,
   registry: SchemaRegistryLookup<Schema> | undefined
 ): ResolvedExtensionChain {
   const parts = chain?.carried
     ? [...new Set([...chain.carried, ...set.parts])]
     : set.parts;
-  const definition = normalizeExtensionDefinition(value, schema, registry);
   const { name } = definition;
   const next: Draft = { ...chain, extensions: chain?.extensions ?? [] };
   const application: Application = {
@@ -147,16 +114,6 @@ function appendWith(
       `Extension "${name}" is already present on this client.`,
       name
     );
-  }
-  for (const member of Object.keys(application.definition)) {
-    if (
-      member !== "name" &&
-      !set.parts.some((part) => part.members?.includes(member))
-    )
-      extensionError(
-        `Extension "${name}" declares ${member}, which none of the parts it was built with reads: build it with defineExtension().`,
-        name
-      );
   }
   next.extensions = Object.freeze([
     ...next.extensions,

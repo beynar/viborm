@@ -1,15 +1,14 @@
-// The `written` point: a definition is told the rows a write call wrote.
-// The engine shows them (`@query-engine/write-sinks`); this is what a
-// definition declares and how a chain's declarations watch one call.
+// What watches the rows a write call wrote: `watch` and `settled` in a
+// `call`'s first moment register a watch; the engine shows the rows
+// (`@query-engine/write-sinks`), and this tells each watch.
 
 import type { QueryExecutionContext } from "@drivers/types";
 import { type WriteKind, writeSinks } from "@query-engine/write-sinks";
 
 export type { WriteKind } from "@query-engine/write-sinks";
 
-import type { ExtensionPart, ResolvedOperationHandler } from "./chain";
+import type { ResolvedOperationHandler } from "./chain";
 import { type AdmittedControls, controlsOwnedBy } from "./controls";
-import { ARRAYS, coordinate } from "./coordination";
 import {
   publishWriteOutcomes,
   type WriteOutcome,
@@ -28,6 +27,8 @@ export interface WrittenCall {
   readonly args: Readonly<Record<string, unknown>>;
   /** The call's controls this extension declares, and only those. */
   readonly controls?: AdmittedControls;
+  /** One object per call: what its first moments registered watches under. */
+  readonly call?: object;
 }
 
 /** What watches one write call. */
@@ -200,29 +201,3 @@ export interface WrittenHandlers {
     late: (settle: () => Promise<void>) => void
   ) => WriteOutcomeRegistration | undefined;
 }
-
-/** `written`: the rows a write call wrote, then its commit. */
-export const writtenPart: ExtensionPart = {
-  members: ["written"],
-  join({ next, chain, definition, owner }) {
-    if (definition.written === undefined) return;
-    const handlers = Object.freeze([
-      ...(chain?.written?.handlers ?? []),
-      Object.freeze(
-        owner.controls === undefined
-          ? { extension: owner.name, handler: definition.written }
-          : {
-              extension: owner.name,
-              handler: definition.written,
-              controls: owner.controls,
-            }
-      ),
-    ]);
-    next.written = Object.freeze({
-      handlers,
-      watch: (call, controls, context, cached, late) =>
-        watchWrite(handlers, call, controls, context, cached, late),
-    });
-    coordinate(next, ARRAYS);
-  },
-};

@@ -908,7 +908,11 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
   protected getErrorDisclosure(
     context?: QueryExecutionContext
   ): DiagnosticDisclosure {
-    return readOfficialCapability(context)?.diagnostics ?? EMPTY_DISCLOSURE;
+    return (
+      getExecutionExtensionChain(context)?.disclosure ??
+      readOfficialCapability(context)?.diagnostics ??
+      EMPTY_DISCLOSURE
+    );
   }
 }
 

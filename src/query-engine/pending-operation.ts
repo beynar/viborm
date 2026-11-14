@@ -128,13 +128,16 @@ function combineWriteNotifications(
  */
 export type PrepareOperationInput = (
   args: Record<string, unknown>,
-  controls: AdmittedControls | undefined
+  controls: AdmittedControls | undefined,
+  /** One object per call: what an extension's two moments of it share. */
+  call: object
 ) => Record<string, unknown>;
 
 /** Package-owned write listener prepared only after the operation input is trusted. */
 export type PrepareWriteOutcomeRegistration = (
   context: QueryExecutionContext,
-  controls: AdmittedControls | undefined
+  controls: AdmittedControls | undefined,
+  call: object | undefined
 ) => WriteOutcomeRegistration | undefined;
 
 interface OperationInputPreparation {
@@ -478,7 +481,8 @@ export class PendingOperation<T>
       );
       const args = preparation.prepare(
         admission?.args ?? this.#args,
-        admission?.controls
+        admission?.controls,
+        preparation
       );
       preparation.args = args;
       preparation.controls = admission?.controls;
@@ -498,7 +502,8 @@ export class PendingOperation<T>
     }
     this.#writeOutcomeRegistration = this.#prepareWriteOutcomeRegistration?.(
       this.#context.attribution,
-      this.#inputPreparation?.controls
+      this.#inputPreparation?.controls,
+      this.#inputPreparation
     );
     this.#writeOutcomeRegistrationResolved = true;
     return this.#writeOutcomeRegistration;
@@ -596,6 +601,7 @@ export class PendingOperation<T>
         return input;
       },
       ...(controls === undefined ? {} : { controls }),
+      call: this.#inputPreparation,
     });
   }
 
@@ -728,9 +734,9 @@ export class PendingOperation<T>
     return coordination.executePreparedQuery<T, Record<string, unknown>>(
       context,
       handlers,
-      (notifications) =>
+      (notifications, driver) =>
         this.#runCoreExecution(
-          driverOverride,
+          driver ?? driverOverride,
           combineWriteNotifications(
             committedWriteSegment,
             combineWriteNotifications(

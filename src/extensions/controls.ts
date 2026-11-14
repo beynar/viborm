@@ -1,4 +1,3 @@
-import { isCanonicalKeyData } from "@cache/key";
 import type {
   CacheableOperations,
   MutationOperations,
@@ -57,7 +56,12 @@ export type ControlDeclaration = (
   | { readonly schema: StandardSchemaV1 }
 ) & {
   readonly on?: ControlPlacement;
-  readonly required?: boolean;
+  /** The models that accept it; every model when absent. */
+  readonly models?: readonly string[];
+  /** Refused when absent: on the models named, or as the doc above says. */
+  readonly required?: boolean | readonly string[];
+  /** The value a call that passes none reads. */
+  readonly default?: ControlLiteral;
   readonly bound?: boolean;
   readonly uncacheable?: boolean;
 };
@@ -472,13 +476,24 @@ export function placeControls(
   const requiredOn = named.size === 0 ? true : named;
   for (const [name, declaration] of Object.entries(controls ?? {})) {
     const removes = Object.hasOwn(removeWhen, name);
+    const { required } = declaration;
     placed.push({
       name,
       extension,
       declaration,
       operations: removes ? DELETE_OPERATIONS : placementOf(declaration.on),
-      models: removes ? managed : undefined,
-      required: declaration.required === true ? requiredOn : undefined,
+      models: removes
+        ? managed
+        : declaration.models && new Set(declaration.models),
+      required:
+        required === true
+          ? requiredOn
+          : Array.isArray(required)
+            ? new Set(required)
+            : undefined,
+      ...(declaration.default !== undefined && {
+        fallback: declaration.default,
+      }),
       ...(declaration.bound === true && { bound: true }),
       ...(declaration.uncacheable === true && { uncacheable: true }),
     });
@@ -527,105 +542,6 @@ export interface ControlAdmission {
   readonly controls: AdmittedControls | undefined;
 }
 
-/** The admitted values {@link snapshotControlValue} copied: the stable ones. */
-const snapshots = new WeakSet<object>();
-
-/**
- * An admitted value as the call holds it from here on. Plain data is copied
- * once and frozen, so every reader of the call's controls (the rows its
- * filters bind, the key its cached read is stored under, its handlers) reads
- * the same value whatever the caller later does to its own. A value already
- * fixed all the way down is kept by identity. A value a copy would change
- * (a non-enumerable or symbol property, which `structuredClone` drops; a
- * getter, whose answer only calling it shows), one that resists inspection,
- * one with no canonical spelling, or one that cannot be copied (a Proxy), is
- * kept as given, as are bytes (an indexed write survives `freeze`); a copy
- * that still holds a `Date` is kept but not stable (`setTime` survives it). In
- * those cases the call binds the value for itself alone and its read is not
- * cached.
- */
-export function snapshotControlValue(value: unknown): unknown {
-  if (typeof value !== "object" || value === null) return value;
-  if (!isCanonicalKeyData(value)) return value;
-  let capture: ReturnType<typeof captureOf>;
-  try {
-    capture = captureOf(value, new WeakSet());
-  } catch {
-    // A Proxy may answer the canonical check and refuse a later reflection.
-    return value;
-  }
-  if (capture === "opaque") return value;
-  if (capture === "fixed") {
-    snapshots.add(value);
-    return value;
-  }
-  let copy: object;
-  try {
-    copy = structuredClone(value);
-  } catch {
-    return value;
-  }
-  if (freezeCopy(copy)) snapshots.add(copy);
-  return copy;
-}
-
-/**
- * How an admitted value can be held: `fixed` when nothing reachable from it
- * can change (frozen own data properties only, no `Date`), `copy` when a
- * copy reproduces it (enumerable string-keyed data properties), `opaque`
- * when a copy might not (a non-enumerable or symbol property, or a getter,
- * never called here) or would not fix it (bytes).
- */
-function captureOf(
-  value: object,
-  seen: WeakSet<object>
-): "fixed" | "copy" | "opaque" {
-  // Bytes are never stable (an indexed write survives `freeze`), and their
-  // own properties are one per byte: kept as given, unread.
-  if (ArrayBuffer.isView(value)) return "opaque";
-  if (seen.has(value)) return "fixed";
-  seen.add(value);
-  let capture: "fixed" | "copy" =
-    value instanceof Date || !Object.isFrozen(value) ? "copy" : "fixed";
-  const array = Array.isArray(value);
-  for (const key of Reflect.ownKeys(value)) {
-    if (array && key === "length") continue;
-    const descriptor = Object.getOwnPropertyDescriptor(value, key)!;
-    if (
-      typeof key === "symbol" ||
-      !descriptor.enumerable ||
-      !("value" in descriptor)
-    )
-      return "opaque";
-    const entry: unknown = descriptor.value;
-    if (typeof entry !== "object" || entry === null) continue;
-    const inner = captureOf(entry, seen);
-    if (inner === "opaque") return "opaque";
-    if (inner === "copy") capture = "copy";
-  }
-  return capture;
-}
-
-/** Freeze a private copy; answer whether nothing in it can still change. */
-function freezeCopy(value: object): boolean {
-  if (value instanceof Date) return false;
-  let fixed = true;
-  for (const entry of Object.values(value))
-    if (typeof entry === "object" && entry !== null && !freezeCopy(entry))
-      fixed = false;
-  Object.freeze(value);
-  return fixed;
-}
-
-/**
- * Whether a control value is the one admission fixed: a primitive, or plain
- * data {@link snapshotControlValue} copied. Only such a value may key anything that
- * outlives the call (a bound-facts memo, a cache entry).
- */
-export function isStableControlValue(value: unknown): boolean {
-  return typeof value !== "object" || value === null || snapshots.has(value);
-}
-
 /**
  * Remove every control placed on this operation from its arguments and admit
  * each once, before any request handler runs. A key naming a control placed
@@ -646,41 +562,28 @@ export function admitControls(
   if (typeof input !== "object" || input === null) {
     return { args: input, controls: undefined };
   }
-  let keys: PropertyKey[];
-  try {
-    keys = Reflect.ownKeys(input);
-  } catch (cause) {
-    throw controlFailure(
-      `The arguments of ${model}.${operation} could not be inspected for controls`,
-      model,
-      operation,
-      cause
-    );
-  }
   const admitted: [string, unknown][] = [];
-  let given: Set<PropertyKey> | undefined;
+  let args: Record<string, unknown> | undefined;
   for (const control of placed) {
     const { name, required } = control;
     let raw: unknown;
-    if (control.bound !== true && keys.includes(name)) {
-      (given ??= new Set()).add(name);
-      raw = readControl(input, control, model, operation);
+    if (control.bound !== true && Object.hasOwn(input, name)) {
+      raw = input[name];
+      args ??= { ...input };
+      delete args[name];
     }
     // A bound value was admitted and fixed once, when its view was bound.
     const value =
       raw === undefined
         ? (bound?.[name] ?? control.fallback)
-        : snapshotControlValue(admitControl(control, raw, model, operation));
+        : admitControl(control, raw, model, operation);
     if (value !== undefined) admitted.push([name, value]);
     else if (required === true || required?.has(model)) {
       throw invalidControl(control, model, operation, ["is required"]);
     }
   }
   return {
-    args:
-      given === undefined
-        ? input
-        : withoutControls(input, keys, given, model, operation),
+    args: args ?? input,
     controls:
       admitted.length === 0
         ? undefined
@@ -706,7 +609,7 @@ export function bindControls(
         candidate.name === name && candidate.extension === extension
     );
     if (control === undefined) undeclaredBinding(extension, name);
-    next[name] = snapshotControlValue(admitControl(control, raw));
+    next[name] = admitControl(control, raw);
   }
   return Object.freeze(next);
 }
@@ -731,50 +634,6 @@ export function controlsOwnedBy(
     }
   }
   return Object.freeze(Object.fromEntries(owned));
-}
-
-function readControl(
-  input: Record<string, unknown>,
-  control: ResolvedControl,
-  model: string,
-  operation: Operation
-): unknown {
-  try {
-    return Reflect.get(input, control.name);
-  } catch (cause) {
-    throw controlFailure(
-      `Extension "${control.extension}" control "${control.name}" of ${model}.${operation} could not be read`,
-      model,
-      operation,
-      cause
-    );
-  }
-}
-
-/** The caller's arguments minus the controls, every other descriptor kept. */
-function withoutControls(
-  input: Record<string, unknown>,
-  keys: readonly PropertyKey[],
-  controls: ReadonlySet<PropertyKey>,
-  model: string,
-  operation: Operation
-): Record<string, unknown> {
-  const args: Record<string, unknown> = {};
-  try {
-    for (const key of keys) {
-      if (controls.has(key)) continue;
-      const descriptor = Object.getOwnPropertyDescriptor(input, key);
-      if (descriptor) Object.defineProperty(args, key, descriptor);
-    }
-  } catch (cause) {
-    throw controlFailure(
-      `The arguments of ${model}.${operation} could not be inspected for controls`,
-      model,
-      operation,
-      cause
-    );
-  }
-  return args;
 }
 
 /** One value admitted for a call's (model, operation), or, without them, a binding. */
