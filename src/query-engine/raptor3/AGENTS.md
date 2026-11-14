@@ -342,16 +342,19 @@ terms and cursors, `distinct`, aggregates) reads `CASE WHEN <gate> THEN
 <column> END`; inside a layer the column is read as it is. A grouped read,
 and a paged aggregate, of a gated model reads a masked window of its
 filtered rows (`#overMasked`), so the gate is lowered once per row rather
-than once per grouped expression. A grouped read with a time step in
-`by` (`{ column: step }`, `validation/model/args/time-step.ts`) reads the same
-window, gated or not: each period is the adapter's `period.of` computed once
-there as a private date column (`periodColumnKey`), which the grouping and
-the order read and the projection spells through `period.text`; the decoder
-reads that text as a calendar day (`decodePeriod`), since a period may begin
-outside the DateTime domain. Written twice, its zone bound twice,
-PostgreSQL no longer sees one grouped expression. An adapter without
-`period` is refused before any statement (`timeStepUnsupported`). A model whose verbs declare neither keeps
+than once per grouped expression. A model whose verbs declare neither keeps
 its default projection and its bytes.
+
+*Time steps (`groupBy`'s `{ column: step }`, `validation/model/args/time-step.ts`).*
+A grouped read with a time step in `by` reads the same window, gated or not:
+each period is the adapter's `period.of` computed once there as a private
+date column (`periodColumnKey`), which the grouping and the order read and
+the projection spells through `period.text`. Written twice, its zone bound
+twice, PostgreSQL no longer sees one grouped expression. The decoder reads
+that text as a calendar day (`decodePeriod`), since a period may begin
+outside the DateTime domain; its leaf has no declaring scalar, and the cache
+codec has its own arm for it (`periodCodec`). An adapter without `period` is
+refused before any statement (`timeStepUnsupported`).
 
 *Tombstones (extension `deletion`, plan v3.1 §2.3).* A call whose facts carry
 `tombstones` (absent when its controls matched `removeWhen`) writes an update
@@ -1620,7 +1623,7 @@ at admission, in both spellings, with the six grammar refusals and the one
 portable-path rule asked on every dialect; the preparer consumes segments only
 and the SQLite adapter's throw stays the defensive backstop it says it is.
 `groupBy`'s `by` is admitted as an array of columns and `{ column: step }`
-members, read once by `groupedColumn`; a duplicate column in any spelling, a
+members, read through `groupedColumn`; a duplicate column in any spelling, a
 grouped column named like a selected aggregate, a step on a column that is not
 a single date, a `having` comparison of a stepped column and a `timeZone`
 that is not an IANA name are refused there, and a default-only

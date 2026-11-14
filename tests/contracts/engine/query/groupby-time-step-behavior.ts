@@ -1,3 +1,5 @@
+import { MemoryCache } from "@cache/drivers/memory";
+import { cache } from "@cache/extension";
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { ForbiddenError } from "@errors";
@@ -93,6 +95,21 @@ export function runGroupByTimeStepBehavior(
           _count: true,
         })
       ).rejects.toBeInstanceOf(ForbiddenError);
+    });
+
+    test("a cached call answers the same periods, on its miss and its hit", async () => {
+      const args = {
+        by: ["statut" as const, { dueAt: "month" as const }],
+        timeZone: "America/Montreal",
+        _count: true as const,
+        _sum: { montant: true as const },
+      };
+      const expected = await base.facture.groupBy(args);
+      const cached = base
+        .$extends(cache({ driver: new MemoryCache() }))
+        .$withCache({});
+      expect(await cached.facture.groupBy(args)).toEqual(expected);
+      expect(await cached.facture.groupBy(args)).toEqual(expected);
     });
 
     for (const { name, run } of GROUPBY_TIME_STEP_CASES)

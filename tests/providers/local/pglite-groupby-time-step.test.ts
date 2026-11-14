@@ -1,7 +1,7 @@
 /**
  * PGlite: `groupBy` by a time step, in a session whose zone is not UTC. The
- * one connection keeps `SET TIME ZONE`, so every statement runs in Tokyo, and
- * no period may move with it.
+ * one connection keeps `SET TIME ZONE`, so every statement runs in Samoa
+ * (UTC+13/+14, which skipped 2011-12-30), and no period may move with it.
  */
 
 import { createClient } from "@client/client";
@@ -16,12 +16,12 @@ import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 runGroupByTimeStepBehavior({
   name: "PGlite",
   createDriver: createInMemoryPGliteDriver,
-  sessionZone: "Asia/Tokyo",
+  sessionZone: "Pacific/Apia",
   prepare: async (driver, table) => {
     await syncLiveSchema(
       createClient({ schema: groupByTimeStepSchema(table), driver })
     );
-    await driver._executeRaw("SET TIME ZONE 'Asia/Tokyo'");
+    await driver._executeRaw("SET TIME ZONE 'Pacific/Apia'");
   },
 });
 

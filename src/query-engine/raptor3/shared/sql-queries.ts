@@ -5380,22 +5380,14 @@ export class SqlQueries extends Queries {
     grouped: ReadonlySet<string>,
     periods: ReadonlyMap<string, string> | undefined
   ): OrderTerm[] {
-    // A field grouped by a time step sorts by its period, as a column would.
+    // A field grouped by a time step sorts by its period: the column's own
+    // order term (direction, placement, nullability) over the period column.
     const term = (name: string, direction: unknown): OrderTerm => {
+      const ordered = this.#orderTerm(model, name, direction, alias);
       const period = periods?.get(name);
-      if (period === undefined)
-        return this.#orderTerm(model, name, direction, alias);
-      const specification =
-        direction === "asc" || direction === "desc"
-          ? { sort: direction }
-          : (direction as Input);
-      return this.#sortKey(
-        this.#at(alias, period),
-        specification.sort === "desc",
-        specification.nulls as "first" | "last" | undefined,
-        this.physical(model, name).nullable || this.#gatedHere(model, name),
-        name
-      );
+      return period === undefined
+        ? ordered
+        : { ...ordered, expression: this.#at(alias, period) };
     };
     const terms = entries(input ?? {}).flatMap((order) =>
       Object.entries(order).flatMap(([name, direction]) => {

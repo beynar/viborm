@@ -88,7 +88,7 @@ describe("PostgreSQL: one period column per step, its zone bound once", () => {
     );
     expect(statement).toBe(
       [
-        `SELECT "q0"."statut", to_char("q0"."0viborm_period:0", 'YYYY-MM-DD BC') AS "date", to_char("q0"."0viborm_period:1", 'YYYY-MM-DD BC') AS "jour", to_char("q0"."0viborm_period:2", 'YYYY-MM-DD BC') AS "wall",`,
+        `SELECT "q0"."statut", to_char(CAST("q0"."0viborm_period:0" AS TIMESTAMP), 'YYYY-MM-DD BC') AS "date", to_char(CAST("q0"."0viborm_period:1" AS TIMESTAMP), 'YYYY-MM-DD BC') AS "jour", to_char(CAST("q0"."0viborm_period:2" AS TIMESTAMP), 'YYYY-MM-DD BC') AS "wall",`,
         ` COUNT(*) AS "_count", json_build_object($1::text, SUM("q0"."montant")) AS "_sum"`,
         ` FROM (SELECT "q1"."id", "q1"."statut", "q1"."montant", "q1"."date", "q1"."wall", "q1"."jour",`,
         ` CAST(date_trunc('month', ("q1"."date" AT TIME ZONE $2)) AS DATE) AS "0viborm_period:0",`,

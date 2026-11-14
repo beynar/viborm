@@ -45,6 +45,37 @@ describe("groupBy by a time step: types", () => {
     }>();
   });
 
+  test("only keys a member surely names are fields; one arm's key is optional", () => {
+    // A closer spelled `undefined` names nothing: admission strips it.
+    expectTypeOf<
+      Row<{ by: [{ date: "month"; jour: undefined }] }>
+    >().toEqualTypeOf<{ date: string }>();
+    // A member typed as one arm or another: either field may come back.
+    type Either = { date: "month" } | { jour: "year" };
+    expectTypeOf<Row<{ by: ["statut", Either] }>>().toEqualTypeOf<{
+      statut: string;
+      date?: string;
+      jour?: string;
+    }>();
+    // Two members, each its own column: both come back.
+    expectTypeOf<
+      Row<{ by: [{ date: "month" }, { jour: "year" }] }>
+    >().toEqualTypeOf<{ date: string; jour: string }>();
+  });
+
+  test("a generic `by` of columns still compiles, as on main", () => {
+    const _list = <B extends ("statut" | "montant")[]>(by: B) =>
+      client.facture.groupBy({
+        by,
+        _count: true,
+        orderBy: { _count: { id: "desc" } },
+      });
+    const _single = <B extends "statut" | "montant">(by: B) =>
+      client.facture.groupBy({ by, _count: true });
+    expectTypeOf(_list).toBeFunction();
+    expectTypeOf(_single).toBeFunction();
+  });
+
   test("the client call: orderBy names the stepped column; wrong spellings fail", async () => {
     const rows = await client.facture.groupBy({
       by: ["statut", { date: "month" }],
@@ -87,6 +118,13 @@ describe("groupBy by a time step: types", () => {
         // @ts-expect-error - the same member as the single shorthand
         by: heldTypo,
       });
+    // A real column that is not a date, beside the date, held.
+    const heldNotADate = { date: "month", montant: "month" } as const;
+    const _heldNotADate = () =>
+      client.facture.groupBy({
+        // @ts-expect-error - montant is a column, not a date one
+        by: ["statut", heldNotADate],
+      });
     const heldMember = { date: "month" } as const;
     const _heldMember = () =>
       client.facture.groupBy({ by: ["statut", heldMember], _count: true });
@@ -108,6 +146,7 @@ describe("groupBy by a time step: types", () => {
     expectTypeOf(_heldTypoInList).toBeFunction();
     expectTypeOf(_heldTypoAlone).toBeFunction();
     expectTypeOf(_heldMember).toBeFunction();
+    expectTypeOf(_heldNotADate).toBeFunction();
     expectTypeOf(_freshTypo).toBeFunction();
   });
 });

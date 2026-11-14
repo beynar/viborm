@@ -375,6 +375,13 @@ export function booleanCodec(): ValueCodec {
   );
 }
 
+/** A `groupBy` period: the ISO day the decoder already published. */
+export function periodCodec(): ValueCodec {
+  const day = (value: unknown) =>
+    typeof value === "string" ? value : failCacheSnapshot();
+  return primitiveCodec(day, day);
+}
+
 export function numberCodec(): ValueCodec {
   return primitiveCodec(encodeSnapshotNumber, decodeSnapshotNumber);
 }

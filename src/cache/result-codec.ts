@@ -11,6 +11,7 @@ import {
   countCodec,
   nullableCodec,
   numberCodec,
+  periodCodec,
   recordCodec,
   recursiveRelationCodec,
   taggedRelationCodec,
@@ -152,11 +153,12 @@ function shapeCodec(
  * column still publishes `null` for an empty window.
  *
  * The leaves with no declaring scalar are the read owner's OWN values, not a
- * column's meaning: `_count` (including a relation count), `exist`, and the
- * number a non-decimal `_avg` or a `_distance` publishes. Naming those three is
+ * column's meaning: `_count` (including a relation count), `exist`, the
+ * number a non-decimal `_avg` or a `_distance` publishes, and a `groupBy`
+ * period (`Leaf.period`), the day the decoder published. Naming those four is
  * not a second scalar authority.
  *
- * Those three exhaust the scalar-less leaves `Queries` constructs, so the last
+ * Those four exhaust the scalar-less leaves `Queries` constructs, so the last
  * arm names a state this engine cannot be in when it is right: an INVARIANT,
  * not a refusal a caller can reach (N4, plan §4). `Leaf.type` is a `string`
  * because it also carries every declared scalar's type name, so the compiler
@@ -170,7 +172,8 @@ function leafCodec(leaf: Leaf, requestedOperation: string): ValueCodec {
     value = leaf.widened
       ? compileWidenedSumCodec(declared)
       : compileScalarCodec(declared, false);
-  } else if (leaf.type === "boolean") value = booleanCodec();
+  } else if (leaf.period) value = periodCodec();
+  else if (leaf.type === "boolean") value = booleanCodec();
   else if (leaf.type === "int") value = countCodec();
   else if (leaf.type === "number") value = numberCodec();
   else

@@ -34,9 +34,10 @@ export const groupedColumn = (member: GroupByMember): GroupedColumn => {
  * `Area/Location` as the IANA database spells it. An offset (`+05:00`,
  * `UTC+5`) and an abbreviation (`EST`, `CET`) have no slash; `Etc/GMT+5` has
  * one and is refused by name below: like PostgreSQL's `UTC+5`, it means the
- * opposite sign of what it reads.
+ * opposite sign of what it reads. `Etc/UTC` is plain UTC.
  */
 const ZONE_NAME = /^[A-Z][A-Za-z_]*(?:\/[A-Za-z0-9_+-]+)+$/;
+const INVERTED_OFFSET = /^Etc\/GMT[+-]/;
 const known = new Set<string>(["UTC"]);
 
 /**
@@ -47,7 +48,7 @@ const known = new Set<string>(["UTC"]);
  */
 export const isTimeZoneName = (name: string): boolean => {
   if (known.has(name)) return true;
-  if (!ZONE_NAME.test(name) || name.startsWith("Etc/")) return false;
+  if (!ZONE_NAME.test(name) || INVERTED_OFFSET.test(name)) return false;
   try {
     Intl.DateTimeFormat("en-US", { timeZone: name });
   } catch {

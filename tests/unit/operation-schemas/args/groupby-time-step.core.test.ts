@@ -104,6 +104,7 @@ describe("groupBy time step admission", () => {
       "EST",
       "CET",
       "Etc/GMT+5",
+      "Etc/GMT-14",
       "Mars/Olympus",
       "america/montreal",
       "",
@@ -119,7 +120,12 @@ describe("groupBy time step admission", () => {
           path: ["timeZone"],
         },
       ]);
-    for (const timeZone of ["UTC", "America/Montreal", "Asia/Kolkata"])
+    for (const timeZone of [
+      "UTC",
+      "Etc/UTC",
+      "America/Montreal",
+      "Asia/Kolkata",
+    ])
       expect(issue({ by: [{ date: "day" }], timeZone })).toBeUndefined();
     // Without a step a zone changes nothing, and is still checked.
     expect(issue({ by: ["statut"], timeZone: "UTC" })).toBeUndefined();

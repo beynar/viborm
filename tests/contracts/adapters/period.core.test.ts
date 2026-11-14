@@ -112,7 +112,7 @@ describe("PostgreSQL period", () => {
 
   test("the text of a period is to_char's, era included", () => {
     expect(adapter.period.text(column).toStatement("$n")).toBe(
-      `to_char("t"."at", 'YYYY-MM-DD BC')`
+      `to_char(CAST("t"."at" AS TIMESTAMP), 'YYYY-MM-DD BC')`
     );
   });
 

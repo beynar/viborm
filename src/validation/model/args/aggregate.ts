@@ -871,11 +871,11 @@ type StepEntries = Partial<Record<string, TimeStep>>;
 
 /**
  * `{ [column]: step }`: exactly one key, so a union of one-key objects, each
- * closing the other columns (a union alone would admit two keys).
+ * closing every other column (a union alone would admit a second key).
  */
 type TimeStepMember<M extends AnyModel> = {
   [K in TemporalScalarKeys<M>]: { readonly [P in K]: TimeStep } & {
-    readonly [P in Exclude<TemporalScalarKeys<M>, K>]?: never;
+    readonly [P in Exclude<GroupByScalarKeys<M>, K>]?: never;
   };
 }[TemporalScalarKeys<M>];
 

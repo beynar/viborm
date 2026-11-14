@@ -56,6 +56,7 @@ import type {
   InferSelectInclude,
   MergeClientOmit,
   ModelResultSurface,
+  NamedPeriodKeys,
   NodeInclude,
   NodeOmit,
   NodeSelect,
@@ -2212,12 +2213,10 @@ type DirectWriteKeysGuard<
         ClauseGuard<Arg, { update: Record<Keys, unknown> }, "update">
     : unknown;
 
-/** The field a `by` member groups: a column, or the key of `{ column: step }`. */
+/** The field a `by` member groups: a column, or the one `{ column: step }` names. */
 type GroupedField<Member> = Member extends PropertyKey
   ? Member
-  : Member extends object
-    ? keyof Member
-    : never;
+  : NamedPeriodKeys<Member>;
 
 /**
  * groupBy `orderBy` names an aggregate or a field the literal `by` grouped,
@@ -2254,7 +2253,9 @@ type GroupByOrderGuard<
  * groupBy `by` members spelled as `{ column: step }` name model scalars only:
  * a typo beside a real column (`{ date: "month", dtae: "month" }`) is refused
  * when the member is held in a variable too, where excess-property checking
- * does not reach. Column members are strings and spell no key.
+ * does not reach. Column members are strings and spell no key. The columns
+ * arm keeps a generic `by` of columns assignable (a type parameter cannot be
+ * keyed, so the seal alone would refuse it, as `OperatorBagGuard` notes).
  */
 type GroupByMembersGuard<
   O extends Operations,
@@ -2263,10 +2264,13 @@ type GroupByMembersGuard<
 > = O extends "groupBy"
   ? "by" extends keyof Arg
     ? {
-        by?: NoExtraClauseKeys<
-          NonNullable<Arg["by"]>,
-          M["~"]["state"]["scalars"]
-        >;
+        by?:
+          | NoExtraClauseKeys<
+              NonNullable<Arg["by"]>,
+              M["~"]["state"]["scalars"]
+            >
+          | string
+          | readonly string[];
       }
     : unknown
   : unknown;

@@ -1347,16 +1347,50 @@ export type AggregateResultType<T extends ModelShape, Args> = Prettify<
 // =============================================================================
 
 /**
- * The fields a `by` member grouped by a time step publishes: the period's
- * first day as `YYYY-MM-DD`, the string an `s.date()` value is written as,
- * `null` too where the column is nullable (the rows with no date).
+ * The columns a `by` member grouped by a time step names: its keys that are
+ * required and not `undefined` (a closer such as `jour?: never`, or a key
+ * spelled `undefined`, names nothing; admission strips it). Distributive: for
+ * a member typed as a union of arms, every arm's columns.
  */
-type GroupedPeriods<T extends ModelShape, K> = {
-  [F in (K extends object ? keyof K : never) &
-    ScalarKeys<T> &
-    keyof T]: ExtractScalarState<T[F]>["nullable"] extends true
-    ? string | null
-    : string;
+export type NamedPeriodKeys<Member> = Member extends object
+  ? {
+      [P in keyof Member]-?: undefined extends Member[P] ? never : P;
+    }[keyof Member]
+  : never;
+
+/** The columns every arm of a member names: those its rows surely have. */
+type SurePeriodKeys<Member, All = NamedPeriodKeys<Member>> = Exclude<
+  All,
+  Member extends object ? Exclude<All, NamedPeriodKeys<Member>> : All
+>;
+
+type PeriodValue<F> = ExtractScalarState<F>["nullable"] extends true
+  ? string | null
+  : string;
+
+/**
+ * The fields the members of `by` grouped by a time step publish: the
+ * period's first day as `YYYY-MM-DD`, the string an `s.date()` value is
+ * written as, `null` too where the column is nullable (the rows with no
+ * date). In a tuple each member is read on its own, so a column only some
+ * arms of one member name may be absent from a row; the element type of an
+ * array is the members it holds, each present.
+ */
+type GroupedPeriods<
+  T extends ModelShape,
+  B extends readonly unknown[],
+> = number extends B["length"]
+  ? PeriodFields<T, NamedPeriodKeys<B[number]>, never>
+  : PeriodFields<
+      T,
+      { [I in keyof B]: SurePeriodKeys<B[I]> }[number],
+      { [I in keyof B]: NamedPeriodKeys<B[I]> }[number]
+    >;
+
+type PeriodFields<T extends ModelShape, Sure, Named> = {
+  [F in Sure & ScalarKeys<T> & keyof T]: PeriodValue<T[F]>;
+} & {
+  [F in Exclude<Named, Sure> & ScalarKeys<T> & keyof T]?: PeriodValue<T[F]>;
 };
 
 /**
@@ -1371,11 +1405,11 @@ export type GroupByResultType<T extends ModelShape, Args> = Args extends {
       (B extends readonly (infer K)[]
         ? {
             [F in Extract<K, ScalarKeys<T> & keyof T>]: InferScalarBase<T[F]>;
-          } & GroupedPeriods<T, K>
+          } & GroupedPeriods<T, B>
         : B extends ScalarKeys<T> & keyof T
           ? { [F in B]: InferScalarBase<T[F]> }
           : B extends object
-            ? GroupedPeriods<T, B>
+            ? GroupedPeriods<T, [B]>
             : never) &
         // Aggregate fields
         AggregateResultType<T, Args>

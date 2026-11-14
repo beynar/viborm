@@ -79,11 +79,16 @@ The grouping happens in the database, in the one statement.
 
 - **What comes back.** Under the column's name, the first day of the period
   as a `YYYY-MM-DD` string (typed `string`, not `Date`). A week starts on
-  Monday. A nullable column keeps its `null` group.
+  Monday. A nullable column keeps its `null` group. A period that begins
+  outside the years 1 to 9999 keeps the ISO astronomical year: `0000-01-01`
+  for year zero, `-0001-12-27` for the week of 0000-01-01.
 - **`timeZone`.** An IANA name (`"America/Montreal"`, `"Asia/Kolkata"`,
   `"UTC"`), checked before anything is sent: an offset (`"+05:00"`,
-  `"UTC+5"`) or an abbreviation (`"EST"`) is refused. Without it, periods are
-  taken in UTC. The database session's own zone never counts. A column that
+  `"UTC+5"`, `"Etc/GMT+5"`, whose sign reads backwards) or an abbreviation
+  (`"EST"`) is refused. The check uses the zone list of the runtime that makes
+  the call; a database whose time zone data lacks a name (a retired link, a
+  zone newer than its server) still answers with an error. Without it,
+  periods are taken in UTC. The database session's own zone never counts. A column that
   stores an instant (`s.dateTime()`, PostgreSQL `timestamptz`) is placed by
   its day in that zone, daylight-saving changes included. A `s.date()` column,
   or a date and time with no zone (`s.dateTime().withoutTimezone()`,

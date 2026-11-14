@@ -255,8 +255,8 @@ export class PostgresAdapter implements DatabaseAdapter {
    * into one, so the wall time it truncates is always stated: the instant in
    * `zone`, a `timestamp` as stored, a `date` as a `timestamp`. The period is
    * a `date`, grouped and ordered as one, so it keeps its era (year zero is
-   * 1 BC here); its text is `to_char`'s, which no `DateStyle` changes. A
-   * `week` starts on Monday.
+   * 1 BC here); its text is `to_char`'s over a `timestamp`, which neither the
+   * session's `DateStyle` nor its zone changes. A `week` starts on Monday.
    */
   period: PeriodSql = Object.freeze({
     of: (
@@ -272,7 +272,11 @@ export class PostgresAdapter implements DatabaseAdapter {
           : column;
       return sql`CAST(date_trunc(${PERIOD_FIELD[step]}, ${wall}) AS DATE)`;
     },
-    text: (period: Sql): Sql => sql`to_char(${period}, 'YYYY-MM-DD BC')`,
+    // `to_char` has no `date` form: given one, PostgreSQL picks the
+    // `timestamptz` form, whose midnight is the session zone's and may not
+    // exist there (Samoa skipped 2011-12-30). A `timestamp` has no zone.
+    text: (period: Sql): Sql =>
+      sql`to_char(CAST(${period} AS TIMESTAMP), 'YYYY-MM-DD BC')`,
   });
 
   identifiers: DatabaseAdapter["identifiers"];

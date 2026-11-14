@@ -129,6 +129,9 @@ fields; declared model fields shadow `AND`, `OR` and `NOT`, matching
 `WhereSchema`. `RecursiveProjectionRootGuard` keys a nested `select` (fields), `include`
 (relations) and `where` at the key. `OperatorBagGuard` seals root WHERE operator
 bags. `GroupByOrderGuard` keeps groupBy `orderBy` inside `by` and the aggregates.
+`GroupByMembersGuard` seals a groupBy `{ column: step }` member against the
+model's scalars (a held member included), with a columns-only arm that keeps a
+generic `by` of columns assignable.
 The WHERE walk descends every key of a finite value, optional ones included (a
 held filter, a conditional spread), and stops at a `where` object whose type
 states every key of its model's WHERE: that is the payload under any spelling,
