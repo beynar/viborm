@@ -67,7 +67,7 @@ type Entry = Readonly<Record<string, unknown>>;
  * written directly.
  */
 const governed = (
-  entries: Record<string, (() => Entry) | object>,
+  entries: Record<string, (() => unknown) | ReturnType<typeof lazy>>,
   extra: { name?: string; control?: string } = {}
 ) =>
   typed.extension(
