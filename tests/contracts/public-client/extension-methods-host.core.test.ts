@@ -160,12 +160,11 @@ describe("call: what a first moment returns", () => {
       return error;
     };
     expect(await refused("async", async () => undefined)).toMatchObject({
-      message:
-        'Extension "async" request handler for post.findMany returned a promise.',
+      message: 'Extension "async" first moment for post.findMany returned a promise.',
     });
     expect(await refused("wraps", () => () => undefined)).toMatchObject({
       message:
-        'Extension "wraps" request handler for post.findMany returned a function: write around().',
+        'Extension "wraps" first moment for post.findMany returned a function: write around().',
     });
   });
 });

@@ -606,7 +606,7 @@ describe("array query admission", () => {
     // The protocol failure is primary (the aggregate that also carried the
     // handler's later failure is no longer promised).
     expect(primaryOf(failure)).toMatchObject({
-      message: expect.stringContaining("called proceed more than once"),
+      message: expect.stringContaining("called run() more than once"),
     });
     expect(driver.events).toEqual([]);
   });

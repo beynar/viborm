@@ -164,7 +164,7 @@ class KeyRecordingCache extends MemoryCache {
   }
 }
 
-const NAMED_CONTROL = /named control "(reason|deleted)"/;
+const NAMED_CONTROL = /set argument "(reason|deleted)"/;
 
 const softRows = {
   name: "rows",

@@ -10,7 +10,7 @@ import {
   type AroundRunner,
   type PreparedModelQueryContext,
   type PreparedRawQueryContext,
-  runCompiledQueryInterceptors,
+  runArounds,
   type WriteOutcomeRegistration,
 } from "@extensions/query";
 
@@ -66,12 +66,7 @@ const exact: ResolvedOperationHandler<AroundRunner> = {
 
 const capture = (_registration: WriteOutcomeRegistration): void => undefined;
 const child = async (): Promise<Rows> => [{ id: "post-1" }];
-const intercepted = runCompiledQueryInterceptors(
-  context,
-  [exact],
-  child,
-  capture
-);
+const intercepted = runArounds(context, [exact], child, capture);
 type _resultIsTheChilds = Expect<Equal<typeof intercepted, Promise<Rows>>>;
 
 const rawContext: PreparedRawQueryContext<Record<string, never>> =
@@ -82,10 +77,5 @@ const rawContext: PreparedRawQueryContext<Record<string, never>> =
     operation: "$queryRaw",
     input: Object.freeze({}),
   });
-const rawResult = runCompiledQueryInterceptors(
-  rawContext,
-  [exact],
-  child,
-  capture
-);
+const rawResult = runArounds(rawContext, [exact], child, capture);
 type _rawResultIsTheChilds = Expect<Equal<typeof rawResult, Promise<Rows>>>;

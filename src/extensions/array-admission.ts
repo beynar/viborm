@@ -15,8 +15,8 @@ import {
   transactionOperationOwner,
 } from "@query-engine/transaction-operation";
 import type {
+  AroundExecutionControl,
   executePreparedQuery,
-  QueryInterceptorExecutionControl,
   TransactionWriteOutcomes,
   WriteOutcomeNotifications,
 } from "./query";
@@ -78,7 +78,7 @@ export async function admitArrayQueries<Slot extends AdmissionSlot>(
   start: (
     slot: Slot,
     child: (notifications?: WriteOutcomeNotifications) => Promise<unknown>,
-    control: QueryInterceptorExecutionControl
+    control: AroundExecutionControl
   ) => Promise<unknown>
 ): Promise<readonly unknown[] | undefined> {
   let failed: { readonly failure: unknown } | undefined;

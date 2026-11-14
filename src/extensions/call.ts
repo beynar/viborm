@@ -130,7 +130,7 @@ function firstOf(
   ) => {
     const refusal = (problem: string, cause?: unknown) =>
       new QueryError(
-        `Extension "${extension}" request handler for ${model === undefined ? operation : `${model}.${operation}`} ${problem}.`,
+        `Extension "${extension}" first moment for ${model === undefined ? operation : `${model}.${operation}`} ${problem}.`,
         { cause: errorCause(cause), meta: { model, operation } }
       );
     let returned: unknown;
@@ -154,7 +154,7 @@ function firstOf(
               throw refusal(
                 shape
                   ? `set "${key}", which decides the result's shape`
-                  : `named control "${key}"`
+                  : `set argument "${key}"`
               );
           }
           state.args = Object.freeze({ ...state.args, ...patch });

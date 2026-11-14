@@ -8,9 +8,9 @@
  * `findUniqueOrThrow` / `findFirstOrThrow` differently (its set omits them), so a
  * substitution would change the OBSERVABLE interception contract.
  *
- * `src/extensions/query.ts#requiresProceed` is where that classification is observable
- * through the public client: a model interceptor in `direct` mode may answer a READ
- * without calling `proceed()`, and must be refused ("completed without proceed") for
+ * `src/extensions/query.ts#requiresRun` is where that classification is observable
+ * through the public client: an `around` part in `direct` mode may answer a READ
+ * without calling `run()`, and must be refused ("returned without run()") for
  * anything else. These cells run that seam end to end on a real sqlite3 client.
  */
 import assert from "node:assert/strict";
@@ -45,7 +45,7 @@ afterEach(async () => {
   for (const database of opened.splice(0)) database.close();
 });
 
-const COMPLETED_WITHOUT_PROCEED = /completed without proceed/;
+const COMPLETED_WITHOUT_PROCEED = /returned without run\(\)/;
 
 async function world() {
   const database = new Database(":memory:");

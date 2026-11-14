@@ -53,7 +53,7 @@ export interface PreparedRawQueryContext<Input extends object>
   readonly operation: RawQueryOperation;
 }
 
-/** The prepared logical-operation facts safe for query interceptors to inspect. */
+/** The prepared logical-operation facts safe for query arounds to inspect. */
 export type PreparedQueryContext<
   Input extends object = Record<string, unknown>,
 > = PreparedModelQueryContext<Input> | PreparedRawQueryContext<Input>;
@@ -82,6 +82,9 @@ export interface WriteOutcomeNotifications {
   readonly mayHaveCommitted: () => Promise<void>;
 }
 
+/** A `run()` no second moment may make once it returned. */
+const AFTER_RETURN = "called run() after its second moment returned";
+
 /** The child a handler chain runs: on the driver a handler chose, if any. */
 type Child<Result> = (driver?: AnyDriver) => Promise<Result>;
 
@@ -102,7 +105,7 @@ export type AroundHandlers = readonly ResolvedOperationHandler<AroundRunner>[];
 type ReadCommitCertainty = () => WriteOutcome["certainty"] | undefined;
 
 /** Private coordination hooks used only while array members await admission. */
-export interface QueryInterceptorExecutionControl {
+export interface AroundExecutionControl {
   readonly reportAdmissionFailure?: (failure: unknown) => void;
   readonly readCommitCertainty?: ReadCommitCertainty;
 }
@@ -115,20 +118,18 @@ export interface QueryInterceptorExecutionControl {
  */
 export function executePreparedQuery<Result, Input extends object>(
   context: PreparedQueryContext<Input> | undefined,
-  interceptors: AroundHandlers | undefined,
+  arounds: AroundHandlers | undefined,
   child: (
     notifications?: WriteOutcomeNotifications,
     driver?: AnyDriver
   ) => Promise<Result>,
   isWrite: boolean,
   transactionWriteOutcomes?: TransactionWriteOutcomes,
-  control?: QueryInterceptorExecutionControl,
+  control?: AroundExecutionControl,
   preRegisteredWriteOutcome?: WriteOutcomeRegistration
 ): Promise<Result> {
   if (
-    (context === undefined ||
-      interceptors === undefined ||
-      interceptors.length === 0) &&
+    (context === undefined || arounds === undefined || arounds.length === 0) &&
     preRegisteredWriteOutcome === undefined
   ) {
     return child();
@@ -137,12 +138,12 @@ export function executePreparedQuery<Result, Input extends object>(
     !isWrite &&
     preRegisteredWriteOutcome === undefined &&
     context !== undefined &&
-    interceptors !== undefined &&
-    interceptors.length > 0
+    arounds !== undefined &&
+    arounds.length > 0
   ) {
-    return runCompiledQueryInterceptors(
+    return runArounds(
       context,
-      interceptors,
+      arounds,
       (driver) => child(undefined, driver),
       discardReadWriteOutcomeRegistration,
       control?.readCommitCertainty,
@@ -151,14 +152,14 @@ export function executePreparedQuery<Result, Input extends object>(
   }
   return executeInterceptedQuery(
     context,
-    interceptors,
+    arounds,
     child,
     isWrite,
     transactionWriteOutcomes,
     control,
     preRegisteredWriteOutcome,
     (prepared, handlers, executeChild, capture, ...rest) =>
-      runCompiledQueryInterceptors(
+      runArounds(
         prepared,
         handlers,
         executeChild,
@@ -173,7 +174,7 @@ export function executePreparedQuery<Result, Input extends object>(
 }
 
 /**
- * {@link executePreparedQuery} on a chain without query handlers: what
+ * {@link executePreparedQuery} on a chain without `around` parts: what
  * wraps the call is its write-outcome registration, the only reason it is
  * asked, so the code that runs handlers is not carried.
  */
@@ -186,7 +187,7 @@ export function executeRegisteredQuery<Result, Input extends object>(
   ) => Promise<Result>,
   isWrite: boolean,
   transactionWriteOutcomes?: TransactionWriteOutcomes,
-  control?: QueryInterceptorExecutionControl,
+  control?: AroundExecutionControl,
   preRegisteredWriteOutcome?: WriteOutcomeRegistration
 ): Promise<Result> {
   return executeInterceptedQuery(
@@ -206,18 +207,18 @@ function discardReadWriteOutcomeRegistration(): void {
 
 async function executeInterceptedQuery<Result, Input extends object>(
   context: PreparedQueryContext<Input> | undefined,
-  interceptors: AroundHandlers | undefined,
+  arounds: AroundHandlers | undefined,
   child: (
     notifications?: WriteOutcomeNotifications,
     driver?: AnyDriver
   ) => Promise<Result>,
   isWrite: boolean,
   transactionWriteOutcomes: TransactionWriteOutcomes | undefined,
-  control: QueryInterceptorExecutionControl | undefined,
+  control: AroundExecutionControl | undefined,
   preRegisteredWriteOutcome: WriteOutcomeRegistration | undefined,
   // Passed by the caller that has handlers to run: the one that has none
   // does not carry their runner.
-  intercept?: typeof runCompiledQueryInterceptors
+  intercept?: typeof runArounds
 ): Promise<Result> {
   const registrations: WriteOutcomeRegistration[] =
     preRegisteredWriteOutcome === undefined ? [] : [preRegisteredWriteOutcome];
@@ -274,12 +275,12 @@ async function executeInterceptedQuery<Result, Input extends object>(
     const value =
       intercept === undefined ||
       context === undefined ||
-      interceptors === undefined ||
-      interceptors.length === 0
+      arounds === undefined ||
+      arounds.length === 0
         ? await executeChild()
         : await intercept(
             context,
-            interceptors,
+            arounds,
             executeChild,
             captureWriteOutcome,
             () => directCommitCertainty ?? control?.readCommitCertainty?.(),
@@ -295,27 +296,27 @@ async function executeInterceptedQuery<Result, Input extends object>(
 }
 
 /**
- * Run one already-compiled interceptor chain around one prepared child, the
+ * Run one already-compiled part chain around one prepared child, the
  * first handler outermost.
  *
  * The undefined/empty branch deliberately returns the child's promise directly:
  * unextended operations allocate no runner promise, context, closure, or list.
  */
-export function runCompiledQueryInterceptors<Result, Input extends object>(
+export function runArounds<Result, Input extends object>(
   context: PreparedQueryContext<Input>,
-  interceptors: AroundHandlers | undefined,
+  arounds: AroundHandlers | undefined,
   child: Child<Result>,
   captureWriteOutcome: WriteOutcomeRegistrationCapture,
   readCommitCertainty?: ReadCommitCertainty,
   reportAdmissionFailure?: (failure: unknown) => void
 ): Promise<Result> {
   const at = (index: number, driver?: AnyDriver): Promise<Result> => {
-    const interceptor = interceptors?.[index];
-    return interceptor === undefined
+    const part = arounds?.[index];
+    return part === undefined
       ? child(driver)
-      : runOneInterceptor(
+      : runAround(
           context,
-          interceptor,
+          part,
           (chosen) => at(index + 1, chosen ?? driver),
           captureWriteOutcome,
           readCommitCertainty,
@@ -332,16 +333,16 @@ export function runCompiledQueryInterceptors<Result, Input extends object>(
  * breaks the protocol fails the call with that refusal once the child
  * succeeded.
  */
-async function runOneInterceptor<Result, Input extends object>(
+async function runAround<Result, Input extends object>(
   prepared: PreparedQueryContext<Input>,
-  interceptor: ResolvedOperationHandler<AroundRunner>,
+  part: ResolvedOperationHandler<AroundRunner>,
   child: Child<Result>,
   captureWriteOutcome: WriteOutcomeRegistrationCapture,
   readCommitCertainty: ReadCommitCertainty | undefined,
   reportAdmissionFailure: ((failure: unknown) => void) | undefined,
   core: () => Promise<Result>
 ): Promise<Result> {
-  const { extension } = interceptor;
+  const { extension } = part;
   const directRead =
     prepared.mode === "direct" &&
     prepared.kind === "model" &&
@@ -356,14 +357,14 @@ async function runOneInterceptor<Result, Input extends object>(
   let protocolFailure: QueryError | undefined;
   const refuse = (failure: string): QueryError => {
     if (protocolFailure === undefined) {
-      protocolFailure = interceptorError(extension, prepared, failure);
+      protocolFailure = aroundError(extension, prepared, failure);
       reportAdmissionFailure?.(protocolFailure);
     }
     return protocolFailure;
   };
-  const proceed = (driver?: AnyDriver): Promise<Result> => {
-    if (!open) throw refuse("called proceed more than once");
-    if (settled) throw refuse("called proceed after its handler settled");
+  const start = (driver?: AnyDriver): Promise<Result> => {
+    if (!open) throw refuse("called run() more than once");
+    if (settled) throw refuse(AFTER_RETURN);
     open = false;
     childFailed = false;
     const promise = startChild(() => child(driver));
@@ -376,8 +377,8 @@ async function runOneInterceptor<Result, Input extends object>(
   };
   const run = Object.defineProperties(
     (): Promise<Result> => {
-      if (!settled) return proceed();
-      if (!replayable) throw refuse("ran the call again");
+      if (!settled) return start();
+      if (!replayable) throw refuse(AFTER_RETURN);
       replayable = false;
       return startChild(core);
     },
@@ -402,8 +403,7 @@ async function runOneInterceptor<Result, Input extends object>(
         },
       },
       [VIA]: {
-        value: (driver: AnyDriver) =>
-          directRead ? proceed(driver) : proceed(),
+        value: (driver: AnyDriver) => (directRead ? start(driver) : start()),
       },
     }
   );
@@ -412,7 +412,7 @@ async function runOneInterceptor<Result, Input extends object>(
     outcome = {
       // A second moment answers the call: `around`'s types hold its value
       // to the call's result.
-      value: (await interceptor.handler(prepared, run, (listener) =>
+      value: (await part.handler(prepared, run, (listener) =>
         captureWriteOutcome({ extension, listener })
       )) as Result,
     };
@@ -423,7 +423,7 @@ async function runOneInterceptor<Result, Input extends object>(
   const failure =
     "reason" in outcome &&
     (protocolFailure === undefined || outcome.reason !== protocolFailure)
-      ? interceptorFailure(
+      ? aroundFailure(
           extension,
           prepared,
           outcome.reason,
@@ -433,8 +433,8 @@ async function runOneInterceptor<Result, Input extends object>(
   if (running === undefined) {
     if (protocolFailure !== undefined) throw protocolFailure;
     if (failure !== undefined) throw failure;
-    if (requiresProceed(prepared))
-      throw interceptorError(extension, prepared, "completed without proceed");
+    if (requiresRun(prepared))
+      throw aroundError(extension, prepared, "returned without run()");
   } else {
     if (failure !== undefined && !childFailed)
       reportAdmissionFailure?.(failure);
@@ -452,7 +452,7 @@ function startChild<Result>(child: () => Promise<Result>): Promise<Result> {
   }
 }
 
-function requiresProceed(context: PreparedQueryContext<object>): boolean {
+function requiresRun(context: PreparedQueryContext<object>): boolean {
   return (
     context.mode === "array" ||
     context.kind !== "model" ||
@@ -460,23 +460,23 @@ function requiresProceed(context: PreparedQueryContext<object>): boolean {
   );
 }
 
-function interceptorFailure<Input extends object>(
+function aroundFailure<Input extends object>(
   extension: string,
   context: PreparedQueryContext<Input>,
   reason: unknown,
   commitCertainty?: WriteOutcome["certainty"]
 ): Error {
   if (isError(reason)) return reason;
-  return interceptorError(
+  return aroundError(
     extension,
     context,
     "failed",
-    new Error("Query interceptor rejected with a non-Error value"),
+    new Error("around() rejected with a non-Error value"),
     commitCertainty
   );
 }
 
-function interceptorError<Input extends object>(
+function aroundError<Input extends object>(
   extension: string,
   context: PreparedQueryContext<Input>,
   failure: string,
@@ -484,11 +484,11 @@ function interceptorError<Input extends object>(
   commitCertainty?: WriteOutcome["certainty"]
 ): QueryError {
   return new QueryError(
-    `Extension "${extension}" query handler for ${context.kind === "model" ? `${context.model}.${context.operation}` : context.operation} ${failure}.`,
+    `Extension "${extension}" around() for ${context.kind === "model" ? `${context.model}.${context.operation}` : context.operation} ${failure}.`,
     {
       ...(cause && { cause }),
       meta: {
-        method: "query",
+        method: "around",
         model: context.model,
         operation: String(context.operation),
         ...(commitCertainty === undefined ? {} : { commitCertainty }),
@@ -650,15 +650,13 @@ export async function publishWriteOutcomes(
             cause instanceof VibORMError)
             ? cause
             : new QueryError(
-                `Extension "${registration.extension}" write-outcome listener failed after ${outcome.certainty}.`,
+                `Extension "${registration.extension}" settled() failed (${outcome.certainty}).`,
                 {
                   cause:
                     cause ??
-                    new Error(
-                      "Write-outcome listener rejected with a non-Error value"
-                    ),
+                    new Error("settled() rejected with a non-Error value"),
                   meta: {
-                    method: "onWriteOutcome",
+                    method: "settled",
                     commitCertainty: outcome.certainty,
                   },
                 }

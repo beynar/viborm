@@ -385,7 +385,7 @@ const messageOf = (error: unknown): string =>
 const OUTCOME_THREW = "closure-repair write-outcome listener failed";
 /** The publication owner's own sentence for it (`@extensions/query`). */
 const LISTENER_FAILED =
-  'Extension "failing-outcome" write-outcome listener failed after committed.';
+  'Extension "failing-outcome" settled() failed (committed).';
 /** The one composition of a primary with a retained listener failure
  *  (`retainWriteOutcomeFailure`, `@errors`). */
 const COMPOSED = "Query execution and write-outcome publication both failed.";
@@ -471,7 +471,7 @@ const COMPOSITION = {
 const RETAINED_LISTENER = {
   name: "QueryError",
   message: LISTENER_FAILED,
-  meta: { method: "onWriteOutcome", commitCertainty: "committed" },
+  meta: { method: "settled", commitCertainty: "committed" },
   keepsCause: true,
 };
 

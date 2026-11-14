@@ -21,7 +21,7 @@ import {
   publishWriteOutcomes,
   type QueryInterceptionMode,
   type RawQueryKind,
-  runCompiledQueryInterceptors,
+  runArounds,
   TransactionWriteOutcomes,
   type WriteOutcomeListener,
   type WriteOutcomeNotifications,
@@ -62,8 +62,7 @@ const runSeconds = <Result>(
   context: PreparedModelQueryContext<object> | PreparedRawQueryContext<object>,
   parts: readonly ResolvedOperationHandler<AroundRunner>[] | undefined,
   child: () => Promise<Result>
-): Promise<Result> =>
-  runCompiledQueryInterceptors(context, parts, child, ignoreRegistration);
+): Promise<Result> => runArounds(context, parts, child, ignoreRegistration);
 
 function modelContext(
   operation: string,
@@ -400,7 +399,7 @@ describe("the child's outcome is the call's", () => {
     );
 
     expect(requireQueryError(failure).message).toContain(
-      "called proceed more than once"
+      "called run() more than once"
     );
     expect(child).toHaveBeenCalledOnce();
   });
@@ -681,7 +680,7 @@ describe("the child's outcome is the call's", () => {
     expect(thrown).toHaveLength(2);
     expect(thrown[0]).toBe(thrown[1]);
     expect(requireQueryError(thrown[0]).message).toContain(
-      "called proceed more than once"
+      "called run() more than once"
     );
     expect(failure).toBe(thrown[0]);
   });
@@ -850,7 +849,7 @@ describe("write-outcome publication", () => {
 
     expect(calls).toEqual(["ordinary", "official"]);
     expect(requireQueryError(failure).meta).toMatchObject({
-      method: "onWriteOutcome",
+      method: "settled",
       commitCertainty: "committed",
     });
   });
