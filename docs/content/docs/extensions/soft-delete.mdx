@@ -97,8 +97,8 @@ function clientFor(session: Session) {
 }
 ```
 
-Deriving costs one `$extends` call, about 5.5 µs (from one measurement of a
-derived client). A transaction client has
+Deriving costs one `$extends` call, about 13 µs on the two-model schema
+above (one machine, `softDelete(…)` and `$extends` both per request). A transaction client has
 no `$extends`, so **one transaction has one actor**: derive the client with the
 right actor before calling `$transaction`, and use a separate transaction for a
 different actor.

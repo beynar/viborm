@@ -66,43 +66,44 @@ application's bundle, minified and gzipped. The rows do not add up: parts
 share the chain's own code, so a second part costs less than its row.
 
 {/* Measured with `node scripts/extension-bytes.mjs` (the `pg-one-*`
-fixtures of scripts/bundle-fixtures, and the official extensions' fixtures);
-rerun it and update these figures when the code of src/extensions changes. */}
+fixtures of scripts/bundle-fixtures, and the official extensions' fixtures),
+last on 2a78fcca1; rerun it and update these figures when the code of
+src/extensions changes. */}
 
 | You import | Your bundle carries | Adds (min) | Adds (gzip) |
 |---|---|---:|---:|
-| `methods` | Method factories and their collision checks | 4.1 kB | 2.0 kB |
-| `call`, `target(reads)` | The chain, the first moment: argument patches and refusals | 4.9 kB | 2.3 kB |
-| `defaults` with `create` or `orderBy` | Default data or default order, without filter code or argument admission | 5.9 kB | 2.6 kB |
-| `args`, `oneOf` | Argument admission: taken out of the call, validated once | 6.1 kB | 2.7 kB |
-| `defaults` with `omitted` | Default omission | 6.4 kB | 2.8 kB |
-| `fields` | Computed fields: planning their needs, attaching them to rows | 6.5 kB | 2.9 kB |
+| `methods` | Method factories and their collision checks | 3.8 kB | 1.8 kB |
+| `call`, `target(reads)` | The chain, the first moment: argument patches and refusals | 4.2 kB | 2.1 kB |
+| `defaults` with `create` or `orderBy` | Default data or default order, without filter code or argument admission | 5.6 kB | 2.5 kB |
+| `args`, `oneOf` | Argument admission: taken out of the call, validated once | 5.7 kB | 2.5 kB |
+| `fields` | Computed fields: planning their needs, attaching them to rows | 5.8 kB | 2.6 kB |
+| `defaults` with `omitted` | Default omission | 6.1 kB | 2.7 kB |
 | `unit` | The runner around physical units | 6.7 kB | 2.8 kB |
 | `unit` with `{ rewrites: true }`, `statement` | Statement rewriting | 6.8 kB | 2.8 kB |
-| `call`, `target(writes)`, `watch`, `settled` | The rows a write wrote, the hook after its commit | 15.0 kB | 5.6 kB |
+| `call`, `target(writes)`, `watch`, `settled` | The rows a write wrote, the hook after its commit | 13.5 kB | 5.1 kB |
+| `around` | The second moment around the prepared call, and the admission of `$transaction([...])` members | 13.9 kB | 5.2 kB |
+| `around` with `again` | Making a failed call again | 14.0 kB | 5.2 kB |
 | `rule` with `keep`, `now` | Kept deleted rows | 16.6 kB | 6.8 kB |
-| `around` | The second moment around the prepared call, and the admission of `$transaction([...])` members | 16.9 kB | 6.2 kB |
-| `around` with `again` | Making a failed call again | 17.0 kB | 6.2 kB |
-| `rule` with `args`, `when`, `arg` | Row filters, prepared once per schema | 19.2 kB | 7.6 kB |
-| `rule` with `gate` | Gated fields | 22.7 kB | 9.1 kB |
-| `rule` with `check` | The judgement of the rows a write produces | 23.4 kB | 9.2 kB |
+| `rule` with `gate` | Gated fields | 19.0 kB | 7.9 kB |
+| `rule` with `args`, `when`, `arg` | Row filters, prepared once per schema | 19.1 kB | 7.5 kB |
+| `rule` with `check` | The judgement of the rows a write produces | 20.6 kB | 8.4 kB |
 
 The official extensions, measured the same way:
 
 | Extension | Adds (min) | Adds (gzip) |
 |---|---:|---:|
-| [`defaultOmit()`](/docs/extensions/omit) | 6.9 kB | 2.6 kB |
-| [`on()`](/docs/extensions/on) | 17.9 kB | 6.8 kB |
-| [`instrumentation()`](/docs/extensions/instrumentation) | 20.1 kB | 7.2 kB |
-| [`softDelete()`](/docs/extensions/soft-delete) | 26.7 kB | 10.0 kB |
-| [`ordering()`](/docs/extensions/ordering) | 30.6 kB | 12.0 kB |
-| [`cache()`](/docs/extensions/cache) | 51.0 kB | 17.9 kB |
-| [`permissions()`](/docs/extensions/permissions) | 75.8 kB | 27.9 kB |
-| `on`, `ordering`, `permissions` and `softDelete` together | 120.6 kB | 43.8 kB |
+| [`defaultOmit()`](/docs/extensions/omit) | 6.5 kB | 2.5 kB |
+| [`on()`](/docs/extensions/on) | 16.5 kB | 6.2 kB |
+| [`instrumentation()`](/docs/extensions/instrumentation) | 20.2 kB | 7.3 kB |
+| [`softDelete()`](/docs/extensions/soft-delete) | 26.5 kB | 9.9 kB |
+| [`ordering()`](/docs/extensions/ordering) | 30.3 kB | 11.9 kB |
+| [`cache()`](/docs/extensions/cache) | 39.6 kB | 14.5 kB |
+| [`permissions()`](/docs/extensions/permissions) | 72.1 kB | 26.8 kB |
+| `on`, `ordering`, `permissions` and `softDelete` together | 116.2 kB | 42.8 kB |
 
-The PostgreSQL application they are added to weighs 508.6 kB minified
-(167.6 kB gzip) and carries none of this code. The figures are those of this
-release; later releases may lower them.
+The PostgreSQL application they are added to weighs 508.8 kB minified
+(167.7 kB gzip) and carries 112 bytes of this code. The figures are those of
+this release; later releases may lower them.
 
 An extension that only patches or refuses arguments (`call`) does not pay
 for the second moment. A rule made of `where` filters alone does not pay for
@@ -126,7 +127,7 @@ fields, and `disclosure` says what a thrown error may carry:
 | Wrap one prepared logical call | `around` | Asynchronous continuation around execution |
 | Receive the rows a write wrote, act after its commit | `call` with `watch`, `settled` | Rows once every write of the call is made; a function after the durable commit |
 | Make a failed call again, send a read elsewhere | `around` with `again`, `via` | Allowed only where nothing was written; reads outside a transaction |
-| Store answers beside the database | `around` with `key`, `codec`, `database` | A key per prepared statement, a detached form of the answer |
+| Store answers beside the database | `around` with `key`, `codec`, `database` | A key per prepared statement, the driver's rows of the answer stored as JSON data |
 | Observe physical work | `unit` | Around a real unit: `next()` lets it run and returns its end |
 | Rewrite a statement | `unit` with `{ rewrites: true }` | Trusted `Sql → Sql`, before rendering |
 | Run SQL as a transaction opens | `unit` on `"transaction"` with `run` | First in every transaction |
@@ -372,8 +373,9 @@ Bound it yourself: VibORM allows another run as long as `again` answers
 `true`. A call inside a transaction is never made again (the transaction is
 the caller's to make again), nor a write that committed or may have. A write
 sent as one statement outside a transaction that fails is held to be possibly
-made, so it is not made again: reads are, and writes whose own transaction
-rolled back.
+made, so it is not made again, unless its failure proves it was not (a key
+already taken, `UniqueConstraintError`): reads are made again, and so are
+writes whose own transaction rolled back.
 
 ### Send a read to another driver: `via`
 
@@ -412,10 +414,10 @@ const memo = extension(
       if (id === undefined) return run(); // nothing to key: run it
       const { dialect, namespace } = database(c);
       const slot = `${dialect}:${namespace ?? ""}:${id}`;
-      const { snapshot, materialize } = codec(run);
-      if (answers.has(slot)) return materialize(answers.get(slot));
-      const value = await run();
-      answers.set(slot, snapshot(value));
+      const rows = codec(run);
+      if (answers.has(slot)) return rows.materialize(answers.get(slot));
+      const value = await rows.run(); // runs it, keeping the driver's rows
+      answers.set(slot, rows.snapshot());
       return value;
     },
     target(reads),
@@ -438,10 +440,17 @@ const memo = extension(
   rewrites statements, for a call that carries a value of a `.volatile()`
   argument, and for an operation that is not one statement (a write, a read
   that needs several).
-- `codec(run)` gives `snapshot(value)` and `materialize(stored)` for a read's
-  answer: a detached form to store, and a fresh public graph from it. It is
-  made once per prepared shape. A raw query has none: `codec` refuses it with
-  an `UnsupportedOperationError`.
+- `codec(run)` stores a read's answer as the rows the driver returned for
+  its one statement, and restores it. `run()` executes the call as `run`
+  does and keeps those rows; `snapshot()` gives them as JSON data (a value
+  JSON cannot carry, such as a bigint, a `Date` or bytes, written as a
+  tagged array), and throws a `TypeError` when the last `run()` kept no rows
+  or a row holds a value it cannot store; `materialize(stored)` hands stored
+  rows to the driver's result parser and the engine's decoder, as if the
+  driver had just returned them, and gives a fresh answer on every call. It
+  throws when `stored` is not such rows or the decoder refuses a value. A
+  call that is not a model's read (a raw query, a write) has none: `codec`
+  refuses it with an `UnsupportedOperationError`.
 - `database(x)`, on a first moment's `c`, a `run` or a method's scope, gives
   the database's `dialect` and SQL `namespace` (a PostgreSQL schema, a MySQL
   database; `undefined` where the dialect qualifies nothing), never a
@@ -778,8 +787,10 @@ await db.post.findMany(); // ValidationError: "tenant" is required
 | `unless(arg, test, filter)` | a filter | `filter` applies when the test does not hold |
 | `provided(arg, test, filter?)` | a filter | Holds only when the test holds (and `filter`, if given); false otherwise |
 
-A test is a value, or `{ exists }`, `{ in }`, `{ equals }`, `{ has }`,
-`{ hasSome }`. It is folded before any row is read: a test that does not hold
+A test is a value, or exactly one of `{ exists }`, `{ in }`, `{ equals }`,
+`{ has }`, `{ hasSome }`; any other object, one with an extra key included,
+is refused where the entry is checked (at `$extends()`, or when a `lazy`
+entry is first read). It is folded before any row is read: a test that does not hold
 removes its arm, the values inside it included.
 
 - An argument can sit anywhere a filter takes a value: on a field
@@ -942,8 +953,6 @@ await db.document.update({ user: "ada", where: { id }, data: { archivedAt: new D
   others. A `connect`, `set` or `disconnect` naming a linked row the call may
   not write is `NestedWriteError`. `set: []` refuses a visible link the call
   may not write the same way; a hidden one keeps its link.
-- A predicate object that contains itself is refused when the extension is
-  applied.
 
 ### Lazy entries: `lazy`
 
@@ -1008,6 +1017,9 @@ const judged = client.$extends(
   writes a field the predicate reads, and at each written field's `check`:
   an update that writes nothing the predicate reads cannot move the row out
   of it, and its statement carries no judgement.
+- `acyclic` is judged with the rows a write produces, so it needs a `check`
+  on the same model (`create.check`, `update.check` or a field's `check`):
+  without one, `$extends()` refuses it.
 - `acyclic` may be a function returning the list: it is called the first time
   an update writes the key of one of the model's self relations.
 - A refused row is written by no statement: at the root `ForbiddenError`, in
@@ -1064,6 +1076,10 @@ await db.document.findMany({ user: "ada", select: { id: true, notes: true } }); 
   `read.where`, computed in the statement that reads the row (for a write,
   when its result row is read). `$access: ["own"]` asks for some names
   only.
+- The key is admitted by the operation's own validation, as a field of the
+  model is, for the calls of a chain that declares it: a `select` holding only
+  `$access: false` is empty and refused (`ValidationError`), the key comes
+  back where the `select` wrote it, and no `data` may write it.
 - A gated field is present where its predicate holds and absent elsewhere; the
   row is never dropped. A `select` (or an `omit: { notes: false }`) that names
   it fails with `ValidationError` at its path when a returned row lacks the

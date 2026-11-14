@@ -407,7 +407,12 @@ this rule: the fields the caller's context provides (`parseProviding`,
 `primitives/object.ts`). It is set for one synchronous parse and restored in
 a `finally`, so it never outlives the parse, a throw, or a nested call. An
 object whose `provides` option names a model counts such a required field as
-given; validation learns field names by model, never who provides them.
+given, and admits a key the context adds to it with the validator the context
+gives: a create's `data` is provided under the model's name (a field a
+default writes), a `select` or `include` under `$` and that name (a projection
+key such as `$access`, which a chain's `facts` declares), so a projection key
+is never admitted in data. Validation learns field names by model, never who
+provides them, and the added key keeps the place the caller wrote it.
 
 ### Rule 3: Generic Primitives Only
 No domain-specific logic here. `v.email()` or `v.url()` belong in the scalar layer, not validation.
