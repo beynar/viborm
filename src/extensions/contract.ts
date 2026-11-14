@@ -410,12 +410,20 @@ export interface CallContext<
   set(patch: RequestTransformPatch<O, PayloadOf<T, M, O>>): void;
 }
 
-/** Moment 2 of a call naming one (model, operation): around the prepared call. */
+/**
+ * Moment 2 of a call naming one (model, operation): around the prepared
+ * call. It returns what `run()` returned, or, for a read it answers in place
+ * of the core (a cache), a result of the operation's default shape: an
+ * answer built by hand cannot be typed by the call's own arguments, which
+ * are generic here. A partial row is still refused.
+ */
 export type Around<T extends AnyTarget, M, O extends Operations> = <
   A extends PayloadOf<T, M, O>,
 >(
   run: Run<A, CallResult<T, M, O, A>>
-) => Promise<CallResult<T, M, O, A>>;
+) => Promise<CallResult<T, M, O, A> | CallResult<T, M, O, NoArguments>>;
+
+type NoArguments = Record<never, never>;
 
 /** Moment 1 of a model call over several operations or models. */
 export interface ModelCallContext<T extends AnyTarget, M, O> {
