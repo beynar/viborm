@@ -516,7 +516,6 @@ export interface ExtensionMethodsState {
 
 /** `methods`: what a view answers, in chain order. */
 export const methodsPart: ExtensionPart = {
-  members: ["methods"],
   join({ next, chain, definition, schema }) {
     const { name, methods: factory } = definition;
     if (factory === undefined) return;

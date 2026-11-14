@@ -7,7 +7,7 @@ import { isError } from "../errors/diagnostic-safety";
 import type { ExtensionPart, ResolvedOperationHandler } from "./chain";
 import { type AdmittedControls, controlsOwnedBy } from "./controls";
 import { coordinate, QUERIES } from "./coordination";
-import { compileHandlers, hasCompiledHandlers } from "./handlers";
+import { handlersOf, type PlacedHandler } from "./handlers";
 
 /** Frozen runtime contribution after hostile definition normalization. */
 type RuntimeQueryFunction = (...args: never[]) => unknown;
@@ -928,20 +928,39 @@ import type {
 } from "@client/types";
 
 /**
- * `query`: handlers around each prepared call. A chain built with this part
- * always holds a lookup, empty where no definition declared one.
+ * `query`: handlers around each prepared call, written as a definition's raw
+ * member (one handler of every call, or one per model and operation): what
+ * the tests of the host give it. A chain built with this part always holds a
+ * lookup, empty where no definition declared one.
  */
 export const queryPart: ExtensionPart = {
-  members: ["query"],
   join({ next, chain, definition, owner }) {
-    const query =
-      definition.query === undefined && chain?.query !== undefined
-        ? chain.query
-        : Object.freeze(
-            compileHandlers(chain?.query, owner, definition.query, true)
+    const contribution = definition.query;
+    const own = (
+      handler: RuntimeQueryFunction,
+      on?: PlacedHandler["on"]
+    ): PlacedHandler =>
+      Object.freeze({
+        extension: owner.name,
+        handler,
+        controls: owner.controls,
+        on,
+      });
+    const added =
+      typeof contribution === "function"
+        ? [own(contribution)]
+        : Object.entries(contribution ?? {}).flatMap(([model, operations]) =>
+            Object.entries(operations).map(([operation, handler]) =>
+              own(handler, {
+                models: new Set([model]),
+                operations: new Set([operation]),
+              })
+            )
           );
-    next.query = query;
-    next.hasQueryHandlers = hasCompiledHandlers(query);
-    if (next.hasQueryHandlers) coordinate(next, QUERIES);
+    if (added.length === 0 && chain?.query !== undefined) return;
+    next.query = Object.freeze(
+      handlersOf([...(chain?.query?.placed ?? []), ...added])
+    );
+    if (next.query.placed.length > 0) coordinate(next, QUERIES);
   },
 };

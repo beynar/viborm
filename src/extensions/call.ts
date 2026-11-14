@@ -34,7 +34,7 @@ import type { AdmittedControls } from "./controls";
 import { coordinate, QUERIES } from "./coordination";
 import { extensionError } from "./definition";
 import { builtPart, type DefinitionDraft } from "./extension";
-import { compileHandlers, type OperationHandlers } from "./handlers";
+import { handlersOf, type PlacedHandler } from "./handlers";
 import { MODEL_OPERATIONS, type SelectionValue, selectionOf } from "./on";
 import { CALL } from "./origin";
 import type { QueryInterceptorContext } from "./query";
@@ -268,7 +268,7 @@ const rawTold = (call: object, first: FirstMoment): Registering => ({
  * its first returned for this call, run around the child. Once the child
  * failed, the call fails with the child's error.
  */
-function secondMoment(first: FirstMoment, inner: boolean) {
+function secondMoment(first: FirstMoment) {
   const handler = async (
     context: QueryInterceptorContext<unknown>
   ): Promise<unknown> => {
@@ -322,121 +322,86 @@ function secondMoment(first: FirstMoment, inner: boolean) {
     if (failed !== undefined) throw failed.error;
     return value;
   };
-  // Placed nearest the core (`inner`), whatever the chain's order: a fact
-  // of the handler, read wherever a later join reorders the chain.
-  return inner ? Object.assign(handler, { inner }) : handler;
-}
-
-const isInner = (handler: ResolvedOperationHandler): boolean =>
-  "inner" in handler.handler && handler.handler.inner === true;
-
-function innerLast(lookup: OperationHandlers): OperationHandlers {
-  const order = (
-    list: readonly ResolvedOperationHandler[]
-  ): readonly ResolvedOperationHandler[] =>
-    Object.freeze([
-      ...list.filter((handler) => !isInner(handler)),
-      ...list.filter(isInner),
-    ]);
-  const models: Record<
-    string,
-    Readonly<Record<string, readonly ResolvedOperationHandler[]>>
-  > = Object.create(null);
-  for (const [model, operations] of Object.entries(lookup.models)) {
-    const ordered: Record<string, readonly ResolvedOperationHandler[]> =
-      Object.create(null);
-    for (const [operation, list] of Object.entries(operations))
-      ordered[operation] = order(list);
-    models[model] = Object.freeze(ordered);
-  }
-  const global = order(lookup.global);
-  return {
-    global,
-    models: Object.freeze(models),
-    handlers: (model, operation) =>
-      model === undefined
-        ? global.length === 0
-          ? undefined
-          : global
-        : (models[model]?.[operation] ??
-          (global.length === 0 ? undefined : global)),
-  };
+  return handler;
 }
 
 /**
- * The handler a part names, per model and operation of its target; the
- * handler itself, for every call, without one. A name the schema or the
- * operations do not hold is refused: the types refuse it where `target` is
- * written, and a caller without them would otherwise get a part that never
- * runs.
+ * One part's handler, placed on the calls of its target; on every call
+ * without one. A name the schema or the operations do not hold is refused:
+ * the types refuse it where `target` is written, and a caller without them
+ * would otherwise get a part that never runs.
  */
-function contributionOf<H extends CallableFunction>(
-  selection: SelectionValue | undefined,
+function placed<H extends CallableFunction>(
+  { on: selection, inner }: CallSpec,
   handler: H,
-  schema: Schema,
-  extension: string
-): H | Record<string, Record<string, H>> {
-  if (selection === undefined) return handler;
-  const unknown = (name: string): never =>
-    extensionError(
-      `Extension "${extension}" target names unknown model or operation "${name}".`,
-      extension
+  { schema, owner }: Application
+): PlacedHandler<H> {
+  const own = { extension: owner.name, handler, controls: owner.controls };
+  if (selection === undefined) return Object.freeze({ ...own, inner });
+  const known = (names: readonly string[], holds: (name: string) => boolean) =>
+    new Set(
+      names.map((name) =>
+        holds(name)
+          ? name
+          : extensionError(
+              `Extension "${owner.name}" target names unknown model or operation "${name}".`,
+              owner.name
+            )
+      )
     );
-  const operations = selection.operations ?? MODEL_OPERATIONS;
-  const map: Record<string, Record<string, H>> = {};
-  for (const model of selection.models ?? Object.keys(schema)) {
-    if (!Object.hasOwn(schema, model)) unknown(model);
-    const entry: Record<string, H> = {};
-    for (const operation of operations)
-      entry[MODEL_OPERATIONS.has(operation) ? operation : unknown(operation)] =
-        handler;
-    map[model] = entry;
-  }
-  return map;
+  return Object.freeze({
+    ...own,
+    inner,
+    on: {
+      models: known(selection.models ?? Object.keys(schema), (model) =>
+        Object.hasOwn(schema, model)
+      ),
+      operations: known(
+        selection.operations ?? [...MODEL_OPERATIONS],
+        (operation) => MODEL_OPERATIONS.has(operation)
+      ),
+    },
+  });
 }
 
 /** The first moments of `call` and `around` parts, before validation. */
 const firstPart: ExtensionPart = {
-  join({ next, chain, definition, owner, schema }: Application) {
+  join(application: Application) {
+    const { next, chain, definition } = application;
     const entries = definition.calls;
     if (entries === undefined) return;
-    let request: OperationHandlers<FirstMoment> | undefined = chain?.request;
-    for (const entry of entries)
-      request = compileHandlers<FirstMoment>(
-        request,
-        owner,
-        contributionOf(entry.on, entry.first, schema, owner.name),
-        // A first moment without a target runs on raw statements too.
-        true
-      );
-    next.request = Object.freeze({ ...request!, apply: runFirstMoments });
+    next.request = Object.freeze({
+      ...handlersOf([
+        ...(chain?.request?.placed ?? []),
+        ...entries.map((entry) => placed(entry, entry.first, application)),
+      ]),
+      apply: runFirstMoments,
+    });
   },
 };
 
 /** The second moments of `around` parts, around the prepared call. */
 const aroundPart: ExtensionPart = {
   uses: [firstPart],
-  join({ next, chain, definition, owner, schema }: Application) {
-    let query: OperationHandlers | undefined = chain?.query;
+  join(application: Application) {
+    const { next, chain, definition } = application;
+    let list = chain?.query?.placed ?? [];
     for (const entry of definition.calls ?? []) {
       if (entry.keep === undefined) continue;
-      query = compileHandlers(
-        query,
-        owner,
-        contributionOf(
-          entry.on,
-          secondMoment(entry.first, entry.inner === true),
-          schema,
-          owner.name
-        ),
-        true
-      );
+      const handler = placed(entry, secondMoment(entry.first), application);
+      // One placed nearest the core (`inner`) runs after every other,
+      // whatever the chain's order: a later extension's handler lands
+      // before it.
+      list = handler.inner
+        ? [...list, handler]
+        : [
+            ...list.filter((other) => !other.inner),
+            handler,
+            ...list.filter((other) => other.inner),
+          ];
     }
-    if (query === chain?.query) return;
-    // Reordered at every join: a later extension's handler lands after an
-    // earlier one placed nearest the core.
-    next.query = Object.freeze(innerLast(query!));
-    next.hasQueryHandlers = true;
+    if (list === (chain?.query?.placed ?? [])) return;
+    next.query = Object.freeze(handlersOf(list));
     coordinate(next, QUERIES);
   },
 };

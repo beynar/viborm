@@ -760,7 +760,6 @@ function appendControls(
  * other part joins: a definition's handlers see its own controls.
  */
 export const controlsPart: ExtensionPart = {
-  members: ["controls"],
   declare(application) {
     const { definition, chain, next } = application;
     if (definition.controls === undefined) return;

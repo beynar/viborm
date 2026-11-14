@@ -431,7 +431,6 @@ export interface ResultFields {
 
 /** `result`: fields computed from each row a call returns. */
 export const resultPart: ExtensionPart = {
-  members: ["result"],
   join({ next, chain, definition, owner, schema }) {
     if (definition.result === undefined) return;
     const fields = appendResultFields(

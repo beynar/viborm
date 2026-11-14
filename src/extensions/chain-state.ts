@@ -5,6 +5,7 @@
  * client asks the chain and imports nothing that runs extensions.
  */
 
+import type { OfficialDefaultOmitCapability } from "@client/default-omit-chain";
 import type { DiagnosticDisclosure } from "@errors";
 import type {
   CallRows,
@@ -13,7 +14,6 @@ import type {
 import type { Input } from "@query-engine/raptor3/shared/schema";
 import type { Operation } from "@query-engine/types";
 import type { AdmittedLayer } from "./admission";
-import type { ExtensionPart } from "./chain";
 import type {
   AdmittedControls,
   ControlAdmission,
@@ -45,19 +45,6 @@ export interface ResolvedOperationHandler<
   Handler extends CallableFunction = CallableFunction,
 > extends ResolvedExtensionHandler<Handler> {
   readonly controls?: readonly string[];
-}
-
-/** One precompiled handler array for each exact execution target. */
-export interface ResolvedExtensionOperationLookup<
-  Handler extends CallableFunction = CallableFunction,
-> {
-  readonly global: readonly ResolvedOperationHandler<Handler>[];
-  readonly models: Readonly<
-    Record<
-      string,
-      Readonly<Record<string, readonly ResolvedOperationHandler<Handler>[]>>
-    >
-  >;
 }
 
 export interface ResolvedExtension {
@@ -134,8 +121,6 @@ export interface ResolvedDeletion {
  */
 export interface ResolvedExtensionChain {
   readonly extensions: readonly ResolvedExtension[];
-  /** The parts every later application runs again (`ExtensionPart.carry`). */
-  readonly carried?: readonly ExtensionPart[];
   /**
    * How a call whose execution an extension wraps is run, and how a
    * transaction collects its write outcomes: present on a chain with query
@@ -173,8 +158,6 @@ export interface ResolvedExtensionChain {
   readonly callRows?: CallRowsBinding;
   readonly request?: RequestHandlers;
   readonly query?: OperationHandlers;
-  /** Whether `query` holds a handler for some call. */
-  readonly hasQueryHandlers?: boolean;
   readonly statement?: StatementHandlers;
   /**
    * Every handler around a unit of real work, in chain order, and what runs
@@ -188,6 +171,8 @@ export interface ResolvedExtensionChain {
   readonly result?: ResultFields;
   /** Every extension's client and model methods, and what binds a view's. */
   readonly methods?: ExtensionMethodsState;
+  /** The fields every extension's `defaults` leaves out of results, per model. */
+  readonly omit?: OfficialDefaultOmitCapability;
   /** What an error of a call may carry, as the last `disclosure` part says. */
   readonly disclosure?: DiagnosticDisclosure;
 }
