@@ -103,7 +103,8 @@ export interface RowDomain {
 }
 
 /**
- * One layer's predicates for one model's verbs, as admission left them: `read`
+ * One layer's entry for one model beyond its filters, its predicates `P`:
+ * as written (`unknown`), then as admission left them (`Input`). `read`
  * (an entry given lazily's `read.where`) ANDs with the layer's predicate at
  * every purpose, a write's verb with its candidates beside them (R2); a verb
  * left out restricts nothing. An update takes, per field its data writes,
@@ -112,21 +113,21 @@ export interface RowDomain {
  * an updated row at the predicates that judged its old row, `check`, and per
  * field it writes, that field's `moves` predicate.
  */
-export interface ModelVerbs {
-  readonly read?: Input;
+export interface ModelVerbs<P = Input> {
+  readonly read?: P;
   /**
    * What a row a write returns holds for the layer's projection key and
    * read-gated fields to show, where it is not `read` (an eager entry's
    * read filter is the layer's own).
    */
-  readonly shown?: Input;
-  readonly update?: Input;
-  readonly delete?: Input;
-  readonly writes?: ReadonlyMap<string, Input>;
-  readonly place?: Input;
+  readonly shown?: P;
+  readonly update?: P;
+  readonly delete?: P;
+  readonly writes?: ReadonlyMap<string, P>;
+  readonly place?: P;
   /** What the row an update leaves holds, where it writes a field this reads. */
-  readonly check?: Input;
-  readonly moves?: ReadonlyMap<string, Input>;
+  readonly check?: P;
+  readonly moves?: ReadonlyMap<string, P>;
   /**
    * Self relations, each held by this model's key, whose links stay
    * acyclic: an update writing one is refused where its new target is the
@@ -137,12 +138,12 @@ export interface ModelVerbs {
   /** The projection key the layer declares on the model (K5). */
   readonly as?: string;
   /** What it reports per row: each name with its predicate, in declared order. */
-  readonly facts?: ReadonlyMap<string, Input>;
+  readonly facts?: ReadonlyMap<string, P>;
   /**
    * Per read-gated field, the predicate a row holds, beside `read`, where it
    * carries the field (K5).
    */
-  readonly reads?: ReadonlyMap<string, Input>;
+  readonly reads?: ReadonlyMap<string, P>;
   /** A check was written on the entry: the rows its writes produce are judged. */
   readonly judge?: (domain: PreparedDomain) => Judge;
 }

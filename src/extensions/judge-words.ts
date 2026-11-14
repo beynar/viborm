@@ -27,10 +27,30 @@ import { projectionOf, refuseSharedKeys } from "./projection";
 import { draftOf, listOf } from "./rule";
 import { CarriedValue, PredicateWord, type Site } from "./rule-words";
 import { NOW } from "./stamps";
-import { LAZY_VERBS, prepareJudged, verbsOf } from "./verbs";
+import { LAZY_ENTRIES, prepareJudged, VERBS, verbsOf } from "./verbs";
 
 /** What the layer of a word's site brings beside its filters. */
 const brings = (site: Site) => (site.draft.rule!.brings ??= {});
+
+/** The field `update.fields` names, refused where the model has none so named. */
+function fieldOf({ schema, model, field, refuse }: Site): string {
+  const { state } = schema[model]!["~"];
+  if (
+    !(
+      Object.hasOwn(state.scalars, field!) ||
+      Object.hasOwn(state.relations, field!)
+    )
+  )
+    refuse(`update.fields names unknown field "${field}"`);
+  return field!;
+}
+
+/** What a word that carries or hides fields of a read writes beside itself. */
+function shown(site: Site) {
+  const own = verbsOf(site);
+  if (site.shows !== undefined) own.shown = site.shows;
+  return own;
+}
 
 const UPDATE_FIELD = /^update\.fields\.[^.]+\.check$/;
 const FIELD_WHERE = /^update\.fields\.[^.]+\.where$/;
@@ -43,14 +63,14 @@ class Only extends CarriedValue {
     this.where = where;
   }
   join(site: Site): void {
-    const { key, field, refuse } = site;
+    const { key, refuse } = site;
     const own = verbsOf(site);
     brings(site).prepare = prepareJudged;
     if (key === "update.where") own.update = this.where;
     else if (key === "delete.where") own.delete = this.where;
     // An update writing the field takes this instead of `update.where`.
     else if (FIELD_WHERE.test(key))
-      (own.writes ??= new Map()).set(field!, this.where);
+      (own.writes ??= new Map()).set(fieldOf(site), this.where);
     else refuse(`${key} does not take only()`);
   }
 }
@@ -75,7 +95,7 @@ class Checked extends CarriedValue {
     this.where = where;
   }
   join(site: Site): void {
-    const { key, field, refuse } = site;
+    const { key, refuse } = site;
     const own = verbsOf(site);
     own.judge = judgeOf;
     brings(site).judge = judgeOf;
@@ -83,9 +103,9 @@ class Checked extends CarriedValue {
     // The row an update leaves is judged again where the update writes a
     // field the predicate reads (`update.check`), or the field named.
     else if (key === "update.check") own.check = this.where;
-    else if (UPDATE_FIELD.test(key)) {
-      (own.moves ??= new Map()).set(field!, this.where);
-    } else refuse(`${key} does not take check()`);
+    else if (UPDATE_FIELD.test(key))
+      (own.moves ??= new Map()).set(fieldOf(site), this.where);
+    else refuse(`${key} does not take check()`);
   }
 }
 
@@ -141,7 +161,7 @@ class Gated extends CarriedValue {
     // a key would answer through a relation what a filter hides.
     if (keyFields(state).has(field!))
       refuse(`${key} names a key, a unique or a foreign key field`);
-    const own = verbsOf(site);
+    const own = shown(site);
     brings(site).project = projectionOf;
     (own.reads ??= new Map()).set(field!, this.where);
   }
@@ -177,7 +197,7 @@ class Facts extends CarriedValue {
     if (key !== `read.select.${field}`) refuse(`${key} does not take facts()`);
     if (!PROJECTION_KEY.test(field!))
       refuse(`${key} is not \`$\` and an identifier`);
-    const own = verbsOf(site);
+    const own = shown(site);
     if (own.as !== undefined) refuse("read.select holds one projection key");
     Object.assign(brings(site), {
       project: projectionOf,
@@ -282,7 +302,7 @@ class Lazy extends CarriedValue {
     const layer = draft.rule!;
     if (Object.hasOwn(layer.verbs, model))
       refuse("two rule parts of one extension judge the model");
-    layer.host = LAZY_VERBS;
+    layer.host = VERBS;
     // What the entry reads of its call, and whether its words judge or
     // project, are known once it is read.
     layer.layered = layerOf;
@@ -291,6 +311,7 @@ class Lazy extends CarriedValue {
       project: projectionOf,
       prepare: prepareJudged,
       keys: refuseSharedKeys,
+      lazy: LAZY_ENTRIES,
     };
     const read = (): VerbsDraft => {
       const given: unknown = Reflect.apply(this.read, undefined, []);

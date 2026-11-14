@@ -14,7 +14,6 @@
 // judgement the same statement makes, provably implies (plan §11.4). It
 // names no engine structure; the entry hands it to the chain.
 
-import type { RowsVerbs } from "../client/exports";
 import { ClientInitializationError } from "../errors";
 import { check, facts, gate, only } from "../extensions/judge-words";
 import {
@@ -116,8 +115,8 @@ export interface PermissionsConfig {
 }
 
 /**
- * One model's predicates and the uses that name them: a `rows` member's
- * `verbs` entry for the model (`RowsVerbs`). By name: every declared
+ * One model's predicates and the uses that name them, each by its name, as
+ * `permissions` writes the model's rule entry from them: every declared
  * action's `P(M, a)`, every domain's narrowing, `$create` (the placement
  * every created row satisfies, R4) and `move:<field>` (what the new row of
  * an update writing that field satisfies besides the predicates that judged
@@ -126,8 +125,11 @@ export interface PermissionsConfig {
  * row's placement, moves and acyclic relations (K4), and the projection key
  * and read-gated fields (K5). A verb left out names no declared action.
  */
-export interface CompiledModel extends RowsVerbs {
+export interface CompiledModel {
   readonly predicates: { readonly [name: string]: Where };
+  readonly read?: string;
+  readonly update?: string;
+  readonly delete?: string;
   readonly writes: { readonly [field: string]: string };
   /** The predicate a result row must hold for the field to be present (D5). */
   readonly reads: { readonly [field: string]: string };
@@ -136,6 +138,13 @@ export interface CompiledModel extends RowsVerbs {
   /** Every model has a placement, false without a direct or inherited create grant. */
   readonly place: string;
   readonly moves: { readonly [field: string]: string };
+  /** The self relations an update keeps acyclic, or what lists them once every model compiled. */
+  readonly acyclic?: readonly string[] | (() => readonly string[]);
+  /** The projection key a read may name (`$access`) and the actions it reports (K5). */
+  readonly evidence?: {
+    readonly as: string;
+    readonly names: readonly string[];
+  };
 }
 
 export interface CompiledPolicy {
@@ -429,25 +438,6 @@ function actionsOf(name: string, policy: ModelPolicy): ActionRules {
     closure,
     evidence: { names: [...implies.keys()] },
   };
-}
-
-/**
- * Each model's `rows.verbs` entry: its predicates, the verbs and written
- * fields that name them (K3), the produced row's placement, moves and
- * acyclic relations (K4), and its projection key and read-gated fields (K5).
- * Modes are the entry's own (`rows.models`), never part of it.
- */
-export function verbsOf(
-  compiled: Pick<CompiledPolicy, "models">
-): Record<string, RowsVerbs> {
-  return Object.fromEntries(
-    Object.entries(compiled.models).map(
-      ([name, { modes, reads, ...verbs }]) => [
-        name,
-        Object.keys(reads).length === 0 ? verbs : { ...verbs, reads },
-      ]
-    )
-  );
 }
 
 /**

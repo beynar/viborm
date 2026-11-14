@@ -9,7 +9,6 @@
 // what the types check is the declaration's names: models, fields and actions
 // against the schema and each other, actor paths against the actor schema.
 
-import type { RowsVerbs } from "../client/exports";
 import { ForbiddenError } from "../errors";
 import { args, bound, oneOf } from "../extensions/args";
 import { call } from "../extensions/call";
@@ -32,6 +31,7 @@ import type {
 import type { InferOutput } from "../validation";
 import { type ActorFacts, type ActorPaths, actorContract } from "./actor";
 import {
+  type CompiledModel,
   type CompiledPolicy,
   compilePolicy,
   DEFAULT_MODE,
@@ -345,7 +345,7 @@ type GatedOf<M> = M extends { readonly fields: infer F }
  * read-gated fields (the gated default omit). The predicates stay opaque.
  */
 type ModelVerbs<Config extends PermissionsConfig, K extends Listed<Config>> = {
-  readonly predicates: RowsVerbs["predicates"];
+  readonly predicates: CompiledModel["predicates"];
 } & ([ActionOf<Config, K>] extends [never]
   ? unknown
   : {

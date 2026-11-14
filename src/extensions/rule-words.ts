@@ -48,6 +48,11 @@ export interface Site {
   readonly draft: DefinitionDraft;
   /** Inside an entry given as a function, read when its model is first read. */
   readonly lazy: boolean;
+  /**
+   * An eager entry's `read.where`: what a row a write returns holds for what
+   * a read carries or hides of it to show (`gate`, `facts`).
+   */
+  readonly shows?: unknown;
   /** The model's keys beyond its filters, made at the first word that writes one. */
   verbs(): VerbsDraft;
   refuse(problem: string): never;

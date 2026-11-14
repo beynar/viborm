@@ -21,6 +21,7 @@ import type { AnyModel } from "@schema/model";
 import type {
   Admission,
   AdmittedVerbs,
+  LazyEntries,
   References,
   RuleLayer,
   VerbsBound,
@@ -193,18 +194,16 @@ function admitDraft(
 
 /**
  * Every layer's verbs bound to `chain`, each model's taken the first time
- * it is read; `read` reads an entry given lazily, where some layer holds
- * one (`LAZY_VERBS`). A model no layer gives as a function is taken now:
- * its refusals are the application's, as they would be at admission.
+ * it is read, an entry given lazily read then (`LAZY_ENTRIES`). A model no
+ * layer gives as a function is taken now: its refusals are the
+ * application's, as they would be at admission.
  */
-function bindVerbs(
-  chain: ResolvedExtensionChain,
-  read?: (entry: () => AdmittedVerbs, extension: string) => AdmittedVerbs
-) {
+function bindVerbs(chain: ResolvedExtensionChain): VerbsBound {
   const layers = chain.rows ?? [];
   const brought = <K extends keyof NonNullable<RuleLayer["brings"]>>(kind: K) =>
     layers.find((layer) => layer.brings?.[kind])?.brings?.[kind];
   const keys = brought("keys");
+  const lazy = brought("lazy");
   const declares = (model: string) =>
     layers.some((layer) => Object.hasOwn(layer.verbs, model));
   const built = new Map<string, readonly (AdmittedVerbs | undefined)[]>();
@@ -215,8 +214,9 @@ function bindVerbs(
       ? memo(built, model, () => {
           const out = layers.map(({ verbs, extension }) => {
             const entry = verbs[model];
+            // Only `lazy` writes an entry as a function, and it brings its reader.
             return typeof entry === "function"
-              ? read!(entry, extension)
+              ? lazy!.read(chain, entry, extension)
               : entry;
           });
           keys?.(model, out);
@@ -233,25 +233,27 @@ function bindVerbs(
     verbs: { has: declares, get },
     ...(judge && { judge }),
     ...(project && { project }),
+    // An entry given lazily is read later: its calls carry their values.
+    ...(lazy && {
+      lazy: true,
+      filters: (model: string, layer: number) => get(model)?.[layer]?.filters,
+    }),
     prepare: brought("prepare") ?? prepareVerbs,
-  } satisfies VerbsBound;
+  };
 }
 
 /** What the words that write verbs bring: their admission and their binding. */
 export const VERBS: VerbsHost = {
-  admit: (admitting, layer, _filtersOf, references) =>
+  admit: (admitting, layer, filtersOf, references) =>
     Object.fromEntries(
       Object.entries(layer.verbs).map(([name, draft]) => [
         name,
-        // Only `lazy` writes an entry as a function, and it brings LAZY_VERBS.
-        admitDraft(admitting, name, draft as VerbsDraft, references),
+        typeof draft === "function"
+          ? layer.brings!.lazy!.admit(admitting, name, draft, filtersOf)
+          : admitDraft(admitting, name, draft, references),
       ])
     ),
-  // The chain's first host binds every layer's: where a later layer holds
-  // an entry given lazily, its host does.
-  bind: (chain) =>
-    chain.rows?.find((layer) => layer.host?.lazy)?.host?.bind(chain) ??
-    bindVerbs(chain),
+  bind: bindVerbs,
 };
 
 /**
@@ -260,58 +262,41 @@ export const VERBS: VerbsHost = {
  * what the chain declared up to its extension, as `$extends` checks an
  * eager entry's.
  */
-export const LAZY_VERBS: VerbsHost = {
-  lazy: true,
-  admit(admitting, layer, filtersOf, references) {
-    const verbs: Record<string, AdmittedVerbs | (() => AdmittedVerbs)> = {};
-    for (const [name, draft] of Object.entries(layer.verbs)) {
-      if (typeof draft !== "function") {
-        verbs[name] = admitDraft(admitting, name, draft, references);
-        continue;
-      }
-      let resolved: AdmittedVerbs | undefined;
-      const resolve = (): AdmittedVerbs => {
-        if (resolved !== undefined) return resolved;
-        const own: References = new Set();
-        const { root, related, ...given } = draft();
-        const at = `lazy ${name}`;
-        const admitted = admitDraft(admitting, name, given, own, at);
-        if (root !== undefined || related !== undefined)
-          admitted.filters = filtersOf(name, { root, related }, own, at);
-        // Read after the filters: what they name is the entry's too.
-        admitted.references = [...own];
-        resolved = admitted;
-        return admitted;
-      };
-      verbs[name] = resolve;
-    }
-    return verbs;
-  },
-  bind(chain) {
-    const bound = bindVerbs(chain, (entry, extension) => {
-      const draft = entry();
-      const at = chain.extensions.findIndex((own) => own.name === extension);
-      const names = new Set(
-        chain.extensions.slice(0, at + 1).map((own) => own.name)
-      );
-      for (const name of draft.references!)
-        if (
-          name !== undefined &&
-          !chain.controls?.all.some(
-            (control) => control.name === name && names.has(control.extension)
-          )
-        )
-          throw new ClientInitializationError(
-            `Extension "${extension}" references undeclared control "${name}".`,
-            { meta: { extension } }
-          );
-      return draft;
-    });
-    return {
-      ...bound,
-      lazy: true,
-      filters: (model, layer) => bound.verbs?.get(model)?.[layer]?.filters,
+export const LAZY_ENTRIES: LazyEntries = {
+  admit(admitting, name, draft, filtersOf) {
+    let resolved: AdmittedVerbs | undefined;
+    return () => {
+      if (resolved !== undefined) return resolved;
+      const own: References = new Set();
+      const { root, related, ...given } = draft();
+      const at = `lazy ${name}`;
+      const admitted = admitDraft(admitting, name, given, own, at);
+      if (root !== undefined || related !== undefined)
+        admitted.filters = filtersOf(name, { root, related }, own, at);
+      // Read after the filters: what they name is the entry's too.
+      admitted.references = [...own];
+      resolved = admitted;
+      return admitted;
     };
+  },
+  read(chain, entry, extension) {
+    const draft = entry();
+    const at = chain.extensions.findIndex((own) => own.name === extension);
+    const names = new Set(
+      chain.extensions.slice(0, at + 1).map((own) => own.name)
+    );
+    for (const name of draft.references!)
+      if (
+        name !== undefined &&
+        !chain.controls?.all.some(
+          (control) => control.name === name && names.has(control.extension)
+        )
+      )
+        throw new ClientInitializationError(
+          `Extension "${extension}" references undeclared control "${name}".`,
+          { meta: { extension } }
+        );
+    return draft;
   },
 };
 

@@ -728,7 +728,6 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "PlacedControl",
       "ProjectedContribution",
       "ProjectedModelOperations",
-      "RowsVerbs",
       "StampedFields",
       "VibSchema",
       "CountResultType",

@@ -44,17 +44,11 @@ const own = (value: unknown): Entry => (isPlain(value) ? value : {});
 export const listOf = (value: unknown): unknown[] =>
   value === undefined ? [] : Array.isArray(value) ? [...value] : [value];
 
-/** The keys of an entry that hold a word, by the key holding them. */
-const WORD_SLOTS = [
-  ["create", ["check"]],
-  ["update", ["where", "check"]],
-  ["delete", ["where", "instead"]],
-] as const;
-
 /**
- * One entry's keys beyond its filters as a draft, each word called where it
- * is written: `undefined` where it holds none. Inside an entry given lazily
- * (`lazy`), its `read.where` is one of them.
+ * One entry's keys beyond its filters as a draft: each word joined where it
+ * is written, anything else in a word's place refused; `undefined` where it
+ * holds none. Inside an entry given lazily (`lazy`), its `read.where` is one
+ * of them.
  */
 export function draftOf(
   entry: unknown,
@@ -65,22 +59,30 @@ export function draftOf(
   lazy: boolean
 ): VerbsDraft | undefined {
   let verbs: VerbsDraft | undefined;
+  const read = own(own(entry).read);
   const join = (value: unknown, key: string, field?: string): void => {
     if (value === undefined) return;
-    if (!(value instanceof CarriedValue))
+    if (value instanceof CarriedValue)
+      return value.join({
+        model,
+        key,
+        field,
+        schema,
+        draft,
+        lazy,
+        // What a row a write returns holds for what a read carries to show.
+        ...(!lazy && { shows: read.where }),
+        verbs: () => (verbs ??= {}),
+        refuse,
+      });
+    if (!isPlain(value))
       refuse(
         `${key} is written ${key.endsWith("where") ? "only(where)" : "with a word"}`
       );
-    value.join({
-      model,
-      key,
-      field,
-      schema,
-      draft,
-      lazy,
-      verbs: () => (verbs ??= {}),
-      refuse,
-    });
+    // `fields` and `select` name a field, which every word below them reads.
+    const names = key.endsWith("fields") || key.endsWith("select");
+    for (const [name, item] of Object.entries(value))
+      join(item, `${key}.${name}`, names ? name : field);
   };
   // `lazy(() => entry)`: it brings what reads the entry later.
   if (entry instanceof CarriedValue) {
@@ -95,32 +97,10 @@ export function draftOf(
     );
   for (const key of Object.keys(entry))
     if (!RULE_KEYS.has(key)) refuse(`"${key}" is not a rule key`);
-  const read = own(entry.read);
   if (lazy && read.where !== undefined) (verbs ??= {}).read = read.where;
-  for (const map of ["fields", "select"] as const)
-    for (const [key, word] of Object.entries(own(read[map])))
-      join(word, `read.${map}.${key}`, key);
-  for (const [slot, keys] of WORD_SLOTS)
-    for (const key of keys) join(own(entry[slot])[key], `${slot}.${key}`);
-  const { state } = schema[model]!["~"];
-  for (const [field, slot] of Object.entries(own(own(entry.update).fields))) {
-    if (
-      !(
-        Object.hasOwn(state.scalars, field) ||
-        Object.hasOwn(state.relations, field)
-      )
-    )
-      refuse(`update.fields names unknown field "${field}"`);
-    if (!isPlain(slot)) refuse(`update.fields.${field} is { where?, check? }`);
-    join(slot.where, `update.fields.${field}.where`, field);
-    join(slot.check, `update.fields.${field}.check`, field);
-  }
-  if (
-    !lazy &&
-    read.where !== undefined &&
-    (verbs?.as !== undefined || verbs?.reads !== undefined)
-  )
-    verbs.shown = read.where;
+  join(read.fields, "read.fields");
+  join(read.select, "read.select");
+  for (const key of ["create", "update", "delete"]) join(entry[key], key);
   const { acyclic } = entry;
   if (acyclic !== undefined) {
     if (!(Array.isArray(acyclic) || typeof acyclic === "function"))
@@ -130,6 +110,7 @@ export function draftOf(
       refuse(
         "acyclic is judged with the rows a write produces: write a check() on the model beside it"
       );
+    // Each relation it names is checked where it is admitted (`cyclesOf`).
     verbs.acyclic = acyclic as VerbsDraft["acyclic"];
   }
   return verbs;

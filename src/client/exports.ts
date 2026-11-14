@@ -9,7 +9,6 @@
 export type {
   DefinitionControls,
   PlacedControl,
-  RowsVerbs,
   StampedFields,
 } from "../extensions/controls";
 export type {
