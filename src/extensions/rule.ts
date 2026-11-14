@@ -11,10 +11,10 @@ import type {
   AnyTarget,
   EmptyFacts,
   Exact,
+  ModelName,
   Part,
   RuleFacts,
   RuleInput,
-  SchemaOf,
 } from "./contract";
 import type { RowsContribution } from "./controls";
 import { builtPart, type DefinitionDraft } from "./extension";
@@ -31,7 +31,7 @@ import { verbsTranslation } from "./verbs-translation";
  */
 export function rule<T extends AnyTarget, const R = RuleInput<T>>(
   rules: R & RuleInput<T> & NoInfer<Exact<R, RuleInput<T>>>
-): Part<T, RuleFacts<R>>;
+): Part<T, RuleFacts<R, ModelName<T>>>;
 export function rule(
   rules:
     | Readonly<Record<string, unknown>>

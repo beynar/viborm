@@ -32,13 +32,13 @@ import { v } from "@src/validation";
  * names, so the cast gives them back: the types then know which models a
  * recipe writes.
  */
-export const perModel = <Models extends readonly string[], T>(
+export const perModel = <const Models extends readonly string[], T>(
   models: Models,
   build: () => T
 ) =>
-  Object.fromEntries(models.map((model) => [model, build()])) as Readonly<
-    Record<string, T>
-  >;
+  Object.fromEntries(models.map((model) => [model, build()])) as {
+    readonly [M in Models[number]]: T;
+  };
 
 // Each argument is read through a word written apart from the rule: the
 // recipe applies to any client, so its names are checked where it is applied.

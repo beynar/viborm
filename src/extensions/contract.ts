@@ -818,10 +818,54 @@ export interface RuleEntry<M, K extends string> {
   readonly confine?: RuleWhere<M, K>;
 }
 
+/**
+ * An entry written apart from any client (`AnyTarget`, whose model names are
+ * `string`): its models are unknown, so its leaves are any filter, any value
+ * and any word, checked where the extension is applied, as the runtime
+ * checks every rule. Without it, a rule written in a function of model names
+ * (a recipe) types every leaf against `Model<any>` and overflows (TS2589).
+ */
+export interface WideRuleEntry {
+  readonly read?: {
+    readonly where?: object;
+    readonly fields?: Readonly<Record<string, GateWord<unknown>>>;
+    readonly select?: {
+      readonly [key: `$${string}`]: FactsWord<string, boolean>;
+    };
+  };
+  readonly root?: object;
+  readonly related?: object;
+  readonly create?: { readonly check?: CheckWord<unknown> };
+  readonly update?: {
+    readonly where?: object;
+    readonly check?: CheckWord<unknown>;
+    readonly fields?: Readonly<
+      Record<
+        string,
+        { readonly where?: object; readonly check?: CheckWord<unknown> }
+      >
+    >;
+  };
+  readonly delete?: {
+    readonly where?: object;
+    readonly instead?: KeepWord<unknown>;
+  };
+  readonly acyclic?: readonly string[] | (() => readonly string[]);
+  readonly confine?: object;
+}
+
+/**
+ * The key decides between the two: a model's literal name reads its fields;
+ * `string`, the key of a target whose models are unknown, reads none. The
+ * test is on the key, never on `T`: while a literal is typed `T` is still
+ * generic, and only the key is known at the property being typed.
+ */
 export type RuleInput<T extends AnyTarget> = {
-  readonly [M in keyof SchemaOf<T> & string]?:
-    | RuleEntry<SchemaOf<T>[M], KnownArgs<T>>
-    | (() => RuleEntry<SchemaOf<T>[M], KnownArgs<T>>);
+  readonly [M in keyof SchemaOf<T> & string]?: string extends M
+    ? WideRuleEntry | (() => WideRuleEntry)
+    :
+        | RuleEntry<SchemaOf<T>[M], KnownArgs<T>>
+        | (() => RuleEntry<SchemaOf<T>[M], KnownArgs<T>>);
 };
 
 /** A model whose rows a call or a relation read can find hidden. */
@@ -854,29 +898,37 @@ type EntryVerbs<E> = (E extends {
     ? { readonly reads: { readonly [F in keyof Gated]: string } }
     : unknown);
 
-type RuleVerbs<R> = {
-  readonly [M in keyof R as R[M] extends {
-    readonly read: { readonly select: object } | { readonly fields: object };
-  }
-    ? M
+type RuleVerbs<R, Names extends string> = {
+  readonly [M in keyof R as M extends Names
+    ? R[M] extends {
+        readonly read:
+          | { readonly select: object }
+          | { readonly fields: object };
+      }
+      ? M
+      : never
     : never]: EntryVerbs<R[M]>;
 };
 
-/** A rule's facts: the models whose rows it can hide (`| null`), its projections. */
-export type RuleFacts<R> = Facts<
+/**
+ * A rule's facts: the models whose rows it can hide (`| null`), its
+ * projections. Only models of the target (`Names`) count: one it does not
+ * have is refused at its key already, and `$extends` would refuse it again.
+ */
+export type RuleFacts<R, Names extends string = string> = Facts<
   NoMethods,
   NoMethods,
   NoControls,
   Extract<
     { [M in keyof R]-?: R[M] extends HidesRows ? M : never }[keyof R],
-    string
+    Names
   >,
   never,
   NoFields,
   NoFields,
   false,
   false,
-  RuleVerbs<R>
+  RuleVerbs<R, Names>
 >;
 
 // =============================================================================
@@ -893,31 +945,45 @@ export interface DefaultsEntry<M, K extends string> {
   readonly fields?: ScalarSlots<M, OmittedWord>;
 }
 
+/** `defaults` written apart from any client: see `WideRuleEntry`. */
+export interface WideDefaultsEntry {
+  readonly orderBy?:
+    | Readonly<Record<string, "asc" | "desc">>
+    | readonly Readonly<Record<string, "asc" | "desc">>[];
+  readonly create?: Readonly<Record<string, unknown>>;
+  readonly update?: Readonly<Record<string, unknown>>;
+  readonly fields?: Readonly<Record<string, OmittedWord>>;
+}
+
 export type DefaultsInput<T extends AnyTarget> = {
-  readonly [M in keyof SchemaOf<T> & string]?: DefaultsEntry<
-    SchemaOf<T>[M],
-    KnownArgs<T>
-  >;
+  readonly [M in keyof SchemaOf<T> & string]?: string extends M
+    ? WideDefaultsEntry
+    : DefaultsEntry<SchemaOf<T>[M], KnownArgs<T>>;
 };
 
 /**
  * Two facts: the fields a default writes on create (optional there, root
- * and nested), and the fields it omits (gone from default results).
+ * and nested), and the fields it omits (gone from default results). Only
+ * models of the target (`Names`) count, as in `RuleFacts`.
  */
-export type DefaultsFacts<D> = Facts<
+export type DefaultsFacts<D, Names extends string = string> = Facts<
   NoMethods,
   NoMethods,
   NoControls,
   never,
   {
-    [M in keyof D]-?: D[M] extends { readonly create: infer Data }
-      ? StampedFields<M, keyof Data>
+    [M in keyof D]-?: M extends Names
+      ? D[M] extends { readonly create: infer Data }
+        ? StampedFields<M, keyof Data>
+        : never
       : never;
   }[keyof D],
   NoFields,
   {
-    readonly [M in keyof D as D[M] extends { readonly fields: object }
-      ? M
+    readonly [M in keyof D as M extends Names
+      ? D[M] extends { readonly fields: object }
+        ? M
+        : never
       : never]: D[M] extends { readonly fields: infer Fields }
       ? {
           readonly [F in keyof Fields as Fields[F] extends OmittedWord
@@ -936,34 +1002,42 @@ export type DefaultsFacts<D> = Facts<
  * the intersection `R & RuleInput<T>`, TypeScript skips its weak-type check,
  * so `title: 1` would pass against an all-optional operator object.
  */
-export type Exact<Given, Allowed> = Given extends
-  | ArgWord<string>
-  | HeldArg
-  | NowWord
-  | RowWord
-  | WhenWord<string, unknown>
-  | ProvidedWord<string>
-  | ExistsWord
-  | GateWord<unknown>
-  | CheckWord<unknown>
-  | FactsWord<string, boolean>
-  | KeepWord<unknown>
-  | OmittedWord
-  | ((...args: never[]) => unknown)
-  ? Given
-  : Given extends readonly (infer Element)[]
-    ? readonly Exact<Element, ElementOf<Allowed>>[]
-    : Given extends object
-      ? {
-          readonly [Key in keyof Given]: Key extends KeysOf<ObjectsOf<Allowed>>
-            ? Exact<Given[Key], ValueAt<ObjectsOf<Allowed>, Key>>
-            : never;
-        }
-      : Given extends string | number | boolean
-        ? [Given] extends [Allowed]
-          ? Given
-          : never
-        : Given;
+export type Exact<Given, Allowed> = string extends keyof Allowed
+  ? // A map keyed by any string (a part written apart from any client) has
+    // no typo to refuse. Decided on `Allowed` alone, so that a literal built
+    // in a generic function (a recipe's map over its model names) is never
+    // deferred.
+    Given
+  : Given extends
+        | ArgWord<string>
+        | HeldArg
+        | NowWord
+        | RowWord
+        | WhenWord<string, unknown>
+        | ProvidedWord<string>
+        | ExistsWord
+        | GateWord<unknown>
+        | CheckWord<unknown>
+        | FactsWord<string, boolean>
+        | KeepWord<unknown>
+        | OmittedWord
+        | ((...args: never[]) => unknown)
+    ? Given
+    : Given extends readonly (infer Element)[]
+      ? readonly Exact<Element, ElementOf<Allowed>>[]
+      : Given extends object
+        ? {
+            readonly [Key in keyof Given]: Key extends KeysOf<
+              ObjectsOf<Allowed>
+            >
+              ? Exact<Given[Key], ValueAt<ObjectsOf<Allowed>, Key>>
+              : never;
+          }
+        : Given extends string | number | boolean
+          ? [Given] extends [Allowed]
+            ? Given
+            : never
+          : Given;
 
 type ObjectsOf<Allowed> = Exclude<
   Extract<Allowed, object>,
@@ -1005,7 +1079,7 @@ export type RuleFunction<Bound extends AnyTarget | undefined> = <
   const R = RuleInput<T>,
 >(
   rules: R & RuleInput<T> & NoInfer<Exact<R, RuleInput<T>>>
-) => Part<T, RuleFacts<R>>;
+) => Part<T, RuleFacts<R, ModelName<T>>>;
 
 /** Same shape as `rule`: `D` unconstrained, typed by `DefaultsInput<T>` beside it. */
 export type DefaultsFunction<Bound extends AnyTarget | undefined> = <
@@ -1013,7 +1087,7 @@ export type DefaultsFunction<Bound extends AnyTarget | undefined> = <
   const D = DefaultsInput<T>,
 >(
   defaults: D & DefaultsInput<T> & NoInfer<Exact<D, DefaultsInput<T>>>
-) => Part<T, DefaultsFacts<D>>;
+) => Part<T, DefaultsFacts<D, ModelName<T>>>;
 
 // =============================================================================
 // args({ name: declaration })

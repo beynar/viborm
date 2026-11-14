@@ -22,6 +22,7 @@ import type {
   Extension,
   Target,
 } from "@extensions/contract";
+import type { StampedFields } from "@extensions/controls";
 import { isAppliedExtension } from "@extensions/extension";
 import type {
   AccumulatedExtensionState,
@@ -334,6 +335,37 @@ type AfterConsumer<X extends ExtensionStateConstraint, F extends AnyFacts> = [
       : never
     : never;
 
+type DataModels<D> = D extends StampedFields<infer M, PropertyKey> ? M : never;
+
+/**
+ * Every model an extension's facts name. Rows hidden on `string` are hidden
+ * on every model (a policy governs them all): that names none.
+ */
+type NamedModels<F extends AnyFacts> =
+  | (string extends F["rows"] ? never : F["rows"])
+  | DataModels<F["data"]>
+  | keyof F["omit"]
+  | keyof F["models"]
+  | keyof F["verbs"];
+
+/**
+ * The models the extension names that this client does not have. A part
+ * typed against the client refuses one where it is written; one written
+ * apart from any client (a recipe taking model names, `tenancy(["post"])`)
+ * is checked here, where it meets the client. A list of names the types
+ * cannot read (a `string[]`) names `string`, which no schema has.
+ */
+type KnownModels<C extends VibORMConfig, F extends AnyFacts> = [
+  Exclude<NamedModels<F>, keyof C["schema"]>,
+] extends [never]
+  ? unknown
+  : {
+      readonly "names models this client does not have": Exclude<
+        NamedModels<F>,
+        keyof C["schema"]
+      >;
+    };
+
 /**
  * The keys a proposed config names that the surface does not have: the typos.
  *
@@ -532,7 +564,9 @@ export interface VibORMClientMembers<
    * immutable chain; this client is unchanged.
    */
   $extends<F extends AnyFacts>(
-    extension: Extension<Target<C, X, EmptyFacts>, F> & AfterConsumer<X, F>
+    extension: Extension<Target<C, X, EmptyFacts>, F> &
+      AfterConsumer<X, F> &
+      KnownModels<C, F>
   ): VibORMClient<AppliedClientConfig<C, F>, AppliedExtensionState<C, X, F>>;
 }
 

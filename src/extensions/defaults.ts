@@ -18,9 +18,9 @@ import type {
   DefaultsInput,
   EmptyFacts,
   Exact,
+  ModelName,
   OmittedWord,
   Part,
-  SchemaOf,
 } from "./contract";
 import type { DataContribution, OrderContribution } from "./controls";
 import { extensionError } from "./definition";
@@ -111,7 +111,7 @@ const has = (entry: unknown, ...keys: string[]): boolean =>
  */
 export function defaults<T extends AnyTarget, const D = DefaultsInput<T>>(
   defaults: D & DefaultsInput<T> & NoInfer<Exact<D, DefaultsInput<T>>>
-): Part<T, DefaultsFacts<D>>;
+): Part<T, DefaultsFacts<D, ModelName<T>>>;
 export function defaults(
   entries:
     | Readonly<Record<string, unknown>>
