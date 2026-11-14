@@ -685,6 +685,26 @@ export function runOnBehavior(provider: OnProvider): void {
         );
       });
 
+      test("each on() is named after what it hooks: two that hook the same kinds of the same models share a name, refused on one client", async () => {
+        const { base } = await open();
+        const first = on({
+          user: { update: () => undefined },
+          post: { create: () => undefined },
+        });
+        const same = on({
+          post: { create: () => undefined },
+          user: { update: () => undefined },
+        });
+        expect(Reflect.get(first, "name")).toBe(
+          "viborm.on(post.create,user.update)"
+        );
+        expect(Reflect.get(same, "name")).toBe(Reflect.get(first, "name"));
+        expect(Reflect.get(on({}), "name")).toBe("viborm.on()");
+        expect(() => base.$extends(first).$extends(same)).toThrow(
+          ClientInitializationError
+        );
+      });
+
       test("applied per request, each client's hooks close over their own values", async () => {
         const base = await openOnFixture(
           provider.createDriver(),

@@ -345,6 +345,10 @@ cache invalidates for it.
   `fn` at once outside a transaction, and returns its promise; inside one it
   runs after the outermost commit, and its failure rejects that
   transaction's promise.
+- Inside a transaction, a raw statement's `settled` and a method's need a
+  chain that collects write outcomes: one with a part on `target(writes)` or
+  `target(deletes)`, or a `unit` part. Without one, they are refused with a
+  `TypeError` rather than told before the commit.
 
 ### Make a failed call again: `again`
 

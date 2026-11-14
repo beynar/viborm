@@ -157,7 +157,18 @@ export function executePreparedQuery<Result, Input extends object>(
     transactionWriteOutcomes,
     control,
     preRegisteredWriteOutcome,
-    runCompiledQueryInterceptors
+    (prepared, handlers, executeChild, capture, ...rest) =>
+      runCompiledQueryInterceptors(
+        prepared,
+        handlers,
+        executeChild,
+        // Inside a transaction, only a collector holds a raw statement's
+        // `settled` until the commit: without one it is refused.
+        transactionWriteOutcomes !== undefined || prepared.mode === "direct"
+          ? capture
+          : refuseUncollected,
+        ...rest
+      )
   );
 }
 
@@ -604,6 +615,16 @@ export async function runOutcomeTransaction<T>(
     await outcomes.publish("committed");
   }
   return result;
+}
+
+/**
+ * Refuse a `settled` registered inside a transaction whose chain collects no
+ * write outcome: it could only be told before the commit, or never.
+ */
+export function refuseUncollected(): never {
+  throw new TypeError(
+    "settled() in a transaction needs a part on target(writes)"
+  );
 }
 
 /**

@@ -1,17 +1,17 @@
 /**
  * What a part that wraps a call's execution brings beside its own state: how
- * a prepared call runs (under write-outcome registrations, under query
- * handlers), and, for the parts an array member can be intercepted by, how
- * the one executor of `$transaction([...])` (`@client/array-transaction`)
+ * a prepared call runs (under write-outcome registrations, under `around`
+ * parts), and, for the parts an array member can be intercepted by, how the
+ * one executor of `$transaction([...])` (`@client/array-transaction`)
  * admits its members. A chain of none of those parts carries none of it.
  *
  * The write rail (`WRITE_RAIL`) collects a transaction's write outcomes and
- * publishes them after its commit. It comes with what can register an
- * outcome: `watch` (its part), `unit` parts, the `query` member, and the word
- * `settled`, by importing it (`./settled.ts`): what it registers on a raw
- * statement or a method's scope may be in any coordinated chain. A chain of
- * `around` parts alone, in a program that never imports `settled`, runs its
- * transactions as an unextended client does.
+ * publishes them after its commit. It comes with the parts whose work is to
+ * hear writes: the part that watches a set of writes (`watch-part.ts`) and
+ * `unit` parts. A chain of `around` parts alone runs its transactions as an
+ * unextended client does; a `settled` registered on a raw statement or a
+ * method's scope inside one of its transactions is refused, since nothing
+ * would hold it until the commit.
  */
 import type { ArraySlot } from "@client/array-transaction";
 import { admitArray, interceptsArray } from "./array-admission";
@@ -40,9 +40,6 @@ export const WRITE_RAIL: Rail = {
   outcomes: () => new TransactionWriteOutcomes(),
   runTransaction: runOutcomeTransaction,
 };
-
-/** The rail importing `settled` brought, for the chains of `around` parts. */
-export const brought: { rail?: Rail } = {};
 
 export interface Coordination {
   /** What it adds to the one before it: a chain keeps the highest it needs. */
@@ -84,7 +81,7 @@ export const ARRAYS: Coordination = {
     admitArray(slots, outcomes, executeRegisteredQuery),
 };
 
-/** For query handlers: what runs them around a call, too. */
+/** For `around` parts: what runs their second moments around a call, too. */
 export const QUERIES: Coordination = {
   rank: 2,
   executePreparedQuery,
@@ -105,12 +102,9 @@ export function coordinate(
     next.coordination = needed;
 }
 
-/**
- * The write rail a coordinated chain runs its transactions with: its own,
- * else the one importing `settled` brought.
- */
+/** The write rail a chain runs its transactions with, if a part brought one. */
 export function railOf(
   chain: ResolvedExtensionChain | undefined
 ): Rail | undefined {
-  return chain?.coordination ? (chain.rail ?? brought.rail) : undefined;
+  return chain?.rail;
 }

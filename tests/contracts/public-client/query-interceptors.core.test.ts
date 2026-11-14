@@ -29,7 +29,15 @@ import {
 } from "@extensions/query";
 import { s } from "@schema";
 import { sql } from "@sql";
-import { around, extension, settled, target, writes } from "@src/index";
+import {
+  around,
+  call,
+  extension,
+  methods,
+  settled,
+  target,
+  writes,
+} from "@src/index";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -721,6 +729,50 @@ describe("settled, as the runner tells it", () => {
     expect(told).toEqual([]);
     await db.$executeRaw(sql`UPDATE post SET title = ${"three"}`);
     expect(told).toEqual(["$executeRaw:committed"]);
+  });
+});
+
+describe("settled where nothing collects a transaction's outcomes", () => {
+  // A chain of around parts and methods alone runs its transactions as an
+  // unextended client does: nothing would hold what settled registers there
+  // until the commit, so it is refused, not told early.
+  const raw = extension(
+    "raw-outcomes",
+    around((c) => {
+      if (c.kind === "raw") settled(c, () => undefined);
+      return (run) => run();
+    })
+  );
+  const scoped = extension(
+    "scoped",
+    methods((scope) => ({ $after: () => settled(scope, () => undefined) }))
+  );
+  const watcher = extension(
+    "watcher",
+    call(() => undefined, target(writes))
+  );
+
+  test("a raw statement's settled inside a transaction is refused, and outside one is told", async () => {
+    const db = (await seededClient()).$extends(raw);
+    await expect(
+      db.$transaction(async (tx) => tx.$executeRaw(sql`DELETE FROM post`))
+    ).rejects.toThrow(TypeError);
+    await expect(
+      db.$transaction([db.$executeRaw(sql`DELETE FROM post`)])
+    ).rejects.toThrow(TypeError);
+    await expect(db.post.count()).resolves.toBe(1);
+    await expect(db.$executeRaw(sql`DELETE FROM post`)).resolves.toBe(1);
+  });
+
+  test("a method's settled inside a transaction is refused; a part that watches writes collects it", async () => {
+    const base = await seededClient();
+    await expect(
+      base.$extends(scoped).$transaction(async (tx) => tx.$after())
+    ).rejects.toThrow(TypeError);
+    const collected = base.$extends(scoped).$extends(watcher);
+    await expect(
+      collected.$transaction(async (tx) => tx.$after())
+    ).resolves.toBeUndefined();
   });
 });
 

@@ -33,8 +33,6 @@ import type {
 } from "../index";
 
 const NAME = "viborm.on";
-/** How many declarations were made: each is an extension of its own name. */
-let declared = 0;
 
 /** What a hook is named after: what happened to the rows it receives. */
 export type OnKind = "create" | "update" | "delete";
@@ -198,11 +196,18 @@ export function on(hooks: RuntimeHooks, options?: OnOptions): unknown {
       console.error(error, thrown);
     }
   };
-  declared += 1;
-  const name = declared === 1 ? NAME : `${NAME}.${declared}`;
   const hooked = Object.keys(own);
+  /** Per model, the models a nested write from it can write. */
+  const reached: Reached = new WeakMap();
+  // Named after what it hooks, so several `on()` live on one client and a
+  // name never depends on how many were made before it.
+  const pairs = hooked
+    .flatMap((model) =>
+      Object.keys(own[model] ?? {}).map((kind) => `${model}.${kind}`)
+    )
+    .sort();
   return extension(
-    name,
+    `${NAME}(${pairs})`,
     // The hooked models are checked against the schema where the extension
     // is applied: an unknown one is refused there.
     ...(hooked.length === 0
@@ -210,7 +215,7 @@ export function on(hooks: RuntimeHooks, options?: OnOptions): unknown {
       : [call(() => undefined, target(hooked, "create"))]),
     call((c) => {
       if (c.kind !== "model" || c.model === undefined) return;
-      const watching = watchOf(own, report, c.schema[c.model]!, {
+      const watching = watchOf(own, report, reached, c.schema[c.model]!, {
         model: c.model,
         operation: c.operation,
         args: c.args,
@@ -226,6 +231,7 @@ export function on(hooks: RuntimeHooks, options?: OnOptions): unknown {
 function watchOf(
   hooks: RuntimeHooks,
   report: (error: QueryError, event: OnEvent) => Promise<void>,
+  reached: Reached,
   model: AnyModel,
   call: WriteCall
 ) {
@@ -236,7 +242,9 @@ function watchOf(
     !(
       KINDS[call.operation]!.some((kind) => mine[kind] !== undefined) ||
       (writesRelation(call.args, model["~"].state.relations) &&
-        [...reachable(model)].some((other) => hooks[other] !== undefined))
+        [...reachable(model, reached)].some(
+          (other) => hooks[other] !== undefined
+        ))
     )
   )
     return undefined;
@@ -303,7 +311,8 @@ function writesRelation(args: Row, relations: object): boolean {
   return false;
 }
 
-const reached = new WeakMap<AnyModel, ReadonlySet<string>>();
+/** What `reachable` found, kept by each `on()` for its own calls. */
+type Reached = WeakMap<AnyModel, ReadonlySet<string>>;
 
 /**
  * The models a nested write from `model` can write, itself included: every
@@ -311,7 +320,7 @@ const reached = new WeakMap<AnyModel, ReadonlySet<string>>();
  * one, and a declared junction. A payload that names a relation concerns no
  * hook unless one of them has one.
  */
-function reachable(model: AnyModel): ReadonlySet<string> {
+function reachable(model: AnyModel, reached: Reached): ReadonlySet<string> {
   const known = reached.get(model);
   if (known !== undefined) return known;
   const names = new Set<string>();
