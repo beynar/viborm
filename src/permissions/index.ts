@@ -423,18 +423,21 @@ export interface Policy<Config extends PermissionsConfig> {
 
 const READS = /^(find|count|aggregate|groupBy|exist)/;
 const CREATES = /^(create|upsert)/;
-const WRITES = /^(update|delete)/;
+const UPDATES = /^update/;
 
 /**
  * The action a root operation needs its model to grant (R9, K4), named by
- * its family: an upsert's update is judged where it locates its row.
+ * its family: an upsert's update is judged where it locates its row, and an
+ * operation of no other family deletes.
  */
-const actionOf = (operation: string): string | undefined =>
+const actionOf = (operation: string): string =>
   READS.test(operation)
     ? "read"
     : CREATES.test(operation)
       ? "create"
-      : WRITES.exec(operation)?.[0];
+      : UPDATES.test(operation)
+        ? "update"
+        : "delete";
 
 /** What a root call may reach on one model before its predicates run (R9). */
 interface Reach {
@@ -776,10 +779,8 @@ export function permissions<const Config extends PermissionsConfig>(
       if (c.kind !== "model" || c.model === undefined) return;
       const at = applied.get(c.schema)?.reach.get(c.model);
       const mode: unknown = c.values[MODE];
-      const action = actionOf(c.operation);
       if (
-        !at?.listed ||
-        (action !== undefined && !at.verbs.has(action)) ||
+        !(at?.listed && at.verbs.has(actionOf(c.operation))) ||
         (typeof mode === "string" && !at.modes.has(mode))
       )
         throw new ForbiddenError(c.model, c.operation);
