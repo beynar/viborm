@@ -96,6 +96,42 @@ and client acquisition. Correlation
 is carried by the authenticated execution context, so clients sharing a driver
 or cache keep isolated spans and logs.
 
+## Present your own units
+
+The instrumentation presents what an extension notes on a unit, whoever
+noted it: it knows no extension's units by name. The cache presents its
+`cache` units this way. A note is a plain object (`InstrumentationNote`,
+from `viborm/instrumentation`):
+
+| Member | When it is read | What is presented |
+|---|---|---|
+| `span` | On a unit of your own kind (`work`), as the unit starts: give it as `work`'s `note` | The unit is traced as a span of that name, a root span if `root`, with the `db.*` attributes of `database` (what `database(x)` gives), the call's correlation and `attributes` |
+| `attributes` | Noted later on that unit | Set on its span when the unit ends; an attribute given `undefined` is left out, the correlation's included |
+| `log` | On any unit: as it starts if noted by then, else when it ends | A log event at that level (`"query"`, `"cache"`, `"error"`), at `at`, naming `model` and `operation` (the unit's own by default), with `error` and `meta` presented as every log's are |
+
+```ts
+import { around, extension, note, work } from "viborm";
+
+const lookups = extension(
+  "lookups",
+  around(() => async (run) => {
+    await work(
+      run,
+      {
+        kind: "lookup",
+        operation: "hint",
+        note: { span: "app.lookup", attributes: { "lookup.source": "edge" } },
+      },
+      async (u) => {
+        note(u, { attributes: { "lookup.result": "warm" } });
+      }
+    );
+    note(run, { log: "cache", at: Date.now(), meta: { event: "hint" } });
+    return run();
+  })
+);
+```
+
 ## Failure containment
 
 Telemetry is observational. Instrumentation contains its own failures: a

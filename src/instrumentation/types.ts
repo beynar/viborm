@@ -5,7 +5,6 @@
  */
 
 import type { DiagnosticDisclosure, VibORMError } from "@errors";
-import type { Operation } from "../query-engine/types";
 
 /**
  * Log levels for the logging callback
@@ -25,7 +24,7 @@ export interface LogEvent {
   /** Model name */
   model?: string | undefined;
   /** Operation being performed */
-  operation?: Operation | string | undefined;
+  operation?: string | undefined;
   /** Correlation identifier supplied for this execution */
   correlationId?: string | undefined;
   /** Error if applicable */
@@ -36,6 +35,42 @@ export interface LogEvent {
   params?: unknown[] | undefined;
   /** Additional metadata */
   meta?: Record<string, unknown> | undefined;
+}
+
+/**
+ * A fact an extension notes on a unit (`note`) for the instrumentation to
+ * present. It presents what it finds, whoever noted it:
+ *
+ * - On a unit of an extension's own kind (`work`), a note that names a
+ *   `span` when the unit starts (`work`'s `note`) traces the unit as that
+ *   span, a root one if `root`, with the `db.*` attributes of `database`,
+ *   the call's correlation and `attributes`. `attributes` noted later are set
+ *   on it when the unit ends. An attribute given `undefined` is left out,
+ *   the correlation's included.
+ * - On any unit, a note that names a `log` level is logged at that level,
+ *   when the unit starts if it is there by then, else when it ends: at `at`,
+ *   naming `model` and `operation` (the unit's own by default), with `error`
+ *   and `meta` presented as every log's are.
+ */
+export interface InstrumentationNote {
+  readonly span?: string | undefined;
+  readonly root?: boolean | undefined;
+  readonly database?:
+    | {
+        readonly dialect: string;
+        readonly driverName: string;
+        readonly namespace?: string | undefined;
+      }
+    | undefined;
+  readonly attributes?:
+    | Readonly<Record<string, string | number | boolean | undefined>>
+    | undefined;
+  readonly log?: LogLevel | undefined;
+  readonly at?: number | undefined;
+  readonly model?: string | undefined;
+  readonly operation?: string | undefined;
+  readonly error?: unknown;
+  readonly meta?: Readonly<Record<string, unknown>> | undefined;
 }
 
 /**

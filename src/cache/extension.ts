@@ -20,19 +20,14 @@ import { CacheConfigurationError } from "../errors/cache";
 import { accepts, args, bound } from "../extensions/args";
 import { around, call } from "../extensions/call";
 import { codec } from "../extensions/codec";
-import { database } from "../extensions/database";
+import { type Database, database } from "../extensions/database";
 import { extension } from "../extensions/extension";
 import { key } from "../extensions/key";
 import { methods } from "../extensions/methods-part";
 import { reads, target, writes } from "../extensions/on";
 import { settled } from "../extensions/settled";
 import type { AnyTarget, Extension, Facts, PlacedControl, Run } from "../index";
-import {
-  CacheDriver,
-  invalidateOfficialCache,
-  serveOfficialRead,
-  type WaitUntilFn,
-} from "./driver";
+import { CacheDriver, INVALIDATE, SERVE, type WaitUntilFn } from "./driver";
 import { createOfficialCacheNamespace } from "./key";
 import { cacheCodec } from "./result-codec";
 import {
@@ -44,7 +39,6 @@ import {
   validateCacheableOperation,
   type WithCacheOptions,
 } from "./schema";
-import { originOf } from "./units";
 
 export interface CacheExtensionConfig {
   readonly driver: CacheDriver;
@@ -127,8 +121,7 @@ export function cache(config: CacheExtensionConfig): unknown {
 
   // Pure in its facts: the same version and database always give one scope.
   const namespaces = new Map<string, string>();
-  const namespaceOf = (x: object): string => {
-    const { dialect, namespace } = database(x);
+  const namespaceOf = ({ dialect, namespace }: Database): string => {
     const id = JSON.stringify([dialect, namespace ?? null]);
     let scope = namespaces.get(id);
     if (scope === undefined) {
@@ -140,13 +133,7 @@ export function cache(config: CacheExtensionConfig): unknown {
   const invalidate = (
     origin: object,
     options: CacheInvalidationOptions | undefined
-  ) =>
-    invalidateOfficialCache(
-      driver,
-      options,
-      originOf(origin).context,
-      namespaceOf(origin)
-    );
+  ) => driver[INVALIDATE]("", options, origin, namespaceOf(database(origin)));
 
   return extension(
     "viborm.cache",
@@ -198,15 +185,17 @@ export function cache(config: CacheExtensionConfig): unknown {
           if (run.mode !== "direct") return run();
           const id = key(run);
           if (id === undefined) return run();
-          return serveOfficialRead(driver, {
+          const db = database(run);
+          return driver[SERVE]({
             id,
             codec: cacheCodec(codec(run), c.operation),
             read,
-            namespace: namespaceOf(run),
+            namespace: namespaceOf(db),
             waitUntil,
             model,
             operation: c.operation,
-            origin: originOf(run),
+            origin: run,
+            database: db,
           });
         };
       },

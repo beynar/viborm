@@ -6,8 +6,7 @@
  * eliminating the need for conditional `if (tracer)` checks.
  */
 
-import type { ResolvedDiagnosticDisclosure } from "@errors";
-import { isFunction, isString } from "@validation/value-guards";
+import type { DiagnosticDisclosure } from "@errors";
 import {
   isArrayValue,
   isRecord,
@@ -46,7 +45,7 @@ export interface InstrumentationContext {
 }
 
 interface ResolvedInstrumentationConfig {
-  readonly diagnostics: ResolvedDiagnosticDisclosure;
+  readonly diagnostics: Required<DiagnosticDisclosure>;
   readonly logging?: true | Readonly<LoggingConfig> | undefined;
   readonly tracing?: true | Readonly<TracingConfig> | undefined;
 }
@@ -87,6 +86,10 @@ export function createInstrumentationContext(
   return Object.freeze(context);
 }
 
+/** A handler the application gave: called with each event, its own to type. */
+const isCallback = (value: unknown): value is LogCallback =>
+  typeof value === "function";
+
 function snapshotInstrumentationConfig(
   config: InstrumentationConfig
 ): ResolvedInstrumentationConfig {
@@ -108,7 +111,7 @@ function snapshotInstrumentationConfig(
   return Object.freeze({ diagnostics, tracing, logging });
 }
 
-function snapshotDisclosure(value: unknown): ResolvedDiagnosticDisclosure {
+function snapshotDisclosure(value: unknown): Required<DiagnosticDisclosure> {
   return Object.freeze({
     includeParams: isRecord(value) && safeRead(value, "includeParams") === true,
     includeSql: isRecord(value) && safeRead(value, "includeSql") === true,
@@ -138,7 +141,9 @@ function snapshotTracingConfig(value: Record<string, unknown>): TracingConfig {
  * a tracer: the api is auto-detected instead.
  */
 function isPlatformTracer(value: unknown): value is SpanTracer {
-  return isRecord(value) && isFunction(safeRead(value, "startActiveSpan"));
+  return (
+    isRecord(value) && typeof safeRead(value, "startActiveSpan") === "function"
+  );
 }
 
 function snapshotIgnorePatterns(
@@ -151,7 +156,7 @@ function snapshotIgnorePatterns(
     const descriptor = safeOwnPropertyDescriptor(value, String(index));
     if (!(descriptor && "value" in descriptor)) continue;
     const pattern = descriptor.value;
-    if (isString(pattern)) {
+    if (typeof pattern === "string") {
       patterns.push(pattern);
       continue;
     }
@@ -191,7 +196,5 @@ function readLogHandler(
   key: "all" | "cache" | "error" | "query"
 ): LogLevelHandler | undefined {
   const handler = safeRead(value, key);
-  return handler === true || isFunction<LogCallback>(handler)
-    ? handler
-    : undefined;
+  return handler === true || isCallback(handler) ? handler : undefined;
 }

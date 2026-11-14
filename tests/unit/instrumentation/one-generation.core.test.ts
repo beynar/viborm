@@ -21,6 +21,7 @@ import {
   driver,
   extension,
   failure,
+  methods,
   note,
   notes,
   origin,
@@ -562,6 +563,60 @@ describe("an extension's own units", () => {
       'probe:[{"first":1},{"second":2}]',
       'operation:[{"onOperation":true}]',
     ]);
+  });
+});
+
+describe("a method's own units", () => {
+  test("work on a method's scope emits a unit of its own execution, correlated by itself", async () => {
+    const seen: string[] = [];
+    const correlations: (string | undefined)[] = [];
+    const client = createClient({ schema, driver: new StatementDriver() })
+      .$extends(
+        extension(
+          "reader",
+          unit(async (u, next) => {
+            await next();
+            seen.push(`${u.kind}:${u.operation}`);
+            correlations.push(correlation(u));
+          })
+        )
+      )
+      .$extends(
+        extension(
+          "maintenance",
+          methods((scope) => ({
+            $sweep: () =>
+              work(scope, { kind: "sweep", operation: "all" }, async (own) =>
+                work(own, { kind: "sweep", operation: "one" }, async () => 1)
+              ),
+          }))
+        )
+      );
+
+    await expect(client.$sweep()).resolves.toBe(1);
+    await client.$sweep();
+    expect(seen).toEqual(["sweep:one", "sweep:all", "sweep:one", "sweep:all"]);
+    // One execution per call: its units share a correlation, the next has its own.
+    expect(correlations[0]).toEqual(expect.any(String));
+    expect(correlations[1]).toBe(correlations[0]);
+    expect(correlations[2]).not.toBe(correlations[0]);
+  });
+
+  test("work on a method's scope runs alone where no unit part listens", async () => {
+    const client = createClient({
+      schema,
+      driver: new StatementDriver(),
+    }).$extends(
+      extension(
+        "maintenance",
+        methods((scope) => ({
+          $sweep: () =>
+            work(scope, { kind: "sweep", operation: "all" }, async () => 2),
+        }))
+      )
+    );
+
+    await expect(client.$sweep()).resolves.toBe(2);
   });
 });
 

@@ -49,6 +49,7 @@ const documentedRuntimeExports = [
   "ValueTooLongError",
   "VibORMError",
   "VibORMErrorCode",
+  "VIBORM_VERSION",
   "computed",
   "createClient",
   "createModelFieldRefs",

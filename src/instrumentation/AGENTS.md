@@ -42,7 +42,6 @@ With neither `tracing` nor `logging` it is the `disclosure` part alone.
 | `logger.ts` | Level selection (`query`, `cache`, `error`), callback containment, pretty presentation, the log metadata vocabulary |
 | `src/extensions/observation.ts` | The one generation of unit handlers (`runUnit`), the array barrier (`members`), `work` |
 | `src/extensions/unit-words.ts` | The unit words: `text`, `parameters`, `driver`, `failure`, `correlation`, `table`, `statements`, `origin`, `statement`, `run`, `note`, `notes` |
-| `src/cache/unit-facts.ts` | `cacheFacts` and `cacheOutcomes`, read from what the cache notes |
 | `src/errors/logged-errors.ts` | The line of successors the package makes from one failure (`origin`) |
 
 Core never names this extension: it builds a unit only where the chain has a
@@ -59,6 +58,14 @@ native batch included (`statements(u)` gives its members); `transaction`,
 `$transaction([...])`, which waits until every member's operation unit
 reached its child before preparing any member. The cache emits `cache` units
 of its own through `work`.
+
+A unit of any other kind is presented from its notes alone
+(`presentNoted`, `InstrumentationNote` in `types.ts`): the span its first
+note names as it starts, `attributes` noted later set at its end, every
+`log` note logged at its level, on any unit, the `operation` unit's after
+it ends. The instrumentation names no extension's units: the cache's spans
+and logs are what the cache notes. Never add a branch for one extension's
+kind.
 
 Every handler is a plain wrapper `(u, next) => …`: the child starts only at
 `next()`, the host awaits the handler's promise, `next()` is called once and
@@ -87,9 +94,9 @@ again by its operation (`origin`).
   attribute to a span that carries no other `db.*` (the cache backend's own
   get/set/delete/clear spans), and do not invent a lifecycle fact kind for it. Immutability rides the non-writable `adapter.namespace`
   install, NOT a ban on copies: `readDriverIdentity` returns a fresh frozen
-  record on every call, and the cache revalidation span is deliberately built
-  from a snapshot of one, taken at `$withCache` and carried as
-  `options.driverIdentity`. `driver(u)` reads a fresh identity from the
+  record on every call, and the cache revalidation span is built from the
+  `database(run)` the read took when it was served, noted as the unit's
+  `database` and rendered by `createDriverAttributes`. `driver(u)` reads a fresh identity from the
   unit's driver when it is called; a unit never hands the extension its
   driver itself. No snapshot can go stale, because the property it read cannot be
   reassigned — which is also why no reader may take its namespace from

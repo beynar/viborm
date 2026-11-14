@@ -1,7 +1,6 @@
 /** In-memory LRU cache with a bounded entry count and one expiry sweep. */
-import type { ClockTimer } from "../../clock";
 import { CacheConfigurationError } from "../../errors";
-import { CacheDriver, type CacheEntry } from "../driver";
+import { CacheDriver, type CacheEntry, type CacheTimer } from "../driver";
 
 export interface MemoryCacheOptions {
   readonly maxEntries: number;
@@ -12,7 +11,7 @@ export class MemoryCache<
 > extends CacheDriver {
   readonly #store = new Map<string, { entry: CacheEntry; expiresAt: number }>();
   readonly #maxEntries: number;
-  #timer?: ClockTimer;
+  #timer?: CacheTimer;
 
   constructor(
     options?: Options &

@@ -2,74 +2,63 @@
  * The cache's units (`get`, `set`, `invalidate`, `revalidate`, and the
  * `delete` and `clear` an invalidation runs) and the outcomes of a read
  * (`hit`, a stale `hit`, `miss`, `bypass`, `cache-set-failed`), written with
- * the words any extension has: each step is a `cache` unit it emits
- * (`work`), its facts are noted on it, and each decision of a read is noted
- * on the call's `operation` unit (`note`). The instrumentation reads them
- * through `unit-facts.ts`.
+ * the words any extension has: each step is a `cache` unit it emits with
+ * `work` (on the call's context or `run`, a method's scope, or the unit of
+ * the step it is part of), and what a presenter shows of it is noted on it
+ * with `note`, in the shape the official instrumentation presents any
+ * extension's units with (`InstrumentationNote`): the span as the unit
+ * starts, then its attributes and its logs. A read's outcomes are noted on
+ * the call's own `operation` unit.
  */
-import { readDriverIdentity } from "@drivers/driver-identity";
-import { getExecutionExtensionChain } from "@drivers/execution-context";
-import type { QueryExecutionContext } from "@drivers/types";
 import type { UnitContext } from "@extensions/contract";
+import type { Database } from "@extensions/database";
 import { work } from "@extensions/observation";
-import { callOf, scopeOf } from "@extensions/origin";
 import { note } from "@extensions/unit-words";
-import { createOperationExecutionContext } from "@query-engine/execution-context";
-import type { CacheNote, CacheOutcome, CacheStep } from "./unit-facts";
+import {
+  ATTR_CACHE_DRIVER,
+  ATTR_CACHE_TTL,
+  ATTR_DB_COLLECTION,
+  ATTR_DB_OPERATION_NAME,
+  ATTR_VIBORM_CORRELATION_ID,
+  SPAN_CACHE_CLEAR,
+  SPAN_CACHE_DELETE,
+  SPAN_CACHE_GET,
+  SPAN_CACHE_INVALIDATE,
+  SPAN_CACHE_SET,
+  SPAN_OPERATION,
+} from "../instrumentation/spans";
+import type { InstrumentationNote } from "../instrumentation/types";
 
-/** The execution a cache step belongs to: what correlates and observes it. */
-export type CacheContext = QueryExecutionContext;
-
-/** What a step reads of where it was asked: a call, its run, or a scope. */
-export interface CacheOrigin {
-  readonly context: CacheContext | undefined;
-  /** The database driver of the call, which a revalidation presents. */
-  readonly driver?: Parameters<typeof readDriverIdentity>[0];
+/** The call a step's logs name: its model and the operation it asked. */
+export interface CacheCall {
+  readonly model: string;
+  readonly operation: string;
 }
+
+const SPANS = {
+  clear: SPAN_CACHE_CLEAR,
+  delete: SPAN_CACHE_DELETE,
+  get: SPAN_CACHE_GET,
+  invalidate: SPAN_CACHE_INVALIDATE,
+  set: SPAN_CACHE_SET,
+};
 
 /**
- * The execution a call, its run or a method's scope works in. A method has
- * no operation of its own: its invalidation is one, on its view's chain.
+ * One decision of a read, as a cache log presents it: the call is named
+ * where the note is not on the call's own unit. Never a key or a suffix.
  */
-export function originOf(x: object): CacheOrigin {
-  const of = callOf(x)?.of;
-  if (of !== undefined)
-    return { context: of.context, driver: of.engine.driver };
-  const scope = scopeOf(x);
-  return {
-    context:
-      scope &&
-      createOperationExecutionContext(
-        "$cache",
-        "$invalidate",
-        scope.engine.extensionChain
-      ),
-  };
-}
-
-/** One logical outcome of a cache step. */
-export function cacheOutcome(
-  event: CacheOutcome["event"],
+export const cacheOutcome = (
+  event: string,
   status?: string,
-  error?: unknown
-): CacheOutcome {
-  return { event, status, at: Date.now(), error };
-}
-
-/**
- * Note one decision of a read on its call's `operation` unit; where no
- * handler runs around the call, nothing is kept.
- */
-export function recordOutcome(
-  context: CacheContext | undefined,
-  event: CacheOutcome["event"],
-  status?: string,
-  error?: unknown
-): void {
-  if (context === undefined) return;
-  const fact: CacheNote = { cacheOutcome: cacheOutcome(event, status, error) };
-  note(context, fact);
-}
+  error?: unknown,
+  call?: CacheCall
+): InstrumentationNote => ({
+  log: "cache",
+  at: Date.now(),
+  meta: { event, status },
+  error,
+  ...call,
+});
 
 /**
  * A background set failure joins its read's outcomes while that read's
@@ -77,82 +66,76 @@ export function recordOutcome(
  * set unit presents it itself.
  */
 export function placeSetFailure(
-  backgroundOf: CacheContext,
+  background: object,
   failure: unknown,
-  unit: UnitContext
+  unit: UnitContext,
+  call: CacheCall | undefined
 ): void {
-  const fact: CacheNote = {
-    cacheOutcome: cacheOutcome("miss", "cache-set-failed", failure),
-  };
-  if (!note(backgroundOf, fact)) note(unit, fact);
+  if (!note(background, cacheOutcome("miss", "cache-set-failed", failure)))
+    note(unit, cacheOutcome("miss", "cache-set-failed", failure, call));
 }
 
-/** Whether a handler runs around the units of `context`'s chain. */
-const observed = (context: CacheContext | undefined): context is CacheContext =>
-  context !== undefined &&
-  getExecutionExtensionChain(context)?.observation !== undefined;
-
 /**
- * Run one cache step as a `cache` unit of its execution's chain; `execute`
- * is handed the unit, to note what the step learns.
+ * Run one cache step as a `cache` unit of the chain `origin` belongs to;
+ * `execute` is handed the unit, to note what the step learns. A step asked
+ * with no origin (a backend method called directly) belongs to no chain.
  */
 export function cacheStep<T>(
-  step: "clear" | "delete" | "get" | "invalidate" | "set",
-  context: CacheContext | undefined,
+  step: keyof typeof SPANS,
+  origin: object | undefined,
   driverName: string,
   execute: (unit?: UnitContext) => Promise<T>,
   ttl?: number
 ): Promise<T> {
-  // An unobserved step builds no unit. Measured on a no-op backend: without
-  // this, a get allocates about 330 B more and takes about 16 ns longer.
-  if (!observed(context)) return execute();
-  const facts: CacheStep = {
-    driver: driverName,
-    ...(ttl === undefined ? {} : { ttl }),
-    model: context.model,
-    operation: context.operation,
+  if (origin === undefined) return execute();
+  const attributes: InstrumentationNote["attributes"] = {
+    [ATTR_CACHE_DRIVER]: driverName,
+    ...(ttl === undefined ? {} : { [ATTR_CACHE_TTL]: String(ttl) }),
+    // A backend step of an invalidation names its driver alone.
+    ...(step === "delete" || step === "clear"
+      ? { [ATTR_VIBORM_CORRELATION_ID]: undefined }
+      : {}),
   };
   return work(
-    context,
-    { kind: "cache", operation: step, note: { cache: facts } },
+    origin,
+    { kind: "cache", operation: step, note: { span: SPANS[step], attributes } },
     execute
   );
 }
 
-/** How a revalidation's work and cleanup failed, when someone observes it. */
+/** How a revalidation's work and cleanup failed. */
 export interface RevalidationFailure {
   failed: boolean;
   error: unknown;
 }
 
 /**
- * Run one actual revalidation as its own `cache` unit when the chain has
- * handlers: `run` is handed the record of its failure to fill, and its
- * terminal outcome is noted on that unit.
+ * Run one actual revalidation as its own `cache` unit, presented as the root
+ * operation it replays: `run` is handed the record of its failure to fill,
+ * and its terminal outcome is noted on that unit.
  */
 export async function revalidation(
-  origin: CacheOrigin,
-  model: string,
-  operation: string,
-  run: (failure: RevalidationFailure | undefined) => Promise<CacheOutcome>
+  origin: object,
+  call: CacheCall,
+  database: Database | undefined,
+  run: (failure: RevalidationFailure) => Promise<InstrumentationNote>
 ): Promise<void> {
-  const { context, driver } = origin;
-  if (!observed(context)) {
-    await run(undefined);
-    return;
-  }
   const failure: RevalidationFailure = { failed: false, error: undefined };
-  const step: CacheStep = {
-    read: { model, operation, driver: driver && readDriverIdentity(driver) },
-    model: context.model,
-    operation: context.operation,
+  const start: InstrumentationNote = {
+    ...cacheOutcome("revalidate", "start", undefined, call),
+    span: SPAN_OPERATION,
+    root: true,
+    database,
+    attributes: {
+      [ATTR_DB_COLLECTION]: call.model,
+      [ATTR_DB_OPERATION_NAME]: call.operation,
+    },
   };
   await work(
-    context,
-    { kind: "cache", operation: "revalidate", note: { cache: step } },
+    origin,
+    { kind: "cache", operation: "revalidate", note: start },
     async (unit) => {
-      const fact: CacheNote = { cacheOutcome: await run(failure) };
-      note(unit, fact);
+      note(unit, await run(failure));
       if (failure.failed) throw failure.error;
     }
   );

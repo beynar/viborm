@@ -26,6 +26,10 @@ export type {
   ProjectedContribution,
 } from "./client";
 export { defaultOmit } from "./default-omit-extension";
+// The fields a client may leave out, per model, and that map held exactly
+// (no model or field the schema lacks, in every member of a union): what an
+// extension configured by such a map types its configuration with.
+export type { ClientOmitConfig, ExactClientOmitConfig } from "./omit";
 // Result types
 export type { ProjectedModelOperations } from "./projected-types";
 export type { RawOperation, RowsFragment } from "./raw";

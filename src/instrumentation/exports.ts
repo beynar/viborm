@@ -45,6 +45,7 @@ export {
 // Configuration types
 export type {
   InstrumentationConfig,
+  InstrumentationNote,
   LogCallback,
   LogEvent,
   LoggingConfig,

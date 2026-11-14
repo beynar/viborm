@@ -129,6 +129,7 @@ fields, and `disclosure` says what a thrown error may carry:
 | Make a failed call again, send a read elsewhere | `around` with `again`, `via` | Allowed only where nothing was written; reads outside a transaction |
 | Store answers beside the database | `around` with `key`, `codec`, `database` | A key per prepared statement, the driver's rows of the answer stored as JSON data |
 | Observe physical work | `unit` | Around a real unit: `next()` lets it run and returns its end |
+| Emit and present work of your own | `work`, `note`, `notes`; `database`, `VIBORM_VERSION` | A unit of your own kind; the official instrumentation traces and logs it from its notes |
 | Rewrite a statement | `unit` with `{ rewrites: true }` | Trusted `Sql → Sql`, before rendering |
 | Run SQL as a transaction opens | `unit` on `"transaction"` with `run` | First in every transaction |
 | Accept a new call argument | `args` | Declared, validated once; only your parts and the chain's rules read it |
@@ -457,9 +458,13 @@ const memo = extension(
   refuses it with an `UnsupportedOperationError`.
 - `database(x)`, on a first moment's `c`, a `run` or a method's scope, gives
   the database's `dialect` and SQL `namespace` (a PostgreSQL schema, a MySQL
-  database; `undefined` where the dialect qualifies nothing), never a
-  connection string. Partition what you store by it when one store serves
-  several databases.
+  database; `undefined` where the dialect qualifies nothing) and the
+  `driverName` (`pg`, `postgres`, `mysql2`, …), never a connection string.
+  Partition what you store by it when one store serves several databases;
+  name the database in your own telemetry with it.
+- `VIBORM_VERSION` is the version of the `viborm` package: name the library
+  in your telemetry with it, or partition stored data written by one release
+  from another's.
 
 ## `unit`: around physical work
 
@@ -598,9 +603,12 @@ const report = extension(
 
 - `work(origin, { kind, operation, model?, note? }, fn)` runs `fn` as a unit
   under every `unit` part of the chain `origin` belongs to: `origin` is a
-  call's `run`, a unit a handler received, or one `work` made. When no part
-  listens, `fn` runs alone. `note`, given, is the unit's first fact, noted
-  before any handler sees it.
+  call's `c` or `run`, a unit a handler received, one `work` made, or a
+  method's scope (whose unit is an execution of its own, with its own
+  correlation). When no part listens, `fn` runs alone. `note`, given, is the
+  unit's first fact, noted before any handler sees it. The official
+  [instrumentation](/docs/extensions/instrumentation#present-your-own-units)
+  traces and logs a unit from what is noted on it.
 - `note(target, fact)` attaches a fact to a unit still running: `target` is a
   unit, or a call's `run`, which notes on the call's `operation` unit. It
   returns `false` when there is no such unit or it has ended.

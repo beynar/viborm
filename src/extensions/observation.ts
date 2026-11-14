@@ -8,9 +8,11 @@ import {
   trustedExecutionContext,
 } from "@drivers/execution-context";
 import { QueryError } from "@errors";
+import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { Sql } from "@sql";
 import type { ExtensionPart } from "./chain";
 import { coordinate, UNITS } from "./coordination";
+import { scopeOf } from "./origin";
 import {
   originOf,
   type TransactionStatementRunner,
@@ -312,8 +314,9 @@ export function unitLayerPart(
 /**
  * Run `fn` as a unit of the extension's own (`kind` is any string), under
  * every `unit` part of the chain `origin` belongs to: `origin` is a call's
- * `run`, a unit a handler received, or one `work` made. Without a chain that
- * observes units, `fn` runs alone. `fn` receives the unit, to `note` on it.
+ * context or `run`, a unit a handler received, one `work` made, or a
+ * method's scope. Without a chain that observes units, `fn` runs alone.
+ * `fn` receives the unit, to `note` on it.
  */
 export function work<Result>(
   origin: object,
@@ -326,7 +329,18 @@ export function work<Result>(
   },
   fn: (unit: Unit) => Promise<Result>
 ): Promise<Result> {
-  const context = originOf(origin)?.context ?? trustedExecutionContext(origin);
+  const scope = scopeOf(origin);
+  const context =
+    originOf(origin)?.context ??
+    trustedExecutionContext(origin) ??
+    // A method works outside any call: its unit is an execution of its own,
+    // with its own correlation.
+    (scope &&
+      createOperationExecutionContext(
+        unit.model ?? scope.extension,
+        unit.operation,
+        scope.engine.extensionChain
+      ));
   const observation = getExecutionExtensionChain(context)?.observation;
   const source: UnitSource = {
     kind: unit.kind,

@@ -1,4 +1,3 @@
-import { cacheFacts, cacheOutcomes } from "@cache/unit-facts";
 import type {
   AnyTarget,
   EmptyFacts,
@@ -11,6 +10,7 @@ import { extension } from "@extensions/extension";
 import { unit as unitPart } from "@extensions/unit";
 import {
   failure,
+  notes,
   origin,
   parameters,
   statements,
@@ -21,18 +21,19 @@ import {
   type InstrumentationContext,
 } from "./context";
 import {
-  createCacheSpanOptions,
   createLifecycleSpanOptions,
+  createNotedSpanOptions,
   createOperationErrorLogEvent,
   createOperationSpanOptions,
   createStatementLogEvent,
   createStatementSpanOptions,
-  presentCacheOutcome,
+  notedAttributes,
+  noteOf,
+  presentNoteLog,
   presentTraceFailure,
   statementIndexOf,
 } from "./presentation";
 import {
-  ATTR_CACHE_RESULT,
   SPAN_CONNECT,
   SPAN_DISCONNECT,
   SPAN_EXECUTE,
@@ -40,14 +41,11 @@ import {
   SPAN_TRANSACTION,
   type VibORMSpanName,
 } from "./spans";
-import {
-  setSpanAttributes,
-  shouldTraceSpan,
-  type VibORMSpanOptions,
-} from "./tracer";
+import { setSpanAttributes, shouldTraceSpan } from "./tracer";
 import type {
   ExactInstrumentationConfig,
   InstrumentationConfig,
+  InstrumentationNote,
   LogLevel,
   TracingSpan,
 } from "./types";
@@ -159,11 +157,11 @@ function present(
     case "savepoint":
     case "connection":
       return presentLifecycle(context, unit, next);
-    case "cache":
-      return presentCache(context, unit, next);
     // A batch has no span of its own: its members and statements do.
-    default:
+    case "batch":
       return undefined;
+    default:
+      return presentNoted(context, unit, next);
   }
 }
 
@@ -187,9 +185,7 @@ function presentOperation(
     const startedAt = Date.now();
     const end = next();
     const settled = await end;
-    if (logs(context, "cache"))
-      for (const outcome of cacheOutcomes(unit))
-        context.logger?.cache(presentCacheOutcome(unit, outcome));
+    for (const noted of notes(unit)) log(context, unit, noteOf(noted));
     const error = failure(unit);
     if (
       settled.status === "failure" &&
@@ -307,39 +303,46 @@ function presentLifecycle(
   );
 }
 
-function presentCache(
+/** Log what a note asks to, at its level, if that level is on. */
+function log(
+  context: InstrumentationContext,
+  unit: Unit,
+  noted: InstrumentationNote | undefined
+): void {
+  if (noted?.log !== undefined && logs(context, noted.log))
+    context.logger?.log(presentNoteLog(unit, noted.log, noted));
+}
+
+/**
+ * A unit of an extension's own kind, presented from what was noted on it:
+ * the span its first note names as it starts, the attributes noted later
+ * set on it at its end, and every log asked for.
+ */
+function presentNoted(
   context: InstrumentationContext,
   unit: Unit,
   next: () => Promise<UnitEnd>
 ): Promise<unknown> {
-  const traced = context.config.tracing !== undefined;
-  const logged = logs(context, "cache");
-  const facts = cacheFacts(unit);
-  // A revalidation presents its start at the instant it is observed.
-  if (logged && unit.operation === "revalidate")
-    context.logger?.cache(
-      presentCacheOutcome(unit, {
-        event: "revalidate",
-        status: "start",
-        at: Date.now(),
-      })
-    );
-  const settle = async (span?: TracingSpan): Promise<void> => {
+  const started = notes(unit).length;
+  let span: (InstrumentationNote & { readonly span: string }) | undefined;
+  for (const noted of notes(unit)) {
+    const fact = noteOf(noted);
+    if (span === undefined && fact?.span !== undefined)
+      span = { ...fact, span: fact.span };
+    log(context, unit, fact);
+  }
+  const settle = async (opened?: TracingSpan): Promise<void> => {
     const end = next();
     await end;
-    const settled = cacheFacts(unit);
-    if (traced && settled?.result !== undefined)
-      setSpanAttributes(span, { [ATTR_CACHE_RESULT]: settled.result });
-    if (logged)
-      for (const outcome of settled?.outcomes ?? [])
-        context.logger?.cache(presentCacheOutcome(unit, outcome));
+    for (const noted of notes(unit).slice(started)) {
+      const fact = noteOf(noted);
+      if (fact?.attributes !== undefined)
+        setSpanAttributes(opened, notedAttributes(fact.attributes));
+      log(context, unit, fact);
+    }
     return endWith(end, unit);
   };
-  const options: VibORMSpanOptions | undefined =
-    traced && facts !== undefined
-      ? createCacheSpanOptions(unit, facts)
-      : undefined;
-  return options === undefined
-    ? settle()
-    : context.tracer.startActiveSpan(options, settle);
+  return span !== undefined && context.config.tracing !== undefined
+    ? context.tracer.startActiveSpan(createNotedSpanOptions(unit, span), settle)
+    : settle();
 }

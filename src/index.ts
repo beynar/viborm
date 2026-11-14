@@ -184,6 +184,10 @@ export type {
 // and its rounding as arguments instead.
 export { Decimal } from "./validation/primitives/decimal-value.js";
 
+// The version of this package: what an extension's own telemetry names its
+// library with, or partitions stored data written by one release with.
+export { VIBORM_VERSION } from "./version.js";
+
 // =============================================================================
 // RAW SQL
 // =============================================================================
