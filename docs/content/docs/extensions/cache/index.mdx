@@ -19,10 +19,20 @@ const client = createClient({ schema, driver }).$extends(
 );
 ```
 
-The extension snapshots its configuration once. `version` and `waitUntil`
-belong to that exact extension chain, not to the shared cache driver. Two
-clients can share one `CacheDriver` while using different namespaces and
-background schedulers.
+`cache(config)` reads its configuration once, when it is called, and refuses
+a missing `CacheDriver`, a `version` that is neither a string nor a finite
+number, and a `waitUntil` that is no function, with a
+`CacheConfigurationError`. `version` and `waitUntil` belong to that exact
+extension, not to the shared cache driver. Two clients can share one
+`CacheDriver` while using different namespaces and background schedulers.
+
+The extension is written with the public parts
+([Create an extension](/docs/extensions/create#store-answers-key-codec-database)):
+an `args` part (the mutation option `cache`, and a `bound` argument that
+`$withCache()` binds), a `call` on `target(writes)` whose `settled`
+invalidates, an `around` on `target(reads)` with `{ inner: true }` that reads
+`key(run)`, `codec(run)` and `database(run)`, and `methods` for
+`$withCache()` and `$invalidate()`.
 
 ## Cached reads
 
@@ -45,11 +55,16 @@ const fresh = await client
 | `key` | `string` | absent | Suffix contributed to the canonical key |
 | `bypass` | `boolean` | `false` | Skip lookup, execute core, then store |
 
-The canonical identity always includes model, operation, normalized validated
-arguments, projection, the private result-format revision, and the extension's
-version namespace. A custom `key` is only a suffix contribution. It does not
-replace the canonical identity, so two different queries using the same suffix
-do not collide.
+A read is keyed by the statement it would send: its model, its operation, its
+validated arguments, and the prepared statement's text and parameters
+(`key(run)`), inside a namespace made of the cache's private snapshot
+revision, the database (dialect and SQL namespace, so one store can serve
+several databases) and the extension's `version`. A rule that changes the
+statement (a tenant, a soft-delete mode, a permission) changes the key; an
+argument that changes no statement does not, unless it is declared
+`.volatile()`, in which case the read is not cached. A custom `key` is only a
+suffix contribution. It does not replace the canonical identity, so two
+different queries using the same suffix do not collide.
 
 Official invalidation accepts relative keys and prefixes such as `user:*`.
 Strings beginning with `viborm:` are refused before backend effects; only the
@@ -58,7 +73,7 @@ construction is private; no public helper can address the official namespace.
 
 ## Detached values
 
-The cache sits closest to the core (`call.around` with `{ inner: true }`), so
+The cache sits closest to the core (`around` with `{ inner: true }`), so
 it stores a backend-portable snapshot of the parsed core result before any
 other extension's second moment can change it. Every hit materializes a
 fresh complete public graph. Arrays, objects, dates, byte arrays, relations,
@@ -132,12 +147,20 @@ await client.user.update({
 A mutation's `cache` option is the cache extension's own declared argument
 (`args`). VibORM takes it out of the arguments and checks it before any first
 moment runs, so other extensions never see it and no `c.set` can add or
-replace it. A malformed value is a `CacheConfigurationError`; a `cache`
-getter that throws is a `QueryError`. Invalidation
+replace it. A malformed value is refused before the write runs. Invalidation
 runs when the write is durable (`settled`): a rollback or savepoint rollback
-publishes none. `settled` functions run in chain order and the first failure
-rejects the write's promise, so apply `cache()` before
+publishes none, and a write that may have committed (a statement that failed
+after it was sent) invalidates too. A backend failure during that
+invalidation rejects the write's promise as a `CacheConfigurationError`
+(the write is not undone). `settled` functions run in chain order and the
+first failure rejects the write's promise, so apply `cache()` before
 [`on()`](/docs/extensions/on) for a write to invalidate before its hooks run.
+
+`$invalidate()` runs at once outside a transaction. On an interactive
+transaction's client (`tx.$invalidate()`) it runs after the outermost commit.
+`tx.$withCache()` exists too; its reads, like every read in a transaction,
+bypass the cache (below). A key it refuses is refused as it is; a backend that
+fails is a `CacheConfigurationError`.
 
 `autoInvalidate` clears the bound extension's entire cache scope, including
 reads whose nested relations depend on the mutation. Manual invalidation uses
@@ -153,10 +176,10 @@ mixed list has no partial effects.
 Official read caching is bypassed for callback and nested callback
 transactions, `$transaction([...])` on both substrates, any chain with a
 statement rewrite (a `unit` declared `{ rewrites: true }`), safe and unsafe
-raw operations, a read that carries a `.volatile()` argument (it runs without
-being served or stored), and an existing internal no-cache execution context.
+raw operations, and a read that carries a `.volatile()` argument (it runs
+without being served or stored, and without an error).
 
-Every other extension's `call.around` stays outside the cache, on hits and
+Every other extension's `around` stays outside the cache, on hits and
 misses alike, whatever the order of the chain: each sees every call. Bypass
 preserves their behavior and the existing transaction, statement, raw, and
 result-ownership contracts.

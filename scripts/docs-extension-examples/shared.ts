@@ -9,6 +9,8 @@ import { s } from "viborm/schema";
 export const user = s.model({
   id: s.string().id().ulid(),
   email: s.string().unique(),
+  name: s.string(),
+  active: s.boolean().default(true),
   firstName: s.string(),
   lastName: s.string(),
   passwordHash: s.string(),
