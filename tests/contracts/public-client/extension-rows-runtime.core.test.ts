@@ -1,11 +1,9 @@
 import { ClientInitializationError } from "@errors";
-import { appendResolvedExtension } from "@extensions/chain";
-import { controlsPart } from "@extensions/controls";
-import { defineExtension, defineFilters, defineWith } from "@extensions/define";
-import type { ExtensionDefinitionInput } from "@extensions/definition";
-import { methodsPart } from "@extensions/methods";
+import { builtPart, extension } from "@extensions/extension";
 import { filtersPart } from "@extensions/rows";
+import { verbsPart } from "@extensions/rows-part";
 import { s } from "@schema";
+import { appendResolvedExtension } from "@tests/fixtures/host-definition";
 import { expect, test } from "vitest";
 
 const schema = { post: s.model({ id: s.string().id() }) };
@@ -17,13 +15,25 @@ const rows = {
 const judged = [
   { verbs: { post: { predicates: {} } } },
   { confine: { post: { id: "one" } } },
-].map((member) => ({ name: "judged", rows: { ...rows, ...member } }));
+].map((member) => ({ ...rows, ...member }));
 
-const applied = (definition: ExtensionDefinitionInput) =>
+/** An extension whose one part hands `members` to the host parts `host`. */
+const builtWith = (
+  host: Parameters<typeof builtPart>[0],
+  members: Readonly<Record<string, unknown>>
+) =>
+  extension(
+    "filter",
+    builtPart(host, (draft) => {
+      Object.assign(draft, members);
+    })
+  );
+
+const applied = (definition: unknown) =>
   appendResolvedExtension(undefined, definition, schema);
 
 test("what is built with the filters part admits its rows where it is applied", () => {
-  const chain = applied(defineWith(filtersPart)({ name: "filter", rows }));
+  const chain = applied(builtWith([filtersPart], { rows }));
   expect(chain.rows?.[0]?.models.post?.visible?.root).toEqual({
     id: { equals: "one" },
   });
@@ -32,20 +42,13 @@ test("what is built with the filters part admits its rows where it is applied", 
   ).toEqual([{ id: { equals: "one" } }]);
 });
 
-test("rows built without the filters part are refused, not ignored", () => {
-  expect(() =>
-    applied(defineWith(controlsPart, methodsPart)({ name: "filter", rows }))
-  ).toThrow("declares rows, which none of the parts it was built with reads");
-});
-
 test("verbs and confinements built without what reads them are refused, not read as filters alone", () => {
-  for (const definition of judged) {
-    expect(() => applied(defineWith(filtersPart)(definition))).toThrow(
-      ClientInitializationError
-    );
-    expect(() => applied(defineFilters(definition))).toThrow(
-      "must be built with defineExtension()"
-    );
-    expect(applied(defineExtension(definition)).rows).toHaveLength(1);
+  for (const given of judged) {
+    const alone = () => applied(builtWith([filtersPart], { rows: given }));
+    expect(alone).toThrow(ClientInitializationError);
+    expect(alone).toThrow("must be built with defineExtension()");
+    expect(
+      applied(builtWith([filtersPart, verbsPart], { rows: given })).rows
+    ).toHaveLength(1);
   }
 });

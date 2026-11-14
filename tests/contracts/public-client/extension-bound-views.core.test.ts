@@ -8,7 +8,7 @@
  */
 
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
-import { createClient, s } from "@src/index";
+import { arg, bound, createClient, parts, s } from "@src/index";
 import { v } from "@src/validation";
 import { runBoundViewsBehavior } from "@tests/contracts/public-client/extension-bound-views-behavior";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
@@ -44,39 +44,39 @@ describe("bound views: cost", () => {
       schema: models,
       driver: new SqlOnlyDriver(new PostgresAdapter(), "postgresql"),
     });
-    const owned = { ownerId: { control: "actor" } };
-    const definition = {
-      name: "wide",
-      controls: { actor: { schema: v.string(), bound: true, required: true } },
-      rows: {
-        control: "as",
-        default: "owner",
-        models: Object.fromEntries(
+    const owned = { ownerId: arg("actor") };
+    const typed = parts<typeof wide>();
+    const definition = typed.extension(
+      "wide",
+      typed.args({ actor: bound(v.string()).required() }),
+      // The 50 entries are computed: a rule read from the schema.
+      typed.rule(() =>
+        Object.fromEntries(
           Object.keys(models).map((name) => [
             name,
-            { owner: { root: owned, related: owned } },
+            { root: owned, related: owned },
           ])
-        ),
-      },
-      client: (scope: {
-        $bind(values: Readonly<Record<string, unknown>>): unknown;
-      }) => {
+        )
+      ),
+      typed.methods((scope) => {
         factoryRuns += 1;
         const methods: RequestMethods = {
           $as: (actor) => scope.$bind({ actor }) as never,
         };
-        return methods;
-      },
-      model: Object.fromEntries(
-        Object.keys(models).map((name, index) => [
-          name,
-          () => {
-            factoryRuns += 1;
-            return { touch: () => index };
-          },
-        ])
-      ),
-    };
+        return {
+          ...methods,
+          ...Object.fromEntries(
+            Object.keys(models).map((name, index) => [
+              name,
+              () => {
+                factoryRuns += 1;
+                return { touch: () => index };
+              },
+            ])
+          ),
+        };
+      })
+    );
     const extendOnce = () =>
       Reflect.apply(Reflect.get(wide, "$extends"), wide, [definition]) as {
         $as(actor: string): object;

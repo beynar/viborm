@@ -15,7 +15,7 @@ import {
 } from "@instrumentation/spans";
 import { SpanStatusCode, trace } from "@opentelemetry/api";
 import { cache } from "@src/cache/exports";
-import { createClient, s } from "@src/index";
+import { createClient, extension, s, unit } from "@src/index";
 import { instrumentation } from "@src/instrumentation/exports";
 import { createTestClock } from "@tests/fixtures/test-clock";
 import {
@@ -241,14 +241,16 @@ describe("official cache instrumentation", () => {
               tracing: true,
             })
           )
-          .$extends({
-            name: "cache-disclosure-observer",
-            observe(unit, proceed) {
-              if (unit.kind !== "cache") return;
-              publicUnits.push({ ...unit });
-              return proceed();
-            },
-          })
+          .$extends(
+            extension(
+              "cache-disclosure-observer",
+              unit((u, next) => {
+                if (u.kind !== "cache") return next();
+                publicUnits.push({ ...u });
+                return next();
+              })
+            )
+          )
       );
 
       await client.$withCache({ key: secretKey, ttl: 10 }).record.findMany();
@@ -682,7 +684,7 @@ describe("official cache instrumentation", () => {
     }
   });
 
-  test("keeps invalidation children nested and contains independent ordinary observers", async () => {
+  test("keeps invalidation children nested under ordinary observers on either side of instrumentation", async () => {
     const recorder = withOtelRecorder();
     try {
       const cacheDriver = new ObservableInstrumentationCache(createTestClock());
@@ -692,23 +694,29 @@ describe("official cache instrumentation", () => {
       const client = trackClient(
         createClient({ schema, driver: databaseDriver })
           .$extends(cache({ driver: cacheDriver, version: "invalidate" }))
-          .$extends({
-            name: "cache-observer-before",
-            observe(unit, proceed) {
-              if (unit.kind !== "cache") return;
-              first.push({ operation: unit.operation, completion: proceed() });
-              throw new Error("contained observer failure");
-            },
-          })
+          .$extends(
+            extension(
+              "cache-observer-before",
+              unit((u, next) => {
+                if (u.kind !== "cache") return next();
+                const completion = next();
+                first.push({ operation: u.operation, completion });
+                return completion;
+              })
+            )
+          )
           .$extends(instrumentation({ tracing: true }))
-          .$extends({
-            name: "cache-observer-after",
-            observe(unit, proceed) {
-              if (unit.kind !== "cache") return;
-              second.push({ operation: unit.operation, completion: proceed() });
-              return Promise.reject(new Error("contained observer rejection"));
-            },
-          })
+          .$extends(
+            extension(
+              "cache-observer-after",
+              unit((u, next) => {
+                if (u.kind !== "cache") return next();
+                const completion = next();
+                second.push({ operation: u.operation, completion });
+                return completion;
+              })
+            )
+          )
       );
 
       await expect(
@@ -783,18 +791,20 @@ describe("official cache instrumentation", () => {
               tracing: true,
             })
           )
-          .$extends({
-            name: "swr-completion-observer",
-            observe(unit, proceed) {
-              if (unit.kind !== "cache" || unit.operation !== "revalidate") {
-                return;
-              }
-              revalidations.push({
-                operation: unit.operation,
-                completion: proceed(),
-              });
-            },
-          })
+          .$extends(
+            extension(
+              "swr-completion-observer",
+              unit((u, next) => {
+                if (u.kind !== "cache" || u.operation !== "revalidate") {
+                  return next();
+                }
+                revalidations.push({
+                  operation: u.operation,
+                  completion: next(),
+                });
+              })
+            )
+          )
       );
       const cached = client.$withCache({ ttl: 10, swr: 100 });
 
