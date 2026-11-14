@@ -201,6 +201,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "gate",
       "keep",
       "key",
+      "lazy",
       "methods",
       "models",
       "note",
@@ -209,6 +210,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "now",
       "omitted",
       "oneOf",
+      "only",
       "origin",
       "parameters",
       "parts",
@@ -371,6 +373,21 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "UnitOutcome",
       "Watcher",
       "With",
+      // What the words of the vocabulary return or take: a native batch's
+      // member (`statements`), a call's codec and database (`codec`,
+      // `database`), a model method's arguments read from its delegate.
+      "BatchMember",
+      "Codec",
+      "Database",
+      "DelegateOperationPayload",
+      // What an exported extended client's declaration writes, named from the
+      // entry every application imports (TS2742 otherwise); `viborm/client`
+      // exports them too.
+      "ClientHiddenContext",
+      "ProjectedContribution",
+      "ProjectedModelOperations",
+      "Schema",
+      "StampedFields",
     ],
     [
       "CheckConstraintError",
@@ -633,6 +650,8 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "CacheExtensionConfig",
       "CacheInvalidationOptions",
       "CacheSetOptions",
+      // What an exported cached client's declaration writes (TS2742 otherwise).
+      "MutationOperations",
       "WaitUntilFn",
       "WithCacheOptions",
     ],

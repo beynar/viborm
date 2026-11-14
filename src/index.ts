@@ -54,7 +54,6 @@ export type { Schema } from "./client/types.js";
 export type {
   NoControls,
   PlacedControl,
-  RowsVerbs,
   StampedFields,
 } from "./extensions/controls.js";
 export * from "./extensions/index.js";
