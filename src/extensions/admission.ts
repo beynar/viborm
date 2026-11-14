@@ -100,6 +100,8 @@ export interface RuleLayer {
   brings?: {
     judge?: ModelVerbs["judge"];
     project?: (domain: PreparedDomain) => Projection;
+    /** What prepares a call's domains where a layer takes rows by verb. */
+    prepare?: CallRows["prepare"];
   };
 }
 

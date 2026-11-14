@@ -25,7 +25,7 @@ import { projectionOf } from "./projection";
 import { draftOf, listOf } from "./rule";
 import { CarriedValue, PredicateWord, type Site } from "./rule-words";
 import { NOW } from "./stamps";
-import { LAZY_VERBS, verbsOf } from "./verbs";
+import { LAZY_VERBS, prepareJudged, verbsOf } from "./verbs";
 
 /** What the layer of a word's site brings beside its filters. */
 const brings = (site: Site) => (site.draft.rule!.brings ??= {});
@@ -43,6 +43,7 @@ class Only extends CarriedValue {
   join(site: Site): void {
     const { key, field, refuse } = site;
     const own = verbsOf(site);
+    brings(site).prepare = prepareJudged;
     if (key === "update.where") own.update = this.where;
     else if (key === "delete.where") own.delete = this.where;
     // An update writing the field takes this instead of `update.where`.
@@ -266,7 +267,11 @@ class Lazy extends CarriedValue {
     // What the entry reads of its call, and whether its words judge or
     // project, are known once it is read.
     layer.layered = layerOf;
-    layer.brings = { judge: judgeOf, project: projectionOf };
+    layer.brings = {
+      judge: judgeOf,
+      project: projectionOf,
+      prepare: prepareJudged,
+    };
     const read = (): VerbsDraft => {
       const given: unknown = Reflect.apply(this.read, undefined, []);
       const written: Readonly<Record<string, unknown>> = isPlainRecord(given)

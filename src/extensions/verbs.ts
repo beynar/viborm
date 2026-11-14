@@ -53,11 +53,27 @@ export function verbInputs(
   ];
 }
 /**
- * A domain whose layers hold verbs: under a `judgement`, a model's predicate
- * takes each layer's predicates of its verb beside its filters (R2, R3), and
- * an entry given lazily brings its `read.where` here.
+ * A domain some of whose layers hold verbs: a model some layer holds verbs
+ * on is judged, so a link to it is not written unjudged.
  */
-class JudgedDomain extends FilterDomain {
+class VerbsDomain extends FilterDomain {
+  override restrictsLinkWrite(queries: Queries, model: AnyModel): boolean {
+    return (
+      super.restrictsLinkWrite(queries, model) ||
+      this.rows.verbs
+        ?.get(model["~"].names.ts!)
+        ?.some((verbs) => verbs !== undefined) === true
+    );
+  }
+}
+
+/**
+ * A domain whose layers say which rows a write may take (`only`) or hold an
+ * entry given lazily: under a `judgement`, a model's predicate takes each
+ * layer's predicates of its verb beside its filters (R2, R3), and an entry
+ * given lazily brings its `read.where` here.
+ */
+class JudgedDomain extends VerbsDomain {
   protected override key(
     name: string,
     excluded: readonly number[],
@@ -93,19 +109,12 @@ class JudgedDomain extends FilterDomain {
     }
     return layers;
   }
-  /** A model some layer holds verbs on is judged. */
-  override restrictsLinkWrite(queries: Queries, model: AnyModel): boolean {
-    return (
-      super.restrictsLinkWrite(queries, model) ||
-      this.rows.verbs
-        ?.get(model["~"].names.ts!)
-        ?.some((verbs) => verbs !== undefined) === true
-    );
-  }
 }
 
 /** What prepares the call facts of a chain whose layers hold verbs. */
-const prepareJudged = /* @__PURE__ */ preparer(JudgedDomain);
+const prepareVerbs = /* @__PURE__ */ preparer(VerbsDomain);
+/** What prepares them where a layer takes rows by verb: brought by `only` and `lazy`. */
+export const prepareJudged = /* @__PURE__ */ preparer(JudgedDomain);
 
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
@@ -233,7 +242,9 @@ function bindVerbs(
     verbs: { has: declares, get },
     ...(judge && { judge }),
     ...(project && { project }),
-    prepare: prepareJudged,
+    prepare:
+      layers.find((layer) => layer.brings?.prepare)?.brings?.prepare ??
+      prepareVerbs,
   } satisfies VerbsBound;
 }
 
