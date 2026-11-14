@@ -1174,6 +1174,23 @@ export type Exact<Given, Allowed> = string extends keyof Allowed
             : never
           : Given;
 
+/**
+ * `Exact` of a rule's or a default's entries, given as they are or as a
+ * function of the schema returns them: the returned literal is refused key
+ * by key too, as an inline one is.
+ */
+export type ExactEntries<Given, Allowed> = string extends keyof Allowed
+  ? // Written apart from any client: decided on `Allowed` alone, never
+    // deferred on a recipe's generic map (see `Exact`).
+    Given
+  : Given extends (...args: infer Parameters) => infer Returned
+    ? string extends keyof Returned
+      ? // Entries built for every model at once: their names are the
+        // runtime's to check.
+        Given
+      : (...args: Parameters) => Exact<Returned, Allowed>
+    : Exact<Given, Allowed>;
+
 type ObjectsOf<Allowed> = Exclude<
   Extract<Allowed, object>,
   | readonly unknown[]
@@ -1212,7 +1229,7 @@ type ElementOf<Allowed> = Allowed extends readonly (infer Element)[]
 export type RuleFunction<T extends AnyTarget> = <const R = RuleInput<T>>(
   rules: R &
     (RuleInput<T> | FromSchema<T, RuleInput<T>>) &
-    NoInfer<Exact<R, RuleInput<T>>>
+    NoInfer<ExactEntries<R, RuleInput<T>>>
 ) => Part<T, RuleFacts<R, ModelName<T>>>;
 
 /** Same shape as `rule`: `D` unconstrained, typed by `DefaultsInput<T>` beside it. */
@@ -1221,7 +1238,7 @@ export type DefaultsFunction<T extends AnyTarget> = <
 >(
   defaults: D &
     (DefaultsInput<T> | FromSchema<T, DefaultsInput<T>>) &
-    NoInfer<Exact<D, DefaultsInput<T>>>
+    NoInfer<ExactEntries<D, DefaultsInput<T>>>
 ) => Part<T, DefaultsFacts<D, ModelName<T>>>;
 
 // =============================================================================

@@ -10,7 +10,7 @@ import { isPlainRecord } from "@schema/relation/terminal";
 import type {
   AnyTarget,
   EmptyFacts,
-  Exact,
+  ExactEntries,
   FromSchema,
   ModelName,
   Part,
@@ -33,7 +33,7 @@ import { verbsTranslation } from "./verbs-translation";
 export function rule<T extends AnyTarget, const R = RuleInput<T>>(
   rules: R &
     (RuleInput<T> | FromSchema<T, RuleInput<T>>) &
-    NoInfer<Exact<R, RuleInput<T>>>
+    NoInfer<ExactEntries<R, RuleInput<T>>>
 ): Part<T, RuleFacts<R, ModelName<T>>>;
 export function rule(
   rules:
