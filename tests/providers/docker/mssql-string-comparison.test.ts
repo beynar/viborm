@@ -10,7 +10,7 @@
 import { createClient } from "@client/client";
 import { UnsupportedOperationError } from "@errors";
 import { MSSQL, s } from "@schema";
-import { sql } from "@sql";
+import { Sql, sql } from "@sql";
 import { ordering, orderingKey } from "@src/ordering";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import {
@@ -21,6 +21,7 @@ import {
 } from "./mssql-fixtures";
 
 const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
+const WRITE_STATEMENT = /^\s*(?:INSERT|UPDATE)\b/;
 const NS = "viborm_string_comparison";
 const ROWS = 20_000;
 
@@ -45,7 +46,11 @@ CREATE TABLE "${NS}"."children" ("id" INT NOT NULL PRIMARY KEY, "parentId" NVARC
 CREATE INDEX "children_parentId" ON "${NS}"."children" ("parentId");
 CREATE TABLE "${NS}"."vk_ci" ("code" VARCHAR(40) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL PRIMARY KEY, "label" NVARCHAR(20) NOT NULL);
 CREATE TABLE "${NS}"."vk_cs" ("code" VARCHAR(40) COLLATE SQL_Latin1_General_CP1_CS_AS NOT NULL PRIMARY KEY, "label" NVARCHAR(20) NOT NULL);
-CREATE TABLE "${NS}"."stamps" ("id" INT NOT NULL PRIMARY KEY, "at" DATETIME NOT NULL);`;
+CREATE TABLE "${NS}"."stamps" ("id" INT NOT NULL PRIMARY KEY, "at" DATETIME NOT NULL);
+CREATE TABLE "${NS}"."cyr" ("code" VARCHAR(40) COLLATE Cyrillic_General_CI_AS NOT NULL PRIMARY KEY, "label" VARCHAR(40) COLLATE Cyrillic_General_CI_AS NOT NULL);
+CREATE TABLE "${NS}"."utf8" ("code" VARCHAR(40) COLLATE Latin1_General_100_CI_AS_SC_UTF8 NOT NULL PRIMARY KEY, "label" VARCHAR(40) COLLATE Latin1_General_100_CI_AS_SC_UTF8 NOT NULL);
+CREATE TABLE "${NS}"."latin" ("code" VARCHAR(40) NOT NULL PRIMARY KEY);
+INSERT INTO "${NS}"."latin" VALUES ('O'), ('Ab'), ('??');`;
 
 const FILL = `WITH n AS (SELECT TOP (${ROWS}) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS i FROM sys.all_objects AS a CROSS JOIN sys.all_objects AS b)
 INSERT INTO "${NS}"."parents" ("id", "name") SELECT CONCAT('id', i), CONCAT('name', i) FROM n;
@@ -150,6 +155,18 @@ const varcharKeyed = (table: string) =>
     })
     .map(table);
 const vkCi = varcharKeyed("vk_ci");
+const codePaged = (table: string) =>
+  s
+    .model({
+      code: s.string(MSSQL.STRING.VARCHAR(40)).id(),
+      label: s.string(MSSQL.STRING.VARCHAR(40)),
+    })
+    .map(table);
+const cyr = codePaged("cyr");
+const utf8 = codePaged("utf8");
+const latin = s
+  .model({ code: s.string(MSSQL.STRING.VARCHAR(40)).id() })
+  .map("latin");
 const vkCs = varcharKeyed("vk_cs");
 const stamp = s
   .model({ id: s.int().id(), at: s.dateTime(MSSQL.DATETIME.DATETIME) })
@@ -157,6 +174,9 @@ const stamp = s
 
 const db = createClient({
   schema: {
+    cyr,
+    utf8,
+    latin,
     vkCi,
     vkCs,
     stamp,
@@ -477,5 +497,82 @@ describeIf("SQL Server compares text as the column does", () => {
           })
         ).map((found) => found.id)
       ).toEqual([row.id]);
+  });
+
+  test.each([
+    ["cyr", ["Мир", "Привет", "Дом"]],
+    ["utf8", ["東京", "日本語", "x😀"]],
+  ] as const)("a VARCHAR native type in a %s column writes and finds text outside the database's code page", async (table, words) => {
+    const model = (table === "cyr" ? db.cyr : db.utf8) as typeof db.cyr;
+    const [first, second, third] = words;
+    await model.create({ data: { code: first, label: second } });
+    await model.createMany({ data: [{ code: third, label: first }] });
+    await model.update({ where: { code: first }, data: { label: third } });
+    await model.upsert({
+      where: { code: second },
+      create: { code: second, label: second },
+      update: { label: "never" },
+    });
+    await model.upsert({
+      where: { code: second },
+      create: { code: second, label: "never" },
+      update: { label: first },
+    });
+    // What the server stored, read back as Unicode.
+    const stored = await db.$queryRaw<{ code: string; label: string }>(
+      sql.raw(
+        `SELECT CAST("code" AS NVARCHAR(40)) AS "code", CAST("label" AS NVARCHAR(40)) AS "label" FROM "${NS}"."${table}"`
+      )
+    );
+    expect(
+      Object.fromEntries(stored.map((row) => [row.code, row.label]))
+    ).toEqual({ [first]: third, [second]: first, [third]: first });
+    expect(await model.findUnique({ where: { code: first } })).toEqual({
+      code: first,
+      label: third,
+    });
+    expect(
+      (await model.findMany({ where: { code: { equals: third } } })).length
+    ).toBe(1);
+    expect(
+      (await model.findMany({ where: { code: { in: [first, second] } } }))
+        .length
+    ).toBe(2);
+  });
+
+  test("a VARCHAR native type converts no written value, ASCII included; a compared ASCII one only", async () => {
+    const statements: string[] = [];
+    const captured = db.$extends({
+      name: "capture",
+      statement: ({ statement }: { statement: Sql }) => {
+        statements.push(Sql.peek(statement).strings.join("?"));
+        return statement;
+      },
+    });
+    await captured.cyr.create({ data: { code: "ascii", label: "plain" } });
+    await captured.cyr.update({
+      where: { code: "ascii" },
+      data: { label: "still plain" },
+    });
+    const writes = statements.filter((text) => WRITE_STATEMENT.test(text));
+    expect(writes.length).toBeGreaterThan(0);
+    for (const text of writes)
+      expect(text.split(" WHERE ")[0]).not.toContain("VARCHAR(MAX)");
+    // The update's WHERE compares the ASCII key in the column's family.
+    expect(statements.some((text) => text.includes("AS VARCHAR(MAX)"))).toBe(
+      true
+    );
+  });
+
+  test("a VARCHAR native type compares a non-ASCII operand without converting it", async () => {
+    for (const operand of ["Ω", "Āb", "日本"])
+      expect(await db.latin.findMany({ where: { code: operand } })).toEqual([]);
+    expect(
+      await db.latin.findMany({ where: { code: { in: ["Ω", "Āb", "日本"] } } })
+    ).toEqual([]);
+    // An ASCII operand still finds its row.
+    expect(await db.latin.findUnique({ where: { code: "Ab" } })).toEqual({
+      code: "Ab",
+    });
   });
 });

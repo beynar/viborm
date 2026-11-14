@@ -184,12 +184,17 @@ export interface DatabaseAdapter {
       member?: boolean
     ) => Sql;
     /**
-     * A string operand bound for a field with this native type, where the
-     * dialect converts the column, not the parameter, to compare two text
-     * types (SQL Server's `VARCHAR` beside an `NVARCHAR` parameter): the
-     * operand in the column's own family. Absent elsewhere.
+     * A string operand for a field of this native type, where the dialect
+     * converts the column, not the parameter, to compare two text types
+     * (SQL Server's `VARCHAR` beside an `NVARCHAR` parameter): the operand
+     * in the column's own family, or `undefined` for the plain parameter.
+     * The adapter's own write members bind a written value as it was given.
+     * Absent elsewhere.
      */
-    string?: (value: string, nativeType?: NativeTypeDeclaration) => Sql;
+    string?: (
+      value: string,
+      nativeType?: NativeTypeDeclaration
+    ) => Sql | undefined;
     /**
      * Decimal operand from a canonical decimal string, in the DOMAIN it is
      * being compared or assigned against.

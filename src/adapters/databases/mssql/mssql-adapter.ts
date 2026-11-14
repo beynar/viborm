@@ -110,7 +110,8 @@ const likeLiteral = (text: string): string =>
  * anything is sent; any other operand is escaped by the server.
  */
 const likePattern = (value: Sql, before: string, after: string): Sql => {
-  const text = boundText(value);
+  // A pattern is bound as it is: a cast operand is unwrapped to its string.
+  const text = boundText(value) ?? castText.get(value);
   if (text === undefined)
     return sql`${sql.raw(before ? "N'%' + " : "")}REPLACE(REPLACE(REPLACE(REPLACE(CAST(${value} AS NVARCHAR(MAX)), N'\\', N'\\\\'), N'%', N'\\%'), N'_', N'\\_'), N'[', N'\\[')${sql.raw(after ? " + N'%'" : "")}`;
   const pattern = `${before}${likeLiteral(text)}${after}`;
@@ -195,6 +196,21 @@ const EXACT_DECIMAL_ARITHMETIC_PRECISION = 19;
 
 /** A non-Unicode text column: `VARCHAR(n)`, `VARCHAR(MAX)`, `CHAR(n)`. */
 const NON_UNICODE_TEXT = /^(?:VARCHAR|CHAR)\(/;
+
+/** Only code points below 0x80 (a surrogate half is above it). */
+const ASCII = /^[^\u0080-\uFFFF]*$/;
+
+/** `literals.string`'s operands, each to the string it casts. */
+const castText = new WeakMap<Sql, string>();
+
+/**
+ * A written value as it was given: the column's own code page converts it
+ * on assignment, and a cast operand belongs to comparisons only.
+ */
+const written = (value: Sql): Sql => {
+  const text = castText.get(value);
+  return text === undefined ? value : sql`${text}`;
+};
 
 /**
  * T-SQL's exact integer arithmetic over `DECIMAL(38, 0)`. `%` is defined on
@@ -437,12 +453,22 @@ export class MssqlAdapter implements DatabaseAdapter {
       )})`;
     },
     // A VARCHAR or CHAR column beside an NVARCHAR parameter is converted, so
-    // its index is scanned and Unicode rules compare it: the operand goes to
-    // the column's family instead (VARCHAR(MAX), never truncated).
-    string: (value: string, nativeType?: NativeTypeDeclaration): Sql =>
-      NON_UNICODE_TEXT.test(nativeTypeFor(nativeType, "mssql")?.type ?? "")
-        ? sql`CAST(${value} AS VARCHAR(MAX))`
-        : sql`${value}`,
+    // its index is scanned and Unicode rules compare it: an ASCII operand
+    // goes to the column's family instead (VARCHAR(MAX), never truncated).
+    // Only ASCII: the cast takes the DATABASE's code page, and ASCII is the
+    // same in every one, UTF-8 included; any other operand stays NVARCHAR.
+    string: (value: string, nativeType?: NativeTypeDeclaration) => {
+      if (
+        !(
+          ASCII.test(value) &&
+          NON_UNICODE_TEXT.test(nativeTypeFor(nativeType, "mssql")?.type ?? "")
+        )
+      )
+        return undefined;
+      const operand = sql`CAST(${value} AS VARCHAR(MAX))`;
+      castText.set(operand, value);
+      return operand;
+    },
     decimal: (canonical: string, descriptor: DecimalDescriptor): Sql =>
       sql`CAST(${encodePhysicalDecimal(canonical, descriptor, "text")} AS ${decimalType(descriptor)})`,
     id: (physical: string | Uint8Array, _representation: IdRepresentation) =>
@@ -721,6 +747,8 @@ export class MssqlAdapter implements DatabaseAdapter {
 
   set = {
     ...createNumericSetOperations(),
+    assign: (column: Sql, value: Sql): Sql =>
+      sql`${column} = ${written(value)}`,
     // Half to even at the field's scale while the scaled product fits 38
     // digits; past that, SQL Server's own result type (at least 6 decimals,
     // rounded by the server), as a plain `*` or `/`.
@@ -909,12 +937,16 @@ export class MssqlAdapter implements DatabaseAdapter {
       columns: string[],
       source: Sql[][] | { readonly select: Sql },
       prefix?: Sql
-    ): Sql =>
+    ): Sql => {
+      if (!Array.isArray(source))
+        return this.#insert(table, columns, source, prefix);
+      const rows = source.map((row) => row.map(written));
       // T-SQL bounds an `INSERT … VALUES` at 1,000 rows; a derived table of
       // `VALUES` has no such bound.
-      Array.isArray(source) && source.length > 1000
-        ? this.#insertRows(table, columns, source)
-        : this.#insert(table, columns, source, prefix),
+      return rows.length > 1000
+        ? this.#insertRows(table, columns, rows)
+        : this.#insert(table, columns, rows, prefix);
+    },
     insertDefault: (table: Sql): Sql =>
       sql`INSERT INTO ${table} DEFAULT VALUES`,
     update: (table: Sql, sets: Sql, where?: Sql): Sql =>

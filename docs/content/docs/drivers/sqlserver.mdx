@@ -146,10 +146,21 @@ collation.
   ranges scan the index (143 reads instead of 2 on 50,000 rows), and compare
   with Unicode rules (`equals: "ss"` also finds `"ß"`). Declare the field
   with its type, `s.string(MSSQL.STRING.VARCHAR(40))`
-  ([native types](/docs/schema/native-types)), and VibORM binds the operand as
-  `VARCHAR`: the index is sought and the column's own rules compare, as
-  Prisma's `@db.VarChar(40)` does. `introspectSchema` writes that type for the
-  columns it reads. `LIKE` keeps its `NVARCHAR` pattern and scans either way.
+  ([native types](/docs/schema/native-types)), and VibORM binds a compared
+  ASCII operand as `VARCHAR`: the index is sought and the column's own rules
+  compare. `introspectSchema` writes that type for the columns it reads. The
+  conversion takes the database's code page, not the column's, and ASCII is
+  the only text the same in all of them (UTF-8 included), so:
+  - a non-ASCII operand (`"Мир"`, `"東京"`, `"Ω"`) is compared as without the
+    native type: under a `SQL_*` collation that may scan, and it compares with
+    Unicode rules, but it finds what the column holds; in an `in`, each member
+    is bound on its own, and one non-ASCII member makes the whole list scan;
+  - a written value is never converted: `create`, `update` and `upsert` send
+    it as an `NVARCHAR` parameter, which the column stores in its own code
+    page (Prisma's `@db.VarChar` casts it, and stores `???` in a Cyrillic or
+    `_UTF8` column of a Latin1 database);
+  - `LIKE` patterns (`contains`, `startsWith`, `endsWith`) keep their
+    `NVARCHAR` operand, and scan.
 - **`viborm/ordering`** compares its `within` fields the same way: `"k"` and
   `"k "` (or `"K"` under a case-insensitive collation) are one list.
 
@@ -196,7 +207,10 @@ not give it.
 - **Isolation levels**: `isolationLevel` sets `ReadUncommitted`,
   `ReadCommitted`, `RepeatableRead` or `Serializable` for the transaction, and
   its pooled connection goes back to the pool's own level before it is lent
-  again. `Snapshot` is refused (`TransactionError` V5005): turn
+  again. When the server ends the transaction first (a deadlock,
+  `XACT_ABORT`, a trigger's `ROLLBACK`) or a raw `COMMIT` or `ROLLBACK` does,
+  that connection still holds the transaction's level: the pool discards it
+  instead of lending it, and opens another. `Snapshot` is refused (`TransactionError` V5005): turn
   `READ_COMMITTED_SNAPSHOT` on for the database instead.
 - **A raw `COMMIT` or `ROLLBACK` inside `$transaction`** ends the transaction:
   the statement fails with a `TransactionError`

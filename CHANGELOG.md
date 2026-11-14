@@ -25,7 +25,8 @@ Server schema into a schema document.
   any collation; `contains`, `startsWith` and `endsWith` are `LIKE`, refused
   past its 4,000-character pattern. Every statement runs at compatibility
   level 150. `isolationLevel` sets the transaction's level, and the pooled
-  connection goes back to its own. A transaction the server rolls back
+  connection goes back to its own, or is discarded when the server or a raw
+  COMMIT or ROLLBACK ended the transaction first. A transaction the server rolls back
   itself, even inside a savepoint, a raw COMMIT or ROLLBACK inside
   `$transaction`, and a COMMIT whose outcome is unknown fail with a
   `TransactionError` saying so (`meta.reason`); every SQL Server error carries
@@ -55,9 +56,11 @@ Server schema into a schema document.
 - **`MSSQL` native types** (`viborm/schema`): `MSSQL.STRING.VARCHAR(n)`,
   `VARCHAR_MAX`, `CHAR(n)`, `NVARCHAR(n)`, `NVARCHAR_MAX`, `NCHAR(n)`,
   `MSSQL.DATETIME.DATETIME` and `SMALLDATETIME`, and `mssql` as a key of a
-  native-type map. A `VARCHAR` or `CHAR` field's operands are bound as
-  `VARCHAR`, so its index is sought under a `SQL_*` collation; a `DATETIME`
-  field's as `DATETIME`. `introspectSchema` writes them for the columns it
+  native-type map. A `VARCHAR` or `CHAR` field's compared ASCII operands are
+  bound as `VARCHAR`, so its index is sought under a `SQL_*` collation; any
+  other operand, and every written value, stays an `NVARCHAR` parameter,
+  which a column in another code page (Cyrillic, `_UTF8`) stores and finds
+  intact. A `DATETIME` field's operands are bound as `DATETIME`. `introspectSchema` writes them for the columns it
   reads.
 - **`adapter.literals.string`** and **`adapter.json.instant`**, optional
   adapter members (SQL Server's): a string operand in its column's family, and
