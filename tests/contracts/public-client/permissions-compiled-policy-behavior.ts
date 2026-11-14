@@ -1,5 +1,15 @@
+import {
+  accepts,
+  arg,
+  args,
+  extension,
+  methods,
+  oneOf,
+  rule,
+  when,
+} from "@src/index";
 import type { CompiledPolicy } from "@src/permissions";
-import { verbsOf } from "@src/permissions/compile";
+import { ruleEntryOf } from "@src/permissions/compile";
 import { v } from "@src/validation";
 import {
   createPermissionsAppClient,
@@ -7,7 +17,6 @@ import {
   type PermissionsAppClient,
   type PermissionsAppSubstrate,
 } from "@tests/contracts/public-client/permissions-app-behavior";
-import { hostExtension } from "@tests/fixtures/host-definition";
 import {
   actionsOf,
   createOracle,
@@ -55,57 +64,64 @@ interface Delegate {
 const MODE = "as";
 const NOWHERE = { OR: [] };
 
-/**
- * The action modes of every governed model, each naming its compiled
- * predicate: K3 ANDs the model's `read` with it (R2); false where the model
- * lacks the action.
- */
-function observedModes(compiled: CompiledPolicy) {
-  const names = [...new Set(MODEL_ACTIONS.map(([, action]) => action))];
-  const models: Record<string, Record<string, { root: object | string }>> = {};
-  for (const model of GOVERNED_MODELS) {
-    const { predicates } = compiled.models[model]!;
-    models[model] = Object.fromEntries([
-      ["none", { root: NOWHERE }],
-      ...names.map((action) => [
-        action,
-        { root: Object.hasOwn(predicates, action) ? action : NOWHERE },
-      ]),
-    ]);
-  }
-  return models;
-}
+/** Every action a governed model may name: each one an `as` mode. */
+const ACTIONS = [...new Set(MODEL_ACTIONS.map(([, action]) => action))];
 
 /**
  * A plain extension carrying the compiled policy as K3 declares it: every
- * model's compiled predicates and verbs are its `verbs`, so an unlisted model reads nothing
- * (R9). The actor is an argument.
+ * model's compiled predicates and verbs are its rule, so an unlisted model
+ * reads nothing (R9). The actor is an argument. Each action is a mode
+ * naming its compiled predicate: K3 ANDs the model's `read` with it (R2);
+ * false where the model lacks the action, and in the default mode.
  */
-const extensionOf = (name: string, compiled: CompiledPolicy) => ({
-  name,
-  controls: {
-    actor: { schema: ActorSchema, required: true },
-    scopes: {
-      schema: v.object({
-        unrestricted: v.boolean(),
-        allowed: v.array(v.string()),
-      }),
-      required: true,
-    },
-  },
-  client: (scope: {
-    $bind(values: Readonly<Record<string, unknown>>): unknown;
-  }) => ({
-    $unrestricted: () =>
-      scope.$bind({ scopes: { unrestricted: true, allowed: [] } }),
-  }),
-  rows: {
-    control: MODE,
-    default: "none",
-    models: observedModes(compiled),
-    verbs: verbsOf(compiled),
-  },
-});
+const extensionOf = (name: string, compiled: CompiledPolicy) =>
+  extension(
+    name,
+    args({
+      actor: accepts(ActorSchema).required(),
+      scopes: accepts(
+        v.object({
+          unrestricted: v.boolean(),
+          allowed: v.array(v.string()),
+        })
+      ).required(),
+      [MODE]: oneOf("none", ...ACTIONS).default("none"),
+    }),
+    rule(
+      Object.fromEntries(
+        // Every model of the schema: one the policy does not list holds nothing (R9).
+        Object.entries(compiled.models).map(([model, own]) => {
+          return [
+            model,
+            ruleEntryOf(own, (P) =>
+              GOVERNED_MODELS.includes(model as never)
+                ? [
+                    when(arg(MODE), "none", NOWHERE),
+                    ...ACTIONS.map((action) =>
+                      when(
+                        arg(MODE),
+                        action,
+                        Object.hasOwn(own.predicates, action)
+                          ? P(action)
+                          : NOWHERE
+                      )
+                    ),
+                  ]
+                : []
+            ),
+          ];
+        })
+      ) as never
+    ),
+    methods(
+      (scope: {
+        $bind(values: Readonly<Record<string, unknown>>): unknown;
+      }) => ({
+        $unrestricted: () =>
+          scope.$bind({ scopes: { unrestricted: true, allowed: [] } }),
+      })
+    )
+  );
 
 export function runCompiledPolicyBehavior(
   substrate: PermissionsAppSubstrate
@@ -127,7 +143,7 @@ export function runCompiledPolicyBehavior(
       let client = clients.get(name);
       if (client === undefined) {
         const unbound = base.$extends(
-          hostExtension(extensionOf(name, compiled)) as never
+          extensionOf(name, compiled) as never
         ) as unknown as { $unrestricted(): unknown };
         client = unbound.$unrestricted();
         clients.set(name, client);

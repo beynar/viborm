@@ -6,10 +6,9 @@
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { ClientInitializationError } from "@errors";
 import type { ResolvedExtensionChain } from "@extensions/chain";
-import { builtPart, isAppliedExtension } from "@extensions/extension";
+import { isAppliedExtension } from "@extensions/extension";
 import { PlainDomain } from "@extensions/plain-domain";
 import { FilterDomain } from "@extensions/row-domain";
-import { filtersPart } from "@extensions/rows";
 import type { RowDomain } from "@query-engine/raptor3/shared/row-scope";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
 import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
@@ -232,23 +231,5 @@ describe("the parts that read rows", () => {
     );
     expect(plain.refuseHiddenLinkRow()).toBeUndefined();
     expect(plain.reads()).toBe(plain.reads());
-  });
-
-  it("refuses verbs built without what reads them, rather than reading the filters alone", () => {
-    // A rows member with verbs, handed to the filters' part alone.
-    const judged = extension(
-      "judged",
-      builtPart([filtersPart], (draft) => {
-        draft.rows = {
-          control: "scope",
-          default: "all",
-          models: {},
-          verbs: { item: { predicates: {} } },
-        };
-      })
-    );
-    expect(() => chainOf(judged)).toThrow(
-      "must be built with defineExtension()"
-    );
   });
 });

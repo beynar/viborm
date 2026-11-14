@@ -3,21 +3,29 @@
 import type { OperationPayload } from "../client/exports"; // public today
 import { ClientInitializationError } from "../errors"; // viborm's own class
 import type { PlacedControl } from "../extensions/controls";
-import { builtPart } from "../extensions/extension";
-import { keptRowsPart } from "../extensions/kept";
-import { buildMethods } from "../extensions/methods-part";
-import { filtersPart } from "../extensions/rows";
 import {
   type AnyTarget,
+  arg,
+  args,
   type ClientSchema,
   type DelegateOperationArgs,
   type DelegateOperationResult,
+  type EmptyFacts,
   type Exact,
   type Extension,
   extension,
   type Facts,
+  keep,
+  methods,
+  now,
+  oneOf,
   type PendingOperation,
+  rule,
+  selecting,
+  type Target,
+  unless,
   type VibORMConfig,
+  when,
 } from "../index";
 
 export interface SoftDeleteModel {
@@ -133,6 +141,14 @@ function admitMarkers(
   }
 }
 
+/** No client: what an extension written apart from one is built against. */
+type Untyped = Target<
+  VibORMConfig<Record<never, never>>,
+  AnyTarget["state"],
+  EmptyFacts
+>;
+type Schema = VibORMConfig["schema"];
+
 /** A delegate as the methods call it: its own operations. */
 type Self = Readonly<Record<string, (args: object) => unknown>>;
 
@@ -158,55 +174,49 @@ export function softDelete(config: SoftDeleteConfig): unknown {
     );
   const actor = config.actorId ?? config.actor ?? null;
   const entries = Object.entries(config.models);
-  return extension(
+  const managed = entries.map(([model]) => model);
+  // Built against no client: the entries are read from the schema the
+  // extension is applied to, and checked there; `softDelete`'s own
+  // signature types what it adds.
+  return extension<Untyped>(
     NAME,
-    // The rows and the kept rows as the rows host reads them, written where
-    // the extension is applied: a marker that is not a nullable DateTime is
-    // refused there, before its filters would refuse it less clearly (a
-    // string field would fail at the first delete). Until that host reads a
-    // rule as it is, the extension hands it these members (temporary: the
-    // rule it states is `root`/`related` by `deleted`, `delete.instead: keep(
-    // unless(arg("mode"), "hard", { [deletedAt]: now, … }))`).
-    builtPart([filtersPart, keptRowsPart], (draft, schema) => {
+    args({
+      deleted: oneOf("without", "with", "only")
+        .default("without")
+        .on(selecting),
+      // Named, not `deletes`: that set brings what watches writes.
+      mode: oneOf("soft", "hard").on(["delete", "deleteMany"]).models(managed),
+    }),
+    // Read where the extension is applied: a marker that is not a nullable
+    // DateTime is refused there, before its filters would refuse it less
+    // clearly (a string field would fail at the first delete).
+    rule<Untyped, (schema: Schema) => object>((schema) => {
       admitMarkers(schema, entries);
-      draft.controls = { mode: { oneOf: ["soft", "hard"] } };
-      draft.rows = {
-        control: "deleted",
-        default: "without",
-        models: Object.fromEntries(
-          entries.map(([model, { deletedAt }]) => [
-            model,
-            {
-              without: {
-                root: { [deletedAt]: null },
-                related: { [deletedAt]: null },
-              },
-              with: {},
-              only: {
-                root: { [deletedAt]: { not: null } },
-                related: { [deletedAt]: null },
-              },
+      return Object.fromEntries(
+        entries.map(([model, { deletedAt, deletedBy }]) => [
+          model,
+          {
+            root: [
+              when(arg("deleted"), "without", { [deletedAt]: null }),
+              when(arg("deleted"), "only", { [deletedAt]: { not: null } }),
+            ],
+            related: unless(arg("deleted"), "with", { [deletedAt]: null }),
+            delete: {
+              instead: keep(
+                unless(arg("mode"), "hard", {
+                  [deletedAt]: now,
+                  ...(deletedBy ? { [deletedBy]: actor } : {}),
+                })
+              ),
             },
-          ])
-        ),
-      };
-      draft.deletion = {
-        removeWhen: { mode: "hard" },
-        models: Object.fromEntries(
-          entries.map(([model, { deletedAt, deletedBy }]) => [
-            model,
-            {
-              at: deletedAt,
-              assign: deletedBy ? { [deletedBy]: actor } : {},
-            },
-          ])
-        ),
-      };
+          },
+        ])
+      );
     }),
     // The methods read nothing typed at this step (each result is typed from
     // the delegate it is called on), so later extensions may hide rows or
     // omit fields freely.
-    buildMethods(() =>
+    methods((): object =>
       Object.fromEntries(
         entries.map(([model, { deletedAt, deletedBy }]) => {
           const data = {

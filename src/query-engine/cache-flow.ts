@@ -18,12 +18,11 @@ import {
   CacheConfigurationError,
   CacheOperationNotCacheableError,
 } from "@errors";
-import type { AdmittedRows } from "@extensions/admission";
+import type { AdmittedLayer } from "@extensions/admission";
 import type { ResolvedExtensionChain } from "@extensions/chain";
 import type { AdmittedControls } from "@extensions/controls";
 import type { WriteOutcomeRegistration } from "@extensions/query";
 import type { LazyRelations } from "@query-engine/raptor3/shared/row-scope";
-import type { Input } from "@query-engine/raptor3/shared/schema";
 import { parse } from "@validation";
 import { readValidationFailureCause } from "@validation/parse-failure";
 import { sha256 } from "@validation/primitives/sha256";
@@ -267,53 +266,39 @@ function resolveSwr(
 }
 
 /**
- * A `rows` member as a cache key holds it: everything it declares, every
- * lazy entry resolved (a cache shared across isolates must tell two policies
- * apart by content). Resolving one compiles it, so this is never on a call's
- * own path.
+ * A rule layer as a cache key holds it: everything it declares, every entry
+ * given as a function read (a cache shared across isolates must tell two
+ * policies apart by content), what its words brought left out (their keys
+ * say it). Reading one compiles it, so this is never on a call's own path.
  */
-function settledRows(rows: AdmittedRows): object {
-  const verbs =
-    rows.verbs &&
-    Object.fromEntries(
-      Object.entries(rows.verbs).map(([model, entry]) => {
-        const resolved = typeof entry === "function" ? entry() : entry;
-        const acyclic = resolved.acyclic as
-          | readonly string[]
-          | LazyRelations
-          | undefined;
-        return [
-          model,
-          acyclic === undefined || Array.isArray(acyclic)
-            ? resolved
-            : { ...resolved, acyclic: (acyclic as LazyRelations).resolve() },
-        ];
-      })
-    );
-  const models = Object.fromEntries(
-    Object.entries(rows.models).map(([model, modes]) => [
-      model,
-      Object.fromEntries(
-        Object.entries(modes).map(([mode, purposes]) => [
-          mode,
-          Object.fromEntries(
-            Object.entries(purposes).map(([purpose, where]) => [
-              purpose,
-              // What admission leaves in place of a lazy entry's predicate:
-              // its resolver.
-              typeof where === "function" ? (where as () => Input)() : where,
-            ])
-          ),
-        ])
-      ),
-    ])
+function settledRows(layer: AdmittedLayer): object {
+  const verbs = Object.fromEntries(
+    Object.entries(layer.verbs).map(([model, entry]) => {
+      const {
+        judge: _judge,
+        project: _project,
+        acyclic: _acyclic,
+        cycles,
+        ...draft
+      } = typeof entry === "function" ? entry() : entry;
+      return [
+        model,
+        {
+          ...draft,
+          ...(cycles !== undefined && {
+            acyclic: Array.isArray(cycles)
+              ? cycles
+              : (cycles as LazyRelations).resolve(),
+          }),
+        },
+      ];
+    })
   );
   return {
-    control: rows.control,
-    default: rows.default,
-    models,
+    mode: layer.mode,
+    models: layer.models,
     verbs,
-    confine: rows.confine,
+    confine: layer.confine,
   };
 }
 
@@ -321,8 +306,8 @@ function settledRows(rows: AdmittedRows): object {
  * A `rows` member's digest, computed once: admission reads a declaration
  * once per schema, and what it admitted is what calls read.
  */
-const identities = new WeakMap<AdmittedRows, string>();
-function rowsIdentity(rows: AdmittedRows): string {
+const identities = new WeakMap<AdmittedLayer, string>();
+function rowsIdentity(rows: AdmittedLayer): string {
   const known = identities.get(rows);
   if (known !== undefined) return known;
   const digest = sha256(

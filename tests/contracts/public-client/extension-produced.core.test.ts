@@ -74,7 +74,7 @@ describe("rule moves and acyclic relations: admitted when the extension is appli
     }));
     expect(moved).toBeInstanceOf(ClientInitializationError);
     expect(moved.message).toBe(
-      'Extension "policy" rows.verbs.item at "moves.shelf": names an unknown field.'
+      'Extension "policy" rule.item: update.fields names unknown field "shelf".'
     );
   });
 
@@ -83,7 +83,7 @@ describe("rule moves and acyclic relations: admitted when the extension is appli
       expect(
         refusal((item) => ({ ...item, acyclic: [relation] })).message
       ).toBe(
-        `Extension "policy" rows.verbs.item at "acyclic.${relation}": names no to-one relation of the model to itself holding its key.`
+        `Extension "policy" rule.item.acyclic.${relation}: names no to-one relation of the model to itself holding its key.`
       );
   });
 });

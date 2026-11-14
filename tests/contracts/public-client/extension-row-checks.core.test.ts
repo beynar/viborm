@@ -236,7 +236,7 @@ describe("$exists", () => {
       [exists({}), "names exactly one model"],
       [exists({ member: {}, org: {} }), "names exactly one model"],
       [exists({ nobody: {} }), "names exactly one model"],
-      [exists({ member: { nope: 1 } }), '"$exists.member.nope"'],
+      [exists({ member: { nope: 1 } }), 'at "member.nope"'],
     ] as const) {
       const driver = createInMemorySQLite3Driver();
       const base = createClient({ schema, driver });

@@ -69,6 +69,15 @@ export function builtPart(
 const isBuilt = (part: unknown): part is PartBuild =>
   isRecord(part) && Array.isArray(part.host) && isFunction(part.write);
 
+/** Whether two schemas name the same model objects under the same names. */
+export function sameModels(known: Schema, schema: Schema): boolean {
+  const keys = Object.keys(schema);
+  return (
+    keys.length === Object.keys(known).length &&
+    keys.every((name) => known[name] === schema[name])
+  );
+}
+
 /** What `client.$extends` reads of an extension value. */
 export interface AppliedExtension {
   readonly name: string;
@@ -122,23 +131,33 @@ export function extension(name: string, ...parts: unknown[]): unknown {
     return part;
   });
   const set = partSet(builds.flatMap((build) => build.host));
-  const written = new WeakMap<Schema, RuntimeExtensionDefinition>();
+  const written = new WeakMap<
+    Schema,
+    { readonly definition: RuntimeExtensionDefinition; readonly models: Schema }
+  >();
   const definitionFor = (schema: Schema): RuntimeExtensionDefinition => {
-    let definition = written.get(schema);
-    if (definition === undefined) {
-      const draft: DefinitionDraft = { name, finish: [] };
-      for (const build of builds) build.write(draft, schema);
-      for (const finish of draft.finish) finish();
-      const { finish: _done, args: _placed, ...members } = draft;
-      definition = members;
-      written.set(schema, definition);
-    }
+    const known = written.get(schema);
+    // A schema object that gained or swapped a model is written again: what
+    // its parts read of it (a rule of every model) would miss the new one.
+    if (known !== undefined && sameModels(known.models, schema))
+      return known.definition;
+    const draft: DefinitionDraft = { name, finish: [] };
+    for (const build of builds) build.write(draft, schema);
+    for (const finish of draft.finish) finish();
+    const { finish: _done, args: _placed, ...definition } = draft;
+    written.set(schema, { definition, models: { ...schema } });
     return definition;
   };
   const applied: AppliedExtension = {
     name,
-    append: (chain, schema, registry) =>
-      set.append(chain, definitionFor(schema), schema, registry),
+    append: (chain, schema, registry) => {
+      const definition = definitionFor(schema);
+      // A word writes the part that runs it, where its part is written.
+      const own = definition.parts
+        ? partSet([...set.parts, ...definition.parts])
+        : set;
+      return own.append(chain, definition, schema, registry);
+    },
   };
   return Object.freeze(applied);
 }

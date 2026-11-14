@@ -12,7 +12,7 @@ import type {
 } from "@query-engine/raptor3/shared/row-scope";
 import type { Input } from "@query-engine/raptor3/shared/schema";
 import type { Operation } from "@query-engine/types";
-import type { AdmittedRows } from "./admission";
+import type { AdmittedLayer } from "./admission";
 import type { ExtensionPart } from "./chain";
 import type {
   AdmittedControls,
@@ -135,8 +135,8 @@ export interface ResolvedDeletion {
 
 /**
  * Absent on an unextended client; frozen whenever it exists, except the
- * `controls`, `rows` and `data` values a definition wrote, held as written,
- * and what the parts built from them. Each member is written by the part that reads it, and absent
+ * values a definition wrote, held as written, and what the parts built from
+ * them. Each member is written by the part that reads it, and absent
  * where no extension of the chain was built with that part.
  */
 export interface ResolvedExtensionChain {
@@ -151,11 +151,11 @@ export interface ResolvedExtensionChain {
   readonly coordination?: Coordination;
   readonly controls?: ResolvedControls;
   /**
-   * Every `rows` member, as admitted: also a cached read's key, so two
-   * chains whose `rows` differ never share an entry and two that declare
+   * Every extension's rule layer, as admitted: also a cached read's key, so
+   * two chains whose rules differ never share an entry and two that declare
    * the same always do.
    */
-  readonly rows?: readonly AdmittedRows[];
+  readonly rows?: readonly AdmittedLayer[];
   /** Per managed model, what its deletes write instead: a later entry replaces one. */
   readonly kept?: Kept;
   /** Per model, every extension's `data` fields: a later one wins a field. */

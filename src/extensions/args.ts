@@ -7,8 +7,8 @@ import type {
   BoundAccepted,
   Part,
 } from "./contract";
-import type { ControlDeclaration } from "./controls";
 import { controlsPart } from "./controls";
+import { extensionError } from "./definition";
 import { type ArgSpec, builtPart, type DefinitionDraft } from "./extension";
 import { operationsOf } from "./on";
 
@@ -76,16 +76,9 @@ function specOf(name: string, value: unknown): ArgSpec {
   );
 }
 
-/**
- * The extension's arguments placed, once every part wrote: an argument a
- * rule reads as its mode is placed by the rows that read it; every other one
- * as it is declared.
- */
+/** The extension's arguments, placed as each is declared. */
 function placeArgs(draft: DefinitionDraft): void {
-  const controls: Record<string, ControlDeclaration> = {};
-  for (const [name, spec] of Object.entries(draft.args ?? {}))
-    if (draft.rows?.control !== name) controls[name] = spec;
-  if (Object.keys(controls).length > 0) draft.controls = controls;
+  draft.controls = { ...draft.args };
 }
 
 /** Arguments an extension adds to the calls they are placed on. */
@@ -104,6 +97,13 @@ export function args(declarations: Readonly<Record<string, unknown>>): unknown {
   );
   return builtPart([controlsPart], (draft) => {
     if (draft.args === undefined) draft.finish.push(() => placeArgs(draft));
+    // One name, one declaration: as two extensions declaring it would be.
+    for (const name of Object.keys(specs))
+      if (draft.args !== undefined && Object.hasOwn(draft.args, name))
+        extensionError(
+          `Extension "${draft.name}" declares control "${name}", which extension "${draft.name}" already declares.`,
+          draft.name
+        );
     draft.args = { ...draft.args, ...specs };
   });
 }

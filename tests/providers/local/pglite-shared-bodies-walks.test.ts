@@ -12,6 +12,7 @@ import {
   arg,
   args,
   check,
+  exists,
   extension,
   rule as extRule,
   oneOf,
@@ -470,8 +471,8 @@ test("under a relation budget, only the selective walk is lifted while the state
 // form still reads each `$exists` answer and key set at each row testing it:
 // one row, computed once, then holds them all for the root read.
 test("past every other form, one row holds what the root read tests, with the same answers", async () => {
-  const seated = { $exists: { seat: { userId: user } } };
-  const inLeaf = { $exists: { seat: { userId: user, teamId: "leaf" } } };
+  const seated = exists({ seat: { userId: user } });
+  const inLeaf = exists({ seat: { userId: user, teamId: "leaf" } });
   const rule = {
     OR: [
       { AND: [seated, grantedTwice(walk(undefined))] },

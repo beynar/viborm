@@ -12,6 +12,7 @@ import {
   now,
   oneOf,
   provided,
+  row as rowWord,
   rule,
   unless,
   when,
@@ -36,7 +37,7 @@ import { afterEach, describe, expect, test } from "vitest";
  *   (W-K1c, W-K1d, W-K1g);
  * - parameters (K2, R6, R7): a call value is read at lowering, conditions
  *   fold first, an absent required value matches nothing and an absent
- *   optional one drops its predicate, `null` is absent, and `{ now: true }`
+ *   optional one drops its predicate, `null` is absent, and `now`
  *   is the call's instant (W-K2b, W-K2d, W-K2e, W-K2g).
  *
  * Seed. Orgs o1-o6 (o3 named "y", o6 without a team). Teams (org, name): t1
@@ -390,7 +391,7 @@ export function runDomainPredicateBehavior(
               })
             )
           ).message
-        ).toContain('rows.doc.on.root at "parent.recurse"');
+        ).toContain('rule.doc.root: at "parent.recurse"');
       const db = base.$extends(
         rows("closure", {
           doc: {
@@ -423,7 +424,7 @@ export function runDomainPredicateBehavior(
         )
       );
       expect(error.message).toContain(
-        'Extension "typo" rows.doc.on.root at "parent.is.nope"'
+        'Extension "typo" rule.doc.root: at "parent.is.nope"'
       );
       expect(error.meta).toMatchObject({ model: "doc" });
     });
@@ -1044,7 +1045,7 @@ export function runDomainPredicateBehavior(
       ) => MEMBERS.some((row) => row.teamId === teamId && member(row));
       const own = (lead: Lead) =>
         teamHas(lead.teamId, (row) => row.userId === lead.userId);
-      const sameUser = (up: number) => ({ userId: { $row: "userId", up } });
+      const sameUser = (up: number) => ({ userId: rowWord("userId", up) });
       // Two bodies down, and four: each relation body below the first is
       // a conjunct reading the lead itself.
       const twoDown = { team: { is: { members: { some: sameUser(2) } } } };
@@ -1150,11 +1151,11 @@ export function runDomainPredicateBehavior(
       );
     });
 
-    test("{ now: true } is the call's one instant (R7), never one frozen at $extends", async () => {
+    test("now is the call's one instant (R7), never one frozen at $extends", async () => {
       const base = await seeded();
       const db = base.$extends(
         rows("live", {
-          doc: { root: { expiresAt: { gt: { now: true } } } },
+          doc: { root: { expiresAt: { gt: now } } },
         })
       );
       const at = Date.now();

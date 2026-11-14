@@ -1,8 +1,8 @@
 /**
  * The rows a model keeps where a call deletes them: what such a row takes
  * instead of going, and what it meets where the database would have refused
- * its removal (`deletion`). The engine asks the call's tombstones; this
- * module, loaded with the extensions that declare a deletion, answers.
+ * its removal (`keep`). The engine asks the call's tombstones; this module,
+ * brought by `keep`, answers.
  */
 import { assembleAdapterSelect } from "@adapters/adapter-internals";
 import type { Schema } from "@client/types";
@@ -28,11 +28,11 @@ import type { Writer } from "@query-engine/raptor3/write/statements";
 import type { PreparedGuardFailure } from "@query-engine/types";
 import type { AnyModel } from "@schema/model";
 import type { AnyRelation } from "@schema/relation/types";
-import { checkFields, eachModel, rebind, refuseUndeclared } from "./call-rows";
+import { rebind, refuseUndeclared } from "./call-rows";
 import type { ExtensionPart } from "./chain";
 import type { ResolvedDeletion } from "./chain-state";
 import type { AdmittedControls } from "./controls";
-import { extensionError, readOwn } from "./definition";
+import { type ControlLiteral, extensionError } from "./definition";
 import { bindRows } from "./rows";
 
 /** Per managed model, what its deletes write instead, and who declared it. */
@@ -172,8 +172,6 @@ export class Kept extends Map<string, ResolvedDeletion> implements Tombstones {
   }
 }
 
-const NO_ASSIGN: Readonly<Record<string, unknown>> = Object.freeze({});
-
 /** The slot a model is the declared junction of, for a refusal to name. */
 function junctionHolder(schema: Schema, model: AnyModel) {
   for (const [holder, candidate] of Object.entries(schema))
@@ -190,57 +188,44 @@ function junctionHolder(schema: Schema, model: AnyModel) {
   return undefined;
 }
 
+/** What a delete of each model writes instead, as `keep` writes it. */
+export interface Deletion {
+  /** The arguments whose values make a delete physical. */
+  removeWhen?: Readonly<Record<string, ControlLiteral>>;
+  readonly models: Record<
+    string,
+    { readonly at?: string; readonly assign: Readonly<Record<string, unknown>> }
+  >;
+}
+
 /**
- * `deletion`: kept rows. A delete of a managed model is an update, which
- * every filter of the chain reads as it reads any, so the filters' binding
- * binds a chain that keeps rows.
+ * Kept rows, brought by `keep`. A delete of a managed model is an update,
+ * which every filter of the chain reads as it reads any, so the filters'
+ * binding binds a chain that keeps rows.
  */
 export const keptRowsPart: ExtensionPart = {
-  members: ["deletion"],
-  admit(application) {
-    const extension = application.definition.name;
-    eachModel(application, "deletion", (model, name, entry) => {
-      const holder = junctionHolder(application.schema, model);
-      if (holder !== undefined)
-        extensionError(
-          `Extension "${extension}" deletion.${name}: the model is the junction of '${holder}', so a tombstoned link would still be followed. Delete the link with the relation's disconnect, or the row through its delegate.`,
-          extension
-        );
-      const at = readOwn(entry, "at", extension);
-      if (
-        at !== undefined &&
-        (typeof at !== "string" || !Object.hasOwn(model["~"].state.scalars, at))
-      )
-        extensionError(
-          `Extension "${extension}" deletion.${name}.at names unknown scalar.`,
-          extension
-        );
-      checkFields(
-        extension,
-        `deletion.${name}`,
-        model,
-        readOwn(entry, "assign", extension)
-      );
-    });
-  },
   join(application) {
-    const { definition, chain, next } = application;
+    const { definition, chain, next, schema } = application;
     const { deletion, name: extension } = definition;
     if (deletion === undefined) return;
     refuseUndeclared(application, Object.keys(deletion.removeWhen ?? {}));
     const kept = new Kept(chain?.kept);
-    for (const [model, entry] of Object.entries(deletion.models))
+    for (const [model, entry] of Object.entries(deletion.models)) {
+      const holder = junctionHolder(schema, schema[model]!);
+      if (holder !== undefined)
+        extensionError(
+          `Extension "${extension}" rule.${model}.delete.instead: the model is the junction of '${holder}', so a kept link would still be followed. Delete the link with the relation's disconnect, or the row through its delegate.`,
+          extension
+        );
       kept.set(
         model,
         Object.freeze({
           extension,
           ...entry,
-          assign: entry.assign ?? NO_ASSIGN,
-          ...(deletion.removeWhen === undefined
-            ? {}
-            : { removeWhen: deletion.removeWhen }),
+          ...(deletion.removeWhen && { removeWhen: deletion.removeWhen }),
         })
       );
+    }
     next.kept = kept;
     next.bindRows = bindRows;
   },

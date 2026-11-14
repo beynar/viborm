@@ -20,23 +20,28 @@ import {
 } from "../errors";
 import { ValidationError } from "../errors/validation";
 import type { StampedFields } from "../extensions/controls";
-import { buildDefaults } from "../extensions/defaults";
-import { buildMethods } from "../extensions/methods-part";
-import { defaultOrderPart } from "../extensions/order";
-import { defaultDataPart } from "../extensions/stamps";
 import type {
   AnyTarget,
   ClientSchema,
   DelegateOperationArgs,
   DelegateOperationResult,
+  EmptyFacts,
   Extension,
   Facts,
   ModelSql,
   NoControls,
+  Target,
   VibORMClient,
   VibORMConfig,
 } from "../index";
-import { computed, extension, joined, stored } from "../index";
+import {
+  computed,
+  defaults,
+  extension,
+  joined,
+  methods as methodsOf,
+  stored,
+} from "../index";
 import { getRowKey } from "../schema/model/keys";
 import { type Sql, sql } from "../sql/sql";
 import { appendKey } from "./append";
@@ -1228,6 +1233,13 @@ type OrderingFacts<T extends AnyTarget, Config extends OrderingConfig> = Facts<
   }[Names<Config>]
 >;
 
+/** No client: what an extension written apart from one is built against. */
+type Untyped = Target<
+  VibORMConfig<Record<never, never>>,
+  AnyTarget["state"],
+  EmptyFacts
+>;
+
 /** The extension: the default order, the appended key, `move` and `rekey`. */
 function orderingOf(config: OrderingConfig): unknown {
   // Checked against the schema the extension is applied to, once per schema.
@@ -1241,24 +1253,23 @@ function orderingOf(config: OrderingConfig): unknown {
     return known;
   };
   const made = new WeakMap<object, ReturnType<ReturnType<typeof methods>>>();
+  // Built against no client: `ordering`'s own signature types what it adds.
   return extension(
     NAME,
-    buildDefaults(
-      (schema) =>
-        Object.fromEntries(
-          admittedFor(schema).map(({ name, key, within }) => [
-            name,
-            {
-              orderBy: [...within, key].map((field) => ({
-                [field]: "asc" as const,
-              })),
-              create: { [key]: appendKey(within) },
-            },
-          ])
-        ),
-      [defaultOrderPart, defaultDataPart]
+    defaults<Untyped, (schema: Schema) => object>((schema) =>
+      Object.fromEntries(
+        admittedFor(schema).map(({ name, key, within }) => [
+          name,
+          {
+            orderBy: [...within, key].map((field) => ({
+              [field]: "asc" as const,
+            })),
+            create: { [key]: appendKey(within) },
+          },
+        ])
+      )
     ),
-    buildMethods((scope: { readonly $schema: Schema }) =>
+    methodsOf((scope): object =>
       Object.fromEntries(
         admittedFor(scope.$schema).map((ordered) => {
           const legacy = methods(ordered);

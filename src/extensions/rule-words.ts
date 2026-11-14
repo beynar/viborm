@@ -1,8 +1,12 @@
 /**
  * The words a rule and a default write where a value or a filter goes:
  * `arg`, `now`, `row`, `exists`, `when`, `unless`, `provided`. Each is plain
- * data the rule's part reads where the extension is applied.
+ * data the rule's admission reads where the extension is applied. And what
+ * every other word of a rule or a default is: a value that carries what
+ * applies it ({@link CarriedValue}).
  */
+import type { Schema } from "@client/types";
+import type { VerbsDraft } from "./admission";
 import type {
   ArgTest,
   ArgWord,
@@ -13,6 +17,35 @@ import type {
   RowWord,
   WhenWord,
 } from "./contract";
+import type { DefinitionDraft } from "./extension";
+
+/**
+ * Where one carried word is written: its model, its place (`create.check`,
+ * `read.fields.notes`, …) and the field that place names, with what it may
+ * write: the model's other keys, the extension's members.
+ */
+export interface Site {
+  readonly model: string;
+  readonly key: string;
+  readonly field?: string;
+  readonly schema: Schema;
+  readonly draft: DefinitionDraft;
+  /** Inside an entry given as a function, read when its model is first read. */
+  readonly lazy: boolean;
+  /** The model's keys beyond its filters, made at the first word that writes one. */
+  verbs(): VerbsDraft;
+  refuse(problem: string): never;
+}
+
+/**
+ * A word that carries what applies it (`check`, `gate`, `facts`, `keep`,
+ * `omitted`): the part that reads a rule or a default calls it where it is
+ * written and never names it, so a program that writes none holds none of
+ * their code.
+ */
+export abstract class CarriedValue {
+  abstract join(site: Site): void;
+}
 
 /** `arg(name, path?)`'s value: the call's value for one argument, or a field of it. */
 export class ArgValue {

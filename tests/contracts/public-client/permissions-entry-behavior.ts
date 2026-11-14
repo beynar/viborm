@@ -1331,7 +1331,7 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
       await expect(
         loose(base).$extends(gated).$as(actors.u01!).page!.findMany({})
       ).rejects.toThrow(
-        'rows.verbs.page at "reads.groupId": names a key, a unique or a foreign key field'
+        'rule.page: read.fields.groupId names a key, a unique or a foreign key field'
       );
       // A unique field: a write of a guessed value would be refused by its
       // constraint exactly when a row holds it (review FDOCS-4).
@@ -1348,7 +1348,7 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
       await expect(
         loose(base).$extends(unique).$as(actors.u01!).user!.findMany({})
       ).rejects.toThrow(
-        'rows.verbs.user at "reads.email": names a key, a unique or a foreign key field'
+        'rule.user: read.fields.email names a key, a unique or a foreign key field'
       );
     });
 

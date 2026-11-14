@@ -16,7 +16,19 @@
 
 import type { RowsVerbs } from "../client/exports";
 import { ClientInitializationError } from "../errors";
-import type { VibORMConfig } from "../index";
+import {
+  type ArgTest,
+  arg,
+  check,
+  exists,
+  facts,
+  gate,
+  nothing,
+  now,
+  provided,
+  row,
+  type VibORMConfig,
+} from "../index";
 import { type ActorContract, actorContract, refuse } from "./actor";
 import { FALSE, type PolicyModel, type Rule, type Where } from "./rules";
 
@@ -192,7 +204,7 @@ const QUANTIFIERS = new Set(["is", "isNot", "some", "every", "none"]);
  * symbol: read as a record it would be `{}`, true everywhere, so an object
  * with a symbol key is a value.
  */
-const isRecord = (value: unknown): value is Record<string, unknown> => {
+export const isRecord = (value: unknown): value is Record<string, unknown> => {
   if (typeof value !== "object" || value === null) return false;
   const prototype = Object.getPrototypeOf(value);
   return (
@@ -439,6 +451,183 @@ export function verbsOf(
       ]
     )
   );
+}
+
+/**
+ * What a policy's arguments accept, read from the declaration alone: every
+ * `as` value (the default, each listed model's actions and domains) and
+ * each credential scope with the scopes it implies. A declaration the
+ * compiler refuses yields the default alone: applying it refuses it there.
+ */
+export function policyArguments(config: PermissionsConfig): {
+  readonly modes: readonly string[];
+  readonly scopes: Readonly<Record<string, readonly string[]>>;
+} {
+  try {
+    const modes = new Set<string>([DEFAULT_MODE]);
+    const scopes: Record<string, readonly string[]> = {};
+    for (const [name, policy] of Object.entries(config.models)) {
+      const { closure } = actionsOf(name, policy);
+      for (const [action, implied] of closure) {
+        modes.add(action);
+        scopes[`${name}.${action}`] = implied.map((next) => `${name}.${next}`);
+      }
+      for (const domain of Object.keys(policy.domains ?? {})) modes.add(domain);
+    }
+    return { modes: [...modes], scopes };
+  } catch {
+    return { modes: [DEFAULT_MODE], scopes: {} };
+  }
+}
+
+const isScalar = (value: unknown): value is string | number | boolean =>
+  typeof value === "string" ||
+  typeof value === "number" ||
+  typeof value === "boolean";
+
+/** A compiled condition's test, as `provided` reads it. */
+function argTest(test: Readonly<Record<string, unknown>>): ArgTest {
+  if (typeof test.exists === "boolean") return { exists: test.exists };
+  if (isScalar(test.equals)) return { equals: test.equals };
+  if (isScalar(test.has)) return { has: test.has };
+  if (Array.isArray(test.in)) return { in: test.in };
+  if (Array.isArray(test.hasSome)) return { hasSome: test.hasSome };
+  throw new TypeError("viborm/permissions compiled a condition it cannot test");
+}
+
+/** `{ control, path? }`: an argument's value, as the compiler writes one. */
+const isReference = (
+  value: Record<string, unknown>
+): value is { readonly control: string; readonly path?: unknown } =>
+  typeof value.control === "string" &&
+  Object.keys(value).every((key) => key === "control" || key === "path");
+
+/**
+ * A compiled predicate in the words of a rule: an actor value is
+ * `arg("actor", path)`, an enclosing column `row`, a condition `provided`
+ * (beside the filter it sits in), another model's rows `exists`. Each
+ * object once, so the predicates the compiler shares stay shared.
+ */
+export function wordsOf(value: Where, known: WeakMap<object, unknown>): object;
+export function wordsOf(
+  value: unknown,
+  known: WeakMap<object, unknown>
+): unknown;
+export function wordsOf(
+  value: unknown,
+  known: WeakMap<object, unknown>
+): unknown {
+  if (typeof value !== "object" || value === null) return value;
+  const done = known.get(value);
+  if (done !== undefined) return done;
+  let out: unknown = value;
+  if (Array.isArray(value)) out = value.map((item) => wordsOf(item, known));
+  else if (isRecord(value)) {
+    const keys = Object.keys(value);
+    if (isReference(value))
+      out = arg(value.control, value.path as string | undefined);
+    else if (typeof value.$row === "string" && keys.length === 2)
+      out = row(value.$row, value.up as number);
+    else if (value.now === true && keys.length === 1) out = now;
+    else {
+      const { $if: condition, $exists: existence, ...filter } = value;
+      const own: Record<string, unknown> = {};
+      // A document compared whole (a JSON value) is a literal: an actor
+      // value is the operand itself, never an object inside it.
+      for (const [key, item] of Object.entries(filter))
+        own[key] =
+          key === "equals" && isRecord(item) && !isReference(item)
+            ? item
+            : wordsOf(item, known);
+      const nodes: unknown[] = [];
+      if (isRecord(condition)) {
+        const { control, path, ...test } = condition;
+        nodes.push(
+          provided(
+            arg(control as string, path as string | undefined),
+            argTest(test)
+          )
+        );
+      }
+      if (isRecord(existence)) {
+        const spec: Record<string, object> = {};
+        for (const [model, where] of Object.entries(existence)) {
+          const words = wordsOf(where, known);
+          if (typeof words === "object" && words !== null) spec[model] = words;
+        }
+        nodes.push(exists(spec));
+      }
+      const plain = Object.keys(own).length === 0;
+      out =
+        nodes.length === 0
+          ? own
+          : plain && nodes.length === 1
+            ? nodes[0]
+            : { AND: [...(plain ? [] : [own]), ...nodes] };
+    }
+  }
+  known.set(value, out);
+  return out;
+}
+
+/**
+ * One model's compiled predicates as a rule entry: its read action, each
+ * field it gates and its `$access`, each write verb at its action (an action
+ * it does not grant takes no row: a key an entry leaves out restricts
+ * nothing), the fields whose write takes its own action, the placement of a
+ * created row and the moves of an updated one. `roots` writes its filters
+ * of the call's own rows from its predicates by name.
+ */
+export function ruleEntryOf(
+  model: CompiledModel,
+  roots: (P: (named: string | undefined) => object) => readonly unknown[],
+  acyclic?: () => readonly string[]
+): object {
+  const known = new WeakMap<object, unknown>();
+  const P = (named: string | undefined): object =>
+    named === undefined ? nothing : wordsOf(model.predicates[named]!, known);
+  const { writes, moves, evidence } = model;
+  const root = roots(P);
+  return {
+    read: {
+      where: P(model.read),
+      fields: Object.fromEntries(
+        Object.entries(model.reads).map(([field, named]) => [
+          field,
+          gate(P(named)),
+        ])
+      ),
+      ...(evidence && {
+        select: {
+          [evidence.as]: facts(
+            Object.fromEntries(evidence.names.map((fact) => [fact, P(fact)]))
+          ),
+        },
+      }),
+    },
+    ...(root.length > 0 && { root }),
+    create: { check: check(P(model.place)) },
+    update: {
+      where: P(model.update),
+      fields: Object.fromEntries(
+        [...new Set([...Object.keys(writes), ...Object.keys(moves)])].map(
+          (field) => [
+            field,
+            {
+              ...(writes[field] !== undefined && { where: P(writes[field]) }),
+              ...(moves[field] !== undefined && {
+                check: check(P(moves[field])),
+              }),
+            },
+          ]
+        )
+      ),
+    },
+    delete: { where: P(model.delete) },
+    ...((acyclic ?? model.acyclic) !== undefined && {
+      acyclic: acyclic ?? model.acyclic,
+    }),
+  };
 }
 
 /** Compiles a policy against the schema it governs, every model at once. */

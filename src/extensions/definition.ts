@@ -7,15 +7,14 @@
 import type { ClientOmitConfig } from "@client/omit";
 import type { Schema } from "@client/types";
 import { ClientInitializationError, type DiagnosticDisclosure } from "@errors";
+import type { ModelStamps } from "@query-engine/raptor3/shared/row-scope";
+import type { Input } from "@query-engine/raptor3/shared/schema";
 import { errorCause } from "../errors/diagnostic-safety";
-import type { AdmittedRows } from "./admission";
+import type { RuleLayer } from "./admission";
 import type { CallEntry } from "./call";
-import type {
-  ControlsContribution,
-  DataContribution,
-  DeletionContribution,
-  OrderContribution,
-} from "./controls";
+import type { ExtensionPart } from "./chain";
+import type { ControlsContribution } from "./controls";
+import type { Deletion } from "./kept";
 import type { RuntimeMethodsFactory } from "./methods";
 import type { OfficialObservationCapability } from "./official-facts";
 import type { RuntimeQueryContribution } from "./query";
@@ -39,11 +38,16 @@ export interface RuntimeExtensionDefinition {
   /** The factory `methods` takes. */
   readonly methods?: RuntimeMethodsFactory;
   readonly controls?: ControlsContribution;
-  /** As admitted against the schema the extension is applied to. */
-  readonly rows?: AdmittedRows;
-  readonly deletion?: DeletionContribution;
-  readonly data?: DataContribution;
-  readonly order?: OrderContribution;
+  /** What the extension's `rule` parts wrote, admitted where it is applied. */
+  readonly rule?: RuleLayer;
+  /** What `keep` writes: what a delete of each model writes instead. */
+  readonly deletion?: Deletion;
+  /** Per model, the fields `defaults` writes on creates and updates. */
+  readonly data?: Record<string, ModelStamps>;
+  /** Per model, the order `defaults` gives its reads. */
+  readonly order?: Record<string, readonly Input[]>;
+  /** The parts the words of the extension's parts brought (`keep`, `omitted`). */
+  readonly parts?: ExtensionPart[];
   readonly result?: RuntimeResultContribution;
   /** The fields `defaults` leaves out of every result by default. */
   readonly omit?: ClientOmitConfig<Schema>;
