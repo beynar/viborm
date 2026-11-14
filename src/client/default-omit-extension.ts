@@ -5,16 +5,29 @@
  * Written with the public words: `defaults` and `omitted`.
  */
 import { ClientInitializationError } from "@errors";
-import type { AnyTarget, Extension, Facts } from "@extensions/contract";
-import { buildDefaults, omitted } from "@extensions/defaults";
+import type {
+  AnyTarget,
+  EmptyFacts,
+  Extension,
+  Facts,
+  Target,
+} from "@extensions/contract";
+import { defaults, omitted } from "@extensions/defaults";
 import { extension } from "@extensions/extension";
-import { omitPart } from "./default-omit-identity";
 import type { ClientOmitConfig, ExactClientOmitConfig } from "./omit";
 import type { ClientSchema } from "./schema-links";
+import type { VibORMConfig } from "./client";
 
 const NAME = "viborm.defaultOmit";
 
 type NoMethods = Record<never, never>;
+
+/** No client: what an extension written apart from one is built against. */
+type Untyped = Target<
+  VibORMConfig<Record<never, never>>,
+  AnyTarget["state"],
+  EmptyFacts
+>;
 
 /** What `defaultOmit(config)` adds: the fields it omits, per model. */
 type DefaultOmitFacts<Config> = Facts<
@@ -49,5 +62,9 @@ export function defaultOmit(
     }
     entries[model] = { fields: own };
   }
-  return extension(NAME, buildDefaults(entries, [omitPart]));
+  // Built against no client: `defaultOmit`'s own signature types what it adds.
+  return extension<Untyped>(
+    NAME,
+    defaults<Untyped, () => object>(() => entries)
+  );
 }
