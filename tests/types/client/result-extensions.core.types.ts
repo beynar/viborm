@@ -8,9 +8,10 @@
 import { PGliteDriver } from "@drivers/pglite";
 import {
   createClient,
-  defineExtension,
   type ExtendedOperationResult,
   s,
+  extension,
+  fields,
 } from "@src/index";
 import { expectTypeOf } from "vitest";
 
@@ -35,25 +36,27 @@ const schema = { user, post };
 const base = () => createClient({ schema, driver: new PGliteDriver() });
 
 const names = () =>
-  base().$extends({
-    name: "names",
-    result: {
-      user: {
-        fullName: {
-          needs: { firstName: true, lastName: true },
-          compute(row) {
-            expectTypeOf(row).toEqualTypeOf<{
-              firstName: string;
-              lastName: string;
-            }>();
-            // @ts-expect-error - compute reads only what it needs
-            row.email;
-            return `${row.firstName} ${row.lastName}`;
+  base().$extends(
+    extension(
+      "names",
+      fields({
+        user: {
+          fullName: {
+            needs: { firstName: true, lastName: true },
+            compute(row) {
+              expectTypeOf(row).toEqualTypeOf<{
+                firstName: string;
+                lastName: string;
+              }>();
+              // @ts-expect-error - compute reads only what it needs
+              row.email;
+              return `${row.firstName} ${row.lastName}`;
+            },
           },
         },
-      },
-    },
-  });
+      })
+    )
+  );
 
 async function _readsCarryTheField() {
   const db = names();
@@ -120,24 +123,26 @@ async function _writesCarryTheField() {
 }
 
 async function _extensionsCompose() {
-  const db = names().$extends({
-    name: "greeting",
-    result: {
-      user: {
-        greeting: {
-          needs: { fullName: true },
-          compute: (row) => `Hello, ${row.fullName}`,
+  const db = names().$extends(
+    extension(
+      "greeting",
+      fields({
+        user: {
+          greeting: {
+            needs: { fullName: true },
+            compute: (row) => `Hello, ${row.fullName}`,
+          },
+          email: {
+            needs: { email: true },
+            compute: (row) => row.email.length,
+          },
         },
-        email: {
-          needs: { email: true },
-          compute: (row) => row.email.length,
+        $allModels: {
+          ref: { needs: { id: true }, compute: (row) => String(row.id) },
         },
-      },
-      $allModels: {
-        ref: { needs: { id: true }, compute: (row) => String(row.id) },
-      },
-    },
-  });
+      })
+    )
+  );
   const row = await db.user.findUniqueOrThrow({
     where: { id: "u1" },
     select: { greeting: true, email: true, ref: true },
@@ -152,36 +157,40 @@ async function _extensionsCompose() {
 }
 
 function _definitionsAreChecked() {
-  base().$extends({
-    name: "bad-need",
-    result: {
-      user: {
-        x: {
-          // @ts-expect-error - needs name the model's fields
-          needs: { nope: true },
-          compute: () => 1,
+  base().$extends(
+    extension(
+      "bad-need",
+      fields({
+        user: {
+          x: {
+            // @ts-expect-error - needs name the model's fields
+            needs: { nope: true },
+            compute: () => 1,
+          },
         },
-      },
-    },
-  });
-  base().$extends({
-    name: "bad-model",
-    result: {
-      // @ts-expect-error - result names the schema's models
-      nobody: { x: { compute: () => 1 } },
-    },
-  });
-  const reusable = defineExtension<typeof schema>()({
-    name: "reusable",
-    result: {
+      })
+    )
+  );
+  base().$extends(
+    extension(
+      "bad-model",
+      fields({
+        // @ts-expect-error - result names the schema's models
+        nobody: { x: { compute: () => 1 } },
+      })
+    )
+  );
+  const reusable = extension(
+    "reusable",
+    fields({
       post: {
         shout: {
           needs: { title: true },
           compute: (row) => row.title.toUpperCase(),
         },
       },
-    },
-  });
+    })
+  );
   base()
     .$extends(reusable)
     .post.findMany({ select: { shout: true } })
@@ -189,10 +198,10 @@ function _definitionsAreChecked() {
 }
 
 function _heldDefinitionsAreChecked() {
-  const held = {
-    name: "held",
-    result: { nobody: { x: { compute: () => 1 } } },
-  } as const;
+  const held = extension(
+    "held",
+    fields({ nobody: { x: { compute: () => 1 } } })
+  );
   // @ts-expect-error - a held definition names the schema's models too
   base().$extends(held);
 }
@@ -271,20 +280,22 @@ async function _sameSurfaceTargetsAreNotMerged() {
   const db = createClient({
     schema: { writer, reviewer, article },
     driver: new PGliteDriver(),
-  }).$extends({
-    name: "display",
-    result: {
-      writer: {
-        displayName: {
-          needs: { name: true },
-          compute: (row) => row.name.toUpperCase(),
+  }).$extends(
+    extension(
+      "display",
+      fields({
+        writer: {
+          displayName: {
+            needs: { name: true },
+            compute: (row) => row.name.toUpperCase(),
+          },
         },
-      },
-      reviewer: {
-        displayName: { needs: { id: true }, compute: (row) => row.id.length },
-      },
-    },
-  });
+        reviewer: {
+          displayName: { needs: { id: true }, compute: (row) => row.id.length },
+        },
+      })
+    )
+  );
   const [row] = await db.article.findMany({
     include: { writer: true, reviewer: true },
   });
@@ -318,14 +329,16 @@ async function _sameSurfaceShadowsWiden() {
   const db = createClient({
     schema: { writer, reviewer, article },
     driver: new PGliteDriver(),
-  }).$extends({
-    name: "lengths",
-    result: {
-      writer: {
-        name: { needs: { name: true }, compute: (row) => row.name.length },
-      },
-    },
-  });
+  }).$extends(
+    extension(
+      "lengths",
+      fields({
+        writer: {
+          name: { needs: { name: true }, compute: (row) => row.name.length },
+        },
+      })
+    )
+  );
   const [row] = await db.article.findMany({
     include: { writer: true, reviewer: true },
   });

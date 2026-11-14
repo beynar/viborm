@@ -125,6 +125,25 @@ type SoftDeleteFacts<T extends AnyTarget, Models> = Facts<
   Extract<keyof Models, string>
 >;
 
+/** Refuse a marker that is not a nullable, single DateTime field. */
+function admitMarkers(
+  schema: VibORMConfig["schema"],
+  entries: readonly (readonly [string, SoftDeleteModel])[]
+): void {
+  for (const [name, { deletedAt }] of entries) {
+    const scalars = Object.hasOwn(schema, name)
+      ? schema[name]!["~"].state.scalars
+      : undefined;
+    if (!(scalars && Object.hasOwn(scalars, deletedAt))) continue;
+    const state = scalars[deletedAt]!["~"].state;
+    if (state.type !== "datetime" || state.array || !state.nullable)
+      throw new ClientInitializationError(
+        `softDelete: ${name}.${deletedAt} must be a nullable DateTime field (s.dateTime().nullable()): a live row holds null there.`,
+        { meta: { extension: NAME } }
+      );
+  }
+}
+
 /** A delegate as the methods call it: its own operations. */
 type Self = Readonly<Record<string, (args: object) => unknown>>;
 
@@ -180,7 +199,13 @@ export function softDelete(config: SoftDeleteConfig): unknown {
       // The call argument that picks which rows a call sees.
       deleted: oneOf("without", "with", "only").default("without"),
     }),
-    buildRule(rows),
+    // Read where the extension is applied: a marker that is not a nullable
+    // DateTime is refused there, before its filters would refuse it less
+    // clearly (a string field would fail at the first delete).
+    buildRule((schema) => {
+      admitMarkers(schema, entries);
+      return rows;
+    }),
     // The methods read nothing typed at this step (each result is typed from
     // the delegate it is called on), so later extensions may hide rows or
     // omit fields freely.

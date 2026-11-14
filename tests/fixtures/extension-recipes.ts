@@ -14,7 +14,17 @@
  * cast, the same key-map cast as the soft-delete entry's `perModel`.
  */
 
-import { defineExtension } from "@src/index";
+import {
+  extension,
+  rule,
+  defaults,
+  args,
+  writes,
+  oneOf,
+  accepts,
+  arg,
+  when,
+} from "@src/index";
 import { v } from "@src/validation";
 
 /**
@@ -33,58 +43,50 @@ export const perModel = <Models extends readonly string[], T>(
 export const tenancy = <const Models extends readonly string[]>(
   models: Models
 ) =>
-  defineExtension({
-    name: "tenancy",
-    controls: { tenant: { schema: v.string(), required: true } },
-    rows: {
-      control: "scope", // still one mode control per rows member
-      default: "tenant",
-      models: perModel(models, () => ({
-        tenant: {
-          root: { tenantId: { control: "tenant" } },
-          related: { tenantId: { control: "tenant" } },
-        },
-        all: {}, // an operator's view: the control is admitted, the filter is off
-      })),
-    },
-    data: {
-      models: perModel(models, () => ({
-        create: { tenantId: { control: "tenant" } },
-      })),
-    },
-  });
+  extension(
+    "tenancy",
+    args({
+      tenant: accepts(v.string()).required(models),
+      scope: oneOf("tenant", "all").default("tenant"),
+    }),
+    rule(
+      perModel(models, () => ({
+        root: when(arg("scope"), "tenant", { tenantId: arg("tenant") }),
+        related: when(arg("scope"), "tenant", { tenantId: arg("tenant") }),
+      }))
+    ),
+    defaults(perModel(models, () => ({ create: { tenantId: arg("tenant") } })))
+  );
 
 export const audit = <const Models extends readonly string[]>(models: Models) =>
-  defineExtension({
-    name: "audit",
-    controls: { actor: { schema: v.string(), required: true, on: "writes" } },
-    data: {
-      models: perModel(models, () => ({
-        create: { createdBy: { control: "actor" } },
-        update: { updatedBy: { control: "actor" } },
-      })),
-    },
-  });
+  extension(
+    "audit",
+    args({ actor: accepts(v.string()).on(writes).required(models) }),
+    defaults(
+      perModel(models, () => ({
+        create: { createdBy: arg("actor") },
+        update: { updatedBy: arg("actor") },
+      }))
+    )
+  );
 
 export const optimisticLock = <const Models extends readonly string[]>(
   models: Models
 ) =>
-  defineExtension({
-    name: "optimisticLock",
-    controls: {
-      expectedVersion: { schema: v.number(), on: ["update", "delete"] },
-    },
-    rows: {
-      control: "versionCheck",
-      default: "checked",
-      models: perModel(models, () => ({
-        checked: { root: { version: { control: "expectedVersion" } } },
-        unchecked: {},
-      })),
-    },
-    data: {
-      models: perModel(models, () => ({
-        update: { version: { increment: 1 } },
-      })),
-    },
-  });
+  extension(
+    "optimisticLock",
+    args({
+      expectedVersion: accepts(v.number()).on(["update", "delete"]),
+      versionCheck: oneOf("checked", "unchecked").default("checked"),
+    }),
+    rule(
+      perModel(models, () => ({
+        root: when(arg("versionCheck"), "checked", {
+          version: arg("expectedVersion"),
+        }),
+      }))
+    ),
+    defaults(
+      perModel(models, () => ({ update: { version: { increment: 1 } } }))
+    )
+  );

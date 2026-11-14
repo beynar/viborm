@@ -2,7 +2,12 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { ClientInitializationError, PendingOperationError } from "@errors";
 import { appendResolvedExtension } from "@extensions/chain";
 import { lookupResolvedExtensionHandlers } from "@extensions/handlers";
-import { createClient, defineExtension, s } from "@src/index";
+import {
+  createClient,
+  s,
+  extension as extExtension,
+  methods as extMethods,
+} from "@src/index";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
 import {
@@ -46,19 +51,29 @@ afterEach(async () => {
 describe("client extension foundation", () => {
   it("applies a client-aware factory to the exact receiving view", () => {
     const base = baseClient();
-    const prior = base.$extends({
-      name: "prior",
-      client: () => ({ $tag: () => "prior" }),
-    });
+    const prior = base.$extends(
+      extExtension(
+        "prior",
+        extMethods((scope) => {
+          const own = { client: () => ({ $tag: () => "prior" }) };
+          return { ...own.client?.(scope), ...own.models };
+        })
+      )
+    );
     let calls = 0;
     const derived = prior.$extends((client) => {
       calls++;
       expect(client).toBe(prior);
       expect(client.$tag()).toBe("prior");
-      return client.$extends({
-        name: "factory",
-        client: () => ({ $answer: () => 42 }),
-      });
+      return client.$extends(
+        extExtension(
+          "factory",
+          extMethods((scope) => {
+            const own = { client: () => ({ $answer: () => 42 }) };
+            return { ...own.client?.(scope), ...own.models };
+          })
+        )
+      );
     });
     expect(calls).toBe(1);
     expect(derived.$answer()).toBe(42);
@@ -236,15 +251,20 @@ describe("client extension foundation", () => {
 
   it("derives an immutable view while sharing schema and driver identity", () => {
     const base = baseClient();
-    const definition = {
-      name: "identity",
-      client: () => ({ $identity: () => "derived" }),
-      model: {
-        item: (delegate: typeof base.item) => ({
-          byName: (name: string) => delegate.findMany({ where: { name } }),
-        }),
-      },
-    };
+    const definition = extExtension(
+      "identity",
+      extMethods((scope) => {
+        const own = {
+          client: () => ({ $identity: () => "derived" }),
+          models: {
+            item: (delegate: typeof base.item) => ({
+              byName: (name: string) => delegate.findMany({ where: { name } }),
+            }),
+          },
+        };
+        return { ...own.client?.(scope), ...own.models };
+      })
+    );
 
     const derived = base.$extends(definition);
 
@@ -262,8 +282,14 @@ describe("client extension foundation", () => {
   it("snapshots reusable definitions without freezing caller-owned objects", () => {
     const base = baseClient();
     const methods = { $version: () => 1 };
-    const definition = { name: "snapshot", client: () => methods };
-    const reusable = defineExtension(definition);
+    const definition = extExtension(
+      "snapshot",
+      extMethods((scope) => {
+        const own = { client: () => methods };
+        return { ...own.client?.(scope), ...own.models };
+      })
+    );
+    const reusable = definition;
 
     expect(Object.isFrozen(definition)).toBe(false);
     expect(Object.isFrozen(methods)).toBe(false);
@@ -277,7 +303,7 @@ describe("client extension foundation", () => {
 
   it("requires unique non-empty names and exact runtime maps", () => {
     const base = baseClient();
-    const once = base.$extends({ name: "once" });
+    const once = base.$extends(extExtension("once"));
 
     for (const definition of [
       {},
@@ -561,28 +587,35 @@ describe("client extension foundation", () => {
     const base = baseClient();
     let clientRuns = 0;
     let modelRuns = 0;
-    const derived = base.$extends({
-      name: "factory-counts",
-      client(scope) {
-        clientRuns += 1;
-        return {
-          $activeScope: () =>
-            transactionOperation(scope.item.findMany()).scopeId,
-          // Capturing the external root is the documented author-controlled
-          // escape: the host can bind only the supplied scope.
-          $capturedRoot: () => base.item.findMany(),
-        };
-      },
-      model: {
-        item(delegate) {
-          modelRuns += 1;
-          return {
-            activeScope: () =>
-              transactionOperation(delegate.findMany()).scopeId,
+    const derived = base.$extends(
+      extExtension(
+        "factory-counts",
+        extMethods((scope) => {
+          const own = {
+            client(scope) {
+              clientRuns += 1;
+              return {
+                $activeScope: () =>
+                  transactionOperation(scope.item.findMany()).scopeId,
+                // Capturing the external root is the documented author-controlled
+                // escape: the host can bind only the supplied scope.
+                $capturedRoot: () => base.item.findMany(),
+              };
+            },
+            models: {
+              item(delegate) {
+                modelRuns += 1;
+                return {
+                  activeScope: () =>
+                    transactionOperation(delegate.findMany()).scopeId,
+                };
+              },
+            },
           };
-        },
-      },
-    });
+          return { ...own.client?.(scope), ...own.models };
+        })
+      )
+    );
 
     expect([clientRuns, modelRuns]).toEqual([1, 1]);
     expect(derived.$activeScope()).toBe(derived.item.activeScope());
@@ -603,11 +636,18 @@ describe("client extension foundation", () => {
 
   it("refuses collisions atomically and leaves the prior view usable", () => {
     const base = baseClient();
-    const valid = base.$extends({
-      name: "valid",
-      client: () => ({ $valid: () => true }),
-      model: { item: () => ({ valid: () => true }) },
-    });
+    const valid = base.$extends(
+      extExtension(
+        "valid",
+        extMethods((scope) => {
+          const own = {
+            client: () => ({ $valid: () => true }),
+            models: { item: () => ({ valid: () => true }) },
+          };
+          return { ...own.client?.(scope), ...own.models };
+        })
+      )
+    );
 
     for (const definition of [
       { name: "non-function", client: () => ({ $bad: 1 }) },
@@ -656,8 +696,8 @@ describe("client extension foundation", () => {
 
   it("uses distinct operation scopes for base and every derived view", async () => {
     const base = baseClient();
-    const first = base.$extends({ name: "first" });
-    const second = base.$extends({ name: "second" });
+    const first = base.$extends(extExtension("first"));
+    const second = base.$extends(extExtension("second"));
 
     expect(transactionOperation(base.item.findMany()).clientId).toBe(
       transactionOperation(first.item.findMany()).clientId

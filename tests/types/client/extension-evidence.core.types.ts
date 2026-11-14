@@ -10,7 +10,17 @@
 import { MemoryCache } from "@src/cache/drivers/memory";
 import { cache } from "@src/cache/exports";
 import { PGliteDriver } from "@src/drivers/pglite";
-import { createClient, s } from "@src/index";
+import {
+  createClient,
+  s,
+  extension,
+  rule,
+  args,
+  nothing,
+  oneOf,
+  gate,
+  facts,
+} from "@src/index";
 import { describe, expectTypeOf, test } from "vitest";
 
 const user = s.model({
@@ -44,32 +54,44 @@ const base = createClient({
   schema: { user, post, note },
   driver: new PGliteDriver(),
 });
-const db = base.$extends({
-  name: "evidence",
-  rows: {
-    control: "as",
-    default: "all",
-    models: {},
-    verbs: {
+const postView = {};
+const postEdit = { title: "x" };
+const userView = {};
+const db = base.$extends(
+  extension(
+    "evidence",
+    args({ as: oneOf("all").default("all") }), // FIXME(extension-codemod): `evidence.ordered` has no spelling in spec v0: written as facts(…, { ordered: true })
+    rule({
       post: {
-        predicates: { view: {}, edit: { title: "x" } },
-        read: "view",
-        evidence: { as: "$access", names: ["view", "edit"] },
-        reads: { secret: "edit" },
+        read: {
+          where: postView,
+          fields: { secret: gate(postEdit) },
+          select: { $access: facts({ view: postView, edit: postEdit }) },
+        },
+        update: { where: nothing },
+        delete: { where: nothing },
       },
       user: {
-        predicates: { view: {}, edit: {}, full: {} },
-        read: "view",
-        evidence: {
-          as: "$access",
-          names: ["view", "edit", "full"],
-          ordered: true,
+        read: {
+          where: userView,
+          select: {
+            $access: facts(
+              { view: userView, edit: {}, full: {} },
+              { ordered: true }
+            ),
+          },
         },
+        update: { where: nothing },
+        delete: { where: nothing },
       },
-      note: { predicates: { view: {} }, read: "view" },
-    },
-  },
-});
+      note: {
+        read: { where: {} },
+        update: { where: nothing },
+        delete: { where: nothing },
+      },
+    })
+  )
+);
 
 describe("a declared projection key", () => {
   test("reports the model's names at the root, a list its own, ordered the highest", async () => {
@@ -163,27 +185,38 @@ describe("a read-gated field", () => {
 
 /** A second projection on the same model must not erase the first in a cache view. */
 test("cached views preserve two projection keys and exact nested results", () => {
+  const postDraft = {};
+  const userContact = {};
   const composed = db
-    .$extends({
-      name: "review-evidence",
-      rows: {
-        control: "reviewMode",
-        default: "all",
-        models: {},
-        verbs: {
+    .$extends(
+      extension(
+        "review-evidence",
+        args({ reviewMode: oneOf("all").default("all") }),
+        rule({
           post: {
-            predicates: { draft: {}, published: { title: "published" } },
-            read: "draft",
-            evidence: { as: "$review", names: ["draft", "published"] },
+            read: {
+              where: postDraft,
+              select: {
+                $review: facts({
+                  draft: postDraft,
+                  published: { title: "published" },
+                }),
+              },
+            },
+            update: { where: nothing },
+            delete: { where: nothing },
           },
           user: {
-            predicates: { contact: {} },
-            read: "contact",
-            evidence: { as: "$review", names: ["contact"] },
+            read: {
+              where: userContact,
+              select: { $review: facts({ contact: userContact }) },
+            },
+            update: { where: nothing },
+            delete: { where: nothing },
           },
-        },
-      },
-    })
+        })
+      )
+    )
     .$extends(cache({ driver: new MemoryCache() }));
   const cached = composed.$withCache();
   const access = cached.post.findMany({
@@ -228,24 +261,27 @@ test("cached views preserve two projection keys and exact nested results", () =>
 });
 
 describe("a lazy verbs entry (a function returning it)", () => {
-  const lazy = base.$extends({
-    name: "lazy-evidence",
-    rows: {
-      control: "as",
-      default: "all",
-      models: {},
-      verbs: {
-        // A function's return is not a const context: spell it `as const`.
-        post: () =>
-          ({
-            predicates: { view: {}, edit: { title: "x" } },
-            read: "view",
-            evidence: { as: "$access", names: ["view", "edit"] },
-            reads: { secret: "edit" },
-          }) as const,
-      },
-    },
-  });
+  const lazy = base.$extends(
+    extension(
+      "lazy-evidence",
+      args({ as: oneOf("all").default("all") }),
+      rule({
+        post: () => {
+          const postView2 = {};
+          const postEdit2 = { title: "x" };
+          return {
+            read: {
+              where: postView2,
+              fields: { secret: gate(postEdit2) },
+              select: { $access: facts({ view: postView2, edit: postEdit2 }) },
+            },
+            update: { where: nothing },
+            delete: { where: nothing },
+          };
+        },
+      })
+    )
+  );
 
   test("declares its projection key and gates its read-gated fields as an entry would", async () => {
     const posts = await lazy.post.findMany({

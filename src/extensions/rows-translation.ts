@@ -295,11 +295,15 @@ function finishRules(draft: DefinitionDraft, state: RulesState): void {
     ...state.related.keys(),
   ])) {
     const modes: Record<string, Where> = {};
-    for (const value of mode.values)
+    for (const value of mode.values) {
+      // A mode that filters nothing names no filter, as a 1.14 mode did.
+      const root = filterIn(state.root.get(model) ?? [], value, state);
+      const related = filterIn(state.related.get(model) ?? [], value, state);
       modes[value] = {
-        root: filterIn(state.root.get(model) ?? [], value, state),
-        related: filterIn(state.related.get(model) ?? [], value, state),
+        ...(Object.keys(root).length === 0 ? {} : { root }),
+        ...(Object.keys(related).length === 0 ? {} : { related }),
       };
+    }
     models[model] = modes;
   }
   const rows: Mutable<RowsContribution> = {

@@ -2803,6 +2803,11 @@ function convertDefinition(ctx, site) {
 
 const OFFICIAL_STEPPED = new Set(["softDelete", "permissions", "ordering"]);
 const STEPS = new Set(["rows", "methods", "keys"]);
+/** The modules of `src/extensions` the old definers were imported from. */
+const INTERNAL_DEFINER = /(^@extensions\/|\/extensions\/)(define|index)?/;
+
+/** The official extensions 1.14 applied as a function of the client. */
+const APPLIED = new Set(["softDelete", "permissions", "ordering", "on"]);
 
 /** The official call a value is, directly or through a local const. */
 function officialOrigin(checker, node) {
@@ -2959,6 +2964,48 @@ function foldSteps(sf, checker) {
         why: "`defaultOmit<S>()` is held before it is called: write `defaultOmit(config)` where it is called",
       });
   });
+  // An official extension applied as a function of the client
+  // (`softDelete(config)(base)`, `policy(base)`) → `base.$extends(…)`; nested
+  // applications are rewritten from the inside out, as one edit.
+  const appliedOf = (node) => {
+    if (!(ts.isCallExpression(node) && node.arguments.length === 1))
+      return undefined;
+    const callee = skipParens(node.expression);
+    if (ts.isPropertyAccessExpression(callee)) return undefined;
+    const direct =
+      ts.isCallExpression(callee) &&
+      ts.isIdentifier(callee.expression) &&
+      APPLIED.has(callee.expression.text)
+        ? callee.expression.text
+        : undefined;
+    const official =
+      direct ?? (ts.isIdentifier(callee) ? officialOrigin(checker, callee) : undefined);
+    return official === undefined ? undefined : { callee, official };
+  };
+  const rewrite = (node) => {
+    const applied = appliedOf(node);
+    if (applied === undefined) return node.getText(sf);
+    const argument = skipParens(node.arguments[0]);
+    const receiver = rewrite(argument);
+    const simple =
+      ts.isIdentifier(argument) ||
+      ts.isCallExpression(argument) ||
+      ts.isPropertyAccessExpression(argument);
+    return `${simple ? receiver : `(${receiver})`}.$extends(${applied.callee.getText(sf)})`;
+  };
+  const inside = new Set();
+  walk(sf, (node) => {
+    const applied = appliedOf(node);
+    if (applied === undefined || inside.has(node)) return;
+    for (let inner = skipParens(node.arguments[0]); appliedOf(inner); )
+      inside.add(inner), (inner = skipParens(inner.arguments[0]));
+    edits.push({ start: node.getStart(sf), end: node.getEnd(), text: rewrite(node) });
+    folded.push({
+      line: lineOf(node),
+      official: applied.official,
+      value: `${applied.callee.getText(sf).slice(0, 40)}(client) → client.$extends(…)`,
+    });
+  });
   return { edits, folded, reported };
 }
 
@@ -3041,7 +3088,10 @@ function wordSpecifier(sf, fallback) {
         (e) =>
           DEFINERS.has((e.propertyName ?? e.name).text) ||
           (e.propertyName ?? e.name).text === "enableExtensions"
-      )
+      ) &&
+      // The builders are public names: an internal module that held the old
+      // definers does not export them.
+      !INTERNAL_DEFINER.test(specifier)
     )
       return specifier;
     if (!root && ROOT_SPECIFIER.test(specifier)) root = specifier;
@@ -3413,7 +3463,8 @@ const SKIP_DIRS = new Set([
   ".claude",
   "coverage",
 ]);
-const MENTION = /\$extends|defineExtension|defineHooks|enableExtensions/;
+const MENTION =
+  /\$extends|defineExtension|defineHooks|enableExtensions|softDelete\(|ordering\(|permissions\(/;
 
 function filesOf(paths) {
   const out = new Set();

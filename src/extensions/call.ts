@@ -170,17 +170,25 @@ function firstContext(
         ? NO_VALUES
         : controlsOwnedBy(controls?.admitted, handler.controls),
     set(patch: unknown) {
+      const refuse = (problem: string, cause: string) =>
+        failure(extension, model, operation, problem, new TypeError(cause));
       if (model === undefined)
-        throw new TypeError("A raw statement has no arguments to set");
-      if (!isRecord(patch)) throw new TypeError("c.set takes an object");
+        throw refuse(
+          "set a raw statement's arguments",
+          "c.set patches a model call"
+        );
+      if (!isRecord(patch))
+        throw refuse("set a non-record patch", "c.set takes an object");
       for (const key of Object.keys(patch)) {
         if (shape.includes(key))
-          throw new TypeError(
-            `c.set cannot set "${key}": it decides the result's shape`
+          throw refuse(
+            `set "${key}", which decides the result's shape`,
+            "c.set cannot set a key that decides the result's shape"
           );
         if (controls?.names.has(key))
-          throw new TypeError(
-            `c.set cannot set "${key}": it is an extension's argument`
+          throw refuse(
+            `named control "${key}"`,
+            "c.set cannot set an extension's argument"
           );
       }
       state.args = Object.freeze({ ...state.args, ...patch });
