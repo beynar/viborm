@@ -123,4 +123,27 @@ for (const [name, make] of Object.entries(clients))
       ]);
       if (name === "extended") expect(told).toEqual(["committed"]);
     });
+
+    test("a savepoint whose body resolved but which fails for a failure it never observed tells nothing of its writes when the caller catches it", async () => {
+      const { base, db, told } = await open();
+      const unhandled = await unhandledDuring(async () => {
+        await db.$transaction(async (tx) => {
+          await tx.$executeRaw(insert("outer"));
+          const failed = await tx
+            .$transaction(async (nested) => {
+              await nested.$executeRaw(insert("nested"));
+              nested.$transaction(async () => {
+                throw new TypeError("deeper unobserved failure");
+              });
+            })
+            .catch((error: unknown) => error);
+          expect(failed).toBeInstanceOf(Error);
+        });
+      });
+      expect(unhandled).toEqual([]);
+      expect((await base.post.findMany({})).map((row) => row.id)).toEqual([
+        "outer",
+      ]);
+      if (name === "extended") expect(told).toEqual(["committed"]);
+    });
   });
