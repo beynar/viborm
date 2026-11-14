@@ -24,6 +24,8 @@
 // CLIENT
 // =============================================================================
 
+// Named so an exported extended client's declaration can write them from
+// the entry every application imports.
 export type {
   ClientTypeState,
   DelegateOperationArgs,
@@ -32,20 +34,29 @@ export type {
   ExtendedClient,
   ExtendedOperationResult,
   ExtensionState,
+  ProjectedContribution,
   TransactionClient,
   TransactionClientOf,
   VibORMClient,
   VibORMConfig,
 } from "./client/client.js";
 export { createClient } from "./client/client.js";
+export type { ProjectedModelOperations } from "./client/projected-types.js";
 export type { RawOperation, RowsFragment } from "./client/raw.js";
+export type { ClientHiddenContext } from "./client/result-types.js";
 export {
   getOperationPayloadSchema,
   renderOperationResultType,
   renderSchemaType,
   validateOperationPayload,
 } from "./client/schema-introspection.js";
-export type { NoControls, PlacedControl } from "./extensions/controls.js";
+export type { Schema } from "./client/types.js";
+export type {
+  NoControls,
+  PlacedControl,
+  RowsVerbs,
+  StampedFields,
+} from "./extensions/controls.js";
 export * from "./extensions/index.js";
 export type {
   AccumulatedExtensionState,

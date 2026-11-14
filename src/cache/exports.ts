@@ -9,6 +9,8 @@
  * - Cloudflare KV: "viborm/cache/cloudflare-kv"
  */
 
+// Named so the declaration of an exported client with the cache can write it.
+export type { OfficialCacheControls } from "./capability";
 // Cache driver base
 export {
   CacheDriver,

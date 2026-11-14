@@ -592,20 +592,8 @@ export interface VibORMClientMembers<
     // different drivers stay assignable.
     extension: Extension<Target<LinkedConfigOf<C>, X, EmptyFacts>, F> &
       KnownModels<keyof C["schema"], F>
-  ): AppliedClient<C, X, F>;
+  ): VibORMClient<AppliedClientConfig<C, F>, AppliedExtensionState<C, X, F>>;
 }
-
-/**
- * The client an extension with facts `F` makes. The identity of an
- * extension that contributes nothing lives in the state argument, never in
- * a conditional around the client: two clients of different drivers compare
- * through their arguments, and a conditional return would hide them.
- */
-export type AppliedClient<
-  C extends VibORMConfig,
-  X extends ExtensionStateConstraint,
-  F extends AnyFacts,
-> = VibORMClient<AppliedClientConfig<C, F>, AppliedExtensionState<C, X, F>>;
 
 /**
  * The config a client's parts are typed against: the linked snapshot
