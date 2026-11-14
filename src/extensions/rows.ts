@@ -42,8 +42,6 @@ interface Combination {
   readonly tombstoning: CallRows;
   /** The call deletes physically. */
   readonly physical: CallRows;
-  /** Its domain or the default one reads a call value: its calls carry their values. */
-  readonly parametric: boolean;
 }
 
 type RequiredOn = CallValues["required"];
@@ -113,8 +111,8 @@ export class RowsBinding implements CallRowsBinding {
   readonly #chain: ResolvedExtensionChain;
   readonly #rows: readonly AdmittedRows[];
   readonly #verbs: Omit<VerbsBound, "reads">;
-  /** One of the verbs' predicates may read a call value. */
-  readonly #verbsRead: boolean;
+  /** Some predicate reads a call value: every call carries its values. */
+  readonly #parametric: boolean;
   readonly #order: ReadonlyMap<string, readonly Input[]> | undefined;
   readonly #required: RequiredOn;
   readonly #domains = new Map<number, RowDomain>();
@@ -146,7 +144,11 @@ export class RowsBinding implements CallRowsBinding {
     this.#chain = chain;
     this.#rows = rows;
     this.#verbs = verbs;
-    this.#verbsRead = reads;
+    this.#parametric =
+      reads ||
+      rows.some((member) =>
+        Object.values(member.references!.modes).some((names) => names.length)
+      );
     this.#order = chain.order && new Map(Object.entries(chain.order));
     this.#required = requiredOn(chain.controls);
     this.#fallback = this.members.reduce(
@@ -176,16 +178,6 @@ export class RowsBinding implements CallRowsBinding {
       });
     });
   }
-  /** Whether `combination`'s predicates read a call value. */
-  #reads(combination: number): boolean {
-    return (
-      this.#verbsRead ||
-      this.#modes(combination).some(
-        (mode, layer) =>
-          (this.#rows[layer]!.references!.modes[mode]?.length ?? 0) > 0
-      )
-    );
-  }
   #combination(combination: number): Combination {
     const { kept, stamps } = this.#chain;
     const physical: CallRows = Object.freeze({
@@ -200,7 +192,6 @@ export class RowsBinding implements CallRowsBinding {
         kept === undefined
           ? physical
           : Object.freeze({ ...physical, tombstones: kept }),
-      parametric: this.#reads(combination) || this.#reads(this.#fallback),
     };
   }
   /**
@@ -225,7 +216,7 @@ export class RowsBinding implements CallRowsBinding {
       kept?.removes(model, controls) === true
         ? combination.physical
         : combination.tombstoning;
-    const { parametric } = combination;
+    const parametric = this.#parametric;
     const stamped = stamps?.named === true;
     if (!(parametric || stamped)) return facts;
     return Object.freeze({
