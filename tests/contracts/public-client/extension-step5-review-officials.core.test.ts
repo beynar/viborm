@@ -37,7 +37,17 @@ const schema = { user, post, note };
 
 type Row = Record<string, unknown>;
 type Method = (args?: object) => Promise<unknown>;
-type Delegate = Record<string, Method>;
+type Delegate = Record<
+  | "findMany"
+  | "findFirst"
+  | "create"
+  | "update"
+  | "updateMany"
+  | "delete"
+  | "deleteMany"
+  | "count",
+  Method
+> & { readonly restore?: Method; readonly purge?: Method };
 interface Loose {
   user: Delegate;
   post: Delegate;

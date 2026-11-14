@@ -72,6 +72,9 @@ interface Delegate {
 interface Loose {
   user: Delegate;
   post: Delegate;
+  // Present on the clients of the schemas that declare them.
+  timed: Delegate;
+  tomb: Delegate;
   $extends(value: unknown): Loose;
   $transaction<T>(
     run: ((tx: Loose) => Promise<T>) | readonly unknown[]
@@ -164,7 +167,8 @@ describe("call: two moments", () => {
     const shape = (await seeded()).$extends(
       extension(
         "shape",
-        call((c) => c.set({ select: { id: true } }))
+        // The types refuse the key too: the runtime refusal is checked.
+        call((c) => c.set({ select: { id: true } } as never))
       )
     );
     expect(await rejection(shape.post.findMany({}))).toBeInstanceOf(QueryError);
@@ -226,7 +230,7 @@ describe("call: run()", () => {
   );
   const skips = extension(
     "skips",
-    around(() => async () => [])
+    around(() => async () => [] as never)
   );
 
   test("run() at most once", async () => {
