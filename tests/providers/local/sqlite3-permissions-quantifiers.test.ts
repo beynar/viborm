@@ -31,10 +31,14 @@ test.each([
       data: [{ id: "empty" }, { id: "populated" }],
     });
     await base.child.create({ data: { id: "allowed", parentId: "populated" } });
-    const db = permissions({
-      actor: v.object({ id: v.string() }),
-      models: { parent: { read: { children } }, child: { read: {} } },
-    })(base).$as({ id: "actor" });
+    const db = base
+      .$extends(
+        permissions({
+          actor: v.object({ id: v.string() }),
+          models: { parent: { read: { children } }, child: { read: {} } },
+        })
+      )
+      .$as({ id: "actor" });
     expect(await db.parent.findMany()).toEqual([{ id: "empty" }]);
     expect(
       await db.parent.findUnique({

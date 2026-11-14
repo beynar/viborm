@@ -51,7 +51,7 @@ describeIf("pg Driver: ordering races", () => {
         ["c", "10712345"],
       ] as const)
         await base.lane.create({ data: { id, rank: key, title: id } });
-      const db = ordering({ lane: { key: "rank" } })(base) as any;
+      const db = base.$extends(ordering({ lane: { key: "rank" } })) as any;
       let release!: () => void;
       const held = new Promise<void>((resolve) => {
         release = resolve;
@@ -93,8 +93,8 @@ describeIf("pg Driver: ordering races", () => {
         ["y", "B", "10612345"],
       ] as const)
         await base.card.create({ data: { id, board, rank: key, title: id } });
-      const db = ordering({ card: { key: "rank", within: ["board"] } })(
-        base
+      const db = base.$extends(
+        ordering({ card: { key: "rank", within: ["board"] } })
       ) as any;
       let release!: () => void;
       const held = new Promise<void>((resolve) => {

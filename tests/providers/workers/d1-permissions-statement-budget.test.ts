@@ -103,9 +103,7 @@ describe("D1: W-K2f, every governed statement inside D1's budget", () => {
     for (const statement of preview.statements)
       await env.DB.prepare(statement.sql).run();
     await loadPermissionsSeed(base);
-    db = tombstones.methods(
-      policy.rows(tombstones.rows(base))
-    ) as unknown as Governed;
+    db = base.$extends(tombstones).$extends(policy) as unknown as Governed;
   }, 900_000);
 
   afterAll(async () => {

@@ -7,6 +7,17 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { s } from "@schema";
+import {
+  arg,
+  args,
+  extension as extExtension,
+  rule as extRule,
+  oneOf,
+  parts,
+  statement,
+  unit,
+  when,
+} from "@src/index";
 import { ordering } from "@src/ordering";
 import { permissions } from "@src/permissions";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
@@ -204,37 +215,23 @@ describe("adversarial review repros", () => {
   });
 });
 
-test("rows.bound, its name before 1.11, is refused rather than dropped", () => {
-  const base = family().client;
-  expect(() =>
-    base.$extends({
-      name: "renamed-bound",
-      rows: {
-        control: "scope",
-        default: "on",
-        models: { node: { on: {} } },
-        bound: { node: { tenant: "b" } },
-      },
-    } as any)
-  ).toThrow(
-    "rows.bound is not a rows key: it is named rows.confine since 1.11"
-  );
-});
-
 test("a confine reading a relation is refused when applied", async () => {
   const base = family().client;
   expect(() =>
-    base.$extends({
-      name: "relational-bound",
-      rows: {
-        control: "scope",
-        default: "on",
-        models: {
-          node: { on: { root: { children: { some: { flag: true } } } } },
-        },
-        confine: { node: { parent: { is: { flag: true } } } },
-      },
-    } as any)
+    base.$extends(
+      extExtension(
+        "relational-bound",
+        args({ scope: oneOf("on").default("on") }),
+        extRule({
+          node: {
+            root: when(arg("scope"), "on", {
+              children: { some: { flag: true } },
+            }),
+            confine: { parent: { is: { flag: true } } },
+          },
+        })
+      )
+    )
   ).toThrow("which is not a scalar field");
 });
 
@@ -299,17 +296,20 @@ describe("composed bounds", () => {
     await base.grant.create({
       data: { id: "g", tenant: "a", pageId: "p", teamId: "t" },
     });
-    const other = {
-      name: "other-bound",
-      rows: {
-        control: "other",
-        default: "on",
-        models: {
-          grant: { on: { related: { team: { is: { active: true } } } } },
+    const other = parts<{
+      page: typeof page;
+      team: typeof team;
+      grant: typeof grant;
+    }>().extension(
+      "other-bound",
+      args({ other: oneOf("on").default("on") }),
+      extRule({
+        grant: {
+          related: when(arg("other"), "on", { team: { is: { active: true } } }),
         },
-        confine: { team: { tenant: "b" } },
-      },
-    };
+        team: { confine: { tenant: "b" } },
+      })
+    );
     const run = async (bounded: boolean) => {
       const statements: string[] = [];
       const policy = permissions({
@@ -326,14 +326,22 @@ describe("composed bounds", () => {
       });
       const db = base
         .$extends(policy)
-        .$extends(other as any)
-        .$extends({
-          name: "sql",
-          statement(c) {
-            statements.push(c.statement.toStatement());
-            return c.statement;
-          },
-        })
+        .$extends(other)
+        .$extends(
+          extExtension(
+            "sql",
+            unit(
+              (u, next) => {
+                const sent = statement(u);
+                if (sent === undefined) return next();
+                statements.push(sent.toStatement());
+                return next(sent);
+              },
+              ["statement"],
+              { rewrites: true }
+            )
+          )
+        )
         .$as({ tenant: "a" });
       const rows = await db.page.findMany({
         select: { id: true, $access: true },
@@ -357,7 +365,7 @@ test("shared reaching sets distinguish which layer bounds them", async () => {
   await base.node.createMany({ data: nodes });
   const walk = {
     children: { recurse: { depth: false }, some: { flag: true } },
-  };
+  } as const;
   const run = async (bounded: boolean) => {
     const policy = permissions({
       actor: v.object({ tenant: v.string() }),
@@ -371,26 +379,35 @@ test("shared reaching sets distinguish which layer bounds them", async () => {
         },
       },
     });
-    const second = {
-      name: "second-bound",
-      rows: {
-        control: "second",
-        default: "on",
-        models: { node: { on: { root: { AND: [walk, walk] } } } },
-        confine: { node: { tenant: "b" } },
-      },
-    };
+    const second = parts<typeof schema>().extension(
+      "second-bound",
+      args({ second: oneOf("on").default("on") }),
+      extRule({
+        node: {
+          root: when(arg("second"), "on", { AND: [walk, walk] }),
+          confine: { tenant: "b" },
+        },
+      })
+    );
     const statements: string[] = [];
     const db = base
       .$extends(policy)
-      .$extends(second as any)
-      .$extends({
-        name: "sql",
-        statement(c) {
-          statements.push(c.statement.toStatement());
-          return c.statement;
-        },
-      })
+      .$extends(second)
+      .$extends(
+        extExtension(
+          "sql",
+          unit(
+            (u, next) => {
+              const sent = statement(u);
+              if (sent === undefined) return next();
+              statements.push(sent.toStatement());
+              return next(sent);
+            },
+            ["statement"],
+            { rewrites: true }
+          )
+        )
+      )
       .$as({ tenant: "a" });
     const rows = await db.node.findMany({
       where: { id: "a" },
@@ -414,28 +431,49 @@ test("two generic bounds do not share their different reaching sets", async () =
   await base.node.createMany({ data: nodes });
   const walk = {
     children: { recurse: { depth: false }, some: { flag: true } },
-  };
-  const extension = (name: string, bound?: string) => ({
-    name,
-    rows: {
-      control: name,
-      default: "on",
-      models: { node: { on: { root: { AND: [walk, walk] } } } },
-      ...(bound ? { confine: { node: { tenant: bound } } } : {}),
-    },
-  });
+  } as const;
+  // Two layers, each with its own mode argument and its own bound.
+  const one = (bound?: string) =>
+    parts<typeof schema>().extension(
+      "one",
+      args({ one: oneOf("on").default("on") }),
+      extRule({
+        node: {
+          root: when(arg("one"), "on", { AND: [walk, walk] }),
+          ...(bound ? { confine: { tenant: bound } } : {}),
+        },
+      })
+    );
+  const two = parts<typeof schema>().extension(
+    "two",
+    args({ two: oneOf("on").default("on") }),
+    extRule({
+      node: {
+        root: when(arg("two"), "on", { AND: [walk, walk] }),
+        confine: { tenant: "b" },
+      },
+    })
+  );
   const run = async (bounded: boolean) => {
     const statements: string[] = [];
     const db = base
-      .$extends(extension("one", bounded ? "a" : undefined) as any)
-      .$extends(extension("two", "b") as any)
-      .$extends({
-        name: "sql",
-        statement(c) {
-          statements.push(c.statement.toStatement());
-          return c.statement;
-        },
-      });
+      .$extends(one(bounded ? "a" : undefined))
+      .$extends(two)
+      .$extends(
+        extExtension(
+          "sql",
+          unit(
+            (u, next) => {
+              const sent = statement(u);
+              if (sent === undefined) return next();
+              statements.push(sent.toStatement());
+              return next(sent);
+            },
+            ["statement"],
+            { rewrites: true }
+          )
+        )
+      );
     const rows = await db.node.findMany({
       where: { id: "a" },
       select: { id: true },

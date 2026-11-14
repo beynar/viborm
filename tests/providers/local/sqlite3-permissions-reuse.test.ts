@@ -1,6 +1,7 @@
 import { performance } from "node:perf_hooks";
 import { createClient } from "@drivers/sqlite3";
 import { s } from "@schema";
+import { extension, methods } from "@src/index";
 import { permissions } from "@src/permissions";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { v } from "@validation";
@@ -65,13 +66,13 @@ test("reused policy keeps clients, factories, actors, scopes and transactions se
     });
     await b.post.create({ data: { id: "b1", ownerId: "alice" } });
     let factories = 0;
-    const witness = {
-      name: "witness",
-      client: () => {
+    const witness = extension(
+      "witness",
+      methods(() => {
         const ordinal = ++factories;
         return { $ordinal: () => ordinal };
-      },
-    };
+      })
+    );
     const first = a.$extends(policy).$extends(witness);
     const again = a.$extends(policy).$extends(witness);
     const other = b.$extends(policy).$extends(witness);
@@ -155,26 +156,6 @@ test.skipIf(!process.env.VIBORM_POLICY_TIMINGS)(
     measure("freshClientApply", () =>
       createClient({ schema, dataDir: ":memory:" }).$extends(policy)
     );
-    let definition: object | undefined;
-    policy.rows(
-      new Proxy(base, {
-        get(target, key, receiver) {
-          if (key === "$extends")
-            return (value: object) => {
-              definition = value;
-              return base;
-            };
-          return Reflect.get(target, key, receiver);
-        },
-      })
-    );
-    measure("precompiledApply", () =>
-      Reflect.apply(base.$extends, base, [definition])
-    );
-    measure("precompiledFreshClient", () => {
-      const fresh = createClient({ schema, dataDir: ":memory:" });
-      return Reflect.apply(fresh.$extends, fresh, [definition]);
-    });
     const governed = base.$extends(policy);
     measure(
       "bind",

@@ -17,6 +17,7 @@
 
 import { randomBytes } from "node:crypto";
 import { PgDriver } from "@drivers/pg";
+import { extension, statement, unit } from "@src/index";
 import { softDelete } from "@src/soft-delete/index";
 import {
   createPermissionsAppClient,
@@ -64,17 +65,25 @@ function governed(url: string) {
   const base = createPermissionsAppClient(
     new PgDriver({ databaseUrl: url, namespace })
   );
-  const recorded = base.$extends({
-    name: "statements",
-    statement(context) {
-      statements.push({
-        text: context.statement.toStatement("$n"),
-        values: context.statement.values,
-      });
-      return context.statement;
-    },
-  });
-  const db = tombstones.methods(policy.rows(tombstones.rows(recorded)));
+  const recorded = base.$extends(
+    extension(
+      "statements",
+      unit(
+        (u, next) => {
+          const sent = statement(u);
+          if (sent)
+            statements.push({
+              text: sent.toStatement("$n"),
+              values: sent.values,
+            });
+          return next(sent);
+        },
+        ["statement"],
+        { rewrites: true }
+      )
+    )
+  );
+  const db = recorded.$extends(tombstones).$extends(policy);
   return { base, db, statements };
 }
 
