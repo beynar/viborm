@@ -61,7 +61,7 @@ interface Delegate {
 }
 type Client = Record<string, Delegate> & {
   $transaction<T>(body: (tx: Client) => Promise<T>): Promise<T>;
-  $extends(definition: object): Client;
+  $extends(definition: unknown): Client;
   $unrestricted(): Client;
 };
 

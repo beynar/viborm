@@ -672,7 +672,6 @@ describe("official statement instrumentation", () => {
           instrumentation({
             logging: {
               query: logs.callback,
-              warning: logs.callback,
             },
             tracing: true,
           })

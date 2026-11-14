@@ -120,6 +120,7 @@ describe("official cache extension foundation", () => {
   it("is applied once: a second cache is refused by its name", () => {
     const derived = baseClient().$extends(cache({ driver: new MemoryCache() }));
     expect(() =>
+      // @ts-expect-error - one cache per chain: the runtime refusal is tested
       derived.$extends(cache({ driver: new MemoryCache() }))
     ).toThrow(ClientInitializationError);
     expect(derived.$extends(extExtension("after-refusal")).$schema).toBe(

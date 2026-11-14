@@ -43,7 +43,7 @@ const schema = { author, post };
 interface StatementCall {
   readonly extension: string;
   readonly model: string | undefined;
-  readonly operation: string;
+  readonly operation: string | undefined;
   readonly statement: Sql;
 }
 
@@ -330,6 +330,7 @@ describe("integrated statement transforms", () => {
         "invalid-return",
         unit(
           (_u, next) => {
+            // @ts-expect-error - next() takes a statement: the runtime refusal is tested
             return next("SELECT 1");
           },
           ["statement"],
@@ -384,6 +385,7 @@ describe("integrated statement transforms", () => {
           name,
           unit(
             (_u, next) => {
+              // @ts-expect-error - next() takes a statement: the runtime refusal is tested
               return next(fakeSql);
             },
             ["statement"],

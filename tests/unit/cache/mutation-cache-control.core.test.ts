@@ -15,8 +15,8 @@ describe("the cache's mutation argument", () => {
     const admitted = admitMutationOptions(given);
     expect(admitted).toEqual({ autoInvalidate: true, invalidate: ["post:*"] });
     expect(Object.isFrozen(admitted)).toBe(true);
-    expect(Object.isFrozen(admitted.invalidate)).toBe(true);
-    expect(admitted.invalidate).not.toBe(given.invalidate);
+    expect(Object.isFrozen(admitted?.invalidate)).toBe(true);
+    expect(admitted?.invalidate).not.toBe(given.invalidate);
     expect(admitMutationOptions(undefined)).toEqual({ autoInvalidate: true });
   });
 

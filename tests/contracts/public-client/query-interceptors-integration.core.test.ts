@@ -197,10 +197,7 @@ describe("public query-interceptor integration", () => {
     const client = base.$extends(
       extension(
         "methods-only",
-        methods((scope) => {
-          const own = { client: () => ({ $ready: () => true }) };
-          return { ...own.client(scope) };
-        })
+        methods((_scope) => ({ $ready: () => true }))
       )
     );
     const operation = client.record.findMany(args);
@@ -385,6 +382,7 @@ describe("public query-interceptor integration", () => {
     const client = base.$extends(
       extension(
         "mandatory-proceed",
+        // @ts-expect-error - a generic second moment cannot answer in place of the core: the runtime refusal is tested
         around((c) => async () => {
           if (c.kind !== "model") rawHandlerCalls += 1;
           return c.kind === "model" ? { count: 99 } : [];

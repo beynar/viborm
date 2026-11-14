@@ -465,6 +465,7 @@ describe("array query admission", () => {
     const mandatory = base.$extends(
       extension(
         "mandatory-no-proceed",
+        // @ts-expect-error - a generic second moment cannot answer in place of the core: the runtime refusal is tested
         around((c) => async () => (c.kind === "model" ? { count: 99 } : []))
       )
     );
@@ -486,7 +487,7 @@ describe("array query admission", () => {
   test.each([
     [
       "caught double",
-      (run: () => Promise<unknown>) => {
+      <R>(run: () => Promise<R>): Promise<R> => {
         const first = run();
         try {
           run();
@@ -498,7 +499,7 @@ describe("array query admission", () => {
     ],
     [
       "proceed then throw",
-      async (run: () => Promise<unknown>) => {
+      async <R>(run: () => Promise<R>): Promise<R> => {
         run();
         throw new Error("post-admission failure");
       },
@@ -567,6 +568,7 @@ describe("array query admission", () => {
       extension(
         "fabricated-return",
         around(
+          // @ts-expect-error - a partial row is no answer of findMany: the runtime outcome is tested
           () => async (run) => {
             run();
             return [{ id: "fabricated" }];

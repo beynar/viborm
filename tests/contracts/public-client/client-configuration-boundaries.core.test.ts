@@ -30,7 +30,7 @@ function createPlanningClient(
 }
 
 function createDefaultOmitUnsafe(config: unknown): unknown {
-  return Reflect.apply(defaultOmit<typeof schema>(), undefined, [config]);
+  return Reflect.apply(defaultOmit, undefined, [config]);
 }
 
 function extendUnsafe(client: object, extension: unknown): object {
