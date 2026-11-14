@@ -3,7 +3,9 @@
  * four composed, from the packed package alone; its declaration names each
  * one as `VibORMClient<…>` within a budget, and a downstream file types its
  * calls through that declaration (1.10 review, Sol B #1: one ordered model
- * emitted 1.2 MB, soft delete failed TS7056 and permissions TS4023).
+ * emitted 1.2 MB, soft delete failed TS7056 and permissions TS4023). The
+ * cache is the fifth official factory: a cached client named its `cache`
+ * argument's operations through an unexported chunk (TS2742, 2026-11-14).
  *
  * The source twin, `tests/types/client/declaration-emit/`, runs in
  * `pnpm test:types`; this one proves the published entries name everything
@@ -15,6 +17,8 @@ import { join } from "node:path";
 import { repositoryRoot, withPackedConsumer } from "./packed-consumer.mjs";
 
 const clients = `import { createClient, s } from "viborm";
+import { cache } from "viborm/cache";
+import { MemoryCache } from "viborm/cache/memory";
 import { on } from "viborm/on";
 import { ordering } from "viborm/ordering";
 import { permissions } from "viborm/permissions";
@@ -47,9 +51,10 @@ export const governedAs = governed.$as({ tenant: "a" });
 export const hooked = base.$extends(hooks);
 export const composed = base.$extends(policy).$extends(tombstones).$extends(ranks).$extends(hooks);
 export const composedAs = composed.$as({ tenant: "a" });
+export const cached = base.$extends(cache({ driver: new MemoryCache() }));
 `;
 
-const downstream = `import { composedAs, governedAs, hooked, ordered, softDeleted } from "./clients.js";
+const downstream = `import { cached, composedAs, governedAs, hooked, ordered, softDeleted } from "./clients.js";
 type IsAny<T> = 0 extends 1 & T ? true : false;
 type AssertFalse<T extends false> = T;
 export type ClientNotAny = AssertFalse<IsAny<typeof composedAs>>;
@@ -62,15 +67,18 @@ export async function use() {
   const can: boolean = held?.$access.update === true;
   const rows = await hooked.item.findMany({ select: { id: true } });
   const id: string | undefined = rows[0]?.id;
+  const kept = await cached.$withCache({ ttl: "1m" }).item.findMany({ select: { title: true } });
+  const keptTitle: string | undefined = kept[0]?.title;
   // @ts-expect-error - move's where names the model's fields
   void ordered.item.move({ where: { id: "a", idd: "b" }, first: true });
   // @ts-expect-error - restore exists only where softDelete applied
   void ordered.item.restore({ where: { id: "a" } });
-  return { update, title, can, id };
+  return { update, title, can, id, keptTitle };
 }
 `;
 
 const entries = `import type {} from "viborm";
+import type {} from "viborm/cache";
 import type {} from "viborm/on";
 import type {} from "viborm/ordering";
 import type {} from "viborm/permissions";
@@ -90,6 +98,7 @@ const budgets = {
   governed: 32 * 1024,
   governedAs: 32 * 1024,
   hooked: 8 * 1024,
+  cached: 8 * 1024,
   composed: COMPOSED_BUDGET,
   composedAs: COMPOSED_BUDGET,
 };

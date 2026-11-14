@@ -2,31 +2,27 @@
 
 import type { OperationPayload } from "../client/exports"; // public today
 import { ClientInitializationError } from "../errors"; // viborm's own class
+import { args, oneOf } from "../extensions/args";
 import type { PlacedControl } from "../extensions/controls";
-import {
-  type AnyTarget,
-  arg,
-  args,
-  type ClientSchema,
-  type DelegateOperationArgs,
-  type DelegateOperationPayload,
-  type DelegateOperationResult,
-  type EmptyFacts,
-  type Exact,
-  type Extension,
-  extension,
-  type Facts,
-  keep,
-  methods,
-  now,
-  oneOf,
-  type PendingOperation,
-  rule,
-  selecting,
-  type Target,
-  unless,
-  type VibORMConfig,
-  when,
+import { extension } from "../extensions/extension";
+import { keep } from "../extensions/judge-words";
+import { methods } from "../extensions/methods-part";
+import { selecting } from "../extensions/on";
+import { rule } from "../extensions/rule";
+import { arg, now, unless, when } from "../extensions/rule-words";
+import type {
+  AnyTarget,
+  ClientSchema,
+  DelegateOperationArgs,
+  DelegateOperationPayload,
+  DelegateOperationResult,
+  EmptyFacts,
+  Exact,
+  Extension,
+  Facts,
+  PendingOperation,
+  Target,
+  VibORMConfig,
 } from "../index";
 
 export interface SoftDeleteModel {
@@ -224,7 +220,7 @@ export function softDelete(config: SoftDeleteConfig): unknown {
     // Read where the extension is applied: a marker that is not a nullable
     // DateTime is refused there, before its filters would refuse it less
     // clearly (a string field would fail at the first delete).
-    rule<Untyped, (schema: Schema) => object>((schema) => {
+    rule<Untyped, (schema: Schema) => object>((schema: Schema) => {
       admitMarkers(schema, entries);
       return Object.fromEntries(
         entries.map(([model, { deletedAt, deletedBy }]) => [

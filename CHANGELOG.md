@@ -66,17 +66,46 @@ all-or-nothing when it fits one batch.
   runs uncached instead of being refused. `tx.$withCache()` and
   `tx.$invalidate()` exist in an interactive transaction; a backend that fails
   during `$invalidate()` is a `CacheConfigurationError`.
+- **What else changes for users of the official extensions:**
+  - With `viborm/permissions`, a `create` or `createMany` on a model without a
+    `create` rule is refused before any statement. Code that catches that
+    `ForbiddenError` inside `$transaction(async (tx) => …)` now commits the
+    transaction's other writes; before, the refusal left the transaction
+    rollback-only and nothing was written.
+  - In `$transaction([...])`, each member is judged when it is reached. The
+    reported error can change between `NotFoundError` and `ForbiddenError`,
+    and the statements of earlier members run inside the transaction that is
+    then rolled back. A failing array emits no `operation` span and no error
+    log for the members that never ran.
+  - `$access` (a key a `facts` declares) is admitted by the operation's own
+    validation: `select: { $access: false }` alone is an empty `select`,
+    refused with `ValidationError`; the key comes back where the `select`
+    wrote it, not last; no `data` accepts it.
+  - The cache stores the rows the driver returned and decodes a hit through
+    the driver's result parser and the engine's decoder, as a miss is. A
+    custom driver result parser is called on hits, with restored values (a
+    `Uint8Array` where the driver gave a `Buffer`); a row value the cache
+    cannot store makes the read answer uncached, with a `cache-set-failed`
+    outcome. Its private storage revision changed twice (`r5`, then `r6`):
+    entries written by an earlier version are ignored and expire on their
+    own.
+  - A cached read is keyed by the statement it sends: with
+    `permissions({ cache: "allow" })`, two actors whose governed reads send
+    the same statement share an entry.
+  - `$withCache()` on a governed view (`viborm/permissions` without
+    `cache: "allow"`) runs the read without serving or storing it, where it
+    raised a `ValidationError`.
 - **`instrumentation()` no longer takes a `logging.warning` level**: nothing
   produced warnings.
 - **Error texts changed throughout the extension host.** Match errors on their
   class and code.
 - **What each extension adds to a PostgreSQL application, minified**
   (measured with `node scripts/extension-bytes.mjs`; before → now):
-  default omission 45,233 → 6,854 bytes; `on` 47,016 → 17,897;
-  instrumentation 56,422 → 20,075; soft delete 80,013 → 26,662; ordering
-  100,547 → 30,608; cache 71,844 → 50,980; permissions 114,651 → 75,803; `on`,
-  ordering, permissions and soft delete together 142,213 → 120,625. An
-  application that applies no extension: 519,322 → 508,589 bytes, of which
+  default omission 45,233 → 6,479 bytes; `on` 47,016 → 16,451;
+  instrumentation 56,422 → 20,179; soft delete 80,013 → 26,546; ordering
+  100,547 → 30,266; cache 71,844 → 39,582; permissions 114,651 → 72,052; `on`,
+  ordering, permissions and soft delete together 142,213 → 116,220. An
+  application that applies no extension: 519,322 → 508,794 bytes, of which
   112 bytes are extension code.
 
 ### Added

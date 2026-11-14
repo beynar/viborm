@@ -28,6 +28,7 @@
 // the entry every application imports.
 export type {
   ClientTypeState,
+  DelegateConfig,
   DelegateOperationArgs,
   DelegateOperationPayload,
   DelegateOperationResult,
@@ -54,7 +55,6 @@ export type { Schema } from "./client/types.js";
 export type {
   NoControls,
   PlacedControl,
-  RowsVerbs,
   StampedFields,
 } from "./extensions/controls.js";
 export * from "./extensions/index.js";

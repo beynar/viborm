@@ -6,7 +6,8 @@
 
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { ClientInitializationError } from "../errors";
-import { type VibSchema, v } from "../validation";
+import type { VibSchema } from "../validation";
+import { v } from "../validation/primitives/v";
 
 /** The paths below one actor value: named keys, or any key of a record. */
 interface Paths {

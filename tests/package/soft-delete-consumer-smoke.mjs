@@ -5,8 +5,11 @@
  *
  * The consumer is a packed-package application (`packed-consumer.mjs`). Its
  * `soft-delete.ts` is the shipped definition (`src/soft-delete/index.ts`) with
- * its two imports spelled as a consumer spells them, `viborm` and
- * `viborm/client`; this script refuses any other import, so the definition
+ * its imports spelled as a consumer spells them, `viborm` or `viborm/client`.
+ * The definition imports each value from the module that defines it, so the
+ * built entry carries only those modules; this script respells an import
+ * only when every name it takes is in that entry's reviewed surface
+ * (`public-surface-golden.mjs`) and refuses any other, so the definition
  * provably needs nothing private. Its `use.ts` is §1.1's use block against
  * `viborm/sqlite3`, with each result checked; `use-entry.ts` is the same block
  * importing `softDelete` from the published `viborm/soft-delete` entry, whose
@@ -30,37 +33,53 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { repositoryRoot, withPackedConsumer } from "./packed-consumer.mjs";
+import { PACKAGE_SURFACE_GOLDEN } from "./public-surface-golden.mjs";
 
-const IMPORT_SPECIFIER = /^import\b[^;]*?\bfrom\s*"([^"]+)"/gm;
-const PUBLIC_SPELLING = new Map([
-  ["../index", "viborm"],
-  ["../client/exports", "viborm/client"],
-  // The error class viborm exports, imported where viborm defines it so the
-  // entry shares the root's chunk (one class, as permissions does).
-  ["../errors", "viborm"],
-]);
+const IMPORT = /^import\s+(type\s+)?\{([^}]*)\}\s*from\s*"([^"]+)";/gm;
+const BINDING = /^(?:type\s+)?(\w+)(?:\s+as\s+\w+)?$/;
+const RELATIVE_IMPORT = /^import\b[^;]*?\bfrom\s*"\.[^"]*";/gm;
+/** The entries a consumer spells, each with every name it exports. */
+const SPELLINGS = ["viborm", "viborm/client"].map((entry) => {
+  const surface =
+    PACKAGE_SURFACE_GOLDEN[entry === "viborm" ? "." : `./${entry.slice(7)}`];
+  return [
+    entry,
+    new Set([...surface.runtime, ...surface.typeOnly, ...surface.both]),
+  ];
+});
 
 /** The shipped definition, its imports spelled as a consumer spells them. */
 function consumerDefinition() {
-  let source = readFileSync(
+  const source = readFileSync(
     join(repositoryRoot, "src", "soft-delete", "index.ts"),
     "utf8"
   );
-  const specifiers = [...source.matchAll(IMPORT_SPECIFIER)].map(
-    (match) => match[1]
+  const spelled = source.replace(
+    IMPORT,
+    (statement, typeOnly, clause, from) => {
+      const names = clause
+        .split(",")
+        .map((binding) => binding.trim())
+        .filter(Boolean)
+        .map((binding) => BINDING.exec(binding)?.[1]);
+      const entry = from.startsWith("../")
+        ? SPELLINGS.find(([, exported]) =>
+            names.every((name) => name !== undefined && exported.has(name))
+          )?.[0]
+        : undefined;
+      return entry === undefined
+        ? statement
+        : `import ${typeOnly ?? ""}{${clause}} from "${entry}";`;
+    }
   );
-  const unexpected = specifiers.filter(
-    (specifier) => !PUBLIC_SPELLING.has(specifier)
-  );
-  if (unexpected.length > 0 || specifiers.length !== PUBLIC_SPELLING.size) {
+  // An import left unspelled takes a name no public entry exports.
+  const refused = spelled.match(RELATIVE_IMPORT) ?? [];
+  if (refused.length > 0) {
     throw new Error(
-      `src/soft-delete/index.ts must import only the files behind viborm and viborm/client, found ${specifiers.join(", ")}`
+      `src/soft-delete/index.ts must import only names viborm or viborm/client export, found:\n${refused.join("\n")}`
     );
   }
-  for (const [internal, published] of PUBLIC_SPELLING) {
-    source = source.replace(`"${internal}"`, `"${published}"`);
-  }
-  return source;
+  return spelled;
 }
 
 const use = `import assert from "node:assert/strict";

@@ -46,9 +46,9 @@ const ON_CONTRACT = ["on", "ordering", "permissions", "soft-delete"];
 /** The extensions that still take a private channel, and what is left. */
 const PENDING: Readonly<Record<string, string>> = {
   cache:
-    "reads a call's execution context and driver (`callOf`, `scopeOf`), whether its chain observes units, a method's operation context, the clock and private validation helpers",
+    "reads a call's execution context (`callOf`, `scopeOf`), its chain (`getExecutionExtensionChain`), a method's operation context, the driver's identity, the clock seam its drivers share with transactions, and private value guards",
   instrumentation:
-    "reads the error sanitizers, driver identity, the cache's unit facts and private value guards",
+    "reads the error sanitizers and the resolved disclosure, the driver's identity, the cache's unit facts, the package version, the engine's operation type and private value guards",
 };
 
 const IMPORT = /import\s+(type\s+)?([^;]*?)\s+from\s+"([^"]+)"/g;

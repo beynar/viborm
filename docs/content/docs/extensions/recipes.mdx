@@ -15,8 +15,8 @@ A recipe is written apart from any client, with plain `extension(...)`, so it
 applies to any schema. What it names is checked where it is applied:
 `$extends()` refuses a model the schema does not have, a field a model does
 not have, and an argument no extension of the chain declares. Each recipe
-file starts with the same imports, a helper that gives every model named the
-same entry, and the words the rules read, held apart from the rules:
+file starts with the same imports and a helper that gives every model named
+the same entry:
 
 ```ts
 import {
@@ -37,25 +37,19 @@ import { v } from "viborm/validation";
  * names, so the cast gives them back: the types then know which models a
  * recipe writes.
  */
-export const perModel = <Models extends readonly string[], T>(
+export const perModel = <const Models extends readonly string[], T>(
   models: Models,
   build: () => T
 ) =>
-  Object.fromEntries(models.map((model) => [model, build()])) as Readonly<
-    Record<string, T>
-  >;
-
-// Each argument is read through a word written apart from the rule: the
-// recipe applies to any client, so its names are checked where it is applied.
-const tenant = arg("tenant");
-const scope = arg("scope");
-const actor = arg("actor");
-const expectedVersion = arg("expectedVersion");
-const versionCheck = arg("versionCheck");
+  Object.fromEntries(models.map((model) => [model, build()])) as {
+    readonly [M in Models[number]]: T;
+  };
 ```
 
 A field these recipes write may be required in your schema: a create
-leaves it out and the recipe writes it when the call runs.
+leaves it out and the recipe writes it, in your editor as when the call
+runs. Each recipe remembers the model names you pass it, so the types know
+which models it writes.
 
 ```ts
 const post = s.model({
@@ -98,11 +92,11 @@ export const tenancy = <const Models extends readonly string[]>(
     }),
     rule(
       perModel(models, () => ({
-        root: when(scope, "tenant", { tenantId: tenant }),
-        related: when(scope, "tenant", { tenantId: tenant }),
+        root: when(arg("scope"), "tenant", { tenantId: arg("tenant") }),
+        related: when(arg("scope"), "tenant", { tenantId: arg("tenant") }),
       }))
     ),
-    defaults(perModel(models, () => ({ create: { tenantId: tenant } })))
+    defaults(perModel(models, () => ({ create: { tenantId: arg("tenant") } })))
   );
 ```
 
@@ -148,8 +142,8 @@ export const audit = <const Models extends readonly string[]>(models: Models) =>
     args({ actor: accepts(v.string()).on(writes).required(models) }),
     defaults(
       perModel(models, () => ({
-        create: { createdBy: actor },
-        update: { updatedBy: actor },
+        create: { createdBy: arg("actor") },
+        update: { updatedBy: arg("actor") },
       }))
     )
   );
@@ -188,8 +182,8 @@ export const optimisticLock = <const Models extends readonly string[]>(
     }),
     rule(
       perModel(models, () => ({
-        root: when(versionCheck, "checked", {
-          version: expectedVersion,
+        root: when(arg("versionCheck"), "checked", {
+          version: arg("expectedVersion"),
         }),
       }))
     ),

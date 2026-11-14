@@ -18,7 +18,7 @@ page goes from a simple policy to permissions inherited through folders and team
 the [reference](#reference) at the end lists every option.
 
 **Raw SQL is not filtered.** `$queryRaw`, `$executeRaw`, their unsafe forms
-and statement transforms see every row, even on a governed client. A raw read
+and statement rewrites (a `unit` declared `{ rewrites: true }`) see every row, even on a governed client. A raw read
 takes the actor's rows of a model with
 [`$rows`](/docs/client/raw-sql#governed-raw-reads):
 `` call.$queryRaw`SELECT p.id FROM ${call.post.$rows("p")}` ``. See
@@ -99,9 +99,10 @@ export async function handle(request: Request) {
 actor and returns a view, nothing more. The policy is compiled once per client,
 each model's predicates when the model is first used, and the actor's values
 travel as bound parameters, so no view rebuilds them. Model delegates are
-created lazily. Measured on a 30-model schema with a large policy, `$as` costs
-about 10 µs, a small fraction of the statement it governs; a cache of views keyed
-by actor is not needed.
+created lazily. Measured on a 14-model schema with a large policy (the
+package's acceptance fixture, one machine), `$as` costs about 1 µs, a small
+fraction of the statement it governs; a cache of views keyed by actor is not
+needed.
 
 ### What each call sends to the database
 
@@ -128,6 +129,13 @@ for the update, with the database's unique violation as its `cause` (where the
 provider names the violated key; otherwise the `UniqueConstraintError` itself).
 `update: {}` writes nothing, so a find-or-create `upsert` needs only `create`
 (and `read` to return a row that exists).
+
+A root call whose model grants nothing for its operation's action is refused
+before any statement, with `ForbiddenError`: a read needs the read action, a
+`create` or `createMany` the `create` action, an update the update action,
+and any other operation (`delete`, `deleteMany`) the delete action. An
+`upsert` is not refused up front: each arm is judged where it runs, the
+update where it locates its row, the create in its statement.
 
 What follows from it:
 
@@ -860,6 +868,10 @@ row?.$access.update === true; // true only where the caller may update it
   and by TypeScript.
 - To refuse unless a permission is held, test the boolean and throw your own
   error.
+- `$access` is admitted by the operation's own validation, like a field:
+  `select: { $access: false }` alone is an empty `select`, refused with
+  `ValidationError`; in a `select`, the key comes back where you wrote it
+  among the fields, not last; it is never accepted in `data`.
 
 For a whole list, include `$access`: every row comes back with what the
 caller may do with it, computed in the same statement:
@@ -1166,16 +1178,16 @@ const db = base
   `deletedAt` by hand, restoring a row and purging a tombstone.
 - `restore` and `purge` are typed from the governed client: a to-one relation
   the policy can hide reads `| null` in their results, whatever the order.
-- A chain written before 1.8, `base.$extends(tombstones.rows).$extends(policy)
-  .$extends(tombstones.methods)`, still works unchanged.
 
 An extension applied after `permissions` can read the bound actor:
-`{ control: "actor", path: "userId" }` in a `data` stamp writes the caller's
-id (an audit `updatedBy`, for instance).
+`arg("actor", "userId")` in a `defaults` part's `create` or `update` data
+writes the caller's id (an audit `updatedBy`, for instance):
+`extension("audit", defaults({ post: { update: { updatedBy: arg("actor",
+"userId") } } }))`.
 
-A step of your own that takes the governed client should be written as an
-extension definition or a factory passed to `$extends`, so the client's types
-flow through it.
+A step of your own applied to the governed client is an extension
+(`extension(…)`) passed to its `$extends`: each part's handlers receive the
+types of the client it is applied to.
 
 ---
 
@@ -1536,9 +1548,10 @@ reads and polymorphic arms.
 | a missing required actor field | `ValidationError` | at `$as`, before a query |
 | an unknown model or action; a rule key outside the model's `actions` graph, or other than `create`, `read`, `update` and `delete` without one; the removed `levels`; an unknown key of the policy, of a model or of a `fields` entry; a `fields` entry naming no field; a misspelled reserved key | `ClientInitializationError` | when the policy is applied |
 | an unknown actor path inside a rule; a relation read at an action its target does not declare; a rule that reads itself; an empty or non-literal actor condition, or a field reference where a rule or a relation filter is expected; an `$exists` that names no single model; a `{ $row, up }` past the rule, across a `recurse`, or naming no scalar field | `ClientInitializationError` | at the first call that needs the model, and by `policy.compile(schema)` |
+| a `$if` whose test is not exactly one of `exists`, `equals`, `in`, `has`, `hasSome` (an extra key included) | `ClientInitializationError` | at the first call that needs the model |
 | a `{ $row, up }` across a polymorphic relation, or naming a column its field cannot be compared with (another type, a decimal of another scale) | `UnsupportedOperationError` | at the first call whose statement reads the rule; `policy.compile(schema)` does not check it |
 | an unknown field inside a rule; `recurse: true`; a read-protected key or unique field | `ClientInitializationError` | at the first call that needs the model |
-| an unlisted model; an operation or `as` the model does not declare | `ForbiddenError` | before any statement |
+| an unlisted model; an operation whose action the model does not grant (an `upsert` excepted), or an `as` it does not declare | `ForbiddenError` | before any statement |
 | an `upsert` onto an existing row of a model without the update action | `ForbiddenError` for the update, the unique violation as `cause` | after the statement |
 | a hidden root row in `findUnique` or `findFirst` | `null` (or `NotFoundError` for the `OrThrow` variants) | after the statement |
 | a hidden or non-writable root row in a singular update/delete | `NotFoundError` | after the statement |
@@ -1886,10 +1899,10 @@ internal accessors, so it is versioned with the core it ships in.
   [`$rows(alias)`](/docs/client/raw-sql#governed-raw-reads), taken on the
   view; a model the policy does not list reads no row there, and one with
   read-gated fields is refused.
-- **Statement transforms.** They are trusted rewrites after the policy, and
-  can remove it.
-- **`call` is not a sandbox.** It runs raw SQL and can bind another actor:
-  keep it inside your server.
+- **Statement rewrites** (a `unit` declared `{ rewrites: true }`). They are
+  trusted last-mile SQL after the policy, and can remove it.
+- **The view `$as` returns is not a sandbox.** It runs raw SQL and can bind
+  another actor: keep it inside your server.
 - **Database cascades.** `onDelete` `cascade` and `setNull` run as the schema
   declares, without judging each child. A `setNull` on a key a rule reads
   moves rows without the `create` rule: make such a key `restrict` or
