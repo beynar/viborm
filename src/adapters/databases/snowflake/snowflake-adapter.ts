@@ -155,13 +155,14 @@ const parsedJson = (value: unknown): Sql =>
   sql`PARSE_JSON(${stringifyJson(value)})`;
 
 /**
- * A list's members as JSON reads their text: the engine binds a `bigint` or
- * `decimal` member as its exact digits, a string, while a Snowflake ARRAY
- * holds numbers; parsed, `"9007199254740993"` is that exact number. A member
- * whose text is no JSON stays as it is.
+ * A list's members with a number's text read as that number: the engine binds
+ * a `bigint` or `decimal` member as its exact digits, a string, while a
+ * Snowflake ARRAY holds numbers; parsed, `"9007199254740993"` is that exact
+ * number. Any other member stays as it is: a string's text that reads as
+ * other JSON (`"foo"` with its quotes, `[1]`, `true`) is still that string.
  */
 const parsedMembers = (values: Sql): Sql =>
-  sql`TRANSFORM(${values}, member VARIANT -> COALESCE(TRY_PARSE_JSON(member::VARCHAR), member))`;
+  sql`TRANSFORM(${values}, member VARIANT -> IFF(TYPEOF(TRY_PARSE_JSON(member::VARCHAR)) IN ('INTEGER', 'DECIMAL', 'DOUBLE'), TRY_PARSE_JSON(member::VARCHAR), member))`;
 
 /** Some member of `values`, as it is or as its text reads, is in `column`. */
 const overlaps = (column: Sql, values: Sql): Sql =>

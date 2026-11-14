@@ -812,7 +812,7 @@ describe("Snowflake root pages and filters", () => {
     await tallies.tally.findMany({ where: { big: { has: 9n } } });
     // A bigint member binds as its text; the ARRAY holds a number.
     expect(server.statements()[0]!.statement).toContain(
-      'ARRAYS_OVERLAP("q0"."big", TRANSFORM(ARRAY_CONSTRUCT(?), member VARIANT -> COALESCE(TRY_PARSE_JSON(member::VARCHAR), member)))'
+      `ARRAYS_OVERLAP("q0"."big", TRANSFORM(ARRAY_CONSTRUCT(?), member VARIANT -> IFF(TYPEOF(TRY_PARSE_JSON(member::VARCHAR)) IN ('INTEGER', 'DECIMAL', 'DOUBLE'), TRY_PARSE_JSON(member::VARCHAR), member)))`
     );
   });
 

@@ -186,6 +186,7 @@ const tally = s
     id: s.int().id(),
     big: s.bigInt().array(),
     amounts: s.decimal({ precision: 10, scale: 2 }).array(),
+    labels: s.string().array(),
   })
   .map("TALLIES");
 
@@ -248,10 +249,10 @@ const SEED = [
   `CREATE TABLE "${SCHEMA}"."SHIFTS" ("id" NUMBER(9,0) NOT NULL PRIMARY KEY, "shopId" NUMBER(9,0) NOT NULL REFERENCES "${SCHEMA}"."SHOPS" ("id"), "startsAt" TIME(3) NOT NULL)`,
   `INSERT INTO "${SCHEMA}"."SHIFTS" VALUES (1, 1, '09:15:30.5'), (2, 1, '00:00:00')`,
   // Lists of numbers, as a Snowflake ARRAY holds them: numbers, not text.
-  `CREATE TABLE "${SCHEMA}"."TALLIES" ("id" NUMBER(9,0) NOT NULL PRIMARY KEY, "big" ARRAY NOT NULL, "amounts" ARRAY NOT NULL)`,
-  `INSERT INTO "${SCHEMA}"."TALLIES" SELECT column1, PARSE_JSON(column2)::ARRAY, PARSE_JSON(column3)::ARRAY FROM VALUES
-    (1, '[9007199254740993, 2]', '[1.25, 3]'),
-    (2, '[9007199254740992]', '[2.5]')`,
+  `CREATE TABLE "${SCHEMA}"."TALLIES" ("id" NUMBER(9,0) NOT NULL PRIMARY KEY, "big" ARRAY NOT NULL, "amounts" ARRAY NOT NULL, "labels" ARRAY NOT NULL)`,
+  `INSERT INTO "${SCHEMA}"."TALLIES" SELECT column1, PARSE_JSON(column2)::ARRAY, PARSE_JSON(column3)::ARRAY, PARSE_JSON(column4)::ARRAY FROM VALUES
+    (1, '[9007199254740993, 2]', '[1.25, 3]', '["foo", "123"]'),
+    (2, '[9007199254740992]', '[2.5]', '["\\\\"foo\\\\"", "[1]"]')`,
   `CREATE SCHEMA "${ELSEWHERE}"`,
   `CREATE TABLE "${ELSEWHERE}"."CUSTOMERS" ("id" NUMBER(9,0) NOT NULL PRIMARY KEY)`,
   `CREATE TABLE "${SCHEMA}"."INVOICES" ("id" NUMBER(9,0) NOT NULL PRIMARY KEY, "customerId" NUMBER(9,0) REFERENCES "${ELSEWHERE}"."CUSTOMERS" ("id"))`,
@@ -810,6 +811,12 @@ describe.skipIf(credentials === undefined)("Snowflake, a real account", () => {
     expect(await ids({ amounts: { has: "1.25" } })).toEqual([1]);
     expect(await ids({ amounts: { hasSome: ["2.50", "9"] } })).toEqual([2]);
     expect(await ids({ amounts: { hasEvery: ["1.25", "3"] } })).toEqual([1]);
+    // A string list keeps its meaning: text that reads as other JSON is text.
+    expect(await ids({ labels: { has: '"foo"' } })).toEqual([2]);
+    expect(await ids({ labels: { has: "foo" } })).toEqual([1]);
+    expect(await ids({ labels: { hasSome: ["[1]", "x"] } })).toEqual([2]);
+    expect(await ids({ labels: { hasEvery: ['"foo"', "[1]"] } })).toEqual([2]);
+    expect(await ids({ labels: { has: "123" } })).toEqual([1]);
   });
 
   it("reads two levels of nested relations", async () => {
