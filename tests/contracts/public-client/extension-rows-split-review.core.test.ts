@@ -95,7 +95,7 @@ test("two lazy entries sharing a sub-predicate that names an undeclared control 
           delete: { where: only(nothing) },
         })),
         note: lazy(() => ({
-          read: { where: exists({ node: ghost }) },
+          read: { where: { AND: [exists({ node: ghost })] } },
           update: { where: only(nothing) },
           delete: { where: only(nothing) },
         })),

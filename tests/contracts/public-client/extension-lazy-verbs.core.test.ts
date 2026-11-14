@@ -66,6 +66,8 @@ type Entry = Readonly<Record<string, unknown>>;
  * the one form that takes them untyped; it applies them as the same entries
  * written directly.
  */
+/** `lazy` of an untyped entry, written apart from the rule: held. */
+const held = (read: () => unknown) => lazy(read);
 const governed = (
   entries: Record<string, (() => unknown) | ReturnType<typeof lazy>>,
   extra: { name?: string; control?: string } = {}
@@ -77,7 +79,7 @@ const governed = (
       Object.fromEntries(
         Object.entries(entries).map(([model, entry]) => [
           model,
-          typeof entry === "function" ? lazy(entry) : entry,
+          typeof entry === "function" ? held(entry) : entry,
         ])
       )
     )

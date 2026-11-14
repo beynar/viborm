@@ -792,8 +792,10 @@ type TargetWords<W, K extends string, Depth extends number> = [W] extends [
 ]
   ? never
   : {
+      // A connective under a relation takes the same words as its target's
+      // fields (`folder: { is: { OR: [{ ownerId: arg("user") }, …] } }`).
       readonly [F in keyof W & string]?: F extends "AND" | "OR" | "NOT"
-        ? W[F]
+        ? TargetWords<W, K, Depth> | readonly TargetWords<W, K, Depth>[]
         : WordValue<W[F], K, Depth>;
     };
 
