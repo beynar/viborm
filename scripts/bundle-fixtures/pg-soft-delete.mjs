@@ -22,14 +22,10 @@ const post = s.model({
   deletedAt: s.dateTime().nullable(),
 });
 
-export const client = softDelete({
-  models: { post: { deletedAt: "deletedAt" } },
-})(
-  createClient({
-    schema: { user, post },
-    databaseUrl: "postgres://localhost:5432/app",
-  })
-);
+export const client = createClient({
+  schema: { user, post },
+  databaseUrl: "postgres://localhost:5432/app",
+}).$extends(softDelete({ models: { post: { deletedAt: "deletedAt" } } }));
 
 export async function run() {
   const users = await client.user.findMany({

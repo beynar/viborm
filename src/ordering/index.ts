@@ -19,22 +19,24 @@ import {
   QueryError,
 } from "../errors";
 import { ValidationError } from "../errors/validation";
-import { defineWith } from "../extensions/define";
-import { methodsPart } from "../extensions/methods";
+import type { StampedFields } from "../extensions/controls";
+import { buildDefaults } from "../extensions/defaults";
+import { buildMethods } from "../extensions/methods-part";
 import { defaultOrderPart } from "../extensions/order";
 import { defaultDataPart } from "../extensions/stamps";
 import type {
+  AnyTarget,
   ClientSchema,
-  ClientTypeState,
   DelegateOperationArgs,
   DelegateOperationResult,
-  ExtendedClient,
-  ExtensionState,
+  Extension,
+  Facts,
   ModelSql,
+  NoControls,
   VibORMClient,
   VibORMConfig,
 } from "../index";
-import { computed, joined, stored } from "../index";
+import { computed, extension, joined, stored } from "../index";
 import { getRowKey } from "../schema/model/keys";
 import { type Sql, sql } from "../sql/sql";
 import { appendKey } from "./append";
@@ -84,17 +86,9 @@ type Schema = VibORMConfig["schema"];
 type AnyModel = Schema[string];
 type Names<Config extends OrderingConfig> = keyof Config & string;
 type Row = Readonly<Record<string, unknown>>;
-/** One term of a model's default order, as the `order` capability takes it. */
-type OrderTerm = { readonly [field: string]: "asc" | "desc" };
 type Delegate = Readonly<
   Record<string, (args: object) => PromiseLike<unknown>>
 >;
-/** What respacing reads off the client's driver. */
-interface Driver {
-  readonly dialect: string;
-  readonly maxBindParametersPerStatement?: number;
-}
-
 const NAME = "viborm.ordering";
 /** Passes of a move's read-and-write path, respacing between them. */
 const MOVE_ATTEMPTS = 3;
@@ -499,7 +493,7 @@ async function respace(
   return written.count;
 }
 
-function methods(ordered: Ordered, dialect: string) {
+function methods(ordered: Ordered) {
   const { name, key, within, identity, model } = ordered;
   const scalars = model["~"].state.scalars;
   const stored = storedOf(model);
@@ -573,6 +567,7 @@ function methods(ordered: Ordered, dialect: string) {
     // SELECT … FOR UPDATE and the UPDATE alike): concurrent moves into one
     // list deadlocked 37 times in 240 there (measured), none on the read
     // path, which reads the neighbours by a consistent read.
+    const { dialect } = q;
     if (dialect !== "postgresql" && dialect !== "sqlite") return MISSED;
     const anchored =
       place.anchor === undefined ? undefined : named(place.anchor);
@@ -1192,123 +1187,106 @@ export type OrderingMethods<
   // Generic as `move` is, so a call's controls (`deleted`, …) pass along.
   rekey<A extends RekeyArgs<C, K>>(args?: A): PromiseLike<{ count: number }>;
 };
-type OrderingModels<
-  M,
-  C extends VibORMConfig,
-  Config extends OrderingConfig,
-> = {
-  readonly [K in Names<Config>]: (
-    delegate: never,
-    scope: never
-  ) => OrderingMethods<M, C, Config, K>;
-};
-
-type Governed<Config extends OrderingConfig> = VibORMConfig & {
-  readonly schema: Record<Names<Config>, AnyModel>;
-};
-
-// One definition: the default order, the appended key, and `move` and
-// `rekey`. A factory takes its delegate and scope as `never` (it reads
-// nothing typed at this step), so later steps may add `rows` or
-// `defaultOmit` freely.
-function definitionOf<
-  Config extends OrderingConfig,
-  C extends Governed<Config>,
-  X extends ExtensionState,
->(config: Config, client: VibORMClient<C, X>) {
-  const admitted = admit(client.$schema, config);
-  // Respacing renders with the client's driver: the scope a method is given
-  // has none.
-  const { $driver } = client as unknown as { $driver: Driver };
-  // The parts that read the declarations made here, and only those.
-  return defineWith(
-    defaultOrderPart,
-    defaultDataPart,
-    methodsPart
-  )({
-    name: NAME,
-    order: {
-      models: Object.fromEntries(
-        admitted.map(({ name, key, within }) => [
-          name,
-          [...within, key].map((field) => ({ [field]: "asc" as const })),
-        ])
-      ) as unknown as {
-        readonly [K in Names<Config> & keyof C["schema"]]: readonly OrderTerm[];
-      },
-    },
-    data: {
-      models: Object.fromEntries(
-        admitted.map(({ name, key, within }) => [
-          name,
-          { create: { [key]: appendKey(within) } },
-        ])
-      ) as {
-        readonly [K in Names<Config> & keyof C["schema"]]: {
-          readonly create: Record<Config[K]["key"], string>;
-        };
-      },
-    },
-    model: Object.fromEntries(
-      admitted.map((ordered) => [
-        ordered.name,
-        methods(ordered, $driver.dialect),
-      ])
-    ) as unknown as OrderingModels<VibORMClient<C, X>, C, Config>,
-  });
-}
-
-function apply<
-  Config extends OrderingConfig,
-  C extends Governed<Config>,
-  X extends ExtensionState,
->(
-  config: Config,
-  base: VibORMClient<C, X>
-): ExtendedClient<
-  VibORMClient<C, X>,
-  readonly [ReturnType<typeof definitionOf<Config, C, X>>]
-> {
-  return base.$extends(definitionOf(config, base)) as never;
-}
-
-/**
- * A model an entry orders, with the scalar fields the entry names (its key
- * and its list's): a misspelled one is refused at application, as a
- * misspelled model is. Read off the model's own scalars, one level deep.
- */
-type OrderedModel<Fields extends string> = AnyModel & {
-  readonly "~": {
-    readonly state: { readonly scalars: Record<Fields, unknown> };
-  };
-};
-type Receiver<Config extends OrderingConfig> = ClientTypeState<
-  VibORMConfig,
-  ExtensionState
-> & {
-  readonly $schema: {
-    readonly [M in Names<Config>]: OrderedModel<
-      Config[M]["key"] | WithinOf<Config, M>
-    >;
-  };
-  readonly $extends: (...args: never[]) => unknown;
-};
-type Applied<
-  Config extends OrderingConfig,
-  Base,
-> = Base extends ClientTypeState<
-  infer C extends Governed<Config>,
-  infer X extends ExtensionState
+/** The scalar fields of one model, by name. */
+type ScalarFieldsOf<T extends AnyTarget, M> = M extends keyof ClientSchema<
+  T["config"]
 >
-  ? Base extends VibORMClient<C, X>
-    ? ReturnType<typeof apply<Config, C, X>>
-    : never
+  ? Extract<keyof ClientSchema<T["config"]>[M]["~"]["state"]["scalars"], string>
   : never;
-type OrderingExtension<Config extends OrderingConfig> = <
-  Base extends Receiver<Config>,
->(
-  base: Base
-) => NoInfer<Applied<Config, Base>>;
+
+/** Each entry's model and fields, as the client `$extends` is called on has them. */
+type OrderingModelsOf<T extends AnyTarget> = {
+  readonly [M in keyof ClientSchema<T["config"]> & string]?: {
+    readonly key: ScalarFieldsOf<T, M>;
+    readonly within?: readonly ScalarFieldsOf<T, M>[];
+  };
+};
+
+/** A key the config names that the client lacks: refused where it is written. */
+type KnownModels<Config, T extends AnyTarget> = {
+  readonly [M in keyof Config]: M extends keyof ClientSchema<T["config"]>
+    ? Config[M]
+    : never;
+};
+
+/** What `ordering(config)` adds: each ordered model's methods, its appended key. */
+type OrderingFacts<T extends AnyTarget, Config extends OrderingConfig> = Facts<
+  Record<never, never>,
+  {
+    readonly [K in Names<Config> &
+      keyof ClientSchema<T["config"]>]: OrderingMethods<
+      VibORMClient<T["config"], T["state"]>,
+      T["config"],
+      Config,
+      K
+    >;
+  },
+  NoControls,
+  never,
+  {
+    [K in Names<Config>]: StampedFields<K, Config[K]["key"]>;
+  }[Names<Config>]
+>;
+
+/** The extension: the default order, the appended key, `move` and `rekey`. */
+function orderingOf(config: OrderingConfig): unknown {
+  // Checked against the schema the extension is applied to, once per schema.
+  const admitted = new WeakMap<Schema, readonly Ordered[]>();
+  const admittedFor = (schema: Schema) => {
+    let known = admitted.get(schema);
+    if (known === undefined) {
+      known = admit(schema, config);
+      admitted.set(schema, known);
+    }
+    return known;
+  };
+  const made = new WeakMap<object, ReturnType<ReturnType<typeof methods>>>();
+  return extension(
+    NAME,
+    buildDefaults(
+      (schema) =>
+        Object.fromEntries(
+          admittedFor(schema).map(({ name, key, within }) => [
+            name,
+            {
+              orderBy: [...within, key].map((field) => ({
+                [field]: "asc" as const,
+              })),
+              create: { [key]: appendKey(within) },
+            },
+          ])
+        ),
+      [defaultOrderPart, defaultDataPart]
+    ),
+    buildMethods((scope: { readonly $schema: Schema }) =>
+      Object.fromEntries(
+        admittedFor(scope.$schema).map((ordered) => {
+          const legacy = methods(ordered);
+          // One method record per delegate a method is read from (`this`).
+          const of = (delegate: object) => {
+            let own = made.get(delegate);
+            if (own === undefined) {
+              own = legacy(delegate as Delegate);
+              made.set(delegate, own);
+            }
+            return own;
+          };
+          return [
+            ordered.name,
+            {
+              move(this: object, args: Readonly<Record<string, unknown>>) {
+                return of(this).move(args);
+              },
+              rekey(this: object, args?: Readonly<Record<string, unknown>>) {
+                return of(this).rekey(args);
+              },
+            },
+          ];
+        })
+      )
+    )
+  );
+}
 
 /**
  * `{ models }`, or before 1.9.1 the models themselves: a model's entry holds
@@ -1331,24 +1309,23 @@ function isEnvelope<Config extends OrderingConfig>(
  * with the other extensions.
  */
 // biome-ignore lint/style/useUnifiedTypeSignatures: one signature over both forms would infer Config from each.
-export function ordering<const Config extends OrderingConfig>(config: {
-  readonly models: Config;
-}): OrderingExtension<Config>;
+export function ordering<
+  T extends AnyTarget,
+  const Config extends OrderingConfig,
+>(config: {
+  readonly models: Config &
+    OrderingModelsOf<T> &
+    NoInfer<KnownModels<Config, T>>;
+}): Extension<T, OrderingFacts<T, Config>>;
 /** The models as the whole argument, the form before 1.9.1, still accepted: write `ordering({ models: { … } })`, as `softDelete` and `permissions` take theirs. */
-export function ordering<const Config extends OrderingConfig>(
-  config: Config
-): OrderingExtension<Config>;
-export function ordering<const Config extends OrderingConfig>(
-  given: Config | { readonly models: Config }
-): OrderingExtension<Config> {
-  const config = isEnvelope(given) ? given.models : given;
-  function extend<Base extends Receiver<Config>>(
-    base: Base
-  ): NoInfer<Applied<Config, Base>>;
-  function extend<C extends Governed<Config>, X extends ExtensionState>(
-    base: VibORMClient<C, X>
-  ) {
-    return apply(config, base);
-  }
-  return extend;
+export function ordering<
+  T extends AnyTarget,
+  const Config extends OrderingConfig,
+>(
+  config: Config & OrderingModelsOf<T> & NoInfer<KnownModels<Config, T>>
+): Extension<T, OrderingFacts<T, Config>>;
+export function ordering(
+  given: OrderingConfig | { readonly models: OrderingConfig }
+): unknown {
+  return orderingOf(isEnvelope(given) ? given.models : given);
 }

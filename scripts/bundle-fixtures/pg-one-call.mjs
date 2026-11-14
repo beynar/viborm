@@ -1,9 +1,8 @@
-// Fixture — pg-representative with one extension that declares only one
-// computed `result` field, written as a literal after `enableExtensions()`:
-// its difference from (c) is what this one capability costs alone. A
-// measuring instrument for scripts/extension-bytes.mjs, not a size-limit row.
+// Fixture — pg-representative with one extension made of a first moment alone (`call`) that bounds every read's `take`: its
+// difference from (c) is what this one part costs alone. A measuring
+// instrument for scripts/extension-bytes.mjs, not a size-limit row.
 
-import { enableExtensions } from "../../dist/index.mjs";
+import { call, extension, reads, target } from "../../dist/index.mjs";
 import { createClient } from "../../dist/pg.mjs";
 import { s } from "../../dist/schema.mjs";
 
@@ -21,27 +20,22 @@ const post = s.model({
     .toOne(() => user)
     .fields("authorId")
     .references("id"),
+  deletedAt: s.dateTime().nullable(),
+  views: s.int().default(0),
 });
-
-// `defineHooks` and `defineExtension` refuse a `result` today: the definition
-// they return is read again by `$extends`, and its frozen `needs` list no
-// longer reads as an object. A literal is the public way that works.
-enableExtensions();
 
 export const client = createClient({
   schema: { user, post },
   databaseUrl: "postgres://localhost:5432/app",
-}).$extends({
-  name: "result",
-  result: {
-    user: {
-      handle: {
-        needs: { email: true },
-        compute: (row) => row.email.split("@")[0],
-      },
-    },
-  },
-});
+}).$extends(
+  extension(
+    "call",
+    call(
+      (c) => c.set({ take: Math.min(c.args.take ?? 100, 100) }),
+      target(reads)
+    )
+  )
+);
 
 export async function run() {
   const users = await client.user.findMany({
@@ -51,5 +45,6 @@ export async function run() {
   const created = await client.post.create({
     data: { title: "hello", authorId: users[0].id },
   });
+  await client.post.delete({ where: { id: created.id } });
   return created;
 }

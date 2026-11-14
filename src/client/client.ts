@@ -1,8 +1,6 @@
 import {
   bindOfficialCacheChain,
   getOfficialCacheChainCapability,
-  type OfficialCacheExtension,
-  type OfficialCacheQueryContribution,
   officialCacheRuntime,
 } from "@cache/capability";
 import type { CacheExecutionOptions } from "@cache/driver";
@@ -18,27 +16,25 @@ import type {
 import { ClientInitializationError, isVibORMError } from "@errors";
 import type { ResolvedExtensionChain } from "@extensions/chain";
 import type {
-  ClientExtension,
-  ContextualExtensionDefinition,
-  ExactExtensionDefinition,
-  HasNamedClientOmit,
-  SchemaBoundExtensionAdmission,
-} from "@extensions/definition";
-import { extensionParts } from "@extensions/host-slot";
+  AnyFacts,
+  ConfiguredBy,
+  EmptyFacts,
+  Extension,
+  Target,
+} from "@extensions/contract";
+import { isAppliedExtension } from "@extensions/extension";
 import type {
   AccumulatedExtensionState,
   DelegateState,
   EmptyClientExtensionState,
-  EnableExtensionCache,
+  ExtensionCacheState,
+  ExtensionContributionState,
   ExtensionMethods,
   ExtensionModelClient,
   ExtensionStateConstraint,
-  ExtensionStateContributionOf,
   HasExtensionCache,
-  HasResultConsumingExtension,
   MergeModelMethods,
 } from "@extensions/methods";
-import type { ResultInference } from "@extensions/result-types";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { enableFindUniqueBatching } from "@query-engine/find-unique-batch";
 import {
@@ -71,10 +67,6 @@ import {
 import { createResolvedSchemaRegistry } from "@validation/builder";
 import { executeArrayTransaction } from "./array-transaction";
 import { getOfficialDefaultOmitChainCapability } from "./default-omit-chain";
-import type {
-  OfficialDefaultOmitExtension,
-  OfficialDefaultOmitRequestContribution,
-} from "./default-omit-extension";
 import {
   applyClientOmit,
   type ClientOmitResolver,
@@ -257,79 +249,6 @@ export interface VibORMConfig<S extends Schema = Schema> {
 export interface DriverConfig<S extends Schema = Schema>
   extends Omit<VibORMConfig<S>, "driver"> {}
 
-type OrdinaryOfficialExtensionGuard<Definition> = Definition extends {
-  readonly name: "viborm.cache";
-}
-  ? { readonly name: never }
-  : Definition extends {
-        readonly query: OfficialCacheQueryContribution;
-      }
-    ? { readonly query: never }
-    : Definition extends { readonly name: "viborm.defaultOmit" }
-      ? { readonly name: never }
-      : Definition extends {
-            readonly request: OfficialDefaultOmitRequestContribution<object>;
-          }
-        ? { readonly request: never }
-        : unknown;
-
-type OfficialAwareDefinition<
-  C extends VibORMConfig,
-  X extends ExtensionStateConstraint,
-  Self = unknown,
-> =
-  | ContextualExtensionDefinition<C, X, Self>
-  | OfficialCacheExtension
-  | OfficialDefaultOmitExtension;
-
-type OfficialCacheAdmission<
-  Definition,
-  X extends ExtensionStateConstraint,
-> = Record<Exclude<keyof Definition, keyof OfficialCacheExtension>, never> &
-  (HasExtensionCache<X> extends true ? { readonly name: never } : unknown);
-
-type OfficialDefaultOmitAdmission<
-  Definition,
-  C extends VibORMConfig,
-  X extends ExtensionStateConstraint,
-> = Record<
-  Exclude<keyof Definition, keyof OfficialDefaultOmitExtension>,
-  never
-> &
-  (HasNamedClientOmit<C> extends true
-    ? { readonly name: never }
-    : HasResultConsumingExtension<X> extends true
-      ? { readonly name: never }
-      : unknown);
-
-type ExtensionAdmission<
-  Definition,
-  C extends VibORMConfig,
-  X extends ExtensionStateConstraint,
-> = Definition extends OfficialCacheExtension
-  ? OfficialCacheAdmission<Definition, X>
-  : Definition extends OfficialDefaultOmitExtension
-    ? OfficialDefaultOmitAdmission<Definition, C, X>
-    : Definition extends ContextualExtensionDefinition<C, X, Definition>
-      ? ExactExtensionDefinition<Definition, C, X> &
-          (HasResultConsumingExtension<X> extends true
-            ? { readonly rows?: never }
-            : unknown) &
-          OrdinaryOfficialExtensionGuard<Definition> &
-          SchemaBoundExtensionAdmission<Definition, C>
-      : never;
-
-type WithDefaultOmit<C extends VibORMConfig, OmitConfig> = Omit<C, "omit"> & {
-  readonly omit: OmitConfig;
-};
-
-type AppliedClientConfig<
-  C extends VibORMConfig,
-  Definition,
-> = Definition extends OfficialDefaultOmitExtension<infer OmitConfig>
-  ? WithDefaultOmit<C, OmitConfig>
-  : GatedConfig<C, Definition>;
-
 /**
  * A contribution whose model slot also carries the projected overloads of a
  * declared key (K5), typed against the client as this step leaves it.
@@ -348,36 +267,72 @@ export interface ProjectedContribution<
   readonly result: Contribution["result"];
 }
 
-type ContributionOf<
+/**
+ * What a rule's `gate` and `facts` add, in the form the projected types read
+ * a definition: nothing when it adds neither.
+ */
+type VerbsDefinition<F extends AnyFacts> = [keyof F["verbs"]] extends [never]
+  ? unknown
+  : { readonly rows: { readonly verbs: F["verbs"] } };
+
+/** An extension's facts as the chain's state accumulates them. */
+type ContributionOf<F extends AnyFacts> = ExtensionContributionState<
+  F["client"],
+  F["models"],
+  F["controls"],
+  F["rows"],
+  F["data"],
+  F["consumer"] extends true ? "result-consuming" : "result-independent",
+  F["result"],
+  F["cache"] extends true ? ExtensionCacheState : undefined
+>;
+
+/** The config a client has once an extension with facts `F` is applied. */
+export type AppliedClientConfig<
+  C extends VibORMConfig,
+  F extends AnyFacts,
+> = GatedConfig<ConfiguredBy<C, F>, VerbsDefinition<F>>;
+
+type ProjectedStateOf<
   C extends VibORMConfig,
   X extends ExtensionStateConstraint,
-  Definition,
-  Contribution extends
-    ExtensionStateConstraint = ExtensionStateContributionOf<Definition>,
-> = DeclaresEvidence<C, Definition> extends false
+  F extends AnyFacts,
+  Contribution extends ExtensionStateConstraint = ContributionOf<F>,
+> = DeclaresEvidence<C, VerbsDefinition<F>> extends false
   ? Contribution
   : ProjectedContribution<
       Contribution,
       ProjectedModelOperations<
-        GatedConfig<C, Definition>,
+        AppliedClientConfig<C, F>,
         ClientRowsContext<
-          GatedConfig<C, Definition>,
+          AppliedClientConfig<C, F>,
           X["rows"] | Contribution["rows"]
         >,
         X["controls"] & Contribution["controls"],
-        Definition
+        VerbsDefinition<F>
       >
     >;
 
-type AppliedExtensionState<
+/** The extension state a client has once an extension with facts `F` is applied. */
+export type AppliedExtensionState<
   C extends VibORMConfig,
   X extends ExtensionStateConstraint,
-  Definition,
-> = Definition extends OfficialCacheExtension
-  ? EnableExtensionCache<X>
-  : Definition extends OfficialDefaultOmitExtension
-    ? X
-    : AccumulatedExtensionState<X, ContributionOf<C, X, Definition>>;
+  F extends AnyFacts,
+> = AccumulatedExtensionState<X, ProjectedStateOf<C, X, F>>;
+
+/**
+ * The order rule: after a part typed against a result, a rule that hides
+ * rows or a default that omits a field would make that type lie.
+ */
+type AfterConsumer<X extends ExtensionStateConstraint, F extends AnyFacts> = [
+  X["resultConsumer"],
+] extends [undefined]
+  ? unknown
+  : [F["rows"]] extends [never]
+    ? [keyof F["omit"]] extends [never]
+      ? unknown
+      : never
+    : never;
 
 /**
  * The keys a proposed config names that the surface does not have: the typos.
@@ -461,17 +416,6 @@ type TransactionMethod<
     options?: BatchTransactionOptions
   ): Promise<{ [K in keyof T]: Awaited<T[K]> }>;
 };
-
-/**
- * What a factory given to `$extends` returns: a client. A conditional, not
- * `Result & { readonly $schema: Schema }`: inferring `Result` against an
- * intersection rebuilds the returned client without its alias, so an exported
- * extended client's declaration spelled every delegate out (one ordered model:
- * 1.2 MB). Inference reaches a conditional's branch with the type as returned.
- */
-type FactoryResult<Result> = Result extends { readonly $schema: Schema }
-  ? Result
-  : { readonly $schema: Schema };
 
 declare const clientTypeState: unique symbol;
 
@@ -582,61 +526,43 @@ export interface VibORMClientMembers<
   /** Disconnect from the database */
   $disconnect: () => Promise<void>;
   /**
-   * Apply a named definition or a synchronous factory to this client view.
-   * Definitions append to the immutable chain; factories compose through the
-   * same `$extends` method. Definition model keys are checked against this schema.
+   * Apply an extension: `client.$extends(extension(name, ...parts))`, or an
+   * official one (`client.$extends(softDelete({ … }))`). Each handler of the
+   * extension is typed against this client. The extension is appended to an
+   * immutable chain; this client is unchanged.
    */
-  // Check the factory output here: constraining the client-valued default
-  // eagerly expands every delegate, even when applying a plain definition.
-  $extends<Result = VibORMClient<C, X>>(
-    factory: (client: NoInfer<VibORMClient<C, X>>) => FactoryResult<Result>
-  ): Result;
-  $extends<
-    const Definition extends OfficialAwareDefinition<C, X, Definition>,
-    Fields = unknown,
-  >(
-    extension: Definition &
-      ExtensionAdmission<Definition, C, X> &
-      (Definition extends (...args: never[]) => unknown ? never : unknown) &
-      ResultInference<C, X["result"], Fields>
-  ): VibORMClient<
-    AppliedClientConfig<C, Definition>,
-    AppliedExtensionState<C, X, Definition>
-  >;
+  $extends<F extends AnyFacts>(
+    extension: Extension<Target<C, X, EmptyFacts>, F> & AfterConsumer<X, F>
+  ): VibORMClient<AppliedClientConfig<C, F>, AppliedExtensionState<C, X, F>>;
 }
+
+type FactsOf<E> = E extends Extension<never, infer F> ? F : never;
 
 type ApplyClientExtensions<
   C extends VibORMConfig,
   X extends ExtensionStateConstraint,
-  Definitions extends readonly unknown[],
-> = Definitions extends readonly []
+  Extensions extends readonly unknown[],
+> = Extensions extends readonly []
   ? VibORMClient<C, X>
-  : Definitions extends readonly [
-        infer Definition,
-        ...infer RemainingDefinitions,
-      ]
-    ? Definition extends (...args: never[]) => unknown
-      ? never
-      : Definition extends OfficialAwareDefinition<C, X>
-        ? Definition extends ExtensionAdmission<Definition, C, X>
-          ? ApplyClientExtensions<
-              AppliedClientConfig<C, Definition>,
-              AppliedExtensionState<C, X, Definition>,
-              RemainingDefinitions
-            >
-          : never
-        : never
+  : Extensions extends readonly [infer First, ...infer Rest]
+    ? FactsOf<First> extends infer F extends AnyFacts
+      ? ApplyClientExtensions<
+          AppliedClientConfig<C, F>,
+          AppliedExtensionState<C, X, F>,
+          Rest
+        >
+      : never
     : never;
 
 /**
- * The exact client surface produced by applying an ordered definition tuple.
- * Factory callbacks are composed with `$extends`; name their result with `typeof`.
+ * The exact client surface produced by applying an ordered tuple of
+ * extension values.
  *
  * @example
  * ```ts
  * type AppClient = ExtendedClient<
  *   typeof db,
- *   readonly [typeof defaults, typeof cached, typeof methods]
+ *   readonly [typeof tenancy, typeof cached, typeof tools]
  * >;
  * ```
  */
@@ -897,7 +823,7 @@ export class VibORM<C extends VibORMConfig> {
       // boundary. That boundary memoizes both this callback's value and its
       // failure when several lifecycle entry points observe the same
       // operation, and hands it the arguments with their controls removed.
-      prepareInput = (controlFreeArgs, controls) => {
+      prepareInput = (controlFreeArgs, controls, call) => {
         const transformed =
           request === undefined || requestHandlers === undefined
             ? controlFreeArgs
@@ -908,7 +834,8 @@ export class VibORM<C extends VibORMConfig> {
                 requestHandlers,
                 chain?.controls === undefined
                   ? undefined
-                  : { names: chain.controls.names, admitted: controls }
+                  : { names: chain.controls.names, admitted: controls },
+                call
               );
         return finish(transformed ?? {});
       };
@@ -919,7 +846,7 @@ export class VibORM<C extends VibORMConfig> {
       | undefined =
       (officialCache === undefined && written === undefined) || !isWrite
         ? undefined
-        : (context, controls) => {
+        : (context, controls, call) => {
             const cached =
               officialCache &&
               officialCacheRuntime().prepareMutationCacheWriteOutcome(
@@ -932,7 +859,7 @@ export class VibORM<C extends VibORMConfig> {
               );
             return written
               ? written.watch(
-                  { model: modelNameStr, operation, args: callArgs! },
+                  { model: modelNameStr, operation, args: callArgs!, call },
                   controls,
                   context,
                   cached,
@@ -1261,17 +1188,17 @@ export class VibORM<C extends VibORMConfig> {
       (prop) => {
         if (prop === "$driver") return engine.driver;
         if (prop === CLIENT_DIAGNOSTICS)
-          return chain?.observes?.capability(chain)?.diagnostics;
-        if (prop === "$extends") {
           return (
-            extension:
-              | ClientExtension
-              | ((client: VibORMClient<ViewConfig, X>) => unknown)
-          ) => {
-            if (typeof extension === "function") return extension(view);
-            const extensionChain = extensionParts(extension).append(
+            chain?.disclosure ?? chain?.observes?.capability(chain)?.diagnostics
+          );
+        if (prop === "$extends") {
+          return (extension: unknown) => {
+            if (!isAppliedExtension(extension))
+              throw new ClientInitializationError(
+                "client.$extends takes an extension: client.$extends(extension(name, ...parts))."
+              );
+            const extensionChain = extension.append(
               chain,
-              extension,
               this.#schema,
               this.#registry
             );

@@ -7,8 +7,10 @@ import {
 import {
   type ClientExtension,
   createClient,
-  defineExtension,
   s,
+  extension,
+  call,
+  target,
 } from "@src/index";
 import { expectTypeOf } from "vitest";
 
@@ -70,18 +72,19 @@ cached.user.create({
   data: { id: "cached", name: "Cached" },
   cache: { autoInvalidate: true, invalidate: ["user:*"] },
 });
-cached.$extends({
-  name: "request-core-stays-cache-free",
-  request: {
-    user: {
-      create({ input }) {
+cached.$extends(
+  extension(
+    "request-core-stays-cache-free",
+    call(
+      (c) => {
         // @ts-expect-error - mutation cache is client-owned, not a core request key
-        input.cache;
-        return {};
+        c.args.cache;
+        c.set({});
       },
-    },
-  },
-});
+      target("user", "create")
+    )
+  )
+);
 cached.user.findMany({
   // @ts-expect-error - cache options are mutation-only
   cache: { autoInvalidate: true },
@@ -121,16 +124,16 @@ cached.$transaction(async (tx) => {
   });
 });
 
-const ordinary = defineExtension({ name: "ordinary" });
+const ordinary = extension("ordinary");
 const chain2 = cached.$extends(ordinary);
-const chain3 = chain2.$extends({ name: "three" });
-const chain4 = chain3.$extends({ name: "four" });
-const chain5 = chain4.$extends({ name: "five" });
-const chain6 = chain5.$extends({ name: "six" });
-const chain7 = chain6.$extends({ name: "seven" });
-const chain8 = chain7.$extends({ name: "eight" });
-const chain9 = chain8.$extends({ name: "nine" });
-const chain10 = chain9.$extends({ name: "ten" });
+const chain3 = chain2.$extends(extension("three"));
+const chain4 = chain3.$extends(extension("four"));
+const chain5 = chain4.$extends(extension("five"));
+const chain6 = chain5.$extends(extension("six"));
+const chain7 = chain6.$extends(extension("seven"));
+const chain8 = chain7.$extends(extension("eight"));
+const chain9 = chain8.$extends(extension("nine"));
+const chain10 = chain9.$extends(extension("ten"));
 chain2.$withCache();
 chain5.$withCache();
 chain10.$withCache();
@@ -148,7 +151,7 @@ base.$extends(replacedContribution);
 // @ts-expect-error - binding replaces the exact contribution identity
 base.$extends({ ...official, query: official.query.bind(undefined) });
 
-const fakeReserved = defineExtension({ name: "viborm.cache" });
+const fakeReserved = extension("viborm.cache");
 // @ts-expect-error - the reserved name is never accepted from an ordinary value
 base.$extends(fakeReserved);
 

@@ -5,7 +5,7 @@ import {
   invalidateOfficialCache,
   type WaitUntilFn,
 } from "@cache/driver";
-import { stableStringify } from "@cache/key";
+import { isCanonicalKeyData, stableStringify } from "@cache/key";
 import {
   type CacheInvalidationOptions,
   cacheInvalidationSchema,
@@ -20,10 +20,7 @@ import {
 } from "@errors";
 import type { AdmittedRows } from "@extensions/admission";
 import type { ResolvedExtensionChain } from "@extensions/chain";
-import {
-  type AdmittedControls,
-  isStableControlValue,
-} from "@extensions/controls";
+import type { AdmittedControls } from "@extensions/controls";
 import type { WriteOutcomeRegistration } from "@extensions/query";
 import type { LazyRelations } from "@query-engine/raptor3/shared/row-scope";
 import type { Input } from "@query-engine/raptor3/shared/schema";
@@ -111,9 +108,15 @@ export function cacheKeyOf(
     return key === undefined ? undefined : ["order", key, order];
   }
   if (controls === undefined) return args;
-  // Only values admission fixed key a cache entry: the rows the read's SQL
-  // binds were bound from those same values (`snapshotControlValue` in controls.ts).
-  if (!Object.values(controls).every(isStableControlValue)) return undefined;
+  // Only plain data keys a cache entry: a value with no canonical spelling
+  // (a class instance, a function) bypasses the cache.
+  if (
+    !Object.values(controls).every(
+      (value) =>
+        typeof value !== "object" || value === null || isCanonicalKeyData(value)
+    )
+  )
+    return undefined;
   if (rows === undefined) return [args, controls];
   try {
     return [args, controls, rows.map(rowsIdentity)];

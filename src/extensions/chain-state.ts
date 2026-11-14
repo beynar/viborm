@@ -5,7 +5,7 @@
  * client asks the chain and imports nothing that runs extensions.
  */
 
-import type { ValidationError } from "@errors";
+import type { DiagnosticDisclosure, ValidationError } from "@errors";
 import type {
   CallRows,
   ModelStamps,
@@ -190,4 +190,6 @@ export interface ResolvedExtensionChain {
   readonly methods?: ExtensionMethodsState;
   /** Whether the chain carries the official cache. */
   readonly hasCache?: boolean;
+  /** What an error of a call may carry, as the last `disclosure` part says. */
+  readonly disclosure?: DiagnosticDisclosure;
 }

@@ -13,7 +13,7 @@ import { createClient as createPlanetScaleClient } from "@drivers/planetscale";
 import { createClient as createPostgresClient } from "@drivers/postgres";
 import { createClient as createSQLite3Client } from "@drivers/sqlite3";
 import { MemoryCache } from "@src/cache/drivers/memory";
-import { defineExtension, s } from "@src/index";
+import { s, extension, methods } from "@src/index";
 
 type Equal<Left, Right> =
   (<Value>() => Value extends Left ? 1 : 2) extends <
@@ -32,28 +32,33 @@ const schema = { record };
 
 declare const database: D1Database;
 
-const wrapperExtension = defineExtension<typeof schema>()({
-  name: "wrapper-surface",
-  client(scope) {
-    return {
-      $ids() {
-        return scope.record.findMany({ select: { id: true } });
+const wrapperExtension = extension(
+  "wrapper-surface",
+  methods((scope) => {
+    const own = {
+      client(scope) {
+        return {
+          $ids() {
+            return scope.record.findMany({ select: { id: true } });
+          },
+        };
+      },
+      models: {
+        record(delegate) {
+          return {
+            byName(name: string) {
+              return delegate.findFirst({
+                where: { name },
+                select: { id: true },
+              });
+            },
+          };
+        },
       },
     };
-  },
-  model: {
-    record(delegate) {
-      return {
-        byName(name: string) {
-          return delegate.findFirst({
-            where: { name },
-            select: { id: true },
-          });
-        },
-      };
-    },
-  },
-});
+    return { ...own.client(scope), ...own.models };
+  })
+);
 
 const bunSQL = () => createBunSQLClient({ schema }).$extends(wrapperExtension);
 const bunSQLite = () =>

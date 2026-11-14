@@ -28,7 +28,7 @@ const schema = { user, post };
 export const client = createClient({
   schema,
   databaseUrl: "postgres://localhost:5432/app",
-}).$extends(defaultOmit()({ user: { secret: true } }));
+}).$extends(defaultOmit({ user: { secret: true } }));
 
 export async function run() {
   const users = await client.user.findMany({

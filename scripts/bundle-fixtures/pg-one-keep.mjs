@@ -1,9 +1,8 @@
-// Fixture — pg-representative with one extension that declares only one
-// declared control, passed by a write, built with `defineHooks`: its
-// difference from (c) is what this one capability costs alone. A measuring
+// Fixture — pg-representative with one extension made of a delete kept as an update (`rule` with `keep`): its
+// difference from (c) is what this one part costs alone. A measuring
 // instrument for scripts/extension-bytes.mjs, not a size-limit row.
 
-import { defineHooks } from "../../dist/index.mjs";
+import { extension, keep, now, rule } from "../../dist/index.mjs";
 import { createClient } from "../../dist/pg.mjs";
 import { s } from "../../dist/schema.mjs";
 
@@ -21,16 +20,18 @@ const post = s.model({
     .toOne(() => user)
     .fields("authorId")
     .references("id"),
+  deletedAt: s.dateTime().nullable(),
+  views: s.int().default(0),
 });
 
 export const client = createClient({
   schema: { user, post },
   databaseUrl: "postgres://localhost:5432/app",
 }).$extends(
-  defineHooks({
-    name: "controls",
-    controls: { reason: { oneOf: ["typo", "legal"], on: "writes" } },
-  })
+  extension(
+    "keep",
+    rule({ post: { delete: { instead: keep({ deletedAt: now }) } } })
+  )
 );
 
 export async function run() {
@@ -39,8 +40,8 @@ export async function run() {
     include: { posts: true },
   });
   const created = await client.post.create({
-    reason: "typo",
     data: { title: "hello", authorId: users[0].id },
   });
+  await client.post.delete({ where: { id: created.id } });
   return created;
 }
