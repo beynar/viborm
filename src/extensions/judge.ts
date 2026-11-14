@@ -25,7 +25,8 @@ import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
 import { producedSource, producedWhere } from "./produced";
 import { readsAny } from "./reads";
-import { type PreparedDomain, verbInputs } from "./row-domain";
+import type { PreparedDomain } from "./row-domain";
+import { verbInputs } from "./verbs";
 
 /** A layer a check made judge the rows its writes produce (`verbs.ts`). */
 interface JudgedVerbs extends ModelVerbs {

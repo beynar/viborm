@@ -19,9 +19,11 @@ import {
   args as extArgs,
   extension,
   facts,
+  lazy,
   nothing,
   now,
   oneOf,
+  only,
   parts,
   when,
 } from "@src/index";
@@ -59,30 +61,38 @@ const typed = parts<typeof schema>();
 /** A rule entry, untyped: some are refused, which is what is tested. */
 type Entry = Readonly<Record<string, unknown>>;
 /**
- * A governed extension whose rule entries are the given functions. The
- * entries are handed through a rule read from the schema, the one form that
- * takes them untyped; it applies them as the same entries written directly.
+ * A governed extension whose rule entries are the given functions, each
+ * given lazily. The entries are handed through a rule read from the schema,
+ * the one form that takes them untyped; it applies them as the same entries
+ * written directly.
  */
 const governed = (
-  entries: Record<string, () => Entry>,
+  entries: Record<string, (() => unknown) | ReturnType<typeof lazy>>,
   extra: { name?: string; control?: string } = {}
 ) =>
   typed.extension(
     extra.name ?? "lazy",
     extArgs({ [extra.control ?? "user"]: v.string() }),
-    typed.rule(() => entries)
+    typed.rule(() =>
+      Object.fromEntries(
+        Object.entries(entries).map(([model, entry]) => [
+          model,
+          typeof entry === "function" ? lazy(entry) : entry,
+        ])
+      )
+    )
   );
 /** Rows read where `where` holds: no row is updated or deleted. */
 const readOnly = (where: object): Entry => ({
   read: { where },
-  update: { where: nothing },
-  delete: { where: nothing },
+  update: { where: only(nothing) },
+  delete: { where: only(nothing) },
 });
 /** Rows the caller owns: read and updated, never deleted. */
 const own = (): Entry => ({
   read: { where: { ownerId: me } },
-  update: { where: { ownerId: me }, check: check({ ownerId: me }) },
-  delete: { where: nothing },
+  update: { where: only({ ownerId: me }), check: check({ ownerId: me }) },
+  delete: { where: only(nothing) },
 });
 
 let base: Loose;
@@ -169,7 +179,7 @@ test("an entry is admitted once per schema and declaration; a fresh declaration,
 test("a refused entry fails every call on its model, and only on its model", async () => {
   const db = base.$extends(
     governed({
-      node: () => ({ ...own(), read: { where: { missing: "x" } } }),
+      node: lazy(() => ({ ...own(), read: { where: { missing: "x" } } })),
       note: own,
     })
   );
@@ -212,13 +222,13 @@ test("a lazy entry's control references are checked against the chain where it w
 test("a projection key may not take a link row's name", async () => {
   const db = base.$extends(
     governed({
-      note: () => ({
+      note: lazy(() => ({
         ...own(),
         read: {
           where: { ownerId: me },
           select: { $through: facts({ own: { ownerId: me } }) },
         },
-      }),
+      })),
     })
   );
   await expect(db.note!.findMany({ user: "alice" } as object)).rejects.toThrow(
@@ -230,13 +240,13 @@ test("two extensions declaring one projection key on a model are refused when th
   const evidence = (name: string, control?: string) =>
     governed(
       {
-        note: () => ({
+        note: lazy(() => ({
           ...own(),
           read: {
             where: { ownerId: me },
             select: { $access: facts({ own: { ownerId: me } }) },
           },
-        }),
+        })),
       },
       { name, ...(control && { control }) }
     );
@@ -252,15 +262,15 @@ test("a lazy acyclic list is resolved only for an update writing a self key, and
   let resolved = 0;
   const db = base.$extends(
     governed({
-      node: () => ({
+      node: lazy(() => ({
         read: { where: {} },
-        update: { where: {}, check: check({}) },
-        delete: { where: nothing },
+        update: { where: only({}), check: check({}) },
+        delete: { where: only(nothing) },
         acyclic: () => {
           resolved++;
           return ["parent"];
         },
-      }),
+      })),
     })
   );
   await db.node!.update({
@@ -288,7 +298,7 @@ test("a lazy acyclic list is resolved only for an update writing a self key, and
 test("an entry that resolves to anything but an object is refused on first use", async () => {
   const db = base.$extends(governed({ note: () => null as never }));
   await expect(db.note!.findMany({ user: "alice" } as object)).rejects.toThrow(
-    'Extension "lazy" rule.note: an entry is an object or a function.'
+    'Extension "lazy" rule.note: an entry is an object.'
   );
 });
 
@@ -300,7 +310,10 @@ test("reading a model's verbs resolves its entry alone", () => {
   };
   const chain = appendResolvedExtension(
     undefined,
-    extension("lazy", typed.rule({ node: entry("node"), note: entry("note") })),
+    extension(
+      "lazy",
+      typed.rule({ node: lazy(entry("node")), note: lazy(entry("note")) })
+    ),
     schema
   );
   const { domain } = chain.callRows!.call("node", undefined);
@@ -343,8 +356,11 @@ test("a cached read keys an eager entry's function acyclic, and lazy rows by the
       typed.rule({
         node: {
           read: { where: { ownerId: me } },
-          update: { where: { ownerId: me }, check: check({ ownerId: me }) },
-          delete: { where: nothing },
+          update: {
+            where: only({ ownerId: me }),
+            check: check({ ownerId: me }),
+          },
+          delete: { where: only(nothing) },
           acyclic: () => ["parent"],
         },
       })
@@ -381,11 +397,11 @@ test("a mode and a lazy entry that read only the call's instant name no argument
       instant.args({ when: oneOf("past").default("past") }),
       instant.rule({ event: { root: when(arg("when"), "past", past) } }),
       instant.rule({
-        event: () => ({
+        event: lazy(() => ({
           read: { where: past },
-          update: { where: nothing },
-          delete: { where: nothing },
-        }),
+          update: { where: only(nothing) },
+          delete: { where: only(nothing) },
+        })),
       })
     ),
     instantSchema

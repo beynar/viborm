@@ -18,6 +18,7 @@ import {
   gate,
   nothing,
   oneOf,
+  only,
   parts,
   rule,
   s,
@@ -59,18 +60,18 @@ const definition = (k5: K5 = {}, name = "k5", declares = true) => {
   const rules = typed.rule(() => ({
     document: {
       read: { where: {}, ...k5.document },
-      update: { where: {}, check: check({}) },
-      delete: { where: nothing },
+      update: { where: only({}), check: check({}) },
+      delete: { where: only(nothing) },
     },
     user: {
       read: { where: {}, ...k5.user },
-      update: { where: nothing },
-      delete: { where: nothing },
+      update: { where: only(nothing) },
+      delete: { where: only(nothing) },
     },
     organization: {
       read: { where: {}, ...k5.organization },
-      update: { where: nothing },
-      delete: { where: nothing },
+      update: { where: only(nothing) },
+      delete: { where: only(nothing) },
     },
   }));
   return declares
@@ -147,8 +148,8 @@ describe("K5: declared projection keys and read-gated fields", () => {
             typed.rule(() => ({
               teamMember: {
                 read: { where: {}, fields: { teamId: gate({}) } },
-                update: { where: nothing },
-                delete: { where: nothing },
+                update: { where: only(nothing) },
+                delete: { where: only(nothing) },
               },
             }))
           )
@@ -365,8 +366,8 @@ describe("K5: variant projection admission", () => {
       rule({
         holder: {
           read: { where: {}, select: { $access: facts({ read: {} }) } },
-          update: { where: {}, check: check({}) },
-          delete: { where: nothing },
+          update: { where: only({}), check: check({}) },
+          delete: { where: only(nothing) },
         },
         alpha: {
           read: {
@@ -374,16 +375,16 @@ describe("K5: variant projection admission", () => {
             fields: { secret: gate(secret) },
             select: { $access: facts({ read: {}, secret }) },
           },
-          update: { where: nothing },
-          delete: { where: nothing },
+          update: { where: only(nothing) },
+          delete: { where: only(nothing) },
         },
         beta: {
           read: {
             where: {},
             select: { $access: facts({ read: {}, edit: {} }) },
           },
-          update: { where: nothing },
-          delete: { where: nothing },
+          update: { where: only(nothing) },
+          delete: { where: only(nothing) },
         },
       })
     )

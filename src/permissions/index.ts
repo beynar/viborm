@@ -24,6 +24,7 @@ import {
   models as everyOperation,
   extension,
   type Facts,
+  lazy,
   methods,
   nothing,
   oneOf,
@@ -770,7 +771,7 @@ export function permissions<const Config extends PermissionsConfig>(
       Object.fromEntries(
         Object.keys(appliedTo(schema).compiler.declared).map((name) => [
           name,
-          () => entryOf(schema, name),
+          lazy(() => entryOf(schema, name)),
         ])
       )
     ),

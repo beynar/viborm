@@ -5,6 +5,7 @@
  * filter, keep or judge rows binds its call facts here, with what its other
  * parts posed: the kept rows, the stamps and the order.
  */
+import type { PreparedSelector } from "@query-engine/raptor3/shared/query";
 import type {
   CallRows,
   CallValues,
@@ -12,7 +13,8 @@ import type {
   RowDomain,
 } from "@query-engine/raptor3/shared/row-scope";
 import { type Input, memo } from "@query-engine/raptor3/shared/schema";
-import { type AdmittedLayer, admitLayer } from "./admission";
+import type { AnyModel } from "@schema/model";
+import { type AdmittedLayer, admitLayer, type VerbsBound } from "./admission";
 import { rebind, refuseUndeclared } from "./call-rows";
 import type {
   CallRowsBinding,
@@ -20,19 +22,8 @@ import type {
   ResolvedControls,
   ResolvedExtensionChain,
 } from "./chain";
-import { type AdmittedControls, controlsPart } from "./controls";
-import { prepareCall } from "./row-domain";
-import { bindVerbs, type VerbsBound } from "./verbs";
-
-/** One layer's mode: its argument, and where each of its values sits. */
-interface BoundMode {
-  readonly control: string | undefined;
-  readonly names: readonly string[];
-  readonly modes: ReadonlyMap<unknown, number>;
-  readonly fallback: number;
-  /** How far one step of this layer's mode moves the combination index. */
-  readonly stride: number;
-}
+import type { AdmittedControls } from "./controls";
+import { type PreparedDomain, prepareCall } from "./row-domain";
 
 /** What one combination of modes selects, with and without the tombstones. */
 interface Combination {
@@ -42,25 +33,18 @@ interface Combination {
   readonly physical: CallRows;
 }
 
-type RequiredOn = CallValues["required"];
-
-const NEVER_REQUIRED: RequiredOn = () => false;
-
 const NO_CONTROLS: AdmittedControls = Object.freeze({});
 
-/** The chain's `required` declarations as one test, by argument and model. */
-function requiredOn(controls: ResolvedControls | undefined): RequiredOn {
-  const required = new Map<string, true | ReadonlySet<string>>();
-  for (const control of controls?.all ?? []) {
-    if (control.required !== undefined)
-      required.set(control.name, control.required);
-  }
-  if (required.size === 0) return NEVER_REQUIRED;
-  return (control, model) => {
-    const on = required.get(control);
+/**
+ * The chain's `required` declarations as one test, by argument and model:
+ * asked only where a value a predicate reads is absent.
+ */
+const requiredOn =
+  (controls: ResolvedControls | undefined): CallValues["required"] =>
+  (control, model) => {
+    const on = controls?.all.find(({ name }) => name === control)?.required;
     return on === true || on?.has(model) === true;
   };
-}
 
 /**
  * One purpose's predicates per model, for one mode of every layer, each at
@@ -70,7 +54,7 @@ function modelDomain(
   layers: readonly AdmittedLayer[],
   modes: readonly string[],
   purpose: "root" | "related",
-  drafts: VerbsBound["drafts"]
+  lazy: VerbsBound["filters"] | undefined
 ): ModelDomain {
   const built = new Map<string, readonly Input[] | null>();
   return {
@@ -78,17 +62,45 @@ function modelDomain(
       memo(built, model, () => {
         let list: Input[] | null = null;
         for (const [layer, member] of layers.entries()) {
-          // An entry given as a function holds its filters: read it now.
-          const filters =
-            member.models[model] ??
-            (typeof member.verbs[model] === "function"
-              ? drafts(model)[layer]?.filters
-              : undefined);
+          // An entry given lazily holds its filters: read it now.
+          const filters = member.models[model] ?? lazy?.(model, layer);
           const where = filters?.[modes[layer]!]?.[purpose];
           if (where !== undefined) (list ??= [])[layer] = where;
         }
         return list;
       }) ?? undefined,
+  };
+}
+
+/**
+ * What an `excluded` layer states its own whole-table sets of a model hold
+ * (`confine`), for one prepared domain: inside its own predicates a layer
+ * reads nothing of itself, but a set the statement computes over a whole
+ * table (a shared body, a reaching set) still holds only what it bounds.
+ * `undefined` where none states one.
+ */
+function bound(domain: PreparedDomain) {
+  const bounds = new Map<string, PreparedSelector | null>();
+  return (
+    model: AnyModel,
+    excluded: readonly number[]
+  ): PreparedSelector | undefined => {
+    const name = model["~"].names.ts!;
+    const inputs = domain.rows.confine?.get(name);
+    if (inputs === undefined) return undefined;
+    // Every excluded layer's: each only narrows, and one left out would let
+    // another's widen what it bounds.
+    return (
+      memo(bounds, `${name} ${excluded}`, () =>
+        domain.conjunction(
+          model,
+          excluded.map((layer) => {
+            const input = inputs[layer];
+            return [layer, input === undefined ? [] : [input]] as const;
+          })
+        )
+      ) ?? undefined
+    );
   };
 }
 
@@ -101,79 +113,85 @@ function modelDomain(
  * value, each call carries its values beside the shared domains.
  */
 export class RowsBinding implements CallRowsBinding {
-  readonly #modes: readonly BoundMode[];
   readonly #chain: ResolvedExtensionChain;
   readonly #layers: readonly AdmittedLayer[];
-  readonly #verbs: Omit<VerbsBound, "reads" | "drafts">;
-  readonly #drafts: VerbsBound["drafts"];
+  /** What the domains hold beside the filters: verbs, confinements. */
+  readonly #beside: Partial<RowDomain>;
+  readonly #lazy: VerbsBound["filters"] | undefined;
+  readonly #prepare: CallRows["prepare"];
   /** Some predicate reads a call value: every call carries its values. */
   readonly #parametric: boolean;
   readonly #order: ReadonlyMap<string, readonly Input[]> | undefined;
-  readonly #required: RequiredOn;
-  readonly #domains = new Map<number, RowDomain>();
-  readonly #combinations = new Map<number, Combination>();
+  readonly #required: CallValues["required"];
+  /** Per combination of the layers' modes, its key: each value, then NUL. */
+  readonly #domains = new Map<string, RowDomain>();
+  readonly #combinations = new Map<string, Combination>();
   /** The combination absent arguments select. */
-  readonly #fallback: number;
+  readonly #fallback: string;
   constructor(chain: ResolvedExtensionChain) {
     const layers = chain.rows ?? [];
-    let stride = 1;
-    this.#modes = layers.map(({ mode }): BoundMode => {
-      const names = mode?.values ?? [""];
-      const bound = {
-        control: mode?.name,
-        names,
-        modes: new Map<unknown, number>(
-          names.map((name, index) => [name, index])
-        ),
-        fallback: mode === undefined ? 0 : names.indexOf(mode.fallback),
-        stride,
-      };
-      stride *= names.length;
-      return bound;
-    });
-    const { reads, drafts, ...verbs } = bindVerbs(chain);
-    this.#drafts = drafts;
+    // The verbs, where some word brought what binds them.
+    const host = layers.find((layer) => layer.host)?.host;
+    const {
+      lazy = false,
+      filters,
+      prepare = prepareCall,
+      ...verbs
+    } = host?.bind(chain) ?? {};
+    const confine = new Map<string, Input[]>();
+    for (const [layer, member] of layers.entries())
+      for (const [model, where] of Object.entries(member.confine))
+        memo(confine, model, () => [])[layer] = where;
+    this.#lazy = filters;
+    this.#prepare = prepare;
     this.#chain = chain;
     this.#layers = layers;
-    this.#verbs = verbs;
+    const layered = layers.find((layer) => layer.layered)?.layered;
+    this.#beside = {
+      ...verbs,
+      ...(confine.size > 0 && { confine, bound }),
+      ...(layered && { layered }),
+    };
+    // An entry given lazily's predicates are not known yet: its calls
+    // carry their values.
     this.#parametric =
-      reads ||
-      layers.some((layer) =>
-        Object.values(layer.references.modes).some((names) => names.length)
-      );
+      lazy || layers.some(({ references }) => references.length > 0);
     this.#order = chain.order && new Map(Object.entries(chain.order));
     this.#required = requiredOn(chain.controls);
-    this.#fallback = this.#modes.reduce(
-      (index, mode) => index + mode.fallback * mode.stride,
-      0
-    );
+    this.#fallback = this.#key(undefined);
   }
-  /** Each layer's mode in `combination`. */
-  #names(combination: number): readonly string[] {
-    return this.#modes.map(
-      (mode) =>
-        mode.names[Math.floor(combination / mode.stride) % mode.names.length]!
-    );
+  /**
+   * The combination `controls` select: each layer's mode, the value its
+   * argument took, or its default where it took none of the mode's values.
+   */
+  #key(controls: AdmittedControls | undefined): string {
+    let key = "";
+    for (const { mode } of this.#layers) {
+      const value = mode && controls?.[mode.name];
+      const taken = mode?.values.find((name) => name === value);
+      key += `${taken ?? mode?.fallback ?? ""}\u0000`;
+    }
+    return key;
   }
   /** What `combination` selects, one domain for every call that takes it. */
-  #domain(combination: number): RowDomain {
+  #domain(combination: string): RowDomain {
     return memo(this.#domains, combination, () => {
-      const modes = this.#names(combination);
+      const modes = combination.split("\u0000");
       return Object.freeze({
-        root: modelDomain(this.#layers, modes, "root", this.#drafts),
-        related: modelDomain(this.#layers, modes, "related", this.#drafts),
-        ...this.#verbs,
+        root: modelDomain(this.#layers, modes, "root", this.#lazy),
+        related: modelDomain(this.#layers, modes, "related", this.#lazy),
+        ...this.#beside,
         ...(this.#order && { order: this.#order }),
       });
     });
   }
-  #combination(combination: number): Combination {
+  #combination(combination: string): Combination {
     const { kept, stamps } = this.#chain;
     const physical: CallRows = Object.freeze({
       domain: this.#domain(combination),
       defaults: this.#domain(this.#fallback),
       ...(stamps && { stamps: stamps.all }),
-      prepare: prepareCall,
+      prepare: this.#prepare,
     });
     return {
       physical,
@@ -191,18 +209,12 @@ export class RowsBinding implements CallRowsBinding {
    * stamp names one, the call's values are put in.
    */
   call(model: string, controls: AdmittedControls | undefined): CallRows {
-    let index = 0;
-    for (const mode of this.#modes) {
-      if (mode.control !== undefined)
-        index +=
-          mode.stride *
-          (mode.modes.get(controls?.[mode.control]) ?? mode.fallback);
-    }
+    const key = this.#key(controls);
     // Looked up without a closure: every call of the chain passes here.
-    let combination = this.#combinations.get(index);
+    let combination = this.#combinations.get(key);
     if (combination === undefined) {
-      combination = this.#combination(index);
-      this.#combinations.set(index, combination);
+      combination = this.#combination(key);
+      this.#combinations.set(key, combination);
     }
     const { kept, stamps } = this.#chain;
     const facts =
@@ -235,14 +247,12 @@ export const bindRows = (chain: ResolvedExtensionChain): RowsBinding =>
  * function's when it is first read), and the chain's call facts bound again.
  */
 export const rulePart: ExtensionPart = {
-  uses: [controlsPart],
   join(application) {
     const { definition, chain, next, schema, registry } = application;
     const { rule } = definition;
     if (rule === undefined) return;
     const layer = admitLayer(rule, schema, definition.name, registry);
-    const { modes, verbs } = layer.references;
-    refuseUndeclared(application, [...Object.values(modes).flat(), ...verbs]);
+    refuseUndeclared(application, layer.references);
     next.rows = Object.freeze([...(chain?.rows ?? []), layer]);
     next.bindRows = bindRows;
   },

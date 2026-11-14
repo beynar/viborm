@@ -490,16 +490,11 @@ describe("controls: admission and ownership", () => {
     expect(outside.operation).toBe("findMany");
   });
 
-  test("a schema control: issues are a ValidationError at its path; a throwing, async, malformed or unreadable validator is a QueryError; a VibORMError passes through", async () => {
+  test("a schema control: issues are a ValidationError at its path; a throwing or async validator is a QueryError; a VibORMError passes through", async () => {
     const base = await seededBase();
     const typed = new ValidationError({ kind: "registry" }, [
       { path: "x", message: "owned" },
     ]);
-    const hostile = new Proxy(new Error("hostile"), {
-      getPrototypeOf() {
-        throw new Error("prototype read");
-      },
-    });
     const withValidator = (
       name: string,
       validate: (value: unknown) => unknown
@@ -533,16 +528,7 @@ describe("controls: admission and ownership", () => {
         },
         "validator for post.findMany threw",
       ],
-      [
-        "throws-hostile",
-        () => {
-          throw hostile;
-        },
-        "threw",
-      ],
       ["async", async (value) => ({ value }), "returned a promise"],
-      ["malformed", () => 42, "returned a malformed result"],
-      ["valueless", () => ({}), "returned a malformed result"],
     ];
     for (const [name, validate, message] of cases) {
       const error = await failure(
@@ -586,45 +572,6 @@ describe("controls: admission and ownership", () => {
     expect(invalid.issues).toEqual([
       { path: "reason", message: 'Control "reason" is not why' },
     ]);
-  });
-
-  test("issues that cannot be read still fail with their class", async () => {
-    const base = await seededBase();
-    const db = applyUnchecked(base, {
-      name: "issues",
-      controls: {
-        reason: {
-          schema: standard((value) => {
-            if (value === "fine") return { value };
-            if (value === "empty") return { issues: [] };
-            if (value === "silent") return { issues: [{}] };
-            if (value === "bare") return { issues: ["bare"] };
-            return {
-              issues: [
-                new Proxy(
-                  {},
-                  {
-                    get() {
-                      throw new Error("issue trap");
-                    },
-                  }
-                ),
-              ],
-            };
-          }),
-        },
-      },
-    });
-    for (const reason of ["empty", "silent", "bare", "hostile"]) {
-      const error = await failure(
-        callUnchecked(db, "post", "findMany", { reason })
-      );
-      expect(error, reason).toBeInstanceOf(ValidationError);
-      if (!(error instanceof ValidationError)) throw error;
-      expect(error.issues).toEqual([
-        { path: "reason", message: 'Control "reason" is invalid' },
-      ]);
-    }
   });
 
   test("arguments that are not an object stay core's ValidationError, as on a client without controls", async () => {

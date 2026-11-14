@@ -18,7 +18,9 @@ import {
   type ExtendedClient,
   extension,
   gate,
+  lazy,
   oneOf,
+  only,
   parts,
   rule,
   when,
@@ -163,6 +165,8 @@ const _everywhere = async () => {
 // A word written in a shared constant is accepted in its wide form; the
 // rule's model admits it where the extension is applied.
 const owned = check({ authorId: "u" });
+const theirs = only({ authorId: "u" });
+const later = lazy(() => ({ read: { where: { postId: "p" } } }));
 const visible = gate({ authorId: "u" });
 const mine = when(arg("mode"), "own", { authorId: "u" });
 const _modes = [when(arg("mode"), "own", { authorId: "u" })];
@@ -176,8 +180,10 @@ base.$extends(
         root: mine,
         related: _modes,
         read: { fields: { title: visible } },
-        update: { check: owned },
+        update: { where: theirs, check: owned },
+        delete: { where: theirs },
       },
+      comment: later,
     })
   )
 );

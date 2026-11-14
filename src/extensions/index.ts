@@ -40,7 +40,7 @@ export { defaults, omitted } from "./defaults";
 export { type DisclosurePolicy, disclosure } from "./disclosure";
 export { extension } from "./extension";
 export { fields } from "./fields";
-export { check, facts, gate, keep } from "./judge-words";
+export { check, facts, gate, keep, lazy, only } from "./judge-words";
 export { key } from "./key";
 export { methods } from "./methods-part";
 export { work } from "./observation";

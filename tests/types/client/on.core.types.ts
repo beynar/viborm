@@ -21,6 +21,7 @@ import {
   gate,
   nothing,
   oneOf,
+  only,
   rule,
   s,
 } from "@src/index";
@@ -230,8 +231,8 @@ const gating = base.$extends(
           where: nothing,
           fields: { title: gate({ authorId: arg("viewer") }) },
         },
-        update: { where: nothing },
-        delete: { where: nothing },
+        update: { where: only(nothing) },
+        delete: { where: only(nothing) },
       },
     })
   )

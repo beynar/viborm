@@ -16,6 +16,7 @@ import {
   extension,
   rule as extRule,
   oneOf,
+  only,
   parts,
   statement,
   unit,
@@ -141,8 +142,8 @@ const teamsPolicy = (rule: object) => {
     extRule({
       page: {
         read: { where: held },
-        update: { where: held, check: check(held) },
-        delete: { where: held },
+        update: { where: only(held), check: check(held) },
+        delete: { where: only(held) },
       },
     })
   );

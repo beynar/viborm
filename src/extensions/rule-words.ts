@@ -6,7 +6,25 @@
  * applies it ({@link CarriedValue}).
  */
 import type { Schema } from "@client/types";
-import type { VerbsDraft } from "./admission";
+import {
+  Condition,
+  type ConditionTest,
+  Existence,
+  OuterColumn,
+  Parameter,
+} from "@query-engine/raptor3/shared/row-scope";
+import type { Input } from "@query-engine/raptor3/shared/schema";
+import { isPlainRecord } from "@schema/relation/terminal";
+import { validateSchema } from "@validation/primitives/helpers";
+import type { FilterWord } from "@validation/primitives/parameter";
+import type { SchemaRegistryLookup } from "@validation/types";
+import type {
+  Layered,
+  LayerMode,
+  References,
+  RuleLayer,
+  VerbsDraft,
+} from "./admission";
 import type {
   ArgTest,
   ArgWord,
@@ -20,6 +38,8 @@ import type {
   WhenWord,
 } from "./contract";
 import type { DefinitionDraft } from "./extension";
+import { layerOf } from "./layers";
+import { NOW } from "./stamps";
 
 /**
  * Where one carried word is written: its model, its place (`create.check`,
@@ -49,43 +69,148 @@ export abstract class CarriedValue {
   abstract join(site: Site): void;
 }
 
+/**
+ * A word written inside a predicate: what the rule's admission makes of it
+ * where it stands (`value` where a value goes, `filter` where a filter
+ * goes), and, for a test of an argument, what decides a layer's mode. Each
+ * word carries its own, so a program holds the code of the words it writes.
+ */
+export abstract class PredicateWord {
+  /** What admission puts where the word stands as a value. */
+  value?(at: Admitting): object;
+  /** What admission puts where the word stands as a filter. */
+  filter?(at: Admitting): FilterWord;
+  /** Where the word heads a filter list: its layer's mode, once known. */
+  place?(layer: RuleLayer, draft: DefinitionDraft): void;
+  /**
+   * The word in a list read under one value of its layer's mode: itself,
+   * what it applies there, or `undefined` where it applies nothing.
+   */
+  under?(mode: LayerMode | undefined, value: string): unknown;
+  /** What a field of default or kept data writes for the word. */
+  stamp?(): unknown;
+  /** A `when` or an `unless`: its argument, its test and what it applies. */
+  tested?():
+    | {
+        readonly kind: "when" | "unless";
+        readonly arg: ArgValue;
+        readonly test: ArgTest;
+        readonly then: unknown;
+      }
+    | undefined;
+}
+
+/** What admission hands a word: what records its call values, and the schema. */
+export interface Admitting {
+  readonly references: References;
+  readonly schema: Schema;
+  readonly registry: SchemaRegistryLookup<Schema>;
+  /** What lowers a layer that reads its call: set by the words that read it. */
+  layered?: Layered;
+}
+
 /** `arg(name, path?)`'s value: the call's value for one argument, or a field of it. */
-export class ArgValue {
+export class ArgValue extends PredicateWord {
   readonly name: string;
   readonly path: string | undefined;
   constructor(name: string, path: string | undefined) {
+    super();
     this.name = name;
     this.path = path;
+  }
+  override value(at: Admitting): object {
+    at.references.add(this.name);
+    at.layered = layerOf;
+    return this.stamp();
+  }
+  override stamp(): Parameter {
+    return new Parameter(this.name, this.path);
   }
 }
 
 /** `now`'s value: the call's one instant. */
-export class NowValue {}
+export class NowValue extends PredicateWord {
+  override value(at: Admitting): object {
+    at.references.add(undefined);
+    at.layered = layerOf;
+    return new Parameter();
+  }
+  override stamp(): Parameter {
+    return NOW;
+  }
+}
 
 /** `row(column, up?)`'s value: a column of the row `up` relation bodies above. */
-export class RowValue {
+export class RowValue extends PredicateWord {
   readonly column: string;
   readonly up: number;
   constructor(column: string, up: number) {
+    super();
     this.column = column;
     this.up = up;
+  }
+  override value(): object {
+    return new OuterColumn(this.column, this.up);
   }
 }
 
 /** `exists({ model: where })`'s filter. */
-export class ExistsFilter {
+export class ExistsFilter extends PredicateWord {
   readonly spec: Readonly<Record<string, object>>;
   constructor(spec: Readonly<Record<string, object>>) {
+    super();
     this.spec = spec;
   }
+  override filter({ schema, registry }: Admitting): FilterWord {
+    const models = Object.keys(this.spec);
+    const [model] = models;
+    if (models.length !== 1 || !Object.hasOwn(schema, model!))
+      return {
+        message:
+          "exists() names exactly one model of the schema and the `where` its rows must match",
+        path: [],
+      };
+    const result = validateSchema(
+      registry.getModelSchemas(schema[model!]!).core.where,
+      this.spec[model!]
+    );
+    if (result.issues) {
+      const [issue] = result.issues;
+      return {
+        message: issue!.message,
+        path: [model!, ...(issue!.path ?? [])],
+      };
+    }
+    return { nodes: [new Existence(model!, result.value as Input)] };
+  }
+}
+
+/** A condition's tests, the filter vocabulary's own words (OD-12). */
+const TESTS = ["exists", "equals", "in", "has", "hasSome"];
+
+/** A test of an argument, or why it is refused. */
+function testOf(given: unknown): ConditionTest | string {
+  const test = isPlainRecord(given) ? given : { equals: given };
+  const [kind, ...others] = Object.keys(test);
+  const operand = test[kind!];
+  return !TESTS.includes(kind!) ||
+    others.length > 0 ||
+    (kind === "exists" && typeof operand !== "boolean") ||
+    ((kind === "in" || kind === "hasSome") && !Array.isArray(operand))
+    ? `a test is a value or exactly one of ${TESTS.join(", ")}`
+    : // Exactly one known test, its operand checked above.
+      (Object.freeze({ ...test }) as ConditionTest);
 }
 
 /**
  * `when`, `unless` and `provided`: a test of an argument's value. `when`
  * applies `then` where the test holds and nothing elsewhere; `unless` the
  * reverse; `provided` holds only where the test holds (and `then`, if any).
+ * A `when` or `unless` heading a filter list, on an argument of the
+ * extension with closed values and a default, decides its layer's mode: it
+ * is read per mode, not per call.
  */
-export class ArgTestFilter {
+export class ArgTestFilter extends PredicateWord {
   readonly kind: "when" | "unless" | "provided";
   readonly arg: ArgValue;
   readonly test: ArgTest;
@@ -96,10 +221,80 @@ export class ArgTestFilter {
     test: ArgTest,
     then: unknown
   ) {
+    super();
     this.kind = kind;
     this.arg = tested;
     this.test = test;
     this.then = then;
+  }
+  override filter(at: Admitting): FilterWord {
+    const test = testOf(this.test);
+    if (typeof test === "string") return { message: test, path: [] };
+    const { arg, kind, then } = this;
+    at.references.add(arg.name);
+    at.layered = layerOf;
+    const condition = new Condition(new Parameter(arg.name, arg.path), test);
+    if (kind === "provided")
+      return then === undefined
+        ? { nodes: [condition] }
+        : { nodes: [condition], where: { AND: [condition, then] } };
+    return {
+      nodes: [condition],
+      where: { OR: [kind === "when" ? { NOT: condition } : condition, then] },
+    };
+  }
+  override place(layer: RuleLayer, draft: DefinitionDraft): void {
+    // Once every part wrote, before what decides from the mode: the
+    // argument is the extension's, declared by its `args` part wherever it
+    // stands. The first such test decides, root lists before related ones.
+    draft.finish.unshift(() => {
+      if (layer.mode !== undefined) return;
+      for (const item of [
+        ...Object.values(layer.root),
+        ...Object.values(layer.related),
+      ].flat()) {
+        if (
+          !(item instanceof ArgTestFilter) ||
+          item.kind === "provided" ||
+          item.arg.path !== undefined
+        )
+          continue;
+        const spec = draft.controls?.[item.arg.name];
+        if (
+          spec === undefined ||
+          !("oneOf" in spec) ||
+          spec.default === undefined
+        )
+          continue;
+        layer.mode = {
+          name: item.arg.name,
+          values: spec.oneOf.map(String),
+          fallback: String(spec.default),
+        };
+        return;
+      }
+    });
+  }
+  override tested() {
+    const { kind, arg, test, then } = this;
+    return kind === "provided" ? undefined : { kind, arg, test, then };
+  }
+  override under(mode: LayerMode | undefined, value: string): unknown {
+    const { arg, kind, test } = this;
+    if (
+      kind === "provided" ||
+      arg.path !== undefined ||
+      arg.name !== mode?.name
+    )
+      return this;
+    const passed = isPlainRecord(test)
+      ? "in" in test && Array.isArray(test.in)
+        ? test.in.includes(value)
+        : "equals" in test
+          ? test.equals === value
+          : "exists" in test && test.exists === true
+      : test === value;
+    return passed === (kind === "when") ? this.then : undefined;
   }
 }
 
@@ -125,9 +320,8 @@ export function arg(name: string, path?: string): unknown {
  * A filter no row holds: what a rule writes for a write it never allows
  * (`update: { where: nothing }`).
  */
-export const nothing: { readonly OR: readonly never[] } = Object.freeze({
-  OR: Object.freeze([]),
-});
+export const nothing: { readonly OR: readonly never[] } =
+  /* @__PURE__ */ Object.freeze({ OR: /* @__PURE__ */ Object.freeze([]) });
 
 /** The call's one instant: the same for every row it writes. */
 export const now: NowWord = /* @__PURE__ */ nowValue();

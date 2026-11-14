@@ -25,6 +25,7 @@ import {
   gate,
   nothing,
   now,
+  only,
   provided,
   row,
   type VibORMConfig,
@@ -608,13 +609,15 @@ export function ruleEntryOf(
     ...(root.length > 0 && { root }),
     create: { check: check(P(model.place)) },
     update: {
-      where: P(model.update),
+      where: only(P(model.update)),
       fields: Object.fromEntries(
         [...new Set([...Object.keys(writes), ...Object.keys(moves)])].map(
           (field) => [
             field,
             {
-              ...(writes[field] !== undefined && { where: P(writes[field]) }),
+              ...(writes[field] !== undefined && {
+                where: only(P(writes[field])),
+              }),
               ...(moves[field] !== undefined && {
                 check: check(P(moves[field])),
               }),
@@ -623,7 +626,7 @@ export function ruleEntryOf(
         )
       ),
     },
-    delete: { where: P(model.delete) },
+    delete: { where: only(P(model.delete)) },
     ...((acyclic ?? model.acyclic) !== undefined && {
       acyclic: acyclic ?? model.acyclic,
     }),

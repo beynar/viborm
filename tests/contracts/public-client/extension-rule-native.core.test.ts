@@ -7,7 +7,16 @@
 import { createClient } from "@drivers/sqlite3";
 import { ForbiddenError, VibORMError } from "@errors";
 import { s } from "@schema";
-import { arg, args, extension, nothing, oneOf, rule, when } from "@src/index";
+import {
+  arg,
+  args,
+  extension,
+  nothing,
+  oneOf,
+  only,
+  rule,
+  when,
+} from "@src/index";
 import { permissions } from "@src/permissions";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { v } from "@validation";
@@ -90,8 +99,8 @@ describe("an action a rule does not grant is an explicit nothing", () => {
         rule({
           post: {
             read: { where: { ownerId: "u1" } },
-            update: { where: nothing },
-            delete: { where: nothing },
+            update: { where: only(nothing) },
+            delete: { where: only(nothing) },
           },
         } as never)
       )

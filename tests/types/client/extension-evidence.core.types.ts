@@ -11,15 +11,16 @@ import { MemoryCache } from "@src/cache/drivers/memory";
 import { cache } from "@src/cache/exports";
 import { PGliteDriver } from "@src/drivers/pglite";
 import {
-  createClient,
-  s,
-  extension,
-  rule,
   args,
+  createClient,
+  extension,
+  facts,
+  gate,
   nothing,
   oneOf,
-  gate,
-  facts,
+  only,
+  rule,
+  s,
 } from "@src/index";
 import { describe, expectTypeOf, test } from "vitest";
 
@@ -68,21 +69,21 @@ const db = base.$extends(
           fields: { secret: gate(postEdit) },
           select: { $access: facts({ view: postView, edit: postEdit }) },
         },
-        update: { where: nothing },
-        delete: { where: nothing },
+        update: { where: only(nothing) },
+        delete: { where: only(nothing) },
       },
       user: {
         read: {
           where: userView,
           select: { $access: facts({ view: userView, edit: {}, full: {} }) },
         },
-        update: { where: nothing },
-        delete: { where: nothing },
+        update: { where: only(nothing) },
+        delete: { where: only(nothing) },
       },
       note: {
         read: { where: {} },
-        update: { where: nothing },
-        delete: { where: nothing },
+        update: { where: only(nothing) },
+        delete: { where: only(nothing) },
       },
     })
   )
@@ -202,16 +203,16 @@ test("cached views preserve two projection keys and exact nested results", () =>
                 }),
               },
             },
-            update: { where: nothing },
-            delete: { where: nothing },
+            update: { where: only(nothing) },
+            delete: { where: only(nothing) },
           },
           user: {
             read: {
               where: userContact,
               select: { $review: facts({ contact: userContact }) },
             },
-            update: { where: nothing },
-            delete: { where: nothing },
+            update: { where: only(nothing) },
+            delete: { where: only(nothing) },
           },
         })
       )
@@ -282,8 +283,8 @@ describe("a lazy verbs entry (a function returning it)", () => {
               fields: { secret: gate(postEdit2) },
               select: { $access: facts({ view: postView2, edit: postEdit2 }) },
             },
-            update: { where: nothing },
-            delete: { where: nothing },
+            update: { where: only(nothing) },
+            delete: { where: only(nothing) },
           };
         },
       })
