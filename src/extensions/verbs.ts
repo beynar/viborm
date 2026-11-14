@@ -201,8 +201,8 @@ function admitVerbs(
       admission.refuse(name, `verbs.${name}`, "root", "names an unknown model");
     if (typeof entry === "function") {
       let resolved: RowsVerbs | undefined;
-      admitted[name] = () =>
-        (resolved ??= admitEntry(admission, name, entry()));
+      const lazily = () => (resolved ??= admitEntry(admission, name, entry()));
+      admitted[name] = lazily;
       continue;
     }
     const own = admitEntry(admission, name, entry);
