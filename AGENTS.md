@@ -507,9 +507,10 @@ authenticated by identity; the engine names none (the same census).
   `args` (the mutation option `cache` on `writes`; `cacheRead`, `bound`,
   which `$withCache()` binds), a `call` on `target(writes)` whose `settled`
   invalidates, an `around` on `target(reads)` with `{ inner: true }` keyed
-  by `key(run)` and storing `codec(run)`'s snapshot, and `methods`
-  (`$withCache`, `$invalidate`, which uses `settled(scope)`). Its scope is
-  derived from the private snapshot revision, `version`, and `database(x)`
+  by `key(run)` and storing the driver's rows through `codec(run)` (a hit
+  is decoded again by the engine), and `methods` (`$withCache`,
+  `$invalidate`, which uses `settled(scope)`). Its scope is derived from the
+  private storage revision (`r6`), `version`, and `database(x)`
   (dialect and SQL namespace), memoized by value inside the extension —
   never add a registry to hand an old one back.
 - `instrumentation(config)` (`src/instrumentation/extension.ts`): one

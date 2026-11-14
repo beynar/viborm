@@ -149,11 +149,7 @@ unexpected columns and invalid counts raise typed errors; result code never
 substitutes a plausible empty object, array, count or null for malformed
 provider output. Middleware caches stay isolated per driver.
 
-What survives in `result/` outside the route is the CACHE boundary's value
-codecs — `cache-value-codecs.ts`, `cache-json-codec.ts`,
-`cache-snapshot-structure.ts`, which `codec(run)` (`src/extensions/codec.ts`)
-composes per prepared shape and the cache wraps (`src/cache/result-codec.ts`)
-— plus the result-shape vocabulary
+What survives in `result/` outside the route is the result-shape vocabulary
 (`result-shape.ts`, `result-column.ts`, `result-aggregate-leaf.ts`) that
 `client/typescript-type-renderer.ts` reads. `ExpectedResultShape` remains the
 one runtime source for public TypeScript result rendering: a selected computed
@@ -190,7 +186,6 @@ code on disk.
 | `batch-error-attribution.ts` | attribution of a native-batch assertion failure to the guard that raised it, and the ONE guard-failure-to-error construction |
 | `raptor3/shared/parse-boundary.ts` | the typed parse boundary: the one place a user payload becomes a validated, typed value |
 | `result/groupby-fields.ts` | the groupBy field vocabulary `result/result-shape.ts` reads |
-| `result/cache-*.ts` | the cache boundary's codecs and snapshot structure |
 | `result/result-shape.ts`, `result-column.ts`, `result-aggregate-leaf.ts` | the result-shape vocabulary the client's TypeScript renderer reads; `result-shape.ts` also owns the selection rules the prepared projection shares with it (`selectedArm`, the distance sentences) |
 | `bind-budget.ts`, `execution-context.ts`, `query-inspection.ts`, `result-aliases.ts`, `write-sinks.ts` | retained boundaries outside either engine; `write-sinks.ts` is where a write shows its rows to what watches them |
 
@@ -238,9 +233,15 @@ class-private state before reservation or preparation. No operation method,
 symbol property, public token, or structural protocol grants execution
 authority.
 
-The official cache has no seam here: it is an `around` with `{ inner: true }`
-that keys a read by `key(run)` (the prepared statement) and stores
-`codec(run)`'s snapshot (see `src/cache/AGENTS.md`). A late `run()` after its
+The official cache is an `around` with `{ inner: true }` that keys a read by
+`key(run)` (the prepared statement) and stores what `codec(run)` keeps (see
+`src/cache/AGENTS.md`). Its one seam here is `PreparedOperation.seen`: a
+function the read is told the rows the driver returned for its one statement,
+before decoding them; a hit hands stored rows to the same prepared read's
+parser (`prepareSingle(…).parseResult`), so there is no second walker over the
+decoded answer. A read with `seen` set reads object rows (never the positional
+transport) and is never folded into a shared `findUnique` batch
+(`pending-operation.ts`), whose rows are not its own. A late `run()` after its
 handler returned replays the core alone (`context.replay()`).
 
 ## Core rules

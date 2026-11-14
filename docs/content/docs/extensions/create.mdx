@@ -126,7 +126,7 @@ fields, and `disclosure` says what a thrown error may carry:
 | Wrap one prepared logical call | `around` | Asynchronous continuation around execution |
 | Receive the rows a write wrote, act after its commit | `call` with `watch`, `settled` | Rows once every write of the call is made; a function after the durable commit |
 | Make a failed call again, send a read elsewhere | `around` with `again`, `via` | Allowed only where nothing was written; reads outside a transaction |
-| Store answers beside the database | `around` with `key`, `codec`, `database` | A key per prepared statement, a detached form of the answer |
+| Store answers beside the database | `around` with `key`, `codec`, `database` | A key per prepared statement, the driver's rows of the answer stored as JSON data |
 | Observe physical work | `unit` | Around a real unit: `next()` lets it run and returns its end |
 | Rewrite a statement | `unit` with `{ rewrites: true }` | Trusted `Sql → Sql`, before rendering |
 | Run SQL as a transaction opens | `unit` on `"transaction"` with `run` | First in every transaction |
@@ -412,10 +412,10 @@ const memo = extension(
       if (id === undefined) return run(); // nothing to key: run it
       const { dialect, namespace } = database(c);
       const slot = `${dialect}:${namespace ?? ""}:${id}`;
-      const { snapshot, materialize } = codec(run);
-      if (answers.has(slot)) return materialize(answers.get(slot));
-      const value = await run();
-      answers.set(slot, snapshot(value));
+      const rows = codec(run);
+      if (answers.has(slot)) return rows.materialize(answers.get(slot));
+      const value = await rows.run(); // runs it, keeping the driver's rows
+      answers.set(slot, rows.snapshot());
       return value;
     },
     target(reads),
@@ -438,10 +438,17 @@ const memo = extension(
   rewrites statements, for a call that carries a value of a `.volatile()`
   argument, and for an operation that is not one statement (a write, a read
   that needs several).
-- `codec(run)` gives `snapshot(value)` and `materialize(stored)` for a read's
-  answer: a detached form to store, and a fresh public graph from it. It is
-  made once per prepared shape. A raw query has none: `codec` refuses it with
-  an `UnsupportedOperationError`.
+- `codec(run)` stores a read's answer as the rows the driver returned for
+  its one statement, and restores it. `run()` executes the call as `run`
+  does and keeps those rows; `snapshot()` gives them as JSON data (a value
+  JSON cannot carry, such as a bigint, a `Date` or bytes, written as a
+  tagged array), and throws a `TypeError` when the last `run()` kept no rows
+  or a row holds a value it cannot store; `materialize(stored)` hands stored
+  rows to the driver's result parser and the engine's decoder, as if the
+  driver had just returned them, and gives a fresh answer on every call. It
+  throws when `stored` is not such rows or the decoder refuses a value. A
+  call that is not a model's read (a raw query, a write) has none: `codec`
+  refuses it with an `UnsupportedOperationError`.
 - `database(x)`, on a first moment's `c`, a `run` or a method's scope, gives
   the database's `dialect` and SQL `namespace` (a PostgreSQL schema, a MySQL
   database; `undefined` where the dialect qualifies nothing), never a
