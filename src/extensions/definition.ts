@@ -16,17 +16,12 @@ import type { ExtensionPart } from "./chain";
 import type { ControlsContribution } from "./controls";
 import type { Deletion } from "./kept";
 import type { RuntimeMethodsFactory } from "./methods";
-import type { RuntimeQueryContribution } from "./query";
 import type { RuntimeResultContribution } from "./result";
-
-type RuntimeExtensionFunction = (...args: never[]) => unknown;
 
 export interface RuntimeExtensionDefinition {
   readonly name: string;
   /** Each `call` and `around` part, in the order the extension names them. */
   readonly calls?: readonly CallEntry[];
-  readonly query?: RuntimeQueryContribution;
-  readonly written?: RuntimeExtensionFunction;
   /** The factory `methods` takes. */
   readonly methods?: RuntimeMethodsFactory;
   readonly controls?: ControlsContribution;

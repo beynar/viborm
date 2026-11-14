@@ -5,8 +5,8 @@
  * the words it imports.
  */
 import type { AnyDriver } from "@drivers/exports";
-import { AGAIN, VIA } from "./call";
 import type { Run, Watcher } from "./contract";
+import { AGAIN, VIA } from "./origin";
 import { REGISTER } from "./watch-part";
 import { showRows } from "./written";
 

@@ -14,7 +14,6 @@
  * never sees a raw statement.
  */
 import type { Schema } from "@client/types";
-import type { AnyDriver } from "@drivers/exports";
 import { QueryError, VibORMError } from "@errors";
 import { isFunction, isRecord } from "@validation/value-guards";
 import { errorCause } from "../errors/diagnostic-safety";
@@ -37,7 +36,7 @@ import { builtPart, type DefinitionDraft } from "./extension";
 import { handlersOf, type PlacedHandler } from "./handlers";
 import { MODEL_OPERATIONS, type SelectionValue, selectionOf } from "./on";
 import { CALL } from "./origin";
-import type { QueryInterceptorContext } from "./query";
+import type { AroundRunner } from "./query";
 import { SHAPE_KEYS } from "./request";
 import { REGISTER, type Registering, type WatchPart } from "./watch-part";
 
@@ -104,10 +103,6 @@ export type FirstMoment = (
   controls: ResolvedControls | undefined,
   admitted: AdmittedControls | undefined
 ) => void;
-
-/** The keys a second moment's `run` carries for `again` and `via`. */
-export const AGAIN = Symbol("viborm.again");
-export const VIA = Symbol("viborm.via");
 
 type SecondMoment = (run: unknown) => unknown;
 
@@ -258,41 +253,23 @@ const rawTold = (call: object, first: FirstMoment): Registering => ({
 });
 
 /**
- * The second moment of one `around` part, as a query handler: the second
- * its first returned for this call, run around the child. The runner makes
- * the child's failure the call's.
+ * The second moment of one `around` part: the second its first returned for
+ * this call, run around `run`. The runner makes the child's failure the
+ * call's.
  */
 const secondMoment =
-  (first: FirstMoment) =>
-  async (context: QueryInterceptorContext<unknown>): Promise<unknown> => {
+  (first: FirstMoment): AroundRunner =>
+  (prepared, run, register) => {
     // The object both moments of the call were handed: a model call's
     // own, and for a raw statement its input, which `raw.ts` hands both.
-    const call = context.kind === "model" ? context.call : context.input;
+    const call = prepared.kind === "model" ? prepared.call : prepared.input;
     const kept = call && seconds.get(call)?.get(first);
     // The host tells a raw execute family's outcome to what its first
     // moment registered; a raw read's outcome is no write and is dropped.
-    for (const listener of kept?.settled ?? [])
-      context.onWriteOutcome(listener);
-    const second = kept?.second;
-    if (second === undefined) return context.proceed();
-    // Once the second moment returned, `run()` is a direct read's refresh:
-    // the core alone, never awaited by the call.
-    let returned = false;
-    const run = Object.defineProperties(
-      () => (returned ? context.replay() : context.proceed()),
-      {
-        input: { get: () => context.input },
-        mode: { value: context.mode },
-        [CALL]: {
-          value: context.kind === "model" ? context.call : undefined,
-        },
-        [AGAIN]: { value: context.again },
-        [VIA]: { value: context.proceedOn },
-      }
-    );
-    const value = await second(run);
-    returned = true;
-    return value;
+    for (const listener of kept?.settled ?? []) register(listener);
+    return kept?.second === undefined
+      ? (run as () => unknown)()
+      : kept.second(run);
   };
 
 /**

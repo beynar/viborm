@@ -11,6 +11,9 @@ import type { AdmittedControls } from "./controls";
 
 /** The key of the call a first moment's context and a `run` belong to. */
 export const CALL = Symbol("viborm.call");
+/** The keys a second moment's `run` carries for `again` and `via`. */
+export const AGAIN = Symbol("viborm.again");
+export const VIA = Symbol("viborm.via");
 /** The key of the view a method's scope serves. */
 export const SCOPE = Symbol("viborm.scope");
 

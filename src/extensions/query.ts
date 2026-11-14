@@ -9,18 +9,10 @@ import {
   VibORMError,
 } from "@errors";
 import { isReadOperation } from "@query-engine/routed-operations";
-import { isFunction } from "@validation/value-guards";
 import { isError } from "../errors/diagnostic-safety";
-import type { ExtensionPart, ResolvedOperationHandler } from "./chain";
-import { type AdmittedControls, controlsOwnedBy } from "./controls";
-import { coordinate, QUERIES, UNITS } from "./coordination";
-import { handlersOf, type PlacedHandler } from "./handlers";
-
-/** Frozen runtime contribution after hostile definition normalization. */
-type RuntimeQueryFunction = (...args: never[]) => unknown;
-export type RuntimeQueryContribution =
-  | RuntimeQueryFunction
-  | Readonly<Record<string, Readonly<Record<string, RuntimeQueryFunction>>>>;
+import type { ResolvedOperationHandler } from "./chain";
+import type { AdmittedControls } from "./controls";
+import { AGAIN, CALL, VIA } from "./origin";
 
 export type QueryInterceptionMode = "direct" | "transaction" | "array";
 
@@ -74,52 +66,6 @@ export type WriteOutcomeListener = (
   outcome: WriteOutcome
 ) => unknown | Promise<unknown>;
 
-export type GenericQueryKind = "model" | RawQueryKind;
-
-type GenericQueryContextBase<Result> = {
-  readonly mode: QueryInterceptionMode;
-  readonly input: Readonly<Record<string, unknown>>;
-  readonly proceed: () => Promise<Result>;
-  readonly onWriteOutcome: (listener: WriteOutcomeListener) => void;
-};
-
-type GenericModelQueryContext<Result> = GenericQueryContextBase<Result> & {
-  readonly kind: "model";
-  readonly model: string;
-  readonly operation: Operations;
-  /** The call's controls this handler's extension declares, and only those. */
-  readonly controls?: AdmittedControls;
-};
-
-type GenericRawQueryContext<Result> = GenericQueryContextBase<Result> &
-  {
-    [Kind in RawQueryKind]: {
-      readonly kind: Kind;
-      readonly model: undefined;
-      readonly operation: `$${Kind}`;
-    };
-  }[RawQueryKind];
-
-export type GenericQueryContext<Result> =
-  | GenericModelQueryContext<Result>
-  | GenericRawQueryContext<Result>;
-
-type GenericQueryHandlerCall = <Result>(
-  context: GenericQueryContext<Result>
-) => Promise<Result>;
-
-declare const officialQueryHandlerIdentity: unique symbol;
-
-/** Public ordinary query handler; official identities cannot be erased into it. */
-export type GenericQueryHandler = GenericQueryHandlerCall & {
-  readonly [officialQueryHandlerIdentity]?: never;
-};
-
-/** Internal nominal call shape used by official query-based capabilities. */
-export type OfficialGenericQueryHandler = GenericQueryHandlerCall & {
-  readonly [officialQueryHandlerIdentity]: true;
-};
-
 export interface WriteOutcomeRegistration {
   readonly extension: string;
   readonly listener: WriteOutcomeListener;
@@ -136,32 +82,8 @@ export interface WriteOutcomeNotifications {
   readonly mayHaveCommitted: () => Promise<void>;
 }
 
-interface QueryInterceptorCapabilities<Result> {
-  readonly proceed: () => Promise<Result>;
-  readonly onWriteOutcome: (listener: WriteOutcomeListener) => void;
-  /**
-   * Whether the call may be made again, and if so, `proceed` may be called
-   * once more: a direct call whose child failed with nothing written.
-   */
-  readonly again: () => boolean;
-  /** `proceed` on another driver: a direct read only; elsewhere `proceed`. */
-  readonly proceedOn: (driver: AnyDriver) => Promise<Result>;
-  /**
-   * Run the core alone, once, whatever the handler did: a direct read's
-   * refresh after its handler returned. Anything else is refused.
-   */
-  readonly replay: () => Promise<Result>;
-}
-
 /** The child a handler chain runs: on the driver a handler chose, if any. */
 type Child<Result> = (driver?: AnyDriver) => Promise<Result>;
-
-export type QueryInterceptorContext<
-  Result,
-  Input extends object = Record<string, unknown>,
-> = Readonly<
-  PreparedQueryContext<Input> & QueryInterceptorCapabilities<Result>
->;
 
 type ReadCommitCertainty = () => WriteOutcome["certainty"] | undefined;
 
@@ -379,6 +301,13 @@ export function runCompiledQueryInterceptors<Result, Input extends object>(
   return at(0);
 }
 
+/** What one `around` part runs for a call: its second moment, around `run`. */
+export type AroundRunner = (
+  prepared: PreparedQueryContext<object>,
+  run: object,
+  register: (listener: WriteOutcomeListener) => void
+) => unknown;
+
 /**
  * One handler around its child. Once the child ran, its failure is the
  * call's, whatever the handler returns or throws after it; a handler that
@@ -427,60 +356,52 @@ async function runOneInterceptor<Result, Input extends object>(
     running = promise;
     return promise;
   };
-  const capabilities: QueryInterceptorCapabilities<Result> = {
-    proceed: () => proceed(),
-    onWriteOutcome(listener) {
-      if (!isFunction(listener))
-        throw refuse("registered a non-function write-outcome listener");
-      if (running !== undefined || settled)
-        throw refuse("registered a write-outcome listener after proceed");
-      captureWriteOutcome(Object.freeze({ extension, listener }));
-    },
-    // A direct call whose child failed with nothing written, or maybe
-    // written, may be made again: once per failure.
-    again() {
-      if (
-        prepared.mode !== "direct" ||
-        !childFailed ||
-        settled ||
-        readCommitCertainty?.() !== undefined
-      )
-        return false;
-      childFailed = false;
-      open = true;
-      return true;
-    },
-    proceedOn: (driver) => (directRead ? proceed(driver) : proceed()),
-    replay() {
+  const run = Object.defineProperties(
+    (): Promise<Result> => {
+      if (!settled) return proceed();
       if (!replayable) throw refuse("ran the call again");
       replayable = false;
       return startChild(core);
     },
+    {
+      input: { get: () => prepared.input },
+      mode: { value: prepared.mode },
+      [CALL]: { value: prepared.kind === "model" ? prepared.call : undefined },
+      // A direct call whose child failed with nothing written, or maybe
+      // written, may be made again: once per failure.
+      [AGAIN]: {
+        value: () => {
+          if (
+            prepared.mode !== "direct" ||
+            !childFailed ||
+            settled ||
+            readCommitCertainty?.() !== undefined
+          )
+            return false;
+          childFailed = false;
+          open = true;
+          return true;
+        },
+      },
+      [VIA]: {
+        value: (driver: AnyDriver) =>
+          directRead ? proceed(driver) : proceed(),
+      },
+    }
+  );
+  const register = (listener: WriteOutcomeListener): void => {
+    if (running !== undefined || settled)
+      throw refuse("registered a write-outcome listener after proceed");
+    captureWriteOutcome(Object.freeze({ extension, listener }));
   };
-  // `kind`, `model` and `operation` are copied from one prepared context, so
-  // they stay one of its arms; TypeScript cannot correlate the copies.
-  // `input` is read through: the prepared context snapshots it at the first
-  // read, which a handler that never inspects it does not pay for.
-  const handlerContext = Object.freeze({
-    mode: prepared.mode,
-    kind: prepared.kind,
-    model: prepared.model,
-    operation: prepared.operation,
-    get input() {
-      return prepared.input;
-    },
-    ...(prepared.kind === "model" && { call: prepared.call }),
-    // For the handlers of the `query` member to take their own from.
-    ...(prepared.kind === "model" &&
-      prepared.controls !== undefined && { controls: prepared.controls }),
-    ...capabilities,
-  }) as QueryInterceptorContext<Result, Input>;
   let outcome: { readonly value: Result } | { readonly reason: unknown };
   try {
     outcome = {
-      value: await Reflect.apply(interceptor.handler, undefined, [
-        handlerContext,
-      ]),
+      value: (await (interceptor.handler as AroundRunner)(
+        prepared,
+        run,
+        register
+      )) as Result,
     };
   } catch (reason) {
     outcome = { reason };
@@ -724,62 +645,3 @@ export async function publishWriteOutcomes(
   }
   if (first !== undefined) throw first.failure;
 }
-
-import type { Operations } from "@client/types";
-
-/**
- * `query`: handlers around each prepared call, written as a definition's raw
- * member (one handler of every call, or one per model and operation): what
- * the tests of the host give it. A chain built with this part always holds a
- * lookup, empty where no definition declared one.
- */
-export const queryPart: ExtensionPart = {
-  join({ next, chain, definition, owner }) {
-    const contribution = definition.query;
-    const declared = owner.controls;
-    // A handler sees its own extension's controls, and only those.
-    const own = (
-      handler: RuntimeQueryFunction,
-      on?: PlacedHandler["on"]
-    ): PlacedHandler =>
-      Object.freeze({
-        extension: owner.name,
-        handler: ({
-          controls,
-          ...context
-        }: {
-          readonly kind: string;
-          readonly controls?: AdmittedControls;
-        }) =>
-          Reflect.apply(handler, undefined, [
-            Object.freeze(
-              declared === undefined || context.kind !== "model"
-                ? context
-                : { ...context, controls: controlsOwnedBy(controls, declared) }
-            ),
-          ]),
-        controls: declared,
-        on,
-      });
-    const added =
-      typeof contribution === "function"
-        ? [own(contribution)]
-        : Object.entries(contribution ?? {}).flatMap(([model, operations]) =>
-            Object.entries(operations).map(([operation, handler]) =>
-              own(handler, {
-                models: new Set([model]),
-                operations: new Set([operation]),
-              })
-            )
-          );
-    if (added.length === 0 && chain?.query !== undefined) return;
-    next.query = Object.freeze(
-      handlersOf([...(chain?.query?.placed ?? []), ...added])
-    );
-    // Its handlers may register write outcomes: the write rail comes too.
-    if (next.query.placed.length > 0) {
-      coordinate(next, QUERIES);
-      coordinate(next, UNITS);
-    }
-  },
-};
