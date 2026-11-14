@@ -13,7 +13,6 @@ import type {
   OperationPayload,
   OperationResult,
 } from "../client/exports";
-import type { SqlDialect } from "../drivers/types";
 import {
   ClientInitializationError,
   NotFoundError,
@@ -36,7 +35,7 @@ import { computed, joined, stored } from "../index";
 import { getRowKey } from "../schema/model/keys";
 import { type Sql, sql } from "../sql/sql";
 import { appendKey } from "./append";
-import { between, jitter, spellings } from "./between";
+import { between, jitter, type KeyDialect, spellings } from "./between";
 import { isKeyFormat, keyBetween } from "./keys";
 import { placed } from "./placed";
 
@@ -347,7 +346,7 @@ function respaceJoin(
 ): { source: Sql; on: Sql } {
   {
     const { key, within, identity } = ordered;
-    const s = spellings[q.dialect as SqlDialect];
+    const s = spellings[q.dialect as KeyDialect];
     const terms = order.flatMap((term) => Object.entries(term));
     const column = (field: string, alias?: string) => q.column(field, alias);
     const at = (alias: string, prefix: string, count: number) =>

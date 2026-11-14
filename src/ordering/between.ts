@@ -14,7 +14,7 @@
 // each time a row is placed into the same gap; past MAX_KEY_LENGTH, or
 // between tied keys, the expression is NULL, and the move respaces the list.
 
-import type { SqlDialect } from "../drivers/types";
+import type { ComputedContext } from "../index";
 import { type Sql, sql } from "../sql/sql";
 import { MAX_KEY_LENGTH } from "./keys";
 
@@ -68,8 +68,11 @@ const plainLength = (text: Sql) => sql`length(${text})`;
 const namedOnce = (body: Sql, columns: Sql, on: Sql) =>
   sql`WITH g AS (${body}) SELECT ${columns} FROM g AS t JOIN g AS m ON ${on}`;
 
+/** A dialect a statement spells a key in: every one but SurrealDB, which computes keys itself. */
+export type KeyDialect = Exclude<ComputedContext["dialect"], "surrealql">;
+
 /** Every SQL dialect spells a key: a new one is a compile error here. */
-export const spellings: Readonly<Record<SqlDialect, Spelling>> = {
+export const spellings: Readonly<Record<KeyDialect, Spelling>> = {
   postgresql: {
     // Not IS NOT DISTINCT FROM, which no index serves.
     same: (a, b) => sql`(${a} = ${b} OR (${a} IS NULL AND ${b} IS NULL))`,
