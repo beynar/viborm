@@ -9,6 +9,7 @@ import type { Outcome, Run, Watcher } from "./contract";
 import { scopeOf } from "./origin";
 import { publishWriteOutcomes } from "./query";
 import { REGISTER } from "./watch-part";
+import { showRows } from "./written";
 
 /**
  * A registration nothing would tell is refused, never dropped: only the
@@ -31,7 +32,7 @@ function registerOn(c: object, watching: object): void {
  * relations (`nested`). The values are the caller's too: copy what is kept.
  */
 export function watch(c: object, watcher: Watcher): void {
-  registerOn(c, { wants: watcher.wants, rows: watcher.rows });
+  registerOn(c, { wants: watcher.wants, rows: watcher.rows, show: showRows });
 }
 
 /**

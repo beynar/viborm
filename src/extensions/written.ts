@@ -1,21 +1,22 @@
-// What watches the rows a write call wrote: `watch` and `settled` in a
-// `call`'s first moment register a watch; the engine shows the rows
-// (`@query-engine/write-sinks`), and this tells each watch.
+// What watches the rows a write call wrote and its commit: `watch` and
+// `settled` in a `call`'s first moment register a watch; the call's one
+// outcome registration tells each watch that the write settled, and, for a
+// watch made with `watch`, the engine shows the rows
+// (`@query-engine/write-sinks`) through what that word brings (`showRows`).
 
 import type { QueryExecutionContext } from "@drivers/types";
 import { type WriteKind, writeSinks } from "@query-engine/write-sinks";
 
 export type { WriteKind } from "@query-engine/write-sinks";
 
-import type { ResolvedOperationHandler } from "./chain";
-import { type AdmittedControls, controlsOwnedBy } from "./controls";
+import type { AdmittedControls } from "./controls";
 import {
   publishWriteOutcomes,
   type WriteOutcome,
   type WriteOutcomeRegistration,
 } from "./query";
 
-/** One write call, as `written` is asked about it before it runs. */
+/** One write call, as what watches it is asked about before it runs. */
 export interface WrittenCall {
   /** The model the call names. */
   readonly model: string;
@@ -25,11 +26,23 @@ export interface WrittenCall {
    * They are the call's own: read, never changed.
    */
   readonly args: Readonly<Record<string, unknown>>;
-  /** The call's controls this extension declares, and only those. */
-  readonly controls?: AdmittedControls;
   /** One object per call: what its first moments registered watches under. */
   readonly call?: object;
 }
+
+/** Rows one write showed: model, kind, rows, and whether through a relation. */
+type Shown = readonly [string, WriteKind, readonly object[], boolean];
+
+/**
+ * What asks the engine to show the rows a call writes, for one call: what
+ * `watch` brings, so a call watched by `settled` alone carries none of it.
+ * `told` receives the rows once every write of the call is made.
+ */
+export type ShowRows = (
+  context: QueryExecutionContext,
+  wants: (model: string, kind: WriteKind) => boolean,
+  told: (shown: readonly Shown[]) => void
+) => void;
 
 /** What watches one write call. */
 export interface WrittenWatch {
@@ -60,62 +73,82 @@ export interface WrittenWatch {
    */
   settled(outcome: WriteOutcome): unknown;
   /**
-   * Whether it is shown rows. One that is not waits for none: it is told the
-   * outcome when it is heard, even where the call fails to read its rows
-   * back after its commit.
+   * What shows it rows, for a watch shown rows. One that is not waits for
+   * none: it is told the outcome when it is heard, even where the call
+   * fails to read its rows back after its commit.
    */
-  readonly sees: boolean;
+  readonly show?: ShowRows | undefined;
 }
 
 /**
- * A definition's `written`: asked once per write call, it answers with what
- * watches the call, or with nothing to leave the call exactly as it is.
- */
-export type WrittenHandler = (call: WrittenCall) => WrittenWatch | undefined;
-
-/**
- * One write call under a chain's `written` declarations: the engine is told
- * what they want to see, and the call's one outcome registration tells them
- * that it settled. A unit handed over whole answers after
- * it commits: what watches is then told it settled once its rows are, by
- * what `late` receives, which the call's value runs and waits for.
+ * One write call under its watches, each named by its extension: the engine
+ * is told what they want to see, and the call's one outcome registration
+ * tells them that it settled. A unit handed over whole answers after it
+ * commits: what watches is then told it settled once its rows are, by what
+ * `late` receives, which the call's value runs and waits for.
  */
 export function watchWrite(
-  handlers: readonly ResolvedOperationHandler[],
-  call: Omit<WrittenCall, "controls">,
-  controls: AdmittedControls | undefined,
+  watches: readonly (readonly [string, WrittenWatch])[],
   context: QueryExecutionContext,
   late: (settle: () => Promise<void>) => void
 ): WriteOutcomeRegistration | undefined {
-  const watches: WrittenWatch[] = [];
   const settled: WriteOutcomeRegistration[] = [];
   const seeing: WriteOutcomeRegistration[] = [];
   const blind: WriteOutcomeRegistration[] = [];
-  for (const { extension, handler, controls: own } of handlers) {
-    const watch = (handler as WrittenHandler)(
-      Object.freeze(
-        own ? { ...call, controls: controlsOwnedBy(controls, own) } : call
-      )
-    );
-    if (!watch) continue;
-    watches.push(watch);
+  let show: ShowRows | undefined;
+  for (const [extension, watch] of watches) {
     const registration: WriteOutcomeRegistration = {
       extension,
       listener: (outcome) => watch.settled(outcome),
     };
     settled.push(registration);
-    (watch.sees ? seeing : blind).push(registration);
+    (watch.show ? seeing : blind).push(registration);
+    show ??= watch.show;
   }
-  if (watches.length === 0) return undefined;
+  const first = settled[0];
+  if (first === undefined) return undefined;
   let told = false;
   let heard: WriteOutcome | undefined;
-  const wants = (model: string, kind: WriteKind) =>
-    watches.some((watch) => watch.wants(model, kind));
+  show?.(
+    context,
+    (model, kind) => watches.some(([, watch]) => watch.wants(model, kind)),
+    (shown) => {
+      for (const [model, kind, rows, nested] of shown)
+        for (const [, watch] of watches)
+          if (watch.wants(model, kind))
+            // The engine shows rows as it reads them: records of fields.
+            watch.rows(
+              model,
+              kind,
+              rows as readonly Readonly<Record<string, unknown>>[],
+              nested
+            );
+      told = true;
+      const outcome = heard;
+      if (outcome) late(() => publishWriteOutcomes(seeing, outcome));
+    }
+  );
+  return Object.freeze({
+    extension: first.extension,
+    // Each listener's failure is already said as its own.
+    failurePolicy: "boundary-owned",
+    listener(outcome: WriteOutcome) {
+      // A write that may have committed failed: no rows will be told.
+      if (told || outcome.certainty === "may-have-committed")
+        return publishWriteOutcomes(settled, outcome);
+      heard = outcome;
+      if (blind.length > 0) return publishWriteOutcomes(blind, outcome);
+    },
+  });
+}
+
+/** The engine shows the rows of one call's writes that `wants` wants. */
+export const showRows: ShowRows = (context, wants, told) => {
   writeSinks.set(context, {
     wants,
     attempt() {
       // What this run wrote, the call's own rows before those its relations reach.
-      const shown: [string, WriteKind, readonly object[], boolean][] = [];
+      const shown: Shown[] = [];
       return {
         wants,
         shows(model, kind, rows) {
@@ -166,42 +199,18 @@ export function watchWrite(
             },
           };
         },
-        done() {
-          for (const [model, kind, rows, nested] of shown)
-            for (const watch of watches)
-              if (watch.wants(model, kind))
-                watch.rows(
-                  model,
-                  kind,
-                  rows as Readonly<Record<string, unknown>>[],
-                  nested
-                );
-          told = true;
-          const outcome = heard;
-          if (outcome) late(() => publishWriteOutcomes(seeing, outcome));
-        },
+        done: () => told(shown),
       };
     },
   });
-  return Object.freeze({
-    extension: settled[0]!.extension,
-    // Each listener's failure is already said as its own.
-    failurePolicy: "boundary-owned",
-    listener(outcome: WriteOutcome) {
-      // A write that may have committed failed: no rows will be told.
-      if (told || outcome.certainty === "may-have-committed")
-        return publishWriteOutcomes(settled, outcome);
-      heard = outcome;
-      if (blind.length > 0) return publishWriteOutcomes(blind, outcome);
-    },
-  });
-}
+};
 
-/** A chain's `written` declarations, and what watches one write call under them. */
+/** A chain's watching extensions, and what watches one write call under them. */
 export interface WrittenHandlers {
-  readonly handlers: readonly ResolvedOperationHandler[];
+  /** The extensions whose first moments may watch a write, in chain order. */
+  readonly extensions: readonly string[];
   readonly watch: (
-    call: Omit<WrittenCall, "controls">,
+    call: WrittenCall,
     controls: AdmittedControls | undefined,
     context: QueryExecutionContext,
     late: (settle: () => Promise<void>) => void
