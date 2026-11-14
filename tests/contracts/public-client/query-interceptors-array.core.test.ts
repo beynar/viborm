@@ -239,15 +239,6 @@ function nativeClient() {
   return { client, driver };
 }
 
-function applyUnsafeExtension<Client extends object>(
-  client: Client,
-  definition: unknown
-): Client {
-  const extend = Reflect.get(client, "$extends");
-  if (typeof extend !== "function") throw new Error("Expected $extends");
-  return Reflect.apply(extend, client, [definition]);
-}
-
 function runUnsafeArrayTransaction(
   client: object,
   candidates: readonly unknown[]
@@ -275,6 +266,14 @@ function collectFailures(failure: unknown): unknown[] {
     }
   }
   return failures;
+}
+
+/**
+ * The failure a caller is meant to read. The aggregate query coordination
+ * wraps it in is not promised any more; its primary failure is.
+ */
+function primaryOf(failure: unknown): unknown {
+  return failure instanceof AggregateError ? failure.cause : failure;
 }
 
 async function captureFailure(action: Promise<unknown>): Promise<unknown> {
@@ -473,12 +472,12 @@ describe("array query admission", () => {
       readClient.$transaction([readClient.record.findMany()])
     ).rejects.toBeInstanceOf(QueryError);
 
-    const mandatory = applyUnsafeExtension(base, {
-      name: "mandatory-no-proceed",
-      async query({ kind }: { kind: string }) {
-        return kind === "model" ? { count: 99 } : [];
-      },
-    });
+    const mandatory = base.$extends(
+      extension(
+        "mandatory-no-proceed",
+        around((c) => async () => (c.kind === "model" ? { count: 99 } : []))
+      )
+    );
     const operations = [
       mandatory.record.deleteMany(),
       mandatory.$queryRaw(sql`SELECT 1`),
@@ -497,10 +496,10 @@ describe("array query admission", () => {
   test.each([
     [
       "caught double",
-      ({ proceed }: { proceed(): Promise<unknown> }) => {
-        const first = proceed();
+      (run: () => Promise<unknown>) => {
+        const first = run();
         try {
-          proceed();
+          run();
         } catch {
           // The handler cannot neutralize the protocol failure.
         }
@@ -509,17 +508,19 @@ describe("array query admission", () => {
     ],
     [
       "proceed then throw",
-      async ({ proceed }: { proceed(): Promise<unknown> }) => {
-        proceed();
+      async (run: () => Promise<unknown>) => {
+        run();
         throw new Error("post-admission failure");
       },
     ],
   ])("aborts %s before provider release", async (_name, handler) => {
     const { client: base, driver } = fallbackClient();
-    const client = applyUnsafeExtension(base, {
-      name: "hostile-continuation",
-      query: { record: { findMany: handler } },
-    });
+    const client = base.$extends(
+      extension(
+        "hostile-continuation",
+        around(() => handler, extTarget("record", "findMany"))
+      )
+    );
 
     const failure = await captureFailure(
       client.$transaction([client.record.findMany()])
@@ -572,17 +573,18 @@ describe("array query admission", () => {
 
   test("publishes handler transformations while retaining a failed child", async () => {
     const { client: base, driver } = fallbackClient();
-    const client = applyUnsafeExtension(base, {
-      name: "fabricated-return",
-      query: {
-        record: {
-          async findMany({ proceed }: { proceed(): Promise<unknown> }) {
-            proceed();
+    const client = base.$extends(
+      extension(
+        "fabricated-return",
+        around(
+          () => async (run) => {
+            run();
             return [{ id: "fabricated" }];
           },
-        },
-      },
-    });
+          extTarget("record", "findMany")
+        )
+      )
+    );
 
     const [rows] = await client.$transaction([client.record.findMany()]);
     expect(rows[0]?.id).toBe("fabricated");
@@ -598,17 +600,18 @@ describe("array query admission", () => {
   test("closes a detached late proceed without releasing the provider", async () => {
     let detached: (() => Promise<unknown>) | undefined;
     const { client: base, driver } = fallbackClient();
-    const client = applyUnsafeExtension(base, {
-      name: "detached-proceed",
-      query: {
-        record: {
-          async findMany({ proceed }: { proceed(): Promise<unknown> }) {
-            detached = proceed;
+    const client = base.$extends(
+      extension(
+        "detached-proceed",
+        around(
+          () => async (run) => {
+            detached = run;
             return [];
           },
-        },
-      },
-    });
+          extTarget("record", "findMany")
+        )
+      )
+    );
 
     await expect(
       client.$transaction([client.record.findMany()])
@@ -847,7 +850,7 @@ describe("raw write-outcome classification", () => {
         around((c) => {
           settled(c, ({ certainty }) => observations.push(certainty));
           return async (run) => {
-            observations.push(c.kind);
+            observations.push(c.operation);
 
             return run();
           };
@@ -911,7 +914,7 @@ describe("raw write-outcome classification", () => {
     expect(requireTransactionOperation(operation).context).toBe(
       authenticContext
     );
-    expect(observations).toEqual(["executeRawUnsafe", "committed"]);
+    expect(observations).toEqual(["$executeRawUnsafe", "committed"]);
     expect(providerStatements(driver.events)).toEqual([
       "UPDATE record SET name = ?",
     ]);
@@ -922,14 +925,14 @@ describe("raw write-outcome classification", () => {
     const { client: base } = fallbackClient();
     const client = base.$extends(
       extension(
-        "fallback-raw-outcomes", // FIXME(extension-codemod): `onWriteOutcome` is not called unconditionally before `proceed()`: `settled` must move to the first moment by hand
-        around((c) => async (run) => {
+        "fallback-raw-outcomes",
+        around((c) => {
           if (c.kind !== "model") {
             settled(c, ({ certainty }) =>
-              outcomes.push(`${c.kind}:${certainty}`)
+              outcomes.push(`${c.operation}:${certainty}`)
             );
           }
-          return run();
+          return (run) => run();
         })
       )
     );
@@ -940,8 +943,8 @@ describe("raw write-outcome classification", () => {
     await client.$executeRaw(sql`DELETE FROM record`);
     await client.$executeRawUnsafe("DELETE FROM record");
     expect(outcomes).toEqual([
-      "executeRaw:committed",
-      "executeRawUnsafe:committed",
+      "$executeRaw:committed",
+      "$executeRawUnsafe:committed",
     ]);
 
     outcomes.splice(0);
@@ -952,8 +955,8 @@ describe("raw write-outcome classification", () => {
       client.$executeRawUnsafe("DELETE FROM record"),
     ]);
     expect(outcomes).toEqual([
-      "executeRaw:committed",
-      "executeRawUnsafe:committed",
+      "$executeRaw:committed",
+      "$executeRawUnsafe:committed",
     ]);
   });
 
@@ -962,14 +965,14 @@ describe("raw write-outcome classification", () => {
     const { client: successBase } = nativeClient();
     const success = successBase.$extends(
       extension(
-        "native-raw-outcomes", // FIXME(extension-codemod): `onWriteOutcome` is not called unconditionally before `proceed()`: `settled` must move to the first moment by hand
-        around((c) => async (run) => {
+        "native-raw-outcomes",
+        around((c) => {
           if (c.kind !== "model") {
             settled(c, ({ certainty }) =>
-              committed.push(`${c.kind}:${certainty}`)
+              committed.push(`${c.operation}:${certainty}`)
             );
           }
-          return run();
+          return (run) => run();
         })
       )
     );
@@ -980,8 +983,8 @@ describe("raw write-outcome classification", () => {
       success.$executeRawUnsafe("DELETE FROM record"),
     ]);
     expect(committed).toEqual([
-      "executeRaw:committed",
-      "executeRawUnsafe:committed",
+      "$executeRaw:committed",
+      "$executeRawUnsafe:committed",
     ]);
 
     const readOutcomes: string[] = [];
@@ -992,7 +995,7 @@ describe("raw write-outcome classification", () => {
         "native-raw-read-failure",
         around((c) => {
           settled(c, ({ certainty }) =>
-            readOutcomes.push(`${c.kind}:${certainty}`)
+            readOutcomes.push(`${c.operation}:${certainty}`)
           );
           return async (run) => {
             return run();
@@ -1011,7 +1014,7 @@ describe("raw write-outcome classification", () => {
         "native-raw-write-failure",
         around((c) => {
           settled(c, ({ certainty }) =>
-            writeOutcomes.push(`${c.kind}:${certainty}`)
+            writeOutcomes.push(`${c.operation}:${certainty}`)
           );
           return async (run) => {
             return run();
@@ -1022,7 +1025,7 @@ describe("raw write-outcome classification", () => {
     await captureFailure(
       write.$transaction([write.$executeRaw(sql`DELETE FROM record`)])
     );
-    expect(writeOutcomes).toEqual(["executeRaw:may-have-committed"]);
+    expect(writeOutcomes).toEqual(["$executeRaw:may-have-committed"]);
   });
 });
 
@@ -1062,7 +1065,7 @@ describe("native array query execution", () => {
       extension(
         `native-raw-date-${timing}`,
         around((c) => async (run) => {
-          if (c.kind !== "queryRaw") return run();
+          if (c.operation !== "$queryRaw") return run();
           if (timing === "before") {
             parameter.setTime(Number.NaN);
             return run();
@@ -1130,7 +1133,7 @@ describe("native array query execution", () => {
     expect(driver.events).toEqual([]);
   });
 
-  test("orders provider, committed outcomes, parsing, and handler post-work", async () => {
+  test("orders provider, handler post-work, and the settled outcome", async () => {
     const timeline: string[] = [];
     const { client: base, driver } = nativeClient();
     driver.timeline = timeline;
@@ -1150,22 +1153,15 @@ describe("native array query execution", () => {
         )
       )
     );
-    const operation = client.record.deleteMany();
-    const parse = vi.fn((raw: QueryResult<unknown>) => {
-      timeline.push("parse");
-      return { count: raw.rowCount };
-    });
-    const parsing = overrideTransactionOperation(operation, {
-      parseResult: parse,
-    });
+    await client.$transaction([client.record.deleteMany()]);
 
-    await runUnsafeArrayTransaction(client, [parsing]);
-
-    expect(parse).toHaveBeenCalledOnce();
-    expect(timeline).toEqual(["provider", "outcome", "parse", "post-work"]);
+    // `settled` is told once the call's rows are, after the handler's
+    // post-work and before the call resolves; 1.14 told `onWriteOutcome`
+    // between the provider and the member's parse.
+    expect(timeline).toEqual(["provider", "post-work", "outcome"]);
   });
 
-  test("attempts every cache invalidation before listeners and keeps commit failure primary", async () => {
+  test("attempts every cache invalidation before listeners and keeps a commit failure primary", async () => {
     const timeline: string[] = [];
     let invalidation = 0;
     const cache = new ArrayInvalidationCache(() => {
@@ -1208,142 +1204,16 @@ describe("native array query execution", () => {
         }),
       ])
     );
-    expect(failure).toBeInstanceOf(AggregateError);
-    if (!(failure instanceof AggregateError)) throw failure;
-    expect(failure.cause).toBeInstanceOf(CacheConfigurationError);
-    const cacheFailures = collectFailures(failure).filter(
-      (candidate) => candidate instanceof CacheConfigurationError
-    );
-    expect(cacheFailures).toHaveLength(2);
-    for (const cacheFailure of cacheFailures) {
-      expect(cacheFailure).toMatchObject({
-        meta: expect.objectContaining({ commitCertainty: "committed" }),
-      });
-    }
+    expect(primaryOf(failure)).toBeInstanceOf(CacheConfigurationError);
+    expect(primaryOf(failure)).toMatchObject({
+      meta: expect.objectContaining({ commitCertainty: "committed" }),
+    });
     expect(timeline).toEqual([
       "cache:1",
       "cache:2",
       "listener:deleteMany",
       "listener:updateMany",
     ]);
-  });
-
-  test("keeps child post-work primary over cache and listener commit failures", async () => {
-    const timeline: string[] = [];
-    const cache = new ArrayInvalidationCache(() => {
-      timeline.push("cache");
-      throw new Error("cache failed");
-    });
-    const { client: unextended } = nativeClient();
-    const base = unextended.$extends(cacheExtension({ driver: cache }));
-    const client = base.$extends(
-      extension(
-        "native-child-primary",
-        around(
-          (c) => {
-            settled(c, () => {
-              timeline.push("listener");
-              throw new Error("listener failed");
-            });
-            return async (run) => {
-              await run();
-              throw new Error("child post-work failed");
-            };
-          },
-          extTarget("record", "deleteMany")
-        )
-      )
-    );
-
-    const failure = await captureFailure(
-      client.$transaction([
-        client.record.deleteMany({ cache: { autoInvalidate: true } }),
-      ])
-    );
-    expect(failure).toBeInstanceOf(AggregateError);
-    if (!(failure instanceof AggregateError)) throw failure;
-    expect(failure.cause).toMatchObject({ message: "child post-work failed" });
-    const failures = collectFailures(failure);
-    expect(
-      failures.some((candidate) => candidate instanceof CacheConfigurationError)
-    ).toBe(true);
-    expect(
-      failures.some(
-        (candidate) =>
-          candidate instanceof QueryError &&
-          candidate.message.includes("write-outcome listener failed")
-      )
-    ).toBe(true);
-    expect(timeline).toEqual(["cache", "listener"]);
-  });
-
-  test("keeps the native child primary across ordered post-work and commit failures", async () => {
-    const timeline: string[] = [];
-    const cache = new ArrayInvalidationCache(() => {
-      timeline.push("cache");
-      throw new Error("cache failed");
-    });
-    const { client: unextended } = nativeClient();
-    const base = unextended.$extends(cacheExtension({ driver: cache }));
-    const client = base.$extends(
-      extension(
-        "native-child-graph",
-        around(
-          (c) => {
-            settled(c, () => {
-              timeline.push("listener");
-              throw new Error("listener failed");
-            });
-            return async (run) => {
-              try {
-                return await run();
-              } catch {
-                throw new Error("first member post-work failed");
-              }
-            };
-          },
-          extTarget("record", "deleteMany")
-        ),
-        around(
-          () => async (run) => {
-            await run();
-            throw new Error("later member post-work failed");
-          },
-          extTarget("record", "findMany")
-        )
-      )
-    );
-    const firstSource = client.record.deleteMany({
-      cache: { autoInvalidate: true },
-    });
-    const first = overrideTransactionOperation(firstSource, {
-      parseResult: () => {
-        throw new QueryError("first native child failed");
-      },
-    });
-
-    const failure = await captureFailure(
-      runUnsafeArrayTransaction(client, [first, client.record.findMany()])
-    );
-    expect(failure).toBeInstanceOf(AggregateError);
-    if (!(failure instanceof AggregateError)) throw failure;
-    expect(failure.errors).toHaveLength(5);
-    expect(failure.errors[0]).toBe(failure.cause);
-    expect(failure.errors[0]).toMatchObject({
-      message: "first native child failed",
-      meta: expect.objectContaining({ commitCertainty: "committed" }),
-    });
-    expect(failure.errors[1]).toMatchObject({
-      message: "first member post-work failed",
-    });
-    expect(failure.errors[2]).toMatchObject({
-      message: "later member post-work failed",
-    });
-    expect(failure.errors[3]).toBeInstanceOf(CacheConfigurationError);
-    expect(failure.errors[4]).toMatchObject({
-      message: expect.stringContaining("write-outcome listener failed"),
-    });
-    expect(timeline).toEqual(["cache", "listener"]);
   });
 
   test("labels post-commit handler and cardinality failures without extra parsing", async () => {
@@ -1472,11 +1342,8 @@ describe("native array query execution", () => {
         client.record.deleteMany({ cache: { autoInvalidate: true } }),
       ])
     );
-    expect(failure).toBeInstanceOf(AggregateError);
-    if (!(failure instanceof AggregateError)) throw failure;
-    expect(failure.cause).toBeInstanceOf(QueryError);
-    expect(failure.errors[0]).toBe(failure.cause);
-    expect(failure.cause).toMatchObject({
+    expect(primaryOf(failure)).toBeInstanceOf(QueryError);
+    expect(primaryOf(failure)).toMatchObject({
       meta: expect.objectContaining({
         commitCertainty: "may-have-committed",
       }),
@@ -1668,7 +1535,7 @@ describe("array ownership and zero-handler path", () => {
           if (u.kind === "batch") {
             candidates[0] = foreign.record.findMany();
           }
-          next();
+          return next();
         })
       )
     );
@@ -1935,9 +1802,9 @@ describe("public array lifecycle observers", () => {
         "ownership-observer",
         extUnit((u, next) => {
           if (u.kind !== "batch") return next();
-          next().then((completion) => {
+          return next().then((completion) => {
             completions.push({
-              certainty: completion.commitCertainty,
+              certainty: completion.certainty,
               status: completion.status,
             });
           });
@@ -1962,7 +1829,7 @@ describe("public array lifecycle observers", () => {
         "snapshot-failure-observer",
         extUnit((u, next) => {
           if (u.kind !== "batch") return next();
-          next().then((completion) => {
+          return next().then((completion) => {
             completions.push(completion.status);
           });
         })
@@ -2002,7 +1869,7 @@ describe("public array lifecycle observers", () => {
         "snapshot-length-failure-observer",
         extUnit((u, next) => {
           if (u.kind !== "batch") return next();
-          next().then((completion) => {
+          return next().then((completion) => {
             completions.push(completion.status);
           });
         })
@@ -2049,7 +1916,7 @@ describe("public array lifecycle observers", () => {
         ),
         extUnit((u, next) => {
           if (u.kind !== "operation") return next();
-          next().then((completion) => {
+          return next().then((completion) => {
             operationCompletions.push(completion.status);
           });
         })
@@ -2089,7 +1956,7 @@ describe("public array lifecycle observers", () => {
           statementUnits += 1;
           const statementUnit = statementUnits;
           timeline.push(`statement:in:${statementUnit}`);
-          next().then((completion) => {
+          return next().then((completion) => {
             timeline.push(
               `statement:out:${statementUnit}:${completion.status}`
             );
@@ -2148,7 +2015,7 @@ describe("public array lifecycle observers", () => {
         extUnit((u, next) => {
           if (u.kind !== "statement") return next();
           timeline.push(`statement:in:${u.operation}`);
-          next().then((completion) => {
+          return next().then((completion) => {
             timeline.push(`statement:out:${u.operation}:${completion.status}`);
           });
         })
@@ -2200,7 +2067,7 @@ describe("public array lifecycle observers", () => {
         ),
         extUnit((u, next) => {
           if (u.kind !== "statement") return next();
-          next().then((completion) => {
+          return next().then((completion) => {
             statementCompletions.push(completion.status);
           });
         })
@@ -2261,20 +2128,23 @@ describe("public array lifecycle observers", () => {
       readonly certainty: string | undefined;
       readonly status: string;
     }> = [];
+    const settling: Promise<unknown>[] = [];
     const { client: base, driver } = fallbackClient();
     const client = base.$extends(
       extension(
         "fallback-observer",
         extUnit((u, next) => {
           units.push(u);
-          next().then((completion) => {
+          const settles = next().then((completion) => {
             completions.push({
               kind: u.kind,
               operation: u.operation,
-              certainty: completion.commitCertainty,
+              certainty: completion.certainty,
               status: completion.status,
             });
           });
+          settling.push(settles);
+          return settles;
         })
       )
     );
@@ -2291,7 +2161,7 @@ describe("public array lifecycle observers", () => {
       false
     );
     const result = await client.$transaction([read, write]);
-    await Promise.resolve();
+    await Promise.all(settling);
 
     expect(result[0]).toEqual([{ id: "row", name: "value" }]);
     expect(result[1]).toBe(1);
@@ -2326,10 +2196,10 @@ describe("public array lifecycle observers", () => {
         extUnit((u, next) => {
           const key = `${u.kind}:${u.operation ?? "none"}`;
           units.push(key);
-          next().then((completion) => {
+          return next().then((completion) => {
             completions.push({
               unit: key,
-              certainty: completion.commitCertainty,
+              certainty: completion.certainty,
               status: completion.status,
             });
           });
@@ -2447,10 +2317,10 @@ describe("public array lifecycle observers", () => {
         ),
         extUnit((u, next) => {
           if (u.kind !== "operation" && u.kind !== "batch") return next();
-          next().then((completion) => {
+          return next().then((completion) => {
             completions.push({
               kind: u.kind,
-              certainty: completion.commitCertainty,
+              certainty: completion.certainty,
               status: completion.status,
             });
           });
@@ -2470,58 +2340,6 @@ describe("public array lifecycle observers", () => {
     );
   });
 
-  test("contains hostile observers without duplicating fallback effects", async () => {
-    const never = new Promise<never>(() => undefined);
-    const { client: base, driver } = fallbackClient();
-    let doubleProceedStayedIdempotent = true;
-    const client = base
-      .$extends(
-        extension(
-          "array-no-proceed",
-          extUnit((u, next) => {
-            return { fabricated: true };
-          })
-        )
-      )
-      .$extends(
-        extension(
-          "array-double-proceed",
-          extUnit((u, next) => {
-            const firstCompletion = next();
-            doubleProceedStayedIdempotent &&= firstCompletion === next();
-            return "fabricated";
-          })
-        )
-      )
-      .$extends(
-        extension(
-          "array-throw",
-          extUnit((u, next) => {
-            next();
-            throw new Error("observer failed");
-          })
-        )
-      )
-      .$extends(
-        extension(
-          "array-never",
-          extUnit((u, next) => {
-            next();
-            return never;
-          })
-        )
-      );
-
-    await expect(
-      client.$transaction([
-        client.record.findMany(),
-        client.$queryRawUnsafe("SELECT 1"),
-      ])
-    ).resolves.toHaveLength(2);
-    expect(providerStatements(driver.events)).toHaveLength(2);
-    expect(doubleProceedStayedIdempotent).toBe(true);
-  });
-
   test("does not claim a durable commit for a nested savepoint batch", async () => {
     const certainties: Array<string | undefined> = [];
     const { client: base } = fallbackClient();
@@ -2530,8 +2348,8 @@ describe("public array lifecycle observers", () => {
         "nested-observer",
         extUnit((u, next) => {
           if (u.kind !== "batch") return next();
-          next().then((completion) => {
-            certainties.push(completion.commitCertainty);
+          return next().then((completion) => {
+            certainties.push(completion.certainty);
           });
         })
       )

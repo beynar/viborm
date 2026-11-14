@@ -82,11 +82,11 @@ describe("observed raw write certainty", () => {
       extension(
         "closure-raw-observation",
         unit((u, next) => {
-          next().then((completion) => {
+          return next().then((completion) => {
             observed.push({
               unit: `${u.kind}:${u.operation}`,
               status: completion.status,
-              certainty: completion.commitCertainty,
+              certainty: completion.certainty,
             });
           });
         })

@@ -446,7 +446,7 @@ describe("public query-interceptor integration", () => {
       extension(
         "raw-inspection-isolation",
         around((c) => async (run) => {
-          if (c.kind !== "queryRaw") return run();
+          if (c.operation !== "$queryRaw") return run();
           const inspectionQuery = Reflect.get(run.input, "query");
           expect(inspectionQuery).toBeInstanceOf(Sql);
           if (!(inspectionQuery instanceof Sql))
@@ -519,7 +519,7 @@ describe("public query-interceptor integration", () => {
       extension(
         "raw-fragment-operation-authority",
         around((c) => async (run) => {
-          if (c.kind !== "queryRaw") return run();
+          if (c.operation !== "$queryRaw") return run();
           const inspectionQuery = Reflect.get(run.input, "query");
           if (!(inspectionQuery instanceof Sql))
             throw new Error("Expected Sql");
@@ -572,7 +572,7 @@ describe("public query-interceptor integration", () => {
       extension(
         "raw-date-toctou",
         around((c) => async (run) => {
-          if (c.kind === "queryRaw") parameter.setTime(Number.NaN);
+          if (c.operation === "$queryRaw") parameter.setTime(Number.NaN);
           return run();
         })
       )
@@ -893,7 +893,7 @@ describe("public query-interceptor integration", () => {
         "raw-date-after-proceed",
         around((c) => async (run) => {
           const provider = run();
-          if (c.kind === "queryRaw") parameter.setTime(Number.NaN);
+          if (c.operation === "$queryRaw") parameter.setTime(Number.NaN);
           return provider;
         })
       )
@@ -1008,7 +1008,7 @@ describe("public query-interceptor integration", () => {
       extension(
         "raw-opaque-disclosure",
         around((c) => async (run) => {
-          if (c.kind !== "queryRaw") return run();
+          if (c.operation !== "$queryRaw") return run();
           const inspectionQuery = Reflect.get(run.input, "query");
           if (!(inspectionQuery instanceof Sql))
             throw new Error("Expected Sql");
@@ -1652,7 +1652,7 @@ describe("public protected operation and statement observers", () => {
         extUnit((u, next) => {
           if (u.kind !== "operation") return next();
           timeline.push("operation:in");
-          next().then((completion) => {
+          return next().then((completion) => {
             timeline.push(`operation:out:${completion.status}`);
           });
         })
@@ -1708,10 +1708,10 @@ describe("public protected operation and statement observers", () => {
           allUnitsFrozen &&= Object.isFrozen(u);
           observedUnitKeys.push(Reflect.ownKeys(u));
           timeline.push(`${u.kind}:in`);
-          next().then((completion) => {
+          return next().then((completion) => {
             allCompletionsFrozen &&= Object.isFrozen(completion);
             timeline.push(
-              `${u.kind}:out:${completion.status}:${completion.commitCertainty ?? "none"}`
+              `${u.kind}:out:${completion.status}:${completion.certainty ?? "none"}`
             );
           });
         })
@@ -1759,7 +1759,7 @@ describe("public protected operation and statement observers", () => {
         extUnit((u, next) => {
           if (u.kind !== "statement") return next();
           timeline.push("statement:in");
-          next().then((completion) => {
+          return next().then((completion) => {
             timeline.push(`statement:out:${completion.status}`);
           });
         })
@@ -1802,10 +1802,10 @@ describe("public protected operation and statement observers", () => {
         extUnit((u, next) => {
           if (u.kind !== "operation" && u.kind !== "statement") return next();
           units.push(u);
-          next().then((completion) => {
+          return next().then((completion) => {
             completions.push({
               operation: u.operation,
-              certainty: completion.commitCertainty,
+              certainty: completion.certainty,
             });
           });
         })
@@ -1865,7 +1865,7 @@ describe("public protected operation and statement observers", () => {
         extUnit((u, next) => {
           if (u.kind !== "operation") return next();
           operationName = u.operation;
-          next().then((completion) => {
+          return next().then((completion) => {
             observedFailure = completion;
           });
         })
@@ -1898,7 +1898,7 @@ describe("public protected operation and statement observers", () => {
             if (u.kind === "operation") {
               completion.then((summary) => {
                 if (u.operation === "$executeRawUnsafe") {
-                  callbackCertainties.push(summary.commitCertainty);
+                  callbackCertainties.push(summary.certainty);
                 }
               });
             }
