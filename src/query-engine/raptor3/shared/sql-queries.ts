@@ -207,11 +207,14 @@ export class SqlQueries extends Queries {
   readonly #rows = new Map<string, AnyModel>();
   /**
    * The produced row a judgement is lowering over ({@link holds}): the alias
-   * it is read under, and per field whether the value the write sets is
-   * null, where the write states it.
+   * it is read under, and what folds into a predicate over it what the write
+   * states of its fields.
    */
   known:
-    | { readonly alias: string; readonly nulls: ReadonlyMap<string, boolean> }
+    | {
+        readonly alias: string;
+        readonly fold: (predicate: PreparedPredicate) => PreparedPredicate;
+      }
     | undefined;
   /**
    * The statement part lowering here reads a masked window (K5): its read-

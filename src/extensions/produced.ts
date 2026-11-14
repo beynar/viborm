@@ -8,6 +8,7 @@ import { assembleAdapterSelect } from "@adapters/adapter-internals";
 import { type JudgedSpelling, holds as judgedHolds } from "@adapters/judged";
 import {
   NO_RELATIONS,
+  type PreparedPredicate,
   type PreparedSelector,
   rowValue,
   throughDerived,
@@ -17,6 +18,7 @@ import type { Input } from "@query-engine/raptor3/shared/schema";
 import type { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import type { AnyModel } from "@schema/model";
 import { Sql, sql } from "@sql";
+import { fold } from "./layers";
 import { readsAny } from "./reads";
 
 /**
@@ -92,6 +94,34 @@ function outsideOwnSubtree(
   );
 }
 /**
+ * `predicate` over a produced row whose fields' nullness the write states
+ * (`nulls`: field to whether its value is null), each null test of such a
+ * field replaced by its outcome: the values a write sets fold into its
+ * judgement, so an arm on a key it leaves null does not reach the statement.
+ * Only the row's own columns: a relation reads other rows, and is kept as it
+ * is.
+ */
+const foldKnownNulls = (
+  predicate: PreparedPredicate,
+  nulls: ReadonlyMap<string, boolean>
+): PreparedPredicate =>
+  fold(
+    predicate,
+    (leaf) => {
+      if (leaf.kind !== "operation") return;
+      const { target, operand } = leaf;
+      return leaf.operator === "equals" &&
+        target.kind === "column" &&
+        target.path === undefined &&
+        operand?.kind === "value" &&
+        operand.value === null &&
+        target.scalar.physical.scalar["~"].state.type !== "json"
+        ? nulls.get(target.scalar.field)
+        : undefined;
+    },
+    false
+  );
+/**
  * `judged` over the produced row `from` reads (and, for each `acyclic`
  * relation, the row outside its own subtree), as the adapter's assertion:
  * 1, or the statement that carries it fails before it writes. `undefined`
@@ -110,7 +140,10 @@ function holds(
 ): Sql | undefined {
   const a = q.adapter;
   const outer = q.known;
-  q.known = { alias, nulls };
+  q.known = {
+    alias,
+    fold: (predicate) => foldKnownNulls(predicate, nulls),
+  };
   let lowered: Sql | undefined;
   try {
     lowered = judged && q.lowerSelector(judged, alias);
