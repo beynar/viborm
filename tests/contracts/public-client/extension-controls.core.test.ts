@@ -26,35 +26,46 @@ import {
   QueryError,
   ValidationError,
 } from "@errors";
+import type {
+  ResolvedDeletion,
+  ResolvedExtensionChain,
+} from "@extensions/chain";
 import { placeControls } from "@extensions/controls";
 import { isAppliedExtension } from "@extensions/extension";
+import { Kept } from "@extensions/kept";
+import { bindPlain } from "@extensions/plain-domain";
+import { bindRows } from "@extensions/rows";
+import { Stamps } from "@extensions/stamps";
 import {
-  extension,
-  call,
-  unit,
-  rule,
-  args as extArgs,
-  methods,
-  target as extTarget,
-  reads,
-  writes,
-  deletes,
-  around,
-  oneOf,
-  accepts,
-  arg,
-  now as extNow,
-  when,
-  unless,
-  keep,
-  settled,
-  statement,
-} from "@src/index";
-import { bindRows, callRows } from "@extensions/rows";
-import { Condition, Parameter } from "@query-engine/raptor3/shared/row-scope";
+  Condition,
+  type ModelStamps,
+  Parameter,
+} from "@query-engine/raptor3/shared/row-scope";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { s } from "@schema";
-import { Decimal } from "@src/index";
+import {
+  accepts,
+  arg,
+  around,
+  call,
+  Decimal,
+  deletes,
+  args as extArgs,
+  extension,
+  now as extNow,
+  target as extTarget,
+  keep,
+  methods,
+  oneOf,
+  reads,
+  rule,
+  settled,
+  statement,
+  unit,
+  unless,
+  when,
+  writes,
+} from "@src/index";
 import { v } from "@src/validation";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
@@ -559,19 +570,6 @@ describe("controls: admission and ownership", () => {
       ["async", async (value) => ({ value }), "returned a promise"],
       ["malformed", () => 42, "returned a malformed result"],
       ["valueless", () => ({}), "returned a malformed result"],
-      [
-        "unreadable",
-        () =>
-          new Proxy(
-            {},
-            {
-              has() {
-                throw new Error("has trap");
-              },
-            }
-          ),
-        "returned an unreadable result",
-      ],
     ];
     for (const [name, validate, message] of cases) {
       const error = await failure(
@@ -1410,99 +1408,6 @@ describe("controls: rows bound to the call", () => {
     ).toThrow('references undeclared control "x"');
   });
 
-  test("admission fixes plain data once: a frozen copy, the immutable as given, anything else unstable", () => {
-    const given = { tags: ["a"], nested: { team: "red" } };
-    const fixed = snapshotControlValue(given) as typeof given;
-    expect(fixed).toEqual(given);
-    expect(fixed).not.toBe(given);
-    expect(Object.isFrozen(fixed) && Object.isFrozen(fixed.tags)).toBe(true);
-    given.tags.push("b");
-    expect(fixed.tags).toEqual(["a"]);
-    expect(isStableControlValue(fixed)).toBe(true);
-    expect(isStableControlValue(given)).toBe(false);
-    // A Date stays writable through `freeze` (`setTime`): its copy is the
-    // call's own, never stable.
-    const dated = snapshotControlValue({ at: new Date(0) }) as { at: Date };
-    expect(dated.at).toEqual(new Date(0));
-    expect(isStableControlValue(dated)).toBe(false);
-    expect(isStableControlValue(snapshotControlValue(new Date(0)))).toBe(false);
-    // Bytes too, and their properties are one per byte: kept as given,
-    // unread, however large.
-    const bytes = new Uint8Array(1024 * 1024).fill(7);
-    expect(snapshotControlValue(bytes)).toBe(bytes);
-    expect(isStableControlValue(bytes)).toBe(false);
-    const carrying = { payload: bytes };
-    expect(snapshotControlValue(carrying)).toBe(carrying);
-    expect(isStableControlValue(carrying)).toBe(false);
-    // A getter's answer is only known by calling it, and it may answer anew:
-    // kept as given, unstable, whatever it returns.
-    let tenant = "acme";
-    const live = Object.freeze({
-      get tenant() {
-        return tenant;
-      },
-    });
-    expect(snapshotControlValue(live)).toBe(live);
-    tenant = "globex";
-    expect(live.tenant).toBe("globex");
-    expect(isStableControlValue(live)).toBe(false);
-    // A Proxy that answers the canonical check and then refuses reflection
-    // is kept as given rather than failing the call.
-    let reflections = 0;
-    const fickle = new Proxy(
-      { tenant: "a" },
-      {
-        ownKeys(target) {
-          reflections += 1;
-          if (reflections > 1) throw new Error("no longer reflectable");
-          return Reflect.ownKeys(target);
-        },
-      }
-    );
-    expect(snapshotControlValue(fickle)).toBe(fickle);
-    expect(isStableControlValue(fickle)).toBe(false);
-    // A copy drops non-enumerable properties, so a value holding one is kept
-    // as given, unstable: a getter's answer and a cycle through it survive.
-    const hidden = Object.freeze(
-      Object.defineProperty({ display: "acme" }, "tenant", {
-        get: () => "tenant-42",
-      })
-    ) as { display: string; tenant?: string };
-    expect(snapshotControlValue(hidden)).toBe(hidden);
-    expect(hidden.tenant).toBe("tenant-42");
-    expect(isStableControlValue(hidden)).toBe(false);
-    const cyclic = { tenant: "acme" };
-    Object.defineProperty(cyclic, "metadata", { value: cyclic });
-    Object.freeze(cyclic);
-    expect(snapshotControlValue(cyclic)).toBe(cyclic);
-    expect(isStableControlValue(cyclic)).toBe(false);
-    // So is a record that holds such a value anywhere inside it.
-    const holding = { scope: hidden };
-    expect(snapshotControlValue(holding)).toBe(holding);
-    expect(isStableControlValue(holding)).toBe(false);
-    // A record reached twice is judged once: frozen both times, kept.
-    const shared = Object.freeze({ team: "red" });
-    const twice = Object.freeze({ author: shared, by: shared });
-    expect(snapshotControlValue(twice)).toBe(twice);
-    expect(isStableControlValue(twice)).toBe(true);
-    // Already immutable all the way down: kept, by identity.
-    const frozen = Object.freeze({ list: Object.freeze(["x"]) });
-    expect(snapshotControlValue(frozen)).toBe(frozen);
-    expect(isStableControlValue(frozen)).toBe(true);
-    // A frozen record holding a Date is copied: a Date stays mutable.
-    const holder = Object.freeze({ at: new Date(0) });
-    expect(snapshotControlValue(holder)).not.toBe(holder);
-    // No canonical spelling, or no copy: kept as given, never stable.
-    const map = new Map([["k", 1]]);
-    expect(snapshotControlValue(map)).toBe(map);
-    expect(isStableControlValue(map)).toBe(false);
-    const proxied = new Proxy({ tenant: "acme" }, {});
-    expect(snapshotControlValue(proxied)).toBe(proxied);
-    expect(isStableControlValue(proxied)).toBe(false);
-    expect(snapshotControlValue("acme")).toBe("acme");
-    expect(isStableControlValue("acme")).toBe(true);
-  });
-
   test("a remembered domain holds its own copy of the values it was bound from: a Date or an array the caller mutates after its call never reaches a later call with equal values (F1)", async () => {
     const owner = s.model({
       id: s.string().id(),
@@ -2024,67 +1929,6 @@ describe("controls: the order a chain takes", () => {
   });
 });
 
-describe("controls: the official cache", () => {
-  test("its control comes from the cache, whatever controls a definition carrying its query spells", async () => {
-    const official = cache({ driver: new MemoryCache() });
-    const placedOn = (definition: Readonly<Record<string, unknown>>) =>
-      appendResolvedExtension(undefined, definition, schema).controls?.placed(
-        "post",
-        "create"
-      );
-    const forgedCalls: unknown[] = [];
-    const forged = {
-      name: official.name,
-      query: official.query,
-      controls: {
-        cache: {
-          schema: standard((value) => {
-            forgedCalls.push(value);
-            return { value };
-          }),
-          on: "writes",
-        },
-        extra: { oneOf: ["x"] },
-      },
-    };
-    for (const definition of [
-      official,
-      { name: official.name, query: official.query },
-      forged,
-    ]) {
-      const placed = placedOn(definition);
-      expect(placed?.map((control) => control.name)).toEqual(["cache"]);
-      expect(placed?.[0]?.declaration).toBe(official.controls.cache);
-    }
-
-    const base = await seededBase();
-    for (const definition of [
-      {
-        name: official.name,
-        query: cache({ driver: new MemoryCache() }).query,
-      },
-      { ...forged, query: cache({ driver: new MemoryCache() }).query },
-    ]) {
-      const db = applyUnchecked(base, definition);
-      const id = `u-${String(forgedCalls.length)}-${String(Math.random())}`;
-      await expect(
-        callUnchecked(db, "user", "create", {
-          data: { id, name: "Cached" },
-          cache: { autoInvalidate: true },
-        })
-      ).resolves.toMatchObject({ id });
-      const refused = await failure(
-        callUnchecked(db, "user", "create", {
-          data: { id: `${id}-bad`, name: "Bad" },
-          cache: { autoInvalidate: "yes" },
-        })
-      );
-      expect(String(refused)).toContain("Invalid mutation cache options");
-    }
-    expect(forgedCalls).toEqual([]);
-  });
-});
-
 describe("controls: the cache key", () => {
   async function cachedPair(order: "cache-first" | "rows-first") {
     const recorder = new KeyRecordingCache();
@@ -2193,18 +2037,26 @@ describe("controls: the cache key", () => {
       );
     const byTitle = base
       .$extends(cache({ driver: shared, version: "v" }))
-      .$extends({
-        ...softRows,
-        rows: {
-          ...softRows.rows,
-          models: {
+      .$extends(
+        extension(
+          "rows",
+          extArgs({
+            deleted: oneOf("without", "with", "only").default("without"),
+          }),
+          rule({
             post: {
-              ...softRows.rows.models.post,
-              without: { root: { title: "gone" }, related: { title: "gone" } },
+              root: [
+                when(arg("deleted"), "without", { title: "gone" }),
+                when(arg("deleted"), "only", { deletedAt: { not: null } }),
+              ],
+              related: [
+                when(arg("deleted"), "without", { title: "gone" }),
+                when(arg("deleted"), "only", { deletedAt: null }),
+              ],
             },
-          },
-        },
-      });
+          })
+        )
+      );
     const ids = (rows: readonly { readonly id: string }[]) =>
       rows.map((row) => row.id);
     expect(

@@ -9,7 +9,11 @@ import { partSet } from "@extensions/chain";
 import type { ResolvedExtensionChain } from "@extensions/chain-state";
 import { controlsPart } from "@extensions/controls";
 import type { RuntimeExtensionDefinition } from "@extensions/definition";
-import { builtPart, extension } from "@extensions/extension";
+import {
+  builtPart,
+  extension,
+  isAppliedExtension,
+} from "@extensions/extension";
 import { keptRowsPart } from "@extensions/kept";
 import { methodsPart } from "@extensions/methods";
 import { defaultOrderPart } from "@extensions/order";
@@ -35,12 +39,16 @@ export type HostDefinition = { readonly name: string } & Readonly<
   Record<string, unknown>
 >;
 
-/** `chain` with `definition` applied by the host parts that read it. */
+/**
+ * `chain` with `definition` applied by the host parts that read it, or, given
+ * an extension value, as `$extends` applies it.
+ */
 export function appendResolvedExtension(
   chain: ResolvedExtensionChain | undefined,
-  definition: HostDefinition,
+  definition: HostDefinition | unknown,
   schema: Schema
 ): ResolvedExtensionChain {
+  if (isAppliedExtension(definition)) return definition.append(chain, schema);
   return hosts.append(chain, definition as RuntimeExtensionDefinition, schema);
 }
 
