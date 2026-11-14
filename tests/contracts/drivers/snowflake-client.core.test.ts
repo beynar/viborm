@@ -28,7 +28,7 @@ import {
   rows,
   startFakeSnowflake,
 } from "@tests/fixtures/snowflake-server";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const author = s
   .model({
@@ -821,6 +821,73 @@ describe("Snowflake root pages and filters", () => {
     expect(server.statements()[0]!.statement).toContain(
       'AS_DOUBLE(("q0"."data")[\'k\'])'
     );
+  });
+});
+
+describe("Snowflake timeouts", () => {
+  const timed = (timeout?: number | false) =>
+    createClient({
+      schema,
+      account: "myorg-acct",
+      token: "t",
+      host: server.host,
+      fetch: server.fetch,
+      ...(timeout === undefined ? {} : { timeout }),
+    });
+  /** Half an hour later, once the statement went. */
+  const halfAnHourLater = async () => {
+    await vi.waitFor(() => expect(server.statements()).toHaveLength(1));
+    vi.advanceTimersByTime(1_800_000);
+  };
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("holds half an hour by default, sending Snowflake no timeout, then cancels", async () => {
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout"],
+      shouldAdvanceTime: true,
+    });
+    respond = () => ({
+      rowType: [fixed("N")],
+      partitions: [[["1"]]],
+      pending: 1_000_000,
+    });
+    const read = timed().$queryRaw`SELECT SYSTEM$WAIT(3600)`.catch(
+      (error: unknown) => error
+    );
+    await halfAnHourLater();
+    expect(await read).toMatchObject({ code: VibORMErrorCode.QUERY_TIMEOUT });
+    // Not sent: it would replace a shorter user or account limit (measured).
+    expect(server.statements()[0]!.timeout).toBeUndefined();
+    expect(
+      server.requests.some((request) => request.path.endsWith("/cancel"))
+    ).toBe(true);
+  });
+
+  it("holds no limit of its own with timeout: false", async () => {
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout"],
+      shouldAdvanceTime: true,
+    });
+    respond = () => ({
+      rowType: [fixed("N")],
+      partitions: [[["1"]]],
+      pending: 3,
+    });
+    // A pending operation runs once it is awaited or chained.
+    const read = timed(false).$queryRaw`SELECT 1`.then((found) => found);
+    await halfAnHourLater();
+    expect(await read).toEqual([{ N: 1 }]);
+    expect(server.statements()[0]!.timeout).toBeUndefined();
+  });
+
+  it("sends a timeout it is given, and refuses 0, which Snowflake reads as seven days", async () => {
+    respond = () => rows([fixed("N")], [["1"]]);
+    await timed(30).$queryRaw`SELECT 1`;
+    expect(server.statements()[0]!.timeout).toBe(30);
+    expect(() => timed(0)).toThrow(ClientInitializationError);
   });
 });
 

@@ -46,8 +46,11 @@ VibORM reads Snowflake.
   programmatic access token works too), so it runs in Node, Bun, Workers and
   Durable Objects without `snowflake-sdk`. It polls a statement that answers
   202, reads every result partition, sends a failed request again with the
-  same `requestId`, and stops a statement past its `timeout` (Snowflake's own
-  timeout, and a cancel once Snowflake has answered its handle). `findMany`,
+  same `requestId`, and stops a statement past its `timeout`: half an hour by
+  default, held by the driver alone so a shorter account, user or warehouse
+  limit still applies, and `timeout: false` for none of the driver's
+  (Snowflake's own timeout, and a cancel once Snowflake has answered its
+  handle). `findMany`,
   `findFirst`, `findUnique`, `count`, `exist`, `aggregate`, `groupBy` and
   `$queryRaw` run, with nested `include`/`select`: Snowflake refuses a
   correlated `LIMIT`, so a relation is read from an uncorrelated page numbered

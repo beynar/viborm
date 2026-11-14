@@ -41,8 +41,13 @@ export interface SnowflakeTransportOptions {
   readonly baseUrl: string;
   readonly authenticator: SnowflakeAuthenticator;
   readonly context: SnowflakeContext;
-  /** Seconds a statement may run, server-side and client-side. */
+  /** Seconds a statement may run, sent to Snowflake and held by the driver. */
   readonly timeout?: number;
+  /**
+   * Seconds the driver alone lets a statement run, where no `timeout` is
+   * sent: Snowflake keeps its own limit, which a shorter one still wins.
+   */
+  readonly deadline?: number;
   /** Session parameters every statement runs with. */
   readonly parameters: Readonly<Record<string, string>>;
   readonly fetch: (input: string, init: RequestInit) => Promise<Response>;
@@ -187,22 +192,23 @@ export class SnowflakeTransport {
     signal?: AbortSignal
   ): Promise<StatementResult> {
     const { timeout } = this.#options;
+    const limit = timeout ?? this.#options.deadline;
     const deadline = new AbortController();
     const timer =
-      timeout === undefined
+      limit === undefined
         ? undefined
         : setTimeout(
             () =>
               deadline.abort(
                 new QueryError(
-                  `The Snowflake statement ran past its ${timeout} s timeout and was cancelled.`,
+                  `The Snowflake statement ran past its ${limit} s timeout and was cancelled.`,
                   {
                     code: VibORMErrorCode.QUERY_TIMEOUT,
                     meta: { driver: "snowflake" },
                   }
                 )
               ),
-            timeout * 1000
+            limit * 1000
           );
     const onAbort = () => deadline.abort(signal?.reason);
     signal?.addEventListener("abort", onAbort, { once: true });
@@ -391,7 +397,7 @@ export class SnowflakeTransport {
         // its outcome is not known, and a submission's has no handle.
         throw new ConnectionError(
           init.method === "POST"
-            ? `Snowflake answered HTTP ${response.status} to ${attempts} sends of the statement: its outcome is not known, and it may have started, with no handle to cancel it by; its timeout bounds it.`
+            ? `Snowflake answered HTTP ${response.status} to ${attempts} sends of the statement: its outcome is not known, and it may have started, with no handle to cancel it by; only Snowflake's limit for it (a timeout sent with it, else STATEMENT_TIMEOUT_IN_SECONDS) bounds it.`
             : `Snowflake answered HTTP ${response.status} to ${attempts} reads of the statement.`,
           { meta: { driver: "snowflake", status: response.status } }
         );

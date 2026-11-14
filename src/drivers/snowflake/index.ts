@@ -83,8 +83,14 @@ export interface SnowflakeDriverOptions {
    */
   readonly namespace?: string;
   readonly role?: string;
-  /** Seconds a statement may run before Snowflake and the driver stop it. */
-  readonly timeout?: number;
+  /**
+   * Seconds a statement may run, sent to Snowflake (it replaces a user's or
+   * account's `STATEMENT_TIMEOUT_IN_SECONDS`, longer or shorter) and held by
+   * the driver. Absent: 1,800 seconds (half an hour), held by the driver
+   * alone, so a shorter account, user or warehouse limit still applies.
+   * `false`: no limit of the driver's; Snowflake's alone.
+   */
+  readonly timeout?: number | false;
   /**
    * Where the API lives, when not `https://<account>.snowflakecomputing.com`
    * (a proxy, a region outside `.com`): an `https://` URL, since the token
@@ -148,6 +154,9 @@ const CALLER_PARAMETERS = new Set([
   "use_cached_result",
   "client_result_chunk_size",
 ]);
+
+/** Seconds a statement may run when the caller states no `timeout`. */
+const DEFAULT_TIMEOUT = 1800;
 
 const TRAILING_SLASHES = /\/+$/;
 
@@ -333,10 +342,11 @@ export class SnowflakeDriver extends Driver<
       );
     if (
       resolved.timeout !== undefined &&
+      resolved.timeout !== false &&
       !(Number.isSafeInteger(resolved.timeout) && resolved.timeout > 0)
     )
       throw configuration(
-        "The Snowflake timeout is a positive whole number of seconds."
+        "The Snowflake timeout is a positive whole number of seconds, or false for no limit of the driver's (Snowflake reads 0 as its maximum, seven days)."
       );
     this.#options = resolved;
     this.#baseUrl =
@@ -378,7 +388,13 @@ export class SnowflakeDriver extends Driver<
       baseUrl: this.#baseUrl,
       authenticator,
       context: this.#context,
-      ...(options.timeout === undefined ? {} : { timeout: options.timeout }),
+      // Absent, the driver alone holds the default: sent, it would replace a
+      // shorter user or account limit (measured).
+      ...(options.timeout === undefined
+        ? { deadline: DEFAULT_TIMEOUT }
+        : options.timeout === false
+          ? {}
+          : { timeout: options.timeout }),
       parameters: this.#parameters,
       // A Worker's fetch must be called unbound from the global.
       fetch: (input, init) => send(input, init),

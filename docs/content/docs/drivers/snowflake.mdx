@@ -46,7 +46,7 @@ carries the key or the token: pass `privateKey` or `token` beside it.
 | `tokenType` | `"OAUTH"` (default) or `"PROGRAMMATIC_ACCESS_TOKEN"`; workload identity federation is not offered |
 | `warehouse`, `database`, `role` | The context every statement runs in, spelled as the catalog spells them (usually upper case) |
 | `namespace` | The schema every statement runs in, and the one VibORM qualifies its tables with |
-| `timeout` | Seconds a statement may run (see [Timeouts](#timeouts)); set it |
+| `timeout` | Seconds a statement may run, sent to Snowflake. Absent: half an hour (1,800), held by the driver alone; `false`: no limit of the driver's (see [Timeouts](#timeouts)) |
 | `host` | The API's `https://` base URL, when it is not `https://<account>.snowflakecomputing.com`: the China region, a proxy. The token goes wherever it says |
 | `fetch` | The `fetch` to send with: any `(url, init) => Promise<Response>` |
 | `parameters` | `QUERY_TAG`, `USE_CACHED_RESULT` or `CLIENT_RESULT_CHUNK_SIZE`, added to every statement's session: a string, a number or a boolean, sent as text; one `undefined` is not sent |
@@ -123,21 +123,31 @@ keep the keys true with Snowflake's own tools.
 
 ### Timeouts
 
-A statement runs with `timeout` sent to Snowflake. The SQL API answers with a
-statement's handle only at its first `202`, after 45 seconds. Before it,
-Snowflake's own timeout stops the statement (measured: no cancel is sent, and
-the account's query history shows the statement failed). After it, the driver
-also cancels the statement: Snowflake acknowledges the cancel and the
+Without `timeout`, a statement may run half an hour (1,800 seconds), and the
+driver alone holds that limit: it sends Snowflake no `timeout`, so a shorter
+`STATEMENT_TIMEOUT_IN_SECONDS` on the account, the user or the warehouse
+still stops the statement first. A `timeout` sent with a statement replaces
+the account's and the user's value, longer or shorter alike (measured: with
+the user at 5 seconds, a statement sent with `timeout: 1800` ran its full 9
+seconds), while a warehouse's lower value still wins.
+
+`timeout: n` sends `n` to Snowflake and holds it in the driver too.
+`timeout: false` holds no limit of the driver's: the statement runs as long as
+Snowflake lets it, `STATEMENT_TIMEOUT_IN_SECONDS`, two days unless the
+account, the user or the warehouse lowers it. `0` is refused: Snowflake reads
+it as its maximum, seven days, not as no limit.
+
+The SQL API answers with a statement's handle only at its first `202`, after
+45 seconds. Before it, Snowflake's own timeout stops the statement (measured:
+no cancel is sent, and the account's query history shows the statement
+failed). After it, the driver cancels the statement when its limit passes,
+the default's as a given one's: Snowflake acknowledges the cancel and the
 statement fails (measured with a statement abandoned after its `202`). The
 driver waits at most 2 seconds for that answer, and answers `QUERY_TIMEOUT`
 whether it comes or not (tested against a local server).
 
-Without `timeout` none is sent, and the driver waits as long as Snowflake lets
-the statement run: `STATEMENT_TIMEOUT_IN_SECONDS`, two days unless the account,
-the user or the warehouse lowers it. Set `timeout`.
-
 The driver takes no `AbortSignal` of the caller's: a read runs until its
-result, its `timeout`, or Snowflake's own limits.
+result, its timeout, or Snowflake's own limits.
 
 ### Requests that fail
 
@@ -148,7 +158,8 @@ or a partition gets three more, since a read changes nothing. A `5xx` still
 answered after the last send is a `ConnectionError`, never Snowflake refusing
 the statement. After a submission's last `5xx` the statement's outcome is not
 known: a gateway can answer `504` after Snowflake started it, and with no
-statement handle the driver cannot cancel it, so its timeout bounds it. When reading a statement's status fails, the driver cancels it
+statement handle the driver cannot cancel it: only Snowflake's limit for it
+bounds it (a `timeout` sent with it, else `STATEMENT_TIMEOUT_IN_SECONDS`). When reading a statement's status fails, the driver cancels it
 before it answers the failure, so it does not keep running on the warehouse.
 
 ### Results are read whole

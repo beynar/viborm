@@ -526,6 +526,28 @@ describe.skipIf(credentials === undefined)("Snowflake, a real account", () => {
     ]);
   }, 90_000);
 
+  it("keeps a shorter user limit under the default half hour, which it does not send", async () => {
+    await sql!.run(
+      `ALTER USER "${credentials!.user}" SET STATEMENT_TIMEOUT_IN_SECONDS = 5`,
+      undefined
+    );
+    try {
+      const failure = await client(credentials!)
+        .$queryRaw`SELECT SYSTEM$WAIT(9) AS DONE`.catch(
+        (error: unknown) => error
+      );
+      // Snowflake's 5 s stopped it: a timeout sent with the statement would
+      // have replaced the user's (measured).
+      expect(failure).toMatchObject({ code: VibORMErrorCode.QUERY_TIMEOUT });
+      expect(String((failure as Error).message)).toContain("5 second");
+    } finally {
+      await sql!.run(
+        `ALTER USER "${credentials!.user}" UNSET STATEMENT_TIMEOUT_IN_SECONDS`,
+        undefined
+      );
+    }
+  }, 60_000);
+
   it("cancels a statement it abandons after Snowflake's 202, and Snowflake stops it", async () => {
     const tag = `${SCHEMA}_CANCEL`;
     const { exchanges, fetch: send } = recording();
