@@ -6,9 +6,17 @@
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { ClientInitializationError } from "@errors";
 import { appendResolvedExtension } from "@extensions/chain";
+import { PlainDomain } from "@extensions/plain-domain";
+import { FilterDomain } from "@extensions/row-domain";
+import type { RowDomain } from "@query-engine/raptor3/shared/row-scope";
+import { EngineSchema } from "@query-engine/raptor3/shared/schema";
+import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import {
   createClient,
+  defaultDataPart,
+  defaultOrderPart,
   defineWith,
+  filtersPart,
   methodsPart,
   queryPart,
   s,
@@ -122,5 +130,95 @@ describe("extension parts", () => {
     expect(() => extensionParts({ name: "literal" })).toThrow(
       "nothing brought the code that runs extensions"
     );
+  });
+});
+
+describe("the parts that read rows", () => {
+  const queries = new SqlQueries(
+    new EngineSchema(schema),
+    new PostgresAdapter()
+  );
+  const now = () => new Date(0);
+  const ordered = defineWith(
+    defaultOrderPart,
+    defaultDataPart
+  )({
+    name: "ordered",
+    order: { models: { item: { name: "asc" as const } } },
+    data: { models: { item: { create: { name: "stamped" } } } },
+  });
+  const filtered = defineWith(filtersPart)({
+    name: "filtered",
+    rows: {
+      control: "scope",
+      default: "named",
+      models: { item: { named: { root: { name: "a" } }, all: {} } },
+    },
+  });
+  const scopeOf = (chain: ReturnType<typeof appendResolvedExtension>) =>
+    chain.callRows!.call("item", undefined).prepare(queries, now);
+
+  it("binds a chain that only orders and stamps rows to a plain domain, and a filter later on the chain to its own binding, which reads them", () => {
+    const plain = appendResolvedExtension(undefined, ordered, schema);
+    const scope = scopeOf(plain);
+    expect(scope.domain).toBeInstanceOf(PlainDomain);
+    expect(scope.defaults).toBe(scope.domain);
+    expect(scope.rows.stamps?.get("item")?.create).toEqual({ name: "stamped" });
+    // One prepared domain per query owner and chain.
+    expect(scopeOf(plain).domain).toBe(scope.domain);
+    for (const chain of [
+      appendResolvedExtension(plain, filtered, schema),
+      appendResolvedExtension(
+        appendResolvedExtension(undefined, filtered, schema),
+        ordered,
+        schema
+      ),
+    ]) {
+      const { domain, rows } = scopeOf(chain);
+      expect(domain).toBeInstanceOf(FilterDomain);
+      expect(domain.rows.order?.get("item")).toEqual([{ name: "asc" }]);
+      expect(rows.stamps?.get("item")?.create).toEqual({ name: "stamped" });
+    }
+  });
+
+  it("answers in a plain domain as a filtered domain with no layer does", () => {
+    const rows: RowDomain = { root: new Map(), related: new Map() };
+    const plain = new PlainDomain(rows, queries);
+    const layered = new FilterDomain(rows, queries);
+    expect(plain.defaults).toBe(plain);
+    expect([plain.judge, plain.project]).toEqual([undefined, undefined]);
+    expect(plain.selector()).toBe(layered.selector(item, "root"));
+    expect(plain.bound()).toBe(layered.bound(item, [0]));
+    expect(plain.restrictsLinkWrite()).toBe(
+      layered.restrictsLinkWrite(queries, item)
+    );
+    expect(plain.conjunction()).toBe(layered.conjunction(item, []));
+    expect(plain.prepare(item, { name: "a" })).toEqual(
+      layered.prepare(item, { name: "a" })
+    );
+    for (const nested of [undefined, ["create", "items"] as const])
+      expect(plain.refusal("create", item, undefined, nested)).toEqual(
+        layered.refusal("create", item, undefined, nested)
+      );
+    expect(plain.refuseHiddenLinkRow()).toBeUndefined();
+    expect(plain.reads()).toBe(plain.reads());
+  });
+
+  it("refuses verbs built without what reads them, rather than reading the filters alone", () => {
+    expect(() =>
+      appendResolvedExtension(
+        undefined,
+        defineWith(filtersPart)({
+          name: "judged",
+          rows: {
+            control: "scope",
+            default: "all",
+            models: {},
+            verbs: { item: { predicates: {} } },
+          },
+        }),
+        schema
+      )
+    ).toThrow("must be built with defineExtension()");
   });
 });

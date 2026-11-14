@@ -25,7 +25,7 @@ export const rowsPart: ExtensionPart = {
  */
 export const verbsPart: ExtensionPart = {
   uses: [filtersPart],
-  admit(application) {
+  declare(application) {
     const { definition, schema, registry } = application;
     const { rows } = definition;
     if (rows?.verbs === undefined && rows?.confine === undefined) return;

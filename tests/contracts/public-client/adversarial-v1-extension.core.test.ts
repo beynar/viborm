@@ -17,6 +17,11 @@ const post = s.model({
   title: s.string(),
 });
 const schema = { post };
+/** A definition applied to a chain: what checks what it declares. */
+const applied = (
+  definition: ExtensionDefinitionInput,
+  receiving: Parameters<typeof appendResolvedExtension>[2]
+) => appendResolvedExtension(undefined, definition, receiving);
 describe("named extension policy admission", () => {
   it("rejects malformed policy containers and scalar assignments", () => {
     const cases: readonly (readonly [Record<string, unknown>, string])[] = [
@@ -44,7 +49,8 @@ describe("named extension policy admission", () => {
     ];
     for (const [component, message] of cases)
       expect(() =>
-        Reflect.apply(normalizeExtensionDefinition, undefined, [
+        Reflect.apply(appendResolvedExtension, undefined, [
+          undefined,
           { name: "hostile-policy", ...component },
           schema,
         ])
@@ -57,7 +63,7 @@ describe("named extension policy admission", () => {
     let predicate: Record<string, unknown> = { tenantId: "acme" };
     for (let depth = 0; depth < 17; depth++) predicate = { AND: [predicate] };
     expect(() =>
-      normalizeExtensionDefinition(
+      applied(
         {
           name: "deep-policy",
           rows: {
@@ -72,7 +78,7 @@ describe("named extension policy admission", () => {
       )
     ).not.toThrow();
     expect(() =>
-      normalizeExtensionDefinition(
+      applied(
         {
           name: "different-mode-counts",
           rows: {
@@ -121,14 +127,14 @@ describe("named extension policy admission", () => {
       },
     ];
     for (const component of components)
-      expect(() =>
-        normalizeExtensionDefinition({ name: "policy", ...component }, schema)
-      ).toThrow(UNKNOWN_PATTERN);
+      expect(() => applied({ name: "policy", ...component }, schema)).toThrow(
+        UNKNOWN_PATTERN
+      );
   });
   it("refuses missing policy modes and preserves a scalar named AND", () => {
     const other = s.model({ id: s.string().id(), tenantId: s.string() });
     expect(() =>
-      normalizeExtensionDefinition(
+      applied(
         {
           name: "modes",
           rows: {
@@ -145,7 +151,7 @@ describe("named extension policy admission", () => {
     ).toThrow(SHARE_MODE_NAMES_PATTERN);
     const named = s.model({ id: s.string().id(), AND: s.string() });
     expect(() =>
-      normalizeExtensionDefinition(
+      applied(
         {
           name: "logical-field",
           rows: {
@@ -185,7 +191,7 @@ describe("named extension policy admission", () => {
       appendResolvedExtension(undefined, definition, schema)
     ).toThrow(UNDECLARED_CONTROL_TENNAT_PATTERN);
     expect(() =>
-      normalizeExtensionDefinition(
+      applied(
         {
           name: "optional",
           controls: { tenant: { oneOf: ["acme"] } },
@@ -202,7 +208,7 @@ describe("named extension policy admission", () => {
     ).not.toThrow();
     const controlled = s.model({ id: s.string().id(), control: s.string() });
     expect(() =>
-      normalizeExtensionDefinition(
+      applied(
         {
           name: "control-field",
           rows: {

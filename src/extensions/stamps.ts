@@ -12,9 +12,10 @@ import {
 import type { Input } from "@query-engine/raptor3/shared/schema";
 import { isPlainRecord } from "@schema/relation/terminal";
 import { isInstant, isReference } from "./admission";
-import { rebind, refuseUndeclared } from "./call-rows";
+import { checkFields, eachModel, rebind, refuseUndeclared } from "./call-rows";
 import type { ExtensionPart } from "./chain";
 import type { AdmittedControls, DataContribution } from "./controls";
+import { readOwn } from "./definition";
 import { bindPlain } from "./plain-domain";
 
 /** A named control the call did not pass. */
@@ -171,6 +172,23 @@ function appendData(
  */
 export const defaultDataPart: ExtensionPart = {
   members: ["data"],
+  admit(application) {
+    const extension = application.definition.name;
+    eachModel(application, "data", (model, name, entry) => {
+      checkFields(
+        extension,
+        `data.${name}`,
+        model,
+        readOwn(entry, "create", extension)
+      );
+      checkFields(
+        extension,
+        `data.${name}`,
+        model,
+        readOwn(entry, "update", extension)
+      );
+    });
+  },
   join(application) {
     const { definition, chain, next } = application;
     const { data } = definition;

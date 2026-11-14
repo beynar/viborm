@@ -12,8 +12,9 @@ import type {
   RowDomain,
 } from "@query-engine/raptor3/shared/row-scope";
 import { type Input, memo } from "@query-engine/raptor3/shared/schema";
+import { isRecord } from "@validation/value-guards";
 import { type AdmittedRows, admitRows, type VerbsBound } from "./admission";
-import { rebind, refuseUndeclared } from "./call-rows";
+import { eachModel, rebind, refuseUndeclared } from "./call-rows";
 import type {
   Application,
   CallRowsBinding,
@@ -22,7 +23,7 @@ import type {
   ResolvedExtensionChain,
 } from "./chain";
 import { type AdmittedControls, controlsPart, rowsModes } from "./controls";
-import { extensionError } from "./definition";
+import { extensionError, readOwn, readOwnKeys } from "./definition";
 import { prepareCall } from "./row-domain";
 
 /** One `rows` member: its control, and where each of its modes sits. */
@@ -251,9 +252,50 @@ function namedControls(rows: AdmittedRows): (string | undefined)[] {
 }
 
 /**
+ * What a `rows` member's models declare, checked before its predicates are
+ * admitted: every model the same mode names, the default among them, each
+ * mode an object.
+ */
+function checkModes(application: Application): void {
+  const extension = application.definition.name;
+  let expected: readonly string[] | undefined;
+  eachModel(application, "rows", (_model, _name, entry, declaration) => {
+    const fallback = readOwn(declaration, "default", extension);
+    const modes = readOwnKeys(entry, extension);
+    const named = modes.filter((key): key is string => typeof key === "string");
+    const prior = expected;
+    if (
+      typeof fallback !== "string" ||
+      !named.includes(fallback) ||
+      (prior &&
+        (prior.length !== named.length ||
+          named.some((mode) => !prior.includes(mode))))
+    )
+      extensionError(
+        `Extension "${extension}" row models must share mode names and include the default mode.`,
+        extension
+      );
+    expected ??= named;
+    for (const mode of modes) {
+      if (typeof mode !== "string")
+        extensionError(
+          `Extension "${extension}" row mode must be a string.`,
+          extension
+        );
+      if (!isRecord(readOwn(entry, mode, extension)))
+        extensionError(
+          `Extension "${extension}" row mode must be an object.`,
+          extension
+        );
+    }
+  });
+}
+
+/**
  * `rows` admitted where the extension is applied, through each model's
  * `where` schema, unless it declares `verbs` or `confine`: what reads those
- * admits it then ({@link verbsPart}).
+ * admits it then ({@link verbsPart}). Once every part has checked what it
+ * reads, so a refusal names the member at fault, whichever part it is.
  */
 export function admitFilters(application: Application): void {
   const { definition, schema, registry } = application;
@@ -278,7 +320,8 @@ export function admitFilters(application: Application): void {
 export const filtersPart: ExtensionPart = {
   members: ["rows"],
   uses: [controlsPart],
-  admit: admitFilters,
+  admit: checkModes,
+  declare: admitFilters,
   join(application) {
     const { definition, chain, next } = application;
     const { rows } = definition;

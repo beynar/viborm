@@ -4,7 +4,6 @@ import type { Operations, Schema } from "@client/types";
 import type { AnyDriver } from "@drivers/exports";
 import { ClientInitializationError } from "@errors";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
-import type { AnyRelation } from "@schema/relation/types";
 import { isFunction, isRecord } from "@validation/value-guards";
 import { errorCause } from "../errors/diagnostic-safety";
 import type { AdmittedRows } from "./admission";
@@ -269,146 +268,12 @@ function snapshotModelFactories(
   return Object.freeze(factories);
 }
 
-/** Refuse named policy facts that could otherwise silently bind to nothing. */
-function validateNamedPolicies(
-  value: ExtensionDefinitionInput,
-  schema: Schema | undefined,
-  name: string
-): void {
-  if (!schema) return;
-  const components: ("rows" | "data" | "deletion")[] = [
-    "rows",
-    "data",
-    "deletion",
-  ];
-  for (const component of components) {
-    const declaration = readOwn(value, component, name);
-    if (declaration === undefined) continue;
-    if (!isRecord(declaration))
-      extensionError(
-        `Extension "${name}" ${component} must be an object.`,
-        name
-      );
-    const models = readOwn(declaration, "models", name);
-    if (!isRecord(models))
-      extensionError(
-        `Extension "${name}" ${component}.models must be an object.`,
-        name
-      );
-    let expectedModes: readonly string[] | undefined;
-    const defaultMode =
-      component === "rows" ? readOwn(declaration, "default", name) : undefined;
-    for (const modelName of readOwnKeys(models, name)) {
-      if (typeof modelName !== "string" || !Object.hasOwn(schema, modelName))
-        extensionError(
-          `Extension "${name}" ${component} names unknown model "${String(modelName)}".`,
-          name
-        );
-      const model = schema[modelName]!;
-      const entry = readOwn(models, modelName, name);
-      if (!isRecord(entry))
-        extensionError(
-          `Extension "${name}" ${component}.${modelName} must be an object.`,
-          name
-        );
-      // A row predicate's fields are its admission's (`admission.ts`).
-      const fields = (input: unknown): void => {
-        if (input === undefined) return;
-        if (!isRecord(input))
-          extensionError(
-            `Extension "${name}" ${component}.${modelName} fields must be an object.`,
-            name
-          );
-        for (const key of readOwnKeys(input, name)) {
-          if (
-            typeof key !== "string" ||
-            !Object.hasOwn(model["~"].state.scalars, key)
-          )
-            extensionError(
-              `Extension "${name}" ${component}.${modelName} names unknown field "${String(key)}".`,
-              name
-            );
-        }
-      };
-      if (component === "rows") {
-        const modes = readOwnKeys(entry, name).filter(
-          (key): key is string => typeof key === "string"
-        );
-        const priorModes = expectedModes;
-        if (
-          typeof defaultMode !== "string" ||
-          !modes.includes(defaultMode) ||
-          (priorModes &&
-            (priorModes.length !== modes.length ||
-              modes.some((mode) => !priorModes.includes(mode))))
-        )
-          extensionError(
-            `Extension "${name}" row models must share mode names and include the default mode.`,
-            name
-          );
-        expectedModes ??= modes;
-        for (const modeName of readOwnKeys(entry, name)) {
-          if (typeof modeName !== "string")
-            extensionError(
-              `Extension "${name}" row mode must be a string.`,
-              name
-            );
-          const mode = readOwn(entry, modeName, name);
-          if (!isRecord(mode))
-            extensionError(
-              `Extension "${name}" row mode must be an object.`,
-              name
-            );
-        }
-      } else if (component === "data") {
-        fields(readOwn(entry, "create", name));
-        fields(readOwn(entry, "update", name));
-      } else {
-        const holder = junctionHolder(schema, model);
-        if (holder !== undefined)
-          extensionError(
-            `Extension "${name}" deletion.${modelName}: the model is the junction of '${holder}', so a tombstoned link would still be followed. Delete the link with the relation's disconnect, or the row through its delegate.`,
-            name
-          );
-        const at = readOwn(entry, "at", name);
-        if (
-          at !== undefined &&
-          (typeof at !== "string" ||
-            !Object.hasOwn(model["~"].state.scalars, at))
-        )
-          extensionError(
-            `Extension "${name}" deletion.${modelName}.at names unknown scalar.`,
-            name
-          );
-        fields(readOwn(entry, "assign", name));
-      }
-    }
-  }
-}
-
-/** The slot a model is the declared junction of, for a refusal to name. */
-function junctionHolder(schema: Schema, model: Schema[string]) {
-  for (const [holder, candidate] of Object.entries(schema))
-    for (const [field, relation] of Object.entries(
-      candidate["~"].state.relations
-    )) {
-      const internal = (relation as AnyRelation)["~"];
-      if (
-        internal.state.junction?.model !== undefined &&
-        internal.settleJunctionModel!() === model
-      )
-        return `${holder}.${field}`;
-    }
-  return undefined;
-}
-
 /**
  * Read a caller-owned definition once. The six handler members are validated
  * and frozen as host-owned snapshots, so a failed application cannot mutate
- * the supplied value; against a schema, the models and fields `rows`, `data`
- * and `deletion` name are checked. What reads `rows` and `order` admits them
- * when it is applied (`rows.ts`, `order.ts`); `controls`, `deletion` and
- * `data` are bound as written.
+ * the supplied value. `controls`, `rows`, `deletion`, `data` and `order` are
+ * kept as written: what reads each checks it against the schema where the
+ * extension is applied (`rows.ts`, `kept.ts`, `stamps.ts`, `order.ts`).
  */
 export function normalizeExtensionDefinition(
   value: ExtensionDefinitionInput,
@@ -510,9 +375,7 @@ export function normalizeExtensionDefinition(
     rawResult === undefined
       ? undefined
       : snapshotResult(rawResult, name, schema);
-  const { controls, deletion, data } = value;
-  validateNamedPolicies({ rows: value.rows, deletion, data }, schema, name);
-  const { rows, order } = value;
+  const { controls, deletion, data, rows, order } = value;
 
   return Object.freeze({
     name,
