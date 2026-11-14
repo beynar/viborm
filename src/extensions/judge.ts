@@ -14,11 +14,10 @@ import type {
   RowJudgement,
 } from "@query-engine/raptor3/shared/row-scope";
 import { type Input, memo } from "@query-engine/raptor3/shared/schema";
-import type { PreparedGuardFailure } from "@query-engine/types";
 import type { AnyModel } from "@schema/model";
 import { producedSource, producedWhere } from "./produced";
 import { readsAny } from "./reads";
-import { type PreparedDomain, verbInputs, writeRefusal } from "./row-domain";
+import { type PreparedDomain, verbInputs } from "./row-domain";
 
 export class Judge {
   readonly #domain: PreparedDomain;
@@ -53,23 +52,17 @@ export class Judge {
       : undefined;
   }
   /**
-   * What a write of `operation` says when the row it would leave is refused:
-   * `nested`, the verb and the relation it is written through.
+   * Why the row an update judged at `judgement` would leave is refused,
+   * where it writes a field some layer `moves` judges again; `undefined`
+   * where it says nothing more than that the row is not permitted.
    */
-  refusal(
-    operation: string,
-    model: AnyModel,
-    judgement?: RowJudgement,
-    nested?: readonly [verb: string, relation: string]
-  ): PreparedGuardFailure {
-    const forbidden = writeRefusal(operation, nested);
-    const layers =
-      judgement && this.#domain.rows.verbs?.get(model["~"].names.ts!);
-    if (nested || !(judgement && layers)) return forbidden;
+  reason(model: AnyModel, judgement: RowJudgement): string | undefined {
+    const layers = this.#domain.rows.verbs?.get(model["~"].names.ts!);
+    if (layers === undefined) return undefined;
     const moved = judgement.writes.filter((field) =>
       layers.some((layer) => layer?.moves.has(field) === true)
     );
-    if (moved.length === 0) return forbidden;
+    if (moved.length === 0) return undefined;
     const relations = model["~"].state.relations;
     const through = judgement.writes.filter(
       (field) =>
@@ -78,10 +71,7 @@ export class Judge {
           moved.includes(key)
         ) === true
     );
-    return {
-      ...forbidden,
-      reason: `the row it would leave, judged again because it writes ${moved.join(", ")}${through.length > 0 ? ` (through ${through.join(", ")})` : ""}, is refused`,
-    };
+    return `the row it would leave, judged again because it writes ${moved.join(", ")}${through.length > 0 ? ` (through ${through.join(", ")})` : ""}, is refused`;
   }
   /**
    * What the row a write of `model` produces is judged at, as a value,

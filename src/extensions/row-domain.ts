@@ -213,6 +213,32 @@ export class PreparedDomain {
     );
   }
   /**
+   * What a write of `operation` says when the row it would leave is refused:
+   * `nested`, the verb and the relation it is written through. What judges
+   * the rows a write produces may say why ({@link Judge.reason}).
+   */
+  refusal(
+    operation: string,
+    model: AnyModel,
+    judgement?: RowJudgement,
+    nested?: readonly [verb: string, relation: string]
+  ): PreparedGuardFailure {
+    if (nested)
+      return {
+        kind: "nestedWrite",
+        relation: nested[1],
+        message: `Cannot ${nested[0]} relation '${nested[1]}': the record it writes is not permitted.`,
+        raceable: false,
+      };
+    const forbidden: PreparedGuardFailure = {
+      kind: "forbidden",
+      message: `${operation} produced a row that is not permitted.`,
+      raceable: false,
+    };
+    const reason = judgement && this.judge?.reason(model, judgement);
+    return reason === undefined ? forbidden : { ...forbidden, reason };
+  }
+  /**
    * What a direct read of the junction model would hide stays hidden from a
    * `$through` that reads it, or that tests it, which is the same disclosure one
    * row at a time. Not honoured in the statement: a target row the hop reached
@@ -242,28 +268,6 @@ export class PreparedDomain {
         `Cannot ${use} $through.${gated} of relation '${edge.name}': this client gates that field of '${name}'. Read it through the '${name}' delegate.`
       );
   }
-}
-/**
- * What a write of `operation` says when the row it would leave is refused:
- * `nested`, the verb and the relation it is written through. What judges
- * the row may say why ({@link Judge.refusal}).
- */
-export function writeRefusal(
-  operation: string,
-  nested?: readonly [verb: string, relation: string]
-): PreparedGuardFailure {
-  return nested
-    ? {
-        kind: "nestedWrite",
-        relation: nested[1],
-        message: `Cannot ${nested[0]} relation '${nested[1]}': the record it writes is not permitted.`,
-        raceable: false,
-      }
-    : {
-        kind: "forbidden",
-        message: `${operation} produced a row that is not permitted.`,
-        raceable: false,
-      };
 }
 /** The verb predicates one layer's `judgement` takes, each once. */
 export function verbInputs(

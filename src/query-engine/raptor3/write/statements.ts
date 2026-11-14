@@ -545,7 +545,7 @@ export class Writer {
           : insert,
       ...(select && {
         probe: select,
-        stops: judge!.refusal(
+        stops: q.domain!.refusal(
           this.operation.operation,
           model,
           undefined,
@@ -596,7 +596,7 @@ export class Writer {
           );
         const edge = question.member?.edge ?? question.through;
         if (produced)
-          stops = judge!.refusal(
+          stops = q.domain!.refusal(
             this.operation.operation,
             model,
             judged,
