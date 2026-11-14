@@ -148,8 +148,10 @@ undone); `settled` functions run in chain order and all run, so `cache()`
 applied before `on()` invalidates before the hooks. `$invalidate()` is
 `settled(scope, …)`: at once outside a transaction, after the outermost
 commit inside one (`tx.$invalidate()`); a key it refuses is refused as it
-is, a backend failure is a `CacheConfigurationError`. A write with no
-invalidation work registers nothing. Do not reintroduce executor wrappers,
+is, a backend failure is a `CacheConfigurationError`. Every write registers
+its invalidation (the whole scope by default) unless it passes
+`cache: { autoInvalidate: false }` with no `invalidate` targets
+(`hasCacheInvalidationWork`). Do not reintroduce executor wrappers,
 per-mutation WeakMaps, or native/fallback publication branches.
 
 ## Deliberate read bypass
