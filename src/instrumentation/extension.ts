@@ -32,6 +32,7 @@ import {
   presentNoteLog,
   presentTraceFailure,
   statementIndexOf,
+  tracesAs,
 } from "./presentation";
 import {
   SPAN_CONNECT,
@@ -185,7 +186,12 @@ function presentOperation(
     const startedAt = Date.now();
     const end = next();
     const settled = await end;
-    for (const noted of notes(unit)) log(context, unit, noteOf(noted));
+    // A call's query and error logs are the library's account of its own
+    // work: an extension's note on the call is logged at `cache` alone.
+    for (const noted of notes(unit)) {
+      const fact = noteOf(noted);
+      if (fact?.log === "cache") log(context, unit, fact);
+    }
     const error = failure(unit);
     if (
       settled.status === "failure" &&
@@ -315,8 +321,8 @@ function log(
 
 /**
  * A unit of an extension's own kind, presented from what was noted on it:
- * the span its first note names as it starts, the attributes noted later
- * set on it at its end, and every log asked for.
+ * the span its first note names as it starts, if a note may take that name,
+ * the attributes noted later set on it at its end, and every log asked for.
  */
 function presentNoted(
   context: InstrumentationContext,
@@ -342,7 +348,9 @@ function presentNoted(
     }
     return endWith(end, unit);
   };
-  return span !== undefined && context.config.tracing !== undefined
+  return span !== undefined &&
+    context.config.tracing !== undefined &&
+    tracesAs(span)
     ? context.tracer.startActiveSpan(createNotedSpanOptions(unit, span), settle)
     : settle();
 }

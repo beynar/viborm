@@ -23,8 +23,11 @@ import {
   ATTR_DB_OPERATION_NAME,
   ATTR_DB_SYSTEM,
   ATTR_VIBORM_CORRELATION_ID,
+  SPAN_CONNECT,
+  SPAN_DISCONNECT,
   SPAN_EXECUTE,
   SPAN_OPERATION,
+  SPAN_TRANSACTION,
   type VibORMSpanName,
 } from "./spans";
 import type { SpanAttributes, VibORMSpanOptions } from "./tracer";
@@ -71,13 +74,46 @@ function resolvedOperation(unit: Unit): string | undefined {
 export const noteOf = (value: unknown): InstrumentationNote | undefined =>
   typeof value === "object" && value !== null ? value : undefined;
 
-/** The attributes a note gives, those given `undefined` left out. */
+/**
+ * The statement's text, summary and parameters: only the library presents
+ * them, from the statement it sent, as `includeSql` and `includeParams` let
+ * it. A note setting one is not refused but dropped, silently: the
+ * instrumentation never fails the call it observes.
+ */
+const STATEMENT_FACTS = "db.query.";
+
+/** The spans the library presents for a call's own units. */
+const CALL_SPANS: ReadonlySet<string> = new Set([
+  SPAN_OPERATION,
+  SPAN_EXECUTE,
+  SPAN_TRANSACTION,
+  SPAN_CONNECT,
+  SPAN_DISCONNECT,
+]);
+
+/**
+ * Whether a note may trace its unit under the span it names: never as one
+ * of a call's own spans, but as an operation of its own when that is a root
+ * span (the cache's background revalidation), outside any call's trace. A
+ * unit whose note may not is presented without a span.
+ */
+export const tracesAs = (
+  noted: InstrumentationNote & { readonly span: string }
+): boolean =>
+  !CALL_SPANS.has(noted.span) ||
+  (noted.span === SPAN_OPERATION && noted.root === true);
+
+/**
+ * The attributes a note gives, those given `undefined` and the statement's
+ * facts left out.
+ */
 export function notedAttributes(
   attributes: InstrumentationNote["attributes"]
 ): SpanAttributes {
   const defined: SpanAttributes = {};
   for (const [key, value] of Object.entries(attributes ?? {}))
-    if (value !== undefined) defined[key] = value;
+    if (value !== undefined && !key.startsWith(STATEMENT_FACTS))
+      defined[key] = value;
   return defined;
 }
 
