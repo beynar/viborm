@@ -47,13 +47,16 @@ export function runGroupByTimeStepBehavior(
       else await syncLiveSchema(base);
       await base.facture.deleteMany({});
       await base.depense.deleteMany({});
+      await base.ancien.deleteMany({});
       await base.facture.createMany({ data: [...groupByTimeStepRows.facture] });
       await base.depense.createMany({ data: groupByTimeStepRows.depense });
+      await base.ancien.createMany({ data: groupByTimeStepRows.ancien });
       clients = groupByTimeStepClients(base);
     });
     afterAll(async () => {
       await base.facture.deleteMany({});
       await base.depense.deleteMany({});
+      await base.ancien.deleteMany({});
       await base.$disconnect();
     });
 
@@ -76,6 +79,7 @@ export function runGroupByTimeStepBehavior(
           dueAt: row.dueAt?.toISOString() ?? null,
           wall: row.wall.toISOString(),
           jour: row.jour.toISOString().slice(0, 10),
+          natif: row.natif.toISOString(),
           deletedAt: row.deletedAt?.toISOString() ?? null,
         }))
       ).toEqual(groupByTimeStepRows.facture);

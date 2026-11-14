@@ -75,6 +75,26 @@ describe("groupBy by a time step: types", () => {
         // @ts-expect-error - one column per member
         by: [{ date: "month", jour: "year" }],
       });
+    // Held, not fresh: excess-property checking does not reach these.
+    const heldTypo = { date: "month", dtae: "month" } as const;
+    const _heldTypoInList = () =>
+      client.facture.groupBy({
+        // @ts-expect-error - dtae beside a real column, held in a variable
+        by: ["statut", heldTypo],
+      });
+    const _heldTypoAlone = () =>
+      client.facture.groupBy({
+        // @ts-expect-error - the same member as the single shorthand
+        by: heldTypo,
+      });
+    const heldMember = { date: "month" } as const;
+    const _heldMember = () =>
+      client.facture.groupBy({ by: ["statut", heldMember], _count: true });
+    const _freshTypo = () =>
+      client.facture.groupBy({
+        // @ts-expect-error - a fresh literal with the typo beside the column
+        by: [{ date: "month", dtae: "month" }],
+      });
     const _unknownStep = () =>
       client.facture.groupBy({
         // @ts-expect-error - hour is not a step
@@ -85,5 +105,9 @@ describe("groupBy by a time step: types", () => {
     expectTypeOf(_list).toBeFunction();
     expectTypeOf(_twoColumns).toBeFunction();
     expectTypeOf(_unknownStep).toBeFunction();
+    expectTypeOf(_heldTypoInList).toBeFunction();
+    expectTypeOf(_heldTypoAlone).toBeFunction();
+    expectTypeOf(_heldMember).toBeFunction();
+    expectTypeOf(_freshTypo).toBeFunction();
   });
 });

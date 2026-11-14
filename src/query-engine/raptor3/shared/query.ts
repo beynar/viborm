@@ -141,6 +141,11 @@ export type Leaf = {
   id?: IdentifierColumn;
   enumValues?: ReadonlySet<string>;
   dimension?: number;
+  /**
+   * A time-step period (`groupBy`'s `{ column: step }`): a date decoded as a
+   * `date` column is, published as its `YYYY-MM-DD` day.
+   */
+  period?: true;
 };
 export type ProjectionShape =
   | {
@@ -4119,8 +4124,8 @@ export abstract class Queries {
           // one (FC-02B, which repaired N5 §6's residual).
           return internal ? value : parsed;
         };
-      case "date":
-        return (value) => {
+      case "date": {
+        const read: Reader = (value) => {
           if (value instanceof Date) {
             const epoch = value.getTime();
             if (
@@ -4144,6 +4149,14 @@ export abstract class Queries {
             throw invalid("the value is not a valid ISO calendar date");
           return parsed;
         };
+        // An ISO day: `0000` for year zero, an expanded year before it.
+        return leaf.period
+          ? (value) => {
+              const iso = (read(value) as Date).toISOString();
+              return iso.slice(0, iso.indexOf("T"));
+            }
+          : read;
+      }
       case "time":
         return decodeTime;
       case "enum":

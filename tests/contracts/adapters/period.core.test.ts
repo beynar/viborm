@@ -31,7 +31,7 @@ describe("PostgreSQL period", () => {
         "America/Montreal"
       )
     ).toEqual({
-      text: `to_char(date_trunc('month', ("t"."at" AT TIME ZONE $1)), 'YYYY-MM-DD')`,
+      text: `CAST(date_trunc('month', ("t"."at" AT TIME ZONE $1)) AS DATE)`,
       values: ["America/Montreal"],
     });
   });
@@ -39,7 +39,7 @@ describe("PostgreSQL period", () => {
   test("a naive date and time and a date are read as written: no zone bound", () => {
     const naive = { date: false, withTimezone: false, nativeType: undefined };
     expect(render(column, "year", naive, "Asia/Tokyo")).toEqual({
-      text: `to_char(date_trunc('year', "t"."at"), 'YYYY-MM-DD')`,
+      text: `CAST(date_trunc('year', "t"."at") AS DATE)`,
       values: [],
     });
     expect(
@@ -50,7 +50,7 @@ describe("PostgreSQL period", () => {
         "UTC"
       )
     ).toEqual({
-      text: `to_char(date_trunc('week', CAST("t"."at" AS TIMESTAMP)), 'YYYY-MM-DD')`,
+      text: `CAST(date_trunc('week', CAST("t"."at" AS TIMESTAMP)) AS DATE)`,
       values: [],
     });
   });
@@ -78,6 +78,38 @@ describe("PostgreSQL period", () => {
       "UTC"
     );
     expect(naive.values).toEqual([]);
+  });
+
+  test("every PostgreSQL spelling of a zoned timestamp stores an instant", () => {
+    for (const type of [
+      "TIMESTAMPTZ",
+      "timestamptz(6)",
+      "timestamp with time zone",
+      "TIMESTAMP(3) WITH TIME ZONE",
+    ])
+      expect(
+        render(
+          column,
+          "day",
+          {
+            date: false,
+            withTimezone: false,
+            nativeType: { db: "pg", type },
+          },
+          "UTC"
+        ).values,
+        type
+      ).toEqual(["UTC"]);
+    for (const type of ["TIMESTAMP", "timestamp(3) without time zone"])
+      expect(
+        render(
+          column,
+          "day",
+          { date: false, withTimezone: true, nativeType: { db: "pg", type } },
+          "UTC"
+        ).values,
+        type
+      ).toEqual([]);
   });
 
   test("each step is its own date_trunc field", () => {

@@ -24,6 +24,13 @@ describe.skipIf(!databaseUrl)("Neon HTTP Driver", () => {
       await driver._executeRaw(
         `CREATE TABLE IF NOT EXISTS "public"."${table}_d" (id INTEGER PRIMARY KEY, "orgId" TEXT NOT NULL, montant INTEGER NOT NULL, date TIMESTAMPTZ(3) NOT NULL)`
       );
+      // Added after the table's first version: a natively zoned column.
+      await driver._executeRaw(
+        `ALTER TABLE "public"."${table}" ADD COLUMN IF NOT EXISTS natif TIMESTAMPTZ(3) NOT NULL`
+      );
+      await driver._executeRaw(
+        `CREATE TABLE IF NOT EXISTS "public"."${table}_a" (id INTEGER PRIMARY KEY, date TIMESTAMPTZ(3) NOT NULL)`
+      );
     },
   });
 });

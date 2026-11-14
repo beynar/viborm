@@ -2250,6 +2250,27 @@ type GroupByOrderGuard<
     : unknown
   : unknown;
 
+/**
+ * groupBy `by` members spelled as `{ column: step }` name model scalars only:
+ * a typo beside a real column (`{ date: "month", dtae: "month" }`) is refused
+ * when the member is held in a variable too, where excess-property checking
+ * does not reach. Column members are strings and spell no key.
+ */
+type GroupByMembersGuard<
+  O extends Operations,
+  Arg,
+  M extends Model<any>,
+> = O extends "groupBy"
+  ? "by" extends keyof Arg
+    ? {
+        by?: NoExtraClauseKeys<
+          NonNullable<Arg["by"]>,
+          M["~"]["state"]["scalars"]
+        >;
+      }
+    : unknown
+  : unknown;
+
 export type NoExtraOperationKeys<
   O extends Operations,
   Arg,
@@ -2275,6 +2296,7 @@ export type NoExtraOperationKeys<
   NestedClauseGuard<Arg, Payload, M, "create"> &
   NestedClauseGuard<Arg, Payload, M, "update"> &
   GroupByOrderGuard<O, Arg, Payload, M> &
+  GroupByMembersGuard<O, Arg, M> &
   DirectDecimalUpdateGuard<O, Arg, M> &
   DirectGeoPointGuard<O, Arg, M>;
 

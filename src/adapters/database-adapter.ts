@@ -1071,9 +1071,9 @@ export interface DatabaseAdapter {
   readonly geoPoint?: GeoPointSql;
 
   /**
-   * The first day of the `step` period holding `column`, as `YYYY-MM-DD`
-   * text: what a grouped read groups, orders and publishes for a `by` member
-   * grouped by a time step. A column that stores an instant is read as wall
+   * The first day of the `step` period holding `column`, as a date read like
+   * a `date` column: what a grouped read groups, orders and publishes for a
+   * `by` member grouped by a time step. A column that stores an instant is read as wall
    * time in `zone` (an admitted IANA name); a date, or a date and time with no
    * zone, as written. Absence means this adapter groups by no time step, and
    * the engine refuses such a call before any statement is sent.

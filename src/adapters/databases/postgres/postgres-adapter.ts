@@ -196,10 +196,16 @@ const PERIOD_FIELD: Readonly<Record<TimeStep, Sql>> = Object.freeze({
   year: sql.raw`'year'`,
 });
 
-/** Whether the column stores an instant: `timestamptz`, declared or native. */
+/**
+ * Whether the column stores an instant: declared with a zone, or a native
+ * type PostgreSQL reads as `timestamptz` in any spelling — the rule the
+ * PostgreSQL migration driver applies to the same column.
+ */
 const storesInstant = ({ withTimezone, nativeType }: PeriodSource): boolean => {
-  const native = nativeTypeFor(nativeType, "pg");
-  return native ? native.type.startsWith("timestamptz") : withTimezone;
+  const native = nativeTypeFor(nativeType, "pg")?.type.toLowerCase();
+  return native === undefined
+    ? withTimezone
+    : native.includes("timestamptz") || native.includes("with time zone");
 };
 
 /** The two characters PostgreSQL reads structurally inside a quoted member. */
@@ -246,9 +252,9 @@ export class PostgresAdapter implements DatabaseAdapter {
   /**
    * `date_trunc` reads a `timestamptz` in the SESSION zone and turns a `date`
    * into one, so the wall time it truncates is always stated: the instant in
-   * `zone`, a `timestamp` as stored, a `date` as a `timestamp`. `to_char` then
-   * spells the day whatever the session's `DateStyle`. A `week` starts on
-   * Monday.
+   * `zone`, a `timestamp` as stored, a `date` as a `timestamp`. The period is
+   * a `date`, read like a `date` column; grouped and ordered as one, it keeps
+   * its era (year zero is 1 BC to PostgreSQL). A `week` starts on Monday.
    */
   period = (
     column: Sql,
@@ -261,7 +267,7 @@ export class PostgresAdapter implements DatabaseAdapter {
       : storesInstant(source)
         ? sql`(${column} AT TIME ZONE ${zone})`
         : column;
-    return sql`to_char(date_trunc(${PERIOD_FIELD[step]}, ${wall}), 'YYYY-MM-DD')`;
+    return sql`CAST(date_trunc(${PERIOD_FIELD[step]}, ${wall}) AS DATE)`;
   };
 
   identifiers: DatabaseAdapter["identifiers"];

@@ -47,6 +47,7 @@ try {
   await push(base, { force: true });
   await base.facture.createMany({ data: [...groupByTimeStepRows.facture] });
   await base.depense.createMany({ data: groupByTimeStepRows.depense });
+  await base.ancien.createMany({ data: groupByTimeStepRows.ancien });
   const clients = groupByTimeStepClients(base);
   const failed: string[] = [];
   for (const { name, run } of GROUPBY_TIME_STEP_CASES) {

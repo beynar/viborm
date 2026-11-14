@@ -21,8 +21,12 @@ export type Step = (typeof STEPS)[number];
 export const ZONES = [undefined, "America/Montreal", "Asia/Kolkata"] as const;
 type Zone = (typeof ZONES)[number];
 
-/** The columns a step groups: an instant, a nullable one, a naive one, a date. */
-export const STEPPED = ["date", "dueAt", "wall", "jour"] as const;
+/**
+ * The columns a step groups: an instant, a nullable one, a naive one, a date,
+ * and an instant only its native type says is one (`TIMESTAMPTZ(3)`, spelled
+ * in capitals, on a column declared without a zone).
+ */
+export const STEPPED = ["date", "dueAt", "wall", "jour", "natif"] as const;
 type Stepped = (typeof STEPPED)[number];
 
 export const groupByTimeStepSchema = (table: string) => {
@@ -36,6 +40,7 @@ export const groupByTimeStepSchema = (table: string) => {
       dueAt: s.dateTime().nullable(),
       wall: s.dateTime().withoutTimezone(),
       jour: s.date(),
+      natif: s.dateTime({ db: "pg", type: "TIMESTAMPTZ(3)" }).withoutTimezone(),
       deletedAt: s.dateTime().nullable(),
     })
     .map(table);
@@ -48,7 +53,11 @@ export const groupByTimeStepSchema = (table: string) => {
       date: s.dateTime(),
     })
     .map(`${table}_d`);
-  return { facture, depense };
+  /** Year zero beside year one: two years, two groups. */
+  const ancien = s
+    .model({ id: s.int().id(), date: s.dateTime() })
+    .map(`${table}_a`);
+  return { facture, depense, ancien };
 };
 
 const INSTANTS = [
@@ -82,6 +91,8 @@ export interface Facture {
   /** A naive date and time: stored as written, read as its UTC components. */
   wall: string;
   jour: string;
+  /** The same instant as `date`, in the natively zoned column. */
+  natif: string;
   deletedAt: string | null;
 }
 
@@ -96,6 +107,7 @@ export const FACTURES: readonly Facture[] = INSTANTS.map((date, index) => {
     dueAt: index % 2 === 0 ? new Date(at + 30 * DAY).toISOString() : null,
     wall: new Date(at - 5 * 3_600_000).toISOString(),
     jour: new Date(at - 2 * DAY).toISOString().slice(0, 10),
+    natif: date,
     deletedAt: index === 5 ? "2026-05-01T00:00:00.000Z" : null,
   };
 });
@@ -212,6 +224,7 @@ export interface Clients {
   readonly base: {
     facture: { groupBy: GroupBy };
     depense: { groupBy: GroupBy };
+    ancien: { groupBy: GroupBy };
   };
   /** `viborm/permissions` + soft delete, bound by `$as({ orgId: "pyxel" })`. */
   readonly pyxel: {
@@ -264,8 +277,33 @@ const matrix: Case[] = STEPPED.flatMap((column) =>
 const MONTREAL = "America/Montreal";
 const month = (row: Facture) => periodOf(row, "date", "month", MONTREAL);
 
+const ANCIENS = [
+  "0000-01-15T12:00:00.000Z",
+  "0000-12-31T23:00:00.000Z",
+  "0001-01-15T12:00:00.000Z",
+  "2026-01-15T12:00:00.000Z",
+];
+
 export const GROUPBY_TIME_STEP_CASES: readonly Case[] = [
   ...matrix,
+  {
+    name: "year zero and year one are two years",
+    run: async ({ base }) => {
+      const years = new Map<string, number>();
+      for (const date of ANCIENS) {
+        const year = `${date.slice(0, 4)}-01-01`;
+        years.set(year, (years.get(year) ?? 0) + 1);
+      }
+      return {
+        actual: await base.ancien.groupBy({
+          by: [{ date: "year" }],
+          _count: true,
+          orderBy: { date: "asc" },
+        }),
+        expected: [...years].map(([date, count]) => ({ date, _count: count })),
+      };
+    },
+  },
   {
     name: "a plain column and a period, where bounds written with their offset",
     run: async ({ base }) => ({
@@ -487,4 +525,5 @@ export const groupByTimeStepRows = {
     montant,
     date,
   })),
+  ancien: ANCIENS.map((date, index) => ({ id: index + 1, date })),
 };

@@ -5292,11 +5292,16 @@ export class SqlQueries extends Queries {
     };
     const columns: Sql[] = by.map(({ field, step }) => {
       const declared = this.scalarShape(model, field);
-      // A period is the adapter's `YYYY-MM-DD` text: published as a string.
+      // A period is the adapter's date, published as its `YYYY-MM-DD` day.
       const leaf: Leaf =
         step === undefined
           ? declared
-          : { kind: "scalar", type: "string", nullable: declared.nullable };
+          : {
+              kind: "scalar",
+              type: "date",
+              nullable: declared.nullable,
+              period: true,
+            };
       // A masked group reads a gated key as absent: the NULL group.
       fields[field] = gates?.has(field) ? { ...leaf, nullable: true } : leaf;
       return this.#named(
