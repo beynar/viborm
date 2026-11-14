@@ -455,25 +455,6 @@ function actionsOf(name: string, policy: ModelPolicy): ActionRules {
 }
 
 /**
- * Each model's `rows.verbs` entry: its predicates, the verbs and written
- * fields that name them (K3), the produced row's placement, moves and
- * acyclic relations (K4), and its projection key and read-gated fields (K5).
- * Modes are the entry's own (`rows.models`), never part of it.
- */
-export function verbsOf(
-  compiled: Pick<CompiledPolicy, "models">
-): Record<string, RowsVerbs> {
-  return Object.fromEntries(
-    Object.entries(compiled.models).map(
-      ([name, { modes, reads, ...verbs }]) => [
-        name,
-        Object.keys(reads).length === 0 ? verbs : { ...verbs, reads },
-      ]
-    )
-  );
-}
-
-/**
  * What a policy's arguments accept, read from the declaration alone: every
  * `as` value (the default, each listed model's actions and domains) and
  * each credential scope with the scopes it implies. A declaration the

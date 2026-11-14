@@ -1,11 +1,18 @@
 import { readdirSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { CLIENT_COVERAGE_TESTS } from "./client-test-manifest.mjs";
+import {
+  CLIENT_COVERAGE_TEST_GROUPS,
+  CLIENT_COVERAGE_TESTS,
+} from "./client-test-manifest.mjs";
 import {
   DRIVER_COVERAGE_TEST_GROUPS,
   DRIVER_COVERAGE_TESTS,
 } from "./driver-test-manifest.mjs";
+import {
+  EXTENSION_COVERAGE_TEST_GROUPS,
+  EXTENSION_COVERAGE_TESTS,
+} from "./extension-test-manifest.mjs";
 import {
   MIGRATION_COVERAGE_TEST_GROUPS,
   MIGRATION_COVERAGE_TESTS,
@@ -33,51 +40,7 @@ export const cacheCoverageTests = Object.freeze([
   "tests/contracts/public-client/protected-cache-observers.core.test.ts",
 ]);
 export const driverCoverageTests = DRIVER_COVERAGE_TESTS;
-export const extensionCoverageTests = Object.freeze([
-  "tests/contracts/public-client/adversarial-v1-extension.core.test.ts",
-  "tests/contracts/architecture/extension-system-census.core.test.ts",
-  "tests/contracts/public-client/default-omit-extension.core.test.ts",
-  "tests/contracts/public-client/extension-controls.core.test.ts",
-  "tests/contracts/public-client/ordering-keys.core.test.ts",
-  "tests/contracts/public-client/extension-order.core.test.ts",
-  "tests/contracts/public-client/ordering.core.test.ts",
-  "tests/contracts/public-client/ordering-append.core.test.ts",
-  "tests/contracts/public-client/ordering-composition.core.test.ts",
-  "tests/contracts/public-client/ordering-identity.core.test.ts",
-  "tests/contracts/public-client/extension-deletion.core.test.ts",
-  "tests/contracts/public-client/extensions-foundation.core.test.ts",
-  "tests/contracts/public-client/official-cache-extension.core.test.ts",
-  "tests/contracts/public-client/official-instrumentation-extension.core.test.ts",
-  "tests/contracts/public-client/soft-delete.core.test.ts",
-  "tests/contracts/public-client/on.core.test.ts",
-  "tests/contracts/public-client/extension-bound-views.core.test.ts",
-  "tests/contracts/public-client/extension-composition.core.test.ts",
-  "tests/contracts/public-client/extension-evidence.core.test.ts",
-  "tests/contracts/engine/query/operation-program-read-contracts.core.test.ts",
-  "tests/contracts/engine/query/pending-operation-contracts.core.test.ts",
-  "tests/contracts/public-client/extensions/array-admission.core.test.ts",
-  "tests/contracts/public-client/query-interceptors-array.core.test.ts",
-  "tests/contracts/public-client/query-interceptors-integration.core.test.ts",
-  "tests/contracts/public-client/query-interceptors.core.test.ts",
-  "tests/contracts/public-client/request-transforms.core.test.ts",
-  "tests/contracts/public-client/statement-transforms-integration.core.test.ts",
-  "tests/contracts/drivers/statement-transforms.core.test.ts",
-  "tests/contracts/drivers/protected-observers.core.test.ts",
-  "tests/unit/instrumentation/official-observer-provider-failures.core.test.ts",
-  "tests/unit/instrumentation/official-observer.core.test.ts",
-  "tests/unit/permissions/actor.core.test.ts",
-  "tests/unit/permissions/compile.core.test.ts",
-  "tests/unit/permissions/availability-boundaries.core.test.ts",
-  "tests/providers/local/sqlite3-permissions-compiled-policy.test.ts",
-  "tests/providers/local/sqlite3-permissions-entry.test.ts",
-  "tests/providers/local/sqlite3-permissions-extends.test.ts",
-  "tests/providers/local/sqlite3-permissions-quantifiers.test.ts",
-  "tests/providers/local/sqlite3-permissions-reuse.test.ts",
-  "tests/contracts/public-client/extension-admission-reuse.core.test.ts",
-  "tests/contracts/public-client/extension-lazy-verbs.core.test.ts",
-  "tests/contracts/public-client/extension-row-checks.core.test.ts",
-  "tests/contracts/public-client/extension-produced.core.test.ts",
-]);
+export const extensionCoverageTests = EXTENSION_COVERAGE_TESTS;
 const definitions = [
   {
     id: "public",
@@ -141,16 +104,9 @@ const definitions = [
     ],
     projects: ["coverage-extensions"],
     tests: extensionCoverageTests,
-    // The complete Permissions oracle sweeps need their own bounded process each.
-    // Keep every test and merge the parts under the unchanged 100% gate.
-    testGroups: [
-      extensionCoverageTests.filter(
-        (test) => !test.startsWith("tests/providers/")
-      ),
-      ...extensionCoverageTests
-        .filter((test) => test.startsWith("tests/providers/"))
-        .map((test) => [test]),
-    ],
+    // The contracts in two bounded processes, each Permissions oracle sweep
+    // in its own; the parts merge under the unchanged 100% gate.
+    testGroups: EXTENSION_COVERAGE_TEST_GROUPS,
   },
   {
     id: "errors",
@@ -274,6 +230,7 @@ const definitions = [
     root: "src/client/",
     projects: ["coverage-client"],
     tests: CLIENT_COVERAGE_TESTS,
+    testGroups: CLIENT_COVERAGE_TEST_GROUPS,
   },
   {
     id: "cache",

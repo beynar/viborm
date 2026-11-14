@@ -23,8 +23,9 @@ function declared(spec: ArgSpec): Declared {
     spec,
     default: (fallback: string | number | boolean) =>
       declared({ ...spec, default: fallback }),
+    // A name, a list or a set, as the types take it: each names operations.
     on: (operations: unknown) =>
-      declared({ ...spec, on: operationsOf(operations) ?? [] }),
+      declared({ ...spec, on: operationsOf(operations) }),
     models: (models: readonly string[]) => declared({ ...spec, models }),
     required: (models?: readonly string[]) =>
       declared({ ...spec, required: models ?? true }),
