@@ -1,56 +1,64 @@
-import type { Operations } from "@client/types";
+/**
+ * The runner of `around`'s second moments (`src/extensions/query.ts`): what
+ * runs each part's second moment around the prepared call, the first
+ * applied outermost, and what makes the child's outcome the call's.
+ *
+ * Each second moment here is the function an `around` part's first moment
+ * returns: it receives `run` from the runner and calls it, or answers
+ * without it where a call allows. What a client-level test would only reach
+ * through a driver's timing (a child that never settles, a hostile
+ * thenable, a commit certainty) is driven on the runner itself; what an
+ * application writes (`settled`) runs on a client.
+ */
+import { createClient } from "@client/client";
 import { QueryError, retainWriteOutcomeFailure } from "@errors";
 import type { ResolvedOperationHandler } from "@extensions/chain";
-import type { GenericQueryKind } from "@extensions/query";
 import {
+  type AroundRunner,
   executePreparedQuery,
   type PreparedModelQueryContext,
-  type PreparedQueryContext,
   type PreparedRawQueryContext,
   publishWriteOutcomes,
   type QueryInterceptionMode,
-  type QueryInterceptorContext,
+  type RawQueryKind,
   runCompiledQueryInterceptors,
   TransactionWriteOutcomes,
   type WriteOutcomeListener,
   type WriteOutcomeNotifications,
   type WriteOutcomeRegistration,
-  type WriteOutcomeRegistrationCapture,
 } from "@extensions/query";
-import { describe, expect, test, vi } from "vitest";
-
-type QueryInterceptor<
-  Result,
-  Input extends object = Record<string, unknown>,
-> = ResolvedOperationHandler<
-  (context: QueryInterceptorContext<Result, Input>) => Promise<Result>
->;
-
-/** The compiled runner, with its handlers typed against one prepared context. */
-const runQueryInterceptors = <
-  Result,
-  Input extends object = Record<string, unknown>,
->(
-  context: PreparedQueryContext<Input>,
-  interceptors: readonly QueryInterceptor<Result, Input>[] | undefined,
-  child: () => Promise<NoInfer<Result>>,
-  captureWriteOutcome: WriteOutcomeRegistrationCapture
-): Promise<Result> =>
-  runCompiledQueryInterceptors(
-    context,
-    interceptors,
-    child,
-    captureWriteOutcome
-  );
+import { s } from "@schema";
+import { sql } from "@sql";
+import { around, extension, settled, target, writes } from "@src/index";
+import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 type Rows = { id: string }[];
 type Count = { count: number };
+type Run = () => Promise<unknown>;
+
+/** One `around` part's second moment, as the runner calls it. */
+function second(
+  extension: string,
+  moment: (run: Run) => unknown
+): ResolvedOperationHandler<AroundRunner> {
+  return { extension, handler: (_prepared, run) => moment(run) };
+}
 
 const ignoreRegistration = (_registration: WriteOutcomeRegistration): void =>
   undefined;
 
+/** The runner over `parts`, around `child`. */
+const runSeconds = <Result>(
+  context: PreparedModelQueryContext<object> | PreparedRawQueryContext<object>,
+  parts: readonly ResolvedOperationHandler<AroundRunner>[] | undefined,
+  child: () => Promise<Result>
+): Promise<Result> =>
+  runCompiledQueryInterceptors(context, parts, child, ignoreRegistration);
+
 function modelContext(
-  operation: Operations,
+  operation: string,
   mode: QueryInterceptionMode = "direct"
 ): PreparedModelQueryContext<Record<string, unknown>> {
   return Object.freeze({
@@ -62,22 +70,15 @@ function modelContext(
   });
 }
 
-type RawKind = Exclude<GenericQueryKind, "model">;
-
 function rawContext(
-  kind: RawKind,
-  operation:
-    | "$queryRaw"
-    | "$executeRaw"
-    | "$queryRawUnsafe"
-    | "$executeRawUnsafe",
+  kind: RawQueryKind,
   mode: QueryInterceptionMode = "direct"
 ): PreparedRawQueryContext<Record<string, unknown>> {
   return Object.freeze({
     mode,
     kind,
     model: undefined,
-    operation,
+    operation: `$${kind}`,
     input: Object.freeze({}),
   });
 }
@@ -88,12 +89,7 @@ async function captureFailure(action: Promise<unknown>): Promise<unknown> {
   } catch (error) {
     return error;
   }
-  throw new Error("Expected the query interceptor runner to fail");
-}
-
-function requireError(error: unknown): Error {
-  if (!(error instanceof Error)) throw new Error("Expected an Error");
-  return error;
+  throw new Error("Expected the runner to fail");
 }
 
 function requireQueryError(error: unknown): QueryError {
@@ -101,11 +97,28 @@ function requireQueryError(error: unknown): QueryError {
   return error;
 }
 
-describe("standalone query interceptor runner", () => {
-  test("the no-handler path returns the child promise by identity", () => {
+const post = s.model({ id: s.string().id(), title: s.string() });
+const clients: { $disconnect(): Promise<void> }[] = [];
+
+async function seededClient() {
+  const client = createClient({
+    schema: { post },
+    driver: createInMemorySQLite3Driver(),
+  });
+  clients.push(client);
+  await syncLiveSchema(client);
+  await client.post.create({ data: { id: "p1", title: "one" } });
+  return client;
+}
+
+afterEach(async () => {
+  for (const client of clients.splice(0)) await client.$disconnect();
+});
+
+describe("the runner of second moments", () => {
+  test("a call without second moments runs its child, and returns its promise itself", () => {
     const childPromise = Promise.resolve<Rows>([{ id: "child" }]);
     const child = vi.fn(() => childPromise);
-    const capture = vi.fn(ignoreRegistration);
     const contextReads: PropertyKey[] = [];
     const hostileContext = new Proxy(modelContext("findMany"), {
       get(_target, key) {
@@ -130,39 +143,31 @@ describe("standalone query interceptor runner", () => {
       },
     });
 
-    expect(
-      runQueryInterceptors(hostileContext, undefined, child, capture)
-    ).toBe(childPromise);
-    expect(runQueryInterceptors(hostileContext, [], child, capture)).toBe(
-      childPromise
-    );
+    expect(runSeconds(hostileContext, undefined, child)).toBe(childPromise);
+    expect(runSeconds(hostileContext, [], child)).toBe(childPromise);
     expect(child).toHaveBeenCalledTimes(2);
-    expect(capture).not.toHaveBeenCalled();
     expect(contextReads).toEqual([]);
   });
 
-  test("composes A to B to C in nested application order", async () => {
+  test("nests A around B around C, the first applied outermost", async () => {
     const order: string[] = [];
     const child = vi.fn(async () => {
       order.push("child");
       return [{ id: "authoritative" }];
     });
-    const interceptor = (extension: string): QueryInterceptor<Rows> => ({
-      extension,
-      async handler({ proceed }) {
-        order.push(`${extension}-in`);
-        const rows = await proceed();
-        order.push(`${extension}-out`);
+    const part = (name: string) =>
+      second(name, async (run) => {
+        order.push(`${name}-in`);
+        const rows = await run();
+        order.push(`${name}-out`);
         return rows;
-      },
-    });
+      });
 
     await expect(
-      runQueryInterceptors<Rows>(
+      runSeconds(
         modelContext("findMany"),
-        [interceptor("A"), interceptor("B"), interceptor("C")],
-        child,
-        ignoreRegistration
+        [part("A"), part("B"), part("C")],
+        child
       )
     ).resolves.toEqual([{ id: "authoritative" }]);
     expect(order).toEqual([
@@ -177,53 +182,6 @@ describe("standalone query interceptor runner", () => {
     expect(child).toHaveBeenCalledOnce();
   });
 
-  test("exposes only frozen operation identity, mode, input, and capabilities", async () => {
-    const input = Object.freeze({ where: Object.freeze({ id: "post-1" }) });
-    const context: PreparedModelQueryContext<typeof input> = Object.freeze({
-      mode: "direct",
-      kind: "model",
-      model: "post",
-      operation: "findUnique",
-      input,
-    });
-
-    await runQueryInterceptors(
-      context,
-      [
-        {
-          extension: "identity",
-          async handler(handlerContext) {
-            expect(Object.isFrozen(handlerContext)).toBe(true);
-            expect(handlerContext.input).toBe(input);
-            expect(Object.isFrozen(handlerContext.input)).toBe(true);
-            expect(Reflect.ownKeys(handlerContext)).toEqual([
-              "mode",
-              "kind",
-              "model",
-              "operation",
-              "input",
-              "call",
-              "proceed",
-              "onWriteOutcome",
-              "again",
-              "proceedOn",
-              "replay",
-            ]);
-            expect("program" in handlerContext).toBe(false);
-            expect("driver" in handlerContext).toBe(false);
-            expect("rows" in handlerContext).toBe(false);
-            expect("result" in handlerContext).toBe(false);
-            return handlerContext.proceed();
-          },
-        },
-      ],
-      async () => [{ id: "post-1" }],
-      ignoreRegistration
-    );
-  });
-});
-
-describe("prepared query execution outcomes", () => {
   test("keeps the no-context path as the exact child promise", () => {
     const childPromise = Promise.resolve("direct");
     const child = vi.fn(() => childPromise);
@@ -234,41 +192,23 @@ describe("prepared query execution outcomes", () => {
     expect(child).toHaveBeenCalledOnce();
   });
 
-  test("does not publish write outcomes for read operations", async () => {
-    const listener = vi.fn();
-    const interceptor: QueryInterceptor<Rows> = {
-      extension: "read-outcome",
-      async handler({ onWriteOutcome, proceed }) {
-        onWriteOutcome(listener);
-        return proceed();
-      },
-    };
-
-    await executePreparedQuery(
-      modelContext("findMany"),
-      [interceptor],
-      async () => [{ id: "read" }],
-      false
-    );
-
-    expect(listener).not.toHaveBeenCalled();
-  });
-
-  test("publishes every exact committed segment without a synthetic final duplicate", async () => {
+  test("publishes every committed segment the child reports, without a final duplicate", async () => {
     const certainties: string[] = [];
-    const interceptor: QueryInterceptor<Rows> = {
-      extension: "segments",
-      async handler({ onWriteOutcome, proceed }) {
-        onWriteOutcome(({ certainty }) => {
-          certainties.push(certainty);
-        });
-        return proceed();
-      },
+    const listener: WriteOutcomeListener = ({ certainty }) => {
+      certainties.push(certainty);
     };
 
     await executePreparedQuery(
       modelContext("createMany"),
-      [interceptor],
+      [
+        {
+          extension: "segments",
+          handler: (_prepared, run, register) => {
+            register(listener);
+            return run();
+          },
+        },
+      ],
       async (notifications) => {
         await notifications?.committed();
         await notifications?.committed();
@@ -280,7 +220,7 @@ describe("prepared query execution outcomes", () => {
     expect(certainties).toEqual(["committed", "committed"]);
   });
 
-  test("uses one query failure identity for admission and child rejection", async () => {
+  test("an array member's failure after run is the call's, the one the admission is told", async () => {
     const postWorkFailure = new Error("array post-work failed");
     let rejectChild: ((reason: unknown) => void) | undefined;
     const childPromise = new Promise<Rows>((_resolve, reject) => {
@@ -291,14 +231,11 @@ describe("prepared query execution outcomes", () => {
       executePreparedQuery(
         modelContext("create", "array"),
         [
-          {
-            extension: "array-post-work",
-            async handler({ proceed }) {
-              // biome-ignore lint/complexity/noVoid: the extra proceed() call is deliberately left floating; the discard marks that
-              void proceed();
-              throw postWorkFailure;
-            },
-          },
+          second("array-post-work", (run) => {
+            // biome-ignore lint/complexity/noVoid: the run is deliberately left floating; the discard marks that
+            void run();
+            throw postWorkFailure;
+          }),
         ],
         () => childPromise,
         true,
@@ -318,24 +255,20 @@ describe("prepared query execution outcomes", () => {
   });
 });
 
-describe("query continuation authority", () => {
-  test("attributes synchronous handler throws without starting the child", async () => {
+describe("the child's outcome is the call's", () => {
+  test("a second moment that throws before run fails the call, and the child never starts", async () => {
     const handlerFailure = new Error("handler threw synchronously");
     const child = vi.fn(async () => [{ id: "child" }]);
 
     const failure = await captureFailure(
-      runQueryInterceptors(
+      runSeconds(
         modelContext("findMany"),
         [
-          {
-            extension: "sync-handler",
-            handler() {
-              throw handlerFailure;
-            },
-          },
+          second("sync-handler", () => {
+            throw handlerFailure;
+          }),
         ],
-        child,
-        ignoreRegistration
+        child
       )
     );
 
@@ -343,184 +276,64 @@ describe("query continuation authority", () => {
     expect(child).not.toHaveBeenCalled();
   });
 
-  test("keeps a synchronous child throw authoritative", async () => {
+  test("a child that throws synchronously fails the call with its error", async () => {
     const childFailure = new Error("child threw synchronously");
 
     const failure = await captureFailure(
-      runQueryInterceptors(
+      runSeconds(
         modelContext("findMany"),
-        [
-          {
-            extension: "sync-child",
-            handler: ({ proceed }) => proceed(),
-          },
-        ],
+        [second("sync-child", (run) => run())],
         () => {
           throw childFailure;
-        },
-        ignoreRegistration
+        }
       )
     );
 
     expect(failure).toBe(childFailure);
   });
 
-  test("does not permit a caught registration violation to short-circuit a read", async () => {
-    const child = vi.fn(async () => [{ id: "child" }]);
-
-    const failure = await captureFailure(
-      runQueryInterceptors(
-        modelContext("findMany"),
-        [
-          {
-            extension: "caught-registration",
-            handler({ onWriteOutcome }) {
-              try {
-                // @ts-expect-error - hostile JavaScript can pass a non-function.
-                onWriteOutcome(1);
-              } catch {
-                // A caught protocol violation still owns the operation failure.
-              }
-              return Promise.resolve([{ id: "fabricated" }]);
-            },
-          },
-        ],
-        child,
-        ignoreRegistration
-      )
-    );
-
-    expect(requireQueryError(failure).message).toContain(
-      "registered a non-function write-outcome listener"
-    );
-    expect(child).not.toHaveBeenCalled();
-  });
-
-  test("an eligible direct read can short-circuit and closes detached proceed", async () => {
-    let detachedProceed: (() => Promise<Rows>) | undefined;
-    const child = vi.fn(async () => [{ id: "child" }]);
-
-    await expect(
-      runQueryInterceptors<Rows>(
-        modelContext("findMany"),
-        [
-          {
-            extension: "read-cache",
-            async handler({ proceed }) {
-              detachedProceed = proceed;
-              return [{ id: "cached" }];
-            },
-          },
-        ],
-        child,
-        ignoreRegistration
-      )
-    ).resolves.toEqual([{ id: "cached" }]);
-
-    if (detachedProceed === undefined) {
-      throw new Error("The read interceptor did not expose proceed");
-    }
-    expect(detachedProceed).toThrowError(QueryError);
-    expect(child).not.toHaveBeenCalled();
-  });
-
-  test("mutations and every raw family reject no-proceed with extension identity", async () => {
+  test("a write, and every raw family, refuse a second moment that answers without run, naming its extension", async () => {
     const mutationChild = vi.fn(async (): Promise<Count> => ({ count: 1 }));
     const mutationError = await captureFailure(
-      runQueryInterceptors<Count, Record<string, unknown>>(
+      runSeconds(
         modelContext("updateMany", "transaction"),
-        [
-          {
-            extension: "mutation-no-proceed",
-            async handler() {
-              return { count: 99 };
-            },
-          },
-        ],
-        mutationChild,
-        ignoreRegistration
+        [second("mutation-no-run", () => ({ count: 99 }))],
+        mutationChild
       )
     );
     expect(requireQueryError(mutationError).message).toContain(
-      'Extension "mutation-no-proceed"'
+      'Extension "mutation-no-run"'
     );
     expect(mutationChild).not.toHaveBeenCalled();
 
-    const rawCases: readonly {
-      readonly kind: RawKind;
-      readonly operation:
-        | "$queryRaw"
-        | "$executeRaw"
-        | "$queryRawUnsafe"
-        | "$executeRawUnsafe";
-    }[] = [
-      { kind: "queryRaw", operation: "$queryRaw" },
-      { kind: "executeRaw", operation: "$executeRaw" },
-      { kind: "queryRawUnsafe", operation: "$queryRawUnsafe" },
-      { kind: "executeRawUnsafe", operation: "$executeRawUnsafe" },
-    ];
-
-    for (const rawCase of rawCases) {
+    for (const kind of [
+      "queryRaw",
+      "executeRaw",
+      "queryRawUnsafe",
+      "executeRawUnsafe",
+    ] as const) {
       const rawChild = vi.fn(async () => [{ id: "raw" }]);
       const rawError = await captureFailure(
-        runQueryInterceptors(
-          rawContext(rawCase.kind, rawCase.operation, "transaction"),
-          [
-            {
-              extension: rawCase.kind,
-              async handler() {
-                return [{ id: "fabricated" }];
-              },
-            },
-          ],
-          rawChild,
-          ignoreRegistration
+        runSeconds(
+          rawContext(kind, "transaction"),
+          [second(kind, () => [{ id: "fabricated" }])],
+          rawChild
         )
       );
       expect(requireQueryError(rawError).message).toContain(
-        `Extension "${rawCase.kind}"`
+        `Extension "${kind}"`
       );
       expect(rawChild).not.toHaveBeenCalled();
     }
   });
 
-  test("a transaction read can short-circuit and reports transaction mode", async () => {
-    const child = vi.fn(async () => [{ id: "child" }]);
-    await expect(
-      runQueryInterceptors(
-        modelContext("findMany", "transaction"),
-        [
-          {
-            extension: "transaction-read",
-            async handler(handlerContext) {
-              expect(handlerContext.mode).toBe("transaction");
-              return [{ id: "transaction-cache" }];
-            },
-          },
-        ],
-        child,
-        ignoreRegistration
-      )
-    ).resolves.toEqual([{ id: "transaction-cache" }]);
-    expect(child).not.toHaveBeenCalled();
-  });
-
-  test("array mode refuses read short-circuiting", async () => {
+  test("an array member's read may not answer without run", async () => {
     const child = vi.fn(async () => [{ id: "child" }]);
     const error = await captureFailure(
-      runQueryInterceptors(
+      runSeconds(
         modelContext("findMany", "array"),
-        [
-          {
-            extension: "array-read",
-            async handler(handlerContext) {
-              expect(handlerContext.mode).toBe("array");
-              return [{ id: "short-circuit" }];
-            },
-          },
-        ],
-        child,
-        ignoreRegistration
+        [second("array-read", () => [{ id: "short-circuit" }])],
+        child
       )
     );
 
@@ -530,57 +343,51 @@ describe("query continuation authority", () => {
     expect(child).not.toHaveBeenCalled();
   });
 
-  test("a caught double proceed still fails and starts the child once", async () => {
+  test("a second run, even caught, fails the call, and the child runs once", async () => {
     const child = vi.fn(async () => [{ id: "child" }]);
     let caught: unknown;
 
     const error = await captureFailure(
-      runQueryInterceptors(
+      runSeconds(
         modelContext("findMany"),
         [
-          {
-            extension: "double-proceed",
-            async handler({ proceed }) {
-              const childResult = proceed();
-              try {
-                proceed();
-              } catch (error) {
-                caught = error;
-              }
-              await childResult;
-              return [{ id: "fabricated" }];
-            },
-          },
+          second("double-run", async (run) => {
+            const childResult = run();
+            try {
+              await run();
+            } catch (failure) {
+              caught = failure;
+            }
+            await childResult;
+            return [{ id: "fabricated" }];
+          }),
         ],
-        child,
-        ignoreRegistration
+        child
       )
     );
 
     expect(caught).toBeInstanceOf(QueryError);
     expect(error).toBe(caught);
-    expect(requireError(error).message).toContain('Extension "double-proceed"');
+    expect(requireQueryError(error).message).toContain(
+      'Extension "double-run"'
+    );
     expect(child).toHaveBeenCalledOnce();
   });
 
-  test("uses the protocol failure thrown by an uncaught double proceed", async () => {
+  test("an uncaught second run fails the call with that refusal", async () => {
     const child = vi.fn(async () => [{ id: "child" }]);
 
     const failure = await captureFailure(
-      runQueryInterceptors(
+      runSeconds(
         modelContext("findMany"),
         [
-          {
-            extension: "uncaught-double-proceed",
-            handler({ proceed }) {
-              // biome-ignore lint/complexity/noVoid: the extra proceed() call is deliberately left floating; the discard marks that
-              void proceed();
-              return proceed();
-            },
-          },
+          second("uncaught-double-run", (run) => {
+            // biome-ignore lint/complexity/noVoid: the first run is deliberately left floating; the discard marks that
+            void run();
+            return run();
+          }),
         ],
-        child,
-        ignoreRegistration
+        child
       )
     );
 
@@ -590,237 +397,199 @@ describe("query continuation authority", () => {
     expect(child).toHaveBeenCalledOnce();
   });
 
-  test("fails with a caught protocol failure, not the later handler failure", async () => {
+  test("a caught refusal is the call's failure, not what the second moment throws later", async () => {
     const postFailure = new Error("post-work also failed");
-    let protocolFailure: unknown;
+    let refusal: unknown;
     const error = await captureFailure(
-      runQueryInterceptors(
+      runSeconds(
         modelContext("findMany"),
         [
-          {
-            extension: "protocol-and-post",
-            async handler({ proceed }) {
-              const childResult = proceed();
-              try {
-                proceed();
-              } catch (error) {
-                protocolFailure = error;
-              }
-              await childResult;
-              throw postFailure;
-            },
-          },
+          second("refusal-and-post", async (run) => {
+            const childResult = run();
+            try {
+              await run();
+            } catch (failure) {
+              refusal = failure;
+            }
+            await childResult;
+            throw postFailure;
+          }),
         ],
-        async () => [{ id: "child" }],
-        ignoreRegistration
+        async () => [{ id: "child" }]
       )
     );
 
-    // No aggregate: the refusal of the protocol is the call's failure.
-    expect(error).toBe(protocolFailure);
+    expect(error).toBe(refusal);
   });
 
-  test("fails with the child's failure over protocol and handler failures", async () => {
+  test("the child's failure wins over a refusal and over what the second moment throws", async () => {
     const childFailure = new Error("child failed");
     const postFailure = new Error("post-work also failed");
-    let protocolFailure: unknown;
+    let refusal: unknown;
     const error = await captureFailure(
-      runQueryInterceptors(
+      runSeconds(
         modelContext("findMany"),
         [
-          {
-            extension: "triple-failure",
-            async handler({ proceed }) {
-              const childResult = proceed();
-              try {
-                proceed();
-              } catch (error) {
-                protocolFailure = error;
-              }
-              try {
-                await childResult;
-              } catch {
-                // Replace the child rejection with distinct post-work failure.
-              }
-              throw postFailure;
-            },
-          },
+          second("triple-failure", async (run) => {
+            const childResult = run();
+            try {
+              await run();
+            } catch (failure) {
+              refusal = failure;
+            }
+            try {
+              await childResult;
+            } catch {
+              // Replaced below by a failure of the second moment's own.
+            }
+            throw postFailure;
+          }),
         ],
         async () => {
           throw childFailure;
-        },
-        ignoreRegistration
+        }
       )
     );
 
-    // Once the child ran, its failure is the call's.
     expect(error).toBe(childFailure);
-    expect(protocolFailure).toBeInstanceOf(QueryError);
+    expect(refusal).toBeInstanceOf(QueryError);
   });
 
-  test("a detached mutation proceed cannot start the child after no-proceed refusal", async () => {
-    let detachedProceed: (() => Promise<Count>) | undefined;
+  test("a write's run kept past its refusal never starts the child", async () => {
+    let kept: Run | undefined;
     const child = vi.fn(async (): Promise<Count> => ({ count: 1 }));
 
     await expect(
-      runQueryInterceptors<Count, Record<string, unknown>>(
+      runSeconds(
         modelContext("deleteMany"),
         [
-          {
-            extension: "detached-mutation",
-            async handler({ proceed }) {
-              detachedProceed = proceed;
-              return { count: 99 };
-            },
-          },
+          second("kept-run", (run) => {
+            kept = run;
+            return { count: 99 };
+          }),
         ],
-        child,
-        ignoreRegistration
+        child
       )
     ).rejects.toBeInstanceOf(QueryError);
 
-    if (detachedProceed === undefined) {
-      throw new Error("The mutation interceptor did not expose proceed");
-    }
-    expect(detachedProceed).toThrowError(QueryError);
+    if (kept === undefined) throw new Error("The second moment kept no run");
+    expect(kept).toThrowError(QueryError);
     expect(child).not.toHaveBeenCalled();
   });
 
-  test("honours the handler transformation after proceed", async () => {
-    const childRows = [{ id: "child" }];
-    const result = await runQueryInterceptors(
+  test("the value a second moment returns after run is the call's", async () => {
+    const result = await runSeconds(
       modelContext("findMany"),
       [
-        {
-          extension: "fabrication",
-          async handler({ proceed }) {
-            await proceed();
-            return [{ id: "fabricated" }];
-          },
-        },
+        second("fabrication", async (run) => {
+          await run();
+          return [{ id: "fabricated" }];
+        }),
       ],
-      async () => childRows,
-      ignoreRegistration
+      async () => [{ id: "child" }]
     );
 
     expect(result).toEqual([{ id: "fabricated" }]);
   });
 
-  test("awaits handler post-work after the child fulfills", async () => {
+  test("the call waits for the second moment's work after the child fulfilled", async () => {
     let finishPostWork: (() => void) | undefined;
     const postWork = new Promise<void>((resolve) => {
       finishPostWork = resolve;
     });
-    let settled = false;
-    const running = runQueryInterceptors(
+    let done = false;
+    const running = runSeconds(
       modelContext("findMany"),
       [
-        {
-          extension: "post-work-wait",
-          async handler({ proceed }) {
-            const rows = await proceed();
-            await postWork;
-            return rows;
-          },
-        },
+        second("post-work-wait", async (run) => {
+          const rows = await run();
+          await postWork;
+          return rows;
+        }),
       ],
-      async () => [{ id: "child" }],
-      ignoreRegistration
+      async () => [{ id: "child" }]
     ).then(() => {
-      settled = true;
+      done = true;
     });
 
     await Promise.resolve();
     await Promise.resolve();
-    expect(settled).toBe(false);
+    expect(done).toBe(false);
     if (finishPostWork === undefined) {
       throw new Error("Post-work release was not initialized");
     }
     finishPostWork();
     await running;
-    expect(settled).toBe(true);
+    expect(done).toBe(true);
   });
 
-  test("keeps a swallowed child failure authoritative by identity", async () => {
+  test("a child failure the second moment swallows is still the call's, by identity", async () => {
     const childFailure = new Error("child failed");
     const error = await captureFailure(
-      runQueryInterceptors(
+      runSeconds(
         modelContext("findMany"),
         [
-          {
-            extension: "swallow-attempt",
-            async handler({ proceed }) {
-              try {
-                await proceed();
-              } catch {
-                // The runner, not this handler, owns the child outcome.
-              }
-              return [{ id: "fabricated" }];
-            },
-          },
+          second("swallow-attempt", async (run) => {
+            try {
+              await run();
+            } catch {
+              // The runner, not this second moment, owns the child outcome.
+            }
+            return [{ id: "fabricated" }];
+          }),
         ],
         async () => {
           throw childFailure;
-        },
-        ignoreRegistration
+        }
       )
     );
 
     expect(error).toBe(childFailure);
   });
 
-  test("child success plus post-work failure reports the named extension", async () => {
+  test("after a child that succeeded, what the second moment throws is the call's failure", async () => {
     const postFailure = new Error("post-work failed");
     const error = await captureFailure(
-      runQueryInterceptors(
+      runSeconds(
         modelContext("findMany"),
         [
-          {
-            extension: "post-work",
-            async handler({ proceed }) {
-              await proceed();
-              throw postFailure;
-            },
-          },
+          second("post-work", async (run) => {
+            await run();
+            throw postFailure;
+          }),
         ],
-        async () => [{ id: "child" }],
-        ignoreRegistration
+        async () => [{ id: "child" }]
       )
     );
 
     expect(error).toBe(postFailure);
   });
 
-  test("a dual failure is the child's failure alone", async () => {
+  test("when both fail, the call fails with the child's failure alone", async () => {
     const childFailure = new Error("child failed");
-    const postFailure = new Error("post-work failed");
     const error = await captureFailure(
-      runQueryInterceptors(
+      runSeconds(
         modelContext("findMany"),
         [
-          {
-            extension: "dual-failure",
-            async handler({ proceed }) {
-              try {
-                await proceed();
-              } catch {
-                // Deliberately replace the child rejection with a post failure.
-              }
-              throw postFailure;
-            },
-          },
+          second("dual-failure", async (run) => {
+            try {
+              await run();
+            } catch {
+              // Deliberately replaced by a failure of the second moment's own.
+            }
+            throw new Error("post-work failed");
+          }),
         ],
         async () => {
           throw childFailure;
-        },
-        ignoreRegistration
+        }
       )
     );
 
     expect(error).toBe(childFailure);
   });
 
-  test("fails with the child when hostile query post-work hides Error identity", async () => {
+  test("the child's failure wins over a later failure that hides its Error identity", async () => {
     const childFailure = new Error("child failed");
     const hostilePostFailure = new Proxy(
       new Error("private query post-work failure"),
@@ -831,181 +600,131 @@ describe("query continuation authority", () => {
       }
     );
     const error = await captureFailure(
-      runQueryInterceptors(
+      runSeconds(
         modelContext("findMany"),
         [
-          {
-            extension: "hostile-query-error",
-            async handler({ proceed }) {
-              try {
-                await proceed();
-              } catch {
-                // Deliberately replace the child rejection with hostile post-work.
-              }
-              throw hostilePostFailure;
-            },
-          },
+          second("hostile-query-error", async (run) => {
+            try {
+              await run();
+            } catch {
+              // Deliberately replaced by a hostile failure.
+            }
+            throw hostilePostFailure;
+          }),
         ],
         async () => {
           throw childFailure;
-        },
-        ignoreRegistration
+        }
       )
     );
 
     expect(error).toBe(childFailure);
   });
 
-  test("nested dual failures are the original child's failure", async () => {
+  test("through nested second moments, the original child's failure is the call's", async () => {
     const childFailure = new Error("child failed");
+    const replacing = (name: string) =>
+      second(name, async (run) => {
+        try {
+          await run();
+        } catch {
+          // Replaced by a failure of this second moment's own.
+        }
+        throw new Error(`${name} post-work failed`);
+      });
     const error = await captureFailure(
-      runQueryInterceptors(
+      runSeconds(
         modelContext("findMany"),
-        [
-          {
-            extension: "outer",
-            async handler({ proceed }) {
-              try {
-                await proceed();
-              } catch {
-                // Replace the inner chain failure with outer post-work failure.
-              }
-              throw new Error("outer post-work failed");
-            },
-          },
-          {
-            extension: "inner",
-            async handler({ proceed }) {
-              try {
-                await proceed();
-              } catch {
-                // Replace the child failure with inner post-work failure.
-              }
-              throw new Error("inner post-work failed");
-            },
-          },
-        ],
+        [replacing("outer"), replacing("inner")],
         async () => {
           throw childFailure;
-        },
-        ignoreRegistration
+        }
       )
     );
 
     expect(error).toBe(childFailure);
   });
-});
 
-describe("query write-outcome registration", () => {
-  test("captures listeners in registration order across nested handlers", async () => {
-    const registrations: WriteOutcomeRegistration[] = [];
-    const listenerA: WriteOutcomeListener = () => undefined;
-    const listenerB1: WriteOutcomeListener = () => undefined;
-    const listenerB2: WriteOutcomeListener = () => undefined;
+  test("every refusal after the first one throws that first refusal", async () => {
+    const child = vi.fn(async (): Promise<Rows> => [{ id: "child" }]);
+    const thrown: unknown[] = [];
 
-    await runQueryInterceptors(
-      modelContext("update"),
-      [
-        {
-          extension: "A",
-          async handler({ proceed, onWriteOutcome }) {
-            onWriteOutcome(listenerA);
-            return proceed();
-          },
-        },
-        {
-          extension: "B",
-          async handler({ proceed, onWriteOutcome }) {
-            onWriteOutcome(listenerB1);
-            onWriteOutcome(listenerB2);
-            return proceed();
-          },
-        },
-      ],
-      async () => [{ id: "updated" }],
-      (registration) => registrations.push(registration)
-    );
-
-    expect(registrations.map(({ extension }) => extension)).toEqual([
-      "A",
-      "B",
-      "B",
-    ]);
-    expect(registrations.map(({ listener }) => listener)).toEqual([
-      listenerA,
-      listenerB1,
-      listenerB2,
-    ]);
-    expect(registrations.every(Object.isFrozen)).toBe(true);
-  });
-
-  test("late registration throws synchronously, records the violation, and has no effect", async () => {
-    const registrations: WriteOutcomeRegistration[] = [];
-    const before: WriteOutcomeListener = () => undefined;
-    const late: WriteOutcomeListener = () => undefined;
-    let caught: unknown;
-
-    const error = await captureFailure(
-      runQueryInterceptors(
-        modelContext("update"),
+    const failure = await captureFailure(
+      runSeconds(
+        modelContext("findMany"),
         [
-          {
-            extension: "late-registration",
-            async handler({ proceed, onWriteOutcome }) {
-              onWriteOutcome(before);
-              const childResult = proceed();
+          second("repeatedly-illegal", (run) => {
+            const first = run();
+            for (const _attempt of [1, 2]) {
               try {
-                onWriteOutcome(late);
+                // biome-ignore lint/complexity/noVoid: each refused run throws before it returns a promise
+                void run();
               } catch (error) {
-                caught = error;
+                thrown.push(error);
               }
-              return childResult;
-            },
-          },
+            }
+            return first;
+          }),
         ],
-        async () => [{ id: "updated" }],
-        (registration) => registrations.push(registration)
+        child
       )
     );
 
-    expect(caught).toBeInstanceOf(QueryError);
-    expect(error).toBe(caught);
-    expect(registrations).toHaveLength(1);
-    expect(registrations[0]?.listener).toBe(before);
-  });
-
-  test("rejects a hostile non-function listener before capture even when caught", async () => {
-    const registrations: WriteOutcomeRegistration[] = [];
-    let caught: unknown;
-    const error = await captureFailure(
-      runQueryInterceptors(
-        modelContext("update"),
-        [
-          {
-            extension: "invalid-listener",
-            async handler({ proceed, onWriteOutcome }) {
-              try {
-                // @ts-expect-error - runtime falsifier for hostile JavaScript
-                onWriteOutcome(1);
-              } catch (error) {
-                caught = error;
-              }
-              return proceed();
-            },
-          },
-        ],
-        async () => [{ id: "updated" }],
-        (registration) => registrations.push(registration)
-      )
+    expect(thrown).toHaveLength(2);
+    expect(thrown[0]).toBe(thrown[1]);
+    expect(requireQueryError(thrown[0]).message).toContain(
+      "called proceed more than once"
     );
-
-    expect(caught).toBeInstanceOf(QueryError);
-    expect(error).toBe(caught);
-    expect(registrations).toEqual([]);
+    expect(failure).toBe(thrown[0]);
   });
 });
 
-describe("query write-outcome publication", () => {
+describe("settled, as the runner tells it", () => {
+  test("is told in the order the extensions registered, after the write", async () => {
+    const told: string[] = [];
+    const registering = (name: string, labels: readonly string[]) =>
+      extension(
+        name,
+        around((c) => {
+          for (const label of labels)
+            settled(c, ({ certainty }) => {
+              told.push(`${label}:${certainty}`);
+            });
+          return (run) => run();
+        }, target(writes))
+      );
+    const db = (await seededClient())
+      .$extends(registering("A", ["A"]))
+      .$extends(registering("B", ["B1", "B2"]));
+
+    await db.post.update({ where: { id: "p1" }, data: { title: "two" } });
+
+    expect(told).toEqual(["A:committed", "B1:committed", "B2:committed"]);
+  });
+
+  test("a raw statement's first moment hears an execute's outcome, never a read's", async () => {
+    const told: string[] = [];
+    const db = (await seededClient()).$extends(
+      extension(
+        "raw-outcomes",
+        around((c) => {
+          if (c.kind === "raw")
+            settled(c, ({ certainty }) => {
+              told.push(`${c.operation}:${certainty}`);
+            });
+          return (run) => run();
+        })
+      )
+    );
+
+    await db.$queryRaw`SELECT id FROM post`;
+    expect(told).toEqual([]);
+    await db.$executeRaw(sql`UPDATE post SET title = ${"three"}`);
+    expect(told).toEqual(["$executeRaw:committed"]);
+  });
+});
+
+describe("write-outcome publication", () => {
   test("stages each identity once and promotes only confirmed registrations", async () => {
     const published: string[] = [];
     const confirmed: WriteOutcomeRegistration = Object.freeze({
@@ -1150,19 +869,16 @@ describe("query write-outcome publication", () => {
   });
 });
 
-describe("hostile query thenables", () => {
-  test("reports commit certainty when post-proceed work rejects with a non-Error", async () => {
+describe("hostile thenables", () => {
+  test("a non-Error rejection after a committed child carries the commit certainty and the extension", async () => {
     const failure = await captureFailure(
       executePreparedQuery(
         modelContext("create"),
         [
-          {
-            extension: "committed-post-work",
-            async handler({ proceed }) {
-              await proceed();
-              return Promise.reject("private post-work failure");
-            },
-          },
+          second("committed-post-work", async (run) => {
+            await run();
+            return Promise.reject("private post-work failure");
+          }),
         ],
         async () => ({ count: 1 }),
         true,
@@ -1176,22 +892,19 @@ describe("hostile query thenables", () => {
     expect(requireQueryError(failure).originalCause).toBeInstanceOf(Error);
     expect(requireQueryError(failure).message).toContain("committed-post-work");
   });
-  test("does not confuse an undefined rejection with absent protocol failure", async () => {
+
+  test("an undefined rejection is a failure of the second moment's own, not an absent refusal", async () => {
     const failure = await captureFailure(
-      runQueryInterceptors(
+      runSeconds(
         modelContext("findMany"),
         [
-          {
-            extension: "undefined-rejection",
-            handler({ proceed }) {
-              // biome-ignore lint/complexity/noVoid: the extra proceed() call is deliberately left floating; the discard marks that
-              void proceed();
-              return Promise.reject(undefined);
-            },
-          },
+          second("undefined-rejection", (run) => {
+            // biome-ignore lint/complexity/noVoid: the run is deliberately left floating; the discard marks that
+            void run();
+            return Promise.reject(undefined);
+          }),
         ],
-        async () => [{ id: "child" }],
-        ignoreRegistration
+        async () => [{ id: "child" }]
       )
     );
 
@@ -1200,34 +913,26 @@ describe("hostile query thenables", () => {
     );
   });
 
-  test("attributes a hostile handler thenable to its extension", async () => {
+  test("a thenable whose then getter throws fails the call with that error", async () => {
     const thenFailure = new Error("handler then getter failed");
     const hostileThenable = Object.defineProperty({}, "then", {
       get() {
         throw thenFailure;
       },
     });
-    const interceptor: QueryInterceptor<Rows> = {
-      extension: "hostile-handler",
-      // @ts-expect-error - runtime falsifier for hostile JavaScript
-      handler() {
-        return hostileThenable;
-      },
-    };
 
     const error = await captureFailure(
-      runQueryInterceptors(
+      runSeconds(
         modelContext("findMany"),
-        [interceptor],
-        async () => [{ id: "child" }],
-        ignoreRegistration
+        [second("hostile-handler", () => hostileThenable)],
+        async () => [{ id: "child" }]
       )
     );
 
     expect(error).toBe(thenFailure);
   });
 
-  test("keeps a hostile child thenable failure authoritative", async () => {
+  test("a child thenable whose then getter throws keeps that failure the call's", async () => {
     const childFailure = new Error("child then getter failed");
     const hostileThenable = Object.defineProperty({}, "then", {
       get() {
@@ -1236,24 +941,20 @@ describe("hostile query thenables", () => {
     });
 
     const error = await captureFailure(
-      runQueryInterceptors(
+      runSeconds(
         modelContext("findMany"),
         [
-          {
-            extension: "child-thenable",
-            async handler({ proceed }) {
-              try {
-                await proceed();
-              } catch {
-                // The runner still publishes the child rejection.
-              }
-              return [{ id: "fabricated" }];
-            },
-          },
+          second("child-thenable", async (run) => {
+            try {
+              await run();
+            } catch {
+              // The runner still publishes the child rejection.
+            }
+            return [{ id: "fabricated" }];
+          }),
         ],
         // @ts-expect-error - runtime falsifier for hostile JavaScript
-        () => hostileThenable,
-        ignoreRegistration
+        () => hostileThenable
       )
     );
 
@@ -1266,90 +967,5 @@ describe("coverage low value", () => {
     await expect(
       publishWriteOutcomes([], { certainty: "committed" })
     ).resolves.toBeUndefined();
-  });
-});
-
-/**
- * One interceptor can break the protocol more than once. The runner keeps the
- * FIRST failure and answers every later break with that same error, so the
- * reported cause is the one that actually broke the contract rather than
- * whichever violation happened to be thrown last.
- */
-describe("a repeated protocol break keeps the first failure", () => {
-  test("a second illegal proceed throws the first error by identity", async () => {
-    const child = vi.fn(async (): Promise<Rows> => [{ id: "child" }]);
-    const thrown: unknown[] = [];
-
-    const failure = await captureFailure(
-      runQueryInterceptors(
-        modelContext("findMany"),
-        [
-          {
-            extension: "repeatedly-illegal",
-            handler({ proceed }) {
-              const settled = proceed();
-              for (const _attempt of [1, 2]) {
-                try {
-                  proceed();
-                } catch (error) {
-                  thrown.push(error);
-                }
-              }
-              return settled;
-            },
-          },
-        ],
-        child,
-        ignoreRegistration
-      )
-    );
-
-    expect(thrown).toHaveLength(2);
-    expect(thrown[0]).toBe(thrown[1]);
-    expect(requireQueryError(thrown[0]).message).toContain(
-      "called proceed more than once"
-    );
-    expect(requireQueryError(failure).message).toContain(
-      "called proceed more than once"
-    );
-  });
-
-  test("a later listener registration answers the earlier proceed failure", async () => {
-    const child = vi.fn(async (): Promise<Rows> => [{ id: "child" }]);
-    const thrown: unknown[] = [];
-
-    await captureFailure(
-      runQueryInterceptors(
-        modelContext("findMany"),
-        [
-          {
-            extension: "proceed-then-register",
-            handler({ onWriteOutcome, proceed }) {
-              const settled = proceed();
-              try {
-                proceed();
-              } catch (error) {
-                thrown.push(error);
-              }
-              try {
-                onWriteOutcome(() => undefined);
-              } catch (error) {
-                thrown.push(error);
-              }
-              return settled;
-            },
-          },
-        ],
-        child,
-        ignoreRegistration
-      )
-    );
-
-    expect(thrown).toHaveLength(2);
-    // A different violation, but the recorded failure is still the first one.
-    expect(thrown[0]).toBe(thrown[1]);
-    expect(requireQueryError(thrown[0]).message).toContain(
-      "called proceed more than once"
-    );
   });
 });

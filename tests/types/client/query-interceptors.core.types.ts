@@ -1,10 +1,15 @@
-/** Static contract for the standalone E3 query-interceptor boundary. */
+/**
+ * Static contract of the runner of `around`'s second moments: each one is
+ * handed the prepared call and `run`, which takes no arguments, and the
+ * runner's result is its child's. What an application writes is typed by
+ * `around` itself (`extensions.core.types.ts`).
+ */
 
 import type { ResolvedOperationHandler } from "@extensions/chain";
 import {
+  type AroundRunner,
   type PreparedModelQueryContext,
   type PreparedRawQueryContext,
-  type QueryInterceptorContext,
   runCompiledQueryInterceptors,
   type WriteOutcomeRegistration,
 } from "@extensions/query";
@@ -22,9 +27,6 @@ type Input = {
   select?: { id?: boolean };
 };
 type Rows = { id: string }[];
-type QueryInterceptor<Result, Input extends object> = ResolvedOperationHandler<
-  (context: QueryInterceptorContext<Result, Input>) => Promise<Result>
->;
 
 const input: Readonly<Input> = Object.freeze({
   where: Object.freeze({ id: "post-1" }),
@@ -37,77 +39,28 @@ const context: PreparedModelQueryContext<Input> = Object.freeze({
   operation: "findMany",
   input,
 });
-
-type HandlerContext = QueryInterceptorContext<Rows, Input>;
-type _handlerSurfaceIsExact = Expect<
-  Equal<
-    keyof HandlerContext,
-    | "mode"
-    | "kind"
-    | "model"
-    | "operation"
-    | "input"
-    | "proceed"
-    | "onWriteOutcome"
-    | "again"
-    | "proceedOn"
-    | "replay"
-  >
->;
-// A model operation's handler also reads its own extension's controls; a raw
-// statement has none.
-type _modelHandlerSurfaceIsExact = Expect<
-  Equal<
-    keyof Extract<HandlerContext, { readonly kind: "model" }>,
-    | "mode"
-    | "kind"
-    | "model"
-    | "operation"
-    | "input"
-    | "controls"
-    | "call"
-    | "proceed"
-    | "onWriteOutcome"
-    | "again"
-    | "proceedOn"
-    | "replay"
-  >
->;
 type _executionModeIsTruthful = Expect<
-  Equal<HandlerContext["mode"], "direct" | "transaction" | "array">
+  Equal<(typeof context)["mode"], "direct" | "transaction" | "array">
 >;
 
-const exactInterceptor: QueryInterceptor<Rows, Input> = {
+const exact: ResolvedOperationHandler<AroundRunner> = {
   extension: "exact-result",
-  async handler(handlerContext) {
-    handlerContext.input.where;
-    handlerContext.input.select;
-    // @ts-expect-error - the inspection input is shallow readonly
-    handlerContext.input.where = { id: "other" };
-    // @ts-expect-error - proceed never accepts replacement arguments
-    handlerContext.proceed({ where: { id: "other" } });
-    // @ts-expect-error - no operation program crosses the boundary
-    handlerContext.program;
-    // @ts-expect-error - no driver crosses the boundary
-    handlerContext.driver;
-    // @ts-expect-error - no result mutation surface crosses the boundary
-    handlerContext.result;
-    handlerContext.onWriteOutcome((outcome) => {
-      const certainty: "committed" | "may-have-committed" = outcome.certainty;
-      // @ts-expect-error - outcome facts are immutable
-      outcome.certainty = "committed";
-      return certainty;
-    });
-    handlerContext.onWriteOutcome(async () => undefined);
-    return handlerContext.proceed();
-  },
-};
-
-const _wrongResultInterceptor: QueryInterceptor<Rows, Input> = {
-  extension: "wrong-result",
-  // @ts-expect-error - an interceptor cannot invent another public result type
-  async handler() {
-    return [{ title: "wrong" }];
+  handler(prepared, run) {
+    if (prepared.kind === "model") {
+      const _model: string = prepared.model;
+    } else {
+      const _model: undefined = prepared.model;
+      const _operation:
+        | "$queryRaw"
+        | "$executeRaw"
+        | "$queryRawUnsafe"
+        | "$executeRawUnsafe" = prepared.operation;
+    }
+    // @ts-expect-error - the prepared input is shallow readonly
+    prepared.input = {};
+    // @ts-expect-error - run never accepts replacement arguments
+    run({ where: { id: "other" } });
+    return run();
   },
 };
 
@@ -115,13 +68,11 @@ const capture = (_registration: WriteOutcomeRegistration): void => undefined;
 const child = async (): Promise<Rows> => [{ id: "post-1" }];
 const intercepted = runCompiledQueryInterceptors(
   context,
-  [exactInterceptor],
+  [exact],
   child,
   capture
 );
-type _publicResultRemainsExact = Expect<
-  Equal<typeof intercepted, Promise<Rows>>
->;
+type _resultIsTheChilds = Expect<Equal<typeof intercepted, Promise<Rows>>>;
 
 const rawContext: PreparedRawQueryContext<Record<string, never>> =
   Object.freeze({
@@ -131,26 +82,10 @@ const rawContext: PreparedRawQueryContext<Record<string, never>> =
     operation: "$queryRaw",
     input: Object.freeze({}),
   });
-const rawInterceptor: QueryInterceptor<Rows, Record<string, never>> = {
-  extension: "raw-identity",
-  async handler(handlerContext) {
-    if (handlerContext.kind === "model") {
-      const _model: string = handlerContext.model;
-      return handlerContext.proceed();
-    }
-    const _model: undefined = handlerContext.model;
-    const _operation:
-      | "$queryRaw"
-      | "$executeRaw"
-      | "$queryRawUnsafe"
-      | "$executeRawUnsafe" = handlerContext.operation;
-    return handlerContext.proceed();
-  },
-};
 const rawResult = runCompiledQueryInterceptors(
   rawContext,
-  [rawInterceptor],
+  [exact],
   child,
   capture
 );
-type _rawResultRemainsExact = Expect<Equal<typeof rawResult, Promise<Rows>>>;
+type _rawResultIsTheChilds = Expect<Equal<typeof rawResult, Promise<Rows>>>;

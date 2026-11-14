@@ -29,8 +29,8 @@ import {
   retainWriteOutcomeFailure,
   VibORMErrorCode,
 } from "@errors";
-import type { ResolvedExtensionHandler } from "@extensions/chain";
 import type {
+  AroundHandlers,
   QueryInterceptionMode,
   RawQueryKind,
   WriteOutcomeNotifications,
@@ -378,7 +378,7 @@ class DeferredRawOperation<T>
   readonly #method: RawMethodName;
   readonly #captured: CapturedRawQuery;
   readonly #parse: (raw: QueryResult<RawRow<T>>) => T;
-  readonly #queryHandlers: readonly ResolvedExtensionHandler[] | undefined;
+  readonly #queryHandlers: AroundHandlers | undefined;
   #resolved: ResolvedRawQuery | undefined;
   #observationCommitCertainty: "committed" | "may-have-committed" | undefined;
 

@@ -13,6 +13,9 @@ import type { AdmittedControls } from "./controls";
 export const CALL = Symbol("viborm.call");
 /** The key of the view a method's scope serves. */
 export const SCOPE = Symbol("viborm.scope");
+/** The keys a second moment's `run` carries for `again` and `via`. */
+export const AGAIN = Symbol("viborm.again");
+export const VIA = Symbol("viborm.via");
 
 /** One model call, as its words read it. */
 export interface CallOrigin {
