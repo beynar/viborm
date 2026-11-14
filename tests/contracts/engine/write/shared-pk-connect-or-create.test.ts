@@ -109,7 +109,7 @@ for (const substrate of substrates) {
  *  its own rather than sharing a substrate leg's. */
 const getRaceFamily = usePGliteSchemaFamily(sharedPkConnectOrCreateSchema);
 
-test("BATCH TOCTOU: the found target deleted after planning aborts the batch, writing nothing", async () => {
+test("BATCH TOCTOU: the found target deleted after planning is created by the call made again", async () => {
   const family = getRaceFamily();
   const db = family.database;
   // The racing driver is a SECOND driver over that database, so it must name the
@@ -118,9 +118,10 @@ test("BATCH TOCTOU: the found target deleted after planning aborts the batch, wr
   const setup = family.client as any;
   await setup.user.create({ data: { id: "u1", email: "u1@x", name: "seed" } });
 
-  // The probe finds `u1`, so the FOUND arm compiles (no user INSERT). The row then
-  // vanishes before the write batch runs: the record's shared primary key is a live
-  // foreign key, so the batch must abort rather than write an orphan.
+  // The call finds `u1`. The row then vanishes before the write batch runs:
+  // the record's shared primary key is a live foreign key, so the batch stops
+  // rather than write an orphan, and the call is made again, once: no row
+  // answers, so `connectOrCreate` creates it.
   const racing = createClient({
     schema: sharedPkConnectOrCreateSchema,
     driver: new BeforeBatchPGliteDriver(
@@ -131,8 +132,8 @@ test("BATCH TOCTOU: the found target deleted after planning aborts the batch, wr
     ),
   }) as any;
 
-  const rejection = await racing.profile
-    .create({
+  await expect(
+    racing.profile.create({
       data: {
         bio: "raced",
         user: {
@@ -143,18 +144,16 @@ test("BATCH TOCTOU: the found target deleted after planning aborts the batch, wr
         },
       },
     })
-    .then(
-      () => undefined,
-      (error: unknown) => error
-    );
+  ).resolves.toEqual({ userId: "u1", bio: "raced" });
 
-  expect(rejection).toBeInstanceOf(Error);
-  // Whatever the class, the batch is one unit: nothing persists.
-  expect(await setup.profile.count()).toBe(0);
-  expect(await setup.user.count()).toBe(0);
+  // No orphan: the profile's key is the key of a row that is there.
+  expect(await setup.profile.count()).toBe(1);
+  expect(await setup.user.findMany()).toEqual([
+    { id: "u1", email: "u1@x", name: "seed" },
+  ]);
 }, 30_000);
 
-test("BATCH TOCTOU: an alternate-unique replacement cannot donate a different shared key", async () => {
+test("BATCH TOCTOU: after an alternate-unique replacement the stale key is never spent", async () => {
   const family = getRaceFamily();
   const db = family.database;
   const namespace = family.namespace;
@@ -174,20 +173,20 @@ test("BATCH TOCTOU: an alternate-unique replacement cannot donate a different sh
     ),
   }) as any;
 
-  const rejection = await racing.profile
-    .create({
+  // The batch stops on the row it read, and the call made again reads the row
+  // the email names now: the profile takes that row's key, never the stale one.
+  await expect(
+    racing.profile.create({
       data: {
         bio: "must not spend stale u1",
         user: { connect: { email: "same@x" } },
       },
     })
-    .then(
-      () => undefined,
-      (error: unknown) => error
-    );
+  ).resolves.toEqual({ userId: "replacement", bio: "must not spend stale u1" });
 
-  expect(rejection).toBeInstanceOf(Error);
-  expect(await setup.profile.count()).toBe(0);
+  expect(await setup.profile.findMany()).toEqual([
+    { userId: "replacement", bio: "must not spend stale u1" },
+  ]);
   expect(
     await setup.user.findUnique({
       where: { email: "same@x" },

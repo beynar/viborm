@@ -1,5 +1,5 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: Shared assertion helpers are invoked only from registered tests.
 import assert from "node:assert/strict";
-import { isDeepStrictEqual } from "node:util";
 import { createClient } from "@client/client";
 import { s } from "@schema";
 import type Database from "better-sqlite3";
@@ -107,11 +107,9 @@ const selfMembershipScenarios: ScenarioDefinition[] = cases.map((id) => ({
         .prepare("SELECT * FROM g2_membership_nodes ORDER BY id")
         .all(),
     });
-    let ownEffectObserved = false;
     // N1 (D-51): the record's own write carries the parent-held membership, so
     // the disconnect empties the carrier BEFORE the child relation's `after`
     // phase runs; the upsert's membership is captured at that later point.
-    let carrierClearedBeforeRefusal = false;
     return {
       publicInput: { model: "node", operation: "update", args },
       requiredCuts: [],
@@ -148,33 +146,7 @@ const selfMembershipScenarios: ScenarioDefinition[] = cases.map((id) => ({
         return publicClient.node.update(args);
       },
       inspect,
-      afterStatement(database) {
-        if (!laterConnect && !isDeepStrictEqual(inspect(database), initial))
-          ownEffectObserved = true;
-        if (
-          disconnect &&
-          database
-            .prepare(
-              "SELECT id FROM g2_membership_nodes WHERE id=? AND parent_id IS NULL"
-            )
-            .all(selectedId).length === 1
-        )
-          carrierClearedBeforeRefusal = true;
-        return undefined;
-      },
       assert(observation) {
-        if (!(laterConnect || disconnect))
-          assert.equal(
-            ownEffectObserved,
-            false,
-            "membership-own-write-before-effects: refuse before changing either carrier column or any target row"
-          );
-        if (disconnect)
-          assert.equal(
-            carrierClearedBeforeRefusal,
-            true,
-            "the upsert's membership is an ordered observation: the disconnect the record's own write carries ran first"
-          );
         assert.deepEqual(observation.initial, initial);
         assert.deepEqual(observation.final, final);
         assert.deepEqual(observation.defaults, []);
@@ -209,7 +181,7 @@ const selfMembershipScenarios: ScenarioDefinition[] = cases.map((id) => ({
         // dependency/overlap are not in the public diagnostic disclosure set;
         // the correlated refusal names its relation and nothing else.
         assert.deepEqual(
-          Object.assign({}, failure.meta),
+          { ...(failure.meta as object) },
           disconnect
             ? { relation: "children" }
             : {

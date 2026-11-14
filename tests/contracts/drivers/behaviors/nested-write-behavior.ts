@@ -330,6 +330,106 @@ export function runNestedWriteBehavior({
       ]);
     });
 
+    test("a row the call already read is found again through a NOT or an OR", async () => {
+      const currentClient = requireClient(client);
+      await currentClient.user.create({
+        data: {
+          id: "user-twice-owner",
+          name: "Hal",
+          posts: { create: { id: "post-twice", title: "Draft" } },
+        },
+      });
+      // The first update reads the row whole; the second names it again, by
+      // an equality that is no conjunct of its filter.
+      await currentClient.user.update({
+        where: { id: "user-twice-owner" },
+        data: {
+          posts: {
+            update: [
+              {
+                where: { id: "post-twice", NOT: { title: "Other" } },
+                data: { title: "Draft" },
+              },
+              {
+                where: { id: "post-twice", NOT: { title: "Other" } },
+                data: { title: "Not" },
+              },
+            ],
+          },
+        },
+      });
+      expect(
+        (await currentClient.post.findUnique({ where: { id: "post-twice" } }))
+          ?.title
+      ).toBe("Not");
+      await currentClient.user.update({
+        where: { id: "user-twice-owner" },
+        data: {
+          posts: {
+            update: [
+              {
+                where: {
+                  id: "post-twice",
+                  OR: [{ title: "Not" }, { title: "Other" }],
+                },
+                data: { title: "Not" },
+              },
+              {
+                where: {
+                  id: "post-twice",
+                  OR: [{ title: "Not" }, { title: "Other" }],
+                },
+                data: { title: "Or" },
+              },
+            ],
+          },
+        },
+      });
+      expect(
+        (await currentClient.post.findUnique({ where: { id: "post-twice" } }))
+          ?.title
+      ).toBe("Or");
+    });
+
+    test("a row the call already read is not taken to match a relation filter", async () => {
+      const currentClient = requireClient(client);
+      await currentClient.user.create({
+        data: {
+          id: "user-related-owner",
+          name: "Ivy",
+          posts: { create: { id: "post-related", title: "Draft" } },
+        },
+      });
+      // The first update reads the row whole; the second names it by its key
+      // and by a relation that holds no such row.
+      await expect(
+        currentClient.user.update({
+          where: { id: "user-related-owner" },
+          data: {
+            posts: {
+              update: [
+                {
+                  where: { id: "post-related", NOT: { title: "Other" } },
+                  data: { title: "Draft" },
+                },
+                {
+                  where: {
+                    id: "post-related",
+                    postTags: { some: { id: "no-such-tag" } },
+                  },
+                  data: { title: "Written" },
+                },
+              ],
+            },
+          },
+        })
+      ).rejects.toThrow("target record was not found");
+      const post = await currentClient.post.findUnique({
+        where: { id: "post-related" },
+      });
+      expect(post?.title).toBe("Draft");
+    });
+
     test("delete and deleteMany keep child mutations parent-correlated", async () => {
       const currentClient = requireClient(client);
       await currentClient.user.create({

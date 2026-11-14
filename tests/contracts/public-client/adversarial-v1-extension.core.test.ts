@@ -3,9 +3,13 @@ import {
   type ExtensionDefinitionInput,
   normalizeExtensionDefinition,
 } from "@extensions/definition";
+import { withRows } from "@extensions/rows-runtime";
 import { createClient, defineExtension, s } from "@src/index";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { describe, expect, it } from "vitest";
+
+// These definitions are stated as plain objects: what reads their rows is brought here.
+withRows();
 
 const UNKNOWN_PATTERN = /unknown/i;
 const SHARE_MODE_NAMES_PATTERN = /share mode names/;

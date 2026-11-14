@@ -48,11 +48,26 @@ export type { NoControls, PlacedControl } from "./extensions/controls.js";
 export {
   type ClientExtension,
   defineExtension,
+  defineHooks,
+  enableExtensions,
   type ObservationCompletion,
+  type ObservationFacts,
+  type ObservationNeed,
   type ObservationUnit,
+  type ObservedFacts,
   type ObserveHandler,
+  type ObservesDeclaration,
+  type RetryHandler,
+  type RouteHandler,
   type StatementContext,
   type StatementHandler,
+  type TransactionHandler,
+  type UnitCall,
+  type WriteKind,
+  type WriteOutcome,
+  type WrittenCall,
+  type WrittenHandler,
+  type WrittenWatch,
 } from "./extensions/index.js";
 export type {
   AccumulatedExtensionState,
@@ -63,6 +78,13 @@ export type {
   ExtensionResultConsumerState,
   MergeExtensionState,
 } from "./extensions/methods";
+// Values a write computes, and the names a hand-written fragment spells them with.
+export {
+  computed,
+  type JoinedSource,
+  joined,
+  stored,
+} from "./extensions/values.js";
 // Pending operations (for transaction batching)
 export {
   isPendingOperation,
@@ -70,6 +92,10 @@ export {
   type UnwrapPendingOperation,
   type UnwrapPendingOperations,
 } from "./query-engine/pending-operation.js";
+export type {
+  InsertValueContext as ComputedContext,
+  ModelSql,
+} from "./query-engine/raptor3/shared/insert-value.js";
 // Inferred exported schemas must name these types through a public entry.
 export type {
   AnyModel,
@@ -256,6 +282,7 @@ export type {
 } from "./client/schema-links.js";
 export type { IndexDefinition, IndexOptions } from "./schema/model/index.js";
 // Schema introspection
+export { getRowKey } from "./schema/model/keys.js";
 export { getSchemas } from "./schema/schemas.js";
 export type {
   SchemaValidationIssue,

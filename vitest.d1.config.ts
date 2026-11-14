@@ -57,6 +57,8 @@ export default defineConfig({
       "src/migrations/dialects/sqlite.ts",
       // The per-test and per-describe frames `isolatedStorage` used to keep.
       "tests/providers/workers/isolated-storage.ts",
+      // Bare object literals applied with `$extends` need the extension host.
+      "tests/providers/workers/extension-host.ts",
     ],
     maxWorkers: 1,
   },

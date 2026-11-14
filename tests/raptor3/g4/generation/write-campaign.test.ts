@@ -21,7 +21,11 @@ import {
 import { runG3SQLiteBatch } from "../../g3/generation/sqlite-campaign";
 
 it("executes one complete G4 write-envelope SQLite seed batch", async () => {
-  const firstSeed = Number(process.env.VIBORM_RAPTOR3_GENERATED_FIRST_SEED);
+  // Run alone, with no runner to hand it a batch, it runs its campaign's first.
+  const firstSeed = Number(
+    process.env.VIBORM_RAPTOR3_GENERATED_FIRST_SEED ??
+      G4_WRITE_CAMPAIGN.firstSeed
+  );
   assert(Number.isInteger(firstSeed), "Missing generated G4 write first seed");
   // The child holds the frozen batch, never the ambient seed-count variable
   // that `scripts/run-raptor3.mjs` now deletes from every child environment.

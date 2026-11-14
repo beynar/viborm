@@ -10,7 +10,7 @@ import {
 import type { AnyDriver, QueryExecutionContext } from "@drivers/exports";
 import { VibORMError } from "@errors";
 import type { ResolvedExtensionChain } from "@extensions/chain";
-import { getOfficialInstrumentationChainCapability } from "@extensions/observation";
+import { getOfficialInstrumentationChainCapability } from "@extensions/host-slot";
 import type { OfficialLifecycleFactsReader } from "@extensions/official-facts";
 import { isErrorLogged } from "../errors/logged-errors";
 import type { Operation } from "./types";

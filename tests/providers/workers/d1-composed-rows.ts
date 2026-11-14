@@ -9,14 +9,17 @@
  * `json_group_array`, relation counts without `COALESCE`); the driver now reads
  * them from a derived table (`deepExpressions: false`, the expression-depth
  * fact), which {@link unwrapDerivedExists} undoes textually, so any other
- * difference is a change of the statements themselves. Each statement a
+ * difference is a change of the statements themselves. Re-recorded whole on
+ * 2026-11-12 with the rewritten write path: seven calls changed, none sends
+ * more statements ("create post nested comments" 3 to 2, "upsert" 3 to 2,
+ * "nested update" 10 to 7; the others in parentheses only). Each statement a
  * `batch` call ran carries that batch's ordinal within the call: on D1, one
  * batch is one atomic unit, so a call's batch count is part of what it does.
  */
 
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { defineExtension } from "@extensions/definition";
+import { defineExtension } from "@extensions/define";
 import { s } from "@schema";
 import { v } from "@src/validation";
 import type { RecordingD1 } from "./d1-statements";

@@ -1139,6 +1139,12 @@ describe("RQ-06 recursive projections composed through the shipped client", () =
           (error: unknown) => error
         );
         const label = `${operation} ${"recurse" in slot ? "recursive" : "ordinary"}`;
+        // Either every member is prepared and the array is one dispatch, or
+        // it is refused before any statement.
+        if (failure === undefined) {
+          assert.equal(refused.driver.batches, 1, label);
+          continue;
+        }
         assert.ok(failure instanceof TransactionError, `${label}: ${failure}`);
         assert.deepEqual(refused.driver.statements, [], label);
         assert.equal(refused.driver.batches, 0, label);

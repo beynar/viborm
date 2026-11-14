@@ -256,14 +256,30 @@ describe("G3-02 author execution regressions", () => {
         'The "createMany" result is incompatible with the int scalar domain: the value is not a canonical integer.',
         loneDiagnostic
       );
+      const { recordSeriesProgress: loneProgress, ...loneMeta } = {
+        ...loneFailure.meta,
+      };
       assert.deepEqual(
-        { ...loneFailure.meta },
+        loneMeta,
         {
           driver: "sqlite3",
           model: "record",
           operation: "createMany",
           scalarType: "int",
           reason: "the value is not a canonical integer",
+        },
+        loneDiagnostic
+      );
+      // The statement committed before its answer was decoded: the failure
+      // says what stands.
+      assert.deepEqual(
+        loneProgress,
+        {
+          atomicity: "segment",
+          phase: "result",
+          committedSegments: 1,
+          completedMembers: 2,
+          committedWriteMembers: 2,
         },
         loneDiagnostic
       );
@@ -378,17 +394,16 @@ describe("G3-02 author execution regressions", () => {
         'The "createMany" result is incompatible with the int scalar domain: the value is not a canonical integer.',
         batchDiagnostic
       );
-      // The same progress this transport always had, one member earlier: both
-      // write members committed in the one segment, and the read-back that
-      // carries the key across the boundary (D-58) raises the result failure
-      // before the second member completes.
+      // The one member of the call (its parent row, with the child under
+      // it) committed in the one segment; the answer read behind it raises
+      // the result failure.
       assert.deepEqual(
         batchFailure.meta.recordSeriesProgress,
         {
           atomicity: "segment",
           phase: "result",
           committedSegments: 1,
-          committedWriteMembers: 2,
+          committedWriteMembers: 1,
           completedMembers: 1,
         },
         batchDiagnostic

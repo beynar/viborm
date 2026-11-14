@@ -7,10 +7,11 @@ icon: layers
 Nested writes let you create, connect, update, and delete related records in the
 same call as their parent. Transaction-capable drivers run the whole operation
 atomically, and generated IDs flow automatically from a parent to its children.
-Drivers with native atomic batches run work that can be planned up front in one
-batch and safe dynamic work as ordered segments after normalized success. Those
-segments are not one atomic operation; D1 documents one provider-specific
-[segment-atomic contract](/docs/drivers/sqlite/d1#relation-bearing-bulk-writes).
+Drivers with native atomic batches send a nested write as one atomic batch
+whenever no part of it has to hear the database before the next part can be
+written. A write that must read between two of its own writes takes one batch
+after another: each batch is atomic, the write as a whole is not. D1 documents
+that [contract](/docs/drivers/sqlite/d1#relation-bearing-bulk-writes).
 
 :::info
 Link selectors — `connect`, `connectOrCreate.where`, `disconnect`, and `set` —
@@ -148,9 +149,10 @@ A nested write that needs a **database-generated key** to be read back — a chi
 whose foreign key points at the parent the same call is inserting — uses the
 producer statement's exact output. SQLite-family and MySQL batches keep their
 statement-local generated-ID lowering. PostgreSQL-family batches, including Neon
-HTTP, use `RETURNING`: an exact fold remains one statement, while an unfurled default
-operation runs guarded atomic segments in dependency order. Those segments are not
-one atomic operation, so a later failure can report partial committed progress. See
+HTTP, use `RETURNING`: the key reaches the statements that need it inside the
+same batch. A write that has to hear a value between two batches takes one batch
+after another; those batches are not one atomic operation, so a later failure can
+report partial committed progress. See
 [Compatibility](/docs/client/compatibility#generated-keys-and-the-execution-substrate).
 
 ### connect
@@ -629,20 +631,20 @@ supplier-plus-modify one level deeper.
 When the supplier is a `create` — or a `connectOrCreate` that ends up creating —
 the row does not exist while the call is being planned, so the engine locates it
 after the fact, by the membership the supplier just established. That costs an
-extra round trip on this relation, and it needs a driver that can either run an
-interactive transaction or submit native atomic batches in order. On the latter,
-each next segment starts only after normalized success from the previous one. A
+extra round trip on this relation only where the engine cannot tell from the
+call itself whether the row answers the update's filter, and it needs a driver
+that can either run an interactive transaction or submit native atomic batches. A
 driver with neither capability declines before the supplier writes.
 
 :::warning
-Three combinations are spellable but declined before any write, all for the same
-  reason: `delete: true` names the row currently in the slot, whose identity is
-  not known when the call is analyzed, so it cannot be ruled out that it is the
-  very row a sibling operation reads. They are child-held `delete` beside a
-  **`connect`** and an `update`, and parent-held `delete + connect`. Parent-held
+One combination is spellable but declined before any write: parent-held
+  `delete + connect`. `delete: true` names the row the parent's key reaches,
+  and the `connect` gives that same key another row: the row to delete and the
+  row to connect are not told apart. Split it into two calls. Parent-held
   `delete + create` is fine — nothing has to read the outgoing row, and neither
   does a producing supplier's `update`, which is why `delete + create + update`
-  runs.
+  runs. On a child-held relation, `delete` beside a `connect` and an `update`
+  runs too.
 
   On a parent-held relation, `create` or `connectOrCreate` beside an `update`
   is rejected at the type level, and stays so.

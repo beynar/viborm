@@ -163,10 +163,11 @@ describe.skipIf(!NEKI_URL)("migrations on PlanetScale's Neki", () => {
       const failed = await at(true).status();
       expect(failed.marker?.stateId).toBe(v1.stateId);
       expect(failed.unfinished).toBe(true);
-      expect(await forwardKinds(at(true), [v2.stateId])).toEqual([
-        "started",
-        "step-confirmed",
-      ]);
+      // Started, some steps confirmed, not applied. How many steps a state
+      // is cut into is the runner's: since 1.5.1 every statement is one.
+      const open = await forwardKinds(at(true), [v2.stateId]);
+      expect(open[0]).toBe("started");
+      expect(new Set(open.slice(1))).toEqual(new Set(["step-confirmed"]));
       const { rows: columns } = await admin.query<{ name: string }>(
         "SELECT column_name AS name FROM information_schema.columns WHERE table_schema = $1 AND table_name = 'accounts'",
         [namespace]
@@ -180,7 +181,8 @@ describe.skipIf(!NEKI_URL)("migrations on PlanetScale's Neki", () => {
         statements: [backfill],
       });
       expect(recording.log).not.toContain(add);
-      expect(commitsIn(recording.log)).toBe(1);
+      // No transaction on Neki (1.5.1): each statement is committed alone.
+      expect(commitsIn(recording.log)).toBe(0);
       const { rows } = await admin.query<{ n: number }>(
         `SELECT count(*)::int AS n FROM "${namespace}"."accounts" WHERE "nickname" = "email"`
       );
@@ -189,12 +191,10 @@ describe.skipIf(!NEKI_URL)("migrations on PlanetScale's Neki", () => {
       expect(done.marker?.stateId).toBe(v2.stateId);
       expect(done.unfinished).toBe(false);
       await expect(at(true).verify()).resolves.toEqual({ ok: true });
-      expect(await forwardKinds(at(true), [v2.stateId])).toEqual([
-        "started",
-        "step-confirmed",
-        "step-confirmed",
-        "applied",
-      ]);
+      const closed = await forwardKinds(at(true), [v2.stateId]);
+      expect(closed[0]).toBe("started");
+      expect(closed.at(-1)).toBe("applied");
+      expect(new Set(closed.slice(1, -1))).toEqual(new Set(["step-confirmed"]));
     },
     TIMEOUT
   );
@@ -311,14 +311,14 @@ describe.skipIf(!NEKI_URL)("migrations on PlanetScale's Neki", () => {
         },
       });
       recording.log.length = 0;
-      // The second part's BEGIN: the session idles, holding the lock.
-      recording.pause = { text: "BEGIN", skip: 1, ms: 2000 };
+      // Before the second part is sent: the session idles, holding the lock.
+      recording.pause = { text: backfill, skip: 0, ms: 2000 };
       await expect(at(true).apply()).resolves.toMatchObject({
         outcome: "applied",
         path: [v2.stateId],
       });
       expect(recording.pause).toBeUndefined();
-      expect(commitsIn(recording.log)).toBe(2);
+      expect(commitsIn(recording.log)).toBe(0);
     },
     TIMEOUT
   );
@@ -379,8 +379,9 @@ describe.skipIf(!NEKI_URL)("migrations on PlanetScale's Neki", () => {
       });
       // The names' columns, then their backfill; the team schema; the
       // cleanup; the index; the last data state, which a literal naming the
-      // index would otherwise plan without it.
-      expect(commitsIn(recording.log)).toBe(5);
+      // index would otherwise plan without it: each statement committed
+      // alone, in no transaction (1.5.1).
+      expect(commitsIn(recording.log)).toBe(0);
       expect(
         (await forwardKinds(at(3), path)).filter((kind) => kind === "applied")
       ).toHaveLength(path.length);
@@ -438,7 +439,7 @@ describe.skipIf(!NEKI_URL)("migrations on PlanetScale's Neki", () => {
         outcome: "applied",
         path: [index.stateId],
       });
-      expect(commitsIn(recording.log)).toBe(2);
+      expect(commitsIn(recording.log)).toBe(0);
       await expect(at(3).verify()).resolves.toEqual({ ok: true });
     },
     TIMEOUT

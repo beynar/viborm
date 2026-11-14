@@ -836,6 +836,13 @@ async function run(request) {
     "g3-transport-seed-batch": G3_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
     replay: ["tests/raptor3/gate.test.ts"],
   }[request.mode];
+  // A gate whose every test fixed how the write engine of 1.14.0 executed has
+  // no test left since that engine was replaced: it is refused by name, where
+  // an empty selection would run the whole project instead.
+  invariant(
+    files.length > 0,
+    `The ${request.mode} gate is retired: its tests fixed how the removed write engine executed`
+  );
   for (const file of files)
     invariant(
       existsSync(resolve(RAPTOR3_ROOT, file)),

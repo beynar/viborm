@@ -3,7 +3,7 @@
  *
  * `Queries.prepareProjection` rebuilt the model's DEFAULT projection on every
  * read: `Object.fromEntries(scalarFieldNames.filter(…).map(…))`, then a fresh
- * frozen descriptor and a fresh frozen leaf per field, on an input that names
+ * descriptor and a fresh leaf per field, on an input that names
  * neither `select` nor `include` and therefore depends on nothing but the model
  * and the dialect (`g4/perf2/note.md` §0.4, rows 1 and 3). It is now memoised
  * per (adapter, model), and each scalar leaf per (adapter, model, field).
@@ -94,9 +94,6 @@ describe("G4 perf pass 2 item 2 — one default projection per (adapter, model)"
       "a second Queries over the same schema and adapter rebuilt the default"
     );
     assert.deepEqual(names(one), ["id", "name", "secret"]);
-    assert.equal(Object.isFrozen(one), true);
-    assert.equal(Object.isFrozen(one.fields), true);
-    assert.equal(Object.isFrozen(one.shape), true);
     assert.equal(
       holdsSql(one),
       false,
@@ -193,18 +190,8 @@ describe("G4 perf pass 2 item 2 — one default projection per (adapter, model)"
 });
 
 /**
- * G4 performance pass 2, item 4 — the prepared predicate is frozen; each of its
- * operands is not.
- *
- * `prepareOperand` froze one box per admitted member, so an
- * `id: { in: ids₁₀₀ }` paid 100 `Object.freeze` map transitions per operation
- * — measured at 1.98–2.20 µs against 0.25–0.28 µs for the same 100 boxes
- * (`g4/perf2/receipts/micro-in-list.json`), which is `prepareOperand`'s whole
- * measured self time on `bulk-update-returning-100/prepare`. One owner builds
- * an operand (`Queries.prepareOperations`) and one reads it
- * (`Queries.lowerOperation`), both inside `shared/query.ts`, and no cell of
- * this harness ever observed a prepared operand's frozen-ness; the immutability
- * that IS observable — the predicate and the operand list — stays.
+ * G4 performance pass 2, item 4: an `in` list is prepared as one operation
+ * holding every member once, in order, whatever its length.
  */
 /** The prepared predicate type, read from the one owner that publishes it. */
 type PreparedPredicate = NonNullable<
@@ -228,8 +215,8 @@ function findIn(
   return undefined;
 }
 
-describe("G4 perf pass 2 item 4 — one freeze per predicate, not per member", () => {
-  it("freezes the predicate and its operand list, and binds every member once", () => {
+describe("G4 perf pass 2 item 4 — an in list is one operation", () => {
+  it("holds every member once, and binds every member once", () => {
     const schema = reuseSchema();
     const queries = new SqlQueries(
       new EngineSchema(schema),
@@ -243,13 +230,9 @@ describe("G4 perf pass 2 item 4 — one freeze per predicate, not per member", (
 
     const conjunction = selector.predicate;
     assert.ok(conjunction && conjunction.kind === "and");
-    assert.equal(Object.isFrozen(conjunction), true);
-    assert.equal(Object.isFrozen(conjunction.predicates), true);
     const operation = findIn(conjunction);
     assert.ok(operation, "the prepared selector carries no `in` operation");
-    assert.equal(Object.isFrozen(operation), true);
     assert.ok(operation.operands);
-    assert.equal(Object.isFrozen(operation.operands), true);
     assert.deepEqual(
       operation.operands.map((operand) =>
         operand.kind === "value" ? operand.value : "field"

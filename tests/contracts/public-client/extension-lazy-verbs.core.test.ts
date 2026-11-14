@@ -13,10 +13,14 @@ import { cache } from "@cache/extension";
 import { createClient } from "@drivers/sqlite3";
 import { ClientInitializationError } from "@errors";
 import { bindRows } from "@extensions/rows";
+import { withRows } from "@extensions/rows-runtime";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { v } from "@validation";
 import { afterEach, beforeEach, expect, test } from "vitest";
+
+// These definitions are stated as plain objects: what reads their rows is brought here.
+withRows();
 
 const node = s.model({
   id: s.string().id(),

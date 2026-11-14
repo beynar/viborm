@@ -37,23 +37,13 @@ import type {
 import {
   getOfficialInstrumentationChainCapability,
   getTrustedProtectedObserverCapability,
+  type ObserveHandler,
+  registerFactsObserver,
   registerOfficialInstrumentationChain,
 } from "./observation";
 import { appendResultFields, type ResolvedResultFields } from "./result";
-import {
-  bindRows,
-  checkingLazyReferences,
-  type RowsBinding,
-  undeclaredControlReferencesOf,
-} from "./rows";
-import {
-  OFFICIAL_ON_NAME,
-  officialWritesOf,
-  type WritesCapability,
-} from "./writes";
-
-/** The fixed name admission reserves for the official instrumentation extension. */
-export const OFFICIAL_INSTRUMENTATION_NAME = "viborm.instrumentation";
+import type { RowsBinding } from "./rows";
+import { rowsRuntime } from "./rows-slot";
 
 export interface ResolvedExtensionHandler<
   Handler extends CallableFunction = CallableFunction,
@@ -149,8 +139,12 @@ export interface ResolvedExtensionChain {
   readonly callRows?: RowsBinding;
   /** Per model, every extension's computed fields, in chain order. */
   readonly result?: ResolvedResultFields;
-  /** The official `on` extension's writes, when the chain carries it. */
-  readonly writes?: WritesCapability;
+  /** Every `written` declaration, in chain order: what watches a write call. */
+  readonly written?: readonly ResolvedOperationHandler[];
+  /** Every `retry`, `route` and `transaction` declaration, in chain order. */
+  readonly retry?: readonly ResolvedExtensionHandler[];
+  readonly route?: readonly ResolvedExtensionHandler[];
+  readonly transaction?: readonly ResolvedExtensionHandler[];
   readonly extensions: readonly ResolvedExtension[];
   readonly hasCache: boolean;
   readonly hasRequestHandlers: boolean;
@@ -161,32 +155,12 @@ export interface ResolvedExtensionChain {
   readonly observe: readonly ResolvedExtensionHandler[];
 }
 
-/** Return the precompiled array itself; lookup scans and merges nothing. */
-export function lookupResolvedExtensionHandlers(
-  chain: ResolvedExtensionChain | undefined,
-  component: "request" | "query",
-  model: string | undefined,
-  operation: string
-): readonly ResolvedOperationHandler[] | undefined {
-  if (chain === undefined) return undefined;
-  const lookup = chain[component];
-  const global = lookup.global.length === 0 ? undefined : lookup.global;
-  if (model === undefined) {
-    return component === "query" ? global : undefined;
-  }
-  return lookup.models[model]?.[operation] ?? global;
-}
+import { NO_CONTROLS } from "./host-slot";
 
-/** The controls one (model, operation) accepts; the shared empty list when none. */
-export function lookupPlacedControls(
-  chain: ResolvedExtensionChain | undefined,
-  model: string,
-  operation: string
-): readonly ResolvedControl[] {
-  return chain?.controls?.placed(model, operation) ?? NO_CONTROLS;
-}
-
-const NO_CONTROLS: readonly ResolvedControl[] = Object.freeze([]);
+export {
+  lookupPlacedControls,
+  lookupResolvedExtensionHandlers,
+} from "./host-slot";
 
 function resolvedHandler(
   extension: Pick<ResolvedExtension, "name">,
@@ -312,6 +286,23 @@ function appendFlatHandler(
   const handlers = previous ? [...previous] : [];
   handlers.push(resolvedHandler(extension, handler));
   return Object.freeze(handlers);
+}
+
+/** The chain's `retry`, `route` and `transaction` lists with a definition's own appended: a point nobody declares is absent. */
+function unitHandlers(
+  chain: ResolvedExtensionChain | undefined,
+  extension: Pick<ResolvedExtension, "name">,
+  definition: RuntimeExtensionDefinition
+): Pick<ResolvedExtensionChain, "retry" | "route" | "transaction"> {
+  const lists: Record<string, readonly ResolvedExtensionHandler[]> = {};
+  for (const point of ["retry", "route", "transaction"] as const) {
+    const handler = definition[point];
+    const list = handler
+      ? appendFlatHandler(chain?.[point], extension, handler)
+      : chain?.[point];
+    if (list) lists[point] = list;
+  }
+  return lists;
 }
 
 function appendObserver(
@@ -507,19 +498,21 @@ export function appendResolvedExtension(
     isAlreadyPresent: false,
     duplicateMessage: `Extension "${OFFICIAL_DEFAULT_OMIT_NAME}" is already present on this client.`,
   });
-  const incomingOfficial = getTrustedProtectedObserverCapability(
-    definition.observe
-  );
+  // The one definition whose observer is handed facts: core asks its
+  // declaration what to produce.
+  const incomingOfficial = definition.observes;
   const existingOfficial = getOfficialInstrumentationChainCapability(chain);
-  assertOfficialExtensionAdmission({
-    definitionName: definition.name,
-    officialName: OFFICIAL_INSTRUMENTATION_NAME,
-    label: "instrumentation",
-    hasIdentity: incomingOfficial !== undefined,
-    isAlreadyPresent: existingOfficial !== undefined,
-    duplicateMessage:
-      "The official instrumentation extension is already present on this client.",
-  });
+  if (incomingOfficial !== undefined) {
+    if (existingOfficial !== undefined)
+      extensionError(
+        `Extension "${definition.name}" declares observes, which another extension on this client already declares: one observer is handed facts.`,
+        definition.name
+      );
+    registerFactsObserver(
+      definition.observe as ObserveHandler,
+      incomingOfficial
+    );
+  }
   if (
     chain?.extensions.some((extension) => extension.name === definition.name)
   ) {
@@ -528,22 +521,10 @@ export function appendResolvedExtension(
       definition.name
     );
   }
-  const incomingWrites = officialWritesOf(definition.query);
-  assertOfficialExtensionAdmission({
-    definitionName: definition.name,
-    officialName: OFFICIAL_ON_NAME,
-    label: "on",
-    hasIdentity: incomingWrites !== undefined,
-    isAlreadyPresent: chain?.writes !== undefined,
-    duplicateMessage:
-      "The official on extension is already present on this client.",
-  });
   const effectiveDefinition =
     incomingCache === undefined
       ? incomingDefaultOmit === undefined
-        ? incomingWrites === undefined
-          ? definition
-          : withoutIdentity(definition, "query")
+        ? definition
         : withoutIdentity(definition, "request")
       : asOfficialCacheDefinition(definition);
   const declaredControls =
@@ -553,7 +534,14 @@ export function appendResolvedExtension(
       : placeControls(effectiveDefinition);
   // A definition may name its own controls and those an earlier extension
   // declares: order owns a reference, so one value serves every extension.
-  for (const control of undeclaredControlReferencesOf(effectiveDefinition)) {
+  // Only a declaration of rows, data or deletion names a control it does not declare.
+  const declares =
+    effectiveDefinition.rows ??
+    effectiveDefinition.data ??
+    effectiveDefinition.deletion;
+  for (const control of declares
+    ? rowsRuntime().undeclaredControlReferencesOf(effectiveDefinition)
+    : []) {
     if (chain?.controls?.names.has(control) !== true) {
       extensionError(
         `Extension "${definition.name}" references undeclared control "${control}".`,
@@ -608,7 +596,7 @@ export function appendResolvedExtension(
       ? chain?.rows
       : Object.freeze([
           ...(chain?.rows ?? []),
-          checkingLazyReferences(
+          rowsRuntime().checkingLazyReferences(
             effectiveDefinition.rows,
             (control) =>
               ownControls.has(control) || declaredHere?.has(control) === true,
@@ -650,7 +638,7 @@ export function appendResolvedExtension(
     data === chain?.data &&
     order === chain?.order
       ? chain?.callRows
-      : bindRows(rows, deletion, data, controls, order);
+      : rowsRuntime().bindRows(rows, deletion, data, controls, order);
   const result =
     effectiveDefinition.result === undefined
       ? chain?.result
@@ -660,7 +648,13 @@ export function appendResolvedExtension(
           effectiveDefinition.result,
           schema
         );
-  const writes = incomingWrites ?? chain?.writes;
+  const written =
+    effectiveDefinition.written === undefined
+      ? chain?.written
+      : Object.freeze([
+          ...(chain?.written ?? []),
+          resolvedOperationHandler(handlerOwner, effectiveDefinition.written),
+        ]);
   const resolvedChain = Object.freeze({
     ...(controls === undefined ? {} : { controls }),
     ...(rows === undefined ? {} : { rows }),
@@ -669,7 +663,8 @@ export function appendResolvedExtension(
     ...(order === undefined ? {} : { order }),
     ...(callRows === undefined ? {} : { callRows }),
     ...(result === undefined ? {} : { result }),
-    ...(writes === undefined ? {} : { writes }),
+    ...(written === undefined ? {} : { written }),
+    ...unitHandlers(chain, resolved, effectiveDefinition),
     extensions,
     hasCache: incomingCache !== undefined || chain?.hasCache === true,
     hasRequestHandlers: hasCompiledHandlers(request),

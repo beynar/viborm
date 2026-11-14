@@ -16,7 +16,7 @@
 
 import { createClient } from "@client/client";
 import { ForbiddenError, UnsupportedOperationError } from "@errors";
-import { defineExtension } from "@extensions/definition";
+import { defineExtension } from "@extensions/define";
 import { s } from "@schema";
 import { v } from "@src/validation";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";

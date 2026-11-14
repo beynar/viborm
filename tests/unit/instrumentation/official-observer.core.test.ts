@@ -2,6 +2,7 @@ import { appendResolvedExtension } from "@extensions/chain";
 import {
   getOfficialInstrumentationChainCapability,
   type LifecycleUnit,
+  registerFactsObserver,
   runProtectedObservers,
   selectTrustedObservers,
 } from "@extensions/observation";
@@ -36,6 +37,14 @@ import {
 } from "@tests/unit/instrumentation/_capture";
 import { describe, expect, it, vi } from "vitest";
 
+/** The extension as a chain admits it: its observer is the one handed facts. */
+function admitted(
+  extension: OfficialInstrumentationExtension
+): OfficialInstrumentationExtension {
+  registerFactsObserver(extension.observe, extension.observes);
+  return extension;
+}
+
 function runObserved<Result>(
   extension: OfficialInstrumentationExtension,
   unit: LifecycleUnit,
@@ -44,7 +53,7 @@ function runObserved<Result>(
 ): Promise<Result> {
   return runProtectedObservers(
     unit,
-    [{ extension: extension.name, handler: extension.observe }],
+    [{ extension: extension.name, handler: admitted(extension).observe }],
     child,
     undefined,
     () => facts
@@ -429,7 +438,10 @@ describe("official protected observer", () => {
 describe("trusted-only dispatch", () => {
   it("selects the exact chain's trusted observer and nothing else", () => {
     const official = instrumentation({ tracing: true });
-    const trusted = { extension: official.name, handler: official.observe };
+    const trusted = {
+      extension: official.name,
+      handler: admitted(official).observe,
+    };
     const ordinary = { extension: "ordinary", handler: () => undefined };
 
     expect(selectTrustedObservers([ordinary, trusted, ordinary])).toEqual([

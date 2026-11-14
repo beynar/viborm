@@ -31,6 +31,7 @@ import {
   sameIdDomain,
 } from "@validation/primitives/id-codec";
 import type { PhysicalField } from "./storage";
+import { scalarsOf } from "./terms";
 
 /** One identifier column: what it admits, and what it physically holds. */
 export interface IdentifierColumn {
@@ -60,7 +61,7 @@ export function identifierColumn(
   physical: PhysicalField
 ): IdentifierColumn | undefined {
   const key =
-    model["~"].state.scalars[field] === undefined
+    scalarsOf(model)[field] === undefined
       ? physical.reference
       : { model, field };
   if (key === undefined) return undefined;
@@ -69,7 +70,7 @@ export function identifierColumn(
   const representation =
     adapter.result.idRepresentation?.(
       domain,
-      key.model["~"].state.scalars[key.field]?.["~"].nativeType
+      scalarsOf(key.model)[key.field]?.["~"].nativeType
     ) ?? "text";
   return { domain, representation };
 }

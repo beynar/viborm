@@ -75,6 +75,14 @@ and says so.
   refused at its commit, since it wrote nothing and answered nothing. Your own
   `$executeRaw` / `$queryRaw` statement never runs again: it may hold its own `COMMIT`,
   so part of it may have committed, and the conflict is returned to you.
+- **A single write outside `$transaction`** that meets a concurrent write at commit has
+  written nothing: it runs again by itself, up to 16 times. Inside your `$transaction` the
+  conflict is the transaction's.
+- **A write that needs no answer between its statements is one request**, a transaction of
+  its own. If that request fails, the write runs again with one statement per request, so
+  that the error names the statement that failed: a write that fails costs two attempts.
+  [`logging.query`](/docs/extensions/instrumentation) reports such a request once, under
+  the model you called; a `statement` hook still sees each statement.
 - **`isolationLevel`**: a transaction reads a snapshot, which gives what `ReadUncommitted`,
   `ReadCommitted` and `RepeatableRead` ask. `Serializable` is refused: two transactions may each
   read what the other writes. There are no row locks.

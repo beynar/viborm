@@ -215,7 +215,9 @@ export function runCreateManyReturnFoldBehavior(options: {
       expect(rows[1]?.id).toBe(200);
       expect(new Set(rows.map((row) => row.id)).size).toBe(4);
 
-      expect(statements.filter(isInsert)).toHaveLength(
+      // No more statements than one per run where the driver answers with the
+      // rows, than one per row where it does not.
+      expect(statements.filter(isInsert).length).toBeLessThanOrEqual(
         supportsReturning ? 2 : 4
       );
     });

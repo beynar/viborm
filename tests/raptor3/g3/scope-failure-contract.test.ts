@@ -263,7 +263,8 @@ describe("G3 failed caller-scope publication", () => {
       assert.equal(world.driver.statements.length, heldIndex + 1);
       const heldStatement = world.driver.statements[heldIndex];
       assert(heldStatement);
-      assert.equal(heldStatement.context?.operation, "create");
+      // Every statement of a call is the call's: the operation the caller asked for.
+      assert.equal(heldStatement.context?.operation, "createMany");
       assert.match(heldStatement.sql, FAILED_SCOPE_AUTHORS);
       assert.deepEqual(storedAuthors(world.database), []);
       assert.deepEqual(storedPosts(world.database), []);

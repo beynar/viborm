@@ -14,8 +14,8 @@
 // judgement the same statement makes, provably implies (plan §11.4). It
 // names no engine structure; the entry hands it to the chain.
 
+import type { RowsVerbs } from "../client/exports";
 import { ClientInitializationError } from "../errors";
-import type { RowsVerbs } from "../extensions/controls";
 import type { VibORMConfig } from "../index";
 import { type ActorContract, actorContract, refuse } from "./actor";
 import { FALSE, type PolicyModel, type Rule, type Where } from "./rules";

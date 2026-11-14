@@ -8,8 +8,12 @@
  */
 
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
+import { withRows } from "@extensions/rows-runtime";
 import { runRecursiveRelationFilterBehavior } from "@tests/contracts/engine/query/recursive-relation-filter-behavior";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
+
+// These definitions are stated as plain objects: what reads their rows is brought here.
+withRows();
 
 describe("SQLite3 Driver", () => {
   runRecursiveRelationFilterBehavior({

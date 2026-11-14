@@ -12,6 +12,7 @@
 
 import { createClient } from "@client/client";
 import { NestedWriteError, NotFoundError } from "@errors";
+import { withRows } from "@extensions/rows-runtime";
 import { s } from "@schema";
 import {
   openRowScopeFixture,
@@ -21,6 +22,9 @@ import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { failure } from "@tests/fixtures/failure";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+
+// These definitions are stated as plain objects: what reads their rows is brought here.
+withRows();
 
 /** Every row visible; `update` and the written relation each at its own name. */
 const judged = (verbs: Record<string, object>) => ({

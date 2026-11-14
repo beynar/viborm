@@ -8,12 +8,13 @@
  */
 
 // The route's cache codec belongs to the cache runtime `viborm/cache` loads.
+import { routedCodec } from "@cache/result-codec";
 import "@cache/runtime";
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { NotFoundError, ValidationError } from "@errors";
-import { createCandidateRoute } from "@query-engine/raptor3/route/client-route";
+import { createCommandEngine } from "@query-engine/raptor3/commands";
 import type { ReadOperation } from "@query-engine/raptor3/shared/schema";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -132,8 +133,14 @@ describe("G4-02 prepared operation boundary", () => {
         where: { id: 1 },
         data: { name: "Grace" },
       });
-      const route = createCandidateRoute(worldSchema, world.driver);
-      const otherRoute = createCandidateRoute(worldSchema, otherWorld.driver);
+      const route = createCommandEngine({
+        schema: worldSchema,
+        driver: world.driver,
+      });
+      const otherRoute = createCommandEngine({
+        schema: worldSchema,
+        driver: otherWorld.driver,
+      });
       const requests = [
         {
           route,
@@ -160,14 +167,14 @@ describe("G4-02 prepared operation boundary", () => {
       world.driver.reset();
       otherWorld.driver.reset();
       const prepared = requests.map((request) => {
-        const handle = request.route.operation(
-          worldSchema.author,
-          request.operation,
+        const handle = request.route.prepare(
+          "author",
+          request.operation as never,
           request.args
         );
-        const admitted = handle.preparedArgs;
-        const statement = handle.buildStatement();
-        const codec = handle.cacheResultCodec();
+        const admitted = handle.args;
+        const statement = handle.read?.statement;
+        const codec = routedCodec(handle);
         assert.ok(statement);
         assert.deepEqual(admitted.select, request.args.select);
         return { request, handle, admitted, statement, codec };
@@ -181,7 +188,7 @@ describe("G4-02 prepared operation boundary", () => {
       await Promise.all(
         prepared.map(
           async ({ request, handle, admitted, statement, codec }) => {
-            const value = await handle.execute({
+            const value = await handle.run({
               context: { model: "author", operation: request.operation },
               engineDriver: request.driver,
               driverOverride: undefined,
@@ -194,9 +201,9 @@ describe("G4-02 prepared operation boundary", () => {
               codec.materialize(codec.snapshot(value)),
               request.expected
             );
-            assert.equal(handle.preparedArgs, admitted);
-            assert.equal(handle.buildStatement(), statement);
-            assert.equal(handle.cacheResultCodec(), codec);
+            assert.equal(handle.args, admitted);
+            assert.equal(handle.read?.statement, statement);
+            assert.equal(routedCodec(handle), codec);
           }
         )
       );
@@ -326,12 +333,22 @@ describe("G4-02 prepared operation boundary", () => {
     // on first use and memoised, so a sentinel that were not the same object
     // on a second read would make this boundary either swallow a real refusal
     // or leak its own control-flow sentence to the caller — both silent, and
-    // neither visible to any other registered cell. A nested write whose plan
-    // needs a row it has not read yet is the shape that raises it.
+    // neither visible to any other registered cell. A nested write that goes
+    // one way or another by a row that is not the call's own is the shape
+    // that raises it: its unit cannot be stated before that row is read.
     for (let repeat = 0; repeat < 4; repeat++) {
       const prepared = await engine.prepareBatch("author", "update", {
         where: { id: 1 },
-        data: { posts: { update: [{ where: { id: 10 }, data: { rank: 9 } }] } },
+        data: {
+          posts: {
+            connectOrCreate: [
+              {
+                where: { id: 77 },
+                create: { id: 77, title: "made", rank: 1 },
+              },
+            ],
+          },
+        },
       });
       assert.equal(
         prepared,
@@ -349,7 +366,16 @@ describe("G4-02 prepared operation boundary", () => {
       assert.ok(packaged, "a static read did not package");
       await engine.prepareBatch("author", "update", {
         where: { id: 1 },
-        data: { posts: { update: [{ where: { id: 10 }, data: { rank: 9 } }] } },
+        data: {
+          posts: {
+            connectOrCreate: [
+              {
+                where: { id: 77 },
+                create: { id: 77, title: "made", rank: 1 },
+              },
+            ],
+          },
+        },
       });
     }
   });

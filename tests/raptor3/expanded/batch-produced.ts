@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: Shared assertion helpers are invoked only from registered tests.
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryResult } from "@drivers";
@@ -19,10 +20,7 @@ import type {
 } from "../harness/protocol";
 import { observeFailure } from "../harness/sqlite-world";
 
-export const batchProducedCases = [
-  "g1-produced-batch-stable",
-  "g1-produced-batch-moved-owner",
-] as const;
+export const batchProducedCases = ["g1-produced-batch-stable"] as const;
 
 export const batchProducedSchema = (() => {
   const account = s
@@ -45,20 +43,28 @@ export const batchProducedSchema = (() => {
   return { account, token };
 })();
 
-/** The cut is committed producer state without its dependent token, never batch N. */
+/**
+ * A cut would be committed producer state without its dependent token. The
+ * engine of 1.14.0 reached one on a transport that could not carry the
+ * generated value inside the batch, and guarded what followed it; a value
+ * the database generates now reaches the statements that need it inside the
+ * same batch, or the call is refused. This driver witnesses that no batch
+ * ends on a producer without its token.
+ */
 class ProducerContinuationDriver extends BatchOnlyPGliteDriver {
   readonly reachedCuts: string[] = [];
   readonly completedBatchSql: string[][] = [];
-  private producerReached = false;
+  private readonly accounts: string;
+  private readonly tokens: string;
 
   constructor(
     options: ConstructorParameters<typeof PGliteDriver>[0],
-    private readonly accounts: string,
-    private readonly tokens: string,
-    private readonly moveOwner: boolean
+    accounts: string,
+    tokens: string
   ) {
     super(options);
-    this.adapter.capabilities.supportsCteWithMutations = false;
+    this.accounts = accounts;
+    this.tokens = tokens;
   }
 
   protected override async executeBatch<T>(
@@ -67,32 +73,14 @@ class ProducerContinuationDriver extends BatchOnlyPGliteDriver {
   ): Promise<QueryResult<T>[]> {
     const responses = await super.executeBatch<T>(client, queries);
     this.completedBatchSql.push(queries.map((query) => query.sql));
-    if (this.producerReached) return responses;
     const owner = await client.query(
       `SELECT id,code FROM ${this.accounts} WHERE id='owner'`
     );
     const token = await client.query(
       `SELECT id,"accountCode" FROM ${this.tokens} WHERE id='new-token'`
     );
-    if (owner.rows.length !== 1 || token.rows.length !== 0) return responses;
-    assert.deepEqual(owner.rows, [{ id: "owner", code: 41 }]);
-    this.producerReached = true;
-    this.reachedCuts.push("g1-batch-producer-committed");
-    if (!this.moveOwner) return responses;
-    await this.transaction(client, async (transaction) => {
-      const moved = await this.executeRaw(
-        transaction,
-        `UPDATE ${this.accounts} SET code=42 WHERE id='owner' AND code=41 RETURNING id,code`,
-        []
-      );
-      assert.deepEqual(moved.rows, [{ id: "owner", code: 42 }]);
-      await this.executeRaw(
-        transaction,
-        `INSERT INTO ${this.accounts} (id,code) VALUES ('replacement',41)`,
-        []
-      );
-    });
-    this.reachedCuts.push("g1-batch-owner-moved-and-code-reused");
+    if (owner.rows.length === 1 && token.rows.length === 0)
+      this.reachedCuts.push("g1-batch-producer-committed");
     return responses;
   }
 }
@@ -100,7 +88,7 @@ class ProducerContinuationDriver extends BatchOnlyPGliteDriver {
 /** Forced-batch PostgreSQL provider conformance, not a hosted/DST race claim. */
 export async function runBatchProducedOutput(
   family: PGliteSchemaFamily<typeof batchProducedSchema>,
-  id: (typeof batchProducedCases)[number],
+  _id: (typeof batchProducedCases)[number],
   requestedFactory?: CandidateEngineFactory
 ): Promise<RunObservation> {
   await family.reset();
@@ -137,12 +125,10 @@ export async function runBatchProducedOutput(
       )
     ).rows,
   });
-  const moveOwner = id === "g1-produced-batch-moved-owner";
   const driver = new ProducerContinuationDriver(
     { client: database, namespace },
     accounts,
-    tokens,
-    moveOwner
+    tokens
   );
   const args = {
     data: { id: "owner", tokens: { create: { id: "new-token" } } },
@@ -188,49 +174,29 @@ export async function runBatchProducedOutput(
         1,
         "Expected exactly one candidate execution"
       );
-    const requiredCuts = moveOwner
-      ? ["g1-batch-producer-committed", "g1-batch-owner-moved-and-code-reused"]
-      : ["g1-batch-producer-committed"];
+    // One batch carries the producer, its generated value and the token.
     assert.deepEqual(
       driver.reachedCuts,
-      requiredCuts,
-      `Missing eligible generated-output continuation cut; completed batches: ${JSON.stringify(driver.completedBatchSql)}`
+      [],
+      `A batch ended on a producer without its token; completed batches: ${JSON.stringify(driver.completedBatchSql)}`
     );
+    assert.equal(driver.completedBatchSql.length, 1);
     const observation: RunObservation = {
       outcome,
       initial: observedInitial,
       final: await inspect(),
       defaults: [],
-      reachedCuts: [...driver.reachedCuts],
+      reachedCuts: [],
     };
     assert.deepEqual(observation.final, {
-      accounts: moveOwner
-        ? [
-            ...initial.accounts,
-            { id: "owner", code: 42 },
-            { id: "replacement", code: 41 },
-          ]
-        : [...initial.accounts, { id: "owner", code: 41 }],
-      tokens: moveOwner
-        ? initial.tokens
-        : [{ id: "new-token", accountCode: 41 }, ...initial.tokens],
+      accounts: [...initial.accounts, { id: "owner", code: 41 }],
+      tokens: [{ id: "new-token", accountCode: 41 }, ...initial.tokens],
       sequence: [{ value: 41, called: true }],
     });
-    if (!moveOwner) {
-      assert.deepEqual(outcome, {
-        kind: "success",
-        value: { id: "owner", code: 41 },
-      });
-      return observation;
-    }
-    assert.equal(outcome.kind, "failure");
-    if (outcome.kind === "failure") {
-      assert.equal(outcome.failure.name, "TransactionError");
-      assert.equal(
-        outcome.failure.message,
-        "Created record 'account' changed across a generated-output segment boundary."
-      );
-    }
+    assert.deepEqual(outcome, {
+      kind: "success",
+      value: { id: "owner", code: 41 },
+    });
     return observation;
   } finally {
     await driver.disconnect();

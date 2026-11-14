@@ -178,6 +178,10 @@ suite(
 );
 suite(
   "Docker mysql2",
-  () => new MySQL2Driver({ databaseUrl: MYSQL as string }),
+  () =>
+    new MySQL2Driver({
+      databaseUrl: MYSQL as string,
+      migrationNamespaceAttestation: "non-redirecting",
+    }),
   Boolean(MYSQL)
 );

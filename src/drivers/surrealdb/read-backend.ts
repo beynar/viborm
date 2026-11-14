@@ -30,10 +30,7 @@ import type {
   Input,
   ReadOperation,
 } from "@query-engine/raptor3/shared/schema";
-import {
-  linkMembers,
-  type Membership,
-} from "@query-engine/raptor3/shared/storage";
+import type { Membership } from "@query-engine/raptor3/shared/storage";
 import { jsonNullKindOf } from "@schema/json-null";
 import { Sql, sql } from "@sql";
 import { Decimal, GeometryPoint, RecordId } from "surrealdb";
@@ -1628,13 +1625,13 @@ export class SurrealReadBackend implements ReadBackend {
     return stored(model["~"].state.scalars[field]?.["~"].state, value);
   }
 
-  /** The target rows of `edge` for this parent, or those outside them. */
-  member(edge: Membership, parent: Input, outside = false): Sql {
+  /** The target rows of `edge` for this parent. */
+  member(edge: Membership, parent: Input): Sql {
     if (edge.kind === "junction") {
       const list = edge.declared
         ? this.#declaredOf(edge, parent)
         : this.membersOf(edge, parent);
-      return sql`id ${sql.raw(outside ? "NOT IN" : "IN")} ${list}`;
+      return sql`id IN ${list}`;
     }
     const reached = reference(edge);
     const held = reached.pairs.map(({ source }) => parent[source]);
@@ -1644,8 +1641,8 @@ export class SurrealReadBackend implements ReadBackend {
       (discriminator?.side === "source" &&
         parent[discriminator.field] !== discriminator.value)
     )
-      return sql.raw(outside ? "true" : "false");
-    const test = sql.join(
+      return sql.raw("false");
+    return sql.join(
       [
         ...reached.pairs.map(
           ({ target }, index) =>
@@ -1659,7 +1656,6 @@ export class SurrealReadBackend implements ReadBackend {
       ],
       " AND "
     );
-    return outside ? sql`!(${test})` : test;
   }
 
   /**
@@ -1803,28 +1799,6 @@ export class SurrealReadBackend implements ReadBackend {
       side.members.map((pair) => [pair.referencedField, read(pair)])
     );
     return sql`${this.recordOf(side.model, row)}`;
-  }
-
-  /** The link between two rows, named by each side's junction field. */
-  linkRowQuery(edge: Junction, values: Input): Query {
-    const link = edge.declared!.model;
-    const columns = linkMembers(edge).filter(({ pair }) =>
-      Object.hasOwn(values, pair.junctionField)
-    );
-    const fields: Record<string, unknown> = {};
-    const named = linkMembers(edge).map(({ pair }) => {
-      const field = this.#linkField(edge, pair.junctionField);
-      fields[pair.junctionField] = this.#leaf(link, field);
-      return sql`${this.physical(link, field)} AS ${sql.raw(pair.junctionField)}`;
-    });
-    const where = columns.map(({ pair }) => {
-      const field = this.#linkField(edge, pair.junctionField);
-      return sql`${this.physical(link, field)} = ${this.value(link, field, values[pair.junctionField])}`;
-    });
-    return {
-      sql: sql`SELECT ${sql.join(named, ", ")} FROM ${name(tableOf(link))} WHERE ${sql.join(where, " AND ")}`,
-      shape: { kind: "object", fields } as Query["shape"],
-    };
   }
 
   /** The field of a declared junction's model that a column names, for its writes. */
@@ -3246,6 +3220,8 @@ export class SurrealReadBackend implements ReadBackend {
         edges.length === 1 &&
         edge?.kind === "reference" &&
         edge.owner === "source" &&
+        // A variant relation's column holds the key itself, whichever model it names.
+        !edge.discriminator &&
         edge.pairs.length === 1 &&
         edge.pairs[0]!.source === field &&
         isSingleKey(q, edge.target, edge.pairs[0]!.target)
@@ -3495,17 +3471,14 @@ export class SurrealReadBackend implements ReadBackend {
           return sql.raw("");
         });
         if (!found) continue;
-        const left = inner.filter((_, at) => at !== position);
+        const left: PreparedPredicate = {
+          kind: "and",
+          predicates: inner.filter((_, at) => at !== position),
+        };
         const others = arms.filter((_, at) => at !== index);
-        const kept: PreparedPredicate[] = left.length
-          ? [
-              ...others,
-              {
-                ...arm,
-                predicate: { kind: "and", predicates: left },
-                folded: new Map(),
-              },
-            ]
+        // What is left of the layer is what it resolved to for this call, less the arm taken.
+        const kept: PreparedPredicate[] = left.predicates.length
+          ? [...others, { ...arm, predicate: left, resolve: () => left }]
           : others;
         return {
           ...(found as NonNullable<typeof found>),

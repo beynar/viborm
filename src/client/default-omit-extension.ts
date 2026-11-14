@@ -1,12 +1,20 @@
 import { ClientInitializationError } from "@errors";
-import type { ResolvedExtensionChain } from "@extensions/chain";
+import { withHost } from "@extensions/host";
 import type {
   GenericRequestHandler,
   OfficialGenericRequestHandler,
 } from "@extensions/request";
 import { isFunction, isRecord } from "@validation/value-guards";
 import { errorCause } from "../errors/diagnostic-safety";
+import type { OfficialDefaultOmitCapability } from "./default-omit-chain";
 import type { ClientOmitConfig, ExactClientOmitConfig } from "./omit";
+
+export {
+  getOfficialDefaultOmitChainCapability,
+  type OfficialDefaultOmitCapability,
+  registerOfficialDefaultOmitChain,
+} from "./default-omit-chain";
+
 import type { Schema } from "./types";
 
 export const OFFICIAL_DEFAULT_OMIT_NAME = "viborm.defaultOmit";
@@ -26,16 +34,8 @@ export type OfficialDefaultOmitExtension<Config extends object = object> = {
   readonly request: OfficialDefaultOmitRequestContribution<Config>;
 };
 
-export interface OfficialDefaultOmitCapability {
-  readonly config: ClientOmitConfig<Schema>;
-}
-
 const capabilitiesByRequest = new WeakMap<
   CallableFunction,
-  OfficialDefaultOmitCapability
->();
-const capabilitiesByChain = new WeakMap<
-  ResolvedExtensionChain,
   OfficialDefaultOmitCapability
 >();
 
@@ -131,6 +131,7 @@ export type DefaultOmitBinder<S extends Schema> = <
 export function defaultOmit<S extends Schema>(): DefaultOmitBinder<S>;
 export function defaultOmit(): unknown {
   return (config: unknown): unknown => {
+    withHost();
     const capability = Object.freeze({ config: snapshotConfig(config) });
     const request: GenericRequestHandler = () => ({});
     capabilitiesByRequest.set(request, capability);
@@ -145,17 +146,4 @@ export function getOfficialDefaultOmitRequestCapability(
   request: unknown
 ): OfficialDefaultOmitCapability | undefined {
   return isFunction(request) ? capabilitiesByRequest.get(request) : undefined;
-}
-
-export function getOfficialDefaultOmitChainCapability(
-  chain: ResolvedExtensionChain | undefined
-): OfficialDefaultOmitCapability | undefined {
-  return chain === undefined ? undefined : capabilitiesByChain.get(chain);
-}
-
-export function registerOfficialDefaultOmitChain(
-  chain: ResolvedExtensionChain,
-  capability: OfficialDefaultOmitCapability
-): void {
-  capabilitiesByChain.set(chain, capability);
 }

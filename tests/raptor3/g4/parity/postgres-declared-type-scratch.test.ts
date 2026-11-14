@@ -110,7 +110,7 @@ class RecordingBatchOnlyPGliteDriver extends BatchOnlyPGliteDriver {
 const CTE_STORE =
   /WITH "__viborm_inserted" AS \(INSERT INTO .* RETURNING "id"\) INSERT INTO "__viborm_batch_refs"/;
 
-describe("N4-16: what still reaches the atomic-output refusal on PostgreSQL", () => {
+describe("N4-16: generated keys a child needs on a batch-only PostgreSQL", () => {
   // One PGlite for the file: a whole Postgres compiled to Wasm costs ~1.3 GiB.
   const driver = new RecordingBatchOnlyPGliteDriver();
   const client = createClient({ schema, driver });
@@ -139,17 +139,21 @@ describe("N4-16: what still reaches the atomic-output refusal on PostgreSQL", ()
     );
   });
 
-  it("TWO produced key parts still reach the registered refusal: one statement, one reference", async () => {
-    await assert.rejects(
-      async () => {
-        await client.pair.create({
-          data: { label: "two", children: { create: [{ id: "b" }] } },
-        });
-      },
-      (error: unknown) =>
-        (error as Error).message ===
-        "The driver cannot return generated values for this atomic batch without an exact row identity"
-    );
+  it("TWO produced key parts reach the child", async () => {
+    // 1.14.0 refused this shape ("The driver cannot return generated values
+    // for this atomic batch without an exact row identity"). The parent is
+    // written and heard first, then its child.
+    const created = await client.pair.create({
+      data: { label: "two", children: { create: [{ id: "b" }] } },
+      select: { children: { select: { id: true } } },
+    });
+    assert.deepEqual(created, { children: [{ id: "b" }] });
+    assert.deepEqual(await client.pair.findMany(), [
+      { first: 1, second: 1, label: "two" },
+    ]);
+    assert.deepEqual(await client.pairChild.findMany(), [
+      { id: "b", ownerFirst: 1, ownerSecond: 1 },
+    ]);
   });
 
   it("a produced field that is not a key never reaches this owner", async () => {

@@ -56,18 +56,6 @@ const schema = { shelf, book };
 
 /** Does this batch carry a write? Only that batch is the atomic unit. */
 const MUTATION = /^\s*(?:insert|update|delete)\b/i;
-/**
- * One PLAN, counted at the root locate: the plan-time read projects the
- * adopter's own columns, which the premise over the same row (a bare identity
- * assertion) and the fresh-state diagnostic that re-reads it do not.
- */
-const PLAN = /"label" FROM "d32_shelves"/;
-/** The capture's premise, as the adapter spells an assertion. */
-const PREMISE = /__viborm_assert__/;
-const MEMBERSHIP = /"d32_members"/;
-/** The one sentence both arms of the capture raise. */
-const MEMBERSHIP_RACE =
-  /Concurrent membership change on the singular polymorphic member of relation 'items\.book'/;
 
 interface Move {
   readonly from?: string;
@@ -189,62 +177,29 @@ const adopt = (client: World["client"]) =>
     select: { id: true },
   });
 
-/** How many times this operation planned: the original, plus each re-plan. */
-const plans = (driver: RacingMembershipDriver) =>
-  driver.statements.filter((statement) => PLAN.test(statement.sql)).length;
-
-/** How many of the capture's own premises reached the transport. */
-const premises = (driver: RacingMembershipDriver) =>
-  driver.statements.filter(
-    (statement) => PREMISE.test(statement.sql) && MEMBERSHIP.test(statement.sql)
-  ).length;
-
 describe("integration — a captured membership is a race, not an identity", () => {
-  it("re-plans once and converges when the captured membership is replaced", async () => {
+  it("converges when the membership it read is replaced before its unit", async () => {
     world = await createWorld({ plantsLeft: 1, held: true });
     assert.deepEqual(world.members(), [{ holder: "s0", entry: "b1" }]);
 
     assert.deepEqual(await adopt(world.client), { id: "s2" });
 
-    // Two plan-time captures: the first captured `s0`, the race moved the
-    // membership to `s1`, the premise aborted the unit, and the re-plan
-    // captured `s1` and transferred THAT pair.
+    // The call read `s0` as the holder and the race moved the membership to
+    // `r1` before its unit. The slot is taken from whoever holds it when the
+    // unit runs: it is singular and the requested target belongs to the adopter.
     assert.deepEqual(world.driver.planted, ["r1"]);
-    assert.equal(plans(world.driver), 2);
-    assert.equal(premises(world.driver), 2);
-    // The slot is singular and the requested target belongs to the adopter.
     assert.deepEqual(world.members(), [{ holder: "s2", entry: "b1" }]);
   });
 
-  it("spends the allowance once: a repeated replacement propagates the sentence", async () => {
-    world = await createWorld({ plantsLeft: 2, held: true });
-
-    await assert.rejects(
-      async () => {
-        await adopt(world!.client);
-      },
-      (error: Error) => MEMBERSHIP_RACE.test(error.message)
-    );
-
-    assert.deepEqual(world.driver.planted, ["r1", "r2"]);
-    assert.equal(plans(world.driver), 2);
-    // Nothing of ours was written: the abort rolled its atomic unit back and
-    // the last racing writer still holds the target.
-    assert.deepEqual(world.members(), [{ holder: "r2", entry: "b1" }]);
-  });
-
-  it("re-plans once and converges when a slot read empty is taken", async () => {
+  it("converges when a slot read empty is taken before its unit", async () => {
     world = await createWorld({ plantsLeft: 1, held: false });
     assert.deepEqual(world.members(), []);
 
     assert.deepEqual(await adopt(world.client), { id: "s2" });
 
-    // The capture read the slot EMPTY, so the premise it queued was the
-    // absence one; the race filled the slot, the unit aborted, and the re-plan
-    // captured the new holder's pair and transferred it.
+    // The call read the slot empty and the race filled it before its unit:
+    // the slot is taken from the holder it has by then.
     assert.deepEqual(world.driver.planted, ["r1"]);
-    assert.equal(plans(world.driver), 2);
-    assert.equal(premises(world.driver), 2);
     assert.deepEqual(world.members(), [{ holder: "s2", entry: "b1" }]);
   });
 });

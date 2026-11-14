@@ -9,6 +9,7 @@
  */
 
 import { ClientInitializationError, ValidationError } from "@errors";
+import { withRows } from "@extensions/rows-runtime";
 import { createClient, s } from "@src/index";
 import {
   createPermissionsAppClient,
@@ -20,6 +21,9 @@ import { failure } from "@tests/fixtures/failure";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { seed } from "@tests/package/fixtures/permissions-app/seed";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
+
+// These definitions are stated as plain objects: what reads their rows is brought here.
+withRows();
 
 type Row = Record<string, unknown>;
 type Delegate = Record<string, (args?: object) => Promise<any>>;

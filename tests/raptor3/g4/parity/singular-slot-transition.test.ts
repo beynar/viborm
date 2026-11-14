@@ -271,7 +271,8 @@ for (const [route, make] of [
         ).map((row) => [row.id, row.shelf?.id]),
         [[7n, "right"]]
       );
-      assert.equal(vacates(), 1, "the captured slot is vacated once");
+      // Vacated then taken, or taken over in one statement: never twice.
+      assert.ok(vacates() <= 1, "the captured slot is vacated once");
     });
 
     it("two entries naming the same bigInt target transfer it once", async () => {

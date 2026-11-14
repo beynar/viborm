@@ -14,7 +14,6 @@ import {
   readMutationCacheOptions,
   validateCacheableOperation,
 } from "@query-engine/cache-flow";
-import { cacheCodec } from "@query-engine/raptor3/route/cache-codec";
 import {
   getOfficialCacheChainDefinition,
   installOfficialCacheRuntime,
@@ -23,6 +22,7 @@ import {
 } from "./capability";
 import { createOfficialCacheScope, readCacheExecutionOutcomes } from "./driver";
 import { createOfficialCacheNamespace } from "./key";
+import { routedCodec } from "./result-codec";
 
 /**
  * The derivation is pure, so appending another extension re-derives the SAME
@@ -55,7 +55,6 @@ function bindChain(
 export const OFFICIAL_CACHE_RUNTIME = Object.freeze({
   admitMutationCacheOptions,
   bindChain,
-  cacheCodec,
   cacheKeyOf,
   createCacheExecutionOptions,
   executeCachedResultOperation,
@@ -63,6 +62,7 @@ export const OFFICIAL_CACHE_RUNTIME = Object.freeze({
   prepareMutationCacheWriteOutcome,
   readCacheExecutionOutcomes,
   readMutationCacheOptions,
+  routedCodec,
   validateCacheableOperation,
 });
 

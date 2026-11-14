@@ -88,7 +88,7 @@ const FRAGMENT_MIN = 12;
 
 /**
  * The failure owner a sentence reaches the outside world THROUGH.
- * `OperationContext.failure` composes a failure — attribution, record-series
+ * `SqlOperationContext.failure` composes a failure — attribution, record-series
  * progress, a provider-result substitution — and answers the value it is
  * given, so `throw ctx.failure(failure, …)` states the sentence the SITE
  * built and handed over. The census follows that one argument with the same
@@ -110,8 +110,8 @@ const FRAGMENT_MIN = 12;
  * dropping the sentences that reach the world through it.
  */
 const FAILURE_OWNER = {
-  file: `${ENGINE}/shared/operation-context.ts`,
-  class: "OperationContext",
+  file: `${ENGINE}/shared/sql-operation-context.ts`,
+  class: "SqlOperationContext",
   method: "failure",
   /** The parameter that carries the value the site built. */
   carries: 0,

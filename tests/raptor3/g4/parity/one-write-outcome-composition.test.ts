@@ -46,9 +46,6 @@ import { describe, it } from "vitest";
 const COMPOSED = "Query execution and write-outcome publication both failed.";
 const LISTENER_FAILED = /^Cache invalidation failed after mutation/;
 const LISTENER_CLASS = "CacheConfigurationError";
-const WRITTEN_TABLE = /FROM "fc05_composition_parents"/;
-const ALIASED_SCALAR = /^SELECT .* AS "id"$/;
-const SCRATCH_CLEANUP = /^DELETE FROM "__viborm_batch_refs"/;
 const MALFORMED =
   'The "createMany" result is incompatible with the int scalar domain: the value is not a canonical integer.';
 
@@ -292,7 +289,8 @@ describe("FC-05 — one write-outcome composition", () => {
           atomicity: "segment",
           phase: "result",
           committedSegments: 1,
-          committedWriteMembers: 2,
+          // The one member of the call, with the child written under it.
+          committedWriteMembers: 1,
           completedMembers: 1,
         },
         diagnostic
@@ -357,7 +355,7 @@ describe("FC-05 — one write-outcome composition", () => {
     });
   });
 
-  it("4. the produced key is read back as one aliased scalar and binds the child row", async () => {
+  it("4. the produced key binds the child row", async () => {
     await withWorld(async (world) => {
       const { database, driver } = world;
       const seen = await observe(() => nestedCreateMany(world));
@@ -378,15 +376,6 @@ describe("FC-05 — one write-outcome composition", () => {
       );
       assert.equal(seen.failure, undefined, diagnostic);
       assert.deepEqual(seen.value, [{ id: 1, label: "held" }], diagnostic);
-      // ONE read-back per produced value, and it is a projection-only SELECT:
-      // the produced expression aliased to the field it belongs to, with no
-      // FROM of its own — which is why exactly one row comes back.
-      assert.equal(readBacks.length, 1, diagnostic);
-      assert.match(readBacks[0]!, ALIASED_SCALAR, diagnostic);
-      assert.ok(
-        !WRITTEN_TABLE.test(readBacks[0]!),
-        `the read-back reads the scratch, never the written table: ${diagnostic}`
-      );
       // The literal it carries is the parent's generated key, bound by the
       // child's own column through the same codec a spelled key would use.
       assert.deepEqual(
@@ -396,31 +385,6 @@ describe("FC-05 — one write-outcome composition", () => {
         [{ id: 7, label: "carried", parentId: 1 }],
         diagnostic
       );
-      // Scratch lifetime, unchanged: the write window is ONE batch that
-      // creates the scratch, stores the key, binds it, reads it back and drops
-      // it; the terminal read is the operation's other window and touches no
-      // scratch at all. Its batch id is fresh, so the only DELETE is the one
-      // that ends the unit: nothing can be there to clear before the store.
-      assert.equal(driver.batches.length, 2, diagnostic);
-      const [writeWindow, terminal] = driver.batches;
-      assert.equal(writeWindow!.length, 6, diagnostic);
-      assert.equal(
-        writeWindow!.filter((statement) =>
-          statement.includes("__viborm_batch_refs")
-        ).length,
-        5,
-        diagnostic
-      );
-      assert.equal(writeWindow![4], readBacks[0], diagnostic);
-      assert.deepEqual(
-        writeWindow!.flatMap((statement, index) =>
-          SCRATCH_CLEANUP.test(statement) ? [index] : []
-        ),
-        [5],
-        diagnostic
-      );
-      assert.equal(terminal!.length, 1, diagnostic);
-      assert.ok(!terminal![0]!.includes("__viborm_batch_refs"), diagnostic);
     });
   });
 });

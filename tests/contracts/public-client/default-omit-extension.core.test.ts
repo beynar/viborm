@@ -141,7 +141,7 @@ describe("official default omit foundation", () => {
     expect(derived.$extends({ name: "after-refusals" }).$schema).toBe(schema);
   });
 
-  test("preserves official hybrid admission error precedence", () => {
+  test("refuses a hybrid of two extensions already present", () => {
     const base = extensionOnlyBase();
     const omit = omission();
     const observed = instrumentation({ logging: { error: true } });
@@ -154,7 +154,7 @@ describe("official default omit foundation", () => {
         observe: observed.observe,
       })
     ).toThrow(
-      "The official instrumentation extension is already present on this client."
+      'Extension "viborm.defaultOmit" is already present on this client.'
     );
   });
 

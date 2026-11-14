@@ -20,7 +20,11 @@ interface ConditionalUpsertScenario extends ScenarioDefinition {
   readonly profiles: readonly ProfileId[];
 }
 
-/** A conditional answer belongs to the same captured row as the unique lookup. */
+/**
+ * A conditional answer is the answer of the row the unique lookup names when
+ * the upsert is written: where that row was replaced or removed after the
+ * call read it, the call runs once more on what is there.
+ */
 export const conditionalUpsertScenarios: ConditionalUpsertScenario[] =
   cases.map((id) => {
     const unknown = id === "g2-upsert-null-unknown";
@@ -127,17 +131,30 @@ export const conditionalUpsertScenarios: ConditionalUpsertScenario[] =
             },
           ],
         };
+        /** What the external writer leaves, before the call runs again. */
+        const raced = {
+          users: [
+            ...(deleted
+              ? []
+              : [
+                  { id: 1, email: "moved", count: 10 },
+                  { id: 2, email: "wanted", count: matched ? 10 : 999 },
+                ]),
+            initial.users[1]!,
+          ],
+          posts: initial.posts,
+        };
+        // Run again: the row that took the selector answers the condition and
+        // is updated; where none did, the upsert creates.
         const final = stale
           ? {
-              users: [
-                ...(deleted
-                  ? []
-                  : [
-                      { id: 1, email: "moved", count: 10 },
-                      { id: 2, email: "wanted", count: matched ? 10 : 999 },
-                    ]),
-                initial.users[1]!,
-              ],
+              users: deleted
+                ? [initial.users[1]!, { id: 42, email: "wanted", count: 0 }]
+                : [
+                    { id: 1, email: "moved", count: 10 },
+                    { id: 2, email: "wanted", count: 15 },
+                    initial.users[1]!,
+                  ],
               posts: initial.posts,
             }
           : conditionsMatch
@@ -219,7 +236,7 @@ export const conditionalUpsertScenarios: ConditionalUpsertScenario[] =
           changed = true;
           assert.deepEqual(
             inspect(database),
-            final,
+            raced,
             "The fixture must perform its exact external mutation"
           );
           return cut;
@@ -282,11 +299,12 @@ export const conditionalUpsertScenarios: ConditionalUpsertScenario[] =
           inspect,
           afterStatement(database, completion) {
             if (conditionsMatch || missingCreate) return undefined;
-            if (changed || !stale) {
+            if (changed) return undefined;
+            if (!stale) {
               assert.deepEqual(
                 inspect(database),
-                changed ? final : initial,
-                "Skipped or stale upsert must not change any row"
+                initial,
+                "A skipped upsert must not change any row"
               );
               return undefined;
             }
@@ -349,26 +367,14 @@ export const conditionalUpsertScenarios: ConditionalUpsertScenario[] =
               selectedObserved && conditionalObserved && changed,
               "Both public observations and the actual external mutation are required"
             );
-            assert.equal(observation.outcome.kind, "failure");
-            if (observation.outcome.kind !== "failure") return;
-            const failure = observation.outcome.failure;
-            assert.equal(
-              failure.name,
-              matched ? "TransactionError" : "NotFoundError"
-            );
-            assert.equal(failure.code, matched ? "V5001" : "V6001");
-            assert.equal(
-              failure.message,
-              matched
-                ? "The upsert setWhere match premise changed before the atomic batch."
-                : "No user record found for upsert"
-            );
-            assert(failure.meta !== null && typeof failure.meta === "object");
-            assert.notEqual(
-              "raceable" in failure.meta ? failure.meta.raceable : undefined,
-              true,
-              "Captured-row replacement or deletion must not permit a retry against another identity"
-            );
+            // One more run on what is there, not a refusal: the row found then
+            // gone is looked for again.
+            assert.deepEqual(observation.outcome, {
+              kind: "success",
+              value: deleted
+                ? { id: 42, email: "wanted", count: 0 }
+                : { id: 2, email: "wanted", count: 15 },
+            });
           },
         };
       },

@@ -20,10 +20,10 @@ import { acquireWithMaxWait } from "../shared/transaction-options";
 const CONFLICT = /can be retried|read or write conflict/;
 
 /** What a statement throws where a row it would leave is not permitted. */
-/** The mark a waiting write's `THROW` carries, and its index in the text it went with. */
-export const WAITING_FAILED = /viborm:waiting:(\d+)/;
-
 export const FORBIDDEN_ROW = "viborm: a row this write leaves is not permitted";
+
+/** What a text sent whole throws where one of its statements asks what is not so. */
+export const STOPPED = "viborm: what this write asks is not so";
 
 /** Two transactions that met at commit, in the words SurrealDB has for it. */
 export function isConflict(error: unknown): boolean {

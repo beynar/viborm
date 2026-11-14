@@ -18,7 +18,6 @@ import {
   CacheConfigurationError,
   CacheOperationNotCacheableError,
 } from "@errors";
-import { isAdmittedRows, isImmutableRowData } from "@extensions/admission";
 import type { ResolvedExtensionChain } from "@extensions/chain";
 import type { RowsContribution } from "@extensions/controls";
 import {
@@ -26,7 +25,7 @@ import {
   isStableControlValue,
 } from "@extensions/controls";
 import type { WriteOutcomeRegistration } from "@extensions/query";
-import { admittedRowsOf, isLazy } from "@extensions/rows";
+import { rowsRuntime } from "@extensions/rows-slot";
 import type { LazyRelations } from "@query-engine/raptor3/shared/row-scope";
 import type { Input } from "@query-engine/raptor3/shared/schema";
 import { parse } from "@validation";
@@ -281,7 +280,7 @@ function settledRows(rows: RowsContribution): RowsContribution {
       typeof entry.acyclic === "object" &&
       !Array.isArray(entry.acyclic)
   );
-  if (!(isLazy(rows) || lazyCycles)) return rows;
+  if (!(rowsRuntime().isLazy(rows) || lazyCycles)) return rows;
   const known = settled.get(rows);
   if (known) return known;
   const verbs = Object.fromEntries(
@@ -331,6 +330,7 @@ function settledRows(rows: RowsContribution): RowsContribution {
  */
 const identities = new WeakMap<RowsContribution, string>();
 function rowsIdentity(chained: RowsContribution): unknown {
+  const { admittedRowsOf, isAdmittedRows, isImmutableRowData } = rowsRuntime();
   const rows = admittedRowsOf(chained);
   const known = identities.get(rows);
   if (known !== undefined) return known;

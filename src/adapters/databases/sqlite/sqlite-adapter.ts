@@ -52,6 +52,7 @@ import {
   createDirectionOrderBy,
   createExistenceOperators,
   createIdentifiers,
+  createInsertAbsent,
   createInsertStatement,
   createLogicalOperators,
   createMembershipOperators,
@@ -752,6 +753,7 @@ const SQLITE_SET = {
 const SQLITE_MUTATIONS = {
   skipDuplicatesStrategy: "sql" as const,
   insert: createInsertStatement(quoteIdent),
+  insertAbsent: createInsertAbsent(quoteIdent),
   insertDefault: (table: Sql): Sql => sql`INSERT INTO ${table} DEFAULT VALUES`,
 
   ...createMutationCommands(),

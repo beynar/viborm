@@ -11,9 +11,12 @@ import type { Scalar } from "@schema/scalars/base";
 import type {
   ResolvedSlot,
   ResolvedStoredReference,
+  ResolvedVariantJunctionMember,
+  ResolvedVariantRowMember,
 } from "@schema/validation/relation-resolution";
 import type { RowJudgement } from "./row-scope";
 import type { EngineSchema } from "./schema";
+import { scalarsOf } from "./terms";
 
 export type Membership = {
   scope: Pick<ResolvedSlot, "edge" | "member">;
@@ -69,6 +72,9 @@ export function linkMembers(
 export type PhysicalField = {
   readonly name: string;
   readonly scalar: Scalar;
+  /** What the scalar was declared with, and the native type it names: read at every comparison. */
+  readonly state: Scalar["~"]["state"];
+  readonly nativeType: Scalar["~"]["nativeType"];
   readonly nullable: boolean;
   /**
    * The KEY a private column stands in for — a polymorphic row carrier's id
@@ -114,22 +120,6 @@ export function bindMembership(
   return schema.membership(source, name, variant);
 }
 
-/**
- * One variant-carrier member: the slot's own bound member, or the arm the
- * caller named. A carrier addressed with no variant names every arm at once,
- * which this one-membership view cannot represent; the caller addresses an arm
- * or composes the arms itself (g4/unit02/note.md §10.3).
- *
- * INVARIANT, not a refusal (N4 row 49). Every caller reads the slot first: a
- * bound inverse carries `resolved.member`, a carrier slot is walked arm by arm
- * over `edge.members`, and the one arm name a payload supplies is the tagged
- * grammar's `type`, which validation pins to a literal union of the configured
- * public variants before the engine sees it.
- */
-function variantMember<T>(resolved: T | undefined, tagged: T | undefined): T {
-  return (resolved ?? tagged)!;
-}
-
 export function buildMembershipView(
   schema: EngineSchema,
   source: AnyModel,
@@ -141,18 +131,42 @@ export function buildMembershipView(
   const clearability = schema.clearability(resolved);
   const many =
     source["~"].state.relations[name]!["~"].state.cardinality === "many";
-  if (edge.kind === "variantRowCarrier") {
-    const member = variantMember(
-      resolved.member,
-      edge.members.find((member) => member.variant === variant)
-    );
+  /**
+   * One variant-carrier member: the slot's own bound member, or the arm the
+   * caller named. A carrier addressed with no variant names every arm at once,
+   * which this one-membership view cannot represent; the caller addresses an arm
+   * or composes the arms itself (g4/unit02/note.md §10.3).
+   *
+   * INVARIANT, not a refusal (N4 row 49). Every caller reads the slot first: a
+   * bound inverse carries `resolved.member`, a carrier slot is walked arm by arm
+   * over `edge.members`, and the one arm name a payload supplies is the tagged
+   * grammar's `type`, which validation pins to a literal union of the configured
+   * public variants before the engine sees it.
+   */
+  const arm = <Member extends { readonly variant: string }>(
+    members: readonly Member[]
+  ) => {
+    const member = ((resolved.member as Member | undefined) ??
+      members.find((each) => each.variant === variant))!;
     const direct = resolved.member === undefined;
     return {
-      scope: Object.freeze({ edge, member }),
-      clearability,
-      name: direct ? `${name}.${member.variant}` : name,
-      source,
-      many,
+      member,
+      direct,
+      base: {
+        scope: { edge, member },
+        clearability,
+        name: direct ? `${name}.${member.variant}` : name,
+        source,
+        many,
+      },
+    };
+  };
+  if (edge.kind === "variantRowCarrier") {
+    const { member, direct, base } = arm<ResolvedVariantRowMember>(
+      edge.members
+    );
+    return {
+      ...base,
       target: direct ? member.targetModel : edge.carrier.source,
       kind: "reference",
       owner: direct ? "source" : "target",
@@ -170,17 +184,11 @@ export function buildMembershipView(
     };
   }
   if (edge.kind === "variantJunctionCarrier") {
-    const member = variantMember(
-      resolved.member,
-      edge.members.find((member) => member.variant === variant)
+    const { member, direct, base } = arm<ResolvedVariantJunctionMember>(
+      edge.members
     );
-    const direct = resolved.member === undefined;
     return {
-      scope: Object.freeze({ edge, member }),
-      clearability,
-      name: direct ? `${name}.${member.variant}` : name,
-      source,
-      many,
+      ...base,
       target: direct
         ? member.topology.target.model
         : member.topology.source.model,
@@ -237,14 +245,21 @@ export function buildMembershipView(
   };
 }
 
-export function freezeMembershipView(view: Membership): Membership {
-  if (view.kind === "reference") {
-    for (const pair of view.pairs) Object.freeze(pair);
-    Object.freeze(view.pairs);
-    if (view.discriminator) Object.freeze(view.discriminator);
-  }
-  return Object.freeze(view);
+/** The fields of the row it leaves that one hop of `edge` reads. */
+export function hopFieldsOf(edge: Membership): readonly string[] {
+  return edge.kind === "reference"
+    ? sideFields(edge, "source")
+    : edge.sourceSide.members.map((member) => member.referencedField);
 }
+
+/** The fields a reference holds on one side, its discriminator first. */
+export const sideFields = (
+  edge: Extract<Membership, { kind: "reference" }>,
+  side: "source" | "target"
+): string[] => [
+  ...(edge.discriminator?.side === side ? [edge.discriminator.field] : []),
+  ...edge.pairs.map((pair) => pair[side]),
+];
 
 /** Private carrier columns are resolved schema fields, never public scalar declarations. */
 export function physicalField(
@@ -284,23 +299,18 @@ export function buildPhysicalFieldView(
   model: AnyModel,
   field: string
 ): PhysicalField {
-  const scalar = model["~"].state.scalars[field];
-  if (scalar)
-    return {
-      name: model["~"].getFieldName(field).sql,
-      scalar,
-      nullable: scalar["~"].state.nullable === true,
-    };
-  return carrierColumns(schema, model).find(
-    (candidate) => candidate.name === field
-  )!;
-}
-
-export function storedFields(
-  schema: EngineSchema,
-  model: AnyModel
-): readonly string[] {
-  return schema.storedFields(model);
+  const scalar = scalarsOf(model)[field];
+  const view = scalar
+    ? {
+        name: model["~"].getFieldName(field).sql,
+        scalar,
+        nullable: scalar["~"].state.nullable === true,
+      }
+    : carrierColumns(schema, model).find(
+        (candidate) => candidate.name === field
+      )!;
+  const { state, nativeType } = view.scalar["~"];
+  return { ...view, state, nativeType };
 }
 
 export function buildStoredFieldsView(

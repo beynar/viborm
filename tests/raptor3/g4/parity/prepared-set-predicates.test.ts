@@ -1,26 +1,16 @@
 /**
- * FC-03 — a captured set's COMPLEMENT is prepared meaning, never public syntax.
+ * FC-03 — a model may declare fields named like the filter combinators.
  *
- * The engine states two internal premises about a set of rows it has just
- * read: "no row has JOINED this selection" (`requireNoAddedMember`, the nested
- * series capture) and "the captured rows are still the whole selection"
- * (`requireCapturedSet`, the root selected bulk mutation). Both used to spell
- * the exclusion as the PUBLIC payload `{ NOT: { OR: [identities] } }` and hand
- * it to `prepareSelector`.
+ * A declared field wins the combinator key (N4): a scalar named `NOT` or
+ * `OR`, a relation named `AND`. A write that reads a set of such rows and
+ * writes them by their keys names those rows by prepared identities, never by
+ * a public payload a declared field could capture: the closure review's
+ * executed failure was `EngineInvariantError: Raptor 3 filter operator is not
+ * implemented: OR` on exactly these models.
  *
- * N4 makes a DECLARED field win the combinator key, so on a model that legally
- * declares a scalar named `NOT` that payload is read as that scalar, and the
- * operation died on `EngineInvariantError: Raptor 3 filter operator is not
- * implemented: OR` — the closure review's executed failure ("review: internal
- * captured-set predicates with NOT field",
- * `docs/architecture/raptor3-evidence/g4/release/closure-review/`).
- *
- * `Queries.excludeIdentities` now composes the complement from the captured
- * identities' own equalities under the one combinator owner, so the premise
- * cannot collide with a public name. These cells are the repair's witnesses:
- * the review case, the legal combinator-named scalars and relation, both
- * consumers, empty and non-empty captures, complete compound identities, the
- * limited capture's distinct policy, and the race the complement exists for.
+ * These cells witness the answers and the effects: the review case, the
+ * combinator-named scalars and relation, empty and non-empty sets, a compound
+ * identity, a limited set, on batch transports with and without RETURNING.
  */
 
 import assert from "node:assert/strict";
@@ -28,7 +18,6 @@ import { createClient } from "@client/client";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, describe, it } from "vitest";
-import type { Statement } from "../unit02/world";
 import { BatchOnlyDriver } from "./batch-only-drivers";
 
 const box = s
@@ -77,60 +66,11 @@ class NonReturningBatchOnlyDriver extends BatchOnlyDriver {
   }
 }
 
-/** A premise statement, as the adapter marks one. */
-const PREMISE = /__viborm_assert__/;
-/** The complement, as the adapter spells a negated captured set. */
-const COMPLEMENT = /NOT \(/;
-/** The negated half of a guard: everything the captured set excludes. */
-const complementOf = (guard: string) => guard.slice(guard.indexOf("NOT ("));
-/** One captured key column, as the complement excludes it. */
-const excluded = (column: string) =>
-  new RegExp(`"q\\d+"\\."${column}"(?: COLLATE \\w+)? = \\?`, "g");
-
-/**
- * A single-key capture's list: a parameter per member, or past 25 members ONE
- * bound JSON array, read by `json_each`.
- */
-const membership = (column: string) =>
-  new RegExp(
-    `"q\\d+"\\."${column}"(?: COLLATE \\w+)? IN \\((?:SELECT value FROM json_each\\(\\?\\)|(\\?(?:, \\?)*))\\)`,
-    "g"
-  );
-
-/** Single-key captures bind one list; compound captures retain equalities. */
-const excludedCount = ({ sql, parameters }: Statement, column: string) => {
-  const guard = complementOf(sql);
-  const offset = sql.length - guard.length;
-  let count = (guard.match(excluded(column)) ?? []).length;
-  for (const { index, 1: listed } of guard.matchAll(membership(column))) {
-    if (listed !== undefined) {
-      count += listed.split("?").length - 1;
-      continue;
-    }
-    const position = sql.slice(0, offset + index).split("?").length - 1;
-    const members: unknown[] = JSON.parse(String(parameters[position]));
-    count += members.length;
-  }
-  return count;
-};
-
-const CHANGED = (verb: string) =>
-  `${verb} selected-row cardinality changed during its locked mutation.`;
-
-describe("FC-03: the captured set's complement is prepared, not spelled", () => {
+describe("FC-03: fields named like combinators are written as any other", () => {
   let driver: BatchOnlyDriver;
   afterEach(async () => {
     await driver?.disconnect();
   });
-
-  /** The complement guards this operation emitted, one per capture. */
-  const complements = () => [
-    ...new Map(
-      driver.statements
-        .filter(({ sql }) => PREMISE.test(sql) && COMPLEMENT.test(sql))
-        .map((statement) => [statement.sql, statement])
-    ).values(),
-  ];
 
   async function world(
     make: () => BatchOnlyDriver = () => new BatchOnlyDriver()
@@ -160,7 +100,7 @@ describe("FC-03: the captured set's complement is prepared, not spelled", () => 
   const byId = <T extends { id: number }>(rows: T[]) =>
     [...rows].sort((left, right) => left.id - right.id);
 
-  it("the review case: a captured delete with a relation projection on a model whose scalars are named NOT and OR", async () => {
+  it("the review case: a delete with a relation projection on a model whose scalars are named NOT and OR", async () => {
     const client = await world();
     assert.deepEqual(
       await client.item.delete({ where: { id: 2 }, include: { box: true } }),
@@ -177,12 +117,9 @@ describe("FC-03: the captured set's complement is prepared, not spelled", () => 
       { id: 1, NOT: 10 },
       { id: 3, NOT: 30 },
     ]);
-    // The premise really ran: this is the statement that used to be refused.
-    assert.equal(complements().length, 1);
-    assert.equal(excludedCount(complements()[0]!, "id"), 1);
   });
 
-  it("a selected bulk delete filters by the scalar named OR while the complement excludes the captured identities", async () => {
+  it("a selected bulk delete filters by the scalar named OR and removes the rows it answers with", async () => {
     const client = await world(() => new NonReturningBatchOnlyDriver());
     assert.deepEqual(
       byId(
@@ -197,9 +134,6 @@ describe("FC-03: the captured set's complement is prepared, not spelled", () => 
       ]
     );
     assert.deepEqual(await items(client), [{ id: 1, NOT: 10 }]);
-    assert.equal(complements().length, 1);
-    // Both captured rows are excluded, by their key.
-    assert.equal(excludedCount(complements()[0]!, "id"), 2);
   });
 
   it("a selected bulk update writes the scalar named NOT and publishes the rows it wrote", async () => {
@@ -224,7 +158,7 @@ describe("FC-03: the captured set's complement is prepared, not spelled", () => 
     ]);
   });
 
-  it("an empty capture publishes nothing, changes nothing and claims no complement", async () => {
+  it("an empty set publishes nothing and changes nothing", async () => {
     const client = await world(() => new NonReturningBatchOnlyDriver());
     assert.deepEqual(
       await client.item.deleteMany({
@@ -238,10 +172,9 @@ describe("FC-03: the captured set's complement is prepared, not spelled", () => 
       { id: 2, NOT: 20 },
       { id: 3, NOT: 30 },
     ]);
-    assert.deepEqual(complements(), []);
   });
 
-  it("a LIMITED capture claims no complement; the unlimited one does", async () => {
+  it("a limited set takes its slice; the unlimited one takes every row", async () => {
     const client = await world(() => new NonReturningBatchOnlyDriver());
     const limited = await client.item.deleteMany({
       where: { OR: "drop" },
@@ -249,10 +182,6 @@ describe("FC-03: the captured set's complement is prepared, not spelled", () => 
       select: { id: true },
     });
     assert.equal(limited.length, 1);
-    // A slice of the selection is a valid answer even if another row joins it,
-    // so the limited capture asserts presence only — the callers' policies are
-    // distinct and stay distinct.
-    assert.deepEqual(complements(), []);
     assert.equal((await items(client)).length, 2);
 
     driver.reset();
@@ -263,10 +192,9 @@ describe("FC-03: the captured set's complement is prepared, not spelled", () => 
       }),
       [{ id: 1 }]
     );
-    assert.equal(complements().length, 1);
   });
 
-  it("a compound identity is excluded completely, by every key column", async () => {
+  it("rows of a compound identity are removed by every key column", async () => {
     const client = await world(() => new NonReturningBatchOnlyDriver());
     await client.ticket.create({
       data: { tenant: "t1", code: "a", NOT: "x" },
@@ -292,40 +220,9 @@ describe("FC-03: the captured set's complement is prepared, not spelled", () => 
     assert.deepEqual(await client.ticket.findMany(), [
       { tenant: "t2", code: "a", NOT: "y" },
     ]);
-    assert.equal(complements().length, 1);
-    const guard = complementOf(complements()[0]!.sql);
-    // Two identities, both complete: each excluded row names BOTH key columns.
-    assert.equal((guard.match(excluded("tenant")) ?? []).length, 2);
-    assert.equal((guard.match(excluded("code")) ?? []).length, 2);
   });
 
-  it("a row that JOINS a combinator-named selection after the capture aborts before the write", async () => {
-    const client = await world(() => new NonReturningBatchOnlyDriver());
-    driver.plant = (database) => {
-      database.exec(
-        `INSERT INTO "fc03_items" ("id", "NOT", "OR", "boxId") VALUES (4, 40, 'drop', 1)`
-      );
-    };
-    await assert.rejects(
-      async () => {
-        await client.item.deleteMany({
-          where: { OR: "drop" },
-          select: { id: true },
-        });
-      },
-      (error: unknown) =>
-        (error as Error).message.includes(CHANGED("deleteMany"))
-    );
-    // Nothing of the unit committed: the race's row and both captured rows live.
-    assert.deepEqual(await items(client), [
-      { id: 1, NOT: 10 },
-      { id: 2, NOT: 20 },
-      { id: 3, NOT: 30 },
-      { id: 4, NOT: 40 },
-    ]);
-  });
-
-  it("a nested captured deletion through a relation named AND excludes its captured members", async () => {
+  it("a nested deletion through a relation named AND removes the members its filter names", async () => {
     const client = await world();
     await client.box.update({
       where: { id: 1 },
@@ -337,12 +234,9 @@ describe("FC-03: the captured set's complement is prepared, not spelled", () => 
       data: { AND: { deleteMany: { OR: "drop" } } },
     });
     assert.deepEqual(await items(client), [{ id: 1, NOT: 10 }]);
-    // The series' own complement: "connected ∧ filter ∧ key ∉ captured".
-    assert.equal(complements().length, 1);
-    assert.equal(excludedCount(complements()[0]!, "id"), 2);
   });
 
-  it("an EMPTY nested capture still rides its guard on the batch, stating no complement", async () => {
+  it("a nested deletion through a relation named AND that names no member changes nothing", async () => {
     const client = await world();
     await client.box.update({
       where: { id: 1 },
@@ -353,19 +247,6 @@ describe("FC-03: the captured set's complement is prepared, not spelled", () => 
       where: { id: 1 },
       data: { AND: { deleteMany: { OR: "absent" } } },
     });
-    // The series captured no member, so the set's complement states no
-    // condition — and the guard that carries it still rides the batch: an
-    // empty capture is a captured set, not an absent premise.
-    const guards = [
-      ...new Set(
-        driver.statements
-          .map((statement) => statement.sql)
-          .filter((sql) => PREMISE.test(sql) && sql.includes("fc03_items"))
-      ),
-    ];
-    assert.equal(guards.length, 1);
-    assert.equal(driver.batchCalls, 1);
-    assert.deepEqual(complements(), []);
     assert.deepEqual(await items(client), [
       { id: 1, NOT: 10 },
       { id: 2, NOT: 20 },

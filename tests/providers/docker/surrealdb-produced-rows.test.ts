@@ -5,6 +5,7 @@
  * NOTE: These tests require a running SurrealDB server (SURREAL_TEST_URL).
  */
 
+import { withRows } from "@extensions/rows-runtime";
 import { runProducedRowBehavior } from "@tests/contracts/engine/query/produced-row-behavior";
 import {
   createSurrealTestDriver,
@@ -12,6 +13,9 @@ import {
 } from "@tests/fixtures/drivers/surrealdb";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { beforeEach, describe } from "vitest";
+
+// These definitions are stated as plain objects: what reads their rows is brought here.
+withRows();
 
 /** What reads the text of SQL's statements, by name. */
 const WAIVED: Readonly<Record<string, string>> = {

@@ -7,7 +7,6 @@ import { createClient, D1Driver } from "@src/drivers/d1";
 import {
   CacheConfigurationError,
   NestedWriteError,
-  TransactionError,
   UniqueConstraintError,
   VibORMError,
 } from "@src/errors";
@@ -290,11 +289,10 @@ function movePostAfterNestedMemberLocate(database: D1Database): D1Database {
     ) {
       return;
     }
-    // The first read fixes the relation member set. The second locates that
-    // member for its record compiler; moving it now places the race immediately
-    // before the guard and write that must share the next D1 batch.
+    // The first read fixes the relation member set; moving the member now
+    // places the race before the batch that asks for it again and writes.
     postReadCount += 1;
-    if (postReadCount !== 2) return;
+    if (postReadCount !== 1) return;
     moved = true;
     await database
       .prepare(
@@ -908,7 +906,9 @@ describe("D1 binding provider", () => {
     ).resolves.toEqual([upserted, created]);
   });
 
-  it("sends a nested createMany in its parent's one batch, and each root relation-bearing createMany row as its own batch outside an array", async () => {
+  it("sends a nested createMany, and a root createMany of relation-bearing rows, as one batch each", async () => {
+    // The engine of 1.14.0 sent each root row as a batch of its own outside an
+    // array. A write none of whose rows must hear the database is one batch.
     const batchSizes: number[] = [];
     const client = createClient({
       schema: progressiveSchema,
@@ -940,19 +940,19 @@ describe("D1 binding provider", () => {
         },
       },
     });
-    expect(batchSizes).toEqual([4]);
+    expect(batchSizes).toHaveLength(1);
 
     await reset();
     await expect(client.post.createMany({ data: rootRows() })).resolves.toEqual(
       { count: 2 }
     );
-    expect(batchSizes).toEqual([2, 2]);
+    expect(batchSizes).toHaveLength(1);
 
     await reset();
     await expect(
       client.$transaction([client.post.createMany({ data: rootRows() })])
     ).resolves.toEqual([{ count: 2 }]);
-    expect(batchSizes).toEqual([4]);
+    expect(batchSizes).toHaveLength(1);
     await expect(
       client.post.findMany({ orderBy: { id: "asc" }, select: { id: true } })
     ).resolves.toEqual([{ id: "p1" }, { id: "p2" }]);
@@ -1159,7 +1159,7 @@ describe("D1 binding provider", () => {
     ]);
   });
 
-  it("invalidates mutation cache after every committed member", async () => {
+  it("invalidates mutation cache once the write is committed", async () => {
     const cache = new ProgressiveInvalidationCache();
     const client = createClient({
       schema: progressiveSchema,
@@ -1185,14 +1185,15 @@ describe("D1 binding provider", () => {
       cache: { autoInvalidate: true },
     });
 
-    // The three setup deletions are durable writes and invalidate by default.
-    expect(cache.clearCalls).toBe(5);
+    // The three setup deletions are durable writes and invalidate by default;
+    // the createMany is one batch, so one commit.
+    expect(cache.clearCalls).toBe(4);
   });
 
-  it("stops the series at a failed invalidation after its first committed member, without series progress", async () => {
-    // The first member's segment is durable when its invalidation fails; the
-    // failure says so (`commitCertainty: "committed"`), carries no
-    // `recordSeriesProgress`, and the second member is never attempted.
+  it("raises a failed invalidation after the write is committed, without series progress", async () => {
+    // The write is one batch, durable when its invalidation fails; the
+    // failure says so (`commitCertainty: "committed"`) and carries no
+    // `recordSeriesProgress`. Every row of the write stands.
     const cache = new ProgressiveInvalidationCache(
       new Error("private cache transport failure")
     );
@@ -1214,7 +1215,7 @@ describe("D1 binding provider", () => {
           },
           {
             id: "p2",
-            title: "not attempted",
+            title: "committed too",
             author: { create: { id: "a2", name: "two" } },
           },
         ],
@@ -1240,17 +1241,20 @@ describe("D1 binding provider", () => {
     const posts = await env.DB.prepare(
       "SELECT id, authorId FROM viborm_d1_progressive_posts ORDER BY id"
     ).all();
-    expect(posts.results).toEqual([{ id: "p1", authorId: "a1" }]);
+    expect(posts.results).toEqual([
+      { id: "p1", authorId: "a1" },
+      { id: "p2", authorId: "a2" },
+    ]);
     const authors = await env.DB.prepare(
       "SELECT id FROM viborm_d1_progressive_authors ORDER BY id"
     ).all();
-    expect(authors.results).toEqual([{ id: "a1" }]);
+    expect(authors.results).toEqual([{ id: "a1" }, { id: "a2" }]);
   });
 
-  it("keeps the committed member prefix when a later member fails, and reports its segment progress", async () => {
-    // Outside `$transaction([...])` each member is its own atomic D1 batch:
-    // the first member stays committed and the unique failure reports one
-    // committed segment and one completed member.
+  it("leaves nothing of a createMany whose later row fails", async () => {
+    // None of its rows must hear the database, so the write is one atomic D1
+    // batch: the unique failure of the second row leaves neither row, and
+    // there is no progress to report.
     const client = createClient({
       schema: progressiveSchema,
       database: env.DB,
@@ -1267,7 +1271,7 @@ describe("D1 binding provider", () => {
         data: [
           {
             id: "p1",
-            title: "kept",
+            title: "undone",
             author: { create: { id: "a1", name: "first" } },
           },
           {
@@ -1281,31 +1285,16 @@ describe("D1 binding provider", () => {
 
     expect(failure).toBeInstanceOf(UniqueConstraintError);
     if (!(failure instanceof VibORMError)) throw failure;
-    const progress = {
-      atomicity: "segment",
-      phase: "member",
-      committedSegments: 1,
-      completedMembers: 1,
-      committedWriteMembers: 1,
-    };
-    expect(failure.meta.recordSeriesProgress).toEqual(progress);
-    expect(failure.toJSON()).toMatchObject({
-      meta: { recordSeriesProgress: progress },
-    });
-    await expect(client.post.findMany()).resolves.toEqual([
-      { id: "p1", title: "kept", authorId: "a1", categoryId: null },
-    ]);
+    expect(failure.meta).not.toHaveProperty("recordSeriesProgress");
+    await expect(client.post.findMany()).resolves.toEqual([]);
     await expect(
       client.author.findMany({ orderBy: { id: "asc" } })
-    ).resolves.toEqual([
-      { id: "a1", name: "first" },
-      { id: "occupied", name: "occupied" },
-    ]);
+    ).resolves.toEqual([{ id: "occupied", name: "occupied" }]);
   });
 
-  it("reports a later member's missing connect target as a NestedWriteError after its committed prefix", async () => {
-    // The missing target is found while the second member runs, so the
-    // progress phase is "member" and the first member stays committed.
+  it("reports a later row's missing connect target as a NestedWriteError, leaving nothing", async () => {
+    // The target is asked for in the batch that writes: it stops the batch,
+    // so the first row is not written either.
     const client = createClient({
       schema: progressiveSchema,
       database: env.DB,
@@ -1319,7 +1308,7 @@ describe("D1 binding provider", () => {
         data: [
           {
             id: "p1",
-            title: "kept",
+            title: "undone",
             author: { create: { id: "a1", name: "first" } },
           },
           {
@@ -1337,19 +1326,9 @@ describe("D1 binding provider", () => {
     expect(failure.message).toBe(
       "Cannot connect relation 'author': target record was not found."
     );
-    expect(failure.meta.recordSeriesProgress).toEqual({
-      atomicity: "segment",
-      phase: "member",
-      committedSegments: 1,
-      completedMembers: 1,
-      committedWriteMembers: 1,
-    });
-    await expect(client.post.findMany()).resolves.toEqual([
-      { id: "p1", title: "kept", authorId: "a1", categoryId: null },
-    ]);
-    await expect(client.author.findMany()).resolves.toEqual([
-      { id: "a1", name: "first" },
-    ]);
+    expect(failure.meta).not.toHaveProperty("recordSeriesProgress");
+    await expect(client.post.findMany()).resolves.toEqual([]);
+    await expect(client.author.findMany()).resolves.toEqual([]);
   });
 
   it("refuses relation-bearing skipDuplicates before any member commits", async () => {
@@ -1675,7 +1654,7 @@ describe("D1 binding provider", () => {
     });
   });
 
-  it("stops a moved nested updateMany member in its guarded batch", async () => {
+  it("does not write a nested updateMany member moved before its batch: the call plans again", async () => {
     const setup = createClient({
       schema: progressiveSchema,
       database: env.DB,
@@ -1716,19 +1695,10 @@ describe("D1 binding provider", () => {
       })
       .catch((error) => error);
 
-    expect(failure).toMatchObject({
-      meta: {
-        recordSeriesProgress: {
-          atomicity: "segment",
-          phase: "member",
-          committedSegments: 1,
-          completedMembers: 0,
-          committedWriteMembers: 1,
-          memberPath: [0],
-          totalMembers: 1,
-        },
-      },
-    });
+    // The batch asks again for the member the call read, finds it gone and
+    // the call plans again: the row is no longer a member, so it is not
+    // written, and the author's own write stands.
+    expect(failure).toEqual({ id: "a1", name: "committed prefix" });
     await expect(
       setup.author.findUnique({ where: { id: "a1" } })
     ).resolves.toEqual({ id: "a1", name: "committed prefix" });
@@ -1841,9 +1811,10 @@ describe("D1 binding provider", () => {
     await expect(client.category.findMany()).resolves.toEqual([]);
   });
 
-  it("refuses a record series whose later member reads an earlier member's write inside $transaction([...]) before any write", async () => {
-    // The second member's connectOrCreate must see the author the first one
-    // created, which cannot be planned into one up-front D1 batch.
+  it("commits a createMany whose later row finds the row an earlier row creates, inside $transaction([...])", async () => {
+    // The call knows the rows it creates: the second row's connectOrCreate
+    // finds the author the first one creates without a batch between them, so
+    // the array is one atomic batch. The engine of 1.14.0 refused it.
     const client = createClient({
       schema: progressiveSchema,
       database: env.DB,
@@ -1852,10 +1823,10 @@ describe("D1 binding provider", () => {
     await client.author.deleteMany({});
     await client.category.deleteMany({});
 
-    const refusal = await client
-      .$transaction([
+    await expect(
+      client.$transaction([
         client.category.create({
-          data: { id: "never", name: "not committed" },
+          data: { id: "c1", name: "beside" },
         }),
         client.post.createMany({
           data: [
@@ -1877,20 +1848,19 @@ describe("D1 binding provider", () => {
           ],
         }),
       ])
-      .catch((error) => error);
+    ).resolves.toEqual([{ id: "c1", name: "beside" }, { count: 2 }]);
 
-    expect(refusal).toBeInstanceOf(TransactionError);
-    if (!(refusal instanceof TransactionError)) throw refusal;
-    expect(refusal.code).toBe("V5001");
-    expect(refusal.message).toBe(
-      'Driver "d1" does not support callback transactions and this transaction contains operations that cannot be batched atomically.'
-    );
-    expect(refusal.meta).toEqual({
-      driver: "d1",
-      method: "$transaction([...])",
-    });
-    await expect(client.post.findMany()).resolves.toEqual([]);
-    await expect(client.author.findMany()).resolves.toEqual([]);
-    await expect(client.category.findMany()).resolves.toEqual([]);
+    await expect(
+      client.post.findMany({ orderBy: { id: "asc" } })
+    ).resolves.toEqual([
+      { id: "p1", title: "one", authorId: "a1", categoryId: null },
+      { id: "p2", title: "two", authorId: "a1", categoryId: null },
+    ]);
+    await expect(client.author.findMany()).resolves.toEqual([
+      { id: "a1", name: "shared" },
+    ]);
+    await expect(client.category.findMany()).resolves.toEqual([
+      { id: "c1", name: "beside" },
+    ]);
   });
 });

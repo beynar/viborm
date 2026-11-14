@@ -271,6 +271,50 @@ export function runManyToManyBehavior({
       expect(await tagIdsOf("p1")).toEqual(["t2"]);
     });
 
+    test("a member is found again by a value the call just wrote of it", async () => {
+      const c = requireClient(client);
+      await c.post.update({
+        where: { id: "p1" },
+        data: { tags: { connect: [{ id: "t1" }, { id: "t2" }] } },
+      });
+      await c.post.update({
+        where: { id: "p1" },
+        data: {
+          tags: {
+            update: [
+              // Read whole (its filter is no key), then renamed.
+              {
+                where: { id: "t1", NOT: { name: "other" } },
+                data: { name: "renamed" },
+              },
+              // Named by the name it now has: a member all along.
+              {
+                where: { id: "t1", name: "renamed" },
+                data: { name: "found" },
+              },
+            ],
+          },
+        },
+      });
+      expect((await c.tag.findUnique({ where: { id: "t1" } }))?.name).toBe(
+        "found"
+      );
+      // A row that is no member is not found by what the call wrote of it.
+      await expect(
+        c.post.update({
+          where: { id: "p2" },
+          data: {
+            tags: {
+              update: {
+                where: { id: "t1", name: "found" },
+                data: { name: "x" },
+              },
+            },
+          },
+        })
+      ).rejects.toThrow();
+    });
+
     test("writes from the side without junction config resolve the same junction", async () => {
       const c = requireClient(client);
 

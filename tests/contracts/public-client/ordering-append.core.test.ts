@@ -4,9 +4,9 @@
  * provider files run them for real (`tests/providers/**\/*-ordering.test.ts`).
  */
 
-import type { InsertValueContext } from "@query-engine/raptor3/shared/insert-value";
 import { type Sql, sql } from "@sql";
-import { AppendKey } from "@src/ordering/append";
+import type { ComputedContext as InsertValueContext } from "@src/index";
+import { appendKey } from "@src/ordering/append";
 import { isKey } from "@src/ordering/keys";
 import { describe, expect, test } from "vitest";
 
@@ -18,20 +18,30 @@ function context(
   rows: Record<string, unknown>[],
   read?: InsertValueContext["read"]
 ): InsertValueContext {
-  const queries = {
-    column: (_: unknown, field: string) => sql.raw(`"${field}"`),
+  const spelt = {
+    dialect,
+    column: (field: string) => sql.raw(`"${field}"`),
     table: () => sql.raw(`"card"`),
-    fieldValue: (_: unknown, __: string, value: unknown) => sql`${value}`,
+    value: (_: string, value: unknown) => sql`${value}`,
   };
   return {
-    model: { "~": { names: { ts: "card" } } } as never,
+    model: "card",
     rows,
     field: "rank",
-    queries: queries as never,
+    sql: spelt as never,
     dialect,
     ...(read && { read }),
   };
 }
+
+/** The append value, as the engine calls it. */
+const appending = (within: string[]) =>
+  appendKey(within) as unknown as {
+    compute(
+      context: InsertValueContext,
+      indexes: readonly number[]
+    ): Promise<readonly unknown[]>;
+  };
 
 describe("ordering appends", () => {
   test.each([
@@ -39,7 +49,12 @@ describe("ordering appends", () => {
     "mysql",
     "sqlite",
   ] as const)("%s: one expression per row, numbered within its list", async (dialect) => {
-    const append = new AppendKey(["columnId"]);
+    const append = appendKey(["columnId"]) as unknown as {
+      compute(
+        context: InsertValueContext,
+        indexes: readonly number[]
+      ): Promise<readonly unknown[]>;
+    };
     const rows = [
       { columnId: "c1" },
       { columnId: "c2" },
@@ -57,7 +72,12 @@ describe("ordering appends", () => {
 
   test("mysql with a read: the last key of each list read once, keys computed here", async () => {
     const statements: string[] = [];
-    const append = new AppendKey(["columnId"]);
+    const append = appendKey(["columnId"]) as unknown as {
+      compute(
+        context: InsertValueContext,
+        indexes: readonly number[]
+      ): Promise<readonly unknown[]>;
+    };
     const rows = [{ columnId: "c1" }, { columnId: "c2" }, { columnId: "c1" }];
     const values = await append.compute(
       context("mysql", rows, async (statement) => {
@@ -74,7 +94,7 @@ describe("ordering appends", () => {
   });
 
   test("mysql with a read: a last value that is no key gives its integer, else the start", async () => {
-    const append = new AppendKey([]);
+    const append = appending([]);
     const appended = async (last: string) =>
       (await append.compute(
         context("mysql", [{}], async () => [{ g0: last }]),
@@ -87,7 +107,12 @@ describe("ordering appends", () => {
   });
 
   test("a list named by values the engine produces as SQL is one list per value", async () => {
-    const append = new AppendKey(["columnId"]);
+    const append = appendKey(["columnId"]) as unknown as {
+      compute(
+        context: InsertValueContext,
+        indexes: readonly number[]
+      ): Promise<readonly unknown[]>;
+    };
     const produced = sql`(SELECT 1)`;
     const rows = [
       { columnId: produced },

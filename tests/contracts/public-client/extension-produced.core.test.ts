@@ -9,6 +9,7 @@
  */
 
 import { ClientInitializationError } from "@errors";
+import { withRows } from "@extensions/rows-runtime";
 import {
   createProducedRowClient,
   policy,
@@ -20,6 +21,9 @@ import {
   createNonReturningSQLite3Driver,
 } from "@tests/providers/local/sqlite3-fixtures";
 import { afterEach, describe, expect, test } from "vitest";
+
+// These definitions are stated as plain objects: what reads their rows is brought here.
+withRows();
 
 runProducedRowBehavior({
   name: "SQLite3",

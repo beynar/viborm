@@ -750,16 +750,10 @@ export interface DatabaseAdapter {
    * Relation filter wrappers for subqueries
    */
   filters: {
-    /** EXISTS wrapper for "some" relation filter (to-many) */
+    /** `EXISTS`: a row of the subquery exists (`some`, `is`). */
     some: (subquery: Sql) => Sql;
-    /** NOT EXISTS wrapper for "every" - negated condition (to-many) */
-    every: (subquery: Sql) => Sql;
-    /** NOT EXISTS wrapper for "none" (to-many) */
+    /** `NOT EXISTS`: none does (`none`, `isNot`, and `every` over the negated condition). */
     none: (subquery: Sql) => Sql;
-    /** EXISTS wrapper for "is" relation filter (to-one) */
-    is: (subquery: Sql) => Sql;
-    /** NOT EXISTS wrapper for "isNot" relation filter (to-one) */
-    isNot: (subquery: Sql) => Sql;
   };
 
   /**
@@ -847,6 +841,21 @@ export interface DatabaseAdapter {
       source: Sql[][] | { readonly select: Sql },
       prefix?: Sql
     ) => Sql;
+    /**
+     * INSERT the rows that are not there, by `key`, the columns of one unique
+     * constraint of `table`: a row that is there stays as it is, or takes
+     * `sets`, unless it holds `unless` already. One statement where the
+     * dialect names a conflict target, and elsewhere the statements that
+     * leave the table the same.
+     */
+    insertAbsent: (
+      table: Sql,
+      columns: string[],
+      rows: Sql[][],
+      key: readonly string[],
+      sets?: Sql,
+      unless?: Sql
+    ) => Sql[];
     /** Insert one row using only database defaults. */
     insertDefault: (table: Sql) => Sql;
     /** UPDATE table SET ... WHERE ... */

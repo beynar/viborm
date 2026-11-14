@@ -1,0 +1,1108 @@
+/**
+ * The one place a statement is written: under the call's row scope, in the
+ * provider's spelling. The store says which rows and what they take; it
+ * never says who may.
+ */
+
+import {
+  adapterConstraints,
+  assembleAdapterSelect,
+  getAdapterInternals,
+} from "@adapters/adapter-internals";
+import { NestedWriteError, type UniqueConstraintError } from "@errors";
+import type { AnyModel } from "@schema/model";
+import { type Sql, sql } from "@sql";
+import type { PreparedGuardFailure } from "../../types";
+import { writeSinks } from "../../write-sinks";
+import { InsertValue, JoinedValue, Stored } from "../shared/insert-value";
+import type {
+  PreparedProjection,
+  PreparedSelector,
+  Query,
+} from "../shared/query";
+import { Parameter, type RowJudgement } from "../shared/row-scope";
+import type { Input } from "../shared/schema";
+import type { SqlOperationContext } from "../shared/sql-operation-context";
+import type { SqlQueries } from "../shared/sql-queries";
+import { linkJudgement, linkMembers, type Membership } from "../shared/storage";
+import {
+  listed,
+  nameOf,
+  scalarsOf,
+  tableOf,
+  unsupported,
+} from "../shared/terms";
+import type { Sent, Statement } from "./send";
+
+export type Junction = Extract<Membership, { kind: "junction" }>;
+
+/** A question: the rows of a model a filter names, among the members of a row where it says so. */
+export interface Question {
+  readonly model: AnyModel;
+  readonly where?: Input;
+  /** The filter was admitted as a unique selector: it names one row at most. */
+  readonly unique?: boolean;
+  readonly member?: { readonly edge: Membership; readonly of: Input };
+  /** The relation the rows are reached through, whose ever members they are. */
+  readonly through?: Membership;
+  /** What the call means to do with the rows: `join` makes them members, or no longer; of an update, what it writes of them. */
+  readonly intent?: "update" | "delete" | "join";
+  readonly writes?: readonly string[];
+  /** No more than that many of them, the first by their key. */
+  readonly limit?: number;
+  /** The nested verb that asks, for what it refuses with. */
+  readonly verb?: string;
+  /** A row must be there: none is the call's refusal. */
+  readonly must?: true;
+  /**
+   * Every row the call may see must be one it may write so: a row it cannot
+   * see is passed by, one it sees and may not write is a refusal. With what
+   * it refuses with, where not as a row that is not there.
+   */
+  readonly strict?: boolean | string;
+  /**
+   * Among the rows a row the call may see still references through a
+   * relation that restricts deletes: all of them, or all but the row with
+   * that key through that relation.
+   */
+  readonly referenced?:
+    | true
+    | { readonly slot: string; readonly identity: Input };
+  /** No other rows than those with these keys. */
+  readonly only?: readonly Input[];
+  /** Rows left out, by their key. */
+  readonly except?: readonly Input[];
+  /** Rows named by their keys are still to answer the filter they were found by. */
+  readonly again?: boolean;
+  /** Where none answers, the call makes a row under what the question names: asked without holding the place. */
+  readonly makes?: boolean;
+  /** A value the write reads from a table it joins: no other rows than those that table names. */
+  readonly joined?: JoinedValue;
+}
+
+export class Writer {
+  readonly operation: SqlOperationContext;
+  /** The dialect its statements are written in. */
+  readonly adapter: SqlOperationContext["driver"]["adapter"];
+  readonly #q: SqlQueries;
+  #projections: Map<AnyModel, PreparedProjection[]> | undefined;
+  /** Asks the database in the call's unit, where what it says is heard before the next statement is written. */
+  readonly hears:
+    | ((statement: Sql, model: AnyModel) => Promise<readonly Input[]>)
+    | undefined;
+  protected computed(
+    model: AnyModel,
+    rows: Input[]
+  ): Input[] | Promise<Input[]> {
+    return this.operation.computed(model, rows, this.hears);
+  }
+  /** A question as a statement that stops its unit unless a row answers it, or where one does. */
+  protected asserts(probe: Sql, premise: "exists" | "notExists"): Sql {
+    return this.adapter.assertions[premise](probe);
+  }
+  constructor(operation: SqlOperationContext, hears?: Writer["hears"]) {
+    this.operation = operation;
+    this.adapter = operation.driver.adapter;
+    this.#q = operation.queries as SqlQueries;
+    this.hears = hears;
+  }
+  /** What a write of the rows a question names is judged at. */
+  protected judged(question: Question): RowJudgement | undefined {
+    const edge = question.through ?? question.member?.edge;
+    if (question.intent === "join" && edge) return linkJudgement(edge);
+    if (question.intent === "delete") return { verb: "delete", writes: [] };
+    const { writes } = question;
+    if (!writes) return undefined;
+    const tombstone = this.operation.scope?.rows.tombstones?.get(
+      nameOf(question.model)
+    );
+    // A caller who writes what a delete that keeps its rows writes is judged as that delete is.
+    return tombstone &&
+      writes.some(
+        (field) =>
+          field === tombstone.at || Object.hasOwn(tombstone.assign, field)
+      )
+      ? { verb: "update", writes, marks: true }
+      : { verb: "update", writes };
+  }
+  #related(question: Question): "root" | "related" {
+    return question.member || question.through ? "related" : "root";
+  }
+  /** The rows a question names, among those the call may take so; `keys` narrows them to rows the call knows. */
+  selector(question: Question, keys?: readonly Input[]): PreparedSelector {
+    const q = this.#q;
+    const { model } = question;
+    const only = keys ?? question.only;
+    const known = only && q.includeIdentities(model, only);
+    // The filter is said again beside the keys; one that reads other rows, only where a write may read its own table.
+    const found =
+      known && question.again && question.where !== undefined
+        ? q.prepareSelector(model, question.where, false)
+        : undefined;
+    const named = known
+      ? found &&
+        (found.facts.reads.size === 0 ||
+          this.adapter.capabilities.supportsMutationTargetInSubquery)
+        ? q.andSelectors(model, [known, found])
+        : known
+      : q.prepareSelector(model, question.where, question.unique ?? false);
+    const { referenced, limit } = question;
+    const own = question.except?.length
+      ? {
+          ...q.andSelectors(model, [
+            named,
+            q.excludeIdentities(model, question.except),
+          ]),
+          uniqueKey: named.uniqueKey,
+          uniqueValues: named.uniqueValues,
+        }
+      : named;
+    const scope = this.operation.scope;
+    const taken = q.candidates(
+      own,
+      this.#related(question),
+      undefined,
+      this.judged(question)
+    );
+    // A delete that keeps its rows takes those an absent control would show, whatever the call's own show.
+    const chosen =
+      question.intent === "delete" &&
+      scope &&
+      scope.defaults !== scope.domain &&
+      scope.rows.tombstones?.has(nameOf(model))
+        ? q.candidates(taken, this.#related(question), scope.defaults)
+        : taken;
+    if (!referenced) return chosen;
+    // Of the rows the write takes: the first of them, where it takes no more.
+    return q.andSelectors(model, [
+      limit === undefined || only ? chosen : q.window(chosen, limit),
+      scope!.rows.tombstones!.selector(
+        q,
+        model,
+        scope!.defaults,
+        referenced === true ? undefined : referenced
+      ),
+    ]);
+  }
+  /** Fields of a row of `model`, as a statement answers with them. */
+  fields(model: AnyModel, fields: readonly string[]) {
+    return this.#q.prepareProjection(
+      model,
+      { select: Object.fromEntries(fields.map((field) => [field, true])) },
+      true
+    );
+  }
+  /** The whole row of a model, and its key, as projections. */
+  protected projection(model: AnyModel, whole: boolean): PreparedProjection {
+    let known = this.#projections?.get(model);
+    if (!known) {
+      const { schema } = this.operation;
+      known = [
+        this.fields(model, schema.keys(model)),
+        this.fields(model, schema.storedFields(model)),
+      ];
+      (this.#projections ??= new Map()).set(model, known);
+    }
+    return known[Number(whole)]!;
+  }
+  protected membership(question: Question) {
+    return (
+      question.member && {
+        edge: question.member.edge,
+        parent: question.member.of,
+      }
+    );
+  }
+  /** The rows a write names, as its statement says them: among the members of the question's row, where it has one. */
+  #among(question: Question, selector: PreparedSelector, alias: string) {
+    return this.#within(
+      question,
+      alias,
+      this.#q.lowerSelector(selector, alias)
+    );
+  }
+  /** `named`, among the members of the question's row where it has one. */
+  #within(question: Question, alias: string, named: Sql | undefined) {
+    const { member } = question;
+    if (!member) return named;
+    // A write holds the links it reads its rows' membership from: one that goes while the statement waits is no longer read.
+    const members = this.#q.memberWhere(member.edge, member.of, alias, true);
+    return named ? this.adapter.operators.and(members, named) : members;
+  }
+  #limited(
+    question: Question,
+    selector: PreparedSelector,
+    keys: unknown
+  ): { where?: Sql; suffix?: Sql } {
+    const { model, member } = question;
+    const named = this.#q.lowerMutationLimit(
+      model,
+      selector,
+      keys || member ? undefined : question.limit
+    );
+    // Among the members of the question's row: said of the table the statement writes.
+    return member
+      ? { where: this.#within(question, tableOf(model), named.where) }
+      : named;
+  }
+  /** What a write sets of the rows it takes. */
+  #sets(model: AnyModel, set: Input): Sql {
+    return listed(
+      Object.entries(set).map(([field, value]) =>
+        this.#q.updateAssignment(model, field, value)
+      )
+    );
+  }
+  /** A write of rows with what bounds it, answering with the rows it wrote as the caller reads them, or so that the call can count them where the provider's own count would count what a cascade changed besides. */
+  #answered(
+    model: AnyModel,
+    build: () => [write: Sql, suffix?: Sql],
+    projection: PreparedProjection | undefined,
+    counted: boolean
+  ): Sql {
+    const { capabilities, mutations } = this.adapter;
+    const statement = this.#q.sharing(() => {
+      const [write, suffix] = build();
+      return suffix ? sql`${write} ${suffix}` : write;
+    });
+    if (projection)
+      return this.operation.answering(model, statement, projection);
+    return counted && capabilities.countsCascadedChanges
+      ? sql`${statement} ${mutations.returning(sql.raw("1"))}`
+      : statement;
+  }
+  /** The rows questions of one model name, read whole in one statement; held where `hold`. */
+  read(questions: readonly Question[], hold: boolean): Query {
+    const [question] = questions as [Question];
+    const selectors = questions.map((each) => this.selector(each));
+    const { joined } = question;
+    const { filters, subqueries } = this.adapter;
+    return this.#q.select(
+      question.model,
+      question.limit === undefined ? {} : { take: question.limit },
+      this.membership(question),
+      {
+        forUpdate: hold,
+        condition:
+          joined &&
+          ((alias) => {
+            const join = joined.join(
+              this.#q.spelling(question.model, this.operation.driver.dialect),
+              alias
+            );
+            return this.#q.settleRows(
+              filters.some(subqueries.existsCheck(join.source, join.on))
+            );
+          }),
+        projection: this.projection(question.model, true),
+        selector:
+          selectors.length === 1
+            ? selectors[0]
+            : {
+                model: question.model,
+                predicate: {
+                  kind: "or",
+                  predicates: selectors.map((each) => each.predicate!),
+                },
+              },
+      }
+    );
+  }
+  /** What a call refuses with where a row a question asks for is not there. */
+  absent(question: Question, raceable = false): PreparedGuardFailure {
+    const edge = question.member?.edge ?? question.through;
+    return edge && question.verb
+      ? {
+          kind: "nestedWrite",
+          relation: edge.name,
+          message: `Cannot ${question.verb} relation '${edge.name}': target record was not found${question.member ? " for this parent" : ""}.`,
+          raceable,
+        }
+      : { kind: "notFound", message: "", raceable };
+  }
+  /**
+   * A statement that stops its unit unless each question still names a row:
+   * the one `key` names, or every one of the rows several keys name, where
+   * given. It stops on what the call `believed`, or, where the row must be
+   * there, on the call's refusal itself.
+   */
+  asks(
+    asked: readonly (readonly [Question, (Input | Input[])?])[],
+    believed: "presumed" | "read",
+    heard = false,
+    held = true
+  ): Statement {
+    const q = this.#q;
+    const { operators } = this.adapter;
+    const [[question]] = asked as [[Question]];
+    const { model } = question;
+    // The rows asked for are held from there to the end of their unit, where the database holds rows: what is written after stands on them.
+    const lock = held && this.adapter.capabilities.supportsRowLocks;
+    const asking = (
+      [each, key]: readonly [Question, (Input | Input[])?],
+      more?: Sql
+    ) => {
+      // Of several rows: as many of them as there are still answer.
+      const keys = Array.isArray(key) ? key : undefined;
+      return q.select(
+        model,
+        { take: 1, ...(keys && { skip: keys.length - 1 }) },
+        this.membership(each),
+        {
+          projection: this.projection(model, false),
+          forUpdate: lock,
+          selector: keys
+            ? q.andSelectors(model, [
+                this.selector(each),
+                q.includeIdentities(model, keys),
+              ])
+            : this.selector(each),
+          ...(key && !keys && { identity: key as Input }),
+          ...(more && { condition: more }),
+        }
+      ).sql;
+    };
+    // One row answers where every question names one.
+    const [first, ...others] = asked as [[Question, (Input | Input[])?]];
+    const probe = asking(
+      first,
+      others.length > 0
+        ? operators.and(...others.map((each) => operators.exists(asking(each))))
+        : undefined
+    );
+    return {
+      // Where its answer is heard, the question itself is what is sent.
+      sql: heard && lock ? probe : this.asserts(probe, "exists"),
+      probe,
+      premise: "exists",
+      believed: believed === "presumed" && question.must ? undefined : believed,
+      // Also what an owner that cannot run the call again reports.
+      stops: this.absent(question, believed === "read"),
+      model,
+    };
+  }
+  /**
+   * What a row of `model` takes where it is created, or updated: what was
+   * admitted of what the caller wrote of it, `raw`, and what the call's
+   * extensions write of every such row, where the caller wrote nothing.
+   */
+  values(
+    model: AnyModel,
+    kind: "create" | "update",
+    admitted: Input,
+    raw: Input = {},
+    /** What the row takes of the rows it references: written as the caller's own. */
+    takes?: Input
+  ): Input {
+    const { scope, schema } = this.operation;
+    const stamps = scope?.rows.stamps?.get(nameOf(model))?.[kind];
+    let source = admitted;
+    if (stamps) {
+      const kept: Input = {};
+      const computed: Input = {};
+      for (const field in stamps)
+        if (raw[field] === undefined && takes?.[field] === undefined) {
+          const value = stamps[field];
+          // A value computed where the row is written is no data to admit; a
+          // parameter is the call's one instant.
+          (value instanceof InsertValue ? computed : kept)[field] =
+            value instanceof Parameter ? scope!.instant() : value;
+        }
+      // Admitted as the caller's own would be, where there is something to admit.
+      let written: Input = {};
+      if (Object.keys(kept).length > 0)
+        written =
+          kind === "create"
+            ? schema.createValues(model, kept)
+            : schema.update(model, kept);
+      source = { ...admitted };
+      for (const field in kept) source[field] = written[field];
+      Object.assign(source, computed);
+    }
+    const values = schema.scalars(model, source);
+    // A field kept as stored is not written.
+    for (const field in values)
+      if (values[field] instanceof Stored) delete values[field];
+    return values;
+  }
+  /**
+   * What a row of `model` takes instead of going, where its model keeps the
+   * rows it deletes; none where it removes them.
+   */
+  marks(model: AnyModel): Input | undefined {
+    return this.operation.scope?.rows.tombstones?.marks(this, model);
+  }
+  /**
+   * Among the rows that still reference a kept row, the one the call reaches
+   * it through restricts nothing: its link is kept, where a removal would
+   * have taken it first.
+   */
+  referenced(member: Question["member"], of?: Input): Question["referenced"] {
+    return this.operation.scope!.rows.tombstones!.referenced(
+      this.operation.schema,
+      member?.edge,
+      of
+    );
+  }
+  /** What a kept row is refused with where a row still references it as the database would refuse its removal. */
+  restriction(model: AnyModel): PreparedGuardFailure | undefined {
+    return this.operation.scope!.rows.tombstones!.restriction(
+      this.operation.schema,
+      model
+    );
+  }
+  /** A row the call created still holds what the database decided of it: asked where a later unit, on its own, writes that into other rows. */
+  still(model: AnyModel, values: Input): Statement {
+    const probe = this.#q.select(model, { take: 1 }, undefined, {
+      projection: this.projection(model, false),
+      selector: this.#q.prepareSelector(model, values, false),
+    }).sql;
+    return {
+      model,
+      sql: this.asserts(probe, "exists"),
+      probe,
+      premise: "exists",
+      stops: {
+        kind: "query",
+        message: `Created record '${nameOf(model)}' changed across a generated-output segment boundary.`,
+        raceable: false,
+      },
+    };
+  }
+  /** Whether `row` travels in the statement that inserts `count` rows of these `columns`: the same columns, within what the provider binds in one statement. */
+  beside(
+    model: AnyModel,
+    columns: readonly string[],
+    count: number,
+    row: Input
+  ): boolean {
+    let fields = 0;
+    for (const field in row) if (field !== columns[fields++]) return false;
+    // A row of defaults only is a statement of its own.
+    if (fields === 0 || fields !== columns.length) return false;
+    const bound = this.operation.driver.maxBindParametersPerStatement;
+    if (bound === undefined) return true;
+    const placed = this.#q.domain?.produced(model);
+    return (
+      (count + 1) * fields +
+        ((placed && this.#q.lowerSelector(placed)?.values.length) ?? 0) <=
+      bound
+    );
+  }
+  /** Rows of `model`; where the call may not create one, the statement refuses it, in the name of `relation` where they are created through one. */
+  async insert(
+    model: AnyModel,
+    values: Input[],
+    relation?: string,
+    returns?: PreparedProjection,
+    beside?: readonly string[],
+    skips = false
+  ): Promise<Statement> {
+    const q = this.#q;
+    const { capabilities, mutations } = this.adapter;
+    const rows = await this.computed(model, values);
+    const fields = Object.keys(rows[0]!);
+    const placed = q.domain?.produced(model);
+    // A row of defaults only has no value to judge before it is written.
+    if (fields.length === 0 && placed)
+      unsupported(
+        `Cannot create a '${nameOf(model)}' row that writes no field: its placement is judged on the values it writes.`
+      );
+    const select =
+      placed && q.domain!.producedSource(q, model, fields, rows, placed);
+    // Rows that hold what another row alone may hold are passed by.
+    const skip = skips
+      ? mutations.skipDuplicates(q.columnName(model, fields[0]!))
+      : undefined;
+    // A row that states nothing is the database's to fill.
+    const written =
+      fields.length > 0
+        ? mutations.insert(
+            q.table(model),
+            fields.map((field) => q.columnName(model, field)),
+            select
+              ? { select }
+              : rows.map((row) =>
+                  fields.map((field) => q.fieldValue(model, field, row[field]))
+                ),
+            skip?.prefix
+          )
+        : mutations.insertDefault(q.table(model));
+    const insert = skip?.suffix ? sql`${written} ${skip.suffix}` : written;
+    return {
+      model,
+      // It answers with the row it wrote, where the provider returns what it wrote.
+      sql:
+        returns && capabilities.supportsReturning
+          ? this.operation.answering(
+              model,
+              insert,
+              returns,
+              // With what the database decides of the row beside, where the call needs both.
+              beside ? q.lowerProjection(this.fields(model, beside)) : []
+            )
+          : insert,
+      ...(select && {
+        probe: select,
+        stops: q.domain!.refusal(
+          this.operation.operation,
+          model,
+          undefined,
+          relation === undefined ? undefined : ["create", relation]
+        ),
+      }),
+    };
+  }
+  /**
+   * The rows a question names take `values`: the rows `keys` names, where the
+   * call knows them. The statement refuses the rows it would leave where the
+   * call may not leave them so.
+   */
+  async update(
+    question: Question,
+    values: Input,
+    keys?: readonly Input[],
+    projection?: PreparedProjection,
+    counted = !keys
+  ): Promise<Statement> {
+    const q = this.#q;
+    const { model } = question;
+    const limit = keys ? undefined : question.limit;
+    const { mutations } = this.adapter;
+    // A value read of rows the statement joins: each row takes its own.
+    const joined = Object.values(values).find(
+      (value): value is JoinedValue => value instanceof JoinedValue
+    );
+    const [set] = await this.computed(model, [values]);
+    const selector = this.selector(question, keys);
+    const judged = this.judged(question);
+    let stops: PreparedGuardFailure | undefined;
+    const statement = this.#answered(
+      model,
+      () => {
+        const produced =
+          judged &&
+          q.domain &&
+          q.domain.producedWhere(
+            q,
+            model,
+            (alias) => this.#among(question, selector, alias),
+            set!,
+            q.domain.produced(model, judged, Object.keys(set!)),
+            q.domain.cycles(model, judged),
+            limit
+          );
+        const edge = question.member?.edge ?? question.through;
+        if (produced)
+          stops = q.domain!.refusal(
+            this.operation.operation,
+            model,
+            judged,
+            edge && question.verb ? [question.verb, edge.name] : undefined
+          );
+        const named = produced
+          ? { where: produced, suffix: undefined }
+          : this.#limited(question, selector, keys);
+        const sets = this.#sets(model, set!);
+        const join = joined?.join(
+          q.spelling(model, this.operation.driver.dialect),
+          tableOf(model)
+        );
+        return [
+          join
+            ? mutations.updateFrom(
+                q.table(model),
+                sets,
+                q.settleRows(join.source),
+                join.on,
+                named.where
+              )
+            : mutations.update(q.table(model), sets, named.where),
+          named.suffix,
+        ];
+      },
+      projection,
+      counted
+    );
+    return { model, sql: statement, stops };
+  }
+  /**
+   * The key the database will compute of the row `key` names, asked of the
+   * row before it is written, where no write says what it wrote: the row is
+   * held until then.
+   */
+  computes(question: Question, key: Input, set: Input): Statement | undefined {
+    const q = this.#q;
+    const { model } = question;
+    const { capabilities, identifiers } = this.adapter;
+    if (capabilities.supportsReturning) return undefined;
+    const table = tableOf(model);
+    const { where } = this.#limited(question, this.selector(question, [key]), [
+      key,
+    ]);
+    // The row as its write will leave its key, read as any row is.
+    const columns = this.operation.schema.keys(model).map((field) => {
+      const column = q.column(model, field, table);
+      const value =
+        field in set ? q.updateValue(model, field, set[field], column) : column;
+      return identifiers.aliased(value, q.columnName(model, field));
+    });
+    const source = "__viborm_computed";
+    const read = q.select(model, {}, undefined, {
+      projection: this.projection(model, false),
+      source,
+    });
+    return {
+      model,
+      sql: sql`${this.adapter.cte.with([
+        {
+          name: source,
+          query: assembleAdapterSelect(this.adapter, {
+            columns: listed(columns),
+            from: q.table(model),
+            where,
+            forUpdate: true,
+          }),
+        },
+      ])} ${read.sql}`,
+    };
+  }
+  /**
+   * The rows a question names are removed: the rows `keys` names, where the
+   * call knows them. With `projection`, it answers with them as they were.
+   */
+  remove(
+    question: Question,
+    keys?: readonly Input[],
+    projection?: PreparedProjection,
+    counted = !keys
+  ): Statement {
+    const { model } = question;
+    const selector = this.selector({ ...question, intent: "delete" }, keys);
+    return {
+      model,
+      sql: this.#answered(
+        model,
+        () => {
+          const named = this.#limited(question, selector, keys);
+          return [
+            this.adapter.mutations.delete(this.#q.table(model), named.where),
+            named.suffix,
+          ];
+        },
+        projection,
+        counted
+      ),
+    };
+  }
+  /**
+   * The row a question names by one of its model's keys takes `set`; where
+   * there is none, `row` is created. It answers with the row as `projection`
+   * says.
+   */
+  async either(
+    question: Question,
+    row: Input,
+    set: Input,
+    projection: PreparedProjection,
+    marker?: Sql
+  ): Promise<Statement> {
+    const q = this.#q;
+    const { model } = question;
+    const { identifiers, mutations, set: assignments } = this.adapter;
+    const insert = await this.insert(model, [row]);
+    const table = tableOf(model);
+    const conflict = mutations.onConflict(
+      listed(
+        this.selector(question).uniqueKey!.fields.map((field) =>
+          identifiers.escape(q.columnName(model, field))
+        )
+      ),
+      mutations.onConflictUpdate(
+        listed(
+          Object.entries(set).map(([field, value]) =>
+            assignments.assign(
+              q.column(model, field),
+              q.updateValue(model, field, value, q.column(model, field, table))
+            )
+          )
+        )
+      )
+    );
+    return {
+      model,
+      sql: this.operation.answering(
+        model,
+        sql`${insert.sql} ${conflict}`,
+        projection,
+        marker ? [identifiers.aliased(marker, "__viborm_inserted")] : []
+      ),
+    };
+  }
+  /** Whether the call's writes of the rows a question names are judged beyond what it may see. */
+  judges(question: Question): boolean {
+    return Boolean(
+      this.judged(question) &&
+        this.operation.scope?.rows.domain.verbs?.has(nameOf(question.model))
+    );
+  }
+  /**
+   * A statement that stops its unit, with `stops`, where a row answers the
+   * question; of a strict question, where a row the call may see is not one
+   * it may write so.
+   */
+  none(
+    question: Question,
+    stops: PreparedGuardFailure = typeof question.strict === "string"
+      ? {
+          kind: "nestedWrite",
+          relation: question.member!.edge.name,
+          message: question.strict,
+          raceable: false,
+        }
+      : this.absent(question)
+  ): Statement {
+    const { model, strict } = question;
+    const probe = this.#q.select(
+      model,
+      { take: 1 },
+      this.membership(question),
+      {
+        projection: this.projection(model, false),
+        selector: this.selector(
+          strict ? { ...question, intent: undefined } : question
+        ),
+        ...(strict && {
+          unless: this.#q.domainOf(model, "related", this.judged(question)),
+        }),
+      }
+    ).sql;
+    return {
+      sql: this.asserts(probe, "notExists"),
+      probe,
+      premise: "notExists",
+      stops,
+      model,
+    };
+  }
+  /** What the row a question names holds of `field`, as a statement reads it. */
+  located(question: Question, field: string): Sql {
+    return this.#q.locatedValue(question.model, field, this.selector(question));
+  }
+  /** One row read by its key, as `projection` says. */
+  one(model: AnyModel, key: Input, projection: PreparedProjection): Query {
+    return this.#q.select(model, {}, undefined, { identity: key, projection });
+  }
+  /** The links of `from`'s row through a junction go: the one to `to`, or every one but those to the rows `kept`. */
+  unlink(
+    edge: Junction,
+    from: Input,
+    to: Input | undefined,
+    kept: readonly Input[]
+  ): Statement {
+    const q = this.#q;
+    const { identifiers, mutations, operators, subqueries } = this.adapter;
+    const named = (side: Junction["sourceSide"], row: Input) =>
+      Object.fromEntries(
+        side.members.map((pair) => [
+          pair.junctionField,
+          row[pair.referencedField],
+        ])
+      );
+    const own = named(edge.sourceSide, from);
+    // Every link but those kept: of the rows the call may take out, and no other.
+    const domain = to
+      ? undefined
+      : q.domainOf(edge.target, "related", linkJudgement(edge));
+    const seen = q.alias();
+    return {
+      model: edge.source,
+      sql: mutations.delete(
+        identifiers.table(edge.table),
+        operators.and(
+          q.junctionWhere(edge, {
+            ...own,
+            ...(to && named(edge.targetSide, to)),
+          }),
+          ...kept.map((row) =>
+            operators.not(
+              q.junctionWhere(edge, { ...own, ...named(edge.targetSide, row) })
+            )
+          ),
+          ...(domain
+            ? [
+                operators.exists(
+                  subqueries.existsCheck(
+                    q.table(edge.target, seen),
+                    operators.and(
+                      ...edge.targetSide.members.map((pair) =>
+                        operators.eq(
+                          identifiers.column(edge.table, pair.junctionField),
+                          q.column(edge.target, pair.referencedField, seen)
+                        )
+                      ),
+                      q.lowerSelector(domain, seen)!
+                    )
+                  )
+                ),
+              ]
+            : [])
+        )
+      ),
+    };
+  }
+  /** Whether the database refused a row for the key a selector names. */
+  refusedFor(
+    model: AnyModel,
+    key: NonNullable<PreparedSelector["uniqueKey"]>,
+    error: UniqueConstraintError
+  ): boolean {
+    const table = tableOf(model);
+    const columns = key.fields.map((field) => this.#q.columnName(model, field));
+    const constraints = adapterConstraints(this.adapter);
+    const { meta } = error;
+    // A database whose refusals name no constraint says which columns it found.
+    if (!constraints)
+      return meta.table === table && meta.columns?.join() === columns.join();
+    const expected = (
+      key.kind === "primary"
+        ? constraints.primaryKey(table, columns)
+        : constraints.unique(table, key.name ?? columns[0]!, columns)
+    ).normalizedError;
+    return (
+      meta.table === expected.table &&
+      meta.constraint === expected.constraint &&
+      meta.columns?.join() === expected.columns?.join()
+    );
+  }
+  /** Whether an insert that passes by a row whose key is taken says, for one row, that it did. */
+  get passes(): boolean {
+    return false;
+  }
+  /** Whether a write says what it wrote. */
+  get says(): boolean {
+    return this.adapter.capabilities.supportsReturning;
+  }
+  /** Whether a write of rows by their keys says how many of them it found: MySQL counts the rows an update changed. */
+  counts(kind: string): boolean {
+    return kind === "delete" || this.operation.driver.dialect !== "mysql";
+  }
+  /** What opens and closes the place a unit keeps the keys the database decides in it. */
+  scratch(
+    id: string,
+    model: AnyModel
+  ): { open: Statement[]; close: Statement } {
+    const { batchRefs } = getAdapterInternals(this.adapter);
+    return {
+      open: batchRefs.setup(id).map((statement) => ({ sql: statement, model })),
+      close: { sql: batchRefs.cleanup(id), model },
+    };
+  }
+  /**
+   * An insert that keeps the one key the database decides of its row where
+   * the statements after it in its unit read it, and what they read. None
+   * where the provider keeps no such key exactly.
+   */
+  kept(
+    scratch: string,
+    name: string,
+    fields: readonly string[],
+    insert: Statement
+  ): { statements: Statement[]; value: Sql } | undefined {
+    const { batchRefs } = getAdapterInternals(this.adapter);
+    const { model } = insert;
+    const [field] = fields;
+    const state = scalarsOf(model)[field!]?.["~"].state;
+    if (
+      fields.length !== 1 ||
+      state?.autoGenerate?.kind !== "increment" ||
+      !batchRefs.storeInsertedKey
+    )
+      return undefined;
+    const [producing, ...storing] = batchRefs.storeInsertedKey(
+      scratch,
+      name,
+      insert.sql,
+      this.adapter.identifiers.escape(this.#q.columnName(model, field!))
+    );
+    return {
+      statements: [
+        { ...insert, sql: producing! },
+        ...storing.map((statement) => ({ sql: statement, model })),
+      ],
+      value: this.adapter.expressions.cast(
+        batchRefs.read(scratch, name),
+        state.type === "bigint" ? "bigint" : "integer"
+      ),
+    };
+  }
+  /** The key of a row of `model`, as a statement answers with it. */
+  key(model: AnyModel): PreparedProjection {
+    return this.projection(model, false);
+  }
+  /** Fields a statement returned, as the call holds them. */
+  told(model: AnyModel, fields: readonly string[], rows: Input[]): Input[] {
+    return rows.length > 0 && fields.length > 0
+      ? (this.#q.decodeProjection(
+          this.fields(model, fields).shape,
+          rows,
+          true
+        ) as Input[])
+      : [];
+  }
+  /** The keys a statement returned, as the call holds them. */
+  keys(model: AnyModel, rows: Input[]): Input[] {
+    return rows.length > 0
+      ? (this.#q.decodeProjection(
+          this.projection(model, false).shape,
+          rows,
+          true
+        ) as Input[])
+      : [];
+  }
+  /** How many rows a set write that answers so wrote. */
+  count(sent: Sent): number {
+    return this.adapter.capabilities.countsCascadedChanges
+      ? sent.rows.length
+      : sent.rowCount;
+  }
+  /**
+   * What a link a model holds takes beside the two rows it joins: the model's
+   * defaults and what was written of it, `through`; and what one that is there
+   * takes of what was written. Refused where the link cannot be filled, or
+   * where a write of its model is judged or observed.
+   */
+  protected async linked(
+    edge: Junction,
+    columns: readonly string[],
+    through?: Input
+  ): Promise<{ row: Input; sets?: Input }> {
+    const { schema, scope, attribution } = this.operation;
+    const model = edge.declared!.model;
+    const name = nameOf(model);
+    const beside = schema.linkFields(model, columns);
+    const missing = beside.required.filter(
+      (field) => through?.[field] === undefined
+    );
+    if (missing.length > 0)
+      throw new NestedWriteError(
+        `Cannot link relation '${edge.name}': '${name}' requires ${missing.map((field) => `$through.${field}`).join(", ")}, which a link cannot fill.`,
+        edge.name
+      );
+    const sink = writeSinks.get(attribution);
+    // A written column is a write to the model: what would judge or observe a direct write refuses it.
+    if (
+      through &&
+      (this.#q.domain?.restrictsLinkWrite(this.#q, model) ||
+        scope?.rows.stamps?.has(name) ||
+        sink?.wants(name, "create") ||
+        sink?.wants(name, "update"))
+    )
+      unsupported(
+        `Cannot write $through of relation '${edge.name}': this client's extensions judge or observe writes to '${name}'. Write the row through the '${name}' delegate.`
+      );
+    return {
+      row: {
+        ...schema.createValues(
+          model,
+          Object.fromEntries(
+            beside.defaults
+              .filter((field) => !(through && field in through))
+              .map((field) => [field, undefined])
+          )
+        ),
+        ...through,
+      },
+      sets:
+        through && Object.keys(through).length > 0
+          ? (
+              await this.computed(model, [
+                schema.scalars(model, schema.update(model, through)),
+              ])
+            )[0]
+          : undefined,
+    };
+  }
+  /**
+   * The links that make each second row a member of the first one's through
+   * a junction, added where they are not there. A link a model holds is a row
+   * of that model: it takes the model's defaults and what was written of it,
+   * `through`, and one that is there takes what was written. Where one side
+   * holds a single link, the link that side holds takes the other row.
+   */
+  async link(
+    edge: Junction,
+    pairs: readonly (readonly [Input, Input])[],
+    through?: Input
+  ): Promise<Statement[]> {
+    const { identifiers, mutations, set } = this.adapter;
+    const { uniqueSide, declared } = edge;
+    const members = linkMembers(edge);
+    const columns = members.map(({ pair }) => pair.junctionField);
+    const rows = pairs.map((pair) =>
+      members.map(({ side, pair: member }) =>
+        this.#q.fieldValue(
+          side.model,
+          member.referencedField,
+          pair[side === edge.sourceSide ? 0 : 1][member.referencedField]
+        )
+      )
+    );
+    let takes: Sql | undefined;
+    const model = declared?.model;
+    const own = model && (await this.linked(edge, columns, through));
+    if (model && own) {
+      for (const [field, value] of Object.entries(own.row)) {
+        columns.push(this.operation.schema.physicalField(model, field).name);
+        for (const row of rows)
+          row.push(this.#q.fieldValue(model, field, value));
+      }
+      takes = own.sets && this.#sets(model, own.sets);
+    }
+    const table = identifiers.table(edge.table);
+    const side = (name: "source" | "target") =>
+      edge[`${name}Side`].members.map((pair) => pair.junctionField);
+    const other =
+      uniqueSide && side(uniqueSide === "source" ? "target" : "source");
+    return rows
+      .flatMap((row) =>
+        other
+          ? // The link that side holds takes the other row, unless it holds it.
+            mutations.insertAbsent(
+              table,
+              columns,
+              [row],
+              side(uniqueSide!),
+              listed(
+                other.map((column) =>
+                  set.assign(
+                    identifiers.escape(column),
+                    row[columns.indexOf(column)]!
+                  )
+                )
+              ),
+              this.adapter.operators.and(
+                ...other.map((column) =>
+                  this.adapter.operators.eq(
+                    identifiers.column(edge.table, column),
+                    row[columns.indexOf(column)]!
+                  )
+                )
+              )
+            )
+          : []
+      )
+      .concat(
+        other
+          ? []
+          : mutations.insertAbsent(
+              table,
+              columns,
+              rows,
+              declared?.key ?? members.map(({ pair }) => pair.junctionField),
+              takes
+            )
+      )
+      .map((statement) => ({ sql: statement, model: edge.source }));
+  }
+}

@@ -43,7 +43,7 @@ import { findAddressableKey } from "@schema/model/keys";
 import { isRecord } from "@validation/value-guards";
 import { compileBindBudgetChunks } from "./bind-budget";
 import type { QueryEngine } from "./query-engine";
-import type { RoutedCandidateOperation } from "./raptor3/route/client-route";
+import type { PreparedOperation } from "./raptor3/commands";
 import type { CallRows } from "./raptor3/shared/row-scope";
 
 /** One `findUnique` call, as its pending operation knows it at dispatch. */
@@ -57,7 +57,7 @@ export interface FindUniqueCall {
   readonly controls: AdmittedControls | undefined;
   /** The call's own row domain, resolved for the batch that runs it. */
   readonly rows: () => CallRows | undefined;
-  readonly routed: RoutedCandidateOperation;
+  readonly routed: PreparedOperation;
   readonly context: QueryExecutionContext;
   /** The call's own, unbatched execution. */
   readonly run: () => Promise<unknown>;
@@ -132,7 +132,7 @@ export function batchFindUnique(
     return undefined;
   let admitted: Record<string, unknown>;
   try {
-    admitted = call.routed.preparedArgs;
+    admitted = call.routed.args;
   } catch {
     // The call's own execution admits again and rejects with the same error.
     return undefined;
@@ -295,7 +295,7 @@ function flush(): void {
 
 interface Chunk {
   readonly signatures: readonly string[];
-  readonly read: RoutedCandidateOperation;
+  readonly read: PreparedOperation;
 }
 
 /**
@@ -326,25 +326,25 @@ function runBatch(batch: Batch): void {
     const context = deriveRecoverableExecutionContext(batch.leader.context);
     for (const chunk of plan.chunks) {
       const callers = chunk.signatures.flatMap((key) => bySignature.get(key)!);
-      chunk.read
-        .execute<Record<string, unknown>[]>({
+      (
+        chunk.read.run({
           committedWriteSegment: undefined,
           context,
           driverOverride: undefined,
           engineDriver: engine.driver,
           isWrite: false,
           writeMayBeVisible: undefined,
-        })
-        .then(
-          (rows) => {
-            try {
-              dispatch(batch, chunk, bySignature, plan.injected, rows);
-            } catch {
-              runAlone(callers);
-            }
-          },
-          () => runAlone(callers)
-        );
+        }) as Promise<Record<string, unknown>[]>
+      ).then(
+        (rows) => {
+          try {
+            dispatch(batch, chunk, bySignature, plan.injected, rows);
+          } catch {
+            runAlone(callers);
+          }
+        },
+        () => runAlone(callers)
+      );
     }
   } catch {
     runAlone(members);
@@ -362,14 +362,14 @@ function planBatch(
   const { leader, fields } = batch;
   const projected = projectionWithKey(leader, fields);
   const rows = leader.rows();
-  const reads = new Map<string, RoutedCandidateOperation>();
-  const read = (start: number, end: number): RoutedCandidateOperation => {
+  const reads = new Map<string, PreparedOperation>();
+  const read = (start: number, end: number): PreparedOperation => {
     const id = `${start}:${end}`;
     let operation = reads.get(id);
     if (operation === undefined) {
       const values = keys.slice(start, end).map((same) => same[0]!.values);
-      operation = leader.engine.route.operation(
-        leader.model,
+      operation = leader.engine.route.prepare(
+        leader.model["~"].names.ts!,
         "findMany",
         { ...projected.args, where: mergedWhere(fields, values) },
         rows
@@ -388,7 +388,7 @@ function planBatch(
       : compileBindBudgetChunks(
           keys.length,
           limit,
-          (start, end) => read(start, end).buildStatement()!
+          (start, end) => read(start, end).read!.statement
         );
   return {
     chunks: ranges.map(({ start, end }) => ({
@@ -424,7 +424,7 @@ function projectionWithKey(
   fields: readonly string[]
 ): { args: Record<string, unknown>; injected: string[] } {
   const { where: _where, ...args } = leader.args;
-  const selected = leader.routed.preparedArgs.select;
+  const selected = leader.routed.args.select;
   const injected: string[] = [];
   if (!isRecord(selected)) return { args, injected };
   for (const field of fields) {

@@ -1,7 +1,9 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: Shared assertion helpers are invoked only from registered tests.
 /**
- * G4-02 CLOSURE review — adversarial probes against obligation 3a, the
- * "THIRD shipped key owner" mirror (`EngineSchema.keyTransitionRefusal`,
- * `shared/schema.ts:243-292`, consulted from `commands.ts`'s upsert branch).
+ * G4-02 CLOSURE review — adversarial probes written against obligation 3a,
+ * the mirror of the shipped engine's third key owner. That mirror is gone
+ * (2026-11-12): the key's one rule is asked where the update arm runs. The
+ * cells below still hold, because none of them reached the mirror's sentence.
  *
  * The author's five differential cells (note §R4.3) all address the row by its
  * own key or by a non-key unique, with a single-member reference key. These
@@ -128,7 +130,6 @@ async function run(
   const database = new Database(":memory:");
   const driver = new SQLite3Driver({ client: database });
   const client = createClient({ schema: probeSchema, driver });
-  // biome-ignore lint/suspicious/noMisplacedAssertion: helper is only called from a cell.
   assert.equal((await syncLiveSchema(client)).applied, true);
   database.exec(SEED);
   const candidate = createTestCommandEngine({ schema: probeSchema, driver });
@@ -167,7 +168,6 @@ async function both(
 }
 
 function report(name: string, pair: { shipped: Outcome; candidate: Outcome }) {
-  // biome-ignore lint/suspicious/noConsole: the probe's measurement IS its output.
   console.log(
     `[${name}]\n  shipped   ${pair.shipped.answer}\n            rows ${JSON.stringify(pair.shipped.rows)}\n  candidate ${pair.candidate.answer}\n            rows ${JSON.stringify(pair.candidate.rows)}`
   );

@@ -3,8 +3,8 @@
 The central plan in `docs/architecture/raptor3-implementation-plan.md` governs
 this explicitly authorized clean-sheet rewrite. Since the C-01 cutover
 (Arnaud's decision D-10, 2026-09-16) this directory IS the production engine:
-`VibORM`'s constructor builds `createCandidateRoute(...)` for every client, so
-the route is the one operation owner behind the unchanged public API rather
+`VibORM`'s constructor builds `createCommandEngine(...)` for every client, so
+that engine is the one operation owner behind the unchanged public API rather
 than a selectable alternative, and the legacy engine it replaced has been
 deleted. It is still not a fallback, and nothing here is exported from the
 package entry.
@@ -159,9 +159,9 @@ was measured judging a row the update does not write, and a guard in `SET`
 is evaluated row by row by SQLite and MySQL and was measured seeing the
 statement's own earlier rows. The values a write sets fold into its
 judgement where they are null tests of the produced row's own columns
-(`foldKnownNulls`): an arm on a key the write leaves null never reaches the
+(`foldKnownNulls`, `src/extensions/layers.ts`): an arm on a key the write leaves null never reaches the
 statement. An acyclic relation is a physical walk under no domain
-(`#outsideOwnSubtree`). A refused write raises its adapter's refusal sentinel
+(`outsideOwnSubtree`, `src/extensions/produced.ts`). A refused write raises its adapter's refusal sentinel
 (`__viborm_refused__` under the `__viborm_judged__` alias, never a premise's
 division by zero or invalid JSON), which the driver maps to
 `NestedWriteAssertionError`, so a caller's own division by zero or invalid
@@ -173,7 +173,7 @@ judged write or the first whose own `SELECT` source is refused when asked
 again (`#queueJudged`, `TransportAttempt.judgeWrite`). A set update whose
 candidates state the old row's judgement in the same statement does not
 state it again over a new row that differs only in fields it does not read
-(`readsAny`): the answer is the old row's. A value only the database
+(`readsAny`, `src/extensions/reads.ts`): the answer is the old row's. A value only the database
 computes (a list append, an exact decimal's multiply or divide) has no
 value to judge: it is refused before any statement where the judgement
 reads it, and stands where nothing does; a row of defaults only is refused
@@ -458,7 +458,7 @@ Do not reconstruct clearability from scalar nullability in the engine.
 descriptors, ordered stored fields, exact model/slot/variant membership
 orientation, slot clearability, and the query owner's per-adapter views
 (the scalar leaves and the default projection). Reuse original resolved descriptors,
-topology, edges, and members; freeze only the newly owned wrappers and arrays.
+topology, edges, and members. What is prepared is read-only by its type; the engine freezes none of it at run time.
 These caches contain no aliases, operation demands, origins, refusals,
 assignments, scratch references, or attempt values.
 
@@ -906,11 +906,11 @@ Named retention: TWO modules from the shipped `query-engine/` tree are imported
 at runtime, and these are ALL of them, so a legacy scan does not have to
 re-derive the list. (Only that tree: `@errors`, `@sql`, `@schema/**`,
 `@validation/**`, `@adapters/**` and `@drivers/**` are ordinary boundaries the
-brief keeps available, and `@client/client` reaches `route/client-route.ts`.)
+brief keeps available, and `@client/client` reaches `commands/index.ts`.)
 `query-engine/bind-budget.ts` (`shared/operation-context.ts`) is a pure `Sql`
 chunker over the driver's normalized verified bind capacity, shared by the
 deleted engines and the candidate alike — a neutral boundary, not the shipped
-engine. `result/cache-value-codecs.ts` (`route/client-route.ts`) is the official
+engine. `result/cache-value-codecs.ts` is the official
 cache value-codec owner and imports no compiler, lowerer, executor or result
 parser. The schema-to-`ValidationError` admission owner `shared/schema.ts` reads
 was the third until follow-up F-2 moved it INTO this tree: it is
@@ -1239,7 +1239,7 @@ of `disconnect`/`delete`/`update` is the one family `uniqueSelectorConjuncts`
 target — and a bulk member's `where` never asks. `SelectionSource.unique` points
 at the predicate instead of restating the classification.
 
-The candidate's client route (`route/client-route.ts` `runCandidate`) states
+A prepared operation's `run` (`commands/index.ts`) states
 WHICH SITUATION an operation is in and never whether an envelope is needed. A
 root operation is `standalone` — no borrowed driver, no grant. An existing array
 owner's sequential fallback (`driverOverride`) gets the exact borrowed driver
@@ -1451,7 +1451,7 @@ in the anchor (MySQL `cte_max_recursion_depth`; and PostgreSQL plans the
 recursive member as a hash join over a scan of the table where the anchor's
 hop is an index probe). Where the driver shares relation bodies
 (`sharesRelationBodies`), each reached row carries the columns its next hop
-reads (`#hopFields`) and the recursive member joins no row again, except
+reads (`hopFieldsOf`, in `storage.ts`) and the recursive member joins no row again, except
 from a start row that is not the stored row (`#rows`) where the hop reads
 more than its key: that walk still leaves the stored row too, as it always
 has; a junction hop joins the
@@ -1534,14 +1534,14 @@ Two facts, then, not one absolute. At every position the predicate IS asked,
 shipped ones from the same owner: no per-verb branch, no second walk. And a root
 `upsert` whose update payload names NO relation judges the key payload on
 NEITHER engine — `UpsertOperation.ts:496` gates `updateLegality` on
-`updateHasRelations` and `commands/commands.ts` mirrors it on `namesRelation` —
+`updateHasRelations` and the root `upsert` verb (`write/verbs.ts`) mirrors it
+on whether its update names a relation —
 so `set` wins there on both. That is parity, stated here so the next reader does
 not take it for a regression and widen the gate. `connect`, `connectOrCreate`
-and a `deleteMany` member carry no update payload and ask nothing. Where the post-transition key value has to be named at analysis (a
-child-held relation whose single-member reference key is the key being
-rewritten, with the locator's discriminator pinning the pre-value), the
-transition owner `EngineSchema.keyTransitionRefusal` answers first, in its own
-sentence, so neither arm of an upsert writes.
+and a `deleteMany` member carry no update payload and ask nothing. The shipped engine had a third owner, a key
+transition named at analysis, that refused both arms of an upsert in a sentence
+of its own. It is gone (2026-11-12): the key's rule is asked where the update
+arm runs, so a missing row is created and a found row answers the one sentence.
 
 A multi-statement write as an array member on a batch-only driver is PACKAGED
 and committed, not refused. The shipped route's insertId-scratch refusal is
@@ -1720,8 +1720,8 @@ statement always builds cannot decode as `null` — members are read with
 `Object.hasOwn`, and the decoder's structural failures are
 `InvalidScalarResult`, which `run` publishes as non-retryable public `QueryError` V2006 (`QUERY_RESULT_INVALID`).
 **And the member LIST of a decoded document is the PROJECTION's fact, not the
-row's** (P1, ruling D-61): `prepareProjection` states `shape.fields` once and
-freezes it, and the decoder reads it — `Object.entries(shape.fields)`, OWN
+row's** (P1, ruling D-61): `prepareProjection` states `shape.fields` once,
+and the decoder reads it — `Object.entries(shape.fields)`, OWN
 keys only, exactly as it READS the provider's — once per decoded BATCH, never
 per row, and never rebuilds the members as PAIRS, nor the document around them,
 per row. The member write is a plain assignment because the destination key is
@@ -2830,7 +2830,7 @@ dialect has a targeted upsert, the anti-join insert and an `UPDATE` elsewhere.
 `$through` is a read or a write of that model, unlike the hop beside it. The read
 projects the link the page already joins (`#memberSource`), the filter forces the
 join so a link's and a target's conditions test one pair, and what a direct call
-would hide or judge refuses it (`#refuseHiddenLinkRow`, `restrictsLinkWrite`,
+would hide or judge refuses it (the prepared domain's `refuseHiddenLinkRow` and `restrictsLinkWrite`, `src/extensions/row-domain.ts`,
 `#admitLink`). `#linkBound` applies a model's `tenant` bound at every hop's link
 alias, under the same polarity as `#setBound`, only over columns both of the
 link's keys hold: over any other, a link may disagree with the rows it joins.

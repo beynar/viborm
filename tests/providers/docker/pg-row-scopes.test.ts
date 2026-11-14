@@ -7,9 +7,13 @@
  */
 
 import { PgDriver } from "@drivers/pg";
+import { withRows } from "@extensions/rows-runtime";
 import { runDomainPredicateBehavior } from "@tests/contracts/engine/query/domain-predicate-behavior";
 import { runRowScopeBehavior } from "@tests/contracts/engine/query/row-scope-behavior";
 import { dropEveryLiveTable, TEST_CONNECTION_STRING } from "./pg-fixtures";
+
+// These definitions are stated as plain objects: what reads their rows is brought here.
+withRows();
 
 const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
 

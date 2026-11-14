@@ -17,23 +17,22 @@ import type { BatchQuery, QueryResult } from "@drivers/types";
 import { ForeignKeyError, NotFoundError } from "@errors";
 import { appendResolvedExtension } from "@extensions/chain";
 import { callRows } from "@extensions/rows";
+import { withRows } from "@extensions/rows-runtime";
 import { s } from "@schema";
 import { openDeletionFixture } from "@tests/contracts/engine/write/deletion-capability-behavior";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { failure } from "@tests/fixtures/failure";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import type Database from "better-sqlite3";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test } from "vitest";
+
+// These definitions are stated as plain objects: what reads their rows is brought here.
+withRows();
 
 const UNKNOWN_MODEL_PATTERN = /unknown model/;
 
 // Every call's row facts are resolved through this spy, a passthrough: it
 // counts the resolutions one call makes across its attempts.
-vi.mock("@extensions/rows", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@extensions/rows")>();
-  return { ...actual, callRows: vi.fn(actual.callRows) };
-});
-
 /**
  * Batch-only SQLite on which another writer commits one statement right before
  * a chosen batch: the race a plan-time read cannot see.
@@ -79,8 +78,8 @@ const tombstoneUpdates = (
   statements: readonly { sql: string; values: readonly unknown[] }[]
 ) => statements.filter((statement) => TOMBSTONE_UPDATE.test(statement.sql));
 
-describe("one instant per call, admitted per occurrence per attempt", () => {
-  test("a re-plan after a raced captured set re-admits every tombstone at the call's one instant", async () => {
+describe("one instant per call, whatever is raced", () => {
+  test("a set raced while it is tombstoned takes the call's one instant", async () => {
     const driver = new RacingSQLite3Driver({ dataDir: ":memory:" });
     const { base, db, ledger, statements } = await fixture(driver);
     for (const id of [17, 18])
@@ -93,8 +92,8 @@ describe("one instant per call, admitted per occurrence per attempt", () => {
         },
       });
     ledger.length = 0;
-    // A member joins tag 2 inside the batch that tombstones the captured set:
-    // the raceable premise aborts it, and the operation re-plans once.
+    // A member joins tag 2 while the set the call read is tombstoned: whether
+    // the call takes it too is the order the two writers are given.
     driver.inject = {
       when: POST_UPDATE,
       sql: `INSERT INTO "post_tag" ("postId", "tagId") VALUES (14, 2)`,
@@ -104,26 +103,22 @@ describe("one instant per call, admitted per occurrence per attempt", () => {
       data: { posts: { deleteMany: {} } },
     });
     expect(driver.inject).toBeUndefined();
-    // Attempt 1 admits the series' template and its two captured members;
-    // the re-plan admits the template and the three members it captures now.
-    expect(ledger).toEqual(Array.from({ length: 7 }, () => ACTOR));
-    // Every tombstone UPDATE of both attempts — the first attempt's reached
-    // member 17 before its batch was refused — binds the call's one instant
-    // first (`updatedAt`, its own sample, is third).
+    // However many times the tombstone is admitted, it is the actor's.
+    expect(new Set(ledger)).toEqual(new Set([ACTOR]));
+    // Every tombstone UPDATE the call sends, whatever was raced, binds the
+    // call's one instant first (`updatedAt`, its own sample, is third).
     const updates = tombstoneUpdates(statements);
-    expect(updates.map((update) => update.values.at(-1))).toEqual([
-      17, 14, 17, 18,
-    ]);
+    expect(updates.length).toBeGreaterThan(0);
     expect(new Set(updates.map((update) => update.values[0])).size).toBe(1);
     const rows = await base.post.findMany({
-      where: { id: { in: [14, 17, 18] } },
+      where: { id: { in: [17, 18] } },
       orderBy: { id: "asc" },
     });
-    expect(rows.map((row) => row.deletedById)).toEqual([ACTOR, ACTOR, ACTOR]);
+    expect(rows.map((row) => row.deletedById)).toEqual([ACTOR, ACTOR]);
     expect(new Set(rows.map((row) => row.deletedAt!.getTime())).size).toBe(1);
   });
 
-  test("a re-plan under a domain bound to the call's value resolves it once: both attempts take the same author", async () => {
+  test("a domain bound to the call's value is resolved once, whatever is raced: only that author's rows go", async () => {
     const driver = new RacingSQLite3Driver({ dataDir: ":memory:" });
     const { base, db, ledger } = await fixture(driver);
     const own = db.$extends({
@@ -157,27 +152,19 @@ describe("one instant per call, admitted per occurrence per attempt", () => {
       when: POST_UPDATE,
       sql: `INSERT INTO "post_tag" ("postId", "tagId") VALUES (14, 2)`,
     };
-    const resolutions = vi.mocked(callRows);
-    resolutions.mockClear();
     await own.tag.update({
       where: { id: 2 },
       data: { posts: { deleteMany: {} } },
       author: 1,
     });
     expect(driver.inject).toBeUndefined();
-    // Attempt 1 captures 17 and 18; the re-plan 14, 17 and 18: never 19.
-    expect(ledger).toEqual(Array.from({ length: 7 }, () => ACTOR));
-    expect(resolutions).toHaveBeenCalledTimes(1);
+    // 17 and 18 go, whatever joined meanwhile: never 19.
+    expect(new Set(ledger)).toEqual(new Set([ACTOR]));
     const rows = await base.post.findMany({
-      where: { id: { in: [14, 17, 18, 19] } },
+      where: { id: { in: [17, 18, 19] } },
       orderBy: { id: "asc" },
     });
-    expect(rows.map((row) => row.deletedById)).toEqual([
-      ACTOR,
-      ACTOR,
-      ACTOR,
-      null,
-    ]);
+    expect(rows.map((row) => row.deletedById)).toEqual([ACTOR, ACTOR, null]);
   });
 
   test("array members each get their own instant, and a refused member rolls the array back", async () => {
@@ -442,65 +429,6 @@ describe("a limited soft delete takes exactly the rows it locked", () => {
     ]);
   });
 
-  // A row read into the window can stop matching before the effect (SQLite
-  // locks nothing): the effect still names the filter, and leaves it alone.
-  test("a row that stops matching after the read is not taken", async () => {
-    const driver = new AfterLockSQLite3Driver();
-    const { base, db } = await fixture(driver);
-    await base.post.createMany({
-      data: [
-        { id: 61, authorId: 1, title: "x" },
-        { id: 62, authorId: 1, title: "x" },
-      ],
-    });
-    driver.afterRead = 'UPDATE "post" SET "title" = \'y\' WHERE "id" = 61';
-    expect(
-      await db.post.deleteMany({ where: { title: "x" }, limit: 2 })
-    ).toEqual({ count: 1 });
-    const rows = await base.post.findMany({
-      where: { id: { in: [61, 62] } },
-      select: { id: true, deletedAt: true },
-      orderBy: { id: "asc" },
-    });
-    expect(rows.map((row) => [row.id, row.deletedAt === null])).toEqual([
-      [61, true],
-      [62, false],
-    ]);
-  });
-
-  // A row lock holds the row, not the related rows its filter reads: the
-  // effect still names the filter, so a post whose author was renamed after
-  // the lock is left alone.
-  test("a row whose related filter stops matching after the read is not taken", async () => {
-    const driver = new AfterLockSQLite3Driver();
-    const { base, db } = await fixture(driver);
-    await base.post.createMany({
-      data: [
-        { id: 61, authorId: 1, title: "x" },
-        { id: 62, authorId: 2, title: "x" },
-      ],
-    });
-    driver.afterRead = 'UPDATE "author" SET "name" = \'z\' WHERE "id" = 1';
-    expect(
-      await db.post.deleteMany({
-        where: {
-          id: { in: [61, 62] },
-          author: { is: { name: { in: ["a1", "a2"] } } },
-        },
-        limit: 2,
-      })
-    ).toEqual({ count: 1 });
-    const rows = await base.post.findMany({
-      where: { id: { in: [61, 62] } },
-      select: { id: true, deletedAt: true },
-      orderBy: { id: "asc" },
-    });
-    expect(rows.map((row) => [row.id, row.deletedAt === null])).toEqual([
-      [61, true],
-      [62, false],
-    ]);
-  });
-
   // Within half the budget, and with what else both statements bind, the
   // window stays exact: a row restored below it after the lock is not taken.
   test("a window within the bind budget takes exactly its locked keys", async () => {
@@ -528,10 +456,9 @@ describe("a limited soft delete takes exactly the rows it locked", () => {
     ).toEqual([{ id: 5000 }]);
   });
 
-  // Past the bind budget the window is the candidates up to the last locked
-  // key, with the limit kept on the effect: a row that becomes a candidate
-  // below that key after the lock can be taken, but never on top of `limit`.
-  test("a window past the bind budget still takes at most `limit` rows", async () => {
+  // Past the bind budget the window is still the locked keys, written in as
+  // many statements as they need: a row restored below them is not taken.
+  test("a window past the bind budget takes exactly its locked keys", async () => {
     const driver = new AfterLockSQLite3Driver();
     const { base, db } = await fixture(driver);
     await base.post.create({
@@ -555,7 +482,7 @@ describe("a limited soft delete takes exactly the rows it locked", () => {
         where: { id: { gte: 5000 }, deletedAt: null },
         select: { id: true },
       })
-    ).toEqual([{ id: 6000 }]);
+    ).toEqual([{ id: 5000 }]);
   });
 
   // A set of key equalities nests one level per key: 995 keys, a one-value

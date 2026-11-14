@@ -1,37 +1,35 @@
 import { adapterPinnedTable } from "@adapters/adapter-internals";
 import type { Operations } from "@client/types";
+import type { AnyDriver } from "@drivers/driver";
 import type { QueryExecutionContext } from "@drivers/types";
-import { NotFoundError, UnsupportedOperationError } from "@errors";
+import { NotFoundError } from "@errors";
 import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
 import { baseOperation } from "../../routed-operations";
 import type { PreparedBatchOperation } from "../../types";
 import { renderers } from "../shared/insert-value";
-import type {
-  ExecutionBinding,
-  OperationContext,
-} from "../shared/operation-context";
-import { admitProjected } from "../shared/projected";
-import type { Leaf, ProjectionShape, Read } from "../shared/query";
-import { PreparedDomain, type Queries } from "../shared/query";
+import type { Leaf, ProjectionShape, Queries, Read } from "../shared/query";
 import { engineBackend } from "../shared/query-backend";
 import {
   type CallRows,
   type CallScope,
   parseStamped,
-  type RowDomain,
 } from "../shared/row-scope";
 import {
   type Arguments,
   type EngineConfig,
   EngineSchema,
   isReadOperation,
-  memo,
   type Operation,
 } from "../shared/schema";
-import { SqlOperationContext } from "../shared/sql-operation-context";
+import {
+  type ExecutionBinding,
+  type MemberRollback,
+  SqlOperationContext,
+} from "../shared/sql-operation-context";
 import { SqlQueries } from "../shared/sql-queries";
-import { Commands, type PhysicalPlan } from "./commands";
+import { nameOf, unsupported } from "../shared/terms";
+import { prepareCall, writeCall } from "../write";
 
 /**
  * What a prepared read publishes before it runs.
@@ -62,7 +60,7 @@ export interface PreparedRead {
   readonly single: boolean;
   /**
    * The read owner's own publication for zero rows: `null` (a row), `[]` (the
-   * set), `{}` (an aggregate record), `0` (`count`), `false` (`exist`). A cache
+   * set), `{}` (an aggregate record), `0` (`count`), `false` (`exist`). A
    * result codec reads the public value's kind here instead of assuming the row
    * shape is the value's shape — `count` publishes `3`, never `{_count: 3}`.
    */
@@ -90,10 +88,24 @@ function publishedFacts(value: Read): PreparedRead {
   };
 }
 
+/** What the client's lifecycle knows when it runs an operation. */
+export interface RoutedOperationExecution {
+  /** This operation's immutable attribution, created with the operation. */
+  readonly context: QueryExecutionContext;
+  /** The driver of the engine this operation was created on. */
+  readonly engineDriver: AnyDriver;
+  /** A driver an existing transaction/array owner supplies for this run. */
+  readonly driverOverride: AnyDriver | undefined;
+  /** The existing read/write classification of the requested verb. */
+  readonly isWrite: boolean;
+  readonly committedWriteSegment: (() => Promise<void>) | undefined;
+  readonly writeMayBeVisible: (() => Promise<void>) | undefined;
+}
+
 /**
- * One admitted operation, before any execution.
+ * One operation, before any execution.
  *
- * The client lifecycle is admission-first by construction — a cache must key
+ * The client lifecycle is admission-first by construction — a stored answer must key
  * before it can look up, and an interceptor must see the payload before it calls
  * `proceed()` — so admission, the prepared read shape and the cardinality are
  * published here, exactly once, and execution consumes that same construction
@@ -101,14 +113,39 @@ function publishedFacts(value: Read): PreparedRead {
  * `PendingOperation` is lazy (LX-01).
  */
 export interface PreparedOperation {
-  /** The ONE admission of this input. */
+  /**
+   * The ONE admission of this input: the same object the statements are built
+   * from, so an interceptor's `input` and the key of the call describe the
+   * query that runs.
+   */
   readonly args: Arguments;
   /** Present for read verbs: the one prepared read's published facts. */
-  readonly read?: PreparedRead;
+  readonly read: PreparedRead | undefined;
+  /** The model and the verb the caller asked for, `…OrThrow` included. */
+  readonly requested: { readonly model: string; readonly operation: string };
   execute(
     binding?: ExecutionBinding,
     attribution?: QueryExecutionContext
   ): Promise<unknown>;
+  /**
+   * Runs it on the driver its owner selected.
+   *
+   * - root: no binding; the call owns its standalone envelope.
+   * - an array owner's sequential fallback (`driverOverride`): the exact
+   *   borrowed driver and NO grant — the array owner's transaction is the unit,
+   *   so the call opens no scope and a failing statement poisons the array's.
+   * - inside `$transaction(callback)` (the engine is bound to a transaction
+   *   driver): the caller opened no scope for this operation, so the right to
+   *   open one is TRANSFERRED. The call then applies the same envelope rule it
+   *   applies everywhere — a statement-atomic write runs directly on the
+   *   caller's transaction driver, a multi-statement one opens exactly one
+   *   nested region and rolls back only its own work. The second grant is
+   *   member isolation inside whichever of those two scopes is current.
+   *
+   * What a write left durable is a transport fact: the transport states it,
+   * where it learns it, through the two notifications of the execution.
+   */
+  run(execution: RoutedOperationExecution): Promise<unknown>;
   prepareBatch(
     attribution?: QueryExecutionContext
   ): Promise<PreparedBatchOperation<unknown> | undefined>;
@@ -123,16 +160,14 @@ export interface PreparedOperation {
   ): PreparedBatchOperation<unknown> | undefined;
 }
 
+/** A class, not a closure: one is made per call, and its methods are made once. */
 class PreparedCommand implements PreparedOperation {
   readonly #config: EngineConfig;
-  readonly #schema: EngineSchema;
-  /** {@link Queries} itself, unless the driver supplies another language. */
   readonly #queries: Queries;
-  readonly #operation: Operation;
-  readonly #model: EngineConfig["schema"][string];
   readonly #modelName: string;
+  readonly #requested: Operations;
+  readonly #operation: Operation;
   readonly #rawArgs: unknown;
-  readonly #missing: (() => NotFoundError) | undefined;
   readonly #scope: CallScope | undefined;
   #admitted: Arguments | undefined;
   #prepared: Read | undefined;
@@ -140,7 +175,6 @@ class PreparedCommand implements PreparedOperation {
 
   constructor(
     config: EngineConfig,
-    schema: EngineSchema,
     queries: Queries,
     modelName: string,
     requested: Operations,
@@ -150,48 +184,48 @@ class PreparedCommand implements PreparedOperation {
     // The call's one instant lives with the prepared call, so a replan and
     // every occurrence it re-admits share it.
     let instant: Date | undefined;
-    this.#scope =
-      rows && callScope(queries, rows, () => (instant ??= new Date()));
+    this.#scope = rows?.prepare(queries, () => (instant ??= new Date()));
     this.#config = config;
-    this.#schema = schema;
     this.#queries = queries;
-    this.#operation = baseOperation(requested);
-    this.#model = config.schema[modelName]!;
     this.#modelName = modelName;
+    this.#requested = requested;
+    this.#operation = baseOperation(requested);
     this.#rawArgs = rawArgs;
-    this.#missing =
-      requested === this.#operation
-        ? undefined
-        : () =>
-            new NotFoundError(
-              this.#model["~"].names.ts ?? "unknown",
-              requested
-            );
   }
 
-  get args(): Arguments {
-    return (this.#admitted ??= this.#admit());
+  get #model(): AnyModel {
+    return this.#config.schema[this.#modelName]!;
+  }
+
+  get requested(): { readonly model: string; readonly operation: string } {
+    return { model: this.#modelName, operation: this.#requested };
+  }
+
+  /** What a verb that must find its row fails with where there is none. */
+  get #missing(): (() => NotFoundError) | undefined {
+    return this.#requested === this.#operation
+      ? undefined
+      : () =>
+          new NotFoundError(nameOf(this.#model) ?? "unknown", this.#requested);
   }
 
   /**
    * Admitted where a required field the call's stamps write may be left out,
    * with the projection keys its domain declares kept beside the schema's.
    */
-  #admit(): Arguments {
+  get args(): Arguments {
+    if (this.#admitted) return this.#admitted;
+    const { schema } = this.#queries;
     const stamps = this.#scope?.rows.stamps;
     const domain = this.#scope?.domain;
+    const own = (raw: unknown) =>
+      schema.admit(this.#model, this.#operation, raw);
     const admit = domain?.projects
       ? () =>
-          admitProjected(
-            domain,
-            this.#schema,
-            this.#model,
-            this.#operation,
-            this.#rawArgs,
-            (raw) => this.#schema.admit(this.#model, this.#operation, raw)
-          )
-      : () => this.#schema.admit(this.#model, this.#operation, this.#rawArgs);
-    return stamps === undefined ? admit() : parseStamped(stamps, admit);
+          domain.admit(schema, this.#model, this.#operation, this.#rawArgs, own)
+      : () => own(this.#rawArgs);
+    return (this.#admitted =
+      stamps === undefined ? admit() : parseStamped(stamps, admit));
   }
 
   #read(): Read | undefined {
@@ -203,8 +237,7 @@ class PreparedCommand implements PreparedOperation {
 
   get read(): PreparedRead | undefined {
     const value = this.#read();
-    if (!value) return undefined;
-    return (this.#facts ??= publishedFacts(value));
+    return value && (this.#facts ??= publishedFacts(value));
   }
 
   /** This call's context; only the binding, preparation and attribution vary. */
@@ -212,14 +245,15 @@ class PreparedCommand implements PreparedOperation {
     preparing: boolean,
     attribution?: QueryExecutionContext,
     binding?: ExecutionBinding
-  ): OperationContext {
-    const { backend } = this.#config.driver;
-    const Context = backend
-      ? engineBackend(backend).context
-      : SqlOperationContext;
-    return new Context(
-      this.#schema,
-      this.#config.driver,
+  ): SqlOperationContext {
+    const { driver } = this.#config;
+    return new (
+      driver.backend
+        ? engineBackend(driver.backend).context
+        : SqlOperationContext
+    )(
+      this.#queries.schema,
+      driver,
       this.#modelName,
       this.#operation,
       binding,
@@ -229,88 +263,93 @@ class PreparedCommand implements PreparedOperation {
     );
   }
 
-  #plan(context: OperationContext): PhysicalPlan {
-    return new Commands(context).plan(
-      this.#model,
-      this.args,
-      this.#rawArgs as Arguments
-    );
-  }
-
-  #body(context: OperationContext) {
-    const value = this.#read();
-    if (value) return context.run(() => context.publish(value, this.#missing));
-    // The physical form is constructed BEFORE the envelope decision and runs
-    // once, whichever envelope the rule chooses.
-    let planned: PhysicalPlan | undefined = this.#plan(context);
-    const single = planned.single;
-    // Each ATTEMPT runs its own occurrence tree. The envelope restart and the
-    // recovery both re-enter this body, and a recovery re-plans from the same
-    // ADMITTED arguments — never re-validated, never re-transformed (rule 10,
-    // Arnaud's D-25) — because the tree that ran carries the members it
-    // captured and a series occurrence is expanded exactly once. The first
-    // attempt consumes the plan built above, which is also the plan that
-    // answered the envelope question, so nothing is constructed twice to
-    // START an operation.
-    return context.run(() => {
-      const plan = planned ?? this.#plan(context);
-      planned = undefined;
-      return plan.run();
-    }, single);
-  }
-
+  // Not `async`: the promise is handed back as it is. An async function
+  // adopts a returned promise a microtask later, so a refusal thrown before
+  // any I/O (V8003) sat rejected with no handler in between, which workerd
+  // under nodejs_compat reports as an unhandled rejection.
   execute(
     binding?: ExecutionBinding,
     attribution?: QueryExecutionContext
   ): Promise<unknown> {
     try {
-      return this.#body(this.#context(false, attribution, binding));
+      const context = this.#context(false, attribution, binding);
+      const value = this.#read();
+      return value
+        ? context.run(() => context.publish(value, this.#missing))
+        : writeCall(
+            context,
+            this.#config.driver,
+            this.#model,
+            this.args,
+            this.#rawArgs,
+            binding
+          );
     } catch (error) {
       return Promise.reject(error);
     }
   }
 
+  run(execution: RoutedOperationExecution): Promise<unknown> {
+    const { driverOverride, engineDriver } = execution;
+    const writeOutcome =
+      execution.isWrite &&
+      (execution.committedWriteSegment || execution.writeMayBeVisible)
+        ? {
+            committedSegment: execution.committedWriteSegment,
+            mayBeVisible: execution.writeMayBeVisible,
+          }
+        : undefined;
+    if (driverOverride)
+      return this.execute(
+        { driver: driverOverride, kind: "borrowed-transaction", writeOutcome },
+        execution.context
+      );
+    if (engineDriver === this.#config.driver)
+      return this.execute(
+        writeOutcome && { kind: "standalone", writeOutcome },
+        execution.context
+      );
+    const region: MemberRollback = (execute, scoped) =>
+      engineDriver.withTransaction(execute, undefined, scoped);
+    return this.execute(
+      {
+        driver: engineDriver,
+        kind: "borrowed-transaction",
+        memberRollback: region,
+        operationRegion: region,
+        writeOutcome,
+      },
+      execution.context
+    );
+  }
+
   prepareSingle(
     attribution?: QueryExecutionContext
   ): PreparedBatchOperation<unknown> | undefined {
-    // Preparing admits the input whatever the verb compiles to: an
-    // operation that publishes no single query still answers for the
-    // payload it was handed, exactly as `prepareBatch` does.
+    // Preparing admits the input whatever the verb compiles to: an operation
+    // that publishes no single query still answers for the payload it was
+    // handed, exactly as `prepareBatch` does.
     this.args;
-    const context = this.#context(true, attribution);
+    // A write is prepared by asking: its owner asks for the package.
     const value = this.#read();
-    if (value) {
-      context.publishPrepared(value, this.#missing);
-      return context.preparedBatch();
-    }
-    // D-20: a WRITE whose plan is one statement publishes the same package
-    // (`prepareBatch` would publish it too), so the array owner parses it
-    // through its own `parseResult` seam and interceptor onion instead of
-    // through the batch. It is not a second preparation: this is the
-    // preparation, and `Commands.plan` states the ONE-statement
-    // admissibility itself. Preparation reaches no driver and queues
-    // synchronously, so the package is in hand when this returns; anything
-    // it would refuse — a capability gate, the dynamic-planning sentinel —
-    // is refused again, and reported, by the arm that actually runs the
-    // operation, which is the only arm a caller takes once no single
-    // package is published.
-    const plan = this.#plan(context);
-    if (!plan.single) return undefined;
-    plan.run().catch(() => undefined);
+    if (!value) return undefined;
+    const context = this.#context(true, attribution);
+    context.publishPrepared(value, this.#missing);
     return context.preparedBatch();
   }
 
   async prepareBatch(
     attribution?: QueryExecutionContext
   ): Promise<PreparedBatchOperation<unknown> | undefined> {
-    const context = this.#context(true, attribution);
-    try {
-      await this.#body(context);
-    } catch (error) {
-      if (context.isIncompletePreparation(error)) return undefined;
-      throw error;
-    }
-    return context.preparedBatch();
+    return this.#read()
+      ? this.prepareSingle(attribution)
+      : prepareCall(
+          this.#context(true, attribution),
+          this.#config.driver,
+          this.#model,
+          this.args,
+          this.#rawArgs
+        );
   }
 }
 
@@ -337,46 +376,6 @@ const sharedEngines = new WeakMap<
     queries: WeakMap<object, QueriesByResult>;
   }
 >();
-
-/**
- * Each row domain a call selects, prepared once per query owner. A prepared
- * domain derives only from the domain, that owner (its adapter and result
- * parser) and its defaults, so clients sharing the owner share it too; a
- * client without `rows` never reaches the map. The domain alone keys it: a
- * chain's binding builds each domain with its one default domain.
- */
-const preparedDomains = new WeakMap<
-  Queries,
-  WeakMap<RowDomain, PreparedDomain>
->();
-
-function preparedDomain(
-  queries: Queries,
-  rows: RowDomain,
-  defaults?: PreparedDomain
-): PreparedDomain {
-  const byDomain = memo(preparedDomains, queries, () => new WeakMap());
-  return memo(
-    byDomain,
-    rows,
-    () => new PreparedDomain(rows, queries, defaults)
-  );
-}
-
-/** One call's row facts, its domains prepared for `queries`. */
-function callScope(
-  queries: Queries,
-  rows: CallRows,
-  instant: () => Date
-): CallScope {
-  const defaults = preparedDomain(queries, rows.defaults);
-  return {
-    rows,
-    domain: preparedDomain(queries, rows.domain, defaults),
-    defaults,
-    instant,
-  };
-}
 
 function sharedQueries(config: EngineConfig): Queries {
   const { adapter, result, backend } = config.driver;
@@ -409,6 +408,15 @@ function sharedQueries(config: EngineConfig): Queries {
   return queries;
 }
 
+/** The one operation owner of a client lineage: what its engines consult. */
+export type CommandEngine = ReturnType<typeof createCommandEngine>;
+
+/**
+ * The engine of one client lineage, bound to that client's root driver.
+ * `config.resolved` is the client's own already-composed topology index and
+ * schema registry, handed over by identity: nothing is hydrated, validated or
+ * registered a second time (note.md B-3).
+ */
 export function createCommandEngine(config: EngineConfig) {
   // One query owner for the prepared read. The adapter is pinned by identity
   // across transaction scoping (`TransactionBoundDriver` copies
@@ -418,22 +426,14 @@ export function createCommandEngine(config: EngineConfig) {
   let byAdapter = renderers.get(config.schema);
   if (!byAdapter) renderers.set(config.schema, (byAdapter = new WeakMap()));
   byAdapter.set(config.driver.adapter, queries);
-  const { schema } = queries;
+  const { driver } = config;
   const prepare = (
     modelName: string,
     requested: Operations,
     rawArgs: unknown,
     rows?: CallRows
   ): PreparedOperation =>
-    new PreparedCommand(
-      config,
-      schema,
-      queries,
-      modelName,
-      requested,
-      rawArgs,
-      rows
-    );
+    new PreparedCommand(config, queries, modelName, requested, rawArgs, rows);
   /**
    * `$rows`: `model`'s rows a root read under `rows` takes, as a raw read's
    * `FROM` item named `alias`. A model whose layers gate a field's reads is
@@ -445,20 +445,19 @@ export function createCommandEngine(config: EngineConfig) {
     rows: CallRows | undefined,
     instant: () => Date
   ): Sql => {
-    if (config.driver.backend)
-      throw new UnsupportedOperationError("$rows() needs an SQL driver");
+    if (driver.backend) unsupported("$rows() needs an SQL driver");
     if (adapterPinnedTable(queries.adapter) === undefined)
-      throw new UnsupportedOperationError(
+      unsupported(
         "$rows() needs a driver bound to its database (a MySQL namespace): a caller's CTE could otherwise stand for a table its rows read"
       );
-    const scope = rows && callScope(queries, rows, instant);
-    const gated = scope?.domain.projected(model)?.gates;
-    if (gated !== undefined && gated.size > 0)
-      throw new UnsupportedOperationError(
-        `${model["~"].names.ts}.$rows() refuses read-gated fields: ${[...gated.keys()]}`
-      );
+    const scope = rows?.prepare(queries, instant);
+    scope?.domain.refuseGatedRows(model);
     const view = (scope ? scope.domain.reads(scope) : queries) as SqlQueries;
     return view.rowsOf(model, alias);
   };
-  return { prepare, rowsOf };
+  /**
+   * `driver` is the root driver the engine is bound to: an operation run on
+   * any other driver runs in a scope its owner opened.
+   */
+  return { driver, prepare, rowsOf };
 }

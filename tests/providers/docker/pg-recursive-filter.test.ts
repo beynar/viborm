@@ -7,8 +7,12 @@
  */
 
 import { PgDriver } from "@drivers/pg";
+import { withRows } from "@extensions/rows-runtime";
 import { runRecursiveRelationFilterBehavior } from "@tests/contracts/engine/query/recursive-relation-filter-behavior";
 import { dropEveryLiveTable, TEST_CONNECTION_STRING } from "./pg-fixtures";
+
+// These definitions are stated as plain objects: what reads their rows is brought here.
+withRows();
 
 const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
 

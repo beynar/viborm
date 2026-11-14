@@ -145,10 +145,23 @@ export class TestTransactionOperation<T> implements PromiseLike<T> {
         operation.#overrides.prepare === undefined
           ? operation.#owner.prepare(operation.#capability, driver)
           : operation.#overrides.prepare(driver),
-      prepareBatch: (operation) =>
-        operation.#overrides.prepareBatch === undefined
-          ? operation.#owner.prepareBatch(operation.#capability)
-          : operation.#overrides.prepareBatch(),
+      prepareBatch: async (operation) => {
+        if (operation.#overrides.prepareBatch !== undefined)
+          return operation.#overrides.prepareBatch();
+        const prepared = await operation.#owner.prepareBatch(
+          operation.#capability
+        );
+        // A member the test parses is parsed so whichever way its owner asks
+        // for it: a package of one query answers through the same parser.
+        const parse = operation.#overrides.parseResult;
+        return parse && prepared?.queries.length === 1
+          ? {
+              ...prepared,
+              parseResult: (results: readonly QueryResult<unknown>[]) =>
+                parse(results[0]!),
+            }
+          : prepared;
+      },
       parseResult: (operation, raw) =>
         operation.#overrides.parseResult === undefined
           ? operation.#owner.parseResult(operation.#capability, raw)

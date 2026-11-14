@@ -319,6 +319,7 @@ export async function modifiedResults() {
 /** Construct all public views while refusing even a first provider initialization. */
 export function constructionSource(fixture) {
   return `import assert from "node:assert/strict";
+import { defineHooks } from "viborm";
 import { SQLite3Driver } from "viborm/sqlite3";
 const prototype = SQLite3Driver.prototype;
 const initialize = Object.getOwnPropertyDescriptor(prototype, "initClient");
@@ -347,7 +348,7 @@ try {
     }
   };
   check(fixture.db);
-  const extended = fixture.db.$extends({ name: "construction-check", client: () => ({ $constructionCheck: () => true }) });
+  const extended = fixture.db.$extends(defineHooks({ name: "construction-check", client: () => ({ $constructionCheck: () => true }) }));
   check(extended, fixture.db.$driver);
   assert.equal(extended.$constructionCheck(), true);
   assert.equal(fixture.db.$constructionCheck, undefined);

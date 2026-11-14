@@ -11,7 +11,7 @@
 
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
-import { defineExtension } from "@extensions/definition";
+import { defineExtension } from "@extensions/define";
 import { s } from "@schema";
 import { permissions } from "@src/permissions";
 import { softDelete } from "@src/soft-delete/index";
