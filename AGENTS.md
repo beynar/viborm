@@ -352,6 +352,9 @@ keys are refused. Graph edges and call sites still name single actions.
 absence guard: an optional actor value read outside an authored `$if` closes
 the whole permission (generic `rows` R6), its other alternatives and inherited
 grants included, so an author guards each rule or alternative that reads one.
+An authored `$if` is only a condition: a guard that skips inside NOT, none,
+isNot or every (or in a rule read at an action name under one) makes the
+negation hold, so a negated alternative is guarded outside its negation.
 A written foreign key needs a target the actor reads; a `create` rule equating
 it with a readable row's key restricts the row, never grants the target.
 Predicate simplification preserves row truth and conditional actor dependency

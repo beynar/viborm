@@ -1328,8 +1328,15 @@ its `$if`, an actor without `userId` would read nothing at all, the public
 documents included. A `$if` folds before the value is read, so a guarded
 alternative is skipped and the others still apply, inside `AND`, `some` or
 `is` as at the top. Under `NOT`, `none`, `isNot` or `every`, an unguarded read
-of a missing value closes the permission as well: negation or an empty relation
-never turns missing identity data into permission.
+of a missing value closes the permission as well.
+
+A guard inside a negation does the opposite: the skipped alternative is false,
+so its negation holds on every row. The same goes for a guarded rule another
+model reads at an action name under a negation: with `update` guarded as above,
+`read: { NOT: { doc: "update" } }` on a model related to `doc` lets an actor
+without `userId` through on every row, including the rows u1 is refused. Guard
+a negated alternative outside its negation:
+`{ $if: { control: "actor", path: "userId", exists: true }, NOT: { doc: "update" } }`.
 
 Global and model `mandatory` restrict every grant: a condition there that reads
 a missing value denies the operation. Use `$if` when it should apply only if the
