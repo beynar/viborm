@@ -58,6 +58,7 @@ interface LooseDelegate {
   findMany(args?: object): Promise<Row[]>;
   findFirst(args?: object): Promise<Row | null>;
   findFirstOrThrow(args?: object): Promise<Row>;
+  findUnique(args: object): Promise<Row | null>;
   count(args?: object): Promise<number>;
   aggregate(args: object): Promise<Row>;
   groupBy(args: object): Promise<Row[]>;
@@ -66,11 +67,6 @@ interface LooseDelegate {
   updateMany(args: object): Promise<{ count: number }>;
   delete(args: object): Promise<Row>;
   deleteMany(args?: object): Promise<{ count: number }>;
-  can<A extends string | readonly string[]>(
-    action: A,
-    where: object
-  ): Promise<A extends string ? boolean : Record<string, boolean>>;
-  assert(action: string | readonly string[], where: object): Promise<void>;
   restore(args: object): Promise<Row>;
 }
 type Loose = Record<string, LooseDelegate> & {
@@ -81,6 +77,26 @@ type Loose = Record<string, LooseDelegate> & {
   $withCache(options?: object): Loose;
 };
 const loose = (client: unknown) => client as Loose;
+
+/**
+ * Whether the actor holds each action on the one row `where` names, read as
+ * an application reads it: that row's `$access`, in one statement. A row the
+ * actor does not view holds none.
+ */
+async function holds(
+  delegate: LooseDelegate,
+  actions: readonly string[],
+  where: object
+): Promise<Record<string, boolean>> {
+  const row = await delegate.findUnique({
+    where,
+    select: { $access: actions },
+  });
+  const access = row?.$access as Readonly<Record<string, boolean>> | undefined;
+  return Object.fromEntries(
+    actions.map((action) => [action, access?.[action] === true])
+  );
+}
 
 export interface EntrySubstrate extends PermissionsAppSubstrate {
   /** Run W-X1: raw SQL through the governed client (SQLite3 spelling). */
@@ -108,6 +124,8 @@ const KEYED = [
 /** The actors whose finer reads are judged: every shape of access the seed holds. */
 const READERS = ["u01", "u03", "u04", "u05", "u20", "u22", "u42", "u56"];
 const ROLLBACK = new Error("rolled back");
+/** What a `$access` naming an action the model does not declare throws. */
+const ACCESS_REFUSAL = ValidationError.name;
 
 const tombstones = softDelete({
   models: Object.fromEntries(
@@ -118,12 +136,12 @@ const tombstones = softDelete({
 /**
  * §1.1's `server.ts` chain over `client`: soft delete's and permissions's rows
  * steps, then `between` (an extension that comes after every rows step),
- * then their methods steps.
+ * then soft delete's methods step.
  */
 function governedOver(client: PermissionsAppClient, between?: object): Loose {
   const rows = policy.rows(tombstones.rows(client));
   const middle = between === undefined ? rows : loose(rows).$extends(between);
-  return loose(policy.methods(tombstones.methods(middle as typeof rows)));
+  return loose(tombstones.methods(middle as typeof rows));
 }
 
 /** A copy of the model's first seeded row under new keys: valid create data. */
@@ -647,7 +665,7 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
         });
         const rows = gated.rows(tombstones.rows(base));
         const call = (actor: Actor) =>
-          loose(gated.methods(tombstones.methods(rows))).$as(actor);
+          loose(tombstones.methods(rows)).$as(actor);
         let present = 0;
         let absent = 0;
         // One statement per actor: every actor, so both readings occur.
@@ -794,7 +812,9 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
         const shared = at(sharer, "document", "share")[0];
         expect(shared).toBeDefined();
         expect(
-          await db.$as(sharer).document!.can(["read", "share"], { id: shared })
+          await holds(db.$as(sharer).document!, ["read", "share"], {
+            id: shared,
+          })
         ).toEqual({ read: true, share: true });
         // W-L5: a model the key does not scope holds nothing, at any action.
         const pagesOnly = db.$as(actors["k02-pages-read"]!);
@@ -817,7 +837,7 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
       async () => {
         const open = permissions(policy.config);
         const rows = open.rows(tombstones.rows(base));
-        const unnarrowed = loose(open.methods(tombstones.methods(rows)));
+        const unnarrowed = loose(tombstones.methods(rows));
         for (const name of READERS) {
           const actor = actors[name]!;
           expect(actor.key, name).toBeUndefined();
@@ -903,10 +923,12 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
             ),
             JSON.stringify(data)
           ).toBe(NotFoundError.name);
-        expect(await db.$as(keyed).page!.can("update", { id: page })).toBe(
-          false
-        );
-        expect(await db.$as(user).page!.can("update", { id: page })).toBe(true);
+        expect(
+          await holds(db.$as(keyed).page!, ["update"], { id: page })
+        ).toEqual({ update: false });
+        expect(
+          await holds(db.$as(user).page!, ["update"], { id: page })
+        ).toEqual({ update: true });
       },
       timeout
     );
@@ -929,7 +951,7 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
           },
         });
         const rows = domains.rows(tombstones.rows(base));
-        const narrowed = loose(domains.methods(tombstones.methods(rows)));
+        const narrowed = loose(tombstones.methods(rows));
         let refused = 0;
         for (const name of READERS) {
           const actor = actors[name]!;
@@ -1120,12 +1142,12 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
           (e) => e
         )) as ForbiddenError;
         expect(refusal.meta).toMatchObject({ model, operation: "findMany" });
-        // `can` asks through the same mode: an action the model does not
-        // declare is the same refusal, never a false that reads as hidden.
+        // `$access` naming an action the model does not declare is refused
+        // before any statement too, never a false that reads as hidden.
         expect(
-          await issued(() => call[model]!.can(mode, { id: "none" })),
-          `${model} can ${mode}`
-        ).toEqual({ outcome: ForbiddenError.name, statements: 0 });
+          await issued(() => holds(call[model]!, [mode], { id: "none" })),
+          `${model} $access ${mode}`
+        ).toEqual({ outcome: ACCESS_REFUSAL, statements: 0 });
       }
       // organization and team declare no delete: their deletes are false.
       for (const model of ["organization", "team"])
@@ -1209,7 +1231,9 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
             )
           ).toBe(ForbiddenError.name);
           expect(
-            await call.page!.can(["read", "update", "delete"], { id: other.id })
+            await holds(call.page!, ["read", "update", "delete"], {
+              id: other.id,
+            })
           ).toEqual({ read: true, update: false, delete: admin });
         }
       },
@@ -1217,7 +1241,7 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
     );
 
     test(
-      "W-D9: a per-call fold takes the ordinary outcome: export off the office network is empty, NotFoundError on a unique read, false for can",
+      "W-D9: a per-call fold takes the ordinary outcome: export off the office network is empty, NotFoundError on a unique read, false in $access",
       async () => {
         const admin = actors.u01!;
         const org = seed.member.find(
@@ -1247,9 +1271,9 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
             network
           ).toBe(expected.includes(org) ? "ok" : NotFoundError.name);
           expect(
-            await call.organization!.can("export", { id: org }),
+            await holds(call.organization!, ["export"], { id: org }),
             network
-          ).toBe(expected.includes(org));
+          ).toEqual({ export: expected.includes(org) });
         }
         expect(
           at({ ...admin, network: "office" }, "organization", "export")
@@ -1284,8 +1308,12 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
     test("a read-gated key or foreign key is refused by its model's first call (K5's admission)", async () => {
       const gated = permissions({
         actor: ActorSchema,
-        levels: ["read", "update", "full"],
-        models: { page: { fields: { groupId: { read: "full" } } } },
+        models: {
+          page: {
+            actions: { read: [], update: ["read"], full: ["update"] },
+            fields: { groupId: { read: "full" } },
+          },
+        },
       } as never);
       await expect(
         loose(gated(base as never))
@@ -1298,8 +1326,13 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
       // constraint exactly when a row holds it (review FDOCS-4).
       const unique = permissions({
         actor: ActorSchema,
-        levels: ["read", "update", "full"],
-        models: { user: { read: {}, fields: { email: { read: "full" } } } },
+        models: {
+          user: {
+            actions: { read: [], update: ["read"], full: ["update"] },
+            read: {},
+            fields: { email: { read: "full" } },
+          },
+        },
       } as never);
       await expect(
         loose(unique(base as never))
@@ -1341,7 +1374,7 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
       expect(() => required.$as({ userId: "user-03" })).not.toThrow();
     });
 
-    test("a missing optional actor value denies its declared grant without closing independent grants", async () => {
+    test("a missing optional actor value read without a guard closes the permission, through an inherited rule or an alternative; the author's guard keeps the others", async () => {
       const optional = v.object({ userId: v.optional(v.string()) });
       const over = (rules: object) =>
         loose(
@@ -1351,15 +1384,12 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
         );
       const shared = seed.page.filter((p) => !p.personal);
       expect(shared.length).toBeGreaterThan(0);
+      // Update implies read: its unguarded read of the absent value closes read.
       const implied = over({
         read: { personal: false },
         update: { ownerId: { actor: "userId" } },
       });
-      // The update grant is unavailable, but the independent read grant holds.
-      expect(await implied.$as({}).page!.count()).toBe(shared.length);
-      expect(
-        await implied.$as({}).page!.can("update", { id: shared[0]!.id })
-      ).toBe(false);
+      expect(await implied.$as({}).page!.count()).toBe(0);
       const guarded = over({
         read: { personal: false },
         update: {
@@ -1368,12 +1398,31 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
         },
       });
       expect(await guarded.$as({}).page!.count()).toBe(shared.length);
+      expect(
+        await holds(guarded.$as({}).page!, ["update"], { id: shared[0]!.id })
+      ).toEqual({ update: false });
       expect(await guarded.$as({ userId: "user-03" }).page!.count()).toBe(
         seed.page.filter((p) => !p.personal || p.ownerId === "user-03").length
       );
-      // Positive OR alternatives infer availability; negative rules stay closed.
+      // An OR alternative is skipped only where its author guards it;
+      // negative rules stay closed.
+      expect(
+        await over({
+          read: { OR: [{ personal: false }, { ownerId: { actor: "userId" } }] },
+        })
+          .$as({})
+          .page!.count()
+      ).toBe(0);
       const single = over({
-        read: { OR: [{ personal: false }, { ownerId: { actor: "userId" } }] },
+        read: {
+          OR: [
+            { personal: false },
+            {
+              $if: { control: "actor", path: "userId", exists: true },
+              ownerId: { actor: "userId" },
+            },
+          ],
+        },
       });
       expect(await single.$as({}).page!.count()).toBe(shared.length);
       expect(await single.$as({ userId: "user-03" }).page!.count()).toBe(
@@ -1422,7 +1471,7 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
     // --- C7: single-action answers ----------------------------------------
 
     test(
-      "W-CAN1, W-CAN3, W-CAN4: can answers the oracle for a held, a lacking and a hidden row in one statement; assert throws ForbiddenError for both of the last",
+      "W-CAN1, W-CAN3, W-CAN4: $access answers the oracle for a held, a lacking and a hidden row in one statement",
       async () => {
         let hidden = 0;
         let lacking = 0;
@@ -1430,11 +1479,11 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
           const actor = actors[name]!;
           const call = metered.$as(actor);
           for (const action of actionsOf("document")) {
-            const holds = at(actor, "document", action);
+            const holding = at(actor, "document", action);
             const read = at(actor, "document", "read");
             const cases = [
-              holds[0],
-              minus(read, holds)[0],
+              holding[0],
+              minus(read, holding)[0],
               seed.document.find((d) => !read.includes(d.id))?.id,
             ];
             for (const [index, id] of cases.entries()) {
@@ -1442,13 +1491,11 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
               if (index === 1) lacking += 1;
               if (index === 2) hidden += 1;
               statements.length = 0;
-              const held = await call.document!.can(action, { id });
-              expect(held, `${name} ${action} ${id}`).toBe(holds.includes(id));
+              const held = await holds(call.document!, [action], { id });
+              expect(held, `${name} ${action} ${id}`).toEqual({
+                [action]: holding.includes(id),
+              });
               expect(statements, `${name} ${action}`).toHaveLength(1);
-              expect(
-                await outcomeOf(() => call.document!.assert(action, { id })),
-                `${name} ${action} ${id}`
-              ).toBe(held ? "ok" : ForbiddenError.name);
             }
           }
         }
@@ -1459,7 +1506,7 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
     );
 
     test(
-      "W-CAN2: can with a list answers every listed action through $access, in one statement, including models using levels; a hidden row holds none; assert with a list needs them all",
+      "W-CAN2: $access with a list answers every listed action, in one statement, on a model with an explicit graph and one with a ladder; a hidden row holds none",
       async () => {
         let hidden = 0;
         for (const name of READERS) {
@@ -1475,7 +1522,7 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
             for (const { id } of rows) {
               if (!read.includes(id as string)) hidden += 1;
               statements.length = 0;
-              const answer = await call[model]!.can(names, { id });
+              const answer = await holds(call[model]!, names, { id });
               expect(statements, `${name} ${model} ${id}`).toHaveLength(1);
               expect(answer, `${name} ${model} ${id}`).toEqual(
                 Object.fromEntries(
@@ -1488,20 +1535,12 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
               // A sublist, out of the declared order, reads the same.
               const some = [...names].reverse().slice(0, 2);
               expect(
-                await call[model]!.can(some, { id }),
+                await holds(call[model]!, some, { id }),
                 `${name} ${model} ${id} ${some}`
               ).toEqual(
                 Object.fromEntries(
                   some.map((action) => [action, answer[action]])
                 )
-              );
-              expect(
-                await outcomeOf(() => call[model]!.assert(names, { id })),
-                `${name} ${model} ${id}`
-              ).toBe(
-                Object.values(answer).every(Boolean)
-                  ? "ok"
-                  : ForbiddenError.name
               );
             }
           }
@@ -1518,12 +1557,12 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
           const actor = actors[name]!;
           const call = db.$as(actor);
           for (const action of actionsOf("organization")) {
-            const holds = at(actor, "organization", action);
+            const holding = at(actor, "organization", action);
             for (const { id } of seed.organization)
               expect(
-                await call.organization!.can(action, { id }),
+                await holds(call.organization!, [action], { id }),
                 `${name} ${action} ${id}`
-              ).toBe(holds.includes(id));
+              ).toEqual({ [action]: holding.includes(id) });
           }
         }
       },
@@ -1536,30 +1575,30 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
     for (const name of READERS.slice(0, 3))
       for (const model of answered)
         test(
-          `W-CAN6: can equals the oracle on every seeded ${model} row, at every action, for ${name}`,
+          `W-CAN6: $access equals the oracle on every seeded ${model} row, at every action, for ${name}`,
           async () => {
             const actor = actors[name]!;
             const call = db.$as(actor);
             const rows = seed[model] as unknown as Row[];
             for (const action of actionsOf(model)) {
-              const holds = new Set(at(actor, model, action));
+              const holding = new Set(at(actor, model, action));
               // Sweep every oracle row without retaining hundreds of prepared
               // permission graphs at once. Actor isolation has separate concurrent tests.
               const answers: boolean[] = [];
               for (const row of rows) {
-                answers.push(
-                  await call[model]!.can(
-                    action,
-                    model === "teamMember"
-                      ? {
-                          teamId_userId: {
-                            teamId: row.teamId,
-                            userId: row.userId,
-                          },
-                        }
-                      : { id: row.id }
-                  )
+                const answer = await holds(
+                  call[model]!,
+                  [action],
+                  model === "teamMember"
+                    ? {
+                        teamId_userId: {
+                          teamId: row.teamId,
+                          userId: row.userId,
+                        },
+                      }
+                    : { id: row.id }
                 );
+                answers.push(answer[action]!);
               }
               expect(
                 rows
@@ -1567,7 +1606,7 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
                   .map((row) => rowKey(model, row))
                   .sort(),
                 `${name} ${model} ${action}`
-              ).toEqual([...holds].sort());
+              ).toEqual([...holding].sort());
               // A macrotask turn per action keeps PGlite's worker RPC alive.
               await new Promise((resolve) => setImmediate(resolve));
             }
@@ -1622,16 +1661,13 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
       timeout
     );
 
-    test("W-CAN7: can and assert take the one row a unique selector names: an undefined key, an empty where or a filter is refused before any statement (review Fsecurity-2, Fprinciples-5)", async () => {
+    test("W-CAN7: $access is read on the one row a unique selector names: an undefined key, an empty where or a filter is refused before any statement (review Fsecurity-2, Fprinciples-5)", async () => {
       const call = db.$as(actors.u03!);
       for (const where of [{ id: undefined }, {}, { title: "x" }])
-        for (const run of [
-          () => call.document!.can("share", where),
-          () => call.document!.assert("share", where),
-        ])
-          expect(await outcomeOf(run), JSON.stringify(where)).toBe(
-            ValidationError.name
-          );
+        expect(
+          await outcomeOf(() => holds(call.document!, ["share"], where)),
+          JSON.stringify(where)
+        ).toBe(ValidationError.name);
     });
 
     test("W-CAN8: an explicit denial overrides the inherited higher grant (review Fprinciples-1)", async () => {
@@ -1640,24 +1676,22 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
       const [id] = at(actors.u01!, "page", "read");
       const gapped = permissions({
         actor: ActorSchema,
-        levels: ["read", "update", "full"],
         models: {
           page: {
+            actions: { read: [], update: ["read"], full: ["update"] },
             full: { id },
             update: false,
           },
         },
       } as never) as unknown as (client: PermissionsAppClient) => Loose;
       const call = gapped(base).$as(actors.u01!);
-      expect(await call.page!.can(["read", "update", "full"], { id })).toEqual({
+      expect(
+        await holds(call.page!, ["read", "update", "full"], { id })
+      ).toEqual({
         read: true,
         update: false,
         full: true,
       });
-      expect(await call.page!.can("update", { id })).toBe(false);
-      expect(
-        await outcomeOf(() => call.page!.assert(["update", "full"], { id }))
-      ).toBe(ForbiddenError.name);
     });
 
     test(

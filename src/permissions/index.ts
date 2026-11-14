@@ -9,7 +9,7 @@
 // what the types check is the declaration's names: models, fields and actions
 // against the schema and each other, actor paths against the actor schema.
 
-import type { OperationPayload, RowsVerbs } from "../client/exports";
+import type { RowsVerbs } from "../client/exports";
 import { ForbiddenError } from "../errors";
 import { defineExtension } from "../extensions/define";
 import type {
@@ -17,7 +17,6 @@ import type {
   ClientTypeState,
   ExtendedClient,
   ExtensionState,
-  MergeExtensionState,
   VibORMClient,
   VibORMConfig,
 } from "../index";
@@ -28,8 +27,7 @@ import {
   compilePolicy,
   DEFAULT_MODE,
   type DeclaredModel,
-  EVIDENCE_KEY,
-  evidenceOf,
+  type EVIDENCE_KEY,
   type ModelPolicy,
   type PermissionsConfig,
   policyCompiler,
@@ -48,19 +46,14 @@ export type { PolicyModel, Rule, Where } from "./rules";
 
 type Schema = VibORMConfig["schema"];
 type AnyModel = Schema[string];
-type Row = Readonly<Record<string, unknown>>;
 
 // =============================================================================
 // ACTIONS: what each model declares, and the names that must be among them
 // =============================================================================
 
 type Reserved = "mandatory" | "actions" | "operations" | "fields" | "domains";
-
-type Levels<Config> = Config extends { readonly levels: infer L }
-  ? L extends readonly (infer Level extends string)[]
-    ? Level
-    : never
-  : never;
+/** A model's actions when it declares no `actions` graph. */
+type Crud = "create" | "read" | "update" | "delete";
 
 type RuleKeys<M> = Exclude<keyof M & string, Reserved>;
 type Space = " " | "\t" | "\r" | "\n";
@@ -74,12 +67,12 @@ type SplitActions<S extends string> = S extends `${infer Head},${infer Tail}`
   : S;
 
 /** Groups contribute their individual actions, never a combined action name. */
-type DeclaredActions<M, L extends string> =
-  | (M extends { readonly actions: infer A } ? keyof A & string : L)
+type DeclaredActions<M> =
+  | (M extends { readonly actions: infer A } ? keyof A & string : never)
   | SplitActions<RuleKeys<M>>;
-type ActionsOf<M, L extends string> =
-  | DeclaredActions<M, L>
-  | (Extract<DeclaredActions<M, L>, "update" | "delete"> extends never
+type ActionsOf<M> =
+  | DeclaredActions<M>
+  | (Extract<DeclaredActions<M>, "update" | "delete"> extends never
       ? never
       : "read");
 
@@ -125,7 +118,12 @@ type NamedActions<M> =
         }>
       : never);
 
-/** Retired declaration keys and rules absent from an explicit action list. */
+/**
+ * Retired declaration keys, and rules absent from the model's action list:
+ * its explicit graph, else create, read, update and delete. A declaration
+ * still widened to its constraint (while a callback in it is inferred) has
+ * no keys of its own to check.
+ */
 type UnlistedKeys<M> =
   | Extract<RuleKeys<M>, "within" | "arms">
   | InvalidRuleKeys<M>
@@ -133,24 +131,21 @@ type UnlistedKeys<M> =
       ?
           | InvalidActionName<keyof A>
           | Exclude<SplitActions<RuleKeys<M>>, keyof A & string>
-      : never);
+      : string extends RuleKeys<M>
+        ? never
+        : Exclude<SplitActions<RuleKeys<M>>, Crud>);
 
-type UnknownActions<Config extends PermissionsConfig> =
-  | InvalidActionName<Levels<Config>>
-  | {
-      [K in keyof Config["models"] & string]: Exclude<
-        NamedActions<Config["models"][K]> | UnlistedKeys<Config["models"][K]>,
-        | Exclude<
-            ActionsOf<Config["models"][K], Levels<Config>>,
-            UnlistedKeys<Config["models"][K]>
-          >
-        | undefined
-      > extends infer Unknown extends string
-        ? [Unknown] extends [never]
-          ? never
-          : `${K}: ${Unknown}`
-        : never;
-    }[keyof Config["models"] & string];
+type UnknownActions<Config extends PermissionsConfig> = {
+  [K in keyof Config["models"] & string]: Exclude<
+    NamedActions<Config["models"][K]> | UnlistedKeys<Config["models"][K]>,
+    | Exclude<ActionsOf<Config["models"][K]>, UnlistedKeys<Config["models"][K]>>
+    | undefined
+  > extends infer Unknown extends string
+    ? [Unknown] extends [never]
+      ? never
+      : `${K}: ${Unknown}`
+    : never;
+}[keyof Config["models"] & string];
 
 // =============================================================================
 // ACTOR PATHS: the ones the declaration spells, against the actor schema
@@ -213,13 +208,7 @@ type UnknownActorPaths<Config extends PermissionsConfig> = Exclude<
   ActorPaths<InferOutput<Config["actor"]>>
 >;
 
-type ConfigKey =
-  | "actor"
-  | "levels"
-  | "mandatory"
-  | "models"
-  | "cache"
-  | "tenant";
+type ConfigKey = "actor" | "mandatory" | "models" | "cache" | "tenant";
 
 /** `unknown` when the declaration's names agree; else a member naming the first disagreement. */
 type DeclarationCheck<Config extends PermissionsConfig> = [
@@ -291,7 +280,7 @@ type SchemaCheck<
     : { readonly "unknown model": Exclude<keyof Models, keyof S> };
 
 // =============================================================================
-// THE ENTRY: a rows step and a methods step (plan §1.1; K7(b), OD-1 option 2)
+// THE ENTRY: one rows step (plan §1.1; K7(b))
 // =============================================================================
 
 const NAME = "viborm.permissions";
@@ -302,7 +291,7 @@ type Listed<Config extends PermissionsConfig> = keyof Config["models"] & string;
 type ActionOf<
   Config extends PermissionsConfig,
   K extends Listed<Config>,
-> = ActionsOf<Config["models"][K], Levels<Config>>;
+> = ActionsOf<Config["models"][K]>;
 type DomainsOf<M> = M extends { readonly domains: infer D }
   ? keyof D & string
   : never;
@@ -400,68 +389,12 @@ type RowsDefinition<
   ) => AsMethod<ActorFacts<InferOutput<Config["actor"]>>, ScopeOf<Config>>;
 };
 
-type WhereOf<C extends VibORMConfig, K> = Exclude<
-  OperationPayload<"findUnique", ClientSchema<C>[K & keyof ClientSchema<C>]>,
-  undefined
->["where"];
-
-/**
- * One listed model's answers, from its own predicates, through `$access` (D8).
- * Exported, and generic over the client config and model rather than over the
- * selector, so an exported client's declaration names it instead of spelling
- * the selector out. `in out`: one client's answers are only ever compared with
- * its own, and measuring the variance of a whole config cost the native
- * compiler 50% more instantiations on the permissions consumer (316k to 473k).
- */
-export interface ModelAnswers<
-  Action extends string,
-  in out C extends VibORMConfig,
-  in out K,
-> {
-  /**
-   * Whether the actor holds `action` on the one row `where` names (a unique
-   * selector, as `findUnique` takes), or, for a list, each listed action,
-   * each from its own predicate. A row the actor does not view holds none.
-   */
-  can(action: Action, where: WhereOf<C, K>): Promise<boolean>;
-  can<const Asked extends readonly Action[]>(
-    actions: Asked,
-    where: WhereOf<C, K>
-  ): Promise<{ readonly [A in Asked[number]]: boolean }>;
-  /** Resolves when `can` holds for every action; else `ForbiddenError`, hidden row or not. */
-  assert(
-    action: Action | readonly Action[],
-    where: WhereOf<C, K>
-  ): Promise<void>;
-}
-
-type MethodsDefinition<
-  C extends VibORMConfig,
-  Config extends PermissionsConfig,
-> = {
-  readonly name: `${typeof NAME}.methods`;
-  readonly model: {
-    // The delegate of a client generic over its state stays deferred: untyped.
-    readonly [K in Listed<Config>]: (
-      delegate: never
-    ) => ModelAnswers<ActionOf<Config, K>, C, K>;
-  };
-};
-
 /** The rows step is typed by the client's one extension reducer. */
 type RowsClient<
   C extends VibORMConfig,
   X extends ExtensionState,
   Config extends PermissionsConfig,
 > = ExtendedClient<VibORMClient<C, X>, [RowsDefinition<C, Config>]>;
-type MethodsClient<
-  Client,
-  Config extends PermissionsConfig,
-> = Client extends ClientTypeState<infer C, infer X>
-  ? Client extends VibORMClient<C, X>
-    ? VibORMClient<C, MergeExtensionState<X, MethodsDefinition<C, Config>>>
-    : never
-  : never;
 // A step takes its receiver whole and reads its C and X once from
 // ClientTypeState: `$extends(policy.rows)` never infers them against a
 // generic client (whose comparison expands every delegate: TS2589).
@@ -480,21 +413,16 @@ type RowsStepClient<
     ? RowsClient<C, X, Config>
     : never
   : never;
-type PolicyClient<Base, Config extends PermissionsConfig> = MethodsClient<
-  RowsStepClient<Base, Config>,
-  Config
->;
-
 export interface Policy<Config extends PermissionsConfig> {
   /**
-   * The governed client: the rows step, then the methods step. Every model
-   * of `base` is governed, and every call needs an actor: `db.$as(actor)`.
+   * The governed client. Every model of `base` is governed, and every call
+   * needs an actor: `db.$as(actor)`.
    */
   // Infer the receiver from the argument only. Contextual factory comparison
   // must not expand a complete client over the generic governing schema.
   <Base extends Receiver<Config>>(
     base: Base
-  ): NoInfer<PolicyClient<Base, Config>>;
+  ): NoInfer<RowsStepClient<Base, Config>>;
   readonly config: Config;
   /**
    * The policy compiled against the schema it governs (R1, plain data): per
@@ -508,17 +436,13 @@ export interface Policy<Config extends PermissionsConfig> {
     schema: S & SchemaCheck<S, Config["models"]>
   ): CompiledPolicy;
   /**
-   * Step one: the bound-only `actor`, the `as` mode, every model's
-   * predicates and the verbs, placement, moves, projection key and
+   * The same governed client: the bound-only `actor`, the `as` mode, every
+   * model's predicates and the verbs, placement, moves, projection key and
    * read-gated fields that name them (K3, K4, K5), and `$as`. `$as` binds the actor, so it lives where the
    * actor is declared (K6(a)); that makes this a client consumer, so it is
    * the last `rows` step of a chain (the order guard).
    */
   rows<Base extends Receiver<Config>>(base: Base): RowsStepClient<Base, Config>;
-  /** Step two: `can` and `assert` on every listed model, through `$access` (D8). */
-  methods<Base extends Receiver<Config>>(
-    client: Base
-  ): MethodsClient<Base, Config>;
 }
 
 /** The verb each root operation is judged at; a create is judged by its placement (K4). */
@@ -795,13 +719,10 @@ type GroupSuggestions<
     ? `${Head},${GroupSuggestions<Tail, Exclude<Actions, Trim<Head>>>}`
     : `${Head},${Tail extends ` ${string}` ? " " : ""}${Exclude<Actions, Trim<Head>>}`
   : never;
-type SuggestedRules<M, L extends string> =
-  | "create"
-  | "read"
-  | "update"
-  | "delete"
-  | ActionsOf<M, L>
-  | GroupSuggestions<RuleKeys<M>, ActionsOf<M, L>>;
+type SuggestedRules<M> =
+  | Crud
+  | ActionsOf<M>
+  | GroupSuggestions<RuleKeys<M>, ActionsOf<M>>;
 
 type ContextualPolicy<
   C extends VibORMConfig,
@@ -820,8 +741,7 @@ type ContextualPolicy<
           readonly [Action in SuggestedRules<
             Model extends keyof Config["models"]
               ? Config["models"][Model]
-              : never,
-            Levels<Config>
+              : never
           >]?: ContextualRule<ClientSchema<C>[Model], Actor>;
         } & {
           readonly [Action: string]:
@@ -875,7 +795,7 @@ export function permissions<
     ? unknown
     : (
         base: ClientTypeState<C, X> & NoInfer<VibORMClient<C, X>>
-      ) => MethodsClient<RowsClient<C, X, Config>, Config>);
+      ) => RowsClient<C, X, Config>);
 export function permissions<const Config extends PermissionsConfig>(
   config: Config & DeclarationCheck<Config>
 ): Policy<Config> {
@@ -963,90 +883,14 @@ export function permissions<const Config extends PermissionsConfig>(
     prepared.set(schema, definition);
     return definition;
   };
-  /**
-   * Every listed model's actions, checked (a misspelled action is refused
-   * here): they depend on the declaration alone, so once per policy.
-   */
-  let actions: ReadonlyMap<string, readonly string[]> | undefined;
-  const declaredActions = () => {
-    actions ??= new Map(
-      Object.keys(config.models).map((model) => [
-        model,
-        evidenceOf(config, model).names,
-      ])
-    );
-    return actions;
-  };
   const rows = (base: VibORMClient<VibORMConfig, ExtensionState>) =>
     extend(base, preparedFor(base.$schema as Schema));
-  const withMethods = (
-    client: VibORMClient<VibORMConfig, ExtensionState>,
-    actions: ReadonlyMap<string, readonly string[]>
-  ) => {
-    const answers = (model: string) => {
-      const names = actions.get(model)!;
-      return (delegate: never) => {
-        const read = delegate as {
-          findUnique(args: object): PromiseLike<Row | null>;
-        };
-        // One scoped read projects each requested permission independently.
-        const ask = async (asked: readonly string[], where: object) => {
-          // R9 (OD-7): an action the model does not declare is refused
-          // before any statement, as an `as` mode it does not declare is.
-          for (const action of asked)
-            if (!names.includes(action))
-              throw new ForbiddenError(model, action);
-          const evidence = async (some: readonly string[]) =>
-            (
-              await read.findUnique({
-                where,
-                select: { [EVIDENCE_KEY]: some },
-              })
-            )?.[EVIDENCE_KEY];
-          const held = (await evidence(asked)) as
-            | Readonly<Record<string, boolean>>
-            | undefined;
-          return asked.map((action) => held?.[action] === true);
-        };
-        return {
-          can: async (action: string | readonly string[], where: object) => {
-            if (typeof action === "string")
-              return (await ask([action], where))[0];
-            const held = await ask(action, where);
-            return Object.fromEntries(
-              action.map((name, index) => [name, held[index]])
-            );
-          },
-          assert: async (action: string | readonly string[], where: object) => {
-            const asked = typeof action === "string" ? [action] : action;
-            const held = await ask(asked, where);
-            const lacking = asked.find((_, index) => !held[index]);
-            if (lacking !== undefined) throw new ForbiddenError(model, lacking);
-          },
-        };
-      };
-    };
-    return extend(client, {
-      name: `${NAME}.methods`,
-      model: Object.fromEntries(
-        [...actions.keys()].map((model) => [model, answers(model)])
-      ),
-    });
-  };
-  const methods = (client: VibORMClient<VibORMConfig, ExtensionState>) =>
-    withMethods(client, declaredActions());
-  const apply = (base: VibORMClient<VibORMConfig, ExtensionState>) =>
-    withMethods(
-      extend(base, preparedFor(base.$schema as Schema)),
-      declaredActions()
-    );
-  // The steps are typed by `Policy`: for a client generic over its state,
+  // The policy is typed by `Policy`: for a client generic over its state,
   // the client-method guard stays deferred and refuses every client method.
-  return Object.assign(apply, {
+  return Object.assign(rows, {
     config,
     compile,
     rows,
-    methods,
   }) as unknown as Policy<Config>;
 }
 

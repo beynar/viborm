@@ -2,9 +2,9 @@
  * The entry's types (plan §1.1, D0, D8, K6; §11.2 F5 and F8): `permissions(config)`
  * applied to a client is that client governed; `db.$as(actor)` is the same
  * client again (a polymorphic `this`, OD-1 option 2), its argument the actor
- * schema's input; every listed model answers `can` and `assert` at its own
- * declared actions, over its own `where`; the actor is never an argument,
- * and `as` takes the policy's modes only.
+ * schema's input; every listed model's `$access` names its own declared
+ * actions; the actor is never an argument, and `as` takes the policy's modes
+ * only.
  */
 
 import type { PermissionsAppClient } from "@tests/contracts/public-client/permissions-app-behavior";
@@ -22,7 +22,7 @@ describe("permissions(config)(base)", () => {
     expectTypeOf(call).toEqualTypeOf<typeof db>();
     const extended = base.$extends(policy);
     expectTypeOf(extended).toEqualTypeOf<typeof db>();
-    const steps = policy.methods(policy.rows(base));
+    const steps = policy.rows(base);
     expectTypeOf(steps.$as(actor)).toEqualTypeOf<typeof steps>();
   });
 
@@ -34,34 +34,20 @@ describe("permissions(config)(base)", () => {
     db.$as({ userId: "user-01", network: "office" });
   });
 
-  test("can and assert take the model's own actions and a unique where", () => {
-    expectTypeOf(call.team.can("invite", { id: "t1" })).toEqualTypeOf<
-      Promise<boolean>
-    >();
-    expectTypeOf(
-      call.organization.assert("export", { id: "org-1" })
-    ).toEqualTypeOf<Promise<void>>();
-    // @ts-expect-error - a filter is not a unique selector (review Fsecurity-2)
-    call.document.can("archive", { parentId: null });
-    // @ts-expect-error - `export` is not an action of team
-    call.team.can("export", { id: "t1" });
+  test("$access names the model's own actions; can and assert were removed", async () => {
+    const team = await call.team.findUnique({
+      where: { id: "t1" },
+      select: { $access: ["invite"] },
+    });
+    expectTypeOf(team!.$access).toEqualTypeOf<{ readonly invite: boolean }>();
+    // @ts-expect-error - `export` is not an action of team, beside one that is
+    call.team.findMany({ select: { $access: ["invite", "export"] } });
     // @ts-expect-error - `archive` is document's, not page's
-    call.page.assert("archive", { id: "p" });
-    // @ts-expect-error - `nope` is not a field of page
-    call.page.can("read", { nope: true });
-  });
-
-  test("can with a list answers a record of exactly the listed actions", () => {
-    expectTypeOf(
-      call.document.can(["comment", "share"], { id: "d1" })
-    ).toEqualTypeOf<
-      Promise<{ readonly comment: boolean; readonly share: boolean }>
-    >();
-    expectTypeOf(
-      call.page.assert(["read", "update"], { id: "p" })
-    ).toEqualTypeOf<Promise<void>>();
-    // @ts-expect-error - `archive` is not an action of page
-    call.page.can(["read", "archive"], { id: "p" });
+    call.page.findMany({ select: { id: true, $access: ["read", "archive"] } });
+    // @ts-expect-error - can was removed: read `$access` instead
+    call.team.can("invite", { id: "t1" });
+    // @ts-expect-error - assert was removed: read `$access` instead
+    call.organization.assert("export", { id: "org-1" });
   });
 
   test("$access is a projection key at every depth, typed by each model's actions (D6, OD-2)", async () => {
@@ -84,7 +70,7 @@ describe("permissions(config)(base)", () => {
     expectTypeOf(documents[0]!.children[0]!.$access).toEqualTypeOf<{
       readonly share: boolean;
     }>();
-    // Levels retain the same boolean-map evidence shape.
+    // A ladder graph keeps the same boolean-map evidence shape.
     const pages = await call.page.findMany({
       include: { $access: true, group: { include: { $access: true } } },
     });
@@ -109,8 +95,8 @@ describe("permissions(config)(base)", () => {
   });
 
   test("a model the policy does not list has no answers", () => {
-    // @ts-expect-error - `session` is not listed
-    call.session.can("read", { id: "s" });
+    // @ts-expect-error - `session` is not listed: it declares no action
+    call.session.findMany({ select: { id: true, $access: ["read"] } });
   });
 
   test("the actor is bound only; `as` takes the policy's modes", () => {

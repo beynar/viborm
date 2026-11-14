@@ -58,9 +58,9 @@ export function checkPermissionsExtensionTypes() {
   const grouped = base.$extends(
     permissions({
       actor,
-      levels: ["read", "update", "full"],
       models: {
         post: {
+          actions: { read: [], update: ["read"], full: ["update"] },
           "read, update": (action, model) => {
             expectTypeOf(action).toEqualTypeOf<string>();
             expectTypeOf(model).toEqualTypeOf<PolicyModel>();
@@ -81,12 +81,10 @@ export function checkPermissionsExtensionTypes() {
       },
     })
   );
-  expectTypeOf(grouped.post.can("update", { id: "p" })).toEqualTypeOf<
-    Promise<boolean>
-  >();
   grouped.post.findMany({ as: "read", select: { $access: true } });
+  grouped.post.findMany({ select: { $access: ["update"] } });
   // @ts-expect-error - a group is declaration syntax, not an action
-  grouped.post.can("read, update", { id: "p" });
+  grouped.post.findMany({ select: { $access: ["update", "read, update"] } });
   // @ts-expect-error - modes also name individual actions
   grouped.post.findMany({ as: "read, update" });
   base.$extends(
@@ -99,9 +97,9 @@ export function checkPermissionsExtensionTypes() {
   const dynamic = base.$extends(
     permissions({
       actor,
-      levels: ["read", "update"],
       models: {
         post: {
+          actions: { read: [], update: ["read"] },
           update: (action, model) => {
             expectTypeOf(action).toEqualTypeOf<string>();
             expectTypeOf(model).toEqualTypeOf<PolicyModel>();
@@ -124,15 +122,13 @@ export function checkPermissionsExtensionTypes() {
       },
     })
   );
-  expectTypeOf(dynamic.post.can("update", { id: "p" })).toEqualTypeOf<
-    Promise<boolean>
-  >();
+  dynamic.post.findMany({ select: { $access: ["update"] } });
   base.$extends(
     // @ts-expect-error - the contextual factory also rejects the retired grant key
     permissions({ actor, models: { post: { arms: {}, read: {} } } })
   );
   // @ts-expect-error - dynamic rules do not erase the declared action names
-  dynamic.post.can("publish", { id: "p" });
+  dynamic.post.findMany({ select: { $access: ["update", "publish"] } });
   base.$extends(
     // @ts-expect-error - a wrong model is rejected beside a real dynamic model
     permissions({
@@ -187,21 +183,22 @@ export function checkPermissionsExtensionTypes() {
     .$extends(held)
     .$extends(tombstones.methods);
   const boundCombined = combined.$as({ userId: "u", organizationId: "o" });
-  boundCombined.post.can("read", { id: "p" });
+  boundCombined.post.findMany({ select: { $access: ["read"] } });
   boundCombined.post.restore({ where: { id: "p" } });
   const continued = combined.$extends({ name: "after-composition" });
-  continued.post.can("read", { id: "p" });
+  continued.post.findMany({ select: { $access: ["read"] } });
   continued.post.restore({ where: { id: "p" } });
-  expectTypeOf(combined.post.can("read", { id: "p" })).toEqualTypeOf<
-    Promise<boolean>
-  >();
   const restoration = combined.post.restore({
     where: { id: "p" },
     select: { id: true },
   });
   expectTypeOf<Awaited<typeof restoration>>().toEqualTypeOf<{ id: string }>();
   // @ts-expect-error - composition retains the policy's action vocabulary
-  combined.post.can("publish", { id: "p" });
+  combined.post.findMany({ select: { $access: ["read", "publish"] } });
+  // @ts-expect-error - can and assert were removed: $access answers
+  combined.post.can("read", { id: "p" });
+  // @ts-expect-error - can and assert were removed: $access answers
+  combined.post.assert("read", { id: "p" });
 
   const tenantBase = base.$extends({
     name: "tenant",
@@ -224,7 +221,7 @@ export function checkPermissionsExtensionTypes() {
   const continuedTenant = tenantCombined.$extends({
     name: "after-tenant-composition",
   });
-  continuedTenant.post.can("read", { id: "p" });
+  continuedTenant.post.findMany({ select: { $access: ["read"] } });
   continuedTenant.post.restore({ where: { id: "p" } });
   continuedTenant.post.findMany({ tenant: "acme" });
   // @ts-expect-error - subsequent views keep the control value type
@@ -238,9 +235,9 @@ export function checkPermissionsExtensionTypes() {
   tenantCombined.post.deleteMany({ tenant: "acme" });
   const governed = tenantBase.$extends(held);
   const legacy = held(tenantBase);
-  const splitPolicy = tenantBase.$extends(held.rows).$extends(held.methods);
+  const splitPolicy = tenantBase.$extends(held.rows);
   splitPolicy.post.findMany({ tenant: "acme" });
-  splitPolicy.post.can("read", { id: "p" });
+  splitPolicy.post.findMany({ select: { $access: ["read"] } });
   // @ts-expect-error - split policy factories retain the prior control schema
   splitPolicy.post.findMany({ tenant: 1 });
   type Hint<T> =
@@ -280,11 +277,9 @@ export function checkPermissionsExtensionTypes() {
 
   expectTypeOf<keyof typeof db.$schema>().toEqualTypeOf<"user" | "post">();
   db.$as({ userId: "u", organizationId: "o" });
-  expectTypeOf(db.post.can("update", { id: "p" })).toEqualTypeOf<
-    Promise<boolean>
-  >();
+  db.post.findMany({ select: { $access: ["update"] } });
   // @ts-expect-error - exact declared actions survive contextual factory inference
-  db.post.can("publish", { id: "p" });
+  db.post.findMany({ select: { $access: ["update", "publish"] } });
   // @ts-expect-error - every required actor field is retained
   db.$as({ userId: "u" });
   // @ts-expect-error - a model outside the receiving schema is refused
@@ -461,11 +456,12 @@ export function thirdPartyStepsOverFactories() {
   const step = <C extends VibORMConfig, X extends ExtensionState>(
     client: VibORMClient<C, X>
   ) => client;
-  step(held.methods(held.rows(base))).page.can("read", { id: "p" });
+  step(held.rows(base)).page.findMany({ select: { $access: ["read"] } });
   step(tombstones(base)).page.restore({ where: { id: "p" } });
-  step(
-    held.methods(tombstones.methods(held.rows(tombstones.rows(base))))
-  ).page.restore({ where: { id: "p" } });
+  step(tombstones.methods(held.rows(tombstones.rows(base)))).page.restore({
+    where: { id: "p" },
+  });
+  const stepped = step(held.rows(base));
   // @ts-expect-error - the step keeps the policy's action vocabulary
-  step(held.methods(held.rows(base))).page.can("publish", { id: "p" });
+  stepped.page.findMany({ select: { $access: ["read", "publish"] } });
 }

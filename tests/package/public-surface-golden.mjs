@@ -786,7 +786,6 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "ActorPaths",
       "CompiledModel",
       "CompiledPolicy",
-      "ModelAnswers",
       "ModelPolicy",
       "PermissionsConfig",
       "Policy",

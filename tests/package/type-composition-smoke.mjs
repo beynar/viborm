@@ -158,9 +158,10 @@ export const db = ${order === "soft-first" ? "base.$extends(tombstones).$extends
 export async function reads() {
   const call = db.$as({ userId: "u" });
   const same: typeof db = call;
-  const may: Promise<boolean> = call.m0.can("delete", { id: "x" });
+  const [held] = await call.m0.findMany({ select: { $access: ["delete"] } });
+  const may: boolean | undefined = held?.$access.delete;
   // @ts-expect-error - "publish" is not an action of m0
-  call.m0.can("publish", { id: "x" });
+  call.m0.findMany({ select: { $access: ["delete", "publish"] } });
   // @ts-expect-error - the actor schema is checked
   db.$as({ user: "u" });
   const [row] = await call.m0.findMany({ include: { owner: true }, deleted: "with" });

@@ -7,6 +7,8 @@
 
 import { createHash } from "node:crypto";
 import { ClientInitializationError } from "@errors";
+import { s } from "@schema";
+import { createModelFieldRefs, isFieldRef } from "@schema/field-ref";
 import {
   type CompiledModel,
   type PermissionsConfig,
@@ -14,11 +16,7 @@ import {
   permissions,
   type Rule,
 } from "@src/permissions";
-import {
-  compilePolicy,
-  evidenceOf,
-  policyCompiler,
-} from "@src/permissions/compile";
+import { compilePolicy, policyCompiler } from "@src/permissions/compile";
 import { v } from "@src/validation";
 import { schema } from "@tests/package/fixtures/permissions-app/schema";
 import {
@@ -86,11 +84,39 @@ function withoutScopeEnvelope<T>(value: T): T {
   };
   return walk(value) as T;
 }
-const compile = (
-  config: Omit<PermissionsConfig, "actor"> & { actor?: object }
-) =>
+const LADDER = { read: [], update: ["read"], full: ["update"] } as const;
+/**
+ * Every model without its own graph takes the ladder read ⊑ update ⊑ full,
+ * and the create and delete its rules name: the graph these witnesses were
+ * written against, declared per model as the language now requires.
+ */
+const laddered = (models: PermissionsConfig["models"]) =>
+  Object.fromEntries(
+    Object.entries(models).map(([name, model]) => {
+      if (model.actions) return [name, model];
+      const crud = Object.keys(model)
+        .flatMap((key) => key.split(",").map((member) => member.trim()))
+        .filter((action) => action === "create" || action === "delete");
+      const actions = {
+        ...LADDER,
+        ...Object.fromEntries(crud.map((action) => [action, []])),
+      };
+      return [name, { ...model, actions }];
+    })
+  );
+const compile = ({
+  ladder,
+  ...config
+}: Omit<PermissionsConfig, "actor"> & { actor?: object; ladder?: true }) =>
   withoutScopeEnvelope(
-    compilePolicy({ actor: Actor, ...config } as PermissionsConfig, schema)
+    compilePolicy(
+      {
+        actor: Actor,
+        ...config,
+        models: ladder ? laddered(config.models) : config.models,
+      } as PermissionsConfig,
+      schema
+    )
   );
 /** The message of the `ClientInitializationError` `run` throws, or what it did instead. */
 const refusalOf = (run: () => unknown): string => {
@@ -168,17 +194,16 @@ describe("the acceptance policy (§1.1)", () => {
 });
 
 describe("R1: P(M, a) = mandatory ∧ scope(a) ∧ ⋁ rule(b ⊒ a)(b)", () => {
-  test.each([
-    ["read", "update", "read"],
-    ["read", "update", "update"],
-  ])("repeated levels %j cannot reverse the permission ladder", (...levels) => {
-    const declarations: PermissionsConfig["models"][] = [
-      { page: { read: {} } },
-      {},
-    ];
-    for (const models of declarations)
-      expect(refusalOf(() => compile({ levels, models }))).toContain(
-        "levels must list each action only once"
+  test("the retired global levels are refused, naming the graph each model declares instead", () => {
+    for (const models of [{ page: { read: {} } }, {}])
+      expect(
+        refusalOf(() =>
+          Reflect.apply(compile, undefined, [
+            { levels: ["read", "update", "full"], models },
+          ])
+        )
+      ).toContain(
+        'levels was removed: declare the graph on each model instead, actions: { read: [], update: ["read"], full: ["update"] }'
       );
   });
 
@@ -236,7 +261,7 @@ describe("R1: P(M, a) = mandatory ∧ scope(a) ∧ ⋁ rule(b ⊒ a)(b)", () => 
 
   test("a rule written at an action that implies a holds at a", () => {
     const { predicates } = compile({
-      levels: LEVELS,
+      ladder: true,
       models: { page: { read: { title: "v" }, full: { title: "f" } } },
     }).models.page!;
     expect(predicates.read).toEqual({ OR: [{ title: "v" }, { title: "f" }] });
@@ -266,7 +291,7 @@ describe("R1: P(M, a) = mandatory ∧ scope(a) ∧ ⋁ rule(b ⊒ a)(b)", () => 
       },
     });
     const { predicates } = compile({
-      levels: LEVELS,
+      ladder: true,
       models: { page: { "read, update, full": inOrg } },
     }).models.page!;
     const roles = (clause: unknown) =>
@@ -283,7 +308,7 @@ describe("R1: P(M, a) = mandatory ∧ scope(a) ∧ ⋁ rule(b ⊒ a)(b)", () => 
     expect(roles(predicates.full)).toEqual(["member", "admin"]);
     // Two branches neither of which contains the other both stay.
     const apart = compile({
-      levels: LEVELS,
+      ladder: true,
       models: { page: { read: { title: "a" }, full: { personal: true } } },
     }).models.page!.predicates;
     expect(apart.read).toEqual({ OR: [{ title: "a" }, { personal: true }] });
@@ -377,7 +402,7 @@ describe("R1: P(M, a) = mandatory ∧ scope(a) ∧ ⋁ rule(b ⊒ a)(b)", () => 
       return { title: action };
     };
     const { predicates } = compile({
-      levels: LEVELS,
+      ladder: true,
       models: { page: { read: shared, update: shared, full: shared } },
     }).models.page!;
     expect(calls).toEqual(["page.read", "page.update", "page.full"]);
@@ -407,7 +432,7 @@ describe("R1: P(M, a) = mandatory ∧ scope(a) ∧ ⋁ rule(b ⊒ a)(b)", () => 
 
   test("an inherited callback retains its declared action", () => {
     const { predicates } = compile({
-      levels: LEVELS,
+      ladder: true,
       models: {
         page: {
           full: (action) => (action === "update" ? NOWHERE : { title: action }),
@@ -421,7 +446,7 @@ describe("R1: P(M, a) = mandatory ∧ scope(a) ∧ ⋁ rule(b ⊒ a)(b)", () => 
 
   test("nested callbacks inherit the declared action and read the related model", () => {
     const { predicates } = compile({
-      levels: LEVELS,
+      ladder: true,
       models: {
         page: {
           full: {
@@ -479,11 +504,11 @@ describe("R1: P(M, a) = mandatory ∧ scope(a) ∧ ⋁ rule(b ⊒ a)(b)", () => 
   ])("a grouped rule %j is the same declaration as individual assignments", (key) => {
     const rule = { title: "allowed" };
     const grouped = compile({
-      levels: LEVELS,
+      ladder: true,
       models: { page: { mandatory: { color: "blue" }, [key]: rule } },
     }).models.page!;
     const separate = compile({
-      levels: LEVELS,
+      ladder: true,
       models: {
         page: { mandatory: { color: "blue" }, read: rule, update: rule },
       },
@@ -534,23 +559,23 @@ describe("R1: P(M, a) = mandatory ∧ scope(a) ∧ ⋁ rule(b ⊒ a)(b)", () => 
     expect(predicates.export).toEqual(NOWHERE);
   });
 
-  test("implicit grouped actions use individual names in evidence, modes and operation bindings", () => {
-    const config = {
-      actor: Actor,
-      levels: LEVELS,
+  test("grouped custom actions use individual names in evidence, modes and operation bindings", () => {
+    const result = compile({
       models: {
         page: {
+          actions: { ...LADDER, invite: [], archive: [] },
           "invite, archive": { title: "allowed" },
           operations: { update: "invite", delete: "archive" },
         },
       },
-    };
-    const result = compile(config).models.page!;
-    const evidence = evidenceOf(config, "page");
-    expect(evidence).toEqual({
-      names: ["read", "update", "full", "invite", "archive"],
-    });
-    expect(result.evidence?.names).toEqual(evidence.names);
+    }).models.page!;
+    expect(result.evidence?.names).toEqual([
+      "read",
+      "update",
+      "full",
+      "invite",
+      "archive",
+    ]);
     expect(result.modes).toEqual({
       read: "read",
       update: "update",
@@ -568,7 +593,7 @@ describe("R1: P(M, a) = mandatory ∧ scope(a) ∧ ⋁ rule(b ⊒ a)(b)", () => 
     expect(
       refusalOf(() =>
         compile({
-          levels: LEVELS,
+          ladder: true,
           models: { page: { "read, update": { owner: "missingAction" } } },
         })
       )
@@ -576,7 +601,7 @@ describe("R1: P(M, a) = mandatory ∧ scope(a) ∧ ⋁ rule(b ⊒ a)(b)", () => 
     expect(
       refusalOf(() =>
         compile({
-          levels: LEVELS,
+          ladder: true,
           models: {
             page: { "read, update": { ownerId: { actor: "missingActor" } } },
           },
@@ -611,7 +636,7 @@ describe("R1: P(M, a) = mandatory ∧ scope(a) ∧ ⋁ rule(b ⊒ a)(b)", () => 
     expect(
       refusalOf(() =>
         compile({
-          levels: LEVELS,
+          ladder: true,
           models: { page: { [key]: {} } },
         })
       )
@@ -627,7 +652,7 @@ describe("R1: P(M, a) = mandatory ∧ scope(a) ∧ ⋁ rule(b ⊒ a)(b)", () => 
       { "read, update": undefined, read: {} },
     ])
       expect(
-        refusalOf(() => compile({ levels: LEVELS, models: { page } }))
+        refusalOf(() => compile({ ladder: true, models: { page } }))
       ).toContain("already has a rule at models.page.");
   });
 
@@ -642,7 +667,7 @@ describe("R1: P(M, a) = mandatory ∧ scope(a) ∧ ⋁ rule(b ⊒ a)(b)", () => 
   ])("a group cannot reinterpret %j as an action", (key) => {
     const message = refusalOf(() =>
       compile({
-        levels: LEVELS,
+        ladder: true,
         models: { page: { [`read, ${key}`]: {} } },
       })
     );
@@ -650,23 +675,13 @@ describe("R1: P(M, a) = mandatory ∧ scope(a) ∧ ⋁ rule(b ⊒ a)(b)", () => 
     expect(message).toContain(`models.page.read, ${key}`);
   });
 
-  test("every member receives typo protection or explicit graph validation", () => {
-    expect(
-      refusalOf(() =>
-        compile({
-          levels: LEVELS,
-          models: { page: { "read, updaet": {} } },
-        })
-      )
-    ).toContain('models.page.read, updaet: spelled like "update"');
-    expect(
-      refusalOf(() =>
-        compile({
-          levels: LEVELS,
-          models: { page: { "read, mandatroy": {} } },
-        })
-      )
-    ).toContain('models.page.read, mandatroy: spelled like "mandatory"');
+  test("every member is an action of the model's graph, or of create, read, update and delete without one", () => {
+    for (const key of ["updaet", "mandatroy", "invite"])
+      expect(
+        refusalOf(() => compile({ models: { page: { [`read, ${key}`]: {} } } }))
+      ).toContain(
+        `models.page.read, ${key}: "${key}" is not create, read, update or delete. A custom action is declared in the model's graph (one outside a graph was removed): actions: { read: [], ${key}: ["read"] }`
+      );
     expect(
       refusalOf(() =>
         compile({
@@ -681,13 +696,8 @@ describe("R1: P(M, a) = mandatory ∧ scope(a) ∧ ⋁ rule(b ⊒ a)(b)", () => 
     ).toContain('unknown action "invite"');
   });
 
-  test("levels and graph nodes or edges cannot declare grouped action names", () => {
+  test("graph nodes or edges cannot declare grouped action names", () => {
     const configs: Omit<PermissionsConfig, "actor">[] = [
-      { levels: ["read", "update, full"], models: { page: { read: {} } } },
-      {
-        levels: ["read, update"],
-        models: { page: { actions: { read: [] }, read: {} } },
-      },
       {
         models: {
           page: { actions: { read: [], "update, full": ["read"] }, read: {} },
@@ -724,12 +734,12 @@ describe("R1: P(M, a) = mandatory ∧ scope(a) ∧ ⋁ rule(b ⊒ a)(b)", () => 
     const mandatory = {
       OR: [{ title: "public" }, { ownerId: { actor: "userId" } }],
     };
-    const closed = compile({ levels: LEVELS, models: { page: { mandatory } } })
+    const closed = compile({ ladder: true, models: { page: { mandatory } } })
       .models.page!;
     expect(closed.predicates.read).toEqual(NOWHERE);
     expect(closed.predicates.update).toEqual(NOWHERE);
     const granted = compile({
-      levels: LEVELS,
+      ladder: true,
       models: { page: { mandatory, update: { icon: "editable" } } },
     }).models.page!;
     expect(granted.predicates.update).toEqual({
@@ -759,7 +769,7 @@ describe("R1: P(M, a) = mandatory ∧ scope(a) ∧ ⋁ rule(b ⊒ a)(b)", () => 
 
   test("global and model mandatory restrictions are conjoined with every action", () => {
     const { predicates } = compile({
-      levels: LEVELS,
+      ladder: true,
       mandatory: { icon: "restricted" },
       models: { page: { mandatory: { color: "c" }, update: { title: "e" } } },
     }).models.page!;
@@ -770,7 +780,7 @@ describe("R1: P(M, a) = mandatory ∧ scope(a) ∧ ⋁ rule(b ⊒ a)(b)", () => 
 
   test("an action with no rule and no arm is false, and so is one a rule folds false", () => {
     const { predicates } = compile({
-      levels: LEVELS,
+      ladder: true,
       models: {
         page: { read: {}, update: { group: "full" } },
         pageGroup: { read: {} },
@@ -781,19 +791,23 @@ describe("R1: P(M, a) = mandatory ∧ scope(a) ∧ ⋁ rule(b ⊒ a)(b)", () => 
     expect(predicates.update).toEqual(NOWHERE);
   });
 
-  test("a custom rule key declares an independent action", () => {
+  test("a custom action the graph lists is independent of the others", () => {
     const { predicates, modes } = compile({
-      levels: LEVELS,
-      models: { team: { read: { name: "v" }, invite: { name: "i" } } },
+      models: {
+        team: {
+          actions: { ...LADDER, invite: [] },
+          read: { name: "v" },
+          invite: { name: "i" },
+        },
+      },
     }).models.team!;
     expect(Object.keys(modes)).toEqual(["read", "update", "full", "invite"]);
     expect(predicates.read).toEqual({ name: "v" });
     expect(predicates.update).toEqual(NOWHERE);
   });
 
-  test("a model's own actions replace the levels, implied transitively", () => {
+  test("a model's own actions are implied transitively", () => {
     const { predicates } = compile({
-      levels: LEVELS,
       models: {
         document: {
           actions: { read: [], comment: ["read"], update: ["comment"] },
@@ -811,7 +825,7 @@ describe("R1: P(M, a) = mandatory ∧ scope(a) ∧ ⋁ rule(b ⊒ a)(b)", () => 
 
   test("logical and relation filters fold what compiles false, and keep the rest as written", () => {
     const { predicates } = compile({
-      levels: LEVELS,
+      ladder: true,
       models: {
         page: {
           read: {
@@ -835,7 +849,7 @@ describe("R1: P(M, a) = mandatory ∧ scope(a) ∧ ⋁ rule(b ⊒ a)(b)", () => 
   test("a rule that is neither a where nor a function is refused", () => {
     expect(
       refusalOf(() =>
-        compile({ levels: LEVELS, models: { page: { read: 42 as never } } })
+        compile({ ladder: true, models: { page: { read: 42 as never } } })
       )
     ).toContain(
       "models.page.read: a rule is a boolean, a where object or a function of the action"
@@ -844,7 +858,7 @@ describe("R1: P(M, a) = mandatory ∧ scope(a) ∧ ⋁ rule(b ⊒ a)(b)", () => 
 
   test("a domain and a placement that fold false match nothing", () => {
     const { predicates } = compile({
-      levels: LEVELS,
+      ladder: true,
       models: {
         page: {
           read: {},
@@ -871,7 +885,7 @@ describe("R1: P(M, a) = mandatory ∧ scope(a) ∧ ⋁ rule(b ⊒ a)(b)", () => 
 
   test("a quantifier over a false body folds: `every` holds only where nothing is related", () => {
     const { predicates } = compile({
-      levels: LEVELS,
+      ladder: true,
       models: {
         pageGroup: { read: { pages: { every: { group: "full" } } } },
         page: {},
@@ -885,7 +899,7 @@ describe("R1: P(M, a) = mandatory ∧ scope(a) ∧ ⋁ rule(b ⊒ a)(b)", () => 
     { none: { id: "blocked" }, every: { OR: [] } },
   ])("a false every keeps its empty-relation requirement beside none: %j", (pages) => {
     const { predicates } = compile({
-      levels: LEVELS,
+      ladder: true,
       models: { pageGroup: { read: { pages } }, page: { read: {} } },
     }).models.pageGroup!;
     expect(predicates.read).toEqual({ pages: { none: {} } });
@@ -893,7 +907,7 @@ describe("R1: P(M, a) = mandatory ∧ scope(a) ∧ ⋁ rule(b ⊒ a)(b)", () => 
 
   test("a relation whose value is an action is the target's predicate at it, inlined (D7)", () => {
     const compiled = compile({
-      levels: LEVELS,
+      ladder: true,
       models: {
         page: { read: { group: "update" } },
         pageGroup: { update: { label: "x" } },
@@ -1032,10 +1046,10 @@ describe("the actor's facts (K2, R6)", () => {
 describe("verbs, fields, modes and placement (K3, OD-3, R4)", () => {
   test("operations default to read, update and delete independently of levels and extra actions", () => {
     const { models } = compile({
-      levels: LEVELS,
+      ladder: true,
       models: {
         page: { read: {} },
-        team: { read: {}, invite: {} },
+        team: { actions: { ...LADDER, invite: [] }, read: {}, invite: {} },
         member: { read: {}, operations: { delete: "update" } },
         collection: { read: {}, operations: { delete: "full" } },
         bookmark: { read: {}, delete: {} },
@@ -1076,7 +1090,7 @@ describe("verbs, fields, modes and placement (K3, OD-3, R4)", () => {
 
   test("written and read fields name their actions; modes are the actions and domains", () => {
     const { models } = compile({
-      levels: LEVELS,
+      ladder: true,
       models: {
         collection: {
           read: {},
@@ -1105,7 +1119,7 @@ describe("verbs, fields, modes and placement (K3, OD-3, R4)", () => {
 
   test("placement combines mandatory and the independent create action, and every key's target visible (R4)", () => {
     const { models } = compile({
-      levels: LEVELS,
+      ladder: true,
       mandatory: { icon: "restricted" },
       models: {
         page: {
@@ -1160,7 +1174,7 @@ describe("verbs, fields, modes and placement (K3, OD-3, R4)", () => {
 
   test("moves: an update writing what the placement reads is placed again, a written key's target visible; what judged the old row is not restated (OD-14, D9)", () => {
     const { models } = compile({
-      levels: LEVELS,
+      ladder: true,
       models: {
         page: {
           read: {},
@@ -1189,7 +1203,7 @@ describe("verbs, fields, modes and placement (K3, OD-3, R4)", () => {
     });
     // What the read and update verbs judge on the new row is dropped.
     const judged = compile({
-      levels: LEVELS,
+      ladder: true,
       models: {
         page: {
           read: { personal: false },
@@ -1216,7 +1230,7 @@ describe("verbs, fields, modes and placement (K3, OD-3, R4)", () => {
 
   test("a placement drops a conjunct only where another provably implies it, with the actor values it reads", () => {
     const { models } = compile({
-      levels: LEVELS,
+      ladder: true,
       models: {
         page: {
           read: {},
@@ -1267,7 +1281,7 @@ describe("verbs, fields, modes and placement (K3, OD-3, R4)", () => {
 
   test("acyclic: the self relations holding a key that a predicate recurses over, wherever it is read (R4)", () => {
     const { models } = compile({
-      levels: LEVELS,
+      ladder: true,
       models: {
         document: {
           read: {
@@ -1302,10 +1316,14 @@ describe("verbs, fields, modes and placement (K3, OD-3, R4)", () => {
 
   test("evidence: the same boolean-map projection on every listed model with actions (D6)", () => {
     const { models } = compile({
-      levels: LEVELS,
+      ladder: true,
       models: {
         page: { read: {} },
-        organization: { read: {}, invite: {} },
+        organization: {
+          actions: { ...LADDER, invite: [] },
+          read: {},
+          invite: {},
+        },
         document: { actions: { read: [], share: ["read"] }, read: {} },
       },
     });
@@ -1338,7 +1356,7 @@ describe("verbs, fields, modes and placement (K3, OD-3, R4)", () => {
     expect(
       refusalOf(() =>
         compile({
-          levels: LEVELS,
+          ladder: true,
           models: { page: { fields: { titel: { write: "update" } } } },
         })
       )
@@ -1346,7 +1364,7 @@ describe("verbs, fields, modes and placement (K3, OD-3, R4)", () => {
     expect(
       refusalOf(() =>
         compile({
-          levels: LEVELS,
+          ladder: true,
           models: { page: { fields: { title: { write: "admin" } } } },
         })
       )
@@ -1354,7 +1372,7 @@ describe("verbs, fields, modes and placement (K3, OD-3, R4)", () => {
     expect(
       refusalOf(() =>
         compile({
-          levels: LEVELS,
+          ladder: true,
           models: { page: { operations: { delete: "remove" } } },
         })
       )
@@ -1364,7 +1382,7 @@ describe("verbs, fields, modes and placement (K3, OD-3, R4)", () => {
     expect(
       refusalOf(() =>
         compile({
-          levels: LEVELS,
+          ladder: true,
           models: { page: { operations: { erase: "full" } as never } },
         })
       )
@@ -1379,7 +1397,7 @@ describe("verbs, fields, modes and placement (K3, OD-3, R4)", () => {
     expect(
       refusalOf(() =>
         compile({
-          levels: LEVELS,
+          ladder: true,
           models: { page: { domains: { update: {} } } },
         })
       )
@@ -1389,7 +1407,7 @@ describe("verbs, fields, modes and placement (K3, OD-3, R4)", () => {
     expect(
       refusalOf(() =>
         compile({
-          levels: LEVELS,
+          ladder: true,
           models: { page: { domains: { "move:groupId": {} } } },
         })
       )
@@ -1399,7 +1417,7 @@ describe("verbs, fields, modes and placement (K3, OD-3, R4)", () => {
     expect(
       refusalOf(() =>
         compile({
-          levels: LEVELS,
+          ladder: true,
           models: { page: { read: { group: "veiw" } }, pageGroup: {} },
         })
       )
@@ -1424,7 +1442,13 @@ describe("verbs, fields, modes and placement (K3, OD-3, R4)", () => {
     const message =
       'models.page: "default" is the mode a call takes by default, not an action or a domain';
     expect(
-      refusalOf(() => compile({ models: { page: { read: {}, default: {} } } }))
+      refusalOf(() =>
+        compile({
+          models: {
+            page: { actions: { read: [], default: [] }, read: {}, default: {} },
+          },
+        })
+      )
     ).toContain(message);
     expect(
       refusalOf(() =>
@@ -1437,7 +1461,7 @@ describe("verbs, fields, modes and placement (K3, OD-3, R4)", () => {
     expect(
       refusalOf(() =>
         compile({
-          levels: LEVELS,
+          ladder: true,
           models: { document: { read: { parent: "read" } } },
         })
       )
@@ -1449,7 +1473,7 @@ describe("verbs, fields, modes and placement (K3, OD-3, R4)", () => {
 
 describe("explicit application rules", () => {
   const at = (rule: Rule, model = "page", action = "read") =>
-    compile({ levels: LEVELS, models: { [model]: { [action]: rule } } }).models[
+    compile({ ladder: true, models: { [model]: { [action]: rule } } }).models[
       model
     ]!.predicates[action];
 
@@ -1488,7 +1512,7 @@ describe("explicit application rules", () => {
       },
     });
     const { predicates } = compile({
-      levels: LEVELS,
+      ladder: true,
       models: { page: { full: capped } },
     }).models.page!;
     expect(predicates.read).toEqual({
@@ -1571,7 +1595,7 @@ describe("explicit application rules", () => {
       ],
     };
     const compiled = compile({
-      levels: LEVELS,
+      ladder: true,
       models: {
         accessGrant: { update: adminRule, create: placeRule },
         page: { update: { title: "e" }, full: { title: "f" } },
@@ -1627,7 +1651,7 @@ describe("explicit application rules", () => {
 
   test("a token can restrict exact row ids without a recursive traversal", () => {
     const { models } = compile({
-      levels: LEVELS,
+      ladder: true,
       mandatory: {
         OR: [
           { $if: { control: "actor", path: "key", exists: false } },
@@ -1643,7 +1667,7 @@ describe("explicit application rules", () => {
 
   test("explicit token restrictions allow no-key requests, use implied scopes, and traverse resource subtrees", () => {
     const { predicates } = compile({
-      levels: LEVELS,
+      ladder: true,
       models: {
         document: {
           actions: policy.config.models.document.actions,
@@ -1701,23 +1725,17 @@ describe("explicit application rules", () => {
 // The review of 2026-10-16 (docs/architecture/rbac-extension-review-2026-10-16.md):
 // a definition that would judge less than it says is refused when applied.
 describe("definitions refused before they widen (review 2026-10-16)", () => {
-  test("a declaration key or a level mistyped is refused; a model that lists its actions refuses every other key (FDOCS-1)", () => {
+  test("a declaration key or an action mistyped is refused; a model that lists its actions refuses every other key (FDOCS-1)", () => {
     expect(
       refusalOf(() =>
-        compile({
-          levels: LEVELS,
-          models: { page: { mandatroy: {}, read: {} } },
-        })
+        compile({ models: { page: { mandatroy: {}, read: {} } } })
       )
-    ).toContain('models.page.mandatroy: spelled like "mandatory"');
+    ).toContain('models.page.mandatroy: "mandatroy" is not create, read');
     expect(
       refusalOf(() =>
-        compile({
-          levels: LEVELS,
-          models: { page: { read: {}, updaet: { title: "e" } } },
-        })
+        compile({ models: { page: { read: {}, updaet: { title: "e" } } } })
       )
-    ).toContain('models.page.updaet: spelled like "update"');
+    ).toContain('models.page.updaet: "updaet" is not create, read');
     expect(
       refusalOf(() =>
         compile({
@@ -1733,18 +1751,18 @@ describe("definitions refused before they widen (review 2026-10-16)", () => {
     ).toContain(
       "models.document.pubish: neither an action document lists in `actions`"
     );
-    // A rule key that is no level and no near miss still names an action.
+    // Without a graph, any key but create, read, update and delete is
+    // refused, however far from them: it would otherwise become an action.
     expect(
-      compile({ levels: LEVELS, models: { page: { read: {}, invite: {} } } })
-        .models.page!.evidence?.names
-    ).toEqual(["read", "update", "full", "invite"]);
+      refusalOf(() => compile({ models: { page: { read: {}, invite: {} } } }))
+    ).toContain('models.page.invite: "invite" is not create, read');
   });
 
   test("an unknown policy key and a field entry's unknown key are refused (FDOCS-2)", () => {
     expect(
       refusalOf(() =>
         compile({
-          levels: LEVELS,
+          ladder: true,
           limits: {},
           models: { page: { read: {} } },
         } as never)
@@ -1753,7 +1771,7 @@ describe("definitions refused before they widen (review 2026-10-16)", () => {
     expect(
       refusalOf(() =>
         compile({
-          levels: LEVELS,
+          ladder: true,
           models: {
             page: { read: {}, fields: { title: { reed: "read" } } },
           } as never,
@@ -1763,7 +1781,7 @@ describe("definitions refused before they widen (review 2026-10-16)", () => {
     expect(
       refusalOf(() =>
         compile({
-          levels: LEVELS,
+          ladder: true,
           models: { page: { read: {}, fields: { title: "full" } } } as never,
         })
       )
@@ -1774,7 +1792,7 @@ describe("definitions refused before they widen (review 2026-10-16)", () => {
     expect(
       refusalOf(() =>
         compile({
-          levels: LEVELS,
+          ladder: true,
           models: {
             document: {
               mandatory: { sizeBytes: { lt: 10n } },
@@ -1804,7 +1822,7 @@ describe("definitions refused before they widen (review 2026-10-16)", () => {
       ],
     };
     const { predicates } = compile({
-      levels: LEVELS,
+      ladder: true,
       models: {
         page: { read: {}, create: { AND: [mine, other] } },
         organization: { read: {} },
@@ -1818,7 +1836,7 @@ describe("definitions refused before they widen (review 2026-10-16)", () => {
     // A relation's shorthand body is implied at its target: `in ["x"]`
     // implies `in ["x", "y"]`, which is dropped.
     const narrowed = compile({
-      levels: LEVELS,
+      ladder: true,
       models: {
         page: {
           read: {},
@@ -1842,14 +1860,14 @@ describe("definitions refused before they widen (review 2026-10-16)", () => {
     // folds the arm away, so it falsifies nothing; the conjunct said twice
     // is said once.
     const live = compile({
-      levels: LEVELS,
+      ladder: true,
       models: {
         user: { read: {}, create: { AND: [liveCredential, liveCredential] } },
       },
     }).models.user!.predicates["$create"];
     expect(live).toEqual(
       compile({
-        levels: LEVELS,
+        ladder: true,
         models: { user: { read: {}, create: liveCredential } },
       }).models.user!.predicates["$create"]
     );
@@ -1862,19 +1880,19 @@ describe("definitions refused before they widen (review 2026-10-16)", () => {
       ],
     };
     const twice = compile({
-      levels: LEVELS,
+      ladder: true,
       models: { user: { read: {}, create: { AND: [office, office] } } },
     }).models.user!.predicates["$create"];
     expect(twice).toEqual(
       compile({
-        levels: LEVELS,
+        ladder: true,
         models: { user: { read: {}, create: office } },
       }).models.user!.predicates["$create"]
     );
     // Dates compare by their instant: the same one is said once, another kept.
     const dated = (other: Date) =>
       compile({
-        levels: LEVELS,
+        ladder: true,
         models: {
           page: {
             read: {},
@@ -1900,7 +1918,7 @@ describe("definitions refused before they widen (review 2026-10-16)", () => {
     const said = (first: unknown, second: unknown) =>
       (
         compile({
-          levels: LEVELS,
+          ladder: true,
           models: {
             page: {
               read: {},
@@ -1932,7 +1950,7 @@ describe("definitions refused before they widen (review 2026-10-16)", () => {
     ).toEqual(new Date(0));
     // NaN equals nothing, null included: neither conjunct implies the other.
     const nan = compile({
-      levels: LEVELS,
+      ladder: true,
       models: {
         page: {
           read: {},
@@ -1998,7 +2016,7 @@ describe("credential scope envelopes", () => {
     const compiled = compile({
       models: {
         page: { read: false, update: true },
-        organization: { invite: true },
+        organization: { actions: { invite: [] }, invite: true },
       },
     });
     expect(compiled.models.page!.predicates.read).toEqual(NOWHERE);
@@ -2164,7 +2182,6 @@ describe("a policy's tenant", () => {
     policyCompiler(
       {
         actor: Actor,
-        levels: LEVELS,
         tenant,
         models: { page: { read: {} } },
       } as PermissionsConfig,
@@ -2187,7 +2204,7 @@ describe("a policy's tenant", () => {
     const refusal = (tenant: unknown) =>
       refusalOf(() =>
         compile({
-          levels: LEVELS,
+          ladder: true,
           tenant,
           models: { page: { read: {} } },
         } as never)
@@ -2210,5 +2227,410 @@ describe("a policy's tenant", () => {
       "tenant.except names user, which is not a model of the schema with a scalar field"
     );
     expect(refusal(TENANT)).toBe("no refusal");
+  });
+});
+
+describe("a model at a time, and a rule checked where it compiles", () => {
+  test("models compiled one at a time, in any order, are the policy compiled at once", () => {
+    const whole = JSON.stringify(compilePolicy(policy.config, schema));
+    const names = Object.keys(schema);
+    for (const order of [[...names].reverse(), [...names].sort()]) {
+      const compiler = policyCompiler(policy.config, schema);
+      for (const name of order) compiler.model(name);
+      expect(JSON.stringify(compiler.policy())).toBe(whole);
+    }
+  });
+
+  test("a compiler checks the declaration's names when built, and a rule when its model compiles, every time", () => {
+    const post = s.model({ id: s.string().id(), ownerId: s.string() });
+    const note = s.model({ id: s.string().id() });
+    const actor = v.object({ userId: v.string() });
+    expect(() =>
+      policyCompiler(
+        {
+          actor,
+          models: { post: { read: true, operations: { list: "read" } } },
+        } as never,
+        { post, note }
+      )
+    ).toThrow("models.post.operations.list: not a configurable operation");
+    expect(() =>
+      policyCompiler(
+        { actor, models: { post: { read: true, domains: { default: {} } } } },
+        { post, note }
+      )
+    ).toThrow('"default" is the mode a call takes by default');
+    const compiler = policyCompiler(
+      {
+        actor,
+        models: {
+          post: { read: { ownerId: { actor: "usrId" } } },
+          note: { read: true },
+        },
+      },
+      { post, note }
+    );
+    for (let attempt = 0; attempt < 2; attempt++)
+      expect(() => compiler.model("post")).toThrow('actor path "usrId"');
+    expect(compiler.model("note").read).toBe("read");
+    expect(compiler.declared.post).toEqual({
+      read: "read",
+      modes: { read: "read" },
+    });
+  });
+
+  test("acyclic relations are found across the models that compile, past a refused one", () => {
+    const folder = s.model({
+      id: s.string().id(),
+      ownerId: s.string(),
+      parentId: s.string().nullable(),
+      parent: s
+        .toOne(() => folder)
+        .fields("parentId")
+        .references("id")
+        .name("tree"),
+      children: s.toMany(() => folder).name("tree"),
+    });
+    const note = s.model({ id: s.string().id(), ownerId: s.string() });
+    const prototypeNamed = s.model({ id: s.string().id() });
+    const actor = v.object({ userId: v.string() });
+    const compiler = policyCompiler(
+      {
+        actor,
+        models: {
+          folder: {
+            read: {
+              parent: {
+                recurse: { depth: false },
+                self: true,
+                some: { ownerId: { actor: "userId" } },
+              },
+            },
+          },
+          note: { read: { ownerId: { actor: "usrId" } } },
+          constructor: { read: true },
+        },
+      },
+      { folder, note, constructor: prototypeNamed }
+    );
+    expect(compiler.acyclic("folder")).toEqual(["parent"]);
+    expect(() => compiler.model("note")).toThrow('actor path "usrId"');
+    // A model may be named like an Object.prototype member.
+    expect(compiler.model("constructor").read).toBe("read");
+    expect(() => compiler.policy()).toThrow('actor path "usrId"');
+  });
+
+  test("a field reference or an empty object never stands for a condition (1.3.1 read both as true)", () => {
+    const post = s.model({ id: s.string().id(), views: s.int() });
+    const refs = createModelFieldRefs("post", post);
+    const refused = (read: unknown) => () =>
+      policyCompiler(
+        {
+          actor: v.object({ userId: v.string() }),
+          models: { post: { read } },
+        } as never,
+        { post }
+      ).model("post");
+    expect(refused({ actor: { userId: refs.views } })).toThrow(
+      'tests actor path "userId" against a value that is not a literal'
+    );
+    expect(refused({ actor: { userId: {} } })).toThrow(
+      'tests the actor at "userId" with an empty object'
+    );
+    expect(refused({ actor: {} })).toThrow(
+      "tests the actor with an empty object"
+    );
+    expect(refused(refs.views)).toThrow(
+      "a rule is a boolean, a where object or a function of the action"
+    );
+    // A same-row reference in a value position stays a reference.
+    const compiled = policyCompiler(
+      {
+        actor: v.object({ userId: v.string() }),
+        models: { post: { read: { views: { gt: refs.views } } } },
+      },
+      { post }
+    ).model("post");
+    const tokens: unknown[] = [];
+    const walk = (node: unknown): void => {
+      if (isFieldRef(node)) tokens.push(node);
+      else if (node && typeof node === "object")
+        for (const member of Object.values(node)) walk(member);
+    };
+    walk(compiled.predicates.read);
+    expect(tokens).toEqual([refs.views]);
+  });
+
+  test("a rule's { $row, up } and $exists are checked where the rule is compiled", () => {
+    const folder = s.model({
+      id: s.string().id(),
+      ownerId: s.string(),
+      parentId: s.string().nullable(),
+      parent: s
+        .toOne(() => folder)
+        .fields("parentId")
+        .references("id")
+        .name("tree"),
+      children: s.toMany(() => folder).name("tree"),
+    });
+    const note = s.model({ id: s.string().id(), ownerId: s.string() });
+    const compile = (read: unknown) => () =>
+      policyCompiler(
+        {
+          actor: v.object({ userId: v.string() }),
+          models: { folder: { read }, note: { read: true } },
+        } as never,
+        { folder, note }
+      ).model("folder");
+    expect(compile({ ownerId: { $row: "ownerId", up: 1 } })).toThrow(
+      "reaches past the rule (0 relation bodies deep here)"
+    );
+    expect(
+      compile({
+        parent: {
+          recurse: { depth: false },
+          some: { ownerId: { $row: "ownerId", up: 1 } },
+        },
+      })
+    ).toThrow("across a recursive relation to folder");
+    expect(
+      compile({ parent: { is: { ownerId: { $row: "owner", up: 1 } } } })
+    ).toThrow('folder has no scalar field "owner"');
+    expect(compile({ $exists: { note: {}, folder: {} } })).toThrow(
+      "$exists names exactly one model"
+    );
+    // Inside an $exists body, up: 1 is the row that holds it.
+    const held = compile({
+      $exists: { note: { ownerId: { $row: "ownerId", up: 1 } } },
+    })();
+    expect(JSON.stringify(held.predicates.read)).toContain(
+      '"$exists":{"note":{"ownerId":{"$row":"ownerId","up":1}}}'
+    );
+  });
+
+  test("a write of a field a placement compares through { $row, up } is placed again", () => {
+    const org = s.model({
+      id: s.string().id(),
+      members: s.toMany(() => member),
+    });
+    const member = s.model({
+      id: s.string().id(),
+      orgId: s.string(),
+      userId: s.string(),
+      role: s.string(),
+      org: s
+        .toOne(() => org)
+        .fields("orgId")
+        .references("id"),
+    });
+    const grant = s.model({
+      id: s.string().id(),
+      orgId: s.string(),
+      role: s.string(),
+    });
+    const compiled = policyCompiler(
+      {
+        actor: v.object({ userId: v.string() }),
+        models: {
+          grant: {
+            read: true,
+            update: true,
+            create: {
+              $exists: {
+                member: {
+                  userId: { actor: "userId" },
+                  orgId: { $row: "orgId", up: 1 },
+                  role: { $row: "role", up: 1 },
+                },
+              },
+            },
+          },
+        },
+      },
+      { org, member, grant }
+    ).model("grant");
+    expect(Object.keys(compiled.moves).sort()).toEqual(["orgId", "role"]);
+  });
+
+  test("$exists is lowered, summarised, proved and walked like a relation's body", () => {
+    const folder = s.model({
+      id: s.string().id(),
+      ownerId: s.string(),
+      parentId: s.string().nullable(),
+      parent: s
+        .toOne(() => folder)
+        .fields("parentId")
+        .references("id")
+        .name("tree"),
+      children: s.toMany(() => folder).name("tree"),
+    });
+    const note = s.model({
+      id: s.string().id(),
+      ownerId: s.string(),
+      teamId: s.string(),
+    });
+    const actor = v.object({
+      userId: v.string(),
+      teamId: v.optional(v.string()),
+    });
+    const compiler = (read: unknown) =>
+      policyCompiler(
+        { actor, models: { folder: { read }, note: { read: true } } } as never,
+        { folder, note }
+      );
+    const read = (rule: unknown) =>
+      JSON.stringify(compiler(rule).model("folder").predicates.read);
+    expect(() => compiler({ $exists: "note" }).model("folder")).toThrow(
+      "$exists names exactly one model"
+    );
+    // A body that holds nowhere: the rule holds nowhere.
+    expect(read({ $exists: { note: false } })).toBe(read(false));
+    // A narrower body is absorbed by a wider one of the same model, never by
+    // another model's.
+    expect(
+      read({
+        OR: [
+          { $exists: { note: { ownerId: "x" } } },
+          { $exists: { note: {} } },
+        ],
+      })
+    ).not.toContain('"ownerId":"x"');
+    expect(
+      read({
+        OR: [
+          { $exists: { note: { ownerId: "x" } } },
+          { $exists: { folder: {} } },
+        ],
+      })
+    ).toContain('"ownerId":"x"');
+    // An optional actor value inside a body is read as written: no guard is
+    // added, and a call without it closes the permission (R6).
+    expect(
+      read({
+        $exists: {
+          note: { OR: [{ teamId: { actor: "teamId" } }, { ownerId: "x" }] },
+        },
+      })
+    ).not.toContain('"exists"');
+    // A body the summaries cannot read (an unknown field, refused by core when
+    // admitted) keeps its rule as written.
+    expect(read({ $exists: { note: { nope: 1 } } })).toContain('"nope":1');
+    // A recursion inside a body keeps that relation acyclic.
+    expect(
+      compiler({
+        $exists: {
+          folder: {
+            parent: { recurse: { depth: false }, some: { ownerId: "x" } },
+          },
+        },
+      }).acyclic("folder")
+    ).toEqual(["parent"]);
+    // A relation filtered with a value that is not a filter is refused.
+    const refs = createModelFieldRefs("folder", folder);
+    expect(() => compiler({ parent: refs.ownerId }).model("folder")).toThrow(
+      "filters parent with a value that is not a filter object"
+    );
+  });
+
+  test("a placement compares the row through a to-one shorthand, or through another action's predicate it shares: both are placed again", () => {
+    const user = s.model({ id: s.string().id(), orgId: s.string() });
+    const post = s.model({
+      id: s.string().id(),
+      title: s.string(),
+      orgId: s.string(),
+      authorId: s.string(),
+      author: s
+        .toOne(() => user)
+        .fields("authorId")
+        .references("id"),
+    });
+    const sameOrg = { author: { orgId: { $row: "orgId", up: 1 } } };
+    const moves = (declaration: object) =>
+      Object.keys(
+        policyCompiler(
+          {
+            actor: v.object({ userId: v.string() }),
+            models: { user: { read: true }, post: declaration },
+          } as never,
+          { user, post }
+        ).model("post").moves
+      ).sort();
+    expect(moves({ read: true, update: true, create: sameOrg })).toEqual([
+      "authorId",
+      "orgId",
+    ]);
+    // `manage` implies `create`: its predicate is a branch of the placement.
+    expect(
+      moves({
+        actions: { read: [], update: ["read"], create: [], manage: ["create"] },
+        read: true,
+        update: true,
+        create: { title: "draft" },
+        manage: sameOrg,
+      })
+    ).toEqual(["authorId", "orgId", "title"]);
+  });
+
+  test("an undefined operand or relation filter is refused: it would hold for every row (1.3.1 granted them)", () => {
+    const user = s.model({ id: s.string().id() });
+    const post = s.model({
+      id: s.string().id(),
+      ownerId: s.string(),
+      owner: s
+        .toOne(() => user)
+        .fields("ownerId")
+        .references("id"),
+    });
+    const compile = (read: unknown) => () =>
+      policyCompiler(
+        {
+          actor: v.object({ userId: v.string() }),
+          models: { user: { read: true }, post: { read } },
+        } as never,
+        { user, post }
+      ).model("post");
+    expect(compile({ ownerId: undefined })).toThrow(
+      "ownerId is compared with undefined, which holds for every row"
+    );
+    expect(compile(() => ({ ownerId: undefined }))).toThrow(
+      "ownerId is compared with undefined"
+    );
+    expect(compile({ owner: undefined })).toThrow(
+      "owner is filtered with undefined, which holds for every row"
+    );
+  });
+
+  test("a rule function that throws refuses its own model, with what it threw as the cause", () => {
+    const post = s.model({ id: s.string().id() });
+    const note = s.model({ id: s.string().id() });
+    const failure = new TypeError("no such key");
+    const compiler = policyCompiler(
+      {
+        actor: v.object({}),
+        models: {
+          post: {
+            read: () => {
+              throw failure;
+            },
+          },
+          note: { read: true },
+        },
+      },
+      { post, note }
+    );
+    let caught: unknown;
+    try {
+      compiler.model("post");
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(ClientInitializationError);
+    expect((caught as Error).message).toContain(
+      'models.post.read: the rule function threw at "read"'
+    );
+    // Kept as the cause, its details redacted like any underlying error.
+    expect((caught as Error).cause).toBeInstanceOf(Error);
+    expect(compiler.model("note").read).toBe("read");
+    expect(compiler.acyclic("note")).toEqual([]);
   });
 });

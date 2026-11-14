@@ -138,8 +138,8 @@ function governed(driver: AnyDriver, statements: string[] = []) {
       return context.statement;
     },
   });
-  const db = policy.methods(
-    tombstones.methods(policy.rows(tombstones.rows(recorded)))
+  const db = tombstones.methods(
+    policy.rows(tombstones.rows(recorded))
   ) as unknown as Governed;
   return { base, db };
 }

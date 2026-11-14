@@ -177,8 +177,8 @@ describe("PGlite: every $access read within Neki's 256 relations", () => {
         return context.statement;
       },
     });
-    return policy.methods(
-      tombstones.methods(policy.rows(tombstones.rows(recorded)))
+    return tombstones.methods(
+      policy.rows(tombstones.rows(recorded))
     ) as unknown as Governed;
   };
 

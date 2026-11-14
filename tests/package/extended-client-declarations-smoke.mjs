@@ -58,7 +58,8 @@ export async function use() {
   const update: boolean = moved.$access.update;
   const restored = await softDeleted.item.restore({ where: { id: "a" }, select: { title: true } });
   const title: string = restored.title;
-  const can: boolean = await governedAs.item.can("update", { id: "a" });
+  const held = await governedAs.item.findUnique({ where: { id: "a" }, select: { $access: ["update"] } });
+  const can: boolean = held?.$access.update === true;
   const rows = await hooked.item.findMany({ select: { id: true } });
   const id: string | undefined = rows[0]?.id;
   // @ts-expect-error - move's where names the model's fields

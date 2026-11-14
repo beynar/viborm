@@ -5,7 +5,7 @@
  * off the D1 binding (`d1-statements.ts`), not from the engine: the values
  * the driver binds and the text it prepares, for the sampled actors, on
  * every governed model, with every relation included, at every action as a
- * mode and through `can`, and the heaviest writes (a grant `updateMany`,
+ * mode and through one row's `$access`, and the heaviest writes (a grant `updateMany`,
  * edits and archives, a nested create under a document). D1 itself refuses a
  * statement over its limits; this pins the margin and reports it.
  *
@@ -55,10 +55,11 @@ const D1_STATEMENT_BYTES = 100_000;
 /** The result code D1 names a refusal by. */
 const SQLITE_CODE = /SQLITE_[A-Z]+/;
 
-type Delegate = Record<string, (args?: object) => Promise<unknown>> & {
-  can(action: string, where: object): Promise<boolean>;
-};
+type Delegate = Record<string, (args?: object) => Promise<unknown>>;
 type Governed = Record<string, Delegate> & { $as(actor: unknown): Governed };
+/** Whether the actor holds `action` on one row, as an application asks it. */
+const access = (delegate: Delegate, action: string, where: object) =>
+  delegate.findUnique!({ where, select: { $access: [action] } });
 
 const tombstones = softDelete({
   models: Object.fromEntries(
@@ -102,8 +103,8 @@ describe("D1: W-K2f, every governed statement inside D1's budget", () => {
     for (const statement of preview.statements)
       await env.DB.prepare(statement.sql).run();
     await loadPermissionsSeed(base);
-    db = policy.methods(
-      tombstones.methods(policy.rows(tombstones.rows(base)))
+    db = tombstones.methods(
+      policy.rows(tombstones.rows(base))
     ) as unknown as Governed;
   }, 900_000);
 
@@ -167,7 +168,7 @@ describe("D1: W-K2f, every governed statement inside D1's budget", () => {
       (m) => m.values > D1_BOUND_VALUES || m.bytes > D1_STATEMENT_BYTES
     );
 
-  test("§1.1's reads and writes, every action as a mode and through can, and the heaviest writes: at most 100 bound values and 100 KB each", async () => {
+  test("§1.1's reads and writes, every action as a mode and through $access, and the heaviest writes: at most 100 bound values and 100 KB each", async () => {
     const { measured, most, refused } = await measure(async (attempt) => {
       for (const name of SAMPLED_ACTORS) {
         const actor = actors[name]!;
@@ -182,8 +183,8 @@ describe("D1: W-K2f, every governed statement inside D1's budget", () => {
             await attempt(`${name} ${model}.findMany as ${action}`, () =>
               delegate.findMany!({ as: action, select: keyOf(model) })
             );
-            await attempt(`${name} ${model}.can ${action}`, () =>
-              delegate.can(action, firstKey(model))
+            await attempt(`${name} ${model}.$access ${action}`, () =>
+              access(delegate, action, firstKey(model))
             );
           }
         }
@@ -284,11 +285,16 @@ describe("D1: W-K2f, every governed statement inside D1's budget", () => {
                 data: { parents: { connect: { id: team.id } } },
               }),
           ],
-          ["team can invite", () => call.team!.can("invite", { id: team.id })],
           [
-            "organization can export",
+            "team $access invite",
+            () => access(call.team!, "invite", { id: team.id }),
+          ],
+          [
+            "organization $access export",
             () =>
-              call.organization!.can("export", { id: actor.organizationId }),
+              access(call.organization!, "export", {
+                id: actor.organizationId,
+              }),
           ],
           [
             "grant updateMany",

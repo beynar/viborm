@@ -26,14 +26,14 @@ base.$extends(permissions({ actor, models: { post: { read: { ownerId: { actor: "
 base.$extends(permissions({ actor, models: { post: { update: (action, model) => ({ /*callbackFields*/ }) } } }));
 base.$extends(permissions({ actor, models: { post: { update: (action, model) => { model./*modelMetadata*/; return {}; } } } }));
 base.$extends(permissions({ actor, models: { post: { update: { OR: [(action, model) => ({ /*nestedCallbackFields*/ })] } } } }));
-base.$extends(permissions({ actor, levels: ["read", "update", "full"], models: { post: { "read, /*groupActions*/": {} } } }));
+base.$extends(permissions({ actor, models: { post: { actions: { read: [], update: ["read"], full: ["update"] }, "read, /*groupActions*/": {} } } }));
 base.$extends(permissions({ actor, models: { post: { actions: { read: [], update: [], export: [] }, "read,update, /*graphGroupActions*/": {} } } }));
 base.$extends(permissions({ actor, models: { post: { "read, update": { /*groupFields*/ } } } }));
 /*dynamicStart*/
-const dynamic = base.$extends(permissions({ actor, levels: ["read", "update"], models: { post: { "read, update": (action, model) => ({ OR: [{ id: action }, (requested, current) => ({ ownerId: current.name })] }) } } }));
-dynamic.post.can("update", { id: "p" });
+const dynamic = base.$extends(permissions({ actor, models: { post: { actions: { read: [], update: ["read"] }, "read, update": (action, model) => ({ OR: [{ id: action }, (requested, current) => ({ ownerId: current.name })] }) } } }));
+dynamic.post.findMany({ select: { $access: ["update"] } });
 /*dynamicEnd*/
-db.post.can("/*actions*/", { id: "p" });
+db.post.findMany({ select: { $access: ["/*actions*/"] } });
 db.$as({ /*binding*/ });
 db.$as({ userId: "u", organizationId: "o" }, ["/*scopes*/"]);
 `;
