@@ -27,6 +27,7 @@ import {
   policy,
 } from "@tests/types/permissions/acceptance-policy";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
+import { extension, unit, statement } from "@src/index";
 
 /**
  * K5 against the oracle (plan §4.5, §3.3 D5/D6; §7 W-EV1..W-EV4 and
@@ -211,13 +212,19 @@ export function runPermissionsEvidenceBehavior(
       db = (base as unknown as Client)
         .$extends(evidenceExtension(policy.compile(schema)))
         .$unrestricted()
-        .$extends({
-          name: "meter",
-          statement: (context: { statement: unknown }) => {
-            statements.push("statement");
-            return context.statement;
-          },
-        });
+        .$extends(
+          extension(
+            "meter",
+            unit(
+              (u, next) => {
+                statements.push("statement");
+                return next(statement(u));
+              },
+              ["statement"],
+              { rewrites: true }
+            )
+          )
+        );
     }, timeout);
 
     afterAll(async () => {

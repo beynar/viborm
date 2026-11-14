@@ -5,7 +5,13 @@ import { Driver } from "@drivers";
 import { getExecutionTransactionPhases } from "@drivers/execution-context";
 import { runTransactionLifecycle } from "@drivers/shared/transactions";
 import type { CommittedBatchNotification } from "@drivers/types";
-import { createClient, s } from "@src/index";
+import {
+  createClient,
+  s,
+  extension,
+  unit as extUnit,
+  methods,
+} from "@src/index";
 import { readTestTransactionOperation } from "@tests/fixtures/transaction-operation";
 import { afterEach, describe, expect, test } from "vitest";
 
@@ -266,32 +272,34 @@ const clients: Array<{ $disconnect(): Promise<void> }> = [];
 
 function observedClient(driver: LifecycleDriver | NativeLifecycleDriver) {
   const observed: ObservedLifecycle[] = [];
-  const client = createClient({ schema, driver }).$extends({
-    name: "driver-lifecycle-observer",
-    observe(unit, proceed) {
-      if (
-        unit.kind !== "transaction" &&
-        unit.kind !== "savepoint" &&
-        unit.kind !== "connection"
-      ) {
-        return;
-      }
-      driver.timeline.push(`observer:${unit.kind}:in:${unit.operation}`);
-      const completion = proceed();
-      const observation: ObservedLifecycle = {
-        kind: unit.kind,
-        operation: unit.operation,
-        completion,
-      };
-      observed.push(observation);
-      completion.then((summary) => {
-        observation.summary = summary;
-        driver.timeline.push(
-          `observer:${unit.kind}:out:${summary.status}:${summary.commitCertainty ?? "none"}`
-        );
-      });
-    },
-  });
+  const client = createClient({ schema, driver }).$extends(
+    extension(
+      "driver-lifecycle-observer",
+      extUnit((u, next) => {
+        if (
+          u.kind !== "transaction" &&
+          u.kind !== "savepoint" &&
+          u.kind !== "connection"
+        ) {
+          return;
+        }
+        driver.timeline.push(`observer:${u.kind}:in:${u.operation}`);
+        const completion = next();
+        const observation: ObservedLifecycle = {
+          kind: u.kind,
+          operation: u.operation,
+          completion,
+        };
+        observed.push(observation);
+        completion.then((summary) => {
+          observation.summary = summary;
+          driver.timeline.push(
+            `observer:${u.kind}:out:${summary.status}:${summary.commitCertainty ?? "none"}`
+          );
+        });
+      })
+    )
+  );
   clients.push(client);
   return { client, observed };
 }
@@ -667,34 +675,42 @@ describe("public protected driver lifecycle observers", () => {
     const never = new Promise<never>(() => undefined);
     const base = createClient({ schema, driver });
     const client = base
-      .$extends({
-        name: "lifecycle-no-proceed",
-        observe() {
-          return { fabricated: true };
-        },
-      })
-      .$extends({
-        name: "lifecycle-double-proceed",
-        observe(_unit, proceed) {
-          const completion = proceed();
-          doubleProceedWasStable &&= completion === proceed();
-          return "fabricated";
-        },
-      })
-      .$extends({
-        name: "lifecycle-throw",
-        observe(_unit, proceed) {
-          proceed();
-          throw new Error("observer failed");
-        },
-      })
-      .$extends({
-        name: "lifecycle-never",
-        observe(_unit, proceed) {
-          proceed();
-          return never;
-        },
-      });
+      .$extends(
+        extension(
+          "lifecycle-no-proceed",
+          extUnit((u, next) => {
+            return { fabricated: true };
+          })
+        )
+      )
+      .$extends(
+        extension(
+          "lifecycle-double-proceed",
+          extUnit((u, next) => {
+            const completion = next();
+            doubleProceedWasStable &&= completion === next();
+            return "fabricated";
+          })
+        )
+      )
+      .$extends(
+        extension(
+          "lifecycle-throw",
+          extUnit((u, next) => {
+            next();
+            throw new Error("observer failed");
+          })
+        )
+      )
+      .$extends(
+        extension(
+          "lifecycle-never",
+          extUnit((u, next) => {
+            next();
+            return never;
+          })
+        )
+      );
     clients.push(client);
 
     await expect(
@@ -709,10 +725,15 @@ describe("public protected driver lifecycle observers", () => {
     const base = createClient({ schema, driver });
     clients.push(base);
 
-    const noObserver = base.$extends({
-      name: "methods-only",
-      client: () => ({ $ready: () => true }),
-    });
+    const noObserver = base.$extends(
+      extension(
+        "methods-only",
+        methods((scope) => {
+          const own = { client: () => ({ $ready: () => true }) };
+          return { ...own.client(scope) };
+        })
+      )
+    );
     await noObserver.$transaction(async () => "base");
     expect(driver.sawTransactionPhases).toBe(false);
 

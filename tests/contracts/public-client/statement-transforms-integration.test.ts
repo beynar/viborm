@@ -12,7 +12,11 @@ import { appendResolvedExtension } from "@extensions/chain";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { s } from "@schema";
 import { raw, type Sql, sql } from "@sql";
-import { defineExtension } from "@src/index";
+import {
+  extension as extExtension,
+  unit,
+  statement as extStatement,
+} from "@src/index";
 import {
   BatchOnlyPGliteDriver,
   usePGliteSchemaFamily,
@@ -104,18 +108,22 @@ class DispatchRecordingDriver extends PGliteDriver {
 afterEach(() => vi.restoreAllMocks());
 
 function recordingExtension(name: string, prefix: Sql, calls: StatementCall[]) {
-  return defineExtension<typeof schema>()({
+  return extExtension(
     name,
-    statement(context) {
-      calls.push({
-        extension: name,
-        model: context.model,
-        operation: context.operation,
-        statement: context.statement,
-      });
-      return sql`${prefix}${context.statement}`;
-    },
-  });
+    unit(
+      (u, next) => {
+        calls.push({
+          extension: name,
+          model: u.model,
+          operation: u.operation,
+          statement: extStatement(u),
+        });
+        return next(sql`${prefix}${extStatement(u)}`);
+      },
+      ["statement"],
+      { rewrites: true }
+    )
+  );
 }
 
 describe("integrated statement transforms", () => {
@@ -317,13 +325,18 @@ describe("integrated statement transforms", () => {
   test("rejects an invalid return before provider execution", async () => {
     const { client, database } = transactionFamily();
     const providerQuery = vi.spyOn(database, "query");
-    const derived = client.$extends({
-      name: "invalid-return",
-      // @ts-expect-error - hostile JavaScript can violate the public Sql return
-      statement() {
-        return "SELECT 1";
-      },
-    });
+    const derived = client.$extends(
+      extExtension(
+        "invalid-return",
+        unit(
+          (u, next) => {
+            return next("SELECT 1");
+          },
+          ["statement"],
+          { rewrites: true }
+        )
+      )
+    );
 
     await expect(derived.author.findMany()).rejects.toMatchObject({
       name: QueryError.name,
@@ -366,13 +379,18 @@ describe("integrated statement transforms", () => {
     ];
 
     for (const [name, fakeSql] of fakeSqlValues) {
-      const derived = client.$extends({
-        name,
-        // @ts-expect-error - hostile JavaScript can violate the public Sql return.
-        statement() {
-          return fakeSql;
-        },
-      });
+      const derived = client.$extends(
+        extExtension(
+          name,
+          unit(
+            (u, next) => {
+              return next(fakeSql);
+            },
+            ["statement"],
+            { rewrites: true }
+          )
+        )
+      );
 
       await expect(derived.author.findMany()).rejects.toMatchObject({
         name: QueryError.name,
@@ -394,12 +412,18 @@ describe("integrated statement transforms", () => {
       value: 1,
     });
     const providerQuery = vi.spyOn(database, "query");
-    const derived = client.$extends({
-      name: "bind-growth",
-      statement({ statement }) {
-        return sql`${statement}${"first"}${"second"}`;
-      },
-    });
+    const derived = client.$extends(
+      extExtension(
+        "bind-growth",
+        unit(
+          (u, next) => {
+            return next(sql`${extStatement(u)}${"first"}${"second"}`);
+          },
+          ["statement"],
+          { rewrites: true }
+        )
+      )
+    );
 
     try {
       await expect(derived.author.findMany()).rejects.toMatchObject({

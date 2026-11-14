@@ -6,7 +6,16 @@ import { cache } from "@src/cache/exports";
 import { createOfficialCacheNamespace } from "@src/cache/key";
 import { defaultOmit } from "@src/client/exports";
 import { CacheInvalidKeyError, ValidationError } from "@src/errors";
-import { createClient, s } from "@src/index";
+import {
+  createClient,
+  s,
+  extension as extExtension,
+  call as extCall,
+  unit,
+  target as extTarget,
+  around,
+  statement,
+} from "@src/index";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { readTestTransactionOperation } from "@tests/fixtures/transaction-operation";
 import { describe, expect, test } from "vitest";
@@ -167,18 +176,19 @@ describe("official cache reads", () => {
       schema,
       driver,
     })
-      .$extends(defaultOmit<typeof schema>()({ author: { secret: true } }))
-      .$extends({
-        name: "canonical-cache-request",
-        request: {
-          author: {
-            findMany() {
+      .$extends(defaultOmit({ author: { secret: true } }))
+      .$extends(
+        extExtension(
+          "canonical-cache-request",
+          extCall(
+            (c) => {
               requestCalls += 1;
-              return { where: { name: "Ada" } };
+              c.set({ where: { name: "Ada" } });
             },
-          },
-        },
-      })
+            extTarget("author", "findMany")
+          )
+        )
+      )
       .$extends(cacheState.extension);
     const cached = client.$withCache({ key: "caller-suffix" });
 
@@ -255,12 +265,12 @@ describe("official cache reads", () => {
     let beforeCalls = 0;
     let afterCalls = 0;
     const client = base
-      .$extends({
-        name: "query-before-cache",
-        query: {
-          author: {
-            async findMany({ proceed }) {
-              const rows = await proceed();
+      .$extends(
+        extExtension(
+          "query-before-cache",
+          around(
+            () => async (run) => {
+              const rows = await run();
               beforeCalls += 1;
               const first = rows[0];
               if (first !== undefined) {
@@ -271,16 +281,17 @@ describe("official cache reads", () => {
               }
               return rows;
             },
-          },
-        },
-      })
+            extTarget("author", "findMany")
+          )
+        )
+      )
       .$extends(cacheState.extension)
-      .$extends({
-        name: "query-after-cache",
-        query: {
-          author: {
-            async findMany({ proceed }) {
-              const rows = await proceed();
+      .$extends(
+        extExtension(
+          "query-after-cache",
+          around(
+            () => async (run) => {
+              const rows = await run();
               afterCalls += 1;
               const first = rows[0];
               if (first !== undefined) {
@@ -291,9 +302,10 @@ describe("official cache reads", () => {
               }
               return rows;
             },
-          },
-        },
-      });
+            extTarget("author", "findMany")
+          )
+        )
+      );
     const cached = client.$withCache();
     const releaseSet = cacheDriver.holdNextSet();
 
@@ -425,13 +437,19 @@ describe("official cache reads", () => {
     const statementCache = new RecordingCache();
     const statementState = officialCache(statementCache, "statement");
     let statements = 0;
-    const statementClient = base.$extends(statementState.extension).$extends({
-      name: "cache-bypass-statement",
-      statement({ statement }) {
-        statements += 1;
-        return statement;
-      },
-    });
+    const statementClient = base.$extends(statementState.extension).$extends(
+      extExtension(
+        "cache-bypass-statement",
+        unit(
+          (u, next) => {
+            statements += 1;
+            return next(statement(u));
+          },
+          ["statement"],
+          { rewrites: true }
+        )
+      )
+    );
     await statementClient.$withCache().author.findMany({ where: { id: "a1" } });
     await statementClient.$withCache().author.findMany({ where: { id: "a1" } });
     expect(statements).toBe(2);
@@ -486,7 +504,7 @@ describe("official cache reads", () => {
       schema,
       driver,
     })
-      .$extends(defaultOmit<typeof schema>()({ author: { secret: true } }))
+      .$extends(defaultOmit({ author: { secret: true } }))
       .$extends(omittedState.extension)
       .$withCache();
     const complete = createClient({ schema, driver })

@@ -11,6 +11,7 @@ import { ordering, orderingKey } from "@src/ordering";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { expect, test } from "vitest";
+import { extension, args as extArgs, oneOf } from "@src/index";
 
 test("compound unique anchor is accepted by move", async () => {
   const card = s
@@ -25,7 +26,9 @@ test("compound unique anchor is accepted by move", async () => {
     driver: createInMemorySQLite3Driver(),
   });
   await syncLiveSchema(base);
-  const db = ordering({ card: { key: "rank", within: ["tenant"] } })(base);
+  const db = base.$extends(
+    ordering({ card: { key: "rank", within: ["tenant"] } })
+  );
   await db.card.createMany({
     data: [
       { tenant: "t", local: "a" },
@@ -56,7 +59,9 @@ test("rekey where selects complete matched lists", async () => {
     driver: createInMemorySQLite3Driver(),
   });
   await syncLiveSchema(base);
-  const db = ordering({ card: { key: "rank", within: ["group"] } })(base);
+  const db = base.$extends(
+    ordering({ card: { key: "rank", within: ["group"] } })
+  );
   await db.card.createMany({
     data: [
       { id: "a", group: "g", rank: "15" },
@@ -88,7 +93,7 @@ test("generated rank used as a nested foreign key is its stored value", async ()
     driver: createInMemorySQLite3Driver(),
   });
   await syncLiveSchema(base);
-  const db = ordering({ parent: { key: "rank" } })(base);
+  const db = base.$extends(ordering({ parent: { key: "rank" } }));
   const result = await db.parent.create({
     data: { id: "p", children: { create: { id: "c" } } },
     include: { children: true },
@@ -108,7 +113,7 @@ test("secondary unique anchor resolves even when not selected by the helper", as
     driver: createInMemorySQLite3Driver(),
   });
   await syncLiveSchema(base);
-  const db = ordering({ card: { key: "rank" } })(base);
+  const db = base.$extends(ordering({ card: { key: "rank" } }));
   await db.card.createMany({
     data: [
       { id: "a", slug: "aa" },
@@ -132,7 +137,7 @@ test("equal DateTime list values preserve createMany array order", async () => {
     driver: createInMemorySQLite3Driver(),
   });
   await syncLiveSchema(base);
-  const db = ordering({ card: { key: "rank", within: ["at"] } })(base);
+  const db = base.$extends(ordering({ card: { key: "rank", within: ["at"] } }));
   const data = Array.from({ length: 20 }, (_, i) => ({
     id: String(i).padStart(2, "0"),
     at: new Date("2026-10-31T00:00:00Z"),
@@ -160,10 +165,9 @@ test("rekey forwards required per-call controls to updates", async () => {
       { id: "b", rank: "15" },
     ],
   });
-  const controlled = base.$extends({
-    name: "required-mode",
-    controls: { mode: { oneOf: ["yes"], required: true } },
-  });
+  const controlled = base.$extends(
+    extension("required-mode", extArgs({ mode: oneOf("yes").required() }))
+  );
   const db = controlled.$extends(
     ordering({ models: { card: { key: "rank" } } })
   );

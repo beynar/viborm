@@ -3,7 +3,16 @@ import { CacheDriver, type CacheEntry } from "@cache/driver";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { Driver } from "@drivers";
 import { cache as cacheExtension } from "@src/cache/exports";
-import { createClient, s } from "@src/index";
+import {
+  createClient,
+  s,
+  extension,
+  call,
+  unit,
+  target,
+  around,
+  statement as extStatement,
+} from "@src/index";
 import type { Operation } from "@src/query-engine/types";
 import type { JsonValue } from "@src/validation";
 import { validateJson } from "@src/validation/primitives/json";
@@ -309,24 +318,25 @@ describe("official cache stale-while-revalidate", () => {
     let queryCalls = 0;
     const client = trackClient(
       createClient({ schema, driver })
-        .$extends({
-          name: "official-swr-request",
-          request: {
-            record: {
-              findMany() {
+        .$extends(
+          extension(
+            "official-swr-request",
+            call(
+              (c) => {
                 requestCalls += 1;
-                return {};
+                c.set({});
               },
-            },
-          },
-        })
+              target("record", "findMany")
+            )
+          )
+        )
         .$extends(state.extension)
-        .$extends({
-          name: "official-swr-query",
-          query: {
-            record: {
-              async findMany({ proceed }) {
-                const rows = await proceed();
+        .$extends(
+          extension(
+            "official-swr-query",
+            around(
+              () => async (run) => {
+                const rows = await run();
                 queryCalls += 1;
                 for (const row of rows) {
                   if (!isRecord(row)) throw new Error("Expected a result row");
@@ -338,9 +348,10 @@ describe("official cache stale-while-revalidate", () => {
                 }
                 return rows;
               },
-            },
-          },
-        })
+              target("record", "findMany")
+            )
+          )
+        )
     );
     const cached = client.$withCache({ key: "detached", ttl: 10, swr: true });
 
@@ -565,15 +576,17 @@ describe("official cache stale-while-revalidate", () => {
     const client = trackClient(
       createClient({ schema, driver })
         .$extends(state.extension)
-        .$extends({
-          name: "official-swr-observer",
-          observe(unit, proceed) {
-            if (unit.kind !== "cache" || unit.operation !== "revalidate") {
-              return;
-            }
-            completions.push(proceed());
-          },
-        })
+        .$extends(
+          extension(
+            "official-swr-observer",
+            unit((u, next) => {
+              if (u.kind !== "cache" || u.operation !== "revalidate") {
+                return;
+              }
+              completions.push(next());
+            })
+          )
+        )
     );
     const cached = client.$withCache({ ttl: 10, swr: 100 });
 
@@ -625,13 +638,19 @@ describe("official cache stale-while-revalidate", () => {
     const statementClient = trackClient(
       createClient({ schema, driver: statementDriver })
         .$extends(statementState.extension)
-        .$extends({
-          name: "official-swr-statement",
-          statement({ statement }) {
-            transforms += 1;
-            return statement;
-          },
-        })
+        .$extends(
+          extension(
+            "official-swr-statement",
+            unit(
+              (u, next) => {
+                transforms += 1;
+                return next(extStatement(u));
+              },
+              ["statement"],
+              { rewrites: true }
+            )
+          )
+        )
     );
     const cached = statementClient.$withCache({ ttl: 10, swr: true });
     await cached.record.findMany();

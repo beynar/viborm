@@ -41,6 +41,7 @@ import {
   type PermissionsAppClient,
   type PermissionsAppSubstrate,
 } from "./permissions-app-behavior";
+import { extension, unit, statement } from "@src/index";
 
 /**
  * `viborm/permissions` itself (plan §1.1, §3.3 D0, D8, D11; §7 C1, C7, C10, C11,
@@ -280,13 +281,19 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
       await substrate.prepare(base);
       await loadPermissionsSeed(base);
       db = governedOver(base);
-      metered = db.$extends({
-        name: "meter",
-        statement: (context: { statement: unknown; model?: string }) => {
-          statements.push(String(context.model));
-          return context.statement;
-        },
-      });
+      metered = db.$extends(
+        extension(
+          "meter",
+          unit(
+            (u, next) => {
+              statements.push(String(u.model));
+              return next(statement(u));
+            },
+            ["statement"],
+            { rewrites: true }
+          )
+        )
+      );
     }, timeout);
 
     afterAll(async () => {
@@ -549,10 +556,12 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
         // §1.1 inherits down the tree (every arm traverses `parent` recursively), so no visible
         // node has a hidden child; an owner-only policy cuts branches.
         const owned = loose(
-          permissions({
-            actor: ActorSchema,
-            models: { document: { read: { ownerId: { actor: "userId" } } } },
-          })(base)
+          base.$extends(
+            permissions({
+              actor: ActorSchema,
+              models: { document: { read: { ownerId: { actor: "userId" } } } },
+            })
+          )
         );
         for (const name of READERS) {
           const actor = actors[name]!;
@@ -1295,7 +1304,7 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
       );
       // Rules compile a model at a time: a call on the model is refused
       // before any statement, every time; another model is unaffected.
-      const call = loose(misspelt(base as never)).$as(actors.u01!);
+      const call = loose((base as never).$extends(misspelt)).$as(actors.u01!);
       for (let attempt = 0; attempt < 2; attempt++)
         await expect(call.page!.findMany({})).rejects.toThrow(
           ClientInitializationError
@@ -1316,7 +1325,7 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
         },
       } as never);
       await expect(
-        loose(gated(base as never))
+        loose((base as never).$extends(gated))
           .$as(actors.u01!)
           .page!.findMany({})
       ).rejects.toThrow(
@@ -1335,7 +1344,7 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
         },
       } as never);
       await expect(
-        loose(unique(base as never))
+        loose((base as never).$extends(unique))
           .$as(actors.u01!)
           .user!.findMany({})
       ).rejects.toThrow(
@@ -1349,10 +1358,12 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
       );
       expect(orphans.length).toBeGreaterThan(0);
       const owners = loose(
-        permissions({
-          actor: v.object({ userId: v.string({ nullable: true }) }),
-          models: { page: { read: { ownerId: { actor: "userId" } } } },
-        })(base)
+        base.$extends(
+          permissions({
+            actor: v.object({ userId: v.string({ nullable: true }) }),
+            models: { page: { read: { ownerId: { actor: "userId" } } } },
+          })
+        )
       );
       expect(await owners.$as({ userId: null }).page!.count()).toBe(0);
       expect(await owners.$as({ userId: "user-03" }).page!.count()).toBe(
@@ -1362,10 +1373,12 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
 
     test("missing required actor fields are rejected when binding, before a query", () => {
       const required = loose(
-        permissions({
-          actor: v.object({ userId: v.string() }),
-          models: { page: { read: true } },
-        })(base)
+        base.$extends(
+          permissions({
+            actor: v.object({ userId: v.string() }),
+            models: { page: { read: true } },
+          })
+        )
       );
       expect(() => required.$as({})).toThrow(ValidationError);
       expect(() => required.$as({ userId: undefined })).toThrow(
@@ -1378,8 +1391,8 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
       const optional = v.object({ userId: v.optional(v.string()) });
       const over = (rules: object) =>
         loose(
-          permissions({ actor: optional, models: { page: rules } } as never)(
-            base
+          base.$extends(
+            permissions({ actor: optional, models: { page: rules } } as never)
           )
         );
       const shared = seed.page.filter((p) => !p.personal);
@@ -1684,7 +1697,7 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
           },
         },
       } as never) as unknown as (client: PermissionsAppClient) => Loose;
-      const call = gapped(base).$as(actors.u01!);
+      const call = base.$extends(gapped).$as(actors.u01!);
       expect(
         await holds(call.page!, ["read", "update", "full"], { id })
       ).toEqual({
@@ -1737,7 +1750,7 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
         expect(restored).toBeGreaterThan(0);
         // No order guard: soft delete applied whole after the policy reads
         // exactly what the steps apart read.
-        const reversed = loose(tombstones(policy(base) as never));
+        const reversed = loose((policy(base) as never).$extends(tombstones));
         for (const name of READERS) {
           const actor = actors[name]!;
           for (const deleted of ["without", "only"] as const)
@@ -1909,13 +1922,17 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
       async () => {
         const actor = actors[judged[0]!]!;
         const counted: string[] = [];
-        const meter = {
-          name: "meter",
-          statement: (context: { statement: unknown }) => {
-            counted.push("statement");
-            return context.statement;
-          },
-        };
+        const meter = extension(
+          "meter",
+          unit(
+            (u, next) => {
+              counted.push("statement");
+              return next(statement(u));
+            },
+            ["statement"],
+            { rewrites: true }
+          )
+        );
         const memo = () => cache({ driver: new MemoryCache() });
         const metered = loose(base).$extends(meter);
         for (const [order, governed] of [
@@ -1939,9 +1956,9 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
         // Declared: the read is served from the cache, stale after a write
         // the cache did not see, which is why it is refused by default.
         const allowing = permissions({ ...policy.config, cache: "allow" });
-        const call = loose(allowing(loose(base).$extends(memo()) as never)).$as(
-          actor
-        );
+        const call = loose(
+          (loose(base).$extends(memo()) as never).$extends(allowing)
+        ).$as(actor);
         const [id] = at(actor, "page", "read", { tombstones: false });
         const read = async () =>
           await call.$withCache({ ttl: 60_000 }).page!.findMany({

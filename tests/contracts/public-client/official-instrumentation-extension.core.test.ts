@@ -14,7 +14,15 @@ import {
 } from "@extensions/observation";
 import { ATTR_DB_OPERATION_NAME, SPAN_OPERATION } from "@instrumentation/spans";
 import { SpanStatusCode, trace } from "@opentelemetry/api";
-import { createClient, s, sql } from "@src/index";
+import {
+  createClient,
+  s,
+  sql,
+  extension as extExtension,
+  call,
+  unit,
+  around,
+} from "@src/index";
 import { instrumentation } from "@src/instrumentation/exports";
 import { readTestTransactionOperation } from "@tests/fixtures/transaction-operation";
 import {
@@ -280,32 +288,36 @@ describe("official logical operation presentation", () => {
       });
       const { client: base, driver } = baseClient();
       const client = base
-        .$extends({
-          name: "before-instrumentation",
-          observe(unit, proceed) {
-            if (unit.kind !== "operation") return;
-            timeline.push(`A.in:${trace.getActiveSpan() !== undefined}`);
-            return proceed().then(() => {
-              timeline.push(
-                `A.out:${recorder.find(SPAN_OPERATION) !== undefined}`
-              );
-              resolveOuter?.();
-            });
-          },
-        })
+        .$extends(
+          extExtension(
+            "before-instrumentation",
+            unit((u, next) => {
+              if (u.kind !== "operation") return;
+              timeline.push(`A.in:${trace.getActiveSpan() !== undefined}`);
+              return next().then(() => {
+                timeline.push(
+                  `A.out:${recorder.find(SPAN_OPERATION) !== undefined}`
+                );
+                resolveOuter?.();
+              });
+            })
+          )
+        )
         .$extends(instrumentation({ tracing: true }))
-        .$extends({
-          name: "after-instrumentation",
-          observe(unit, proceed) {
-            if (unit.kind !== "operation") return;
-            timeline.push(`B.in:${trace.getActiveSpan() !== undefined}`);
-            return proceed().then(() => {
-              timeline.push(
-                `B.out:${recorder.find(SPAN_OPERATION) !== undefined}`
-              );
-            });
-          },
-        });
+        .$extends(
+          extExtension(
+            "after-instrumentation",
+            unit((u, next) => {
+              if (u.kind !== "operation") return;
+              timeline.push(`B.in:${trace.getActiveSpan() !== undefined}`);
+              return next().then(() => {
+                timeline.push(
+                  `B.out:${recorder.find(SPAN_OPERATION) !== undefined}`
+                );
+              });
+            })
+          )
+        );
       driver.events.length = 0;
 
       await expect(
@@ -339,18 +351,20 @@ describe("official logical operation presentation", () => {
       driver.timeline = timeline;
       driver.readFailure = new Error("provider read failed");
       const client = base
-        .$extends({
-          name: "before-failed-read",
-          observe(unit, proceed) {
-            if (unit.kind !== "operation") return;
-            timeline.push(`A.in:${trace.getActiveSpan() !== undefined}`);
-            return proceed().then((completion) => {
-              timeline.push(
-                `A.out:${completion.status}:${recorder.find(SPAN_OPERATION) !== undefined}`
-              );
-            });
-          },
-        })
+        .$extends(
+          extExtension(
+            "before-failed-read",
+            unit((u, next) => {
+              if (u.kind !== "operation") return;
+              timeline.push(`A.in:${trace.getActiveSpan() !== undefined}`);
+              return next().then((completion) => {
+                timeline.push(
+                  `A.out:${completion.status}:${recorder.find(SPAN_OPERATION) !== undefined}`
+                );
+              });
+            })
+          )
+        )
         .$extends(
           instrumentation({
             tracing: true,
@@ -362,18 +376,20 @@ describe("official logical operation presentation", () => {
             },
           })
         )
-        .$extends({
-          name: "after-failed-read",
-          observe(unit, proceed) {
-            if (unit.kind !== "operation") return;
-            timeline.push(`B.in:${trace.getActiveSpan() !== undefined}`);
-            return proceed().then((completion) => {
-              timeline.push(
-                `B.out:${completion.status}:${recorder.find(SPAN_OPERATION) !== undefined}`
-              );
-            });
-          },
-        });
+        .$extends(
+          extExtension(
+            "after-failed-read",
+            unit((u, next) => {
+              if (u.kind !== "operation") return;
+              timeline.push(`B.in:${trace.getActiveSpan() !== undefined}`);
+              return next().then((completion) => {
+                timeline.push(
+                  `B.out:${completion.status}:${recorder.find(SPAN_OPERATION) !== undefined}`
+                );
+              });
+            })
+          )
+        );
 
       await expect(client.record.findMany()).rejects.toMatchObject({
         name: "QueryError",
@@ -412,14 +428,16 @@ describe("official logical operation presentation", () => {
     const timeline: string[] = [];
     const { client: officialBase } = baseClient();
     const officialClient = officialBase
-      .$extends({
-        name: "outer-error-observer",
-        observe(unit, proceed) {
-          if (unit.kind !== "operation") return;
-          timeline.push("A.in");
-          return proceed().then(() => timeline.push("A.out"));
-        },
-      })
+      .$extends(
+        extExtension(
+          "outer-error-observer",
+          unit((u, next) => {
+            if (u.kind !== "operation") return;
+            timeline.push("A.in");
+            return next().then(() => timeline.push("A.out"));
+          })
+        )
+      )
       .$extends(
         instrumentation({
           logging: {
@@ -430,14 +448,16 @@ describe("official logical operation presentation", () => {
           },
         })
       )
-      .$extends({
-        name: "inner-error-observer",
-        observe(unit, proceed) {
-          if (unit.kind !== "operation") return;
-          timeline.push("B.in");
-          return proceed().then(() => timeline.push("B.out"));
-        },
-      });
+      .$extends(
+        extExtension(
+          "inner-error-observer",
+          unit((u, next) => {
+            if (u.kind !== "operation") return;
+            timeline.push("B.in");
+            return next().then(() => timeline.push("B.out"));
+          })
+        )
+      );
     const officialFailure = await officialClient.record
       .findMany({ take: "invalid" as never })
       .catch((failure) => failure);
@@ -461,16 +481,18 @@ describe("official logical operation presentation", () => {
     const { client: base } = baseClient();
     const client = base
       .$extends(instrumentation({ logging: { error: logs.callback } }))
-      .$extends({
-        name: "clock-after-settlement",
-        observe(unit, proceed) {
-          if (unit.kind !== "operation") return;
-          // The rail has read the start instant; the child settles at SETTLED_AT.
-          vi.setSystemTime(SETTLED_AT);
-          // Runs after core's complete() and before the extension continues.
-          return proceed().then(() => vi.setSystemTime(SETTLED_AT + 1000));
-        },
-      });
+      .$extends(
+        extExtension(
+          "clock-after-settlement",
+          unit((u, next) => {
+            if (u.kind !== "operation") return;
+            // The rail has read the start instant; the child settles at SETTLED_AT.
+            vi.setSystemTime(SETTLED_AT);
+            // Runs after core's complete() and before the extension continues.
+            return next().then(() => vi.setSystemTime(SETTLED_AT + 1000));
+          })
+        )
+      );
 
     await expect(
       client.record.findMany({ take: "invalid" as never })
@@ -498,12 +520,14 @@ describe("official logical operation presentation", () => {
           ? instrumentation({ logging: { error: logs.callback } })
           : instrumentation({ logging: { query: logs.callback } })
       )
-      .$extends({
-        name: "operation-unit-capture",
-        observe(unit) {
-          if (unit.kind === "operation") operationUnit = unit;
-        },
-      });
+      .$extends(
+        extExtension(
+          "operation-unit-capture",
+          unit((u, next) => {
+            if (u.kind === "operation") operationUnit = u;
+          })
+        )
+      );
     await client.record
       .findMany({ take: "invalid" as never })
       .catch(() => undefined);
@@ -655,24 +679,26 @@ describe("official array observation readiness", () => {
       const { client: base, driver } = baseClient(new NativeOperationDriver());
       driver.timeline = timeline;
       const official = instrumentation({ tracing: true });
-      const client = base.$extends(official).$extends({
-        name: "native-readiness",
-        request({ operation }) {
-          timeline.push(`request:${operation}`);
-          return {};
-        },
-        async query({ operation, proceed }) {
-          timeline.push(`query:${operation}`);
-          return proceed();
-        },
-        observe(unit, proceed) {
-          if (unit.kind !== "operation") return;
-          timeline.push(
-            `observer:${unit.operation}:${trace.getActiveSpan() !== undefined}`
-          );
-          return proceed();
-        },
-      });
+      const client = base.$extends(official).$extends(
+        extExtension(
+          "native-readiness",
+          call((c) => {
+            timeline.push(`request:${c.operation}`);
+            c.set({});
+          }),
+          around((c) => async (run) => {
+            timeline.push(`query:${c.operation}`);
+            return run();
+          }),
+          unit((u, next) => {
+            if (u.kind !== "operation") return;
+            timeline.push(
+              `observer:${u.operation}:${trace.getActiveSpan() !== undefined}`
+            );
+            return next();
+          })
+        )
+      );
       const first = client.record.findMany();
       const second = client.record.findMany();
 
@@ -706,18 +732,18 @@ describe("official array observation readiness", () => {
       const timeline: string[] = [];
       const { client: base, driver } = baseClient(new NativeOperationDriver());
       driver.timeline = timeline;
-      const client = base
-        .$extends(instrumentation({ tracing: true }))
-        .$extends({
-          name: "legacy-native-readiness",
-          observe(unit, proceed) {
-            if (unit.kind !== "operation") return;
+      const client = base.$extends(instrumentation({ tracing: true })).$extends(
+        extExtension(
+          "legacy-native-readiness",
+          unit((u, next) => {
+            if (u.kind !== "operation") return;
             timeline.push(
-              `observer:${unit.operation}:${trace.getActiveSpan() !== undefined}`
+              `observer:${u.operation}:${trace.getActiveSpan() !== undefined}`
             );
-            return proceed();
-          },
-        });
+            return next();
+          })
+        )
+      );
       const first = client.record.findMany();
       const second = client.record.findMany();
 
@@ -739,26 +765,26 @@ describe("official array observation readiness", () => {
       const timeline: string[] = [];
       const { client: base, driver } = baseClient();
       driver.timeline = timeline;
-      const client = base
-        .$extends(instrumentation({ tracing: true }))
-        .$extends({
-          name: "fallback-readiness",
-          request({ operation }) {
-            timeline.push(`request:${operation}`);
-            return {};
-          },
-          async query({ operation, proceed }) {
-            timeline.push(`query:${operation}`);
-            return proceed();
-          },
-          observe(unit, proceed) {
-            if (unit.kind !== "operation") return;
+      const client = base.$extends(instrumentation({ tracing: true })).$extends(
+        extExtension(
+          "fallback-readiness",
+          call((c) => {
+            timeline.push(`request:${c.operation}`);
+            c.set({});
+          }),
+          around((c) => async (run) => {
+            timeline.push(`query:${c.operation}`);
+            return run();
+          }),
+          unit((u, next) => {
+            if (u.kind !== "operation") return;
             timeline.push(
-              `observer:${unit.operation}:${trace.getActiveSpan() !== undefined}`
+              `observer:${u.operation}:${trace.getActiveSpan() !== undefined}`
             );
-            return proceed();
-          },
-        });
+            return next();
+          })
+        )
+      );
       const first = client.record.findMany();
       const second = client.record.findMany();
 

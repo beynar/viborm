@@ -92,7 +92,7 @@ describe("one resolution, one index", () => {
     const hidden = createClient({
       schema,
       driver: new PlanningDriver("postgresql"),
-    }).$extends(defaultOmit<typeof schema>()({ author: { secret: true } }));
+    }).$extends(defaultOmit({ author: { secret: true } }));
     const hiddenSql = hidden.post
       .findMany({ include: { author: true } })
       .buildStatement()

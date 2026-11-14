@@ -7,6 +7,7 @@ import { ValidationError } from "@errors";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, describe, expect, test } from "vitest";
+import { extension, fields } from "@src/index";
 
 const user = s
   .model({
@@ -136,10 +137,9 @@ export function runResultFieldsBehavior({
         ],
       });
       statements.length = 0;
-      const db = base.$extends({
-        name: "names",
-        result: { user: { fullName } },
-      } as never) as unknown as typeof base;
+      const db = base.$extends(
+        extension("names", fields({ user: { fullName } })) as never
+      ) as unknown as typeof base;
       return { base, db: db as Loose, statements };
     };
 
@@ -347,10 +347,9 @@ export function runResultFieldsBehavior({
         .$extends(
           cache({ driver: store, waitUntil: (work) => background.push(work) })
         )
-        .$extends({
-          name: "names",
-          result: { user: { fullName } },
-        } as never) as Loose;
+        .$extends(
+          extension("names", fields({ user: { fullName } })) as never
+        ) as Loose;
       const read = () =>
         db.$withCache().user.findUnique({
           where: { id: "u1" },
@@ -366,36 +365,40 @@ export function runResultFieldsBehavior({
     test(`${provider}: extensions compose: a later field needs an earlier one, overrides it, and $allModels reaches every model`, async () => {
       const { db: names } = await open();
       const db = names
-        .$extends({
-          name: "greeting",
-          result: {
-            user: {
-              greeting: {
-                needs: { fullName: true },
-                compute: (row: { fullName: string }) =>
-                  `Hello, ${row.fullName}`,
+        .$extends(
+          extension(
+            "greeting",
+            fields({
+              user: {
+                greeting: {
+                  needs: { fullName: true },
+                  compute: (row: { fullName: string }) =>
+                    `Hello, ${row.fullName}`,
+                },
               },
-            },
-          },
-        })
-        .$extends({
-          name: "shout",
-          result: {
-            $allModels: {
-              ref: {
-                needs: { id: true },
-                compute: (row: { id: string }) => `#${row.id}`,
+            })
+          )
+        )
+        .$extends(
+          extension(
+            "shout",
+            fields({
+              $allModels: {
+                ref: {
+                  needs: { id: true },
+                  compute: (row: { id: string }) => `#${row.id}`,
+                },
               },
-            },
-            user: {
-              fullName: {
-                needs: { fullName: true },
-                compute: (row: { fullName: string }) =>
-                  row.fullName.toUpperCase(),
+              user: {
+                fullName: {
+                  needs: { fullName: true },
+                  compute: (row: { fullName: string }) =>
+                    row.fullName.toUpperCase(),
+                },
               },
-            },
-          },
-        });
+            })
+          )
+        );
       expect(
         await db.user.findUnique({
           where: { id: "u1" },
@@ -422,17 +425,19 @@ export function runResultFieldsBehavior({
 
     test(`${provider}: a field may shadow a column it reads`, async () => {
       const { base } = await open();
-      const db = base.$extends({
-        name: "lower",
-        result: {
-          user: {
-            email: {
-              needs: { email: true },
-              compute: (row: { email: string }) => row.email.toLowerCase(),
+      const db = base.$extends(
+        extension(
+          "lower",
+          fields({
+            user: {
+              email: {
+                needs: { email: true },
+                compute: (row: { email: string }) => row.email.toLowerCase(),
+              },
             },
-          },
-        },
-      } as never) as Loose;
+          })
+        ) as never
+      ) as Loose;
       expect(
         await db.user.findMany({
           select: { id: true, email: true },
@@ -457,19 +462,21 @@ export function runResultFieldsBehavior({
     test(`${provider}: a need the client omits by default is read and removed again`, async () => {
       const { base } = await open();
       const db = base
-        .$extends(defaultOmit<typeof schema>()({ user: { password: true } }))
-        .$extends({
-          name: "hint",
-          result: {
-            user: {
-              hint: {
-                needs: { password: true },
-                compute: (row: { password: string }) =>
-                  `${row.password.length}`,
+        .$extends(defaultOmit({ user: { password: true } }))
+        .$extends(
+          extension(
+            "hint",
+            fields({
+              user: {
+                hint: {
+                  needs: { password: true },
+                  compute: (row: { password: string }) =>
+                    `${row.password.length}`,
+                },
               },
-            },
-          },
-        } as never) as Loose;
+            })
+          ) as never
+        ) as Loose;
       expect(await db.user.findUnique({ where: { id: "u1" } })).toEqual({
         id: "u1",
         firstName: "Ada",
@@ -487,27 +494,31 @@ export function runResultFieldsBehavior({
       await expect(
         db.user.findMany({ orderBy: { fullName: "asc" } })
       ).rejects.toBeInstanceOf(ValidationError);
-      const failing = base.$extends({
-        name: "failing",
-        result: {
-          user: {
-            broken: {
-              needs: {},
-              compute: () => {
-                throw new Error("compute failed");
+      const failing = base.$extends(
+        extension(
+          "failing",
+          fields({
+            user: {
+              broken: {
+                needs: {},
+                compute: () => {
+                  throw new Error("compute failed");
+                },
               },
             },
-          },
-        },
-      } as never) as Loose;
+          })
+        ) as never
+      ) as Loose;
       const [broken] = await failing.user.findMany({ orderBy: { id: "asc" } });
       expect(Object.keys(broken)).toContain("broken");
       expect(() => broken.broken).toThrow("compute failed");
       expect(() => JSON.stringify(broken)).toThrow("compute failed");
-      const constant = base.$extends({
-        name: "constant",
-        result: { user: { one: { needs: {}, compute: () => 1 } } },
-      } as never) as Loose;
+      const constant = base.$extends(
+        extension(
+          "constant",
+          fields({ user: { one: { needs: {}, compute: () => 1 } } })
+        ) as never
+      ) as Loose;
       expect(
         await constant.user.findMany({
           select: { one: true },
@@ -525,20 +536,22 @@ export function runResultFieldsBehavior({
     test(`${provider}: a field is computed lazily, once, from the values the call read`, async () => {
       const { base } = await open();
       let calls = 0;
-      const db = base.$extends({
-        name: "counted",
-        result: {
-          user: {
-            fullName: {
-              needs: { firstName: true, lastName: true },
-              compute: (row: UserRow) => {
-                calls++;
-                return `${row.firstName} ${row.lastName}`;
+      const db = base.$extends(
+        extension(
+          "counted",
+          fields({
+            user: {
+              fullName: {
+                needs: { firstName: true, lastName: true },
+                compute: (row: UserRow) => {
+                  calls++;
+                  return `${row.firstName} ${row.lastName}`;
+                },
               },
             },
-          },
-        },
-      } as never) as Loose;
+          })
+        ) as never
+      ) as Loose;
       const rows = await db.user.findMany({ orderBy: { id: "asc" } });
       expect(calls).toBe(0);
       rows[0].firstName = "Changed";
@@ -563,27 +576,29 @@ export function runResultFieldsBehavior({
           tags: ["a"],
         },
       });
-      const db = base.$extends({
-        name: "profiles",
-        result: {
-          profile: {
-            theme: {
-              needs: { settings: true },
-              compute: (row: {
-                settings: { theme: string; sizes: number[] };
-              }) => `${row.settings.theme}:${row.settings.sizes.join()}`,
+      const db = base.$extends(
+        extension(
+          "profiles",
+          fields({
+            profile: {
+              theme: {
+                needs: { settings: true },
+                compute: (row: {
+                  settings: { theme: string; sizes: number[] };
+                }) => `${row.settings.theme}:${row.settings.sizes.join()}`,
+              },
+              year: {
+                needs: { born: true },
+                compute: (row: { born: Date }) => row.born.getUTCFullYear(),
+              },
+              tagList: {
+                needs: { tags: true },
+                compute: (row: { tags: string[] }) => row.tags.join(),
+              },
             },
-            year: {
-              needs: { born: true },
-              compute: (row: { born: Date }) => row.born.getUTCFullYear(),
-            },
-            tagList: {
-              needs: { tags: true },
-              compute: (row: { tags: string[] }) => row.tags.join(),
-            },
-          },
-        },
-      } as never) as Loose;
+          })
+        ) as never
+      ) as Loose;
       const found = await db.profile.findUniqueOrThrow({
         where: { id: "pr1" },
       });
@@ -599,19 +614,21 @@ export function runResultFieldsBehavior({
 
     test(`${provider}: a throwing compute never undoes a committed write`, async () => {
       const { base } = await open();
-      const failing = base.$extends({
-        name: "failing",
-        result: {
-          user: {
-            broken: {
-              needs: { id: true },
-              compute: () => {
-                throw new Error("compute failed");
+      const failing = base.$extends(
+        extension(
+          "failing",
+          fields({
+            user: {
+              broken: {
+                needs: { id: true },
+                compute: () => {
+                  throw new Error("compute failed");
+                },
               },
             },
-          },
-        },
-      } as never) as Loose;
+          })
+        ) as never
+      ) as Loose;
       const created = await failing.user.create({
         data: {
           id: "u3",
@@ -671,17 +688,19 @@ export function runResultFieldsBehavior({
 
     test(`${provider}: a recursive projection carries the field at every level`, async () => {
       const { base } = await open();
-      const db = base.$extends({
-        name: "labels",
-        result: {
-          category: {
-            label: {
-              needs: { name: true },
-              compute: (row: { name: string }) => `[${row.name}]`,
+      const db = base.$extends(
+        extension(
+          "labels",
+          fields({
+            category: {
+              label: {
+                needs: { name: true },
+                compute: (row: { name: string }) => `[${row.name}]`,
+              },
             },
-          },
-        },
-      } as never) as Loose;
+          })
+        ) as never
+      ) as Loose;
       expect(
         await db.category.findUnique({
           where: { id: "c1" },
@@ -704,7 +723,7 @@ export function runResultFieldsBehavior({
     test(`${provider}: a definition is checked when it is applied`, async () => {
       const { base } = await open();
       const apply = (result: unknown) => () =>
-        base.$extends({ name: "bad", result } as never);
+        base.$extends(extension("bad", fields(result)) as never);
       expect(
         apply({ user: { x: { needs: { nope: true }, compute: () => 1 } } })
       ).toThrow(

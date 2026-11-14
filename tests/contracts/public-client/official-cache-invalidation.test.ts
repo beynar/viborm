@@ -7,7 +7,15 @@ import {
   QueryError,
   ValidationError,
 } from "@src/errors";
-import { createClient, s } from "@src/index";
+import {
+  createClient,
+  s,
+  extension,
+  call,
+  target,
+  around,
+  settled,
+} from "@src/index";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test, vi } from "vitest";
 
@@ -125,32 +133,37 @@ describe("official cache mutation ownership", () => {
     const timeline: string[] = [];
     const cacheDriver = new RecordingCache(timeline);
     const client = createClient({ schema, driver })
-      .$extends({
-        name: "inspect-clean-request",
-        request: {
-          user: {
-            create({ input }) {
-              timeline.push(`request:cache=${Reflect.has(input, "cache")}`);
-              return {};
+      .$extends(
+        extension(
+          "inspect-clean-request",
+          call(
+            (c) => {
+              timeline.push(`request:cache=${Reflect.has(c.args, "cache")}`);
+              c.set({});
             },
-          },
-        },
-      })
+            target("user", "create")
+          )
+        )
+      )
       .$extends(cache({ driver: cacheDriver, version: "one" }))
-      .$extends({
-        name: "inspect-clean-query",
-        query: {
-          user: {
-            async create({ input, onWriteOutcome, proceed }) {
-              timeline.push(`query:cache=${Reflect.has(input, "cache")}`);
-              onWriteOutcome(({ certainty }) => {
+      .$extends(
+        extension(
+          "inspect-clean-query",
+          around(
+            (c) => {
+              settled(c, ({ certainty }) => {
                 timeline.push(`public:${certainty}`);
               });
-              return proceed();
+              return async (run) => {
+                timeline.push(`query:cache=${Reflect.has(run.input, "cache")}`);
+
+                return run();
+              };
             },
-          },
-        },
-      });
+            target("user", "create")
+          )
+        )
+      );
 
     const operation = client.user.create({
       data: { id: "u1", name: "Ada" },
@@ -173,23 +186,24 @@ describe("official cache mutation ownership", () => {
     const { driver } = fallbackFamily();
     const timeline: string[] = [];
     const cacheDriver = new RecordingCache(timeline);
-    const injecting = {
-      name: "inject-cache-after-request",
-      request: {
-        user: {
-          create() {
-            timeline.push("request");
-            return Object.defineProperty({}, "cache", {
+    const injecting = extension(
+      "inject-cache-after-request",
+      call(
+        (c) => {
+          timeline.push("request");
+          c.set(
+            Object.defineProperty({}, "cache", {
               enumerable: true,
               get() {
                 timeline.push("patch-value-read");
                 return { autoInvalidate: true };
               },
-            });
-          },
+            })
+          );
         },
-      },
-    } as const;
+        target("user", "create")
+      )
+    );
     for (const client of [
       createClient({ schema, driver })
         .$extends(injecting)
@@ -365,16 +379,17 @@ describe("official cache mutation ownership", () => {
     const { driver } = fallbackFamily();
     const cacheDriver = new RecordingCache();
     const client = createClient({ schema, driver })
-      .$extends({
-        name: "request-refusal",
-        request: {
-          user: {
-            create() {
+      .$extends(
+        extension(
+          "request-refusal",
+          call(
+            (c) => {
               throw new Error("request refused");
             },
-          },
-        },
-      })
+            target("user", "create")
+          )
+        )
+      )
       .$extends(cache({ driver: cacheDriver }));
     let cacheReads = 0;
     const input = Object.defineProperty(
@@ -552,19 +567,22 @@ describe("official cache mutation ownership", () => {
     const NAMESPACE = officialNamespaces(namespace);
     const cacheDriver = new RecordingCache();
     const certainties: string[] = [];
-    const client = officialClient(driver, cacheDriver, "ambiguous").$extends({
-      name: "inspect-ambiguous-cache-outcome",
-      query: {
-        user: {
-          async create({ onWriteOutcome, proceed }) {
-            onWriteOutcome(({ certainty }) => {
+    const client = officialClient(driver, cacheDriver, "ambiguous").$extends(
+      extension(
+        "inspect-ambiguous-cache-outcome",
+        around(
+          (c) => {
+            settled(c, ({ certainty }) => {
               certainties.push(certainty);
             });
-            return proceed();
+            return async (run) => {
+              return run();
+            };
           },
-        },
-      },
-    });
+          target("user", "create")
+        )
+      )
+    );
     const executeBatch = vi
       .spyOn(driver, "_executeBatch")
       .mockRejectedValueOnce(new Error("provider dispatch failed"));

@@ -18,7 +18,7 @@ import {
 } from "@instrumentation/spans";
 import { trace } from "@opentelemetry/api";
 import type { ReadableSpan } from "@opentelemetry/sdk-trace-node";
-import { createClient, defineExtension, s } from "@src/index";
+import { createClient, s, extension, unit } from "@src/index";
 import { instrumentation } from "@src/instrumentation/exports";
 import { withOtelRecorder } from "@tests/unit/instrumentation/_capture";
 import { afterEach, describe, expect, test } from "vitest";
@@ -187,32 +187,32 @@ function lifecycleObserver(
   timeline: string[],
   captures: CapturedLifecycle[]
 ) {
-  return defineExtension<typeof schema>()({
-    name: `official-lifecycle-${label}`,
-    observe(unit, proceed) {
+  return extension(
+    `official-lifecycle-${label}`,
+    unit((u, next) => {
       if (
-        unit.kind !== "connection" &&
-        unit.kind !== "savepoint" &&
-        unit.kind !== "transaction"
+        u.kind !== "connection" &&
+        u.kind !== "savepoint" &&
+        u.kind !== "transaction"
       ) {
         return;
       }
-      timeline.push(`${label}:${unit.kind}:in:${activeSpanName()}`);
-      const completion = proceed();
+      timeline.push(`${label}:${u.kind}:in:${activeSpanName()}`);
+      const completion = next();
       const capture: CapturedLifecycle = {
         completion,
-        kind: unit.kind,
-        operation: unit.operation,
+        kind: u.kind,
+        operation: u.operation,
       };
       captures.push(capture);
       completion.then((summary) => {
         capture.summary = summary;
         timeline.push(
-          `${label}:${unit.kind}:out:${summary.status}:${summary.commitCertainty ?? "none"}`
+          `${label}:${u.kind}:out:${summary.status}:${summary.commitCertainty ?? "none"}`
         );
       });
-    },
-  });
+    })
+  );
 }
 
 async function settle(captures: readonly CapturedLifecycle[]): Promise<void> {
@@ -551,12 +551,14 @@ describe("official driver lifecycle instrumentation", () => {
       const driver = new OfficialLifecycleDriver("shared-lifecycle");
       const base = track(createClient({ schema, driver }));
       const ordinary = track(
-        base.$extends({
-          name: "ordinary-only-lifecycle",
-          observe(_unit, proceed) {
-            proceed();
-          },
-        })
+        base.$extends(
+          extension(
+            "ordinary-only-lifecycle",
+            unit((u, next) => {
+              next();
+            })
+          )
+        )
       );
       const official = track(base.$extends(instrumentation({ tracing: true })));
       const ignored = track(

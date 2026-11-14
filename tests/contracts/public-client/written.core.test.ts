@@ -7,9 +7,16 @@
 
 import { QueryError } from "@errors";
 import {
-  defineExtension,
   type WrittenCall,
   type WrittenWatch,
+  extension,
+  call as extCall,
+  args,
+  target,
+  writes,
+  oneOf,
+  watch as extWatch,
+  settled,
 } from "@src/index";
 import { softDelete } from "@src/soft-delete";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
@@ -56,7 +63,22 @@ for (const [name, createDriver] of [
     test("a watch is asked before the write, told the call's rows, then its nested rows, then the commit", async () => {
       const base = await open();
       const log: unknown[] = [];
-      const db = base.$extends({ name: "watch", written: recording(log) });
+      const db = base.$extends(
+        extension(
+          "watch", // FIXME(extension-codemod): the handler is `recording(log)`, called with the old call rebuilt: rewrite it with watch and settled
+          extCall((c) => {
+            const watcher = recording(log)({
+              model: c.model,
+              operation: c.operation,
+              args: c.args,
+              controls: c.values,
+            });
+            if (watcher === undefined) return;
+            extWatch(c, watcher);
+            settled(c, (outcome) => watcher.settled(outcome));
+          }, target(writes))
+        )
+      );
       const value = await db.user.update({
         where: { id: "u1" },
         data: {
@@ -83,14 +105,18 @@ for (const [name, createDriver] of [
     test("rows are whole whatever the caller selects, and only the rows a watch wants are told", async () => {
       const base = await open();
       const told: unknown[] = [];
-      const db = base.$extends({
-        name: "watch",
-        written: (): WrittenWatch => ({
-          wants: (model, kind) => model === "post" && kind === "update",
-          rows: (model, kind, rows) => told.push([model, kind, rows]),
-          settled: () => undefined,
-        }),
-      });
+      const db = base.$extends(
+        extension(
+          "watch",
+          extCall((c) => {
+            extWatch(c, {
+              wants: (model, kind) => model === "post" && kind === "update",
+              rows: (model, kind, rows) => told.push([model, kind, rows]),
+            });
+            settled(c, () => undefined);
+          }, target(writes))
+        )
+      );
       await db.user.update({
         where: { id: "u1" },
         data: { name: "A" },
@@ -125,9 +151,24 @@ for (const [name, createDriver] of [
     test("the kind is what happened: an upsert's arm, and the update a soft delete makes of a delete", async () => {
       const base = await open();
       const log: unknown[] = [];
-      const db = softDelete({ models: { post: { deletedAt: "deletedAt" } } })(
-        base
-      ).$extends({ name: "watch", written: recording(log) });
+      const db = base
+        .$extends(softDelete({ models: { post: { deletedAt: "deletedAt" } } }))
+        .$extends(
+          extension(
+            "watch", // FIXME(extension-codemod): the handler is `recording(log)`, called with the old call rebuilt: rewrite it with watch and settled
+            extCall((c) => {
+              const watcher = recording(log)({
+                model: c.model,
+                operation: c.operation,
+                args: c.args,
+                controls: c.values,
+              });
+              if (watcher === undefined) return;
+              extWatch(c, watcher);
+              settled(c, (outcome) => watcher.settled(outcome));
+            }, target(writes))
+          )
+        );
       const upsert = (id: string) =>
         db.user.upsert({
           where: { id },
@@ -154,10 +195,23 @@ for (const [name, createDriver] of [
       const base = await open();
       const log: unknown[] = [];
       const watch = recording(log);
-      const db = base.$extends({
-        name: "watch",
-        written: (call) => (call.model === "user" ? watch(call) : undefined),
-      });
+      const db = base.$extends(
+        extension(
+          "watch", // FIXME(extension-codemod): the handler does not return its watcher as one literal: it is called with the old call rebuilt; rewrite it with watch and settled
+          extCall((c) => {
+            const watcher = ((call) =>
+              call.model === "user" ? watch(call) : undefined)({
+              model: c.model,
+              operation: c.operation,
+              args: c.args,
+              controls: c.values,
+            });
+            if (watcher === undefined) return;
+            extWatch(c, watcher);
+            settled(c, (outcome) => watcher.settled(outcome));
+          }, target(writes))
+        )
+      );
       await db.post.update({ where: { id: "p1" }, data: { views: 1 } });
       expect(log).toEqual([]);
       await failure(
@@ -170,7 +224,22 @@ for (const [name, createDriver] of [
       const base = await open();
       if (!base.$driver.supportsTransactions) return;
       const log: unknown[] = [];
-      const db = base.$extends({ name: "watch", written: recording(log) });
+      const db = base.$extends(
+        extension(
+          "watch", // FIXME(extension-codemod): the handler is `recording(log)`, called with the old call rebuilt: rewrite it with watch and settled
+          extCall((c) => {
+            const watcher = recording(log)({
+              model: c.model,
+              operation: c.operation,
+              args: c.args,
+              controls: c.values,
+            });
+            if (watcher === undefined) return;
+            extWatch(c, watcher);
+            settled(c, (outcome) => watcher.settled(outcome));
+          }, target(writes))
+        )
+      );
       await db.$transaction(async (tx) => {
         await tx.user.update({ where: { id: "u1" }, data: { name: "T" } });
         log.push("body");
@@ -194,7 +263,22 @@ for (const [name, createDriver] of [
     test("$transaction([...]): each member's rows before its commit, one member after another", async () => {
       const base = await open();
       const log: unknown[] = [];
-      const db = base.$extends({ name: "watch", written: recording(log) });
+      const db = base.$extends(
+        extension(
+          "watch", // FIXME(extension-codemod): the handler is `recording(log)`, called with the old call rebuilt: rewrite it with watch and settled
+          extCall((c) => {
+            const watcher = recording(log)({
+              model: c.model,
+              operation: c.operation,
+              args: c.args,
+              controls: c.values,
+            });
+            if (watcher === undefined) return;
+            extWatch(c, watcher);
+            settled(c, (outcome) => watcher.settled(outcome));
+          }, target(writes))
+        )
+      );
       await db.$transaction([
         db.user.update({ where: { id: "u1" }, data: { name: "One" } }),
         db.user.update({ where: { id: "u2" }, data: { name: "Two" } }),
@@ -216,8 +300,44 @@ for (const [name, createDriver] of [
       const base = await open();
       const log: unknown[] = [];
       const db = base
-        .$extends({ name: "first", written: recording(log, "1 ") })
-        .$extends({ name: "second", written: recording(log, "2 ") });
+        .$extends(
+          extension(
+            "first", // FIXME(extension-codemod): the handler is `recording(log, "1 ")`, called with the old call rebuilt: rewrite it with watch and settled
+            extCall((c) => {
+              const watcher = recording(
+                log,
+                "1 "
+              )({
+                model: c.model,
+                operation: c.operation,
+                args: c.args,
+                controls: c.values,
+              });
+              if (watcher === undefined) return;
+              extWatch(c, watcher);
+              settled(c, (outcome) => watcher.settled(outcome));
+            }, target(writes))
+          )
+        )
+        .$extends(
+          extension(
+            "second", // FIXME(extension-codemod): the handler is `recording(log, "2 ")`, called with the old call rebuilt: rewrite it with watch and settled
+            extCall((c) => {
+              const watcher = recording(
+                log,
+                "2 "
+              )({
+                model: c.model,
+                operation: c.operation,
+                args: c.args,
+                controls: c.values,
+              });
+              if (watcher === undefined) return;
+              extWatch(c, watcher);
+              settled(c, (outcome) => watcher.settled(outcome));
+            }, target(writes))
+          )
+        );
       await db.user.update({ where: { id: "u1" }, data: { name: "Both" } });
       expect(log).toEqual([
         "1 asked user.update",
@@ -231,16 +351,17 @@ for (const [name, createDriver] of [
 
     test("what settled throws rejects the call as a QueryError naming the extension; the write stays made", async () => {
       const base = await open();
-      const db = base.$extends({
-        name: "broken",
-        written: (): WrittenWatch => ({
-          wants: () => true,
-          rows: () => undefined,
-          settled() {
-            throw new Error("sink down");
-          },
-        }),
-      });
+      const db = base.$extends(
+        extension(
+          "broken",
+          extCall((c) => {
+            extWatch(c, { wants: () => true, rows: () => undefined });
+            settled(c, () => {
+              throw new Error("sink down");
+            });
+          }, target(writes))
+        )
+      );
       const error = (await failure(
         db.user.update({ where: { id: "u1" }, data: { name: "Kept" } })
       )) as QueryError;
@@ -256,20 +377,27 @@ for (const [name, createDriver] of [
       const seen: unknown[] = [];
       const db = base
         .$extends(
-          defineExtension({
-            name: "other",
-            controls: { reason: { oneOf: ["test"], on: "writes" } },
-          })
+          extension("other", args({ reason: oneOf("test").on(writes) }))
         )
         .$extends(
-          defineExtension({
-            name: "watch",
-            controls: { actor: { oneOf: ["ada"], on: "writes" } },
-            written(call) {
-              seen.push(call.controls);
-              return undefined;
-            },
-          })
+          extension(
+            "watch",
+            args({ actor: oneOf("ada").on(writes) }), // FIXME(extension-codemod): the handler does not return its watcher as one literal: it is called with the old call rebuilt; rewrite it with watch and settled
+            extCall((c) => {
+              const watcher = ((call) => {
+                seen.push(call.controls);
+                return undefined;
+              })({
+                model: c.model,
+                operation: c.operation,
+                args: c.args,
+                controls: c.values,
+              });
+              if (watcher === undefined) return;
+              extWatch(c, watcher);
+              settled(c, (outcome) => watcher.settled(outcome));
+            }, target(writes))
+          )
         );
       await db.user.update({
         where: { id: "u1" },

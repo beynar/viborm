@@ -6,6 +6,7 @@ import { permissions } from "@src/permissions";
 import { v } from "@src/validation";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, describe, expect, test } from "vitest";
+import { extension, rule, args, nothing, oneOf } from "@src/index";
 
 /** Shared bodies preserve policy parameter tuples and native list members. */
 export function runSharedBodiesBehavior({
@@ -58,26 +59,25 @@ export function runSharedBodiesBehavior({
           ["first", "second"],
           ["embeddedFirst", "embeddedSecond"],
         ]) {
-          const governed = base.$extends({
-            name: "physical-name-policy",
-            rows: {
-              control: "scope",
-              default: "all",
-              models: {},
-              verbs: {
+          const governed = base.$extends(
+            extension(
+              "physical-name-policy",
+              args({ scope: oneOf("all").default("all") }), // FIXME(extension-codemod): the filter `fields.map((field) => ({ ` is computed: check it names no call value
+              rule({
                 container: {
-                  predicates: {
-                    permitted: {
+                  read: {
+                    where: {
                       AND: fields.map((field) => ({
                         entries: { some: { [field]: "yes" } },
                       })),
                     },
                   },
-                  read: "permitted",
+                  update: { where: nothing },
+                  delete: { where: nothing },
                 },
-              },
-            },
-          });
+              })
+            )
+          );
           expect(await governed.container.findMany()).toEqual([]);
         }
       });
@@ -176,27 +176,26 @@ export function runSharedBodiesBehavior({
             tags: ["a,string:b"],
           },
         });
-        const governed = base.$extends({
-          name: "collision-policy",
-          rows: {
-            control: "scope",
-            default: "all",
-            models: {},
-            verbs: {
+        const governed = base.$extends(
+          extension(
+            "collision-policy",
+            args({ scope: oneOf("all").default("all") }),
+            rule({
               container: {
-                predicates: {
-                  permitted: {
+                read: {
+                  where: {
                     AND: [
                       { entries: { some: { a: "a\u0002string:b", b: "c" } } },
                       { entries: { some: { a: "a", b: "b\u0002string:c" } } },
                     ],
                   },
                 },
-                read: "permitted",
+                update: { where: nothing },
+                delete: { where: nothing },
               },
-            },
-          },
-        });
+            })
+          )
+        );
         const arrayQuery = () =>
           base.container.findMany({
             where: {
