@@ -8,8 +8,6 @@ import {
 import { ARRAYS } from "@extensions/coordination";
 import {
   executePreparedQuery,
-  TransactionWriteOutcomes,
-  type WriteOutcomeNotifications,
   type WriteOutcomeRegistration,
 } from "@extensions/query";
 import { PendingExecution } from "@query-engine/pending-execution";
@@ -24,7 +22,6 @@ import {
 } from "@query-engine/transaction-operation";
 import { hydrateSchemaNames, s } from "@schema";
 import {
-  call,
   extension,
   PendingOperation as RootPendingOperation,
   unit,
@@ -447,9 +444,13 @@ describe("pending operation transaction coordination", () => {
     expect(readOwner.model(read)).toBe("user");
     expect(readOwner.operation(read)).toBe("findMany");
     expect(readOwner.context(read)).toBe(capability(read).context);
-    expect(readOwner.isWrite(read)).toBe(false);
-    expect(writeOwner.isWrite(write)).toBe(true);
-    expect(readOwner.requiresInterception(read)).toBe(false);
+    expect(readOwner.interception(read)).toEqual({
+      context: undefined,
+      handlers: undefined,
+      write: false,
+      registration: undefined,
+    });
+    expect(writeOwner.interception(write).write).toBe(true);
     // The member's operation unit, as its array observes it.
     expect(readOwner.unit(read)).toMatchObject({
       kind: "operation",
@@ -491,7 +492,7 @@ describe("pending operation transaction coordination", () => {
     expect(failInput).toHaveBeenCalledOnce();
   });
 
-  it("stages one package listener and coordinates it through an array child", async () => {
+  it("resolves one package listener for an array member's interception", () => {
     const listener = vi.fn();
     const registration: WriteOutcomeRegistration = Object.freeze({
       extension: "package-listener",
@@ -505,24 +506,14 @@ describe("pending operation transaction coordination", () => {
       prepareRegistration
     );
     const owner = ownerOf(operation);
-    const outcomes = new TransactionWriteOutcomes();
 
-    expect(owner.requiresInterception(operation)).toBe(true);
     owner.prepareAdmission(operation);
-    owner.stagePackageWriteOutcomes(operation, outcomes);
-    owner.stagePackageWriteOutcomes(operation, outcomes);
-    expect(prepareRegistration).toHaveBeenCalledOnce();
-
-    const child = vi.fn(async (notifications?: WriteOutcomeNotifications) => {
-      await notifications?.committed();
-      return "child";
+    expect(owner.interception(operation).registration).toBe(registration);
+    expect(owner.interception(operation)).toMatchObject({
+      write: true,
+      registration,
     });
-    await expect(
-      owner.startInterception(operation, child, outcomes, {})
-    ).resolves.toBe("child");
-    outcomes.confirm([registration]);
-    await outcomes.publishCommitted();
-    expect(listener).toHaveBeenCalledOnce();
+    expect(prepareRegistration).toHaveBeenCalledOnce();
   });
 
   it("runs query interception and observation through the owner without provider work", async () => {
@@ -555,13 +546,20 @@ describe("pending operation transaction coordination", () => {
     const operation = source;
     const owner = ownerOf(operation);
 
-    expect(owner.requiresInterception(operation)).toBe(true);
+    owner.prepareAdmission(operation);
+    const { context, handlers } = owner.interception(operation);
+    expect(context).toMatchObject({
+      mode: "array",
+      kind: "model",
+      model: "user",
+      operation: "findMany",
+    });
     await expect(
-      owner.startInterception(
-        operation,
+      executePreparedQuery(
+        context,
+        handlers,
         () => Promise.resolve("intercepted"),
-        new TransactionWriteOutcomes(),
-        {}
+        false
       )
     ).resolves.toBe("intercepted");
     expect(queryHandler).toHaveBeenCalledOnce();
@@ -573,37 +571,6 @@ describe("pending operation transaction coordination", () => {
     expect(
       observer.mock.calls.map(([unit]) => (unit as { kind: string }).kind)
     ).toEqual(["operation", "statement"]);
-  });
-
-  it("requires observed coordination for request-only array transforms", () => {
-    const user = s.model({ id: s.string().id(), name: s.string() });
-    const schema = { user };
-    hydrateSchemaNames(schema);
-    const chain = appendResolvedExtension(
-      appendResolvedExtension(
-        undefined,
-        extension(
-          "request-owner",
-          call(() => undefined)
-        ),
-        schema
-      ),
-      extension(
-        "observer-owner",
-        unit((_unit, next) => next())
-      ),
-      schema
-    );
-    const engine = new TestQueryEngine(
-      new PlanningDriver("postgresql"),
-      createModelRegistry(schema, createSchemaRegistry(schema)),
-      undefined,
-      undefined,
-      chain
-    );
-    const operation = engine.prepare(user, "findMany", {});
-
-    expect(ownerOf(operation).requiresInterception(operation)).toBe(true);
   });
 
   it("normalizes OrThrow operation identity and refuses unknown routed names", () => {

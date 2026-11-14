@@ -1,7 +1,7 @@
 /** Public E3b array transaction result and capability boundary. */
 
 import { PGliteDriver } from "@drivers/pglite";
-import { createClient, s, sql, extension, around, settled } from "@src/index";
+import { around, createClient, extension, s, settled, sql } from "@src/index";
 
 type Equal<Left, Right> =
   (<Value>() => Value extends Left ? 1 : 2) extends <
@@ -19,6 +19,7 @@ type PrivateArrayOperationKey =
   | "executeCore"
   | "executeWith"
   | "hasObservation"
+  | "interception"
   | "isArrayWrite"
   | "isBatchOperation"
   | "isWrite"

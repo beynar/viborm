@@ -103,7 +103,7 @@ describe("extension parts", () => {
       ),
       patched
     );
-    expect(watched.coordination?.executeArray).toBeDefined();
+    expect(watched.coordination?.admit).toBeDefined();
 
     const wrapped = chainOf(
       extension(

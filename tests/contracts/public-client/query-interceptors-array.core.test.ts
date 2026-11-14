@@ -400,14 +400,6 @@ describe("array query admission", () => {
     const first = client.record.deleteMany({ where: { id: "first" } });
     const second = client.record.deleteMany({ where: { id: "second" } });
 
-    expect(readTestTransactionOperation(first)?.requiresInterception()).toBe(
-      false
-    );
-    expect(
-      readTestTransactionOperation(
-        client.$executeRawUnsafe("SELECT 1")
-      )?.requiresInterception()
-    ).toBe(false);
     await expect(client.$transaction([first, second])).rejects.toMatchObject({
       name: "QueryError",
       meta: expect.objectContaining({
@@ -419,7 +411,8 @@ describe("array query admission", () => {
     expect(driver.events).toEqual([]);
   });
 
-  test("keeps request preparation inside an operation observer lifecycle", () => {
+  test("keeps request preparation inside an operation observer lifecycle", async () => {
+    const events: string[] = [];
     const { client: base } = fallbackClient();
     const client = base
       .$extends(
@@ -427,6 +420,7 @@ describe("array query admission", () => {
           "observed-request",
           call(
             (c) => {
+              events.push("first moment");
               c.set({});
             },
             extTarget("record", "findMany")
@@ -436,15 +430,18 @@ describe("array query admission", () => {
       .$extends(
         extension(
           "request-observer",
-          extUnit((_u, _next) => undefined)
+          extUnit((u, next) => {
+            events.push(`unit ${u.kind}`);
+            return next();
+          })
         )
       );
 
-    expect(
-      readTestTransactionOperation(
-        client.record.findMany()
-      )?.requiresInterception()
-    ).toBe(true);
+    await client.$transaction([client.record.findMany()]);
+    expect(events.indexOf("first moment")).toBeGreaterThan(
+      events.indexOf("unit operation")
+    );
+    expect(events.indexOf("unit operation")).toBeGreaterThanOrEqual(0);
   });
 
   test("requires proceed for array reads, mutations, and every raw family", async () => {
@@ -1446,6 +1443,7 @@ describe("array ownership and zero-handler path", () => {
       "parseResult",
       "observeBatchPhase",
       "requiresInterception",
+      "interception",
       "prepareAdmission",
       "stagePackageWriteOutcomes",
       "startInterception",
@@ -1608,8 +1606,6 @@ describe("array ownership and zero-handler path", () => {
 
   test("keeps handler controls inactive without publishing a friend member", async () => {
     const { client: base } = fallbackClient();
-    const baseOperation = base.record.findMany();
-    const baseRaw = base.$queryRaw(sql`SELECT 1`);
     const client = base.$extends(extension("empty-query"));
     const operation = client.record.findMany();
     const rawOperation = client.$queryRaw(sql`SELECT 1`);
@@ -1620,18 +1616,6 @@ describe("array ownership and zero-handler path", () => {
     expect(
       Reflect.get(operation, Symbol.for("viborm.arrayTransactionOperation"))
     ).toBeUndefined();
-    expect(
-      readTestTransactionOperation(baseOperation)?.requiresInterception()
-    ).toBe(false);
-    expect(readTestTransactionOperation(baseRaw)?.requiresInterception()).toBe(
-      false
-    );
-    expect(
-      readTestTransactionOperation(operation)?.requiresInterception()
-    ).toBe(false);
-    expect(
-      readTestTransactionOperation(rawOperation)?.requiresInterception()
-    ).toBe(false);
     await client.$transaction([operation]);
 
     const intercepted = base.$extends(
@@ -1644,38 +1628,6 @@ describe("array ownership and zero-handler path", () => {
     );
     const interceptedOperation = intercepted.record.findMany();
     const interceptedRaw = intercepted.$queryRaw(sql`SELECT 1`);
-    expect(
-      readTestTransactionOperation(interceptedOperation)?.requiresInterception()
-    ).toBe(true);
-    expect(
-      readTestTransactionOperation(interceptedRaw)?.requiresInterception()
-    ).toBe(true);
-    const exact = base.$extends(
-      extension(
-        "exact-query-registration",
-        around(
-          () => async (run) => {
-            return run();
-          },
-          extTarget("record", "findMany")
-        )
-      )
-    );
-    expect(
-      readTestTransactionOperation(
-        exact.record.findMany()
-      )?.requiresInterception()
-    ).toBe(true);
-    expect(
-      readTestTransactionOperation(
-        exact.note.findMany()
-      )?.requiresInterception()
-    ).toBe(false);
-    expect(
-      readTestTransactionOperation(
-        exact.$queryRaw(sql`SELECT 1`)
-      )?.requiresInterception()
-    ).toBe(false);
     const reflectedSymbols = [
       operation,
       rawOperation,
@@ -2113,12 +2065,6 @@ describe("public array lifecycle observers", () => {
       "fallback"
     );
 
-    expect(readTestTransactionOperation(read)?.requiresInterception()).toBe(
-      false
-    );
-    expect(readTestTransactionOperation(write)?.requiresInterception()).toBe(
-      false
-    );
     const result = await client.$transaction([read, write]);
     await Promise.all(settling);
 
@@ -2171,12 +2117,6 @@ describe("public array lifecycle observers", () => {
     );
     const read = client.record.findMany();
 
-    expect(readTestTransactionOperation(write)?.requiresInterception()).toBe(
-      false
-    );
-    expect(readTestTransactionOperation(read)?.requiresInterception()).toBe(
-      false
-    );
     const reflected = [write, read].flatMap((operation) => {
       const prototype = Reflect.getPrototypeOf(operation);
       return [

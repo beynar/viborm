@@ -1,13 +1,12 @@
+import { createArrayDeferred, memberValue } from "@client/array-transaction";
 import {
-  type ArrayAdmissionSlot,
+  type AdmissionSlot,
   admitArrayQueries,
-  createArrayDeferred,
-  readArrayQuery,
 } from "@extensions/array-admission";
 import { TransactionWriteOutcomes } from "@extensions/query";
 import { describe, expect, test, vi } from "vitest";
 
-function createSlot(): ArrayAdmissionSlot {
+function createSlot(): AdmissionSlot {
   return {
     admitted: false,
     child: createArrayDeferred<unknown>(),
@@ -19,7 +18,7 @@ describe("array query admission", () => {
     const first = createSlot();
     const second = createSlot();
     const slots = [first, second];
-    const started: ArrayAdmissionSlot[] = [];
+    const started: AdmissionSlot[] = [];
     const admission = admitArrayQueries(
       slots,
       new TransactionWriteOutcomes(),
@@ -35,7 +34,7 @@ describe("array query admission", () => {
 
     first.child.resolve("first");
     second.child.resolve("second");
-    await expect(Promise.all(slots.map(readArrayQuery))).resolves.toEqual([
+    await expect(Promise.all(slots.map(memberValue))).resolves.toEqual([
       "first",
       "second",
     ]);
@@ -64,9 +63,8 @@ describe("array query admission", () => {
     await expect(second.child.promise).rejects.toBe(failure);
   });
 
-  test("mirrors the query outcome only when an observation rail exists", async () => {
+  test("makes the handlers' outcome the member's value once admitted", async () => {
     const slot = createSlot();
-    slot.observation = createArrayDeferred<unknown>();
     const admission = admitArrayQueries(
       [slot],
       new TransactionWriteOutcomes(),
@@ -78,14 +76,13 @@ describe("array query admission", () => {
     );
 
     await expect(admission).resolves.toBeUndefined();
-    await expect(slot.observation.promise).resolves.toBe("observed query");
+    await expect(memberValue(slot)).resolves.toBe("observed query");
     slot.child.resolve("child");
   });
 
   test("captures a query rejection that follows admission in the same turn", async () => {
     const failure = new Error("query failed after admission");
     const slot = createSlot();
-    slot.observation = createArrayDeferred<unknown>();
 
     await expect(
       admitArrayQueries(
@@ -99,7 +96,7 @@ describe("array query admission", () => {
       )
     ).resolves.toEqual([failure]);
 
-    await expect(slot.observation.promise).rejects.toBe(failure);
+    await expect(memberValue(slot)).rejects.toBe(failure);
     await expect(slot.child.promise).rejects.toBe(failure);
   });
 
@@ -146,7 +143,7 @@ describe("coverage low value", () => {
 
   test("reads the child rail before a query promise is attached", async () => {
     const slot = createSlot();
-    const childPromise = readArrayQuery(slot);
+    const childPromise = memberValue(slot);
     slot.child.resolve("child");
 
     await expect(childPromise).resolves.toBe("child");

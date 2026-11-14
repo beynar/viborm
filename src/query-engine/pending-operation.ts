@@ -192,73 +192,24 @@ export class PendingOperation<T>
       model: (operation) => operation.#modelName,
       operation: (operation) => operation.#operation,
       context: (operation) => operation.#context.attribution,
-      requiresInterception: (operation) => {
-        const requestedOperation = String(operation.#options.originalOperation);
-        const chain = operation.#engine.extensionChain;
-        const requestHandlers = chain?.request?.handlers(
-          operation.#modelName,
-          requestedOperation
-        );
-        const hasRequestHandlers =
-          requestHandlers !== undefined && requestHandlers.length > 0;
-        const requestNeedsObservedCoordination =
-          hasRequestHandlers && chain?.observation !== undefined;
-        const queryHandlers = chain?.query?.handlers(
-          operation.#modelName,
-          requestedOperation
-        );
-        return (
-          requestNeedsObservedCoordination ||
-          (queryHandlers !== undefined && queryHandlers.length > 0) ||
-          // A listener resolved as absent (a write no hook concerns) asks
-          // for none; one not resolved yet is assumed.
-          (operation.#prepareWriteOutcomeRegistration !== undefined &&
-            (!operation.#writeOutcomeRegistrationResolved ||
-              operation.#writeOutcomeRegistration !== undefined))
-        );
-      },
       prepareAdmission: (operation, phase = "input") => {
         operation.#preparedInput();
         if (phase === "plan") operation.#resolveSinglePackage();
       },
-      stagePackageWriteOutcomes: (operation, outcomes) => {
-        const registration = operation.#resolveWriteOutcomeRegistration();
-        if (registration !== undefined) outcomes.stage(registration);
-      },
-      startInterception: (operation, child, outcomes, control) => {
+      interception: (operation) => {
         const requestedOperation = String(operation.#options.originalOperation);
-        const chain = operation.#engine.extensionChain;
-        const handlers = chain?.query?.handlers(
+        const handlers = operation.#engine.extensionChain?.query?.handlers(
           operation.#modelName,
           requestedOperation
         );
-        const preparedInput = operation.#preparedInput();
-        const writeOutcomeRegistration =
-          operation.#resolveWriteOutcomeRegistration();
-        const coordination = chain?.coordination;
-        if (
-          coordination === undefined ||
-          ((handlers === undefined || handlers.length === 0) &&
-            writeOutcomeRegistration === undefined)
-        ) {
-          return child();
-        }
-        const queryContext =
-          handlers === undefined || handlers.length === 0
-            ? undefined
-            : operation.#queryContext("array", preparedInput);
-        return coordination.executePreparedQuery<
-          unknown,
-          Record<string, unknown>
-        >(
-          queryContext,
+        return {
+          context: handlers?.length
+            ? operation.#queryContext("array", operation.#preparedInput())
+            : undefined,
           handlers,
-          child,
-          !isReadOperation(requestedOperation),
-          outcomes,
-          control,
-          writeOutcomeRegistration
-        );
+          write: !isReadOperation(requestedOperation),
+          registration: operation.#resolveWriteOutcomeRegistration(),
+        };
       },
       executeCore: (operation, driver, notifications) =>
         operation.#execution.executeReserved(() =>
@@ -268,8 +219,6 @@ export class PendingOperation<T>
             notifications?.mayHaveCommitted
           )
         ),
-      isWrite: (operation) =>
-        !isReadOperation(String(operation.#options.originalOperation)),
       unit: (operation) => operation.#unit(),
       reserveWith: (operation, driver) => {
         operation.#execution.reserveWith(driver);

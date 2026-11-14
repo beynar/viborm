@@ -4,13 +4,22 @@ import type {
   QueryResult,
 } from "@drivers/exports";
 import { InvalidTransactionInputError } from "@errors";
+import type { ResolvedOperationHandler } from "@extensions/chain";
 import type {
-  QueryInterceptorExecutionControl,
-  TransactionWriteOutcomes,
+  PreparedQueryContext,
   WriteOutcomeNotifications,
+  WriteOutcomeRegistration,
 } from "@extensions/query";
 import type { UnitSource } from "@extensions/unit-source";
 import type { PreparedBatchOperation, PreparedQuery } from "./types";
+
+/** What may intercept one array member (see `interception`). */
+export interface MemberInterception {
+  readonly context: PreparedQueryContext | undefined;
+  readonly handlers: readonly ResolvedOperationHandler[] | undefined;
+  readonly write: boolean;
+  readonly registration?: WriteOutcomeRegistration | undefined;
+}
 
 /** One shared owner table registered once by each genuine operation class. */
 export interface TransactionOperationOwner<Owner extends object = object> {
@@ -19,24 +28,18 @@ export interface TransactionOperationOwner<Owner extends object = object> {
   model(owner: Owner): string;
   operation(owner: Owner): string;
   context(owner: Owner): QueryExecutionContext;
-  requiresInterception(owner: Owner): boolean;
   prepareAdmission(owner: Owner, phase?: "input" | "plan"): void;
-  stagePackageWriteOutcomes(
-    owner: Owner,
-    outcomes: TransactionWriteOutcomes
-  ): void;
-  startInterception(
-    owner: Owner,
-    child: (notifications?: WriteOutcomeNotifications) => Promise<unknown>,
-    outcomes: TransactionWriteOutcomes,
-    control: QueryInterceptorExecutionControl
-  ): Promise<unknown>;
+  /**
+   * What may intercept the member in an array, read once it is prepared:
+   * the handlers around it and the context they see, whether it writes, and
+   * its package's write-outcome listener.
+   */
+  interception(owner: Owner): MemberInterception;
   executeCore(
     owner: Owner,
     driver: AnyDriver,
     notifications?: WriteOutcomeNotifications
   ): Promise<unknown>;
-  isWrite(owner: Owner): boolean;
   /** The member's `operation` unit, where its chain observes units. */
   unit(owner: Owner): UnitSource;
   reserveWith(owner: Owner, driver: AnyDriver): void;

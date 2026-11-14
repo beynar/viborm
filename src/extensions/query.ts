@@ -1,5 +1,13 @@
-import type { AnyDriver } from "@drivers/exports";
-import { QueryError, VibORMError } from "@errors";
+import { attachCommitCertainty } from "@drivers/driver-error-context";
+import { bindExecutionTransactionPhases } from "@drivers/execution-context";
+import type { AnyDriver, QueryExecutionContext } from "@drivers/exports";
+import type { TransactionOptions } from "@drivers/shared/transaction-options";
+import {
+  isVibORMError,
+  QueryError,
+  retainWriteOutcomeFailure,
+  VibORMError,
+} from "@errors";
 import { isReadOperation } from "@query-engine/routed-operations";
 import { isFunction } from "@validation/value-guards";
 import { isError } from "../errors/diagnostic-safety";
@@ -620,6 +628,63 @@ export class TransactionWriteOutcomes {
       }
     }
   }
+}
+
+/**
+ * Run one transaction whose write outcomes this scope collects. A root scope
+ * tracks the commit phases, so a failure after COMMIT was sent still reports
+ * its certainty and publishes what may have committed; a savepoint promotes
+ * its outcomes into the parent collector, which owns that decision.
+ */
+export async function runOutcomeTransaction<T>(
+  driver: AnyDriver,
+  outcomes: TransactionWriteOutcomes,
+  parentOutcomes: TransactionWriteOutcomes | undefined,
+  options: TransactionOptions | undefined,
+  context: QueryExecutionContext,
+  body: (driver: AnyDriver) => Promise<T>,
+  report?: (certainty: WriteOutcome["certainty"]) => void
+): Promise<T> {
+  let phase: "ready" | "committed" | undefined;
+  let result: T;
+  try {
+    result = await driver.withTransaction(
+      body,
+      options,
+      parentOutcomes
+        ? context
+        : bindExecutionTransactionPhases(context, {
+            readyToCommit: () => {
+              phase = "ready";
+            },
+            committed: () => {
+              phase = "committed";
+            },
+          })
+    );
+  } catch (failure) {
+    if (phase === undefined) {
+      outcomes.discardAll();
+      throw failure;
+    }
+    const certainty = phase === "ready" ? "may-have-committed" : phase;
+    report?.(certainty);
+    const primary = isVibORMError(failure)
+      ? attachCommitCertainty(failure, certainty)
+      : failure;
+    try {
+      await outcomes.publish(certainty);
+    } catch (outcomeFailure) {
+      throw retainWriteOutcomeFailure(primary, outcomeFailure);
+    }
+    throw primary;
+  }
+  if (parentOutcomes) outcomes.promoteTo(parentOutcomes);
+  else {
+    report?.("committed");
+    await outcomes.publishCommitted();
+  }
+  return result;
 }
 
 /**

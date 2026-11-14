@@ -3,19 +3,24 @@
  * a prepared call runs under write-outcome registrations (and query
  * handlers, where a chain has some), how a transaction collects the outcomes
  * of its writes, and, for the parts an array member can be intercepted by,
- * the intercepted array transaction. A chain of none of those parts carries
- * none of it.
+ * how the one executor of `$transaction([...])` (`@client/array-transaction`)
+ * admits its members. A chain of none of those parts carries none of it.
  */
-import {
-  executeInterceptedArray,
-  runOutcomeTransaction,
-} from "@client/array-transaction-intercepted";
+import type { ArraySlot } from "@client/array-transaction";
+import { admitArray, interceptsArray } from "./array-admission";
 import type { ResolvedExtensionChain } from "./chain-state";
 import {
   executePreparedQuery,
   executeRegisteredQuery,
+  runOutcomeTransaction,
   TransactionWriteOutcomes,
+  type WriteOutcome,
 } from "./query";
+
+/** The commit certainty one array reports to its `batch` unit. */
+export interface ArrayCertainty {
+  certainty?: WriteOutcome["certainty"];
+}
 
 export interface Coordination {
   /** What it adds to the one before it: a chain keeps the highest it needs. */
@@ -24,8 +29,17 @@ export interface Coordination {
   readonly outcomes: () => TransactionWriteOutcomes;
   readonly runTransaction: typeof runOutcomeTransaction;
   readonly executePreparedQuery: typeof executePreparedQuery;
-  /** Present where a member of `$transaction([...])` may be intercepted. */
-  readonly executeArray?: typeof executeInterceptedArray;
+  /**
+   * Present where a member of `$transaction([...])` may be intercepted:
+   * starts every member's handlers and waits until each reached `run()`,
+   * before anything is sent. Resolves to the failures that abort the array.
+   */
+  /** Present with `admit`: whether a part intercepts one of the members. */
+  readonly intercepts?: typeof interceptsArray;
+  readonly admit?: (
+    slots: readonly ArraySlot[],
+    outcomes: TransactionWriteOutcomes
+  ) => ReturnType<typeof admitArray>;
 }
 
 /**
@@ -46,7 +60,9 @@ export const ARRAYS: Coordination = {
   outcomes: () => new TransactionWriteOutcomes(),
   runTransaction: runOutcomeTransaction,
   executePreparedQuery: executeRegisteredQuery,
-  executeArray: executeInterceptedArray,
+  intercepts: interceptsArray,
+  admit: (slots, outcomes) =>
+    admitArray(slots, outcomes, executeRegisteredQuery),
 };
 
 /** For query handlers: what runs them around a call, too. */
@@ -55,7 +71,8 @@ export const QUERIES: Coordination = {
   outcomes: () => new TransactionWriteOutcomes(),
   runTransaction: runOutcomeTransaction,
   executePreparedQuery,
-  executeArray: executeInterceptedArray,
+  intercepts: interceptsArray,
+  admit: (slots, outcomes) => admitArray(slots, outcomes, executePreparedQuery),
 };
 
 /** The chain being built coordinated as `needed` asks, never less than it was. */

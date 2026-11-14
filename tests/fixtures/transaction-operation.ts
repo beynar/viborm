@@ -1,6 +1,7 @@
 import type { AnyDriver, QueryResult } from "@drivers";
 import type { UnitSource } from "@extensions/unit-source";
 import {
+  type MemberInterception,
   readTransactionOperation,
   registerTransactionOperationOwner,
   type TransactionOperationCapability,
@@ -51,8 +52,8 @@ export class TestTransactionOperationView {
     return this.#owner.context(this.#capability);
   }
 
-  requiresInterception(): boolean {
-    return this.#owner.requiresInterception(this.#capability);
+  interception(): MemberInterception {
+    return this.#owner.interception(this.#capability);
   }
 
   unit(): UnitSource {
@@ -105,29 +106,16 @@ export class TestTransactionOperation<T> implements PromiseLike<T> {
       operation: (operation) =>
         operation.#owner.operation(operation.#capability),
       context: (operation) => operation.#owner.context(operation.#capability),
-      requiresInterception: (operation) =>
-        operation.#owner.requiresInterception(operation.#capability),
       prepareAdmission: (operation, phase) =>
         operation.#owner.prepareAdmission(operation.#capability, phase),
-      stagePackageWriteOutcomes: (operation, outcomes) =>
-        operation.#owner.stagePackageWriteOutcomes(
-          operation.#capability,
-          outcomes
-        ),
-      startInterception: (operation, child, outcomes, control) =>
-        operation.#owner.startInterception(
-          operation.#capability,
-          child,
-          outcomes,
-          control
-        ),
+      interception: (operation) =>
+        operation.#owner.interception(operation.#capability),
       executeCore: (operation, driver, notifications) =>
         operation.#owner.executeCore(
           operation.#capability,
           driver,
           notifications
         ),
-      isWrite: (operation) => operation.#owner.isWrite(operation.#capability),
       unit: (operation) => operation.#owner.unit(operation.#capability),
       reserveWith: (operation, driver) =>
         operation.#owner.reserveWith(operation.#capability, driver),

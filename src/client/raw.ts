@@ -402,40 +402,18 @@ class DeferredRawOperation<T>
       model: () => "$raw",
       operation: (operation) => operation.#method,
       context: (operation) => operation.#context,
-      requiresInterception: (operation) =>
-        operation.#queryHandlers !== undefined &&
-        operation.#queryHandlers.length > 0,
       prepareAdmission: (operation) => {
         operation.#resolve();
       },
-      stagePackageWriteOutcomes: () => undefined,
-      startInterception: (operation, child, outcomes, control) => {
-        const handlers = operation.#queryHandlers;
-        const coordination = operation.#engine.extensionChain?.coordination;
-        if (
-          coordination === undefined ||
-          handlers === undefined ||
-          handlers.length === 0
-        )
-          return child();
-        const query = operation.#resolve();
-        return coordination.executePreparedQuery<
-          unknown,
-          Record<string, unknown>
-        >(
-          operation.#queryContext("array", query),
-          handlers,
-          child,
-          isRawWrite(operation.#method),
-          outcomes,
-          control
-        );
-      },
+      interception: (operation) => ({
+        context: operation.#queryContext("array", operation.#resolve()),
+        handlers: operation.#queryHandlers,
+        write: isRawWrite(operation.#method),
+      }),
       executeCore: (operation, driver, notifications) =>
         operation.#execution.executeReserved(() =>
           operation.#runResolved(driver, operation.#resolve(), notifications)
         ),
-      isWrite: (operation) => isRawWrite(operation.#method),
       unit: (operation) => operation.#unit(),
       reserveWith: (operation, driver) => {
         operation.#execution.reserveWith(driver);
