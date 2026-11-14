@@ -162,10 +162,10 @@ class Facts extends CarriedValue {
     if (!PROJECTION_KEY.test(field!))
       refuse(`${key} is not \`$\` and an identifier`);
     const own = verbsOf(site);
-    if (own.evidence !== undefined)
-      refuse("read.select holds one projection key");
+    if (own.as !== undefined) refuse("read.select holds one projection key");
     brings(site).project = projectionOf;
-    own.evidence = { as: field!, names: Object.entries(this.predicates) };
+    own.as = field;
+    own.facts = new Map(Object.entries(this.predicates));
   }
 }
 

@@ -120,8 +120,13 @@ type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 /** The keys of a draft that hold one predicate, each admitted as one. */
 const SINGLE = ["read", "update", "delete", "place", "check"] as const;
-/** The keys of a draft that hold one predicate per field. */
-const PER_FIELD = ["writes", "moves", "reads"] as const;
+/** The keys of a draft that hold one predicate per field, and where each is written. */
+const PER_FIELD = [
+  ["writes", "writes"],
+  ["moves", "moves"],
+  ["reads", "reads"],
+  ["facts", "read.select"],
+] as const;
 
 /**
  * The self relations `acyclic` names, each checked to be one of `model`'s
@@ -167,29 +172,21 @@ function admitDraft(
 ): Mutable<AdmittedVerbs> {
   const admit = (place: string, where: unknown) =>
     admission.admit(name, `${name}.${place}`, where, references, of);
-  const out: Mutable<AdmittedVerbs> = { judge: draft.judge };
+  const out: Mutable<AdmittedVerbs> = { judge: draft.judge, as: draft.as };
   if (draft.acyclic !== undefined)
     out.cycles = cyclesOf(admission, name, draft.acyclic);
   for (const key of SINGLE)
     if (draft[key] !== undefined) out[key] = admit(key, draft[key]);
-  for (const key of PER_FIELD) {
+  for (const [key, place] of PER_FIELD) {
     const given = draft[key];
     if (given !== undefined)
       out[key] = new Map(
         [...given].map(([field, where]) => [
           field,
-          admit(`${key}.${field}`, where),
+          admit(`${place}.${field}`, where),
         ])
       );
   }
-  if (draft.evidence !== undefined)
-    out.evidence = {
-      as: draft.evidence.as,
-      names: draft.evidence.names.map(([fact, where]) => [
-        fact,
-        admit(`read.select.${fact}`, where),
-      ]),
-    };
   return out;
 }
 
@@ -218,7 +215,7 @@ function bindVerbs(
             const draft =
               typeof entry === "function" ? read!(entry, extension) : entry;
             // One projection key, one layer: a second would hide the first.
-            const key = draft?.evidence?.as;
+            const key = draft?.as;
             if (key === "$through" || (key && keys.has(key)))
               throw new ClientInitializationError(
                 key === "$through"

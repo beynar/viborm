@@ -122,7 +122,9 @@ export interface ModelVerbs {
    */
   readonly cycles?: readonly string[] | LazyRelations;
   /** The projection key the layer declares on the model (K5). */
-  readonly evidence?: ModelEvidence;
+  readonly as?: string;
+  /** What it reports per row: each name with its predicate, in declared order. */
+  readonly facts?: ReadonlyMap<string, Input>;
   /**
    * Per read-gated field, the predicate a row holds, beside `read`, where it
    * carries the field (K5).
@@ -130,15 +132,6 @@ export interface ModelVerbs {
   readonly reads?: ReadonlyMap<string, Input>;
   /** A check was written on the entry: the rows its writes produce are judged. */
   readonly judge?: (domain: PreparedDomain) => Judge;
-}
-
-/**
- * A projection key and what it reports per row, each name with its admitted
- * predicate in declared order: whether each holds beside `read`.
- */
-export interface ModelEvidence {
-  readonly as: string;
-  readonly names: readonly (readonly [string, Input])[];
 }
 
 /**

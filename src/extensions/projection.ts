@@ -208,9 +208,9 @@ class RowProjection {
         this.#domain.rows.verbs?.get(name) ?? []
       ).entries()) {
         if (verbs === undefined) continue;
-        const { evidence, read = ALL } = verbs;
-        if (evidence)
-          keys.set(evidence.as, freeze({ layer, read, names: evidence.names }));
+        const { as, facts, read = ALL } = verbs;
+        if (as !== undefined)
+          keys.set(as, freeze({ layer, read, names: [...facts!] }));
         for (const [field, input] of verbs.reads ?? [])
           gates.set(field, [
             ...(gates.get(field) ?? []),

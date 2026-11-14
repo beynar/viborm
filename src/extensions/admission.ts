@@ -55,10 +55,8 @@ export interface VerbsDraft {
   check?: unknown;
   moves?: Map<string, unknown>;
   reads?: Map<string, unknown>;
-  evidence?: {
-    readonly as: string;
-    readonly names: readonly (readonly [string, unknown])[];
-  };
+  as?: string;
+  facts?: Map<string, unknown>;
   acyclic?: readonly string[] | (() => readonly string[]);
   /** An entry given as a function's filters, as written. */
   root?: readonly unknown[];
