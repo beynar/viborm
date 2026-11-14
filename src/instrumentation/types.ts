@@ -46,11 +46,18 @@ export interface LogEvent {
  *   span, a root one if `root`, with the `db.*` attributes of `database`,
  *   the call's correlation and `attributes`. `attributes` noted later are set
  *   on it when the unit ends. An attribute given `undefined` is left out,
- *   the correlation's included.
- * - On any unit, a note that names a `log` level is logged at that level,
- *   when the unit starts if it is there by then, else when it ends: at `at`,
- *   naming `model` and `operation` (the unit's own by default), with `error`
- *   and `meta` presented as every log's are.
+ *   the correlation's included. The names of a call's own spans
+ *   (`viborm.operation`, `viborm.execute`, `viborm.transaction`,
+ *   `viborm.connect`, `viborm.disconnect`) are the library's: a note naming
+ *   one leaves its unit without a span, except `viborm.operation` as a root
+ *   span. An attribute under `db.query.` (statement text, summary,
+ *   parameters) is the library's too, and dropped.
+ * - On a unit of an extension's own kind, a note that names a `log` level is
+ *   logged at that level, when the unit starts if it is there by then, else
+ *   when it ends: at `at`, naming `model` and `operation` (the unit's own by
+ *   default), with `error` and `meta` presented as every log's are. On a
+ *   call's own `operation` unit, only a `cache` log is: its `query` and
+ *   `error` logs are the library's account of the call.
  */
 export interface InstrumentationNote {
   readonly span?: string | undefined;

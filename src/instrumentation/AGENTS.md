@@ -62,10 +62,21 @@ of its own through `work`.
 A unit of any other kind is presented from its notes alone
 (`presentNoted`, `InstrumentationNote` in `types.ts`): the span its first
 note names as it starts, `attributes` noted later set at its end, every
-`log` note logged at its level, on any unit, the `operation` unit's after
-it ends. The instrumentation names no extension's units: the cache's spans
-and logs are what the cache notes. Never add a branch for one extension's
-kind.
+`log` note logged at its level; on the call's `operation` unit, after it
+ends, its `cache` logs alone. The instrumentation names no extension's
+units: the cache's spans and logs are what the cache notes. Never add a
+branch for one extension's kind.
+
+What the disclosure settings promise holds for notes because a note never
+carries what they govern: an attribute under `db.query.` is dropped
+(`notedAttributes`), whatever `includeSql` and `includeParams` say, and a
+note's `error` and `meta` pass the same sanitizers as every log's
+(`sanitizeErrorForLogging`, `sanitizeLogMetadata`). A note may not take the
+name of a call's own span (`tracesAs`): its unit is then presented without a
+span; `viborm.operation` is admitted as a root span, an operation outside
+any call (the cache's revalidation). Dropping, never refusing: the
+instrumentation never fails the call it observes. Never add a second
+sanitizer for notes; never let a note reach a core unit's span.
 
 Every handler is a plain wrapper `(u, next) => …`: the child starts only at
 `next()`, the host awaits the handler's promise, `next()` is called once and

@@ -107,7 +107,7 @@ from `viborm/instrumentation`):
 |---|---|---|
 | `span` | On a unit of your own kind (`work`), as the unit starts: give it as `work`'s `note` | The unit is traced as a span of that name, a root span if `root`, with the `db.*` attributes of `database` (what `database(x)` gives), the call's correlation and `attributes` |
 | `attributes` | Noted later on that unit | Set on its span when the unit ends; an attribute given `undefined` is left out, the correlation's included |
-| `log` | On any unit: as it starts if noted by then, else when it ends | A log event at that level (`"query"`, `"cache"`, `"error"`), at `at`, naming `model` and `operation` (the unit's own by default), with `error` and `meta` presented as every log's are |
+| `log` | On a unit of your own kind: as it starts if noted by then, else when it ends. On the call's own unit (a note on `c` or `run`): `"cache"` only, after the call ends | A log event at that level (`"query"`, `"cache"`, `"error"`), at `at`, naming `model` and `operation` (the unit's own by default), with `error` and `meta` |
 
 ```ts
 import { around, extension, note, work } from "viborm";
@@ -126,11 +126,49 @@ const lookups = extension(
         note(u, { attributes: { "lookup.result": "warm" } });
       }
     );
-    note(run, { log: "cache", at: Date.now(), meta: { event: "hint" } });
+    note(run, { log: "cache", at: Date.now(), meta: { event: "hit" } });
     return run();
   })
 );
 ```
+
+What a note may not set is dropped, never refused: telemetry never fails the
+call it observes.
+
+- **Span names of a call.** `viborm.operation`, `viborm.execute`,
+  `viborm.transaction`, `viborm.connect` and `viborm.disconnect` name the
+  spans the library presents for a call's own units. A note naming one
+  leaves its unit without a span (its logs are still presented), except
+  `viborm.operation` with `root: true`: an operation of your own outside any
+  call's trace, as the cache's background revalidation is. Any other name is
+  yours, `viborm.cache.*` included: the instrumentation does not know the
+  cache's names.
+- **Statement attributes.** Every attribute under `db.query.`
+  (`db.query.text`, `db.query.summary`, `db.query.parameter.*`) is dropped
+  from a note, whatever `includeSql` and `includeParams` say: only the
+  library presents a statement's text and parameters, from the statement it
+  sent, and only as those settings let it. With `includeSql` off no span or
+  log carries statement text; with `includeParams` off none carries
+  parameters; a note cannot change that.
+- **Logs of a call.** A call's `query` and `error` logs are the library's
+  account of its work: a note on the call's own unit cannot add one, so a
+  call that succeeded never logs an error. Notes on a unit of your own kind
+  may log at any level.
+- **Status.** A span ends failed when its unit fails, sanitized as every
+  span's failure is. A note cannot change the status of any span: on your
+  own unit, fail the work instead.
+- **Errors and metadata.** A note's `error` passes the same sanitizer as
+  the error of the library's own logs (an error that is not VibORM's has its
+  details redacted by default); its `meta` keeps only the log metadata vocabulary (`event`: `"bypass"`,
+  `"hit"`, `"miss"`, `"revalidate"`; `status`: `"cache-set-failed"`,
+  `"error"`, `"fresh"`, `"stale"`, `"start"`, `"success"`); any other key or
+  value is dropped.
+
+Any other attribute is presented as given, under any disclosure setting:
+what it holds is the extension author's responsibility. Do not put
+statement text, parameter values or anything your application treats as
+secret under a name of your own (`lookup.query`, `lookup.user`): the
+instrumentation cannot tell it is a statement or a parameter.
 
 ## Failure containment
 

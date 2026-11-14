@@ -744,7 +744,7 @@ import { v } from "viborm/validation";
 const db = client.$extends(
   extension(
     "tenancy",
-    args({ tenant: accepts(v.string()).required() }),
+    args({ tenant: accepts(v.string()).required(["post", "comment"]) }),
     rule({
       post: { read: { where: { tenantId: arg("tenant") } } },
       comment: { read: { where: { tenantId: arg("tenant") } } },
@@ -929,7 +929,7 @@ const archivist = { archivistId: arg("user") };
 const db = client.$extends(
   extension(
     "sharing",
-    args({ user: accepts(v.string()).required() }),
+    args({ user: accepts(v.string()).required(["document"]) }),
     rule({
       document: {
         read: { where: seen },
@@ -1003,7 +1003,7 @@ const placed = { ownerId: arg("user") };
 const judged = client.$extends(
   extension(
     "judged-sharing",
-    args({ user: accepts(v.string()).required() }),
+    args({ user: accepts(v.string()).required(["document"]) }),
     rule({
       document: {
         read: { where: seen },
@@ -1062,7 +1062,7 @@ import { v } from "viborm/validation";
 const db = client.$extends(
   extension(
     "sharing",
-    args({ user: accepts(v.string()).required() }),
+    args({ user: accepts(v.string()).required(["document"]) }),
     rule({
       document: {
         read: {
@@ -1163,7 +1163,7 @@ import { v } from "viborm/validation";
 const db = client.$extends(
   extension(
     "grants",
-    args({ tenant: accepts(v.string()).required() }),
+    args({ tenant: accepts(v.string()).required(["grant"]) }),
     rule({ grant: { confine: { tenantId: arg("tenant") } } })
   )
 );
@@ -1193,7 +1193,7 @@ import { v } from "viborm/validation";
 const db = client.$extends(
   extension(
     "house-style",
-    args({ actor: accepts(v.string()).on(writes).required() }),
+    args({ actor: accepts(v.string()).on(writes).required(["post"]) }),
     defaults({
       card: { orderBy: [{ columnId: "asc" }, { rank: "asc" }] },
       post: {
@@ -1594,7 +1594,7 @@ const forSchema = parts<typeof schema>();
 
 export const tenancy = forSchema.extension(
   "tenancy",
-  args({ tenant: accepts(v.string()).required() }),
+  args({ tenant: accepts(v.string()).required(["post"]) }),
   rule({ post: { read: { where: { tenantId: arg("tenant") } } } }),
   defaults({ post: { create: { tenantId: arg("tenant") } } })
 );
