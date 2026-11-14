@@ -95,7 +95,10 @@ class ProducedUnit implements Unit {
   constructor(source: UnitSource) {
     this.kind = source.kind;
     this.model = source.model;
-    this.operation = source.operation;
+    // A driver's unit names its operation through its context alone.
+    this.operation = Object.hasOwn(source, "operation")
+      ? source.operation
+      : source.context?.operation;
     this.#source = source;
   }
   static sourceOf(unit: object): UnitSource | undefined {

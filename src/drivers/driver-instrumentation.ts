@@ -563,18 +563,18 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
     child: () => Promise<Result>,
     sql?: string,
     params?: readonly unknown[],
-    batch?: readonly BatchQuery[],
     // The diagnostic snapshot of `params` already taken, if any: a unit that
     // reads the parameters reads it, so a caller's value is read once.
-    shown?: readonly unknown[]
+    shown?: readonly unknown[],
+    batch?: readonly BatchQuery[]
   ): Promise<Result> {
     const observation = getExecutionExtensionChain(context)?.observation;
     return observation === undefined
       ? child()
       : observation.run(
+          // The unit reads its operation from `context`.
           {
             kind,
-            operation: context.operation,
             model: context.model,
             context,
             driver: this,
