@@ -685,24 +685,29 @@ export function runOnBehavior(provider: OnProvider): void {
         );
       });
 
-      test("each on() is named after what it hooks: two that hook the same kinds of the same models share a name, refused on one client", async () => {
+      test("two on() that hook the same kinds of the same models live on one client, each running its own hook", async () => {
         const { base } = await open();
+        const seen: string[] = [];
         const first = on({
-          user: { update: () => undefined },
-          post: { create: () => undefined },
+          post: {
+            update: () => {
+              seen.push("first");
+            },
+          },
         });
         const same = on({
-          post: { create: () => undefined },
-          user: { update: () => undefined },
+          post: {
+            update: () => {
+              seen.push("same");
+            },
+          },
         });
-        expect(Reflect.get(first, "name")).toBe(
-          "viborm.on(post.create,user.update)"
-        );
-        expect(Reflect.get(same, "name")).toBe(Reflect.get(first, "name"));
-        expect(Reflect.get(on({}), "name")).toBe("viborm.on()");
-        expect(() => base.$extends(first).$extends(same)).toThrow(
-          ClientInitializationError
-        );
+        expect(Reflect.get(same, "name")).not.toBe(Reflect.get(first, "name"));
+        await base
+          .$extends(first)
+          .$extends(same)
+          .post.update({ where: { id: "p1" }, data: { views: 1 } });
+        expect(seen.sort()).toEqual(["first", "same"]);
       });
 
       test("applied per request, each client's hooks close over their own values", async () => {

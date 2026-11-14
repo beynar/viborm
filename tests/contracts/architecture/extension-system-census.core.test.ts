@@ -66,6 +66,9 @@ const MODULE_STATE_LEFT = Object.freeze([
   "src/extensions/plain-domain.ts prepared",
   "src/extensions/row-domain.ts preparedDomains",
   "src/extensions/unit-source.ts operations",
+  // A counter, not code: each `on()` needs a name of its own, so two that
+  // hook the same kinds of the same models live on one client.
+  "src/on/index.ts declared",
 ]);
 
 /**

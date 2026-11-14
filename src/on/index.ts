@@ -33,6 +33,11 @@ import type {
 } from "../index";
 
 const NAME = "viborm.on";
+/**
+ * How many declarations were made: each is an extension of its own name, so
+ * two `on()` that hook the same kinds of the same models live on one client.
+ */
+let declared = 0;
 
 /** What a hook is named after: what happened to the rows it receives. */
 export type OnKind = "create" | "update" | "delete";
@@ -199,15 +204,9 @@ export function on(hooks: RuntimeHooks, options?: OnOptions): unknown {
   const hooked = Object.keys(own);
   /** Per model, the models a nested write from it can write. */
   const reached: Reached = new WeakMap();
-  // Named after what it hooks, so several `on()` live on one client and a
-  // name never depends on how many were made before it.
-  const pairs = hooked
-    .flatMap((model) =>
-      Object.keys(own[model] ?? {}).map((kind) => `${model}.${kind}`)
-    )
-    .sort();
+  declared += 1;
   return extension(
-    `${NAME}(${pairs})`,
+    declared === 1 ? NAME : `${NAME}.${declared}`,
     // The hooked models are checked against the schema where the extension
     // is applied: an unknown one is refused there.
     ...(hooked.length === 0
