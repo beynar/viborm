@@ -19,7 +19,7 @@ import { QueryError, VibORMError } from "@errors";
 import { isFunction, isRecord } from "@validation/value-guards";
 import { errorCause } from "../errors/diagnostic-safety";
 import type { Application, ExtensionPart } from "./chain";
-import type { ResolvedOperationHandler } from "./chain-state";
+import type { ResolvedControls, ResolvedOperationHandler } from "./chain-state";
 import type {
   AnyTarget,
   AroundFacts,
@@ -29,18 +29,21 @@ import type {
   Part,
   Selection,
 } from "./contract";
-import { type AdmittedControls, controlsOwnedBy } from "./controls";
+import type { AdmittedControls } from "./controls";
 import { coordinate, QUERIES } from "./coordination";
 import { extensionError } from "./definition";
 import { builtPart, type DefinitionDraft } from "./extension";
 import { compileHandlers, type OperationHandlers } from "./handlers";
 import { MODEL_OPERATIONS, type SelectionValue, selectionOf } from "./on";
 import type { QueryInterceptorContext } from "./query";
-import { type RequestControls, SHAPE_KEYS } from "./request";
-import { REGISTER, type Watching, watched, watchPart } from "./watch-part";
+import { SHAPE_KEYS } from "./request";
+import type { Registering, WatchPart } from "./watch-part";
 
-/** What a first moment is handed, beside what `contract.ts` types. */
-interface FirstContext {
+/**
+ * What a first moment is handed, beside what `contract.ts` types: where the
+ * part brings what tells `watch` and `settled`, what they register through.
+ */
+interface FirstContext extends Partial<Registering> {
   readonly kind: "model" | "raw";
   readonly schema: Schema;
   readonly model: string | undefined;
@@ -48,19 +51,26 @@ interface FirstContext {
   readonly args: Readonly<Record<string, unknown>>;
   readonly values: AdmittedControls;
   set(patch: unknown): void;
-  /**
-   * What `watch` and `settled` register through: false where nothing would
-   * tell the watch, which `call-words.ts` refuses.
-   */
-  readonly [REGISTER]: (watching: Watching) => boolean;
 }
 
-/** One `call` or `around` part, as its builder wrote it. */
+/**
+ * One `call` or `around` part, as its builder wrote it. What only `around`
+ * or a watching set needs is handed in by the builder that has it, so a
+ * program building `call` alone carries none of it.
+ */
 interface CallSpec {
   readonly handler: (context: FirstContext) => unknown;
   readonly on: SelectionValue | undefined;
-  readonly around: boolean;
-  readonly inner: boolean;
+  /** `around` only: keeps the second moment a first returned, for the call. */
+  readonly keep?: (
+    call: object,
+    first: FirstMoment,
+    second: SecondMoment
+  ) => void;
+  /** What registers `watch` and `settled`, where the part brings what tells them. */
+  readonly watch?: WatchPart | undefined;
+  /** `around` only: placed nearest the core. */
+  readonly inner?: boolean;
 }
 
 /**
@@ -81,8 +91,9 @@ export type FirstMoment = (
   model: string | undefined,
   operation: string,
   state: { args: Readonly<Record<string, unknown>> },
-  controls: RequestControls | undefined,
-  call: object
+  call: object,
+  controls: ResolvedControls | undefined,
+  admitted: AdmittedControls | undefined
 ) => void;
 
 /** The keys a second moment's `run` carries for `again` and `via`. */
@@ -97,27 +108,7 @@ export interface RunCapabilities {
 
 type SecondMoment = (run: unknown) => unknown;
 
-/**
- * Per call, what each first moment returned for its second: kept beside
- * the call, never on a chain or a part (both outlive the call), and gone
- * with the call.
- */
-const seconds = new WeakMap<object, Map<FirstMoment, SecondMoment>>();
-
 const NO_VALUES: AdmittedControls = Object.freeze({});
-
-function failure(
-  extension: string,
-  model: string | undefined,
-  operation: string,
-  problem: string,
-  cause?: unknown
-): QueryError {
-  return new QueryError(
-    `Extension "${extension}" request handler for ${model === undefined ? operation : `${model}.${operation}`} ${problem}.`,
-    { cause: errorCause(cause), meta: { model, operation } }
-  );
-}
 
 /**
  * One part's first moment against one schema. What the handler throws
@@ -127,22 +118,23 @@ function failure(
  * call.
  */
 function firstOf(
-  { handler, on, around }: CallSpec,
+  { handler, keep, watch }: CallSpec,
   schema: Schema
 ): FirstMoment {
-  // What tells `watch` and `settled` comes with `around` and with a set
-  // that names writes.
-  const watches = around || on?.watch !== undefined;
   const first: FirstMoment = (
     { extension, controls: own },
     model,
     operation,
     state,
+    call,
     controls,
-    call
+    admitted
   ) => {
     const refusal = (problem: string, cause?: unknown) =>
-      failure(extension, model, operation, problem, cause);
+      new QueryError(
+        `Extension "${extension}" request handler for ${model === undefined ? operation : `${model}.${operation}`} ${problem}.`,
+        { cause: errorCause(cause), meta: { model, operation } }
+      );
     let returned: unknown;
     try {
       returned = handler({
@@ -153,50 +145,37 @@ function firstOf(
         get args() {
           return state.args;
         },
-        values:
-          own === undefined
-            ? NO_VALUES
-            : controlsOwnedBy(controls?.admitted, own),
+        // An extension that declares arguments brings the chain's controls.
+        values: (own && controls?.owned(admitted, own)) ?? NO_VALUES,
         set(patch: unknown) {
           if (model === undefined || !isRecord(patch))
             throw refusal("set no model call's arguments");
-          for (const key of Object.keys(patch))
-            if (SHAPE_KEYS.has(key) || controls?.names.has(key))
+          for (const key of Object.keys(patch)) {
+            const shape = SHAPE_KEYS.has(key);
+            if (shape || controls?.names.has(key))
               throw refusal(
-                SHAPE_KEYS.has(key)
+                shape
                   ? `set "${key}", which decides the result's shape`
                   : `named control "${key}"`
               );
+          }
           state.args = Object.freeze({ ...state.args, ...patch });
         },
-        [REGISTER]: (watching: Watching) => {
-          // A raw statement writes no rows to tell.
-          if (!watches || model === undefined) return false;
-          let byExtension = watched.get(call);
-          if (byExtension === undefined)
-            watched.set(call, (byExtension = new Map()));
-          byExtension.set(extension, [
-            ...(byExtension.get(extension) ?? []),
-            watching,
-          ]);
-          return true;
-        },
+        // Only a part on a set of writes has one, and a raw statement never
+        // reaches such a part.
+        ...watch?.registering(call, extension),
       });
-      if (!around && isFunction(returned))
-        throw new TypeError("call() returned a function: write around()");
     } catch (cause) {
       if (cause instanceof VibORMError) throw cause;
       throw refusal("threw", cause);
     }
-    if (isRecord(returned) && "then" in returned && isFunction(returned.then))
-      throw refusal(
-        "returned a promise",
-        new TypeError("A call's first moment runs synchronously")
-      );
+    // A first moment runs synchronously.
+    if (isRecord(returned) && isFunction(returned.then))
+      throw refusal("returned a promise");
     if (!isFunction<SecondMoment>(returned)) return;
-    let returnedBy = seconds.get(call);
-    if (returnedBy === undefined) seconds.set(call, (returnedBy = new Map()));
-    returnedBy.set(first, returned);
+    if (keep === undefined)
+      throw refusal("returned a function: write around()");
+    keep(call, first, returned);
   };
   return first;
 }
@@ -211,17 +190,35 @@ function firstOf(
  */
 export function runFirstMoments(
   operation: string,
-  input: Readonly<Record<string, unknown>> | undefined,
-  handlers: readonly ResolvedOperationHandler<FirstMoment>[] | undefined,
+  input: Readonly<Record<string, unknown>>,
+  handlers: readonly ResolvedOperationHandler<FirstMoment>[],
   call: object,
   model?: string,
-  controls?: RequestControls
-): Record<string, unknown> | undefined {
-  if (handlers === undefined) return input;
+  controls?: ResolvedControls,
+  admitted?: AdmittedControls
+): Record<string, unknown> {
   const state = { args: Object.freeze({ ...input }) };
   for (const handler of handlers)
-    handler.handler(handler, model, operation, state, controls, call);
+    handler.handler(handler, model, operation, state, call, controls, admitted);
   return state.args;
+}
+
+/**
+ * Per call, what each `around` part's first moment returned for its second:
+ * kept beside the call, never on a chain or a part (both outlive the call),
+ * and gone with the call.
+ */
+const seconds = new WeakMap<object, Map<FirstMoment, SecondMoment>>();
+
+/** What `around` hands its first moments: the call's second moments kept. */
+function keepSecond(
+  call: object,
+  first: FirstMoment,
+  second: SecondMoment
+): void {
+  let returnedBy = seconds.get(call);
+  if (returnedBy === undefined) seconds.set(call, (returnedBy = new Map()));
+  returnedBy.set(first, second);
 }
 
 /**
@@ -329,13 +326,13 @@ function contributionOf<H extends CallableFunction>(
       extension
     );
   const operations = selection.operations ?? MODEL_OPERATIONS;
-  for (const operation of operations)
-    if (!MODEL_OPERATIONS.has(operation)) unknown(operation);
   const map: Record<string, Record<string, H>> = {};
   for (const model of selection.models ?? Object.keys(schema)) {
     if (!Object.hasOwn(schema, model)) unknown(model);
     const entry: Record<string, H> = {};
-    for (const operation of operations) entry[operation] = handler;
+    for (const operation of operations)
+      entry[MODEL_OPERATIONS.has(operation) ? operation : unknown(operation)] =
+        handler;
     map[model] = entry;
   }
   return map;
@@ -365,13 +362,13 @@ const aroundPart: ExtensionPart = {
   join({ next, chain, definition, owner, schema }: Application) {
     let query: OperationHandlers | undefined = chain?.query;
     for (const entry of definition.calls ?? []) {
-      if (!entry.around) continue;
+      if (entry.keep === undefined) continue;
       query = compileHandlers(
         query,
         owner,
         contributionOf(
           entry.on,
-          secondMoment(entry.first, entry.inner),
+          secondMoment(entry.first, entry.inner === true),
           schema,
           owner.name
         ),
@@ -421,7 +418,7 @@ export function call(
       // (`target(writes)`): a call that only patches does not carry it.
       ...(on?.watch ? [on.watch] : []),
     ],
-    write({ handler, on, around: false, inner: false })
+    write({ handler, on, watch: on?.watch })
   );
 }
 
@@ -444,13 +441,16 @@ export function around(
   // a \`FirstContext\` at runtime.
   if (!isFunction<CallSpec["handler"]>(handler))
     throw new TypeError("around() takes a function of the call");
+  const on = selectionOf(selected);
   return builtPart(
-    [aroundPart, watchPart],
+    // As for `call`: what watches the writes comes with a set that names them.
+    [aroundPart, ...(on?.watch ? [on.watch] : [])],
     write({
       handler,
-      on: selectionOf(selected),
-      around: true,
-      inner: options?.inner === true,
+      on,
+      keep: keepSecond,
+      watch: on?.watch,
+      inner: options?.inner,
     })
   );
 }

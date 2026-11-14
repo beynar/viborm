@@ -104,7 +104,7 @@ function appendWith(
     next,
     owner: { name },
     schema,
-    ...(registry === undefined ? {} : { registry }),
+    registry,
   };
   for (const part of parts) part.admit?.(application);
   if (chain?.extensions.some((extension) => extension.name === name)) {

@@ -833,11 +833,10 @@ export class VibORM<C extends VibORMConfig> {
                 requestHandlers,
                 call,
                 modelNameStr,
-                chain?.controls === undefined
-                  ? undefined
-                  : { names: chain.controls.names, admitted: controls }
+                chain?.controls,
+                controls
               );
-        return finish(transformed ?? {});
+        return finish(transformed);
       };
     }
 

@@ -44,12 +44,9 @@ export function compileHandlers<Handler extends CallableFunction>(
     | undefined,
   raw: boolean
 ): OperationHandlers<Handler> {
+  // `controls` stays undefined for an extension that declares none.
   const own = (handler: Handler): ResolvedOperationHandler<Handler> =>
-    Object.freeze(
-      owner.controls === undefined
-        ? { extension: owner.name, handler }
-        : { extension: owner.name, handler, controls: owner.controls }
-    );
+    Object.freeze({ extension: owner.name, handler, controls: owner.controls });
   const global = [...(previous?.global ?? [])];
   const models: Record<
     string,
@@ -75,24 +72,21 @@ export function compileHandlers<Handler extends CallableFunction>(
       }
     }
   }
-  const frozen: Record<
-    string,
-    Readonly<Record<string, readonly ResolvedOperationHandler<Handler>[]>>
-  > = Object.create(null);
-  for (const [model, operations] of Object.entries(models)) {
+  // Frozen in place: every array and record here is this lookup's own.
+  for (const operations of Object.values(models)) {
     for (const handlers of Object.values(operations)) Object.freeze(handlers);
-    frozen[model] = Object.freeze(operations);
+    Object.freeze(operations);
   }
-  const every = global.length === 0 ? undefined : Object.freeze(global);
+  const every = global.length === 0 ? undefined : global;
   return {
-    global: every ?? Object.freeze([]),
-    models: Object.freeze(frozen),
+    global: Object.freeze(global),
+    models: Object.freeze(models),
     handlers: (model, operation) =>
       model === undefined
         ? raw
           ? every
           : undefined
-        : (frozen[model]?.[operation] ?? every),
+        : (models[model]?.[operation] ?? every),
   };
 }
 

@@ -16,10 +16,7 @@ import type {
   DeletionContribution,
   OrderContribution,
 } from "./controls";
-import type {
-  RuntimeClientMethodContribution,
-  RuntimeModelMethodContribution,
-} from "./methods";
+import type { RuntimeMethodsFactory } from "./methods";
 import type { OfficialObservationCapability } from "./official-facts";
 import type { RuntimeQueryContribution } from "./query";
 import type { RuntimeResultContribution } from "./result";
@@ -39,8 +36,8 @@ export interface RuntimeExtensionDefinition {
   readonly retry?: RuntimeExtensionFunction;
   readonly route?: RuntimeExtensionFunction;
   readonly transaction?: RuntimeExtensionFunction;
-  readonly client?: RuntimeClientMethodContribution;
-  readonly model?: RuntimeModelMethodContribution;
+  /** The factory `methods` takes. */
+  readonly methods?: RuntimeMethodsFactory;
   readonly controls?: ControlsContribution;
   /** As admitted against the schema the extension is applied to. */
   readonly rows?: AdmittedRows;

@@ -3,7 +3,6 @@
  * types of what a first moment reads and patches.
  */
 import type { Operations } from "@client/types";
-import type { AdmittedControls } from "./controls";
 
 /**
  * The keys of a call's arguments that decide its result's shape: the one
@@ -72,11 +71,3 @@ export type RequestTransformPatch<
 > = Partial<RequestTransformInput<Operation, Input>> & {
   readonly [Key in ResultShapeKeyFor<Operation>]?: never;
 };
-
-/** What the first moments of one call are told about the chain's controls. */
-export interface RequestControls {
-  /** Every control name on the chain: no patch may name one. */
-  readonly names: ReadonlySet<string>;
-  /** This call's admitted controls; each owner sees its own. */
-  readonly admitted: AdmittedControls | undefined;
-}

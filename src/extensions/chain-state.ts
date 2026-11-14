@@ -93,6 +93,15 @@ export interface ResolvedControls {
     args: Record<string, unknown>,
     bound: AdmittedControls | undefined
   ) => ControlAdmission | undefined;
+  /**
+   * One extension's own admitted controls, as its handlers see them: on the
+   * chain's controls, so a part that reads them carries this only where an
+   * extension declares some.
+   */
+  readonly owned: (
+    admitted: AdmittedControls | undefined,
+    names: readonly string[]
+  ) => AdmittedControls;
   /** A view's `$bind`: one extension's own controls, bound over `previous`. */
   readonly bind: (
     extension: string,
