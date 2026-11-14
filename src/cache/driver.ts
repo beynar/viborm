@@ -200,7 +200,8 @@ export abstract class CacheDriver {
     );
 
     if (cached) {
-      const age = this.clock.now() - cached.createdAt;
+      const now = this.clock.now();
+      const age = now - cached.createdAt;
       if (age < cached.ttl) {
         // Fresh cache hit
         note(origin, cacheOutcome("hit"));
@@ -211,7 +212,7 @@ export abstract class CacheDriver {
       if (
         swrTtl !== false &&
         age < swrTtl &&
-        (cached.expiresAt === undefined || this.clock.now() < cached.expiresAt)
+        (cached.expiresAt === undefined || now < cached.expiresAt)
       ) {
         // Stale but SWR enabled - return stale and revalidate in background.
         // The refresh runs the read once more after this serve returned: the
@@ -428,20 +429,17 @@ export abstract class CacheDriver {
   ): Promise<void> {
     if (revision !== undefined && revision !== this.#fillRevision) return;
     const prefixedKey = this.#prefixKey(key, namespace);
+    // Use SWR TTL if provided, otherwise just use regular TTL
+    const storageTtl = options.swrTtl ?? options.ttl;
+    const createdAt = this.clock.now();
     const entry: CacheEntry<T> = {
       value,
-      createdAt: this.clock.now(),
+      createdAt,
       ttl: options.ttl,
       ...(identity === undefined
         ? {}
-        : {
-            identity,
-            expiresAt: this.clock.now() + (options.swrTtl ?? options.ttl),
-          }),
+        : { identity, expiresAt: createdAt + storageTtl }),
     };
-
-    // Use SWR TTL if provided, otherwise just use regular TTL
-    const storageTtl = options.swrTtl ?? options.ttl;
 
     return cacheStep(
       "set",
