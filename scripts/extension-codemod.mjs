@@ -2979,7 +2979,8 @@ function foldSteps(sf, checker) {
         ? callee.expression.text
         : undefined;
     const official =
-      direct ?? (ts.isIdentifier(callee) ? officialOrigin(checker, callee) : undefined);
+      direct ??
+      (ts.isIdentifier(callee) ? officialOrigin(checker, callee) : undefined);
     return official === undefined ? undefined : { callee, official };
   };
   const rewrite = (node) => {
@@ -2997,9 +2998,16 @@ function foldSteps(sf, checker) {
   walk(sf, (node) => {
     const applied = appliedOf(node);
     if (applied === undefined || inside.has(node)) return;
-    for (let inner = skipParens(node.arguments[0]); appliedOf(inner); )
-      inside.add(inner), (inner = skipParens(inner.arguments[0]));
-    edits.push({ start: node.getStart(sf), end: node.getEnd(), text: rewrite(node) });
+    let inner = skipParens(node.arguments[0]);
+    while (appliedOf(inner)) {
+      inside.add(inner);
+      inner = skipParens(inner.arguments[0]);
+    }
+    edits.push({
+      start: node.getStart(sf),
+      end: node.getEnd(),
+      text: rewrite(node),
+    });
     folded.push({
       line: lineOf(node),
       official: applied.official,

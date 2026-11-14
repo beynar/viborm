@@ -60,7 +60,7 @@ const userView = {};
 const db = base.$extends(
   extension(
     "evidence",
-    args({ as: oneOf("all").default("all") }), // FIXME(extension-codemod): `evidence.ordered` has no spelling in spec v0: written as facts(…, { ordered: true })
+    args({ as: oneOf("all").default("all") }),
     rule({
       post: {
         read: {
@@ -74,12 +74,7 @@ const db = base.$extends(
       user: {
         read: {
           where: userView,
-          select: {
-            $access: facts(
-              { view: userView, edit: {}, full: {} },
-              { ordered: true }
-            ),
-          },
+          select: { $access: facts({ view: userView, edit: {}, full: {} }) },
         },
         update: { where: nothing },
         delete: { where: nothing },

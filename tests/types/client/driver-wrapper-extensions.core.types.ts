@@ -56,7 +56,7 @@ const wrapperExtension = extension(
         },
       },
     };
-    return { ...own.client?.(scope), ...own.models };
+    return { ...own.client(scope), ...own.models };
   })
 );
 

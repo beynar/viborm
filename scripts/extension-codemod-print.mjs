@@ -280,7 +280,13 @@ export function printers(w) {
      * delegate and the scope.
      */
     printMethods(members) {
-      return `${w("methods")}((scope) => { const own = { ${members.join(", ")} }; return { ...own.client?.(scope), ...own.models }; })`;
+      const client = members.some((member) => member.startsWith("client"));
+      const models = members.some((member) => member.startsWith("models"));
+      const spread = [
+        ...(client ? ["...own.client(scope)"] : []),
+        ...(models ? ["...own.models"] : []),
+      ];
+      return `${w("methods")}((${client ? "scope" : ""}) => { const own = { ${members.join(", ")} }; return { ${spread.join(", ")} }; })`;
     },
     printFields: (definition) => `${w("fields")}(${definition})`,
 

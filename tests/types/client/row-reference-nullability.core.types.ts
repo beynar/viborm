@@ -106,13 +106,15 @@ const badge = s.model({
 const schema = { user, post, comment, shelf, crate, node, badge };
 
 const base = createClient({ schema, driver: new PGliteDriver() });
-const db = softDelete({
-  models: {
-    post: { deletedAt: "deletedAt" },
-    shelf: { deletedAt: "deletedAt" },
-    node: { deletedAt: "deletedAt" },
-  },
-})(base);
+const db = base.$extends(
+  softDelete({
+    models: {
+      post: { deletedAt: "deletedAt" },
+      shelf: { deletedAt: "deletedAt" },
+      node: { deletedAt: "deletedAt" },
+    },
+  })
+);
 
 type PostRow = {
   id: string;
@@ -231,15 +233,15 @@ base.$extends(everyModel);
 // The rejected application's error-recovery type is not a public client.
 
 // The cached, transaction and helper surfaces read the same context.
-const cachedDb = softDelete({ models: { post: { deletedAt: "deletedAt" } } })(
-  base.$extends(
+const cachedDb = base
+  .$extends(
     cache({
       driver: new MemoryCache(),
       version: "v1",
       waitUntil: (_promise) => undefined,
     })
   )
-);
+  .$extends(softDelete({ models: { post: { deletedAt: "deletedAt" } } }));
 export async function sameContextEverywhere() {
   const cached = await cachedDb
     .$withCache()

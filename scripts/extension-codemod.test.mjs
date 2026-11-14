@@ -504,7 +504,7 @@ test("result → fields; client and model → methods({ client, models })", () =
   client(scope) { return { $ping: () => scope }; }, model: { post: (delegate) => ({ top: () => delegate.findFirst() }) } });`);
   has(
     r,
-    "methods((scope) => { const own = { client(scope) { return { $ping: () => scope }; }, models: { post: (delegate) => ({ top: () => delegate.findFirst() }) } }; return { ...own.client?.(scope), ...own.models }; })"
+    "methods((scope) => { const own = { client(scope) { return { $ping: () => scope }; }, models: { post: (delegate) => ({ top: () => delegate.findFirst() }) } }; return { ...own.client(scope), ...own.models }; })"
   );
   has(
     r,

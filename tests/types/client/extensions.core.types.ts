@@ -99,7 +99,7 @@ function _clientAwareFactory() {
         "factory-method",
         methods((scope) => {
           const own = { client: () => ({ $answer: () => 42 as const }) };
-          return { ...own.client?.(scope), ...own.models };
+          return { ...own.client(scope) };
         })
       )
     );
@@ -182,7 +182,7 @@ const _inlineContextualTyping = () =>
             },
           },
         };
-        return { ...own.client?.(scope), ...own.models };
+        return { ...own.client(scope), ...own.models };
       })
     )
   );
@@ -281,7 +281,7 @@ const _genericMapsRequireSchemaBinder = () => {
     ),
     methods((scope) => {
       const own = { client: () => ({ $valid: () => true }) };
-      return { ...own.client?.(scope), ...own.models };
+      return { ...own.client(scope) };
     })
   );
 
@@ -290,7 +290,7 @@ const _genericMapsRequireSchemaBinder = () => {
     around(() => async (run) => [], target("post", "findMany")),
     methods((scope) => {
       const own = { client: () => ({ $valid: () => true }) };
-      return { ...own.client?.(scope), ...own.models };
+      return { ...own.client(scope) };
     })
   );
 };
@@ -305,7 +305,7 @@ const reusableSchemaExtension = extension(
     },
     target("post", "findMany")
   ),
-  methods((scope) => {
+  methods(() => {
     const own = {
       models: {
         post(delegate) {
@@ -320,7 +320,7 @@ const reusableSchemaExtension = extension(
         },
       },
     };
-    return { ...own.client?.(scope), ...own.models };
+    return { ...own.models };
   })
 );
 
@@ -461,7 +461,7 @@ const _driverWrapperExtension = () =>
             };
           },
         };
-        return { ...own.client?.(scope), ...own.models };
+        return { ...own.client(scope) };
       })
     )
   );
@@ -491,7 +491,7 @@ const _extensionChains = () => {
             return { $one: () => 1 };
           },
         };
-        return { ...own.client?.(scope), ...own.models };
+        return { ...own.client(scope) };
       })
     )
   );
@@ -509,7 +509,7 @@ const _extensionChains = () => {
             return { $two: () => "two" };
           },
         };
-        return { ...own.client?.(scope), ...own.models };
+        return { ...own.client(scope) };
       })
     )
   );
@@ -525,7 +525,7 @@ const _extensionChains = () => {
             return { $three: () => true };
           },
         };
-        return { ...own.client?.(scope), ...own.models };
+        return { ...own.client(scope) };
       })
     )
   );
@@ -538,7 +538,7 @@ const _extensionChains = () => {
             return { $four: () => 4 };
           },
         };
-        return { ...own.client?.(scope), ...own.models };
+        return { ...own.client(scope) };
       })
     )
   );
@@ -553,7 +553,7 @@ const _extensionChains = () => {
             return { $five: () => "five" };
           },
         };
-        return { ...own.client?.(scope), ...own.models };
+        return { ...own.client(scope) };
       })
     )
   );
@@ -568,7 +568,7 @@ const _extensionChains = () => {
       "chain-6",
       methods((scope) => {
         const own = { client: () => ({ $six: () => 6 }) };
-        return { ...own.client?.(scope), ...own.models };
+        return { ...own.client(scope) };
       })
     )
   );
@@ -577,7 +577,7 @@ const _extensionChains = () => {
       "chain-7",
       methods((scope) => {
         const own = { client: () => ({ $seven: () => 7 }) };
-        return { ...own.client?.(scope), ...own.models };
+        return { ...own.client(scope) };
       })
     )
   );
@@ -586,7 +586,7 @@ const _extensionChains = () => {
       "chain-8",
       methods((scope) => {
         const own = { client: () => ({ $eight: () => 8 }) };
-        return { ...own.client?.(scope), ...own.models };
+        return { ...own.client(scope) };
       })
     )
   );
@@ -595,7 +595,7 @@ const _extensionChains = () => {
       "chain-9",
       methods((scope) => {
         const own = { client: () => ({ $nine: () => 9 }) };
-        return { ...own.client?.(scope), ...own.models };
+        return { ...own.client(scope) };
       })
     )
   );
@@ -611,7 +611,7 @@ const _extensionChains = () => {
             return { $ten: () => 10 };
           },
         };
-        return { ...own.client?.(scope), ...own.models };
+        return { ...own.client(scope) };
       })
     )
   );
@@ -654,7 +654,7 @@ const activeMethodsClient = () =>
               },
             },
           };
-          return { ...own.client?.(scope), ...own.models };
+          return { ...own.client(scope), ...own.models };
         })
       )
     )
@@ -684,7 +684,7 @@ const activeMethodsClient = () =>
               },
             },
           };
-          return { ...own.client?.(scope), ...own.models };
+          return { ...own.client(scope), ...own.models };
         })
       )
     );
@@ -776,7 +776,7 @@ const _definitionTyposAreRefused = () => {
   client.$extends(
     extension(
       "fresh-model-typo",
-      methods((scope) => {
+      methods(() => {
         const own = {
           models: {
             post: () => ({ valid: () => true }),
@@ -784,7 +784,7 @@ const _definitionTyposAreRefused = () => {
             posst: () => ({ ignored: () => true }),
           },
         };
-        return { ...own.client?.(scope), ...own.models };
+        return { ...own.models };
       })
     )
   );
@@ -793,9 +793,9 @@ const _definitionTyposAreRefused = () => {
   client.$extends(
     extension(
       "held-model-typo",
-      methods((scope) => {
+      methods(() => {
         const own = { models: heldModelTypo };
-        return { ...own.client?.(scope), ...own.models };
+        return { ...own.models };
       })
     )
   );
@@ -845,7 +845,7 @@ const _methodShapesAreRefused = () => {
       "client-value",
       methods((scope) => {
         const own = { client: () => ({ $valid: () => true, $value: 1 }) };
-        return { ...own.client?.(scope), ...own.models };
+        return { ...own.client(scope) };
       })
     )
   );
@@ -857,7 +857,7 @@ const _methodShapesAreRefused = () => {
         const own = {
           client: () => ({ $valid: () => true, missingDollar: () => false }),
         };
-        return { ...own.client?.(scope), ...own.models };
+        return { ...own.client(scope) };
       })
     )
   );
@@ -865,14 +865,14 @@ const _methodShapesAreRefused = () => {
   client.$extends(
     extension(
       "model-value",
-      methods((scope) => {
+      methods(() => {
         const own = {
           models: {
             // @ts-expect-error - every model contribution must be a function
             post: () => ({ valid: () => true, value: 1 }),
           },
         };
-        return { ...own.client?.(scope), ...own.models };
+        return { ...own.models };
       })
     )
   );
@@ -882,7 +882,7 @@ const _methodShapesAreRefused = () => {
       "core-client-collision",
       methods((scope) => {
         const own = { client: () => ({ $transaction: () => "collision" }) };
-        return { ...own.client?.(scope), ...own.models };
+        return { ...own.client(scope) };
       })
     )
   );
@@ -892,7 +892,7 @@ const _methodShapesAreRefused = () => {
       "schema-client-collision",
       methods((scope) => {
         const own = { client: () => ({ $audit: () => "collision" }) };
-        return { ...own.client?.(scope), ...own.models };
+        return { ...own.client(scope) };
       })
     )
   );
@@ -900,14 +900,14 @@ const _methodShapesAreRefused = () => {
   client.$extends(
     extension(
       "core-model-collision",
-      methods((scope) => {
+      methods(() => {
         const own = {
           models: {
             // @ts-expect-error - a model method cannot replace a core operation
             post: () => ({ findMany: () => "collision" }),
           },
         };
-        return { ...own.client?.(scope), ...own.models };
+        return { ...own.models };
       })
     )
   );
@@ -915,14 +915,14 @@ const _methodShapesAreRefused = () => {
   client.$extends(
     extension(
       "then-model",
-      methods((scope) => {
+      methods(() => {
         const own = {
           models: {
             // @ts-expect-error - a model method named `then` would make the delegate a thenable
             post: () => ({ then: () => 1 }),
           },
         };
-        return { ...own.client?.(scope), ...own.models };
+        return { ...own.models };
       })
     )
   );
@@ -932,7 +932,7 @@ const _methodShapesAreRefused = () => {
       "prior-client-method",
       methods((scope) => {
         const own = { client: () => ({ $existing: () => true }) };
-        return { ...own.client?.(scope), ...own.models };
+        return { ...own.client(scope) };
       })
     )
   );
@@ -941,7 +941,7 @@ const _methodShapesAreRefused = () => {
       "prior-client-collision",
       methods((scope) => {
         const own = { client: () => ({ $existing: () => false }) };
-        return { ...own.client?.(scope), ...own.models };
+        return { ...own.client(scope) };
       })
     )
   );
@@ -949,16 +949,16 @@ const _methodShapesAreRefused = () => {
   const priorModelMethod = client.$extends(
     extension(
       "prior-model-method",
-      methods((scope) => {
+      methods(() => {
         const own = { models: { post: () => ({ existing: () => true }) } };
-        return { ...own.client?.(scope), ...own.models };
+        return { ...own.models };
       })
     )
   );
   priorModelMethod.$extends(
     extension(
       "prior-model-collision",
-      methods((scope) => {
+      methods(() => {
         const own = {
           models: {
             // Compiles: a plugin generic over the extension state cannot prove this
@@ -967,7 +967,7 @@ const _methodShapesAreRefused = () => {
             post: () => ({ existing: () => false }),
           },
         };
-        return { ...own.client?.(scope), ...own.models };
+        return { ...own.models };
       })
     )
   );
@@ -976,14 +976,14 @@ const _methodShapesAreRefused = () => {
   client.$extends(
     extension(
       "cross-model-name",
-      methods((scope) => {
+      methods(() => {
         const own = {
           models: {
             post: () => ({ summarize: () => "post" }),
             author: () => ({ summarize: () => "author" }),
           },
         };
-        return { ...own.client?.(scope), ...own.models };
+        return { ...own.models };
       })
     )
   );
@@ -1012,7 +1012,7 @@ const _siblingMethodsAreNotThisVisible = () =>
             }),
           },
         };
-        return { ...own.client?.(scope), ...own.models };
+        return { ...own.client(scope), ...own.models };
       })
     )
   );
@@ -1029,7 +1029,7 @@ const resultClient = () =>
         "result-inference",
         methods((scope) => {
           const own = { client: () => ({ $ready: () => true }) };
-          return { ...own.client?.(scope), ...own.models };
+          return { ...own.client(scope) };
         })
       )
     );

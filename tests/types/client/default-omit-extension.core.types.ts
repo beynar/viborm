@@ -200,18 +200,18 @@ const priorClient = base.$extends(
       const own = {
         client: (scope) => ({ $prior: () => scope.user !== undefined }),
       };
-      return { ...own.client?.(scope), ...own.models };
+      return { ...own.client(scope) };
     })
   )
 );
 const priorModel = base.$extends(
   extension(
     "prior-model",
-    methods((scope) => {
+    methods(() => {
       const own = {
         models: { user: (delegate) => ({ prior: () => delegate.findFirst() }) },
       };
-      return { ...own.client?.(scope), ...own.models };
+      return { ...own.models };
     })
   )
 );
@@ -220,18 +220,18 @@ const priorBlindClient = base.$extends(
     "prior-blind-client",
     methods((scope) => {
       const own = { client: () => ({ $prior: () => true }) };
-      return { ...own.client?.(scope), ...own.models };
+      return { ...own.client(scope) };
     })
   )
 );
 const priorBlindModel = base.$extends(
   extension(
     "prior-blind-model",
-    methods((scope) => {
+    methods(() => {
       const own = {
         models: { user: (_delegate: never) => ({ prior: () => true }) },
       };
-      return { ...own.client?.(scope), ...own.models };
+      return { ...own.models };
     })
   )
 );
@@ -535,7 +535,7 @@ const after = omitted.$extends(
           },
         },
       };
-      return { ...own.client?.(scope), ...own.models };
+      return { ...own.client(scope), ...own.models };
     })
   )
 );
@@ -576,12 +576,12 @@ const staleClient = extension(
         return { $fullUsers: () => scope.user.findMany({}) };
       },
     };
-    return { ...own.client?.(scope), ...own.models };
+    return { ...own.client(scope) };
   })
 );
 const staleModel = extension(
   "stale-model",
-  methods((scope) => {
+  methods(() => {
     const own = {
       models: {
         user(delegate) {
@@ -589,7 +589,7 @@ const staleModel = extension(
         },
       },
     };
-    return { ...own.client?.(scope), ...own.models };
+    return { ...own.models };
   })
 );
 // @ts-expect-error - its query context was fixed against the unomitted schema

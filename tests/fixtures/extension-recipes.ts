@@ -40,6 +40,14 @@ export const perModel = <Models extends readonly string[], T>(
     Record<string, T>
   >;
 
+// Each argument is read through a word written apart from the rule: the
+// recipe applies to any client, so its names are checked where it is applied.
+const tenant = arg("tenant");
+const scope = arg("scope");
+const actor = arg("actor");
+const expectedVersion = arg("expectedVersion");
+const versionCheck = arg("versionCheck");
+
 export const tenancy = <const Models extends readonly string[]>(
   models: Models
 ) =>
@@ -51,11 +59,11 @@ export const tenancy = <const Models extends readonly string[]>(
     }),
     rule(
       perModel(models, () => ({
-        root: when(arg("scope"), "tenant", { tenantId: arg("tenant") }),
-        related: when(arg("scope"), "tenant", { tenantId: arg("tenant") }),
+        root: when(scope, "tenant", { tenantId: tenant }),
+        related: when(scope, "tenant", { tenantId: tenant }),
       }))
     ),
-    defaults(perModel(models, () => ({ create: { tenantId: arg("tenant") } })))
+    defaults(perModel(models, () => ({ create: { tenantId: tenant } })))
   );
 
 export const audit = <const Models extends readonly string[]>(models: Models) =>
@@ -64,8 +72,8 @@ export const audit = <const Models extends readonly string[]>(models: Models) =>
     args({ actor: accepts(v.string()).on(writes).required(models) }),
     defaults(
       perModel(models, () => ({
-        create: { createdBy: arg("actor") },
-        update: { updatedBy: arg("actor") },
+        create: { createdBy: actor },
+        update: { updatedBy: actor },
       }))
     )
   );
@@ -81,8 +89,8 @@ export const optimisticLock = <const Models extends readonly string[]>(
     }),
     rule(
       perModel(models, () => ({
-        root: when(arg("versionCheck"), "checked", {
-          version: arg("expectedVersion"),
+        root: when(versionCheck, "checked", {
+          version: expectedVersion,
         }),
       }))
     ),

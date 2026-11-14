@@ -703,9 +703,7 @@ type WordValue<V, K extends string> =
 type Connective<M, K extends string> =
   | RuleWhere<M, K>
   | WhenWord<K, RuleWhere<M, K>>
-  | WhenWord<string, RuleWhere<M, K>>
   | ProvidedWord<K>
-  | ProvidedWord<string>
   | ExistsWord;
 
 export type RuleWhere<M, K extends string> = {
@@ -778,12 +776,7 @@ export interface OmittedWord {
 type RuleFilter<M, K extends string> =
   | RuleWhere<M, K>
   | WhenWord<K, RuleWhere<M, K>>
-  | WhenWord<string, RuleWhere<M, K>>
-  | readonly (
-      | RuleWhere<M, K>
-      | WhenWord<K, RuleWhere<M, K>>
-      | WhenWord<string, RuleWhere<M, K>>
-    )[];
+  | readonly (RuleWhere<M, K> | WhenWord<K, RuleWhere<M, K>>)[];
 
 type RelationKeysOf<M> =
   M extends Model<infer State>
