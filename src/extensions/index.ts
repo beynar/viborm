@@ -6,6 +6,7 @@
 export { accepts, args, bound, oneOf } from "./args";
 export { around, call } from "./call";
 export { again, settled, via, watch } from "./call-words";
+export { type Codec, codec } from "./codec";
 export type {
   Accepted,
   AnyFacts,
@@ -34,11 +35,13 @@ export type {
   Watcher,
   With,
 } from "./contract";
+export { type Database, database } from "./database";
 export { defaults, omitted } from "./defaults";
 export { type DisclosurePolicy, disclosure } from "./disclosure";
 export { extension } from "./extension";
 export { fields } from "./fields";
 export { check, facts, gate, keep } from "./judge-words";
+export { key } from "./key";
 export { methods } from "./methods-part";
 export { deletes, models, reads, selecting, target, writes } from "./on";
 export { parts } from "./parts";

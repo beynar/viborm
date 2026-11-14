@@ -707,7 +707,7 @@ export function permissions<const Config extends PermissionsConfig>(
   const actor = actorContract(config.actor);
   const compile = (schema: Schema) => compilePolicy(config, schema, actor);
   const { modes, scopes } = policyArguments(config);
-  const uncacheable = config.cache !== "allow";
+  const volatile = config.cache !== "allow";
   /**
    * What applying the policy to one schema made: what the declaration
    * names, checked once, and what a root call may reach. Each model
@@ -787,10 +787,10 @@ export function permissions<const Config extends PermissionsConfig>(
       );
     }),
     args({
-      actor: uncacheable
+      actor: volatile
         ? bound(actor.schema).required().volatile()
         : bound(actor.schema).required(),
-      scopes: uncacheable
+      scopes: volatile
         ? bound(scopeSchema(scopes)).required().volatile()
         : bound(scopeSchema(scopes)).required(),
       [MODE]: oneOf(...modes)

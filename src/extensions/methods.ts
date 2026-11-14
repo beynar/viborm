@@ -18,7 +18,7 @@ import { ClientInitializationError } from "@errors";
 import type { ModelSql } from "@query-engine/raptor3/shared/insert-value";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { isFunction, isRecord } from "@validation/value-guards";
-import type { OfficialCacheControls } from "../cache/capability";
+import type { OfficialCacheControls } from "../cache/schema";
 import { errorCause } from "../errors/diagnostic-safety";
 import type { ExtensionPart } from "./chain";
 import {
@@ -346,8 +346,6 @@ const CORE_CLIENT_METHODS = new Set([
   "$transaction",
   "$connect",
   "$disconnect",
-  "$withCache",
-  "$invalidate",
   "$extends",
 ]);
 

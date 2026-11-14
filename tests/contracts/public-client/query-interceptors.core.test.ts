@@ -209,6 +209,7 @@ describe("standalone query interceptor runner", () => {
               "onWriteOutcome",
               "again",
               "proceedOn",
+              "replay",
             ]);
             expect("program" in handlerContext).toBe(false);
             expect("driver" in handlerContext).toBe(false);
@@ -1100,20 +1101,12 @@ describe("query write-outcome publication", () => {
     expect(listener).not.toHaveBeenCalled();
   });
 
-  test("attempts every listener and preserves boundary-owned failures", async () => {
+  test("attempts every listener; the first fault rejects and later ones are lost", async () => {
     const boundaryFailure = new Error("official boundary failed");
     const calls: string[] = [];
     const failure = await captureFailure(
       publishWriteOutcomes(
         [
-          {
-            extension: "official",
-            failurePolicy: "boundary-owned",
-            listener() {
-              calls.push("official");
-              throw boundaryFailure;
-            },
-          },
           {
             extension: "ordinary",
             listener() {
@@ -1122,20 +1115,25 @@ describe("query write-outcome publication", () => {
               throw "ordinary failure";
             },
           },
+          {
+            extension: "official",
+            failurePolicy: "boundary-owned",
+            listener() {
+              calls.push("official");
+              throw boundaryFailure;
+            },
+          },
         ],
         { certainty: "committed" }
       )
     );
 
-    expect(calls).toEqual(["official", "ordinary"]);
-    expect(failure).toBeInstanceOf(AggregateError);
-    const decomposed = decomposeWriteOutcomePublicationFailure(failure);
-    expect(decomposed[0]).toBe(boundaryFailure);
-    expect(decomposed[1]).toBeInstanceOf(QueryError);
-    expect(requireQueryError(decomposed[1]).meta).toMatchObject({
+    expect(calls).toEqual(["ordinary", "official"]);
+    expect(requireQueryError(failure).meta).toMatchObject({
       method: "onWriteOutcome",
       commitCertainty: "committed",
     });
+    expect(decomposeWriteOutcomePublicationFailure(failure)).toEqual([failure]);
   });
 
   test("keeps one boundary-owned listener failure authoritative by identity", async () => {

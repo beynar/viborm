@@ -1,4 +1,3 @@
-import { officialCacheRuntime } from "@cache/capability";
 import { attachExecutionContext } from "@drivers/driver-error-context";
 import { readDriverIdentity } from "@drivers/driver-identity";
 import { normalizeDriverError } from "@drivers/error-mapping";
@@ -10,7 +9,10 @@ import {
 import type { AnyDriver, QueryExecutionContext } from "@drivers/exports";
 import { VibORMError } from "@errors";
 import type { ResolvedExtensionChain } from "@extensions/chain";
-import type { OfficialLifecycleFactsReader } from "@extensions/official-facts";
+import type {
+  CacheOutcome,
+  OfficialLifecycleFactsReader,
+} from "@extensions/official-facts";
 import { isErrorLogged } from "../errors/logged-errors";
 import type { Operation } from "./types";
 
@@ -97,6 +99,27 @@ export function withOperationErrorContext<T>(
   }
 }
 
+/**
+ * The outcomes an extension noted on an operation while it ran, read once
+ * when the operation completes: set by the one that noted them.
+ */
+const notedOutcomes = new WeakMap<
+  QueryExecutionContext,
+  () => readonly CacheOutcome[]
+>();
+
+/** Hand the operation of `context` what reads the outcomes noted on it. */
+export function noteOperationOutcomes(
+  context: QueryExecutionContext,
+  read: () => readonly CacheOutcome[]
+): void {
+  notedOutcomes.set(context, read);
+}
+
+/** What reads the outcomes noted on the operation of `context`, if any. */
+export const readNotedOutcomes = (context: QueryExecutionContext) =>
+  notedOutcomes.get(context);
+
 /** Build the private official-operation facts only for an official chain. */
 export function createPendingOperationInstrumentationFacts(
   driver: AnyDriver,
@@ -104,8 +127,7 @@ export function createPendingOperationInstrumentationFacts(
   model: string,
   requestedOperation: string,
   operation: string,
-  collection: string,
-  cacheManaged: boolean
+  collection: string
 ): OfficialLifecycleFactsReader | undefined {
   return createOperationInstrumentationFacts(
     driver,
@@ -113,8 +135,7 @@ export function createPendingOperationInstrumentationFacts(
     model,
     requestedOperation,
     operation,
-    collection,
-    cacheManaged
+    collection
   );
 }
 
@@ -130,8 +151,7 @@ export function createRawOperationInstrumentationFacts(
     undefined,
     operation,
     operation,
-    undefined,
-    false
+    undefined
   );
 }
 
@@ -141,8 +161,7 @@ function createOperationInstrumentationFacts(
   model: string | undefined,
   requestedOperation: string,
   operation: string,
-  collection: string | undefined,
-  cacheManaged: boolean
+  collection: string | undefined
 ): OfficialLifecycleFactsReader | undefined {
   const official = officialCapability(getExecutionExtensionChain(context));
   if (official?.observesLifecycle !== true) return undefined;
@@ -157,9 +176,7 @@ function createOperationInstrumentationFacts(
       operation,
       collection,
       complete(outcome) {
-        const readCacheOutcomes = cacheManaged
-          ? officialCacheRuntime().readCacheExecutionOutcomes(context)
-          : undefined;
+        const readCacheOutcomes = readNotedOutcomes(context);
         // Core selects the failure: one error, one error log.
         const { failure } = outcome;
         const logged =

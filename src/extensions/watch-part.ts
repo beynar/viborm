@@ -46,6 +46,7 @@ function watchOf(
     async settled(outcome) {
       for (const watching of own) await watching.settled?.(outcome);
     },
+    sees: own.some((watching) => watching.wants !== undefined),
   };
 }
 
@@ -55,7 +56,7 @@ function watchOf(
  */
 /** What a first moment's context registers watches through, for one call. */
 export interface Registering {
-  readonly [REGISTER]: (watching: Watching) => true;
+  readonly [REGISTER]: (watching: Watching) => boolean;
 }
 
 export interface WatchPart extends ExtensionPart {
@@ -94,8 +95,8 @@ export const watchPart: WatchPart = {
     ]);
     next.written = Object.freeze({
       handlers,
-      watch: (call, controls, context, cached, late) =>
-        watchWrite(handlers, call, controls, context, cached, late),
+      watch: (call, controls, context, late) =>
+        watchWrite(handlers, call, controls, context, late),
     });
     coordinate(next, ARRAYS);
   },

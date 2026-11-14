@@ -1,12 +1,5 @@
-import {
-  bindOfficialCacheChain,
-  getOfficialCacheChainCapability,
-  officialCacheRuntime,
-} from "@cache/capability";
-import type { CacheExecutionOptions } from "@cache/driver";
 import type { WithCacheOptions } from "@cache/schema";
 import { ASYNC_DISPOSE, type AsyncDisposeMember } from "@drivers/async-dispose";
-import { readDriverIdentity } from "@drivers/driver-identity";
 import { CLIENT_DIAGNOSTICS } from "@drivers/execution-context";
 import type { AnyDriver } from "@drivers/exports";
 import type {
@@ -35,20 +28,18 @@ import type {
   HasExtensionCache,
   MergeModelMethods,
 } from "@extensions/methods";
+import { SCOPE } from "@extensions/origin";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { enableFindUniqueBatching } from "@query-engine/find-unique-batch";
-import {
-  attachPendingCacheExecution,
-  type PendingOperation,
-  type PrepareOperationInput,
-  type PrepareWriteOutcomeRegistration,
-  readPendingCacheResult,
+import type {
+  PendingOperation,
+  PrepareOperationInput,
+  PrepareWriteOutcomeRegistration,
 } from "@query-engine/pending-operation";
 import { QueryEngine } from "@query-engine/query-engine";
 import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { renderers } from "@query-engine/raptor3/shared/insert-value";
 import {
-  baseOperation,
   isWriteOperation,
   ROUTED_OPERATIONS,
 } from "@query-engine/routed-operations";
@@ -122,13 +113,6 @@ function refuseGeoPointFields(schema: Schema): void {
       );
     }
   }
-}
-
-interface OfficialReadCache {
-  readonly capability: NonNullable<
-    ReturnType<typeof getOfficialCacheChainCapability>
-  >;
-  readonly options: CacheExecutionOptions;
 }
 
 /**
@@ -760,12 +744,8 @@ export class VibORM<C extends VibORMConfig> {
     modelName: keyof ClientSchema<C>,
     operation: Operations,
     args: unknown,
-    clientOmit: ClientOmitResolver | undefined,
-    officialReadCache?: OfficialReadCache
+    clientOmit: ClientOmitResolver | undefined
   ): PendingOperation<unknown> {
-    const officialCache = getOfficialCacheChainCapability(
-      engine.extensionChain
-    );
     const modelNameStr = String(modelName);
     const model = this.#schema[modelName];
     if (!model) {
@@ -843,45 +823,27 @@ export class VibORM<C extends VibORMConfig> {
     const prepareWriteOutcomeRegistration:
       | PrepareWriteOutcomeRegistration
       | undefined =
-      (officialCache === undefined && written === undefined) || !isWrite
+      written === undefined
         ? undefined
-        : (context, controls, call) => {
-            const cached =
-              officialCache &&
-              officialCacheRuntime().prepareMutationCacheWriteOutcome(
-                officialCache.driver,
-                modelNameStr,
-                operation,
-                officialCacheRuntime().readMutationCacheOptions(controls),
-                context,
-                officialCache.scope
-              );
-            return written
-              ? written.watch(
-                  { model: modelNameStr, operation, args: callArgs!, call },
-                  controls,
-                  context,
-                  cached,
-                  (late) => {
-                    settle = late;
-                  }
-                )
-              : cached;
-          };
+        : (context, controls, call) =>
+            written.watch(
+              { model: modelNameStr, operation, args: callArgs!, call },
+              controls,
+              context,
+              (late) => {
+                settle = late;
+              }
+            );
 
     // Engine handles OrThrow suffix internally. Routing to the V2 operation is
-    // decided lazily — before any I/O — for the whole payload. A cached read
-    // is never a write, so it carries no outcome registration.
-    const pendingOperation = engine.prepare(
+    // decided lazily — before any I/O — for the whole payload.
+    return engine.prepare(
       model,
       operation,
       operationArgs,
       resultFields === undefined && written === undefined
-        ? officialReadCache
-          ? { skipSpan: true }
-          : undefined
+        ? undefined
         : {
-            ...(officialReadCache ? { skipSpan: true } : {}),
             finishResult(value) {
               const finished =
                 finishResult === undefined ? value : finishResult(value);
@@ -893,45 +855,6 @@ export class VibORM<C extends VibORMConfig> {
       prepareInput,
       prepareWriteOutcomeRegistration
     );
-    if (officialReadCache === undefined) return pendingOperation;
-    return this.#wrapOfficialCachedRead(
-      engine,
-      modelNameStr,
-      operation,
-      pendingOperation,
-      officialReadCache
-    );
-  }
-
-  /** Bind cached reads to the same root or derived engine as their client. */
-  #withCache(
-    engine: QueryEngine,
-    capability: NonNullable<ReturnType<typeof getOfficialCacheChainCapability>>,
-    clientOmit: ClientOmitResolver | undefined,
-    config?: WithCacheOptions
-  ): CachedClient<C> {
-    const runtime = officialCacheRuntime();
-    const options = runtime.createCacheExecutionOptions(
-      config,
-      capability.waitUntil,
-      readDriverIdentity(engine.driver)
-    );
-    const officialReadCache = Object.freeze({ capability, options });
-    return createModelProxy(this.#schema, ({ modelName, operation, args }) => {
-      try {
-        runtime.validateCacheableOperation(operation);
-        return this.#prepareModelOperation(
-          engine,
-          modelName,
-          operation,
-          args,
-          clientOmit,
-          officialReadCache
-        );
-      } catch (error) {
-        return Promise.reject(error);
-      }
-    }) as CachedClient<C>;
   }
 
   /** Resolve one authenticated declarative omit once for this client schema. */
@@ -952,56 +875,6 @@ export class VibORM<C extends VibORMConfig> {
     );
     resolvers.set(capability, Object.freeze({ resolver }));
     return resolver;
-  }
-
-  /** Keep every arbitrary query handler outside the official cache child. */
-  #wrapOfficialCachedRead(
-    engine: QueryEngine,
-    modelName: string,
-    operation: Operations,
-    pendingOperation: PendingOperation<unknown>,
-    cacheRead: OfficialReadCache
-  ): PendingOperation<unknown> {
-    return attachPendingCacheExecution(
-      pendingOperation,
-      async (execute, driverOverride) => {
-        const cacheResult = readPendingCacheResult(pendingOperation);
-        const refused = engine.extensionChain?.controls?.uncacheable(
-          cacheResult.controls,
-          modelName,
-          baseOperation(operation)
-        );
-        if (refused) throw refused;
-        if (
-          driverOverride !== undefined ||
-          engine.transactionWriteOutcomes !== undefined ||
-          engine.extensionChain?.statement !== undefined
-        ) {
-          return execute();
-        }
-        const runtime = officialCacheRuntime();
-        const key = runtime.cacheKeyOf(
-          cacheResult.args,
-          cacheResult.controls,
-          engine.extensionChain?.rows,
-          engine.extensionChain?.order
-        );
-        if (key === undefined) return execute();
-        return runtime.executeCachedResultOperation(
-          cacheRead.capability.driver,
-          modelName,
-          operation,
-          key,
-          () => execute(),
-          {
-            ...cacheRead.options,
-            executionContext: cacheResult.executionContext,
-          },
-          cacheResult.codec,
-          cacheRead.capability.scope
-        );
-      }
-    );
   }
 
   /**
@@ -1088,7 +961,11 @@ export class VibORM<C extends VibORMConfig> {
                           )
                         )
                       )
-                  : undefined
+                  : // What the words on a method's scope read of its view
+                    // (`database`, `settled`).
+                    prop === SCOPE
+                    ? { engine, extension }
+                    : undefined
             )
           );
     if (eager) methods?.force();
@@ -1201,13 +1078,6 @@ export class VibORM<C extends VibORMConfig> {
               this.#schema,
               this.#registry
             );
-            // The one point that holds both the resolved chain and the concrete
-            // driver, so the one point that can partition the official cache by
-            // this client's dialect and SQL namespace. A chain without the
-            // official cache makes no call at all.
-            if (extensionChain.hasCache) {
-              bindOfficialCacheChain(extensionChain, engine.driver);
-            }
             return this.#createRootView(
               engine.bind(engine.driver, extensionChain)
             );
@@ -1222,22 +1092,9 @@ export class VibORM<C extends VibORMConfig> {
         // `await using client = createClient({ ... })`. On an engine without the
         // protocol `ASYNC_DISPOSE` is undefined, which no property key equals, so
         // the property is absent — what missing disposal support looks like.
-        if (prop === "$disconnect" || prop === ASYNC_DISPOSE) return disconnect;
-        if (prop !== "$withCache" && prop !== "$invalidate") return undefined;
-        const officialCache = getOfficialCacheChainCapability(chain);
-        if (officialCache === undefined) return undefined;
-        if (prop === "$withCache") {
-          return (cacheConfig?: WithCacheOptions) =>
-            this.#withCache(engine, officialCache, clientOmit, cacheConfig);
-        }
-        return async (...keys: string[]) => {
-          await officialCacheRuntime().invalidateManualCache(
-            officialCache.driver,
-            keys,
-            createOperationExecutionContext("$cache", "$invalidate", chain),
-            officialCache.scope
-          );
-        };
+        return prop === "$disconnect" || prop === ASYNC_DISPOSE
+          ? disconnect
+          : undefined;
       }
     );
     return view;

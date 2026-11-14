@@ -1151,7 +1151,7 @@ describe("native array query execution", () => {
     expect(timeline).toEqual(["provider", "post-work", "outcome"]);
   });
 
-  test("attempts every cache invalidation before listeners and keeps a commit failure primary", async () => {
+  test("attempts every settled function, member by member in each call's chain order, and keeps a commit failure primary", async () => {
     const timeline: string[] = [];
     let invalidation = 0;
     const cache = new ArrayInvalidationCache(() => {
@@ -1198,10 +1198,12 @@ describe("native array query execution", () => {
     expect(primaryOf(failure)).toMatchObject({
       meta: expect.objectContaining({ commitCertainty: "committed" }),
     });
+    // Each call's `settled` functions run in chain order, all of them; the
+    // cache is applied first, so it invalidates before each call's listener.
     expect(timeline).toEqual([
       "cache:1",
-      "cache:2",
       "listener:deleteMany",
+      "cache:2",
       "listener:updateMany",
     ]);
   });

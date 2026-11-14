@@ -1518,7 +1518,7 @@ describe("controls: the cache key", () => {
     expect(declared.keys[1]).not.toBe(plain.keys[0]);
   });
 
-  test("a read holding a value of an uncacheable control is refused before any statement, whether the cache would serve it or a statement transform bypasses it; one without it is served", async () => {
+  test("a read holding a value of a volatile argument runs uncached, whether the cache would serve it or a statement transform bypasses it; one without it is served", async () => {
     const recorder = new KeyRecordingCache();
     const statements: string[] = [];
     const judged = extension(
@@ -1544,28 +1544,22 @@ describe("controls: the cache key", () => {
     const read = { caller: "a", select: { id: true } } as const;
     for (const db of [metered, cached]) {
       statements.length = 0;
-      const refused = await db
-        .$withCache()
-        .post.findMany(read)
-        .then(
-          () => undefined,
-          (error: unknown) => error
-        );
-      expect(refused).toBeInstanceOf(ValidationError);
-      expect((refused as Error).message).toContain(
-        'Control "caller" is not cacheable'
-      );
-      expect(statements).toEqual([]);
+      for (let round = 0; round < 2; round += 1)
+        await expect(db.$withCache().post.findMany(read)).resolves.toEqual([
+          { id: "p1" },
+        ]);
+      // Never served: each read sent its statement.
+      if (db === metered) expect(statements).toHaveLength(2);
     }
+    // Never stored.
     expect(recorder.keys).toEqual([]);
-    await expect(metered.post.findMany(read)).resolves.toEqual([{ id: "p1" }]);
     await expect(
       cached.$withCache().post.findMany({ select: { id: true } })
     ).resolves.toEqual([{ id: "p1" }]);
     expect(recorder.keys).toHaveLength(1);
   });
 
-  test("a control value that is not plain data bypasses the cache", async () => {
+  test("a control value no rule reads leaves the key as it is, whatever the value", async () => {
     const recorder = new KeyRecordingCache();
     const db = (await seededBase())
       .$extends(cache({ driver: recorder, version: "v" }))
@@ -1584,10 +1578,14 @@ describe("controls: the cache key", () => {
     await expect(
       db.$withCache().post.findMany({ scope: "x", select: { id: true } })
     ).resolves.toEqual([{ id: "p1" }]);
-    expect(recorder.keys).toEqual([]);
+    await expect(
+      db.$withCache().post.findMany({ scope: "y", select: { id: true } })
+    ).resolves.toEqual([{ id: "p1" }]);
+    // The key is the statement: a value it does not bind keys nothing.
+    expect(recorder.keys).toHaveLength(1);
   });
 
-  test("a rows value that is not plain data bypasses the cache, and each call reads its own value", async () => {
+  test("a rows value that is not plain data keys a read by the statement it binds, and each call reads its own value", async () => {
     const price = s.model({
       id: s.int().id(),
       amount: s.decimal({ precision: 10, scale: 2 }),
@@ -1633,7 +1631,8 @@ describe("controls: the cache key", () => {
     expect(await above("2")).toEqual([2]);
     expect(await above("1")).toEqual([1, 2]);
     expect(await above("2")).toEqual([2]);
-    expect(recorder.keys).toEqual([]);
+    // Two floors, two statements, two entries; the third read is served.
+    expect(recorder.keys).toHaveLength(2);
   });
 });
 

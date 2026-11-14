@@ -1,11 +1,8 @@
-import { createOfficialCacheScope } from "@cache/driver";
-import { MemoryCache } from "@cache/drivers/memory";
-import { createOfficialCacheNamespace } from "@cache/key";
 import { PendingOperation as ClientPendingOperation } from "@client/exports";
 import {
-  CacheConfigurationError,
   InvalidTransactionInputError,
   PendingOperationError,
+  QueryError,
   ValidationError,
 } from "@errors";
 import { ARRAYS } from "@extensions/coordination";
@@ -15,10 +12,8 @@ import {
   type WriteOutcomeNotifications,
   type WriteOutcomeRegistration,
 } from "@extensions/query";
-import { prepareMutationCacheWriteOutcome } from "@query-engine/cache-flow";
 import { PendingExecution } from "@query-engine/pending-execution";
 import {
-  attachPendingCacheExecution,
   PendingOperation,
   type PrepareWriteOutcomeRegistration,
 } from "@query-engine/pending-operation";
@@ -52,42 +47,36 @@ const VALID_UPDATE_ARGS = {
   data: { name: "Updated" },
 };
 
-const OFFICIAL_CACHE_NAMESPACE = createOfficialCacheNamespace({
-  version: "pending-operation-contract",
-  dialect: "postgresql",
-  namespace: "public",
-});
-const OFFICIAL_CACHE_SCOPE = createOfficialCacheScope(OFFICIAL_CACHE_NAMESPACE);
-const CACHE_SCOPE_PREFIX = `${OFFICIAL_CACHE_NAMESPACE}:`;
-const NO_VALIDATED_PAYLOAD_PATTERN = /exposes no validated payload/;
 const UNKNOWN_OPERATION_PATTERN = /Unknown operation 'missing'/;
 
-class RecordingMemoryCache extends MemoryCache {
-  readonly clearedPrefixes: string[] = [];
-  private readonly clearFailure: Error | undefined;
+/** A planning driver that answers every statement with no row, and counts them. */
+class CountingDriver extends PlanningDriver {
+  readonly executed = vi.fn();
 
-  constructor(clearFailure?: Error) {
-    super();
-    this.clearFailure = clearFailure;
+  constructor() {
+    super("postgresql");
   }
 
-  protected override async clear(prefix: string): Promise<void> {
-    this.clearedPrefixes.push(prefix);
-    if (this.clearFailure) throw this.clearFailure;
-    return super.clear(prefix);
+  protected override async execute<T>(): Promise<{
+    rows: T[];
+    rowCount: number;
+  }> {
+    this.executed();
+    return { rows: [], rowCount: 0 };
   }
 }
 
 function createOperation<T>(
   operation: "findMany" | "update" = "findMany",
   args: Record<string, unknown> = {},
-  prepareWriteOutcome?: PrepareWriteOutcomeRegistration
+  prepareWriteOutcome?: PrepareWriteOutcomeRegistration,
+  driver: PlanningDriver = new PlanningDriver("postgresql")
 ): PendingOperation<T> {
   const user = s.model({ id: s.string().id(), name: s.string() });
   const schema = { user };
   hydrateSchemaNames(schema);
   const root = new TestQueryEngine(
-    new PlanningDriver("postgresql"),
+    driver,
     createModelRegistry(schema, createSchemaRegistry(schema))
   );
   // A write outcome is registered only on a chain whose parts coordinate
@@ -106,22 +95,17 @@ function createOperation<T>(
   );
 }
 
-function createControlledOperation<T>(
-  value: T,
-  operation: "findMany" | "update" = "findMany",
-  prepareWriteOutcome?: PrepareWriteOutcomeRegistration
-): { operation: PendingOperation<T>; execute: ReturnType<typeof vi.fn> } {
-  const execute = vi.fn(() => Promise.resolve(value));
+/** A read whose execution counts the statements its driver sends. */
+function createControlledOperation(): {
+  operation: PendingOperation<unknown>;
+  execute: ReturnType<typeof vi.fn>;
+  driver: CountingDriver;
+} {
+  const driver = new CountingDriver();
   return {
-    operation: attachPendingCacheExecution(
-      createOperation<T>(
-        operation,
-        operation === "update" ? VALID_UPDATE_ARGS : {},
-        prepareWriteOutcome
-      ),
-      () => execute()
-    ),
-    execute,
+    operation: createOperation("findMany", {}, undefined, driver),
+    execute: driver.executed,
+    driver,
   };
 }
 
@@ -247,7 +231,7 @@ describe("PendingOperation frozen public contract", () => {
   });
 
   it("memoizes one execution across then, catch, finally, and execute", async () => {
-    const { operation, execute } = createControlledOperation(42);
+    const { operation, execute } = createControlledOperation();
     const finalized = vi.fn();
 
     await expect(
@@ -257,34 +241,36 @@ describe("PendingOperation frozen public contract", () => {
         operation.finally(finalized),
         Promise.resolve(operation),
       ])
-    ).resolves.toEqual([42, 42, 42, 42]);
+    ).resolves.toEqual([[], [], [], []]);
 
     expect(execute).toHaveBeenCalledTimes(1);
     expect(finalized).toHaveBeenCalledTimes(1);
   });
 
   it("memoizes executeWith for the same driver", async () => {
-    const driver = new PlanningDriver("postgresql");
-    const { operation, execute } = createControlledOperation(42);
+    const { operation, execute, driver } = createControlledOperation();
 
     const first = capability(operation).executeWith(driver);
     const second = capability(operation).executeWith(driver);
 
     expect(second).toBe(first);
-    await expect(first).resolves.toBe(42);
+    await expect(first).resolves.toEqual([]);
     expect(execute).toHaveBeenCalledOnce();
   });
 
   it("rejects default execution after driver-bound execution", () => {
-    const { operation } = createControlledOperation(42);
-    capability(operation).executeWith(new PlanningDriver("postgresql"));
+    const { operation } = createControlledOperation();
+    // The planning driver refuses the statement: only the claim is tested.
+    capability(operation)
+      .executeWith(new PlanningDriver("postgresql"))
+      .catch(() => undefined);
     expect(() => operation.then((value) => value)).toThrow(
       PendingOperationError
     );
   });
 
   it("rejects driver-bound execution after default execution", () => {
-    const { operation } = createControlledOperation(42);
+    const { operation } = createControlledOperation();
     operation.then((value) => value);
     expect(() =>
       capability(operation).executeWith(new PlanningDriver("postgresql"))
@@ -292,8 +278,11 @@ describe("PendingOperation frozen public contract", () => {
   });
 
   it("rejects a second, different driver", () => {
-    const { operation } = createControlledOperation(42);
-    capability(operation).executeWith(new PlanningDriver("postgresql"));
+    const { operation } = createControlledOperation();
+    // The planning driver refuses the statement: only the claim is tested.
+    capability(operation)
+      .executeWith(new PlanningDriver("postgresql"))
+      .catch(() => undefined);
     expect(() =>
       capability(operation).executeWith(new PlanningDriver("postgresql"))
     ).toThrow(PendingOperationError);
@@ -347,95 +336,14 @@ describe("PendingOperation frozen public contract", () => {
     expect(operationCapability.parseResult(raw)).toEqual(raw.rows);
   });
 
-  it("the internal cache execution attachment is immutable and composes", async () => {
-    const source = vi.fn(() => Promise.resolve(42));
-    const original = attachPendingCacheExecution(
-      createOperation<number>(),
-      () => source()
-    );
-    const wrapper = vi.fn(async (execute: () => Promise<number>) => {
-      const value = await execute();
-      return value + 1;
-    });
-    const wrapped = attachPendingCacheExecution(original, wrapper);
-
-    expect(wrapped).not.toBe(original);
-    await expect(
-      capability(wrapped).executeWith(new PlanningDriver("postgresql"))
-    ).resolves.toBe(43);
-    expect(wrapper).toHaveBeenCalledOnce();
-    expect(source).toHaveBeenCalledOnce();
-    expect(original.getArgs()).toBe(wrapped.getArgs());
-    expect(capability(original).context).toBe(capability(wrapped).context);
-    expect(capability(original).clientId).toBe(capability(wrapped).clientId);
-    expect(capability(original).scopeId).toBe(capability(wrapped).scopeId);
-  });
-
-  it("publishes mutation cache invalidation after successful execution", async () => {
-    const cache = new RecordingMemoryCache();
-    const prepareWriteOutcome: PrepareWriteOutcomeRegistration = (context) =>
-      prepareMutationCacheWriteOutcome(
-        cache,
-        "user",
-        "update",
-        { autoInvalidate: true },
-        context,
-        OFFICIAL_CACHE_SCOPE
-      );
-    const mutation = createControlledOperation(
-      42,
-      "update",
-      prepareWriteOutcome
-    ).operation;
-
-    await expect(mutation).resolves.toBe(42);
-    expect(cache.clearedPrefixes).toEqual([CACHE_SCOPE_PREFIX]);
-
-    expect(
-      prepareMutationCacheWriteOutcome(
-        cache,
-        "user",
-        "findMany",
-        { autoInvalidate: true },
-        capability(mutation).context,
-        OFFICIAL_CACHE_SCOPE
-      )
-    ).toBeUndefined();
-  });
-
-  it("preserves mutation failures without invalidating cache", async () => {
-    const failure = new Error("mutation failed");
-    const cache = new RecordingMemoryCache();
-    const mutation = attachPendingCacheExecution(
-      createOperation<number>("update", VALID_UPDATE_ARGS, (context) =>
-        prepareMutationCacheWriteOutcome(
-          cache,
-          "user",
-          "update",
-          { autoInvalidate: true },
-          context,
-          OFFICIAL_CACHE_SCOPE
-        )
-      ),
-      () => Promise.reject(failure)
-    );
-
-    const caught = await mutation.catch((error) => error);
-    expect(caught).toBe(failure);
-    expect(cache.clearedPrefixes).toEqual([]);
-  });
-
   it("publishes package registrations for every direct committed segment", async () => {
-    const cache = new RecordingMemoryCache();
-    const context = capability(createOperation("update")).context;
-    const registration = prepareMutationCacheWriteOutcome(
-      cache,
-      "user",
-      "update",
-      { autoInvalidate: true },
-      context,
-      OFFICIAL_CACHE_SCOPE
-    );
+    const published: string[] = [];
+    const registration = {
+      extension: "package",
+      listener: ({ certainty }: { certainty: string }) => {
+        published.push(certainty);
+      },
+    };
 
     await expect(
       executePreparedQuery(
@@ -452,39 +360,7 @@ describe("PendingOperation frozen public contract", () => {
         registration
       )
     ).resolves.toBe(42);
-    expect(cache.clearedPrefixes).toEqual([
-      CACHE_SCOPE_PREFIX,
-      CACHE_SCOPE_PREFIX,
-    ]);
-  });
-
-  it("owns cache invalidation failures instead of leaking a raw error", async () => {
-    const failure = new Error("cache transport failed");
-    const cache = new RecordingMemoryCache(failure);
-    const mutation = createControlledOperation(42, "update", (context) =>
-      prepareMutationCacheWriteOutcome(
-        cache,
-        "user",
-        "update",
-        { autoInvalidate: true },
-        context,
-        OFFICIAL_CACHE_SCOPE
-      )
-    ).operation;
-
-    const caught = await mutation.catch((error) => error);
-    expect(caught).toBeInstanceOf(CacheConfigurationError);
-    if (!(caught instanceof CacheConfigurationError)) throw caught;
-    expect(caught).toMatchObject({
-      meta: {
-        method: "invalidate",
-        model: "user",
-        operation: "update",
-        commitCertainty: "committed",
-      },
-    });
-    expect(caught.originalCause).toBeInstanceOf(Error);
-    expect(cache.clearedPrefixes).toEqual([CACHE_SCOPE_PREFIX]);
+    expect(published).toEqual(["committed", "committed"]);
   });
 
   it("keeps PendingOperation as the root and client runtime export", () => {
@@ -674,9 +550,7 @@ describe("pending operation transaction coordination", () => {
       chain
     );
     const source = engine.prepare<unknown>(user, "findMany", {});
-    const operation = attachPendingCacheExecution(source, () =>
-      Promise.resolve("executed")
-    );
+    const operation = source;
     const owner = ownerOf(operation);
 
     expect(owner.requiresInterception(operation)).toBe(true);
@@ -693,10 +567,14 @@ describe("pending operation transaction coordination", () => {
     await expect(
       owner.observe(operation, () => Promise.resolve("observed"))
     ).resolves.toBe("observed");
+    // Run on the driver handed over, through the observation: the planning
+    // driver refuses the statement it is sent, inside its operation unit.
     await expect(
       owner.executeWith(operation, new PlanningDriver("postgresql"))
-    ).resolves.toBe("executed");
-    expect(observer).toHaveBeenCalledTimes(2);
+    ).rejects.toThrow(QueryError);
+    expect(
+      observer.mock.calls.map(([unit]) => (unit as { kind: string }).kind)
+    ).toEqual(["operation", "operation", "statement"]);
   });
 
   it("requires observed coordination for request-only array transforms", () => {
@@ -728,18 +606,6 @@ describe("pending operation transaction coordination", () => {
     const operation = engine.prepare(user, "findMany", {});
 
     expect(ownerOf(operation).requiresInterception(operation)).toBe(true);
-  });
-
-  it("exposes canonical cache input only for read operations", () => {
-    const read = createOperation<unknown>("findMany", {
-      where: { name: { equals: "Arnaud" } },
-    });
-    const write = createOperation<unknown>("update", VALID_UPDATE_ARGS);
-
-    expect(read.cacheKeyArgs()).toEqual({
-      where: { name: { equals: "Arnaud" } },
-    });
-    expect(() => write.cacheKeyArgs()).toThrow(NO_VALIDATED_PAYLOAD_PATTERN);
   });
 
   it("normalizes OrThrow operation identity and refuses unknown routed names", () => {

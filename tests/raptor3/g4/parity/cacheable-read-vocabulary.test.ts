@@ -1,3 +1,5 @@
+import type { PreparedOperation } from "@query-engine/raptor3/commands";
+
 /**
  * FC-04 — the route's cached-result vocabulary boundary, executed (closure
  * inventory row J-13).
@@ -26,10 +28,9 @@
  * fails here, not only a read this engine stopped publishing.
  */
 
-// The route's cache codec belongs to the cache runtime `viborm/cache` loads.
-import { routedCodec } from "@cache/result-codec";
-import "@cache/runtime";
 import assert from "node:assert/strict";
+import { cacheCodec } from "@cache/result-codec";
+import { validateCacheableOperation } from "@cache/schema";
 import { createClient } from "@client/client";
 import type { QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
@@ -37,13 +38,17 @@ import {
   CacheOperationNotCacheableError,
   UnsupportedOperationError,
 } from "@errors";
-import { validateCacheableOperation } from "@query-engine/cache-flow";
+import { codecOf } from "@extensions/codec";
 import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { hydrateSchemaNames, s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import type Database from "better-sqlite3";
 import DatabaseConstructor from "better-sqlite3";
 import { afterEach, describe, it } from "vitest";
+
+/** The cache's codec of one prepared operation: the codec word, its failures the cache's. */
+const routedCodec = (operation: PreparedOperation) =>
+  cacheCodec(codecOf(operation), operation.requested.operation);
 
 const author = s
   .model({
@@ -237,7 +242,7 @@ describe("FC-04 — the route's cached-result vocabulary boundary", () => {
       (error: unknown) =>
         error instanceof UnsupportedOperationError &&
         error.message ===
-          "Cannot cache 'create' on model 'author': the operation has no readable result."
+          "Cannot detach 'create' on model 'author': the operation has no readable result."
     );
     // The boundary is reached at publication, not after a write: no statement
     // was submitted and no row was created.
