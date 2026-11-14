@@ -15,7 +15,7 @@ import {
 } from "./definition";
 import { withHost } from "./host";
 import type { EmptyClientExtensionState } from "./methods";
-import { withRows } from "./rows-runtime";
+import { withRows, withVerbs } from "./rows-runtime";
 
 /**
  * Build an extension definition: it is checked, and what admits and runs
@@ -39,12 +39,16 @@ export function defineExtension(
   withHost();
   // What a definition declares of rows is read by what this brings.
   withRows();
-  if (definitions.length === 0) {
-    return (schemaDefinition: ExtensionDefinitionInput) =>
-      normalizeExtensionDefinition(schemaDefinition);
-  }
-  return normalizeExtensionDefinition(definitions[0]);
+  withVerbs();
+  return checked(definitions);
 }
+
+/** The definition checked, or, given none, what checks one bound to a schema. */
+const checked = (definitions: [] | [definition: ClientExtension]): unknown =>
+  definitions.length === 0
+    ? (schemaDefinition: ExtensionDefinitionInput) =>
+        normalizeExtensionDefinition(schemaDefinition)
+    : normalizeExtensionDefinition(definitions[0]);
 
 /**
  * `defineExtension()` for a definition made of handlers and methods only: it
@@ -65,4 +69,30 @@ export function defineHooks<
 export function defineHooks(definition: ClientExtension): unknown {
   withHost();
   return normalizeExtensionDefinition(definition);
+}
+
+/**
+ * `defineExtension()` for a definition whose `rows` only filter: it does not
+ * bring what reads `verbs` and `confine` (what judges the rows a write
+ * produces, and what a read carries beside them or hides), so an extension
+ * that declares neither weighs less. A definition that does declare one is
+ * refused when it is applied.
+ */
+export function defineFilters<
+  const Definition extends SchemaGenericExtensionDefinition,
+>(
+  definition: Definition &
+    ExactExtensionDefinition<
+      Definition,
+      ExtensionConfig<Schema>,
+      EmptyClientExtensionState
+    >
+): NoInfer<Definition>;
+export function defineFilters<S extends Schema>(): DefineExtensionBinder<S>;
+export function defineFilters(
+  ...definitions: [] | [definition: ClientExtension]
+): unknown {
+  withHost();
+  withRows();
+  return checked(definitions);
 }

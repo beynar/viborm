@@ -217,12 +217,18 @@ class PreparedCommand implements PreparedOperation {
     if (this.#admitted) return this.#admitted;
     const { schema } = this.#queries;
     const stamps = this.#scope?.rows.stamps;
-    const domain = this.#scope?.domain;
+    const project = this.#scope?.domain.project;
     const own = (raw: unknown) =>
       schema.admit(this.#model, this.#operation, raw);
-    const admit = domain?.projects
+    const admit = project
       ? () =>
-          domain.admit(schema, this.#model, this.#operation, this.#rawArgs, own)
+          project.admit(
+            schema,
+            this.#model,
+            this.#operation,
+            this.#rawArgs,
+            own
+          )
       : () => own(this.#rawArgs);
     return (this.#admitted =
       stamps === undefined ? admit() : parseStamped(stamps, admit));
@@ -451,7 +457,7 @@ export function createCommandEngine(config: EngineConfig) {
         "$rows() needs a driver bound to its database (a MySQL namespace): a caller's CTE could otherwise stand for a table its rows read"
       );
     const scope = rows?.prepare(queries, instant);
-    scope?.domain.refuseGatedRows(model);
+    scope?.domain.project?.refuseGatedRows(model);
     const view = (scope ? scope.domain.reads(scope) : queries) as SqlQueries;
     return view.rowsOf(model, alias);
   };

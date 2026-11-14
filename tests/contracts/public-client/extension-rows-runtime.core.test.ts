@@ -1,5 +1,5 @@
 import { ClientInitializationError } from "@errors";
-import { defineExtension } from "@extensions/define";
+import { defineExtension, defineFilters } from "@extensions/define";
 import { normalizeExtensionDefinition } from "@extensions/definition";
 import { s } from "@schema";
 import { createSchemaRegistry } from "@validation/builder";
@@ -12,8 +12,8 @@ const rows = {
   models: { post: { visible: { root: { id: "one" } } } },
 };
 
-// The order of these two tests is the contract: nothing has brought what reads
-// `rows` when the first one runs.
+// The order of these tests is the contract: nothing has brought what reads
+// `rows` when the first one runs, nor what reads `verbs` when the second does.
 test("a plain object that declares rows is refused until something brings what reads them", () => {
   const registry = createSchemaRegistry(schema);
   expect(() =>
@@ -26,6 +26,30 @@ test("a plain object that declares rows is refused until something brings what r
   expect(
     normalizeExtensionDefinition({ name: "plain" }, schema, registry).name
   ).toBe("plain");
+});
+
+test("defineFilters() brings what reads rows but not what reads verbs and confinements, which defineExtension() brings", () => {
+  const registry = createSchemaRegistry(schema);
+  const filtered = defineFilters({ name: "filter", rows });
+  expect(
+    normalizeExtensionDefinition(filtered, schema, registry).rows?.models.post
+      ?.visible?.root
+  ).toEqual({ id: { equals: "one" } });
+  const bound = defineFilters<typeof schema>();
+  expect(bound({ name: "bound", rows }).name).toBe("bound");
+  const judged = [
+    { verbs: { post: { predicates: {} } } },
+    { confine: { post: { id: "one" } } },
+  ].map((member) => ({ name: "judged", rows: { ...rows, ...member } }));
+  for (const definition of judged)
+    expect(() =>
+      normalizeExtensionDefinition(definition, schema, registry)
+    ).toThrow("must be built with defineExtension()");
+  defineExtension();
+  for (const definition of judged)
+    expect(
+      normalizeExtensionDefinition(definition, schema, registry).rows
+    ).toBeDefined();
 });
 
 test("defineExtension() brings what reads rows, for every later definition", () => {

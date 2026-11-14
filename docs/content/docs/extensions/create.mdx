@@ -48,6 +48,7 @@ extensions is not part of the client. Building a definition brings it:
 | You call | It brings |
 |---|---|
 | `defineExtension(definition)` | The code that runs extensions, and the code that reads `rows`, `data`, `deletion` and `order` |
+| `defineFilters(definition)` | The same, without what reads `rows.verbs` and `rows.confine`: for a definition whose rows only filter |
 | `defineHooks(definition)` | The code that runs extensions only: for a definition that declares none of those four |
 | An official extension (`on()`, `softDelete()`, `cache()`, ...) | What that extension needs |
 | `enableExtensions()` | The code that runs extensions, for a program that passes object literals to `$extends` and builds no definition |
@@ -78,6 +79,13 @@ client.$extends(defineHooks({ name: "archiving", rows: { /* ... */ } }));
 // Accepted.
 client.$extends(defineExtension({ name: "archiving", rows: { /* ... */ } }));
 ```
+
+`defineFilters()` brings what reads `rows`, `data`, `deletion` and `order`
+but not what reads `rows.verbs` and `rows.confine` (what judges the rows a
+write produces, and what a read carries beside them or hides), so an
+extension whose rows only filter weighs less. A definition that declares
+`verbs` or `confine` in a program where only `defineFilters()` was called is
+refused when it is applied.
 
 A factory that builds its definition from the client it receives returns the
 result of `defineExtension()` as well:
@@ -806,9 +814,10 @@ await db.document.delete({ user: "ada", where: { id }, as: "mine" }); // a mode 
   function is called the first time a call needs that model, which includes
   every model the call's predicates read through a relation, and its entry is
   admitted then: a refusal fails that call, and every later call on the
-  model, instead of `$extends`. An entry of deeply frozen plain data is
-  admitted once per schema; any other entry once per application. A cache key
-  over the extension's rows resolves every entry.
+  model, instead of `$extends`. The function is called once for the
+  declaration it belongs to, which is admitted once per schema: a client
+  created per request that applies the same declaration object calls it
+  once. A cache key over the extension's rows resolves every entry.
 
   ```ts
   verbs: { document: () => compileDocumentVerbs() },

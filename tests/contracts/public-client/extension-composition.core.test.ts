@@ -25,7 +25,7 @@ import {
   NotFoundError,
   ValidationError,
 } from "@errors";
-import { withRows } from "@extensions/rows-runtime";
+import { withRows, withVerbs } from "@extensions/rows-runtime";
 import {
   createClient,
   defineExtension,
@@ -43,6 +43,7 @@ import { afterEach, describe, expect, expectTypeOf, test } from "vitest";
 
 // These definitions are stated as plain objects: what reads their rows is brought here.
 withRows();
+withVerbs();
 
 const user = s.model({
   id: s.string().id(),

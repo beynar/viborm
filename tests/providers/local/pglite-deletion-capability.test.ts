@@ -4,12 +4,13 @@
  * the referential requirement, one instant per call, and `mode: "hard"`.
  */
 
-import { withRows } from "@extensions/rows-runtime";
+import { withRows, withVerbs } from "@extensions/rows-runtime";
 import { runDeletionCapabilityBehavior } from "@tests/contracts/engine/write/deletion-capability-behavior";
 import { createInMemoryPGliteDriver } from "@tests/fixtures/drivers/pglite";
 
 // These definitions are stated as plain objects: what reads their rows is brought here.
 withRows();
+withVerbs();
 
 describe("PGlite Driver", () => {
   runDeletionCapabilityBehavior({

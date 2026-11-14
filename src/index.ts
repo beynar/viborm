@@ -48,6 +48,7 @@ export type { NoControls, PlacedControl } from "./extensions/controls.js";
 export {
   type ClientExtension,
   defineExtension,
+  defineFilters,
   defineHooks,
   enableExtensions,
   type ObservationCompletion,

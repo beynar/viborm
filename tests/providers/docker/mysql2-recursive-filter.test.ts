@@ -6,7 +6,7 @@
  * NOTE: These tests require a running MySQL database.
  */
 
-import { withRows } from "@extensions/rows-runtime";
+import { withRows, withVerbs } from "@extensions/rows-runtime";
 import { runRecursiveRelationFilterBehavior } from "@tests/contracts/engine/query/recursive-relation-filter-behavior";
 import {
   createMySQL2Driver,
@@ -16,6 +16,7 @@ import {
 
 // These definitions are stated as plain objects: what reads their rows is brought here.
 withRows();
+withVerbs();
 
 const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
 

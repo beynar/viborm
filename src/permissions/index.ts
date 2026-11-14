@@ -33,6 +33,7 @@ import {
   policyCompiler,
   verbsOf,
 } from "./compile";
+import { plainFreezer } from "./reuse";
 import { FALSE, type PolicyModel, type Where } from "./rules";
 
 export type { ActorFacts, ActorPaths } from "./actor";
@@ -806,7 +807,10 @@ export function permissions<const Config extends PermissionsConfig>(
   // Public compile() remains an independent inspection result. An application
   // is kept per schema, never a client, actor or driver: every client of a
   // schema shares one definition, so the host admits its predicates once.
-  const prepared = new WeakMap<Schema, object>();
+  const prepared = new WeakMap<
+    Schema,
+    { readonly models: Schema; readonly definition: object }
+  >();
   /** The `rows` definition over one compiled policy: everything but its verbs. */
   const definitionOf = (
     scopes: CompiledPolicy["scopes"],
@@ -851,10 +855,23 @@ export function permissions<const Config extends PermissionsConfig>(
    * call needs it, into one state every client of the schema shares. A
    * rule's own refusal comes at its model's first call.
    */
-  const preparedFor = (schema: Schema): object => {
-    const known = prepared.get(schema);
-    if (known !== undefined) return known;
+  const preparedFor = (base: Schema): object => {
+    const known = prepared.get(base);
+    // A schema object that gained or swapped a model is prepared again by
+    // the client, so the policy is applied again: a model it lacks would be
+    // left open (R9), and a later compile must read the models applied.
+    const keys = Object.keys(base);
+    if (
+      known !== undefined &&
+      keys.length === Object.keys(known.models).length &&
+      keys.every((name) => known.models[name] === base[name])
+    )
+      return known.definition;
+    const schema = { ...base };
     const compiler = policyCompiler(config, schema, actor);
+    // Frozen copies, never the declaration's own values: the host reuses the
+    // admission and the cache identity of deeply frozen rows only.
+    const freeze = plainFreezer();
     const verbs = Object.fromEntries(
       Object.keys(schema).map((name) => {
         if (!Object.hasOwn(config.models, name))
@@ -873,14 +890,16 @@ export function permissions<const Config extends PermissionsConfig>(
           const own = verbsOf({ models: { [name]: compiler.model(name) } })[
             name
           ]!;
-          entry = acyclic ? { ...own, acyclic } : own;
+          const data = freeze(own) ?? own;
+          entry = Object.freeze(acyclic ? { ...data, acyclic } : { ...data });
           return entry;
         };
         return [name, resolve];
       })
     );
     const definition = definitionOf(compiler.scopes, compiler.declared, verbs);
-    prepared.set(schema, definition);
+    deepFreeze(definition.rows);
+    prepared.set(base, { models: schema, definition });
     return definition;
   };
   const rows = (base: VibORMClient<VibORMConfig, ExtensionState>) =>
@@ -899,4 +918,12 @@ function extend(
   definition: object
 ): VibORMClient<VibORMConfig, ExtensionState> {
   return Reflect.apply(client.$extends, client, [definition]);
+}
+
+/** Freeze `value` and everything it holds; functions stay as they are. */
+function deepFreeze(value: unknown): void {
+  if (value === null || typeof value !== "object" || Object.isFrozen(value))
+    return;
+  for (const member of Object.values(value)) deepFreeze(member);
+  Object.freeze(value);
 }

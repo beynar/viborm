@@ -1422,11 +1422,10 @@ callbacks nested inside `AND`, `OR` or relation predicates.
 
 Functions build predicates when their model is first compiled; they do not
 receive the request actor or run queries. Reapplying the same policy to the
-same unchanged schema reuses its compiled predicates when the declaration
-contains ordinary data. Changes to the declaration or schema invalidate that
-reuse. Opaque values (a `Date` constant) and accessors use the uncached path,
-which compiles every model when the policy is applied. Keep rule functions
-pure: do not depend on changing closure state. Actor references remain values
+same schema reuses its compiled predicates; a schema object that gained or
+swapped a model is applied again. The declaration is read as data nobody
+changes: do not edit it, or a value it holds, once the policy is applied.
+Keep rule functions pure: do not depend on changing closure state. Actor references remain values
 supplied at call time. A grouped declaration such as
 `"read, update": shared` builds `shared("read", model)` and
 `shared("update", model)` separately. Inheritance then reuses those predicates.
@@ -1447,8 +1446,7 @@ read through a relation; the compiled model is then shared by every client of
 the schema. A mistake inside a rule (a field, an actor path, a relation's
 action, a rule that reads itself) therefore fails the first call that needs its
 model, with the same `ClientInitializationError` every time, while other models
-keep working. The rules are compiled from the declaration as it was applied:
-editing it afterwards affects only a later `$extends`.
+keep working.
 
 `policy.compile(schema)` compiles every model and throws the compiler's first
 refusal (an actor path, a relation's action, a rule that reads itself). What

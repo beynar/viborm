@@ -28,6 +28,11 @@ it fits one batch.
 - **`getRowKey(model)`.** A model's primary key fields in constraint order,
   and the compound key's name. `viborm/client` also exports the type
   `NoExtraOperationKeys`.
+- **`defineFilters()`.** `defineExtension()` without what reads
+  `rows.verbs` and `rows.confine`: an extension whose rows only filter, like
+  `viborm/soft-delete` and `viborm/ordering`, no longer carries what judges
+  the rows a write produces and what projects evidence and gated fields
+  (about 20 kB minified less in a PostgreSQL application using soft delete).
 - **`observes`, beside `observe`.** One extension per client declares the facts
   its observer needs (statement text, parameters, driver identity, cache
   outcomes) and receives them as a third argument. `viborm/instrumentation` is
@@ -42,6 +47,11 @@ it fits one batch.
 
 ### Changed
 
+- **A `rows` declaration is admitted once per schema and declaration object.**
+  A client created per request that applies the same declaration object does
+  not read its predicates again, whether or not they are frozen; a
+  declaration changed after it was applied is not read again. A `verbs` entry
+  given as a function is called once per declaration.
 - **An application that applies no extension no longer carries the code that
   runs extensions**: about 12 kB gzip less in a PostgreSQL application.
   `defineExtension()`, the new `defineHooks()` (the same without the code that

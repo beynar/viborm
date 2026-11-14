@@ -12,8 +12,8 @@ import { MemoryCache } from "@cache/drivers/memory";
 import { cache } from "@cache/extension";
 import { createClient } from "@drivers/sqlite3";
 import { ClientInitializationError } from "@errors";
-import { bindRows } from "@extensions/rows";
-import { withRows } from "@extensions/rows-runtime";
+import { appendResolvedExtension } from "@extensions/chain";
+import { withRows, withVerbs } from "@extensions/rows-runtime";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { v } from "@validation";
@@ -21,6 +21,7 @@ import { afterEach, beforeEach, expect, test } from "vitest";
 
 // These definitions are stated as plain objects: what reads their rows is brought here.
 withRows();
+withVerbs();
 
 const node = s.model({
   id: s.string().id(),
@@ -127,28 +128,32 @@ test("an entry is resolved when a call first needs its model, never when the ext
   expect(calls).toEqual(["note"]);
 });
 
-test("an entry returning frozen data is admitted once per schema; another, at each admission", async () => {
-  let frozenCalls = 0;
-  let plainCalls = 0;
-  const once = frozen(own());
+test("an entry is admitted once per schema and declaration; a fresh declaration, at its own admission", async () => {
+  let nodeCalls = 0;
+  let noteCalls = 0;
   const verbs = {
     node: () => {
-      frozenCalls++;
-      return once;
+      nodeCalls++;
+      return own();
     },
     note: () => {
-      plainCalls++;
+      noteCalls++;
       return own();
     },
   };
-  // A fresh (mutable) definition is admitted at every `$extends`.
+  // One declaration, applied three times over one schema: admitted once.
+  const definition = governed(verbs);
   for (let client = 0; client < 3; client++) {
-    const db = base.$extends(governed(verbs));
+    const db = base.$extends(definition);
     await db.node!.findMany({ user: "alice" } as object);
     await db.note!.findMany({ user: "alice" } as object);
   }
-  expect(frozenCalls).toBe(1);
-  expect(plainCalls).toBe(3);
+  expect([nodeCalls, noteCalls]).toEqual([1, 1]);
+  // A fresh declaration is another one, read at its own admission.
+  await base.$extends(governed(verbs)).node!.findMany({
+    user: "alice",
+  } as object);
+  expect([nodeCalls, noteCalls]).toEqual([2, 1]);
 });
 
 test("a refused entry fails every call on its model, and only on its model", async () => {
@@ -305,66 +310,39 @@ test("an entry that resolves to anything but an object is refused on first use",
   );
 });
 
-test("walking a bound domain resolves every lazy entry; reading one resolves only it", () => {
+test("reading a model's verbs resolves its entry alone; a mode naming one of its predicates resolves the entry first", () => {
   const resolved: string[] = [];
-  const entry = (model: string) => () => {
+  const entry = (model: string, predicates: object) => () => {
     resolved.push(model);
-    return { predicates: { all: {} }, read: "all" };
+    return { predicates: { all: {}, ...predicates }, read: "all" };
   };
-  const binding = bindRows(
-    [
-      {
+  const chain = appendResolvedExtension(
+    undefined,
+    {
+      name: "lazy",
+      rows: {
         control: "as",
         default: "all",
-        models: {
-          node: { all: { root: () => ({ id: "a" }) } },
-          note: { all: {} },
+        models: { node: { all: { root: "roots" } }, note: { all: {} } },
+        verbs: {
+          node: entry("node", { roots: { parentId: null } }),
+          note: entry("note", {}),
         },
-        verbs: { node: entry("node"), note: entry("note") },
-      } as never,
-    ],
-    undefined
+      },
+    },
+    schema
   );
-  const { domain } = binding.physical[0]!;
+  const { domain } = chain.callRows!.physical[0]!;
   const verbs = domain.verbs!;
   expect(verbs.has("node")).toBe(true);
   expect(verbs.has("missing")).toBe(false);
   expect(resolved).toEqual([]);
   expect(verbs.get("note")?.[0]?.read).toEqual({});
   expect(resolved).toEqual(["note"]);
-  expect(domain.projects).toBe(true);
-  // Every way of walking a map settles what is still pending.
-  const walks: ((map: ReadonlyMap<string, unknown>) => unknown)[] = [
-    (map) => map.size,
-    (map) => [...map.keys()],
-    (map) => [...map.values()],
-    (map) => [...map.entries()],
-    (map) => [...map],
-    (map) => {
-      // biome-ignore lint/complexity/noForEach: forEach is one of the walks under test
-      map.forEach(() => {
-        // Visiting is enough.
-      });
-    },
-  ];
-  for (const walk of walks) {
-    const fresh = bindRows(
-      [
-        {
-          control: "as",
-          default: "all",
-          models: { node: { all: { root: () => ({ id: "a" }) } } },
-          verbs: { node: entry("node") },
-        } as never,
-      ],
-      undefined
-    ).physical[0]!.domain;
-    resolved.length = 0;
-    walk(fresh.verbs!);
-    walk(fresh.root);
-    expect(resolved).toEqual(["node"]);
-    expect(fresh.root.get("node")).toEqual([{ id: "a" }]);
-  }
+  // An entry may declare a projection key until it is read.
+  expect(domain.project).toBeDefined();
+  expect(domain.root.get("node")).toHaveLength(1);
+  expect(resolved).toEqual(["note", "node"]);
 });
 
 test("with a custom scalar validator in the schema, a frozen entry is admitted at each application", async () => {
@@ -455,4 +433,25 @@ test("a cached read keys an eager entry's function acyclic, and lazy rows by the
     ).toEqual(["a", "b"]);
   }
   expect(resolved).toBe(1);
+});
+
+test("a mode and a lazy entry that read only the call's instant name no control, and their calls carry their scope", () => {
+  const event = s.model({ id: s.string().id(), at: s.dateTime() });
+  const past = { at: { lte: { now: true } } };
+  const chain = appendResolvedExtension(
+    undefined,
+    {
+      name: "instant",
+      rows: {
+        control: "when",
+        default: "past",
+        models: { event: { past: { root: past } } },
+        verbs: { event: () => ({ predicates: { past }, read: "past" }) },
+      },
+    },
+    { event }
+  );
+  const binding = chain.callRows!;
+  expect(binding.parametric).toEqual([true]);
+  expect(binding.physical[0]!.domain.verbs!.get("event")).toHaveLength(1);
 });

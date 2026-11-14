@@ -1,3 +1,5 @@
+import type { Judge } from "@extensions/judge";
+import type { Projection } from "@extensions/projection";
 import type { AnyModel } from "@schema/model";
 import { parseProviding } from "@validation/primitives/object";
 import type { PreparedGuardFailure } from "../../types";
@@ -7,13 +9,22 @@ import type { EngineSchema, Input } from "./schema";
 import type { Membership } from "./storage";
 
 /**
+ * What each model (by its TS name) holds, asked a model at a time: what
+ * answers may build a model's entry the first time it is asked, so an entry
+ * declared lazily is resolved only for a model a call reaches.
+ */
+export interface ByModel<T> {
+  get(model: string): T | undefined;
+}
+
+/**
  * `where` inputs per model (its TS name), as admission left them: a value the
  * call supplies is a {@link Parameter}, a test of one a {@link Condition}. They
  * AND with each other; a model with none is not narrowed. Each list is
  * indexed by layer, the declaring `rows` member's place in the chain, so a
  * layer stating nothing for the model leaves a hole.
  */
-export type ModelDomain = ReadonlyMap<string, readonly Input[]>;
+export type ModelDomain = ByModel<readonly Input[]>;
 
 /** Relations named on demand, among the ones that could be named. */
 export interface LazyRelations {
@@ -35,13 +46,20 @@ export interface RowDomain {
    * predicates of the model's verbs. A model absent here judges a write by
    * its purpose's predicates alone.
    */
-  readonly verbs?: ReadonlyMap<string, readonly (ModelVerbs | undefined)[]>;
+  readonly verbs?: ByModel<readonly (ModelVerbs | undefined)[]> & {
+    has(model: string): boolean;
+  };
   /**
-   * Whether some model's verbs may declare a projection key or a read-gated
-   * field: when not, no model is asked for them. The maps may be resolved a
-   * model at a time, so they are never walked to find out.
+   * What judges the rows a write produces, made once per prepared domain:
+   * stated where some model's verbs judge them, by what reads the verbs.
    */
-  readonly projects?: boolean;
+  readonly judge?: (domain: PreparedDomain) => Judge;
+  /**
+   * What a read may carry beside the rows (projection keys) and what it
+   * hides of them (read-gated fields), made once per prepared domain: stated
+   * where some model's verbs may declare either, by what reads the verbs.
+   */
+  readonly project?: (domain: PreparedDomain) => Projection;
   /**
    * Per model (its TS name), the order its reads take when the caller gives
    * none (`orderBy` input, as admitted): a root `findMany`/`findFirst`, a
