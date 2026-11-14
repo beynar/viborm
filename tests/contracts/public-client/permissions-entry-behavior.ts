@@ -1031,7 +1031,7 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
         const refusal = await metered[model]!.findMany().catch((e) => e);
         expect(refusal, model).toBeInstanceOf(ValidationError);
         expect((refusal as Error).message, model).toContain(
-          'Control "actor" is required'
+          'Argument "actor" is required'
         );
       }
       expect(await issued(() => metered.page!.count())).toEqual({
@@ -1476,7 +1476,7 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
           statements: 0,
         });
         expect(((await create().catch((e) => e)) as Error).message).toContain(
-          'Control "actor" is required'
+          'Argument "actor" is required'
         );
       }
     });

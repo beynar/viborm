@@ -12,7 +12,6 @@
  */
 
 import { sanitizeDiagnosticParameters, serializeTrustedError } from "@errors";
-import { isString } from "@validation/value-guards";
 import { isError } from "../errors/diagnostic-safety";
 import { VIBORM_VERSION } from "../version";
 import {
@@ -63,8 +62,8 @@ const settledSpans = new WeakSet<TracingSpan>();
  * Extended span options with VibORM-specific attributes
  */
 export interface VibORMSpanOptions {
-  /** Span name from the predefined constants */
-  name: VibORMSpanName;
+  /** Span name: one of the predefined constants, or one a note names. */
+  name: string;
   /** Span kind (default: INTERNAL; a handed tracer takes no kind) */
   kind?: SpanKind | undefined;
   /** Additional attributes */
@@ -151,7 +150,9 @@ export function createTracerWrapper(
 ): TracerWrapper {
   const ignorePatterns = Object.freeze(
     (config?.ignoreSpanTypes ?? []).map((pattern) =>
-      isString(pattern) ? pattern : new RegExp(pattern.source, pattern.flags)
+      typeof pattern === "string"
+        ? pattern
+        : new RegExp(pattern.source, pattern.flags)
     )
   );
   const includeSql = config?.includeSql === true;
@@ -159,7 +160,7 @@ export function createTracerWrapper(
 
   function shouldIgnoreSpan(name: string): boolean {
     return ignorePatterns.some((pattern) => {
-      if (isString(pattern)) return pattern === name;
+      if (typeof pattern === "string") return pattern === name;
       return new RegExp(pattern.source, pattern.flags).test(name);
     });
   }
@@ -473,7 +474,7 @@ function createTraceError(): Error {
 }
 
 function formatSanitizedSpanParameter(value: unknown): string {
-  if (isString(value)) return value;
+  if (typeof value === "string") return value;
   return String(JSON.stringify(value));
 }
 

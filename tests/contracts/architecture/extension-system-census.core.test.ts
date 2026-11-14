@@ -46,25 +46,29 @@ const AUTHORITY_ROLE = /program|fragment|step|token|capability/i;
 const RUNTIME_EXTENSION = /\.js$/;
 const PROTOTYPE_OWNER_MAP = "transactionOperationOwnersByPrototype";
 const EXTENSIONS_FOLDER = join(SOURCE_ROOT, "extensions");
+/** `viborm/on`, written with the public parts: it holds no state of its own. */
+const ON_FOLDER = join(SOURCE_ROOT, "on");
 const OFFICIAL_EXTENSION_WORD =
   /cache|instrumentation|soft.?delete|permission|ordering|tenant|actor|official/i;
 
 /**
- * The module-level state `src/extensions` still holds: a `let`, or a
- * collection created empty for the run to fill. The plan's host has none
+ * The module-level state `src/extensions` still holds: a `let`, a
+ * collection created empty for the run to fill, or a value written when the
+ * module is evaluated. The plan's host has none
  * ("ni table d'accueil, ni registre, ni état de module"): an entry leaves
  * this list when its module stops holding it, and nothing joins it.
  */
 const MODULE_STATE_LEFT = Object.freeze([
   "src/extensions/admission.ts admitted",
   "src/extensions/admission.ts registries",
-  "src/extensions/call.ts seconds",
   "src/extensions/gates.ts namedGatedFields",
   "src/extensions/plain-domain.ts NONE",
   "src/extensions/plain-domain.ts prepared",
   "src/extensions/row-domain.ts preparedDomains",
   "src/extensions/unit-source.ts operations",
-  "src/extensions/watch-part.ts watched",
+  // A counter, not code: each `on()` needs a name of its own, so two that
+  // hook the same kinds of the same models live on one client.
+  "src/on/index.ts declared",
 ]);
 
 /**
@@ -350,13 +354,26 @@ function publicAuthorityExports(
 }
 
 /**
- * A module's top-level state: a `let`, or a `Map`, `Set`, `WeakMap` or
- * `WeakSet` created empty, which only the run fills. A collection created
- * with its contents is a constant table.
+ * A module's top-level state: a `let`, a `Map`, `Set`, `WeakMap` or
+ * `WeakSet` created empty, which only the run fills, or an assignment the
+ * module makes when it is evaluated (`brought.rail = RAIL`), which brings
+ * what it assigns to whoever imports it. A collection created with its
+ * contents is a constant table.
  */
 function moduleState(fileName: string, source: string): string[] {
   const state: string[] = [];
-  for (const statement of sourceFile(fileName, source).statements) {
+  const file = sourceFile(fileName, source);
+  for (const statement of file.statements) {
+    if (
+      ts.isExpressionStatement(statement) &&
+      ts.isBinaryExpression(statement.expression) &&
+      statement.expression.operatorToken.kind >=
+        ts.SyntaxKind.FirstAssignment &&
+      statement.expression.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+    ) {
+      state.push(`${fileName} ${statement.expression.left.getText(file)}`);
+      continue;
+    }
     if (!ts.isVariableStatement(statement)) continue;
     const mutable =
       statement.declarationList.getFirstToken()?.kind ===
@@ -378,7 +395,7 @@ function moduleState(fileName: string, source: string): string[] {
 }
 
 function extensionsModuleState(): string[] {
-  return sourceFiles(EXTENSIONS_FOLDER)
+  return [...sourceFiles(EXTENSIONS_FOLDER), ...sourceFiles(ON_FOLDER)]
     .flatMap((path) =>
       moduleState(relative(REPOSITORY_ROOT, path), readFileSync(path, "utf8"))
     )
@@ -565,7 +582,7 @@ describe("extension-system source census", () => {
     expect(census.executableRegistries).toEqual([]);
   });
 
-  test("holds no module-level state in src/extensions beyond what is left to remove", () => {
+  test("holds no module-level state in src/extensions and src/on beyond what is left to remove", () => {
     expect(extensionsModuleState()).toEqual([...MODULE_STATE_LEFT]);
   });
 
@@ -593,6 +610,8 @@ describe("extension-system source census", () => {
         "witness/state.ts",
         `
           let counter = 0;
+          brought.rail = RAIL;
+          table["key"] ??= 1;
           const byKey = new WeakMap<object, string>();
           const seen = /* @__PURE__ */ new Set<string>();
           const TABLE = new Set(["a", "b"]);
@@ -602,6 +621,8 @@ describe("extension-system source census", () => {
       )
     ).toEqual([
       "witness/state.ts counter",
+      "witness/state.ts brought.rail",
+      'witness/state.ts table["key"]',
       "witness/state.ts byKey",
       "witness/state.ts seen",
     ]);

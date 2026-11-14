@@ -38,7 +38,7 @@ import type {
   OperationControls,
   StampedFieldNames,
   StampedFields,
-} from "../extensions/controls";
+} from "../extensions/contract";
 import type { ModelResultFields } from "../extensions/result-types";
 import type { VibORMConfig } from "./client";
 import type { CachedProjectedOperations } from "./projected-types";

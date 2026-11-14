@@ -531,10 +531,10 @@ describe("PGlite: rows.confine, the capability tenant is built on", () => {
     ).toThrow('names "page", which is not a scalar field');
   });
 
-  test("a bound naming an undeclared control is refused when applied", () => {
+  test("a bound naming an undeclared argument is refused when applied", () => {
     expect(() =>
       base.$extends(sharing({ grant: { tenant: arg("nope") } }) as never)
-    ).toThrow('references undeclared control "nope"');
+    ).toThrow('references undeclared argument "nope"');
   });
 });
 

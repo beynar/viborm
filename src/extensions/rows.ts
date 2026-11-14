@@ -41,7 +41,7 @@ const requiredOn =
   (controls: ResolvedControls | undefined): CallValues["required"] =>
   (control, model) => {
     const on = controls?.all.find(({ name }) => name === control)?.required;
-    return on === true || on?.has(model) === true;
+    return on === true || on?.includes(model) === true;
   };
 
 /**
@@ -152,15 +152,14 @@ export class RowsBinding implements CallRowsBinding {
     const declared = chain.controls?.all ?? [];
     // An entry given lazily may read any argument, known once it is read.
     const defaulted = declared.filter(
-      ({ name, fallback }) => fallback !== undefined && (lazy || read.has(name))
+      ({ name, default: fallback }) =>
+        fallback !== undefined && (lazy || read.has(name))
     );
     this.#closed =
       lazy ||
       chain.stamps?.named === true ||
       ![...read].every((name) =>
-        declared.some(
-          (control) => control.name === name && "oneOf" in control.declaration
-        )
+        declared.some((control) => control.name === name && "oneOf" in control)
       )
         ? undefined
         : [...read].filter((name) => name !== undefined);
@@ -168,7 +167,7 @@ export class RowsBinding implements CallRowsBinding {
       this.#parametric && defaulted.length > 0
         ? Object.freeze(
             Object.fromEntries(
-              defaulted.map(({ name, fallback }) => [name, fallback])
+              defaulted.map(({ name, default: fallback }) => [name, fallback])
             )
           )
         : undefined;

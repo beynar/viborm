@@ -11,6 +11,7 @@ import {
   check,
   extension,
   facts,
+  gate,
   nothing,
   only,
   parts,
@@ -1097,6 +1098,41 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
         );
         expect(created).toEqual({
           answer: { id: "a", $access: { seen: false, own: false } },
+        });
+        return { created, rows: await rows(db, "task") };
+      });
+    });
+    it("a created row a caller may not read leaves its gated field out", async () => {
+      const noted = () =>
+        s.model({
+          id: s.string().id(),
+          status: s.string(),
+          owner: s.string(),
+          note: s.string(),
+        });
+      await compare({ task: noted() }, async (db) => {
+        const seen = { status: "open" };
+        const own = { owner: "ann" };
+        const governed = db.$extends(
+          parts<{ task: ReturnType<typeof noted> }>().extension(
+            "evidence",
+            rule({
+              task: {
+                read: { where: seen, fields: { note: gate(own) } },
+                create: { check: check(own) },
+                update: { where: only(nothing) },
+                delete: { where: only(nothing) },
+              },
+            })
+          )
+        );
+        const created = await caught(() =>
+          governed.task.create({
+            data: { id: "a", status: "closed", owner: "ann", note: "private" },
+          })
+        );
+        expect(created).toEqual({
+          answer: { id: "a", status: "closed", owner: "ann" },
         });
         return { created, rows: await rows(db, "task") };
       });

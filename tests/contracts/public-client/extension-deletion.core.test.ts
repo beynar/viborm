@@ -220,7 +220,7 @@ describe("a chain's rows and deletion resolve to one call's facts", () => {
     return value.append(previous, schema);
   };
 
-  test("two rule members share one domain, a call's values beside it, a removeWhen match physical", () => {
+  test("two rule members share one domain, a call's values beside it, a delete physical where its keep's test says", () => {
     let chain = chainOf(
       extension(
         "archive",
@@ -285,7 +285,8 @@ describe("a chain's rows and deletion resolve to one call's facts", () => {
     const purge = binding.call("item", { purge: true });
     expect(purge.tombstones).toBeUndefined();
     expect(purge.domain).toBe(defaults.domain);
-    // `removeWhen` belongs to the managed model: another model never matches.
+    // A keep's test belongs to the model it keeps: another model's deletes
+    // keep their rows whatever the call passes.
     expect(binding.call("other", { purge: true }).tombstones).toBeDefined();
   });
 

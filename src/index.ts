@@ -56,7 +56,7 @@ export type {
   NoControls,
   PlacedControl,
   StampedFields,
-} from "./extensions/controls.js";
+} from "./extensions/contract.js";
 export * from "./extensions/index.js";
 export type {
   AccumulatedExtensionState,
@@ -183,6 +183,10 @@ export type {
 // `toString()` never emits exponent notation. `div` takes its decimal places
 // and its rounding as arguments instead.
 export { Decimal } from "./validation/primitives/decimal-value.js";
+
+// The version of this package: what an extension's own telemetry names its
+// library with, or partitions stored data written by one release with.
+export { VIBORM_VERSION } from "./version.js";
 
 // =============================================================================
 // RAW SQL

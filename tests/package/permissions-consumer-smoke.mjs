@@ -660,7 +660,7 @@ await line("db.page.findMany({ actor }): ValidationError: actor is bound only", 
   const got = await outcome(() => db.page.findMany({ actor: actors.u01 }));
   return got === ValidationError.name ? undefined : got;
 });
-await line('db.page.findMany(): ValidationError: control "actor" is required', async () => {
+await line('db.page.findMany(): ValidationError: argument "actor" is required', async () => {
   const got = await outcome(() => db.page.findMany());
   return got === ValidationError.name ? undefined : got;
 });

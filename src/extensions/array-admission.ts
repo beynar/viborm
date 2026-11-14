@@ -1,9 +1,12 @@
 /**
- * The `admit` hook of a chain whose parts may intercept a member of
- * `$transaction([...])`: before the one executor (`@client/array-transaction`)
- * sends anything, every member's handlers start and the array waits until
- * each reached `run()` or failed. A refusal, a second `run()`, a late
- * detached one or a handler that throws aborts the array: nothing is sent.
+ * The `admit` hooks of a chain whose parts concern a member of
+ * `$transaction([...])`. Where `around` parts may wrap a member, before the
+ * one executor (`@client/array-transaction`) sends anything, every member's
+ * handlers start and the array waits until each reached `run()` or failed: a
+ * refusal, a second `run()`, a late detached one or a handler that throws
+ * aborts the array, and nothing is sent. Where parts only hear a member's
+ * writes, nothing waits: each member's registration is staged and its child
+ * handed what tells it of the commit (`stageArray`).
  */
 import {
   type ArraySlot,
@@ -14,11 +17,12 @@ import {
   type TransactionOperationCapability,
   transactionOperationOwner,
 } from "@query-engine/transaction-operation";
-import type {
-  executePreparedQuery,
-  QueryInterceptorExecutionControl,
-  TransactionWriteOutcomes,
-  WriteOutcomeNotifications,
+import {
+  type AroundExecutionControl,
+  type executePreparedQuery,
+  executeRegisteredQuery,
+  type TransactionWriteOutcomes,
+  type WriteOutcomeNotifications,
 } from "./query";
 
 /** What admission reads and writes of a slot. */
@@ -34,6 +38,42 @@ export function interceptsArray(
     return handlers?.length || registration;
   });
 }
+
+/**
+ * The hook of a chain whose parts hear writes and wrap no call: a member with
+ * a registration runs under it, its child reached at once, so the array has
+ * nothing to wait for. Its value is then the registration's run, whose
+ * rejection the array reads in member order.
+ */
+export async function stageArray(
+  slots: readonly ArraySlot[],
+  outcomes: TransactionWriteOutcomes | undefined
+): Promise<undefined> {
+  for (const slot of slots) {
+    const { write, registration } = slot.owner.interception(slot.operation);
+    if (registration === undefined) continue;
+    const child = (notifications?: WriteOutcomeNotifications) => {
+      slot.notifications = notifications;
+      return slot.child.promise;
+    };
+    const query = executeRegisteredQuery(
+      undefined,
+      undefined,
+      child,
+      write,
+      outcomes,
+      undefined,
+      registration
+    );
+    slot.query = query;
+    // Read by the array in member order; one the array never reaches (it
+    // failed before) is settled here.
+    query.catch(ignore);
+  }
+  return undefined;
+}
+
+const ignore = (): undefined => undefined;
 
 /**
  * The hook: each member's package listener staged, then its handlers started
@@ -78,7 +118,7 @@ export async function admitArrayQueries<Slot extends AdmissionSlot>(
   start: (
     slot: Slot,
     child: (notifications?: WriteOutcomeNotifications) => Promise<unknown>,
-    control: QueryInterceptorExecutionControl
+    control: AroundExecutionControl
   ) => Promise<unknown>
 ): Promise<readonly unknown[] | undefined> {
   let failed: { readonly failure: unknown } | undefined;

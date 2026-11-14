@@ -29,7 +29,6 @@ import type { FieldRef } from "@schema/field-ref";
 import type { Model } from "@schema/model";
 import type { Sql } from "@sql";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import type { NoControls, PlacedControl, StampedFields } from "./controls";
 import type {
   ExtensionClientScope,
   ExtensionStateConstraint,
@@ -47,6 +46,61 @@ import type { WriteKind } from "./written";
 
 type NoMethods = Record<never, never>;
 type NoFields = Record<never, never>;
+
+// =============================================================================
+// ARGUMENT AND DATA FACTS: what `args` and `defaults` add to the delegates
+// =============================================================================
+
+/**
+ * One declared argument as the delegates read it: its value, the models and
+ * the operations that accept it.
+ */
+export interface PlacedControl<
+  Value = unknown,
+  Models = PropertyKey,
+  Placed = Operations,
+> {
+  readonly value: Value;
+  readonly models: Models;
+  readonly operations: Placed;
+}
+
+export type NoControls = Record<never, never>;
+
+/** The optional arguments one (model, operation) accepts. */
+export type OperationControls<Controls, ModelName, Operation> = {
+  readonly [Name in keyof Controls as Controls[Name] extends PlacedControl<
+    unknown,
+    infer Models,
+    infer Placed
+  >
+    ? ModelName extends Models
+      ? Operation extends Placed
+        ? Name
+        : never
+      : never
+    : never]?: Controls[Name] extends PlacedControl<infer Value>
+    ? Value
+    : never;
+};
+
+/**
+ * The fields one `defaults` entry writes on its models' creates: there they
+ * may be left out even where the schema requires them. An update's fields
+ * need nothing, as every field of an update is optional already.
+ */
+export interface StampedFields<Models = PropertyKey, Fields = PropertyKey> {
+  readonly models: Models;
+  readonly fields: Fields;
+}
+
+/** The fields a chain writes on every create of one model. */
+export type StampedFieldNames<Data, ModelName> =
+  Data extends StampedFields<infer Models, infer Fields extends PropertyKey>
+    ? ModelName extends Models
+      ? Fields
+      : never
+    : never;
 
 // =============================================================================
 // FACTS: what one part contributes to the client's extension state

@@ -23,8 +23,9 @@ function declared(spec: ArgSpec): Declared {
     spec,
     default: (fallback: string | number | boolean) =>
       declared({ ...spec, default: fallback }),
+    // A name, a list or a set, as the types take it: each names operations.
     on: (operations: unknown) =>
-      declared({ ...spec, on: operationsOf(operations) ?? [] }),
+      declared({ ...spec, on: operationsOf(operations) }),
     models: (models: readonly string[]) => declared({ ...spec, models }),
     required: (models?: readonly string[]) =>
       declared({ ...spec, required: models ?? true }),
@@ -99,7 +100,7 @@ export function args(declarations: Readonly<Record<string, unknown>>): unknown {
     for (const name of Object.keys(specs))
       if (draft.controls !== undefined && Object.hasOwn(draft.controls, name))
         extensionError(
-          `Extension "${draft.name}" declares control "${name}", which extension "${draft.name}" already declares.`,
+          `Extension "${draft.name}" declares argument "${name}", which extension "${draft.name}" already declares.`,
           draft.name
         );
     draft.controls = { ...draft.controls, ...specs };

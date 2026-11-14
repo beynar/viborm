@@ -3,7 +3,7 @@ import {
   CacheDriver,
   type CacheEntry,
   type DetachedCacheResultCodec,
-  serveOfficialRead,
+  SERVE,
   type WaitUntilFn,
 } from "@cache/driver";
 import { CloudflareKVCache } from "@cache/drivers/cloudflare-kv";
@@ -16,7 +16,6 @@ import { cache } from "@cache/extension";
 import { CACHE_PREFIX } from "@cache/key";
 import { hasCacheInvalidationWork } from "@cache/schema";
 import { parseTTL } from "@cache/ttl";
-import { cacheOutcomes } from "@cache/unit-facts";
 import type { KVNamespace } from "@cloudflare/workers-types";
 import { createExecutionContext } from "@drivers/execution-context";
 import type { QueryExecutionContext } from "@drivers/types";
@@ -32,10 +31,11 @@ import {
   extension as extExtension,
   unit as extUnit,
   failure,
+  notes,
   type UnitContext,
   work,
 } from "@src/index";
-import { appendResolvedExtension } from "@tests/fixtures/host-definition";
+import { appendExtension } from "@tests/fixtures/extension-chain";
 import { createTestClock } from "@tests/fixtures/test-clock";
 import { describe, expect, test, vi } from "vitest";
 
@@ -82,7 +82,7 @@ function executeCachedWithResultCodec<T>(
   codec: AnswerCodec<T>,
   namespace: string
 ): Promise<T> {
-  return serveOfficialRead(driver, {
+  return driver[SERVE]({
     id: cacheKeyOf(model, operation, args),
     codec: served(run, codec),
     read: {
@@ -95,7 +95,8 @@ function executeCachedWithResultCodec<T>(
     waitUntil: options.waitUntil,
     model,
     operation,
-    origin: { context: options.executionContext },
+    origin: options.executionContext ?? {},
+    database: { dialect: "sqlite", namespace: undefined, driverName: "test" },
   });
 }
 
@@ -170,6 +171,24 @@ class RecordingCache extends CacheDriver {
  * The `operation` unit `run` runs in, on `context`: what a cached read notes
  * its decisions on while it runs, and only then.
  */
+/** The cache decisions noted on a call's `operation` unit, in order. */
+function cacheOutcomes(
+  unit: UnitContext
+): { event: string; status?: string }[] {
+  const outcomes: { event: string; status?: string }[] = [];
+  for (const fact of notes(unit))
+    if (isRecord(fact) && fact.log === "cache" && isRecord(fact.meta))
+      outcomes.push({
+        event: String(fact.meta.event),
+        status:
+          fact.meta.status === undefined ? undefined : String(fact.meta.status),
+      });
+  return outcomes;
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
 async function inOperation(
   context: QueryExecutionContext,
   run: () => Promise<unknown>
@@ -201,7 +220,7 @@ function officialInstrumentationContext(options?: {
         : {}),
     ...(options?.tracing === true ? { tracing: true } : {}),
   });
-  const chain = appendResolvedExtension(undefined, extension, {});
+  const chain = appendExtension(undefined, extension, {});
   return createExecutionContext(
     { model: "record", operation: "findMany" },
     options?.correlationId === undefined
@@ -325,7 +344,7 @@ describe("public cache-driver storage contract", () => {
 
   test("keeps ordinary cache observers on the public storage boundary", async () => {
     const units: unknown[] = [];
-    const chain = appendResolvedExtension(
+    const chain = appendExtension(
       undefined,
       extExtension(
         "ordinary-cache-observer",
@@ -634,7 +653,7 @@ describe("background cache failure integrity", () => {
     const scope = createOfficialCacheScope("viborm:cache:cleanup-test");
     const background: Promise<unknown>[] = [];
     let revalidationCompletion: unknown;
-    const chain = appendResolvedExtension(
+    const chain = appendExtension(
       undefined,
       extExtension(
         "cache-cleanup-observer",

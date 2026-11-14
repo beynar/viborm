@@ -1379,10 +1379,10 @@ describe("public query-interceptor integration", () => {
     expect(failure).toBeInstanceOf(QueryError);
     if (!(failure instanceof QueryError)) throw failure;
     expect(failure.message).toContain(
-      'Extension "hostile-write-outcome-error" write-outcome listener failed'
+      'Extension "hostile-write-outcome-error" settled() failed'
     );
     expect(failure.meta).toMatchObject({
-      method: "onWriteOutcome",
+      method: "settled",
       commitCertainty: "committed",
     });
     expect(failure.originalCause).toBeInstanceOf(Error);

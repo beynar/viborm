@@ -19,7 +19,7 @@ import {
   QueryError,
 } from "../errors";
 import { ValidationError } from "../errors/validation";
-import type { StampedFields } from "../extensions/controls";
+import type { StampedFields } from "../extensions/contract";
 import { defaults } from "../extensions/defaults";
 import { extension } from "../extensions/extension";
 import { methods as methodsOf } from "../extensions/methods-part";

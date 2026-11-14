@@ -9,10 +9,10 @@ import {
   InvalidTransactionInputError,
   retainWriteOutcomeFailure,
 } from "@errors";
-import type { ResolvedOperationHandler } from "@extensions/chain";
 import type { AdmittedControls } from "@extensions/controls";
 import type { CallOrigin } from "@extensions/origin";
 import type {
+  AroundHandlers,
   PreparedModelQueryContext,
   QueryInterceptionMode,
   WriteOutcomeRegistration,
@@ -488,7 +488,6 @@ export class PendingOperation<T>
       operation: String(this.#options.originalOperation),
       model: this.#modelName,
       context: this.#context.attribution,
-      call: this.#inputPreparation,
       driver: this.#engine.driver,
       table: this.#model["~"].names.sql ?? this.#modelName,
       ...(certain ? { certainty: () => this.#observationCommitCertainty } : {}),
@@ -545,7 +544,7 @@ export class PendingOperation<T>
 
   /** Query extensions and write-outcome registration, out of line. */
   #runExtendedExecution(
-    handlers: readonly ResolvedOperationHandler[] | undefined,
+    handlers: AroundHandlers | undefined,
     requestedOperation: string,
     observerCommitted: (() => Promise<void>) | undefined,
     observerMayHaveCommitted: (() => Promise<void>) | undefined,

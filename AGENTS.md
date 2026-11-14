@@ -334,8 +334,11 @@ mode or an extension name (see `src/query-engine/raptor3/AGENTS.md`).
 `rule.ts` and `admission.ts` check each entry once per schema at
 `$extends()` (an unknown model, field or key, a `target` naming an unknown
 model or operation, an argument no extension of the chain declares: D7);
-`rows.ts` binds each mode combination's domains once per application, and
-a call only looks its facts up. A key an entry leaves out adds no
+`rows.ts` binds one domain per application, and a call only looks its
+facts up: there is no mode. `when` and `unless` fold per call (`layers.ts`),
+a layer whose `when`s and `unless`es all apply nothing states nothing, and
+calls that pass the same closed (`oneOf`) values share their facts and
+read view. A key an entry leaves out adds no
 restriction; `update.fields[f].where` replaces `update.where` for a write of
 `f`; `check` is the only re-judgement and is stated in SQL only where the
 update writes a field its predicate reads; a `lazy` entry is read when its
@@ -348,7 +351,10 @@ empty `select`, and no `data` admits it. `defaults` (`defaults.ts`, `order.ts`, 
 `plain-domain.ts`) brings neither the prepared filter domain nor argument
 admission. Inside a filter's own relation reads every other layer reads at
 its default and never its own (`PreparedDomain.defaults`, the `Queries`
-exclusion stack). There is no runtime order guard: every method runs
+exclusion stack): an argument with a default is read at it there, whatever
+declared it, and a delete that keeps its rows takes only what those
+defaults show. A `keep(when(…))` or `keep(unless(…))` is its own test,
+which `kept.ts` reads per call. There is no runtime order guard: every method runs
 through the whole chain of the client it is called on; the order rule is
 TypeScript's alone (a part typed against a result declares the `consumer`
 fact, and a later rule that hides rows or a later omission fails to type;
@@ -385,22 +391,22 @@ was validated upstream and rewrites are trusted.
 **Official extensions are built with public names.** Each is an ordinary
 `extension(…)` of public parts, applied in one step, in any order.
 `tests/contracts/public-client/extension-imports.core.test.ts` holds
-`viborm/on`, `viborm/ordering`, `viborm/permissions` and
-`viborm/soft-delete` to names the public entries export; its `PENDING` list
-says what `viborm/cache` (a call's execution context and driver through
-`callOf`/`scopeOf`, whether its chain observes units, a method's operation
-context, the clock, private validation helpers) and
-`viborm/instrumentation` (error sanitizers, driver identity, the cache's
-unit facts, private value guards) still take: those are capabilities to make
-public, never friend imports to add. No official extension is
-authenticated by identity; the engine names none (the same census).
+`viborm/cache`, `defaultOmit`, `viborm/on`, `viborm/ordering`,
+`viborm/permissions` and `viborm/soft-delete` to names the public entries
+export; its `PENDING` list says what `viborm/instrumentation` still takes
+(the private error, parameter and metadata sanitizers): a capability to
+make public, never a friend import to add. No official extension is
+authenticated by identity; the engine names none (the same census). Two
+official extensions talk only through public facts: the cache publishes
+its units' presentation as notes (`InstrumentationNote`), which the
+instrumentation presents whoever wrote them.
 
 - `defaultOmit(config)` (`src/client/default-omit-extension.ts`, entry
   `viborm/client`): `defaults(() => entries)` with `omitted`, named
   `viborm.defaultOmit`, so a chain applies it once; the omissions of
   different extensions' `defaults` add up per model.
-- `softDelete(config)` (`src/soft-delete/index.ts`): `args` (`deleted`, a
-  mode on `selecting`; `mode` on the deletes of the managed models), a
+- `softDelete(config)` (`src/soft-delete/index.ts`): `args` (`deleted`,
+  with a default, on `selecting`; `mode` on the deletes of the managed models), a
   `rule((schema) => …)` whose entries write `root`/`related` with `when`
   and `unless` and `delete.instead` with `keep(unless(arg("mode"), "hard",
   { [deletedAt]: now, … }))`, after checking each marker is a nullable
@@ -411,8 +417,9 @@ authenticated by identity; the engine names none (the same census).
   whose every listed model is a `lazy` entry compiled the first time a call
   needs it (`compile.ts`, once per schema, again for a schema that gained or
   swapped a model), one rule of `confine` for `tenant`, `args` (`actor` and
-  `scopes`, `bound` and required, `.volatile()` unless `cache: "allow"`; the
-  mode on `selecting`), a `call` refusing a call the policy cannot reach
+  `scopes`, `bound` and required, `.volatile()` unless `cache: "allow"`;
+  `as`, with a default, on `selecting`, each model's entry testing only its
+  own `as` values), a `call` refusing a call the policy cannot reach
   with `ForbiddenError` before validation, and `methods` for `$as`. One
   row's `$access` (`facts`) answers what a check asks: `can` and `assert`
   are gone. Its only runtime export is `permissions`;
@@ -534,7 +541,7 @@ INSTALL — own, non-writable, non-configurable — not a ban on copies: models,
 relations, query scopes, operation programs, result types, journals, cache
 identity, and instrumentation read it or do without it, and the two readers that
 deliberately capture it once — the bound migration driver at bind time, and the
-`readDriverIdentity` snapshot a cached read takes at `$withCache` — cannot go stale
+`database(run)` a cached read takes when it is served — cannot go stale
 because the property they read can never be reassigned.
 
 Every VibORM-generated persistent-object reference goes through

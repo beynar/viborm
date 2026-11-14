@@ -15,14 +15,12 @@ import type { ExtensionPart } from "./chain";
 import type { ControlsContribution } from "./controls";
 import type { Deletion } from "./kept";
 import type { RuntimeMethodsFactory } from "./methods";
-import type { RuntimeQueryContribution } from "./query";
 import type { RuntimeResultContribution } from "./result";
 
 export interface RuntimeExtensionDefinition {
   readonly name: string;
   /** Each `call` and `around` part, in the order the extension names them. */
   readonly calls?: readonly CallEntry[];
-  readonly query?: RuntimeQueryContribution;
   /** The factory `methods` takes. */
   readonly methods?: RuntimeMethodsFactory;
   readonly controls?: ControlsContribution;
@@ -41,11 +39,6 @@ export interface RuntimeExtensionDefinition {
   readonly omit?: ClientOmitConfig<Schema>;
   /** What an error of a call may carry (`disclosure`). */
   readonly disclosure?: DiagnosticDisclosure;
-  /**
-   * What the refusal of a second application of this extension adds: how
-   * one application, or another extension, does what the author wanted.
-   */
-  readonly duplicate?: string;
 }
 
 export type ControlLiteral = string | number | boolean;

@@ -47,8 +47,7 @@ export class Kept extends Map<string, ResolvedKept> implements Tombstones {
   /**
    * Whether a delete of `model` removes its rows: its `keep` keeps them
    * where its test holds (`when`) or fails (`unless`), and the call's
-   * arguments say otherwise. Its argument is placed only on the deletes of
-   * the models it keeps, so no other call says so.
+   * arguments say otherwise, where its argument's `.on()` accepts it.
    */
   removes(model: string, controls: AdmittedControls | undefined): boolean {
     const kept = this.get(model);
@@ -218,11 +217,6 @@ export interface ResolvedKept extends KeptModel {
 
 /** What a delete of each model writes instead, as `keep` writes it. */
 export interface Deletion {
-  /**
-   * The arguments a kept delete's test reads, by name: placed on the
-   * deletes of the models it keeps (`placeControls`).
-   */
-  removeWhen?: Record<string, true>;
   readonly models: Record<string, KeptModel>;
 }
 
@@ -236,7 +230,10 @@ export const keptRowsPart: ExtensionPart = {
     const { definition, chain, next, schema } = application;
     const { deletion, name: extension } = definition;
     if (deletion === undefined) return;
-    refuseUndeclared(application, Object.keys(deletion.removeWhen ?? {}));
+    refuseUndeclared(
+      application,
+      Object.values(deletion.models).map(({ test }) => test?.parameter.control)
+    );
     const kept = new Kept(chain?.kept);
     for (const [model, entry] of Object.entries(deletion.models)) {
       const holder = junctionHolder(schema, schema[model]!);

@@ -17,7 +17,6 @@ import {
   ValidationError,
   VibORMErrorCode,
 } from "@errors";
-import { brought } from "@extensions/coordination";
 import { s } from "@schema";
 import { raw, sql } from "@sql";
 import {
@@ -296,65 +295,57 @@ afterEach(async () => {
 });
 
 describe("a chain without the write rail", () => {
-  test("runs transactions plainly and still tells run() its mode where settled was never imported", async () => {
-    // The test process loads every module, `settled` among them: the rail
-    // it brings is taken away for this one test.
-    const rail = brought.rail;
-    brought.rail = undefined;
-    try {
-      const modes: string[] = [];
-      const reading = extension(
-        "modes",
-        around(() => async (run) => {
-          modes.push(run.mode);
-          return run();
-        })
-      );
-      const fallback = fallbackClient().client.$extends(reading);
-      await fallback.$transaction(async (tx) => {
-        await tx.record.findMany();
-        await tx.$transaction(async (inner) => inner.record.findMany());
-      });
-      await fallback.$transaction([
-        fallback.record.findMany(),
-        fallback.$executeRawUnsafe("UPDATE record SET name = ?", "x"),
-      ]);
-      const { client: native, driver } = nativeClient();
-      const nativeReading = native.$extends(reading);
-      await nativeReading.$transaction([nativeReading.record.findMany()]);
-      driver.failProvider = new Error("batch refused");
-      await expect(
-        nativeReading.$transaction([nativeReading.record.findMany()])
-      ).rejects.toThrow();
-      driver.failProvider = undefined;
-      const unbatchable = overrideTransactionOperation(
-        nativeReading.record.findMany(),
-        {
-          prepare: () => undefined,
-          prepareBatch: () => Promise.resolve(undefined),
-        }
-      );
-      await expect(
-        // @ts-expect-error - the array overload names only the operation
-        // classes the client produces; this shell registers the same owner.
-        nativeReading.$transaction([unbatchable])
-      ).rejects.toThrow("cannot be batched atomically");
-      await fallback.record.findMany();
-      expect(modes).toEqual([
-        "transaction",
-        "transaction",
-        // Two members, one batch, one refused by its provider, and one that
-        // cannot be batched, which its handler still admits.
-        "array",
-        "array",
-        "array",
-        "array",
-        "array",
-        "direct",
-      ]);
-    } finally {
-      brought.rail = rail;
-    }
+  test("a chain of around parts alone runs transactions plainly and still tells run() its mode", async () => {
+    const modes: string[] = [];
+    const reading = extension(
+      "modes",
+      around(() => async (run) => {
+        modes.push(run.mode);
+        return run();
+      })
+    );
+    const fallback = fallbackClient().client.$extends(reading);
+    await fallback.$transaction(async (tx) => {
+      await tx.record.findMany();
+      await tx.$transaction(async (inner) => inner.record.findMany());
+    });
+    await fallback.$transaction([
+      fallback.record.findMany(),
+      fallback.$executeRawUnsafe("UPDATE record SET name = ?", "x"),
+    ]);
+    const { client: native, driver } = nativeClient();
+    const nativeReading = native.$extends(reading);
+    await nativeReading.$transaction([nativeReading.record.findMany()]);
+    driver.failProvider = new Error("batch refused");
+    await expect(
+      nativeReading.$transaction([nativeReading.record.findMany()])
+    ).rejects.toThrow();
+    driver.failProvider = undefined;
+    const unbatchable = overrideTransactionOperation(
+      nativeReading.record.findMany(),
+      {
+        prepare: () => undefined,
+        prepareBatch: () => Promise.resolve(undefined),
+      }
+    );
+    await expect(
+      // @ts-expect-error - the array overload names only the operation
+      // classes the client produces; this shell registers the same owner.
+      nativeReading.$transaction([unbatchable])
+    ).rejects.toThrow("cannot be batched atomically");
+    await fallback.record.findMany();
+    expect(modes).toEqual([
+      "transaction",
+      "transaction",
+      // Two members, one batch, one refused by its provider, and one that
+      // cannot be batched, which its handler still admits.
+      "array",
+      "array",
+      "array",
+      "array",
+      "array",
+      "direct",
+    ]);
   });
 });
 
@@ -615,7 +606,7 @@ describe("array query admission", () => {
     // The protocol failure is primary (the aggregate that also carried the
     // handler's later failure is no longer promised).
     expect(primaryOf(failure)).toMatchObject({
-      message: expect.stringContaining("called proceed more than once"),
+      message: expect.stringContaining("called run() more than once"),
     });
     expect(driver.events).toEqual([]);
   });
@@ -892,6 +883,9 @@ describe("raw write-outcome classification", () => {
     const client = base.$extends(
       extension(
         "private-raw-state",
+        // A part that hears writes gives the chain the collector a raw
+        // statement's settled needs inside a transaction.
+        call(() => undefined, extTarget(writes)),
         around((c) => {
           settled(c, ({ certainty }) => observations.push(certainty));
           return async (run) => {
@@ -971,6 +965,7 @@ describe("raw write-outcome classification", () => {
     const client = base.$extends(
       extension(
         "fallback-raw-outcomes",
+        call(() => undefined, extTarget(writes)),
         around((c) => {
           if (c.kind !== "model") {
             settled(c, ({ certainty }) =>
@@ -1011,6 +1006,7 @@ describe("raw write-outcome classification", () => {
     const success = successBase.$extends(
       extension(
         "native-raw-outcomes",
+        call(() => undefined, extTarget(writes)),
         around((c) => {
           if (c.kind !== "model") {
             settled(c, ({ certainty }) =>
@@ -1057,6 +1053,7 @@ describe("raw write-outcome classification", () => {
     const write = writeBase.$extends(
       extension(
         "native-raw-write-failure",
+        call(() => undefined, extTarget(writes)),
         around((c) => {
           settled(c, ({ certainty }) =>
             writeOutcomes.push(`${c.operation}:${certainty}`)

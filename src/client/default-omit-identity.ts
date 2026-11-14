@@ -10,8 +10,8 @@ import type { Schema } from "./types";
 
 export const omitPart: ExtensionPart = {
   seal({ next, chain, definition }) {
-    const own = definition.omit;
-    if (own === undefined) return;
+    // Only `omitted` brings this part, and it writes what it hides.
+    const own = definition.omit!;
     const config: ClientOmitConfig<Schema> = { ...chain?.omit?.config };
     for (const [model, fields] of Object.entries(own))
       config[model] = Object.freeze({ ...config[model], ...fields });

@@ -227,18 +227,20 @@ export abstract class DriverTransactionBase<
     ) => Promise<Result>
   ): Promise<Result> {
     const executionContext = this.resolveExecutionContext(context, "execute");
-    // A bind-capacity refusal rejects: this function is async.
-    const send = async (statement: Sql = query): Promise<Result> => {
-      const bound = this.boundStatement(statement);
-      return this.dispatchStatement(executionContext, () =>
-        this.sendStatement(
+    // A bind-capacity refusal is a rejection made inside the dispatch, where
+    // the connection queue already holds the promise: one rejected before
+    // anything holds it is reported unhandled by workerd, even when the
+    // caller adopts it a microtask later.
+    const send = (statement: Sql = query): Promise<Result> =>
+      this.dispatchStatement(executionContext, async () => {
+        const bound = this.boundStatement(statement);
+        return this.sendStatement(
           this.buildStatement(bound),
           bound.values,
           executionContext,
           executeProvider
-        )
-      );
-    };
+        );
+      });
     // The chain's rewriting units each run around the statement's rest.
     const rewrites = getExecutionExtensionChain(executionContext)?.statement;
     return rewrites === undefined

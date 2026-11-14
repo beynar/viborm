@@ -2,7 +2,9 @@
  * `defaultOmit(config)`: fields left out of every result unless a call asks
  * for them (`omit: { f: false }` or a `select`). One extension, applied in
  * one step: `client.$extends(defaultOmit({ user: { passwordHash: true } }))`.
- * Written with the public words: `defaults` and `omitted`.
+ * Written with the public words: `defaults` and `omitted`. Its name is
+ * fixed and a name is unique in a chain, so a chain applies it once; the
+ * omissions of different extensions' `defaults` add up per model.
  */
 import { ClientInitializationError } from "@errors";
 import type {
@@ -10,18 +12,15 @@ import type {
   EmptyFacts,
   Extension,
   Facts,
-  ModelName,
   Target,
 } from "@extensions/contract";
 import { defaults, omitted } from "@extensions/defaults";
-import { builtPart, extension } from "@extensions/extension";
+import { extension } from "@extensions/extension";
 import type { VibORMConfig } from "./client";
 import type { ClientOmitConfig, ExactClientOmitConfig } from "./omit";
 import type { ClientSchema } from "./schema-links";
 
 const NAME = "viborm.defaultOmit";
-const DUPLICATE =
-  " A chain applies defaultOmit() once: give it every field to leave out, or omit fields from another extension with defaults({ model: { fields: { field: omitted } } }); the omissions of different extensions add up per model.";
 
 type NoMethods = Record<never, never>;
 
@@ -51,7 +50,10 @@ export function defaultOmit<T extends AnyTarget, const Config>(
   config: Config &
     ClientOmitConfig<ClientSchema<T["config"]>> &
     NoInfer<ExactClientOmitConfig<Config, ClientSchema<T["config"]>>>
-): Extension<T, DefaultOmitFacts<Config, ModelName<T>>>;
+): Extension<
+  T,
+  DefaultOmitFacts<Config, keyof ClientSchema<T["config"]> & string>
+>;
 export function defaultOmit(
   config: Readonly<Record<string, Readonly<Record<string, unknown>>>>
 ): unknown {
@@ -71,11 +73,6 @@ export function defaultOmit(
   // Built against no client: `defaultOmit`'s own signature types what it adds.
   return extension<Untyped>(
     NAME,
-    defaults<Untyped, () => object>(() => entries),
-    // Its name is fixed and a name is unique in a chain: a second
-    // application is refused, and its refusal says what adds up instead.
-    builtPart([], (draft) => {
-      draft.duplicate = DUPLICATE;
-    })
+    defaults<Untyped, () => object>(() => entries)
   );
 }

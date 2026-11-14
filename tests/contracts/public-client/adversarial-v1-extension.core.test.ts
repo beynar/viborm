@@ -1,3 +1,4 @@
+import type { Schema } from "@client/types";
 import type { AnyTarget, EmptyFacts, Part } from "@extensions/contract";
 import {
   arg,
@@ -12,11 +13,10 @@ import {
   s,
 } from "@src/index";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
-import { appendResolvedExtension } from "@tests/fixtures/host-definition";
 import { describe, expect, it } from "vitest";
 
 const UNKNOWN_PATTERN = /unknown/i;
-const UNDECLARED_CONTROL_TENNAT_PATTERN = /undeclared control "tennat"/;
+const UNDECLARED_CONTROL_TENNAT_PATTERN = /undeclared argument "tennat"/;
 
 const post = s.model({
   id: s.string().id(),
@@ -30,11 +30,14 @@ const written = (
   entries: object
 ): Part<AnyTarget, EmptyFacts> => Reflect.apply(build, undefined, [entries]);
 
-/** An extension applied to a chain over `receiving`, as `$extends` applies it. */
-const applied = (
-  definition: unknown,
-  receiving: Parameters<typeof appendResolvedExtension>[2]
-) => appendResolvedExtension(undefined, definition, receiving);
+/** An extension applied by a client of `receiving`, its types left unread. */
+const applied = (definition: unknown, receiving: Schema): unknown => {
+  const client = createClient({
+    schema: receiving,
+    driver: new PlanningDriver("postgresql"),
+  });
+  return Reflect.apply(client.$extends, client, [definition]);
+};
 describe("named extension policy admission", () => {
   // The members a builder writes are no longer read from a hand-made
   // definition (`rows`, `data`, `deletion` and the modes are gone): what is

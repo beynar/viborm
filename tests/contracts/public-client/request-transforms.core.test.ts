@@ -504,7 +504,7 @@ describe("public request-transform integration", () => {
       )
     );
     await expect(patching.$queryRawUnsafe("SELECT 1")).rejects.toThrow(
-      'Extension "patching" request handler for $queryRawUnsafe set no model call\'s arguments.'
+      'Extension "patching" first moment for $queryRawUnsafe set no model call\'s arguments.'
     );
 
     const watching = integratedClient().$extends(
@@ -522,8 +522,7 @@ describe("public request-transform integration", () => {
     // A raw statement writes no rows to tell: the registration is refused.
     expect(refusal).toBeInstanceOf(QueryError);
     expect(refusal).toMatchObject({
-      message:
-        'Extension "watching" request handler for $executeRawUnsafe threw.',
+      message: 'Extension "watching" first moment for $executeRawUnsafe threw.',
     });
   });
 

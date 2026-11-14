@@ -24,6 +24,7 @@ import type { OperationHandlers, RequestHandlers } from "./handlers";
 import type { Kept } from "./kept";
 import type { ExtensionMethodsState } from "./methods";
 import type { Observation } from "./observation";
+import type { AroundRunner } from "./query";
 import type { ResultFields } from "./result";
 import type { Stamps } from "./stamps";
 import type { StatementHandlers } from "./statement";
@@ -154,7 +155,8 @@ export interface ResolvedExtensionChain {
    */
   readonly callRows?: CallRowsBinding;
   readonly request?: RequestHandlers;
-  readonly query?: OperationHandlers;
+  /** The second moments of `around` parts, as the runner calls them. */
+  readonly query?: OperationHandlers<AroundRunner>;
   readonly statement?: StatementHandlers;
   /**
    * Every handler around a unit of real work, in chain order, and what runs

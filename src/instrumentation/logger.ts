@@ -10,7 +10,6 @@ import {
   sanitizeDiagnosticParameters,
   sanitizeErrorForLogging,
 } from "@errors";
-import { isString } from "@validation/value-guards";
 import type {
   LogEvent,
   LoggingConfig,
@@ -69,8 +68,8 @@ function prettyLog(event: LogEvent): void {
       console.log(
         "[CACHE]",
         time,
-        isString(event.meta?.event) ? event.meta.event : "unknown",
-        isString(event.meta?.status) ? `(${event.meta.status})` : ""
+        typeof event.meta?.event === "string" ? event.meta.event : "unknown",
+        typeof event.meta?.status === "string" ? `(${event.meta.status})` : ""
       );
       break;
     case "error":

@@ -18,9 +18,9 @@ export interface DisclosurePolicy {
 }
 
 const disclosurePart: ExtensionPart = {
+  // Only `disclosure()` brings this part, and it writes the policy.
   join({ next, definition }) {
-    if (definition.disclosure !== undefined)
-      next.disclosure = definition.disclosure;
+    next.disclosure = definition.disclosure;
   },
 };
 

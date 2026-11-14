@@ -9,7 +9,7 @@ import type { DriverIdentitySource } from "@drivers/driver-identity";
 import type { BatchQuery, QueryExecutionContext } from "@drivers/types";
 import type { Sql } from "@sql";
 import type { UnitContext, UnitKind, UnitOutcome } from "./contract";
-import { CALL } from "./origin";
+import { callOf } from "./origin";
 
 export type { UnitKind } from "./contract";
 export type Unit = UnitContext;
@@ -40,10 +40,12 @@ export interface UnitSource {
   readonly kind: UnitKind;
   readonly operation?: string | undefined;
   readonly model?: string | undefined;
-  /** The trusted execution context: the chain, correlation, a recovered read. */
+  /**
+   * The trusted execution context: the chain, correlation, a recovered read.
+   * An operation unit's is its call's own (`CallOrigin.of`), how a `run`
+   * finds it.
+   */
   readonly context?: QueryExecutionContext | undefined;
-  /** operation: the object a call's two moments share (`note(run, …)`). */
-  readonly call?: object | undefined;
   /** The driver doing the work, read only by `driver(unit)`. */
   readonly driver?: DriverIdentitySource | undefined;
   /** operation: the SQL name of the model. */
@@ -106,7 +108,11 @@ class ProducedUnit implements Unit {
   }
 }
 
-/** A running operation unit, by its call and by its execution context. */
+/**
+ * A running operation unit, by its execution context: one per operation,
+ * the same its call carries, so a call's `run` and the cache, which holds
+ * the context, find the same unit.
+ */
 const operations = new WeakMap<object, UnitSource>();
 
 /** The producer's record of `unit`, or `undefined` for a unit it did not make. */
@@ -117,10 +123,8 @@ export const sourceOf = (unit: object): UnitSource | undefined =>
 export function unitOf(source: UnitSource): Unit {
   const unit = new ProducedUnit(source);
   source.notes ??= [];
-  if (source.kind === "operation") {
-    if (source.call !== undefined) operations.set(source.call, source);
-    if (source.context !== undefined) operations.set(source.context, source);
-  }
+  if (source.kind === "operation" && source.context !== undefined)
+    operations.set(source.context, source);
   return unit;
 }
 
@@ -129,11 +133,9 @@ export function unitOf(source: UnitSource): Unit {
  * operation unit of a call's `run`, or that of an execution context.
  */
 export function originOf(origin: object): UnitSource | undefined {
-  const call: unknown = CALL in origin ? Reflect.get(origin, CALL) : undefined;
+  const context = callOf(origin)?.of?.context;
   return (
     sourceOf(origin) ??
-    (typeof call === "object" && call !== null
-      ? operations.get(call)
-      : operations.get(origin))
+    (context === undefined ? operations.get(origin) : operations.get(context))
   );
 }

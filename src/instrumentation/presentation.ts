@@ -5,14 +5,7 @@
  */
 
 import {
-  type CacheFacts,
-  type CacheOutcome,
-  cacheFacts,
-} from "@cache/unit-facts";
-import type { DriverIdentity } from "@drivers/driver-identity";
-import {
   type DiagnosticDisclosure,
-  EMPTY_DISCLOSURE,
   isVibORMError,
   sanitizeErrorForLogging,
 } from "@errors";
@@ -24,38 +17,27 @@ import {
   table,
 } from "@extensions/unit-words";
 import {
-  ATTR_CACHE_DRIVER,
-  ATTR_CACHE_TTL,
   ATTR_DB_COLLECTION,
   ATTR_DB_DRIVER,
   ATTR_DB_NAMESPACE,
   ATTR_DB_OPERATION_NAME,
   ATTR_DB_SYSTEM,
   ATTR_VIBORM_CORRELATION_ID,
-  SPAN_CACHE_CLEAR,
-  SPAN_CACHE_DELETE,
-  SPAN_CACHE_GET,
-  SPAN_CACHE_INVALIDATE,
-  SPAN_CACHE_SET,
   SPAN_EXECUTE,
   SPAN_OPERATION,
   type VibORMSpanName,
 } from "./spans";
-import type { VibORMSpanOptions } from "./tracer";
-import type { LogEvent, TracingConfig } from "./types";
+import type { SpanAttributes, VibORMSpanOptions } from "./tracer";
+import type {
+  InstrumentationNote,
+  LogEvent,
+  LogLevel,
+  TracingConfig,
+} from "./types";
 
 type PresentedLog = Omit<LogEvent, "level">;
 
 const OR_THROW = /OrThrow$/;
-
-const CACHE_SPAN_NAMES: Readonly<Record<string, VibORMSpanName>> = {
-  clear: SPAN_CACHE_CLEAR,
-  delete: SPAN_CACHE_DELETE,
-  get: SPAN_CACHE_GET,
-  invalidate: SPAN_CACHE_INVALIDATE,
-  revalidate: SPAN_OPERATION,
-  set: SPAN_CACHE_SET,
-};
 
 /**
  * The `db.*` identity of one driver. `db.namespace` is added here and nowhere
@@ -63,7 +45,7 @@ const CACHE_SPAN_NAMES: Readonly<Record<string, VibORMSpanName>> = {
  * or the text `undefined`.
  */
 export function createDriverAttributes(
-  identity: DriverIdentity | undefined
+  identity: InstrumentationNote["database"]
 ): Record<string, string> {
   if (identity === undefined) return {};
   const { dialect, driverName, namespace } = identity;
@@ -85,60 +67,52 @@ function resolvedOperation(unit: Unit): string | undefined {
   return unit.operation?.replace(OR_THROW, "");
 }
 
-/** The span of one cache step; a revalidation is a root operation span. */
-export function createCacheSpanOptions(
+/** A note, if `value` can be one: whoever noted it, it is read by its members. */
+export const noteOf = (value: unknown): InstrumentationNote | undefined =>
+  typeof value === "object" && value !== null ? value : undefined;
+
+/** The attributes a note gives, those given `undefined` left out. */
+export function notedAttributes(
+  attributes: InstrumentationNote["attributes"]
+): SpanAttributes {
+  const defined: SpanAttributes = {};
+  for (const [key, value] of Object.entries(attributes ?? {}))
+    if (value !== undefined) defined[key] = value;
+  return defined;
+}
+
+/** The span a unit's first note names: its database, the call's correlation, its attributes. */
+export function createNotedSpanOptions(
   unit: Unit,
-  facts: CacheFacts
-): VibORMSpanOptions | undefined {
-  const name =
-    unit.operation === undefined ? undefined : CACHE_SPAN_NAMES[unit.operation];
-  if (name === undefined) return undefined;
-  const { driver: cacheDriver, read, ttl } = facts;
-  // A backend step names its driver alone, as a span with no `db.*` should.
-  if (unit.operation === "delete" || unit.operation === "clear")
-    return {
-      name,
-      attributes:
-        cacheDriver === undefined ? {} : { [ATTR_CACHE_DRIVER]: cacheDriver },
-    };
+  noted: InstrumentationNote & { readonly span: string }
+): VibORMSpanOptions {
   return {
-    name,
-    attributes: {
-      ...(cacheDriver === undefined
-        ? {}
-        : { [ATTR_CACHE_DRIVER]: cacheDriver }),
-      ...(ttl === undefined ? {} : { [ATTR_CACHE_TTL]: String(ttl) }),
-      ...(read === undefined
-        ? {}
-        : {
-            ...createDriverAttributes(read.driver),
-            [ATTR_DB_COLLECTION]: read.model,
-            [ATTR_DB_OPERATION_NAME]: read.operation,
-          }),
+    name: noted.span,
+    attributes: notedAttributes({
+      ...createDriverAttributes(noted.database),
       ...createCorrelationAttributes(correlation(unit)),
-    },
-    ...(read === undefined ? {} : { root: true }),
+      ...noted.attributes,
+    }),
+    ...(noted.root === true ? { root: true } : {}),
   };
 }
 
-/** The cache log event of one outcome. Keys never appear. */
-export function presentCacheOutcome(
+/** The log a note asks for. Keys never appear: a note carries none. */
+export function presentNoteLog(
   unit: Unit,
-  outcome: CacheOutcome
-): PresentedLog {
-  const call =
-    unit.kind === "cache"
-      ? cacheFacts(unit)
-      : { model: unit.model, operation: resolvedOperation(unit) };
-  const { error } = outcome;
-  return Object.freeze({
-    timestamp: new Date(outcome.at),
-    model: call?.model,
-    operation: call?.operation,
+  level: LogLevel,
+  noted: InstrumentationNote
+): LogEvent {
+  const { error } = noted;
+  return {
+    level,
+    timestamp: new Date(noted.at ?? Date.now()),
+    model: noted.model ?? unit.model,
+    operation: noted.operation ?? resolvedOperation(unit),
     correlationId: correlation(unit),
     error: error instanceof Error ? sanitizeErrorForLogging(error) : undefined,
-    meta: Object.freeze({ event: outcome.event, status: outcome.status }),
-  });
+    meta: noted.meta,
+  };
 }
 
 /**
@@ -182,7 +156,7 @@ export function createOperationErrorLogEvent(
 function readChannelDisclosure(
   channel: true | Readonly<DiagnosticDisclosure> | undefined
 ): DiagnosticDisclosure {
-  return channel && channel !== true ? channel : EMPTY_DISCLOSURE;
+  return channel && channel !== true ? channel : {};
 }
 
 /**

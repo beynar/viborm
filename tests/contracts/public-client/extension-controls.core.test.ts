@@ -45,7 +45,6 @@ import {
   oneOf,
   reads,
   rule,
-  settled,
   statement,
   unit,
   unless,
@@ -167,7 +166,7 @@ class KeyRecordingCache extends MemoryCache {
   }
 }
 
-const NAMED_CONTROL = /named control "(reason|deleted)"/;
+const NAMED_CONTROL = /set argument "(reason|deleted)"/;
 
 const softRows = {
   name: "rows",
@@ -190,16 +189,12 @@ const softRows = {
 describe("controls: admission and ownership", () => {
   test("two contributing extensions: each owner's handlers see only their own admitted controls; inputs never carry one", async () => {
     const seen: string[] = [];
-    const record = (label: string, context: object) => {
-      const input = Reflect.get(context, "input");
+    const record = (label: string, input: object, controls: object) => {
       const leaked = ["deleted", "reason", "region"].filter((key) =>
         Reflect.has(input, key)
       );
-      seen.push(
-        `${label}:${JSON.stringify(Reflect.get(context, "controls") ?? null)}:${leaked.join(",")}`
-      );
+      seen.push(`${label}:${JSON.stringify(controls)}:${leaked.join(",")}`);
     };
-    // `rows` goes first: it may not follow a model-mapped query handler.
     const db = (await seededBase())
       .$extends(
         extension(
@@ -226,32 +221,13 @@ describe("controls: admission and ownership", () => {
           "audit",
           extArgs({ reason: standard((value) => ({ value })) }),
           call(
-            (c) => {
-              const context = {
-                input: c.args,
-                controls: c.values,
-                model: c.model,
-                operation: c.operation,
-              };
-              record("audit-request", context);
-              c.set({});
-            },
+            (c) => record("audit-request", c.args, c.values),
             extTarget("post", "findMany")
           ),
           around(
             (c) => (run) => {
-              const context = {
-                proceed: run,
-                input: run.input,
-                mode: run.mode,
-                kind: c.kind,
-                model: c.model,
-                operation: c.operation,
-                controls: c.values,
-                onWriteOutcome: (listener) => settled(c, listener),
-              };
-              record("audit-query", context);
-              return context.proceed();
+              record("audit-query", run.input, c.values);
+              return run();
             },
             extTarget("post", "findMany")
           )
@@ -261,44 +237,22 @@ describe("controls: admission and ownership", () => {
         extension(
           "tenant",
           extArgs({ region: oneOf("eu", "us").on(reads) }),
-          call((c) => {
-            const context = {
-              input: c.args,
-              controls: c.values,
-              model: c.model,
-              operation: c.operation,
-            };
-            record("tenant-request", context);
-            c.set({});
-          }, extTarget(models))
+          call(
+            (c) => record("tenant-request", c.args, c.values),
+            extTarget(models)
+          )
         )
       )
       .$extends(
         extension(
           "bystander",
-          call((c) => {
-            const context = {
-              input: c.args,
-              controls: c.values,
-              model: c.model,
-              operation: c.operation,
-            };
-            record("bystander-request", context);
-            c.set({});
-          }, extTarget(models)),
+          call(
+            (c) => record("bystander-request", c.args, c.values),
+            extTarget(models)
+          ),
           around((c) => (run) => {
-            const context = {
-              proceed: run,
-              input: run.input,
-              mode: run.mode,
-              kind: c.kind,
-              model: c.model,
-              operation: c.operation,
-              controls: c.values,
-              onWriteOutcome: (listener) => settled(c, listener),
-            };
-            record("bystander-query", context);
-            return context.proceed();
+            record("bystander-query", run.input, c.values);
+            return run();
           })
         )
       );
@@ -488,7 +442,10 @@ describe("controls: admission and ownership", () => {
     expect(outside).toBeInstanceOf(ValidationError);
     if (!(outside instanceof ValidationError)) throw outside;
     expect(outside.issues).toEqual([
-      { path: "region", message: 'Control "region" must be one of "eu", "us"' },
+      {
+        path: "region",
+        message: 'Argument "region" must be one of "eu", "us"',
+      },
     ]);
     expect(outside.operation).toBe("findMany");
   });
@@ -518,7 +475,7 @@ describe("controls: admission and ownership", () => {
     expect(invalid).toBeInstanceOf(ValidationError);
     if (!(invalid instanceof ValidationError)) throw invalid;
     expect(invalid.issues).toEqual([
-      { path: "reason", message: 'Control "reason" too short' },
+      { path: "reason", message: 'Argument "reason" too short' },
     ]);
 
     const cases: ReadonlyArray<
@@ -573,7 +530,7 @@ describe("controls: admission and ownership", () => {
     expect(invalid).toBeInstanceOf(ValidationError);
     if (!(invalid instanceof ValidationError)) throw invalid;
     expect(invalid.issues).toEqual([
-      { path: "reason", message: 'Control "reason" is not why' },
+      { path: "reason", message: 'Argument "reason" is not why' },
     ]);
   });
 
@@ -729,11 +686,15 @@ describe("controls: a defined extension", () => {
 });
 
 describe("controls: placement", () => {
-  // Plan §2.3: each removeWhen control is placed only on its own managed
-  // model's deletes, whichever extension declares it and in either order.
+  const DELETES = ["delete", "deleteMany"] as const;
+  // Each kept-rows argument is placed where its own declaration says, on its
+  // own managed model's deletes, whichever extension declares it and in
+  // either order: what a `keep` reads does not move it.
   const managing = {
     name: "managing",
-    controls: { mode: { oneOf: ["soft", "hard"] } },
+    controls: {
+      mode: { oneOf: ["soft", "hard"], on: DELETES, models: ["post"] },
+    },
     deletion: {
       removeWhen: { mode: "hard" },
       models: { post: { at: "deletedAt" } },
@@ -741,7 +702,9 @@ describe("controls: placement", () => {
   } as const;
   const purging = {
     name: "purging",
-    controls: { purge: { oneOf: ["no", "yes"] } },
+    controls: {
+      purge: { oneOf: ["no", "yes"], on: DELETES, models: ["user"] },
+    },
     deletion: {
       removeWhen: { purge: "yes" },
       models: { user: { at: "removedAt" } },
@@ -795,10 +758,10 @@ describe("controls: placement", () => {
 
 describe("controls: required", () => {
   const REQUIRED = [
-    { path: "tenant", message: 'Control "tenant" is required' },
+    { path: "tenant", message: 'Argument "tenant" is required' },
   ];
 
-  test("an extension that names no model asks for a required control on every model: a call that does not pass it is refused at its path on every operation it is placed on, before it writes; passed, it is admitted", async () => {
+  test("a required control is asked for on every model that accepts it: a call that does not pass it is refused at its path on every operation it is placed on, before it writes; passed, it is admitted", async () => {
     const base = await seededBase();
     const db = base.$extends(
       extension("tenant", extArgs({ tenant: oneOf("acme").required() }))
@@ -891,7 +854,7 @@ describe("controls: required", () => {
       })
     );
     expect((unmoded as ValidationError).issues).toEqual([
-      { path: "mode", message: 'Control "mode" is required' },
+      { path: "mode", message: 'Argument "mode" is required' },
     ]);
   });
 
@@ -922,7 +885,7 @@ describe("controls: required", () => {
       expect(
         await issues(callUnchecked(db, "note", operation, {})),
         operation
-      ).toEqual([{ path: "tenant", message: 'Control "tenant" is required' }]);
+      ).toEqual([{ path: "tenant", message: 'Argument "tenant" is required' }]);
     }
     expect(
       await issues(
@@ -931,7 +894,7 @@ describe("controls: required", () => {
           tenant: "acme",
         })
       )
-    ).toEqual([{ path: "actor", message: 'Control "actor" is required' }]);
+    ).toEqual([{ path: "actor", message: 'Argument "actor" is required' }]);
     await expect(
       db.note.create({
         data: { id: "n1", body: "x" },
@@ -1016,7 +979,7 @@ describe("controls: required", () => {
     );
     const refused = await failure(callUnchecked(db, "note", "findMany", {}));
     expect((refused as ValidationError).issues).toEqual([
-      { path: "tenant", message: 'Control "tenant" is required' },
+      { path: "tenant", message: 'Argument "tenant" is required' },
     ]);
     await expect(
       db.note.findMany({ tenant: "acme", select: { id: true } })
@@ -1121,7 +1084,7 @@ describe("controls: rows bound to the call", () => {
           })
         )
       )
-    ).toThrow('references undeclared control "x"');
+    ).toThrow('references undeclared argument "x"');
   });
 
   test("a remembered domain holds its own copy of the values it was bound from: a Date or an array the caller mutates after its call never reaches a later call with equal values (F1)", async () => {

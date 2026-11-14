@@ -14,9 +14,9 @@ import type {
   EmptyFacts,
   Extension,
   Facts,
+  StampedFields,
   Target,
 } from "@extensions/contract";
-import type { StampedFields } from "@extensions/controls";
 import { railOf } from "@extensions/coordination";
 import { isAppliedExtension } from "@extensions/extension";
 import type {

@@ -28,8 +28,9 @@ extension of your own can omit fields the same way.
 
 A chain applies `defaultOmit()` once: its name is fixed
 (`viborm.defaultOmit`) and an extension's name is unique in a chain, so a
-second `defaultOmit()` is refused with a `ClientInitializationError` that says
-what to do instead. Give the one application every field to leave out. The omissions of different extensions
+second `defaultOmit()` is refused with a `ClientInitializationError`, as any
+extension applied twice is. Give the one application every field to leave
+out. The omissions of different extensions
 add up per model: an extension of your own that omits a field with
 `defaults({ model: { fields: { field: omitted } } })` adds it to the fields
 `defaultOmit()` leaves out.

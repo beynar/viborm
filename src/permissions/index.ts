@@ -9,10 +9,10 @@
 // what the types check is the declaration's names: models, fields and actions
 // against the schema and each other, actor paths against the actor schema.
 
+import type { Operations } from "../client/exports";
 import { ForbiddenError } from "../errors";
 import { args, bound, oneOf } from "../extensions/args";
 import { call } from "../extensions/call";
-import type { DefinitionControls } from "../extensions/controls";
 import { extension } from "../extensions/extension";
 import { lazy } from "../extensions/judge-words";
 import { methods } from "../extensions/methods-part";
@@ -25,13 +25,13 @@ import type {
   EmptyFacts,
   Extension,
   Facts,
+  PlacedControl,
   Target,
   VibORMConfig,
 } from "../index";
 import type { InferOutput } from "../validation";
 import { type ActorFacts, type ActorPaths, actorContract } from "./actor";
 import {
-  type CompiledModel,
   type CompiledPolicy,
   compilePolicy,
   DEFAULT_MODE,
@@ -345,7 +345,9 @@ type GatedOf<M> = M extends { readonly fields: infer F }
  * read-gated fields (the gated default omit). The predicates stay opaque.
  */
 type ModelVerbs<Config extends PermissionsConfig, K extends Listed<Config>> = {
-  readonly predicates: CompiledModel["predicates"];
+  readonly predicates: {
+    readonly [name: string]: { readonly [field: string]: unknown };
+  };
 } & ([ActionOf<Config, K>] extends [never]
   ? unknown
   : {
@@ -362,22 +364,18 @@ type ModelVerbs<Config extends PermissionsConfig, K extends Listed<Config>> = {
         };
       });
 
-/** The policy's two bound arguments, as the delegates read them. */
-type PolicyControls<Config extends PermissionsConfig> = DefinitionControls<{
-  readonly controls: {
-    readonly actor: { readonly schema: Config["actor"]; readonly bound: true };
-    readonly scopes: { readonly schema: ScopeSchema; readonly bound: true };
-  };
-  readonly rows: {
-    readonly control: typeof MODE;
-    readonly default: typeof DEFAULT_MODE;
-    readonly models: {
-      readonly [K in Listed<Config>]: {
-        readonly [Mode in ModeOf<Config>]: object;
-      };
-    };
-  };
-}>;
+/**
+ * The policy's arguments as the delegates read them: its mode, on every
+ * operation that selects rows. `actor` and `scopes` are bound: no call
+ * passes them.
+ */
+type PolicyControls<Config extends PermissionsConfig> = {
+  readonly [MODE]: PlacedControl<
+    ModeOf<Config>,
+    PropertyKey,
+    Exclude<Operations, "create" | "createMany">
+  >;
+};
 
 /**
  * What applying the policy adds: its arguments, every model of the client
@@ -766,8 +764,9 @@ export function permissions<const Config extends PermissionsConfig>(
     // R9, D3: a call the policy cannot reach is refused before its
     // arguments are validated.
     call((c) => {
-      if (c.kind !== "model") return;
-      const at = applied.get(c.schema)?.reach.get(c.model);
+      // target(models) selects model calls only: each names its model.
+      const model = c.model!;
+      const at = applied.get(c.schema)?.reach.get(model);
       const mode: unknown = c.values[MODE];
       if (
         !(
@@ -776,7 +775,7 @@ export function permissions<const Config extends PermissionsConfig>(
         ) ||
         (typeof mode === "string" && !at.modes.has(mode))
       )
-        throw new ForbiddenError(c.model, c.operation);
+        throw new ForbiddenError(model, c.operation);
     }, target(everyOperation)),
     methods(
       (scope: {

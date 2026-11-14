@@ -264,8 +264,6 @@ class Kept extends CarriedValue {
       else at = field;
     }
     const deletion = (draft.deletion ??= { models: {} });
-    if (test !== undefined)
-      (deletion.removeWhen ??= {})[test.parameter.control!] = true;
     deletion.models[model] = {
       ...(at !== undefined && { at }),
       assign,

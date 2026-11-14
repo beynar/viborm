@@ -29,8 +29,9 @@ import {
   retainWriteOutcomeFailure,
   VibORMErrorCode,
 } from "@errors";
-import type { ResolvedExtensionHandler } from "@extensions/chain";
+import type { CallOrigin } from "@extensions/origin";
 import type {
+  AroundHandlers,
   QueryInterceptionMode,
   RawQueryKind,
   WriteOutcomeNotifications,
@@ -297,6 +298,10 @@ type CapturedRawQuery =
       readonly values: readonly unknown[];
     };
 
+/**
+ * A statement once resolved: also the one object an `around` part's two
+ * moments of it are handed.
+ */
 type ResolvedRawQuery = (
   | { readonly kind: "fragment"; readonly query: Sql }
   | {
@@ -304,15 +309,15 @@ type ResolvedRawQuery = (
       readonly sql: string;
       readonly params: readonly unknown[];
     }
-) & {
-  /** Its input, once snapshotted (`inputOf`). */
-  input?: Readonly<Record<string, unknown>>;
-};
+) &
+  CallOrigin & {
+    /** Its input, once snapshotted (`inputOf`). */
+    input?: Readonly<Record<string, unknown>>;
+  };
 
 /**
  * A resolved statement's input, snapshotted once: what its first moments and
- * its query handlers read, and the one object an `around` part's two moments
- * of it are handed.
+ * its query handlers read.
  */
 const inputOf = (query: ResolvedRawQuery): Readonly<Record<string, unknown>> =>
   (query.input ??= snapshotQueryInput(
@@ -378,7 +383,7 @@ class DeferredRawOperation<T>
   readonly #method: RawMethodName;
   readonly #captured: CapturedRawQuery;
   readonly #parse: (raw: QueryResult<RawRow<T>>) => T;
-  readonly #queryHandlers: readonly ResolvedExtensionHandler[] | undefined;
+  readonly #queryHandlers: AroundHandlers | undefined;
   #resolved: ResolvedRawQuery | undefined;
   #observationCommitCertainty: "committed" | "may-have-committed" | undefined;
 
@@ -499,12 +504,7 @@ class DeferredRawOperation<T>
     // `global`) see the statement once it is known, before anything sends
     // it: what they throw refuses it.
     const request = this.#engine.extensionChain?.request;
-    request?.apply(
-      this.#method,
-      inputOf(resolved),
-      request.global,
-      inputOf(resolved)
-    );
+    request?.apply(this.#method, inputOf(resolved), request.global, resolved);
     this.#resolved = resolved;
     return resolved;
   }
@@ -570,6 +570,7 @@ class DeferredRawOperation<T>
       model: undefined,
       operation: this.#method,
       input: inputOf(query),
+      call: query,
     });
   }
 

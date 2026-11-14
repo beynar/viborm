@@ -60,7 +60,18 @@ export function draftOf(
 ): VerbsDraft | undefined {
   let verbs: VerbsDraft | undefined;
   const read = own(own(entry).read);
-  const join = (value: unknown, key: string, field?: string): void => {
+  /**
+   * Each word of `value`, at `key`, joined where it stands; anything else in
+   * a word's place refused. A container (`create`, `update`, `delete`,
+   * `update.fields` and each field of it, `read.fields`, `read.select`)
+   * holds the places.
+   */
+  const join = (
+    value: unknown,
+    key: string,
+    field?: string,
+    container = false
+  ): void => {
     if (value === undefined) return;
     if (value instanceof CarriedValue)
       return value.join({
@@ -75,14 +86,21 @@ export function draftOf(
         verbs: () => (verbs ??= {}),
         refuse,
       });
-    if (!isPlain(value))
+    if (!(container && isPlain(value)))
       refuse(
-        `${key} is written ${key.endsWith("where") ? "only(where)" : "with a word"}`
+        container
+          ? `${key} is ${field === undefined ? "an object" : "{ where?, check? }"}`
+          : `${key} is written ${key.endsWith("where") ? "only(where)" : "with a word"}`
       );
     // `fields` and `select` name a field, which every word below them reads.
     const names = key.endsWith("fields") || key.endsWith("select");
     for (const [name, item] of Object.entries(value))
-      join(item, `${key}.${name}`, names ? name : field);
+      join(
+        item,
+        `${key}.${name}`,
+        names ? name : field,
+        key === "update.fields" || name === "fields"
+      );
   };
   // `lazy(() => entry)`: it brings what reads the entry later.
   if (entry instanceof CarriedValue) {
@@ -98,9 +116,10 @@ export function draftOf(
   for (const key of Object.keys(entry))
     if (!RULE_KEYS.has(key)) refuse(`"${key}" is not a rule key`);
   if (lazy && read.where !== undefined) (verbs ??= {}).read = read.where;
-  join(read.fields, "read.fields");
-  join(read.select, "read.select");
-  for (const key of ["create", "update", "delete"]) join(entry[key], key);
+  join(read.fields, "read.fields", undefined, true);
+  join(read.select, "read.select", undefined, true);
+  for (const key of ["create", "update", "delete"])
+    join(entry[key], key, undefined, true);
   const { acyclic } = entry;
   if (acyclic !== undefined) {
     if (!(Array.isArray(acyclic) || typeof acyclic === "function"))
