@@ -346,7 +346,6 @@ type ModelVerbs<Config extends PermissionsConfig, K extends Listed<Config>> = {
       readonly evidence: {
         readonly as: typeof EVIDENCE_KEY;
         readonly names: readonly ActionOf<Config, K>[];
-        readonly ordered: false;
       };
     }) &
   ([GatedOf<Config["models"][K]>] extends [never]

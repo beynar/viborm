@@ -4,6 +4,7 @@
  * with, and what an upsert says of a row it located. Made by what reads the
  * verbs (`verbs.ts`), only for a domain whose models declare verbs.
  */
+import { JUDGED } from "@adapters/judged";
 import { ForbiddenError } from "@errors";
 import {
   NO_RELATIONS,
@@ -11,13 +12,20 @@ import {
 } from "@query-engine/raptor3/shared/query";
 import type {
   LazyRelations,
+  ModelVerbs,
   RowJudgement,
 } from "@query-engine/raptor3/shared/row-scope";
 import { type Input, memo } from "@query-engine/raptor3/shared/schema";
+import type { SqlOperationContext } from "@query-engine/raptor3/shared/sql-operation-context";
+import type { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
+import { nameOf, unsupported } from "@query-engine/raptor3/shared/terms";
+import type { Question } from "@query-engine/raptor3/write/statements";
+import type { PreparedGuardFailure } from "@query-engine/types";
 import type { AnyModel } from "@schema/model";
+import type { Sql } from "@sql";
 import { producedSource, producedWhere } from "./produced";
 import { readsAny } from "./reads";
-import { type PreparedDomain, verbInputs } from "./row-domain";
+import type { PreparedDomain } from "./row-domain";
 
 export class Judge {
   readonly #domain: PreparedDomain;
@@ -25,9 +33,134 @@ export class Judge {
   constructor(domain: PreparedDomain) {
     this.#domain = domain;
   }
-  /** The row a write would leave, judged in the statement that writes it. */
-  readonly producedSource = producedSource;
-  readonly producedWhere = producedWhere;
+  /** The verb predicates one layer's `judgement` takes, each once. */
+  inputs(verbs: ModelVerbs, judgement: RowJudgement): Input[] {
+    if (judgement.verb === "delete") return [verbs.delete];
+    if (judgement.writes.length === 0) return [verbs.update];
+    return [
+      ...new Set([
+        ...judgement.writes.map(
+          (field) => verbs.writes.get(field) ?? verbs.update
+        ),
+        ...(judgement.marks ? [verbs.delete] : []),
+      ]),
+    ];
+  }
+  /**
+   * The values the judgement of a created row of `model` binds, beside the
+   * rows a statement inserts: what a chunk of them leaves of the driver's
+   * bind budget.
+   */
+  binds(q: SqlQueries, model: AnyModel): number {
+    const placed = this.produced(model);
+    return (placed && q.lowerSelector(placed)?.values.length) ?? 0;
+  }
+  /**
+   * The SELECT an INSERT of `rows` of `model` reads its values from, where
+   * the rows it creates are judged, and what the statement says when one is
+   * refused, in the name of `relation` where they are created through one.
+   */
+  inserted(
+    q: SqlQueries,
+    operation: SqlOperationContext,
+    model: AnyModel,
+    fields: readonly string[],
+    rows: readonly Input[],
+    relation?: string
+  ): { readonly probe: Sql; readonly stops: PreparedGuardFailure } | undefined {
+    const placed = this.produced(model);
+    if (placed === undefined) return undefined;
+    // A row of defaults only has no value to judge before it is written.
+    if (fields.length === 0)
+      unsupported(
+        `Cannot create a '${nameOf(model)}' row that writes no field: its placement is judged on the values it writes.`
+      );
+    const probe = producedSource(
+      q,
+      JUDGED[operation.driver.dialect]!,
+      model,
+      fields,
+      rows,
+      placed
+    );
+    return (
+      probe && {
+        probe,
+        stops: this.refusal(
+          operation.operation,
+          model,
+          undefined,
+          "create",
+          relation
+        ),
+      }
+    );
+  }
+  /**
+   * The WHERE of an update of the rows `question` names (`candidates`, at
+   * the alias it is handed) assigning `values`, where the rows it leaves are
+   * judged at `judgement`, and what the statement says when one is refused.
+   */
+  updated(
+    q: SqlQueries,
+    operation: SqlOperationContext,
+    question: Question,
+    candidates: (alias: string) => Sql | undefined,
+    values: Input,
+    judgement: RowJudgement,
+    limit?: number
+  ): { readonly where: Sql; readonly stops: PreparedGuardFailure } | undefined {
+    const { model } = question;
+    const where = producedWhere(
+      q,
+      JUDGED[operation.driver.dialect]!,
+      model,
+      candidates,
+      values,
+      this.produced(model, judgement, Object.keys(values)),
+      this.cycles(model, judgement),
+      limit
+    );
+    return (
+      where && {
+        where,
+        stops: this.refusal(
+          operation.operation,
+          model,
+          judgement,
+          question.verb,
+          (question.member?.edge ?? question.through)?.name
+        ),
+      }
+    );
+  }
+  /**
+   * What a write of `operation` says when the row it would leave is refused:
+   * the `verb` it is written with through `relation`, where it is nested;
+   * else why, where it writes a field some layer `moves` judges again.
+   */
+  refusal(
+    operation: string,
+    model: AnyModel,
+    judgement?: RowJudgement,
+    verb?: string,
+    relation?: string
+  ): PreparedGuardFailure {
+    if (verb && relation)
+      return {
+        kind: "nestedWrite",
+        relation,
+        message: `Cannot ${verb} relation '${relation}': the record it writes is not permitted.`,
+        raceable: false,
+      };
+    const forbidden: PreparedGuardFailure = {
+      kind: "forbidden",
+      message: `${operation} produced a row that is not permitted.`,
+      raceable: false,
+    };
+    const reason = judgement && this.#reason(model, judgement);
+    return reason === undefined ? forbidden : { ...forbidden, reason };
+  }
   /**
    * What an upsert says when it located no row and its create is refused
    * for the key it named: where no row of the model may be updated at all,
@@ -52,26 +185,17 @@ export class Judge {
       : undefined;
   }
   /**
-   * Why the row an update judged at `judgement` would leave is refused,
-   * where it writes a field some layer `moves` judges again; `undefined`
-   * where it says nothing more than that the row is not permitted.
+   * Why the row an update judged at `judgement` would leave is refused: the
+   * fields it writes that some layer `moves` judges again (a relation's
+   * write names its key fields); `undefined` where it says nothing more
+   * than that the row is not permitted.
    */
-  reason(model: AnyModel, judgement: RowJudgement): string | undefined {
+  #reason(model: AnyModel, judgement: RowJudgement): string | undefined {
     const layers = this.#domain.rows.verbs?.get(model["~"].names.ts!);
-    if (layers === undefined) return undefined;
     const moved = judgement.writes.filter((field) =>
-      layers.some((layer) => layer?.moves.has(field) === true)
+      layers?.some((layer) => layer?.moves.has(field))
     );
-    if (moved.length === 0) return undefined;
-    const relations = model["~"].state.relations;
-    const through = judgement.writes.filter(
-      (field) =>
-        Object.hasOwn(relations, field) &&
-        relations[field]!["~"].state.foreignKey?.fields.some((key) =>
-          moved.includes(key)
-        ) === true
-    );
-    return `the row it would leave, judged again because it writes ${moved.join(", ")}${through.length > 0 ? ` (through ${through.join(", ")})` : ""}, is refused`;
+    return moved.length === 0 ? undefined : `it writes ${moved.join(", ")}`;
   }
   /**
    * What the row a write of `model` produces is judged at, as a value,
@@ -109,7 +233,7 @@ export class Judge {
           // assigns nothing it reads: then the new row's answer is the old
           // row's, which the statement's own candidates already state.
           const checked = judgement
-            ? [own.read, ...verbInputs(own, judgement)]
+            ? [own.read, ...this.inputs(own, judgement)]
             : [];
           const unchanged =
             changed !== undefined &&

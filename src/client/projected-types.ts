@@ -64,15 +64,7 @@ type DeclaredEvidence<Entry> = Entry extends {
     readonly names: readonly (infer Names extends string)[];
   };
 }
-  ? {
-      readonly key: Key;
-      readonly names: Names;
-      readonly ordered: Entry extends {
-        readonly evidence: { readonly ordered: true };
-      }
-        ? true
-        : false;
-    }
+  ? { readonly key: Key; readonly names: Names }
   : never;
 
 type EvidenceModels<C extends VibORMConfig, Verbs> = {
@@ -239,15 +231,10 @@ type Spelled<Node> = (NodeSelect<Node> extends object
 /** What the key reads for `Entry` where the node asked for `Asked`. */
 type KeyResult<Entry, Asked> = Entry extends {
   readonly names: infer Names extends string;
-  readonly ordered: infer Ordered extends boolean;
 }
   ? Asked extends readonly (infer Some extends string)[]
-    ? Ordered extends true
-      ? Some | null
-      : { readonly [Name in Some]: boolean }
-    : Ordered extends true
-      ? Names | null
-      : { readonly [Name in Names]: boolean }
+    ? { readonly [Name in Some]: boolean }
+    : { readonly [Name in Names]: boolean }
   : never;
 
 type KeyMember<

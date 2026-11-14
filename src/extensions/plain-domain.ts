@@ -17,34 +17,11 @@ import type {
   RowDomain,
 } from "@query-engine/raptor3/shared/row-scope";
 import { type Input, memo } from "@query-engine/raptor3/shared/schema";
-import type { PreparedGuardFailure } from "@query-engine/types";
 import type { AnyModel } from "@schema/model";
 import type { CallRowsBinding, ResolvedExtensionChain } from "./chain-state";
 import type { AdmittedControls } from "./controls";
 import type { PreparedDomain } from "./row-domain";
 import type { Stamps } from "./stamps";
-
-/**
- * What a write of `operation` says when the row it would leave is refused:
- * `nested`, the verb and the relation it is written through.
- */
-export function writeRefusal(
-  operation: string,
-  nested?: readonly [verb: string, relation: string]
-): PreparedGuardFailure {
-  return nested
-    ? {
-        kind: "nestedWrite",
-        relation: nested[1],
-        message: `Cannot ${nested[0]} relation '${nested[1]}': the record it writes is not permitted.`,
-        raceable: false,
-      }
-    : {
-        kind: "forbidden",
-        message: `${operation} produced a row that is not permitted.`,
-        raceable: false,
-      };
-}
 
 /**
  * A domain with no layer, prepared for one engine view: it restricts no row,
@@ -80,14 +57,6 @@ export class PlainDomain implements PreparedDomain {
   }
   restrictsLinkWrite(): boolean {
     return false;
-  }
-  refusal(
-    operation: string,
-    _model: AnyModel,
-    _judgement?: unknown,
-    nested?: readonly [verb: string, relation: string]
-  ): PreparedGuardFailure {
-    return writeRefusal(operation, nested);
   }
   refuseHiddenLinkRow(): void {
     // No row is hidden and no field gated: every link reads as it is.

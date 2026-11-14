@@ -133,16 +133,16 @@ is the one answer to "what is the row this write produces judged at":
 records it) and its written fields' `moves`; nothing for a delete, a
 tombstone or a model without verbs, whose statements keep their bytes. The
 row is judged as a VALUE, against the rows before the write, inside the
-statement that writes it, and a refused row raises the adapter's
-`assertions.holds` there, before any row is written and before any
-constraint. An INSERT (`OperationContext.#insertStatement`, every create
+statement that writes it, and a refused row raises the dialect's
+`holds` (`src/adapters/judged.ts`) there, before any row is written and
+before any constraint. An INSERT (`OperationContext.#insertStatement`, every create
 site: root, `createMany` chunks, nested, `connectOrCreate`, upsert arms)
 reads its rows from `Queries.producedSource`: one FROM item of the values,
 typed by the model's own columns (an empty read of the table, so a bound
 value is never PostgreSQL's untyped text), each row kept where its `holds`
 is 1; one statement's rows never see each other (`INSERT … SELECT`
 materializes its source). How the rows follow the typed read is the
-adapter's (`setOperations.typedRows`, ENG-3, review 2): one `UNION ALL
+dialect's (`typedRows`, ENG-3, review 2): one `UNION ALL
 SELECT` arm per row on MySQL, one `VALUES` list after the head on SQLite
 (the compound limit, 500 terms, does not count it), one `VALUES` list typed
 by its first row (`COALESCE` with a NULL of the table's row type) on
@@ -325,8 +325,7 @@ into a `select` naming every scalar. The walk includes singular variant arms
 and collection `variants`, resolving each target from the shared membership
 index and retaining its exact projection path; variant tags never name a
 second evidence or field-gating contract. `prepareProjection` lowers a key as the
-`evidence` field (a document of booleans, or `ordered`, the last name that
-holds) and a gated field beside one `gate` member per distinct gate
+`evidence` field (a document of booleans) and a gated field beside one `gate` member per distinct gate
 (`0viborm_gate:<n>`, never published); a projection the engine reads for
 itself is `internal` and carries neither, and an internal decode reads every
 member it asked for. The decoder (`#compileGatedDocument`) writes a gated

@@ -20,19 +20,19 @@ import {
 import type {
   CallRows,
   CallScope,
-  ModelVerbs,
   RowDomain,
   RowJudgement,
   RowPurpose,
 } from "@query-engine/raptor3/shared/row-scope";
 import { type Input, memo } from "@query-engine/raptor3/shared/schema";
 import type { Membership } from "@query-engine/raptor3/shared/storage";
-import type { PreparedGuardFailure } from "@query-engine/types";
 import type { AnyModel } from "@schema/model";
 import type { Judge } from "./judge";
 import { layerOf } from "./layers";
-import { writeRefusal } from "./plain-domain";
 import type { Projection } from "./projection";
+
+/** A domain no member confines bounds no set. */
+const unbounded = (): undefined => undefined;
 
 /**
  * What the engine and what judges or projects rows ask a call's prepared
@@ -68,12 +68,6 @@ export interface PreparedDomain {
     excluded: readonly number[]
   ): PreparedSelector | undefined;
   restrictsLinkWrite(queries: Queries, model: AnyModel): boolean;
-  refusal(
-    operation: string,
-    model: AnyModel,
-    judgement?: RowJudgement,
-    nested?: readonly [verb: string, relation: string]
-  ): PreparedGuardFailure;
   refuseHiddenLinkRow(
     queries: Queries,
     edge: Membership,
@@ -101,9 +95,14 @@ export class FilterDomain implements PreparedDomain {
     related: new Map<string, PreparedSelector | null>(),
   };
   readonly #inputs = new Map<Input, PreparedSelector>();
-  readonly #bounds = new Map<string, PreparedSelector | null>();
+  /** What judges the rows a write produces: where some model's verbs judge them. */
   readonly judge: Judge | undefined;
   readonly project: Projection | undefined;
+  /**
+   * What an `excluded` layer states its own whole-table sets of a model hold
+   * (`rows.confine`): nothing where no member confines one.
+   */
+  readonly bound: ReturnType<NonNullable<RowDomain["bound"]>>;
   #view: Queries | undefined;
   constructor(rows: RowDomain, queries: Queries, defaults?: FilterDomain) {
     this.rows = rows;
@@ -111,6 +110,7 @@ export class FilterDomain implements PreparedDomain {
     this.defaults = defaults ?? this;
     this.judge = rows.judge?.(this);
     this.project = rows.project?.(this);
+    this.bound = rows.bound?.(this) ?? unbounded;
   }
   /** `input`, one of `model`'s predicates, prepared once for this domain. */
   prepare(model: AnyModel, input: Input): PreparedSelector {
@@ -194,41 +194,13 @@ export class FilterDomain implements PreparedDomain {
             [
               ...(own ? [own.read] : []),
               ...(where === undefined ? [] : [where]),
-              ...(own && judged ? verbInputs(own, judged) : []),
+              ...(own && judged ? this.judge!.inputs(own, judged) : []),
             ],
           ]);
         }
         return this.conjunction(model, layers);
       });
     return prepared ?? undefined;
-  }
-  /**
-   * What an `excluded` layer states its own whole-table sets of `model` hold
-   * (`rows.confine`): inside its own predicates a layer reads nothing of
-   * itself, but a set the statement computes over a whole table (a shared
-   * body, a reaching set) still holds only what it bounds. `undefined` where
-   * none states one.
-   */
-  bound(
-    model: AnyModel,
-    excluded: readonly number[]
-  ): PreparedSelector | undefined {
-    const name = model["~"].names.ts!;
-    const inputs = this.rows.confine?.get(name);
-    if (inputs === undefined) return undefined;
-    // Every excluded layer's: each only narrows, and one left out would let
-    // another's widen what it bounds.
-    return (
-      memo(this.#bounds, `${name} ${excluded}`, () =>
-        this.conjunction(
-          model,
-          excluded.map((layer) => {
-            const input = inputs[layer];
-            return [layer, input === undefined ? [] : [input]] as const;
-          })
-        )
-      ) ?? undefined
-    );
   }
   /** Whether a call's `purpose` domain of `model` can leave a row out. */
   #hidesRows(queries: Queries, model: AnyModel, purpose: RowPurpose): boolean {
@@ -258,22 +230,6 @@ export class FilterDomain implements PreparedDomain {
     );
   }
   /**
-   * What a write of `operation` says when the row it would leave is refused:
-   * `nested`, the verb and the relation it is written through. What judges
-   * the rows a write produces may say why ({@link Judge.reason}).
-   */
-  refusal(
-    operation: string,
-    model: AnyModel,
-    judgement?: RowJudgement,
-    nested?: readonly [verb: string, relation: string]
-  ): PreparedGuardFailure {
-    const failure = writeRefusal(operation, nested);
-    const reason =
-      nested === undefined && judgement && this.judge?.reason(model, judgement);
-    return reason ? { ...failure, reason } : failure;
-  }
-  /**
    * What a direct read of the junction model would hide stays hidden from a
    * `$through` that reads it, or that tests it, which is the same disclosure one
    * row at a time. Not honoured in the statement: a target row the hop reached
@@ -296,31 +252,9 @@ export class FilterDomain implements PreparedDomain {
       throw new UnsupportedOperationError(
         `Cannot ${use} $through of relation '${edge.name}': this client restricts which '${name}' rows a call may read. Read the links through the '${name}' delegate.`
       );
-    const gates = queries.domain?.project?.projected(model)?.gates;
-    const gated = gates && fields.find((field) => gates.has(field));
-    if (gated !== undefined)
-      throw new UnsupportedOperationError(
-        `Cannot ${use} $through.${gated} of relation '${edge.name}': this client gates that field of '${name}'. Read it through the '${name}' delegate.`
-      );
+    this.project?.refuseGatedLink(edge, model, fields, use);
   }
 }
-/** The verb predicates one layer's `judgement` takes, each once. */
-export function verbInputs(
-  verbs: ModelVerbs,
-  judgement: RowJudgement
-): Input[] {
-  if (judgement.verb === "delete") return [verbs.delete];
-  if (judgement.writes.length === 0) return [verbs.update];
-  return [
-    ...new Set([
-      ...judgement.writes.map(
-        (field) => verbs.writes.get(field) ?? verbs.update
-      ),
-      ...(judgement.marks ? [verbs.delete] : []),
-    ]),
-  ];
-}
-
 /**
  * Each row domain a call selects, prepared once per query owner. A prepared
  * domain derives only from the domain, that owner (its adapter and result

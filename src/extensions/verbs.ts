@@ -6,18 +6,22 @@
  * its admission leaves in the admitted declaration (`bind`).
  */
 import { ClientInitializationError } from "@errors";
-import { NO_RELATIONS } from "@query-engine/raptor3/shared/query";
+import {
+  NO_RELATIONS,
+  type PreparedSelector,
+} from "@query-engine/raptor3/shared/query";
 import type {
   LazyRelations,
   ModelVerbs,
 } from "@query-engine/raptor3/shared/row-scope";
 import { type Input, memo } from "@query-engine/raptor3/shared/schema";
-import type { ModelState } from "@schema/model";
+import type { AnyModel, ModelState } from "@schema/model";
 import { isPlainRecord } from "@schema/relation/terminal";
 import type { PredicateAdmission, References, VerbsBinder } from "./admission";
 import type { RowsContribution, RowsVerbs } from "./controls";
 import { Judge } from "./judge";
 import { Projection } from "./projection";
+import type { PreparedDomain } from "./row-domain";
 
 type Verbs = NonNullable<RowsContribution["verbs"]>;
 
@@ -297,7 +301,6 @@ function layerVerbs(entry: RowsVerbs): ModelVerbs {
             Object.freeze([name, of(name)] as const)
           )
         ),
-        ordered: entry.evidence.ordered === true,
       }),
     }),
     reads: fields(entry.reads),
@@ -392,7 +395,7 @@ const bindVerbs: VerbsBinder = (members, controls) => {
   );
   return {
     ...(verbs && { verbs, judge: (domain) => new Judge(domain) }),
-    ...(confine.size > 0 && { confine }),
+    ...(confine.size > 0 && { confine, bound }),
     // Whether a model may project: a lazy entry may, until it is read.
     ...(entries.some(
       (entry) =>
@@ -410,6 +413,38 @@ const bindVerbs: VerbsBinder = (members, controls) => {
     ),
   };
 };
+
+/**
+ * What an `excluded` layer states its own whole-table sets of a model hold
+ * (`rows.confine`), for one prepared domain: inside its own predicates a
+ * layer reads nothing of itself, but a set the statement computes over a
+ * whole table (a shared body, a reaching set) still holds only what it
+ * bounds. `undefined` where none states one.
+ */
+function bound(domain: PreparedDomain) {
+  const bounds = new Map<string, PreparedSelector | null>();
+  return (
+    model: AnyModel,
+    excluded: readonly number[]
+  ): PreparedSelector | undefined => {
+    const name = model["~"].names.ts!;
+    const inputs = domain.rows.confine?.get(name);
+    if (inputs === undefined) return undefined;
+    // Every excluded layer's: each only narrows, and one left out would let
+    // another's widen what it bounds.
+    return (
+      memo(bounds, `${name} ${excluded}`, () =>
+        domain.conjunction(
+          model,
+          excluded.map((layer) => {
+            const input = inputs[layer];
+            return [layer, input === undefined ? [] : [input]] as const;
+          })
+        )
+      ) ?? undefined
+    );
+  };
+}
 
 /** What admits and binds `verbs` and `confine`: brought by `verbsPart`. */
 export const VERBS = Object.freeze({
