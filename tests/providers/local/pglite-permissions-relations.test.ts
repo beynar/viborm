@@ -11,6 +11,7 @@
  */
 
 import { PGliteDriver } from "@drivers/pglite";
+import { extension, statement as extStatement, unit } from "@src/index";
 import { softDelete } from "@src/soft-delete/index";
 import {
   createPermissionsAppClient,
@@ -170,16 +171,24 @@ describe("PGlite: every $access read within Neki's 256 relations", () => {
     opened.push(base);
     await syncLiveSchema(base);
     await loadPermissionsSeed(base);
-    const recorded = base.$extends({
-      name: "statements",
-      statement(context) {
-        statements.push(context.statement.toStatement());
-        return context.statement;
-      },
-    });
-    return tombstones.methods(
-      policy.rows(tombstones.rows(recorded))
-    ) as unknown as Governed;
+    const recorded = base.$extends(
+      extension(
+        "statements",
+        unit(
+          (u, next) => {
+            const sent = extStatement(u);
+            if (sent === undefined) return next();
+            statements.push(sent.toStatement());
+            return next(sent);
+          },
+          ["statement"],
+          { rewrites: true }
+        )
+      )
+    );
+    return recorded
+      .$extends(tombstones)
+      .$extends(policy) as unknown as Governed;
   };
 
   beforeAll(async () => {

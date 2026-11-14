@@ -30,7 +30,7 @@ import type { AnyDriver } from "@drivers/driver";
 import { PgDriver } from "@drivers/pg";
 import { PGliteDriver } from "@drivers/pglite";
 import { PostgresDriver } from "@drivers/postgres";
-import { extension, text, unit } from "@src/index";
+import { extension, statement as extStatement, unit } from "@src/index";
 import { softDelete } from "@src/soft-delete/index";
 import { runDomainPredicateBehavior } from "@tests/contracts/engine/query/domain-predicate-behavior";
 import {
@@ -137,8 +137,10 @@ function governed(driver: AnyDriver, statements: string[] = []) {
       "statements",
       unit(
         (u, next) => {
-          statements.push(text(u) ?? "");
-          return next();
+          const sent = extStatement(u);
+          if (sent === undefined) return next();
+          statements.push(sent.toStatement());
+          return next(sent);
         },
         ["statement"],
         { rewrites: true }

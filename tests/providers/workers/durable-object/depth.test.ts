@@ -81,7 +81,7 @@ function governed(
   policy: Policy,
   client: Awaited<ReturnType<typeof workspace>>
 ) {
-  return policy(client).$as(owner);
+  return client.$extends(policy).$as(owner);
 }
 
 describe("Durable Object driver: expression depth", () => {

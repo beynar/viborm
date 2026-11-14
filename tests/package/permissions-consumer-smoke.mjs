@@ -112,8 +112,10 @@ function fixtureFiles() {
  */
 const acceptance = `import assert from "node:assert/strict";
 import {
+  arg,
   ClientInitializationError,
-  defineExtension,
+  defaults,
+  extension,
   ForbiddenError,
   NestedWriteError,
   NotFoundError,
@@ -183,10 +185,10 @@ const tombstones = softDelete({
 });
 // §1.1 stamps \`updatedBy\`; the fixture's document has no such column, so
 // the stamp writes \`searchKey\`, a string column (as W-C3 does).
-const audit = defineExtension({
-  name: "audit",
-  data: { models: { document: { update: { searchKey: { control: "actor", path: "userId" } } } } },
-});
+const audit = extension(
+  "audit",
+  defaults({ document: { update: { searchKey: arg("actor", "userId") } } })
+);
 
 const failures: string[] = [];
 let lines = 0;
@@ -235,13 +237,11 @@ const pick = (actor: Actor, model: GovernedModel, inside: string, outside?: stri
 const READERS = ["u01", "u03", "u04", "u05", "u20", "u22", "u42", "u56"];
 const KEYED = Object.keys(actors).filter((name) => actors[name]!.key !== undefined);
 
-const db: Loose = tombstones.methods(policy.rows(tombstones.rows(base)).$extends(audit));
+const db: Loose = base.$extends(tombstones).$extends(policy).$extends(audit);
 
-await line("each official extension is one step, in any order: policy(tombstones(base)) and tombstones(policy(base)) read what the steps apart read", async () => {
-  // Each its own binding: an array of the two would compare two whole client types.
-  const softFirst: Loose = policy(tombstones(base)).$extends(audit);
-  const policyFirst: Loose = tombstones(policy(base)).$extends(audit);
-  const oneStep: Loose[] = [softFirst, policyFirst];
+await line("each official extension is one step, in any order: base.$extends(policy).$extends(tombstones) reads what base.$extends(tombstones).$extends(policy) reads", async () => {
+  const policyFirst: Loose = base.$extends(policy).$extends(tombstones).$extends(audit);
+  const oneStep: Loose[] = [policyFirst];
   for (const name of READERS) {
     const actor = actors[name]!;
     const expected = ids(await db.$as(actor).page.findMany());

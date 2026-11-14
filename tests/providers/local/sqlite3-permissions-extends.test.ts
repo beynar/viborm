@@ -4,6 +4,7 @@ import { createClient } from "@drivers/sqlite3";
 import { ForbiddenError } from "@errors";
 import { s } from "@schema";
 import { createModelFieldRefs } from "@schema/field-ref";
+import { extension, methods } from "@src/index";
 import { permissions, type Rule } from "@src/permissions";
 import { softDelete } from "@src/soft-delete";
 import { v } from "@src/validation";
@@ -241,9 +242,7 @@ test("$extends applies Permissions with actor isolation and transactions", async
         })
       )
     ).toEqual({ $access: { update: true } });
-    const derived = alice.$extends((client) =>
-      client.$extends({ name: "after-policy" })
-    );
+    const derived = alice.$extends(extension("after-policy"));
     expect(await derived.post.findMany()).toEqual(await alice.post.findMany());
     const rollback = new Error("rollback governed transaction");
     await expect(
@@ -268,12 +267,14 @@ test("$extends applies Permissions with actor isolation and transactions", async
 
     // Rows may follow a method: its calls run through the whole chain. Only
     // TypeScript refuses it, after a factory typed against its client.
-    const consumer = base.$extends({
-      name: "consumer",
-      client: (scope) => ({
-        $ready: async () => (await scope.post.count()) > 0,
-      }),
-    });
+    const consumer = base.$extends(
+      extension(
+        "consumer",
+        methods((scope) => ({
+          $ready: async () => (await scope.post.count()) > 0,
+        }))
+      )
+    );
     const late = consumer.$extends(
       // @ts-expect-error - rows after a factory typed against its client
       permissions({
@@ -317,10 +318,7 @@ test("$extends composes soft-delete rows, Permissions and restore methods", asyn
         },
       },
     });
-    const db = base
-      .$extends(tombstones.rows)
-      .$extends(policy)
-      .$extends(tombstones.methods);
+    const db = base.$extends(tombstones).$extends(policy);
     const alice = db.$as({ userId: "alice" });
     await alice.post.delete({ where: { id: "a" } });
     expect(await alice.post.findMany()).toEqual([]);
