@@ -230,39 +230,6 @@ export type MergeAll<
 >;
 
 /**
- * Parts are positional, not a rest parameter: a rest parameter's contextual
- * type is an element of a type parameter that a nested call cannot read
- * while it infers from its expected result (measured: `call`'s handler falls
- * back to the widest client). Positional parameters also let each part see
- * the facts of the parts before it (`With`). The runtime takes any number;
- * the types take eight.
- */
-export type FreeExtension = <
-  T extends AnyTarget,
-  F1 extends AnyFacts = EmptyFacts,
-  F2 extends AnyFacts = EmptyFacts,
-  F3 extends AnyFacts = EmptyFacts,
-  F4 extends AnyFacts = EmptyFacts,
-  F5 extends AnyFacts = EmptyFacts,
-  F6 extends AnyFacts = EmptyFacts,
-  F7 extends AnyFacts = EmptyFacts,
-  F8 extends AnyFacts = EmptyFacts,
->(
-  name: string,
-  p1?: Part<T, F1>,
-  p2?: Part<With<T, F1>, F2>,
-  p3?: Part<With<With<T, F1>, F2>, F3>,
-  p4?: Part<With<With<With<T, F1>, F2>, F3>, F4>,
-  p5?: Part<With<With<With<With<T, F1>, F2>, F3>, F4>, F5>,
-  p6?: Part<With<With<With<With<With<T, F1>, F2>, F3>, F4>, F5>, F6>,
-  p7?: Part<With<With<With<With<With<With<T, F1>, F2>, F3>, F4>, F5>, F6>, F7>,
-  p8?: Part<
-    With<With<With<With<With<With<With<T, F1>, F2>, F3>, F4>, F5>, F6>, F7>,
-    F8
-  >
-) => Extension<T, MergeAll<F1, F2, F3, F4, F5, F6, F7, F8>>;
-
-/**
  * The same with the target fixed (`parts<Of>()`): not generic in it, so its
  * parts are checked against the bound client, never an inferred wider one.
  */
@@ -645,8 +612,16 @@ export type IsHeld<W> = unknown extends W
     ? true
     : false;
 
-/** A word's operand: the filter its rule's place expects, anything when held. */
-export type HeldOperand<W> = IsHeld<W> extends true ? unknown : NoInfer<W>;
+/**
+ * A word's operand: the filter its rule's place expects, anything when held.
+ * The filter stays the union's first member, never inside a conditional: a
+ * word written inside the operand (`{ ownerId: arg("user") }`) is typed by
+ * it while `W` is still being inferred.
+ */
+export type HeldOperand<W> = NoInfer<W> | HeldOnly<W>;
+
+/** What only a held word takes beside its filter: anything. */
+type HeldOnly<W> = IsHeld<W> extends true ? unknown : never;
 
 /** `now`: the call's one instant. */
 export interface NowWord {

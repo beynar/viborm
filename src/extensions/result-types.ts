@@ -153,16 +153,3 @@ export type ResultInference<
     Record<Exclude<keyof Fields, keyof ClientSchema<C> | "$allModels">, never>
   >;
 };
-
-/**
- * The `result` member of the definition envelope: which keys it holds. The
- * types of `needs` and `compute` are {@link ResultInference}'s.
- */
-export type ResultDefinition<C extends VibORMConfig> = {
-  readonly [ModelName in keyof ClientSchema<C> | "$allModels"]?: {
-    readonly [field: string]: {
-      readonly needs?: object;
-      readonly compute: unknown;
-    };
-  };
-};
