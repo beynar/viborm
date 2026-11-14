@@ -75,10 +75,11 @@ export function buildMethods(factory: (scope: never) => unknown): unknown {
       }
       return answer;
     };
-    draft.client = (scope: object) =>
+    const client = (scope: object) =>
       Object.fromEntries(
         Object.entries(run(scope)).filter(([key]) => key.startsWith("$"))
       );
+    draft.client = client;
     draft.model = Object.fromEntries(
       Object.keys(schema).map((model) => [
         model,
