@@ -20,10 +20,12 @@ import { MemoryCache } from "@cache/drivers/memory";
 import { cache } from "@cache/extension";
 import { createClient } from "@client/client";
 import { QueryError, ValidationError } from "@errors";
-import type { ResolvedDeletion } from "@extensions/chain";
-import { Kept } from "@extensions/kept";
+import { Kept, type ResolvedKept } from "@extensions/kept";
 import { bindRows } from "@extensions/rows";
-import { Parameter } from "@query-engine/raptor3/shared/row-scope";
+import {
+  Condition,
+  Parameter,
+} from "@query-engine/raptor3/shared/row-scope";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { s } from "@schema";
 import {
@@ -1227,7 +1229,7 @@ describe("controls: rows bound to the call", () => {
       tenancyRecipe(["post"]),
       scopedSchema
     ).rows!;
-    const kept = (entry: ResolvedDeletion) => new Kept([["post", entry]]);
+    const kept = (entry: ResolvedKept) => new Kept([["post", entry]]);
     const binding = bindRows({
       extensions: [],
       rows: [tenantRows!],
@@ -1241,14 +1243,19 @@ describe("controls: rows bound to the call", () => {
     const physical = bindRows({
       extensions: [],
       rows: [tenantRows!],
-      kept: kept({ ...deletion.post, removeWhen: { mode: "hard" } }),
+      // `keep(unless(arg("mode"), "hard", …))`: kept unless the test holds.
+      kept: kept({
+        ...deletion.post,
+        test: new Condition(new Parameter("mode"), { equals: "hard" }),
+        keeps: false,
+      }),
     });
     const removing = physical.call("post", { tenant: "acme", mode: "hard" });
     const tombstoning = physical.call("post", { tenant: "acme" });
     expect(removing.tombstones).toBeUndefined();
     expect(removing.domain).toBe(tombstoning.domain);
     expect(tombstoning.tombstones?.get("post")).toMatchObject({
-      removeWhen: { mode: "hard" },
+      at: "deletedAt",
     });
   });
 });

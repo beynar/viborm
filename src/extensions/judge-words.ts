@@ -7,6 +7,7 @@
  * is first read). Each carries what applies it, so a rule that only filters
  * holds none of it.
  */
+import { Condition, Parameter } from "@query-engine/raptor3/shared/row-scope";
 import type { ModelState } from "@schema/model";
 import { isPlainRecord } from "@schema/relation/terminal";
 import type { VerbsDraft } from "./admission";
@@ -25,7 +26,7 @@ import { keptRowsPart } from "./kept";
 import { layerOf } from "./layers";
 import { projectionOf, refuseSharedKeys } from "./projection";
 import { draftOf, listOf } from "./rule";
-import { CarriedValue, PredicateWord, type Site } from "./rule-words";
+import { CarriedValue, PredicateWord, type Site, testOf } from "./rule-words";
 import { NOW } from "./stamps";
 import { LAZY_ENTRIES, prepareJudged, VERBS, verbsOf } from "./verbs";
 
@@ -233,28 +234,20 @@ class Kept extends CarriedValue {
     if (lazy)
       refuse("keep() is written in an entry, not one given as a function");
     let data = this.data;
-    let removeWhen: Record<string, string | number | boolean> | undefined;
-    const tested = data instanceof PredicateWord ? data.tested?.() : undefined;
-    if (tested !== undefined) {
-      const { arg, test } = tested;
-      const spec = draft.controls?.[arg.name];
-      const values =
-        spec !== undefined && "oneOf" in spec ? spec.oneOf : undefined;
-      const removes =
-        tested.kind === "unless"
-          ? test
-          : values?.length === 2
-            ? values.find((value) => value !== test)
-            : undefined;
-      if (
-        arg.path !== undefined ||
-        (typeof removes !== "string" &&
-          typeof removes !== "number" &&
-          typeof removes !== "boolean")
-      )
-        refuse("keep() takes data, or unless(arg(name), value, data)");
-      removeWhen = { [arg.name]: removes };
-      data = tested.then;
+    // `keep(when(…))`, `keep(unless(…))`: kept where its test says, per call.
+    const chosen =
+      data instanceof PredicateWord && data.kind !== "provided"
+        ? data
+        : undefined;
+    let test: Condition | undefined;
+    if (chosen?.arg !== undefined) {
+      const tested = testOf(chosen.test);
+      if (typeof tested === "string") refuse(tested);
+      test = new Condition(
+        new Parameter(chosen.arg.name, chosen.arg.path),
+        tested
+      );
+      data = chosen.then;
     }
     if (!isPlainRecord(data))
       refuse("keep() takes the data the row is updated with");
@@ -271,15 +264,13 @@ class Kept extends CarriedValue {
       else at = field;
     }
     const deletion = (draft.deletion ??= { models: {} });
-    if (removeWhen !== undefined) {
-      if (
-        deletion.removeWhen !== undefined &&
-        JSON.stringify(deletion.removeWhen) !== JSON.stringify(removeWhen)
-      )
-        refuse("one extension's keep() parts name the same physical delete");
-      deletion.removeWhen = removeWhen;
-    }
-    deletion.models[model] = at === undefined ? { assign } : { at, assign };
+    if (test !== undefined)
+      (deletion.removeWhen ??= {})[test.parameter.control!] = true;
+    deletion.models[model] = {
+      ...(at !== undefined && { at }),
+      assign,
+      ...(test && { test, keeps: chosen!.kind === "when" }),
+    };
     (draft.parts ??= []).push(keptRowsPart);
   }
 }

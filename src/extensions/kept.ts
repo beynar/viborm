@@ -17,7 +17,10 @@ import {
   COUNT_LEAF,
   newSelectorFacts,
 } from "@query-engine/raptor3/shared/query";
-import type { Tombstones } from "@query-engine/raptor3/shared/row-scope";
+import type {
+  Condition,
+  Tombstones,
+} from "@query-engine/raptor3/shared/row-scope";
 import type { EngineSchema, Input } from "@query-engine/raptor3/shared/schema";
 import type { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import {
@@ -30,25 +33,31 @@ import type { AnyModel } from "@schema/model";
 import type { AnyRelation } from "@schema/relation/types";
 import { rebind, refuseUndeclared } from "./call-rows";
 import type { ExtensionPart } from "./chain";
-import type { ResolvedDeletion } from "./chain-state";
 import type { AdmittedControls } from "./controls";
-import { type ControlLiteral, extensionError } from "./definition";
+import { extensionError } from "./definition";
 import { bindRows } from "./rows";
 
+/** No argument a kept delete's test reads is required: absent, it is absent. */
+const optional = (): boolean => false;
+/** An argument's test reads no instant. */
+const unread = (): Date => new Date(Number.NaN);
+
 /** Per managed model, what its deletes write instead, and who declared it. */
-export class Kept extends Map<string, ResolvedDeletion> implements Tombstones {
+export class Kept extends Map<string, ResolvedKept> implements Tombstones {
   /**
-   * Whether a delete of `model` removes its rows: its entry names a
-   * `removeWhen` the call's controls match. That control is placed only on
-   * the deletes of the models the entry manages, so no other call matches.
+   * Whether a delete of `model` removes its rows: its `keep` keeps them
+   * where its test holds (`when`) or fails (`unless`), and the call's
+   * arguments say otherwise. Its argument is placed only on the deletes of
+   * the models it keeps, so no other call says so.
    */
   removes(model: string, controls: AdmittedControls | undefined): boolean {
-    const removeWhen = this.get(model)?.removeWhen;
+    const kept = this.get(model);
     return (
-      removeWhen !== undefined &&
-      Object.entries(removeWhen).every(
-        ([control, value]) => controls?.[control] === value
-      )
+      kept?.test !== undefined &&
+      kept.test.holds(
+        { controls: controls ?? {}, required: optional },
+        unread
+      ) !== kept.keeps
     );
   }
   marks(writer: Writer, model: AnyModel): Input | undefined {
@@ -188,14 +197,33 @@ function junctionHolder(schema: Schema, model: AnyModel) {
   return undefined;
 }
 
+/** What a delete of one model writes instead of removing the row, as `keep` writes it. */
+export interface KeptModel {
+  /** The DateTime field that receives the call's one instant. */
+  readonly at?: string;
+  readonly assign: Readonly<Record<string, unknown>>;
+  /**
+   * `keep(when(…))` or `keep(unless(…))`: the test of an argument, and
+   * whether the row is kept where it holds (`when`) or where it fails.
+   * Without one, every delete keeps the row.
+   */
+  readonly test?: Condition;
+  readonly keeps?: boolean;
+}
+
+/** What a delete of one managed model writes, and who declared it. */
+export interface ResolvedKept extends KeptModel {
+  readonly extension: string;
+}
+
 /** What a delete of each model writes instead, as `keep` writes it. */
 export interface Deletion {
-  /** The arguments whose values make a delete physical. */
-  removeWhen?: Readonly<Record<string, ControlLiteral>>;
-  readonly models: Record<
-    string,
-    { readonly at?: string; readonly assign: Readonly<Record<string, unknown>> }
-  >;
+  /**
+   * The arguments a kept delete's test reads, by name: placed on the
+   * deletes of the models it keeps (`placeControls`).
+   */
+  removeWhen?: Record<string, true>;
+  readonly models: Record<string, KeptModel>;
 }
 
 /**
@@ -217,14 +245,7 @@ export const keptRowsPart: ExtensionPart = {
           `Extension "${extension}" rule.${model}.delete.instead: the model is the junction of '${holder}', so a kept link would still be followed. Delete the link with the relation's disconnect, or the row through its delegate.`,
           extension
         );
-      kept.set(
-        model,
-        Object.freeze({
-          extension,
-          ...entry,
-          ...(deletion.removeWhen && { removeWhen: deletion.removeWhen }),
-        })
-      );
+      kept.set(model, Object.freeze({ extension, ...entry }));
     }
     next.kept = kept;
     next.bindRows = bindRows;

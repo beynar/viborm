@@ -81,15 +81,11 @@ export abstract class PredicateWord {
   filter?(at: Admitting): FilterWord;
   /** What a field of default or kept data writes for the word. */
   stamp?(): unknown;
-  /** A `when` or an `unless`: its argument, its test and what it applies. */
-  tested?():
-    | {
-        readonly kind: "when" | "unless";
-        readonly arg: ArgValue;
-        readonly test: ArgTest;
-        readonly then: unknown;
-      }
-    | undefined;
+  /** A `when`, an `unless` or a `provided`: which, its argument, its test and what it applies. */
+  declare readonly kind?: "when" | "unless" | "provided";
+  declare readonly arg?: ArgValue;
+  declare readonly test?: ArgTest;
+  declare readonly then?: unknown;
 }
 
 /** What admission hands a word: what records its call values, and the schema. */
@@ -181,7 +177,7 @@ export class ExistsFilter extends PredicateWord {
 const TESTS = ["exists", "equals", "in", "has", "hasSome"];
 
 /** A test of an argument, or why it is refused. */
-function testOf(given: unknown): ConditionTest | string {
+export function testOf(given: unknown): ConditionTest | string {
   const test = isPlainRecord(given) ? given : { equals: given };
   const [kind, ...others] = Object.keys(test);
   const operand = test[kind!];
@@ -235,10 +231,6 @@ export class ArgTestFilter extends PredicateWord {
       nodes: [condition],
       where: { OR: [kind === "when" ? { NOT: condition } : condition, then] },
     };
-  }
-  override tested() {
-    const { kind, arg, test, then } = this;
-    return kind === "provided" ? undefined : { kind, arg, test, then };
   }
 }
 

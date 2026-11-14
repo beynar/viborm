@@ -20,7 +20,6 @@ import type {
   ResolvedControl,
 } from "./controls";
 import type { Coordination, Rail } from "./coordination";
-import type { ControlLiteral } from "./definition";
 import type { OperationHandlers, RequestHandlers } from "./handlers";
 import type { Kept } from "./kept";
 import type { ExtensionMethodsState } from "./methods";
@@ -103,14 +102,6 @@ export interface ResolvedControls {
  */
 export interface CallRowsBinding {
   call(model: string, controls: AdmittedControls | undefined): CallRows;
-}
-
-/** What a delete of one managed model writes, and who declared it. */
-export interface ResolvedDeletion {
-  readonly extension: string;
-  readonly at?: string;
-  readonly assign: Readonly<Record<string, unknown>>;
-  readonly removeWhen?: Readonly<Record<string, ControlLiteral>>;
 }
 
 /**
