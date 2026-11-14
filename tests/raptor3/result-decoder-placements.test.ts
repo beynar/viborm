@@ -788,7 +788,7 @@ describe("the chain that runs is the execution's, at every route", () => {
     }
   });
 
-  it("serves a cached read decoded once, and never asks the chain on a hit", async () => {
+  it("serves a cached read through the decoder a driver's answer takes, on a hit as on a miss", async () => {
     const { client, driver, asked } = await world("@A");
     try {
       const cached = invoke(
@@ -811,9 +811,11 @@ describe("the chain that runs is the execution's, at every route", () => {
       const [miss, missAsks] = await asked(read);
       same(miss, expected, "cache miss");
       assert.equal(missAsks.length, physicalAsks(byId("g")));
+      // The entry holds the driver's rows: a hit decodes them as the miss
+      // did, so the chain is asked the same questions.
       const [hit, hitAsks] = await asked(read);
       same(hit, expected, "cache hit");
-      assert.deepEqual(hitAsks, []);
+      assert.deepEqual(hitAsks, missAsks);
       assert.notEqual(hit, miss);
     } finally {
       await driver.disconnect();

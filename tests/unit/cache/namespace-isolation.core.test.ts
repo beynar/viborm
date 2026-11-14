@@ -91,6 +91,16 @@ class ObservableCache extends ClockedMemoryCache {
     });
   }
 
+  /**
+   * Write `value` at `key` under the identity and freshness of the entry at
+   * `from`: what only the revision in the key can keep a reader from.
+   */
+  async seedAs(key: string, from: string, value: unknown): Promise<void> {
+    const entry = await this.get(from);
+    if (entry === null) throw new Error("no entry to copy");
+    await this.set(key, 60_000, { ...entry, value });
+  }
+
   isHeld(key: string): boolean {
     return this.live.has(key);
   }
@@ -621,7 +631,7 @@ describe("a forged dialect cannot address another dialect's scope", () => {
 });
 
 describe("the snapshot revision partitions old storage", () => {
-  test("an r1-shaped entry is never served to an r5 reader", async () => {
+  test("an r1- or r5-shaped entry is never served to an r6 reader", async () => {
     const { alpha, backend, settle } = tenants();
 
     // The exact key the previous revision would have used for a namespace-blind
@@ -639,10 +649,18 @@ describe("the snapshot revision partitions old storage", () => {
       [{ id: "stale-r1", label: "stale-r1" }],
       60_000
     );
+    // r5 stored the decoded answer where r6 stores the driver's rows. This
+    // r5 entry carries the read's own identity and is fresh, and its value
+    // decodes as rows: only the revision keeps it from being served.
+    await backend.seedAs(
+      liveKey.replace("viborm:cache:r6:", "viborm:cache:r5:"),
+      liveKey,
+      [{ id: "stale-r5", label: "stale-r5" }]
+    );
 
     expect(firstRead).toEqual(rowsFor("alpha"));
-    expect(liveKey.startsWith("viborm:cache:r5:")).toBe(true);
-    // The r1 entry sits in the same backend and is simply unreachable.
+    expect(liveKey.startsWith("viborm:cache:r6:")).toBe(true);
+    // Both entries sit in the same backend and are simply unreachable.
     await expect(
       alpha.$withCache({ ttl: 60_000 }).account.findMany(IDENTICAL_READ)
     ).resolves.toEqual(rowsFor("alpha"));

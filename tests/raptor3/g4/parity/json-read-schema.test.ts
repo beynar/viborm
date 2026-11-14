@@ -334,7 +334,7 @@ describe("custom JSON schema admission and physical read parity", () => {
     }
   });
 
-  it("materializes a cached read from its snapshot without a second run", async () => {
+  it("materializes a cached read from its stored rows without a second run", async () => {
     const database = new Database(":memory:");
     const driver = new RecordingSQLiteDriver({ client: database });
     const clock = createTestClock();
@@ -377,9 +377,9 @@ describe("custom JSON schema admission and physical read parity", () => {
     await settle();
     assert.equal(schemaRuns, 0);
 
-    // The HIT answers from the snapshot, which holds the DECODED value: the
-    // same published document, and the schema is not asked again — the cache
-    // route must not run it a second time.
+    // The HIT decodes the stored rows, which hold the stored write output:
+    // the same published document, and the schema is not asked again — a
+    // read never runs it.
     assert.deepEqual(await cached.document.findMany(read), transformed);
     await settle();
     assert.equal(schemaRuns, 0);

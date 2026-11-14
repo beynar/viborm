@@ -45,6 +45,25 @@ const cacheKeyOf = (model: string, operation: string, args: unknown) =>
 /** A read's namespace: a plain string the cache's own module hands over. */
 const createOfficialCacheScope = (namespace: string) => namespace;
 
+/** A codec of the answer itself: what these cells store in place of rows. */
+interface AnswerCodec<T> {
+  snapshot(value: T): unknown;
+  materialize(stored: unknown): T;
+}
+
+/** The serve codec of `run`: its last answer is what a snapshot stores. */
+function served<T>(
+  run: () => Promise<T>,
+  codec: AnswerCodec<T>
+): DetachedCacheResultCodec<T> {
+  let last: T;
+  return {
+    run: async () => (last = await run()),
+    snapshot: () => codec.snapshot(last),
+    materialize: codec.materialize,
+  };
+}
+
 /** One official read through the driver's seam, as the extension serves it. */
 function executeCachedWithResultCodec<T>(
   driver: CacheDriver,
@@ -60,13 +79,12 @@ function executeCachedWithResultCodec<T>(
     readonly executionContext?: QueryExecutionContext;
     readonly waitUntil?: WaitUntilFn;
   },
-  codec: DetachedCacheResultCodec<T>,
+  codec: AnswerCodec<T>,
   namespace: string
 ): Promise<T> {
   return serveOfficialRead(driver, {
-    run,
     id: cacheKeyOf(model, operation, args),
-    codec,
+    codec: served(run, codec),
     read: {
       ttlMs: options.ttlMs,
       swr: options.swr,

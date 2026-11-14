@@ -221,6 +221,7 @@ export const projects: TestProjectConfiguration[] = [
         "tests/contracts/public-client/extension-lazy-verbs.core.test.ts",
         "tests/contracts/public-client/extension-row-checks.core.test.ts",
         "tests/contracts/public-client/extension-produced.core.test.ts",
+        "tests/contracts/public-client/extension-call-facts.core.test.ts",
       ],
     },
   },

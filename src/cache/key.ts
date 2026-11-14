@@ -30,7 +30,9 @@ export const OFFICIAL_CACHE_NAMESPACE_ROOT = `${CACHE_PREFIX}:cache`;
 // r5 entries are keyed by the prepared call (`key(run)`): the statement the
 // engine sends, so a rule's filter, order and projection key an entry by
 // what they do to that statement.
-const OFFICIAL_CACHE_SNAPSHOT_REVISION = "r5";
+// r6 entries hold the rows the driver returned, not the decoded answer: an r5
+// answer read as rows would be refused at best.
+const OFFICIAL_CACHE_SNAPSHOT_REVISION = "r6";
 
 /**
  * The facts one official cache scope partitions on.

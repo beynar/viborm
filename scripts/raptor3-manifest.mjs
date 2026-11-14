@@ -565,7 +565,7 @@ export const RQ01_SQLITE_COUNTS = Object.freeze({
 });
 export const RQ01_SQLITE_TESTS = Object.freeze(Object.keys(RQ01_SQLITE_COUNTS));
 export const RQ05_CACHE_COUNTS = Object.freeze({
-  "tests/raptor3/recursive-query/cache-codec.test.ts": 10,
+  "tests/raptor3/recursive-query/cache-codec.test.ts": 8,
   "tests/raptor3/recursive-query/cache-lifecycle.test.ts": 7,
 });
 export const RQ05_CACHE_TESTS = Object.freeze(Object.keys(RQ05_CACHE_COUNTS));
