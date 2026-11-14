@@ -1,10 +1,8 @@
-// Fixture — pg-representative with one extension that declares only a
-// `deletion` that turns a post delete into an update, built with
-// `defineExtension`: its difference from (c) is what this one capability
-// costs alone. A measuring instrument for scripts/extension-bytes.mjs, not a
-// size-limit row.
+// Fixture — pg-representative with one extension made of a delete kept as an update (`rule` with `keep`): its
+// difference from (c) is what this one part costs alone. A measuring
+// instrument for scripts/extension-bytes.mjs, not a size-limit row.
 
-import { defineExtension } from "../../dist/index.mjs";
+import { extension, keep, now, rule } from "../../dist/index.mjs";
 import { createClient } from "../../dist/pg.mjs";
 import { s } from "../../dist/schema.mjs";
 
@@ -23,16 +21,17 @@ const post = s.model({
     .fields("authorId")
     .references("id"),
   deletedAt: s.dateTime().nullable(),
+  views: s.int().default(0),
 });
 
 export const client = createClient({
   schema: { user, post },
   databaseUrl: "postgres://localhost:5432/app",
 }).$extends(
-  defineExtension({
-    name: "deletion",
-    deletion: { models: { post: { at: "deletedAt" } } },
-  })
+  extension(
+    "keep",
+    rule({ post: { delete: { instead: keep({ deletedAt: now }) } } })
+  )
 );
 
 export async function run() {

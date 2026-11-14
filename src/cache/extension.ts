@@ -1,5 +1,7 @@
 import { CacheConfigurationError } from "@errors";
-import { withParts } from "@extensions/chain";
+import type { AnyTarget, Extension, Facts } from "@extensions/contract";
+import type { DefinitionControls } from "@extensions/controls";
+import { builtPart, extension } from "@extensions/extension";
 import type { GenericQueryHandler } from "@extensions/query";
 import {
   isFunction,
@@ -10,8 +12,8 @@ import {
 import { errorCause } from "../errors/diagnostic-safety";
 import {
   OFFICIAL_CACHE_NAME,
+  type OfficialCacheControls,
   type OfficialCacheDefinitionCapability,
-  type OfficialCacheExtension,
   officialCacheControls,
   registerOfficialCacheQuery,
 } from "./capability";
@@ -29,7 +31,6 @@ export {
   OFFICIAL_CACHE_NAME,
   type OfficialCacheBindTarget,
   type OfficialCacheControls,
-  type OfficialCacheExtension,
   type OfficialCacheQueryContribution,
   registerOfficialCacheChain,
 } from "./capability";
@@ -123,17 +124,37 @@ function snapshotConfig(value: unknown): OfficialCacheDefinitionCapability {
   return Object.freeze({ driver, version, waitUntil });
 }
 
-/** Create VibORM's fixed-name cache extension. */
-export function cache<const Config>(
+/** What the cache adds to a client: its `cache` argument on writes, `$withCache`, `$invalidate`. */
+export type CacheFacts = Facts<
+  Record<never, never>,
+  Record<never, never>,
+  DefinitionControls<{ readonly controls: OfficialCacheControls }>,
+  never,
+  never,
+  Record<never, never>,
+  Record<never, never>,
+  false,
+  true
+>;
+
+/**
+ * VibORM's fixed-name cache extension: `client.$extends(cache({ driver }))`.
+ * Until the cache is written with the public words, it is recognized by
+ * identity where it is applied (`identity.ts`).
+ */
+export function cache<T extends AnyTarget, const Config>(
   config: Config &
     NoInfer<CacheExtensionConfig & ExactCacheExtensionConfig<Config>>
-): OfficialCacheExtension;
+): Extension<T, CacheFacts>;
 export function cache(config: CacheExtensionConfig): unknown {
   const capability = snapshotConfig(config);
   const query: GenericQueryHandler = ({ proceed }) => proceed();
   registerOfficialCacheQuery(query, capability, OFFICIAL_CACHE_RUNTIME);
-  return withParts(
-    { name: OFFICIAL_CACHE_NAME, query, controls: officialCacheControls },
-    [cacheIdentity]
+  return extension(
+    OFFICIAL_CACHE_NAME,
+    builtPart([cacheIdentity], (draft) => {
+      draft.query = query;
+      draft.controls = officialCacheControls;
+    })
   );
 }

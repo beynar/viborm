@@ -57,11 +57,10 @@ const blog = permissions({
   },
 });
 
-export const client = blog(
-  ordering({ post: { key: "rank", within: ["authorId"] } })(
-    softDelete({ models: { post: { deletedAt: "deletedAt" } } })(hooked)
-  )
-);
+export const client = hooked
+  .$extends(softDelete({ models: { post: { deletedAt: "deletedAt" } } }))
+  .$extends(ordering({ post: { key: "rank", within: ["authorId"] } }))
+  .$extends(blog);
 
 export async function run(session) {
   const call = client.$as({ userId: session.userId, admin: session.admin });

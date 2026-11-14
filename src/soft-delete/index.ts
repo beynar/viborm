@@ -2,19 +2,26 @@
 
 import type { OperationPayload } from "../client/exports"; // public today
 import { ClientInitializationError } from "../errors"; // viborm's own class
+import type { PlacedControl } from "../extensions/controls";
+import { buildMethods } from "../extensions/methods-part";
+import { buildRule } from "../extensions/rows-translation";
 import {
+  type AnyTarget,
+  arg,
+  args,
   type ClientSchema,
-  type ClientTypeState,
-  controlsPart,
   type DelegateOperationArgs,
   type DelegateOperationResult,
-  defineWith,
-  type ExtensionState,
-  methodsPart,
+  type Extension,
+  extension,
+  type Facts,
+  keep,
+  now,
+  oneOf,
   type PendingOperation,
-  rowsPart,
-  type VibORMClient,
+  unless,
   type VibORMConfig,
+  when,
 } from "../index";
 
 export interface SoftDeleteModel {
@@ -28,23 +35,8 @@ export interface SoftDeleteConfig {
   /** `actorId`'s name before 1.9.1, still accepted (`actor` names the request's actor in `permissions`). */
   readonly actor?: string | number | bigint;
 }
-type Schema = VibORMConfig["schema"];
-type AnyModel = Schema[string];
-type Names<Config extends SoftDeleteConfig> = keyof Config["models"] & string;
 
 const NAME = "viborm.softDelete";
-
-// One value per configured model, keys kept: the methods are typed from
-// them. The cast is TypeScript's own limit: Object.fromEntries forgets keys.
-function perModel<
-  Config extends SoftDeleteConfig,
-  T,
-  S extends Schema = Schema,
->(config: Config, build: (m: SoftDeleteModel) => T, _schema?: S) {
-  return Object.fromEntries(
-    Object.entries(config.models).map(([k, m]) => [k, build(m)])
-  ) as { readonly [K in Names<Config> & keyof S]: T };
-}
 
 // restore and purge take the model's own update and delete arguments
 // (restore minus `data`); other keys are flagged.
@@ -95,254 +87,131 @@ export type SoftDeleteMethods<C extends VibORMConfig, K> = {
   ): PendingOperation<DelegateOperationResult<Self, "deleteMany", A>>;
 };
 
-type Governed<Config extends SoftDeleteConfig> = VibORMConfig & {
-  readonly schema: Record<Names<Config>, AnyModel>;
+/** Each model's markers, as the client `$extends` is called on has them. */
+type SoftDeleteModels<T extends AnyTarget> = {
+  readonly [M in keyof ClientSchema<T["config"]> & string]?: {
+    readonly deletedAt: ScalarsOf<T, M>;
+    readonly deletedBy?: ScalarsOf<T, M>;
+  };
+};
+type ScalarsOf<T extends AnyTarget, M> = M extends keyof ClientSchema<
+  T["config"]
+>
+  ? Extract<keyof ClientSchema<T["config"]>[M]["~"]["state"]["scalars"], string>
+  : never;
+
+/** A model the config names that the client lacks: refused where it is written. */
+type KnownModels<Models, T extends AnyTarget> = {
+  readonly [M in keyof Models]: M extends keyof ClientSchema<T["config"]>
+    ? Models[M]
+    : never;
 };
 
-/**
- * Refuse a marker that is not a nullable, single DateTime field, before the
- * definition is applied (its rows predicates would refuse a required field
- * less clearly; a string field would fail at the first delete). A model or
- * field the schema lacks is left to core, which names it.
- */
-function admitMarkers(schema: Schema, config: SoftDeleteConfig): void {
-  if (config.actorId !== undefined && config.actor !== undefined)
-    throw new ClientInitializationError(
-      "softDelete: give actorId, not both actorId and actor (its former name).",
-      { meta: { extension: NAME } }
-    );
-  for (const [name, { deletedAt }] of Object.entries(config.models)) {
-    const scalars = Object.hasOwn(schema, name)
-      ? schema[name]!["~"].state.scalars
-      : undefined;
-    if (!(scalars && Object.hasOwn(scalars, deletedAt))) continue;
-    const state = scalars[deletedAt]!["~"].state;
-    if (state.type !== "datetime" || state.array || !state.nullable)
-      throw new ClientInitializationError(
-        `softDelete: ${name}.${deletedAt} must be a nullable DateTime field (s.dateTime().nullable()): a live row holds null there.`,
-        { meta: { extension: NAME } }
-      );
-  }
-}
+/** What `softDelete(config)` adds: its two arguments, the models it hides rows of, the methods. */
+type SoftDeleteFacts<T extends AnyTarget, Models> = Facts<
+  Record<never, never>,
+  {
+    readonly [K in keyof Models &
+      keyof ClientSchema<T["config"]>]: SoftDeleteMethods<T["config"], K>;
+  },
+  {
+    readonly deleted: PlacedControl<"without" | "with" | "only">;
+    readonly mode: PlacedControl<
+      "soft" | "hard",
+      keyof Models,
+      "delete" | "deleteMany"
+    >;
+  },
+  Extract<keyof Models, string>
+>;
 
-// One definition: the `mode` control, the rows each `deleted` value
-// selects, what a delete writes, and the methods, checked against base's
-// schema. A factory takes its delegate as `never` (it reads nothing typed at
-// this step), so later steps may add `rows` or `defaultOmit` freely.
-function definitionOf<
-  Config extends SoftDeleteConfig,
-  C extends Governed<Config>,
->(config: Config, schema: ClientSchema<C>) {
-  return {
-    name: NAME,
-    controls: { mode: { oneOf: ["soft", "hard"] } }, // deletion places it on managed deletes
-    rows: {
-      control: "deleted", // the call argument that picks a mode
-      default: "without",
-      models: perModel(
-        config,
-        ({ deletedAt }) => ({
-          without: {
-            root: { [deletedAt]: null },
-            related: { [deletedAt]: null },
-          },
-          with: {},
-          only: {
-            root: { [deletedAt]: { not: null } },
-            related: { [deletedAt]: null },
-          },
-        }),
-        schema
-      ),
-    },
-    deletion: {
-      removeWhen: { mode: "hard" }, // this call deletes physically
-      models: perModel(
-        config,
-        ({ deletedAt, deletedBy }) => ({
-          at: deletedAt, // receives the call's one timestamp
-          assign: deletedBy
-            ? { [deletedBy]: config.actorId ?? config.actor ?? null }
-            : {},
-        }),
-        schema
-      ),
-    },
-    model: perModel(
-      config,
-      ({ deletedAt, deletedBy }) =>
-        (delegate: never) => {
-          const data = {
-            [deletedAt]: null,
-            ...(deletedBy ? { [deletedBy]: null } : {}),
-          };
-          const {
-            update,
-            updateMany,
-            delete: remove,
-            deleteMany,
-          } = delegate as Record<string, (args: object) => never>; // one cast
-          // Tombstones only: `deleted: "only"` overrides a caller's value.
-          const tombstones = { deleted: "only", mode: "hard" };
-          return {
-            restore: (args: object) =>
-              update!({ ...args, data, deleted: "only" }),
-            restoreMany: (args: object) =>
-              updateMany!({ ...args, data, deleted: "only" }),
-            purge: (args: object) => remove!({ ...args, ...tombstones }),
-            purgeMany: (args: object = {}) =>
-              deleteMany!({ ...args, ...tombstones }),
-          };
-        },
-      schema
-    ) as unknown as {
-      readonly [K in Names<Config> & keyof ClientSchema<C>]: (
-        delegate: never
-      ) => SoftDeleteMethods<C, K>;
-    },
-  } as const; // the literals `$extends` reads: names, modes, values
-}
-
-function apply<
-  Config extends SoftDeleteConfig,
-  C extends Governed<Config>,
-  X extends ExtensionState,
->(config: Config, base: VibORMClient<C, X>) {
-  admitMarkers(base.$schema, config);
-  // Built with the parts that read what it declares, and only those.
-  return base.$extends(
-    defineWith(
-      controlsPart,
-      rowsPart,
-      methodsPart
-    )(definitionOf<Config, C>(config, base.$schema))
-  );
-}
-
-// The two steps a chain written before 1.8 applies around another entry's
-// (`rows` then `methods`): the definition without its methods, and the
-// methods alone, under the name they had.
-function rowsStep<
-  Config extends SoftDeleteConfig,
-  C extends Governed<Config>,
-  X extends ExtensionState,
->(config: Config, base: VibORMClient<C, X>) {
-  const { model: _methods, ...rows } = definitionOf<Config, C>(
-    config,
-    base.$schema
-  );
-  admitMarkers(base.$schema, config);
-  return base.$extends(defineWith(controlsPart, rowsPart)(rows));
-}
-function methodsStep<
-  Config extends SoftDeleteConfig,
-  C extends Governed<Config>,
-  X extends ExtensionState,
->(config: Config, client: VibORMClient<C, X>) {
-  const { model } = definitionOf<Config, C>(config, client.$schema);
-  return client.$extends(
-    defineWith(methodsPart)({ name: `${NAME}.restore`, model })
-  );
-}
-
-// A step takes its receiver whole and reads its C and X once from
-// ClientTypeState, so `$extends(softDelete(config))` never infers them
-// against a generic client. The result names the step's own return type:
-// declarations reference one instantiation instead of inlining its
-// definition per use (each inline copy a distinct type, compared member by
-// member: TS2589 from 25 models).
-type Receiver<Config extends SoftDeleteConfig> = ClientTypeState<
-  VibORMConfig,
-  ExtensionState
-> & {
-  readonly $schema: Record<Names<Config>, AnyModel>;
-  readonly $extends: (...args: never[]) => unknown;
-};
-// A step with `rows` follows no result consumer: no factory typed against
-// the client it extends (TypeScript's order rule; the official extensions'
-// factories read nothing typed, so they never are one).
-type BeforeConsumers<X extends ExtensionState, Client> = [
-  X["resultConsumer"],
-] extends [undefined]
-  ? Client
-  : never;
-type Applied<
-  Config extends SoftDeleteConfig,
-  Base,
-> = Base extends ClientTypeState<
-  infer C extends Governed<Config>,
-  infer X extends ExtensionState
->
-  ? Base extends VibORMClient<C, X>
-    ? BeforeConsumers<X, ReturnType<typeof apply<Config, C, X>>>
-    : never
-  : never;
-type Rowed<
-  Config extends SoftDeleteConfig,
-  Base,
-> = Base extends ClientTypeState<
-  infer C extends Governed<Config>,
-  infer X extends ExtensionState
->
-  ? Base extends VibORMClient<C, X>
-    ? BeforeConsumers<X, ReturnType<typeof rowsStep<Config, C, X>>>
-    : never
-  : never;
-type Restorable<
-  Config extends SoftDeleteConfig,
-  Base,
-> = Base extends ClientTypeState<
-  infer C extends Governed<Config>,
-  infer X extends ExtensionState
->
-  ? Base extends VibORMClient<C, X>
-    ? ReturnType<typeof methodsStep<Config, C, X>>
-    : never
-  : never;
-// The whole factory's NoInfer keeps `$extends(softDelete(config))` from
-// inferring between two client types (which measures the client alias's
-// variance, ~650k instantiations once per program).
-type SoftDeleteExtension<Config extends SoftDeleteConfig> = {
-  <Base extends Receiver<Config>>(base: Base): NoInfer<Applied<Config, Base>>;
-  /** The controls, rows and deletion alone (chains written before 1.8). */
-  readonly rows: <Base extends Receiver<Config>>(
-    base: Base
-  ) => Rowed<Config, Base>;
-  /** The methods alone (chains written before 1.8). */
-  readonly methods: <Base extends Receiver<Config>>(
-    client: Base
-  ) => Restorable<Config, Base>;
-};
+/** A delegate as the methods call it: its own operations. */
+type Self = Readonly<Record<string, (args: object) => unknown>>;
 
 /**
  * Keep deleted rows as tombstones: `client.$extends(softDelete({ models: {
  * post: { deletedAt: "deletedAt" } } }))`. One step, applied in any order
  * with the other extensions.
  */
-export function softDelete<const Config extends SoftDeleteConfig>(
-  config: Config
-): SoftDeleteExtension<Config> {
-  function extend<Base extends Receiver<Config>>(
-    base: Base
-  ): NoInfer<Applied<Config, Base>>;
-  function extend<C extends Governed<Config>, X extends ExtensionState>(
-    base: VibORMClient<C, X>
-  ) {
-    return apply(config, base);
-  }
-  function rows<Base extends Receiver<Config>>(base: Base): Rowed<Config, Base>;
-  function rows<C extends Governed<Config>, X extends ExtensionState>(
-    base: VibORMClient<C, X>
-  ) {
-    return rowsStep(config, base);
-  }
-  function methods<Base extends Receiver<Config>>(
-    client: Base
-  ): Restorable<Config, Base>;
-  function methods<C extends Governed<Config>, X extends ExtensionState>(
-    client: VibORMClient<C, X>
-  ) {
-    return methodsStep(config, client);
-  }
-  return Object.assign(extend, { rows, methods });
+export function softDelete<T extends AnyTarget, const Models>(config: {
+  readonly models: Models &
+    SoftDeleteModels<T> &
+    NoInfer<KnownModels<Models, T>>;
+  /** What a delete writes into `deletedBy`, fixed per extension. */
+  readonly actorId?: string | number | bigint;
+  /** `actorId`'s name before 1.9.1, still accepted. */
+  readonly actor?: string | number | bigint;
+}): Extension<T, SoftDeleteFacts<T, Models>>;
+export function softDelete(config: SoftDeleteConfig): unknown {
+  if (config.actorId !== undefined && config.actor !== undefined)
+    throw new ClientInitializationError(
+      "softDelete: give actorId, not both actorId and actor (its former name).",
+      { meta: { extension: NAME } }
+    );
+  const actor = config.actorId ?? config.actor ?? null;
+  const entries = Object.entries(config.models);
+  // Written apart from the rule, its argument names are checked where the
+  // extension is applied.
+  const rows = Object.fromEntries(
+    entries.map(([model, { deletedAt, deletedBy }]) => [
+      model,
+      {
+        root: [
+          when(arg("deleted"), "without", { [deletedAt]: null }),
+          when(arg("deleted"), "only", { [deletedAt]: { not: null } }),
+        ],
+        related: unless(arg("deleted"), "with", { [deletedAt]: null }),
+        delete: {
+          instead: keep(
+            unless(arg("mode"), "hard", {
+              [deletedAt]: now,
+              ...(deletedBy ? { [deletedBy]: actor } : {}),
+            })
+          ),
+        },
+      },
+    ])
+  );
+  return extension(
+    NAME,
+    args({
+      // A delete of a managed model with mode "hard" deletes physically.
+      mode: oneOf("soft", "hard"),
+      // The call argument that picks which rows a call sees.
+      deleted: oneOf("without", "with", "only").default("without"),
+    }),
+    buildRule(rows),
+    // The methods read nothing typed at this step (each result is typed from
+    // the delegate it is called on), so later extensions may hide rows or
+    // omit fields freely.
+    buildMethods(() =>
+      Object.fromEntries(
+        entries.map(([model, { deletedAt, deletedBy }]) => {
+          const data = {
+            [deletedAt]: null,
+            ...(deletedBy ? { [deletedBy]: null } : {}),
+          };
+          // Tombstones only: `deleted: "only"` overrides a caller's value.
+          const tombstones = { deleted: "only", mode: "hard" };
+          return [
+            model,
+            {
+              restore(this: Self, given: object) {
+                return this.update!({ ...given, data, deleted: "only" });
+              },
+              restoreMany(this: Self, given: object) {
+                return this.updateMany!({ ...given, data, deleted: "only" });
+              },
+              purge(this: Self, given: object) {
+                return this.delete!({ ...given, ...tombstones });
+              },
+              purgeMany(this: Self, given: object = {}) {
+                return this.deleteMany!({ ...given, ...tombstones });
+              },
+            },
+          ];
+        })
+      )
+    )
+  );
 }

@@ -1,5 +1,6 @@
 import { sanitizeErrorForLogging } from "@errors";
-import { withParts } from "@extensions/chain";
+import type { AnyTarget, EmptyFacts, Extension } from "@extensions/contract";
+import { builtPart, extension } from "@extensions/extension";
 import {
   type LifecycleUnit,
   type ObservationCompletion,
@@ -74,10 +75,15 @@ const instrumentationContexts = new WeakMap<
   InstrumentationContext
 >();
 
-/** Create VibORM's instrumentation extension. */
-export function instrumentation<const Config>(
+/**
+ * VibORM's instrumentation extension: `client.$extends(instrumentation({ … }))`.
+ * Until it is written with the public words, it observes as the one
+ * observer handed facts (`observePart`).
+ */
+export function instrumentation<T extends AnyTarget, const Config>(
   config: Config & InstrumentationConfig & ExactInstrumentationConfig<Config>
-): OfficialInstrumentationExtension {
+): Extension<T, EmptyFacts>;
+export function instrumentation(config: InstrumentationConfig): unknown {
   const context = createInstrumentationContext(config);
   const capability: OfficialObservationCapability = Object.freeze({
     observesLifecycle:
@@ -91,18 +97,18 @@ export function instrumentation<const Config>(
     warn: (notice: WarningNotice) => warn(context, notice),
   });
   instrumentationContexts.set(capability, context);
-  return withParts<OfficialInstrumentationExtension>(
-    {
-      name: NAME,
-      observe(unit, proceed, facts) {
-        // Handed no facts, it is not the observer core asks: it does nothing.
-        if (!facts) return undefined;
-        observed.set(unit, facts);
-        return observeOfficialInstrumentation(context, unit, proceed);
-      },
-      observes: capability,
-    },
-    [observePart]
+  const observe: ObserveHandler = (unit, proceed, facts) => {
+    // Handed no facts, it is not the observer core asks: it does nothing.
+    if (!facts) return undefined;
+    observed.set(unit, facts);
+    return observeOfficialInstrumentation(context, unit, proceed);
+  };
+  return extension(
+    NAME,
+    builtPart([observePart], (draft) => {
+      draft.observe = observe;
+      draft.observes = capability;
+    })
   );
 }
 

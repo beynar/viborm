@@ -1,9 +1,8 @@
-// Fixture — pg-representative with one extension that declares only an
-// `observe` handler, built with `defineHooks`: its difference from (c) is
-// what this one capability costs alone. A measuring instrument for
-// scripts/extension-bytes.mjs, not a size-limit row.
+// Fixture — pg-representative with one extension made of a `unit` that observes every unit: its
+// difference from (c) is what this one part costs alone. A measuring
+// instrument for scripts/extension-bytes.mjs, not a size-limit row.
 
-import { defineHooks } from "../../dist/index.mjs";
+import { extension, unit } from "../../dist/index.mjs";
 import { createClient } from "../../dist/pg.mjs";
 import { s } from "../../dist/schema.mjs";
 
@@ -21,22 +20,18 @@ const post = s.model({
     .toOne(() => user)
     .fields("authorId")
     .references("id"),
+  deletedAt: s.dateTime().nullable(),
+  views: s.int().default(0),
 });
-
-export const seen = [];
 
 export const client = createClient({
   schema: { user, post },
   databaseUrl: "postgres://localhost:5432/app",
 }).$extends(
-  defineHooks({
-    name: "observe",
-    observe(unit, proceed) {
-      proceed().then((completion) => {
-        seen.push([unit.kind, completion.status]);
-      });
-    },
-  })
+  extension(
+    "unit",
+    unit((_u, next) => next())
+  )
 );
 
 export async function run() {
@@ -47,5 +42,6 @@ export async function run() {
   const created = await client.post.create({
     data: { title: "hello", authorId: users[0].id },
   });
+  await client.post.delete({ where: { id: created.id } });
   return created;
 }

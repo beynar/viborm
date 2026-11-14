@@ -1,9 +1,15 @@
-// Fixture — pg-representative with one extension that declares only a
-// `written` watch on post rows, built with `defineHooks`: its difference from
-// (c) is what this one capability costs alone. A measuring instrument for
-// scripts/extension-bytes.mjs, not a size-limit row.
+// Fixture — pg-representative with one extension made of a first moment that watches the rows writes write (`watch`, `settled`): its
+// difference from (c) is what this one part costs alone. A measuring
+// instrument for scripts/extension-bytes.mjs, not a size-limit row.
 
-import { defineHooks } from "../../dist/index.mjs";
+import {
+  call,
+  extension,
+  settled,
+  target,
+  watch,
+  writes,
+} from "../../dist/index.mjs";
 import { createClient } from "../../dist/pg.mjs";
 import { s } from "../../dist/schema.mjs";
 
@@ -21,23 +27,21 @@ const post = s.model({
     .toOne(() => user)
     .fields("authorId")
     .references("id"),
+  deletedAt: s.dateTime().nullable(),
+  views: s.int().default(0),
 });
-
-export const synced = [];
 
 export const client = createClient({
   schema: { user, post },
   databaseUrl: "postgres://localhost:5432/app",
 }).$extends(
-  defineHooks({
-    name: "written",
-    written: () => ({
-      wants: (model) => model === "post",
-      rows: (_model, _kind, rows) => {
-        synced.push(...rows);
-      },
-    }),
-  })
+  extension(
+    "watch",
+    call((c) => {
+      watch(c, { wants: () => true, rows: () => undefined });
+      settled(c, () => undefined);
+    }, target(writes))
+  )
 );
 
 export async function run() {
@@ -48,5 +52,6 @@ export async function run() {
   const created = await client.post.create({
     data: { title: "hello", authorId: users[0].id },
   });
+  await client.post.delete({ where: { id: created.id } });
   return created;
 }
