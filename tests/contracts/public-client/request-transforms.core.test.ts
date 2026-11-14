@@ -497,7 +497,10 @@ describe("public request-transform integration", () => {
     const patching = integratedClient().$extends(
       extension(
         "patching",
-        call((c) => c.set({ take: 1 }), target(models))
+        call((c) => {
+          // @ts-expect-error - a raw statement has no arguments to set: the runtime refusal is tested
+          c.set({ take: 1 });
+        })
       )
     );
     await expect(patching.$queryRawUnsafe("SELECT 1")).rejects.toThrow(
