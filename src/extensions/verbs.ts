@@ -23,7 +23,7 @@ import { lazyReferences, type VerbsDraft } from "./admission";
 import type { ResolvedExtensionChain } from "./chain-state";
 import type { Judge } from "./judge";
 import type { Projection } from "./projection";
-import type { PreparedDomain } from "./row-domain";
+import { ALL, type PreparedDomain } from "./row-domain";
 
 /** What a chain's rule keys bind to, for every mode combination. */
 export interface VerbsBound {
@@ -37,7 +37,7 @@ export interface VerbsBound {
 }
 
 /** No restriction: what a key an entry leaves out takes. */
-const ALL: Input = Object.freeze({});
+
 
 const fields = (
   map: Readonly<Record<string, unknown>> | undefined
@@ -55,6 +55,7 @@ function layerVerbs(draft: VerbsDraft): ModelVerbs {
     delete: of(draft.delete),
     writes: fields(draft.writes),
     ...(draft.place !== undefined && { place: of(draft.place) }),
+    ...(draft.check !== undefined && { check: of(draft.check) }),
     moves: fields(draft.moves),
     acyclic: draft.cycles ?? NO_RELATIONS,
     ...(draft.evidence && {

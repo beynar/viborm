@@ -53,6 +53,9 @@ export function verbInputs(
   ];
 }
 
+/** No restriction: what a verb an entry leaves out takes, read as no predicate. */
+export const ALL: Input = Object.freeze({});
+
 /** A domain no member confines bounds no set. */
 const unbounded = (): undefined => undefined;
 
@@ -214,7 +217,7 @@ export class FilterDomain implements PreparedDomain {
           layers.push([
             layer,
             [
-              ...(own ? [own.read] : []),
+              ...(own && own.read !== ALL ? [own.read] : []),
               ...(where === undefined ? [] : [where]),
               ...(own && judged ? verbInputs(own, judged) : []),
             ],

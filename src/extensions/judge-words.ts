@@ -29,22 +29,15 @@ class Checked extends CarriedValue {
     super();
     this.where = where;
   }
-  join({ key, field, model, schema, verbs, refuse }: Site): void {
+  join({ key, field, verbs, refuse }: Site): void {
     const own = verbs();
     own.judge = judgeOf;
     if (key === "create.check") own.place = this.where;
-    else if (key === "update.check") {
-      // Whatever field an update writes, the row it leaves holds it.
-      const moves: Record<string, unknown> = { ...own.moves };
-      for (const scalar of Object.keys(schema[model]!["~"].state.scalars))
-        moves[scalar] = this.where;
-      own.moves = moves;
-    } else if (UPDATE_FIELD.test(key)) {
-      const moves = { ...own.moves };
-      const prior = moves[field!];
-      moves[field!] =
-        prior === undefined ? this.where : { AND: [prior, this.where] };
-      own.moves = moves;
+    // The row an update leaves is judged again where the update writes a
+    // field the predicate reads (`update.check`), or the field named.
+    else if (key === "update.check") own.check = this.where;
+    else if (UPDATE_FIELD.test(key)) {
+      own.moves = { ...own.moves, [field!]: this.where };
     } else refuse(`${key} does not take check()`);
   }
 }

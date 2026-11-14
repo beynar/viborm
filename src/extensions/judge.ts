@@ -27,6 +27,16 @@ import { producedSource, producedWhere } from "./produced";
 import { readsAny } from "./reads";
 import { type PreparedDomain, verbInputs } from "./row-domain";
 
+/** A layer a check made judge the rows its writes produce (`verbs.ts`). */
+interface JudgedVerbs extends ModelVerbs {
+  readonly judged: true;
+  /** `update.check`: judged with the predicates that judged the old row. */
+  readonly check?: Input;
+}
+
+const judges = (own: ModelVerbs | undefined): own is JudgedVerbs =>
+  own !== undefined && "judged" in own;
+
 /** What the engine and the drivers ask of what judges a domain's writes. */
 export type Judge = Pick<
   RowJudge,
@@ -225,12 +235,16 @@ class RowJudge {
         const layers: (readonly [number, Input[]])[] = [];
         for (const [layer, own] of verbs.entries()) {
           // A layer judges the rows its writes produce where a check said so.
-          if (own === undefined || !("judged" in own)) continue;
+          if (!judges(own)) continue;
           // What judged the old row judges the new one, unless the write
           // assigns nothing it reads: then the new row's answer is the old
           // row's, which the statement's own candidates already state.
           const checked = judgement
-            ? [own.read, ...verbInputs(own, judgement)]
+            ? [
+                own.read,
+                ...verbInputs(own, judgement),
+                ...(own.check === undefined ? [] : [own.check]),
+              ]
             : [];
           const unchanged =
             changed !== undefined &&

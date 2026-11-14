@@ -59,6 +59,8 @@ export interface VerbsDraft {
   delete?: unknown;
   writes?: Record<string, unknown>;
   place?: unknown;
+  /** What the row an update leaves holds, where it writes a field this reads. */
+  check?: unknown;
   moves?: Record<string, unknown>;
   reads?: Record<string, unknown>;
   evidence?: {
@@ -368,7 +370,7 @@ function holds(filter: ArgTestFilter, mode: string): boolean {
 }
 
 /** The keys of a draft that hold one predicate, each admitted as one. */
-const SINGLE = ["read", "update", "delete", "place"] as const;
+const SINGLE = ["read", "update", "delete", "place", "check"] as const;
 /** The keys of a draft that hold one predicate per field. */
 const PER_FIELD = ["writes", "moves", "reads"] as const;
 
