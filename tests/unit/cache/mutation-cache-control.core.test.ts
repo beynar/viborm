@@ -9,14 +9,15 @@
  * client-level admission: `extension-controls.core.test.ts`.
  */
 
-import { MemoryCache } from "@cache/drivers/memory";
-import { cache } from "@cache/extension";
+import { officialCacheControls } from "@cache/capability";
+// The control admits through the cache runtime, which loads with the cache.
+import "@cache/runtime";
 import { isCanonicalKeyData } from "@cache/key";
 import { CacheConfigurationError } from "@errors";
 import { readMutationCacheOptions } from "@query-engine/cache-flow";
 import { describe, expect, test } from "vitest";
 
-const control = cache({ driver: new MemoryCache() }).controls.cache;
+const control = officialCacheControls.cache;
 const validate = (value: unknown) =>
   control.schema["~standard"].validate(value);
 

@@ -2,27 +2,27 @@ import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { ForeignKeyError, NestedWriteError, NotFoundError } from "@errors";
 import { s } from "@schema";
+import {
+  arg,
+  args,
+  around,
+  deletes,
+  extension,
+  statement as extStatement,
+  keep,
+  now,
+  oneOf,
+  rule,
+  target,
+  unit,
+  unless,
+  when,
+} from "@src/index";
 import { instrumentation } from "@src/instrumentation/exports";
 import { failure } from "@tests/fixtures/failure";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { v } from "@validation";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import {
-  extension,
-  unit,
-  rule,
-  args,
-  target,
-  deletes,
-  around,
-  oneOf,
-  arg,
-  now,
-  when,
-  unless,
-  keep,
-  statement as extStatement,
-} from "@src/index";
 
 /**
  * The `deletion` capability on a real database (extension-capabilities plan
@@ -207,12 +207,6 @@ function deletionSchema(ledger: string[]) {
   };
 }
 
-const modes = {
-  without: { root: { deletedAt: null }, related: { deletedAt: null } },
-  with: {},
-  only: { root: { deletedAt: { not: null } }, related: { deletedAt: null } },
-} as const;
-
 /** §1.1's step A, over the three managed models. */
 const softDelete = extension(
   "test.softDelete",
@@ -309,7 +303,7 @@ const softDelete = extension(
 /** One statement a transform saw: the SQL and the attribution it ran under. */
 export interface SeenStatement {
   readonly model: string | undefined;
-  readonly operation: string;
+  readonly operation: string | undefined;
   readonly sql: string;
   readonly values: readonly unknown[];
 }

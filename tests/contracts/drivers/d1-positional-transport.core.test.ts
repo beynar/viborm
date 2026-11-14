@@ -2,7 +2,7 @@ import { createClient } from "@client/client";
 import { D1Driver } from "@drivers/d1";
 import { QueryError } from "@errors";
 import { s } from "@schema";
-import { defineExtension } from "@src/index";
+import { extension, statement as extStatement, unit } from "@src/index";
 import { describe, expect, test, vi } from "vitest";
 
 type D1Database = ConstructorParameters<typeof D1Driver>[0]["database"];
@@ -160,13 +160,17 @@ describe("D1 positional transport", () => {
     const driver = new D1Driver({ database });
     try {
       const client = createClient({ schema: { entry }, driver }).$extends(
-        defineExtension<{ entry: typeof entry }>()({
-          name: "late-parser",
-          statement: ({ statement }) => {
-            driver.result.parseResult = renumberFirst;
-            return statement;
-          },
-        })
+        extension(
+          "late-parser",
+          unit(
+            (u, next) => {
+              driver.result.parseResult = renumberFirst;
+              return next(extStatement(u));
+            },
+            ["statement"],
+            { rewrites: true }
+          )
+        )
       );
       await expect(client.entry.findMany()).resolves.toEqual([
         { id: 101, title: "first" },
@@ -215,23 +219,26 @@ describe("D1 positional transport", () => {
     const wrapped = driver as any;
     const execute = wrapped.execute.bind(driver);
     const client = createClient({ schema: { entry }, driver }).$extends(
-      defineExtension<{ entry: typeof entry }>()({
-        name: "late-wrapper",
-        // Eligibility was decided before this transform ran.
-        statement: ({ statement }) => {
-          wrapped.execute = async (...args: unknown[]) => {
-            const result = await execute(...args);
-            return {
-              ...result,
-              rows: result.rows.map((row: Record<string, unknown>) => ({
-                ...row,
-                id: 42,
-              })),
+      extension(
+        "late-wrapper",
+        unit(
+          (u, next) => {
+            wrapped.execute = async (...args: unknown[]) => {
+              const result = await execute(...args);
+              return {
+                ...result,
+                rows: result.rows.map((row: Record<string, unknown>) => ({
+                  ...row,
+                  id: 42,
+                })),
+              };
             };
-          };
-          return statement;
-        },
-      })
+            return next(extStatement(u));
+          },
+          ["statement"],
+          { rewrites: true }
+        )
+      )
     );
     await expect(client.entry.findMany()).resolves.toEqual([
       { id: 42, title: "first" },

@@ -32,7 +32,7 @@ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { MemoryCache } from "@cache/drivers/memory";
 import { cache } from "@cache/extension";
 import { isVibORMError } from "@errors";
-import { createClient, s, sql } from "@src/index";
+import { createClient, call as extCall, extension, s, sql } from "@src/index";
 import { createInstrumentationContext } from "@src/instrumentation/context";
 import { instrumentation } from "@src/instrumentation/exports";
 import {
@@ -685,12 +685,14 @@ describe("tracing.tracer: span and driver failures stay outside the operation", 
           },
         })
       )
-      .$extends({
-        name: "failing-request",
-        request() {
-          throw new Error("request transform failed");
-        },
-      });
+      .$extends(
+        extension(
+          "failing-request",
+          extCall((_c) => {
+            throw new Error("request transform failed");
+          })
+        )
+      );
 
     const failure = await client.record.findMany().catch((error) => error);
 

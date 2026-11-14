@@ -24,6 +24,7 @@ import { createClient } from "@client/client";
 import { Driver, type QueryExecutionContext, type QueryResult } from "@drivers";
 import { instrumentation } from "@instrumentation/extension";
 import { s } from "@schema";
+import { extension } from "@src/index";
 import { ClockedMemoryCache } from "@tests/fixtures/clocked-memory-cache";
 import { createTestClock } from "@tests/fixtures/test-clock";
 import { describe, expect, test } from "vitest";
@@ -376,7 +377,7 @@ describe("two namespaces over one cache definition and one backend", () => {
 describe("the scope survives further extension", () => {
   test("an ordinary extension appended after the cache keeps the same scope", async () => {
     const { alpha, backend, settle, namespaceFor } = tenants();
-    const extended = alpha.$extends({ name: "ordinary-after-cache" });
+    const extended = alpha.$extends(extension("ordinary-after-cache"));
 
     await alpha.$withCache({ ttl: 60_000 }).account.findMany(IDENTICAL_READ);
     await settle();
@@ -400,7 +401,7 @@ describe("the scope survives further extension", () => {
     const { alpha, backend, settle } = tenants();
     let view = alpha;
     for (let index = 0; index < 10; index += 1) {
-      view = view.$extends({ name: `ordinary-${index}` });
+      view = view.$extends(extension(`ordinary-${index}`));
     }
 
     await alpha.$withCache({ ttl: 60_000 }).account.findMany(IDENTICAL_READ);

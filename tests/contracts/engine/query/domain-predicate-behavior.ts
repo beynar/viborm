@@ -1,8 +1,21 @@
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { ClientInitializationError } from "@errors";
-import { defineExtension } from "@extensions/define";
 import { s } from "@schema";
+import {
+  accepts,
+  arg,
+  args,
+  deletes,
+  extension,
+  keep as extKeep,
+  now,
+  oneOf,
+  provided,
+  rule,
+  unless,
+  when,
+} from "@src/index";
 import { v } from "@src/validation";
 import { tenancy } from "@tests/fixtures/extension-recipes";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -255,80 +268,74 @@ function shape(value: unknown): unknown {
 const idsOf = (rows: readonly { id: string }[]) =>
   rows.map(({ id }) => ({ id }));
 
-/** A one-mode rows extension: `models` is its `on` mode's predicates. */
-const rows = (name: string, models: Record<string, unknown>) =>
-  defineExtension({
-    name,
-    rows: {
-      control: `${name}Mode`,
-      default: "on",
-      models: Object.fromEntries(
-        Object.entries(models).map(([model, on]) => [model, { on }])
-      ),
-    },
-  } as never);
+/** The predicates a rows extension of these cases holds per model. */
+interface RowsEntry {
+  readonly root?: object;
+  readonly related?: object;
+}
+
+/** A rows extension: `models` is each model's root and related predicates. */
+const rows = (name: string, models: Readonly<Record<string, RowsEntry>>) =>
+  extension(name, rule(models));
 
 /** Soft delete's rows and deletion, as the official entry declares them. */
 const tombstones = (models: readonly string[]) =>
-  defineExtension({
-    name: "tombstones",
-    controls: { mode: { oneOf: ["soft", "hard"] } },
-    rows: {
-      control: "deleted",
-      default: "without",
-      models: Object.fromEntries(
+  extension(
+    "tombstones",
+    args({
+      mode: oneOf("soft", "hard").on(deletes).models(models),
+      deleted: oneOf("without", "with", "only").default("without"),
+    }),
+    rule(
+      Object.fromEntries(
         models.map((model) => [
           model,
           {
-            without: {
-              root: { deletedAt: null },
-              related: { deletedAt: null },
-            },
-            with: {},
-            only: {
-              root: { deletedAt: { not: null } },
-              related: { deletedAt: null },
+            root: [
+              when(arg("deleted"), "without", { deletedAt: null }),
+              when(arg("deleted"), "only", { deletedAt: { not: null } }),
+            ],
+            related: [
+              when(arg("deleted"), "without", { deletedAt: null }),
+              when(arg("deleted"), "only", { deletedAt: null }),
+            ],
+            delete: {
+              instead: extKeep(unless(arg("mode"), "hard", { deletedAt: now })),
             },
           },
         ])
-      ),
-    },
-    deletion: {
-      removeWhen: { mode: "hard" },
-      models: Object.fromEntries(
-        models.map((model) => [model, { at: "deletedAt", assign: {} }])
-      ),
-    },
-  } as never);
+      )
+    )
+  );
 
-/** The actor control of the K2 cases: an object, required on every model. */
-const actorControl = {
-  actor: {
-    schema: v.object({
-      userId: v.nullable(v.string()),
-      session: v.optional(v.string()),
-      roles: v.optional(v.array(v.string())),
-      docs: v.optional(v.array(v.string())),
+/** The actor argument of the K2 cases: an object, required on every model. */
+const actorRows = (models: Readonly<Record<string, object>>) =>
+  extension(
+    "actor",
+    args({
+      actor: accepts(
+        v.object({
+          userId: v.nullable(v.string()),
+          session: v.optional(v.string()),
+          roles: v.optional(v.array(v.string())),
+          docs: v.optional(v.array(v.string())),
+        })
+      ).required(Object.keys(models)),
+      actorMode: oneOf("on").default("on"),
     }),
-    required: true,
-  },
-} as const;
-const actorRows = (models: Record<string, unknown>) =>
-  defineExtension({
-    name: "actor",
-    controls: actorControl,
-    rows: {
-      control: "actorMode",
-      default: "on",
-      models: Object.fromEntries(
+    rule(
+      Object.fromEntries(
         Object.entries(models).map(([model, root]) => [
           model,
-          { on: { root, related: root } },
+          {
+            root: when(arg("actorMode"), "on", root),
+            related: when(arg("actorMode"), "on", root),
+          },
         ])
-      ),
-    },
-  } as never);
-const actor = (path: string) => ({ control: "actor", path });
+      )
+    )
+  );
+const actor = (path: string) => arg("actor", path);
 
 export function runDomainPredicateBehavior(
   substrate: DomainPredicateSubstrate
@@ -851,22 +858,16 @@ export function runDomainPredicateBehavior(
 
     test("W-K2e: an absent optional control still drops its predicate, and the statement is the base client's", async () => {
       const base = await seeded();
-      const optional = defineExtension({
-        name: "optionalTenant",
-        controls: { tenant: { schema: v.string() } },
-        rows: {
-          control: "scope",
-          default: "tenant",
-          models: {
-            file: {
-              tenant: {
-                root: { tenantId: { control: "tenant" } },
-                related: { tenantId: { control: "tenant" } },
-              },
-            },
+      const optional = extension(
+        "optionalTenant",
+        args({ tenant: v.string(), scope: oneOf("tenant").default("tenant") }),
+        rule({
+          file: {
+            root: when(arg("scope"), "tenant", { tenantId: arg("tenant") }),
+            related: when(arg("scope"), "tenant", { tenantId: arg("tenant") }),
           },
-        },
-      } as never);
+        })
+      );
       const db = base.$extends(optional);
       expect(shape(await db.file.findMany({ select: { id: true } }))).toEqual(
         shape(idsOf(FILES))
@@ -936,19 +937,18 @@ export function runDomainPredicateBehavior(
       const base = await seeded();
       // The memo path read a control's null as `IS NULL`: d9 and d10.
       const owned = base.$extends(
-        defineExtension({
-          name: "owned",
-          controls: {
-            owner: { schema: v.nullable(v.string()), required: true },
-          },
-          rows: {
-            control: "ownedMode",
-            default: "on",
-            models: {
-              doc: { on: { root: { ownerId: { control: "owner" } } } },
+        extension(
+          "owned",
+          args({
+            owner: accepts(v.nullable(v.string())).required(["doc"]),
+            ownedMode: oneOf("on").default("on"),
+          }),
+          rule({
+            doc: {
+              root: when(arg("ownedMode"), "on", { ownerId: arg("owner") }),
             },
-          },
-        } as never)
+          })
+        )
       );
       expect(
         await owned.doc.findMany({ owner: null, select: { id: true } })
@@ -979,9 +979,7 @@ export function runDomainPredicateBehavior(
 
     test("conditions fold per call before absence: a false one removes its arm, a held one is true, under OR and NOT", async () => {
       const base = await seeded();
-      const isAdmin = {
-        $if: { control: "actor", path: "roles", has: "admin" },
-      };
+      const isAdmin = provided(arg("actor", "roles"), { has: "admin" });
       const db = base.$extends(
         actorRows({
           doc: {
@@ -989,15 +987,15 @@ export function runDomainPredicateBehavior(
               isAdmin,
               {
                 AND: [
-                  { $if: { control: "actor", path: "session", exists: true } },
+                  provided(arg("actor", "session"), { exists: true }),
                   { ownerId: actor("userId") },
                 ],
               },
-              {
-                $if: { control: "actor", path: "roles", hasSome: ["auditor"] },
-                NOT: { ownerId: actor("userId") },
-                parentId: null,
-              },
+              provided(
+                arg("actor", "roles"),
+                { hasSome: ["auditor"] },
+                { NOT: { ownerId: actor("userId") }, parentId: null }
+              ),
             ],
           },
         })
@@ -1023,17 +1021,6 @@ export function runDomainPredicateBehavior(
           )
         )
       );
-      for (const [spec, reason] of [
-        [{ control: "actor", path: "roles" }, "no test"],
-        [{ control: "actor", exists: true, equals: 1 }, "two tests"],
-        [{ path: "roles", exists: true }, "no control"],
-        [{ control: "actor", in: "admin" }, "a list test without a list"],
-      ] as const)
-        expect(
-          refusal(() => base.$extends(actorRows({ doc: { $if: spec } })))
-            .message,
-          reason
-        ).toContain('rows.doc.on.root at "$if"');
     });
 
     test("relation chains and repeated quantifiers answer as their oracle: a chain read through its outer row, merged some, is, none and isNot", async () => {

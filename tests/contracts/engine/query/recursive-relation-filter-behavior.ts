@@ -3,6 +3,16 @@ import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { ForbiddenError } from "@errors";
 import { s } from "@schema";
+import {
+  arg,
+  args,
+  check,
+  extension,
+  nothing,
+  oneOf,
+  rule,
+  when,
+} from "@src/index";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import {
   afterAll,
@@ -769,23 +779,24 @@ export function runRecursiveRelationFilterBehavior(
           document: ["A", "C2", "r07", "r23", "r41"],
           team: ["VN", "DL", "t05", "t31", "t44"],
         };
-        const hidden = client.$extends({
-          name: "test.hiddenRows",
-          rows: {
-            control: "hidden",
-            default: "on",
-            models: {
+        const hidden = client.$extends(
+          extension(
+            "test.hiddenRows",
+            args({ hidden: oneOf("on", "off").default("on") }),
+            rule({
               document: {
-                on: { related: { id: { notIn: hiddenIds.document } } },
-                off: {},
+                related: when(arg("hidden"), "on", {
+                  id: { notIn: hiddenIds.document },
+                }),
               },
               team: {
-                on: { related: { id: { notIn: hiddenIds.team } } },
-                off: {},
+                related: when(arg("hidden"), "on", {
+                  id: { notIn: hiddenIds.team },
+                }),
               },
-            },
-          },
-        });
+            })
+          )
+        );
         const read = async (where: object, mode: "on" | "off") =>
           sorted(
             slot.model === "document"
@@ -1201,16 +1212,19 @@ export function runRecursiveRelationFilterBehavior(
       // Ventes and Nord Est are hidden wherever a relation reaches them, never
       // at the root. Each is two hops from the other: the first hop reaches
       // Ventes Nord, the second the hidden end.
-      const hidden = context.client.$extends({
-        name: "test.hiddenTeams",
-        rows: {
-          control: "hidden",
-          default: "on",
-          models: {
-            team: { on: { related: { id: { notIn: ["V", "NE"] } } }, off: {} },
-          },
-        },
-      });
+      const hidden = context.client.$extends(
+        extension(
+          "test.hiddenTeams",
+          args({ hidden: oneOf("on", "off").default("on") }),
+          rule({
+            team: {
+              related: when(arg("hidden"), "on", {
+                id: { notIn: ["V", "NE"] },
+              }),
+            },
+          })
+        )
+      );
       const teams = async (where: object, mode: "on" | "off") =>
         sorted(
           await hidden.team.findMany({
@@ -1418,7 +1432,7 @@ export function runRecursiveRelationFilterBehavior(
     const parentOwnedByBen = (self: boolean) => {
       const closure = {
         parent: { recurse: { depth: false }, self, some: { ownerId: "ben" } },
-      };
+      } as const;
       // Stated twice: where the driver shares bodies, as one reaching set.
       return {
         OR: [
@@ -1428,22 +1442,22 @@ export function runRecursiveRelationFilterBehavior(
       };
     };
     const judging = (client: Client, self: boolean) =>
-      client.$extends({
-        name: "test.ancestry",
-        rows: {
-          control: "scope",
-          default: "all",
-          models: {},
-          verbs: {
+      client.$extends(
+        extension(
+          "test.ancestry",
+          args({ scope: oneOf("all").default("all") }),
+          rule({
             document: {
-              // A verb a model's entry leaves out holds of no row.
-              predicates: { all: {}, underBen: parentOwnedByBen(self) },
-              read: "all",
-              update: "underBen",
+              read: { where: {} },
+              update: {
+                where: parentOwnedByBen(self),
+                check: check(parentOwnedByBen(self)),
+              },
+              delete: { where: nothing },
             },
-          },
-        },
-      });
+          })
+        )
+      );
     const parentOf = async (client: Client, id: string) =>
       (await client.document.findUnique({ where: { id } }))?.parentId;
 

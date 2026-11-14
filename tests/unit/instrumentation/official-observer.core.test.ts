@@ -1,8 +1,7 @@
-import { appendResolvedExtension } from "@extensions/chain";
+import type { ResolvedExtensionHandler } from "@extensions/chain";
 import {
   getOfficialInstrumentationChainCapability,
   type LifecycleUnit,
-  registerFactsObserver,
   runProtectedObservers,
   selectTrustedObservers,
 } from "@extensions/observation";
@@ -27,33 +26,35 @@ import {
   SPAN_TRANSACTION,
 } from "@instrumentation/spans";
 import type { InstrumentationConfig } from "@instrumentation/types";
-import {
-  instrumentation,
-  type OfficialInstrumentationExtension,
-} from "@src/instrumentation/extension";
+import { instrumentation } from "@src/instrumentation/extension";
+import { appendResolvedExtension } from "@tests/fixtures/host-definition";
 import {
   captureLogs,
   withOtelRecorder,
 } from "@tests/unit/instrumentation/_capture";
 import { describe, expect, it, vi } from "vitest";
 
-/** The extension as a chain admits it: its observer is the one handed facts. */
-function admitted(
-  extension: OfficialInstrumentationExtension
-): OfficialInstrumentationExtension {
-  registerFactsObserver(extension.observe, extension.observes);
-  return extension;
+/**
+ * The official observer as `$extends` applies the extension: the one observer
+ * its chain holds, registered as the one handed facts.
+ */
+function observerOf(extension: unknown): ResolvedExtensionHandler {
+  const observer = appendResolvedExtension(undefined, extension, {})
+    .observe?.[0];
+  if (observer === undefined)
+    throw new Error("The official instrumentation observes nothing here");
+  return observer;
 }
 
 function runObserved<Result>(
-  extension: OfficialInstrumentationExtension,
+  extension: unknown,
   unit: LifecycleUnit,
   facts: OfficialLifecycleFacts,
   child: () => Promise<Result>
 ): Promise<Result> {
   return runProtectedObservers(
     unit,
-    [{ extension: extension.name, handler: admitted(extension).observe }],
+    [observerOf(extension)],
     child,
     undefined,
     () => facts
@@ -111,15 +112,17 @@ function cacheOutcome(
 
 describe("official protected observer", () => {
   it("keeps the extracted identity inert outside the protected runner", () => {
-    const extension = instrumentation({});
+    const { handler } = observerOf(
+      instrumentation({ logging: { query: true } })
+    );
     const completion = Object.freeze({ status: "success", durationMs: 0 });
     const proceed = vi.fn(() => Promise.resolve(completion));
 
     expect(
-      extension.observe(
+      Reflect.apply(handler, undefined, [
         Object.freeze({ kind: "operation", operation: "findMany" }),
-        proceed
-      )
+        proceed,
+      ])
     ).toBeUndefined();
     expect(proceed).not.toHaveBeenCalled();
   });
@@ -437,11 +440,7 @@ describe("official protected observer", () => {
 
 describe("trusted-only dispatch", () => {
   it("selects the exact chain's trusted observer and nothing else", () => {
-    const official = instrumentation({ tracing: true });
-    const trusted = {
-      extension: official.name,
-      handler: admitted(official).observe,
-    };
+    const trusted = observerOf(instrumentation({ tracing: true }));
     const ordinary = { extension: "ordinary", handler: () => undefined };
 
     expect(selectTrustedObservers([ordinary, trusted, ordinary])).toEqual([

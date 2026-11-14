@@ -143,7 +143,7 @@ export function runOmitBehavior({
         schema,
         driver: driver as AnyDriver,
       }).$extends(
-        defaultOmit<typeof schema>()({
+        defaultOmit({
           account: { passwordHash: true },
           note: { draft: true },
         })

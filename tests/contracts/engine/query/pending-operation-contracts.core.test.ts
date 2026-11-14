@@ -8,7 +8,6 @@ import {
   PendingOperationError,
   ValidationError,
 } from "@errors";
-import { appendResolvedExtension } from "@extensions/chain";
 import { ARRAYS } from "@extensions/coordination";
 import {
   executePreparedQuery,
@@ -29,8 +28,14 @@ import {
   type TransactionOperationOwner,
 } from "@query-engine/transaction-operation";
 import { hydrateSchemaNames, s } from "@schema";
-import { PendingOperation as RootPendingOperation } from "@src/index";
+import {
+  call,
+  extension,
+  PendingOperation as RootPendingOperation,
+  unit,
+} from "@src/index";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
+import { appendResolvedExtension } from "@tests/fixtures/host-definition";
 import {
   createModelRegistry,
   TestQueryEngine,
@@ -649,8 +654,8 @@ describe("pending operation transaction coordination", () => {
     const queryHandler = vi.fn(
       async (context: { proceed(): Promise<unknown> }) => context.proceed()
     );
-    const observer = vi.fn((_unit: unknown, proceed: () => Promise<unknown>) =>
-      proceed()
+    const observer = vi.fn((_unit: unknown, next: () => Promise<unknown>) =>
+      next()
     );
     const chain = appendResolvedExtension(
       appendResolvedExtension(
@@ -658,7 +663,7 @@ describe("pending operation transaction coordination", () => {
         { name: "query-owner", query: queryHandler },
         schema
       ),
-      { name: "observer-owner", observe: observer },
+      extension("observer-owner", unit(observer)),
       schema
     );
     const engine = new TestQueryEngine(
@@ -701,10 +706,16 @@ describe("pending operation transaction coordination", () => {
     const chain = appendResolvedExtension(
       appendResolvedExtension(
         undefined,
-        { name: "request-owner", request: () => ({}) },
+        extension(
+          "request-owner",
+          call(() => undefined)
+        ),
         schema
       ),
-      { name: "observer-owner", observe: () => undefined },
+      extension(
+        "observer-owner",
+        unit((_unit, next) => next())
+      ),
       schema
     );
     const engine = new TestQueryEngine(

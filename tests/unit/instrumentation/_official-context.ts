@@ -1,10 +1,10 @@
 import { createExecutionContext } from "@drivers/execution-context";
 import type { QueryExecutionContext } from "@drivers/types";
-import { appendResolvedExtension } from "@extensions/chain";
 import {
   type InstrumentationConfig,
   instrumentation,
 } from "@src/instrumentation/exports";
+import { appendResolvedExtension } from "@tests/fixtures/host-definition";
 
 /** Build the same trusted context an official-derived client supplies. */
 export function createOfficialTestExecutionContext(
