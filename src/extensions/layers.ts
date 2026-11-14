@@ -202,11 +202,15 @@ export function layerOf(
       const { known } = queries as Queries & {
         known?: {
           alias: string;
-          fold: (predicate: PreparedPredicate) => PreparedPredicate;
+          nulls: ReadonlyMap<string, boolean>;
+          fold: (
+            predicate: PreparedPredicate,
+            nulls: ReadonlyMap<string, boolean>
+          ) => PreparedPredicate;
         };
       };
       return known !== undefined && alias === known.alias
-        ? known.fold(resolved)
+        ? known.fold(resolved, known.nulls)
         : resolved;
     },
   });

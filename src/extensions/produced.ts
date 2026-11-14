@@ -140,10 +140,7 @@ function holds(
 ): Sql | undefined {
   const a = q.adapter;
   const outer = q.known;
-  q.known = {
-    alias,
-    fold: (predicate) => foldKnownNulls(predicate, nulls),
-  };
+  q.known = { alias, nulls, fold: foldKnownNulls };
   let lowered: Sql | undefined;
   try {
     lowered = judged && q.lowerSelector(judged, alias);

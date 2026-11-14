@@ -20,6 +20,7 @@ import {
   statement as extStatement,
   nothing,
   oneOf,
+  only,
   parts,
   rule,
   unit,
@@ -473,8 +474,8 @@ describe("PGlite: rows.confine, the capability tenant is built on", () => {
       rule({
         page: {
           read: { where: seen },
-          update: { where: nothing },
-          delete: { where: nothing },
+          update: { where: only(nothing) },
+          delete: { where: only(nothing) },
         },
         ...Object.fromEntries(
           Object.entries(confine).map(([model, where]) => [

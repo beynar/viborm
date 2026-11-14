@@ -9,6 +9,7 @@
  */
 import type { ModelState } from "@schema/model";
 import { isPlainRecord } from "@schema/relation/terminal";
+import type { VerbsDraft } from "./admission";
 import type {
   CheckWord,
   FactsWord,
@@ -261,7 +262,7 @@ class Lazy extends CarriedValue {
     if (key !== "the entry") refuse(`${key} does not take lazy()`);
     const layer = draft.rule!;
     layer.host = VERBS;
-    layer.verbs[model] = () => {
+    const read = (): VerbsDraft => {
       const given: unknown = Reflect.apply(this.read, undefined, []);
       const written: Readonly<Record<string, unknown>> = isPlainRecord(given)
         ? given
@@ -275,6 +276,7 @@ class Lazy extends CarriedValue {
         ? verbs
         : { ...verbs, root, related };
     };
+    layer.verbs[model] = read;
     // Once every part wrote, where no eager filter of the extension decided
     // its filters by an argument: the entry is read later, so they are
     // decided by the first argument of the extension a value of which picks

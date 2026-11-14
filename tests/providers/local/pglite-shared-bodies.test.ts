@@ -11,6 +11,7 @@ import {
   statement as extStatement,
   nothing,
   oneOf,
+  only,
   parts,
   rule,
   unit,
@@ -89,8 +90,8 @@ const policy = parts<{
           ],
         },
       },
-      update: { where: nothing },
-      delete: { where: nothing },
+      update: { where: only(nothing) },
+      delete: { where: only(nothing) },
     },
   })
 );
@@ -330,8 +331,8 @@ test("PGlite: a shared relation body over a table named like a body is still NOT
                 ],
               },
             },
-            update: { where: nothing },
-            delete: { where: nothing },
+            update: { where: only(nothing) },
+            delete: { where: only(nothing) },
           },
         })
       )

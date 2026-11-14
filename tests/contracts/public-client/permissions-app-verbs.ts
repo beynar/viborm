@@ -6,6 +6,7 @@ import {
   defaults,
   extension,
   oneOf,
+  only,
   rule,
   selecting,
   when,
@@ -123,7 +124,7 @@ function declaration(actor: Actor, now: Date, stamped = false) {
         ],
       }),
       update: {
-        where: of(UPDATE[model] ?? "update"),
+        where: only(of(UPDATE[model] ?? "update")),
         check: check(read),
         fields: Object.fromEntries(
           Object.entries(writes).map(([field, action]) => [
@@ -132,7 +133,7 @@ function declaration(actor: Actor, now: Date, stamped = false) {
           ])
         ),
       },
-      delete: { where: of(DELETE[model] ?? "full") },
+      delete: { where: only(of(DELETE[model] ?? "full")) },
     };
   }
   return extension(

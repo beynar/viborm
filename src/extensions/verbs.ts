@@ -10,10 +10,7 @@
  * model first.
  */
 import { ClientInitializationError } from "@errors";
-import {
-  NO_RELATIONS,
-  type Queries,
-} from "@query-engine/raptor3/shared/query";
+import { NO_RELATIONS, type Queries } from "@query-engine/raptor3/shared/query";
 import type {
   LazyRelations,
   ModelVerbs,
@@ -334,7 +331,7 @@ function admitVerbs(
       continue;
     }
     let resolved: VerbsDraft | undefined;
-    verbs[name] = (): VerbsDraft => {
+    const resolve = (): VerbsDraft => {
       if (resolved !== undefined) return resolved;
       const own: References = new Set();
       const { root, related, ...given } = draft();
@@ -354,6 +351,7 @@ function admitVerbs(
       lazyReferences.set(resolved, [...own]);
       return resolved;
     };
+    verbs[name] = resolve;
   }
   return Object.freeze(verbs);
 }

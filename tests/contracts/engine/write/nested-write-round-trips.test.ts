@@ -19,7 +19,16 @@ import { SQLite3Driver } from "@drivers/sqlite3";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { NestedWriteError, NotFoundError } from "@errors";
 import { hydrateSchemaNames, s } from "@schema";
-import { arg, args, check, extension, oneOf, rule, when } from "@src/index";
+import {
+  arg,
+  args,
+  check,
+  extension,
+  oneOf,
+  only,
+  rule,
+  when,
+} from "@src/index";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import type Database from "better-sqlite3";
@@ -115,11 +124,11 @@ const lockedStays = extension(
       read: { where: postAny },
       create: { check: check(postAny) },
       update: {
-        where: postAny,
+        where: only(postAny),
         check: check(postAny),
         fields: { authorId: { check: check({ title: { not: "locked" } }) } },
       },
-      delete: { where: postAny },
+      delete: { where: only(postAny) },
     },
   })
 );

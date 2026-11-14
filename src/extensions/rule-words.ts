@@ -18,12 +18,7 @@ import { isPlainRecord } from "@schema/relation/terminal";
 import { validateSchema } from "@validation/primitives/helpers";
 import type { FilterWord } from "@validation/primitives/parameter";
 import type { SchemaRegistryLookup } from "@validation/types";
-import type {
-  LayerMode,
-  References,
-  RuleLayer,
-  VerbsDraft,
-} from "./admission";
+import type { LayerMode, References, RuleLayer, VerbsDraft } from "./admission";
 import type {
   ArgTest,
   ArgWord,
@@ -250,7 +245,11 @@ export class ArgTestFilter extends PredicateWord {
   }
   override under(mode: LayerMode | undefined, value: string): unknown {
     const { arg, kind, test } = this;
-    if (kind === "provided" || arg.path !== undefined || arg.name !== mode?.name)
+    if (
+      kind === "provided" ||
+      arg.path !== undefined ||
+      arg.name !== mode?.name
+    )
       return this;
     const passed = isPlainRecord(test)
       ? "in" in test && Array.isArray(test.in)

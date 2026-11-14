@@ -12,8 +12,10 @@ import {
   check,
   exists,
   gate,
+  lazy,
   nothing,
   oneOf,
+  only,
   parts,
   provided,
   when,
@@ -87,16 +89,16 @@ test("two lazy entries sharing a sub-predicate that names an undeclared control 
       "lazy",
       extArgs({ user: v.string() }),
       typed.rule({
-        node: () => ({
+        node: lazy(() => ({
           read: { where: ghost },
-          update: { where: nothing },
-          delete: { where: nothing },
-        }),
-        note: () => ({
+          update: { where: only(nothing) },
+          delete: { where: only(nothing) },
+        })),
+        note: lazy(() => ({
           read: { where: exists({ node: ghost }) },
-          update: { where: nothing },
-          delete: { where: nothing },
-        }),
+          update: { where: only(nothing) },
+          delete: { where: only(nothing) },
+        })),
       })
     )
   );
@@ -115,11 +117,11 @@ test("a lazy entry shared by two chains is checked against each chain's own cont
     "lazy",
     extArgs({ user: v.string() }),
     typed.rule({
-      note: () => ({
+      note: lazy(() => ({
         read: { where: { ownerId: tenant } },
-        update: { where: nothing },
-        delete: { where: nothing },
-      }),
+        update: { where: only(nothing) },
+        delete: { where: only(nothing) },
+      })),
     })
   );
   const tenancy = typed.extension("tenant", extArgs({ tenant: v.string() }));
@@ -233,8 +235,8 @@ test("one declaration applied to two schemas whose models share names is admitte
       node: {
         read: { where: own, fields: { secret: gate(own) } },
         root: { secret: { not: "" } },
-        update: { where: nothing },
-        delete: { where: nothing },
+        update: { where: only(nothing) },
+        delete: { where: only(nothing) },
       },
     })
   );
@@ -253,8 +255,8 @@ const judged = typed.extension(
     node: {
       read: { where: {}, fields: { secret: gate(own) } },
       create: { check: check(own) },
-      update: { where: nothing },
-      delete: { where: nothing },
+      update: { where: only(nothing) },
+      delete: { where: only(nothing) },
     },
   })
 );

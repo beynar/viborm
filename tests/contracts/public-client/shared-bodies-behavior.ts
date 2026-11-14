@@ -2,7 +2,7 @@ import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { s } from "@schema";
 import { sql } from "@sql";
-import { args, extension, nothing, oneOf, rule } from "@src/index";
+import { args, extension, nothing, oneOf, only, rule } from "@src/index";
 import { permissions } from "@src/permissions";
 import { v } from "@src/validation";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -78,8 +78,8 @@ export function runSharedBodiesBehavior({
               rule({
                 container: {
                   read: { where: permitted },
-                  update: { where: nothing },
-                  delete: { where: nothing },
+                  update: { where: only(nothing) },
+                  delete: { where: only(nothing) },
                 },
               })
             )
@@ -196,8 +196,8 @@ export function runSharedBodiesBehavior({
                     ],
                   },
                 },
-                update: { where: nothing },
-                delete: { where: nothing },
+                update: { where: only(nothing) },
+                delete: { where: only(nothing) },
               },
             })
           )

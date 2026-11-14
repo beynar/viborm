@@ -17,7 +17,9 @@ import {
   check,
   args as extArgs,
   extension,
+  lazy,
   nothing,
+  only,
   parts,
   text,
   unit,
@@ -143,53 +145,53 @@ export const policyRules = {
     read: { where: viewFolder },
     create: { check: check(folderPlace) },
     update: {
-      where: editFolder,
+      where: only(editFolder),
       check: check({ AND: [viewFolder, editFolder] }),
       // The new parent outside the folder's own subtree.
       fields: { parentId: { check: check(folderPlace) } },
     },
-    delete: { where: editFolder },
+    delete: { where: only(editFolder) },
     acyclic: ["parent"],
   },
   grant: {
     read: { where: grantView },
     create: { check: check(grantAdmin) },
     update: {
-      where: grantAdmin,
+      where: only(grantAdmin),
       check: check({ AND: [grantView, grantAdmin] }),
       fields: { folderId: { check: check(grantAdmin) } },
     },
-    delete: { where: grantAdmin },
+    delete: { where: only(grantAdmin) },
   },
   item: {
     read: { where: itemView },
     create: { check: check(itemEdit) },
     update: {
-      where: itemEdit,
+      where: only(itemEdit),
       check: check({ AND: [itemView, itemEdit] }),
       fields: {
         folderId: { check: check(itemEdit) },
         tags: { check: check({ NOT: { tags: { has: "secret" } } }) },
       },
     },
-    delete: { where: itemEdit },
+    delete: { where: only(itemEdit) },
   },
   tick: {
     read: { where: {} },
     create: { check: check({}) },
-    update: { where: {}, check: check({}) },
-    delete: { where: nothing },
+    update: { where: only({}), check: check({}) },
+    delete: { where: only(nothing) },
   },
   counter: {
     read: { where: {} },
-    update: { where: nothing },
-    delete: { where: nothing },
+    update: { where: only(nothing) },
+    delete: { where: only(nothing) },
   },
   aliased: {
     read: { where: aliasedMine },
     create: { check: check(aliasedMine) },
-    update: { where: aliasedMine, check: check(aliasedMine) },
-    delete: { where: nothing },
+    update: { where: only(aliasedMine), check: check(aliasedMine) },
+    delete: { where: only(nothing) },
   },
 } as const;
 /** The policy's one argument: the caller. */
@@ -248,15 +250,15 @@ export const lazyPolicy = typed.extension(
   "policy",
   policyArgs,
   typed.rule({
-    folder: () => ({
+    folder: lazy(() => ({
       ...policyRules.folder,
       acyclic: () => ["parent"] as const,
-    }),
-    grant: () => policyRules.grant,
-    item: () => policyRules.item,
-    tick: () => policyRules.tick,
-    counter: () => policyRules.counter,
-    aliased: () => policyRules.aliased,
+    })),
+    grant: lazy(() => policyRules.grant),
+    item: lazy(() => policyRules.item),
+    tick: lazy(() => policyRules.tick),
+    counter: lazy(() => policyRules.counter),
+    aliased: lazy(() => policyRules.aliased),
   })
 );
 

@@ -24,6 +24,7 @@ import {
   exists,
   extension,
   oneOf,
+  only,
   parts,
   provided,
   row,
@@ -153,8 +154,8 @@ async function open(root: object, shared = false, extra?: object) {
           grant: {
             read: { where: root },
             root: when(arg("scope"), "all", root),
-            update: { where: root, check: check(root) },
-            delete: { where: root },
+            update: { where: only(root), check: check(root) },
+            delete: { where: only(root) },
           },
         }))
       )
