@@ -10,14 +10,14 @@
 import { createClient } from "@drivers/sqlite3";
 import { s } from "@schema";
 import {
-  extension,
-  rule,
+  arg,
+  bound,
   defaults,
   args as extArgs,
+  extension,
   methods,
   oneOf,
-  bound,
-  arg,
+  rule,
   when,
 } from "@src/index";
 import { softDelete } from "@src/soft-delete";
