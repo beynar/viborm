@@ -12,9 +12,12 @@ import { createClient } from "@drivers/sqlite3";
 import { QueryError } from "@errors";
 import { s } from "@schema";
 import {
+  again,
   arg,
   args,
+  around,
   check,
+  createClient as createClientOn,
   defaults,
   driver,
   extension,
@@ -31,14 +34,18 @@ import {
   run,
   sql,
   statement,
+  statements,
   text,
   type UnitContext,
   unit,
   unless,
+  via,
   when,
 } from "@src/index";
 import { on } from "@src/on";
+import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createBatchOnlySQLite3Driver } from "@tests/providers/local/sqlite3-fixtures";
 import { afterEach, describe, expect, test } from "vitest";
 
 const user = s.model({ id: s.string().id(), name: s.string() });
@@ -73,6 +80,8 @@ interface Delegate {
   delete(args: object): Promise<Row>;
 }
 interface Loose {
+  $queryRaw(query: unknown): Promise<Row[]>;
+  $executeRaw(query: unknown): Promise<number>;
   user: Delegate;
   post: Delegate;
   node: Delegate & { update(args: object): Promise<Row> };
@@ -306,6 +315,34 @@ describe("default data", () => {
   });
 });
 
+describe("again and via on a raw statement", () => {
+  test("a raw statement is never made again and never routed", async () => {
+    const base = await seeded();
+    const other = createInMemorySQLite3Driver();
+    const elsewhere = createClientOn({
+      schema,
+      driver: other,
+    }) as never as Loose;
+    opened.push(elsewhere);
+    const seen: unknown[] = [];
+    const db = base.$extends(
+      extension(
+        "router",
+        around((c) => async (run) => {
+          if (c.kind !== "raw") return run();
+          seen.push(again(run));
+          // The other database has no table: a routed statement would fail.
+          return via(run, other);
+        })
+      )
+    );
+    expect(await db.$queryRaw(sql`SELECT count(*) AS n FROM post`)).toEqual([
+      { n: 2 },
+    ]);
+    expect(seen).toEqual([false]);
+  });
+});
+
 describe("on() with no hook", () => {
   test("applies, and every write runs as it would", async () => {
     const db = (await seeded()).$extends(on({} as never));
@@ -396,6 +433,42 @@ describe("unit words on a unit that lacks what they read", () => {
     expect(failure).toBe(refusal);
     expect(ran).toEqual([[{ one: 1 }], [{ two: 2 }]]);
     expect(ids(await base.post.findMany({}))).toEqual(["p1", "p2"]);
+  });
+
+  test("a native batch of raw statements: each member names $raw, its parameters read when asked", async () => {
+    const client = createClientOn({
+      schema,
+      driver: createBatchOnlySQLite3Driver(),
+    }) as never as Loose & {
+      $transaction(operations: readonly unknown[]): Promise<unknown[]>;
+    };
+    opened.push(client);
+    await syncLiveSchema(client as never);
+    const members: { model?: string; parameters: readonly unknown[] }[] = [];
+    const db = client.$extends(
+      extension(
+        "batch",
+        unit(
+          (u, next) => {
+            for (const member of statements(u) ?? [])
+              members.push({
+                ...(member.model === undefined ? {} : { model: member.model }),
+                parameters: member.parameters,
+              });
+            return next();
+          },
+          ["statement"]
+        )
+      )
+    ) as typeof client;
+    await db.$transaction([
+      db.$executeRaw(sql`UPDATE post SET title = ${"x"} WHERE id = ${"none"}`),
+      db.$executeRaw(sql`UPDATE post SET title = ${"y"} WHERE id = ${"none"}`),
+    ]);
+    expect(members).toEqual([
+      { model: "$raw", parameters: ["x", "none"] },
+      { model: "$raw", parameters: ["y", "none"] },
+    ]);
   });
 
   test("on a value no producer made, each word reads nothing", () => {
