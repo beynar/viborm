@@ -129,11 +129,10 @@ export const operationsOf = (
       ? value
       : selectionOf(value)?.operations;
 
-/** Every model, these operations: `target(reads)`. */
-export function target<T extends AnyTarget, O extends Operations>(
-  operations: OperationSet<O>
-): Selection<T, ModelName<T>, O>;
-/** One model (or several), these operations (every one when absent). */
+/**
+ * One model (or several), these operations (every one when absent). First:
+ * an editor completes a string argument from the first signature.
+ */
 export function target<
   T extends AnyTarget,
   const M extends ModelName<T> = ModelName<T>,
@@ -142,6 +141,10 @@ export function target<
   models: M | readonly M[],
   operations?: O | readonly O[] | OperationSet<O>
 ): Selection<T, M, O>;
+/** Every model, these operations: `target(reads)`. */
+export function target<T extends AnyTarget, O extends Operations>(
+  operations: OperationSet<O>
+): Selection<T, ModelName<T>, O>;
 export function target(first: unknown, operations?: unknown): unknown {
   // An operation set alone: every model, those operations.
   if (typeof first === "object" && !Array.isArray(first)) return first;
