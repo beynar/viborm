@@ -60,15 +60,17 @@ target behind the `IN (SELECT …)` form once per parent). Positive observations
 absence is consumed lexically and is deliberately not cached across re-entry.
 Junction capture stores the exact membership pair, not a synthetic row lookup.
 
-*Row domains (extension `rows`, extension-capabilities plan v3.1 §2.2).* A call
-of a client with `rows` carries its facts (`CallScope`, `shared/row-scope.ts`):
-the domain its controls chose and the default one, each a `PreparedDomain`
+*Row domains (an extension's `rule`: `read.where`, `root`, `related`, written
+with `when`/`unless`; root Rule 6).* A call of a client whose chain has a
+`rule` carries its facts (`CallScope`, `shared/row-scope.ts`), built by
+`src/extensions/rows.ts` and `row-domain.ts`: the domain its mode arguments
+chose and the default one, each a `PreparedDomain`
 prepared at most once per engine view, model and purpose. A `Queries` is scoped
 to one domain: reads get `PreparedDomain.reads(call)`: the domain's one read
 view (built on first use, living as long as the domain), or the call's own
 when the call carries values; each layer's predicate is a `layer` node that
 folds the call's conditions and resolves an absent value (`null` included)
-by its control's `required`, and inside it
+by its argument's `required`, and inside it
 the lowering-time read sites (`#within`, `#related`, the cursor anchor,
 `#missingArm`, `remove`, through `domainOf`) read `PreparedDomain.defaults`
 without the layers on the `Queries` exclusion stack. Write contexts are one
@@ -96,16 +98,17 @@ records the domain's fields among its dependency facts, as a to-many one does.
 convergence and a hidden conflict's rethrow behave as without a domain, and
 marks the selector `scoped`, so the two consumers that trust the key alone —
 the RETURNING confirmation fast path and the targeted `ON CONFLICT` fold —
-decline. The engine never sees a mode or an extension's name; a control's
+decline. The engine never sees a mode or an extension's name; an argument's
 name only as the key a parameter reads its call value under (`CallValues`). An
 equality on a parameter pins no value in `SelectorFacts` and leaves the
 selector `exact`: its literal equalities still prove a write disjoint from a
-later read (N1), so a control's value never turns an independent lookup
+later read (N1), so an argument's value never turns an independent lookup
 into an ordered observation, which on a batch-only driver would split the
 operation into two batches and commit the first alone.
 
-*Verbs (permissions plan K3).* A domain may hold, per model and layer, `verbs`
-(`ModelVerbs`): `read` ANDs with that layer's predicate at every purpose, and
+*Verbs (permissions plan K3; written by a `rule`'s `only`, `check`, `gate`,
+`facts` and `lazy`, `src/extensions/verbs.ts`).* A domain may hold, per model
+and layer, `verbs` (`ModelVerbs`): `read` ANDs with that layer's predicate at every purpose, and
 a write lookup names a `RowJudgement` beside its purpose: `DELETE_JUDGEMENT`
 for every delete and tombstone candidate set, `Commands.judge` for an update
 occurrence (the fields the caller's data writes, a held key's relation with
@@ -125,8 +128,19 @@ member seen or not; a key the member holds addresses only members the call
 sees, so a hidden one is an empty slot.
 
 *Produced rows (permissions plan K4, OD-13: one statement).* A layer's `ModelVerbs`
-may name `place` (every created row), `moves` (per field, the new row of an
-update writing it) and `acyclic` self relations. `PreparedDomain.produced`
+may name `place` (every created row: `create.check`), `check` (`update.check`,
+judged only where the update writes a field the predicate reads), `moves`
+(per field, the new row of an update writing it: `update.fields[f].check`)
+and `acyclic` self relations. The code that judges is not the engine's to
+carry: `CallScope.judge?` and `CallScope.project?` (`shared/row-scope.ts`)
+are present only where a `check` (`src/extensions/judge.ts`,
+`produced.ts`) or a `gate`/`facts` (`projection.ts`, `gates.ts`) brought
+them, and every site asks through them (`domain?.judge?.…`,
+`domain?.project?.…`: `write/statements.ts`, `write/store.ts`,
+`write/verbs.ts`, `commands/index.ts`, `shared/sql-queries.ts`), so a
+program whose rules only filter holds none of that code and its statements
+keep their bytes. A dialect without a spelling of the judgement is a
+compile error, never a silent skip (`src/adapters/judged.ts`). `PreparedDomain.produced`
 is the one answer to "what is the row this write produces judged at":
 `place` for a create; for an update, the predicates that judged its old row
 (`read` and the verb's, the selector's `judgement`, `Queries.candidates`
@@ -344,8 +358,10 @@ filtered rows (`#overMasked`), so the gate is lowered once per row rather
 than once per grouped expression. A model whose verbs declare neither keeps
 its default projection and its bytes.
 
-*Tombstones (extension `deletion`, plan v3.1 §2.3).* A call whose facts carry
-`tombstones` (absent when its controls matched `removeWhen`) writes an update
+*Tombstones (a `rule`'s `delete.instead: keep(…)`, `src/extensions/kept.ts`;
+plan v3.1 §2.3).* A call whose facts carry `tombstones` (absent when its
+arguments matched the `unless`/`when` that keeps the delete physical) writes
+an update
 wherever core would delete a row of a managed model: root `delete` and
 `deleteMany`, nested `delete`/`deleteMany`/`delete: true`, and each member a
 captured series removes. `Commands.tombstone(model)` owns one occurrence's
@@ -396,10 +412,11 @@ requirement reads (DC14: `unreferenced`, and a nested set-oriented
 `deleteMany` through `restrict.lock`), so a concurrent `connect` cannot leave a
 live child under a tombstone; measured on PostgreSQL with
 `tests/providers/docker/pg-deletion-races.test.ts`.
-Statement attribution, observers, errors and `NotFoundError` verbs still say
-the caller's delete (`ctx.operation`).
+Statement attribution, unit handlers, errors and `NotFoundError` verbs still
+say the caller's delete (`ctx.operation`).
 
-*Stamps (extension `data`, plan v4 §2.2).* A call whose facts carry `stamps`
+*Stamps (a `defaults` part's `create`/`update` data, `src/extensions/stamps.ts`;
+plan v4 §2.2).* A call whose facts carry `stamps`
 writes, per model, the declared fields on every create and every update of it.
 `Commands.stamp(model, kind, admitted, raw)` is the one owner. A field the
 caller's raw data writes, by name or through the relation whose foreign key
@@ -1260,12 +1277,14 @@ One prepared operation per request: `prepare(modelName, operation, rawArgs)` in
 `args` and, for a read verb, the prepared read's own facts; `execute`,
 `prepareBatch` and the route's cache codec all read that same handle. The client
 lifecycle is admission-first by construction — a cache must key before it can
-look up, and an interceptor must see the payload before it calls `proceed()` —
+look up (`key(run)` reads this handle), and an `around` sees the payload
+before it calls `run()` —
 so no consumer re-admits, and nothing publishes a re-rawed payload. Admission
 itself stays lazy inside the handle, because the client's own `PendingOperation`
 is lazy.
 
-A cached read's value codec is composed from the official owners in
+A cached read's value codec (`codec(run)`, `src/extensions/codec.ts`) is
+composed from the official owners in
 `result/cache-value-codecs.ts` (`compileScalarCodec`, `compileWidenedSumCodec`,
 `recordCodec`, `arrayCodec`, `nullableCodec`, `taggedRelationCodec`,
 `recursiveRelationCodec`) through the
@@ -1563,7 +1582,7 @@ or segmented RETURNING" is left for a produced field that is not one increment
 key on a provider whose RETURNING cannot be segmented; do not widen the scratch
 to other produced columns without a ruling.
 
-The query interceptor's `context.input` for `upsert` is the ONE admission —
+An `around`'s `run.input` for `upsert` is the ONE admission —
 scalar defaults filled into `create`, assignments normalized to `{ set: … }` in
 `update` — on both arms. It is the payload that actually runs, which is the rule
 every other verb already obeyed. Never publish a re-rawed arm: reading the

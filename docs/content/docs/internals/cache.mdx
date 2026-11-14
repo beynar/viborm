@@ -38,6 +38,12 @@ Read caching deliberately bypasses callback and array transactions, raw calls,
 and chains that rewrite statements. Mutation invalidation runs through
 `settled`, so savepoint rollback discards it and outer commit publishes it
 once. The official factory stays in `src/cache/extension.ts`: an ordinary
-extension of `args`, an inner `call.around` reading `key` and `codec`, and
-`methods`. A custom read key is a suffix of canonical identity, never
-a replacement.
+extension of `args` (the mutation option `cache`, and a `bound` argument
+`$withCache()` binds), a `call` on `target(writes)` whose `settled`
+invalidates, an `around` on `target(reads)` with `{ inner: true }` reading
+`key(run)`, `codec(run)` and `database(run)`, and `methods`. A read is keyed
+by the statement it would send, inside a namespace of the database and the
+extension's `version`; a custom read key is a suffix of that key, never a
+replacement. The cache still reads a few private helpers (a call's execution
+context and driver, whether its chain observes units); the census
+`tests/contracts/public-client/extension-imports.core.test.ts` lists them.

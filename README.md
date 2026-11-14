@@ -82,9 +82,11 @@ separate [migration workflow](docs/content/docs/migration/index.mdx).
 - PostgreSQL, MySQL and SQLite adapters with eleven transport drivers.
 - Callback transactions where the provider supports them, and atomic array
   transactions on the supported batch transports.
-- Extensions built from parts that each pay only for themselves: `call`, `unit`,
-  `args`, `rule`, `defaults`, `methods` and `fields`; official cache,
-  instrumentation, omit, soft-delete, permissions, write-hook and ordering tools.
+- Extensions written `extension(name, ...parts)` and applied with
+  `$extends()`, built from parts and words that each pay only for themselves
+  (`call`, `around`, `unit`, `args`, `rule`, `defaults`, `methods`, `fields`,
+  `disclosure`); official cache, instrumentation, omit, soft-delete,
+  permissions, write-hook and ordering extensions, each applied in one step.
 - Fixed-decimal values, millisecond DateTime values, GeoPoint and PostgreSQL vector
   operations with explicit provider requirements.
 - [VibORM Studio](docs/content/docs/studio.mdx) (`npx @viborm/studio`): the schema

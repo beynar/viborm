@@ -49,7 +49,7 @@ export default {
 
 ### Constructor
 
-```typescript
+```typescript no-check
 new CloudflareKVCache(kv: KVNamespace)
 ```
 
@@ -163,11 +163,11 @@ export default {
 
     if (request.method === "POST") {
       // Create user and invalidate cache
-      const user = await client.user.create({
+      const created = await client.user.create({
         data: { name: "Alice", email: "alice@example.com" },
         cache: { autoInvalidate: true },
       });
-      return Response.json(user);
+      return Response.json(created);
     }
 
     // Read from cache

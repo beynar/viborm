@@ -6,7 +6,7 @@
 ## Purpose
 
 Instrumentation presents OpenTelemetry spans, structured logs, and diagnostic
-disclosure from authenticated core lifecycle facts. It observes application
+disclosure from the units core runs, read through the public unit words. It observes application
 work; it never chooses SQL, cache policy, query recovery, transaction outcome,
 or application error authority.
 

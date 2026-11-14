@@ -9,8 +9,10 @@ delete stops removing the row: it writes the time (and, optionally, who did
 it) into the row instead. Reads then skip those rows, everywhere a query
 reaches them.
 
-The extension is built only from public extension parts (`args`, `rule` with
-`keep`, and `methods`, see
+The extension is built only from public extension parts and words: `args`
+(`deleted`, and `mode` on the deletes of the models you name), a `rule` read
+from the schema it is applied to (`root` and `related` written with `when`
+and `unless`, `delete.instead` with `keep` and `now`), and `methods` (see
 [Create an extension](/docs/extensions/create#keep-deleted-rows-keep)). It
 lives in its own entry point, so an application that does not import it pays
 nothing for it.
@@ -175,7 +177,7 @@ tombstone reads `null`.
 the schema alone and do not know about the extension: on a soft-delete
 client they type a to-one relation as present where it can read `null`. Use
 `ExtendedOperationResult<typeof db, "comment", "findMany", Args>` for the
-client's own result types. A `call.around` naming one model and one
+client's own result types. An `around` naming one model and one
 operation, applied to the soft-delete client, reads its `run()` result the
 same way.
 
@@ -196,7 +198,8 @@ write the tombstone instead of removing the row:
 - Nothing cascades and no link is removed: foreign keys, join-table rows and
   memberships stay, so a restore brings the row back with its relations.
 - `updatedAt` fields are refreshed, as by any update.
-- Query and observe handlers, errors and logs still see a `delete`.
+- `call`, `around` and `unit` handlers, errors and logs still see a
+  `delete`.
 
 ### One timestamp per call
 
@@ -362,9 +365,11 @@ database's own `restrict`.
 ## Caching
 
 With the official [cache](/docs/extensions/cache), a cached read is keyed on
-its resolved `deleted` value: an absent `deleted` and `deleted: "without"`
-share one entry, `"with"` and `"only"` have their own. A soft-delete client and
-the client it was built from never share entries. A delete with
+the statement it sends: an absent `deleted` and `deleted: "without"` send the
+same statement and share one entry, `"with"` and `"only"` have their own. A
+soft-delete client and the client it was built from share an entry only where
+they send the same statement (a model soft delete does not manage), so never
+for rows the extension hides. A delete with
 `cache: { autoInvalidate: true }` clears the complete bound cache scope after
 a durable write, including entries for other models that include the deleted row,
 as after a hard delete. Automatic invalidation is enabled by default; opting out

@@ -28,8 +28,11 @@ await db.card.move({ where: { id }, to: { columnId: doneId } });       // last o
 await db.column.findMany({ include: { cards: true } });                // cards in their order
 ```
 
-The extension lives in its own entry point: an application that does not
-import it carries only the engine's hooks for it (under 1 kB gzipped).
+The extension lives in its own entry point, and is written with the public
+extension parts any author can import: `defaults` (each list's order, a key
+written on create), the statement values `computed`, `joined` and `stored`,
+and `methods` (`move`, `rekey`). An application that does not import it
+carries none of its code.
 
 ## Configuration
 
@@ -127,7 +130,7 @@ column and its place in one move, one statement, by `data`:
 
 ```ts
 // One order for the board and every other view of the table.
-ordering({ models: { card: { key: "rank" } } });
+const db = base.$extends(ordering({ models: { card: { key: "rank" } } }));
 await db.card.move({ where: { id }, after: { id: neighbourId }, data: { columnId } });
 ```
 
@@ -135,7 +138,7 @@ A move is one `update` through the client: validation, permissions and
 [write hooks](/docs/extensions/on) apply as to any update of the row. A
 row placed elsewhere is not a row changed: its `updatedAt()` fields keep
 their value, unless `data` writes one, and they are no field the move
-writes when [write rules](/docs/extensions/create#judge-writes-updatewhere-deletewhere)
+writes when [write rules](/docs/extensions/create#judge-writes-only)
 judge it. Its new key is computed by the UPDATE itself, from the keys
 around the row's place, read by subqueries in the same statement:
 

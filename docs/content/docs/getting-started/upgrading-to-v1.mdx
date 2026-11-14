@@ -341,14 +341,14 @@ Cache hits return fresh value graphs. Old namespaces are not a cache-migration
 format; expect a cold cache. Cached reads bypass raw calls, transactions and
 chains that rewrite statements.
 
-Apply `defaultOmit()` before a `methods` factory that takes its scope or a
-`call.around` that names one model and one operation. Default omit is overridable presentation, not authorization.
+Apply `defaultOmit()` before a `methods` factory that takes its scope or an
+`around` that names one model and one operation. Default omit is overridable presentation, not authorization.
 Instrumentation SQL and parameter disclosure default to off and are configured
 separately for tracing, logging and error diagnostics.
 
-Custom extensions are built from parts: `call`, `unit`, `args`, `rule`,
-`defaults`, `methods` and `fields`. A `call.around` on a write or a raw query
-must call `run()` exactly once. Read the lifecycle and continuation rules
+Custom extensions are built from parts: `call`, `around`, `unit`, `args`,
+`rule`, `defaults`, `methods`, `fields` and `disclosure`. An `around` on a
+write or a raw query must call `run()` exactly once. Read the lifecycle and continuation rules
 before porting hooks ([Create an extension](/docs/extensions/create)). A soft-delete middleware becomes
 the official [soft-delete extension](/docs/extensions/soft-delete). See
 [Extensions](/docs/extensions), [Caching](/docs/extensions/cache),

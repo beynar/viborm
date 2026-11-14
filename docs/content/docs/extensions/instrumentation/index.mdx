@@ -7,6 +7,9 @@ icon: activity
 Instrumentation is an official client extension. It presents tracing and
 structured logging from VibORM's lifecycle units, read through a `unit` part,
 and contains its own failures, so telemetry never changes the application.
+Its `diagnostics` go to a [`disclosure`](/docs/extensions/create#emit-your-own-units)
+part, which says what an error thrown by a call of the chain may carry; with
+neither `tracing` nor `logging`, the extension is that part alone.
 
 ```ts
 import { createClient } from "viborm";
@@ -104,7 +107,7 @@ normalized and disclosure-approved facts.
 
 A `unit` part of your own has no such containment: VibORM awaits it, and what
 it throws fails the call. It reads the facts it needs through words
-(`sql(u)`, `parameters(u)`, `failure(u)`, …), produced only when read; see
+(`text(u)`, `parameters(u)`, `failure(u)`, …), produced only when read; see
 [Create an extension](/docs/extensions/create#unit-around-physical-work).
 
 ## Optional OpenTelemetry dependency
