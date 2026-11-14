@@ -1,6 +1,7 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: `planning` registers the test these assertions run in.
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { ForeignKeyError } from "@errors";
+import { FeatureNotSupportedError, ForeignKeyError } from "@errors";
 import { createMigrationClient } from "@migrations";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -87,7 +88,19 @@ const JUNCTION = "label_post";
 export function runJunctionSideActionsBehavior(options: {
   readonly name: string;
   readonly createDriver: () => AnyDriver;
+  /**
+   * The dialect generates no DDL (SQL Server): each test that plans a push
+   * asserts the typed refusal from its own body instead.
+   */
+  readonly refusesMigrations?: true;
 }): void {
+  /** `test`, or where the dialect plans no migration, its refusal. */
+  const planning = (name: string, body: () => Promise<unknown>) =>
+    options.refusesMigrations
+      ? test(`${name} (refused: the dialect has no migrations)`, async () => {
+          await expect(body()).rejects.toBeInstanceOf(FeatureNotSupportedError);
+        })
+      : test(name, body);
   describe(`${options.name} asymmetric junction actions (#46)`, () => {
     const driver = options.createDriver();
     const client = createClient({ schema: ownedByPost(), driver });
@@ -136,32 +149,42 @@ export function runJunctionSideActionsBehavior(options: {
       await client.$disconnect();
     });
 
-    test("a second push of the same declaration is a no-op", async () => {
+    planning("a second push of the same declaration is a no-op", async () => {
       const again = await createMigrationClient(client).push({ dryRun: true });
       expect(again.operations).toEqual([]);
     });
 
-    test("the configuration declared from the other endpoint is a no-op", async () => {
-      const inverted = createClient({ schema: ownedByLabel(), driver });
-      const plan = await createMigrationClient(inverted).push({ dryRun: true });
-      expect(plan.operations).toEqual([]);
-    });
+    planning(
+      "the configuration declared from the other endpoint is a no-op",
+      async () => {
+        const inverted = createClient({ schema: ownedByLabel(), driver });
+        const plan = await createMigrationClient(inverted).push({
+          dryRun: true,
+        });
+        expect(plan.operations).toEqual([]);
+      }
+    );
 
-    test("changing one side's policy plans work on the junction alone", async () => {
-      const changed = createClient({ schema: labelSideRestricted(), driver });
-      const plan = await createMigrationClient(changed).push({ dryRun: true });
-      // ONE foreign key is replaced; the post side's key is not touched.
-      expect(
-        plan.operations.map((operation) =>
-          operation.id.slice(0, operation.id.indexOf(":"))
-        )
-      ).toEqual(["dropForeignKey", "addForeignKey"]);
-      const touched = plan.statements
-        .map((statement) => statement.sql)
-        .filter((sql) => !sql.startsWith("PRAGMA"));
-      expect(touched.length).toBeGreaterThan(0);
-      expect(touched.every((sql) => sql.includes(JUNCTION))).toBe(true);
-    });
+    planning(
+      "changing one side's policy plans work on the junction alone",
+      async () => {
+        const changed = createClient({ schema: labelSideRestricted(), driver });
+        const plan = await createMigrationClient(changed).push({
+          dryRun: true,
+        });
+        // ONE foreign key is replaced; the post side's key is not touched.
+        expect(
+          plan.operations.map((operation) =>
+            operation.id.slice(0, operation.id.indexOf(":"))
+          )
+        ).toEqual(["dropForeignKey", "addForeignKey"]);
+        const touched = plan.statements
+          .map((statement) => statement.sql)
+          .filter((sql) => !sql.startsWith("PRAGMA"));
+        expect(touched.length).toBeGreaterThan(0);
+        expect(touched.every((sql) => sql.includes(JUNCTION))).toBe(true);
+      }
+    );
 
     test("deleting an assigned label is refused and keeps every membership", async () => {
       await expect(

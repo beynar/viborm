@@ -650,7 +650,7 @@ export function createEnumValueRemovalChange(props: {
   return change;
 }
 
-export type Dialect = "postgresql" | "sqlite" | "mysql" | "surrealql";
+export type Dialect = "postgresql" | "sqlite" | "mysql" | "surrealql" | "mssql";
 
 /**
  * The durable estate target a migration history is generated for.
@@ -670,4 +670,5 @@ export type MigrationTarget = (
   | { readonly dialect: "mysql" }
   | { readonly dialect: "sqlite" }
   | { readonly dialect: "surrealql" }
+  | { readonly dialect: "mssql"; readonly namespace: string }
 ) & { readonly tables?: readonly string[] };

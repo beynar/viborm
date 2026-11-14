@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: recursiveTest registers the test these assertions run in.
 import { createClient } from "@client/client";
 import { defaultOmit } from "@client/default-omit-extension";
 import type { AnyDriver } from "@drivers";
@@ -5,6 +6,10 @@ import { s } from "@schema";
 import { on } from "@src/on";
 import { permissions } from "@src/permissions";
 import { softDelete } from "@src/soft-delete";
+import {
+  type RecursionSupport,
+  recursiveTest,
+} from "@tests/contracts/recursion";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { v } from "@validation/primitives/v";
 import {
@@ -111,11 +116,13 @@ const organizations = () => {
 
 const Actor = v.object({ organizationId: v.string() });
 
-export function runThroughModelGovernedBehavior(options: {
-  readonly name: string;
-  readonly createDriver: () => AnyDriver;
-  readonly prepare?: (client: never) => Promise<void>;
-}): void {
+export function runThroughModelGovernedBehavior(
+  options: RecursionSupport & {
+    readonly name: string;
+    readonly createDriver: () => AnyDriver;
+    readonly prepare?: (client: never) => Promise<void>;
+  }
+): void {
   describe(`${options.name} extensions over a declared junction`, () => {
     const schema = organizations();
     const base = createClient({ schema, driver: options.createDriver() });
@@ -488,24 +495,38 @@ export function runThroughModelGovernedBehavior(options: {
           })
         ).map((team: { id: string }) => team.id);
 
-      test("a bounded walk reads its tenant and answers the same for each", async () => {
-        const db = governed();
-        expect(await ids(db.$as({ organizationId: "o1" }))).toEqual(["a", "b"]);
-        expect(await ids(db.$as({ organizationId: "o2" }))).toEqual(["x", "y"]);
-      });
+      recursiveTest(
+        options,
+        "a bounded walk reads its tenant and answers the same for each",
+        async () => {
+          const db = governed();
+          expect(await ids(db.$as({ organizationId: "o1" }))).toEqual([
+            "a",
+            "b",
+          ]);
+          expect(await ids(db.$as({ organizationId: "o2" }))).toEqual([
+            "x",
+            "y",
+          ]);
+        }
+      );
 
-      test("the negative tests see every link, so no bound narrows them", async () => {
-        const db = governed().$as({ organizationId: "o1" });
-        expect(await ids(db, { parents: { none: { name: "root" } } })).toEqual([
-          "b",
-        ]);
-        expect(await ids(db, { parents: { every: { name: "root" } } })).toEqual(
-          ["a", "b"]
-        );
-        expect(
-          await ids(db, { parents: { none: { name: "nothing" } } })
-        ).toEqual(["a", "b"]);
-      });
+      recursiveTest(
+        options,
+        "the negative tests see every link, so no bound narrows them",
+        async () => {
+          const db = governed().$as({ organizationId: "o1" });
+          expect(
+            await ids(db, { parents: { none: { name: "root" } } })
+          ).toEqual(["b"]);
+          expect(
+            await ids(db, { parents: { every: { name: "root" } } })
+          ).toEqual(["a", "b"]);
+          expect(
+            await ids(db, { parents: { none: { name: "nothing" } } })
+          ).toEqual(["a", "b"]);
+        }
+      );
     });
 
     describe("a junction no other relation reaches, its tenant its own column", () => {

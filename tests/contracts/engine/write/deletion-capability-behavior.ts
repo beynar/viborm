@@ -44,6 +44,9 @@ const POST_READ =
   /^\s*SELECT\b[\s\S]*\bFROM\s+(?:["`]?\w+["`]?\.)?["`]?post["`]?/i;
 const COUNTED_LOCK = /COUNT\(\*\)[\s\S]*\bFOR UPDATE\b/i;
 const LIMITED = /\bLIMIT\b/i;
+/** T-SQL locks by table hint and limits by TOP or OFFSET … FETCH. */
+const MSSQL_COUNTED_LOCK = /COUNT\(\*\)[\s\S]*\bWITH \(UPDLOCK\b/i;
+const MSSQL_LIMITED = /\bTOP \(|\bFETCH NEXT\b/i;
 const TITLE_FILTER = /["`]?title["`]?(?:\s+COLLATE\s+\w+)?\s*=\s*\?/gi;
 /** A window's own read; a bound `in` list read by `json_each` is not one. */
 const WINDOW_READ = /\bIN\s*\(\s*SELECT\b(?!\s+value\s+FROM\s+json_each\()/gi;
@@ -982,14 +985,17 @@ export function runDeletionCapabilityBehavior(
       const reads = statements.filter((statement) =>
         POST_READ.test(statement.sql)
       );
-      const locks = reads.filter((read) => COUNTED_LOCK.test(read.sql));
+      const mssql = base.$driver.dialect === "mssql";
+      const lock = mssql ? MSSQL_COUNTED_LOCK : COUNTED_LOCK;
+      const limited = mssql ? MSSQL_LIMITED : LIMITED;
+      const locks = reads.filter((read) => lock.test(read.sql));
       const locking =
         base.$driver.supportsTransactions &&
         base.$driver.adapter.capabilities.supportsRowLocks;
       expect(locks).toHaveLength(locking ? 1 : 0);
       // Every other read is the premise, which asks for one row.
       for (const read of reads)
-        if (!COUNTED_LOCK.test(read.sql)) expect(read.sql).toMatch(LIMITED);
+        if (!lock.test(read.sql)) expect(read.sql).toMatch(limited);
     });
 
     // A batch states its window in SQL. The write keeps the caller's filter

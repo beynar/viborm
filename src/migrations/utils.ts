@@ -39,7 +39,12 @@ export function normalizeDialect(dialect: string): Dialect {
   if (dialect === "postgresql" || dialect === "postgres") {
     return "postgresql";
   }
-  if (dialect === "sqlite" || dialect === "mysql" || dialect === "surrealql") {
+  if (
+    dialect === "sqlite" ||
+    dialect === "mysql" ||
+    dialect === "surrealql" ||
+    dialect === "mssql"
+  ) {
     return dialect;
   }
   throw new MigrationError(

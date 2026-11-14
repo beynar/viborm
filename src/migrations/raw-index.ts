@@ -28,12 +28,14 @@ import type { IndexDef } from "./types";
 
 /** The template a dialect reads, by its key in `.rawIndex()`. */
 export const RAW_INDEX_TEMPLATE_KEY: Readonly<
-  Record<Dialect, keyof RawIndexTemplates>
+  Record<Dialect, keyof RawIndexTemplates | undefined>
 > = {
   postgresql: "pg",
   mysql: "mysql",
   sqlite: "sqlite",
   surrealql: "surrealdb",
+  // VibORM writes no DDL for SQL Server.
+  mssql: undefined,
 };
 
 /** What a SQL database's catalog comment starts with when VibORM wrote it. */

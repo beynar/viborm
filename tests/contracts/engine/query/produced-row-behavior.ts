@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: recursiveTest registers the test these assertions run in.
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import {
@@ -12,6 +13,10 @@ import {
 import { s } from "@schema";
 import { sql } from "@sql";
 import { v } from "@src/validation";
+import {
+  type RecursionSupport,
+  recursiveTest,
+} from "@tests/contracts/recursion";
 import { failure } from "@tests/fixtures/failure";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
@@ -186,10 +191,18 @@ const GUARDED = /__viborm_judged__|__viborm_assert__/;
  */
 const JUDGED_INSERT =
   /^INSERT INTO .* SELECT .*(?: UNION ALL SELECT |VALUES \()/;
-/** An UPDATE whose candidates are kept, by key, where their new rows hold. */
-const JUDGED_UPDATE = / GROUP BY .* HAVING MIN\(/;
+/**
+ * An UPDATE whose candidates are kept, by key, where their new rows hold:
+ * grouped by key, or on SQL Server, which aggregates no subquery, judged in
+ * a guard that judges only the rows its filter keeps (`assertions.keptWhere`).
+ */
+const GROUPED_JUDGED_UPDATE = / GROUP BY .* HAVING MIN\(/;
+const KEPT_JUDGED_UPDATE =
+  / AND \(SELECT CASE WHEN CASE WHEN .* ELSE 1 END = 1 THEN 1 ELSE /;
+const judgedUpdate = (dialect: string): RegExp =>
+  dialect === "mssql" ? KEPT_JUDGED_UPDATE : GROUPED_JUDGED_UPDATE;
 
-export interface ProducedRowSubstrate {
+export interface ProducedRowSubstrate extends RecursionSupport {
   readonly name: string;
   readonly createDriver: () => AnyDriver;
   /** Creates the fixture's tables on an empty database (default: push). */
@@ -854,36 +867,40 @@ export function runProducedRowBehavior(substrate: ProducedRowSubstrate): void {
       expect(await folders()).not.toContain("77:bob's new<null");
     });
 
-    test("W-P14: a parent cycle is refused: a folder cannot move under itself or its own descendant", async () => {
-      for (const parentId of [1, 5])
+    recursiveTest(
+      substrate,
+      "W-P14: a parent cycle is refused: a folder cannot move under itself or its own descendant",
+      async () => {
+        for (const parentId of [1, 5])
+          expect(
+            await failure(
+              db.folder!.update({
+                where: { id: 1 },
+                data: { parentId },
+                ...as("ann"),
+              })
+            ),
+            `under ${parentId}`
+          ).toBeInstanceOf(ForbiddenError);
         expect(
           await failure(
             db.folder!.update({
               where: { id: 1 },
-              data: { parentId },
+              data: { parent: { connect: { id: 5 } } },
               ...as("ann"),
             })
-          ),
-          `under ${parentId}`
+          )
         ).toBeInstanceOf(ForbiddenError);
-      expect(
-        await failure(
-          db.folder!.update({
-            where: { id: 1 },
-            data: { parent: { connect: { id: 5 } } },
+        expect(await folders()).toContain("1:ann's<null");
+        expect(
+          await db.folder!.update({
+            where: { id: 5 },
+            data: { parentId: null },
             ...as("ann"),
           })
-        )
-      ).toBeInstanceOf(ForbiddenError);
-      expect(await folders()).toContain("1:ann's<null");
-      expect(
-        await db.folder!.update({
-          where: { id: 5 },
-          data: { parentId: null },
-          ...as("ann"),
-        })
-      ).toMatchObject({ parentId: null });
-    });
+        ).toMatchObject({ parentId: null });
+      }
+    );
 
     test("a value only the database computes is judged where it is read: a list append is refused where its move reads the list, a defaults-only create always", async () => {
       const issued = statements.length;
@@ -942,7 +959,7 @@ export function runProducedRowBehavior(substrate: ProducedRowSubstrate): void {
       expect(insert).toHaveLength(1);
       expect(insert[0]).toMatch(JUDGED_INSERT);
       expect(update).toHaveLength(1);
-      expect(update[0]).toMatch(JUDGED_UPDATE);
+      expect(update[0]).toMatch(judgedUpdate(base.$driver.dialect));
       for (const text of [...insert, ...update])
         expect(text).toContain("__viborm_judged__");
     });
@@ -957,7 +974,7 @@ export function runProducedRowBehavior(substrate: ProducedRowSubstrate): void {
         .filter((text) => text.startsWith("UPDATE"));
       expect(update).toHaveLength(1);
       expect(update[0]).not.toContain("__viborm_judged__");
-      expect(update[0]).not.toMatch(JUDGED_UPDATE);
+      expect(update[0]).not.toMatch(judgedUpdate(base.$driver.dialect));
     });
 
     test("a judged write that fails on its own is not refused: only its judgement's sentinel is a refusal (E5.6)", async () => {

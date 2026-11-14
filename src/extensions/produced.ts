@@ -8,7 +8,7 @@ import { assembleAdapterSelect } from "@adapters/adapter-internals";
 import {
   NO_RELATIONS,
   type PreparedSelector,
-  rowValue,
+  rowIn,
   throughDerived,
   wholeValue,
 } from "@query-engine/raptor3/shared/query";
@@ -102,7 +102,8 @@ function holds(
   alias: string,
   nulls: ReadonlyMap<string, boolean>,
   from?: Sql,
-  acyclic: readonly string[] = NO_RELATIONS
+  acyclic: readonly string[] = NO_RELATIONS,
+  kept?: Sql
 ): Sql | undefined {
   const a = q.adapter;
   const outer = q.known;
@@ -118,8 +119,9 @@ function holds(
     ...acyclic.map((relation) => outsideOwnSubtree(q, model, relation, alias)),
   ];
   if (conditions.length === 0) return undefined;
+  const held = a.operators.and(...conditions);
   return a.subqueries.scalar(
-    a.assertions.holds(a.operators.and(...conditions), from)
+    a.assertions.holds(kept ? a.assertions.keptWhere!(kept, held) : held, from)
   );
 }
 /**
@@ -249,15 +251,23 @@ export function producedWhere(
       nulls.set(field, whole.value === null);
   }
   const judgedSet = (): Sql | undefined => {
-    const guard = holds(q, model, judged, produced, nulls, from, acyclic);
+    // Lowered before the guard only where the guard reads it: the other
+    // dialects mint their aliases in the order they always have.
+    const kept =
+      a.assertions.keptWhere && (candidates(row) ?? a.literals.true());
+    const guard = holds(q, model, judged, produced, nulls, from, acyclic, kept);
     if (guard === undefined) return undefined;
     const keys = q.keyOrder(model).map(current);
     return assembleAdapterSelect(a, {
       columns: sql.join(keys, ", "),
       from: q.table(model, row),
-      where: candidates(row),
-      groupBy: sql.join(keys, ", "),
-      having: sql`${a.aggregates.min(guard)} = 1`,
+      ...(kept
+        ? { where: a.operators.and(kept, sql`${guard} = 1`) }
+        : {
+            where: candidates(row),
+            groupBy: sql.join(keys, ", "),
+            having: sql`${a.aggregates.min(guard)} = 1`,
+          }),
       ...(limit !== undefined && {
         orderBy: q.ascendingKeys(model, row),
         limit: q.value(limit),
@@ -267,12 +277,11 @@ export function producedWhere(
   const set = q.sharing(judgedSet);
   if (set === undefined) return undefined;
   const table = model["~"].names.sql!;
-  return a.operators.in(
-    rowValue(q.keyOrder(model).map((field) => q.column(model, field, table))),
-    a.subqueries.scalar(
-      a.capabilities.supportsMutationTargetInSubquery
-        ? set
-        : throughDerived(a, set, q.alias())
-    )
+  return rowIn(
+    a,
+    q.keyOrder(model).map((field) => q.column(model, field, table)),
+    a.capabilities.supportsMutationTargetInSubquery
+      ? set
+      : throughDerived(a, set, q.alias())
   );
 }

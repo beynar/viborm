@@ -32,6 +32,7 @@ export { IntScalar, int } from "./int/scalar";
 export { JsonScalar, json } from "./json/scalar";
 // Native database types
 export {
+  MSSQL,
   MYSQL,
   type NativeType,
   type NativeTypeMap,

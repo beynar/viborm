@@ -184,6 +184,18 @@ export interface DatabaseAdapter {
       member?: boolean
     ) => Sql;
     /**
+     * A string operand for a field of this native type, where the dialect
+     * converts the column, not the parameter, to compare two text types
+     * (SQL Server's `VARCHAR` beside an `NVARCHAR` parameter): the operand
+     * in the column's own family, or `undefined` for the plain parameter.
+     * The adapter's own write members bind a written value as it was given.
+     * Absent elsewhere.
+     */
+    string?: (
+      value: string,
+      nativeType?: NativeTypeDeclaration
+    ) => Sql | undefined;
+    /**
      * Decimal operand from a canonical decimal string, in the DOMAIN it is
      * being compared or assigned against.
      *
@@ -336,6 +348,15 @@ export interface DatabaseAdapter {
     // Subquery existence
     exists: (subquery: Sql) => Sql;
     notExists: (subquery: Sql) => Sql;
+
+    /**
+     * `items` compared as ONE row, where the dialect has no row value
+     * (SQL Server): a member of the rows `other` answers when `other` is a
+     * query, lexicographically at most the row `other` lists when it is
+     * values. Absent where `(a, b)` is a row value, which the engine then
+     * writes itself, including the row-value seek of a cursor.
+     */
+    rows?: (items: readonly Sql[], other: Sql | readonly Sql[]) => Sql;
   };
 
   /**
@@ -464,12 +485,12 @@ export interface DatabaseAdapter {
       readonly order: readonly Sql[];
     };
     /**
-     * Stated only where an integer `SUM` is int64 and raises past it
-     * (SQLite): an int64 column's sum as two `SUM`s no realistic row count
-     * can overflow — each member's high 32 bits and the rest — read back
-     * exactly as `high * 2^32 + low` (engine-10), compared and sorted as
-     * `numberSum` states. PostgreSQL and MySQL already sum integers as exact
-     * numerics.
+     * Stated only where an integer `SUM` raises past the column's type
+     * (SQLite's int64, SQL Server's INT and BIGINT): an integer column's sum
+     * as two `SUM`s no realistic row count can overflow — each member's high
+     * 32 bits and the rest — read back exactly as `high * 2^32 + low`
+     * (engine-10), compared and sorted as `numberSum` states. PostgreSQL and
+     * MySQL already sum integers as exact numerics.
      */
     integerSum?: DatabaseAdapter["aggregates"]["numberSum"];
     avg: (expr: Sql) => Sql;
@@ -516,6 +537,12 @@ export interface DatabaseAdapter {
     document: (expression: Sql) => Sql;
     /** Carry a finite number through JSON without losing binary precision. */
     number: (expression: Sql) => Sql;
+    /**
+     * Carry a datetime or a time through JSON as the dialect's root read
+     * gives it, where its JSON writes more fractional digits than VibORM
+     * reads (SQL Server's seven). Absent elsewhere.
+     */
+    instant?: (expression: Sql, type: "datetime" | "time") => Sql;
     /** Build JSON object from key-value pairs */
     object: (pairs: [string, Sql][]) => Sql;
     /** Build JSON array from items */
@@ -941,6 +968,15 @@ export interface DatabaseAdapter {
      * scalar inside that write.
      */
     holds: (condition: Sql, from?: Sql) => Sql;
+    /**
+     * Where the dialect aggregates no subquery (SQL Server): the condition
+     * a judged update's `holds` judges over a candidate row, `condition` for
+     * a row `kept` keeps and true for any other. The update then keeps
+     * `kept AND guard = 1`, and a row it does not write is never refused,
+     * however the plan orders the two. Absent, it groups its candidates by
+     * key and keeps `MIN(guard) = 1`.
+     */
+    keptWhere?: (kept: Sql, condition: Sql) => Sql;
   };
 
   capabilities: DatabaseAdapterCapabilities;

@@ -89,6 +89,7 @@ const DIALECTS: readonly IntrospectionDialect[] = [
   "postgresql",
   "sqlite",
   "mysql",
+  "mssql",
 ];
 
 function isIntrospectionDialect(
@@ -155,7 +156,7 @@ async function introspectDriver(
   const introspectionDialect = driver.dialect;
   if (!isIntrospectionDialect(introspectionDialect))
     throw new MigrationError(
-      `introspectSchema does not translate ${introspectionDialect} yet; PostgreSQL, SQLite and MySQL are supported.`,
+      `introspectSchema does not translate ${introspectionDialect} yet; PostgreSQL, SQLite, MySQL and SQL Server are supported.`,
       VibORMErrorCode.FEATURE_NOT_SUPPORTED,
       { meta: { dialect: introspectionDialect, feature: "introspect-schema" } }
     );

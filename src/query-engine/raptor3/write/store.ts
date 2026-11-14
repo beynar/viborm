@@ -20,6 +20,7 @@
 import {
   NestedWriteError,
   NotFoundError,
+  QueryEngineError,
   TransactionError,
   UniqueConstraintError,
   UnsupportedOperationError,
@@ -129,6 +130,9 @@ class Pending {
   }
 }
 const UNHEARD = Symbol("a value the database has not said yet");
+/** A statement was heard, and the value it was to say still is not. */
+const UNSAID =
+  "The database did not hand back a row or key this write needs (on SQL Server, an INSTEAD OF INSERT trigger: use createMany without select)";
 /** The first row of a part undone alone was passed by: another row holds what it alone may hold. */
 const PASSED = Symbol("a row the database passed by");
 /** A value as text, whatever numbers it holds. */
@@ -786,10 +790,9 @@ export class Store {
   #presume(id: string, question: Question): Row[] | undefined {
     const { schema } = this.operation;
     const { model } = question;
-    const pins = this.writer.selector(question).uniqueValues;
+    const pins = this.#presumable(question);
     const keys = schema.keys(model);
-    if (!(question.must && question.unique && pins) || this.#concrete?.has(id))
-      return undefined;
+    if (!pins || this.#concrete?.has(id)) return undefined;
     // A row named by values no other row has, that are not its key: its key is what the database holds of it, written wherever it is needed as what reads it there. Not of a member, nor where a write may not read the table it writes.
     const named = !keys.every((field) => pins.has(field));
     if (
@@ -841,6 +844,12 @@ export class Store {
     }
     this.#presumed.set(id, { question, row, at: this.#log.length });
     return [row];
+  }
+  /** The values a question names its one row by, where that row must be there: what {@link #presume} takes it by. */
+  #presumable(question: Question) {
+    return question.must && question.unique
+      ? this.writer.selector(question).uniqueValues
+      : undefined;
   }
   /**
    * A question that names one row by values no other row has, of a row the
@@ -1138,8 +1147,13 @@ export class Store {
           raw && decided.every((field) => field in raw)
             ? this.writer.told(model, decided, sent!.rows)
             : [];
+        // A driver states no insert id where none was generated: SQL
+        // Server's IDENTITY starts at 0 or below as readily as at 1.
         for (const field of decided)
-          if (row[field] instanceof Pending && (said || sent!.insertId))
+          if (
+            row[field] instanceof Pending &&
+            (said || sent!.insertId !== undefined)
+          )
             row[field] = said?.[field] ?? sent!.insertId;
       },
     });
@@ -1468,14 +1482,16 @@ export class Store {
       return later;
     }
     if (marks) {
-      // Unless the rows are read ahead of their marks: they are held as they are read.
+      // Unless the rows are read ahead of their marks: they are held as they
+      // are read. A row taken to be there, that its write says is, is not.
       if (
         held &&
         this.#transport.holds &&
         this.writer.adapter.capabilities.supportsRowLocks &&
         !(
           returns &&
-          !this.operation.answersInStatement(model, returns, "update", marks)
+          !this.operation.answersInStatement(model, returns, "update", marks) &&
+          !(this.writer.counts("update") && this.#presumable(question))
         )
       )
         this.#note({
@@ -2722,7 +2738,11 @@ export class Store {
               ],
               step: STILL,
             });
-          statements = await step.write();
+          try {
+            statements = await step.write();
+          } catch (again) {
+            throw again === UNHEARD ? new QueryEngineError(UNSAID) : again;
+          }
         }
         waiting.push({ statements, step });
         // Where each statement is heard as it is sent, what says whether a row is there is taken before the next is written: a row that is not there refuses the call before anything under it does.

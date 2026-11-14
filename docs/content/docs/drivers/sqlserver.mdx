@@ -1,0 +1,300 @@
+---
+title: SQL Server
+description: Use VibORM with Microsoft SQL Server 2022 and Azure SQL
+---
+
+`viborm/mssql` reads and writes SQL Server through the `mssql` package
+(tedious). SQL Server 2022 (16.x) is the oldest version it supports, and Azure
+SQL works too: 2022 is the first release with `JSON_OBJECT` and `JSON_ARRAY`,
+which nested reads are built from. The version is not checked when the client
+connects (Azure SQL reports version 12): on an older server, the first read
+that nests a relation fails on `JSON_OBJECT`. A database's compatibility level
+does not matter: a database restored or upgraded onto SQL Server 2022 keeps
+its old level, and VibORM's statements run at level 150 as at 160.
+
+```bash
+npm install viborm mssql
+```
+
+```ts
+import { createClient } from "viborm/mssql";
+import { schema } from "./schema";
+
+const db = createClient({
+  schema,
+  databaseUrl:
+    "mssql://app:secret@db.example.com:1433/shop?encrypt=true&trustServerCertificate=false",
+});
+```
+
+`databaseUrl` is a URL, `mssql://` or `sqlserver://`, with `encrypt` and
+`trustServerCertificate` as query parameters. Encryption is on unless you say
+`encrypt=false`, and a self-signed certificate is refused unless you say
+`trustServerCertificate=true`. The JDBC form Prisma uses,
+`sqlserver://host:1433;database=shop;user=app`, is refused with a
+`ClientInitializationError`: write it as a URL, or pass `options`.
+
+To keep control of the connection pool, pass your own, connected or not: the
+driver connects it on first use and never closes it. A pool you close stays
+closed: the client's calls then fail with a `ConnectionError`.
+
+```ts
+import sql from "mssql";
+import { MssqlDriver } from "viborm/mssql";
+import { createClient } from "viborm";
+
+const pool = new sql.ConnectionPool({ server: "db.example.com", database: "shop", user: "app", password: "secret" });
+const db = createClient({ schema, driver: new MssqlDriver({ pool }) });
+```
+
+Tables live in the `dbo` schema unless you pass `namespace`.
+
+## Your tables
+
+VibORM writes no DDL for SQL Server: `createMigrationClient` refuses a SQL
+Server client, so you create the tables yourself (or with your own migration
+tool). To start from an existing database,
+[`introspectSchema`](/docs/schema/introspect) reads it into a schema document
+(`introspectSchema({ url: "mssql://…" })`): the SQL Server migration driver
+(`viborm/migrations/mssql`) reads its tables, columns, keys, indexes and foreign
+keys from `sys.*`, and refuses every DDL statement.
+
+A table the document cannot describe is left out whole and listed in
+`skipped` with its reason: one with a computed column, or with an index that
+has `INCLUDE` columns, a descending key or a type other than B-tree. Triggers,
+CHECK constraints, row-level security and a column collation other than the
+database's are reported as `unstated`, and so is a foreign key from another
+schema that references a table of this one. An `IDENTITY(seed, step)` column
+is read as `.increment()` whatever its seed and step, 0 and negative seeds
+included. A `VARCHAR(n)`, `CHAR(n)`, `NVARCHAR(n)` or `NCHAR(n)` column, and a
+`DATETIME` or `SMALLDATETIME`, keep their type as a native type
+(`MSSQL.STRING.VARCHAR(40)`, …), which VibORM binds its operands in.
+
+What the document leaves out:
+
+- columns of a type VibORM has no scalar for: `MONEY` and `SMALLMONEY`, `XML`,
+  `TEXT`, `NTEXT`, `IMAGE`, `SQL_VARIANT`, `HIERARCHYID`, `GEOGRAPHY`,
+  `GEOMETRY` (in `skipped`, kind `column`). Declared by hand, an `XML` column
+  reads as `s.string()`, and a `MONEY` one as
+  `s.decimal({ precision: 19, scale: 4 })` with its four decimals;
+- the database defaults `NEWID()`, `NEWSEQUENTIALID()`, `GETDATE()`,
+  `SYSDATETIME()` and `SYSDATETIMEOFFSET()` (in `skipped`, kind `default`): the
+  column then looks required to `create`;
+- a table-level `UNIQUE` on several columns, read as a unique index rather
+  than a key `findUnique` takes.
+
+The column types VibORM reads and writes:
+
+| Scalar | Column |
+| --- | --- |
+| `string`, enum | `NVARCHAR(n)` / `NVARCHAR(MAX)` (a key or index column at most `NVARCHAR(450)`) |
+| `int`, `bigInt` | `INT`, `BIGINT` (`IDENTITY(1,1)` for `.increment()`) |
+| `float` | `FLOAT` |
+| `decimal` | `DECIMAL(p,s)` |
+| `boolean` | `BIT` |
+| `dateTime`, `date`, `time` | `DATETIME2(3)` (UTC), `DATE`, `TIME(3)` |
+| `json`, every list | `NVARCHAR(MAX)` holding JSON text |
+| `blob` | `VARBINARY(MAX)` |
+| identifiers (`uuid`, `ulid`, …) | text: `NVARCHAR(450)` |
+
+An adopted table's columns read too:
+
+- `DATETIME2`, `DATETIMEOFFSET` and `TIME` of any precision read to the
+  millisecond, truncated, the same at the root, through an `include` and as
+  `_min`/`_max`; a `DATETIME` rounds its 1/300 s to the millisecond. A
+  `DATETIMEOFFSET` reads as its instant in UTC: the offset is not kept.
+  Declare a `DATETIME` column `s.dateTime(MSSQL.DATETIME.DATETIME)`: a value
+  read from it then finds its row again (without it, the operand is a
+  `DATETIME2(3)`, which `.003` does not equal);
+- a `UNIQUEIDENTIFIER` read as `s.string()` comes back in upper case, as SQL
+  Server prints it (Prisma lowercases it);
+- a `REAL` reads as the double it widens to (`0.10000000149011612`);
+- a `ROWVERSION` reads as `s.blob()`, at the root and nested.
+
+## String comparison
+
+VibORM sends your comparisons as written, as Prisma and Drizzle do on SQL
+Server: `equals`, `in`, `lt`/`gt`, `contains`, `startsWith`, unique
+selectors (`findUnique`, `update`, `delete`, `upsert`, `connect`, a cursor's
+anchor) and relation joins all compare under the column's type and
+collation.
+
+- **The collation decides case and accents.** SQL Server's default
+  collation (`SQL_Latin1_General_CP1_CI_AS`) is case-insensitive:
+  `findUnique({ where: { email: "ada@example.com" } })` finds
+  `Ada@Example.com`, and `contains: "EXAMPLE"` matches it. For a
+  case-sensitive column, declare it `_CS_AS` or `_BIN2`
+  (`COLLATE Latin1_General_100_BIN2`). `mode: "insensitive"` stays
+  available, and ignores case whatever the column's collation.
+- **Trailing spaces are ignored** by `=`, `IN`, unique indexes and foreign
+  keys (SQL-92's padding rule), so `findUnique({ where: { slug: "ab" } })`
+  finds `"ab "`. `LIKE` (`contains`, `startsWith`, `endsWith`) counts
+  trailing spaces in its pattern.
+- **`distinct` and `groupBy` compare under the collation too**: under a
+  case-insensitive one, `"ab"`, `"AB"` and `"ab "` are one value (Prisma's
+  `distinct`, done in JavaScript, keeps all three).
+- **The column's type converts the value.** A `CHAR(10)` key holding
+  `"ab"` is found by `"ab"`, a `UNIQUEIDENTIFIER` by its GUID in either
+  case, and a relation joins columns of different types (a `CHAR` under an
+  `NVARCHAR`, a GUID kept as text under a `UNIQUEIDENTIFIER`) as SQL Server
+  converts them.
+- **A `VARCHAR` or `CHAR` column needs its native type.** VibORM binds a
+  string as `NVARCHAR`. Beside an `NVARCHAR` column, or any column under a
+  Windows collation (`Latin1_General_*`), an index serves it. Beside a
+  `VARCHAR` or `CHAR` column under a `SQL_*` collation (the server's default),
+  SQL Server converts the column instead: `findUnique`, `equals`, `in` and
+  ranges scan the index (143 reads instead of 2 on 50,000 rows), and compare
+  with Unicode rules (`equals: "ss"` also finds `"ß"`). Declare the field
+  with its type, `s.string(MSSQL.STRING.VARCHAR(40))`
+  ([native types](/docs/schema/native-types)), and VibORM binds a compared
+  ASCII operand as `VARCHAR`: the index is sought and the column's own rules
+  compare. `introspectSchema` writes that type for the columns it reads. The
+  conversion takes the database's code page, not the column's, and ASCII is
+  the only text the same in all of them (UTF-8 included), so:
+  - a non-ASCII operand (`"Мир"`, `"東京"`, `"Ω"`) is compared as without the
+    native type: under a `SQL_*` collation that may scan, and it compares with
+    Unicode rules, but it finds what the column holds; in an `in`, each member
+    is bound on its own, and one non-ASCII member makes the whole list scan;
+  - a written value is never converted: `create`, `update` and `upsert` send
+    it as an `NVARCHAR` parameter, which the column stores in its own code
+    page (Prisma's `@db.VarChar` casts it, and stores `???` in a Cyrillic or
+    `_UTF8` column of a Latin1 database);
+  - `LIKE` patterns (`contains`, `startsWith`, `endsWith`) keep their
+    `NVARCHAR` operand, and scan.
+- **`viborm/ordering`** compares its `within` fields the same way: `"k"` and
+  `"k "` (or `"K"` under a case-insensitive collation) are one list.
+
+### Sorting
+
+Without `nulls`, an `orderBy` sorts `NULL` last ascending and first
+descending, where SQL Server (and Prisma, and Drizzle) puts it first
+ascending. Pass `nulls: "first"` for SQL Server's own order. Either way the
+`NULL` order is written into the statement, so an index on the column does
+not give it.
+
+### JSON
+
+- **Equality of a document or a list** compares the stored text with VibORM's
+  canonical text, under the column's collation: a document another program
+  wrote with its keys in another order, or with spaces, equals nothing. At a
+  path, a string reads the same whatever its escapes and compares under the
+  database's collation, but a number or an object is compared as stored:
+  `{"n": 1.0}` does not equal `1`, and an object with its keys in another
+  order does not equal the one you pass.
+- Path filters go through `OPENJSON`: an index on a computed `JSON_VALUE`
+  column is not used, and a document holding the same key twice fails the
+  whole query (Msg 512).
+- A JSON column holding a scalar (`42`, `"text"`) is read and written
+  normally, and path filters do not match inside it.
+
+### Transactions
+
+- **A deadlock, a statement under `XACT_ABORT ON` or a trigger's `ROLLBACK`
+  roll back the whole transaction**, even inside a nested `$transaction`
+  (a savepoint), where PostgreSQL loses the savepoint alone. The statement
+  that met it fails with its own error where it has one (a deadlock, a
+  constraint), and with a `TransactionError`
+  (`meta.reason: "transaction-rolled-back-by-server"`) otherwise; every
+  statement, raw statement and nested `$transaction` after it, and the outer
+  `$transaction` itself, fail with that same reason. Nothing the transaction
+  wrote is kept.
+- **A COMMIT that fails** (its session lost, or past its request timeout)
+  leaves its outcome unknown: the transaction may have been committed or not.
+  It fails with a `TransactionError` (`meta.reason: "commit-outcome-unknown"`);
+  read the data back before retrying. After a lost session the client goes
+  on; after a timeout, the transaction may still be open on a pooled
+  connection, so the client refuses further work until you disconnect it.
+- **Isolation levels**: `isolationLevel` sets `ReadUncommitted`,
+  `ReadCommitted`, `RepeatableRead` or `Serializable` for the transaction, and
+  its pooled connection goes back to the pool's own level before it is lent
+  again. When the server ends the transaction first (a deadlock,
+  `XACT_ABORT`, a trigger's `ROLLBACK`) or a raw `COMMIT` or `ROLLBACK` does,
+  that connection still holds the transaction's level: the pool discards it
+  instead of lending it, and opens another. `Snapshot` is refused (`TransactionError` V5005): turn
+  `READ_COMMITTED_SNAPSHOT` on for the database instead.
+- **A raw `COMMIT` or `ROLLBACK` inside `$transaction`** ends the transaction:
+  the statement fails with a `TransactionError`
+  (`meta.reason: "transaction-ended-by-statement"`) that says whether what it
+  wrote was committed or rolled back, every statement after it fails the
+  same way, and the client goes on.
+- **A `SET` sent through `$executeRaw` does not last**: `mssql` runs each
+  request in its own scope, so `SET LOCK_TIMEOUT 200` is gone by the next
+  statement. Put it in the same raw statement as the work it governs, or set
+  `options.requestTimeout`.
+- **Raw transaction control**: a `BEGIN TRANSACTION` sent through
+  `$executeRaw` outside `$transaction` fails (Msg 266) and leaves its
+  connection in the pool with the transaction open. Every later statement on
+  that connection runs inside it: a `create` and even a later `$transaction`
+  report success, and their rows are lost when the pool closes; meanwhile
+  other sessions that read those rows wait on its locks until their own
+  timeout. Open transactions with `$transaction` only.
+
+### Errors and connections
+
+- **Every SQL Server error** carries its message number in
+  `meta.providerErrno` (245 for a conversion, 51000 for your own `THROW`, …),
+  whatever class VibORM gives it.
+- **A request past its timeout** (`options.requestTimeout`, 15 s by default)
+  fails with a `QueryError` V2002 (`QUERY_TIMEOUT`); a blocked read waits that
+  long.
+- **`$disconnect` during a query** closes the pool at once: the query fails
+  with a `ConnectionError` V1003 and its outcome on the server is unknown
+  (Prisma lets it finish).
+
+### Writes
+
+- **Cascades**: SQL Server refuses any `ON DELETE` action on a self-reference
+  and a second cascade path into one table; declare such keys `NO ACTION`.
+  Deleting a row its children still reference then fails with a
+  `ForeignKeyError`: detach them first (a reply's `parentId` set to `null`).
+  The same holds for a junction whose key to one side is `NO ACTION`: a
+  nested `delete` of a row it still links fails, at the root as nested;
+  `disconnect` it first.
+- **Triggers**: a count VibORM answers (`createMany`, `updateMany`,
+  `deleteMany`) is the statement's own, a trigger's statements aside. Under an
+  `INSTEAD OF` trigger it is the number of rows handed to the trigger, whatever
+  the trigger did with them. An `INSTEAD OF INSERT` trigger that inserts the
+  row itself hides its generated key: `create`, `upsert` and
+  `createMany({ select })` then fail with a `QueryEngineError` that names the
+  trigger, and nothing is written; a plain `createMany` works. `$executeRaw`
+  returns the server's own count, trigger statements included.
+- **An explicit value for an `.increment()` key** (`create({ data: { id: 50 } })`)
+  is written: the INSERT is refused (Msg 544), then sent again under `SET
+  IDENTITY_INSERT … ON`, one round trip more. That needs `ALTER` permission
+  on the table; without it the call fails with an
+  `UnsupportedOperationError` that says so.
+- **A key the database generates other than `IDENTITY`** (`NEWID()`,
+  `NEWSEQUENTIALID()`) cannot be left to it: VibORM generates a string key on
+  the client. Declare such a key with a client-side generator,
+  `s.string().uuid({ generate: true }).id()`, and give up `NEWSEQUENTIALID`'s
+  ordering.
+- **`multiply` and `divide` on a decimal** round half to even at the field's
+  scale when its precision is at most 19. Past it (a `DECIMAL(38,10)`), they
+  are SQL Server's own `*` and `/`, whose result keeps at least 6 decimals,
+  rounded by the server: `1.0000000001 × 1.0000000001` is `1.000000`.
+
+### Limits
+
+- **Bound values**: one statement binds at most 2,098 values; VibORM splits
+  bulk writes to stay under it and refuses any other statement past it with an
+  `UnsupportedOperationError`, never sent. Each value counts once (an `in`
+  of 2,000 text ids on 20,000 rows answers in about 50 ms), with one
+  exception: a judged `updateMany` whose data writes a column its
+  `viborm/permissions` rule reads binds its filter twice, so its `in` list
+  is refused from about 1,050 ids.
+- **`contains`, `startsWith` and `endsWith`** match with `LIKE`, whose
+  pattern holds at most 4,000 characters: a `contains` needle of more than
+  3,998 characters (3,999 for `startsWith` and `endsWith`; a `%`, `_`, `[` or
+  `\` counts twice) is refused with an `UnsupportedOperationError`, never
+  sent.
+- **Recursive queries** (`recurse` in a filter, a projection or a
+  `viborm/permissions` rule) are refused: T-SQL allows no `WITH` inside a
+  subquery and no `UNION` in a recursive member.
+- **Geographic points and vectors** are not supported.
+
+## Cloudflare Workers
+
+The driver runs on Node.js. tedious cannot run in a Worker or a Durable
+Object: an encrypted SQL Server connection layers TLS over its own TDS packets
+(or, with `encrypt: "strict"`, needs the `tds/8.0` ALPN protocol), and a Worker
+socket offers neither. Reach SQL Server from a Node.js service instead.

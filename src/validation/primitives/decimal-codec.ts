@@ -402,7 +402,7 @@ export function materializePhysicalWidenedSum(
 // =============================================================================
 
 /** The dialects that spell a fixed decimal, in `NativeType["db"]` vocabulary. */
-export type DecimalDialect = "pg" | "mysql" | "sqlite";
+export type DecimalDialect = "pg" | "mysql" | "sqlite" | "mssql";
 
 // =============================================================================
 // PROVIDER PHYSICAL LIMITS
@@ -432,6 +432,7 @@ const PROVIDER_LIMITS: Record<
   pg: { precision: 1000, scale: 1000 },
   mysql: { precision: 65, scale: 30, sum: 65 },
   sqlite: { precision: 18, scale: 18, sum: 18 },
+  mssql: { precision: 38, scale: 38 },
 };
 
 /**

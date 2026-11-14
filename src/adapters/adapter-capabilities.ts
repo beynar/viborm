@@ -133,4 +133,12 @@ export interface DatabaseAdapterCapabilities {
    * Absent: false.
    */
   countsCascadedChanges?: boolean;
+  /**
+   * Whether the database compares text with trailing spaces ignored: SQL
+   * Server pads the shorter operand of `=` and `<` with spaces under every
+   * collation, so a unique key holds `"a"` and `"a "` as one value, and
+   * VibORM, which sends comparisons as written, finds one by the other.
+   * Absent: false.
+   */
+  padsTrailingSpaces?: boolean;
 }

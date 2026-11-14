@@ -113,6 +113,7 @@ import {
   relations,
   reversedRows,
   rowIdentity,
+  rowIn,
   rowSet,
   rowValue,
   type ScalarStateOf,
@@ -1104,6 +1105,11 @@ export class SqlQueries extends Queries {
     switch (state.type) {
       case "bigint":
         return this.#literal(state.array === true ? String(value) : value);
+      case "string":
+        return (
+          a.literals.string?.(value as string, this.nativeType(scalar)) ??
+          this.#literal(value)
+        );
       case "decimal":
       case "json":
       case "point":
@@ -1280,6 +1286,8 @@ export class SqlQueries extends Queries {
         this.#null(),
         this.adapter.expressions.blobToHex(expression)
       );
+    if (leaf.type === "datetime" || leaf.type === "time")
+      return this.adapter.json.instant?.(expression, leaf.type) ?? expression;
     return expression;
   }
   junctionWhere(
@@ -1650,13 +1658,12 @@ export class SqlQueries extends Queries {
             limit: this.value(limit),
           }),
     });
-    return adapter.operators.in(
-      rowValue(keys.map((field) => this.column(model, field, alias))),
-      adapter.subqueries.scalar(
-        adapter.capabilities.supportsMutationTargetInSubquery
-          ? capped
-          : throughDerived(adapter, capped, this.alias())
-      )
+    return rowIn(
+      adapter,
+      keys.map((field) => this.column(model, field, alias)),
+      adapter.capabilities.supportsMutationTargetInSubquery
+        ? capped
+        : throughDerived(adapter, capped, this.alias())
     );
   }
   /** `<key> ASC, …` in {@link keyOrder}, the keys addressed through `alias`. */
@@ -3162,13 +3169,12 @@ export class SqlQueries extends Queries {
     const junction = this.alias();
     // Membership first: the index on the source side finds the small target
     // worklist before the provider visits those target identities.
-    return this.adapter.operators.in(
-      rowValue(
-        edge.targetSide.members.map((field) =>
-          this.column(edge.target, field.referencedField, target)
-        )
+    return rowIn(
+      this.adapter,
+      edge.targetSide.members.map((field) =>
+        this.column(edge.target, field.referencedField, target)
       ),
-      this.#scalar({
+      assembleAdapterSelect(this.adapter, {
         columns: listed(
           edge.targetSide.members.map((field) =>
             this.#at(junction, field.junctionField)
@@ -3633,7 +3639,7 @@ export class SqlQueries extends Queries {
     const keyColumns = order.map((term) =>
       this.#operand(model, term.field!, sourceAlias)
     );
-    if (sargable)
+    if (sargable && !a.operators.rows)
       return (descending ? a.operators.lte : a.operators.gte)(
         rowValue(order.map((term) => term.expression)),
         a.subqueries.scalar(cursorRow(keyColumns))

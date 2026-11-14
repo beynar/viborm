@@ -113,6 +113,13 @@ const INT_SUM_VIEWS = {
     create: (view: string, rows: number, member: number) =>
       `CREATE OR REPLACE VIEW ${view} AS SELECT g.i + 1 AS id, ${member} AS n FROM (SELECT ${[0, 1, 2, 3, 4, 5, 6].map((place) => `t${place}.d * ${10 ** place}`).join(" + ")} AS i FROM ${[0, 1, 2, 3, 4, 5, 6].map((place) => `${DIGITS} AS t${place}`).join(" CROSS JOIN ")}) AS g WHERE g.i < ${rows}`,
   },
+  mssql: {
+    rows: 4_194_305,
+    member: 2_147_483_647,
+    quote: (name: string) => `"${name}"`,
+    create: (view: string, rows: number, member: number) =>
+      `CREATE OR ALTER VIEW ${view} AS SELECT g.i + 1 AS id, ${member} AS n FROM (SELECT ${[0, 1, 2, 3, 4, 5, 6].map((place) => `t${place}.d * ${10 ** place}`).join(" + ")} AS i FROM ${[0, 1, 2, 3, 4, 5, 6].map((place) => `${DIGITS} AS t${place}`).join(" CROSS JOIN ")}) AS g WHERE g.i < ${rows}`,
+  },
 } as const;
 
 export function runAggregateSumOverflowCases(options: {

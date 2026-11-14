@@ -10,6 +10,9 @@ application without extensions is smaller, a nested write sends fewer
 statements, and a many-row write on a batch-only driver is all-or-nothing when
 it fits one batch.
 
+VibORM now reads and writes Microsoft SQL Server, and reads an existing SQL
+Server schema into a schema document.
+
 ### Added
 
 - **`written`, a new extension capability.** A definition is asked once per
@@ -39,6 +42,65 @@ it fits one batch.
   level security).
 - **Several `on()` on one client.** Each runs its own hooks, in the order they
   were applied. A second `on()` was refused before.
+- **`viborm/mssql`, a SQL Server driver** (the `mssql` package, tedious), for
+  SQL Server 2022 and later and Azure SQL. Queries, nested writes and
+  transactions run on it (savepoints are `SAVE TRANSACTION`, the isolation
+  level is `BEGIN TRANSACTION`'s own; a deadlock is `TransactionError` V5003),
+  and so do `viborm/ordering`, `viborm/soft-delete`, `viborm/on`, the cache
+  and `viborm/permissions` with a policy that does not recurse. To-many
+  includes are built with `STRING_AGG` in their page's order; upserts take
+  the locked branch (no `MERGE`); a statement binds at most 2,098 values:
+  bulk writes split to stay under it, and a read that needs more is refused.
+  Text comparisons are sent as written, as Prisma and Drizzle do: the
+  column's type and collation decide case, accents and trailing spaces
+  (ignored by SQL Server's `=`), and `mode: "insensitive"` ignores case on
+  any collation; `contains`, `startsWith` and `endsWith` are `LIKE`, refused
+  past its 4,000-character pattern. Every statement runs at compatibility
+  level 150. `isolationLevel` sets the transaction's level, and the pooled
+  connection goes back to its own, or is discarded when the server or a raw
+  COMMIT or ROLLBACK ended the transaction first. A transaction the server rolls back
+  itself, even inside a savepoint, a raw COMMIT or ROLLBACK inside
+  `$transaction`, and a COMMIT whose outcome is unknown fail with a
+  `TransactionError` saying so (`meta.reason`); every SQL Server error carries
+  its message number in `meta.providerErrno`, and a request timeout is a
+  `QueryError` V2002. An adopted table's `DATETIME2`, `DATETIMEOFFSET` and
+  `TIME` of any precision read the same nested as at the root, a `MONEY`
+  declared decimal keeps its four decimals, and an `IDENTITY` may start at 0
+  or below. Tables live in `dbo` unless `namespace` names another schema. See
+  the
+  [SQL Server](https://viborm.dev/docs/drivers/sqlserver) page.
+- **`introspectSchema({ url: "mssql://…" })`** reads a SQL Server schema; the
+  introspection-only migration driver is `viborm/migrations/mssql`. A type the
+  document has no spelling for (`NVARCHAR(n)`, `SMALLINT`, `DATETIME`, …) is
+  read as its scalar with an `approximated` warning; triggers, CHECK
+  constraints, row-level security and column collations are `unstated`.
+- **`adapter.operators.rows`**, an optional adapter member for a dialect with
+  no row value: the engine asks it for `(k1, k2) IN (SELECT …)` and
+  `(k1, k2) <= (v1, v2)`, and takes its general cursor window where it is
+  present. PostgreSQL, MySQL and SQLite do not declare it; their SQL is
+  unchanged.
+- **`adapter.assertions.keptWhere`**, an optional adapter member for a
+  dialect that aggregates no subquery: a judged update folds its filter into
+  its guard instead of grouping its candidates by key. Absent elsewhere,
+  whose SQL is unchanged.
+- **`capabilities.padsTrailingSpaces`**: SQL Server holds `"a"` and `"a "` as
+  one unique value, and `distinct` and `groupBy` group them.
+- **`MSSQL` native types** (`viborm/schema`): `MSSQL.STRING.VARCHAR(n)`,
+  `VARCHAR_MAX`, `CHAR(n)`, `NVARCHAR(n)`, `NVARCHAR_MAX`, `NCHAR(n)`,
+  `MSSQL.DATETIME.DATETIME` and `SMALLDATETIME`, and `mssql` as a key of a
+  native-type map. A `VARCHAR` or `CHAR` field's compared ASCII operands are
+  bound as `VARCHAR`, so its index is sought under a `SQL_*` collation; any
+  other operand, and every written value, stays an `NVARCHAR` parameter,
+  which a column in another code page (Cyrillic, `_UTF8`) stores and finds
+  intact. A `DATETIME` field's operands are bound as `DATETIME`. `introspectSchema` writes them for the columns it
+  reads.
+- **`adapter.literals.string`** and **`adapter.json.instant`**, optional
+  adapter members (SQL Server's): a string operand in its column's family, and
+  a date or time carried through JSON as the root read gives it. Absent
+  elsewhere, whose SQL is unchanged.
+- **An INSERT whose row the database does not hand back** (an `INSTEAD OF
+  INSERT` trigger on SQL Server) fails with a `QueryEngineError` that names
+  the cause and what works there.
 
 ### Changed
 
@@ -99,6 +161,18 @@ it fits one batch.
 - **Two `deleteMany` on the same junction relation in one call run in order**
   where they were refused.
 
+### Fixed
+
+- **A statement over the bind budget inside a transaction** on better-sqlite3
+  was numbered with merged values its transport reads as names, and failed as
+  a raw `QueryError`; it is refused as it is outside one.
+- **A soft delete in an interactive transaction locks its row before its
+  referential check** also where the row is named by its key and its
+  statement cannot hand it back (SQL Server; on PostgreSQL, a projection
+  with a read-gated field, a variant slot or a recursive relation). A create
+  connecting the row between the check and the tombstone could leave a live
+  child under it.
+
 ### Upgrade notes
 
 - **Extension authors: build every definition with `defineExtension()`.** A
@@ -115,6 +189,17 @@ it fits one batch.
   the race.
 - **On D1 and neon-http, do not rely on partial progress** of a many-row write
   with relations that fits one batch: nothing is left when it fails.
+
+### Not supported on SQL Server
+
+- **Migrations**: `createMigrationClient` refuses a SQL Server client; VibORM
+  generates and applies no DDL for it.
+- **Recursive queries** (`recurse`), in a filter, a projection or a
+  `viborm/permissions` rule: T-SQL has no `WITH` inside a subquery and no
+  `UNION` in a recursive member. The refusal is a `FeatureNotSupportedError`.
+- **Geographic points and vectors.**
+- **Cloudflare Workers and Durable Objects**: tedious layers TLS over its own
+  packets (or needs the `tds/8.0` ALPN), which a Worker socket cannot do.
 
 ## 1.14.0 — 2026-11-11
 

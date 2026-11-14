@@ -20,6 +20,7 @@ The query engine calls adapter methods to build SQL fragments, then composes the
 | PostgreSQL | `PostgresAdapter` | 12+ | Schema; `new PostgresAdapter()` defaults to `public` |
 | MySQL | `MySQLAdapter` | 8.0+ (requires JSON functions) | Database; `new MySQLAdapter()` is deliberately unqualified |
 | SQLite | `SQLiteAdapter` | 3.38+ (requires JSON functions) | Not supported — the property is absent, not `undefined` |
+| SQL Server | `MssqlAdapter` | 2022+ / Azure SQL (`JSON_OBJECT`, `JSON_ARRAY`) | Schema; `new MssqlAdapter()` defaults to `dbo` |
 
 `namespace` is selected once at construction and installed non-writable, and it
 is the sole normalized qualification fact. The non-writable install is what makes

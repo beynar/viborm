@@ -35,7 +35,7 @@ import { computed, joined, stored } from "../index";
 import { getRowKey } from "../schema/model/keys";
 import { type Sql, sql } from "../sql/sql";
 import { appendKey } from "./append";
-import { between, jitter, spellings } from "./between";
+import { between, jitter, type KeyDialect, spellings } from "./between";
 import { isKeyFormat, keyBetween } from "./keys";
 import { placed } from "./placed";
 
@@ -346,7 +346,7 @@ function respaceJoin(
 ): { source: Sql; on: Sql } {
   {
     const { key, within, identity } = ordered;
-    const s = spellings[q.dialect as "postgresql" | "sqlite" | "mysql"];
+    const s = spellings[q.dialect as KeyDialect];
     const terms = order.flatMap((term) => Object.entries(term));
     const column = (field: string, alias?: string) => q.column(field, alias);
     const at = (alias: string, prefix: string, count: number) =>
@@ -414,30 +414,31 @@ function respaceJoin(
       const g = (name: string) => sql.raw(`${alias}.${name}`);
       const n = sql`(${g("slot")} - 1)`;
       return sql`CASE WHEN ${g("lo")} IS NULL AND ${g("hi")} IS NULL THEN ${s.concat(
-        s.text(sql`length(${s.text(n)})`),
+        s.text(s.length(s.text(n))),
         s.text(n)
       )} ELSE ${between(
         s,
         g("lo"),
         g("hi"),
-        s.concat(
-          s.pad(s.text(g("r")), sql`length(${s.text(g("cnt"))})`),
-          sql`'1'`
-        )
+        s.concat(s.pad(s.text(g("r")), s.length(s.text(g("cnt")))), sql`'1'`)
       )} END`;
     };
     const keyed =
       terms.length === 0
         ? sql`SELECT ${sql.join([...ids("g"), ...lists("g")], ", ")}, g.k, ${keyOf("g")} AS nk FROM (${movables}) AS g`
-        : sql`WITH g AS (${movables}) SELECT ${sql.join([...ids("m"), ...lists("m")], ", ")}, m.k, ${keyOf("t")} AS nk FROM g AS t JOIN g AS m ON ${sql.join(
-            [
-              ...within.map((_, n) =>
-                s.same(sql.raw(`t.w${n}`), sql.raw(`m.w${n}`))
-              ),
-              sql`t.slot = m.pick`,
-            ],
-            " AND "
-          )}`;
+        : s.selfJoin(
+            movables,
+            sql`${sql.join([...ids("m"), ...lists("m")], ", ")}, m.k, ${keyOf("t")} AS nk`,
+            sql.join(
+              [
+                ...within.map((_, n) =>
+                  s.same(sql.raw(`t.w${n}`), sql.raw(`m.w${n}`))
+                ),
+                sql`t.slot = m.pick`,
+              ],
+              " AND "
+            )
+          );
     // Its columns, named as no column of the model can be (`joined`): the
     // UPDATE's own columns stay unambiguous beside them.
     const names = [

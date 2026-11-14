@@ -18,6 +18,7 @@
 import { UnsupportedOperationError } from "../errors";
 import { type ComputedContext, computed } from "../index";
 import { type Sql, sql } from "../sql/sql";
+import { type Spelling, spellings } from "./between";
 import { keysAfter } from "./keys";
 
 type Input = Readonly<Record<string, unknown>>;
@@ -70,6 +71,7 @@ export const appendKey = (within: readonly string[]): string =>
 function lastOf(
   within: readonly string[],
   context: ComputedContext,
+  spelling: Spelling,
   values: readonly unknown[]
 ): Sql {
   {
@@ -81,13 +83,7 @@ function lastOf(
         ? sql`${q.column(name)} IS NULL`
         : sql`${q.column(name)} = ${q.value(name, value)}`;
     });
-    where.push(
-      context.dialect === "postgresql"
-        ? sql`${key} ~ '^[0-9]{2,}$'`
-        : context.dialect === "mysql"
-          ? sql`${key} REGEXP '^[0-9]{2,}$'`
-          : sql`length(${key}) >= 2 AND ${key} NOT GLOB '*[^0-9]*'`
-    );
+    where.push(spelling.digits(key));
     return sql`SELECT MAX(${key}) AS k FROM ${q.table()} WHERE ${sql.join(where, " AND ")}`;
   }
 }
@@ -97,19 +93,12 @@ function lastOf(
  * (1-based): integer max(last, -1) + step with a random fraction, as
  * `keysBetween(last, null, …)` computes it.
  */
-function expression(context: ComputedContext, last: Sql, step: number): Sql {
-  {
-    const first = sql.raw(String(step - 1));
-    const next = sql.raw(String(step));
-    switch (context.dialect) {
-      case "postgresql":
-        return sql`(SELECT CASE WHEN n > 999999999 THEN NULL ELSE length(n::text)::text || n::text || rtrim(lpad(floor(random() * 1000000)::bigint::text, 6, '0'), '0') END FROM (SELECT CASE WHEN k IS NULL OR left(k, 1) = '0' THEN ${first} ELSE substr(k, 2, substr(k, 1, 1)::int)::bigint + ${next} END AS n FROM (${last}) AS m) AS x)`;
-      case "mysql":
-        return sql`(SELECT CASE WHEN n > 999999999 THEN NULL ELSE CONCAT(CHAR_LENGTH(n), n, TRIM(TRAILING '0' FROM LPAD(FLOOR(RAND() * 1000000), 6, '0'))) END FROM (SELECT CASE WHEN k IS NULL OR LEFT(k, 1) = '0' THEN ${first} ELSE CAST(SUBSTRING(k, 2, CAST(LEFT(k, 1) AS UNSIGNED)) AS UNSIGNED) + ${next} END AS n FROM (${last}) AS m) AS x)`;
-      default:
-        return sql`(SELECT CASE WHEN n > 999999999 THEN NULL ELSE length(n) || n || rtrim(printf('%06d', abs(random()) % 1000000), '0') END FROM (SELECT CASE WHEN k IS NULL OR substr(k, 1, 1) = '0' THEN ${first} ELSE CAST(substr(k, 2, CAST(substr(k, 1, 1) AS INTEGER)) AS INTEGER) + ${next} END AS n FROM (${last}) AS m) AS x)`;
-    }
-  }
+function expression(spelling: Spelling, last: Sql, step: number): Sql {
+  return spelling.appended(
+    last,
+    sql.raw(String(step - 1)),
+    sql.raw(String(step))
+  );
 }
 
 async function appended(
@@ -150,10 +139,11 @@ async function appended(
       }
       return indexes.map((index) => keys.get(index));
     }
+    const spelling = spellings[context.dialect];
     if (context.dialect === "mysql" && context.read !== undefined) {
       const reads = groups.map(
         (group, position) =>
-          sql`(${lastOf(within, context, group.values)}) AS ${sql.raw(`g${position}`)}`
+          sql`(${lastOf(within, context, spelling, group.values)}) AS ${sql.raw(`g${position}`)}`
       );
       const [answer] = await context.read(sql`SELECT ${sql.join(reads, ", ")}`);
       for (const [position, group] of groups.entries()) {
@@ -164,9 +154,9 @@ async function appended(
       }
     } else {
       for (const group of groups) {
-        const last = lastOf(within, context, group.values);
+        const last = lastOf(within, context, spelling, group.values);
         for (const [step, index] of group.at.entries())
-          keys.set(index, expression(context, last, step + 1));
+          keys.set(index, expression(spelling, last, step + 1));
       }
     }
     return indexes.map((index) => keys.get(index));

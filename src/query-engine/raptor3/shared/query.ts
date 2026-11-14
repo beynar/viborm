@@ -431,6 +431,12 @@ export interface SelectorFacts {
 export function rowValue(items: Sql[]): Sql {
   return items.length === 1 ? items[0]! : sql`(${listed(items)})`;
 }
+/** `items`, as one row, among the rows `query` answers. */
+export function rowIn(adapter: DatabaseAdapter, items: Sql[], query: Sql): Sql {
+  return adapter.operators.rows
+    ? adapter.operators.rows(items, query)
+    : adapter.operators.in(rowValue(items), adapter.subqueries.scalar(query));
+}
 /** Every column of `query`, read through a derived table named `alias`. */
 export function throughDerived(
   adapter: DatabaseAdapter,
@@ -2959,6 +2965,13 @@ export abstract class Queries {
     const { numberSum, integerSum } = this.adapter.aggregates;
     if (leaf.type === "number")
       return numberSum && { sql: numberSum, join: joinNumberSum };
+    // A decimal is an int64 only as SQLite's coefficient; elsewhere its own
+    // exact SUM.
+    if (
+      leaf.type === "decimal" &&
+      this.adapter.result.decimalRepresentation !== "coefficient"
+    )
+      return undefined;
     return (
       integerSum && {
         sql: integerSum,

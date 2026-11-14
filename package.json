@@ -79,6 +79,11 @@
       "import": "./dist/mysql2.mjs",
       "default": "./dist/mysql2.mjs"
     },
+    "./mssql": {
+      "types": "./dist/mssql.d.mts",
+      "import": "./dist/mssql.mjs",
+      "default": "./dist/mssql.mjs"
+    },
     "./planetscale": {
       "types": "./dist/planetscale.d.mts",
       "import": "./dist/planetscale.mjs",
@@ -148,6 +153,11 @@
       "types": "./dist/migrations/mysql.d.mts",
       "import": "./dist/migrations/mysql.mjs",
       "default": "./dist/migrations/mysql.mjs"
+    },
+    "./migrations/mssql": {
+      "types": "./dist/migrations/mssql.d.mts",
+      "import": "./dist/migrations/mssql.mjs",
+      "default": "./dist/migrations/mssql.mjs"
     },
     "./migrations/storage/fs": {
       "types": "./dist/migrations/storage/fs.d.mts",
@@ -238,7 +248,8 @@
     "./dist/migrations.mjs",
     "./dist/migrations/postgres.mjs",
     "./dist/migrations/sqlite.mjs",
-    "./dist/migrations/mysql.mjs"
+    "./dist/migrations/mysql.mjs",
+    "./dist/migrations/mssql.mjs"
   ],
   "scripts": {
     "build": "node scripts/run-typecheck.mjs",
@@ -345,6 +356,7 @@
     "@size-limit/file": "12.0.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/bun": "^1.2.17",
+    "@types/mssql": "^12.3.0",
     "@types/node": "^22.20.5",
     "@types/pg": "^8.16.0",
     "@vitest/coverage-v8": "4.1.12",
@@ -352,6 +364,7 @@
     "arktype": "^2.2.3",
     "better-sqlite3": "^12.11.1",
     "drizzle-orm": "^0.45.3",
+    "mssql": "^12.7.14",
     "mysql2": "^3.14.1",
     "pg": "^8.16.0",
     "pglite-prisma-adapter": "^0.7.2",
@@ -388,6 +401,7 @@
     "@opentelemetry/api": "^1.9.0",
     "@planetscale/database": "^1.19.0",
     "better-sqlite3": "^12.11.1 || ^13.0.3",
+    "mssql": "^12.0.0",
     "mysql2": "^3.14.1",
     "pg": "^8.16.0",
     "postgres": "^3.4.0",
@@ -416,6 +430,9 @@
       "optional": true
     },
     "better-sqlite3": {
+      "optional": true
+    },
+    "mssql": {
       "optional": true
     },
     "mysql2": {
@@ -503,8 +520,8 @@
       "name": "ordering extension entry",
       "path": "node_modules/.cache/viborm-size/ordering-entry.mjs",
       "gzip": true,
-      "limit": "109 kB",
-      "message": "viborm/ordering alone: ordering(), its decimal keys, the append each dialect's INSERT computes, move and rekey, with what it imports from shared chunks (the error classes it raises, the engine's insert-value base), measured 11.94 kB on 2026-10-31. Limit follows OD-17: measured rounded up to 0.1 kB plus 0.3 kB. The adversarial review's fixes (2026-10-31: respacing as one statement over whole lists, rows named by identity in move, stored keys published instead of their expressions, the filtered MAX for backfilled tables) measure 12.57 kB; 12.3 kB → 12.9 kB under the same OD-17 rule. The second review's fixes (2026-10-31: respacing rendered by the client's own engine, read from the engine's renderer registry, the lists named through the caller's view and chunked by the driver's bound values, typed placements) measure 12.85 kB; 12.9 kB → 13.2 kB under the same OD-17 rule. The move computed by its UPDATE (2026-10-31: the key expression between.ts builds, the one-statement path, the engine's computed update values) measures 14.56 kB; 13.2 kB → 14.9 kB under the same OD-17 rule. Extensions next, final (2026-11-01) measures 16,131 B: rekey through the client (the ranking of visible members around hidden ones, its MySQL read-and-CASE path) and move's RowsOf reads; 14.9 kB → 16.5 kB under the same OD-17 rule. Engine rewrite (2026-11-12) measures 78,681 B: the entry now brings what reads rows, data, deletion and order declarations (row domains, the judgement of produced rows, read gates), which left the engine, and it counts the engine query modules that code imports from shared chunks. An application already loads those chunks: pg + ordering measures 205,115 B, under its unchanged limit. 16.5 kB → 79 kB under OD-17 (measured rounded up to 0.1 kB plus 0.3 kB). The rows runtime now comes through the public defineExtension() instead of an internal module (2026-11-12): 80,810 B, +2.1 kB of definition handling an application already loads; 79 kB → 81.2 kB under the same rule, part of the same raise. The SurrealQL of ordering (the last key an append reads, the list a respace writes) left the SurrealDB driver for the extension, which brings its own code (2026-11-12): measures 81.63 kB; 81.2 kB → 82 kB under the same OD-17 rule. The code that admits and runs extensions left the client for what builds a definition (2026-11-12): an application that applies no extension no longer carries it, and an extension entry bundled alone now does. Measures 103.03 kB; 82 kB → 103.4 kB, a transfer from the client (pg application + ordering: 207.51 kB). Array transactions whose members are intercepted and callback transactions that collect write outcomes followed the extension host out of the client (2026-11-12). Measures 105.89 kB; 103.4 kB → 106.2 kB, the same transfer. What a row domain's layer resolves to for a call and what a judged row is refused with left the engine for the row domain (2026-11-12). Measures 107.58 kB; 106.2 kB → 107.9 kB, the same transfer (pg application: 174.95 → 173.81 kB). What a kept row takes and meets, the preparation and the SQL of $exists and { $row, up }, the cycle check of a produced row and what a domain hides of a link row followed (2026-11-13). Measures 110.52 kB; 107.9 kB → 110.9 kB, the same transfer (pg application: 173.81 → 172.54 kB). $exists and { $row, up } went back to the engine: measures 108.68 kB; 110.9 kB → 109 kB."
+      "limit": "109.4 kB",
+      "message": "viborm/ordering alone: ordering(), its decimal keys, the append each dialect's INSERT computes, move and rekey, with what it imports from shared chunks (the error classes it raises, the engine's insert-value base), measured 11.94 kB on 2026-10-31. Limit follows OD-17: measured rounded up to 0.1 kB plus 0.3 kB. The adversarial review's fixes (2026-10-31: respacing as one statement over whole lists, rows named by identity in move, stored keys published instead of their expressions, the filtered MAX for backfilled tables) measure 12.57 kB; 12.3 kB → 12.9 kB under the same OD-17 rule. The second review's fixes (2026-10-31: respacing rendered by the client's own engine, read from the engine's renderer registry, the lists named through the caller's view and chunked by the driver's bound values, typed placements) measure 12.85 kB; 12.9 kB → 13.2 kB under the same OD-17 rule. The move computed by its UPDATE (2026-10-31: the key expression between.ts builds, the one-statement path, the engine's computed update values) measures 14.56 kB; 13.2 kB → 14.9 kB under the same OD-17 rule. Extensions next, final (2026-11-01) measures 16,131 B: rekey through the client (the ranking of visible members around hidden ones, its MySQL read-and-CASE path) and move's RowsOf reads; 14.9 kB → 16.5 kB under the same OD-17 rule. Engine rewrite (2026-11-12) measures 78,681 B: the entry now brings what reads rows, data, deletion and order declarations (row domains, the judgement of produced rows, read gates), which left the engine, and it counts the engine query modules that code imports from shared chunks. An application already loads those chunks: pg + ordering measures 205,115 B, under its unchanged limit. 16.5 kB → 79 kB under OD-17 (measured rounded up to 0.1 kB plus 0.3 kB). The rows runtime now comes through the public defineExtension() instead of an internal module (2026-11-12): 80,810 B, +2.1 kB of definition handling an application already loads; 79 kB → 81.2 kB under the same rule, part of the same raise. The SurrealQL of ordering (the last key an append reads, the list a respace writes) left the SurrealDB driver for the extension, which brings its own code (2026-11-12): measures 81.63 kB; 81.2 kB → 82 kB under the same OD-17 rule. The code that admits and runs extensions left the client for what builds a definition (2026-11-12): an application that applies no extension no longer carries it, and an extension entry bundled alone now does. Measures 103.03 kB; 82 kB → 103.4 kB, a transfer from the client (pg application + ordering: 207.51 kB). Array transactions whose members are intercepted and callback transactions that collect write outcomes followed the extension host out of the client (2026-11-12). Measures 105.89 kB; 103.4 kB → 106.2 kB, the same transfer. What a row domain's layer resolves to for a call and what a judged row is refused with left the engine for the row domain (2026-11-12). Measures 107.58 kB; 106.2 kB → 107.9 kB, the same transfer (pg application: 174.95 → 173.81 kB). What a kept row takes and meets, the preparation and the SQL of $exists and { $row, up }, the cycle check of a produced row and what a domain hides of a link row followed (2026-11-13). Measures 110.52 kB; 107.9 kB → 110.9 kB, the same transfer (pg application: 173.81 → 172.54 kB). $exists and { $row, up } went back to the engine: measures 108.68 kB; 110.9 kB → 109 kB. SQL Server (2026-11-14) measures 109,060 B (+450 B on main 29d3e4181): the T-SQL spelling of a key (SUBSTRING, LEN, the self-join spelled twice, the append drawn per row); 109 kB → 109.4 kB under the same OD-17 rule."
     },
     {
       "name": "identifier generators only",
