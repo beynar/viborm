@@ -1015,3 +1015,78 @@ describe("rule: keep", () => {
     expect(row?.removedAt).toBeInstanceOf(Date);
   });
 });
+
+describe("call: what the deleted request-transform tests promised", () => {
+  test("a first moment's throw refuses the call before validation: viborm's own error as it is, any other as a QueryError naming the extension with its cause", async () => {
+    const own = new ForbiddenError("post", "findMany");
+    const plain = new Error("refused");
+    const throwing = (name: string, error: unknown) =>
+      extension(
+        name,
+        call(() => {
+          throw error;
+        })
+      );
+    const base = await seeded();
+    expect(
+      await rejection(
+        base.$extends(throwing("own", own)).post.findMany({ take: "x" })
+      )
+    ).toBe(own);
+    const wrapped = await rejection(
+      base.$extends(throwing("plain", plain)).post.findMany({ take: "x" })
+    );
+    expect(wrapped).toBeInstanceOf(QueryError);
+    expect((wrapped as Error).message).toContain('Extension "plain"');
+    // The cause is kept, its details redacted by the diagnostic policy.
+    expect((wrapped as Error).cause).toBeInstanceOf(Error);
+    const odd = await rejection(
+      base.$extends(throwing("odd", "a string")).post.findMany({})
+    );
+    expect(odd).toBeInstanceOf(QueryError);
+    expect((odd as Error).cause).toBeInstanceOf(Error);
+  });
+
+  test("patches compose in chain order, each moment sees the ones before it, and the caller's arguments are never touched", async () => {
+    const seen: unknown[] = [];
+    const client = (await seeded())
+      .$extends(
+        extension(
+          "first",
+          call((c) => {
+            seen.push({ ...c.args });
+            c.set({ take: 5, skip: 0 });
+          })
+        )
+      )
+      .$extends(
+        extension(
+          "second",
+          call((c) => {
+            seen.push({ ...c.args });
+            c.set({ take: 1 });
+          })
+        )
+      );
+    const given = { where: { ownerId: "u1" } };
+    expect(await client.post.findMany(given)).toHaveLength(1);
+    expect(seen).toEqual([
+      { where: { ownerId: "u1" } },
+      { where: { ownerId: "u1" }, take: 5, skip: 0 },
+    ]);
+    expect(given).toEqual({ where: { ownerId: "u1" } });
+    expect(Object.isFrozen(given)).toBe(false);
+  });
+
+  test("an unknown key a patch adds fails at the core's validation", async () => {
+    const client = (await seeded()).$extends(
+      extension(
+        "stray",
+        call((c) => c.set({ stray: true }))
+      )
+    );
+    expect(await rejection(client.post.findMany({}))).toBeInstanceOf(
+      ValidationError
+    );
+  });
+});
