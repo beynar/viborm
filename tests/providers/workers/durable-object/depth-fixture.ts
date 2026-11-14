@@ -109,10 +109,21 @@ const actorSchema = v.object({
   }),
 });
 
+// `userId` and `shareToken` are optional: an alternative reading one is
+// guarded, or an actor without it would close the whole permission.
+const hasUser = { control: "actor", path: "userId", exists: true } as const;
+const hasToken = {
+  control: "actor",
+  path: "shareToken",
+  exists: true,
+} as const;
+
 const isMember = {
+  $if: hasUser,
   members: { some: { userId: { actor: "userId" } } },
 } as const;
 const isOwner = {
+  $if: hasUser,
   members: { some: { userId: { actor: "userId" }, role: "owner" } },
 } as const;
 
@@ -123,10 +134,14 @@ const sharedWith = (level: string) => ({
       level,
       deletedAt: null,
       OR: [
-        { subjectKind: "user", subjectId: { actor: "userId" } },
+        { $if: hasUser, subjectKind: "user", subjectId: { actor: "userId" } },
         { subjectKind: "workspace", actor: { guest: false } },
         { subjectKind: "teamspace", teamspace: { is: isMember } },
-        { subjectKind: "public", token: { actor: "shareToken" } },
+        {
+          $if: hasToken,
+          subjectKind: "public",
+          token: { actor: "shareToken" },
+        },
       ],
     },
   },
@@ -140,7 +155,7 @@ const access = (level: string): Rule => ({
   OR: [
     { actor: { admin: true } },
     { teamspace: { is: { defaultLevel: level, ...isMember } } },
-    { teamspaceId: null, createdById: { actor: "userId" } },
+    { $if: hasUser, teamspaceId: null, createdById: { actor: "userId" } },
     {
       parent: {
         recurse: { depth: false },
@@ -175,6 +190,7 @@ const compactAccess = (level: string): Rule => ({
               },
             },
             {
+              $if: hasUser,
               parentId: null,
               teamspaceId: null,
               createdById: { actor: "userId" },

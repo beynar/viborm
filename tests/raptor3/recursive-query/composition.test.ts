@@ -72,10 +72,20 @@ import type { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
 import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import { s } from "@schema";
+import {
+  around,
+  call as extCall,
+  extension as extExtension,
+  target,
+  unit,
+} from "@src/index";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import Database from "better-sqlite3";
 import { afterEach, describe, it, vi } from "vitest";
 import { chainSummary } from "./provider-sql-fixture";
+
+/** A first moment that sets a key deciding the result's shape is refused. */
+const SHAPE_REFUSED = /which decides the result's shape/;
 
 const LINK_TABLE = "rq06_composition_links";
 
@@ -1364,60 +1374,53 @@ describe("RQ-06 recursive projections composed through the shipped client", () =
         replaced: Reflect.set(slot as object, "recurse", { depth: 1 }),
       });
     };
-    const extension = (name: string) => ({
-      name,
-      request: {
-        node: {
-          findMany() {
-            calls.push(`${name}:request`);
-            // Every protected result-shape key, carrying a different recursion.
-            return {
-              select: { id: true, children: { recurse: { depth: 1 } } },
-              include: { children: { recurse: { depth: false } } },
-              omit: { label: true },
-            };
+    const both = target("node", ["findMany", "update"]);
+    const extension = (name: string) =>
+      extExtension(
+        name,
+        unit(
+          (u, next) => {
+            calls.push(`${name}:observe:${u.kind}`);
+            return next();
           },
-          update() {
-            calls.push(`${name}:request`);
-            return { select: { id: true, parent: { recurse: { depth: 1 } } } };
-          },
-        },
-      },
-      query: {
-        node: {
-          async findMany({
-            input,
-            proceed,
-          }: {
-            readonly input: unknown;
-            readonly proceed: () => Promise<unknown>;
-          }) {
+          ["operation", "statement"]
+        ),
+        extCall((c) => {
+          calls.push(`${name}:request`);
+          // Every result-shape key, carrying a different recursion, is
+          // refused where it is set.
+          const patches =
+            c.operation === "findMany"
+              ? [
+                  { select: { id: true, children: { recurse: { depth: 1 } } } },
+                  { include: { children: { recurse: { depth: false } } } },
+                  { omit: { label: true } },
+                ]
+              : [{ select: { id: true, parent: { recurse: { depth: 1 } } } }];
+          // The types refuse these keys too: the call reaches the runtime refusal.
+          for (const patch of patches)
+            assert.throws(
+              () => Reflect.apply(c.set, c, [patch]),
+              SHAPE_REFUSED
+            );
+        }, both),
+        around(
+          () => (run) => {
             calls.push(`${name}:query`);
-            inspect(input);
-            return proceed();
+            inspect(run.input);
+            return run();
           },
-          async update({
-            input,
-            proceed,
-          }: {
-            readonly input: unknown;
-            readonly proceed: () => Promise<unknown>;
-          }) {
-            calls.push(`${name}:query`);
-            inspect(input);
-            return proceed();
+          both
+        ),
+        unit(
+          (_u, next) => {
+            calls.push(`${name}:statement`);
+            return next();
           },
-        },
-      },
-      statement({ statement }: { readonly statement: unknown }) {
-        calls.push(`${name}:statement`);
-        return statement;
-      },
-      observe(unit: { readonly kind: string }) {
-        if (unit.kind === "operation" || unit.kind === "statement")
-          calls.push(`${name}:observe:${unit.kind}`);
-      },
-    });
+          ["statement"],
+          { rewrites: true }
+        )
+      );
     const extend = (chain: unknown, length: number) => {
       let extended = chain;
       for (let position = 1; position <= length; position += 1)
@@ -1496,10 +1499,14 @@ describe("RQ-06 recursive projections composed through the shipped client", () =
     }
     // A top-level `recurse` is no operation key: refused at admission, before
     // any statement.
-    const injected = invoke(client, "$extends", {
-      name: "rq06-top-level-recurse",
-      request: () => ({ recurse: { depth: 3 } }),
-    });
+    const injected = invoke(
+      client,
+      "$extends",
+      extExtension(
+        "rq06-top-level-recurse",
+        extCall((c) => c.set({ recurse: { depth: 3 } }))
+      )
+    );
     const refused = await measure(driver, () =>
       call(injected, "node", "findMany", read)
     );
@@ -1515,7 +1522,7 @@ describe("RQ-06 recursive projections composed through the shipped client", () =
     const omitting = invoke(
       client,
       "$extends",
-      defaultOmit<typeof schema>()({ node: { secret: true } })
+      defaultOmit({ node: { secret: true } })
     );
     const withoutSecret = (value: Record<string, unknown>) => {
       const { secret: _secret, ...rest } = value;
@@ -1750,24 +1757,19 @@ describe("RQ-06 recursive projections composed through the shipped client", () =
           })
         ),
         "$extends",
-        {
-          name: "rq06-outcome",
-          observe(
-            unit: { readonly kind: string },
-            proceed: () => Promise<{
-              readonly status: string;
-              readonly commitCertainty?: string;
-            }>
-          ) {
-            if (unit.kind !== "operation") return;
-            proceed().then((completion) =>
+        extExtension(
+          "rq06-outcome",
+          unit(
+            async (_u, next) => {
+              const outcome = await next();
               completions.push({
-                status: completion.status,
-                certainty: completion.commitCertainty,
-              })
-            );
-          },
-        }
+                status: outcome.status,
+                certainty: outcome.certainty,
+              });
+            },
+            ["operation"]
+          )
+        )
       );
       if (readback === "ordinary")
         // The ordinary control's result phase fails the only way it can: the

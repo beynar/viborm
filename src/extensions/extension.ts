@@ -8,6 +8,7 @@
 
 import type { Schema } from "@client/types";
 import type { SchemaRegistryLookup } from "@validation/types";
+import { isFunction, isRecord } from "@validation/value-guards";
 import { type ExtensionPart, partSet } from "./chain";
 import type { ResolvedExtensionChain } from "./chain-state";
 import type {
@@ -48,10 +49,11 @@ export interface PartBuild {
   readonly write: (draft: DefinitionDraft, schema: Schema) => void;
 }
 
-/** What each built part is, by the value its builder returned. */
-const built = new WeakMap<object, PartBuild>();
-
-/** One built part, opaque to its author: what `call`, `rule` and the others return. */
+/**
+ * One built part: what `call`, `rule` and the others return, typed by its
+ * builder and read here by its two fields. Being plain data, a part built by
+ * one copy of the package is applied by another.
+ */
 export function builtPart(
   host: readonly ExtensionPart[],
   write: PartBuild["write"]
@@ -60,10 +62,12 @@ export function builtPart(
   host: readonly ExtensionPart[],
   write: PartBuild["write"]
 ): object {
-  const part = Object.freeze({});
-  built.set(part, { host, write });
-  return part;
+  const part: PartBuild = { host, write };
+  return Object.freeze(part);
 }
+
+const isBuilt = (part: unknown): part is PartBuild =>
+  isRecord(part) && Array.isArray(part.host) && isFunction(part.write);
 
 /** Whether two schemas name the same model objects under the same names. */
 export function sameModels(known: Schema, schema: Schema): boolean {
@@ -85,7 +89,9 @@ export interface AppliedExtension {
 }
 
 /**
- * An extension: a non-empty name and its parts, in order. The definition its
+ * An extension: a non-empty name and its parts, in order. At most eight: a
+ * limit of the types (each part is typed against those before it), which
+ * the runtime does not repeat. The definition its
  * parts write is built once per schema, so every client of a schema applies
  * the same values (what the host admits once per schema stays admitted).
  */
@@ -117,14 +123,12 @@ export function extension(name: string, ...parts: unknown[]): unknown {
   if (typeof name !== "string" || name.trim().length === 0)
     extensionError("An extension's name must be a non-empty string.");
   const builds = parts.map((part) => {
-    const build =
-      typeof part === "object" && part !== null ? built.get(part) : undefined;
-    if (build === undefined)
+    if (!isBuilt(part))
       extensionError(
         `Extension "${name}" takes parts built by viborm's part builders.`,
         name
       );
-    return build;
+    return part;
   });
   const set = partSet(builds.flatMap((build) => build.host));
   const written = new WeakMap<

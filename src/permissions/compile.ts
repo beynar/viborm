@@ -496,6 +496,13 @@ function argTest(test: Readonly<Record<string, unknown>>): ArgTest {
   throw new TypeError("viborm/permissions compiled a condition it cannot test");
 }
 
+/** `{ control, path? }`: an argument's value, as the compiler writes one. */
+const isReference = (
+  value: Record<string, unknown>
+): value is { readonly control: string; readonly path?: unknown } =>
+  typeof value.control === "string" &&
+  Object.keys(value).every((key) => key === "control" || key === "path");
+
 /**
  * A compiled predicate in the words of a rule: an actor value is
  * `arg("actor", path)`, an enclosing column `row`, a condition `provided`
@@ -518,10 +525,7 @@ export function wordsOf(
   if (Array.isArray(value)) out = value.map((item) => wordsOf(item, known));
   else if (isRecord(value)) {
     const keys = Object.keys(value);
-    if (
-      typeof value.control === "string" &&
-      keys.every((key) => key === "control" || key === "path")
-    )
+    if (isReference(value))
       out = arg(value.control, value.path as string | undefined);
     else if (typeof value.$row === "string" && keys.length === 2)
       out = row(value.$row, value.up as number);
@@ -529,8 +533,13 @@ export function wordsOf(
     else {
       const { $if: condition, $exists: existence, ...filter } = value;
       const own: Record<string, unknown> = {};
+      // A document compared whole (a JSON value) is a literal: an actor
+      // value is the operand itself, never an object inside it.
       for (const [key, item] of Object.entries(filter))
-        own[key] = wordsOf(item, known);
+        own[key] =
+          key === "equals" && isRecord(item) && !isReference(item)
+            ? item
+            : wordsOf(item, known);
       const nodes: unknown[] = [];
       if (isRecord(condition)) {
         const { control, path, ...test } = condition;

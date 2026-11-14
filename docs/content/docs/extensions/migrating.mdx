@@ -464,7 +464,8 @@ field named `control`, as any other object.
 - `warn`, the `warning` log level, `prewarm`, and the types
   `ObservesDeclaration`, `ObservedFacts`, `ObserveHandler`,
   `ObservationCompletion` and `ResultConsumerContextOf`.
-- One default omission per client: several now add up per model.
+- One default omission per client: the omissions of different extensions
+  (`defaults` with `omitted`, and `defaultOmit()`) now add up per model.
 
 ## Users of the official extensions
 
@@ -488,8 +489,9 @@ const db3 = base.$extends(softDelete(config)).$extends(policy);
   applied steps as functions (`methods(policy(rows(base)))`) becomes
   successive `$extends()` calls.
 - `defaultOmit<typeof schema>()(config)` is `defaultOmit(config)`, typed
-  against the client it is applied to. Several `defaultOmit()` on one chain
-  add up per model.
+  against the client it is applied to. A chain applies it once (a second is
+  refused, as any extension applied twice); another extension that omits
+  fields with `defaults` adds to it per model.
 - `instrumentation()` no longer takes a `logging.warning` level: nothing
   produced warnings.
 - The cache: a read that carries a `.volatile()` argument (permissions' actor)

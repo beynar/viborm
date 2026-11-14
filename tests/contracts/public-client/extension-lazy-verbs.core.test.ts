@@ -179,7 +179,7 @@ test("a refused entry fails every call on its model, and only on its model", asy
     await expect(
       db.node!.findMany({ user: "alice" } as object)
     ).rejects.toThrow(
-      'Extension "lazy" rows.verbs.node.predicates.~read at "missing": Unknown key: missing.'
+      'Extension "lazy" rule.node.read: at "missing": Unknown key: missing.'
     );
   }
   expect(ids(await db.note!.findMany({ user: "alice" } as object))).toEqual([
@@ -222,7 +222,7 @@ test("a projection key may not take a link row's name", async () => {
     })
   );
   await expect(db.note!.findMany({ user: "alice" } as object)).rejects.toThrow(
-    'rows.verbs.note.evidence.as "$through" is reserved'
+    'rule.note.read.select "$through" is reserved'
   );
 });
 
@@ -244,7 +244,7 @@ test("two extensions declaring one projection key on a model are refused when th
     .$extends(evidence("first"))
     .$extends(evidence("second", "other"));
   await expect(db.note!.findMany({ user: "alice" } as object)).rejects.toThrow(
-    'rows.verbs.note.evidence.as "$access" is declared by two extensions of the chain.'
+    'rule.note.read.select "$access" is declared by two extensions of the chain.'
   );
 });
 
@@ -288,7 +288,7 @@ test("a lazy acyclic list is resolved only for an update writing a self key, and
 test("an entry that resolves to anything but an object is refused on first use", async () => {
   const db = base.$extends(governed({ note: () => null as never }));
   await expect(db.note!.findMany({ user: "alice" } as object)).rejects.toThrow(
-    'Extension "lazy" rule.note: an entry given as a function returns one.'
+    'Extension "lazy" rule.note: an entry is an object or a function.'
   );
 });
 
@@ -322,7 +322,7 @@ test("one function serving two models is admitted for each against its own model
   ]);
   // `note` has no `parentId`: its admission refuses what `node`'s accepted.
   await expect(db.note!.findMany({ user: "alice" } as object)).rejects.toThrow(
-    'rows.verbs.note.predicates.~read at "parentId"'
+    'rule.note.read: at "parentId"'
   );
 });
 

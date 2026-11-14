@@ -1,6 +1,7 @@
 import { createClient } from "@drivers/sqlite3";
 import { s } from "@schema";
 import { type Sql, sql } from "@sql";
+import { extension, statement as extStatement, unit } from "@src/index";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterAll, beforeAll, expect, test } from "vitest";
 
@@ -357,14 +358,22 @@ async function includePlan(
   take: number
 ) {
   const statements: Sql[] = [];
-  const observed = db.$extends({
-    name: "plan-witness",
-    statement(context) {
-      if (context.model === "article" && context.operation === "findMany")
-        statements.push(context.statement);
-      return context.statement;
-    },
-  });
+  const observed = db.$extends(
+    extension(
+      "plan-witness",
+      unit(
+        (u, next) => {
+          const sent = extStatement(u);
+          if (sent === undefined) return next();
+          if (u.model === "article" && u.operation === "findMany")
+            statements.push(sent);
+          return next(sent);
+        },
+        ["statement"],
+        { rewrites: true }
+      )
+    )
+  );
   const rows = await observed.article.findMany({
     where: { id: { gte: 1 } },
     orderBy: { id: "asc" },

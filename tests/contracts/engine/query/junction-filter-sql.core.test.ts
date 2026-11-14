@@ -1,6 +1,7 @@
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { createClient } from "@client/client";
 import { hydrateSchemaNames, s } from "@schema";
+import { extension, statement, unit } from "@src/index";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
 import {
@@ -83,13 +84,19 @@ describe("a many-to-many relation filter", () => {
     const db = createClient({
       schema,
       driver: new SqlOnlyDriver(new PostgresAdapter(), "postgresql"),
-    }).$extends({
-      name: "statements",
-      statement(context) {
-        statements.push(context.statement.toStatement());
-        return context.statement;
-      },
-    });
+    }).$extends(
+      extension(
+        "statements",
+        unit(
+          (u, next) => {
+            statements.push(statement(u).toStatement());
+            return next(statement(u));
+          },
+          ["statement"],
+          { rewrites: true }
+        )
+      )
+    );
     const where = { tags: { some: { name: "orm" } } };
     await db.post.deleteMany({ where });
     expect(statements).toEqual([

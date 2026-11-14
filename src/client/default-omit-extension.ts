@@ -13,12 +13,14 @@ import type {
   Target,
 } from "@extensions/contract";
 import { defaults, omitted } from "@extensions/defaults";
-import { extension } from "@extensions/extension";
+import { builtPart, extension } from "@extensions/extension";
 import type { VibORMConfig } from "./client";
 import type { ClientOmitConfig, ExactClientOmitConfig } from "./omit";
 import type { ClientSchema } from "./schema-links";
 
 const NAME = "viborm.defaultOmit";
+const DUPLICATE =
+  " A chain applies defaultOmit() once: give it every field to leave out, or omit fields from another extension with defaults({ model: { fields: { field: omitted } } }); the omissions of different extensions add up per model.";
 
 type NoMethods = Record<never, never>;
 
@@ -63,12 +65,13 @@ export function defaultOmit(
     entries[model] = { fields: own };
   }
   // Built against no client: `defaultOmit`'s own signature types what it adds.
-  // Named by what it omits: several on one chain add up per model.
-  const omits = Object.entries(entries).flatMap(([model, { fields }]) =>
-    Object.keys(fields).map((field) => `${model}.${field}`)
-  );
   return extension<Untyped>(
-    `${NAME}(${omits.join(",")})`,
-    defaults<Untyped, () => object>(() => entries)
+    NAME,
+    defaults<Untyped, () => object>(() => entries),
+    // Its name is fixed and a name is unique in a chain: a second
+    // application is refused, and its refusal says what adds up instead.
+    builtPart([], (draft) => {
+      draft.duplicate = DUPLICATE;
+    })
   );
 }

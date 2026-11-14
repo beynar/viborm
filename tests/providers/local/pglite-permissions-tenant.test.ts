@@ -11,8 +11,20 @@
 
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
-import { defineExtension } from "@extensions/define";
 import { s } from "@schema";
+import {
+  accepts,
+  arg,
+  args as extArgs,
+  extension,
+  statement as extStatement,
+  nothing,
+  oneOf,
+  parts,
+  rule,
+  unit,
+  when,
+} from "@src/index";
 import { permissions } from "@src/permissions";
 import { softDelete } from "@src/soft-delete/index";
 import { v } from "@src/validation";
@@ -123,19 +135,27 @@ describe("PGlite: a policy's tenant on the acceptance estate", () => {
   beforeEach(async () => {
     base = family().client;
     await loadPermissionsSeed(base);
-    const recorded = base.$extends({
-      name: "statements",
-      statement(context) {
-        statements.push(context.statement.toStatement());
-        return context.statement;
-      },
-    });
-    plain = tombstones.methods(
-      policy.rows(tombstones.rows(recorded))
-    ) as unknown as Governed;
-    bounded = tombstones.methods(
-      tenanted.rows(tombstones.rows(recorded))
-    ) as unknown as Governed;
+    const recorded = base.$extends(
+      extension(
+        "statements",
+        unit(
+          (u, next) => {
+            const sent = extStatement(u);
+            if (sent === undefined) return next();
+            statements.push(sent.toStatement());
+            return next(sent);
+          },
+          ["statement"],
+          { rewrites: true }
+        )
+      )
+    );
+    plain = recorded
+      .$extends(tombstones)
+      .$extends(policy) as unknown as Governed;
+    bounded = recorded
+      .$extends(tombstones)
+      .$extends(tenanted) as unknown as Governed;
   }, 300_000);
 
   test("every governed model answers the same rows and $access with and without it", async () => {
@@ -276,7 +296,7 @@ describe("PGlite: a policy's tenant on rows that cross tenants", () => {
 
   test("it never grants what the policy without it refuses", async () => {
     const access = async (tenant?: typeof TENANT) =>
-      (await (policyOf(tenant)(base as never) as unknown as Governed)
+      (await (base.$extends(policyOf(tenant)) as unknown as Governed)
         .$as(actor)
         .page!.findMany({
           select: { id: true, $access: true },
@@ -310,7 +330,7 @@ describe("PGlite: a policy's tenant on rows that cross tenants", () => {
         },
       });
     const pages = async (tenant?: typeof TENANT) =>
-      (open(tenant)(base as never) as unknown as Governed)
+      (base.$extends(open(tenant)) as unknown as Governed)
         .$as(actor)
         .page!.findMany({
           select: {
@@ -360,16 +380,17 @@ describe("PGlite: a policy's tenant beside another extension's related rows", ()
   // Another layer: a grant of an archived team is no grant. Inside the
   // policy's rules it is the range every grant quantifier reads, its own
   // `team is` body a set wherever two rules repeat it.
-  const archive = defineExtension({
-    name: "archive",
-    rows: {
-      control: "archive",
-      default: "live",
-      models: {
-        grant: { live: { related: { team: { is: { archived: false } } } } },
+  const archive = parts<typeof schema>().extension(
+    "archive",
+    extArgs({ archive: oneOf("live").default("live") }),
+    rule({
+      grant: {
+        related: when(arg("archive"), "live", {
+          team: { is: { archived: false } },
+        }),
       },
-    },
-  });
+    })
+  );
   const policyOf = (tenant?: typeof TENANT) =>
     permissions({
       actor: v.object({ userId: v.string(), organizationId: v.string() }),
@@ -405,9 +426,9 @@ describe("PGlite: a policy's tenant beside another extension's related rows", ()
 
   test("the range of a negative test is never narrowed by the bound", async () => {
     for (const tenant of [undefined, TENANT]) {
-      const governed = policyOf(tenant)(
-        base.$extends(archive) as never
-      ) as unknown as Governed;
+      const governed = base
+        .$extends(archive)
+        .$extends(policyOf(tenant)) as unknown as Governed;
       expect(
         await governed
           .$as({ userId: "ada", organizationId: "a" })
@@ -433,38 +454,36 @@ describe("PGlite: rows.confine, the capability tenant is built on", () => {
   const schema = { page, grant };
   const family = usePGliteSchemaFamily(schema);
   let base: ReturnType<typeof family>["client"];
-  const granted = { grants: { some: { userId: { control: "user" } } } };
+  const granted = { grants: { some: { userId: arg("user") } } };
   // `tenant` is read by `confine` alone; `granted` repeats, so the statement
   // computes it once, as a set.
-  const sharing = (confine: {
-    readonly [model: string]: Readonly<Record<string, unknown>>;
-  }) =>
-    defineExtension({
-      name: "sharing",
-      controls: {
-        user: { schema: v.string(), required: true },
-        tenant: { schema: v.string() },
-      },
-      rows: {
-        control: "as",
-        default: "default",
-        models: { page: { default: {} } },
-        verbs: {
-          page: {
-            predicates: {
-              seen: {
-                OR: [
-                  { AND: [granted, { id: { not: "x" } }] },
-                  { AND: [granted, { id: { not: "y" } }] },
-                ],
-              },
-            },
-            read: "seen",
-          },
+  const seen = {
+    OR: [
+      { AND: [granted, { id: { not: "x" } }] },
+      { AND: [granted, { id: { not: "y" } }] },
+    ],
+  };
+  const sharing = (confine: Readonly<Record<string, object>>) =>
+    parts<typeof schema>().extension(
+      "sharing",
+      extArgs({
+        user: accepts(v.string()).required(["page", "grant"]),
+        tenant: v.string(),
+      }),
+      rule({
+        page: {
+          read: { where: seen },
+          update: { where: nothing },
+          delete: { where: nothing },
         },
-        confine,
-      },
-    });
+        ...Object.fromEntries(
+          Object.entries(confine).map(([model, where]) => [
+            model,
+            { confine: where },
+          ])
+        ),
+      })
+    );
 
   beforeEach(async () => {
     base = family().client;
@@ -476,15 +495,23 @@ describe("PGlite: rows.confine, the capability tenant is built on", () => {
 
   test("a bound that alone reads a control bounds the sets with the call's value", async () => {
     const statements: string[] = [];
-    const recorded = base.$extends({
-      name: "statements",
-      statement(context) {
-        statements.push(context.statement.toStatement());
-        return context.statement;
-      },
-    });
+    const recorded = base.$extends(
+      extension(
+        "statements",
+        unit(
+          (u, next) => {
+            const sent = extStatement(u);
+            if (sent === undefined) return next();
+            statements.push(sent.toStatement());
+            return next(sent);
+          },
+          ["statement"],
+          { rewrites: true }
+        )
+      )
+    );
     const db = recorded.$extends(
-      sharing({ grant: { tenant: { control: "tenant" } } }) as never
+      sharing({ grant: { tenant: arg("tenant") } }) as never
     ) as unknown as Record<string, Delegate>;
     const pages = (args: object) =>
       db.page!.findMany({ ...args, select: { id: true } });
@@ -505,9 +532,7 @@ describe("PGlite: rows.confine, the capability tenant is built on", () => {
 
   test("a bound naming an undeclared control is refused when applied", () => {
     expect(() =>
-      base.$extends(
-        sharing({ grant: { tenant: { control: "nope" } } }) as never
-      )
+      base.$extends(sharing({ grant: { tenant: arg("nope") } }) as never)
     ).toThrow('references undeclared control "nope"');
   });
 });
@@ -532,16 +557,17 @@ describe("PGlite: a policy's tenant beside another extension's negative test", (
   const family = usePGliteSchemaFamily(schema);
   let base: ReturnType<typeof family>["client"];
   // Another layer: a page with an active block is hidden from every caller.
-  const blocklist = defineExtension({
-    name: "blocklist",
-    rows: {
-      control: "blocklist",
-      default: "on",
-      models: {
-        page: { on: { root: { blocks: { none: { active: true } } } } },
+  const blocklist = parts<typeof schema>().extension(
+    "blocklist",
+    extArgs({ blocklist: oneOf("on").default("on") }),
+    rule({
+      page: {
+        root: when(arg("blocklist"), "on", {
+          blocks: { none: { active: true } },
+        }),
       },
-    },
-  });
+    })
+  );
   const policyOf = (tenant?: typeof TENANT) =>
     permissions({
       actor: v.object({ userId: v.string(), organizationId: v.string() }),
@@ -569,7 +595,7 @@ describe("PGlite: a policy's tenant beside another extension's negative test", (
   test("it reads every tenant's rows, with tenant as without", async () => {
     for (const tenant of [undefined, TENANT]) {
       const as = (
-        policyOf(tenant)(base.$extends(blocklist) as never) as unknown as {
+        base.$extends(blocklist).$extends(policyOf(tenant)) as unknown as {
           $as(
             actor: unknown
           ): Record<
@@ -587,13 +613,20 @@ describe("PGlite: a policy's tenant beside another extension's negative test", (
 });
 
 // Reviewed by GPT-6.1 Sol: each reproduced, then fixed.
-const recorder = (into: string[]) => ({
-  name: "statements",
-  statement(context: { statement: { toStatement(): string } }) {
-    into.push(context.statement.toStatement());
-    return context.statement;
-  },
-});
+const recorder = (into: string[]) =>
+  extension(
+    "statements",
+    unit(
+      (u, next) => {
+        const sent = extStatement(u);
+        if (sent === undefined) return next();
+        into.push(sent.toStatement());
+        return next(sent);
+      },
+      ["statement"],
+      { rewrites: true }
+    )
+  );
 
 describe("PGlite: a policy's tenant and a read-gated field", () => {
   const page = s.model({
@@ -625,19 +658,21 @@ describe("PGlite: a policy's tenant and a read-gated field", () => {
     });
     const run = async (tenant?: typeof TENANT) =>
       (
-        permissions({
-          actor: v.object({ organizationId: v.string() }),
-          ...(tenant === undefined ? {} : { tenant }),
-          models: {
-            page: {
-              actions: { read: [], see: ["read"] },
-              read: true,
-              see: { NOT: { grants: { some: { revoked: true } } } },
-              fields: { secret: { read: "see" } },
+        base.$extends(
+          permissions({
+            actor: v.object({ organizationId: v.string() }),
+            ...(tenant === undefined ? {} : { tenant }),
+            models: {
+              page: {
+                actions: { read: [], see: ["read"] },
+                read: true,
+                see: { NOT: { grants: { some: { revoked: true } } } },
+                fields: { secret: { read: "see" } },
+              },
+              grant: { read: true },
             },
-            grant: { read: true },
-          },
-        })(base as never) as unknown as Governed
+          })
+        ) as unknown as Governed
       )
         .$as({ organizationId: "a" })
         .page!.findMany({
@@ -677,25 +712,27 @@ describe("PGlite: a policy's tenant compiled when applied", () => {
     const granted = {
       grants: { some: { userId: { actor: "userId" } } },
     } as const;
-    const db = permissions({
-      actor: v.object({ userId: v.string(), organizationId: v.string() }),
-      tenant: TENANT,
-      models: {
-        parent: {
-          actions: ladder,
-          // A Date: the declaration cannot be copied, so it compiles when
-          // applied.
-          read: {
-            createdAt: { lt: new Date("2100-01-01T00:00:00Z") },
-            ...granted,
+    const db = family()
+      .client.$extends(recorder(statements))
+      .$extends(
+        permissions({
+          actor: v.object({ userId: v.string(), organizationId: v.string() }),
+          tenant: TENANT,
+          models: {
+            parent: {
+              actions: ladder,
+              // A Date: the declaration cannot be copied, so it compiles when
+              // applied.
+              read: {
+                createdAt: { lt: new Date("2100-01-01T00:00:00Z") },
+                ...granted,
+              },
+              update: { ...granted, id: { not: "-" } },
+            },
+            share: { actions: ladder, read: true },
           },
-          update: { ...granted, id: { not: "-" } },
-        },
-        share: { actions: ladder, read: true },
-      },
-    })(
-      family().client.$extends(recorder(statements) as never) as never
-    ) as unknown as Governed;
+        })
+      ) as unknown as Governed;
     await db
       .$as({ userId: "ada", organizationId: "a" })
       .parent!.findMany({ select: { id: true, $access: true } });
@@ -738,19 +775,19 @@ describe("PGlite: a policy's tenant on a walk keyed by the row's own key", () =>
         children: { recurse: { depth: false }, some: { id: "foreign" } },
       };
       const read = (tenant?: typeof TENANT) => {
-        const db = permissions({
-          actor: v.object({ organizationId: v.string() }),
-          ...(tenant === undefined ? {} : { tenant }),
-          models: {
-            node: {
-              actions: { read: [], see: ["read"], audit: ["read"] },
-              read: true,
-              see: below,
-              audit: below,
+        const db = base.$extends(recorder(statements)).$extends(
+          permissions({
+            actor: v.object({ organizationId: v.string() }),
+            ...(tenant === undefined ? {} : { tenant }),
+            models: {
+              node: {
+                actions: { read: [], see: ["read"], audit: ["read"] },
+                read: true,
+                see: below,
+                audit: below,
+              },
             },
-          },
-        })(
-          base.$extends(recorder(statements) as never) as never
+          })
         ) as unknown as Governed;
         return db.$as({ organizationId: "a" }).node!.findMany({
           where: { id: "p" },

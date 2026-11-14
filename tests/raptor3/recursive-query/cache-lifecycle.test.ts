@@ -38,6 +38,12 @@ import { createClient } from "@client/client";
 import { defaultOmit } from "@client/default-omit-extension";
 import { UnsupportedOperationError, ValidationError } from "@errors";
 import { s } from "@schema";
+import {
+  call as extCall,
+  extension as extExtension,
+  statement,
+  unit,
+} from "@src/index";
 import { ClockedMemoryCache } from "@tests/fixtures/clocked-memory-cache";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { createTestClock } from "@tests/fixtures/test-clock";
@@ -187,6 +193,8 @@ const recursiveReads = (driver: RecordingSQLiteDriver): number =>
 
 /** The decoder's own refusal of a foreign-key cycle inside the window. */
 const FK_CYCLE = /Recursive relation 'children' contains a cycle\./;
+/** A first moment that sets a key deciding the result's shape is refused. */
+const SHAPE_REFUSED = /which decides the result's shape/;
 
 const tree = (recurse: unknown) => ({
   where: { id: "r" },
@@ -457,13 +465,19 @@ describe("RQ-05 recursive reads through the official cache", () => {
       let statements = 0;
       const statementClient = client
         .$extends(officialCache(statementCache).extension)
-        .$extends({
-          name: "rq05-statement-bypass",
-          statement({ statement }) {
-            statements += 1;
-            return statement;
-          },
-        });
+        .$extends(
+          extExtension(
+            "rq05-statement-bypass",
+            unit(
+              (u, next) => {
+                statements += 1;
+                return next(statement(u));
+              },
+              ["statement"],
+              { rewrites: true }
+            )
+          )
+        );
       for (let round = 0; round < 2; round += 1) {
         assert.deepStrictEqual(
           await call(statementClient.$withCache().node, "findMany", args),
@@ -486,34 +500,34 @@ describe("RQ-05 recursive reads through the official cache", () => {
     const state = officialCache(cacheDriver);
     const handled: string[] = [];
     /**
-     * A request handler that tries every way a patch could reach `recurse`:
-     * a deeper `select`, an `include`, an `omit` — all protected result-shape
-     * keys, which it is never shown and whose patch is never read.
+     * A first moment that tries every way a patch could reach `recurse`: a
+     * deeper `select`, an `include`, an `omit` — all result-shape keys, each
+     * refused where it is set, so the call runs as its caller wrote it.
      */
-    const attacker = (name: string) => ({
-      name,
-      request({
-        operation,
-        input,
-      }: {
-        readonly operation: string;
-        readonly input: object;
-      }): Readonly<Record<never, never>> {
-        if (operation !== "findMany") return {};
-        handled.push(name);
-        for (const key of ["select", "include", "omit"])
-          assert.equal(Object.hasOwn(input, key), false, `${name} saw ${key}`);
-        return {
-          select: {
-            id: true,
-            label: true,
-            children: { recurse: { depth: false }, select: { id: true } },
-          },
-          include: { children: { recurse: true } },
-          omit: { label: true },
-        };
-      },
-    });
+    const attacker = (name: string) =>
+      extExtension(
+        name,
+        extCall((c) => {
+          if (c.operation !== "findMany") return;
+          handled.push(name);
+          // The types refuse these keys too: the call reaches the runtime refusal.
+          for (const patch of [
+            {
+              select: {
+                id: true,
+                label: true,
+                children: { recurse: { depth: false }, select: { id: true } },
+              },
+            },
+            { include: { children: { recurse: true } } },
+            { omit: { label: true } },
+          ])
+            assert.throws(
+              () => Reflect.apply(c.set, c, [patch]),
+              SHAPE_REFUSED
+            );
+        })
+      );
     const extend = (chain: unknown, extension: unknown): unknown =>
       invoke(chain, "$extends", extension);
     const chains: readonly unknown[] = [
@@ -558,12 +572,16 @@ describe("RQ-05 recursive reads through the official cache", () => {
     // A top-level `recurse` is no operation key: admission refuses the patch
     // before the cache is asked or a statement is sent.
     const injected = client
-      .$extends({
-        name: "rq05-top-level-recurse",
-        request: (): Readonly<Record<never, never>> => ({
-          recurse: { depth: 3 },
-        }),
-      })
+      .$extends(
+        extExtension(
+          "rq05-top-level-recurse",
+          extCall((c) => {
+            c.set({
+              recurse: { depth: 3 },
+            });
+          })
+        )
+      )
       .$extends(state.extension)
       .$withCache();
     const calls = cacheDriver.calls;
@@ -581,7 +599,7 @@ describe("RQ-05 recursive reads through the official cache", () => {
     const cacheDriver = new RecordingCache();
     const state = officialCache(cacheDriver);
     const omitting = client
-      .$extends(defaultOmit<typeof schema>()({ node: { secret: true } }))
+      .$extends(defaultOmit({ node: { secret: true } }))
       .$extends(state.extension)
       .$withCache();
     const included = {

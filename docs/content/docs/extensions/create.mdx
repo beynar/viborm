@@ -265,6 +265,11 @@ const outbox = extension(
   order. `kind` is what happened: an upsert reports `"create"` or `"update"`,
   and a delete that a rule turns into an update (`keep`) reports `"update"`.
   The values are also the caller's, so copy what you keep.
+- `watch` and `settled` work in the first moment of a model call, in a `call`
+  or an `around` whose target is a set of writes: `target(writes)`,
+  `target(deletes)`, or `target("order", writes)`. The set brings what tells
+  them, so a part that never watches carries none of it; anywhere else they
+  are refused.
 - A call that fails calls neither `rows` nor `settled`. Several extensions can
   watch; each is told in the order the extensions were applied.
   [`viborm/on`](/docs/extensions/on) is built on this word.
@@ -1084,8 +1089,9 @@ audit stamping.
 `fields: { passwordHash: omitted }` leaves the field out of every result of
 the client by default, root results and nested relation payloads alike. A
 query brings it back with `omit: { passwordHash: false }` or a `select` that
-names it. Two parts that omit fields of one model add up. A default does not
-change a bulk operation from `{ count }` to returned rows. The official
+names it. Two parts that omit fields of one model add up, in one extension or
+in two. A default does not change a bulk operation from `{ count }` to
+returned rows. The official
 [`defaultOmit()`](/docs/extensions/omit) is this word.
 
 ## Write values the statement computes

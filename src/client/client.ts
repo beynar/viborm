@@ -828,16 +828,15 @@ export class VibORM<C extends VibORMConfig> {
           request === undefined || requestHandlers === undefined
             ? controlFreeArgs
             : request.apply(
-                modelNameStr,
                 operation,
                 controlFreeArgs,
                 requestHandlers,
-                chain?.controls === undefined
-                  ? undefined
-                  : { names: chain.controls.names, admitted: controls },
-                call
+                call,
+                modelNameStr,
+                chain?.controls,
+                controls
               );
-        return finish(transformed ?? {});
+        return finish(transformed);
       };
     }
 

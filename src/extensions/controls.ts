@@ -405,15 +405,6 @@ export type StampedFieldNames<Data, ModelName> =
 // PLACEMENT: where each declared control is accepted
 // =============================================================================
 
-/** Where a control goes when its declaration names a placement. */
-const PLACEMENTS: Readonly<
-  Record<"reads" | "writes" | "all", ReadonlySet<string>>
-> = {
-  reads: new Set([...ROUTED_OPERATIONS].filter(isReadOperation)),
-  writes: new Set([...ROUTED_OPERATIONS].filter(isWriteOperation)),
-  all: ROUTED_OPERATIONS,
-};
-
 /** Where a `deletion.removeWhen` control goes, on the models it manages. */
 const DELETE_OPERATIONS: ReadonlySet<string> = new Set([
   "delete",
@@ -491,9 +482,16 @@ export function placeControls(
   return placed;
 }
 
+/** Where a control goes: every operation, reads, writes, or those it names. */
 function placementOf(on: ControlDeclaration["on"]): ReadonlySet<string> {
-  if (on === undefined) return ROUTED_OPERATIONS;
-  return typeof on === "string" ? PLACEMENTS[on] : new Set<string>(on);
+  if (on === undefined || on === "all") return ROUTED_OPERATIONS;
+  return new Set<string>(
+    typeof on === "string"
+      ? [...ROUTED_OPERATIONS].filter(
+          on === "reads" ? isReadOperation : isWriteOperation
+        )
+      : on
+  );
 }
 
 // =============================================================================
@@ -708,7 +706,9 @@ function validatorFailure(
   );
 }
 
-const NO_CONTROLS: readonly ResolvedControl[] = Object.freeze([]);
+const NO_CONTROLS: readonly ResolvedControl[] = /* @__PURE__ */ Object.freeze(
+  []
+);
 
 /**
  * The chain's controls with one definition's added, indexed by operation for
@@ -761,6 +761,7 @@ function appendControls(
     names,
     all,
     placed,
+    owned: controlsOwnedBy,
     admit: (
       model: string,
       placement: string,

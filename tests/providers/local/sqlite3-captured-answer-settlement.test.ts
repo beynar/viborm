@@ -40,6 +40,7 @@ import type { BatchQuery, QueryExecutionContext } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import type { QueryResult } from "@drivers/types";
 import { s } from "@schema";
+import { around, extension, settled, target } from "@src/index";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import type Database from "better-sqlite3";
 import { afterEach, describe, expect, test } from "vitest";
@@ -145,25 +146,33 @@ class CapturingBatchOnlyDriver extends CapturingSQLite3Driver {
  * BEFORE the operation has answered for that batch.
  */
 const withFailingOutcome = (client: SettlementClient) =>
-  client.$extends({
-    name: "failing-outcome",
-    query: {
-      note: {
-        deleteMany({ onWriteOutcome, proceed }) {
-          onWriteOutcome(() => {
+  client.$extends(
+    extension(
+      "failing-outcome",
+      around(
+        (c) => {
+          settled(c, () => {
             throw new Error(OUTCOME_THREW);
           });
-          return proceed();
+          return (run) => {
+            return run();
+          };
         },
-        updateMany({ onWriteOutcome, proceed }) {
-          onWriteOutcome(() => {
+        target("note", "deleteMany")
+      ),
+      around(
+        (c) => {
+          settled(c, () => {
             throw new Error(OUTCOME_THREW);
           });
-          return proceed();
+          return (run) => {
+            return run();
+          };
         },
-      },
-    },
-  });
+        target("note", "updateMany")
+      )
+    )
+  );
 
 /**
  * The composition, as the estate's ONE composition states it

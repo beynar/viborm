@@ -10,6 +10,13 @@ import { sqlite3MigrationDriver } from "@migrations/drivers/sqlite";
 import { serializeModels } from "@migrations/serializer";
 import { s } from "@schema";
 import { MYSQL, PG, SQLITE } from "@schema/scalars/native-types";
+import {
+  call,
+  extension,
+  statement as extStatement,
+  target,
+  unit,
+} from "@src/index";
 import { defineContract } from "@tests/contracts/contract";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { GEO_POINT_EARTH_RADIUS_METERS } from "@validation/primitives/geo-area-codec";
@@ -413,21 +420,26 @@ export function runGeoPointBehavior({
       });
       let requestCalls = 0;
       let statementCalls = 0;
-      const extended = active().$extends({
-        name: "geopoint-provider-contract",
-        request: {
-          place: {
-            findMany() {
+      const extended = active().$extends(
+        extension(
+          "geopoint-provider-contract",
+          call(
+            (c) => {
               requestCalls += 1;
-              return { where: { location: { equals: PARIS } } };
+              c.set({ where: { location: { equals: PARIS } } });
             },
-          },
-        },
-        statement({ statement }) {
-          statementCalls += 1;
-          return statement;
-        },
-      });
+            target("place", "findMany")
+          ),
+          unit(
+            (u, next) => {
+              statementCalls += 1;
+              return next(extStatement(u));
+            },
+            ["statement"],
+            { rewrites: true }
+          )
+        )
+      );
 
       await expect(
         extended.place.findMany({ select: { id: true, location: true } })

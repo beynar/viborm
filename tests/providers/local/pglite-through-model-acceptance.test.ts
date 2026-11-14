@@ -8,6 +8,7 @@
 
 import { createClient as createPGliteClient } from "@drivers/pglite";
 import { s } from "@schema";
+import { extension, statement as extStatement, unit } from "@src/index";
 import { permissions } from "@src/permissions";
 import { openTestPGlite } from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -182,14 +183,22 @@ test("a selective walk through the model reads fewer link rows", async () => {
   const read = async (fixture: Fixture) => {
     const spy = { sql: "", params: [] as unknown[] };
     const governed = fixture.client
-      .$extends({
-        name: "capture",
-        statement(context: any) {
-          spy.sql = context.statement.toStatement("$n");
-          spy.params = context.statement.values;
-          return context.statement;
-        },
-      })
+      .$extends(
+        extension(
+          "capture",
+          unit(
+            (u, next) => {
+              const sent = extStatement(u);
+              if (sent === undefined) return next();
+              spy.sql = sent.toStatement("$n");
+              spy.params = sent.values;
+              return next(sent);
+            },
+            ["statement"],
+            { rewrites: true }
+          )
+        )
+      )
       .$extends(policy({ selective: true }));
     await governed.$as({ organizationId: "o17" }).team.findMany({
       select: { id: true },
@@ -229,16 +238,24 @@ test("the Neki form, repeated and over budget, walks a shared set to the same an
   try {
     const statements: { sql: string; params: unknown[] }[] = [];
     const governed = neki.client
-      .$extends({
-        name: "capture",
-        statement(context: any) {
-          statements.push({
-            sql: context.statement.toStatement("$n"),
-            params: context.statement.values,
-          });
-          return context.statement;
-        },
-      })
+      .$extends(
+        extension(
+          "capture",
+          unit(
+            (u, next) => {
+              const sent = extStatement(u);
+              if (sent === undefined) return next();
+              statements.push({
+                sql: sent.toStatement("$n"),
+                params: sent.values,
+              });
+              return next(sent);
+            },
+            ["statement"],
+            { rewrites: true }
+          )
+        )
+      )
       .$extends(policy({}));
     const expected = await repeated(plain.client.$extends(policy({})));
     expect(await repeated(governed)).toEqual(expected);

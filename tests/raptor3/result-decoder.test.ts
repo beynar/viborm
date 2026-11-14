@@ -36,6 +36,7 @@ import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import { POLYMORPHIC_COLLECTION_ORPHANS_KEY } from "@query-engine/result-aliases";
 import { s } from "@schema";
 import { sql } from "@sql";
+import { extension, unit } from "@src/index";
 import { describe, expect, it } from "vitest";
 
 const user = s
@@ -1152,19 +1153,31 @@ describe("internal positional projection transport", () => {
   it("keeps native aliases authoritative after statement transforms", async () => {
     const { driver, client } = await world();
     try {
-      const reordered = client.$extends({
-        name: "reordered-projection",
-        statement: () => sql`SELECT "views", "title", "id" FROM "posts"`,
-      });
+      const reordered = client.$extends(
+        extension(
+          "reordered-projection",
+          unit(
+            (_u, next) => next(sql`SELECT "views", "title", "id" FROM "posts"`),
+            ["statement"],
+            { rewrites: true }
+          )
+        )
+      );
       expect(
         await reordered.post.findMany({
           select: { id: true, title: true, views: true },
         })
       ).toEqual([{ id: "p0", title: "Post 0", views: 7 }]);
-      const missing = client.$extends({
-        name: "missing-projection",
-        statement: () => sql`SELECT "id" FROM "posts"`,
-      });
+      const missing = client.$extends(
+        extension(
+          "missing-projection",
+          unit(
+            (_u, next) => next(sql`SELECT "id" FROM "posts"`),
+            ["statement"],
+            { rewrites: true }
+          )
+        )
+      );
       const inherited = Object.getOwnPropertyDescriptor(Array.prototype, "-1");
       Object.defineProperty(Array.prototype, "-1", {
         configurable: true,

@@ -1,8 +1,9 @@
 /**
  * What `watch(c, …)` and `settled(c, …)` register in a call's first moment,
  * and the part that tells them of the rows a write call writes and of its
- * commit. Brought by `around` and by the `writes` and `deletes` sets: a
- * `call` watches with `target(writes)` (or `deletes`).
+ * commit. Brought by the `writes` and `deletes` sets: a `call` or an
+ * `around` watches with `target(writes)` (or `deletes`), and one that never
+ * watches carries none of it.
  */
 import type { Application, ExtensionPart } from "./chain";
 import { ARRAYS, coordinate } from "./coordination";
@@ -18,8 +19,11 @@ export interface Watching {
   readonly settled?: WrittenWatch["settled"];
 }
 
-/** Per call, what each extension's first moments registered to watch. */
-export const watched = new WeakMap<object, Map<string, Watching[]>>();
+/**
+ * Per call, what each extension's first moments registered to watch: kept
+ * beside the call, which neither a part nor a chain outlives less.
+ */
+const watched = new WeakMap<object, Map<string, Watching[]>>();
 
 /** What one extension's first moments registered for a write call, as one watch. */
 function watchOf(
@@ -47,10 +51,36 @@ function watchOf(
 
 /**
  * What tells the watches `watch` and `settled` register of the rows a write
- * writes and of its commit: brought by `around` and by the `writes` and
- * `deletes` sets.
+ * writes and of its commit: brought by the `writes` and `deletes` sets.
  */
-export const watchPart: ExtensionPart = {
+/** What a first moment's context registers watches through, for one call. */
+export interface Registering {
+  readonly [REGISTER]: (watching: Watching) => true;
+}
+
+export interface WatchPart extends ExtensionPart {
+  /**
+   * What one extension's first moment of one model call registers through,
+   * keeping it for the call. A context without it (a `call` that brings no
+   * watch part, a raw statement) has nothing to register through, which
+   * `call-words.ts` refuses.
+   */
+  readonly registering: (call: object, extension: string) => Registering;
+}
+
+export const watchPart: WatchPart = {
+  registering: (call, extension) => ({
+    [REGISTER](watching) {
+      let byExtension = watched.get(call);
+      if (byExtension === undefined)
+        watched.set(call, (byExtension = new Map()));
+      byExtension.set(extension, [
+        ...(byExtension.get(extension) ?? []),
+        watching,
+      ]);
+      return true;
+    },
+  }),
   join({ next, chain, owner }: Application) {
     const name = owner.name;
     if (chain?.written?.handlers.some((handler) => handler.extension === name))

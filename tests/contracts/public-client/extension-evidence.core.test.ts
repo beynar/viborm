@@ -121,19 +121,22 @@ describe("K5: declared projection keys and read-gated fields", () => {
 
   test("admission refuses a key not spelled `$` and an identifier, and a gate on a key, a foreign key, a relation or no field", async () => {
     const refused = [
-      [{ document: { select: { own: facts({ mine }) } } }, "evidence.as"],
-      [{ document: { fields: { id: gate(mine) } } }, "reads.id"],
+      [{ document: { select: { own: facts({ mine }) } } }, "read.select.own"],
+      [{ document: { fields: { id: gate(mine) } } }, "read.fields.id"],
       [
         { document: { fields: { organizationId: gate(mine) } } },
-        "reads.organizationId",
+        "read.fields.organizationId",
       ],
-      [{ document: { fields: { parent: gate(mine) } } }, "reads.parent"],
-      [{ document: { fields: { nothing: gate(mine) } } }, "reads.nothing"],
+      [{ document: { fields: { parent: gate(mine) } } }, "read.fields.parent"],
+      [
+        { document: { fields: { nothing: gate(mine) } } },
+        "read.fields.nothing",
+      ],
     ] as const;
     for (const [k5, at] of refused) {
       const error = await failure(Promise.resolve().then(apply(k5)));
       expect(error, at).toBeInstanceOf(ClientInitializationError);
-      expect((error as Error).message, at).toContain(`at "${at}"`);
+      expect((error as Error).message, at).toContain(`rule.document: ${at} `);
     }
     // A member of a compound key is a key too.
     const compound = await failure(
@@ -153,7 +156,9 @@ describe("K5: declared projection keys and read-gated fields", () => {
       )
     );
     expect(compound).toBeInstanceOf(ClientInitializationError);
-    expect((compound as Error).message).toContain('at "reads.teamId"');
+    expect((compound as Error).message).toContain(
+      "rule.teamMember: read.fields.teamId "
+    );
   });
 
   test("two extensions of one chain declaring one key on one model are refused", async () => {
@@ -250,7 +255,7 @@ describe("K5: declared projection keys and read-gated fields", () => {
           ),
         field
       ).toThrow(
-        `rows.verbs.user at "reads.${field}": names a key, a unique or a foreign key field`
+        `rule.user: read.fields.${field} names a key, a unique or a foreign key field`
       );
   });
 

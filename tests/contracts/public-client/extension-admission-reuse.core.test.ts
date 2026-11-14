@@ -1,8 +1,7 @@
 import type { Schema } from "@client/types";
 import { createClient } from "@drivers/sqlite3";
 import { ClientInitializationError } from "@errors";
-import { admitRows } from "@extensions/admission";
-import type { RowsContribution } from "@extensions/controls";
+import { admitLayer, type RuleLayer } from "@extensions/admission";
 import { s } from "@schema";
 import { arg, args, bound, extension, oneOf, rule, when } from "@src/index";
 import { v } from "@validation";
@@ -10,21 +9,25 @@ import { createSchemaRegistry } from "@validation/builder";
 import type { SchemaRegistryLookup } from "@validation/types";
 import { expect, test } from "vitest";
 
-/** A definition's `rows` as applying it admits them. */
+/** An extension's rule layer as applying it admits it. */
 const admitted = (
-  definition: { readonly name: string; readonly rows: RowsContribution },
+  definition: { readonly name: string; readonly rows: RuleLayer },
   schema: Schema,
   registry: SchemaRegistryLookup<Schema>
-) => admitRows(definition.rows, schema, definition.name, registry);
+) => admitLayer(definition.rows, schema, definition.name, registry);
 
-function frozenRows(predicate: Readonly<Record<string, unknown>>) {
-  return Object.freeze({
-    control: "visibility",
-    default: "visible",
-    models: Object.freeze({
-      post: Object.freeze({ visible: Object.freeze({ root: predicate }) }),
-    }),
-  });
+/** A rule layer filtering `post` by one predicate, frozen as a value is. */
+function frozenRows(predicate: Readonly<Record<string, unknown>>): RuleLayer {
+  const post = [predicate];
+  const layer: RuleLayer = {
+    root: { post },
+    related: {},
+    verbs: {},
+    confine: {},
+  };
+  for (const part of [post, ...Object.values(layer), layer])
+    Object.freeze(part);
+  return layer;
 }
 
 test("immutable row admission reuses facts within one registry only", () => {
@@ -47,17 +50,13 @@ test("a declaration changed after it was applied is not read again; a field's ow
   const predicate = { id: "one" };
   const definition = {
     name: "filter",
-    rows: {
-      control: "visibility",
-      default: "visible",
-      models: { post: { visible: { root: predicate } } },
-    },
+    rows: { root: { post: [predicate] }, related: {}, verbs: {}, confine: {} },
   };
   const first = admitted(definition, schema, registry);
   predicate.id = "two";
   const second = admitted(definition, schema, registry);
   expect(second).toBe(first);
-  expect(second.models.post?.visible?.root).toEqual({
+  expect(second.models.post?.[""]?.root).toEqual({
     id: { equals: "one" },
   });
   const custom = {
