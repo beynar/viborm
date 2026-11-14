@@ -15,6 +15,7 @@ import {
 } from "@errors";
 import type { ResolvedOperationHandler } from "@extensions/chain";
 import type { AdmittedControls } from "@extensions/controls";
+import type { CallOrigin } from "@extensions/origin";
 import type {
   PreparedModelQueryContext,
   QueryInterceptionMode,
@@ -140,7 +141,7 @@ export type PrepareWriteOutcomeRegistration = (
   call: object | undefined
 ) => WriteOutcomeRegistration | undefined;
 
-interface OperationInputPreparation {
+interface OperationInputPreparation extends CallOrigin {
   readonly prepare: PrepareOperationInput;
   status: "pending" | "success" | "failure";
   args?: Record<string, unknown>;
@@ -455,6 +456,14 @@ export class PendingOperation<T>
         engine.scopeId,
         engine.extensionChain
       );
+    // The call object an extension's moments share is where the words on the
+    // call (`key`, `codec`, `database`) find the operation it became.
+    if (inputPreparation)
+      inputPreparation.of = {
+        engine,
+        context: this.#context.attribution,
+        prepared: () => this.#resolveRouted(),
+      };
     Object.freeze(this);
   }
 

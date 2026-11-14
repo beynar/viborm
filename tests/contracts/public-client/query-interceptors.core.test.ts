@@ -209,6 +209,7 @@ describe("standalone query interceptor runner", () => {
               "onWriteOutcome",
               "again",
               "proceedOn",
+              "replay",
             ]);
             expect("program" in handlerContext).toBe(false);
             expect("driver" in handlerContext).toBe(false);

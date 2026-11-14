@@ -31,6 +31,7 @@ import { extensionError } from "./definition";
 import { builtPart, type DefinitionDraft } from "./extension";
 import { compileHandlers, type OperationHandlers } from "./handlers";
 import { MODEL_OPERATIONS, type SelectionValue, selectionOf } from "./on";
+import { CALL } from "./origin";
 import type { QueryInterceptorContext } from "./query";
 import type { RequestControls, RuntimeRequestContribution } from "./request";
 import { REGISTER, type Watching, watched, watchPart } from "./watch-part";
@@ -54,6 +55,8 @@ interface FirstContext {
   set(patch: unknown): void;
   /** What `watch` and `settled` register through. */
   readonly [REGISTER]: (watching: Watching) => void;
+  /** The call itself, for the words that read it (`database`). */
+  readonly [CALL]: object | undefined;
 }
 
 /** The keys a second moment's `run` carries for `again` and `via`. */
@@ -194,6 +197,7 @@ function firstContext(
         watching,
       ]);
     },
+    [CALL]: call,
   };
 }
 
@@ -260,15 +264,23 @@ function secondMoment(first: FirstMoment, extension: string) {
           throw error;
         }
       );
-    const run = Object.defineProperties(() => settle(context.proceed()), {
-      input: { get: () => context.input },
-      mode: { value: context.mode },
-      [AGAIN]: { value: context.again },
-      [VIA]: {
-        value: (driver: AnyDriver) => settle(context.proceedOn(driver)),
-      },
-    });
+    // Once the second moment returned, `run()` is a direct read's refresh:
+    // the core alone, never awaited by the call.
+    let returned = false;
+    const run = Object.defineProperties(
+      () => (returned ? context.replay() : settle(context.proceed())),
+      {
+        input: { get: () => context.input },
+        mode: { value: context.mode },
+        [CALL]: { value: context.call },
+        [AGAIN]: { value: context.again },
+        [VIA]: {
+          value: (driver: AnyDriver) => settle(context.proceedOn(driver)),
+        },
+      }
+    );
     const value = await second(run);
+    returned = true;
     if (failed !== undefined) throw failed.error;
     return value;
   };
@@ -381,14 +393,10 @@ const aroundPart: ExtensionPart = {
   uses: [firstPart],
   join({ next, chain, definition, owner, schema }: Application) {
     let query: OperationHandlers | undefined = chain?.query;
-    let inner = false;
     for (const entry of definition.calls ?? []) {
       if (!entry.around) continue;
       const second = secondMoment(firstOf(entry, schema), owner.name);
-      if (entry.inner) {
-        INNER.add(second);
-        inner = true;
-      }
+      if (entry.inner) INNER.add(second);
       query = compileHandlers(
         query,
         owner,
@@ -397,7 +405,9 @@ const aroundPart: ExtensionPart = {
       );
     }
     if (query === chain?.query) return;
-    next.query = Object.freeze(inner ? innerLast(query!) : query!);
+    // Every application orders again: a later extension's second moments
+    // stay outside an earlier one's that sits nearest the core.
+    next.query = Object.freeze(innerLast(query!));
     next.hasQueryHandlers = true;
     coordinate(next, QUERIES);
   },

@@ -35,6 +35,7 @@ import type {
   HasExtensionCache,
   MergeModelMethods,
 } from "@extensions/methods";
+import { SCOPE } from "@extensions/origin";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { enableFindUniqueBatching } from "@query-engine/find-unique-batch";
 import {
@@ -1089,7 +1090,11 @@ export class VibORM<C extends VibORMConfig> {
                           )
                         )
                       )
-                  : undefined
+                  : // What the words on a method's scope read of its view
+                    // (`database`, `settled`).
+                    prop === SCOPE
+                    ? { engine, extension }
+                    : undefined
             )
           );
     if (eager) methods?.force();

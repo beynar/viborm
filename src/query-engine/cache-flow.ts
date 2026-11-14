@@ -5,7 +5,7 @@ import {
   invalidateOfficialCache,
   type WaitUntilFn,
 } from "@cache/driver";
-import { isCanonicalKeyData, stableStringify } from "@cache/key";
+import { isCanonicalKeyData } from "@cache/key";
 import {
   type CacheInvalidationOptions,
   cacheInvalidationSchema,
@@ -21,6 +21,7 @@ import {
 import type { AdmittedRows } from "@extensions/admission";
 import type { ResolvedExtensionChain } from "@extensions/chain";
 import type { AdmittedControls } from "@extensions/controls";
+import { stableStringify } from "@extensions/key";
 import type { WriteOutcomeRegistration } from "@extensions/query";
 import type { LazyRelations } from "@query-engine/raptor3/shared/row-scope";
 import type { Input } from "@query-engine/raptor3/shared/schema";

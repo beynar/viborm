@@ -778,7 +778,7 @@ export function permissions<const Config extends PermissionsConfig>(
       verbs,
       ...confineOf(declared),
     };
-    const uncacheable = config.cache !== "allow";
+    const volatile = config.cache !== "allow";
     const application: Application = {
       models: schema,
       rows,
@@ -787,13 +787,13 @@ export function permissions<const Config extends PermissionsConfig>(
           schema: actor.schema,
           bound: true,
           required: true,
-          uncacheable,
+          volatile,
         },
         scopes: {
           schema: scopeSchema(compiler.scopes),
           bound: true,
           required: true,
-          uncacheable,
+          volatile,
         },
       },
       reach: reachOf(config, declared),

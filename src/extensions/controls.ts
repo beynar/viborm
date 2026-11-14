@@ -46,8 +46,8 @@ export type ControlPlacement =
  * every model. With `bound`, it is accepted only from a binding (the client
  * scope's `$bind`), never from a call's arguments: its placement reads no
  * argument, so a call that passes it is refused as passing an unknown key.
- * With `uncacheable`, a read that holds a value of it is never served from
- * the cache: `$withCache` on that read is refused before any statement. A
+ * With `volatile`, a call that holds a value of it has no key (`key(run)`):
+ * a read that holds one is never served from a store nor kept in one. A
  * value held in a variable keeps its literal type only with `as const`, as a
  * held enum clause does.
  */
@@ -63,7 +63,7 @@ export type ControlDeclaration = (
   /** The value a call that passes none reads. */
   readonly default?: ControlLiteral;
   readonly bound?: boolean;
-  readonly uncacheable?: boolean;
+  readonly volatile?: boolean;
 };
 
 export type ControlsContribution = {
@@ -445,8 +445,6 @@ export interface ResolvedControl {
   readonly fallback?: ControlLiteral;
   /** Accepted only from a binding, never read from the arguments. */
   readonly bound?: true;
-  /** A read holding a value of it is not served from the cache. */
-  readonly uncacheable?: true;
 }
 
 /**
@@ -493,7 +491,6 @@ export function placeControls(
         fallback: declaration.default,
       }),
       ...(declaration.bound === true && { bound: true }),
-      ...(declaration.uncacheable === true && { uncacheable: true }),
     });
   }
   if (rows !== undefined) {
@@ -751,7 +748,8 @@ export function uncacheableRead(
 ): ValidationError | undefined {
   const held = controls.find(
     (control) =>
-      control.uncacheable === true && admitted?.[control.name] !== undefined
+      control.declaration.volatile === true &&
+      admitted?.[control.name] !== undefined
   );
   return (
     held &&

@@ -1,6 +1,6 @@
 import type { ClientSchema } from "@client/schema-links";
 import type { AnyDriver } from "@drivers/exports";
-import { QueryError } from "@errors";
+import { QueryError, VibORMError } from "@errors";
 import { isReadOperation } from "@query-engine/routed-operations";
 import { isFunction } from "@validation/value-guards";
 import { isError } from "../errors/diagnostic-safety";
@@ -187,6 +187,11 @@ interface QueryInterceptorCapabilities<Result> {
   readonly again: () => boolean;
   /** `proceed` on another driver: a direct read only; elsewhere `proceed`. */
   readonly proceedOn: (driver: AnyDriver) => Promise<Result>;
+  /**
+   * Run the core alone, once, whatever the handler did: a direct read's
+   * refresh after its handler returned. Anything else is refused.
+   */
+  readonly replay: () => Promise<Result>;
 }
 
 /** The child a handler chain runs: on the driver a handler chose, if any. */
@@ -422,7 +427,9 @@ export function runCompiledQueryInterceptors<Result, Input extends object>(
     child,
     captureWriteOutcome,
     readCommitCertainty,
-    reportAdmissionFailure
+    reportAdmissionFailure,
+    undefined,
+    child
   );
 }
 
@@ -434,7 +441,8 @@ function runInterceptorAt<Result, Input extends object>(
   captureWriteOutcome: WriteOutcomeRegistrationCapture,
   readCommitCertainty: ReadCommitCertainty | undefined,
   reportAdmissionFailure: ((failure: unknown) => void) | undefined,
-  driver?: AnyDriver
+  driver: AnyDriver | undefined,
+  core: Child<Result>
 ): Promise<Result> {
   const interceptor = interceptors[index];
   if (interceptor === undefined) return child(driver);
@@ -451,11 +459,13 @@ function runInterceptorAt<Result, Input extends object>(
         captureWriteOutcome,
         readCommitCertainty,
         reportAdmissionFailure,
-        chosen ?? driver
+        chosen ?? driver,
+        core
       ),
     captureWriteOutcome,
     readCommitCertainty,
-    reportAdmissionFailure
+    reportAdmissionFailure,
+    () => core(driver)
   );
 }
 
@@ -465,9 +475,16 @@ async function runOneInterceptor<Result, Input extends object>(
   child: Child<Result>,
   captureWriteOutcome: WriteOutcomeRegistrationCapture,
   readCommitCertainty: ReadCommitCertainty | undefined,
-  reportAdmissionFailure: ((failure: unknown) => void) | undefined
+  reportAdmissionFailure: ((failure: unknown) => void) | undefined,
+  core: () => Promise<Result>
 ): Promise<Result> {
   let continuationOpen = true;
+  // A direct read may run once more after its handler returned (a value
+  // served now and refreshed later): that run is the core's alone.
+  let replayable =
+    prepared.mode === "direct" &&
+    prepared.kind === "model" &&
+    isReadOperation(prepared.operation);
   let childOutcomePromise: Promise<Settled<Result>> | undefined;
   let handlerSettled = false;
   let registrationOpen = true;
@@ -517,6 +534,12 @@ async function runOneInterceptor<Result, Input extends object>(
     return true;
   };
 
+  const replay = (): Promise<Result> => {
+    if (!replayable) throw recordProtocolFailure("ran the call again");
+    replayable = false;
+    return startChild(core);
+  };
+
   const proceedOn = (driver: AnyDriver): Promise<Result> =>
     prepared.mode === "direct" &&
     prepared.kind === "model" &&
@@ -542,7 +565,7 @@ async function runOneInterceptor<Result, Input extends object>(
 
   const handlerContext = exposeHandlerContext(
     prepared,
-    { proceed: () => proceed(), onWriteOutcome, again, proceedOn },
+    { proceed: () => proceed(), onWriteOutcome, again, proceedOn, replay },
     interceptor.controls
   );
   let handlerValue: Promise<Result>;
@@ -859,8 +882,11 @@ export async function publishWriteOutcomes(
       await registration.listener(outcome);
     } catch (reason) {
       const cause = isError(reason) ? reason : undefined;
+      // An error of viborm's own is already said as the listener means it.
       const failure =
-        registration.failurePolicy === "boundary-owned" && cause !== undefined
+        cause !== undefined &&
+        (registration.failurePolicy === "boundary-owned" ||
+          cause instanceof VibORMError)
           ? cause
           : new QueryError(
               `Extension "${registration.extension}" write-outcome listener failed after ${outcome.certainty}.`,
