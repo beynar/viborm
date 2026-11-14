@@ -20,7 +20,6 @@ import type {
   Exact,
   OmittedWord,
   Part,
-  SchemaOf,
 } from "./contract";
 import type { DataContribution, OrderContribution } from "./controls";
 import { extensionError } from "./definition";

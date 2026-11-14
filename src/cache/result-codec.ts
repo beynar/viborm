@@ -1,5 +1,4 @@
-import { CacheConfigurationError } from "@errors";
-import type { Codec } from "@extensions/codec";
+import { CacheConfigurationError, type Codec } from "../index";
 
 /**
  * A call's codec whose failures are the cache's: a value the codec cannot

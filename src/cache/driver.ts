@@ -315,7 +315,7 @@ export abstract class CacheDriver {
       request.model,
       request.operation,
       async (observed) => {
-        let terminal;
+        let terminal: ReturnType<typeof cacheOutcome>;
         try {
           const result = await request.run();
           const stored = codec.snapshot(result);

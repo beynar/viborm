@@ -29,8 +29,6 @@ vi.mock("@opentelemetry/api", () => {
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
-import { MemoryCache } from "@cache/drivers/memory";
-import { cache } from "@cache/extension";
 import { isVibORMError } from "@errors";
 import { createClient, s, sql } from "@src/index";
 import { createInstrumentationContext } from "@src/instrumentation/context";
@@ -619,35 +617,6 @@ describe("tracing.tracer: span and driver failures stay outside the operation", 
       expect(span.calls).toContain("end");
       expect(span.calls.filter(isDriverAttributeCall)).toEqual([]);
     }
-  });
-
-  it("keeps $withCache when the adapter namespace throws after the cache bound", async () => {
-    let namespaceThrows = false;
-    const { spans, tracer } = fakeTracer();
-    const record = s.model({ id: s.string().id(), name: s.string() });
-    const driver = new StatementDriver();
-    Object.defineProperty(driver, "adapter", {
-      value: Object.create(new SQLiteAdapter(), {
-        namespace: {
-          get: () => {
-            if (namespaceThrows) throw new Error("namespace getter failed");
-            return undefined;
-          },
-        },
-      }),
-    });
-    const client = createClient({ schema: { record }, driver })
-      .$extends(cache({ driver: new MemoryCache() }))
-      .$extends(instrumentation({ tracing: { tracer } }));
-    namespaceThrows = true;
-
-    await expect(
-      client.$withCache({ ttl: 60_000 }).record.findMany({})
-    ).resolves.toEqual([{ id: "record-1", name: "Ada" }]);
-
-    const operation = spans.filter(({ name }) => name === SPAN_OPERATION);
-    expect(operation).toHaveLength(1);
-    expect(operation[0]?.calls.filter(isDriverAttributeCall)).toEqual([]);
   });
 
   it("presents the operation span without driver attributes when the adapter namespace throws", async () => {

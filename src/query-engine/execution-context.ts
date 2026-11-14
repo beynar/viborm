@@ -116,6 +116,10 @@ export function noteOperationOutcomes(
   notedOutcomes.set(context, read);
 }
 
+/** What reads the outcomes noted on the operation of `context`, if any. */
+export const readNotedOutcomes = (context: QueryExecutionContext) =>
+  notedOutcomes.get(context);
+
 /** Build the private official-operation facts only for an official chain. */
 export function createPendingOperationInstrumentationFacts(
   driver: AnyDriver,
@@ -172,7 +176,7 @@ function createOperationInstrumentationFacts(
       operation,
       collection,
       complete(outcome) {
-        const readCacheOutcomes = notedOutcomes.get(context);
+        const readCacheOutcomes = readNotedOutcomes(context);
         // Core selects the failure: one error, one error log.
         const { failure } = outcome;
         const logged =

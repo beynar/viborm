@@ -14,7 +14,6 @@ import type {
   Part,
   RuleFacts,
   RuleInput,
-  SchemaOf,
 } from "./contract";
 import type { RowsContribution } from "./controls";
 import { builtPart, type DefinitionDraft } from "./extension";

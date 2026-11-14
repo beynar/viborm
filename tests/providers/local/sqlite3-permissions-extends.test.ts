@@ -1,3 +1,4 @@
+import type { CacheEntry } from "@cache/driver";
 import { MemoryCache } from "@cache/drivers/memory";
 import { cache } from "@cache/extension";
 import { createClient } from "@drivers/sqlite3";
@@ -944,7 +945,7 @@ test("cached evidence and rows are isolated between scopes for the same actor", 
   }
 });
 
-test("a cached read is keyed on the policy's content once, and goes uncached when another model's rules are refused", async () => {
+test("a cached read is keyed on the statement the policy produces, and compiles only the models it reads", async () => {
   const post = s.model({ id: s.string().id(), ownerId: s.string() });
   const note = s.model({ id: s.string().id(), ownerId: s.string() });
   const base = createClient({ schema: { post, note }, dataDir: ":memory:" });
@@ -973,8 +974,8 @@ test("a cached read is keyed on the policy's content once, and goes uncached whe
     // A hit: the base write bypassed this cache's invalidation.
     expect(await reader.post.findMany()).toHaveLength(1);
 
-    // `note`'s rule names an actor path the actor schema lacks: a cached
-    // read of `post` still answers, uncached, and never reads `note`.
+    // `note`'s rule names an actor path the actor schema lacks: a read of
+    // `post` never compiles it, so it is keyed, stored and served as usual.
     const broken = cached({
       post: { read: owned },
       note: { read: { ownerId: { actor: "usrId" } } },
@@ -982,7 +983,41 @@ test("a cached read is keyed on the policy's content once, and goes uncached whe
     const fresh = broken.$as({ userId: "alice" }).$withCache({ ttl: 60_000 });
     expect(await fresh.post.findMany()).toHaveLength(2);
     await base.post.create({ data: { id: "r", ownerId: "alice" } });
-    expect(await fresh.post.findMany()).toHaveLength(3);
+    expect(await fresh.post.findMany()).toHaveLength(2);
+  } finally {
+    await base.$disconnect();
+  }
+});
+
+test("a governed read through $withCache is never served from the cache nor stored: the actor is volatile", async () => {
+  const post = s.model({ id: s.string().id(), ownerId: s.string() });
+  const base = createClient({ schema: { post }, dataDir: ":memory:" });
+  const stored: string[] = [];
+  class RecordingCache extends MemoryCache {
+    protected override async set<T>(
+      key: string,
+      ttl: number,
+      entry: CacheEntry<T>
+    ): Promise<void> {
+      stored.push(key);
+      await super.set(key, ttl, entry);
+    }
+  }
+  try {
+    await syncLiveSchema(base);
+    await base.post.create({ data: { id: "p", ownerId: "alice" } });
+    const db = base.$extends(cache({ driver: new RecordingCache() })).$extends(
+      permissions({
+        actor: v.object({ userId: v.string() }),
+        models: { post: { read: { ownerId: { actor: "userId" } } } },
+      })
+    );
+    const reader = db.$as({ userId: "alice" }).$withCache({ ttl: 60_000 });
+    expect(await reader.post.findMany()).toHaveLength(1);
+    await base.post.create({ data: { id: "q", ownerId: "alice" } });
+    // Not served: the second read sees the row the base client wrote.
+    expect(await reader.post.findMany()).toHaveLength(2);
+    expect(stored).toEqual([]);
   } finally {
     await base.$disconnect();
   }

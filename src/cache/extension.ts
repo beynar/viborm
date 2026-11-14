@@ -13,19 +13,31 @@
  *   call works against (`database`), so two clients of one database share
  *   entries and two databases never do.
  */
-import { CacheConfigurationError, VibORMError } from "@errors";
-import { accepts, args, bound } from "@extensions/args";
-import { around, call } from "@extensions/call";
-import { settled } from "@extensions/call-words";
-import { codec } from "@extensions/codec";
-import type { AnyTarget, Extension, Facts, Run } from "@extensions/contract";
-import type { DefinitionControls } from "@extensions/controls";
-import { database } from "@extensions/database";
-import { extension } from "@extensions/extension";
-import { key } from "@extensions/key";
-import { buildMethods } from "@extensions/methods-part";
-import { reads, target, writes } from "@extensions/on";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type { MutationOperations } from "../client/exports";
+import {
+  type AnyTarget,
+  accepts,
+  args,
+  around,
+  bound,
+  CacheConfigurationError,
+  call,
+  codec,
+  database,
+  type Extension,
+  extension,
+  type Facts,
+  key,
+  methods,
+  type PlacedControl,
+  type Run,
+  reads,
+  settled,
+  target,
+  VibORMError,
+  writes,
+} from "../index";
 import {
   CacheDriver,
   invalidateOfficialCache,
@@ -40,7 +52,6 @@ import {
   type CacheInvalidationOptions,
   type CacheReadOptions,
   hasCacheInvalidationWork,
-  type OfficialCacheControls,
   validateCacheableOperation,
   type WithCacheOptions,
 } from "./schema";
@@ -63,7 +74,13 @@ type ExactCacheExtensionConfig<Config> = Record<
 export type CacheFacts = Facts<
   Record<never, never>,
   Record<never, never>,
-  DefinitionControls<{ readonly controls: OfficialCacheControls }>,
+  {
+    readonly cache: PlacedControl<
+      CacheInvalidationOptions,
+      PropertyKey,
+      MutationOperations
+    >;
+  },
   never,
   never,
   Record<never, never>,
@@ -209,27 +226,23 @@ export function cache(config: CacheExtensionConfig): unknown {
       { inner: true }
     ),
 
-    buildMethods(
-      (scope: {
-        $bind(values: Readonly<Record<string, unknown>>): unknown;
-      }) => ({
-        $withCache: (options?: WithCacheOptions) =>
-          scope.$bind({ cacheRead: options }),
-        $invalidate: (...keys: string[]) =>
-          settled(scope, async () => {
-            try {
-              await invalidate(scope, { invalidate: keys });
-            } catch (cause) {
-              // A refused key is said as it is; a backend failure is the
-              // cache's, as a write's invalidation failure is.
-              if (cause instanceof VibORMError) throw cause;
-              throw new CacheConfigurationError("Cache invalidation failed.", {
-                cause: cause instanceof Error ? cause : undefined,
-                meta: { method: "invalidate" },
-              });
-            }
-          }),
-      })
-    )
+    methods((scope) => ({
+      $withCache: (options?: WithCacheOptions) =>
+        scope.$bind({ cacheRead: options }),
+      $invalidate: (...keys: string[]) =>
+        settled(scope, async () => {
+          try {
+            await invalidate(scope, { invalidate: keys });
+          } catch (cause) {
+            // A refused key is said as it is; a backend failure is the
+            // cache's, as a write's invalidation failure is.
+            if (cause instanceof VibORMError) throw cause;
+            throw new CacheConfigurationError("Cache invalidation failed.", {
+              cause: cause instanceof Error ? cause : undefined,
+              meta: { method: "invalidate" },
+            });
+          }
+        }),
+    }))
   );
 }
