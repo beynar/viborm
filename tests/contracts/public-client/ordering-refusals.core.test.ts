@@ -14,7 +14,7 @@ import {
 } from "@errors";
 import { s } from "@schema";
 import { call, extension, target } from "@src/index";
-import { ordering, orderingKey } from "@src/ordering";
+import { isKeyFormat, keyBetween, ordering, orderingKey } from "@src/ordering";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, describe, expect, test } from "vitest";
 
@@ -198,5 +198,21 @@ describe("a move is one value another part may refuse", () => {
       .catch((error: unknown) => error);
     expect(missing).toBeInstanceOf(Error);
     expect(await titles(db)).toEqual(["c", "a", "b"]);
+  });
+});
+
+describe("the ends of the key range", () => {
+  test("a key past the last append or before the last prepend is refused", () => {
+    expect(() => keyBetween("9999999999", null)).toThrow(
+      new RangeError("a list holds at most 10^9 appends")
+    );
+    expect(() => keyBetween(null, "00000000001")).toThrow(
+      new RangeError("a list holds at most 10^9 prepends")
+    );
+  });
+
+  test("a prepended key cut short of its integer part is no key", () => {
+    expect(isKeyFormat("0812345678")).toBe(true);
+    expect(isKeyFormat("01")).toBe(false);
   });
 });
