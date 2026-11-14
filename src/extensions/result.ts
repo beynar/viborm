@@ -387,10 +387,6 @@ function finishRow(value: unknown, node: ResultNode): unknown {
   return row;
 }
 
-const typedArraySlice = Object.getPrototypeOf(Uint8Array.prototype).slice as (
-  this: ArrayBufferView
-) => ArrayBufferView;
-
 /**
  * A copy of a value the caller could edit: JSON objects and lists, dates and
  * binary or numeric arrays. A class instance (a `Decimal`) is immutable and
@@ -400,8 +396,16 @@ function detached(held: unknown): unknown {
   if (held === null || typeof held !== "object") return held;
   if (Array.isArray(held)) return held.map(detached);
   if (held instanceof Date) return new Date(held.getTime());
+  // The typed arrays' own `slice`, read here and not at module scope: a
+  // top-level read is a side effect every bundle importing viborm would keep.
   if (ArrayBuffer.isView(held))
-    return held instanceof DataView ? held : typedArraySlice.call(held);
+    return held instanceof DataView
+      ? held
+      : (
+          Object.getPrototypeOf(Uint8Array.prototype).slice as (
+            this: ArrayBufferView
+          ) => ArrayBufferView
+        ).call(held);
   const prototype = Object.getPrototypeOf(held);
   if (prototype !== Object.prototype && prototype !== null) return held;
   const copy: Row = {};
