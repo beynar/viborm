@@ -154,6 +154,19 @@ function jsonObject(pairs: [string, Sql][]): Sql {
 const parsedJson = (value: unknown): Sql =>
   sql`PARSE_JSON(${stringifyJson(value)})`;
 
+/**
+ * A list's members as JSON reads their text: the engine binds a `bigint` or
+ * `decimal` member as its exact digits, a string, while a Snowflake ARRAY
+ * holds numbers; parsed, `"9007199254740993"` is that exact number. A member
+ * whose text is no JSON stays as it is.
+ */
+const parsedMembers = (values: Sql): Sql =>
+  sql`TRANSFORM(${values}, member VARIANT -> COALESCE(TRY_PARSE_JSON(member::VARCHAR), member))`;
+
+/** Some member of `values`, as it is or as its text reads, is in `column`. */
+const overlaps = (column: Sql, values: Sql): Sql =>
+  sql`(ARRAYS_OVERLAP(${column}, ${values}) OR ARRAYS_OVERLAP(${column}, ${parsedMembers(values)}))`;
+
 /** Every member of the JSON array `values` is a member of `column`. */
 const containsEvery = (column: Sql, values: Sql): Sql =>
   sql`(ARRAY_SIZE(ARRAY_EXCEPT(ARRAY_DISTINCT(${values}), ${column})) = 0)`;
@@ -438,11 +451,16 @@ export class SnowflakeAdapter implements DatabaseAdapter {
       sql`ARRAY_CONSTRUCT(${sql.join(items.map(jsonMember), ", ")})`,
     value: (values: unknown[]): Sql => sql`${parsedJson(values)}::ARRAY`,
     enumValue: (values: unknown[]): Sql => sql`${parsedJson(values)}::ARRAY`,
+    // A list member compared as it is bound and as its text reads, so a
+    // number list matches the exact text a bigint or decimal binds as
+    // (measured: ARRAY_CONTAINS of the text found no number).
     has: (column: Sql, value: Sql): Sql =>
-      sql`ARRAY_CONTAINS(TO_VARIANT(${value}), ${column})`,
-    hasEvery: containsEvery,
-    hasSome: (column: Sql, values: Sql): Sql =>
-      sql`ARRAYS_OVERLAP(${column}, ${values})`,
+      overlaps(column, sql`ARRAY_CONSTRUCT(${value})`),
+    hasEvery: (column: Sql, values: Sql): Sql =>
+      sql`(ARRAY_SIZE(ARRAY_EXCEPT(${parsedMembers(
+        sql`ARRAY_EXCEPT(ARRAY_DISTINCT(${values}), ${column})`
+      )}, ${column})) = 0)`,
+    hasSome: overlaps,
     isEmpty: (column: Sql): Sql =>
       sql`(ARRAY_SIZE(${column}) = 0 OR ${column} IS NULL)`,
     // Each member as exact text, so no JSON number rounds it on the way.

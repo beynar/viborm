@@ -797,6 +797,25 @@ describe("Snowflake root pages and filters", () => {
     );
   });
 
+  it("compares a list member as bound and as its text reads, for a list of numbers", async () => {
+    const tallies = createClient({
+      schema: {
+        tally: s
+          .model({ id: s.int().id(), big: s.bigInt().array() })
+          .map("TALLIES"),
+      },
+      account: "myorg-acct",
+      token: "t",
+      host: server.host,
+      fetch: server.fetch,
+    });
+    await tallies.tally.findMany({ where: { big: { has: 9n } } });
+    // A bigint member binds as its text; the ARRAY holds a number.
+    expect(server.statements()[0]!.statement).toContain(
+      'ARRAYS_OVERLAP("q0"."big", TRANSFORM(ARRAY_CONSTRUCT(?), member VARIANT -> COALESCE(TRY_PARSE_JSON(member::VARCHAR), member)))'
+    );
+  });
+
   it("reads a JSON number at a path with AS_DOUBLE, which no other member fails", async () => {
     await docs().doc.findMany({ where: { data: { path: ["k"], gt: 1 } } });
     expect(server.statements()[0]!.statement).toContain(

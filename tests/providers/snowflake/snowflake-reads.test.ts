@@ -181,7 +181,16 @@ const shift = s
   })
   .map("SHIFTS");
 
+const tally = s
+  .model({
+    id: s.int().id(),
+    big: s.bigInt().array(),
+    amounts: s.decimal({ precision: 10, scale: 2 }).array(),
+  })
+  .map("TALLIES");
+
 const schema = {
+  tally,
   author,
   post,
   tag,
@@ -238,6 +247,11 @@ const SEED = [
   `INSERT INTO "${SCHEMA}"."SHOPS" VALUES (1, '12:34:56.12'), (2, '08:00:00'), (3, '12:34:56.123456789')`,
   `CREATE TABLE "${SCHEMA}"."SHIFTS" ("id" NUMBER(9,0) NOT NULL PRIMARY KEY, "shopId" NUMBER(9,0) NOT NULL REFERENCES "${SCHEMA}"."SHOPS" ("id"), "startsAt" TIME(3) NOT NULL)`,
   `INSERT INTO "${SCHEMA}"."SHIFTS" VALUES (1, 1, '09:15:30.5'), (2, 1, '00:00:00')`,
+  // Lists of numbers, as a Snowflake ARRAY holds them: numbers, not text.
+  `CREATE TABLE "${SCHEMA}"."TALLIES" ("id" NUMBER(9,0) NOT NULL PRIMARY KEY, "big" ARRAY NOT NULL, "amounts" ARRAY NOT NULL)`,
+  `INSERT INTO "${SCHEMA}"."TALLIES" SELECT column1, PARSE_JSON(column2)::ARRAY, PARSE_JSON(column3)::ARRAY FROM VALUES
+    (1, '[9007199254740993, 2]', '[1.25, 3]'),
+    (2, '[9007199254740992]', '[2.5]')`,
   `CREATE SCHEMA "${ELSEWHERE}"`,
   `CREATE TABLE "${ELSEWHERE}"."CUSTOMERS" ("id" NUMBER(9,0) NOT NULL PRIMARY KEY)`,
   `CREATE TABLE "${SCHEMA}"."INVOICES" ("id" NUMBER(9,0) NOT NULL PRIMARY KEY, "customerId" NUMBER(9,0) REFERENCES "${ELSEWHERE}"."CUSTOMERS" ("id"))`,
@@ -773,6 +787,31 @@ describe.skipIf(credentials === undefined)("Snowflake, a real account", () => {
     ]);
   });
 
+  it("filters lists of numbers by has, hasSome and hasEvery, exactly past 2^53", async () => {
+    const ids = async (where: TallyWhere) =>
+      (
+        await db!.tally.findMany({
+          where,
+          orderBy: { id: "asc" },
+          select: { id: true },
+        })
+      ).map((row) => row.id);
+    expect(await db!.tally.findUnique({ where: { id: 1 } })).toMatchObject({
+      big: [9_007_199_254_740_993n, 2n],
+    });
+    expect(await ids({ big: { has: 9_007_199_254_740_993n } })).toEqual([1]);
+    expect(await ids({ big: { has: 9_007_199_254_740_992n } })).toEqual([2]);
+    expect(
+      await ids({ big: { hasSome: [9_007_199_254_740_993n, 5n] } })
+    ).toEqual([1]);
+    expect(
+      await ids({ big: { hasEvery: [9_007_199_254_740_993n, 2n] } })
+    ).toEqual([1]);
+    expect(await ids({ amounts: { has: "1.25" } })).toEqual([1]);
+    expect(await ids({ amounts: { hasSome: ["2.50", "9"] } })).toEqual([2]);
+    expect(await ids({ amounts: { hasEvery: ["1.25", "3"] } })).toEqual([1]);
+  });
+
   it("reads two levels of nested relations", async () => {
     const authors = await db!.author.findMany({
       orderBy: { id: "asc" },
@@ -1019,6 +1058,10 @@ describe.skipIf(credentials === undefined)("Snowflake, a real account", () => {
     );
   });
 });
+
+type TallyWhere = NonNullable<
+  Parameters<ReturnType<typeof client>["tally"]["findMany"]>[0]
+>["where"];
 
 type NoteWhere = NonNullable<
   Parameters<ReturnType<typeof client>["note"]["findMany"]>[0]

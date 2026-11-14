@@ -238,6 +238,10 @@ clock with no zone, and VibORM reads it, and compares it, as UTC. It runs with
 and a `bigint` inside a bound JSON object as a string (`{ a: 1n }` binds
 `{"a":"1"}`), so a JSON filter compares it with a string.
 
+A list filter (`has`, `hasSome`, `hasEvery`) compares each member as it is
+bound and as its text reads, so a `bigint` or `decimal` list matches the
+numbers a Snowflake `ARRAY` holds, exactly past 2^53 (measured).
+
 A `$queryRaw` result naming one column twice (`SELECT a.id, b.id`) is refused:
 a row holds one value per name. Alias one of them.
 
