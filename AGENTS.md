@@ -265,8 +265,8 @@ carries the figures of the release.
 
 **What an application that applies no extension carries:** 112 bytes of
 `src/extensions` (`isAppliedExtension` of `extension.ts`, the symbols of
-`origin.ts`), measured on `pg-representative`, which weighs 508,589 bytes
-minified, 10,733 under the host it replaced. It must not grow by one byte:
+`origin.ts`), measured on `pg-representative`, which weighs 508,794 bytes
+minified, 10,528 under the host it replaced. It must not grow by one byte:
 the client asks the chain, and a part's state on the chain carries the code
 that runs it (`chain.written.watch`, `chain.controls.admit`,
 `chain.observation.run`), so the client, the engine, the executor and the
@@ -339,7 +339,12 @@ a call only looks its facts up. A key an entry leaves out adds no
 restriction; `update.fields[f].where` replaces `update.where` for a write of
 `f`; `check` is the only re-judgement and is stated in SQL only where the
 update writes a field its predicate reads; a `lazy` entry is read when its
-model is first needed. `defaults` (`defaults.ts`, `order.ts`, `stamps.ts`,
+model is first needed. A projection key a `facts` declares (`$access`) is
+admitted by the operation's own `select` and `include` schemas, inside
+`parseProviding` (`projected.ts`, `src/validation/primitives/object.ts`),
+never taken out before validation and put back after: it stays where the
+caller wrote it, an empty `select` holding it as `false` is refused as any
+empty `select`, and no `data` admits it. `defaults` (`defaults.ts`, `order.ts`, `stamps.ts`,
 `plain-domain.ts`) brings neither the prepared filter domain nor argument
 admission. Inside a filter's own relation reads every other layer reads at
 its default and never its own (`PreparedDomain.defaults`, the `Queries`
@@ -507,9 +512,10 @@ authenticated by identity; the engine names none (the same census).
   `args` (the mutation option `cache` on `writes`; `cacheRead`, `bound`,
   which `$withCache()` binds), a `call` on `target(writes)` whose `settled`
   invalidates, an `around` on `target(reads)` with `{ inner: true }` keyed
-  by `key(run)` and storing `codec(run)`'s snapshot, and `methods`
-  (`$withCache`, `$invalidate`, which uses `settled(scope)`). Its scope is
-  derived from the private snapshot revision, `version`, and `database(x)`
+  by `key(run)` and storing the driver's rows through `codec(run)` (a hit
+  is decoded again by the engine), and `methods` (`$withCache`,
+  `$invalidate`, which uses `settled(scope)`). Its scope is derived from the
+  private storage revision (`r6`), `version`, and `database(x)`
   (dialect and SQL namespace), memoized by value inside the extension —
   never add a registry to hand an old one back.
 - `instrumentation(config)` (`src/instrumentation/extension.ts`): one

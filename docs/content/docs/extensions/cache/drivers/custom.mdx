@@ -29,13 +29,21 @@ abstract class CacheDriver {
 
 ### CacheEntry Type
 
-```typescript no-check
-interface CacheEntry<T = unknown> {
-  value: T;           // The cached data
-  createdAt: number;  // Timestamp when cached (Date.now())
-  ttl: number;        // Original TTL in milliseconds
-}
+```typescript
+import type { CacheEntry } from "viborm/cache";
+
+const now = Date.now();
+const entry: CacheEntry = {
+  value: [{ id: "u1" }],    // The cached data: for a read, the driver's rows as JSON data
+  createdAt: now,           // Timestamp when cached (Date.now())
+  ttl: 60_000,              // Original TTL in milliseconds
+  identity: "…",            // Official entries: the read's full identity, checked before decoding
+  expiresAt: now + 60_000,  // Logical expiry, independent of a backend's minimum physical TTL
+};
 ```
+
+A backend stores the entry as it is given and returns it unchanged: the
+official cache checks `identity` and `expiresAt` itself.
 
 ## Redis Example
 
