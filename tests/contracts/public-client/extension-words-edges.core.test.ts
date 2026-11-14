@@ -253,6 +253,36 @@ describe("unit words on a unit that lacks what they read", () => {
     expect(seen.statement).toBeUndefined();
   });
 
+  test("a transaction unit that runs SQL and refuses before next() rolls the transaction back", async () => {
+    const refusal = new Error("refused before the body");
+    const ran: unknown[] = [];
+    const base = await seeded();
+    const db = base.$extends(
+      extension(
+        "gate",
+        unit(
+          async (u) => {
+            // Opens the transaction, runs twice in it, then refuses.
+            ran.push(await run(u, sql`SELECT 1 AS one`));
+            ran.push(await run(u, sql`SELECT 2 AS two`));
+            throw refusal;
+          },
+          ["transaction"]
+        )
+      )
+    ) as Loose & {
+      $transaction(body: (tx: Loose) => Promise<unknown>): Promise<unknown>;
+    };
+    const failure = await db
+      .$transaction((tx) =>
+        tx.post.create({ data: { id: "p9", title: "z", ownerId: "u1" } })
+      )
+      .catch((error: unknown) => error);
+    expect(failure).toBe(refusal);
+    expect(ran).toEqual([[{ one: 1 }], [{ two: 2 }]]);
+    expect(ids(await base.post.findMany({}))).toEqual(["p1", "p2"]);
+  });
+
   test("on a value no producer made, each word reads nothing", () => {
     const foreign = { kind: "operation" } as never as UnitContext;
     expect(text(foreign)).toBeUndefined();
