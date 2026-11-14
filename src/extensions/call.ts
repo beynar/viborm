@@ -117,7 +117,7 @@ export interface RunCapabilities {
 
 type SecondMoment = (run: unknown) => unknown;
 
-const NO_VALUES: AdmittedControls = Object.freeze({});
+const NO_VALUES: AdmittedControls = /* @__PURE__ */ Object.freeze({});
 
 /**
  * One part's first moment against one schema. What the handler throws

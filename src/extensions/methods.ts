@@ -334,8 +334,10 @@ export interface ExtensionMethods {
   readonly model: (model: string) => MethodRecord;
 }
 
-const NO_METHODS: MethodRecord = Object.freeze(Object.create(null));
-const NO_LAYER: ExtensionMethods = Object.freeze({
+const NO_METHODS: MethodRecord = /* @__PURE__ */ Object.freeze(
+  Object.create(null)
+);
+const NO_LAYER: ExtensionMethods = /* @__PURE__ */ Object.freeze({
   client: () => NO_METHODS,
   model: () => NO_METHODS,
 });
