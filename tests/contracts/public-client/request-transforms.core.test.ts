@@ -16,6 +16,7 @@ import {
   target as extTarget,
   methods,
   models,
+  target,
   watch,
 } from "@src/index";
 import { readTestTransactionOperation } from "@tests/fixtures/transaction-operation";
@@ -205,7 +206,7 @@ describe("public request-transform integration", () => {
             calls.push("B");
             expect(c.args.take).toBe(3);
             c.set({ skip: 1 });
-          })
+          }, target(models))
         )
       )
       .$extends(
@@ -252,7 +253,7 @@ describe("public request-transform integration", () => {
             return;
           }
           c.set({});
-        })
+        }, target(models))
       )
     );
 
@@ -280,7 +281,7 @@ describe("public request-transform integration", () => {
         "empty-unique",
         call((c) => {
           c.set({ where: {}, unknownPatchedKey: true });
-        })
+        }, target(models))
       )
     );
     const operation = client.entry.findUnique({ where: { id: "caller" } });
@@ -296,7 +297,7 @@ describe("public request-transform integration", () => {
         "unknown-patch",
         call((c) => {
           c.set({ unknownPatchedKey: true });
-        })
+        }, target(models))
       )
     );
     const operation = client.entry.findMany();
@@ -316,7 +317,7 @@ describe("public request-transform integration", () => {
           call((c) => {
             handlerInput = c.args;
             c.set({ take: 1 });
-          })
+          }, target(models))
         )
       );
 
@@ -403,7 +404,7 @@ describe("public request-transform integration", () => {
           expect(() => c.set(protectedPatch(c.operation))).toThrow(
             "decides the result's shape"
           );
-        })
+        }, target(models))
       )
     );
 
@@ -496,7 +497,7 @@ describe("public request-transform integration", () => {
     const patching = integratedClient().$extends(
       extension(
         "patching",
-        call((c) => c.set({ take: 1 }))
+        call((c) => c.set({ take: 1 }), target(models))
       )
     );
     await expect(patching.$queryRawUnsafe("SELECT 1")).rejects.toThrow(

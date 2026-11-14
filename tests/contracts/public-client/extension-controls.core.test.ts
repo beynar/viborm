@@ -39,11 +39,13 @@ import {
   target as extTarget,
   keep,
   methods,
+  models,
   oneOf,
   reads,
   rule,
   settled,
   statement,
+  target,
   unit,
   unless,
   when,
@@ -267,7 +269,7 @@ describe("controls: admission and ownership", () => {
             };
             record("tenant-request", context);
             c.set({});
-          })
+          }, target(models))
         )
       )
       .$extends(
@@ -282,7 +284,7 @@ describe("controls: admission and ownership", () => {
             };
             record("bystander-request", context);
             c.set({});
-          }),
+          }, target(models)),
           around((c) => (run) => {
             const context = {
               proceed: run,
@@ -378,7 +380,7 @@ describe("controls: admission and ownership", () => {
           call((c) => {
             patches.push("own");
             c.set({ reason: "b" });
-          })
+          }, target(models))
         )
       ),
       // An extension applied before the declaring one patches its control.
@@ -397,7 +399,7 @@ describe("controls: admission and ownership", () => {
                   },
                 })
               );
-            })
+            }, target(models))
           )
         )
         .$extends(extension("declaring", extArgs({ reason: oneOf("a", "b") }))),
@@ -429,7 +431,7 @@ describe("controls: admission and ownership", () => {
             call((c) => {
               patches.push("later");
               c.set({ deleted: "with" });
-            })
+            }, target(models))
           )
         ),
     ];
@@ -616,7 +618,7 @@ describe("controls: admission and ownership", () => {
         call((c) => {
           timeline.push("request");
           c.set({});
-        })
+        }, target(models))
       )
     );
     const operation = db.post.findMany({ reason: "why", select: { id: true } });

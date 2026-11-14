@@ -9,6 +9,7 @@ import {
   createClient,
   extension as extExtension,
   methods,
+  models,
   s,
   target,
   unit,
@@ -60,7 +61,7 @@ describe("official default omit foundation", () => {
           "request",
           call((c) => {
             c.set({});
-          })
+          }, target(models))
         )
       ),
       base.$extends(
