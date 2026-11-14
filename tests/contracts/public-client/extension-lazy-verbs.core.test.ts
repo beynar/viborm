@@ -434,3 +434,24 @@ test("a cached read keys an eager entry's function acyclic, and lazy rows by the
   }
   expect(resolved).toBe(1);
 });
+
+test("a mode and a lazy entry that read only the call's instant name no control, and their calls carry their scope", () => {
+  const event = s.model({ id: s.string().id(), at: s.dateTime() });
+  const past = { at: { lte: { now: true } } };
+  const chain = appendResolvedExtension(
+    undefined,
+    {
+      name: "instant",
+      rows: {
+        control: "when",
+        default: "past",
+        models: { event: { past: { root: past } } },
+        verbs: { event: () => ({ predicates: { past }, read: "past" }) },
+      },
+    },
+    { event }
+  );
+  const binding = chain.callRows!;
+  expect(binding.parametric).toEqual([true]);
+  expect(binding.physical[0]!.domain.verbs!.get("event")).toHaveLength(1);
+});
