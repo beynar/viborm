@@ -371,8 +371,18 @@ export function admitLayer(
     ? host.admit(admitting, layer, filtersOf, references)
     : NO_VERBS;
   const confine: Record<string, Input> = {};
-  for (const [name, predicate] of Object.entries(layer.confine))
+  for (const [name, predicate] of Object.entries(layer.confine)) {
+    // The model's own columns: a confinement reads no relation, so lowering
+    // it never builds another set it would confine in turn.
+    const { scalars } = schema[name]!["~"].state;
+    for (const field of Object.keys(predicate ?? {}))
+      if (!Object.hasOwn(scalars, field))
+        throw new ClientInitializationError(
+          `Extension "${extension}" rule.${name}.confine: names "${field}", which is not a scalar field: a confinement states the model's own columns.`,
+          { meta: { extension, model: name } }
+        );
     confine[name] = admit(name, `${name}.confine`, predicate, references);
+  }
   const layered = layer.layered ?? admitting.layered;
   const out: AdmittedLayer = Object.freeze({
     extension,
