@@ -279,13 +279,13 @@ describe("permissions: an update that writes the field its rule reads", () => {
 });
 
 describe("defaultOmit", () => {
-  test("a second defaultOmit() on one chain is refused as a duplicate, and its refusal says what adds up", async () => {
+  test("a second defaultOmit() on one chain is refused as any extension applied twice", async () => {
     const base = await seeded();
     const once = base.$extends(defaultOmit({ post: { title: true } } as never));
     expect(() =>
       once.$extends(defaultOmit({ post: { deletedAt: true } } as never))
     ).toThrow(
-      'Extension "viborm.defaultOmit" is already present on this client. A chain applies defaultOmit() once: give it every field to leave out, or omit fields from another extension with defaults({ model: { fields: { field: omitted } } }); the omissions of different extensions add up per model.'
+      'Extension "viborm.defaultOmit" is already present on this client.'
     );
   });
 

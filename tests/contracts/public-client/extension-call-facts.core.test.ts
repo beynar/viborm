@@ -441,7 +441,7 @@ describe("codec(run)", () => {
 });
 
 describe("database(x)", () => {
-  test("is the dialect and SQL namespace a call, its run and a method's scope work against", async () => {
+  test("is the dialect, SQL namespace and driver name a call, its run and a method's scope work against", async () => {
     const seen: unknown[] = [];
     const { client } = base();
     const db = client.$extends(
@@ -460,9 +460,21 @@ describe("database(x)", () => {
     await db.item.findMany();
     seen.push(db.$where());
     expect(seen).toEqual([
-      { dialect: "postgresql", namespace: "public" },
-      { dialect: "postgresql", namespace: "public" },
-      { dialect: "postgresql", namespace: "public" },
+      {
+        dialect: "postgresql",
+        namespace: "public",
+        driverName: "sql-only-postgresql",
+      },
+      {
+        dialect: "postgresql",
+        namespace: "public",
+        driverName: "sql-only-postgresql",
+      },
+      {
+        dialect: "postgresql",
+        namespace: "public",
+        driverName: "sql-only-postgresql",
+      },
     ]);
     expect(() => database({})).toThrow(TypeError);
   });

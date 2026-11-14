@@ -29,11 +29,11 @@ Never restore `cache`, `cacheVersion`, or `waitUntil` to `createClient()`.
 The chain names nothing of the cache, the engine names nothing of it, and
 the client holds no cache capability, lookup or trigger point: what the
 cache needs that a third party could not take is a public word to add, not
-a friend import. Its remaining private reads are listed in
-`tests/contracts/public-client/extension-imports.core.test.ts` (`PENDING`):
-a call's execution context and driver (`callOf`/`scopeOf`, `originOf`),
-whether its chain observes units, a method's operation context, the clock,
-private validation helpers.
+a friend import. It imports only public names
+(`tests/contracts/public-client/extension-imports.core.test.ts`): its units
+belong to the call's `c` or `run`, or to a method's scope (`work`), its
+revalidation names the database by `database(run)`, and its time comes from
+its own `CacheClock` (`driver.ts`), which a test hands a virtual one.
 
 ## Owners
 
@@ -44,7 +44,7 @@ private validation helpers.
 | `key.ts` | The official namespace (`createOfficialCacheNamespace`), its injective encoding, and the hash that names an entry inside it |
 | `src/extensions/codec.ts` | `codec(run)`: `run()` keeps the driver's rows for the read's one statement, `snapshot()` gives them as JSON data, `materialize(stored)` decodes them again through the read's own parser |
 | `result-codec.ts` | `cacheCodec`: the call's `codec(run)` with its failures made the cache's (`CacheConfigurationError`, naming the step, exposing no value) |
-| `units.ts`, `unit-facts.ts` | The cache's own `cache` units (`get`, `set`, `invalidate`, `revalidate`, and an invalidation's `delete` and `clear`), emitted with `work` and noted with `note`; `cacheFacts` and `cacheOutcomes`, which an observer reads, in a module that does not import the driver |
+| `units.ts` | The cache's own `cache` units (`get`, `set`, `invalidate`, `revalidate`, and an invalidation's `delete` and `clear`), emitted with `work`; what a presenter shows of each (its span, its attributes, its outcomes as logs) noted with `note`, as an `InstrumentationNote` |
 | `cache-background.ts` | The stale hit's one background promise |
 | `schema.ts`, `ttl.ts` | Per-read options and mutation invalidation options; TTL parsing |
 | `drivers/*` | Backend-only get/set/delete/clear primitives |
@@ -200,12 +200,16 @@ transport nor shares a `findUnique` batch (Stored rows, above).
 ## Instrumentation and privacy
 
 Cache get, set, invalidate, and actual revalidation work are `cache` units
-the cache emits with `work` (`units.ts`), only when the chain observes units
-(an unobserved step builds no unit), seen by every `unit` part that listens
-to that kind; a read's outcome (`hit`, stale `hit`, `miss`, `bypass`,
-`cache-set-failed`) is noted on the call's `operation` unit. Core contains no
-observer's faults and selects no trusted observer: official instrumentation
-reads `cacheFacts`/`cacheOutcomes` like any extension could.
+the cache emits with `work` (`units.ts`; without a chain that observes
+units, a step runs alone), seen by every `unit` part that listens to that
+kind; a read's outcome (`hit`, stale `hit`, `miss`, `bypass`,
+`cache-set-failed`) is noted on the call's `operation` unit. What a
+presenter shows is noted too, in the public shape `InstrumentationNote`: a
+span name and its attributes as a unit starts (`cache.driver`, `cache.ttl`;
+the revalidation as a root `viborm.operation` with the read's database),
+`cache.result` once a get answered, each outcome as a `cache` log. Core
+contains no observer's faults and selects no trusted observer; the official
+instrumentation presents these notes as it presents any extension's.
 Cache keys and suffixes never reach units, spans, logs, errors, or correlation.
 
 ## Backend rules

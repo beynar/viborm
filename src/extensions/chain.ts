@@ -68,7 +68,7 @@ export function appendParts(
   const { name } = definition;
   if (chain?.extensions.some((extension) => extension.name === name))
     extensionError(
-      `Extension "${name}" is already present on this client.${definition.duplicate ?? ""}`,
+      `Extension "${name}" is already present on this client.`,
       name
     );
   const next: Draft = {

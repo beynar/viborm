@@ -60,7 +60,8 @@ function reader(
         waitUntil: (p) => pending.push(p),
         model: "post",
         operation: "count",
-        origin: { context: undefined },
+        origin: {},
+        database: { dialect: "sqlite", namespace: undefined, driverName: "t" },
       }),
   };
 }

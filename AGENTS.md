@@ -385,15 +385,15 @@ was validated upstream and rewrites are trusted.
 **Official extensions are built with public names.** Each is an ordinary
 `extension(…)` of public parts, applied in one step, in any order.
 `tests/contracts/public-client/extension-imports.core.test.ts` holds
-`viborm/on`, `viborm/ordering`, `viborm/permissions` and
-`viborm/soft-delete` to names the public entries export; its `PENDING` list
-says what `viborm/cache` (a call's execution context and driver through
-`callOf`/`scopeOf`, whether its chain observes units, a method's operation
-context, the clock, private validation helpers) and
-`viborm/instrumentation` (error sanitizers, driver identity, the cache's
-unit facts, private value guards) still take: those are capabilities to make
-public, never friend imports to add. No official extension is
-authenticated by identity; the engine names none (the same census).
+`viborm/cache`, `defaultOmit`, `viborm/on`, `viborm/ordering`,
+`viborm/permissions` and `viborm/soft-delete` to names the public entries
+export; its `PENDING` list says what `viborm/instrumentation` still takes
+(the private error, parameter and metadata sanitizers): a capability to
+make public, never a friend import to add. No official extension is
+authenticated by identity; the engine names none (the same census). Two
+official extensions talk only through public facts: the cache publishes
+its units' presentation as notes (`InstrumentationNote`), which the
+instrumentation presents whoever wrote them.
 
 - `defaultOmit(config)` (`src/client/default-omit-extension.ts`, entry
   `viborm/client`): `defaults(() => entries)` with `omitted`, named
@@ -534,7 +534,7 @@ INSTALL — own, non-writable, non-configurable — not a ban on copies: models,
 relations, query scopes, operation programs, result types, journals, cache
 identity, and instrumentation read it or do without it, and the two readers that
 deliberately capture it once — the bound migration driver at bind time, and the
-`readDriverIdentity` snapshot a cached read takes at `$withCache` — cannot go stale
+`database(run)` a cached read takes when it is served — cannot go stale
 because the property they read can never be reassigned.
 
 Every VibORM-generated persistent-object reference goes through

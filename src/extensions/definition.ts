@@ -41,11 +41,6 @@ export interface RuntimeExtensionDefinition {
   readonly omit?: ClientOmitConfig<Schema>;
   /** What an error of a call may carry (`disclosure`). */
   readonly disclosure?: DiagnosticDisclosure;
-  /**
-   * What the refusal of a second application of this extension adds: how
-   * one application, or another extension, does what the author wanted.
-   */
-  readonly duplicate?: string;
 }
 
 export type ControlLiteral = string | number | boolean;

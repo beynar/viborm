@@ -20,7 +20,7 @@ import { CacheConfigurationError } from "../errors/cache";
 import { accepts, args, bound } from "../extensions/args";
 import { around, call } from "../extensions/call";
 import { codec } from "../extensions/codec";
-import { database } from "../extensions/database";
+import { type Database, database } from "../extensions/database";
 import { extension } from "../extensions/extension";
 import { key } from "../extensions/key";
 import { methods } from "../extensions/methods-part";
@@ -44,7 +44,6 @@ import {
   validateCacheableOperation,
   type WithCacheOptions,
 } from "./schema";
-import { originOf } from "./units";
 
 export interface CacheExtensionConfig {
   readonly driver: CacheDriver;
@@ -127,8 +126,7 @@ export function cache(config: CacheExtensionConfig): unknown {
 
   // Pure in its facts: the same version and database always give one scope.
   const namespaces = new Map<string, string>();
-  const namespaceOf = (x: object): string => {
-    const { dialect, namespace } = database(x);
+  const namespaceOf = ({ dialect, namespace }: Database): string => {
     const id = JSON.stringify([dialect, namespace ?? null]);
     let scope = namespaces.get(id);
     if (scope === undefined) {
@@ -144,8 +142,8 @@ export function cache(config: CacheExtensionConfig): unknown {
     invalidateOfficialCache(
       driver,
       options,
-      originOf(origin).context,
-      namespaceOf(origin)
+      origin,
+      namespaceOf(database(origin))
     );
 
   return extension(
@@ -198,15 +196,17 @@ export function cache(config: CacheExtensionConfig): unknown {
           if (run.mode !== "direct") return run();
           const id = key(run);
           if (id === undefined) return run();
+          const db = database(run);
           return serveOfficialRead(driver, {
             id,
             codec: cacheCodec(codec(run), c.operation),
             read,
-            namespace: namespaceOf(run),
+            namespace: namespaceOf(db),
             waitUntil,
             model,
             operation: c.operation,
-            origin: originOf(run),
+            origin: run,
+            database: db,
           });
         };
       },

@@ -7,8 +7,9 @@
  */
 
 import { CacheInvalidKeyError } from "@errors";
+import type { Database } from "@extensions/database";
 import { note } from "@extensions/unit-words";
-import { type Clock, systemClock } from "../clock";
+import { ATTR_CACHE_RESULT } from "../instrumentation/spans";
 import {
   REVALIDATING_SUFFIX,
   REVALIDATING_TTL_MS,
@@ -20,16 +21,38 @@ import {
   type CacheReadOptions,
   hasCacheInvalidationWork,
 } from "./schema";
-import type { CacheNote } from "./unit-facts";
 import {
-  type CacheContext,
-  type CacheOrigin,
   cacheOutcome,
   cacheStep,
   placeSetFailure,
-  recordOutcome,
   revalidation,
 } from "./units";
+
+/** A timer a `CacheClock` armed, cancelled through its handle. */
+export interface CacheTimer {
+  cancel(): void;
+  /** Release the host's hold on the event loop, where it has one. */
+  unref?(): void;
+}
+
+/**
+ * Where a cache reads time and arms its timers: the host's own, unless a
+ * test hands a clock it advances instead of sleeping through a TTL.
+ */
+export interface CacheClock {
+  now(): number;
+  setTimeout(callback: () => void, ms: number): CacheTimer;
+}
+
+const hostClock: CacheClock = {
+  // Read when called: a test's fake timers replace `Date.now`.
+  now: () => Date.now(),
+  setTimeout: (callback, ms) => {
+    const timer = setTimeout(callback, ms);
+    // A host that is not Node hands back a number, with no `unref`.
+    return { cancel: () => clearTimeout(timer), unref: () => timer.unref?.() };
+  },
+};
 
 /** Extend a request lifetime until background cache work settles. */
 export type WaitUntilFn = (promise: Promise<unknown>) => void;
@@ -73,7 +96,10 @@ export interface CacheServe<T> {
   readonly waitUntil: WaitUntilFn | undefined;
   readonly model: string;
   readonly operation: string;
-  readonly origin: CacheOrigin;
+  /** The call's `run`: what the read's units and outcomes belong to. */
+  readonly origin: object;
+  /** The database the read works against, which a revalidation presents. */
+  readonly database: Database;
 }
 
 type Serve = <T>(cache: CacheDriver, request: CacheServe<T>) => Promise<T>;
@@ -82,7 +108,7 @@ let serveFriend: Serve;
 type Invalidate = (
   cache: CacheDriver,
   options: CacheInvalidationOptions | undefined,
-  context: CacheContext | undefined,
+  origin: object | undefined,
   namespace: string
 ) => Promise<void>;
 let invalidateFriend: Invalidate;
@@ -109,15 +135,15 @@ export abstract class CacheDriver {
    * not public API: it exists so tests can advance time rather than sleep
    * through a TTL. Defaults to the host clock.
    */
-  protected readonly clock: Clock;
+  protected readonly clock: CacheClock;
 
   static {
     serveFriend = (cache, request) => cache.#serve(request);
-    invalidateFriend = (cache, options, context, namespace) =>
-      cache.#invalidateScoped("", options, context, namespace);
+    invalidateFriend = (cache, options, origin, namespace) =>
+      cache.#invalidateScoped("", options, origin, namespace);
   }
 
-  constructor(driverName: string, clock: Clock = systemClock) {
+  constructor(driverName: string, clock: CacheClock = hostClock) {
     this.driverName = driverName;
     this.clock = clock;
   }
@@ -161,7 +187,6 @@ export abstract class CacheDriver {
 
   async #serve<T>(request: CacheServe<T>): Promise<T> {
     const { id, read, namespace, codec, model, operation, origin } = request;
-    const { context } = origin;
     const cacheKey = `${model}:${operation}:${fastHash(id)}${read.key === undefined ? "" : `:${read.key}`}`;
     const identity = JSON.stringify([id, read.key]);
     const revision = this.#fillRevision;
@@ -170,14 +195,14 @@ export abstract class CacheDriver {
     if (read.bypass) {
       const result = await codec.run();
       this.#setResultInBackground(cacheKey, request, identity, revision);
-      recordOutcome(context, "bypass");
+      note(origin, cacheOutcome("bypass"));
       return result;
     }
 
     // Try to get from cache
     const cached = await this.#getCachedResult<T>(
       cacheKey,
-      context,
+      origin,
       namespace,
       codec,
       identity
@@ -187,7 +212,7 @@ export abstract class CacheDriver {
       const age = this.clock.now() - cached.createdAt;
       if (age < cached.ttl) {
         // Fresh cache hit
-        recordOutcome(context, "hit");
+        note(origin, cacheOutcome("hit"));
         return cached.value;
       }
 
@@ -210,7 +235,7 @@ export abstract class CacheDriver {
           ),
           request.waitUntil
         );
-        recordOutcome(context, "hit", "stale");
+        note(origin, cacheOutcome("hit", "stale"));
         return cached.value;
       }
 
@@ -220,18 +245,18 @@ export abstract class CacheDriver {
     // Cache miss or stale without SWR - execute query
     const result = await codec.run();
     this.#setResultInBackground(cacheKey, request, identity, revision);
-    recordOutcome(context, "miss");
+    note(origin, cacheOutcome("miss"));
     return result;
   }
 
   async #getCachedResult<T>(
     key: string,
-    context: CacheContext | undefined,
+    origin: object,
     namespace: string,
     codec: DetachedCacheResultCodec<T>,
     identity: string
   ): Promise<CacheEntry<T> | null> {
-    const cached = await this.#getScoped<unknown>(key, context, namespace);
+    const cached = await this.#getScoped<unknown>(key, origin, namespace);
     return cached === null ||
       cached.identity !== identity ||
       !Number.isFinite(cached.createdAt) ||
@@ -261,7 +286,7 @@ export abstract class CacheDriver {
     try {
       stored = request.codec.snapshot();
     } catch (error) {
-      recordOutcome(origin.context, "miss", "cache-set-failed", error);
+      note(origin, cacheOutcome("miss", "cache-set-failed", error));
       return;
     }
     // The observed set unit presents a failure; without the catch it would
@@ -273,9 +298,9 @@ export abstract class CacheDriver {
         ttl: read.ttlMs,
         swrTtl: read.swr !== false ? read.swr : undefined,
       },
-      origin.context,
+      origin,
       request.namespace,
-      origin.context,
+      request,
       identity,
       revision
     ).catch(() => undefined);
@@ -308,59 +333,46 @@ export abstract class CacheDriver {
     // Another request is handling revalidation, skip
     if (!shouldRevalidate) return;
 
-    await revalidation(
-      origin,
-      request.model,
-      request.operation,
-      async (observed) => {
-        let terminal: ReturnType<typeof cacheOutcome>;
+    await revalidation(origin, request, request.database, async (failure) => {
+      let terminal: ReturnType<typeof cacheOutcome>;
+      try {
+        await codec.run();
+        const stored = codec.snapshot();
+        await this.#setScoped(
+          cacheKey,
+          stored,
+          { ttl: read.ttlMs, swrTtl },
+          origin,
+          namespace,
+          undefined,
+          identity,
+          revision
+        );
+        terminal = cacheOutcome("revalidate", "success", undefined, request);
+      } catch (error) {
+        // Background work never rejects; its unit presents the failure.
+        failure.failed = true;
+        failure.error = error;
+        terminal = cacheOutcome("revalidate", "error", error, request);
+      } finally {
         try {
-          await codec.run();
-          const stored = codec.snapshot();
-          await this.#setScoped(
-            cacheKey,
-            stored,
-            { ttl: read.ttlMs, swrTtl },
-            origin.context,
-            namespace,
-            undefined,
-            identity,
-            revision
-          );
-          terminal = cacheOutcome("revalidate", "success");
-        } catch (error) {
-          // Background work never rejects; the observed unit presents it.
-          if (observed !== undefined) {
-            observed.failed = true;
-            observed.error = error;
-          }
-          terminal = cacheOutcome("revalidate", "error", error);
-        } finally {
-          if (observed === undefined) {
-            await this.#clearRevalidatingScoped(cacheKey, namespace).catch(
-              () => undefined
+          await this.#clearRevalidatingScoped(cacheKey, namespace);
+        } catch (cleanupFailure) {
+          if (failure.failed) {
+            const workerFailure = failure.error;
+            failure.error = new AggregateError(
+              [workerFailure, cleanupFailure],
+              "Cache revalidation work and cleanup both failed.",
+              { cause: workerFailure }
             );
           } else {
-            try {
-              await this.#clearRevalidatingScoped(cacheKey, namespace);
-            } catch (cleanupFailure) {
-              if (observed.failed) {
-                const workerFailure = observed.error;
-                observed.error = new AggregateError(
-                  [workerFailure, cleanupFailure],
-                  "Cache revalidation work and cleanup both failed.",
-                  { cause: workerFailure }
-                );
-              } else {
-                observed.failed = true;
-                observed.error = cleanupFailure;
-              }
-            }
+            failure.failed = true;
+            failure.error = cleanupFailure;
           }
         }
-        return terminal;
       }
-    );
+      return terminal;
+    });
   }
 
   // ============================================================
@@ -371,31 +383,28 @@ export abstract class CacheDriver {
    * Get a value from cache
    * @param key - Cache key (will be prefixed automatically)
    */
-  async _get<T>(
-    key: string,
-    context?: CacheContext
-  ): Promise<CacheEntry<T> | null> {
-    return this.#getScoped<T>(key, context);
+  async _get<T>(key: string, origin?: object): Promise<CacheEntry<T> | null> {
+    return this.#getScoped<T>(key, origin);
   }
 
   async #getScoped<T>(
     key: string,
-    context?: CacheContext,
+    origin?: object,
     namespace?: string
   ): Promise<CacheEntry<T> | null> {
     const prefixedKey = this.#prefixKey(key, namespace);
-    return cacheStep("get", context, this.driverName, async (unit) => {
+    return cacheStep("get", origin, this.driverName, async (unit) => {
       const entry = await this.get<T>(prefixedKey);
-      if (unit !== undefined) {
-        const fact: CacheNote = {
-          cacheResult: entry
-            ? this.clock.now() - entry.createdAt > entry.ttl
-              ? "stale"
-              : "hit"
-            : "miss",
-        };
-        note(unit, fact);
-      }
+      if (unit !== undefined)
+        note(unit, {
+          attributes: {
+            [ATTR_CACHE_RESULT]: entry
+              ? this.clock.now() - entry.createdAt > entry.ttl
+                ? "stale"
+                : "hit"
+              : "miss",
+          },
+        });
       return entry;
     });
   }
@@ -410,19 +419,19 @@ export abstract class CacheDriver {
     key: string,
     value: T,
     options: CacheSetOptions,
-    context?: CacheContext
+    origin?: object
   ): Promise<void> {
-    return this.#setScoped(key, value, options, context);
+    return this.#setScoped(key, value, options, origin);
   }
 
   async #setScoped<T>(
     key: string,
     value: T,
     options: CacheSetOptions,
-    context?: CacheContext,
+    origin?: object,
     namespace?: string,
-    /** The logical execution a background set belongs to, which a failure joins. */
-    backgroundOf?: CacheContext,
+    /** The read a background set belongs to, whose outcomes a failure joins. */
+    background?: CacheServe<unknown>,
     identity?: string,
     revision?: number
   ): Promise<void> {
@@ -445,7 +454,7 @@ export abstract class CacheDriver {
 
     return cacheStep(
       "set",
-      context,
+      origin,
       this.driverName,
       async (unit) => {
         try {
@@ -455,8 +464,8 @@ export abstract class CacheDriver {
           if (revision !== undefined && revision !== this.#fillRevision)
             await this.delete([prefixedKey]);
         } catch (failure) {
-          if (backgroundOf !== undefined && unit !== undefined)
-            placeSetFailure(backgroundOf, failure, unit);
+          if (background !== undefined && unit !== undefined)
+            placeSetFailure(background.origin, failure, unit, background);
           throw failure;
         }
       },
@@ -468,18 +477,18 @@ export abstract class CacheDriver {
    * Delete a specific key (and its revalidating key)
    * @param key - Cache key (will be prefixed automatically)
    */
-  async _delete(key: string, context?: CacheContext): Promise<void> {
+  async _delete(key: string, origin?: object): Promise<void> {
     const prefixedKey = this.#prefixKey(key);
-    return this.#deletePrefixed(prefixedKey, context);
+    return this.#deletePrefixed(prefixedKey, origin);
   }
 
   /**
    * Clear cache by prefix or all within the public unscoped namespace.
    * @param prefix - Optional prefix to clear (will be prefixed automatically)
    */
-  async _clear(prefix?: string, context?: CacheContext): Promise<void> {
+  async _clear(prefix?: string, origin?: object): Promise<void> {
     const prefixedPrefix = this.#prefixKey(prefix ?? "");
-    return this.#clearPrefixed(prefixedPrefix, context);
+    return this.#clearPrefixed(prefixedPrefix, origin);
   }
 
   /**
@@ -537,15 +546,15 @@ export abstract class CacheDriver {
   async _invalidate(
     modelName: string,
     options?: CacheInvalidationOptions,
-    context?: CacheContext
+    origin?: object
   ): Promise<void> {
-    return this.#invalidateScoped(modelName, options, context);
+    return this.#invalidateScoped(modelName, options, origin);
   }
 
   async #invalidateScoped(
     modelName: string,
     options?: CacheInvalidationOptions,
-    context?: CacheContext,
+    origin?: object,
     namespace?: string
   ): Promise<void> {
     if (!hasCacheInvalidationWork(options)) return;
@@ -570,13 +579,13 @@ export abstract class CacheDriver {
         });
       }
     }
-    return cacheStep("invalidate", context, this.driverName, async () => {
+    return cacheStep("invalidate", origin, this.driverName, async (unit) => {
       const promises: Promise<void>[] = [];
       for (const target of targets) {
         promises.push(
           target.kind === "clear"
-            ? this.#clearPrefixed(target.prefixedKey, context)
-            : this.#deletePrefixed(target.prefixedKey, context)
+            ? this.#clearPrefixed(target.prefixedKey, unit)
+            : this.#deletePrefixed(target.prefixedKey, unit)
         );
       }
       await Promise.all(promises);
@@ -597,17 +606,17 @@ export abstract class CacheDriver {
   // INTERNAL HELPERS
   // ============================================================
 
-  #deletePrefixed(prefixedKey: string, context?: CacheContext): Promise<void> {
+  #deletePrefixed(prefixedKey: string, origin?: object): Promise<void> {
     this.#fillRevision += 1;
     const keys = [prefixedKey, `${prefixedKey}${REVALIDATING_SUFFIX}`];
-    return cacheStep("delete", context, this.driverName, () =>
+    return cacheStep("delete", origin, this.driverName, () =>
       this.delete(keys)
     );
   }
 
-  #clearPrefixed(prefixedKey: string, context?: CacheContext): Promise<void> {
+  #clearPrefixed(prefixedKey: string, origin?: object): Promise<void> {
     this.#fillRevision += 1;
-    return cacheStep("clear", context, this.driverName, () =>
+    return cacheStep("clear", origin, this.driverName, () =>
       this.clear(prefixedKey)
     );
   }
@@ -672,8 +681,8 @@ export function serveOfficialRead<T>(
 export function invalidateOfficialCache(
   cache: CacheDriver,
   options: CacheInvalidationOptions | undefined,
-  context: CacheContext | undefined,
+  origin: object | undefined,
   namespace: string
 ): Promise<void> {
-  return invalidateFriend(cache, options, context, namespace);
+  return invalidateFriend(cache, options, origin, namespace);
 }
