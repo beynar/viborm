@@ -98,7 +98,7 @@ function cached(
 const settle = () => new Promise((resolve) => setTimeout(resolve, 5));
 
 describe("what the cache leaves alone", () => {
-  it("a read outside the view and a write with no invalidation run as they would", async () => {
+  it("a read outside the view and a write run as they would", async () => {
     const driver = new RowsDriver();
     const db = cached(driver);
     await db.item.findMany({});
@@ -106,6 +106,24 @@ describe("what the cache leaves alone", () => {
     expect(driver.sent).toBe(2);
     await db.item.create({ data: { id: "i2", name: "two" } });
     expect(driver.sent).toBe(3);
+  });
+
+  it("a write that turns automatic invalidation off leaves what the view stored", async () => {
+    const driver = new RowsDriver();
+    const db = cached(driver);
+    await db.$withCache().item.findMany({});
+    await settle();
+    await db.item.create({
+      data: { id: "i2", name: "two" },
+      cache: { autoInvalidate: false },
+    });
+    const sent = driver.sent;
+    await db.$withCache().item.findMany({});
+    expect(driver.sent).toBe(sent);
+    // A write that keeps it on clears the model's entries.
+    await db.item.create({ data: { id: "i3", name: "three" } });
+    await db.$withCache().item.findMany({});
+    expect(driver.sent).toBe(sent + 2);
   });
 
   it("the read view refuses a write", async () => {
