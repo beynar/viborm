@@ -8,6 +8,8 @@ import type {
   ArgWord,
   ExistsWord,
   HeldArg,
+  HeldOperand,
+  IsHeld,
   NowWord,
   ProvidedWord,
   RowWord,
@@ -118,7 +120,7 @@ export function exists(spec: Readonly<Record<string, object>>): unknown {
  * per-model callback): nothing types its filter, so it fits any filter's
  * place, and the rule's model admits it where it is applied.
  */
-type HeldWhen<N extends string, W> = unknown extends W
+type HeldWhen<N extends string, W> = IsHeld<W> extends true
   ? WhenWord<never, never>
   : WhenWord<N, W>;
 
@@ -126,7 +128,7 @@ type HeldWhen<N extends string, W> = unknown extends W
 export function when<N extends string, W>(
   tested: ArgWord<NoInfer<N>> | HeldArg,
   test: ArgTest,
-  then: NoInfer<W>
+  then: HeldOperand<W>
 ): HeldWhen<N, W>;
 export function when(tested: unknown, test: ArgTest, then: unknown): unknown {
   return new ArgTestFilter("when", argValueOf(tested, "when"), test, then);
@@ -136,7 +138,7 @@ export function when(tested: unknown, test: ArgTest, then: unknown): unknown {
 export function unless<N extends string, W>(
   tested: ArgWord<NoInfer<N>> | HeldArg,
   test: ArgTest,
-  then: NoInfer<W>
+  then: HeldOperand<W>
 ): HeldWhen<N, W>;
 export function unless(tested: unknown, test: ArgTest, then: unknown): unknown {
   return new ArgTestFilter("unless", argValueOf(tested, "unless"), test, then);

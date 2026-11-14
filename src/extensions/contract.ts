@@ -13,6 +13,7 @@
 
 import type {
   ClientTypeState,
+  LinkedConfigOf,
   VibORMClientMembers,
   VibORMConfig,
 } from "@client/client";
@@ -622,6 +623,21 @@ export interface HeldArg {
   readonly [heldArg]: true;
 }
 
+/**
+ * Whether a word's operand type was read from no rule: `unknown` (written
+ * apart from any rule), or `never` (typed by another held word, as in an
+ * array of them). Such a word is held: any operand, refused or admitted by
+ * the rule's model where the extension is applied (spec 13, correction 5).
+ */
+export type IsHeld<W> = unknown extends W
+  ? true
+  : [W] extends [never]
+    ? true
+    : false;
+
+/** A word's operand: the filter its rule's place expects, any object when held. */
+export type HeldOperand<W> = IsHeld<W> extends true ? object : NoInfer<W>;
+
 /** `now`: the call's one instant. */
 export interface NowWord {
   readonly [nowWord]: true;
@@ -990,33 +1006,38 @@ export type DefaultsInput<T extends AnyTarget> = {
  * and nested), and the fields it omits (gone from default results). Only
  * models of the target (`Names`) count, as in `RuleFacts`.
  */
-export type DefaultsFacts<D, Names extends string = string> = Facts<
-  NoMethods,
-  NoMethods,
-  NoControls,
+export type DefaultsFacts<D, Names extends string = string> = [D] extends [
   never,
-  {
-    [M in keyof D]-?: M extends Names
-      ? D[M] extends { readonly create: infer Data }
-        ? StampedFields<M, keyof Data>
-        : never
-      : never;
-  }[keyof D],
-  NoFields,
-  {
-    readonly [M in keyof D as M extends Names
-      ? D[M] extends { readonly fields: object }
-        ? M
-        : never
-      : never]: D[M] extends { readonly fields: infer Fields }
-      ? {
-          readonly [F in keyof Fields as Fields[F] extends OmittedWord
-            ? F
-            : never]: true;
-        }
-      : never;
-  }
->;
+]
+  ? // A refused literal (or one cast to `never`) contributes nothing.
+    EmptyFacts
+  : Facts<
+      NoMethods,
+      NoMethods,
+      NoControls,
+      never,
+      {
+        [M in keyof D]-?: M extends Names
+          ? D[M] extends { readonly create: infer Data }
+            ? StampedFields<M, keyof Data>
+            : never
+          : never;
+      }[keyof D],
+      NoFields,
+      {
+        readonly [M in keyof D as M extends Names
+          ? D[M] extends { readonly fields: object }
+            ? M
+            : never
+          : never]: D[M] extends { readonly fields: infer Fields }
+          ? {
+              readonly [F in keyof Fields as Fields[F] extends OmittedWord
+                ? F
+                : never]: true;
+            }
+          : never;
+      }
+    >;
 
 /**
  * The keys a literal names that its target type does not have, mapped to
@@ -1351,7 +1372,7 @@ export interface Parts<T extends AnyTarget> {
  */
 export type TargetOf<Of> =
   Of extends ClientTypeState<infer C, infer X>
-    ? Target<C, X, EmptyFacts>
+    ? Target<LinkedConfigOf<C>, X, EmptyFacts>
     : Of extends VibORMConfig["schema"]
       ? Target<
           LinkedClientConfig<VibORMConfig<Of>>,

@@ -7,7 +7,14 @@
  */
 import { isPlainRecord } from "@schema/relation/terminal";
 import type { ExtensionPart } from "./chain";
-import type { CheckWord, FactsWord, GateWord, KeepWord } from "./contract";
+import type {
+  CheckWord,
+  FactsWord,
+  GateWord,
+  HeldOperand,
+  IsHeld,
+  KeepWord,
+} from "./contract";
 import type { DeletionContribution } from "./controls";
 import type { DefinitionDraft } from "./extension";
 import { keptRowsPart } from "./kept";
@@ -39,8 +46,8 @@ export class Judging {
  * any filter, which the rule's model admits where it is applied.
  */
 export function check<W>(
-  where: NoInfer<W>
-): unknown extends W ? CheckWord<never> : CheckWord<W>;
+  where: HeldOperand<W>
+): IsHeld<W> extends true ? CheckWord<never> : CheckWord<W>;
 export function check(where: object): unknown {
   return new Judging("check", where);
 }
@@ -50,8 +57,8 @@ export function check(where: object): unknown {
  * `NULL` by every operand a call writes over it.
  */
 export function gate<W>(
-  where: NoInfer<W>
-): unknown extends W ? GateWord<never> : GateWord<W>;
+  where: HeldOperand<W>
+): IsHeld<W> extends true ? GateWord<never> : GateWord<W>;
 export function gate(where: object): unknown {
   return new Judging("gate", where);
 }

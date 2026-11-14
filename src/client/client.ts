@@ -320,7 +320,11 @@ export type AppliedExtensionState<
   C extends VibORMConfig,
   X extends ExtensionStateConstraint,
   F extends AnyFacts,
-> = AccumulatedExtensionState<X, ProjectedStateOf<C, X, F>>;
+> = NoFacts<F> extends true
+  ? // Nothing contributed (hooks, units, a plain call): the client's own
+    // state, so the client keeps its very type.
+    X
+  : AccumulatedExtensionState<X, ProjectedStateOf<C, X, F>>;
 
 /**
  * The order rule: after a part typed against a result, a rule that hides
@@ -347,17 +351,25 @@ type AdmittedFacts<X extends ExtensionStateConstraint> = Facts<
 
 type DataModels<D> = D extends StampedFields<infer M, PropertyKey> ? M : never;
 
+/** Literal model names only: `string` is every model, or names the types cannot read. */
+type Literal<K> = K extends string ? (string extends K ? never : K) : never;
+
 /**
- * Every model an extension's facts name. Rows hidden on `string` are hidden
- * on every model (a policy governs them all): that names none.
+ * Every model an extension's facts name. Rows hidden, methods, omissions,
+ * projections and computed fields on `string` concern every model (a policy
+ * governs them all) or names only the runtime can check: none is named. A
+ * field written on create is the exception: written on `string`, it would be
+ * optional on every model, so `string` is named, and refused.
  */
 type NamedModels<F extends AnyFacts> =
-  | (string extends F["rows"] ? never : F["rows"])
-  | DataModels<F["data"]>
-  | keyof F["omit"]
-  | keyof F["models"]
-  | keyof F["verbs"]
-  | Exclude<keyof F["result"], "$allModels">;
+  | Literal<
+      | F["rows"]
+      | keyof F["omit"]
+      | keyof F["models"]
+      | keyof F["verbs"]
+      | Exclude<keyof F["result"], "$allModels">
+    >
+  | DataModels<F["data"]>;
 
 /**
  * The models the extension names that this client does not have. A part
@@ -366,14 +378,14 @@ type NamedModels<F extends AnyFacts> =
  * is checked here, where it meets the client. A list of names the types
  * cannot read (a `string[]`) names `string`, which no schema has.
  */
-type KnownModels<C extends VibORMConfig, F extends AnyFacts> = [
-  Exclude<NamedModels<F>, keyof C["schema"]>,
+type KnownModels<Models, F extends AnyFacts> = [
+  Exclude<NamedModels<F>, Models>,
 ] extends [never]
   ? unknown
   : {
       readonly "names models this client does not have": Exclude<
         NamedModels<F>,
-        keyof C["schema"]
+        Models
       >;
     };
 
@@ -575,22 +587,42 @@ export interface VibORMClientMembers<
    * immutable chain; this client is unchanged.
    */
   $extends<F extends AdmittedFacts<X>>(
-    extension: Extension<Target<C, X, EmptyFacts>, F> & KnownModels<C, F>
+    // The check reads the model names only: two clients of one schema and
+    // different drivers stay assignable.
+    extension: Extension<Target<LinkedConfigOf<C>, X, EmptyFacts>, F> &
+      KnownModels<keyof C["schema"], F>
   ): AppliedClient<C, X, F>;
 }
 
 /**
- * The client an extension with facts `F` makes. One that contributes nothing
- * the types read (hooks, units, a plain call) leaves the client's type as it
- * is: the same type, not an equal one rebuilt.
+ * The client an extension with facts `F` makes. The identity of an
+ * extension that contributes nothing lives in the state argument, never in
+ * a conditional around the client: two clients of different drivers compare
+ * through their arguments, and a conditional return would hide them.
  */
 export type AppliedClient<
   C extends VibORMConfig,
   X extends ExtensionStateConstraint,
   F extends AnyFacts,
-> = NoFacts<F> extends true
-  ? VibORMClient<C, X>
-  : VibORMClient<AppliedClientConfig<C, F>, AppliedExtensionState<C, X, F>>;
+> = VibORMClient<AppliedClientConfig<C, F>, AppliedExtensionState<C, X, F>>;
+
+/**
+ * The config a client's parts are typed against: the linked snapshot
+ * `createClient` makes. A client type written with its plain config
+ * (`VibORMClient<{ schema: S; driver: D }>`) reads the same target as the
+ * client `createClient` returned, so the two stay assignable.
+ */
+export type LinkedConfigOf<C extends VibORMConfig> = AnyDriverOf<
+  " vibLinks" extends keyof C ? C : LinkedClientConfig<C>
+>;
+
+/**
+ * The driver is no part's concern: two clients of one schema on two drivers
+ * read one target, so a client type names either.
+ */
+type AnyDriverOf<C> = {
+  [K in keyof C]: K extends "driver" ? AnyDriver : C[K];
+};
 
 /**
  * Whether `F` contributes nothing. Both ways: an empty fact (`never` rows,
@@ -613,13 +645,11 @@ type ApplyClientExtensions<
   ? VibORMClient<C, X>
   : Extensions extends readonly [infer First, ...infer Rest]
     ? FactsOf<First> extends infer F extends AnyFacts
-      ? NoFacts<F> extends true
-        ? ApplyClientExtensions<C, X, Rest>
-        : ApplyClientExtensions<
-            AppliedClientConfig<C, F>,
-            AppliedExtensionState<C, X, F>,
-            Rest
-          >
+      ? ApplyClientExtensions<
+          AppliedClientConfig<C, F>,
+          AppliedExtensionState<C, X, F>,
+          Rest
+        >
       : never
     : never;
 
