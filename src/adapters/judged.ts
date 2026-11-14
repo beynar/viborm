@@ -6,7 +6,7 @@
  * an application that judges none does not carry these spellings; the
  * call's adapter quotes the identifiers.
  */
-import type { Dialect } from "@drivers/types";
+import type { Dialect, SqlDialect } from "@drivers/types";
 import { type Sql, sql } from "@sql";
 import type { DatabaseAdapter } from "./database-adapter";
 import { MYSQL_JUDGED } from "./databases/mysql/judged";
@@ -61,12 +61,17 @@ export const afterHead = (
 ): Sql =>
   sql`(${typed.head} UNION ALL ${rows}) AS ${a.identifiers.escape(alias)}`;
 
-/** Each SQL dialect's spelling, by the name its drivers declare. */
+/**
+ * Each SQL dialect's spelling, by the name its drivers declare. The adapter
+ * interface no longer makes a new SQL dialect spell a judged write, so this
+ * table does: one left out is a compile error, not a judged write failing
+ * on `undefined` at its first call.
+ */
 export const JUDGED: Partial<Record<Dialect, JudgedSpelling>> = {
   postgresql: POSTGRES_JUDGED,
   sqlite: SQLITE_JUDGED,
   mysql: MYSQL_JUDGED,
-};
+} satisfies Record<SqlDialect, JudgedSpelling>;
 
 /**
  * A one-column SELECT answering 1 where `condition` holds (over `from`'s

@@ -329,7 +329,7 @@ when the test holds, as `$if` did.
 | `place` | `create: { check: check(where) }` |
 | `moves: { f }` | `update.fields.f.check` |
 | `acyclic` | `acyclic` |
-| `evidence` | `read.select: { $access: facts({ … }, { ordered? }) }` |
+| `evidence` | `read.select: { $access: facts({ … }) }` |
 | `reads: { f }` | `read.fields: { f: gate(where) }` |
 
 ```ts
