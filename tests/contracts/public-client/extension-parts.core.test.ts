@@ -183,7 +183,7 @@ describe("the parts that read rows", () => {
     args({ scope: oneOf("named", "all").default("named") }),
     rule({ item: { root: when(arg("scope"), "named", { name: "a" }) } })
   );
-  const appendResolvedExtension = (
+  const appended = (
     previous: ResolvedExtensionChain | undefined,
     value: unknown,
     _schema: typeof schema
@@ -192,7 +192,7 @@ describe("the parts that read rows", () => {
     chain.callRows!.call("item", undefined).prepare(queries, now);
 
   it("binds a chain that only orders and stamps rows to a plain domain, and a filter later on the chain to its own binding, which reads them", () => {
-    const plain = appendResolvedExtension(undefined, ordered, schema);
+    const plain = appended(undefined, ordered, schema);
     const scope = scopeOf(plain);
     expect(scope.domain).toBeInstanceOf(PlainDomain);
     expect(scope.defaults).toBe(scope.domain);
@@ -200,12 +200,8 @@ describe("the parts that read rows", () => {
     // One prepared domain per query owner and chain.
     expect(scopeOf(plain).domain).toBe(scope.domain);
     for (const chain of [
-      appendResolvedExtension(plain, filtered, schema),
-      appendResolvedExtension(
-        appendResolvedExtension(undefined, filtered, schema),
-        ordered,
-        schema
-      ),
+      appended(plain, filtered, schema),
+      appended(appended(undefined, filtered, schema), ordered, schema),
     ]) {
       const { domain, rows } = scopeOf(chain);
       expect(domain).toBeInstanceOf(FilterDomain);

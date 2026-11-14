@@ -32,9 +32,9 @@ export interface StatementHandlers extends Observation {
 /** The host part of `unit(handler, kinds, { rewrites: true })`. */
 export function rewritePart(handler: UnitHandler): ExtensionPart {
   return {
-    join({ next, chain, owner }) {
+    join({ next, owner }) {
       const observation = observationOf([
-        ...(chain?.statement?.handlers ?? []),
+        ...(next.statement?.handlers ?? []),
         { extension: owner.name, handler },
       ]);
       next.statement = {

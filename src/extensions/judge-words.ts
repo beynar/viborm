@@ -22,7 +22,7 @@ import type {
   OnlyWord,
 } from "./contract";
 import { judgeOf } from "./judge";
-import { keptRowsPart } from "./kept";
+import { keptPart } from "./kept";
 import { layerOf } from "./layers";
 import { projectionOf, refuseSharedKeys } from "./projection";
 import { draftOf, listOf } from "./rule";
@@ -31,7 +31,7 @@ import { NOW } from "./stamps";
 import { LAZY_ENTRIES, prepareJudged, VERBS, verbsOf } from "./verbs";
 
 /** What the layer of a word's site brings beside its filters. */
-const brings = (site: Site) => (site.draft.rule!.brings ??= {});
+const brings = (site: Site) => (site.layer!.brings ??= {});
 
 /** The field `update.fields` names, refused where the model has none so named. */
 function fieldOf({ schema, model, field, refuse }: Site): string {
@@ -227,7 +227,7 @@ class Kept extends CarriedValue {
     super();
     this.data = data;
   }
-  join({ key, model, schema, draft, lazy, refuse: given }: Site): void {
+  join({ key, model, schema, lazy, bring, refuse: given }: Site): void {
     // Typed where it is declared, so a refusal narrows what follows it.
     const refuse: (problem: string) => never = given;
     if (key !== "delete.instead") refuse(`${key} does not take keep()`);
@@ -263,13 +263,13 @@ class Kept extends CarriedValue {
       else if (at !== undefined) refuse("keep() writes now in one field");
       else at = field;
     }
-    const deletion = (draft.deletion ??= { models: {} });
-    deletion.models[model] = {
-      ...(at !== undefined && { at }),
-      assign,
-      ...(test && { test, keeps: chosen!.kind === "when" }),
-    };
-    (draft.parts ??= []).push(keptRowsPart);
+    bring(
+      keptPart(model, {
+        ...(at !== undefined && { at }),
+        assign,
+        ...(test && { test, keeps: chosen!.kind === "when" }),
+      })
+    );
   }
 }
 
@@ -286,9 +286,10 @@ class Lazy extends CarriedValue {
     super();
     this.read = read;
   }
-  join({ key, model, schema, draft, lazy, refuse }: Site): void {
+  join(site: Site): void {
+    const { key, model, schema, lazy, refuse } = site;
     if (key !== "the entry" || lazy) refuse(`${key} does not take lazy()`);
-    const layer = draft.rule!;
+    const layer = site.layer!;
     if (Object.hasOwn(layer.verbs, model))
       refuse("two rule parts of one extension judge the model");
     layer.host = VERBS;
@@ -309,7 +310,7 @@ class Lazy extends CarriedValue {
         : {};
       if (written.confine !== undefined)
         refuse("an entry given lazily holds no confine");
-      const verbs = draftOf(given, model, schema, draft, refuse, true) ?? {};
+      const verbs = draftOf(given, model, schema, site, refuse, true) ?? {};
       const root = listOf(written.root);
       const related = listOf(written.related);
       return root.length + related.length === 0

@@ -16,11 +16,8 @@ import type {
   UnitOf,
   UnitOutcome,
 } from "./contract";
-import { builtPart } from "./extension";
 import { unitLayerPart } from "./observation";
 import { rewritePart } from "./statement";
-
-const nothing = (): undefined => undefined;
 
 /** A function around each unit of the kinds named (every kind when absent). */
 export function unit<
@@ -39,12 +36,7 @@ export function unit(
   kinds?: readonly UnitKind[],
   options?: { readonly rewrites?: true }
 ): unknown {
-  return builtPart(
-    [
-      options?.rewrites === true
-        ? rewritePart(handler)
-        : unitLayerPart(handler, kinds),
-    ],
-    nothing
-  );
+  return options?.rewrites === true
+    ? rewritePart(handler)
+    : unitLayerPart(handler, kinds);
 }

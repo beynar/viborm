@@ -22,10 +22,7 @@ import { createClient } from "@client/client";
 import { QueryError, ValidationError } from "@errors";
 import { Kept, type ResolvedKept } from "@extensions/kept";
 import { bindRows } from "@extensions/rows";
-import {
-  Condition,
-  Parameter,
-} from "@query-engine/raptor3/shared/row-scope";
+import { Condition, Parameter } from "@query-engine/raptor3/shared/row-scope";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { s } from "@schema";
 import {
@@ -55,17 +52,13 @@ import { v } from "@src/validation";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
+import { appendExtension } from "@tests/fixtures/extension-chain";
 import {
   audit,
   optimisticLock,
   tenancy as tenancyRecipe,
 } from "@tests/fixtures/extension-recipes";
 import { failure } from "@tests/fixtures/failure";
-import {
-  appendResolvedExtension,
-  type HostDefinition as ExtensionDefinitionInput,
-  hostExtension,
-} from "@tests/fixtures/host-definition";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, describe, expect, test } from "vitest";
 
@@ -117,14 +110,9 @@ function definitionClient() {
   return client;
 }
 
-/** Apply a definition TypeScript would refuse, as JavaScript would. */
-function applyUnchecked(
-  client: object,
-  definition: ExtensionDefinitionInput
-): object {
-  return Reflect.apply(Reflect.get(client, "$extends"), client, [
-    hostExtension(definition),
-  ]);
+/** Apply an extension written apart from the client, as JavaScript would. */
+function applyUnchecked(client: object, value: unknown): object {
+  return Reflect.apply(Reflect.get(client, "$extends"), client, [value]);
 }
 
 /** Call one delegate method with arguments TypeScript would refuse. */
@@ -168,23 +156,20 @@ class KeyRecordingCache extends MemoryCache {
 
 const NAMED_CONTROL = /set argument "(reason|deleted)"/;
 
-const softRows = {
-  name: "rows",
-  rows: {
-    control: "deleted",
-    default: "without",
-    models: {
-      post: {
-        without: { root: { deletedAt: null }, related: { deletedAt: null } },
-        with: {},
-        only: {
-          root: { deletedAt: { not: null } },
-          related: { deletedAt: null },
-        },
-      },
+/** A mode argument and the rule that reads it, on `post`. */
+const softRows = extension(
+  "rows",
+  extArgs({ deleted: oneOf("without", "with", "only").default("without") }),
+  rule({
+    post: {
+      root: [
+        when(arg("deleted"), "without", { deletedAt: null }),
+        when(arg("deleted"), "only", { deletedAt: { not: null } }),
+      ],
+      related: when(arg("deleted"), "without", { deletedAt: null }),
     },
-  },
-} as const;
+  })
+);
 
 describe("controls: admission and ownership", () => {
   test("two contributing extensions: each owner's handlers see only their own admitted controls; inputs never carry one", async () => {
@@ -459,10 +444,10 @@ describe("controls: admission and ownership", () => {
       name: string,
       validate: (value: unknown) => unknown
     ) =>
-      applyUnchecked(base, {
-        name,
-        controls: { reason: { schema: standard(validate) } },
-      });
+      applyUnchecked(
+        base,
+        extension(name, extArgs({ reason: standard(validate) }))
+      );
 
     const invalid = await failure(
       callUnchecked(
@@ -537,10 +522,10 @@ describe("controls: admission and ownership", () => {
   test("arguments that are not an object stay core's ValidationError, as on a client without controls", async () => {
     const base = await seededBase();
     const rows = applyUnchecked(base, softRows);
-    const plain = applyUnchecked(base, {
-      name: "plain",
-      controls: { flag: { oneOf: ["a", "b"] } },
-    });
+    const plain = applyUnchecked(
+      base,
+      extension("plain", extArgs({ flag: oneOf("a", "b") }))
+    );
     const cached = base.$extends(cache({ driver: new MemoryCache() }));
     const calls: ReadonlyArray<readonly [object, string, string, unknown]> = [
       [rows, "post", "findMany", "str"],
@@ -690,31 +675,33 @@ describe("controls: placement", () => {
   // Each kept-rows argument is placed where its own declaration says, on its
   // own managed model's deletes, whichever extension declares it and in
   // either order: what a `keep` reads does not move it.
-  const managing = {
-    name: "managing",
-    controls: {
-      mode: { oneOf: ["soft", "hard"], on: DELETES, models: ["post"] },
-    },
-    deletion: {
-      removeWhen: { mode: "hard" },
-      models: { post: { at: "deletedAt" } },
-    },
-  } as const;
-  const purging = {
-    name: "purging",
-    controls: {
-      purge: { oneOf: ["no", "yes"], on: DELETES, models: ["user"] },
-    },
-    deletion: {
-      removeWhen: { purge: "yes" },
-      models: { user: { at: "removedAt" } },
-    },
-  } as const;
+  const managing = extension(
+    "managing",
+    extArgs({ mode: oneOf("soft", "hard").on(DELETES).models(["post"]) }),
+    rule({
+      post: {
+        delete: {
+          instead: keep(unless(arg("mode"), "hard", { deletedAt: extNow })),
+        },
+      },
+    })
+  );
+  const purging = extension(
+    "purging",
+    extArgs({ purge: oneOf("no", "yes").on(DELETES).models(["user"]) }),
+    rule({
+      user: {
+        delete: {
+          instead: keep(unless(arg("purge"), "yes", { removedAt: extNow })),
+        },
+      },
+    })
+  );
   for (const [first, second] of [
     [managing, purging],
     [purging, managing],
   ] as const) {
-    test(`two extensions' removeWhen controls stay on their own model's deletes (${first.name} first)`, async () => {
+    test(`two extensions' kept-rows arguments stay on their own model's deletes (${first.name} first)`, async () => {
       const removable = s.model({
         id: s.string().id(),
         removedAt: s.dateTime().nullable(),
@@ -1007,9 +994,9 @@ describe("controls: rows bound to the call", () => {
     post: { extension: "managed", at: "deletedAt", assign: {} },
   } as const;
   const bound = (...definitions: unknown[]) => {
-    let chain: ReturnType<typeof appendResolvedExtension> | undefined;
+    let chain: ReturnType<typeof appendExtension> | undefined;
     for (const definition of definitions)
-      chain = appendResolvedExtension(chain, definition, scopedSchema);
+      chain = appendExtension(chain, definition, scopedSchema);
     return chain!.callRows!;
   };
 
@@ -1187,7 +1174,7 @@ describe("controls: rows bound to the call", () => {
   });
 
   test("every call shares the chain's one domain, its values beside it; a physical one keeps it", () => {
-    const [tenantRows] = appendResolvedExtension(
+    const [tenantRows] = appendExtension(
       undefined,
       tenancyRecipe(["post"]),
       scopedSchema
@@ -1232,10 +1219,14 @@ describe("controls: the order a chain takes", () => {
         methods((_scope) => ({ audited: () => ({ ping: () => "pong" }) }))
       )
     );
-    const late = applyUnchecked(consumer, {
-      name: "late-rows",
-      rows: { control: "deleted", default: "a", models: {} },
-    }) as typeof consumer;
+    const late = applyUnchecked(
+      consumer,
+      extension(
+        "late-rows",
+        extArgs({ deleted: oneOf("a", "b").default("a") }),
+        rule({})
+      )
+    ) as typeof consumer;
     expect(late.audited.ping()).toBe("pong");
   });
 });

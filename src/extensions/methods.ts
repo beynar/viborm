@@ -20,9 +20,9 @@ import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { isFunction, isRecord } from "@validation/value-guards";
 import { errorCause } from "../errors/diagnostic-safety";
 import type { ExtensionPart } from "./chain";
+import { extensionError } from "./chain";
 import type { NoControls } from "./contract";
 import { type AdmittedControls, undeclaredBinding } from "./controls";
-import { extensionError } from "./definition";
 import type { MergeResultFields } from "./result-types";
 
 type NoMethods = Record<never, never>;
@@ -464,7 +464,7 @@ export function bindExtensionMethods(
   };
 }
 
-/** A `methods` factory as a definition keeps it. */
+/** A `methods` factory as its part keeps it. */
 export type RuntimeMethodsFactory = (scope: never) => unknown;
 
 /**
@@ -499,28 +499,28 @@ export interface ExtensionMethodsState {
 }
 
 /** `methods`: what a view answers, in chain order. */
-export const methodsPart: ExtensionPart = {
-  join({ next, chain, definition, schema }) {
-    const { name, methods: factory } = definition;
-    if (factory === undefined) return;
-    const entries = Object.freeze([
-      ...(chain?.methods?.entries ?? []),
-      Object.freeze({ name, factory, schema }),
-    ]);
-    next.methods = Object.freeze({
-      entries,
-      bind: (
-        createScope: (prior: ExtensionMethods, extension: string) => object
-      ) => bindExtensionMethods(entries, createScope),
-      bindNone: (
-        extension: string,
-        values: Readonly<Record<string, unknown>>,
-        previous: AdmittedControls | undefined
-      ) => {
-        for (const control of Object.keys(values))
-          undeclaredBinding(extension, control);
-        return Object.freeze({ ...previous });
-      },
-    });
-  },
-};
+export function methodsPart(factory: RuntimeMethodsFactory): ExtensionPart {
+  return {
+    join({ next, name, schema }) {
+      const entries = Object.freeze([
+        ...(next.methods?.entries ?? []),
+        Object.freeze({ name, factory, schema }),
+      ]);
+      next.methods = Object.freeze({
+        entries,
+        bind: (
+          createScope: (prior: ExtensionMethods, extension: string) => object
+        ) => bindExtensionMethods(entries, createScope),
+        bindNone: (
+          extension: string,
+          values: Readonly<Record<string, unknown>>,
+          previous: AdmittedControls | undefined
+        ) => {
+          for (const control of Object.keys(values))
+            undeclaredBinding(extension, control);
+          return Object.freeze({ ...previous });
+        },
+      });
+    },
+  };
+}

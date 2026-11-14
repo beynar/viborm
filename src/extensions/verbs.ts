@@ -305,6 +305,8 @@ export const LAZY_ENTRIES: LazyEntries = {
  * writes one, with what admits and binds them.
  */
 export function verbsOf(site: Site): VerbsDraft {
-  site.draft.rule!.host ??= VERBS;
-  return site.verbs();
+  // Asked first: where nothing takes verbs (a default's field), it refuses.
+  const verbs = site.verbs();
+  site.layer!.host ??= VERBS;
+  return verbs;
 }

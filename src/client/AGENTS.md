@@ -342,8 +342,8 @@ This client layer asks the chain (`chain.controls.admit`,
 `chain.written.watch`, `chain.observation.run`, …) and imports no builder,
 so a client that applies no extension carries none of their code (112 bytes
 of `src/extensions` in the PostgreSQL application, the origin symbols and
-`isAppliedExtension`). A definition is trusted code written by the
-builders: there is no hostile-definition read. Call-time admission of an
+`isAppliedExtension`). A part is trusted code made by the builders: there
+is no hostile-part read. Call-time admission of an
 argument's value stays, as user input (`controls.ts`): a value its
 declaration refuses, a `required` argument the call left out, a `bound` one
 a call passes. This client layer still owns candidate authority, request
@@ -352,8 +352,7 @@ and commit publication.
 
 | Owner | Responsibility |
 |---|---|
-| `src/extensions/extension.ts` | `extension(name, ...parts)`, `builtPart` (what a part brings and writes), `isAppliedExtension` |
-| `src/extensions/definition.ts` | What the builders write for one extension, as the host parts read it; `extensionError` (`ClientInitializationError`) |
+| `src/extensions/extension.ts` | `extension(name, ...parts)` (each part an `ExtensionPart` that joins the chain with its own state), `isAppliedExtension` |
 | `src/extensions/chain.ts`, `chain-state.ts` | The one mechanism: each part's phases (`admit`, `declare`, `join`, `seal`, `carry`) and the resolved chain every part writes on |
 | `src/extensions/call.ts`, `call-words.ts`, `watch-part.ts`, `written.ts` | `call` and `around`, their first and second moments, `inner`; `watch`, `settled`, `again`, `via`; what tells a watch of the rows a write wrote |
 | `src/extensions/controls.ts`, `args.ts` | `args`, `oneOf`, `accepts`, `bound` and the modifiers; placement per (model, operation) and the one admission of a call's arguments; the `rows` and `data` slots of the extension state (`RowsModels`, `DefinitionData`) |

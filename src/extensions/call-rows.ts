@@ -1,33 +1,33 @@
 /**
  * What the parts that read rules, kept rows and defaults share: the
  * arguments a declaration may name, and the call facts bound again once
- * every part of a definition has joined.
+ * every part of an extension has joined.
  */
 import type { Application } from "./chain";
+import { extensionError } from "./chain";
 import type { CallRowsBinding, ResolvedExtensionChain } from "./chain-state";
-import { extensionError } from "./definition";
 
 /**
  * Refuses an argument among `names` that no extension of the chain declares,
- * the definition's own included (they are placed before any part joins).
+ * the extension's own included (they are declared before any part joins).
  * `undefined` is the call's instant, which every call has.
  */
 export function refuseUndeclared(
-  { definition, next }: Application,
+  { name: extension, next }: Application,
   names: Iterable<string | undefined>
 ): void {
   for (const name of names)
     if (name !== undefined && next.controls?.names.has(name) !== true)
       extensionError(
-        `Extension "${definition.name}" references undeclared argument "${name}".`,
-        definition.name
+        `Extension "${extension}" references undeclared argument "${name}".`,
+        extension
       );
 }
 
 /**
- * The chain's call facts bound again where the definition changed what they
+ * The chain's call facts bound again where the extension changed what they
  * read, once whichever part asks: by the chain's own binder where one of its
- * parts filters, keeps or judges rows, else by `plain`. A definition that
+ * parts filters, keeps or judges rows, else by `plain`. An extension that
  * declares only arguments changes nothing they bind: a filter names only
  * arguments its own or an earlier extension declares.
  */

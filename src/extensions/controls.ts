@@ -13,9 +13,10 @@ import type { Operation } from "@query-engine/types";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { discardAsyncValidationResult } from "@validation/parse-failure";
 import { errorCause } from "../errors/diagnostic-safety";
-import type { ExtensionPart } from "./chain";
+import { extensionError } from "./chain";
 import type { ResolvedControls } from "./chain-state";
-import { type ControlLiteral, extensionError } from "./definition";
+
+export type ControlLiteral = string | number | boolean;
 
 /**
  * One argument an extension declares. Its values are a closed list or a
@@ -235,13 +236,13 @@ function validatorFailure(
 const NO_ARGUMENTS: readonly ResolvedControl[] = [];
 
 /**
- * The chain's arguments with one definition's added, each (model, operation)
+ * The chain's arguments with one extension's added, each (model, operation)
  * listing the ones it accepts the first time a call asks. One name, one
  * argument: a call's value is read once and admitted against one
  * declaration, so a second declaration of a name would refuse every call
  * that passes either value, and a binding would answer for both.
  */
-function appendArguments(
+export function appendArguments(
   previous: ResolvedControls | undefined,
   declared: readonly ResolvedControl[]
 ): ResolvedControls {
@@ -297,22 +298,3 @@ function appendArguments(
     ) => bindArguments(all, extension, values, previous),
   };
 }
-
-/**
- * The part `args` brings. Declared before any other part joins: a
- * definition's parts see its own arguments.
- */
-export const controlsPart: ExtensionPart = {
-  declare(application) {
-    const { definition, chain, next } = application;
-    if (definition.controls === undefined) return;
-    const { name: extension, controls } = definition;
-    const declared = Object.entries(controls).map(([name, declaration]) => ({
-      ...declaration,
-      name,
-      extension,
-    }));
-    next.controls = appendArguments(chain?.controls, declared);
-    application.owner = { name: extension, controls: Object.keys(controls) };
-  },
-};

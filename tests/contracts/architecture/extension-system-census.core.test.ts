@@ -146,7 +146,6 @@ function isExecutableRegistryName(name: string): boolean {
 }
 
 function isChainOwnerName(name: string): boolean {
-  if (name === "appendResolvedExtension") return true;
   return (
     CHAIN_OWNER_PREFIX.test(name) &&
     CHAIN_OWNER_SUBJECT.test(name) &&
@@ -587,11 +586,10 @@ describe("extension-system source census", () => {
   });
 
   test("the chain imports no part and its code names no official extension", () => {
-    // The mechanism reads the definition and writes the state; every member
-    // of that state is a part's.
+    // The mechanism runs the parts' phases; every member of the state is a
+    // part's.
     expect(relativeImports(join(EXTENSIONS_FOLDER, "chain.ts"))).toEqual([
       "./chain-state",
-      "./definition",
     ]);
     expect(
       ["chain.ts", "chain-state.ts"].flatMap((file) => {

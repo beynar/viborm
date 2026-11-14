@@ -33,8 +33,8 @@ import type { AnyModel } from "@schema/model";
 import type { AnyRelation } from "@schema/relation/types";
 import { rebind, refuseUndeclared } from "./call-rows";
 import type { ExtensionPart } from "./chain";
+import { extensionError } from "./chain";
 import type { AdmittedControls } from "./controls";
-import { extensionError } from "./definition";
 import { bindRows } from "./rows";
 
 /** No argument a kept delete's test reads is required: absent, it is absent. */
@@ -215,39 +215,30 @@ export interface ResolvedKept extends KeptModel {
   readonly extension: string;
 }
 
-/** What a delete of each model writes instead, as `keep` writes it. */
-export interface Deletion {
-  readonly models: Record<string, KeptModel>;
-}
-
 /**
- * Kept rows, brought by `keep`. A delete of a managed model is an update,
- * which every filter of the chain reads as it reads any, so the filters'
- * binding binds a chain that keeps rows.
+ * Kept rows of one model, brought by its `keep`. A delete of a managed
+ * model is an update, which every filter of the chain reads as it reads
+ * any, so the filters' binding binds a chain that keeps rows; a later
+ * entry for a model replaces one.
  */
-export const keptRowsPart: ExtensionPart = {
-  join(application) {
-    const { definition, chain, next, schema } = application;
-    const { deletion, name: extension } = definition;
-    if (deletion === undefined) return;
-    refuseUndeclared(
-      application,
-      Object.values(deletion.models).map(({ test }) => test?.parameter.control)
-    );
-    const kept = new Kept(chain?.kept);
-    for (const [model, entry] of Object.entries(deletion.models)) {
+export function keptPart(model: string, entry: KeptModel): ExtensionPart {
+  return {
+    join(application) {
+      const { next, schema, name: extension } = application;
+      refuseUndeclared(application, [entry.test?.parameter.control]);
       const holder = junctionHolder(schema, schema[model]!);
       if (holder !== undefined)
         extensionError(
           `Extension "${extension}" rule.${model}.delete.instead: the model is the junction of '${holder}', so a kept link would still be followed. Delete the link with the relation's disconnect, or the row through its delegate.`,
           extension
         );
+      const kept = new Kept(next.kept);
       kept.set(model, Object.freeze({ extension, ...entry }));
-    }
-    next.kept = kept;
-    next.bindRows = bindRows;
-  },
-  seal(application) {
-    rebind(application, bindRows);
-  },
-};
+      next.kept = kept;
+      next.bindRows = bindRows;
+    },
+    seal(application) {
+      rebind(application, bindRows);
+    },
+  };
+}

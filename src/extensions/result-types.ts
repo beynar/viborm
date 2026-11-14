@@ -1,5 +1,5 @@
 /**
- * The types of `result` (computed fields): what a definition may declare,
+ * The types of `result` (computed fields): what `fields` may declare,
  * what it contributes to the chain's type state, and the fields one model
  * gains. Type-only; the runtime is `./result.ts`.
  */

@@ -4,12 +4,7 @@
  * its own: an extension that does not import it carries none of it.
  */
 import type { AnyTarget, Facts, ModelName, NoControls, Part } from "./contract";
-import { builtPart } from "./extension";
-import {
-  type ComputedFieldDeclaration,
-  resultPart,
-  snapshotResult,
-} from "./result";
+import { type ComputedFieldDeclaration, fieldsPart } from "./result";
 import type { DefinitionResultFields, ResultInference } from "./result-types";
 
 type NoMethods = Record<never, never>;
@@ -45,11 +40,5 @@ export function fields(
     Record<string, Readonly<Record<string, ComputedFieldDeclaration>>>
   >
 ): unknown {
-  return builtPart([resultPart], (draft, schema) => {
-    const own = snapshotResult(declared, draft.name, schema);
-    const result: Record<string, object> = { ...draft.result };
-    for (const [model, entries] of Object.entries(own))
-      result[model] = Object.freeze({ ...result[model], ...entries });
-    draft.result = Object.freeze(result) as typeof own;
-  });
+  return fieldsPart(declared);
 }

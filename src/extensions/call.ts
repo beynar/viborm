@@ -18,6 +18,7 @@ import { QueryError, VibORMError } from "@errors";
 import { isFunction, isRecord } from "@validation/value-guards";
 import { errorCause } from "../errors/diagnostic-safety";
 import type { Application, ExtensionPart } from "./chain";
+import { extensionError } from "./chain";
 import type { ResolvedControls, ResolvedOperationHandler } from "./chain-state";
 import type {
   AnyTarget,
@@ -30,8 +31,6 @@ import type {
 } from "./contract";
 import type { AdmittedControls } from "./controls";
 import { coordinate, QUERIES } from "./coordination";
-import { extensionError } from "./definition";
-import { builtPart, type DefinitionDraft } from "./extension";
 import { handlersOf, type PlacedHandler } from "./handlers";
 import { MODEL_OPERATIONS, type SelectionValue, selectionOf } from "./on";
 import { CALL, type CallOrigin } from "./origin";
@@ -83,15 +82,6 @@ interface CallSpec {
   readonly watch?: WatchPart | undefined;
   /** `around` only: placed nearest the core. */
   readonly inner?: boolean;
-}
-
-/**
- * One part as its extension is applied to one schema: what its builder
- * wrote, and its first moment, made against that schema. The two host parts
- * share that first moment: `around`'s second is found by it.
- */
-export interface CallEntry extends CallSpec {
-  readonly first: FirstMoment;
 }
 
 /**
@@ -306,58 +296,63 @@ function placed<H extends CallableFunction>(
   });
 }
 
-/** The first moments of `call` and `around` parts, before validation. */
-const firstPart: ExtensionPart = {
-  join(application: Application) {
-    const { next, chain, definition } = application;
-    // Only `call` and `around` bring this part, and each writes its entry.
-    const entries = definition.calls!;
-    next.request = Object.freeze({
-      ...handlersOf([
-        ...(chain?.request?.placed ?? []),
-        ...entries.map((entry) => placed(entry, entry.first, application)),
-      ]),
-      apply: runFirstMoments,
-    });
-  },
-};
+/** One first moment appended to the chain's, in the order the parts join. */
+function appendFirst(
+  application: Application,
+  spec: CallSpec,
+  first: FirstMoment
+): void {
+  const { next } = application;
+  next.request = Object.freeze({
+    ...handlersOf([
+      ...(next.request?.placed ?? []),
+      placed(spec, first, application),
+    ]),
+    apply: runFirstMoments,
+  });
+}
 
-/** The second moments of `around` parts, around the prepared call. */
-const aroundPart: ExtensionPart = {
-  uses: [firstPart],
-  join(application: Application) {
-    const { next, chain, definition } = application;
-    let list = chain?.query?.placed ?? [];
-    // Only `around` brings this part, and it writes an entry with a second
-    // moment: the list always gains one.
-    for (const entry of definition.calls!) {
-      if (entry.keep === undefined) continue;
-      const handler = placed(entry, secondMoment(entry.first), application);
-      // One placed nearest the core (`inner`) runs after every other,
-      // whatever the chain's order: a later extension's handler lands
-      // before it.
-      list = handler.inner
-        ? [...list, handler]
-        : [
-            ...list.filter((other) => !other.inner),
-            handler,
-            ...list.filter((other) => other.inner),
-          ];
-    }
-    next.query = Object.freeze(handlersOf(list));
-    coordinate(next, QUERIES);
-  },
-};
-
-const write =
-  (spec: CallSpec) =>
-  (draft: DefinitionDraft, schema: Schema): void => {
-    // An entry per schema: its first moment is made against that schema.
-    draft.calls = [
-      ...(draft.calls ?? []),
-      { ...spec, first: firstOf(spec, schema) },
-    ];
+/** What `call` returns: its first moment, made against the schema it joins. */
+function callPart(spec: CallSpec): ExtensionPart {
+  return {
+    // What watches the call's writes comes with a set that names writes
+    // (`target(writes)`): a call that only patches does not carry it.
+    uses: spec.watch && [spec.watch],
+    join(application) {
+      appendFirst(application, spec, firstOf(spec, application.schema));
+    },
   };
+}
+
+/**
+ * What `around` returns: its first moment, and its second around the
+ * prepared call, nearest the core with `inner` (after every other part,
+ * whatever the chain's order: a later extension's lands before it).
+ */
+function aroundPart(spec: CallSpec): ExtensionPart {
+  return {
+    uses: spec.watch && [spec.watch],
+    join(application) {
+      const { next } = application;
+      const first = firstOf(spec, application.schema);
+      appendFirst(application, spec, first);
+      const handler = placed(spec, secondMoment(first), application);
+      const list = next.query?.placed ?? [];
+      next.query = Object.freeze(
+        handlersOf(
+          handler.inner
+            ? [...list, handler]
+            : [
+                ...list.filter((other) => !other.inner),
+                handler,
+                ...list.filter((other) => other.inner),
+              ]
+        )
+      );
+      coordinate(next, QUERIES);
+    },
+  };
+}
 
 /**
  * A first moment alone: it reads, patches or refuses each call it selects,
@@ -376,15 +371,7 @@ export function call(
   if (!isFunction<CallSpec["handler"]>(handler))
     throw new TypeError("call() takes a function of the call");
   const on = selectionOf(selected);
-  return builtPart(
-    [
-      firstPart,
-      // What watches the call's writes comes with a set that names writes
-      // (`target(writes)`): a call that only patches does not carry it.
-      ...(on?.watch ? [on.watch] : []),
-    ],
-    write({ handler, on, watch: on?.watch })
-  );
+  return callPart({ handler, on, watch: on?.watch });
 }
 
 /**
@@ -407,16 +394,12 @@ export function around(
   if (!isFunction<CallSpec["handler"]>(handler))
     throw new TypeError("around() takes a function of the call");
   const on = selectionOf(selected);
-  return builtPart(
-    // As for `call`: what watches the writes comes with a set that names them.
-    [aroundPart, ...(on?.watch ? [on.watch] : [])],
-    write({
-      handler,
-      on,
-      keep: keepSecond,
-      told: rawTold,
-      watch: on?.watch,
-      inner: options?.inner,
-    })
-  );
+  return aroundPart({
+    handler,
+    on,
+    keep: keepSecond,
+    told: rawTold,
+    watch: on?.watch,
+    inner: options?.inner,
+  });
 }

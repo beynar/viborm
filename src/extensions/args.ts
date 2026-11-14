@@ -1,4 +1,5 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type { ExtensionPart } from "./chain";
 import type {
   Accepted,
   AnyTarget,
@@ -7,18 +8,16 @@ import type {
   BoundAccepted,
   Part,
 } from "./contract";
-import { controlsPart } from "./controls";
-import { extensionError } from "./definition";
-import { type ArgSpec, builtPart } from "./extension";
+import { appendArguments, type ControlDeclaration } from "./controls";
 import { operationsOf } from "./on";
 
 /** A declaration `oneOf`, `accepts` or `bound` made: what it reads as. */
 interface Declared {
-  readonly spec: ArgSpec;
+  readonly spec: ControlDeclaration;
 }
 
 /** A declaration with its modifiers, each returning a new one. */
-function declared(spec: ArgSpec): Declared {
+function declared(spec: ControlDeclaration): Declared {
   return Object.freeze({
     spec,
     default: (fallback: string | number | boolean) =>
@@ -67,7 +66,7 @@ const isSchema = (value: object): value is StandardSchemaV1 =>
 const isDeclared = (value: object): value is Declared =>
   "spec" in value && typeof value.spec === "object" && value.spec !== null;
 
-function specOf(name: string, value: unknown): ArgSpec {
+function specOf(name: string, value: unknown): ControlDeclaration {
   // A schema may be callable (ArkType's types are functions).
   if (
     (typeof value === "object" && value !== null) ||
@@ -95,14 +94,26 @@ export function args(declarations: Readonly<Record<string, unknown>>): unknown {
       specOf(name, value),
     ])
   );
-  return builtPart([controlsPart], (draft) => {
-    // One name, one declaration: as two extensions declaring it would be.
-    for (const name of Object.keys(specs))
-      if (draft.controls !== undefined && Object.hasOwn(draft.controls, name))
-        extensionError(
-          `Extension "${draft.name}" declares argument "${name}", which extension "${draft.name}" already declares.`,
-          draft.name
-        );
-    draft.controls = { ...draft.controls, ...specs };
-  });
+  const names = Object.keys(specs);
+  const part: ExtensionPart = {
+    // Declared before any other part joins: the extension's parts see its
+    // own arguments. A name declared twice, in one extension too, is
+    // refused as two extensions declaring it would be.
+    declare(application) {
+      const { next, chain, owner, name: extension } = application;
+      next.controls = appendArguments(
+        next.controls ?? chain?.controls,
+        Object.entries(specs).map(([name, declaration]) => ({
+          ...declaration,
+          name,
+          extension,
+        }))
+      );
+      application.owner = {
+        name: extension,
+        controls: [...(owner.controls ?? []), ...names],
+      };
+    },
+  };
+  return part;
 }

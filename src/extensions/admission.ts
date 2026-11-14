@@ -201,8 +201,8 @@ export interface Admission {
 }
 
 /**
- * The where schemas of a schema no client prepared (a definition read on its
- * own), built once; a client hands admission its own.
+ * The where schemas of a schema no client prepared (an extension applied
+ * without one), built once; a client hands admission its own.
  */
 const registries = new WeakMap<Schema, SchemaRegistryLookup<Schema>>();
 

@@ -1,15 +1,16 @@
 /**
  * `extension(name, ...parts)`: the one way an extension is written. Each part
  * is built by a function imported from `viborm` (`call`, `unit`, `rule`,
- * `defaults`, `args`, `methods`, `fields`, `disclosure`) and carries the host
- * parts that run it, so a program holds the code of the parts it builds and
- * nothing else. The value is applied by `client.$extends(value)`.
+ * `defaults`, `args`, `methods`, `fields`, `disclosure`) and is the
+ * `ExtensionPart` that joins the chain with its own state, so a program
+ * holds the code of the parts it builds and nothing else. The value is
+ * applied by `client.$extends(value)`.
  */
 
 import type { Schema } from "@client/types";
 import type { SchemaRegistryLookup } from "@validation/types";
-import { isFunction, isRecord } from "@validation/value-guards";
-import { appendParts, type ExtensionPart } from "./chain";
+import { isRecord } from "@validation/value-guards";
+import { appendParts, type ExtensionPart, extensionError } from "./chain";
 import type { ResolvedExtensionChain } from "./chain-state";
 import type {
   AnyFacts,
@@ -20,63 +21,6 @@ import type {
   Part,
   With,
 } from "./contract";
-import type { ControlDeclaration } from "./controls";
-import { extensionError, type RuntimeExtensionDefinition } from "./definition";
-
-type Mutable<T> = { -readonly [K in keyof T]: T[K] };
-
-/**
- * The members one extension is applied with, written by its parts against
- * one schema. `finish` runs once every part wrote: what a part decides from
- * what the others wrote (an argument a rule reads as its mode).
- */
-export type DefinitionDraft = Mutable<RuntimeExtensionDefinition> & {
-  readonly finish: (() => void)[];
-  /** Every argument the extension declares, before it is placed. */
-  args?: Record<string, ArgSpec>;
-};
-
-/** One argument as `args` read it: the control the controls host places. */
-export type ArgSpec = ControlDeclaration;
-
-/**
- * What one built part is: the host parts that run it, and what it writes on
- * the definition its extension is applied with. Until each part carries its
- * own state, it writes the members the host parts read.
- */
-export interface PartBuild {
-  readonly host: readonly ExtensionPart[];
-  readonly write: (draft: DefinitionDraft, schema: Schema) => void;
-}
-
-/**
- * One built part: what `call`, `rule` and the others return, typed by its
- * builder and read here by its two fields. Being plain data, a part built by
- * one copy of the package is applied by another.
- */
-export function builtPart(
-  host: readonly ExtensionPart[],
-  write: PartBuild["write"]
-): Part<AnyTarget, EmptyFacts>;
-export function builtPart(
-  host: readonly ExtensionPart[],
-  write: PartBuild["write"]
-): object {
-  const part: PartBuild = { host, write };
-  return Object.freeze(part);
-}
-
-const isBuilt = (part: unknown): part is PartBuild =>
-  isRecord(part) && Array.isArray(part.host) && isFunction(part.write);
-
-/** Whether two schemas name the same model objects under the same names. */
-export function sameModels(known: Schema, schema: Schema): boolean {
-  const keys = Object.keys(schema);
-  return (
-    keys.length === Object.keys(known).length &&
-    keys.every((name) => known[name] === schema[name])
-  );
-}
 
 /** What `client.$extends` reads of an extension value. */
 export interface AppliedExtension {
@@ -89,11 +33,38 @@ export interface AppliedExtension {
 }
 
 /**
+ * What `make` makes of one schema, made once per schema. A schema object
+ * that gained or swapped a model is read again: what a part read of it (a
+ * rule of every model) would miss the new one.
+ */
+function perSchema<T>(make: (schema: Schema) => T): (schema: Schema) => T {
+  const made = new WeakMap<Schema, { models: Schema; value: T }>();
+  return (schema) => {
+    const known = made.get(schema);
+    const keys = Object.keys(schema);
+    if (
+      known !== undefined &&
+      keys.length === Object.keys(known.models).length &&
+      keys.every((name) => known.models[name] === schema[name])
+    )
+      return known.value;
+    const value = make(schema);
+    made.set(schema, { models: { ...schema }, value });
+    return value;
+  };
+}
+
+/** Whether `part` is one a builder made: a phase to run. */
+const isPart = (part: unknown): part is ExtensionPart =>
+  isRecord(part) &&
+  (typeof part.declare === "function" ||
+    typeof part.join === "function" ||
+    typeof part.seal === "function");
+
+/**
  * An extension: a non-empty name and its parts, in order. At most eight: a
  * limit of the types (each part is typed against those before it), which
- * the runtime does not repeat. The definition its
- * parts write is built once per schema, so every client of a schema applies
- * the same values (what the host admits once per schema stays admitted).
+ * the runtime does not repeat.
  */
 export function extension<
   T extends AnyTarget,
@@ -122,43 +93,18 @@ export function extension<
 export function extension(name: string, ...parts: unknown[]): unknown {
   if (typeof name !== "string" || name.trim().length === 0)
     extensionError("An extension's name must be a non-empty string.");
-  const builds = parts.filter(isBuilt);
-  if (builds.length !== parts.length)
+  const built = parts.filter(isPart);
+  // A builder passed uncalled (`call` for `call(fn)`) is no part.
+  if (built.length !== parts.length)
     extensionError(
       `Extension "${name}" takes parts built by viborm's part builders.`,
       name
     );
-  const host = builds.flatMap((build) => build.host);
-  const written = new WeakMap<
-    Schema,
-    { readonly definition: RuntimeExtensionDefinition; readonly models: Schema }
-  >();
-  const definitionFor = (schema: Schema): RuntimeExtensionDefinition => {
-    const known = written.get(schema);
-    // A schema object that gained or swapped a model is written again: what
-    // its parts read of it (a rule of every model) would miss the new one.
-    if (known !== undefined && sameModels(known.models, schema))
-      return known.definition;
-    const draft: DefinitionDraft = { name, finish: [] };
-    for (const build of builds) build.write(draft, schema);
-    for (const finish of draft.finish) finish();
-    const { finish: _done, args: _placed, ...definition } = draft;
-    written.set(schema, { definition, models: { ...schema } });
-    return definition;
-  };
+  const made = perSchema(() => new Map<object, unknown>());
   const applied: AppliedExtension = {
     name,
-    append: (chain, schema, registry) => {
-      const definition = definitionFor(schema);
-      // A word writes the part that runs it, where its part is written.
-      return appendParts(
-        [...host, ...(definition.parts ?? [])],
-        chain,
-        definition,
-        schema,
-        registry
-      );
-    },
+    append: (chain, schema, registry) =>
+      appendParts(built, chain, name, schema, made(schema), registry),
   };
   return Object.freeze(applied);
 }

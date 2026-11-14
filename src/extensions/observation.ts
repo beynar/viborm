@@ -302,9 +302,9 @@ export function unitLayerPart(
   kinds: readonly UnitKind[] | undefined
 ): ExtensionPart {
   return {
-    join({ next, chain, owner }) {
+    join({ next, owner }) {
       next.observation = observationOf([
-        ...(chain?.observation?.handlers ?? []),
+        ...(next.observation?.handlers ?? []),
         { extension: owner.name, handler, kinds },
       ]);
       coordinate(next, UNITS, collect);

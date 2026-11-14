@@ -15,7 +15,6 @@ import type {
   ModelName,
   Part,
 } from "./contract";
-import { builtPart } from "./extension";
 import { methodsPart } from "./methods";
 
 /** Functions added to the client and to the models of the extension's chain. */
@@ -39,7 +38,5 @@ export function buildMethods(
   factory: (scope: never) => unknown
 ): Part<AnyTarget, EmptyFacts>;
 export function buildMethods(factory: (scope: never) => unknown): unknown {
-  return builtPart([methodsPart], (draft) => {
-    draft.methods = factory;
-  });
+  return methodsPart(factory);
 }

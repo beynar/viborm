@@ -13,7 +13,7 @@ import {
 } from "@src/index";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
-import { appendResolvedExtension } from "@tests/fixtures/host-definition";
+import { appendExtension } from "@tests/fixtures/extension-chain";
 import {
   createModelRegistry,
   TestQueryEngine,
@@ -58,17 +58,17 @@ describe("client extension foundation", () => {
       () =>
       <R>(run: () => Promise<R>) =>
         run();
-    const first = appendResolvedExtension(
+    const first = appendExtension(
       undefined,
       extExtension("A", around(wrap, target("item", "findMany"))),
       schema
     );
-    const second = appendResolvedExtension(
+    const second = appendExtension(
       first,
       extExtension("B", around(wrap)),
       schema
     );
-    const chain = appendResolvedExtension(
+    const chain = appendExtension(
       second,
       extExtension("C", around(wrap, target("item", "findMany"))),
       schema
@@ -95,7 +95,7 @@ describe("client extension foundation", () => {
 
     // A part without a target is the lookup's `global`: a model call finds
     // the same handlers, and a raw statement the list itself.
-    const untargeted = appendResolvedExtension(
+    const untargeted = appendExtension(
       undefined,
       extExtension("untargeted", around(wrap)),
       schema
@@ -109,7 +109,7 @@ describe("client extension foundation", () => {
     );
 
     // A chain of first moments alone wraps no call.
-    const firstOnly = appendResolvedExtension(
+    const firstOnly = appendExtension(
       undefined,
       extExtension(
         "first-only",
@@ -126,12 +126,8 @@ describe("client extension foundation", () => {
     const registry = createModelRegistry(schema, createSchemaRegistry(schema));
     const driver = new PlanningDriver("postgresql");
     const root = new TestQueryEngine(driver, registry);
-    const chain = appendResolvedExtension(
-      undefined,
-      { name: "derived" },
-      schema
-    );
-    const siblingChain = appendResolvedExtension(
+    const chain = appendExtension(undefined, extExtension("derived"), schema);
+    const siblingChain = appendExtension(
       undefined,
       extExtension(
         "sibling",
@@ -286,7 +282,7 @@ describe("client extension foundation", () => {
   });
 
   it("reuses unchanged compiled lookups across method-only extensions", () => {
-    const withHandlers = appendResolvedExtension(
+    const withHandlers = appendExtension(
       undefined,
       extExtension(
         "handlers",
@@ -299,7 +295,7 @@ describe("client extension foundation", () => {
       ),
       schema
     );
-    const withMethods = appendResolvedExtension(
+    const withMethods = appendExtension(
       withHandlers,
       extExtension(
         "methods-only",

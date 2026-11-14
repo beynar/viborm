@@ -10,7 +10,8 @@
  */
 import type { Schema } from "@client/types";
 import { isPlainRecord } from "@schema/relation/terminal";
-import type { VerbsDraft } from "./admission";
+import type { RuleLayer, VerbsDraft } from "./admission";
+import { type ExtensionPart, extensionError } from "./chain";
 import type {
   AnyTarget,
   ExactEntries,
@@ -20,10 +21,8 @@ import type {
   RuleFacts,
   RuleInput,
 } from "./contract";
-import { extensionError } from "./definition";
-import { builtPart, type DefinitionDraft } from "./extension";
-import { rulePart } from "./rows";
-import { CarriedValue } from "./rule-words";
+import { layerPart } from "./rows";
+import { CarriedValue, type Site } from "./rule-words";
 
 type Entry = Readonly<Record<string, unknown>>;
 
@@ -54,7 +53,7 @@ export function draftOf(
   entry: unknown,
   model: string,
   schema: Schema,
-  draft: DefinitionDraft,
+  { layer, bring }: Pick<Site, "layer" | "bring">,
   refuse: (problem: string) => never,
   lazy: boolean
 ): VerbsDraft | undefined {
@@ -73,19 +72,22 @@ export function draftOf(
     container = false
   ): void => {
     if (value === undefined) return;
-    if (value instanceof CarriedValue)
-      return value.join({
+    if (value instanceof CarriedValue) {
+      value.join({
         model,
         key,
         field,
         schema,
-        draft,
+        layer,
+        bring,
         lazy,
         // What a row a write returns holds for what a read carries to show.
         ...(!lazy && { shows: read.where }),
         verbs: () => (verbs ??= {}),
         refuse,
       });
+      return;
+    }
     if (!(container && isPlain(value)))
       refuse(
         container
@@ -135,20 +137,25 @@ export function draftOf(
   return verbs;
 }
 
+/** One extension's rule layer as its `rule` parts write it, and the parts its words bring. */
+interface ExtensionLayer {
+  readonly layer: RuleLayer;
+  readonly brought: Set<ExtensionPart>;
+}
+
+/** The key an extension's `rule` parts meet at: its one layer. */
+const LAYER: object = Object.freeze({});
+
 /** One rule part's entries, written on its extension's layer. */
 function writeRule(
-  draft: DefinitionDraft,
+  name: string,
+  { layer, brought }: ExtensionLayer,
   entries: Entry,
   schema: Schema
 ): void {
-  const { name } = draft;
-  // Every rule part of one extension writes one layer, made at its first.
-  const layer = (draft.rule ??= {
-    root: {},
-    related: {},
-    verbs: {},
-    confine: {},
-  });
+  const bring = (part: ExtensionPart): void => {
+    brought.add(part);
+  };
   for (const [model, entry] of Object.entries(entries)) {
     if (!Object.hasOwn(schema, model))
       extensionError(
@@ -157,7 +164,14 @@ function writeRule(
       );
     const refuse = (problem: string): never =>
       extensionError(`Extension "${name}" rule.${model}: ${problem}.`, name);
-    const verbs = draftOf(entry, model, schema, draft, refuse, false);
+    const verbs = draftOf(
+      entry,
+      model,
+      schema,
+      { layer, bring },
+      refuse,
+      false
+    );
     const written = own(entry);
     const { where } = own(written.read);
     for (const purpose of ["root", "related"] as const) {
@@ -187,11 +201,31 @@ export function rule<T extends AnyTarget, const R = RuleInput<T>>(
     NoInfer<ExactEntries<R, RuleInput<T>>>
 ): Part<T, RuleFacts<R, ModelName<T>>>;
 export function rule(rules: Entry | ((schema: Schema) => Entry)): unknown {
-  return builtPart([rulePart], (draft, schema) =>
-    writeRule(
-      draft,
-      typeof rules === "function" ? rules(schema) : rules,
-      schema
-    )
-  );
+  const part: ExtensionPart = {
+    // Every rule part of one extension writes its one layer, once per
+    // schema; the layer's own part admits it, and the parts its words
+    // brought run with it.
+    declare(application) {
+      const { name, schema } = application;
+      const own = application.shared(LAYER, (): ExtensionLayer => {
+        const layer: RuleLayer = {
+          root: {},
+          related: {},
+          verbs: {},
+          confine: {},
+        };
+        return { layer, brought: new Set([layerPart(layer)]) };
+      });
+      application.shared(part, () =>
+        writeRule(
+          name,
+          own,
+          typeof rules === "function" ? rules(schema) : rules,
+          schema
+        )
+      );
+      for (const brought of own.brought) application.bring(brought);
+    },
+  };
+  return part;
 }

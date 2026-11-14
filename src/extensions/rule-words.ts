@@ -18,7 +18,8 @@ import { isPlainRecord } from "@schema/relation/terminal";
 import { validateSchema } from "@validation/primitives/helpers";
 import type { FilterWord } from "@validation/primitives/parameter";
 import type { SchemaRegistryLookup } from "@validation/types";
-import type { Layered, References, VerbsDraft } from "./admission";
+import type { Layered, References, RuleLayer, VerbsDraft } from "./admission";
+import type { ExtensionPart } from "./chain";
 import type {
   ArgTest,
   ArgWord,
@@ -31,21 +32,23 @@ import type {
   RowWord,
   WhenWord,
 } from "./contract";
-import type { DefinitionDraft } from "./extension";
 import { Choice, layerOf } from "./layers";
 import { NOW } from "./stamps";
 
 /**
  * Where one carried word is written: its model, its place (`create.check`,
  * `read.fields.notes`, …) and the field that place names, with what it may
- * write: the model's other keys, the extension's members.
+ * write: the model's other keys, its rule's layer, the parts it brings.
  */
 export interface Site {
   readonly model: string;
   readonly key: string;
   readonly field?: string;
   readonly schema: Schema;
-  readonly draft: DefinitionDraft;
+  /** The layer of the rule it is written in; none in `defaults`. */
+  readonly layer?: RuleLayer;
+  /** What runs `part` with the extension's parts where it is applied. */
+  readonly bring: (part: ExtensionPart) => void;
   /** Inside an entry given as a function, read when its model is first read. */
   readonly lazy: boolean;
   /**

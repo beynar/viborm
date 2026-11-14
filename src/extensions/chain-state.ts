@@ -107,7 +107,7 @@ export interface CallRowsBinding {
 
 /**
  * Absent on an unextended client; frozen whenever it exists, except the
- * values a definition wrote, held as written, and what the parts built from
+ * values a part was given, held as given, and what the parts built from
  * them. Each member is written by the part that reads it, and absent
  * where no extension of the chain was built with that part.
  */

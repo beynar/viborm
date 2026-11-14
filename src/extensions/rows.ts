@@ -14,7 +14,12 @@ import type {
 } from "@query-engine/raptor3/shared/row-scope";
 import { type Input, memo } from "@query-engine/raptor3/shared/schema";
 import type { AnyModel } from "@schema/model";
-import { type AdmittedLayer, admitLayer, type VerbsBound } from "./admission";
+import {
+  type AdmittedLayer,
+  admitLayer,
+  type RuleLayer,
+  type VerbsBound,
+} from "./admission";
 import { rebind, refuseUndeclared } from "./call-rows";
 import type {
   CallRowsBinding,
@@ -267,21 +272,22 @@ export const bindRows = (chain: ResolvedExtensionChain): RowsBinding =>
   new RowsBinding(chain);
 
 /**
- * `rule`: its layer admitted where the extension is applied, the arguments
- * its predicates read checked against the chain's (an entry given as a
- * function's when it is first read), and the chain's call facts bound again.
+ * `rule`: one extension's layer admitted where it is applied (once per
+ * schema whose scalars admit with the engine's own schemas), the arguments
+ * its predicates read checked against the chain's (an entry given lazily's
+ * when it is first read), and the chain's call facts bound again.
  */
-export const rulePart: ExtensionPart = {
-  join(application) {
-    const { definition, chain, next, schema, registry } = application;
-    const { rule } = definition;
-    if (rule === undefined) return;
-    const layer = admitLayer(rule, schema, definition.name, registry);
-    refuseUndeclared(application, layer.references);
-    next.rows = Object.freeze([...(chain?.rows ?? []), layer]);
-    next.bindRows = bindRows;
-  },
-  seal(application) {
-    rebind(application, bindRows);
-  },
-};
+export function layerPart(layer: RuleLayer): ExtensionPart {
+  return {
+    join(application) {
+      const { name, next, schema, registry } = application;
+      const admitted = admitLayer(layer, schema, name, registry);
+      refuseUndeclared(application, admitted.references);
+      next.rows = Object.freeze([...(next.rows ?? []), admitted]);
+      next.bindRows = bindRows;
+    },
+    seal(application) {
+      rebind(application, bindRows);
+    },
+  };
+}

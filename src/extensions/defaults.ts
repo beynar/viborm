@@ -8,7 +8,6 @@
  * that filters nothing (`plain-domain.ts`).
  */
 import { omitPart } from "@client/default-omit-identity";
-import type { ClientOmitConfig } from "@client/omit";
 import type { Schema } from "@client/types";
 import {
   type ModelStamps,
@@ -17,7 +16,7 @@ import {
 import type { Input } from "@query-engine/raptor3/shared/schema";
 import { isPlainRecord } from "@schema/relation/terminal";
 import { rebind, refuseUndeclared } from "./call-rows";
-import type { ExtensionPart } from "./chain";
+import { type ExtensionPart, extensionError } from "./chain";
 import type {
   AnyTarget,
   DefaultsFacts,
@@ -28,8 +27,6 @@ import type {
   OmittedWord,
   Part,
 } from "./contract";
-import { extensionError } from "./definition";
-import { builtPart, type DefinitionDraft } from "./extension";
 import { orderOf } from "./order";
 import { bindPlain } from "./plain-domain";
 import { CarriedValue, PredicateWord, type Site } from "./rule-words";
@@ -41,11 +38,9 @@ const DEFAULTS_KEYS = new Set(["orderBy", "create", "update", "fields"]);
 
 /** `omitted`'s value: it brings what omits. */
 class Omitted extends CarriedValue {
-  join({ key, field, model, draft, refuse }: Site): void {
+  join({ key, field, model, bring, refuse }: Site): void {
     if (key !== `fields.${field}`) refuse(`${key} does not take omitted`);
-    const omit: ClientOmitConfig<Schema> = (draft.omit ??= {});
-    omit[model] = { ...omit[model], [field!]: true };
-    (draft.parts ??= []).push(omitPart);
+    bring(omitPart(model, field!));
   }
 }
 
@@ -84,13 +79,20 @@ const merged = (
 ): Input | undefined =>
   fields === undefined ? previous : Object.freeze({ ...previous, ...fields });
 
-/** One defaults part's entries, written on its extension's members. */
-function writeDefaults(
-  draft: DefinitionDraft,
-  entries: Entry,
-  schema: Schema
-): void {
-  const { name } = draft;
+/** What one defaults part writes of one schema. */
+interface Written {
+  /** Per model, the order its reads take without one. */
+  readonly order: Record<string, readonly Input[]>;
+  /** Per model, the fields its creates and updates write. */
+  readonly data: Record<string, ModelStamps>;
+  /** The parts its words bring (`omitted`). */
+  readonly brought: ExtensionPart[];
+}
+
+/** One defaults part's entries, read once per schema. */
+function writeDefaults(name: string, entries: Entry, schema: Schema): Written {
+  const written: Written = { order: {}, data: {}, brought: [] };
+  const { order, data, brought } = written;
   for (const [model, entry] of Object.entries(entries)) {
     const refuse: (problem: string) => never = (problem) =>
       extensionError(
@@ -108,7 +110,7 @@ function writeDefaults(
     const own = schema[model]!;
     const { scalars } = own["~"].state;
     if (entry.orderBy !== undefined)
-      (draft.order ??= {})[model] =
+      order[model] =
         orderOf(own, entry.orderBy) ??
         refuse(
           'orderBy maps a model with a key to { field: "asc" | "desc" } terms over its ordered scalars'
@@ -116,7 +118,6 @@ function writeDefaults(
     for (const kind of ["create", "update"] as const) {
       const stamp = stampOf(entry[kind], scalars, refuse);
       if (stamp === undefined) continue;
-      const data = (draft.data ??= {});
       data[model] = {
         ...data[model],
         [kind]: merged(data[model]?.[kind], stamp),
@@ -132,51 +133,57 @@ function writeDefaults(
         key,
         field,
         schema,
-        draft,
+        bring: (part) => brought.push(part),
         lazy: false,
         verbs: () => refuse(`${key} is written omitted`),
         refuse,
       });
     }
   }
+  return written;
 }
 
 /**
- * `defaults`: the default order (a later extension's entry for a model
- * replaces one) and the default data (a later extension wins a field). The
- * arguments a field names are declared on the chain by its own or an
- * earlier extension.
+ * `defaults`: the default order (a later entry for a model replaces one)
+ * and the default data (a later one wins a field). The arguments a field
+ * names are declared on the chain by its own or an earlier extension.
  */
-const defaultsPart: ExtensionPart = {
-  join(application) {
-    const { definition, chain, next } = application;
-    const { order, data } = definition;
-    if (order !== undefined)
-      next.order = Object.freeze({ ...chain?.order, ...order });
-    if (data === undefined) return;
-    const names: string[] = [];
-    const entries: Record<string, ModelStamps> = { ...chain?.data };
-    for (const [model, entry] of Object.entries(data)) {
-      const known = entries[model];
-      entries[model] = Object.freeze({
-        create: merged(known?.create, entry.create),
-        update: merged(known?.update, entry.update),
-      });
-      for (const value of [
-        ...Object.values(entry.create ?? {}),
-        ...Object.values(entry.update ?? {}),
-      ])
-        if (value instanceof Parameter && value.control !== undefined)
-          names.push(value.control);
-    }
-    refuseUndeclared(application, names);
-    next.data = Object.freeze(entries);
-    next.stamps = new Stamps(next.data);
-  },
-  seal(application) {
-    rebind(application, bindPlain);
-  },
-};
+function defaultsPart(read: (schema: Schema) => Entry): ExtensionPart {
+  const part: ExtensionPart = {
+    join(application) {
+      const { name, next, schema } = application;
+      const { order, data, brought } = application.shared(part, () =>
+        writeDefaults(name, read(schema), schema)
+      );
+      for (const omits of brought) application.bring(omits);
+      if (Object.keys(order).length > 0)
+        next.order = Object.freeze({ ...next.order, ...order });
+      if (Object.keys(data).length === 0) return;
+      const names: string[] = [];
+      const entries: Record<string, ModelStamps> = { ...next.data };
+      for (const [model, entry] of Object.entries(data)) {
+        const known = entries[model];
+        entries[model] = Object.freeze({
+          create: merged(known?.create, entry.create),
+          update: merged(known?.update, entry.update),
+        });
+        for (const value of [
+          ...Object.values(entry.create ?? {}),
+          ...Object.values(entry.update ?? {}),
+        ])
+          if (value instanceof Parameter && value.control !== undefined)
+            names.push(value.control);
+      }
+      refuseUndeclared(application, names);
+      next.data = Object.freeze(entries);
+      next.stamps = new Stamps(next.data);
+    },
+    seal(application) {
+      rebind(application, bindPlain);
+    },
+  };
+  return part;
+}
 
 /**
  * What holds where the caller says nothing: the order of reads, the fields
@@ -191,11 +198,7 @@ export function defaults<T extends AnyTarget, const D = DefaultsInput<T>>(
 export function defaults(
   entries: Entry | ((schema: Schema) => Entry)
 ): unknown {
-  return builtPart([defaultsPart], (draft, schema) =>
-    writeDefaults(
-      draft,
-      typeof entries === "function" ? entries(schema) : entries,
-      schema
-    )
+  return defaultsPart((schema) =>
+    typeof entries === "function" ? entries(schema) : entries
   );
 }

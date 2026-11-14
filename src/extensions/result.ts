@@ -30,7 +30,7 @@ import type { ResolvedRelationIndex } from "@schema/validation/relation-resoluti
 import { projectableScalarNames } from "@validation/model/core/projection";
 import { isRecord } from "@validation/value-guards";
 import type { ExtensionPart } from "./chain";
-import { extensionError } from "./definition";
+import { extensionError } from "./chain";
 
 type Row = Record<string, unknown>;
 
@@ -424,24 +424,29 @@ export interface ResultFields {
   ) => ReturnType<typeof planResultFields>;
 }
 
-/** `result`: fields computed from each row a call returns. */
-export const resultPart: ExtensionPart = {
-  join({ next, chain, definition, owner, schema }) {
-    if (definition.result === undefined) return;
-    const fields = appendResultFields(
-      chain?.result?.fields,
-      owner.name,
-      definition.result,
-      schema
-    );
-    next.result = Object.freeze({
-      fields,
-      plan: (
-        relations: ResolvedRelationIndex,
-        model: AnyModel,
-        operation: string,
-        args: Row
-      ) => planResultFields(fields, relations, model, operation, args),
-    });
-  },
-};
+/** `fields`: fields computed from each row a call returns. */
+export function fieldsPart(
+  declared: Readonly<
+    Record<string, Readonly<Record<string, ComputedFieldDeclaration>>>
+  >
+): ExtensionPart {
+  return {
+    join({ next, name, schema }) {
+      const fields = appendResultFields(
+        next.result?.fields,
+        name,
+        snapshotResult(declared, name, schema),
+        schema
+      );
+      next.result = Object.freeze({
+        fields,
+        plan: (
+          relations: ResolvedRelationIndex,
+          model: AnyModel,
+          operation: string,
+          args: Row
+        ) => planResultFields(fields, relations, model, operation, args),
+      });
+    },
+  };
+}

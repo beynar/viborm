@@ -7,7 +7,6 @@
 import type { DiagnosticDisclosure } from "@errors";
 import type { ExtensionPart } from "./chain";
 import type { AnyTarget, EmptyFacts, Part } from "./contract";
-import { builtPart } from "./extension";
 
 /** What one disclosure part allows, as an error reads it. */
 export interface DisclosurePolicy {
@@ -16,13 +15,6 @@ export interface DisclosurePolicy {
   readonly providerDetails?: boolean;
   readonly callsite?: boolean;
 }
-
-const disclosurePart: ExtensionPart = {
-  // Only `disclosure()` brings this part, and it writes the policy.
-  join({ next, definition }) {
-    next.disclosure = definition.disclosure;
-  },
-};
 
 /** What an error thrown by a call of the chain may carry. */
 export function disclosure<T extends AnyTarget>(
@@ -35,7 +27,10 @@ export function disclosure(policy: DisclosurePolicy): unknown {
     includeProviderDetails: policy.providerDetails === true,
     includeCallsite: policy.callsite === true,
   });
-  return builtPart([disclosurePart], (draft) => {
-    draft.disclosure = disclosed;
-  });
+  const part: ExtensionPart = {
+    join({ next }) {
+      next.disclosure = disclosed;
+    },
+  };
+  return part;
 }
