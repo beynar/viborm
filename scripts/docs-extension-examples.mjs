@@ -13,6 +13,16 @@
  * import the block makes itself, is left out of that block's module, so a
  * block that writes its own `schema` or `client` shadows the preamble's.
  *
+ * A preamble may hold named sections, each opened by a line
+ * `// @section <name>`: the text before the first section serves every block
+ * of the page, a section only the blocks whose info string says
+ * `with=<name>` (several: `with=a,b`). That is how a block that continues an
+ * earlier one (the same `db`, the same predicates) is compiled without the
+ * page repeating it.
+ *
+ * A block's relative import (`import type { schema } from "./schema"`)
+ * resolves to `docs-extension-examples/modules/<name>.ts`.
+ *
  * Two info strings take a block out of the plain check, and are listed:
  * - `ts no-check`: deliberately partial (a signature, a shape); not compiled.
  * - `ts expect-error`: shows an error; compiled, and must fail to compile.
@@ -26,6 +36,7 @@
 
 import { spawnSync } from "node:child_process";
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -47,6 +58,7 @@ const FENCE_CLOSE = /^\s*```\s*$/;
 const ANY_FENCE_OPEN = /^(\s*)```/;
 const DIAGNOSTIC = /^(.+?)\((\d+),(\d+)\): error (TS\d+): (.*)$/;
 const ENTRY = /^\s*"?([\w/-]+)"?:\s*"\.\/(src\/[^"]+)"/gm;
+const SECTION = /^\/\/ @section (\S+)\s*$/;
 
 /** The flags an info string may carry after the language. */
 export const FLAGS = new Set(["no-check", "expect-error"]);
@@ -72,12 +84,11 @@ export function extractBlocks(source) {
       continue;
     }
     const indent = open[1].length;
-    const flags = new Set(
-      open[3]
-        .trim()
-        .split(/\s+/)
-        .filter((token) => FLAGS.has(token))
-    );
+    const tokens = open[3].trim().split(/\s+/);
+    const flags = new Set(tokens.filter((token) => FLAGS.has(token)));
+    const sections = tokens
+      .filter((token) => token.startsWith("with="))
+      .flatMap((token) => token.slice("with=".length).split(","));
     const code = [];
     const first = index + 2;
     index += 1;
@@ -85,7 +96,7 @@ export function extractBlocks(source) {
       code.push(lines[index].slice(Math.min(indent, leading(lines[index]))));
       index += 1;
     }
-    blocks.push({ line: first, flags, code: code.join("\n") });
+    blocks.push({ line: first, flags, sections, code: code.join("\n") });
   }
   return blocks;
 }
@@ -143,7 +154,12 @@ function bindingNames(name) {
 export function preambleFor(preamble, code) {
   if (preamble === "") return "";
   const own = declaredNames(code);
-  const file = ts.createSourceFile("preamble.ts", preamble, ts.ScriptTarget.Latest);
+  const file = ts.createSourceFile(
+    "preamble.ts",
+    preamble,
+    ts.ScriptTarget.Latest,
+    true
+  );
   const kept = [];
   for (const statement of file.statements) {
     const text = preamble.slice(statement.getFullStart(), statement.getEnd());
@@ -177,6 +193,28 @@ function importWithout(statement, text, own) {
     elements.length > 0 ? `{ ${named} }` : "",
   ].filter((part) => part !== "");
   return `\nimport ${typeOnly}${parts.join(", ")} from ${specifier};`;
+}
+
+/** A preamble file as its common text and its named sections. */
+export function splitPreamble(text) {
+  const sections = new Map();
+  let current = [];
+  const common = current;
+  for (const line of text.split("\n")) {
+    const opened = SECTION.exec(line);
+    if (opened === null) {
+      current.push(line);
+      continue;
+    }
+    current = [];
+    sections.set(opened[1], current);
+  }
+  return {
+    common: common.join("\n"),
+    sections: new Map(
+      [...sections].map(([name, lines]) => [name, lines.join("\n")])
+    ),
+  };
 }
 
 /** One block's module, and the number of preamble lines before its code. */
@@ -268,7 +306,10 @@ export function placeOf(module, line) {
   const at = line - module.offset;
   return at >= 1
     ? { where: `docs/content/docs/${module.page}`, line: module.block.line + at - 1 }
-    : { where: `scripts/docs-extension-examples/${module.preamble}`, line };
+    : {
+        where: `scripts/docs-extension-examples/${module.preamble} (preamble, module line)`,
+        line,
+      };
 }
 
 /**
@@ -277,13 +318,18 @@ export function placeOf(module, line) {
  */
 export function judge(located, modules) {
   const failing = new Map();
+  const errors = [];
   for (const entry of located) {
-    if (entry.module === undefined) continue;
+    // A diagnostic outside any block (the shared preamble module) fails the
+    // check as it is.
+    if (entry.module === undefined) {
+      errors.push(entry);
+      continue;
+    }
     const list = failing.get(entry.module) ?? [];
     list.push(entry);
     failing.set(entry.module, list);
   }
-  const errors = [];
   const marked = [];
   let compiled = 0;
   for (const module of modules.values()) {
@@ -313,18 +359,33 @@ function main() {
   const unparsable = [];
   const located = [];
   mkdirSync(OUT, { recursive: true });
+  // A block's relative import (`./schema`) resolves beside the generated
+  // modules: the preamble folder's `modules/` are copied there.
+  const relatives = join(PREAMBLES, "modules");
+  if (existsSync(relatives))
+    for (const name of readdirSync(relatives))
+      copyFileSync(join(relatives, name), join(OUT, name));
   for (const page of pages(filter)) {
     const preamblePath = page.replace(/\.mdx$/, ".ts");
     const preambleFile = join(PREAMBLES, preamblePath);
-    const preamble = existsSync(preambleFile)
-      ? readFileSync(preambleFile, "utf8")
-      : "";
+    const { common, sections } = splitPreamble(
+      existsSync(preambleFile) ? readFileSync(preambleFile, "utf8") : ""
+    );
     const blocks = extractBlocks(readFileSync(join(DOCS, page), "utf8"));
     for (const [index, block] of blocks.entries()) {
       if (block.flags.has("no-check")) {
         skipped.push({ page, block });
         continue;
       }
+      const unknown = block.sections.filter((name) => !sections.has(name));
+      if (unknown.length > 0)
+        throw new Error(
+          `docs/content/docs/${page}:${block.line} names preamble sections ${unknown.join(", ")}, which scripts/docs-extension-examples/${preamblePath} does not have`
+        );
+      const preamble = [
+        common,
+        ...block.sections.map((name) => sections.get(name)),
+      ].join("\n");
       const { text, offset } = assemble(preamble, block.code);
       const unparsed = syntaxErrors(text);
       if (unparsed.length > 0) {

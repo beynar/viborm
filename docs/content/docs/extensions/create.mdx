@@ -14,11 +14,11 @@ with `$extends()`.
 returns a new client that carries it:
 
 ```ts
-import { call, extension } from "viborm";
+import { around, extension } from "viborm";
 
 const timing = extension(
   "timing",
-  call.around((c) => async (run) => {
+  around((c) => async (run) => {
     const startedAt = performance.now();
     try {
       return await run();
@@ -43,7 +43,7 @@ the same schema, driver, and pool.
 - **Up to eight parts, in order.** Each part is built by a function imported
   from `viborm`. A part sees what the parts before it in the same extension
   declare, so put `args(...)` before the `rule` or the `call` that reads those
-  arguments.
+  arguments. The types take eight parts; split a larger extension in two.
 - **Two parts of one kind** in one extension compose as two extensions would:
   each is a layer, filters conjoin, and a default set later wins.
 
@@ -60,18 +60,49 @@ use inside a part, brings the code that runs it and nothing else; the client
 names no optional capability, so an application that applies no extension
 carries none of this code.
 
-| You import | Your bundle carries |
-|---|---|
-| `extension` | The chain: the name check and the loop that joins each part |
-| `call` | The first moment: argument patches and refusals |
-| `call.around` | The second moment around the prepared call, and the admission of `$transaction([...])` members |
-| `unit` | The runner around physical units; `{ rewrites: true }` adds statement rewriting |
-| `args` | Argument admission: taken out of the call, validated once |
-| `rule` | Row filters, prepared once per schema; `check`, `gate`, `facts` and `keep` each add their own code |
-| `defaults` | Default order and default data, without the filter code or argument admission; `omitted` adds default omission |
-| `methods` | Method factories and their collision checks |
-| `fields` | Computed fields: planning their needs, attaching them to rows |
-| A word (`watch`, `settled`, `again`, `via`, `key`, `codec`, `sql`, …) | That word's code |
+Each row below is one extension made of that part alone (with the words it
+names) applied to a PostgreSQL application, and what it adds to that
+application's bundle, minified and gzipped. The rows do not add up: parts
+share the chain's own code, so a second part costs less than its row.
+
+{/* Measured with `node scripts/extension-bytes.mjs` (the `pg-one-*`
+fixtures of scripts/bundle-fixtures, and the official extensions' fixtures);
+rerun it and update these figures when the code of src/extensions changes. */}
+
+| You import | Your bundle carries | Adds (min) | Adds (gzip) |
+|---|---|---:|---:|
+| `methods` | Method factories and their collision checks | 4.1 kB | 2.0 kB |
+| `call`, `target(reads)` | The chain, the first moment: argument patches and refusals | 4.9 kB | 2.3 kB |
+| `defaults` with `create` or `orderBy` | Default data or default order, without filter code or argument admission | 5.9 kB | 2.6 kB |
+| `args`, `oneOf` | Argument admission: taken out of the call, validated once | 6.1 kB | 2.7 kB |
+| `defaults` with `omitted` | Default omission | 6.4 kB | 2.8 kB |
+| `fields` | Computed fields: planning their needs, attaching them to rows | 6.5 kB | 2.9 kB |
+| `unit` | The runner around physical units | 6.7 kB | 2.8 kB |
+| `unit` with `{ rewrites: true }`, `statement` | Statement rewriting | 6.8 kB | 2.8 kB |
+| `call`, `target(writes)`, `watch`, `settled` | The rows a write wrote, the hook after its commit | 15.0 kB | 5.6 kB |
+| `rule` with `keep`, `now` | Kept deleted rows | 16.6 kB | 6.8 kB |
+| `around` | The second moment around the prepared call, and the admission of `$transaction([...])` members | 16.9 kB | 6.2 kB |
+| `around` with `again` | Making a failed call again | 17.0 kB | 6.2 kB |
+| `rule` with `args`, `when`, `arg` | Row filters, prepared once per schema | 19.2 kB | 7.6 kB |
+| `rule` with `gate` | Gated fields | 22.7 kB | 9.1 kB |
+| `rule` with `check` | The judgement of the rows a write produces | 23.4 kB | 9.2 kB |
+
+The official extensions, measured the same way:
+
+| Extension | Adds (min) | Adds (gzip) |
+|---|---:|---:|
+| [`defaultOmit()`](/docs/extensions/omit) | 6.9 kB | 2.6 kB |
+| [`on()`](/docs/extensions/on) | 17.9 kB | 6.8 kB |
+| [`instrumentation()`](/docs/extensions/instrumentation) | 20.1 kB | 7.2 kB |
+| [`softDelete()`](/docs/extensions/soft-delete) | 26.7 kB | 10.0 kB |
+| [`ordering()`](/docs/extensions/ordering) | 30.6 kB | 12.0 kB |
+| [`cache()`](/docs/extensions/cache) | 51.0 kB | 17.9 kB |
+| [`permissions()`](/docs/extensions/permissions) | 75.8 kB | 27.9 kB |
+| `on`, `ordering`, `permissions` and `softDelete` together | 120.6 kB | 43.8 kB |
+
+The PostgreSQL application they are added to weighs 508.6 kB minified
+(167.6 kB gzip) and carries none of this code. The figures are those of this
+release; later releases may lower them.
 
 An extension that only patches or refuses arguments (`call`) does not pay
 for the second moment. A rule made of `where` filters alone does not pay for
@@ -86,14 +117,16 @@ deliberately small so the call protocol is visible.
 ## Choose the narrowest part
 
 Six primitives build an extension (`call`, `unit`, `args`, `rule`, `defaults`,
-`methods`), and `fields` adds computed fields:
+`methods`). `around` is `call` with a second moment, `fields` adds computed
+fields, and `disclosure` says what a thrown error may carry:
 
 | Need | Part | Contract |
 |---|---|---|
 | Patch or refuse a call's arguments | `call` | Synchronous shallow patch, before validation |
-| Wrap one prepared logical call | `call.around` | Asynchronous continuation around execution |
+| Wrap one prepared logical call | `around` | Asynchronous continuation around execution |
 | Receive the rows a write wrote, act after its commit | `call` with `watch`, `settled` | Rows once every write of the call is made; a function after the durable commit |
-| Make a failed call again, send a read elsewhere | `call.around` with `again`, `via` | Allowed only where nothing was written; reads outside a transaction |
+| Make a failed call again, send a read elsewhere | `around` with `again`, `via` | Allowed only where nothing was written; reads outside a transaction |
+| Store answers beside the database | `around` with `key`, `codec`, `database` | A key per prepared statement, a detached form of the answer |
 | Observe physical work | `unit` | Around a real unit: `next()` lets it run and returns its end |
 | Rewrite a statement | `unit` with `{ rewrites: true }` | Trusted `Sql → Sql`, before rendering |
 | Run SQL as a transaction opens | `unit` on `"transaction"` with `run` | First in every transaction |
@@ -103,23 +136,23 @@ Six primitives build an extension (`call`, `unit`, `args`, `rule`, `defaults`,
 | Add client and model methods | `methods` | One factory returning `$`-prefixed client methods and per-model methods |
 | Add fields computed from a row | `fields` | `needs` and `compute` per field; on every row of the model a call returns |
 
-Do not put every concern into `call.around`. Each part exposes only the facts
+Do not put every concern into `around`. Each part exposes only the facts
 and authority appropriate to its boundary, and carries only its own code.
 
 ## `call`: a function on a call
 
-`call(handler, on?)` runs `handler` once per call it concerns, synchronously,
-before validation. This is the **first moment**:
+`call(handler, target?)` runs `handler` once per call it concerns,
+synchronously, before validation. This is the **first moment**:
 
 ```ts
-import { call, extension, on } from "viborm";
+import { call, extension, target } from "viborm";
 
 const db = client.$extends(
   extension(
     "bounded-reads",
     call((c) => {
       c.set({ take: Math.min(c.args.take ?? 100, 100) });
-    }, on("post", "findMany"))
+    }, target("post", "findMany"))
   )
 );
 ```
@@ -128,6 +161,7 @@ const db = client.$extends(
 |---|---|
 | `c.kind` | `"model"` or `"raw"` |
 | `c.model`, `c.operation` | The model (absent on a raw query) and the operation |
+| `c.schema` | The schema the extension is applied to |
 | `c.args` | The call's arguments, read-only and shallow |
 | `c.values` | The values of the arguments **this** extension declares (`args`), and only those |
 | `c.set(patch)` | Merges a shallow patch into the arguments |
@@ -137,18 +171,23 @@ const db = client.$extends(
   Later extensions' first moments see earlier patches.
 - `c.set` refuses a key that decides the shape of the result (`select`,
   `include`, `omit`, count and aggregate selectors, `groupBy.by`) and the name
-  of an extension argument. VibORM keeps the caller's exact result shape.
+  of an extension argument, with a `QueryError`. VibORM keeps the caller's
+  exact result shape. A raw query's arguments cannot be patched: `c.set` is
+  refused there too.
 - The read-only contract is shallow. Nested caller values are borrowed, so
   build a patch instead of mutating `c.args` or anything inside it.
 - The handler is synchronous. A handler that returns a promise, or returns a
-  function, is refused: returning a function is what `call.around` is for.
+  function, is refused with a `QueryError`: returning a function is what
+  `around` is for.
+- What the handler throws refuses the call: a VibORM error as it is, any
+  other error as the cause of a `QueryError` that names the extension.
 
 Use `call` for argument defaults, normalization and refusals. A root filter
 alone is not complete authorization: nested relations, writes, raw SQL, and
 field use require a graph-wide policy
 ([`viborm/permissions`](/docs/extensions/permissions)).
 
-A call part sees only the calls `on` selects. One that masks a field of
+A call part sees only the calls its target selects. One that masks a field of
 `user.findMany` does not run for `user.findFirst`, nor for users read through
 `include` or `select` from another model, so the field still reaches those
 results. To hide a field by default from every result of a client, use
@@ -156,43 +195,49 @@ results. To hide a field by default from every result of a client, use
 [`defaultOmit()`](/docs/extensions/omit), which apply to root results and
 nested relation payloads alike.
 
-### Which calls: `on`
+### Which calls: `target`
 
-Without `on`, a call part runs for every model operation and for raw queries
-(`c.kind === "raw"`). `on` narrows it:
+Without a target, a call part runs for every model operation and for raw
+queries (`c.kind === "raw"`), so a refusal written with `call` holds for
+`$executeRawUnsafe` too. `target(...)` narrows it:
 
 | Selector | Calls |
 |---|---|
-| `on("post", "findMany")` | One model, one operation |
-| `on("post", ["findMany", "findFirst"])`, `on(["post", "user"], reads)` | Models, with a list or a set of operations |
-| `on(reads)`, `on(writes)`, `on(deletes)` | A set of operations on every model |
-| `on(selecting)` | Every operation that selects rows: all but `create` and `createMany` |
-| `on(models)` | Every model operation, and no raw query |
+| `target("post", "findMany")` | One model, one operation |
+| `target("post", ["findMany", "findFirst"])`, `target(["post", "user"], reads)` | Models, with a list or a set of operations |
+| `target(reads)`, `target(writes)`, `target(deletes)` | A set of operations on every model |
+| `target(selecting)` | Every operation that selects rows: all but `create` and `createMany` |
+| `target(models)` | Every model operation, and no raw query |
 
-`on` is typed against the client: a misspelt model or operation is refused in
-your editor, on the string itself.
+`target` is typed against the client: a misspelt model or operation is
+refused in your editor, on the string itself, and by `$extends()` when it
+runs. (It is not called `on`: that name is
+[`viborm/on`](/docs/extensions/on)'s.)
 
-### The second moment: `call.around`
+### The second moment: `around`
 
-`call.around(handler, on?, options?)` returns, from the first moment, a
-function that wraps the prepared call. It runs after validation and
-preparation:
+`around(handler, target?, options?)` is a call part whose first moment may
+return a function that wraps the prepared call. That function runs after
+validation and preparation:
 
 ```ts
-import { call, extension, on } from "viborm";
+import { around, extension, target } from "viborm";
 
 const db = client.$extends(
   extension(
     "around-posts",
-    call.around((c) => async (run) => {
+    around((c) => async (run) => {
       beforeRead(run.mode, run.input);
       const posts = await run();
       afterRead(posts.length);
       return posts;
-    }, on("post", "findMany"))
+    }, target("post", "findMany"))
   )
 );
 ```
+
+`around` is its own import, not a member of `call`: a program that only
+patches or refuses calls does not carry the code of the second moment.
 
 | On `run` | Meaning |
 |---|---|
@@ -210,18 +255,19 @@ const db = client.$extends(
   the call with **its** error, whatever the handler returns or throws after.
   There is no aggregated error. An error your handler throws after a
   successful child is rethrown unchanged.
-- **Typed by one result when `on` names one model and one operation.** Then
-  `run()` resolves to that operation's result on the client the extension is
-  applied to (its rules, omissions and computed fields included), and a
-  handler cannot return another result. Without `on`, or for several
-  operations, the result is opaque: return what `run()` returns.
+- **Typed by one result when the target names one model and one
+  operation.** Then `run()` resolves to that operation's result on the client
+  the extension is applied to (its rules, omissions and computed fields
+  included), and a handler cannot return another result. Without a target,
+  or for several operations, the result is opaque: return what `run()`
+  returns.
 - **Nested in chain order.** The first extension applied is the outermost.
   `{ inner: true }` places a part closest to the core instead, whatever the
   order of the chain; it is for a part that may answer in place of the core
   (a cache), so every other part still sees each call.
-- **One late run.** A direct read may call `run()` once after its handler has
-  returned, for stale-while-revalidate. That run executes the core alone: no
-  other part sees it.
+- **One late run.** A direct read may call `run()` again after its handler
+  has returned, for stale-while-revalidate: that replay executes the core
+  alone, no other part sees it, and the call does not wait for it.
 - In `$transaction([...])`, every member finishes its first moments and
   reaches `run()` in its second before any driver work. A refusal, a second
   `run()`, a late detached call or a rejected handler aborts the array, and
@@ -233,7 +279,7 @@ const db = client.$extends(
 writes:
 
 ```ts
-import { call, extension, on, settled, watch, writes } from "viborm";
+import { call, extension, settled, target, watch, writes } from "viborm";
 
 const outbox = extension(
   "outbox",
@@ -251,7 +297,7 @@ const outbox = extension(
     settled(c, async ({ certainty }) => {
       await publish(rows, certainty);
     });
-  }, on(writes))
+  }, target(writes))
 );
 ```
 
@@ -268,8 +314,9 @@ const outbox = extension(
 - `watch` and `settled` work in the first moment of a model call, in a `call`
   or an `around` whose target is a set of writes: `target(writes)`,
   `target(deletes)`, or `target("order", writes)`. The set brings what tells
-  them, so a part that never watches carries none of it; anywhere else they
-  are refused.
+  them, so a part that never watches carries none of it. Anywhere else they
+  are refused with a `TypeError`, never ignored: `target("order", "update")`
+  names an operation, not a set, and brings nothing that watches.
 - A call that fails calls neither `rows` nor `settled`. Several extensions can
   watch; each is told in the order the extensions were applied.
   [`viborm/on`](/docs/extensions/on) is built on this word.
@@ -279,16 +326,21 @@ const outbox = extension(
 `settled(c, fn)`, called in the first moment, runs `fn(outcome)` when the
 write is durable: after the call's own commit, after the outermost commit
 inside a transaction, and never after a rollback. `outcome.certainty` is
-`"committed"` or `"may-have-committed"`.
+`"committed"`, or `"may-have-committed"` when a statement failed after it was
+sent and the write may have been made: `fn` is told of that write too, so a
+cache invalidates for it.
 
 - VibORM awaits it before the call's promise (or the transaction's) resolves.
   A VibORM error it throws rejects that promise as it is; anything else
   rejects it as a `QueryError`. The write is not undone.
 - The functions of several extensions run in chain order. The first failure
   rejects the call.
+- In an `around` with no target, `settled` also hears `$executeRaw` and
+  `$executeRawUnsafe`, which may have written anything.
 - `settled(scope, fn)` in a [method](#methods-client-and-model-methods) runs
-  `fn` at once outside a transaction, and after the outermost commit inside
-  one.
+  `fn` at once outside a transaction, and returns its promise; inside one it
+  runs after the outermost commit, and its failure rejects that
+  transaction's promise.
 
 ### Make a failed call again: `again`
 
@@ -297,11 +349,11 @@ outside a transaction, not a member of `$transaction([...])`, and with nothing
 written or possibly written. Only then may `run()` be called again:
 
 ```ts
-import { again, call, extension } from "viborm";
+import { again, around, extension } from "viborm";
 
 const resilience = extension(
   "resilience",
-  call.around(() => async (run) => {
+  around(() => async (run) => {
     for (let attempt = 1; ; attempt++) {
       try {
         return await run();
@@ -327,41 +379,78 @@ transaction on another driver and resolves to its result. Anywhere else it
 executes the call where it goes:
 
 ```ts
-import { call, extension, on, reads, via } from "viborm";
+import { around, extension, reads, target, via } from "viborm";
 
 const replicas = extension(
   "replicas",
-  call.around(() => (run) => via(run, replica), on(reads))
+  around(() => (run) => via(run, replica), target(reads))
 );
 ```
 
 The driver must be of the client's dialect and hold the same schema. Writes,
-reads inside a transaction and raw queries are never routed. When several
-extensions route one read, the first applied wins.
+reads inside a transaction and raw queries are never routed: `via` then runs
+the call where it would have run.
 
 ### Store answers: `key`, `codec`, `database`
 
 Three words serve an extension that stores answers beside the database, as
 the official [cache](/docs/extensions/cache) does:
 
-- `key(run)` is the canonical key of the prepared call: equal for two calls
-  exactly when they would send the same statement for the same validated
-  arguments. Reading it prepares the call, and `run()` sends exactly that
-  preparation. It is `undefined` for a raw query, on a chain that rewrites
-  SQL, for a call that carries a `.volatile()` argument, and for an operation
-  that is not one statement. A rule enters the key through the SQL it
-  produces.
-- `codec(run)` gives `snapshot(value)` and `materialize(stored)` for the
-  core's answer: a detached form to store, and a fresh public graph from it.
-- `database(x)`, on a call, a run or a method scope, gives the database's
-  `dialect` and SQL `namespace`, never a connection string.
+```ts
+import { around, codec, database, extension, key, reads, target } from "viborm";
+
+const answers = new Map<string, unknown>();
+
+const memo = extension(
+  "memo",
+  around(
+    (c) => async (run) => {
+      const id = key(run);
+      if (id === undefined) return run(); // nothing to key: run it
+      const { dialect, namespace } = database(c);
+      const slot = `${dialect}:${namespace ?? ""}:${id}`;
+      const { snapshot, materialize } = codec(run);
+      if (answers.has(slot)) return materialize(answers.get(slot));
+      const value = await run();
+      answers.set(slot, snapshot(value));
+      return value;
+    },
+    target(reads),
+    { inner: true }
+  )
+);
+```
+
+- `key(run)` is the canonical key of the prepared call: the model, the
+  operation, the validated arguments and the statement the engine will send,
+  text and parameters. Two calls have the same key exactly when they would
+  send the same statement for the same arguments. Reading it prepares the
+  call, and `run()` sends exactly that preparation, so a value its caller
+  changes later changes neither.
+- A rule enters the key through the statement it produces, and an argument a
+  rule reads through that rule. An argument read only by your own parts
+  (`c.values`) is not in the key: declare it `.volatile()` when answers
+  depend on it.
+- `key(run)` is `undefined` for a raw query, on a chain with a unit that
+  rewrites statements, for a call that carries a value of a `.volatile()`
+  argument, and for an operation that is not one statement (a write, a read
+  that needs several).
+- `codec(run)` gives `snapshot(value)` and `materialize(stored)` for a read's
+  answer: a detached form to store, and a fresh public graph from it. It is
+  made once per prepared shape. A raw query has none: `codec` refuses it with
+  an `UnsupportedOperationError`.
+- `database(x)`, on a first moment's `c`, a `run` or a method's scope, gives
+  the database's `dialect` and SQL `namespace` (a PostgreSQL schema, a MySQL
+  database; `undefined` where the dialect qualifies nothing), never a
+  connection string. Partition what you store by it when one store serves
+  several databases.
 
 ## `unit`: around physical work
 
 `unit(handler, kinds?, options?)` runs `handler(u, next)` around each unit of
 real work: `operation`, `statement`, `batch`, `transaction`, `savepoint`,
-`connection`, and the kinds extensions emit (the cache emits `cache`). Without
-`kinds`, every kind.
+`connection`, and the kinds extensions emit (the official cache emits
+`cache`). A kind is an open string. Without `kinds`, every kind.
 
 ```ts
 import { extension, failure, unit } from "viborm";
@@ -389,20 +478,22 @@ const durations = extension(
 
 | Word | Meaning |
 |---|---|
-| `sql(u)`, `parameters(u)`, `driver(u)` | A statement's rendered text, its parameters, the driver (`driver(u)` on any kind) |
+| `text(u)`, `parameters(u)`, `driver(u)` | A statement's rendered text, its parameters, the driver (`driver(u)` on any kind) |
 | `statement(u)` | The statement as an `Sql`, before rewriting |
 | `statements(u)` | The members of a native batch sent as one unit |
 | `failure(u)` | The raw error, after the end |
 | `correlation(u)`, `table(u)` | The call's correlation, the statement's table |
 | `origin(error)` | The unit an error comes from |
-| `notes(u)` | Facts an extension attached to an `operation` unit with `note` |
+| `notes(u)` | Facts an extension attached to the unit with `note`, in order |
 
 - A `statement` unit is one physical send: a native batch is one, and
   `statements(u)` lists its members. It begins after rewriting, rendering,
   the parameter snapshot and taking a connection, around the driver call
   alone.
 - An unsafe raw query (`$queryRawUnsafe`) is observed like any other
-  statement: `sql(u)` returns the text it sends. It is never rewritten.
+  statement: `text(u)` returns the text it sends. It is never rewritten.
+- The word is `text(u)`, not `sql(u)`: `sql` is the tagged template a
+  rewrite writes its replacement with.
 
 ### Rewrite statements
 
@@ -461,16 +552,49 @@ one batch (D1, neon-http) opens none, so the part does not run there.
 ### Emit your own units
 
 An extension that does measurable work of its own (a cache, a queue, an HTTP
-call) can present it as a unit: `work(origin, { kind, operation, model? }, fn)`
-runs `fn` as a unit of the chain of `origin` (a call, a run or a method
-scope), seen by every `unit` part that listens to that kind. When no part
-listens, `fn` runs alone. `note(run, facts)` attaches facts to the call's
-`operation` unit, and `notes(u)` reads them at its end.
+call) can present it as a unit of its own kind:
 
-`disclosure({ sql, parameters })` is the part that says what a thrown error
-may carry. The official [instrumentation](/docs/extensions/instrumentation)
-puts its `diagnostics` there. Without it, errors disclose neither SQL nor
-parameters.
+```ts
+import { around, extension, note, notes, unit, work } from "viborm";
+
+const lookups = extension(
+  "lookups",
+  around(() => async (run) => {
+    // A unit of kind "lookup", seen by every unit part that listens to it.
+    const hint = await work(run, { kind: "lookup", operation: "hint" }, async (u) => {
+      note(u, { source: "edge" });
+      return "warm";
+    });
+    note(run, { hint }); // on the call's own operation unit
+    return run();
+  })
+);
+
+const report = extension(
+  "report",
+  unit(async (u, next) => {
+    const end = await next();
+    console.info(u.kind, u.operation, end.status, notes(u));
+    return end;
+  }, ["operation", "lookup"])
+);
+```
+
+- `work(origin, { kind, operation, model?, note? }, fn)` runs `fn` as a unit
+  under every `unit` part of the chain `origin` belongs to: `origin` is a
+  call's `run`, a unit a handler received, or one `work` made. When no part
+  listens, `fn` runs alone. `note`, given, is the unit's first fact, noted
+  before any handler sees it.
+- `note(target, fact)` attaches a fact to a unit still running: `target` is a
+  unit, or a call's `run`, which notes on the call's `operation` unit. It
+  returns `false` when there is no such unit or it has ended.
+- `notes(u)` reads a unit's facts, in order, typically after `next()`.
+
+`disclosure({ sql, parameters, providerDetails, callsite })` is the part
+that says what an error thrown by a call of the chain may carry, each flag
+`false` unless given. The official
+[instrumentation](/docs/extensions/instrumentation) puts its `diagnostics`
+there. Without it, errors disclose none of these.
 
 ## `args`: arguments a call passes
 
@@ -481,13 +605,13 @@ chain's rules (`arg(name)`). No other extension sees them, and no `c.set` can
 add or change them.
 
 ```ts
-import { args, call, extension, oneOf, writes } from "viborm";
+import { args, around, extension, oneOf, writes } from "viborm";
 
 const db = client.$extends(
   extension(
     "audit-reason",
     args({ reason: oneOf("typo", "moderation", "legal").on(writes) }),
-    call.around((c) => async (run) => {
+    around((c) => async (run) => {
       const result = await run();
       if (c.kind === "model") recordAudit(c.model, c.operation, c.values.reason);
       return result;
@@ -500,7 +624,7 @@ await db.post.update({ where: { id }, data: { title }, reason: "typo" });
 
 A declaration is `oneOf(...values)` (a closed list), a Standard Schema
 (`v.string()`), `accepts(schema)` (a schema with the modifiers of `oneOf`), or
-`bound(declaration)`:
+`bound(schema)`:
 
 | Modifier | Meaning |
 |---|---|
@@ -509,7 +633,7 @@ A declaration is `oneOf(...values)` (a closed list), a Standard Schema
 | `.required()`, `.required([...models])` | A call that leaves it out is refused: everywhere it is accepted, or on these models only |
 | `.default(value)` | The value of a call that passes none |
 | `.volatile()` | A read that carries it is neither served from the cache nor stored there |
-| `bound(declaration)` | The value comes from the client (`scope.$bind`), never from a call |
+| `bound(schema)` | The value comes from the client (`scope.$bind`), never from a call; it takes `.required()` and `.volatile()` |
 
 - A bare Standard Schema takes no modifier: wrap it in `accepts(...)` for one.
   A list held in a variable keeps its literal values only with `as const`.
@@ -526,15 +650,16 @@ A declaration is `oneOf(...values)` (a closed list), a Standard Schema
   supplies it ([below](#bind-arguments-to-a-client-bind)). Required, a client
   that binds none refuses every call it is required on.
 - Argument names are one space per chain: a name an earlier extension
-  declares is refused when the extension is applied
-  (`ClientInitializationError`, naming both). Do not take a name core already
+  declares, or another `args` part of the same extension, is refused when the
+  extension is applied (`ClientInitializationError`, naming both). Do not take a name core already
   uses as an argument (`where`, `data`, `select`, …). Argument names never
   enter the operation's own schemas.
 - The official [cache](/docs/extensions/cache) declares its mutation `cache`
   option this way. A cached read is keyed on the statement it would send, so
-  an argument a rule reads enters its key through that statement. Declare
-  `.volatile()` an argument whose answers must be judged when they are read
-  (`viborm/permissions`'s actor is).
+  an argument a rule reads enters its key through that statement, and one
+  only your own parts read does not. A read that carries a `.volatile()`
+  argument runs uncached, without an error. Declare `.volatile()` an argument
+  whose answers must be judged when they are read.
 
 ### Bind arguments to a client: `$bind`
 
@@ -544,7 +669,7 @@ returns the client the method is called on, every call of which admits those
 values as if it passed them:
 
 ```ts
-import { accepts, args, bound, extension, methods } from "viborm";
+import { args, bound, extension, methods } from "viborm";
 import { v } from "viborm/validation";
 
 type Requests = { $as<Self>(this: Self, actor: string): Self };
@@ -552,7 +677,7 @@ type Requests = { $as<Self>(this: Self, actor: string): Self };
 const db = client.$extends(
   extension(
     "requests",
-    args({ actor: bound(accepts(v.string()).required()) }),
+    args({ actor: bound(v.string()).required() }),
     methods((scope) => {
       const added: Requests = {
         // `$bind` returns `unknown`: the `this` parameter types the result.
@@ -629,9 +754,13 @@ await db.post.findMany(); // ValidationError: "tenant" is required
 - Filters may go through relations, `some`/`every`/`none`/`is` and `recurse`
   included. A `recurse` must write its `depth` (`false` for the whole closure,
   or a number); `true` and `{}` are refused.
-- A model without an entry reads as before. An absent filter filters nothing.
+- A model without an entry reads as before. A key an entry leaves out adds no
+  restriction: an entry with only `read.where` lets a call update and delete
+  every row it can read. To refuse an action, write a filter that takes no
+  row: `update: { where: only(nothing) }`.
 - `rule` also takes a function of the schema, `rule((schema) => entries)`, for
-  an extension that builds its entries from the schema it is applied to.
+  an extension that builds its entries from the schema it is applied to. Its
+  entries are checked when it runs, not typed by your editor.
 
 ### Values a rule reads
 
@@ -641,19 +770,26 @@ await db.post.findMany(); // ValidationError: "tenant" is required
 | `now` | a value | The call's instant, the same for all its rows |
 | `row(column, up?)` | a value | The column of the row `up` relation bodies above (`up: 0` is the same row) |
 | `exists({ [model]: where })` | a filter | Some row of that model holds the `where`, read under the other extensions' rules |
+| `nothing` | a filter | No row: `only(nothing)` refuses an action |
 | `when(arg, test, filter)` | a filter | `filter` applies when the test holds; otherwise every row passes |
 | `unless(arg, test, filter)` | a filter | `filter` applies when the test does not hold |
 | `provided(arg, test, filter?)` | a filter | Holds only when the test holds (and `filter`, if given); false otherwise |
 
-A test is a value, or `{ exists }`, `{ in }`, `{ has }`, `{ hasSome }`. It is
-folded before any row is read: a test that does not hold removes its arm, the
-values inside it included.
+A test is a value, or `{ exists }`, `{ in }`, `{ equals }`, `{ has }`,
+`{ hasSome }`. It is folded before any row is read: a test that does not hold
+removes its arm, the values inside it included.
 
-- An argument can sit anywhere a filter takes a value, at any depth:
-  `{ tenantId: { in: arg("tenants") } }`, or on a field inside `AND`, `OR` and
-  `NOT`. Declare the argument in this extension or in one applied before it,
-  so one value serves both (an audit stamp can take the actor another
-  extension declares).
+- An argument can sit anywhere a filter takes a value: on a field
+  (`{ tenantId: arg("tenant") }`), under one of its operators
+  (`{ tenantId: { in: arg("tenants") } }`), on a field inside `AND`, `OR` and
+  `NOT`, and inside `exists`. Your editor types the field and its operators;
+  deeper (a relation's own `where`), `$extends()` checks the word. Declare
+  the argument in this extension or in one applied before it, so one value
+  serves both (an audit stamp can take the actor another extension
+  declares).
+- `arg("user")` written away from the rule (a shared constant, a function
+  that builds entries) is not typed by the rule's arguments: `$extends()`
+  refuses it if no extension of the chain declares that name.
 - A call that does not pass an argument drops every filter that names it:
   that filter hides nothing. Make the argument `.required()` when a missing
   value must be refused instead. A model it is required on is then never read
@@ -733,9 +869,9 @@ its link.
 - `OperationResult`, `InferDatabase` and `renderOperationResultType` describe
   the schema alone: on such a client they type a to-one relation as present
   where it can read `null`. `ExtendedOperationResult` types the client's own
-  results, and so does a typed `call.around`'s `run()`, which also reads the
+  results, and so does a typed `around`'s `run()`, which also reads the
   rules of the parts before it in its own extension. A rule placed **after**
-  a `call.around` in the same extension is not seen by its types: put rules
+  an `around` in the same extension is not seen by its types: put rules
   first.
 - A rule may follow any other part: it applies to every call of the chain,
   methods' calls included. TypeScript refuses a rule that hides rows only
@@ -749,13 +885,15 @@ its link.
   request: the rule keeps a call inside the tenant it names, it does not check
   that the caller may name it.
 
-### Judge writes: `update.where`, `delete.where`
+### Judge writes: `only`
 
-`read.where` decides which rows a call reads. The write keys decide what a
-call may do to them. Share a predicate between keys by sharing the object:
+`read.where` decides which rows a call reads. `update.where`, `delete.where`
+and `update.fields[f].where` decide what a call may do to them, each written
+with the word `only(where)`. Share a predicate between keys by sharing the
+object:
 
-```ts
-import { accepts, arg, args, extension, rule } from "viborm";
+```ts expect-error
+import { accepts, arg, args, extension, only, rule } from "viborm";
 import { v } from "viborm/validation";
 
 const seen = { OR: [{ public: true }, { ownerId: arg("user") }] };
@@ -769,8 +907,8 @@ const db = client.$extends(
     rule({
       document: {
         read: { where: seen },
-        update: { where: own, fields: { archivedAt: { where: archivist } } },
-        delete: { where: own },
+        update: { where: only(own), fields: { archivedAt: { where: only(archivist) } } },
+        delete: { where: only(own) },
       },
     })
   )
@@ -783,9 +921,12 @@ await db.document.update({ user: "ada", where: { id }, data: { archivedAt: new D
 
 - `read.where` is conjoined with every write key: a write never takes a row
   its call cannot see.
+- `only` is a word, not a bare filter, so that a rule that never judges a
+  write carries none of that code.
 - A delete takes `delete.where`, kept rows included. An update takes, for
-  each field its `data` writes, that field's `update.fields` entry, else
-  `update.where`, all of them at once. An update that writes a field a `keep`
+  each field its `data` writes, that field's `update.fields` entry, which
+  replaces `update.where` for that field, else `update.where`, all of them
+  at once. An update that writes a field a `keep`
   manages (by hand or through a restore) also takes `delete.where`. A
   relation write counts as a write of the relation on the row whose foreign
   key it changes, and a join row's change as a write on both rows it links.
@@ -801,47 +942,58 @@ await db.document.update({ user: "ada", where: { id }, data: { archivedAt: new D
 - A predicate object that contains itself is refused when the extension is
   applied.
 
-### Lazy entries
+### Lazy entries: `lazy`
 
-A model's entry may be a function returning it, for entries that are
-expensive to build (`viborm/permissions` compiles its policy this way):
+A model's entry may be read later, for entries that are expensive to build
+(`viborm/permissions` compiles its policy this way):
 
 ```ts
-rule({ document: () => compileDocumentRule() });
+import { extension, lazy, rule } from "viborm";
+
+const db = client.$extends(
+  extension(
+    "documents",
+    rule({ document: lazy(() => ({ read: { where: { public: true } } })) })
+  )
+);
 ```
 
 The function is called the first time a call needs that model, which includes
 every model the call's filters read through a relation, and its entry is
 checked then: a refusal fails that call, and every later call on the model,
-instead of `$extends()`. The function is called once for the declaration it
-belongs to, which is checked once per schema: a client created per request
-that applies the same declaration object calls it once. A function's return
-is not a `const` context: write an inline entry with `as const`, so its
-`facts` names and gated fields keep their literal types for the client's
-`select` and default omits.
+instead of `$extends()`. A bare function in place of an entry is refused:
+`lazy` is the word that brings this code. Your editor types a lazy entry like
+an inline one, but does not read the `facts` names or gated fields inside it.
 
 ### Judge the rows a write produces: `check`, `acyclic`
 
 `check(where)` judges the row a write leaves behind, as a value, against the
 rows as they stand before the write, inside the statement that writes it:
 
-```ts
-import { arg, check, rule } from "viborm";
+```ts expect-error with=sharing
+import { accepts, arg, args, check, extension, only, rule } from "viborm";
+import { v } from "viborm/validation";
 
 const placed = { ownerId: arg("user") };
 
-rule({
-  document: {
-    read: { where: seen },
-    update: {
-      where: own,
-      check: check({ AND: [seen, own] }), // the row an update leaves
-      fields: { folderId: { check: check(placed) } }, // an update writing folderId
-    },
-    create: { check: check(placed) }, // every created row
-    acyclic: ["parent"], // a document never moves under itself
-  },
-});
+const judged = client.$extends(
+  extension(
+    "judged-sharing",
+    args({ user: accepts(v.string()).required() }),
+    rule({
+      document: {
+        read: { where: seen },
+        update: {
+          where: only(own),
+          check: check({ AND: [seen, own] }), // the row an update leaves
+          fields: { folderId: { check: check(placed) } }, // an update writing folderId
+        },
+        create: { check: check(placed) }, // every created row
+        acyclic: ["parent"], // a document never moves under itself
+      },
+    })
+  )
+);
 ```
 
 - Nothing is implied. `update.where` says which rows an update may take;
@@ -849,8 +1001,10 @@ rule({
   row inside what its call could have written, write `update.check` with the
   read predicate and the update predicate, as above.
 - A created row is judged at `create.check`; a model with none is not judged
-  on create. An updated row is judged at `update.check` and at each written
-  field's `check`.
+  on create. An updated row is judged at `update.check` where the update
+  writes a field the predicate reads, and at each written field's `check`:
+  an update that writes nothing the predicate reads cannot move the row out
+  of it, and its statement carries no judgement.
 - `acyclic` may be a function returning the list: it is called the first time
   an update writes the key of one of the model's self relations.
 - A refused row is written by no statement: at the root `ForbiddenError`, in
@@ -874,18 +1028,25 @@ The same predicates can answer per row. `facts` declares a key a call may put
 in any `select` or `include`, at any depth, on reads and on the rows a write
 returns; `gate` makes a field present only where a predicate holds:
 
-```ts
-import { facts, gate, rule } from "viborm";
+```ts with=sharing
+import { accepts, args, extension, facts, gate, rule } from "viborm";
+import { v } from "viborm/validation";
 
-rule({
-  document: {
-    read: {
-      where: seen,
-      fields: { notes: gate(own) },
-      select: { $access: facts({ seen, own, archivist }) },
-    },
-  },
-});
+const db = client.$extends(
+  extension(
+    "sharing",
+    args({ user: accepts(v.string()).required() }),
+    rule({
+      document: {
+        read: {
+          where: seen,
+          fields: { notes: gate(own) },
+          select: { $access: facts({ seen, own, archivist }) },
+        },
+      },
+    })
+  )
+);
 
 await db.document.findMany({
   user: "ada",
@@ -908,7 +1069,7 @@ await db.document.findMany({ user: "ada", select: { id: true, notes: true } }); 
   filters and relation order) reads it as absent (`NULL`) on those rows.
 - A key or foreign key cannot be gated, and two extensions of one chain cannot
   declare the same key on a model: both are refused when the extension is
-  applied.
+  applied. One entry holds one `facts` key.
 
 ### Keep deleted rows: `keep`
 
@@ -950,8 +1111,11 @@ await db.project.delete({ where: { id }, purge: true }); // a physical delete
 - It is refused with `ForeignKeyError` while a row the child model's default
   mode shows still references it through a foreign key that restricts deletes,
   as the database refuses a physical delete.
-- `unless` (or `when`) chooses, per call, when the delete stays physical. The
-  official [soft delete](/docs/extensions/soft-delete) is built this way.
+- `keep` writes constants and `now`, in one field at most. `unless(arg(x),
+  value, data)` (or `when` over an argument of two values) chooses, per call,
+  when the delete stays physical. It is written in an inline entry, not a
+  `lazy` one. The official [soft delete](/docs/extensions/soft-delete) is
+  built this way.
 
 ### Confine the sets your predicates compute: `confine`
 
@@ -962,7 +1126,16 @@ grants. `confine` says, per model, what every row of such a set holds, as a
 `where` of the model's own columns (no relation):
 
 ```ts
-rule({ grant: { confine: { tenantId: arg("tenant") } } });
+import { accepts, arg, args, extension, rule } from "viborm";
+import { v } from "viborm/validation";
+
+const db = client.$extends(
+  extension(
+    "grants",
+    args({ tenant: accepts(v.string()).required() }),
+    rule({ grant: { confine: { tenantId: arg("tenant") } } })
+  )
+);
 ```
 
 - It applies to a set your own predicates compute over a whole table: a
@@ -1006,8 +1179,9 @@ await db.post.update({ where: { id }, data: { title }, actor: "bob" }); // updat
 await db.user.findMany(); // no passwordHash
 ```
 
-`defaults` brings no filter code and no argument admission of its own. When a
-`rule` part is on the same chain, it reads what `defaults` set as well.
+`defaults` brings no filter code and no argument admission of its own (the
+`args` part brings that). When a `rule` part is on the same chain, it reads
+what `defaults` set as well.
 
 ### Default order: `orderBy`
 
@@ -1091,8 +1265,9 @@ the client by default, root results and nested relation payloads alike. A
 query brings it back with `omit: { passwordHash: false }` or a `select` that
 names it. Two parts that omit fields of one model add up, in one extension or
 in two. A default does not change a bulk operation from `{ count }` to
-returned rows. The official
-[`defaultOmit()`](/docs/extensions/omit) is this word.
+returned rows. The official [`defaultOmit()`](/docs/extensions/omit) is this
+word in an extension named `defaultOmit`, so one chain applies it once;
+further omissions go in your own extensions' `defaults`.
 
 ## Write values the statement computes
 
@@ -1109,7 +1284,7 @@ extensions.
 ```ts
 import { computed, sql, stored } from "viborm";
 
-await db.counter.update({
+await client.counter.update({
   where: { id },
   data: {
     hits: computed<number>(({ sql: q }) => [
@@ -1195,9 +1370,9 @@ await db.post.archive({ where: { id } });
   what that delegate's operation returns on the client it is called on, after
   every extension applied later, computed fields included. Called off its
   delegate (`const { archive } = db.post`), its result is `unknown`.
-- The client `$extends()` returns runs the factory then, so a faulty factory
-  fails there. Every other view (an interactive transaction's `tx`, a client
-  `$bind` returns) runs it when what it returns is first read.
+- The client `$extends()` returns runs the factory then, once, so a faulty
+  factory fails there. Every other view (an interactive transaction's `tx`, a
+  client `$bind` returns) runs it once, when what it returns is first read.
 - Client method names must start with `$`. A contributed method cannot replace
   a core method, a model name, `then`, or a method from an earlier extension.
   The whole extension application fails if any name collides; TypeScript does
@@ -1316,7 +1491,7 @@ unit `operation` begins                                     [unit]
   default omission                                          [defaults: omitted]
   computed fields planned                                   [fields]
   validation and preparation
-  second moments, nested, the first applied outermost       [call.around]
+  second moments, nested, the first applied outermost       [around]
     { inner: true } parts, closest to the core
       planning and compilation
       for each logical statement
@@ -1333,7 +1508,8 @@ unit `operation` ends
   applies them everywhere a model appears in the query.
 - `settled` functions run when the write is durable, before the call's
   promise resolves: at once after the call's own commit, after the outermost
-  commit inside a transaction.
+  commit inside a transaction. All of them run, in chain order; the first
+  fault rejects the call.
 - In `$transaction([...])`, a `batch` unit surrounds the members. VibORM waits
   until each member's `operation` unit has started its work before any first
   moment, and every member finishes its first moments and reaches `run()` in
@@ -1343,7 +1519,7 @@ unit `operation` ends
 
 Apply extensions in the order they should wrap one another:
 
-```ts
+```ts with=compose
 const db = client
   .$extends(boundedReads)
   .$extends(timing)
@@ -1360,7 +1536,7 @@ Every extension's rules, defaults and omissions apply to every call, methods'
 calls included, whatever the order of the chain: a method runs through the
 whole chain of the client it is called on. Only **types** can fall behind. A
 part typed against the client it extends is a result consumer: a `methods`
-factory that takes `scope`, or a `call.around` that names one model and one
+factory that takes `scope`, or an `around` that names one model and one
 operation. A later rule that hides rows can make a to-one relation it reads
 `null`, and a later omission can drop a field it reads, so TypeScript refuses
 those after a consumer; the runtime does not. Put rules and omissions first,
@@ -1398,12 +1574,17 @@ const db = client.$extends(tenancy);
 - Only `extension` is bound: the parts inside it read the target from it.
 - Bound to a schema, `parts<typeof schema>()`, the extension applies to any
   client of that schema, and loses two things: it cannot name an argument an
-  earlier extension of the chain declares, and a typed `call.around`'s `run()`
+  earlier extension of the chain declares, and a typed `around`'s `run()`
   reads every to-one relation as `| null`.
 - Bound to a client type, `parts<typeof client>()`, it loses nothing, and
   applies only to that client.
-- An extension that names no model (a generic `call.around`, a `methods`
+- An extension that names no model (a generic `around`, a `methods`
   part with client methods only) needs no binding.
+- An extension meant for any client (a recipe that takes model names) is
+  written with plain `extension(...)` and words held apart from the rule
+  (`const tenant = arg("tenant")`): model names, fields and arguments are
+  then checked by `$extends()` when it is applied. The
+  [recipes](/docs/extensions/recipes) are written this way.
 
 ### Name the complete client type
 
@@ -1411,7 +1592,7 @@ Use `ExtendedClient` when the base client, the extensions, and the final
 composition live in different modules but the application needs one shared
 client type:
 
-```ts
+```ts with=compose
 import type { ExtendedClient } from "viborm";
 
 export const applicationExtensions = [boundedReads, timing, postTools] as const;
@@ -1425,7 +1606,7 @@ export type ApplicationClient = ExtendedClient<
 The tuple is the real application order. Keep it `as const`, then build the
 runtime client in the same order wherever it belongs:
 
-```ts
+```ts with=compose,application
 export const db: ApplicationClient = client
   .$extends(applicationExtensions[0])
   .$extends(applicationExtensions[1])
@@ -1443,10 +1624,10 @@ checks and fail when the extension is applied.
 ## Before publishing an extension
 
 - Give it one stable, unique name.
-- Use the narrowest part: `call` before `call.around`, `defaults` before
-  `rule`, `where` filters before `check` and `gate`.
+- Use the narrowest part: `call` before `around`, `defaults` before `rule`,
+  `where` filters before `only`, `check` and `gate`.
 - Put `args` before the parts that read its arguments, and rules before a
-  typed `call.around`.
+  typed `around`.
 - Write it inside `$extends(...)`, or bind it with `parts<Of>()` when it is
   written apart and names models.
 - Keep first moments synchronous and return only a shallow patch.
