@@ -28,6 +28,7 @@
 // the entry every application imports.
 export type {
   ClientTypeState,
+  DelegateConfig,
   DelegateOperationArgs,
   DelegateOperationPayload,
   DelegateOperationResult,

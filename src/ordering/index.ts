@@ -27,6 +27,7 @@ import { computed, joined, stored } from "../extensions/values";
 import type {
   AnyTarget,
   ClientSchema,
+  DelegateConfig,
   DelegateOperationArgs,
   DelegateOperationResult,
   EmptyFacts,
@@ -1122,18 +1123,41 @@ type MoveArgs<
   readonly where: Unique<C, K>;
   readonly data?: MoveData<C, Config, K>;
 } & MovePlacement<M, C, Config, K>;
-/** A unique selector a move spells, its keys refused as an update's `where`. */
-type SealedUnique<C extends VibORMConfig, K, Given> = NoExtraOperationKeys<
-  "update",
-  { readonly where: Given },
-  NonNullable<ModelArgs<C, K, "update">>,
-  ClientSchema<C>[K & keyof ClientSchema<C>]
->["where"];
 /** The key `Spelled` names that `Allowed` has not. */
 type Sealed<Spelled, Allowed> = Record<
   Exclude<keyof NonNullable<Spelled>, keyof Allowed>,
   never
 >;
+/**
+ * What a move reads of the model it is called on, from the delegate's own
+ * client (`Self`) where it carries one: an `ordering(...)` held before
+ * `$extends` is built against no client, and its own target knows no model.
+ * One conditional over the config, each member read from its answer: the
+ * config is known before the model is.
+ */
+type Moved<
+  Self,
+  M,
+  C extends VibORMConfig,
+  Config extends OrderingConfig,
+  K extends keyof Config,
+> = DelegateConfig<Self, C> extends infer Own extends VibORMConfig
+  ? {
+      readonly args: MoveArgs<M, Own, Config, K>;
+      readonly update: NonNullable<ModelArgs<Own, K, "update">>;
+      readonly model: ClientSchema<Own>[K & keyof ClientSchema<Own>];
+      readonly data: MoveData<Own, Config, K>;
+      readonly list: ListOf<Own, Config, K>;
+      readonly rekey: RekeyArgs<Own, K>;
+    }
+  : never;
+/** `Moved`, as `SealedMove` reads it. */
+interface MovedModel {
+  readonly update: unknown;
+  readonly model: AnyModel;
+  readonly data: unknown;
+  readonly list: unknown;
+}
 /**
  * A move's own keys, refused where they name nothing: `where` and the
  * anchors as an update's `where` is, `data` and `to` against the fields they
@@ -1143,20 +1167,17 @@ type Sealed<Spelled, Allowed> = Record<
  * key: comparing two ordered clients' `move` (two `ordering()` calls) then
  * cost 2.5M instantiations instead of 0.1M.
  */
-type SealedMove<
-  A,
-  C extends VibORMConfig,
-  Config extends OrderingConfig,
-  K extends keyof Config,
-> = {
-  readonly [P in keyof A & ("where" | "after" | "before")]?: SealedUnique<
-    C,
-    K,
-    A[P]
-  >;
+type SealedMove<A, Of extends MovedModel> = {
+  readonly [P in keyof A &
+    ("where" | "after" | "before")]?: NoExtraOperationKeys<
+    "update",
+    { readonly where: A[P] },
+    Of["update"],
+    Of["model"]
+  >["where"];
 } & {
-  readonly [P in keyof A & "data"]?: Sealed<A[P], MoveData<C, Config, K>>;
-} & { readonly [P in keyof A & "to"]?: Sealed<A[P], ListOf<C, Config, K>> };
+  readonly [P in keyof A & "data"]?: Sealed<A[P], Of["data"]>;
+} & { readonly [P in keyof A & "to"]?: Sealed<A[P], Of["list"]> };
 type FindArg<C extends VibORMConfig, K, P extends string> = NonNullable<
   ModelArgs<C, K, "findMany">
 >[P & keyof NonNullable<ModelArgs<C, K, "findMany">>];
@@ -1176,17 +1197,23 @@ export type OrderingMethods<
   Config extends OrderingConfig,
   K extends keyof Config,
 > = {
-  // The row is typed from the delegate `move` is called on (`Self`), so it
-  // follows every extension applied after this one.
+  // The arguments and the row are typed from the delegate `move` is called
+  // on (`Self`): the row follows every extension applied after this one.
   move<
     Self,
-    const A extends DelegateOperationArgs<Self, MoveArgs<M, C, Config, K>>,
+    const A extends DelegateOperationArgs<
+      Self,
+      Moved<Self, M, C, Config, K>["args"]
+    >,
   >(
     this: Self,
-    args: A & SealedMove<A, C, Config, K>
+    args: A & SealedMove<A, Moved<Self, M, C, Config, K>>
   ): PromiseLike<DelegateOperationResult<Self, "update", A>>;
   // Generic as `move` is, so a call's controls (`deleted`, …) pass along.
-  rekey<A extends RekeyArgs<C, K>>(args?: A): PromiseLike<{ count: number }>;
+  rekey<Self, A extends Moved<Self, M, C, Config, K>["rekey"]>(
+    this: Self,
+    args?: A
+  ): PromiseLike<{ count: number }>;
 };
 /** The scalar fields of one model, by name. */
 type ScalarFieldsOf<T extends AnyTarget, M> = M extends keyof ClientSchema<

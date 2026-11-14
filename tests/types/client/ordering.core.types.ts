@@ -241,5 +241,30 @@ export async function probes() {
     models: { card: { key: "rank" } },
   };
   base.$extends(ordering(widened));
-  expectTypeOf(legacy.card.move).toEqualTypeOf(db.card.move);
+  expectTypeOf(legacy).toEqualTypeOf(db);
+  expectTypeOf(legacy.card).toEqualTypeOf(db.card);
+
+  // An `ordering(...)` held before `$extends` knows no model of its own:
+  // `move` and `rekey` read the client they are called on.
+  const ranks = ordering({
+    models: { card: { key: "rank", within: ["columnId"] } },
+  });
+  const held = base.$extends(ranks);
+  const heldMoved = await held.card.move({
+    where: { id: "a" },
+    first: true,
+    to: { columnId: "c2" },
+    data: { title: "t" },
+    select: { title: true },
+  });
+  expectTypeOf(heldMoved).toEqualTypeOf<{ title: string }>();
+  await held.card.rekey({ where: { columnId: "c1" } });
+  // @ts-expect-error a held extension's where names the model's fields
+  held.card.move({ where: { id: "a", idd: "b" }, first: true });
+  // @ts-expect-error its data may not write the key
+  held.card.move({ where: { id: "a" }, first: true, data: { rank: "1" } });
+  // @ts-expect-error its `to` names the list's fields
+  held.card.move({ where: { id: "a" }, first: true, to: { title: "t" } });
+  // @ts-expect-error and rekey's where the model's
+  held.card.rekey({ where: { idd: "b" } });
 }
