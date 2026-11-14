@@ -1847,7 +1847,7 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
           await Promise.all(
             clients.map((db, index) =>
               db.$transaction(async (tx: any) => {
-                runs[index] += 1;
+                runs[index] = (runs[index] ?? 0) + 1;
                 await tx.$executeRaw(bump);
                 if (++entered === clients.length) release();
                 await barrier;
@@ -1856,7 +1856,7 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
           );
           const [row] = await clients[0].item.findMany();
           expect(row.n).toBe(2);
-          expect(runs[0] + runs[1]).toBeGreaterThan(2);
+          expect((runs[0] ?? 0) + (runs[1] ?? 0)).toBeGreaterThan(2);
           expect([...told].sort()).toEqual(
             [`0:${runs[0]} committed`, `1:${runs[1]} committed`].sort()
           );
@@ -1876,10 +1876,11 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
             clients.map((db, index) =>
               db
                 .$transaction(async (tx: any) => {
-                  runs[index] += 1;
+                  runs[index] = (runs[index] ?? 0) + 1;
                   await tx.$executeRaw(bump);
                   // The loser of the commit refuses in its run again.
-                  if (runs[index] > 1) throw new TypeError("run again refuses");
+                  if ((runs[index] ?? 0) > 1)
+                    throw new TypeError("run again refuses");
                   if (++entered === clients.length) release();
                   await barrier;
                   return "committed";
@@ -1904,7 +1905,7 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
         try {
           const failed = await db
             .$transaction(async (tx: any) => {
-              runs[0] += 1;
+              runs[0] = (runs[0] ?? 0) + 1;
               await tx.$executeRaw(bump);
               await tx.item.update({
                 where: { id: "a" },
