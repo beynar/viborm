@@ -7,6 +7,7 @@ export default defineMeta({
     "index",
     "create",
     "recipes",
+    "migrating",
     "cache",
     "instrumentation",
     "omit",

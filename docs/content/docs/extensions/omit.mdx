@@ -12,16 +12,19 @@ the model definition, or another client created from the same schema.
 import { defaultOmit } from "viborm/client";
 
 const publicClient = client.$extends(
-  defaultOmit<typeof schema>()({
+  defaultOmit({
     user: { passwordHash: true },
     note: { draftBody: true },
   })
 );
 ```
 
-The configuration is snapshotted when the extension is applied. Model and
+The configuration is typed against the client it is applied to. Model and
 scalar names are checked exactly, and omitted entries must use the literal
-value `true`.
+value `true`. It is the `defaults` part's
+[`omitted`](/docs/extensions/create#default-omission-omitted) word: an
+extension of your own can omit fields the same way. Several `defaultOmit()`
+on one chain add up per model.
 
 ## Results and overrides
 
@@ -47,18 +50,15 @@ For model row exclusions and one-query `omit`, see
 
 ## Ordering
 
-Because `defaultOmit()` changes default result types, it may follow only
-extensions whose type context does not depend on the earlier result surface:
-
-- request, statement, or observe contributions;
-- a schema-generic polymorphic query function;
-- the official [`cache()`](/docs/extensions/cache) or
-  [`instrumentation()`](/docs/extensions/instrumentation) extension.
-
-Apply `defaultOmit()` before a schema-specific model/operation query map, a
-client-method factory, or a model-method factory. Those contributions are
-contextually typed against the result surface that exists when they are
-applied.
+The omission applies to every call of the chain, whatever its place. Because
+it changes default result types, TypeScript refuses it after a part typed
+against the result surface that exists when it is applied: a `methods`
+factory that takes its `scope`, or a `call.around` that names one model and
+one operation. It may follow anything else, the official
+[`cache()`](/docs/extensions/cache) and
+[`instrumentation()`](/docs/extensions/instrumentation) included. Apply
+`defaultOmit()` before those parts
+([compose](/docs/extensions/create#compose-extensions)).
 
 ## Not authorization
 

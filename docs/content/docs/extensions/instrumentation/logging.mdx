@@ -1,6 +1,6 @@
 ---
 title: Logging
-description: Structured query, cache, warning, and error logs
+description: Structured query, cache, and error logs
 icon: file-text
 ---
 
@@ -14,7 +14,6 @@ const client = createClient({ schema, driver }).$extends(
     logging: {
       query: true,
       cache: true,
-      warning: true,
       error: (event, log) => {
         errorTracker.capture(event.error);
         log();
@@ -31,7 +30,6 @@ const client = createClient({ schema, driver }).$extends(
 | `all` | Fallback handler for every enabled level |
 | `query` | Physical provider execution |
 | `cache` | Cache hit, miss, stale, bypass, set, and revalidation events |
-| `warning` | Non-fatal ORM notices |
 | `error` | One selected normalized operation failure |
 | `includeSql` | Disclose rendered SQL to logging only |
 | `includeParams` | Disclose snapshotted parameters to logging only |

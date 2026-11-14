@@ -216,7 +216,7 @@ const authors = await Promise.all(
 
 Each caller still gets what its call would return on its own: its own row (a
 separate object, also when two calls name the same key), `null`, or
-`NotFoundError`. Request transforms, query interceptors, the cache, observers
+`NotFoundError`. Extensions' `call` parts, the cache, `operation` units
 and [permissions](/docs/extensions/permissions) still see one operation per
 call. Only the statement is shared.
 
@@ -233,12 +233,12 @@ Calls are merged only when all of these hold:
 - They come from the same client view (the same `$extends` or `$as` result) and
   run outside any transaction. Calls inside `$transaction` are never merged.
 - They read the same model with the same `select`, `include` and `omit`
-  (nested arguments included) and the same per-call controls.
+  (nested arguments included) and the same extension arguments.
 - The `where` is the unique key alone: one field, or one complete compound key,
   whose fields are `string`, `int` or `bigInt` scalars. A `where` that adds a
   filter, or a key of another type (`dateTime`, `decimal`, `blob`…), runs as
   its own statement.
-- No extension transforms statements, and the driver installs no result
+- No extension rewrites statements, and the driver installs no result
   parser of its own.
 
 A few things change:

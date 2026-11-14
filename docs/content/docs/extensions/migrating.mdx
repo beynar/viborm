@@ -1,0 +1,500 @@
+---
+title: Migrating an extension
+description: Move an extension written for the earlier contract to parts, member by member
+icon: arrow-right-left
+---
+
+The extension contract is now one function, `extension(name, ...parts)`, and
+seven functions that build a part: `call`, `unit`, `args`, `rule`, `defaults`,
+`methods` and `fields`. Each part brings into your bundle only the code that
+runs it. This page maps each member of the earlier definition object to its
+part, then lists what goes without replacement and what changes for users of
+the official extensions.
+
+The rules an extension follows are in
+[Create an extension](/docs/extensions/create). Error texts changed too: match
+errors on their class and code, not on their message.
+
+## One spelling
+
+`defineExtension`, `defineHooks`, `defineFilters`, `enableExtensions` and an
+object literal passed to `$extends()` are gone. So is a function of the client
+passed to `$extends()`. An extension is a value, applied with
+`client.$extends(value)`:
+
+```ts
+// Before
+const timing = defineExtension({
+  name: "timing",
+  async query({ proceed }) {
+    return proceed();
+  },
+});
+
+// After
+const timing = extension(
+  "timing",
+  call.around(() => async (run) => run())
+);
+
+client.$extends(timing);
+```
+
+An extension that names models was bound with
+`defineExtension<typeof schema>()({...})`. Write it inside `$extends(...)` to
+type it from the client, or bind it with `parts<typeof schema>()` when it is
+written apart:
+
+```ts
+// Before
+const postTools = defineExtension<typeof schema>()({ name: "post-tools", /* … */ });
+
+// After
+const postTools = parts<typeof schema>().extension("post-tools" /* , parts… */);
+```
+
+A factory passed to `$extends()`, `client.$extends((base) => …)`, has no
+replacement form: build the extension as a value. One that read the schema to
+build its rows passes a function of the schema to `rule` or `defaults`:
+`rule((schema) => entries)`.
+
+## Member by member
+
+| Earlier member | Part |
+|---|---|
+| `request` | `call((c) => { c.set(patch) }, on?)` |
+| `query` | `call.around((c) => async (run) => …, on?)` |
+| `onWriteOutcome` | `settled(c, fn)` in the first moment |
+| `written` | `watch(c, …)` and `settled(c, …)` in a `call` on writes |
+| `retry` | `again(run)` in a `call.around` |
+| `route` | `via(run, driver)` in a `call.around` |
+| `transaction` | `unit` on `"transaction"`, with `run(u, sql)` |
+| `statement` | `unit` on `"statement"`, `{ rewrites: true }`, with `next(sql)` |
+| `observe`, `observes` | `unit((u, next) => …)` with the words `sql`, `parameters`, `driver`, `failure` |
+| `controls` | `args({...})` with its modifiers |
+| `rows.control`, `rows.default`, `rows.models` | An argument `oneOf(...modes).default(d)`, and `root` / `related` written with `when` |
+| `rows.verbs` | The keys of `rule`; named predicates become shared constants |
+| `rows.confine` | `confine` in the model's `rule` entry |
+| `deletion` | `rule({ m: { delete: { instead: keep(…) } } })` |
+| `data` | `defaults({ m: { create, update } })` |
+| `order` | `defaults({ m: { orderBy } })` |
+| `result` | `fields({...})` |
+| `client`, `model` | `methods((scope) => ({ $name, model: { … } }))` |
+| `{ control, path }`, `{ now: true }`, `{ $row, up }`, `{ $exists }`, `{ $if }` | `arg(name, path)`, `now`, `row(column, up)`, `exists(…)`, `provided(…)` |
+
+### `request` → `call`
+
+`input` is `c.args`, `controls` is `c.values`. The patch is passed to
+`c.set` instead of being returned. A map of models and operations becomes one
+part per entry, selected with `on`:
+
+```ts
+// Before
+request: {
+  post: {
+    findMany({ input }) {
+      return { take: Math.min(input.take ?? 100, 100) };
+    },
+  },
+},
+
+// After
+call((c) => {
+  c.set({ take: Math.min(c.args.take ?? 100, 100) });
+}, on("post", "findMany")),
+```
+
+A generic `request` function ran for model operations only: select them with
+`on(models)`. `c.args` shows every argument of the call, read-only; a handler
+that read `input` relied on the result-shaping keys being absent from it.
+
+### `query` → `call.around`
+
+`proceed` is `run`, `input` is `run.input`, `mode` is `run.mode`; `kind`,
+`model` and `operation` stay on `c`:
+
+```ts
+// Before
+query: {
+  post: {
+    async findMany({ mode, input, proceed }) {
+      beforeRead({ mode, input });
+      return proceed();
+    },
+  },
+},
+
+// After
+call.around((c) => async (run) => {
+  beforeRead({ mode: run.mode, input: run.input });
+  return run();
+}, on("post", "findMany")),
+```
+
+### `onWriteOutcome` → `settled`
+
+```ts
+// Before
+async update({ onWriteOutcome, proceed }) {
+  onWriteOutcome(({ certainty }) => enqueueRefresh({ certainty }));
+  return proceed();
+},
+
+// After
+call((c) => {
+  settled(c, ({ certainty }) => enqueueRefresh({ certainty }));
+}, on("post", "update")),
+```
+
+A failure in `settled` rejects the call: a VibORM error as it is, anything
+else as a `QueryError`. The functions of several extensions run in chain
+order, and the first failure rejects the call.
+
+### `written` → `watch` and `settled`
+
+```ts
+// Before
+written: () => ({
+  wants: (model) => model === "order",
+  rows: (model, kind, rows) => keep(rows),
+  settled: ({ certainty }) => publish(certainty),
+}),
+
+// After
+call((c) => {
+  watch(c, {
+    wants: (model) => model === "order",
+    rows: (model, kind, rows) => keep(rows),
+  });
+  settled(c, ({ certainty }) => publish(certainty));
+}, on(writes)),
+```
+
+### `retry` → `again`
+
+`retry` was asked after a failure. `again(run)` says whether `run()` may be
+called again, and you call it:
+
+```ts
+// Before
+retry: (error, attempt) => attempt < 3 && isRetryableError(error),
+
+// After
+call.around(() => async (run) => {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await run();
+    } catch (error) {
+      if (attempt >= 3 || !again(run) || !isRetryableError(error)) throw error;
+    }
+  }
+}),
+```
+
+### `route` → `via`
+
+```ts
+// Before
+route: ({ operation }) => (operation.startsWith("find") ? replica : undefined),
+
+// After
+call.around(() => (run) => via(run, replica), on(reads)),
+```
+
+### `transaction` → `unit` and `run`
+
+```ts
+// Before
+transaction: async (run) => {
+  await run(sql`SET LOCAL app.tenant = ${tenant}`);
+},
+
+// After
+unit(async (u, next) => {
+  await run(u, sql`SET LOCAL app.tenant = ${tenant}`);
+  return next();
+}, ["transaction"]),
+```
+
+### `statement` → a rewriting `unit`
+
+```ts
+// Before
+statement({ statement, model }) {
+  return model === "post" ? sql`${raw("/* posts */ ")}${statement}` : statement;
+},
+
+// After
+unit(
+  (u, next) =>
+    u.model === "post" ? next(sql`${raw("/* posts */ ")}${statement(u)}`) : next(),
+  ["statement"],
+  { rewrites: true }
+),
+```
+
+### `observe` and `observes` → `unit` and its words
+
+`observes` declared which facts core produced; now a word reads a fact when
+you need it, and a fact no word reads is not produced:
+
+```ts
+// Before
+observes: { observesLifecycle: true, wants: (need) => need === "statement" },
+observe(unit, proceed, facts) {
+  const known = facts?.read();
+  void proceed().then((completion) => record(unit, known, completion));
+},
+
+// After
+unit(async (u, next) => {
+  const text = u.kind === "statement" ? sql(u) : undefined;
+  const end = await next();
+  record(u, text, end, failure(u));
+  return end;
+}),
+```
+
+A unit handler is awaited and runs in the call: what it throws fails the call.
+Contain your own failures.
+
+### `controls` → `args`
+
+| Earlier | Now |
+|---|---|
+| `{ oneOf: ["a", "b"] }` | `oneOf("a", "b")` |
+| `{ schema: v.string() }` | `v.string()`, or `accepts(v.string())` to add modifiers |
+| `on: "reads"`, `"writes"`, a list | `.on(reads)`, `.on(writes)`, `.on([...])`; nothing for every operation |
+| `required: true` | `.required()` everywhere it is accepted, or `.required([...models])` |
+| `bound: true` | `bound(declaration)` |
+| `uncacheable: true` | `.volatile()` |
+
+```ts
+// Before
+controls: { tenant: { schema: v.string(), required: true } },
+
+// After
+args({ tenant: accepts(v.string()).required(["post", "comment"]) }),
+```
+
+`required: true` was asked on the models the extension named in `rows`,
+`data` or `deletion`. Nothing is deduced now: list those models in
+`.required([...])`, or leave the list out to ask everywhere.
+
+### `rows` → `args` and `rule`
+
+A mode control becomes an argument with a default; each mode's filters become
+`when` and `unless`:
+
+```ts
+// Before
+rows: {
+  control: "archived",
+  default: "hide",
+  models: {
+    project: {
+      hide: { root: { archivedAt: null }, related: { archivedAt: null } },
+      show: {},
+      only: { root: { archivedAt: { not: null } } },
+    },
+  },
+},
+
+// After
+args({ archived: oneOf("hide", "show", "only").default("hide").on(selecting) }),
+rule({
+  project: {
+    root: [
+      when(arg("archived"), "hide", { archivedAt: null }),
+      when(arg("archived"), "only", { archivedAt: { not: null } }),
+    ],
+    related: unless(arg("archived"), "show", { archivedAt: null }),
+  },
+}),
+```
+
+A filter with no mode is `read.where`. `when` applies its filter when the test
+holds and lets every row pass otherwise, as a mode did; `provided` holds only
+when the test holds, as `$if` did.
+
+### `rows.verbs` → the keys of `rule`
+
+| Earlier verb | Key |
+|---|---|
+| `predicates` | Shared constants: two keys share a predicate by sharing the object |
+| `read` | `read.where` |
+| `update` | `update.where` |
+| `delete` | `delete.where` |
+| `writes: { f }` | `update.fields.f.where` |
+| `place` | `create: { check: check(where) }` |
+| `moves: { f }` | `update.fields.f.check` |
+| `acyclic` | `acyclic` |
+| `evidence` | `read.select: { $access: facts({ … }, { ordered? }) }` |
+| `reads: { f }` | `read.fields: { f: gate(where) }` |
+
+```ts
+// Before
+verbs: {
+  document: {
+    predicates: { seen, own },
+    read: "seen",
+    update: "own",
+    reads: { notes: "own" },
+  },
+},
+
+// After
+rule({
+  document: {
+    read: { where: seen, fields: { notes: gate(own) } },
+    update: { where: own, check: check({ AND: [seen, own] }) },
+  },
+}),
+```
+
+An updated row was judged again, implicitly, at the predicates that let the
+update take it. Nothing is implied now: `update.check` says what the row an
+update leaves must hold. To keep the earlier meaning, write it with the read
+predicate and the update predicate, as above.
+
+### `deletion` → `keep`
+
+```ts
+// Before
+controls: { purge: { oneOf: [true] } },
+deletion: {
+  removeWhen: { purge: true },
+  models: { project: { at: "archivedAt", assign: { archivedBy: "system" } } },
+},
+
+// After
+args({ purge: oneOf(true).on(deletes).models(["project"]) }),
+rule({
+  project: {
+    delete: {
+      instead: keep(unless(arg("purge"), true, { archivedAt: now, archivedBy: "system" })),
+    },
+  },
+}),
+```
+
+`removeWhen` placed its control on the deletes of the managed models; write
+that placement yourself with `.on(deletes).models([...])`.
+
+### `data` and `order` → `defaults`
+
+```ts
+// Before
+data: { models: { post: { create: { createdBy: { control: "actor" } } } } },
+order: { models: { card: [{ columnId: "asc" }, { rank: "asc" }] } },
+
+// After
+defaults({
+  post: { create: { createdBy: arg("actor") } },
+  card: { orderBy: [{ columnId: "asc" }, { rank: "asc" }] },
+}),
+```
+
+### `result` → `fields`
+
+```ts
+// Before
+result: { user: { fullName: { needs: { firstName: true }, compute: (u) => u.firstName } } },
+
+// After
+fields({ user: { fullName: { needs: { firstName: true }, compute: (u) => u.firstName } } }),
+```
+
+### `client` and `model` → `methods`
+
+One factory returns both. A model method is called with `this` set to its
+delegate, so a model factory that received the delegate becomes a method that
+reads `this`:
+
+```ts
+// Before
+client: (scope) => ({ $postCount: () => scope.post.count() }),
+model: { post: (delegate) => ({ findPublished: () => delegate.findMany({ where: { published: true } }) }) },
+
+// After
+methods((scope) => ({
+  $postCount: () => scope.post.count(),
+  post: {
+    findPublished() {
+      return scope.post.findMany({ where: { published: true } });
+    },
+  },
+})),
+```
+
+A factory that takes `scope` is a result consumer, as a typed factory was:
+TypeScript refuses a later rule that hides rows or a later omission. Type a
+model method through `this` and `DelegateOperationResult` and take no `scope`
+to avoid that ([methods](/docs/extensions/create#methods-client-and-model-methods)).
+
+### Spelled values → words
+
+| Earlier | Now |
+|---|---|
+| `{ control: "tenant" }`, `{ control: "actor", path: "userId" }` | `arg("tenant")`, `arg("actor", "userId")` |
+| `{ now: true }` | `now` |
+| `{ $row: "orgId", up: 1 }` | `row("orgId", 1)` |
+| `{ $exists: { member: where } }` | `exists({ member: where })` |
+| `{ $if: { control, path, in: [...] } }` | `provided(arg(control, path), { in: [...] }, filter?)` |
+
+A word is a value, never detected: `{ control: "x" }` is now a filter on a
+field named `control`, as any other object.
+
+## What goes without replacement
+
+- The object literal passed to `$extends()`, `defineHooks`, `defineFilters`,
+  `enableExtensions`, and a function of the client passed to `$extends()`.
+- The refusal "nothing brought the code that runs extensions" or "that reads
+  `rows`": every part brings its own code.
+- Reading a definition as hostile data: proxies, accessors that throw, symbol
+  keys, frozen copies of the definition. A definition is trusted code.
+- The aggregated error when both the child and the handler fail: the child's
+  error stands.
+- Core containment of observers. A `unit` that throws fails the call.
+- `observes`, and its rule of one per client.
+- Named predicates (`verbs.predicates`).
+- The implicit judgement of an updated row (write `update.check`), and the
+  `required` placement deduced from `rows`, `data` and `deletion` (list the
+  models).
+- `warn`, the `warning` log level, `prewarm`, and the types
+  `ObservesDeclaration`, `ObservedFacts`, `ObserveHandler`,
+  `ObservationCompletion` and `ResultConsumerContextOf`.
+- One default omission per client: several now add up per model.
+
+## Users of the official extensions
+
+Every official extension is applied in one step:
+`client.$extends(official(config))`.
+
+```ts
+// Before
+const db = softDelete(config)(base);
+const db2 = ordering(config)(base);
+const db3 = base.$extends(softDelete(config).rows).$extends(policy).$extends(softDelete(config).methods);
+
+// After
+const db = base.$extends(softDelete(config));
+const db2 = base.$extends(ordering(config));
+const db3 = base.$extends(softDelete(config)).$extends(policy);
+```
+
+- `softDelete(config).rows` and `softDelete(config).methods` are gone, and so
+  is applying an official extension as a function of the client. A chain that
+  applied steps as functions (`methods(policy(rows(base)))`) becomes
+  successive `$extends()` calls.
+- `defaultOmit<typeof schema>()(config)` is `defaultOmit(config)`, typed
+  against the client it is applied to. Several `defaultOmit()` on one chain
+  add up per model.
+- `instrumentation()` no longer takes a `logging.warning` level: nothing
+  produced warnings.
+- The cache: a read that carries a `.volatile()` argument (permissions' actor)
+  through `$withCache()` runs without being served or stored instead of being
+  refused. Apply `cache()` before `on()` so a write's invalidation runs before
+  its hooks.
+- `viborm/permissions`: its policy language changed as well; see
+  [Permissions](/docs/extensions/permissions).

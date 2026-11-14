@@ -53,13 +53,14 @@ do not collide.
 
 Official invalidation accepts relative keys and prefixes such as `user:*`.
 Strings beginning with `viborm:` are refused before backend effects; only the
-authenticated extension rail can address its private namespace. Cache-key
+cache's own module can address its private namespace. Cache-key
 construction is private; no public helper can address the official namespace.
 
 ## Detached values
 
-The cache stores a backend-portable snapshot of the parsed core result before
-ordinary query-interceptor post-work can mutate it. Every hit materializes a
+The cache sits closest to the core (`call.around` with `{ inner: true }`), so
+it stores a backend-portable snapshot of the parsed core result before any
+other extension's second moment can change it. Every hit materializes a
 fresh complete public graph. Arrays, objects, dates, byte arrays, relations,
 JSON, decimals, bigints, aggregates, counts, and grouped results retain their
 documented public values without sharing mutable references between calls.
@@ -92,8 +93,8 @@ const cached = client.$withCache({ ttl: "5 minutes", swr: "1 hour" });
   marker cleanup.
 - A miss runs the inner prepared/core read and stores its snapshot.
 
-Background replay does not rerun request transforms, ordinary query
-interceptors, or another logical application operation. The stale application
+Background replay runs the core alone: it does not rerun any extension's
+first or second moment, or another logical application operation. The stale application
 result remains authoritative if replay, snapshot, storage, or cleanup fails.
 The built-in marker is best-effort; it is not an atomic distributed lock and
 does not promise a single winner across concurrent workers.
@@ -128,15 +129,15 @@ await client.user.update({
 });
 ```
 
-A mutation's `cache` option is the cache extension's own declared control.
-VibORM takes it out of the arguments and checks it before any request handler
-runs, so request and query handlers never see it and a request handler cannot
-add or replace it (that is refused with a `QueryError`). A malformed value is
-a `CacheConfigurationError`; a `cache` getter that throws is a `QueryError`.
-The options are then registered on the existing ordered write-outcome rail. A
-rollback or savepoint rollback publishes no invalidation. A committed or
-possibly committed write attempts cache invalidation before later public
-write-outcome listeners, while retaining all failures in order.
+A mutation's `cache` option is the cache extension's own declared argument
+(`args`). VibORM takes it out of the arguments and checks it before any first
+moment runs, so other extensions never see it and no `c.set` can add or
+replace it. A malformed value is a `CacheConfigurationError`; a `cache`
+getter that throws is a `QueryError`. Invalidation
+runs when the write is durable (`settled`): a rollback or savepoint rollback
+publishes none. `settled` functions run in chain order and the first failure
+rejects the write's promise, so apply `cache()` before
+[`on()`](/docs/extensions/on) for a write to invalidate before its hooks run.
 
 `autoInvalidate` clears the bound extension's entire cache scope, including
 reads whose nested relations depend on the mutation. Manual invalidation uses
@@ -151,12 +152,14 @@ mixed list has no partial effects.
 
 Official read caching is bypassed for callback and nested callback
 transactions, `$transaction([...])` on both substrates, any chain with a
-statement transform, safe and unsafe raw operations, and an existing internal
-no-cache execution context.
+statement rewrite (a `unit` declared `{ rewrites: true }`), safe and unsafe
+raw operations, a read that carries a `.volatile()` argument (it runs without
+being served or stored), and an existing internal no-cache execution context.
 
-Ordinary query interceptors remain outside the cache wrapper on hits and
-misses. Bypass preserves their behavior and the existing transaction,
-statement, raw, and result-ownership contracts.
+Every other extension's `call.around` stays outside the cache, on hits and
+misses alike, whatever the order of the chain: each sees every call. Bypass
+preserves their behavior and the existing transaction, statement, raw, and
+result-ownership contracts.
 
 ### Writes the cache does not see
 
@@ -183,11 +186,13 @@ also name every model whose reads reach the changed rows through `include` or
 
 ## Observability
 
-With the official `instrumentation()` extension, cache get, set, invalidate,
-and revalidate work uses protected cache lifecycle units. Logs and spans report
-hit, miss, stale, bypass, duration, model, operation, and correlation where
-applicable. Cache keys and custom suffixes are never disclosed. Observer or
-telemetry failures do not alter cache, application, or commit behavior.
+The cache presents its get, set, invalidate, and revalidate work as `cache`
+units, seen by every `unit` part that listens to them. With the official
+`instrumentation()` extension, logs and spans report hit, miss, stale, bypass,
+duration, model, operation, and correlation where applicable. Cache keys and
+custom suffixes are never disclosed. Instrumentation contains its own
+failures, so they do not alter cache, application, or commit behavior; a
+`unit` part of your own that throws fails the call.
 
 ## Drivers
 
