@@ -7,7 +7,7 @@ import { isError } from "../errors/diagnostic-safety";
 import type { ExtensionPart, ResolvedOperationHandler } from "./chain";
 import { type AdmittedControls, controlsOwnedBy } from "./controls";
 import { coordinate, QUERIES } from "./coordination";
-import { compileHandlers, hasCompiledHandlers } from "./handlers";
+import { handlersOf, type PlacedHandler } from "./handlers";
 
 /** Frozen runtime contribution after hostile definition normalization. */
 type RuntimeQueryFunction = (...args: never[]) => unknown;
@@ -204,8 +204,6 @@ export type QueryInterceptorContext<
   PreparedQueryContext<Input> & QueryInterceptorCapabilities<Result>
 >;
 
-const queryCoordinationFailures = new WeakMap<AggregateError, unknown>();
-
 type ReadCommitCertainty = () => WriteOutcome["certainty"] | undefined;
 
 /** Private coordination hooks used only while array members await admission. */
@@ -390,22 +388,9 @@ async function executeInterceptedQuery<Result, Input extends object>(
   }
 }
 
-type Settled<Value> =
-  | { readonly status: "fulfilled"; readonly value: Value }
-  | { readonly status: "rejected"; readonly reason: unknown };
-
-type HandlerOutcome<Value> =
-  | { readonly status: "fulfilled"; readonly value: Value }
-  | {
-      readonly status: "rejected";
-      readonly reason: unknown;
-      readonly failure: Error;
-    };
-
-type ExtensionFailures = readonly [Error] | readonly [Error, Error] | undefined;
-
 /**
- * Run one already-compiled interceptor chain around one prepared child.
+ * Run one already-compiled interceptor chain around one prepared child, the
+ * first handler outermost.
  *
  * The undefined/empty branch deliberately returns the child's promise directly:
  * unextended operations allocate no runner promise, context, closure, or list.
@@ -418,56 +403,29 @@ export function runCompiledQueryInterceptors<Result, Input extends object>(
   readCommitCertainty?: ReadCommitCertainty,
   reportAdmissionFailure?: (failure: unknown) => void
 ): Promise<Result> {
-  if (interceptors === undefined || interceptors.length === 0) return child();
-  return runInterceptorAt(
-    context,
-    interceptors,
-    0,
-    child,
-    captureWriteOutcome,
-    readCommitCertainty,
-    reportAdmissionFailure,
-    undefined,
-    child
-  );
+  const at = (index: number, driver?: AnyDriver): Promise<Result> => {
+    const interceptor = interceptors?.[index];
+    return interceptor === undefined
+      ? child(driver)
+      : runOneInterceptor(
+          context,
+          interceptor,
+          (chosen) => at(index + 1, chosen ?? driver),
+          captureWriteOutcome,
+          readCommitCertainty,
+          reportAdmissionFailure,
+          () => child(driver)
+        );
+  };
+  return at(0);
 }
 
-function runInterceptorAt<Result, Input extends object>(
-  context: PreparedQueryContext<Input>,
-  interceptors: readonly ResolvedOperationHandler[],
-  index: number,
-  child: Child<Result>,
-  captureWriteOutcome: WriteOutcomeRegistrationCapture,
-  readCommitCertainty: ReadCommitCertainty | undefined,
-  reportAdmissionFailure: ((failure: unknown) => void) | undefined,
-  driver: AnyDriver | undefined,
-  core: Child<Result>
-): Promise<Result> {
-  const interceptor = interceptors[index];
-  if (interceptor === undefined) return child(driver);
-
-  return runOneInterceptor(
-    context,
-    interceptor,
-    (chosen) =>
-      runInterceptorAt(
-        context,
-        interceptors,
-        index + 1,
-        child,
-        captureWriteOutcome,
-        readCommitCertainty,
-        reportAdmissionFailure,
-        chosen ?? driver,
-        core
-      ),
-    captureWriteOutcome,
-    readCommitCertainty,
-    reportAdmissionFailure,
-    () => core(driver)
-  );
-}
-
+/**
+ * One handler around its child. Once the child ran, its failure is the
+ * call's, whatever the handler returns or throws after it; a handler that
+ * breaks the protocol fails the call with that refusal once the child
+ * succeeded.
+ */
 async function runOneInterceptor<Result, Input extends object>(
   prepared: PreparedQueryContext<Input>,
   interceptor: ResolvedOperationHandler,
@@ -477,221 +435,120 @@ async function runOneInterceptor<Result, Input extends object>(
   reportAdmissionFailure: ((failure: unknown) => void) | undefined,
   core: () => Promise<Result>
 ): Promise<Result> {
-  let continuationOpen = true;
-  // A direct read may run once more after its handler returned (a value
-  // served now and refreshed later): that run is the core's alone.
-  let replayable =
+  const { extension } = interceptor;
+  const directRead =
     prepared.mode === "direct" &&
     prepared.kind === "model" &&
     isReadOperation(prepared.operation);
-  let childOutcomePromise: Promise<Settled<Result>> | undefined;
-  let handlerSettled = false;
-  let registrationOpen = true;
-  let protocolFailure: QueryError | undefined;
-
-  const recordProtocolFailure = (failure: string): QueryError => {
-    if (protocolFailure) return protocolFailure;
-    const error = interceptorError(interceptor.extension, prepared, failure);
-    protocolFailure = error;
-    reportAdmissionFailure?.(error);
-    return error;
-  };
-
+  // A direct read may run once more after its handler returned (a value
+  // served now and refreshed later): that run is the core's alone.
+  let replayable = directRead;
+  let open = true;
+  let settled = false;
   let childFailed = false;
+  let running: Promise<Result> | undefined;
+  let protocolFailure: QueryError | undefined;
+  const refuse = (failure: string): QueryError => {
+    if (protocolFailure === undefined) {
+      protocolFailure = interceptorError(extension, prepared, failure);
+      reportAdmissionFailure?.(protocolFailure);
+    }
+    return protocolFailure;
+  };
   const proceed = (driver?: AnyDriver): Promise<Result> => {
-    if (!continuationOpen) {
-      throw recordProtocolFailure("called proceed more than once");
-    }
-    if (handlerSettled) {
-      throw recordProtocolFailure("called proceed after its handler settled");
-    }
-
-    registrationOpen = false;
-    continuationOpen = false;
+    if (!open) throw refuse("called proceed more than once");
+    if (settled) throw refuse("called proceed after its handler settled");
+    open = false;
     childFailed = false;
     const promise = startChild(() => child(driver));
     // Attached first, so a handler's own `catch` already reads it.
     promise.then(undefined, () => {
       childFailed = true;
     });
-    childOutcomePromise = settle(promise);
+    running = promise;
     return promise;
   };
-
-  // A direct call whose child failed with nothing written, or maybe written,
-  // may be made again: once per failure.
-  const again = (): boolean => {
-    if (
-      prepared.mode !== "direct" ||
-      !childFailed ||
-      handlerSettled ||
-      readCommitCertainty?.() !== undefined
-    )
-      return false;
-    childFailed = false;
-    continuationOpen = true;
-    return true;
+  const capabilities: QueryInterceptorCapabilities<Result> = {
+    proceed: () => proceed(),
+    onWriteOutcome(listener) {
+      if (!isFunction(listener))
+        throw refuse("registered a non-function write-outcome listener");
+      if (running !== undefined || settled)
+        throw refuse("registered a write-outcome listener after proceed");
+      captureWriteOutcome(Object.freeze({ extension, listener }));
+    },
+    // A direct call whose child failed with nothing written, or maybe
+    // written, may be made again: once per failure.
+    again() {
+      if (
+        prepared.mode !== "direct" ||
+        !childFailed ||
+        settled ||
+        readCommitCertainty?.() !== undefined
+      )
+        return false;
+      childFailed = false;
+      open = true;
+      return true;
+    },
+    proceedOn: (driver) => (directRead ? proceed(driver) : proceed()),
+    replay() {
+      if (!replayable) throw refuse("ran the call again");
+      replayable = false;
+      return startChild(core);
+    },
   };
-
-  const replay = (): Promise<Result> => {
-    if (!replayable) throw recordProtocolFailure("ran the call again");
-    replayable = false;
-    return startChild(core);
-  };
-
-  const proceedOn = (driver: AnyDriver): Promise<Result> =>
-    prepared.mode === "direct" &&
-    prepared.kind === "model" &&
-    isReadOperation(prepared.operation)
-      ? proceed(driver)
-      : proceed();
-
-  const onWriteOutcome = (listener: WriteOutcomeListener): void => {
-    if (!isFunction(listener)) {
-      throw recordProtocolFailure(
-        "registered a non-function write-outcome listener"
-      );
-    }
-    if (!registrationOpen || handlerSettled) {
-      throw recordProtocolFailure(
-        "registered a write-outcome listener after proceed"
-      );
-    }
-    captureWriteOutcome(
-      Object.freeze({ extension: interceptor.extension, listener })
-    );
-  };
-
-  const handlerContext = exposeHandlerContext(
-    prepared,
-    { proceed: () => proceed(), onWriteOutcome, again, proceedOn, replay },
-    interceptor.controls
-  );
-  let handlerValue: Promise<Result>;
-  try {
-    handlerValue = Promise.resolve<Result>(
-      Reflect.apply(interceptor.handler, undefined, [handlerContext])
-    );
-  } catch (reason) {
-    handlerValue = Promise.reject(reason);
-  }
-
-  const settledHandler = await settle(handlerValue);
-  handlerSettled = true;
-  registrationOpen = false;
-  const handlerOutcome: HandlerOutcome<Result> =
-    settledHandler.status === "fulfilled"
-      ? settledHandler
-      : {
-          ...settledHandler,
-          failure:
-            protocolFailure !== undefined &&
-            settledHandler.reason === protocolFailure
-              ? protocolFailure
-              : interceptorFailure(
-                  interceptor.extension,
-                  prepared,
-                  settledHandler.reason,
-                  readCommitCertainty?.()
-                ),
-        };
-
-  if (
-    childOutcomePromise !== undefined &&
-    handlerOutcome.status === "rejected" &&
-    handlerOutcome.reason !== protocolFailure
-  ) {
-    reportAdmissionFailure?.(handlerOutcome.failure);
-  }
-
-  if (childOutcomePromise === undefined) {
-    if (protocolFailure) throw protocolFailure;
-    if (handlerOutcome.status === "rejected") {
-      throw handlerOutcome.failure;
-    }
-    if (requiresProceed(prepared)) {
-      throw interceptorError(
-        interceptor.extension,
-        prepared,
-        "completed without proceed"
-      );
-    }
-    return handlerOutcome.value;
-  }
-
-  const childOutcome = await childOutcomePromise;
-  if (childOutcome.status === "rejected") {
-    const extensionFailures = selectExtensionFailures(
-      protocolFailure,
-      handlerOutcome,
-      childOutcome
-    );
-    if (extensionFailures) {
-      throw retainSuppressedFailures(childOutcome.reason, extensionFailures);
-    }
-    throw childOutcome.reason;
-  }
-  const extensionFailures = selectExtensionFailures(
-    protocolFailure,
-    handlerOutcome,
-    childOutcome
-  );
-  if (extensionFailures) throwExtensionFailures(extensionFailures);
-  // With the child fulfilled, a rejected handler always selects a failure.
-  return (handlerOutcome as Extract<HandlerOutcome<Result>, { value: Result }>)
-    .value;
-}
-
-function selectExtensionFailures(
-  protocolFailure: QueryError | undefined,
-  handlerOutcome: HandlerOutcome<unknown>,
-  childOutcome: Settled<unknown>
-): ExtensionFailures {
-  if (
-    protocolFailure &&
-    childOutcome.status === "rejected" &&
-    childOutcome.reason === protocolFailure
-  ) {
-    return undefined;
-  }
-  if (handlerOutcome.status !== "rejected") {
-    return protocolFailure ? [protocolFailure] : undefined;
-  }
-  if (
-    (protocolFailure !== undefined &&
-      handlerOutcome.reason === protocolFailure) ||
-    (childOutcome.status === "rejected" &&
-      handlerOutcome.reason === childOutcome.reason)
-  ) {
-    return protocolFailure ? [protocolFailure] : undefined;
-  }
-  const handlerFailure = handlerOutcome.failure;
-  return protocolFailure ? [protocolFailure, handlerFailure] : [handlerFailure];
-}
-
-function exposeHandlerContext<Result, Input extends object>(
-  context: PreparedQueryContext<Input>,
-  capabilities: QueryInterceptorCapabilities<Result>,
-  ownControls: readonly string[] | undefined
-): QueryInterceptorContext<Result, Input> {
   // `kind`, `model` and `operation` are copied from one prepared context, so
   // they stay one of its arms; TypeScript cannot correlate the copies.
   // `input` is read through: the prepared context snapshots it at the first
   // read, which a handler that never inspects it does not pay for.
-  return Object.freeze({
-    mode: context.mode,
-    kind: context.kind,
-    model: context.model,
-    operation: context.operation,
+  const handlerContext = Object.freeze({
+    mode: prepared.mode,
+    kind: prepared.kind,
+    model: prepared.model,
+    operation: prepared.operation,
     get input() {
-      return context.input;
+      return prepared.input;
     },
-    ...(context.kind === "model" && ownControls !== undefined
-      ? { controls: controlsOwnedBy(context.controls, ownControls) }
-      : {}),
-    ...(context.kind === "model" && { call: context.call }),
+    ...(prepared.kind === "model" && { call: prepared.call }),
+    // For the handlers of the `query` member to take their own from.
+    ...(prepared.kind === "model" &&
+      prepared.controls !== undefined && { controls: prepared.controls }),
     ...capabilities,
   }) as QueryInterceptorContext<Result, Input>;
+  let outcome: { readonly value: Result } | { readonly reason: unknown };
+  try {
+    outcome = {
+      value: await Reflect.apply(interceptor.handler, undefined, [
+        handlerContext,
+      ]),
+    };
+  } catch (reason) {
+    outcome = { reason };
+  }
+  settled = true;
+  const failure =
+    "reason" in outcome &&
+    (protocolFailure === undefined || outcome.reason !== protocolFailure)
+      ? interceptorFailure(
+          extension,
+          prepared,
+          outcome.reason,
+          readCommitCertainty?.()
+        )
+      : undefined;
+  if (running === undefined) {
+    if (protocolFailure !== undefined) throw protocolFailure;
+    if (failure !== undefined) throw failure;
+    if (requiresProceed(prepared))
+      throw interceptorError(extension, prepared, "completed without proceed");
+  } else {
+    if (failure !== undefined && !childFailed)
+      reportAdmissionFailure?.(failure);
+    await running;
+  }
+  if ("value" in outcome && protocolFailure === undefined) return outcome.value;
+  throw protocolFailure ?? failure;
 }
 
 function startChild<Result>(child: () => Promise<Result>): Promise<Result> {
@@ -699,14 +556,6 @@ function startChild<Result>(child: () => Promise<Result>): Promise<Result> {
     return Promise.resolve(child());
   } catch (reason) {
     return Promise.reject(reason);
-  }
-}
-
-async function settle<Value>(promise: Promise<Value>): Promise<Settled<Value>> {
-  try {
-    return { status: "fulfilled", value: await promise };
-  } catch (reason) {
-    return { status: "rejected", reason };
   }
 }
 
@@ -741,66 +590,18 @@ function interceptorError<Input extends object>(
   cause?: Error,
   commitCertainty?: WriteOutcome["certainty"]
 ): QueryError {
-  const message = `Extension "${extension}" query handler for ${describeOperation(context)} ${failure}.`;
-  const meta = {
-    method: "query",
-    model: context.model,
-    operation: String(context.operation),
-    ...(commitCertainty === undefined ? {} : { commitCertainty }),
-  };
-  return cause
-    ? new QueryError(message, { cause, meta })
-    : new QueryError(message, { meta });
-}
-
-function describeOperation(context: PreparedQueryContext<object>): string {
-  return context.kind === "model"
-    ? `${context.model}.${context.operation}`
-    : context.operation;
-}
-
-function throwExtensionFailures(
-  failures: NonNullable<ExtensionFailures>
-): never {
-  const primary = failures[0];
-  if (failures.length === 1) throw primary;
-  throw new AggregateError(
-    failures,
-    "Query interceptor protocol and handler both failed.",
-    { cause: primary }
+  return new QueryError(
+    `Extension "${extension}" query handler for ${context.kind === "model" ? `${context.model}.${context.operation}` : context.operation} ${failure}.`,
+    {
+      ...(cause && { cause }),
+      meta: {
+        method: "query",
+        model: context.model,
+        operation: String(context.operation),
+        ...(commitCertainty === undefined ? {} : { commitCertainty }),
+      },
+    }
   );
-}
-
-function retainSuppressedFailures(
-  childFailure: unknown,
-  extensionFailures: NonNullable<ExtensionFailures>
-): AggregateError {
-  const failure = new AggregateError(
-    [childFailure, ...extensionFailures],
-    "Query execution and extension post-work both failed.",
-    { cause: childFailure }
-  );
-  queryCoordinationFailures.set(failure, childFailure);
-  return failure;
-}
-
-/** Decompose only this runner's own child-plus-post-work coordination error. */
-export function decomposeQueryCoordinationFailure(failure: unknown):
-  | Readonly<{
-      child: unknown;
-      postWork: readonly unknown[];
-    }>
-  | undefined {
-  if (!(failure instanceof AggregateError)) return undefined;
-  if (!queryCoordinationFailures.has(failure)) return undefined;
-  const child = queryCoordinationFailures.get(failure);
-  if (failure.cause !== child || failure.errors[0] !== child) {
-    return undefined;
-  }
-  return Object.freeze({
-    child,
-    postWork: Object.freeze(failure.errors.slice(1)),
-  });
 }
 
 type StagedWriteOutcome = {
@@ -912,13 +713,6 @@ export async function publishWriteOutcomes(
   if (first !== undefined) throw first.failure;
 }
 
-/** The failures one publication rejected with: one, since the first fault wins. */
-export function decomposeWriteOutcomePublicationFailure(
-  failure: unknown
-): readonly unknown[] {
-  return [failure];
-}
-
 import type { VibORMConfig } from "@client/client";
 import type {
   ClientRowsContext,
@@ -928,20 +722,54 @@ import type {
 } from "@client/types";
 
 /**
- * `query`: handlers around each prepared call. A chain built with this part
- * always holds a lookup, empty where no definition declared one.
+ * `query`: handlers around each prepared call, written as a definition's raw
+ * member (one handler of every call, or one per model and operation): what
+ * the tests of the host give it. A chain built with this part always holds a
+ * lookup, empty where no definition declared one.
  */
 export const queryPart: ExtensionPart = {
-  members: ["query"],
   join({ next, chain, definition, owner }) {
-    const query =
-      definition.query === undefined && chain?.query !== undefined
-        ? chain.query
-        : Object.freeze(
-            compileHandlers(chain?.query, owner, definition.query, true)
+    const contribution = definition.query;
+    const declared = owner.controls;
+    // A handler sees its own extension's controls, and only those.
+    const own = (
+      handler: RuntimeQueryFunction,
+      on?: PlacedHandler["on"]
+    ): PlacedHandler =>
+      Object.freeze({
+        extension: owner.name,
+        handler: ({
+          controls,
+          ...context
+        }: {
+          readonly kind: string;
+          readonly controls?: AdmittedControls;
+        }) =>
+          Reflect.apply(handler, undefined, [
+            Object.freeze(
+              declared === undefined || context.kind !== "model"
+                ? context
+                : { ...context, controls: controlsOwnedBy(controls, declared) }
+            ),
+          ]),
+        controls: declared,
+        on,
+      });
+    const added =
+      typeof contribution === "function"
+        ? [own(contribution)]
+        : Object.entries(contribution ?? {}).flatMap(([model, operations]) =>
+            Object.entries(operations).map(([operation, handler]) =>
+              own(handler, {
+                models: new Set([model]),
+                operations: new Set([operation]),
+              })
+            )
           );
-    next.query = query;
-    next.hasQueryHandlers = hasCompiledHandlers(query);
-    if (next.hasQueryHandlers) coordinate(next, QUERIES);
+    if (added.length === 0 && chain?.query !== undefined) return;
+    next.query = Object.freeze(
+      handlersOf([...(chain?.query?.placed ?? []), ...added])
+    );
+    if (next.query.placed.length > 0) coordinate(next, QUERIES);
   },
 };

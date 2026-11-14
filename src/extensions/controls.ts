@@ -9,11 +9,7 @@ import {
   ValidationError,
   VibORMError,
 } from "@errors";
-import {
-  isReadOperation,
-  isWriteOperation,
-  ROUTED_OPERATIONS,
-} from "@query-engine/routed-operations";
+import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import type { Operation } from "@query-engine/types";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { discardAsyncValidationResult } from "@validation/parse-failure";
@@ -479,17 +475,9 @@ export function placeControls(
   return placed;
 }
 
-/** Where a control goes: every operation, reads, writes, or those it names. */
-function placementOf(on: ControlDeclaration["on"]): ReadonlySet<string> {
-  if (on === undefined || on === "all") return ROUTED_OPERATIONS;
-  return new Set<string>(
-    typeof on === "string"
-      ? [...ROUTED_OPERATIONS].filter(
-          on === "reads" ? isReadOperation : isWriteOperation
-        )
-      : on
-  );
-}
+/** Where a control goes: every operation, or those `.on(…)` names. */
+const placementOf = (on: ControlDeclaration["on"]): ReadonlySet<string> =>
+  Array.isArray(on) ? new Set(on) : ROUTED_OPERATIONS;
 
 // =============================================================================
 // ADMISSION: one call's controls, removed and validated once
@@ -695,23 +683,19 @@ function appendControls(
   previous: ResolvedControls | undefined,
   declarations: readonly ResolvedControl[]
 ): ResolvedControls {
-  const names = new Set(previous?.names);
-  for (const { name, extension } of declarations) {
-    if (names.has(name)) {
-      const owner = [...(previous?.all ?? []), ...declarations].find(
-        (control) => control.name === name
-      )!.extension;
-      extensionError(
-        `Extension "${extension}" declares control "${name}", which extension "${owner}" already declares.`,
-        extension
-      );
-    }
-    names.add(name);
-  }
   const all = Object.freeze([
     ...(previous?.all ?? []),
     ...declarations.map((control) => Object.freeze(control)),
   ]);
+  const names = new Set<string>();
+  for (const { name, extension } of all) {
+    if (names.has(name))
+      extensionError(
+        `Extension "${extension}" declares control "${name}", which extension "${all.find((control) => control.name === name)?.extension}" already declares.`,
+        extension
+      );
+    names.add(name);
+  }
   const lists = new Map<string, readonly ResolvedControl[]>();
   const placed = (
     model: string,
@@ -760,7 +744,6 @@ function appendControls(
  * other part joins: a definition's handlers see its own controls.
  */
 export const controlsPart: ExtensionPart = {
-  members: ["controls"],
   declare(application) {
     const { definition, chain, next } = application;
     if (definition.controls === undefined) return;

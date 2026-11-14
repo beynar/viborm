@@ -6,7 +6,11 @@
 import type { AnyTarget, Facts, Part } from "./contract";
 import type { NoControls } from "./controls";
 import { builtPart } from "./extension";
-import { resultPart, snapshotResult } from "./result";
+import {
+  type ComputedFieldDeclaration,
+  resultPart,
+  snapshotResult,
+} from "./result";
 import type { DefinitionResultFields, ResultInference } from "./result-types";
 
 type NoMethods = Record<never, never>;
@@ -32,7 +36,11 @@ export function fields<
     DefinitionResultFields<{ readonly result: Declared }>
   >
 >;
-export function fields(declared: object): unknown {
+export function fields(
+  declared: Readonly<
+    Record<string, Readonly<Record<string, ComputedFieldDeclaration>>>
+  >
+): unknown {
   return builtPart([resultPart], (draft, schema) => {
     const own = snapshotResult(declared, draft.name, schema);
     const result: Record<string, object> = { ...draft.result };

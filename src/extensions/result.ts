@@ -28,7 +28,7 @@ import type { Schema } from "@client/types";
 import type { AnyModel } from "@schema/model";
 import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
 import { projectableScalarNames } from "@validation/model/core/projection";
-import { isFunction, isRecord } from "@validation/value-guards";
+import { isRecord } from "@validation/value-guards";
 import type { ExtensionPart } from "./chain";
 import { extensionError } from "./definition";
 
@@ -65,49 +65,40 @@ export type ResolvedResultFields = Readonly<
 
 const ALL_MODELS = "$allModels";
 
-/** Read a definition's `result` once into a frozen snapshot. */
+/** A computed field as `fields(…)` is written: what it needs, and how. */
+export interface ComputedFieldDeclaration {
+  readonly needs?: Readonly<Record<string, boolean>>;
+  readonly compute: (row: Row) => unknown;
+}
+
+/**
+ * Read a `fields(…)` declaration once into a frozen snapshot. Its shape is
+ * the types'; a model the schema does not hold is refused, as a field
+ * computed on no row would otherwise be.
+ */
 export function snapshotResult(
-  component: unknown,
+  component: Readonly<
+    Record<string, Readonly<Record<string, ComputedFieldDeclaration>>>
+  >,
   extension: string,
-  schema?: Schema
+  schema: Schema
 ): RuntimeResultContribution {
-  function refuse(path: string, problem: string): never {
-    return extensionError(
-      `Extension "${extension}" result${path} ${problem}.`,
-      extension
-    );
-  }
-  if (!isRecord(component)) refuse("", "must be a model map");
   const models: Record<
     string,
     Record<string, RuntimeComputedField>
   > = Object.create(null);
-  for (const modelKey of Object.keys(component)) {
-    if (modelKey !== ALL_MODELS && schema && !Object.hasOwn(schema, modelKey))
-      refuse("", `names unknown model "${modelKey}"`);
-    const entries = component[modelKey];
-    if (!isRecord(entries)) refuse(`.${modelKey}`, "must be an object");
+  for (const [modelKey, entries] of Object.entries(component)) {
+    if (modelKey !== ALL_MODELS && !Object.hasOwn(schema, modelKey))
+      extensionError(
+        `Extension "${extension}" result names unknown model "${modelKey}".`,
+        extension
+      );
     const fields: Record<string, RuntimeComputedField> = Object.create(null);
-    for (const name of Object.keys(entries)) {
-      const entry = entries[name];
-      const compute = isRecord(entry) ? entry.compute : undefined;
-      const needs = isRecord(entry) ? (entry.needs ?? {}) : undefined;
-      if (!(isRecord(needs) && isFunction(compute)))
-        refuse(
-          `.${modelKey}.${name}`,
-          "must be an object with a compute function and a needs object"
-        );
-      const read: string[] = [];
-      for (const need of Object.keys(needs)) {
-        if (typeof needs[need] !== "boolean")
-          refuse(`.${modelKey}.${name}.needs.${need}`, "must be a boolean");
-        if (needs[need]) read.push(need);
-      }
+    for (const [name, { needs = {}, compute }] of Object.entries(entries))
       fields[name] = Object.freeze({
-        needs: Object.freeze(read),
-        compute: compute as RuntimeComputedField["compute"],
+        needs: Object.freeze(Object.keys(needs).filter((need) => needs[need])),
+        compute,
       });
-    }
     models[modelKey] = Object.freeze(fields);
   }
   return Object.freeze(models);
@@ -431,7 +422,6 @@ export interface ResultFields {
 
 /** `result`: fields computed from each row a call returns. */
 export const resultPart: ExtensionPart = {
-  members: ["result"],
   join({ next, chain, definition, owner, schema }) {
     if (definition.result === undefined) return;
     const fields = appendResultFields(

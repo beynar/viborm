@@ -17,11 +17,7 @@ import {
   createArrayDeferred,
   readArrayQuery,
 } from "@extensions/array-admission";
-import {
-  decomposeQueryCoordinationFailure,
-  TransactionWriteOutcomes,
-  type WriteOutcome,
-} from "@extensions/query";
+import { TransactionWriteOutcomes, type WriteOutcome } from "@extensions/query";
 import type { QueryEngine } from "@query-engine/query-engine";
 import {
   type TransactionOperationCapability,
@@ -231,36 +227,18 @@ function executeInterceptedFallback(
         startFallbackCore(slot, transactionDriver);
         try {
           values.push(await readArrayQuery(slot));
-        } catch (error) {
-          const firstFailure = decomposeQueryCoordinationFailure(error);
-          const childFailure =
-            firstFailure === undefined ? error : firstFailure.child;
-          if (firstFailure) {
-            for (const postWork of firstFailure.postWork) {
-              suppressedPostWork.push(postWork);
-            }
-          }
+        } catch (childFailure) {
           for (let later = index + 1; later < slots.length; later += 1) {
             slots[later]!.child.reject(childFailure);
           }
-          const laterOutcomes = await Promise.allSettled(
+          for (const outcome of await Promise.allSettled(
             slots.slice(index + 1).map(readArrayQuery)
-          );
-          for (const outcome of laterOutcomes) {
-            if (outcome.status !== "rejected") continue;
-            const laterFailure = decomposeQueryCoordinationFailure(
-              outcome.reason
-            );
-            if (laterFailure) {
-              if (laterFailure.child !== childFailure) {
-                suppressedPostWork.push(laterFailure.child);
-              }
-              for (const postWork of laterFailure.postWork) {
-                suppressedPostWork.push(postWork);
-              }
-            } else if (outcome.reason !== childFailure) {
+          )) {
+            if (
+              outcome.status === "rejected" &&
+              outcome.reason !== childFailure
+            )
               suppressedPostWork.push(outcome.reason);
-            }
           }
           throw childFailure;
         }
