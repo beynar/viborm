@@ -1,4 +1,5 @@
 import type { ClientSchema } from "@client/schema-links";
+import type { AnyDriver } from "@drivers/exports";
 import { QueryError } from "@errors";
 import { isReadOperation } from "@query-engine/routed-operations";
 import { isFunction } from "@validation/value-guards";
@@ -39,6 +40,11 @@ export interface PreparedModelQueryContext<Input extends object>
    * and only when that extension declares any.
    */
   readonly controls?: AdmittedControls;
+  /**
+   * One object per call, the same one its first moments were handed: what
+   * links a `call.around` part's two moments.
+   */
+  readonly call?: object;
 }
 
 export interface PreparedRawQueryContext<Input extends object>
@@ -174,7 +180,17 @@ export interface WriteOutcomeNotifications {
 interface QueryInterceptorCapabilities<Result> {
   readonly proceed: () => Promise<Result>;
   readonly onWriteOutcome: (listener: WriteOutcomeListener) => void;
+  /**
+   * Whether the call may be made again, and if so, `proceed` may be called
+   * once more: a direct call whose child failed with nothing written.
+   */
+  readonly again: () => boolean;
+  /** `proceed` on another driver: a direct read only; elsewhere `proceed`. */
+  readonly proceedOn: (driver: AnyDriver) => Promise<Result>;
 }
+
+/** The child a handler chain runs: on the driver a handler chose, if any. */
+type Child<Result> = (driver?: AnyDriver) => Promise<Result>;
 
 export type QueryInterceptorContext<
   Result,
@@ -203,7 +219,10 @@ export interface QueryInterceptorExecutionControl {
 export function executePreparedQuery<Result, Input extends object>(
   context: PreparedQueryContext<Input> | undefined,
   interceptors: readonly ResolvedOperationHandler[] | undefined,
-  child: (notifications?: WriteOutcomeNotifications) => Promise<Result>,
+  child: (
+    notifications?: WriteOutcomeNotifications,
+    driver?: AnyDriver
+  ) => Promise<Result>,
   isWrite: boolean,
   transactionWriteOutcomes?: TransactionWriteOutcomes,
   control?: QueryInterceptorExecutionControl,
@@ -227,7 +246,7 @@ export function executePreparedQuery<Result, Input extends object>(
     return runCompiledQueryInterceptors(
       context,
       interceptors,
-      child,
+      (driver) => child(undefined, driver),
       discardReadWriteOutcomeRegistration,
       control?.readCommitCertainty,
       control?.reportAdmissionFailure
@@ -253,7 +272,10 @@ export function executePreparedQuery<Result, Input extends object>(
 export function executeRegisteredQuery<Result, Input extends object>(
   _context: PreparedQueryContext<Input> | undefined,
   _interceptors: readonly ResolvedOperationHandler[] | undefined,
-  child: (notifications?: WriteOutcomeNotifications) => Promise<Result>,
+  child: (
+    notifications?: WriteOutcomeNotifications,
+    driver?: AnyDriver
+  ) => Promise<Result>,
   isWrite: boolean,
   transactionWriteOutcomes?: TransactionWriteOutcomes,
   control?: QueryInterceptorExecutionControl,
@@ -277,7 +299,10 @@ function discardReadWriteOutcomeRegistration(): void {
 async function executeInterceptedQuery<Result, Input extends object>(
   context: PreparedQueryContext<Input> | undefined,
   interceptors: readonly ResolvedOperationHandler[] | undefined,
-  child: (notifications?: WriteOutcomeNotifications) => Promise<Result>,
+  child: (
+    notifications?: WriteOutcomeNotifications,
+    driver?: AnyDriver
+  ) => Promise<Result>,
   isWrite: boolean,
   transactionWriteOutcomes: TransactionWriteOutcomes | undefined,
   control: QueryInterceptorExecutionControl | undefined,
@@ -319,9 +344,9 @@ async function executeInterceptedQuery<Result, Input extends object>(
     committed: () => publish("committed"),
     mayHaveCommitted: () => publish("may-have-committed"),
   });
-  const executeChild = async (): Promise<Result> => {
+  const executeChild = async (driver?: AnyDriver): Promise<Result> => {
     try {
-      const value = await child(notifications);
+      const value = await child(notifications, driver);
       if (
         isWrite &&
         (transactionWriteOutcomes !== undefined || publishedDirectUnits === 0)
@@ -384,7 +409,7 @@ type ExtensionFailures = readonly [Error] | readonly [Error, Error] | undefined;
 export function runCompiledQueryInterceptors<Result, Input extends object>(
   context: PreparedQueryContext<Input>,
   interceptors: readonly ResolvedOperationHandler[] | undefined,
-  child: () => Promise<Result>,
+  child: Child<Result>,
   captureWriteOutcome: WriteOutcomeRegistrationCapture,
   readCommitCertainty?: ReadCommitCertainty,
   reportAdmissionFailure?: (failure: unknown) => void
@@ -405,18 +430,19 @@ function runInterceptorAt<Result, Input extends object>(
   context: PreparedQueryContext<Input>,
   interceptors: readonly ResolvedOperationHandler[],
   index: number,
-  child: () => Promise<Result>,
+  child: Child<Result>,
   captureWriteOutcome: WriteOutcomeRegistrationCapture,
   readCommitCertainty: ReadCommitCertainty | undefined,
-  reportAdmissionFailure: ((failure: unknown) => void) | undefined
+  reportAdmissionFailure: ((failure: unknown) => void) | undefined,
+  driver?: AnyDriver
 ): Promise<Result> {
   const interceptor = interceptors[index];
-  if (interceptor === undefined) return child();
+  if (interceptor === undefined) return child(driver);
 
   return runOneInterceptor(
     context,
     interceptor,
-    () =>
+    (chosen) =>
       runInterceptorAt(
         context,
         interceptors,
@@ -424,7 +450,8 @@ function runInterceptorAt<Result, Input extends object>(
         child,
         captureWriteOutcome,
         readCommitCertainty,
-        reportAdmissionFailure
+        reportAdmissionFailure,
+        chosen ?? driver
       ),
     captureWriteOutcome,
     readCommitCertainty,
@@ -435,7 +462,7 @@ function runInterceptorAt<Result, Input extends object>(
 async function runOneInterceptor<Result, Input extends object>(
   prepared: PreparedQueryContext<Input>,
   interceptor: ResolvedOperationHandler,
-  child: () => Promise<Result>,
+  child: Child<Result>,
   captureWriteOutcome: WriteOutcomeRegistrationCapture,
   readCommitCertainty: ReadCommitCertainty | undefined,
   reportAdmissionFailure: ((failure: unknown) => void) | undefined
@@ -454,7 +481,8 @@ async function runOneInterceptor<Result, Input extends object>(
     return error;
   };
 
-  const proceed = (): Promise<Result> => {
+  let childFailed = false;
+  const proceed = (driver?: AnyDriver): Promise<Result> => {
     if (!continuationOpen) {
       throw recordProtocolFailure("called proceed more than once");
     }
@@ -464,10 +492,37 @@ async function runOneInterceptor<Result, Input extends object>(
 
     registrationOpen = false;
     continuationOpen = false;
-    const promise = startChild(child);
+    childFailed = false;
+    const promise = startChild(() => child(driver));
+    // Attached first, so a handler's own `catch` already reads it.
+    promise.then(undefined, () => {
+      childFailed = true;
+    });
     childOutcomePromise = settle(promise);
     return promise;
   };
+
+  // A direct call whose child failed with nothing written, or maybe written,
+  // may be made again: once per failure.
+  const again = (): boolean => {
+    if (
+      prepared.mode !== "direct" ||
+      !childFailed ||
+      handlerSettled ||
+      readCommitCertainty?.() !== undefined
+    )
+      return false;
+    childFailed = false;
+    continuationOpen = true;
+    return true;
+  };
+
+  const proceedOn = (driver: AnyDriver): Promise<Result> =>
+    prepared.mode === "direct" &&
+    prepared.kind === "model" &&
+    isReadOperation(prepared.operation)
+      ? proceed(driver)
+      : proceed();
 
   const onWriteOutcome = (listener: WriteOutcomeListener): void => {
     if (!isFunction(listener)) {
@@ -487,8 +542,7 @@ async function runOneInterceptor<Result, Input extends object>(
 
   const handlerContext = exposeHandlerContext(
     prepared,
-    proceed,
-    onWriteOutcome,
+    { proceed: () => proceed(), onWriteOutcome, again, proceedOn },
     interceptor.controls
   );
   let handlerValue: Promise<Result>;
@@ -595,8 +649,7 @@ function selectExtensionFailures(
 
 function exposeHandlerContext<Result, Input extends object>(
   context: PreparedQueryContext<Input>,
-  proceed: () => Promise<Result>,
-  onWriteOutcome: (listener: WriteOutcomeListener) => void,
+  capabilities: QueryInterceptorCapabilities<Result>,
   ownControls: readonly string[] | undefined
 ): QueryInterceptorContext<Result, Input> {
   // `kind`, `model` and `operation` are copied from one prepared context, so
@@ -614,8 +667,8 @@ function exposeHandlerContext<Result, Input extends object>(
     ...(context.kind === "model" && ownControls !== undefined
       ? { controls: controlsOwnedBy(context.controls, ownControls) }
       : {}),
-    proceed,
-    onWriteOutcome,
+    ...(context.kind === "model" && { call: context.call }),
+    ...capabilities,
   }) as QueryInterceptorContext<Result, Input>;
 }
 

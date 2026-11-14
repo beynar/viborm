@@ -4,7 +4,20 @@ import type { Sql } from "@sql";
 import { MemoryCache } from "@src/cache/drivers/memory";
 import { cache } from "@src/cache/exports";
 import { defaultOmit } from "@src/client/default-omit-extension";
-import { createClient, Decimal, defineExtension, s } from "@src/index";
+import {
+  createClient,
+  Decimal,
+  s,
+  extension,
+  unit,
+  rule,
+  defaults,
+  fields,
+  around,
+  now,
+  keep,
+  statement,
+} from "@src/index";
 import { type OnEvent, on } from "@src/on";
 import { permissions } from "@src/permissions";
 import { softDelete } from "@src/soft-delete";
@@ -130,13 +143,19 @@ function recorder() {
 /** Every SQL text a client sends, through a statement transform. */
 function statementLog(base: Base) {
   const texts: string[] = [];
-  const client = base.$extends({
-    name: "statement-log",
-    statement({ statement }: { statement: Sql }) {
-      texts.push(statement.toStatement());
-      return statement;
-    },
-  });
+  const client = base.$extends(
+    extension(
+      "statement-log",
+      unit(
+        (u, next) => {
+          texts.push(statement(u).toStatement());
+          return next(statement(u));
+        },
+        ["statement"],
+        { rewrites: true }
+      )
+    )
+  );
   return { client, texts };
 }
 
@@ -702,12 +721,14 @@ export function runOnBehavior(provider: OnProvider): void {
         const { calls, hooks } = recorder();
         let units = 0;
         const db = base
-          .$extends({
-            name: "observer",
-            observe: () => {
-              units += 1;
-            },
-          })
+          .$extends(
+            extension(
+              "observer",
+              unit((u, next) => {
+                units += 1;
+              })
+            )
+          )
           .$extends(on(hooks));
         await db.post.update({ where: { id: "p1" }, data: { views: 1 } });
         expect(units).toBeGreaterThan(0);
@@ -1056,9 +1077,11 @@ export function runOnBehavior(provider: OnProvider): void {
         );
         opened.push(base);
         const { calls, hooks } = recorder();
-        const db = softDelete({ models: { post: { deletedAt: "deletedAt" } } })(
-          base
-        ).$extends(on(hooks));
+        const db = base
+          .$extends(
+            softDelete({ models: { post: { deletedAt: "deletedAt" } } })
+          )
+          .$extends(on(hooks));
         await db.user.update({
           where: { id: "u2" },
           data: { posts: { delete: [{ id: "p3" }] } },
@@ -1170,14 +1193,14 @@ export function runOnBehavior(provider: OnProvider): void {
         opened.push(base);
         const seen: unknown[] = [];
         const { calls, hooks } = recorder();
-        const noting = defineExtension({
-          name: "noting",
-          async query({ proceed }) {
-            const value = await proceed();
+        const noting = extension(
+          "noting",
+          around(() => async (run) => {
+            const value = await run();
             seen.push(structuredClone(value));
             return value;
-          },
-        });
+          })
+        );
         for (const db of [
           base.$extends(on(hooks)).$extends(noting),
           base.$extends(noting).$extends(on(hooks)),
@@ -1342,10 +1365,12 @@ export function runOnBehavior(provider: OnProvider): void {
         opened.push(base);
         const { calls, hooks } = recorder();
         const db = base
-          .$extends({
-            name: "stamp",
-            data: { models: { user: { update: { name: "stamped" } } } },
-          })
+          .$extends(
+            extension(
+              "stamp",
+              defaults({ user: { update: { name: "stamped" } } })
+            )
+          )
           .$extends(on(hooks));
         await db.user.upsert({
           where: { id: "u1" },
@@ -1377,13 +1402,13 @@ export function runOnBehavior(provider: OnProvider): void {
         const { calls, hooks } = recorder();
         const late = new Error("after proceed");
         const db = base.$extends(on(hooks)).$extends(
-          defineExtension({
-            name: "late",
-            async query({ proceed }) {
-              await proceed();
+          extension(
+            "late",
+            around(() => async (run) => {
+              await run();
               throw late;
-            },
-          })
+            })
+          )
         );
         expect(
           await failure(
@@ -1447,7 +1472,7 @@ export function runOnBehavior(provider: OnProvider): void {
         const { calls, hooks } = recorder();
         const db = base
           .$extends(
-            defaultOmit<ReturnType<typeof onSchema>>()({
+            defaultOmit({
               user: { passwordHash: true },
             })
           )
@@ -1472,17 +1497,19 @@ export function runOnBehavior(provider: OnProvider): void {
         );
         opened.push(base);
         const { calls, hooks } = recorder();
-        const db = base.$extends(on(hooks)).$extends({
-          name: "names",
-          result: {
-            user: {
-              label: {
-                needs: { name: true, email: true },
-                compute: (user) => `${user.name} <${user.email}>`,
+        const db = base.$extends(on(hooks)).$extends(
+          extension(
+            "names",
+            fields({
+              user: {
+                label: {
+                  needs: { name: true, email: true },
+                  compute: (user) => `${user.name} <${user.email}>`,
+                },
               },
-            },
-          },
-        });
+            })
+          )
+        );
         const updated = await db.user.update({
           where: { id: "u2" },
           data: { name: "Bobby" },
@@ -1567,9 +1594,11 @@ export function runOnBehavior(provider: OnProvider): void {
         );
         opened.push(base);
         const { calls, hooks } = recorder();
-        const db = softDelete({ models: { post: { deletedAt: "deletedAt" } } })(
-          base
-        ).$extends(on(hooks));
+        const db = base
+          .$extends(
+            softDelete({ models: { post: { deletedAt: "deletedAt" } } })
+          )
+          .$extends(on(hooks));
         await db.post.delete({ where: { id: "p1" } });
         await db.post.deleteMany({ where: { id: "p2" } });
         await db.post.delete({ where: { id: "p3" }, mode: "hard" });
@@ -1597,10 +1626,12 @@ export function runOnBehavior(provider: OnProvider): void {
         opened.push(base);
         const { calls, hooks } = recorder();
         const db = base
-          .$extends({
-            name: "archive",
-            deletion: { models: { post: { at: "deletedAt" } } },
-          })
+          .$extends(
+            extension(
+              "archive",
+              rule({ post: { delete: { instead: keep({ deletedAt: now }) } } })
+            )
+          )
           .$extends(on(hooks));
         await db.post.delete({ where: { id: "p1" } });
         expect(calls.map((call) => call.hook)).toEqual(["post.update"]);
@@ -1614,15 +1645,19 @@ export function runOnBehavior(provider: OnProvider): void {
         );
         opened.push(base);
         const { calls, hooks } = recorder();
-        const db = permissions({
-          actor: v.object({ userId: v.string() }),
-          models: {
-            post: {
-              read: true,
-              update: { authorId: { actor: "userId" } },
-            },
-          },
-        })(base).$extends(on(hooks));
+        const db = base
+          .$extends(
+            permissions({
+              actor: v.object({ userId: v.string() }),
+              models: {
+                post: {
+                  read: true,
+                  update: { authorId: { actor: "userId" } },
+                },
+              },
+            })
+          )
+          .$extends(on(hooks));
         const ada = db.$as({ userId: "u1" });
         await ada.post.update({ where: { id: "p1" }, data: { views: 1 } });
         expect(

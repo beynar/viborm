@@ -1,31 +1,33 @@
 // viborm/on: per-model write hooks that run after commit.
 //
-// An extension like any other: it declares `written`, the point where a
-// definition is told the rows a write call wrote, and nothing of it is known
-// to core. It watches only a write a hook concerns; of that write it keeps
-// its own copy of the rows the engine shows it (the call's own and those its
-// nested writes reach), and runs the hooks once the write is durable: after
-// the write committed, after the outermost commit inside a transaction, never
-// after a rollback.
+// An extension like any other, written with the public words: a `call` on
+// every write watches the rows it writes (`watch`) and runs the hooks once
+// the write is durable (`settled`): after the write committed, after the
+// outermost commit inside a transaction, never after a rollback. It watches
+// only a write a hook concerns; of that write it keeps its own copy of the
+// rows the engine shows it (the call's own and those its nested writes
+// reach).
 
 import type { OperationResult } from "../client/exports"; // public today
 // The classes are imported where viborm defines them, so the built entry
 // shares the root's chunk.
 import { ClientInitializationError, QueryError } from "../errors";
-import { defineWith } from "../extensions/define";
-import { writtenPart } from "../extensions/written";
-import type {
-  AnyModel,
-  AnyRelation,
-  ClientSchema,
-  ClientTypeState,
-  ExtensionState,
-  VibORMClient,
-  VibORMConfig,
-  WriteKind,
-  WriteOutcome,
-  WrittenCall,
-  WrittenWatch,
+import {
+  type AnyModel,
+  type AnyRelation,
+  type AnyTarget,
+  type ClientSchema,
+  call,
+  type EmptyFacts,
+  type Extension,
+  extension,
+  settled,
+  target,
+  type VibORMConfig,
+  type WriteKind,
+  type WriteOutcome,
+  watch,
+  writes,
 } from "../index";
 
 const NAME = "viborm.on";
@@ -131,13 +133,6 @@ export interface OnOptions<Model extends string = string> {
   readonly onError?: (error: QueryError, event: OnEvent<Model>) => unknown;
 }
 
-/** An unbound declaration: applies to any client, which it returns. */
-export type OnExtension = <
-  Base extends { $extends(...args: never[]): unknown },
->(
-  base: Base
-) => Base;
-
 type RuntimeHook = (rows: readonly Row[], event: OnEvent) => unknown;
 type RuntimeHooks = Readonly<
   Record<string, Readonly<Partial<Record<OnKind, RuntimeHook>>> | undefined>
@@ -157,6 +152,13 @@ const KINDS: Readonly<Record<string, readonly OnKind[]>> = {
   deleteMany: ["delete", "update"],
 };
 
+/** One write call, as what watches it reads it. */
+interface WriteCall {
+  readonly model: string;
+  readonly operation: string;
+  readonly args: Readonly<Record<string, unknown>>;
+}
+
 /**
  * Hooks per model and kind, run after a write commits:
  *
@@ -169,22 +171,24 @@ const KINDS: Readonly<Record<string, readonly OnKind[]>> = {
  * Applied inside `$extends(...)`, the receiving client's schema types the
  * model names, the kinds and each hook's rows.
  */
-export function on<
-  C extends VibORMConfig = VibORMConfig,
-  X extends ExtensionState = ExtensionState,
->(
-  hooks: OnHooks<NoInfer<C>>,
-  options?: OnOptions<keyof ClientSchema<NoInfer<C>> & string>
-): string extends keyof ClientSchema<C>
-  ? OnExtension
-  : (
-      base: ClientTypeState<C, X> & NoInfer<VibORMClient<C, X>>
-    ) => VibORMClient<C, X>;
-export function on(hooks: RuntimeHooks, options?: OnOptions) {
+export function on<T extends AnyTarget>(
+  hooks: OnHooks<NoInfer<T["config"]>>,
+  options?: OnOptions<keyof ClientSchema<NoInfer<T["config"]>> & string>
+): Extension<T, EmptyFacts>;
+export function on(hooks: RuntimeHooks, options?: OnOptions): unknown {
   const own: RuntimeHooks = Object.freeze({ ...hooks });
   const onError = options?.onError;
   if (onError !== undefined && typeof onError !== "function")
     refuse("onError must be a function");
+  // Refused when made, never after a write commits: a hook name or a hook
+  // that is no function would otherwise run nothing.
+  for (const [model, modelHooks] of Object.entries(own))
+    for (const [kind, hook] of Object.entries(modelHooks ?? {}))
+      if (
+        !HOOK_KINDS.has(kind) ||
+        (hook !== undefined && typeof hook !== "function")
+      )
+        refuse(`${model}.${kind} must be a create, update or delete function`);
   /** A failing hook's report: never a failure of the write itself. */
   const report = async (error: QueryError, event: OnEvent) => {
     try {
@@ -196,41 +200,35 @@ export function on(hooks: RuntimeHooks, options?: OnOptions) {
   };
   declared += 1;
   const name = declared === 1 ? NAME : `${NAME}.${declared}`;
-  return (base: {
-    $schema: Record<string, AnyModel>;
-    $extends(definition: object): unknown;
-  }) => {
-    // Refused when applied, never after a write commits: an unknown model or
-    // hook name, or a hook that is no function, would otherwise run nothing.
-    for (const [model, modelHooks] of Object.entries(own)) {
-      if (!Object.hasOwn(base.$schema, model))
-        refuse(`names unknown model "${model}"`);
-      for (const [kind, hook] of Object.entries(modelHooks ?? {}))
-        if (
-          !HOOK_KINDS.has(kind) ||
-          (hook !== undefined && typeof hook !== "function")
-        )
-          refuse(
-            `${model}.${kind} must be a create, update or delete function`
-          );
-    }
-    return base.$extends(
-      defineWith(writtenPart)({
-        name,
-        written: (call: WrittenCall) =>
-          watch(own, report, base.$schema[call.model]!, call),
-      })
-    );
-  };
+  const hooked = Object.keys(own);
+  return extension(
+    name,
+    // The hooked models are checked against the schema where the extension
+    // is applied: an unknown one is refused there.
+    ...(hooked.length === 0
+      ? []
+      : [call(() => undefined, target(hooked, "create"))]),
+    call((c) => {
+      if (c.kind !== "model" || c.model === undefined) return;
+      const watching = watchOf(own, report, c.schema[c.model]!, {
+        model: c.model,
+        operation: c.operation,
+        args: c.args,
+      });
+      if (watching === undefined) return;
+      watch(c, watching);
+      settled(c, watching.settled);
+    }, target(writes))
+  );
 }
 
 /** What watches one write a hook concerns; nothing for any other write. */
-function watch(
+function watchOf(
   hooks: RuntimeHooks,
   report: (error: QueryError, event: OnEvent) => Promise<void>,
   model: AnyModel,
-  call: WrittenCall
-): WrittenWatch | undefined {
+  call: WriteCall
+) {
   const mine = hooks[call.model] ?? {};
   // The call's own rows, where a hook wants what its verb may do to them;
   // and the rows its nested writes reach, where its payload names a relation.
@@ -254,8 +252,13 @@ function watch(
   let certainty: WriteOutcome["certainty"] | undefined;
   let delivered = false;
   return {
-    wants: (name, kind) => hooks[name]?.[kind] !== undefined,
-    rows(name, kind, rows, nested) {
+    wants: (name: string, kind: WriteKind) => hooks[name]?.[kind] !== undefined,
+    rows(
+      name: string,
+      kind: WriteKind,
+      rows: readonly Readonly<Record<string, unknown>>[],
+      nested: boolean
+    ) {
       const group =
         (nested &&
           written.find(
@@ -264,7 +267,7 @@ function watch(
         written[written.push({ model: name, kind, rows: [], nested }) - 1]!;
       for (const row of rows) group.rows.push(detached(row) as Row);
     },
-    async settled(outcome) {
+    async settled(outcome: WriteOutcome) {
       if (certainty !== "committed") certainty = outcome.certainty;
       if (delivered) return;
       delivered = true;

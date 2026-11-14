@@ -7,6 +7,22 @@ import { failure } from "@tests/fixtures/failure";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { v } from "@validation";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import {
+  extension,
+  unit,
+  rule,
+  args,
+  target,
+  deletes,
+  around,
+  oneOf,
+  arg,
+  now,
+  when,
+  unless,
+  keep,
+  statement as extStatement,
+} from "@src/index";
 
 /**
  * The `deletion` capability on a real database (extension-capabilities plan
@@ -198,33 +214,97 @@ const modes = {
 } as const;
 
 /** §1.1's step A, over the three managed models. */
-const softDelete = {
-  name: "test.softDelete",
-  controls: { mode: { oneOf: ["soft", "hard"] } },
-  rows: {
-    control: "deleted",
-    default: "without",
-    models: {
-      author: modes,
-      post: modes,
-      comment: modes,
-      shelf: modes,
-      entry: modes,
-      folder: modes,
+const softDelete = extension(
+  "test.softDelete",
+  args({
+    mode: oneOf("soft", "hard")
+      .on(deletes)
+      .models(["author", "post", "comment", "shelf", "entry", "folder"]),
+    deleted: oneOf("without", "with", "only").default("without"),
+  }),
+  rule({
+    author: {
+      root: [
+        when(arg("deleted"), "without", { deletedAt: null }),
+        when(arg("deleted"), "only", { deletedAt: { not: null } }),
+      ],
+      related: [
+        when(arg("deleted"), "without", { deletedAt: null }),
+        when(arg("deleted"), "only", { deletedAt: null }),
+      ],
+      delete: {
+        instead: keep(unless(arg("mode"), "hard", { deletedAt: now })),
+      },
     },
-  },
-  deletion: {
-    removeWhen: { mode: "hard" },
-    models: {
-      author: { at: "deletedAt" },
-      post: { at: "deletedAt", assign: { deletedById: ACTOR } },
-      comment: { at: "deletedAt" },
-      shelf: { at: "deletedAt" },
-      entry: { at: "deletedAt" },
-      folder: { at: "deletedAt" },
+    post: {
+      root: [
+        when(arg("deleted"), "without", { deletedAt: null }),
+        when(arg("deleted"), "only", { deletedAt: { not: null } }),
+      ],
+      related: [
+        when(arg("deleted"), "without", { deletedAt: null }),
+        when(arg("deleted"), "only", { deletedAt: null }),
+      ],
+      delete: {
+        instead: keep(
+          unless(arg("mode"), "hard", { deletedAt: now, deletedById: ACTOR })
+        ),
+      },
     },
-  },
-} as const;
+    comment: {
+      root: [
+        when(arg("deleted"), "without", { deletedAt: null }),
+        when(arg("deleted"), "only", { deletedAt: { not: null } }),
+      ],
+      related: [
+        when(arg("deleted"), "without", { deletedAt: null }),
+        when(arg("deleted"), "only", { deletedAt: null }),
+      ],
+      delete: {
+        instead: keep(unless(arg("mode"), "hard", { deletedAt: now })),
+      },
+    },
+    shelf: {
+      root: [
+        when(arg("deleted"), "without", { deletedAt: null }),
+        when(arg("deleted"), "only", { deletedAt: { not: null } }),
+      ],
+      related: [
+        when(arg("deleted"), "without", { deletedAt: null }),
+        when(arg("deleted"), "only", { deletedAt: null }),
+      ],
+      delete: {
+        instead: keep(unless(arg("mode"), "hard", { deletedAt: now })),
+      },
+    },
+    entry: {
+      root: [
+        when(arg("deleted"), "without", { deletedAt: null }),
+        when(arg("deleted"), "only", { deletedAt: { not: null } }),
+      ],
+      related: [
+        when(arg("deleted"), "without", { deletedAt: null }),
+        when(arg("deleted"), "only", { deletedAt: null }),
+      ],
+      delete: {
+        instead: keep(unless(arg("mode"), "hard", { deletedAt: now })),
+      },
+    },
+    folder: {
+      root: [
+        when(arg("deleted"), "without", { deletedAt: null }),
+        when(arg("deleted"), "only", { deletedAt: { not: null } }),
+      ],
+      related: [
+        when(arg("deleted"), "without", { deletedAt: null }),
+        when(arg("deleted"), "only", { deletedAt: null }),
+      ],
+      delete: {
+        instead: keep(unless(arg("mode"), "hard", { deletedAt: now })),
+      },
+    },
+  })
+);
 
 /** One statement a transform saw: the SQL and the attribution it ran under. */
 export interface SeenStatement {
@@ -302,18 +382,24 @@ export async function openDeletionFixture(driver: AnyDriver) {
   });
   await base.file.create({ data: { id: 1, folderId: "3" } });
   const db = base
-    .$extends({
-      name: "test.statements",
-      statement: (statement) => {
-        statements.push({
-          model: statement.model,
-          operation: statement.operation,
-          sql: statement.statement.toStatement("?"),
-          values: statement.statement.values,
-        });
-        return statement.statement;
-      },
-    })
+    .$extends(
+      extension(
+        "test.statements",
+        unit(
+          (u, next) => {
+            statements.push({
+              model: u.model,
+              operation: u.operation,
+              sql: extStatement(u).toStatement("?"),
+              values: extStatement(u).values,
+            });
+            return next(extStatement(u));
+          },
+          ["statement"],
+          { rewrites: true }
+        )
+      )
+    )
     .$extends(softDelete);
   ledger.length = 0;
   return { base, db, ledger, statements };
@@ -1173,14 +1259,20 @@ export function runDeletionCapabilityBehavior(
       const transformed: string[] = [];
       const logged: string[] = [];
       const observed = base
-        .$extends({
-          name: "test.tombstoneStatements",
-          statement: ({ statement, model, operation }) => {
-            if (TOMBSTONE_WRITE.test(statement.toStatement("?")))
-              transformed.push(`${model}.${operation}`);
-            return statement;
-          },
-        })
+        .$extends(
+          extension(
+            "test.tombstoneStatements",
+            unit(
+              (u, next) => {
+                if (TOMBSTONE_WRITE.test(extStatement(u).toStatement("?")))
+                  transformed.push(`${u.model}.${u.operation}`);
+                return next(extStatement(u));
+              },
+              ["statement"],
+              { rewrites: true }
+            )
+          )
+        )
         .$extends(
           instrumentation({
             logging: {
@@ -1193,48 +1285,63 @@ export function runDeletionCapabilityBehavior(
           })
         )
         .$extends(softDelete)
-        .$extends({
-          name: "test.hooks",
-          query: {
-            post: {
-              async delete({ input, proceed }) {
-                hooks.push(`post.delete ${JSON.stringify(input)}`);
-                const result = await proceed();
+        .$extends(
+          extension(
+            "test.hooks",
+            around(
+              () => async (run) => {
+                hooks.push(`post.delete ${JSON.stringify(run.input)}`);
+                const result = await run();
                 const { deletedById } = result as { deletedById: unknown };
                 hooks.push(`post.delete -> ${deletedById}`);
                 return result;
               },
-              async deleteMany({ proceed }) {
+              target("post", "delete")
+            ),
+            around(
+              () => async (run) => {
                 hooks.push("post.deleteMany");
-                return proceed();
+                return run();
               },
-              async update({ proceed }) {
+              target("post", "deleteMany")
+            ),
+            around(
+              () => async (run) => {
                 hooks.push("post.update");
-                return proceed();
+                return run();
               },
-              async updateMany({ proceed }) {
+              target("post", "update")
+            ),
+            around(
+              () => async (run) => {
                 hooks.push("post.updateMany");
-                return proceed();
+                return run();
               },
-            },
-            comment: {
-              async delete({ proceed }) {
+              target("post", "updateMany")
+            ),
+            around(
+              () => async (run) => {
                 hooks.push("comment.delete");
-                return proceed();
+                return run();
               },
-              async update({ proceed }) {
+              target("comment", "delete")
+            ),
+            around(
+              () => async (run) => {
                 hooks.push("comment.update");
-                return proceed();
+                return run();
               },
-            },
-            tag: {
-              async update({ proceed }) {
+              target("comment", "update")
+            ),
+            around(
+              () => async (run) => {
                 hooks.push("tag.update");
-                return proceed();
+                return run();
               },
-            },
-          },
-        });
+              target("tag", "update")
+            )
+          )
+        );
       await observed.post.delete({ where: { id: 11 } });
       await observed.post.deleteMany({ where: { id: 14 } });
       // Nested: the root's hook alone; the UPDATE of the managed target

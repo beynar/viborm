@@ -11,7 +11,7 @@ import { MemoryCache } from "@cache/drivers/memory";
 import { cache } from "@cache/extension";
 import { createClient } from "@client/client";
 import { ClientInitializationError } from "@errors";
-import { defineExtension } from "@extensions/define";
+import { defaults, extension } from "@src/index";
 import { s } from "@schema";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -56,10 +56,10 @@ const CARDS = [
   { id: "e", columnId: "c2", rank: "0" },
 ];
 
-const byRank = defineExtension({
-  name: "by-rank",
-  order: { models: { card: [{ columnId: "asc" }, { rank: "asc" }] } },
-});
+const byRank = extension(
+  "by-rank",
+  defaults({ card: { orderBy: [{ columnId: "asc" }, { rank: "asc" }] } })
+);
 
 async function fixture() {
   const base = createClient({ schema, driver: createInMemorySQLite3Driver() });
@@ -187,10 +187,10 @@ describe("order: the caller's orderBy", () => {
   test("a later extension's order replaces an earlier one's for its model", async () => {
     const { db } = await fixture();
     const reversed = db.$extends(
-      defineExtension({
-        name: "by-rank-desc",
-        order: { models: { card: { rank: "desc" } } },
-      })
+      extension(
+        "by-rank-desc",
+        defaults({ card: { orderBy: { rank: "desc" } } })
+      )
     );
     expect(ids(await reversed.card.findMany())).toEqual([
       "a",

@@ -10,11 +10,9 @@ import type { DriverIdentity } from "@drivers/driver-identity";
 import { getExecutionExtensionChain } from "@drivers/execution-context";
 import type { QueryExecutionContext } from "@drivers/exports";
 import { CacheInvalidKeyError } from "@errors";
-import type {
-  CacheCompletion,
-  CacheOutcome,
-  CacheUnitSource,
-} from "@extensions/unit-source";
+import type { UnitContext } from "@extensions/contract";
+import { work } from "@extensions/observation";
+import { note } from "@extensions/unit-words";
 import { type Clock, systemClock } from "../clock";
 import {
   REVALIDATING_SUFFIX,
@@ -30,7 +28,7 @@ import {
   type CacheInvalidationOptions,
   hasCacheInvalidationWork,
 } from "./schema";
-import { executionOutcomes } from "./unit-facts";
+import type { CacheNote, CacheOutcome, CacheStep } from "./unit-facts";
 
 /** Extend a request lifetime until background cache work settles. */
 export type WaitUntilFn = (promise: Promise<unknown>) => void;
@@ -113,8 +111,8 @@ function createCacheOutcome(
 }
 
 /**
- * Record one decision of this execution, into the list its operation's
- * observer opened (`cacheOutcomes`); with none open, nothing is recorded.
+ * Note one decision of this execution on its `operation` unit; where no
+ * handler runs around it, nothing is kept.
  */
 function recordCacheOutcome(
   context: QueryExecutionContext | undefined,
@@ -122,26 +120,27 @@ function recordCacheOutcome(
   status?: string,
   error?: unknown
 ): void {
-  const list = context === undefined ? undefined : executionOutcomes.get(context);
-  list?.outcomes.push(createCacheOutcome(event, status, error));
+  if (context === undefined) return;
+  const fact: CacheNote = {
+    cacheOutcome: createCacheOutcome(event, status, error),
+  };
+  note(context, fact);
 }
 
 /**
- * A background set failure joins its execution's list while that list is still
- * open, so it presents after the logical miss; otherwise it completes the set
- * unit itself.
+ * A background set failure joins its execution's outcomes while that
+ * operation still runs, so it presents after the logical miss; otherwise the
+ * set unit presents it itself.
  */
 function placeCacheSetFailure(
   context: QueryExecutionContext,
-  failure: unknown
-): CacheCompletion | undefined {
-  const outcome = createCacheOutcome("miss", "cache-set-failed", failure);
-  const list = executionOutcomes.get(context);
-  if (list !== undefined && !list.completed) {
-    list.outcomes.push(outcome);
-    return undefined;
-  }
-  return { outcomes: [outcome] };
+  failure: unknown,
+  unit: UnitContext
+): void {
+  const fact: CacheNote = {
+    cacheOutcome: createCacheOutcome("miss", "cache-set-failed", failure),
+  };
+  if (!note(context, fact)) note(unit, fact);
 }
 
 /** Create one opaque scope recognized only by this module's private namespace map. */
@@ -482,14 +481,10 @@ export abstract class CacheDriver {
       return;
     }
 
-    const observation = getExecutionExtensionChain(
-      options.executionContext
-    )?.observation;
-    const observedFailure: ObservedRevalidationFailure | undefined =
-      observation === undefined ? undefined : { failed: false, error: undefined };
-    // The observed child stores its terminal outcome before it settles, and
-    // `cacheFacts` reads it only after that.
-    let completion: CacheCompletion | undefined;
+    const observedFailure: ObservedRevalidationFailure = {
+      failed: false,
+      error: undefined,
+    };
 
     const doRevalidate = async (): Promise<CacheOutcome> => {
       let terminal: CacheOutcome;
@@ -511,57 +506,47 @@ export abstract class CacheDriver {
         );
         terminal = createCacheOutcome("revalidate", "success");
       } catch (error) {
-        // Log error but don't throw - this is background operation
-        if (observedFailure !== undefined) {
-          observedFailure.failed = true;
-          observedFailure.error = error;
-        }
+        // Not thrown to the caller: a background revalidation's failure
+        // fails its own unit only.
+        observedFailure.failed = true;
+        observedFailure.error = error;
         terminal = createCacheOutcome("revalidate", "error", error);
       } finally {
-        if (observedFailure === undefined) {
-          await this.#clearRevalidatingScoped(cacheKey, namespace).catch(
-            () => undefined
-          );
-        } else {
-          try {
-            await this.#clearRevalidatingScoped(cacheKey, namespace);
-          } catch (cleanupFailure) {
-            if (observedFailure.failed) {
-              const workerFailure = observedFailure.error;
-              observedFailure.error = new AggregateError(
-                [workerFailure, cleanupFailure],
-                "Cache revalidation work and cleanup both failed.",
-                { cause: workerFailure }
-              );
-            } else {
-              observedFailure.failed = true;
-              observedFailure.error = cleanupFailure;
-            }
+        try {
+          await this.#clearRevalidatingScoped(cacheKey, namespace);
+        } catch (cleanupFailure) {
+          if (observedFailure.failed) {
+            const workerFailure = observedFailure.error;
+            observedFailure.error = new AggregateError(
+              [workerFailure, cleanupFailure],
+              "Cache revalidation work and cleanup both failed.",
+              { cause: workerFailure }
+            );
+          } else {
+            observedFailure.failed = true;
+            observedFailure.error = cleanupFailure;
           }
         }
       }
       return terminal;
     };
 
+    const context = options.executionContext;
+    const step: CacheStep = {
+      read: { model: modelName, operation, driver: options.driverIdentity },
+      model: context?.model,
+      operation: context?.operation,
+    };
     const revalidationPromise =
-      observation === undefined || observedFailure === undefined
+      context === undefined ||
+      getExecutionExtensionChain(context)?.observation === undefined
         ? doRevalidate()
-        : observation.run(
-            {
-              kind: "cache",
-              operation: "revalidate",
-              context: options.executionContext,
-              cache: {
-                read: {
-                  model: modelName,
-                  operation,
-                  driver: options.driverIdentity,
-                },
-                complete: () => completion,
-              },
-            },
-            async () => {
-              completion = { outcomes: [await doRevalidate()] };
+        : work(
+            context,
+            { kind: "cache", operation: "revalidate", note: { cache: step } },
+            async (unit) => {
+              const fact: CacheNote = { cacheOutcome: await doRevalidate() };
+              note(unit, fact);
               if (observedFailure.failed) throw observedFailure.error;
             }
           );
@@ -577,26 +562,26 @@ export abstract class CacheDriver {
   #observe<T>(
     step: "clear" | "delete" | "get" | "invalidate" | "set",
     context: QueryExecutionContext | undefined,
-    execute: () => Promise<T>,
-    complete?: CacheUnitSource["complete"],
+    execute: (unit?: UnitContext) => Promise<T>,
     ttl?: number
   ): Promise<T> {
-    const observation = getExecutionExtensionChain(context)?.observation;
     // An unobserved step builds no unit, as the revalidation above does.
     // Measured on a no-op backend: without this, a get allocates about 330 B
     // more and takes about 16 ns longer.
-    if (observation === undefined) return execute();
-    return observation.run(
-      {
-        kind: "cache",
-        operation: step,
-        context,
-        cache: {
-          driver: this.driverName,
-          ...(ttl === undefined ? {} : { ttl }),
-          ...(complete === undefined ? {} : { complete }),
-        },
-      },
+    if (
+      context === undefined ||
+      getExecutionExtensionChain(context)?.observation === undefined
+    )
+      return execute();
+    const facts: CacheStep = {
+      driver: this.driverName,
+      ...(ttl === undefined ? {} : { ttl }),
+      model: context.model,
+      operation: context.operation,
+    };
+    return work(
+      context,
+      { kind: "cache", operation: step, note: { cache: facts } },
       execute
     );
   }
@@ -624,23 +609,20 @@ export abstract class CacheDriver {
     namespace?: string
   ): Promise<CacheEntry<T> | null> {
     const prefixedKey = this.#prefixKey(key, namespace);
-    let cacheResult: "hit" | "miss" | "stale" | undefined;
-
-    return this.#observe(
-      "get",
-      context,
-      async () => {
-        const entry = await this.get<T>(prefixedKey);
-        if (entry) {
-          const isStale = this.clock.now() - entry.createdAt > entry.ttl;
-          cacheResult = isStale ? "stale" : "hit";
-        } else {
-          cacheResult = "miss";
-        }
-        return entry;
-      },
-      () => (cacheResult === undefined ? undefined : { result: cacheResult })
-    );
+    return this.#observe("get", context, async (unit) => {
+      const entry = await this.get<T>(prefixedKey);
+      if (unit !== undefined) {
+        const fact: CacheNote = {
+          cacheResult: entry
+            ? this.clock.now() - entry.createdAt > entry.ttl
+              ? "stale"
+              : "hit"
+            : "miss",
+        };
+        note(unit, fact);
+      }
+      return entry;
+    });
   }
 
   /**
@@ -697,17 +679,19 @@ export abstract class CacheDriver {
     return this.#observe(
       "set",
       context,
-      async () => {
-        await this.set(prefixedKey, storageTtl, entry);
-        // A durable invalidation may finish while a backend set is pending.
-        // Suppress this obsolete fill locally; generic KV remains eventual.
-        if (revision !== undefined && revision !== this.#fillRevision)
-          await this.delete([prefixedKey]);
+      async (unit) => {
+        try {
+          await this.set(prefixedKey, storageTtl, entry);
+          // A durable invalidation may finish while a backend set is pending.
+          // Suppress this obsolete fill locally; generic KV remains eventual.
+          if (revision !== undefined && revision !== this.#fillRevision)
+            await this.delete([prefixedKey]);
+        } catch (failure) {
+          if (backgroundOf !== undefined && unit !== undefined)
+            placeCacheSetFailure(backgroundOf, failure, unit);
+          throw failure;
+        }
       },
-      backgroundOf === undefined
-        ? undefined
-        : (failed, failure) =>
-            failed ? placeCacheSetFailure(backgroundOf, failure) : undefined,
       options.ttl
     );
   }

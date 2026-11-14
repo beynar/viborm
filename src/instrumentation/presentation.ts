@@ -4,7 +4,11 @@
  * attribute key or a log event.
  */
 
-import { cacheFacts, type CacheFacts } from "@cache/unit-facts";
+import {
+  type CacheFacts,
+  type CacheOutcome,
+  cacheFacts,
+} from "@cache/unit-facts";
 import type { DriverIdentity } from "@drivers/driver-identity";
 import {
   type DiagnosticDisclosure,
@@ -12,11 +16,13 @@ import {
   isVibORMError,
   sanitizeErrorForLogging,
 } from "@errors";
-import { correlation } from "@extensions/unit-facts/correlation";
-import { driver } from "@extensions/unit-facts/driver";
-import type { BatchMember } from "@extensions/unit-facts/statements";
-import { table } from "@extensions/unit-facts/table";
-import type { CacheOutcome, Unit } from "@extensions/unit-source";
+import type { UnitContext as Unit } from "@extensions/contract";
+import {
+  type BatchMember,
+  correlation,
+  driver,
+  table,
+} from "@extensions/unit-words";
 import {
   ATTR_CACHE_DRIVER,
   ATTR_CACHE_TTL,

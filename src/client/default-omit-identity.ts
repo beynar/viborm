@@ -1,47 +1,30 @@
 /**
- * Default omit as a chain meets it: recognized by its `request`, applied
- * under its own name, and carried by every later chain. Brought by
- * `defaultOmit()` and by what applies definitions written as object literals.
+ * The fields `defaults` leaves out of results (`fields: { f: omitted }`), as
+ * a chain meets them: each extension's joined per model with those of the
+ * extensions before it, and carried by every later chain, which the client
+ * reads (`default-omit-chain.ts`).
  */
 import type { ExtensionPart } from "@extensions/chain";
-import {
-  assertOfficialExtensionAdmission,
-  withoutIdentity,
-} from "@extensions/identity";
 import {
   getOfficialDefaultOmitChainCapability,
   registerOfficialDefaultOmitChain,
 } from "./default-omit-chain";
-import {
-  getOfficialDefaultOmitRequestCapability,
-  OFFICIAL_DEFAULT_OMIT_NAME,
-} from "./default-omit-extension";
+import type { ClientOmitConfig } from "./omit";
+import type { Schema } from "./types";
 
-export const defaultOmitIdentity: ExtensionPart = {
+export const omitPart: ExtensionPart = {
   carry: true,
-  admit(application) {
-    const { definition } = application;
-    const incoming = getOfficialDefaultOmitRequestCapability(
-      definition.request
-    );
-    assertOfficialExtensionAdmission({
-      definitionName: definition.name,
-      officialName: OFFICIAL_DEFAULT_OMIT_NAME,
-      label: "default omit",
-      hasIdentity: incoming !== undefined,
-      // The generic duplicate-name check owns default-omit duplication after
-      // instrumentation admission, preserving hostile hybrid error precedence.
-      isAlreadyPresent: false,
-      duplicateMessage: `Extension "${OFFICIAL_DEFAULT_OMIT_NAME}" is already present on this client.`,
-    });
-    if (incoming !== undefined)
-      application.definition = withoutIdentity(definition, "request");
-  },
-  seal({ next, chain, declared }) {
-    const official =
-      getOfficialDefaultOmitRequestCapability(declared.request) ??
-      getOfficialDefaultOmitChainCapability(chain);
-    if (official !== undefined)
-      registerOfficialDefaultOmitChain(next, official);
+  seal({ next, chain, definition }) {
+    const prior = getOfficialDefaultOmitChainCapability(chain)?.config;
+    const own = definition.omit;
+    if (own === undefined) {
+      if (prior !== undefined)
+        registerOfficialDefaultOmitChain(next, { config: prior });
+      return;
+    }
+    const config: ClientOmitConfig<Schema> = { ...prior };
+    for (const [model, fields] of Object.entries(own))
+      config[model] = Object.freeze({ ...config[model], ...fields });
+    registerOfficialDefaultOmitChain(next, { config: Object.freeze(config) });
   },
 };

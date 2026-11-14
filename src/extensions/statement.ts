@@ -5,7 +5,7 @@ import { isSql, type Sql } from "@sql";
 import { isFunction, isRecord } from "@validation/value-guards";
 import { isError } from "../errors/diagnostic-safety";
 import type { ExtensionPart, ResolvedExtensionHandler } from "./chain";
-import { type Unit, unitOf } from "./unit-source";
+import { type UnitEnd, type UnitHandler, unitOf } from "./unit-source";
 
 /** The trusted identity exposed to one low-level statement transform. */
 export interface StatementContext {
@@ -15,41 +15,6 @@ export interface StatementContext {
 }
 
 export type StatementHandler = (context: StatementContext) => Sql;
-
-/** A unit declared `{ rewrites: true }`: `next(sql)` sends `sql` instead. */
-export type RewritingHandler = (
-  unit: Unit,
-  next: (statement?: Sql) => undefined
-) => unknown;
-
-/**
- * A rewriting unit as the `statement` member runs it: once per logical
- * statement, before rendering, in chain order. `statement(unit)` reads the
- * statement as the earlier rewrites left it; `next(sql)`, called once and
- * before the handler returns, hands on what is sent (unchanged without an
- * argument). Rewriting units do not observe: the statement's own unit runs
- * later, around the provider call.
- */
-export function rewritingUnit(handler: RewritingHandler): StatementHandler {
-  return (context) => {
-    let rewritten: Sql | undefined;
-    handler(
-      unitOf({
-        kind: "statement",
-        operation: context.operation,
-        model: context.model,
-        statement: context.statement,
-      }),
-      (statement = context.statement) => {
-        rewritten ??= statement;
-        return undefined;
-      }
-    );
-    if (rewritten === undefined)
-      throw new TypeError("A rewriting unit returned without calling next().");
-    return rewritten;
-  };
-}
 
 /**
  * Applies resolved statement transforms before placeholder rendering.
@@ -185,19 +150,53 @@ export interface StatementHandlers {
   ) => Sql;
 }
 
-/** `statement`: a rewrite of each statement before it is sent. */
-export const statementPart: ExtensionPart = {
-  members: ["statement"],
-  join({ next, chain, definition, owner }) {
-    if (definition.statement === undefined) return;
-    const handlers = Object.freeze([
-      ...(chain?.statement?.handlers ?? []),
-      Object.freeze({ extension: owner.name, handler: definition.statement }),
-    ]);
-    next.statement = Object.freeze({
-      handlers,
-      apply: (statement: Sql, model: string | undefined, operation: string) =>
-        applyStatementTransforms(statement, model, operation, handlers),
-    });
-  },
-};
+const REWRITTEN: UnitEnd = Object.freeze({ status: "success", duration: 0 });
+
+/**
+ * A rewriting unit as the driver runs it: once per logical statement, before
+ * rendering, in chain order. `statement(unit)` reads the statement as the
+ * earlier rewrites left it; `next(sql)`, called before the handler returns,
+ * hands on what is sent (unchanged without an argument). A rewriting unit
+ * does not observe: the statement's own unit runs later, around the provider
+ * call, so its `next()` resolves at once.
+ */
+function rewriting(handler: UnitHandler): StatementHandler {
+  return (context) => {
+    let rewritten: Sql | undefined;
+    const returned = handler(
+      unitOf({
+        kind: "statement",
+        operation: context.operation,
+        model: context.model,
+        statement: context.statement,
+      }),
+      (statement = context.statement) => {
+        rewritten ??= statement;
+        return Promise.resolve(REWRITTEN);
+      }
+    );
+    // The rewrite is what `next(sql)` was handed, synchronously.
+    if (returned instanceof Promise) returned.catch(() => undefined);
+    if (rewritten === undefined)
+      throw new TypeError("A rewriting unit returned without calling next().");
+    return rewritten;
+  };
+}
+
+/** The host part of `unit(handler, kinds, { rewrites: true })`. */
+export function rewritePart(handler: UnitHandler): ExtensionPart {
+  const transform = rewriting(handler);
+  return {
+    join({ next, chain, owner }) {
+      const handlers = Object.freeze([
+        ...(chain?.statement?.handlers ?? []),
+        Object.freeze({ extension: owner.name, handler: transform }),
+      ]);
+      next.statement = Object.freeze({
+        handlers,
+        apply: (statement: Sql, model: string | undefined, operation: string) =>
+          applyStatementTransforms(statement, model, operation, handlers),
+      });
+    },
+  };
+}

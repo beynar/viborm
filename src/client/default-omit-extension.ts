@@ -1,148 +1,53 @@
+/**
+ * `defaultOmit(config)`: fields left out of every result unless a call asks
+ * for them (`omit: { f: false }` or a `select`). One extension, applied in
+ * one step: `client.$extends(defaultOmit({ user: { passwordHash: true } }))`.
+ * Written with the public words: `defaults` and `omitted`.
+ */
 import { ClientInitializationError } from "@errors";
-import { withParts } from "@extensions/chain";
-import type {
-  GenericRequestHandler,
-  OfficialGenericRequestHandler,
-} from "@extensions/request";
-import { isFunction, isRecord } from "@validation/value-guards";
-import { errorCause } from "../errors/diagnostic-safety";
-import type { OfficialDefaultOmitCapability } from "./default-omit-chain";
-import { defaultOmitIdentity } from "./default-omit-identity";
+import type { AnyTarget, Extension, Facts } from "@extensions/contract";
+import { buildDefaults, omitted } from "@extensions/defaults";
+import { extension } from "@extensions/extension";
+import { omitPart } from "./default-omit-identity";
 import type { ClientOmitConfig, ExactClientOmitConfig } from "./omit";
+import type { ClientSchema } from "./schema-links";
 
-export {
-  getOfficialDefaultOmitChainCapability,
-  type OfficialDefaultOmitCapability,
-  registerOfficialDefaultOmitChain,
-} from "./default-omit-chain";
+const NAME = "viborm.defaultOmit";
 
-import type { Schema } from "./types";
+type NoMethods = Record<never, never>;
 
-export const OFFICIAL_DEFAULT_OMIT_NAME = "viborm.defaultOmit";
+/** What `defaultOmit(config)` adds: the fields it omits, per model. */
+type DefaultOmitFacts<Config> = Facts<
+  NoMethods,
+  NoMethods,
+  NoMethods,
+  never,
+  never,
+  NoMethods,
+  Config & object
+>;
 
-declare const officialDefaultOmitConfig: unique symbol;
-
-/** The authenticated request identity carrying one exact static omit witness. */
-export type OfficialDefaultOmitRequestContribution<Config> =
-  OfficialGenericRequestHandler & {
-    readonly [officialDefaultOmitConfig]: Config;
-    bind(thisArg: unknown): GenericRequestHandler;
-  };
-
-/** The official value accepted by the dedicated `$extends` admission branch. */
-export type OfficialDefaultOmitExtension<Config extends object = object> = {
-  readonly name: typeof OFFICIAL_DEFAULT_OMIT_NAME;
-  readonly request: OfficialDefaultOmitRequestContribution<Config>;
-};
-
-const capabilitiesByRequest = new WeakMap<
-  CallableFunction,
-  OfficialDefaultOmitCapability
->();
-
-function configurationError(message: string, cause?: unknown): never {
-  throw new ClientInitializationError(message, {
-    cause: cause === undefined ? undefined : errorCause(cause),
-  });
-}
-
-function ownKeys(value: object, label: string): PropertyKey[] {
-  try {
-    return Reflect.ownKeys(value);
-  } catch (cause) {
-    configurationError(
-      `Default omit ${label} members could not be inspected.`,
-      cause
-    );
-  }
-}
-
-function readOwn(
-  value: Record<string, unknown>,
-  key: string,
-  label: string
+/** Leave fields out of every result by default. */
+export function defaultOmit<T extends AnyTarget, const Config>(
+  config: Config &
+    ClientOmitConfig<ClientSchema<T["config"]>> &
+    NoInfer<ExactClientOmitConfig<Config, ClientSchema<T["config"]>>>
+): Extension<T, DefaultOmitFacts<Config>>;
+export function defaultOmit(
+  config: Readonly<Record<string, Readonly<Record<string, unknown>>>>
 ): unknown {
-  try {
-    return value[key];
-  } catch (cause) {
-    configurationError(
-      `Default omit ${label} member "${key}" could not be read.`,
-      cause
-    );
-  }
-}
-
-function isConfigurationRecord(
-  value: unknown,
-  label: string
-): value is Record<string, unknown> {
-  try {
-    return isRecord(value);
-  } catch (cause) {
-    configurationError(`Default omit ${label} could not be inspected.`, cause);
-  }
-}
-
-function snapshotConfig(value: unknown): ClientOmitConfig<Schema> {
-  if (!isConfigurationRecord(value, "configuration")) {
-    configurationError("Default omit configuration must be an object.");
-  }
-  const snapshot: Record<
-    string,
-    Readonly<Record<string, true>>
-  > = Object.create(null);
-  for (const modelKey of ownKeys(value, "configuration")) {
-    if (typeof modelKey !== "string") {
-      configurationError(
-        "Default omit configuration contains a non-string model key."
-      );
-    }
-    const entry = readOwn(value, modelKey, "configuration");
-    if (!isConfigurationRecord(entry, `configuration.${modelKey}`)) {
-      configurationError(
-        `Default omit configuration member "${modelKey}" must be an object.`
-      );
-    }
-    const fields: Record<string, true> = Object.create(null);
-    for (const fieldKey of ownKeys(entry, `configuration.${modelKey}`)) {
-      if (typeof fieldKey !== "string") {
-        configurationError(
-          `Default omit configuration member "${modelKey}" contains a non-string field key.`
+  const entries: Record<string, { fields: Record<string, typeof omitted> }> =
+    {};
+  for (const [model, fields] of Object.entries(config)) {
+    const own: Record<string, typeof omitted> = {};
+    for (const [field, value] of Object.entries(fields)) {
+      if (value !== true)
+        throw new ClientInitializationError(
+          `Default omit configuration member "${model}.${field}" must be true.`
         );
-      }
-      if (readOwn(entry, fieldKey, `configuration.${modelKey}`) !== true) {
-        configurationError(
-          `Default omit configuration member "${modelKey}.${fieldKey}" must be true.`
-        );
-      }
-      fields[fieldKey] = true;
+      own[field] = omitted;
     }
-    snapshot[modelKey] = Object.freeze(fields);
+    entries[model] = { fields: own };
   }
-  return Object.freeze(snapshot);
-}
-
-export type DefaultOmitBinder<S extends Schema> = <
-  const Config extends ClientOmitConfig<S>,
->(
-  config: Config & NoInfer<ExactClientOmitConfig<Config, S>>
-) => OfficialDefaultOmitExtension<Config & object>;
-
-/** Create VibORM's fixed-name schema-bound default-omit extension. */
-export function defaultOmit<S extends Schema>(): DefaultOmitBinder<S>;
-export function defaultOmit(): unknown {
-  return (config: unknown): unknown => {
-    const capability = Object.freeze({ config: snapshotConfig(config) });
-    const request: GenericRequestHandler = () => ({});
-    capabilitiesByRequest.set(request, capability);
-    return withParts({ name: OFFICIAL_DEFAULT_OMIT_NAME, request }, [
-      defaultOmitIdentity,
-    ]);
-  };
-}
-
-export function getOfficialDefaultOmitRequestCapability(
-  request: unknown
-): OfficialDefaultOmitCapability | undefined {
-  return isFunction(request) ? capabilitiesByRequest.get(request) : undefined;
+  return extension(NAME, buildDefaults(entries, [omitPart]));
 }

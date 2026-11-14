@@ -1,51 +1,19 @@
 /**
  * A unit of real work, as a handler receives it, and what its producer
  * already holds about it. The runner keeps the producer's record beside the
- * unit; each fact word (`text`, `parameters`, `driver`, …) reads that record
+ * unit; each unit word (`text`, `parameters`, `driver`, …) reads that record
  * when it is called. A fact nobody reads is never computed, and a program
  * that imports no word carries none of their code.
  */
-import type {
-  DriverIdentity,
-  DriverIdentitySource,
-} from "@drivers/driver-identity";
+import type { DriverIdentitySource } from "@drivers/driver-identity";
 import type { BatchQuery, QueryExecutionContext } from "@drivers/types";
 import type { Sql } from "@sql";
+import type { UnitContext, UnitKind, UnitOutcome } from "./contract";
 
-export type UnitKind =
-  | "operation"
-  | "statement"
-  | "batch"
-  | "transaction"
-  | "savepoint"
-  | "connection"
-  | "cache";
-
+export type { UnitKind } from "./contract";
+export type Unit = UnitContext;
+export type UnitEnd = UnitOutcome;
 export type CommitCertainty = "committed" | "may-have-committed";
-
-/** What a handler receives: the kind of work and what it concerns. */
-export interface Unit {
-  readonly kind: UnitKind;
-  readonly operation?: string;
-  readonly model?: string;
-}
-
-/**
- * How the unit's child ended, as `next()` resolves it. Never the
- * application's result; the failure itself is read by `failure(unit)`.
- */
-export interface UnitEnd {
-  readonly status: "success" | "failure";
-  /** Milliseconds from `next()` to the child's settlement. */
-  readonly duration: number;
-  /** Present where the child's work reached a commit. */
-  readonly certainty?: CommitCertainty;
-  /**
-   * The child failed and its owner recovered (a `findUnique` batch's shared
-   * read, whose callers each ran alone): the failure is not the call's.
-   */
-  readonly recovered?: true;
-}
 
 /**
  * One handler around a unit. `next()` lets the unit run; the child starts
@@ -55,40 +23,8 @@ export interface UnitEnd {
  */
 export type UnitHandler = (
   unit: Unit,
-  next: () => Promise<UnitEnd>
+  next: (sql?: Sql) => Promise<UnitEnd>
 ) => unknown;
-
-/** One cache decision of a logical execution. Never a key or a suffix. */
-export interface CacheOutcome {
-  readonly event: "bypass" | "hit" | "miss" | "revalidate";
-  readonly status?: string | undefined;
-  readonly at: number;
-  readonly error?: unknown;
-}
-
-/** What a settled cache step adds: a get's result, or outcomes to present. */
-export interface CacheCompletion {
-  readonly result?: "hit" | "miss" | "stale";
-  readonly outcomes?: readonly CacheOutcome[];
-}
-
-/** What the cache holds about one of its steps (`cacheFacts`). */
-export interface CacheUnitSource {
-  /** The cache backend, for get, set, invalidate, delete and clear. */
-  readonly driver?: string;
-  /** set: the entry's lifetime in milliseconds. */
-  readonly ttl?: number;
-  /** revalidate: the replayed read, a root operation of its own. */
-  readonly read?: {
-    readonly model: string;
-    readonly operation: string;
-    readonly driver: DriverIdentity | undefined;
-  };
-  readonly complete?: (
-    failed: boolean,
-    failure: unknown
-  ) => CacheCompletion | undefined;
-}
 
 /** Runs one statement in the transaction a unit opened, and gives its rows. */
 export type TransactionStatementRunner = (
@@ -103,8 +39,10 @@ export interface UnitSource {
   readonly kind: UnitKind;
   readonly operation?: string | undefined;
   readonly model?: string | undefined;
-  /** The trusted execution context: correlation, and a recovered read. */
+  /** The trusted execution context: the chain, correlation, a recovered read. */
   readonly context?: QueryExecutionContext | undefined;
+  /** operation: the object a call's two moments share (`note(run, …)`). */
+  readonly call?: object | undefined;
   /** The driver doing the work, read only by `driver(unit)`. */
   readonly driver?: DriverIdentitySource | undefined;
   /** operation: the SQL name of the model. */
@@ -117,9 +55,10 @@ export interface UnitSource {
   readonly batch?: readonly BatchQuery[] | undefined;
   /** statement under a rewriting unit: the statement before its rewrite. */
   readonly statement?: Sql | undefined;
-  readonly cache?: CacheUnitSource | undefined;
   /** How sure the child's commit is, read once it settled. */
   readonly certainty?: (() => CommitCertainty | undefined) | undefined;
+  /** What extensions noted on the unit (`note`), in order. */
+  notes?: unknown[];
   /**
    * transaction: called by the producer once the transaction is open, with
    * what runs a statement in it; the body waits for what it returns.
@@ -132,20 +71,43 @@ export interface UnitSource {
   failure?: unknown;
 }
 
-const sources = new WeakMap<Unit, UnitSource>();
+/** On a call's `run`: the object its two moments share. */
+export const CALL = Symbol("viborm.call");
+
+const sources = new WeakMap<object, UnitSource>();
+/** A running operation unit, by its call and by its execution context. */
+const operations = new WeakMap<object, UnitSource>();
 
 /** The producer's record of `unit`, or `undefined` for a unit it did not make. */
-export const sourceOf = (unit: Unit): UnitSource | undefined =>
+export const sourceOf = (unit: object): UnitSource | undefined =>
   sources.get(unit);
 
 /** The unit a handler receives for `source`, kept beside it. */
 export function unitOf(source: UnitSource): Unit {
-  const { kind, operation, model } = source;
   const unit: Unit = {
-    kind,
-    ...(operation === undefined ? {} : { operation }),
-    ...(model === undefined ? {} : { model }),
+    kind: source.kind,
+    model: source.model,
+    operation: source.operation,
   };
   sources.set(unit, source);
+  source.notes ??= [];
+  if (source.kind === "operation") {
+    if (source.call !== undefined) operations.set(source.call, source);
+    if (source.context !== undefined) operations.set(source.context, source);
+  }
   return unit;
+}
+
+/**
+ * The unit `origin` stands for: a unit a handler received or `work` made, the
+ * operation unit of a call's `run`, or that of an execution context.
+ */
+export function originOf(origin: object): UnitSource | undefined {
+  const call: unknown = CALL in origin ? Reflect.get(origin, CALL) : undefined;
+  return (
+    sources.get(origin) ??
+    (typeof call === "object" && call !== null
+      ? operations.get(call)
+      : operations.get(origin))
+  );
 }

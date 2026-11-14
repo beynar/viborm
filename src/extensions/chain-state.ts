@@ -28,7 +28,6 @@ import type { Observation } from "./observation";
 import type { ResultFields } from "./result";
 import type { Stamps } from "./stamps";
 import type { StatementHandlers } from "./statement";
-import type { UnitHandlers } from "./units";
 import type { WrittenHandlers } from "./written";
 
 export interface ResolvedExtensionHandler<
@@ -178,21 +177,14 @@ export interface ResolvedExtensionChain {
    * unit only where it is present.
    */
   readonly observation?: Observation;
-  /**
-   * What a failure may disclose (SQL, parameters, provider details,
-   * callsite), as the chain's `disclosure` part says; absent, nothing.
-   */
-  readonly disclosure?: DiagnosticDisclosure;
   /** Every `written` declaration, in chain order: what watches a write call. */
   readonly written?: WrittenHandlers;
-  /** Every `retry` and `route` declaration, and what sends a call under them. */
-  readonly units?: UnitHandlers;
-  /** Every `transaction` declaration, in chain order. */
-  readonly transaction?: readonly ResolvedExtensionHandler[];
   /** Per model, every extension's computed fields, and what plans a call's. */
   readonly result?: ResultFields;
   /** Every extension's client and model methods, and what binds a view's. */
   readonly methods?: ExtensionMethodsState;
   /** Whether the chain carries the official cache. */
   readonly hasCache?: boolean;
+  /** What an error of a call may carry, as the last `disclosure` part says. */
+  readonly disclosure?: DiagnosticDisclosure;
 }

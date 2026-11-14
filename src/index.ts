@@ -45,48 +45,7 @@ export {
   validateOperationPayload,
 } from "./client/schema-introspection.js";
 export type { NoControls, PlacedControl } from "./extensions/controls.js";
-export {
-  type ClientExtension,
-  controlsPart,
-  defaultDataPart,
-  defaultOrderPart,
-  defineExtension,
-  defineFilters,
-  defineHooks,
-  defineWith,
-  type ExtensionPart,
-  enableExtensions,
-  filtersPart,
-  keptRowsPart,
-  methodsPart,
-  type ObservationCompletion,
-  type ObservationFacts,
-  type ObservationNeed,
-  type ObservationUnit,
-  type ObservedFacts,
-  type ObserveHandler,
-  type ObservesDeclaration,
-  observePart,
-  queryPart,
-  type RetryHandler,
-  type RouteHandler,
-  requestPart,
-  resultPart,
-  rowsPart,
-  type StatementContext,
-  type StatementHandler,
-  statementPart,
-  type TransactionHandler,
-  type UnitCall,
-  unitPart,
-  verbsPart,
-  type WriteKind,
-  type WriteOutcome,
-  type WrittenCall,
-  type WrittenHandler,
-  type WrittenWatch,
-  writtenPart,
-} from "./extensions/index.js";
+export * from "./extensions/index.js";
 export type {
   AccumulatedExtensionState,
   ClientExtensionState,
@@ -94,7 +53,6 @@ export type {
   ExtensionCacheState,
   ExtensionContributionState,
   ExtensionResultConsumerState,
-  MergeExtensionState,
 } from "./extensions/methods";
 // Values a write computes, and the names a hand-written fragment spells them with.
 export {

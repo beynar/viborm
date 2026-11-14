@@ -1,60 +1,25 @@
 /**
- * What the cache says about its own units, read on demand: `cacheFacts` on a
- * `cache` unit, `cacheOutcomes` on the `operation` unit a cached read runs
- * in. This module does not import the cache driver, so an extension that
- * presents cache units carries none of it.
+ * What the cache notes on the units it is part of, and the two readers an
+ * observer uses: `cacheFacts` on a `cache` unit the cache emits (`work`),
+ * `cacheOutcomes` on the `operation` unit of a cached call. This module does
+ * not import the cache driver, so an extension that presents cache units
+ * carries none of it.
  */
 import type { DriverIdentity } from "@drivers/driver-identity";
-import type { QueryExecutionContext } from "@drivers/types";
-import {
-  type CacheCompletion,
-  type CacheOutcome,
-  sourceOf,
-  type Unit,
-  type UnitSource,
-} from "@extensions/unit-source";
+import type { UnitContext } from "@extensions/contract";
+import { notes } from "@extensions/unit-words";
+import { isRecord } from "@validation/value-guards";
 
-export type { CacheOutcome } from "@extensions/unit-source";
-
-/** One logical execution's cache decisions, open while its operation runs. */
-export interface CacheOutcomeList {
-  readonly outcomes: CacheOutcome[];
-  /** Set once the operation's reader has read the list. */
-  completed: boolean;
+/** One cache decision of a logical execution. Never a key or a suffix. */
+export interface CacheOutcome {
+  readonly event: "bypass" | "hit" | "miss" | "revalidate";
+  readonly status?: string | undefined;
+  readonly at: number;
+  readonly error?: unknown;
 }
 
-/**
- * The lists opened by `cacheOutcomes`, by the execution context the cache
- * records against. Without one open, the cache records nothing.
- */
-export const executionOutcomes = new WeakMap<
-  QueryExecutionContext,
-  CacheOutcomeList
->();
-
-const NO_OUTCOMES: readonly CacheOutcome[] = Object.freeze([]);
-
-/**
- * Called on an `operation` unit before `next()`: opens the list the cache
- * fills while the call runs. The function it returns closes and reads it.
- */
-export function cacheOutcomes(unit: Unit): () => readonly CacheOutcome[] {
-  const context = sourceOf(unit)?.context;
-  if (context === undefined) return () => NO_OUTCOMES;
-  let list = executionOutcomes.get(context);
-  if (list === undefined) {
-    list = { outcomes: [], completed: false };
-    executionOutcomes.set(context, list);
-  }
-  const open = list;
-  return () => {
-    open.completed = true;
-    return Object.freeze([...open.outcomes]);
-  };
-}
-
-/** What a `cache` unit is about, and, once it settled, how it ended. */
-export interface CacheFacts {
+/** What a `cache` unit is about, noted as it starts. */
+export interface CacheStep {
   /** The cache backend's name; absent for a revalidation. */
   readonly driver?: string;
   /** set: the entry's lifetime in milliseconds. */
@@ -66,45 +31,57 @@ export interface CacheFacts {
     readonly driver: DriverIdentity | undefined;
   };
   /** The model and operation of the logical call the step belongs to. */
-  readonly model?: string;
-  readonly operation?: string;
-  /** get, once settled: what the backend returned. */
-  readonly result?: "hit" | "miss" | "stale";
-  /**
-   * Once settled: a background set failure no open list took, or a
-   * revalidation's terminal outcome.
-   */
-  readonly outcomes?: readonly CacheOutcome[];
+  readonly model?: string | undefined;
+  readonly operation?: string | undefined;
 }
 
-/** Each settled step's completion, computed once: placing it has effects. */
-const completions = new WeakMap<UnitSource, CacheCompletion | undefined>();
+/** One fact the cache notes. */
+export type CacheNote =
+  /** On a `cache` unit, as it starts. */
+  | { readonly cache: CacheStep }
+  /** On a `get` unit, once the backend answered. */
+  | { readonly cacheResult: "hit" | "miss" | "stale" }
+  /**
+   * On a cached call's `operation` unit while it runs; else on the `set` or
+   * `revalidate` unit it belongs to.
+   */
+  | { readonly cacheOutcome: CacheOutcome };
+
+function isCacheNote(value: unknown): value is CacheNote {
+  return (
+    isRecord(value) &&
+    ("cache" in value || "cacheResult" in value || "cacheOutcome" in value)
+  );
+}
+
+/** What a `cache` unit is about and, once it settled, how it ended. */
+export interface CacheFacts extends CacheStep {
+  /** get: what the backend returned. */
+  readonly result?: "hit" | "miss" | "stale";
+  /** Outcomes this unit presents itself. */
+  readonly outcomes: readonly CacheOutcome[];
+}
 
 /** The facts of a `cache` unit; `undefined` for any other unit. */
-export function cacheFacts(unit: Unit): CacheFacts | undefined {
-  const source = sourceOf(unit);
-  const cache = source?.cache;
-  if (source === undefined || cache === undefined) return undefined;
-  let completion: CacheCompletion | undefined;
-  if (source.failed !== undefined) {
-    if (completions.has(source)) completion = completions.get(source);
-    else {
-      completion = cache.complete?.(source.failed, source.failure);
-      completions.set(source, completion);
-    }
+export function cacheFacts(unit: UnitContext): CacheFacts | undefined {
+  let step: CacheStep | undefined;
+  let result: CacheFacts["result"];
+  const outcomes: CacheOutcome[] = [];
+  for (const fact of notes(unit)) {
+    if (!isCacheNote(fact)) continue;
+    if ("cache" in fact) step = fact.cache;
+    else if ("cacheResult" in fact) result = fact.cacheResult;
+    else outcomes.push(fact.cacheOutcome);
   }
-  const { context } = source;
-  return {
-    ...(cache.driver === undefined ? {} : { driver: cache.driver }),
-    ...(cache.ttl === undefined ? {} : { ttl: cache.ttl }),
-    ...(cache.read === undefined ? {} : { read: cache.read }),
-    ...(context?.model === undefined ? {} : { model: context.model }),
-    ...(context?.operation === undefined
-      ? {}
-      : { operation: context.operation }),
-    ...(completion?.result === undefined ? {} : { result: completion.result }),
-    ...(completion?.outcomes === undefined
-      ? {}
-      : { outcomes: completion.outcomes }),
-  };
+  if (step === undefined) return undefined;
+  return { ...step, ...(result === undefined ? {} : { result }), outcomes };
+}
+
+/** The cache decisions noted on a cached call's `operation` unit, in order. */
+export function cacheOutcomes(unit: UnitContext): readonly CacheOutcome[] {
+  const outcomes: CacheOutcome[] = [];
+  for (const fact of notes(unit))
+    if (isCacheNote(fact) && "cacheOutcome" in fact)
+      outcomes.push(fact.cacheOutcome);
+  return outcomes;
 }

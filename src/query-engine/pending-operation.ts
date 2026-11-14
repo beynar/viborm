@@ -125,13 +125,16 @@ function combineWriteNotifications(
  */
 export type PrepareOperationInput = (
   args: Record<string, unknown>,
-  controls: AdmittedControls | undefined
+  controls: AdmittedControls | undefined,
+  /** One object per call: what an extension's two moments of it share. */
+  call: object
 ) => Record<string, unknown>;
 
 /** Package-owned write listener prepared only after the operation input is trusted. */
 export type PrepareWriteOutcomeRegistration = (
   context: QueryExecutionContext,
-  controls: AdmittedControls | undefined
+  controls: AdmittedControls | undefined,
+  call: object | undefined
 ) => WriteOutcomeRegistration | undefined;
 
 interface OperationInputPreparation {
@@ -454,7 +457,8 @@ export class PendingOperation<T>
       );
       const args = preparation.prepare(
         admission?.args ?? this.#args,
-        admission?.controls
+        admission?.controls,
+        preparation
       );
       preparation.args = args;
       preparation.controls = admission?.controls;
@@ -474,7 +478,8 @@ export class PendingOperation<T>
     }
     this.#writeOutcomeRegistration = this.#prepareWriteOutcomeRegistration?.(
       this.#context.attribution,
-      this.#inputPreparation?.controls
+      this.#inputPreparation?.controls,
+      this.#inputPreparation
     );
     this.#writeOutcomeRegistrationResolved = true;
     return this.#writeOutcomeRegistration;
@@ -572,6 +577,7 @@ export class PendingOperation<T>
         return input;
       },
       ...(controls === undefined ? {} : { controls }),
+      call: this.#inputPreparation,
     });
   }
 
@@ -608,6 +614,7 @@ export class PendingOperation<T>
       operation: String(this.#options.originalOperation),
       model: this.#modelName,
       context: this.#context.attribution,
+      call: this.#inputPreparation,
       driver: this.#engine.driver,
       table: this.#model["~"].names.sql ?? this.#modelName,
       ...(certain ? { certainty: () => this.#observationCommitCertainty } : {}),
@@ -701,9 +708,9 @@ export class PendingOperation<T>
     return coordination.executePreparedQuery<T, Record<string, unknown>>(
       context,
       handlers,
-      (notifications) =>
+      (notifications, driver) =>
         this.#runCoreExecution(
-          driverOverride,
+          driver ?? driverOverride,
           combineWriteNotifications(
             committedWriteSegment,
             combineWriteNotifications(
@@ -750,31 +757,13 @@ export class PendingOperation<T>
     committedWriteSegment?: CommittedWriteSegmentNotification,
     writeMayBeVisible?: WriteMayBeVisibleNotification
   ): Promise<T> {
-    const run = (
-      driver: AnyDriver | undefined,
-      committed?: CommittedWriteSegmentNotification,
-      mayBeVisible?: WriteMayBeVisibleNotification
-    ) =>
-      this.#deferredExecution
-        ? this.#deferredExecution(driver, committed, mayBeVisible)
-        : this.#run(driver, committed, mayBeVisible);
-    const units = this.#engine.extensionChain?.units;
-    // A call inside a transaction, or a member of an array, is its owner's.
-    if (
-      units === undefined ||
-      driverOverride !== undefined ||
-      this.#engine.transactionWriteOutcomes !== undefined
-    )
-      return run(driverOverride, committedWriteSegment, writeMayBeVisible);
-    const operation = String(this.#options.originalOperation);
-    return units.send(
-      { model: this.#modelName, operation },
-      () => this.#resolveArgs(),
-      !isReadOperation(operation),
-      run,
-      committedWriteSegment,
-      writeMayBeVisible
-    );
+    return this.#deferredExecution
+      ? this.#deferredExecution(
+          driverOverride,
+          committedWriteSegment,
+          writeMayBeVisible
+        )
+      : this.#run(driverOverride, committedWriteSegment, writeMayBeVisible);
   }
 
   /**

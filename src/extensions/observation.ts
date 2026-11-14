@@ -1,33 +1,33 @@
-import { isRecoverableExecution } from "@drivers/execution-context";
+/**
+ * The one generation of unit handlers: what runs a unit under a chain's
+ * `unit` parts, and `work`, by which an extension emits a unit of its own.
+ */
+import {
+  getExecutionExtensionChain,
+  isRecoverableExecution,
+  trustedExecutionContext,
+} from "@drivers/execution-context";
 import { QueryError } from "@errors";
-import type { ExtensionPart, ResolvedExtensionHandler } from "./chain";
+import type { ExtensionPart } from "./chain";
 import { ARRAYS, coordinate } from "./coordination";
 import {
+  originOf,
   type TransactionStatementRunner,
   type Unit,
   type UnitEnd,
   type UnitHandler,
+  type UnitKind,
   type UnitSource,
   unitOf,
 } from "./unit-source";
 
-export type {
-  CommitCertainty,
-  Unit,
-  UnitEnd,
-  UnitHandler,
-  UnitKind,
-  UnitSource,
-} from "./unit-source";
-
-/** Kept under their former names for the entries that still export them. */
-export type ObservationUnit = Unit;
-export type ObservationCompletion = UnitEnd;
-export type ObserveHandler = UnitHandler;
-export type LifecycleUnit = Unit;
-
-/** Formerly the facts handed to one observer; a unit's are read by words. */
-export type ObservedFacts = never;
+/** One `unit` part of a chain: its extension, its handler, its kinds. */
+export interface UnitLayer {
+  readonly extension: string;
+  readonly handler: UnitHandler;
+  /** The kinds it runs around; every kind when absent. */
+  readonly kinds?: readonly UnitKind[] | undefined;
+}
 
 const nothing = (): undefined => undefined;
 
@@ -40,7 +40,7 @@ const nothing = (): undefined => undefined;
  * fails the unit. The host contains nothing a handler does.
  */
 export function runUnit<Result>(
-  handlers: readonly ResolvedExtensionHandler[],
+  handlers: readonly UnitLayer[],
   source: UnitSource,
   child: () => Promise<Result>,
   reached?: () => void
@@ -56,6 +56,9 @@ export function runUnit<Result>(
     source.kind === "transaction" ? openTransaction(source, startCore) : undefined;
   const enter = (index: number): Promise<Result> => {
     const resolved = handlers[index];
+    // A layer that names other kinds is not around this unit at all.
+    if (resolved?.kinds?.includes(source.kind) === false)
+      return enter(index + 1);
     if (resolved === undefined) {
       entered = true;
       reached?.();
@@ -88,7 +91,7 @@ function attempt<Result>(child: () => Promise<Result>): Promise<Result> {
 
 /** One handler around the rest of the unit. */
 async function around<Result>(
-  resolved: ResolvedExtensionHandler,
+  resolved: UnitLayer,
   unit: Unit,
   source: UnitSource,
   rest: () => Promise<Result>
@@ -109,7 +112,7 @@ async function around<Result>(
   };
   let returned: unknown;
   try {
-    returned = Reflect.apply(resolved.handler, undefined, [unit, next]);
+    returned = resolved.handler(unit, next);
   } catch (failure) {
     returned = Promise.reject(failure);
   }
@@ -150,7 +153,7 @@ function settle(
 }
 
 function unitError(
-  resolved: ResolvedExtensionHandler,
+  resolved: UnitLayer,
   unit: Unit,
   failure: string
 ): QueryError {
@@ -212,7 +215,7 @@ function openTransaction<Result>(
 
 /** What runs a unit under a chain's handlers. */
 export interface Observation {
-  readonly handlers: readonly ResolvedExtensionHandler[];
+  readonly handlers: readonly UnitLayer[];
   readonly run: <Result>(
     source: UnitSource,
     child: () => Promise<Result>
@@ -229,9 +232,7 @@ export interface Observation {
   ) => { readonly done: Promise<Result>; readonly reached: Promise<void> };
 }
 
-function observationOf(
-  handlers: readonly ResolvedExtensionHandler[]
-): Observation {
+function observationOf(handlers: readonly UnitLayer[]): Observation {
   return {
     handlers,
     run: (source, child) => runUnit(handlers, source, child),
@@ -247,16 +248,55 @@ function observationOf(
   };
 }
 
-/** `observe`: a handler around each unit of real work. */
-export const observePart: ExtensionPart = {
-  members: ["observe"],
-  join({ next, chain, definition, owner }) {
-    const handler = definition.observe;
-    if (handler === undefined) return;
-    next.observation = observationOf([
-      ...(chain?.observation?.handlers ?? []),
-      { extension: owner.name, handler },
-    ]);
-    coordinate(next, ARRAYS);
+/**
+ * The host part of one `unit(handler, kinds)`: it adds a layer to the
+ * chain's units, the first extension outermost. A chain with a unit part
+ * intercepts the members of `$transaction([...])`, whose units start before
+ * any member is prepared.
+ */
+export function unitLayerPart(
+  handler: UnitHandler,
+  kinds: readonly UnitKind[] | undefined
+): ExtensionPart {
+  return {
+    join({ next, chain, owner }) {
+      next.observation = observationOf([
+        ...(chain?.observation?.handlers ?? []),
+        { extension: owner.name, handler, kinds },
+      ]);
+      coordinate(next, ARRAYS);
+    },
+  };
+}
+
+/**
+ * Run `fn` as a unit of the extension's own (`kind` is any string), under
+ * every `unit` part of the chain `origin` belongs to: `origin` is a call's
+ * `run`, a unit a handler received, or one `work` made. Without a chain that
+ * observes units, `fn` runs alone. `fn` receives the unit, to `note` on it.
+ */
+export function work<Result>(
+  origin: object,
+  unit: {
+    readonly kind: UnitKind;
+    readonly operation: string;
+    readonly model?: string;
+    /** A first fact, noted before any handler sees the unit. */
+    readonly note?: unknown;
   },
-};
+  fn: (unit: Unit) => Promise<Result>
+): Promise<Result> {
+  const context = originOf(origin)?.context ?? trustedExecutionContext(origin);
+  const observation = getExecutionExtensionChain(context)?.observation;
+  const source: UnitSource = {
+    kind: unit.kind,
+    operation: unit.operation,
+    model: unit.model,
+    context,
+    notes: unit.note === undefined ? [] : [unit.note],
+  };
+  // `fn` gets a unit of the same record: what it notes, handlers read.
+  return observation === undefined
+    ? fn(unitOf(source))
+    : observation.run(source, () => fn(unitOf(source)));
+}

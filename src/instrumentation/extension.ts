@@ -1,13 +1,21 @@
 import { cacheFacts, cacheOutcomes } from "@cache/unit-facts";
-import { withParts } from "@extensions/chain";
-import { disclosurePart } from "@extensions/disclosure";
-import { observePart } from "@extensions/observation";
-import { failure } from "@extensions/unit-facts/failure";
-import { origin } from "@extensions/unit-facts/origin";
-import { parameters } from "@extensions/unit-facts/parameters";
-import { statements } from "@extensions/unit-facts/statements";
-import { text } from "@extensions/unit-facts/text";
-import type { Unit, UnitEnd, UnitHandler } from "@extensions/unit-source";
+import type {
+  AnyTarget,
+  EmptyFacts,
+  Extension,
+  UnitContext as Unit,
+  UnitOutcome as UnitEnd,
+} from "@extensions/contract";
+import { disclosure } from "@extensions/disclosure";
+import { extension } from "@extensions/extension";
+import { unit as unitPart } from "@extensions/unit";
+import {
+  failure,
+  origin,
+  parameters,
+  statements,
+  text,
+} from "@extensions/unit-words";
 import {
   createInstrumentationContext,
   type InstrumentationContext,
@@ -46,12 +54,6 @@ import type {
 
 const NAME = "viborm.instrumentation";
 
-/** The contribution accepted by every concrete client schema. */
-export type OfficialInstrumentationExtension = {
-  readonly name: typeof NAME;
-  readonly observe?: UnitHandler;
-};
-
 const ignore = (): undefined => undefined;
 
 /**
@@ -59,26 +61,26 @@ const ignore = (): undefined => undefined;
  * of real work, presenting spans and logs from the facts it reads, and the
  * `disclosure` of its `diagnostics`.
  */
-export function instrumentation<const Config>(
+export function instrumentation<T extends AnyTarget, const Config>(
   config: Config & InstrumentationConfig & ExactInstrumentationConfig<Config>
-): OfficialInstrumentationExtension {
+): Extension<T, EmptyFacts>;
+export function instrumentation(config: InstrumentationConfig): unknown {
   const context = createInstrumentationContext(config);
-  const disclosure = disclosurePart(context.config.diagnostics);
-  if (
-    context.config.tracing === undefined &&
-    context.config.logging === undefined
-  )
-    return withParts<OfficialInstrumentationExtension>({ name: NAME }, [
-      disclosure,
-    ]);
+  const { diagnostics, logging, tracing } = context.config;
+  const disclosed = disclosure({
+    sql: diagnostics.includeSql,
+    parameters: diagnostics.includeParams,
+    providerDetails: diagnostics.includeProviderDetails,
+    callsite: diagnostics.includeCallsite,
+  });
+  if (tracing === undefined && logging === undefined)
+    return extension(NAME, disclosed);
   // The origins already logged: one failure, one error log.
   const logged = new WeakSet<object>();
-  return withParts<OfficialInstrumentationExtension>(
-    {
-      name: NAME,
-      observe: (unit, next) => observe(context, logged, unit, next),
-    },
-    [observePart, disclosure]
+  return extension(
+    NAME,
+    unitPart((unit, next) => observe(context, logged, unit, next)),
+    disclosed
   );
 }
 
@@ -181,13 +183,12 @@ function presentOperation(
   unit: Unit,
   next: () => Promise<UnitEnd>
 ): Promise<unknown> {
-  // Opened before the call runs, so the cache fills it as it decides.
-  const readOutcomes = logs(context, "cache") ? cacheOutcomes(unit) : undefined;
   const settle = async (): Promise<void> => {
     const end = next();
     const settled = await end;
-    for (const outcome of readOutcomes?.() ?? [])
-      context.logger?.cache(presentCacheOutcome(unit, outcome));
+    if (logs(context, "cache"))
+      for (const outcome of cacheOutcomes(unit))
+        context.logger?.cache(presentCacheOutcome(unit, outcome));
     const error = failure(unit);
     if (
       settled.status === "failure" &&

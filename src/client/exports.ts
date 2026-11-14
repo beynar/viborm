@@ -5,15 +5,6 @@
  * Import from "viborm/client"
  */
 
-export {
-  type ClientExtension,
-  defineExtension,
-  type ObservationCompletion,
-  type ObservationUnit,
-  type ObserveHandler,
-  type StatementContext,
-  type StatementHandler,
-} from "../extensions";
 // Named so an exported extended client's declaration can write them.
 export type {
   DefinitionControls,

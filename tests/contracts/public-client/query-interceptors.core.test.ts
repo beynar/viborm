@@ -204,8 +204,11 @@ describe("standalone query interceptor runner", () => {
               "model",
               "operation",
               "input",
+              "call",
               "proceed",
               "onWriteOutcome",
+              "again",
+              "proceedOn",
             ]);
             expect("program" in handlerContext).toBe(false);
             expect("driver" in handlerContext).toBe(false);

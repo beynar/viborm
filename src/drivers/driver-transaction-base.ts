@@ -613,22 +613,8 @@ export abstract class DriverTransactionBase<
       async (tx) => {
         txDriver = this.createTransactionBoundDriver(tx, executionContext);
         const boundDriver = txDriver;
-        // What the call's extensions run as a transaction opens, before its body.
-        // A savepoint opens none.
-        const opened = this.inTransaction
-          ? undefined
-          : getExecutionExtensionChain(context)?.transaction;
-        const body = opened
-          ? async () => {
-              for (const { handler } of opened)
-                await handler(
-                  async (statement: Sql) =>
-                    (await boundDriver._execute(statement, context)).rows
-                );
-              return fn(boundDriver);
-            }
-          : () => fn(boundDriver);
-        const scopedBody = () => this.runTransactionBody(body);
+        const scopedBody = () =>
+          this.runTransactionBody(() => fn(boundDriver));
         const runBody = () =>
           timeoutMs === undefined
             ? scopedBody()

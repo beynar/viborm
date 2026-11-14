@@ -1,30 +1,38 @@
 /**
- * A definition carries the parts it was built with, and a chain holds the
- * state those parts wrote: what a program that builds no part of a kind
- * does not carry.
+ * An extension value carries the host parts its builders bring, and a chain
+ * holds the state those parts wrote: what a program that builds no part of
+ * a kind does not carry.
  */
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { ClientInitializationError } from "@errors";
-import { appendResolvedExtension } from "@extensions/chain";
+import type { ResolvedExtensionChain } from "@extensions/chain";
+import { builtPart, isAppliedExtension } from "@extensions/extension";
 import { PlainDomain } from "@extensions/plain-domain";
 import { FilterDomain } from "@extensions/row-domain";
+import { filtersPart } from "@extensions/rows";
 import type { RowDomain } from "@query-engine/raptor3/shared/row-scope";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
 import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import {
+  arg,
+  args,
+  around,
+  call,
   createClient,
-  defaultDataPart,
-  defaultOrderPart,
-  defineWith,
-  filtersPart,
-  methodsPart,
-  queryPart,
+  defaults,
+  extension,
+  methods,
+  oneOf,
+  reads,
+  rule,
   s,
-  unitPart,
-  writtenPart,
+  target,
+  watch,
+  when,
+  writes,
 } from "@src/index";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 const item = s.model({ id: s.string().id(), name: s.string() });
 const schema = { item };
@@ -44,75 +52,92 @@ afterEach(async () => {
   for (const client of clients.splice(0)) await client.$disconnect();
 });
 
+/** The chain `value` makes over `previous`, as `$extends` builds it. */
+const chainOf = (
+  value: unknown,
+  previous?: ResolvedExtensionChain
+): ResolvedExtensionChain => {
+  if (!isAppliedExtension(value)) throw new TypeError("not an extension");
+  return value.append(previous, schema);
+};
+
 describe("extension parts", () => {
-  it("builds a definition whose own members are the definition's, applied by its parts", () => {
-    const written = () => undefined;
-    const built = defineWith(writtenPart)({ name: "watching", written });
-
-    expect(Reflect.ownKeys(built)).toEqual(["name", "written"]);
-    expect(Object.isFrozen(built)).toBe(true);
-    const chain = appendResolvedExtension(undefined, built, schema);
-    expect(chain.written?.handlers.map(({ handler }) => handler)).toEqual([
-      written,
-    ]);
-    // What the chain holds is that part's alone.
-    expect(chain.request).toBeUndefined();
-    expect(chain.methods).toBeUndefined();
-  });
-
-  it("refuses a member none of the definition's parts reads", () => {
-    const built = defineWith(writtenPart)({
-      name: "unread",
-      request: () => ({}),
-    });
-
-    expect(() => appendResolvedExtension(undefined, built, schema)).toThrow(
-      ClientInitializationError
+  it("a chain holds what the extension's parts wrote, and nothing else", () => {
+    const watching = chainOf(
+      extension(
+        "watching",
+        call((c) => {
+          watch(c, { wants: () => true, rows: () => undefined });
+        }, target(writes))
+      )
     );
-    expect(() => appendResolvedExtension(undefined, built, schema)).toThrow(
-      'Extension "unread" declares request, which none of the parts it was built with reads'
+    expect(watching.request?.handlers("item", "create")).toHaveLength(1);
+    expect(watching.written?.handlers).toHaveLength(1);
+    expect(watching.query).toBeUndefined();
+    expect(watching.methods).toBeUndefined();
+
+    const tools = chainOf(
+      extension(
+        "tools",
+        methods(() => ({}))
+      )
     );
+    expect(tools.methods).toBeDefined();
+    expect(tools.request).toBeUndefined();
+    expect(tools.written).toBeUndefined();
   });
 
   it("coordinates a chain as the most its parts need, never less", () => {
-    const retried = appendResolvedExtension(
-      undefined,
-      defineWith(unitPart)({ name: "retried", retry: () => false }),
-      schema
+    const patched = chainOf(
+      extension(
+        "patched",
+        call((c) => c.set({ take: 1 }), target(reads))
+      )
     );
-    expect(retried.coordination?.executeArray).toBeUndefined();
+    // A part that only patches brings nothing that wraps a call.
+    expect(patched.coordination).toBeUndefined();
 
-    const queried = appendResolvedExtension(
-      retried,
-      defineWith(queryPart)({
-        name: "queried",
-        query: ({ proceed }: { proceed(): Promise<unknown> }) => proceed(),
-      }),
-      schema
+    const watched = chainOf(
+      extension(
+        "watched",
+        call(() => undefined, target(writes))
+      ),
+      patched
     );
-    expect(queried.coordination?.rank).toBeGreaterThan(
-      retried.coordination?.rank ?? Number.POSITIVE_INFINITY
+    expect(watched.coordination?.executeArray).toBeDefined();
+
+    const wrapped = chainOf(
+      extension(
+        "wrapped",
+        around(() => (run) => run())
+      ),
+      watched
+    );
+    expect(wrapped.coordination?.rank).toBeGreaterThan(
+      watched.coordination?.rank ?? Number.POSITIVE_INFINITY
     );
 
-    const routed = appendResolvedExtension(
-      queried,
-      defineWith(unitPart)({ name: "routed", route: () => undefined }),
-      schema
+    const later = chainOf(
+      extension(
+        "later",
+        call(() => undefined, target(writes))
+      ),
+      wrapped
     );
-    expect(routed.coordination).toBe(queried.coordination);
+    expect(later.coordination).toBe(wrapped.coordination);
   });
 
-  it("a factory scope on a chain that declares no control binds nothing and refuses a control", () => {
+  it("a factory scope on a chain that declares no argument binds nothing and refuses one", () => {
     type Scope = { $bind(values: Readonly<Record<string, unknown>>): unknown };
     let scope: Scope | undefined;
     const client = baseClient().$extends(
-      defineWith(methodsPart)({
-        name: "binder",
-        client: (given: Scope) => {
-          scope = given;
+      extension(
+        "binder",
+        methods((given) => {
+          scope = given as Scope;
           return {};
-        },
-      })
+        })
+      )
     );
 
     expect(Reflect.get(client, "$schema")).toBe(schema);
@@ -123,12 +148,21 @@ describe("extension parts", () => {
     expect(() => scope?.$bind({})).not.toThrow();
   });
 
-  it("refuses an object literal while nothing brought the parts that apply it", async () => {
-    vi.resetModules();
-    const { extensionParts } = await import("@extensions/host-slot");
+  it("refuses what is not an extension value", () => {
+    const apply = () =>
+      Reflect.apply(baseClient().$extends, baseClient(), [{ name: "literal" }]);
+    expect(apply).toThrow(ClientInitializationError);
+    expect(apply).toThrow(
+      "client.$extends takes an extension: client.$extends(extension(name, ...parts))."
+    );
+  });
 
-    expect(() => extensionParts({ name: "literal" })).toThrow(
-      "nothing brought the code that runs extensions"
+  it("refuses a nameless extension and a part no builder made", () => {
+    expect(() => extension(" ")).toThrow(
+      "An extension's name must be a non-empty string."
+    );
+    expect(() => Reflect.apply(extension, undefined, ["loose", {}])).toThrow(
+      `Extension "loose" takes parts built by viborm's part builders.`
     );
   });
 });
@@ -139,23 +173,23 @@ describe("the parts that read rows", () => {
     new PostgresAdapter()
   );
   const now = () => new Date(0);
-  const ordered = defineWith(
-    defaultOrderPart,
-    defaultDataPart
-  )({
-    name: "ordered",
-    order: { models: { item: { name: "asc" as const } } },
-    data: { models: { item: { create: { name: "stamped" } } } },
-  });
-  const filtered = defineWith(filtersPart)({
-    name: "filtered",
-    rows: {
-      control: "scope",
-      default: "named",
-      models: { item: { named: { root: { name: "a" } }, all: {} } },
-    },
-  });
-  const scopeOf = (chain: ReturnType<typeof appendResolvedExtension>) =>
+  const ordered = extension(
+    "ordered",
+    defaults({
+      item: { orderBy: { name: "asc" }, create: { name: "stamped" } },
+    })
+  );
+  const filtered = extension(
+    "filtered",
+    args({ scope: oneOf("named", "all").default("named") }),
+    rule({ item: { root: when(arg("scope"), "named", { name: "a" }) } })
+  );
+  const appendResolvedExtension = (
+    previous: ResolvedExtensionChain | undefined,
+    value: unknown,
+    _schema: typeof schema
+  ) => chainOf(value, previous);
+  const scopeOf = (chain: ResolvedExtensionChain) =>
     chain.callRows!.call("item", undefined).prepare(queries, now);
 
   it("binds a chain that only orders and stamps rows to a plain domain, and a filter later on the chain to its own binding, which reads them", () => {
@@ -201,20 +235,20 @@ describe("the parts that read rows", () => {
   });
 
   it("refuses verbs built without what reads them, rather than reading the filters alone", () => {
-    expect(() =>
-      appendResolvedExtension(
-        undefined,
-        defineWith(filtersPart)({
-          name: "judged",
-          rows: {
-            control: "scope",
-            default: "all",
-            models: {},
-            verbs: { item: { predicates: {} } },
-          },
-        }),
-        schema
-      )
-    ).toThrow("must be built with defineExtension()");
+    // A rows member with verbs, handed to the filters' part alone.
+    const judged = extension(
+      "judged",
+      builtPart([filtersPart], (draft) => {
+        draft.rows = {
+          control: "scope",
+          default: "all",
+          models: {},
+          verbs: { item: { predicates: {} } },
+        };
+      })
+    );
+    expect(() => chainOf(judged)).toThrow(
+      "must be built with defineExtension()"
+    );
   });
 });

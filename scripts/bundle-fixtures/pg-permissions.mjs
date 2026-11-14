@@ -37,12 +37,10 @@ const blog = permissions({
   },
 });
 
-export const client = blog(
-  createClient({
-    schema: { user, post },
-    databaseUrl: "postgres://localhost:5432/app",
-  })
-);
+export const client = createClient({
+  schema: { user, post },
+  databaseUrl: "postgres://localhost:5432/app",
+}).$extends(blog);
 
 export async function run(session) {
   const call = client.$as({ userId: session.userId, admin: session.admin });

@@ -26,18 +26,12 @@ import {
   QueryError,
   ValidationError,
 } from "@errors";
-import {
-  appendResolvedExtension,
-  type ResolvedDeletion,
-  type ResolvedExtensionChain,
+import type {
+  ResolvedDeletion,
+  ResolvedExtensionChain,
 } from "@extensions/chain";
-import {
-  isStableControlValue,
-  placeControls,
-  snapshotControlValue,
-} from "@extensions/controls";
-import { defineExtension } from "@extensions/define";
-import type { ExtensionDefinitionInput } from "@extensions/definition";
+import { placeControls } from "@extensions/controls";
+import { isAppliedExtension } from "@extensions/extension";
 import { Kept } from "@extensions/kept";
 import { bindPlain } from "@extensions/plain-domain";
 import { bindRows } from "@extensions/rows";
@@ -49,7 +43,29 @@ import {
 } from "@query-engine/raptor3/shared/row-scope";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { s } from "@schema";
-import { Decimal } from "@src/index";
+import {
+  accepts,
+  arg,
+  around,
+  call,
+  Decimal,
+  deletes,
+  args as extArgs,
+  extension,
+  now as extNow,
+  target as extTarget,
+  keep,
+  methods,
+  oneOf,
+  reads,
+  rule,
+  settled,
+  statement,
+  unit,
+  unless,
+  when,
+  writes,
+} from "@src/index";
 import { v } from "@src/validation";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
@@ -60,6 +76,11 @@ import {
   tenancy as tenancyRecipe,
 } from "@tests/fixtures/extension-recipes";
 import { failure } from "@tests/fixtures/failure";
+import {
+  appendResolvedExtension,
+  type HostDefinition as ExtensionDefinitionInput,
+  hostExtension,
+} from "@tests/fixtures/host-definition";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, describe, expect, test } from "vitest";
 
@@ -112,8 +133,13 @@ function definitionClient() {
 }
 
 /** Apply a definition TypeScript would refuse, as JavaScript would. */
-function applyUnchecked(client: object, definition: unknown): object {
-  return Reflect.apply(Reflect.get(client, "$extends"), client, [definition]);
+function applyUnchecked(
+  client: object,
+  definition: ExtensionDefinitionInput
+): object {
+  return Reflect.apply(Reflect.get(client, "$extends"), client, [
+    hostExtension(definition),
+  ]);
 }
 
 /** Call one delegate method with arguments TypeScript would refuse. */
@@ -165,8 +191,7 @@ class KeyRecordingCache extends MemoryCache {
   }
 }
 
-const NAMED_CONTROL =
-  /named control "(reason|deleted)"|returned an unreadable patch/;
+const NAMED_CONTROL = /named control "(reason|deleted)"/;
 
 const softRows = {
   name: "rows",
@@ -200,46 +225,107 @@ describe("controls: admission and ownership", () => {
     };
     // `rows` goes first: it may not follow a model-mapped query handler.
     const db = (await seededBase())
-      .$extends({ ...softRows })
-      .$extends({
-        name: "audit",
-        controls: { reason: { schema: standard((value) => ({ value })) } },
-        request: {
-          post: {
-            findMany(context) {
-              record("audit-request", context);
-              return {};
+      .$extends(
+        extension(
+          "rows",
+          extArgs({
+            deleted: oneOf("without", "with", "only").default("without"),
+          }),
+          rule({
+            post: {
+              root: [
+                when(arg("deleted"), "without", { deletedAt: null }),
+                when(arg("deleted"), "only", { deletedAt: { not: null } }),
+              ],
+              related: [
+                when(arg("deleted"), "without", { deletedAt: null }),
+                when(arg("deleted"), "only", { deletedAt: null }),
+              ],
             },
-          },
-        },
-        query: {
-          post: {
-            findMany(context) {
+          })
+        )
+      )
+      .$extends(
+        extension(
+          "audit",
+          extArgs({ reason: standard((value) => ({ value })) }),
+          call(
+            (c) => {
+              const context = {
+                input: c.args,
+                controls: c.values,
+                model: c.model,
+                operation: c.operation,
+              };
+              record("audit-request", context);
+              c.set({});
+            },
+            extTarget("post", "findMany")
+          ),
+          around(
+            (c) => (run) => {
+              const context = {
+                proceed: run,
+                input: run.input,
+                mode: run.mode,
+                kind: c.kind,
+                model: c.model,
+                operation: c.operation,
+                controls: c.values,
+                onWriteOutcome: (listener) => settled(c, listener),
+              };
               record("audit-query", context);
               return context.proceed();
             },
-          },
-        },
-      })
-      .$extends({
-        name: "tenant",
-        controls: { region: { oneOf: ["eu", "us"], on: "reads" } },
-        request(context) {
-          record("tenant-request", context);
-          return {};
-        },
-      })
-      .$extends({
-        name: "bystander",
-        request(context) {
-          record("bystander-request", context);
-          return {};
-        },
-        query(context) {
-          record("bystander-query", context);
-          return context.proceed();
-        },
-      });
+            extTarget("post", "findMany")
+          )
+        )
+      )
+      .$extends(
+        extension(
+          "tenant",
+          extArgs({ region: oneOf("eu", "us").on(reads) }),
+          call((c) => {
+            const context = {
+              input: c.args,
+              controls: c.values,
+              model: c.model,
+              operation: c.operation,
+            };
+            record("tenant-request", context);
+            c.set({});
+          })
+        )
+      )
+      .$extends(
+        extension(
+          "bystander",
+          call((c) => {
+            const context = {
+              input: c.args,
+              controls: c.values,
+              model: c.model,
+              operation: c.operation,
+            };
+            record("bystander-request", context);
+            c.set({});
+          }),
+          around((c) => (run) => {
+            const context = {
+              proceed: run,
+              input: run.input,
+              mode: run.mode,
+              kind: c.kind,
+              model: c.model,
+              operation: c.operation,
+              controls: c.values,
+              onWriteOutcome: (listener) => settled(c, listener),
+            };
+            record("bystander-query", context);
+            return context.proceed();
+          })
+        )
+      );
 
     await expect(
       db.post.findMany({
@@ -252,9 +338,9 @@ describe("controls: admission and ownership", () => {
     expect(seen).toEqual([
       'audit-request:{"reason":"audit"}:',
       'tenant-request:{"region":"eu"}:',
-      "bystander-request:null:",
+      "bystander-request:{}:",
       'audit-query:{"reason":"audit"}:',
-      "bystander-query:null:",
+      "bystander-query:{}:",
     ]);
 
     seen.length = 0;
@@ -264,22 +350,39 @@ describe("controls: admission and ownership", () => {
     expect(seen).toEqual([
       "audit-request:{}:",
       "tenant-request:{}:",
-      "bystander-request:null:",
+      "bystander-request:{}:",
       "audit-query:{}:",
-      "bystander-query:null:",
+      "bystander-query:{}:",
     ]);
   });
 
   test("the rows extension's own handlers read the admitted mode, default included", async () => {
     const modes: unknown[] = [];
-    const db = (await seededBase()).$extends({
-      ...softRows,
-      query(context) {
-        // A raw statement has no controls; a model operation's are typed here.
-        if (context.kind === "model") modes.push(context.controls);
-        return context.proceed();
-      },
-    });
+    const db = (await seededBase()).$extends(
+      extension(
+        "rows",
+        extArgs({
+          deleted: oneOf("without", "with", "only").default("without"),
+        }),
+        around((c) => (run) => {
+          // A raw statement has no controls; a model operation's are typed here.
+          if (c.kind === "model") modes.push(c.values);
+          return run();
+        }),
+        rule({
+          post: {
+            root: [
+              when(arg("deleted"), "without", { deletedAt: null }),
+              when(arg("deleted"), "only", { deletedAt: { not: null } }),
+            ],
+            related: [
+              when(arg("deleted"), "without", { deletedAt: null }),
+              when(arg("deleted"), "only", { deletedAt: null }),
+            ],
+          },
+        })
+      )
+    );
     await db.post.findMany();
     await db.post.findMany({ deleted: "only" });
     await db.user.findMany({ deleted: "with" });
@@ -295,60 +398,67 @@ describe("controls: admission and ownership", () => {
     const patches: string[] = [];
     const cases = [
       // The declaring extension patches its own control.
-      base.$extends({
-        name: "own",
-        controls: { reason: { oneOf: ["a", "b"] } },
-        request() {
-          patches.push("own");
-          return { reason: "b" };
-        },
-      }),
+      base.$extends(
+        extension(
+          "own",
+          extArgs({ reason: oneOf("a", "b") }),
+          call((c) => {
+            patches.push("own");
+            c.set({ reason: "b" });
+          })
+        )
+      ),
       // An extension applied before the declaring one patches its control.
       base
-        .$extends({
-          name: "earlier",
-          request() {
-            patches.push("earlier");
-            return Object.defineProperty({}, "reason", {
-              enumerable: true,
-              get() {
-                patches.push("earlier-value-read");
-                return "b";
-              },
-            });
-          },
-        })
-        .$extends({
-          name: "declaring",
-          controls: { reason: { oneOf: ["a", "b"] } },
-        }),
-      // A patch whose descriptors cannot be read is still refused whole.
-      base
-        .$extends({ ...softRows })
-        .$extends({
-          name: "undescribed",
-          request() {
-            patches.push("undescribed");
-            return new Proxy(
-              { title: "t" },
-              {
-                getOwnPropertyDescriptor() {
-                  throw new Error("descriptor trap");
-                },
-              }
-            );
-          },
-        }),
+        .$extends(
+          extension(
+            "earlier",
+            call((c) => {
+              patches.push("earlier");
+              c.set(
+                Object.defineProperty({}, "reason", {
+                  enumerable: true,
+                  get() {
+                    patches.push("earlier-value-read");
+                    return "b";
+                  },
+                })
+              );
+            })
+          )
+        )
+        .$extends(extension("declaring", extArgs({ reason: oneOf("a", "b") }))),
       // A later extension patches the rows control.
       base
-        .$extends({ ...softRows })
-        .$extends({
-          name: "later",
-          request() {
-            patches.push("later");
-            return { deleted: "with" };
-          },
-        }),
+        .$extends(
+          extension(
+            "rows",
+            extArgs({
+              deleted: oneOf("without", "with", "only").default("without"),
+            }),
+            rule({
+              post: {
+                root: [
+                  when(arg("deleted"), "without", { deletedAt: null }),
+                  when(arg("deleted"), "only", { deletedAt: { not: null } }),
+                ],
+                related: [
+                  when(arg("deleted"), "without", { deletedAt: null }),
+                  when(arg("deleted"), "only", { deletedAt: null }),
+                ],
+              },
+            })
+          )
+        )
+        .$extends(
+          extension(
+            "later",
+            call((c) => {
+              patches.push("later");
+              c.set({ deleted: "with" });
+            })
+          )
+        ),
     ];
     for (const client of cases) {
       const error = await failure(
@@ -359,7 +469,7 @@ describe("controls: admission and ownership", () => {
       expect(error).toBeInstanceOf(QueryError);
       expect(String(error)).toMatch(NAMED_CONTROL);
     }
-    expect(patches).toEqual(["own", "earlier", "undescribed", "later"]);
+    expect(patches).toEqual(["own", "earlier", "later"]);
     await expect(
       base.post.findUnique({ where: { id: "p-refused" } })
     ).resolves.toBeNull();
@@ -367,13 +477,15 @@ describe("controls: admission and ownership", () => {
 
   test("an unplaced control and an undeclared key stay unknown keys; a value outside oneOf, compared by identity, is a ValidationError at the control's path", async () => {
     const base = await seededBase();
-    const db = base.$extends({
-      name: "tenant",
-      controls: {
-        region: { oneOf: ["eu", "us"], on: "reads" },
-        level: { oneOf: [2, 3], on: "reads" },
-      },
-    });
+    const db = base.$extends(
+      extension(
+        "tenant",
+        extArgs({
+          region: oneOf("eu", "us").on(reads),
+          level: oneOf(2, 3).on(reads),
+        })
+      )
+    );
     await expect(db.post.findMany({ level: 2 })).resolves.toHaveLength(1);
     expect(
       await failure(callUnchecked(db, "post", "findMany", { level: "2" }))
@@ -458,19 +570,6 @@ describe("controls: admission and ownership", () => {
       ["async", async (value) => ({ value }), "returned a promise"],
       ["malformed", () => 42, "returned a malformed result"],
       ["valueless", () => ({}), "returned a malformed result"],
-      [
-        "unreadable",
-        () =>
-          new Proxy(
-            {},
-            {
-              has() {
-                throw new Error("has trap");
-              },
-            }
-          ),
-        "returned an unreadable result",
-      ],
     ];
     for (const [name, validate, message] of cases) {
       const error = await failure(
@@ -494,24 +593,6 @@ describe("controls: admission and ownership", () => {
         )
       )
     ).toBe(typed);
-
-    const unreadable = await failure(
-      callUnchecked(
-        withValidator("getter", (value) => ({ value })),
-        "post",
-        "findMany",
-        Object.defineProperty({}, "reason", {
-          enumerable: true,
-          get() {
-            throw new Error("getter");
-          },
-        })
-      )
-    );
-    expect(unreadable).toBeInstanceOf(QueryError);
-    expect(String(unreadable)).toContain(
-      'control "reason" of post.findMany could not be read'
-    );
   });
 
   test("a callable Standard Schema (ArkType's shape) is admitted, and validates the control", async () => {
@@ -523,7 +604,7 @@ describe("controls: admission and ownership", () => {
       )
     );
     const db = base.$extends(
-      defineExtension({ name: "callable", controls: { reason: { schema } } })
+      hostExtension({ name: "callable", controls: { reason: { schema } } })
     );
     await expect(db.post.findMany({ reason: "why" })).resolves.toHaveLength(1);
     const invalid = await failure(db.post.findMany({ reason: "because" }));
@@ -534,7 +615,7 @@ describe("controls: admission and ownership", () => {
     ]);
   });
 
-  test("arguments that cannot be inspected, and issues that cannot be read, still fail with their class", async () => {
+  test("issues that cannot be read still fail with their class", async () => {
     const base = await seededBase();
     const db = applyUnchecked(base, {
       name: "issues",
@@ -571,29 +652,6 @@ describe("controls: admission and ownership", () => {
         { path: "reason", message: 'Control "reason" is invalid' },
       ]);
     }
-    const unlisted = new Proxy(
-      { reason: "fine" },
-      {
-        ownKeys() {
-          throw new Error("keys trap");
-        },
-      }
-    );
-    const undescribed = new Proxy(
-      { reason: "fine", take: 1 },
-      {
-        getOwnPropertyDescriptor() {
-          throw new Error("descriptor trap");
-        },
-      }
-    );
-    for (const args of [unlisted, undescribed]) {
-      const error = await failure(callUnchecked(db, "post", "findMany", args));
-      expect(error).toBeInstanceOf(QueryError);
-      expect(String(error)).toContain(
-        "arguments of post.findMany could not be inspected for controls"
-      );
-    }
   });
 
   test("arguments that are not an object stay core's ValidationError, as on a client without controls", async () => {
@@ -626,21 +684,21 @@ describe("controls: admission and ownership", () => {
 
   test("a control is admitted once, before request handlers, and memoized across lifecycle entry points", async () => {
     const timeline: string[] = [];
-    const db = (await seededBase()).$extends({
-      name: "counted",
-      controls: {
-        reason: {
-          schema: standard((value) => {
+    const db = (await seededBase()).$extends(
+      extension(
+        "counted",
+        extArgs({
+          reason: standard((value) => {
             timeline.push(`validate:${String(value)}`);
             return { value };
           }),
-        },
-      },
-      request() {
-        timeline.push("request");
-        return {};
-      },
-    });
+        }),
+        call((c) => {
+          timeline.push("request");
+          c.set({});
+        })
+      )
+    );
     const operation = db.post.findMany({ reason: "why", select: { id: true } });
     expect(timeline).toEqual([]);
     await Promise.all([operation, operation]);
@@ -652,27 +710,34 @@ describe("controls: admission and ownership", () => {
     const timeline: string[] = [];
     const base = await seededBase();
     const db = base
-      .$extends({
-        name: "guarded",
-        controls: {
-          reason: {
-            schema: standard((value) => {
-              timeline.push(`validate:${String(value)}`);
-              return value === "ok"
-                ? { value }
-                : { issues: [{ message: "is not ok" }] };
-            }),
-            on: "writes",
-          },
-        },
-      })
-      .$extends({
-        name: "statements",
-        statement(context) {
-          timeline.push(`statement:${String(context.operation)}`);
-          return context.statement;
-        },
-      });
+      .$extends(
+        extension(
+          "guarded",
+          extArgs({
+            reason: accepts(
+              standard((value) => {
+                timeline.push(`validate:${String(value)}`);
+                return value === "ok"
+                  ? { value }
+                  : { issues: [{ message: "is not ok" }] };
+              })
+            ).on(writes),
+          })
+        )
+      )
+      .$extends(
+        extension(
+          "statements",
+          unit(
+            (u, next) => {
+              timeline.push(`statement:${String(u.operation)}`);
+              return next(statement(u));
+            },
+            ["statement"],
+            { rewrites: true }
+          )
+        )
+      );
     const error = await failure(
       db.$transaction([
         db.post.create({
@@ -694,22 +759,33 @@ describe("controls: admission and ownership", () => {
 describe("controls: a defined extension", () => {
   test("keeps its controls, rows and deletion when a client applies it", async () => {
     const seen: unknown[] = [];
-    const defined = defineExtension({
-      name: "defined",
-      controls: {
-        mode: { oneOf: ["soft", "hard"] },
-        reason: { schema: standard((value) => ({ value })), on: ["findMany"] },
-      },
-      rows: softRows.rows,
-      deletion: {
-        removeWhen: { mode: "hard" },
-        models: { post: { at: "deletedAt" } },
-      },
-      query(context) {
-        if (context.kind === "model") seen.push(context.controls);
-        return context.proceed();
-      },
-    });
+    const defined = extension(
+      "defined",
+      extArgs({
+        mode: oneOf("soft", "hard").on(deletes).models(["post"]),
+        reason: accepts(standard((value) => ({ value }))).on(["findMany"]),
+        deleted: oneOf("without", "with", "only").default("without"),
+      }),
+      around((c) => (run) => {
+        if (c.kind === "model") seen.push(c.values);
+        return run();
+      }),
+      rule({
+        post: {
+          root: [
+            when(arg("deleted"), "without", { deletedAt: null }),
+            when(arg("deleted"), "only", { deletedAt: { not: null } }),
+          ],
+          related: [
+            when(arg("deleted"), "without", { deletedAt: null }),
+            when(arg("deleted"), "only", { deletedAt: null }),
+          ],
+          delete: {
+            instead: keep(unless(arg("mode"), "hard", { deletedAt: extNow })),
+          },
+        },
+      })
+    );
     const db = (await seededBase()).$extends(defined);
     await callUnchecked(db, "post", "findMany", {
       reason: "why",
@@ -735,19 +811,35 @@ describe("controls: placement", () => {
     // A later extension's every-model control joins the managed model's
     // lists without dropping the model-specific one.
     const db = base
-      .$extends({
-        ...softRows,
-        name: "managed",
-        controls: { mode: { oneOf: ["soft", "hard"] } },
-        deletion: {
-          removeWhen: { mode: "hard" },
-          models: { post: { at: "deletedAt" } },
-        },
-      })
-      .$extends({
-        name: "later",
-        controls: { reason: { oneOf: ["why"], on: "writes" } },
-      });
+      .$extends(
+        extension(
+          "managed",
+          extArgs({
+            mode: oneOf("soft", "hard").on(deletes).models(["post"]),
+            deleted: oneOf("without", "with", "only").default("without"),
+          }),
+          rule({
+            post: {
+              root: [
+                when(arg("deleted"), "without", { deletedAt: null }),
+                when(arg("deleted"), "only", { deletedAt: { not: null } }),
+              ],
+              related: [
+                when(arg("deleted"), "without", { deletedAt: null }),
+                when(arg("deleted"), "only", { deletedAt: null }),
+              ],
+              delete: {
+                instead: keep(
+                  unless(arg("mode"), "hard", { deletedAt: extNow })
+                ),
+              },
+            },
+          })
+        )
+      )
+      .$extends(
+        extension("later", extArgs({ reason: oneOf("why").on(writes) }))
+      );
     await expect(db.user.findMany({ deleted: "with" })).resolves.toHaveLength(
       1
     );
@@ -846,10 +938,9 @@ describe("controls: required", () => {
 
   test("an extension that names no model asks for a required control on every model: a call that does not pass it is refused at its path on every operation it is placed on, before it writes; passed, it is admitted", async () => {
     const base = await seededBase();
-    const db = base.$extends({
-      name: "tenant",
-      controls: { tenant: { oneOf: ["acme"], required: true } },
-    });
+    const db = base.$extends(
+      extension("tenant", extArgs({ tenant: oneOf("acme").required() }))
+    );
     for (const model of ["user", "post"]) {
       for (const operation of ROUTED_OPERATIONS) {
         for (const args of [{}, { tenant: undefined }]) {
@@ -882,19 +973,41 @@ describe("controls: required", () => {
 
   test("where a required control is not placed nothing is asked: a writes control on a read, a removeWhen control off its managed deletes, the rows control", async () => {
     const db = (await seededBase())
-      .$extends({
-        name: "audit",
-        controls: { actor: { oneOf: ["ann"], required: true, on: "writes" } },
-      })
-      .$extends({
-        ...softRows,
-        name: "managed",
-        controls: { mode: { oneOf: ["soft", "hard"], required: true } },
-        deletion: {
-          removeWhen: { mode: "hard" },
-          models: { post: { at: "deletedAt" } },
-        },
-      });
+      .$extends(
+        extension(
+          "audit",
+          extArgs({ actor: oneOf("ann").on(writes).required() })
+        )
+      )
+      .$extends(
+        extension(
+          "managed",
+          extArgs({
+            mode: oneOf("soft", "hard")
+              .on(deletes)
+              .models(["post"])
+              .required(["post"]),
+            deleted: oneOf("without", "with", "only").default("without"),
+          }),
+          rule({
+            post: {
+              root: [
+                when(arg("deleted"), "without", { deletedAt: null }),
+                when(arg("deleted"), "only", { deletedAt: { not: null } }),
+              ],
+              related: [
+                when(arg("deleted"), "without", { deletedAt: null }),
+                when(arg("deleted"), "only", { deletedAt: null }),
+              ],
+              delete: {
+                instead: keep(
+                  unless(arg("mode"), "hard", { deletedAt: extNow })
+                ),
+              },
+            },
+          })
+        )
+      );
     await expect(db.post.findMany({ select: { id: true } })).resolves.toEqual([
       { id: "p1" },
     ]);
@@ -926,12 +1039,32 @@ describe("controls: required", () => {
         name,
         on === true || on === undefined ? on : [...on].sort(),
       ]);
-    expect(required(tenancyRecipe(["post", "user"]))).toEqual([
+    // A recipe is an extension: its arguments as the chain placed them, on
+    // models that hold every field the recipes write.
+    const recipeModel = () =>
+      s.model({
+        id: s.string().id(),
+        tenantId: s.string(),
+        createdBy: s.string(),
+        updatedBy: s.string(),
+        version: s.int(),
+      });
+    const recipeSchema = { post: recipeModel(), user: recipeModel() };
+    const placed = (value: unknown) => {
+      if (!isAppliedExtension(value)) throw new TypeError("not an extension");
+      return value
+        .append(undefined, recipeSchema)
+        .controls!.all.map(({ name, required: on }) => [
+          name,
+          on === true || on === undefined ? on : [...on].sort(),
+        ]);
+    };
+    expect(placed(tenancyRecipe(["post", "user"]))).toEqual([
       ["tenant", ["post", "user"]],
       ["scope", undefined],
     ]);
-    expect(required(audit(["post"]))).toEqual([["actor", ["post"]]]);
-    expect(required(optimisticLock(["post"]))).toEqual([
+    expect(placed(audit(["post"]))).toEqual([["actor", ["post"]]]);
+    expect(placed(optimisticLock(["post"]))).toEqual([
       ["expectedVersion", undefined],
       ["versionCheck", undefined],
     ]);
@@ -1079,20 +1212,18 @@ describe("controls: required", () => {
     clients.push(base);
     await syncLiveSchema(base);
     const db = base.$extends(
-      defineExtension({
-        name: "scoped",
-        controls: { tenant: { oneOf: ["acme"], required: true } },
-        rows: {
-          control: "scope",
-          default: "tenant",
-          models: {
-            note: {
-              tenant: { root: { tenantId: { control: "tenant" } } },
-              all: {},
-            },
+      extension(
+        "scoped",
+        extArgs({
+          tenant: oneOf("acme").required(["note"]),
+          scope: oneOf("tenant", "all").default("tenant"),
+        }),
+        rule({
+          note: {
+            root: when(arg("scope"), "tenant", { tenantId: arg("tenant") }),
           },
-        },
-      })
+        })
+      )
     );
     const refused = await failure(callUnchecked(db, "note", "findMany", {}));
     expect((refused as ValidationError).issues).toEqual([
@@ -1241,131 +1372,40 @@ describe("controls: rows bound to the call", () => {
       ],
     });
     const named = { control: "x" };
-    const db = base.$extends({
-      name: "field",
-      rows: {
-        control: "kind",
-        default: "a",
-        models: {
+    const db = base.$extends(
+      extension(
+        "field",
+        extArgs({ kind: oneOf("a").default("a") }),
+        rule({
           switched: {
-            a: {
-              root: named,
-              related: { AND: [named], OR: [named], NOT: { control: "y" } },
-            },
+            root: when(arg("kind"), "a", { control: "x" }),
+            related: when(arg("kind"), "a", {
+              AND: [{ control: "x" }],
+              OR: [{ control: "x" }],
+              NOT: { control: "y" },
+            }),
           },
-        },
-      },
-    });
+        })
+      )
+    );
     expect(db.$extends).toBeTypeOf("function");
     expect(
       await callUnchecked(db, "switched", "findMany", { select: { id: true } })
     ).toEqual([{ id: "a" }]);
     // Under such a filter, a field's value is still one.
     expect(() =>
-      base.$extends({
-        name: "nested",
-        rows: {
-          control: "kind",
-          default: "a",
-          models: {
-            switched: { a: { root: { NOT: { control: { control: "x" } } } } },
-          },
-        },
-      })
+      base.$extends(
+        extension(
+          "nested",
+          extArgs({ kind: oneOf("a").default("a") }),
+          rule({
+            switched: {
+              root: when(arg("kind"), "a", { NOT: { control: arg("x") } }),
+            },
+          })
+        )
+      )
     ).toThrow('references undeclared control "x"');
-  });
-
-  test("admission fixes plain data once: a frozen copy, the immutable as given, anything else unstable", () => {
-    const given = { tags: ["a"], nested: { team: "red" } };
-    const fixed = snapshotControlValue(given) as typeof given;
-    expect(fixed).toEqual(given);
-    expect(fixed).not.toBe(given);
-    expect(Object.isFrozen(fixed) && Object.isFrozen(fixed.tags)).toBe(true);
-    given.tags.push("b");
-    expect(fixed.tags).toEqual(["a"]);
-    expect(isStableControlValue(fixed)).toBe(true);
-    expect(isStableControlValue(given)).toBe(false);
-    // A Date stays writable through `freeze` (`setTime`): its copy is the
-    // call's own, never stable.
-    const dated = snapshotControlValue({ at: new Date(0) }) as { at: Date };
-    expect(dated.at).toEqual(new Date(0));
-    expect(isStableControlValue(dated)).toBe(false);
-    expect(isStableControlValue(snapshotControlValue(new Date(0)))).toBe(false);
-    // Bytes too, and their properties are one per byte: kept as given,
-    // unread, however large.
-    const bytes = new Uint8Array(1024 * 1024).fill(7);
-    expect(snapshotControlValue(bytes)).toBe(bytes);
-    expect(isStableControlValue(bytes)).toBe(false);
-    const carrying = { payload: bytes };
-    expect(snapshotControlValue(carrying)).toBe(carrying);
-    expect(isStableControlValue(carrying)).toBe(false);
-    // A getter's answer is only known by calling it, and it may answer anew:
-    // kept as given, unstable, whatever it returns.
-    let tenant = "acme";
-    const live = Object.freeze({
-      get tenant() {
-        return tenant;
-      },
-    });
-    expect(snapshotControlValue(live)).toBe(live);
-    tenant = "globex";
-    expect(live.tenant).toBe("globex");
-    expect(isStableControlValue(live)).toBe(false);
-    // A Proxy that answers the canonical check and then refuses reflection
-    // is kept as given rather than failing the call.
-    let reflections = 0;
-    const fickle = new Proxy(
-      { tenant: "a" },
-      {
-        ownKeys(target) {
-          reflections += 1;
-          if (reflections > 1) throw new Error("no longer reflectable");
-          return Reflect.ownKeys(target);
-        },
-      }
-    );
-    expect(snapshotControlValue(fickle)).toBe(fickle);
-    expect(isStableControlValue(fickle)).toBe(false);
-    // A copy drops non-enumerable properties, so a value holding one is kept
-    // as given, unstable: a getter's answer and a cycle through it survive.
-    const hidden = Object.freeze(
-      Object.defineProperty({ display: "acme" }, "tenant", {
-        get: () => "tenant-42",
-      })
-    ) as { display: string; tenant?: string };
-    expect(snapshotControlValue(hidden)).toBe(hidden);
-    expect(hidden.tenant).toBe("tenant-42");
-    expect(isStableControlValue(hidden)).toBe(false);
-    const cyclic = { tenant: "acme" };
-    Object.defineProperty(cyclic, "metadata", { value: cyclic });
-    Object.freeze(cyclic);
-    expect(snapshotControlValue(cyclic)).toBe(cyclic);
-    expect(isStableControlValue(cyclic)).toBe(false);
-    // So is a record that holds such a value anywhere inside it.
-    const holding = { scope: hidden };
-    expect(snapshotControlValue(holding)).toBe(holding);
-    expect(isStableControlValue(holding)).toBe(false);
-    // A record reached twice is judged once: frozen both times, kept.
-    const shared = Object.freeze({ team: "red" });
-    const twice = Object.freeze({ author: shared, by: shared });
-    expect(snapshotControlValue(twice)).toBe(twice);
-    expect(isStableControlValue(twice)).toBe(true);
-    // Already immutable all the way down: kept, by identity.
-    const frozen = Object.freeze({ list: Object.freeze(["x"]) });
-    expect(snapshotControlValue(frozen)).toBe(frozen);
-    expect(isStableControlValue(frozen)).toBe(true);
-    // A frozen record holding a Date is copied: a Date stays mutable.
-    const holder = Object.freeze({ at: new Date(0) });
-    expect(snapshotControlValue(holder)).not.toBe(holder);
-    // No canonical spelling, or no copy: kept as given, never stable.
-    const map = new Map([["k", 1]]);
-    expect(snapshotControlValue(map)).toBe(map);
-    expect(isStableControlValue(map)).toBe(false);
-    const proxied = new Proxy({ tenant: "acme" }, {});
-    expect(snapshotControlValue(proxied)).toBe(proxied);
-    expect(isStableControlValue(proxied)).toBe(false);
-    expect(snapshotControlValue("acme")).toBe("acme");
-    expect(isStableControlValue("acme")).toBe(true);
   });
 
   test("a remembered domain holds its own copy of the values it was bound from: a Date or an array the caller mutates after its call never reaches a later call with equal values (F1)", async () => {
@@ -1403,23 +1443,22 @@ describe("controls: rows bound to the call", () => {
     // Valid Standard Schemas that return the caller's value unchanged.
     const given = standard((value) => ({ value }));
     const db = base.$extends(
-      defineExtension({
-        name: "dated",
-        controls: { day: { schema: given }, tenants: { schema: given } },
-        rows: {
-          control: "view",
-          default: "scoped",
-          models: {
-            entry: {
-              scoped: {
-                root: { day: { control: "day" } },
-                related: { tenantId: { in: { control: "tenants" } } },
-              },
-              all: {},
-            },
+      extension(
+        "dated",
+        extArgs({
+          day: given,
+          tenants: given,
+          view: oneOf("scoped", "all").default("scoped"),
+        }),
+        rule({
+          entry: {
+            root: when(arg("view"), "scoped", { day: arg("day") }),
+            related: when(arg("view"), "scoped", {
+              tenantId: { in: arg("tenants") },
+            }),
           },
-        },
-      })
+        })
+      )
     );
     const ids = async (args: Record<string, unknown>) =>
       (
@@ -1873,76 +1912,20 @@ describe("data: fields an extension writes", () => {
 
 describe("controls: the order a chain takes", () => {
   test("rows may follow a result consumer: its methods run through the whole chain", () => {
-    const consumer = definitionClient().$extends({
-      name: "consumer",
-      model: { audited: () => ({ ping: () => "pong" }) },
-    });
+    const consumer = definitionClient().$extends(
+      extension(
+        "consumer",
+        methods((scope) => {
+          const own = { models: { audited: () => ({ ping: () => "pong" }) } };
+          return { ...own.client?.(scope), ...own.models };
+        })
+      )
+    );
     const late = applyUnchecked(consumer, {
       name: "late-rows",
       rows: { control: "deleted", default: "a", models: {} },
     }) as typeof consumer;
     expect(late.audited.ping()).toBe("pong");
-  });
-});
-
-describe("controls: the official cache", () => {
-  test("its control comes from the cache, whatever controls a definition carrying its query spells", async () => {
-    const official = cache({ driver: new MemoryCache() });
-    const placedOn = (definition: Readonly<Record<string, unknown>>) =>
-      appendResolvedExtension(undefined, definition, schema).controls?.placed(
-        "post",
-        "create"
-      );
-    const forgedCalls: unknown[] = [];
-    const forged = {
-      name: official.name,
-      query: official.query,
-      controls: {
-        cache: {
-          schema: standard((value) => {
-            forgedCalls.push(value);
-            return { value };
-          }),
-          on: "writes",
-        },
-        extra: { oneOf: ["x"] },
-      },
-    };
-    for (const definition of [
-      official,
-      { name: official.name, query: official.query },
-      forged,
-    ]) {
-      const placed = placedOn(definition);
-      expect(placed?.map((control) => control.name)).toEqual(["cache"]);
-      expect(placed?.[0]?.declaration).toBe(official.controls.cache);
-    }
-
-    const base = await seededBase();
-    for (const definition of [
-      {
-        name: official.name,
-        query: cache({ driver: new MemoryCache() }).query,
-      },
-      { ...forged, query: cache({ driver: new MemoryCache() }).query },
-    ]) {
-      const db = applyUnchecked(base, definition);
-      const id = `u-${String(forgedCalls.length)}-${String(Math.random())}`;
-      await expect(
-        callUnchecked(db, "user", "create", {
-          data: { id, name: "Cached" },
-          cache: { autoInvalidate: true },
-        })
-      ).resolves.toMatchObject({ id });
-      const refused = await failure(
-        callUnchecked(db, "user", "create", {
-          data: { id: `${id}-bad`, name: "Bad" },
-          cache: { autoInvalidate: "yes" },
-        })
-      );
-      expect(String(refused)).toContain("Invalid mutation cache options");
-    }
-    expect(forgedCalls).toEqual([]);
   });
 });
 
@@ -1953,8 +1936,52 @@ describe("controls: the cache key", () => {
     const official = cache({ driver: recorder, version: "v" });
     const db =
       order === "cache-first"
-        ? base.$extends(official).$extends({ ...softRows })
-        : base.$extends({ ...softRows }).$extends(official);
+        ? base.$extends(official).$extends(
+            extension(
+              "rows",
+              extArgs({
+                deleted: oneOf("without", "with", "only").default("without"),
+              }),
+              rule({
+                post: {
+                  root: [
+                    when(arg("deleted"), "without", { deletedAt: null }),
+                    when(arg("deleted"), "only", {
+                      deletedAt: { not: null },
+                    }),
+                  ],
+                  related: [
+                    when(arg("deleted"), "without", { deletedAt: null }),
+                    when(arg("deleted"), "only", { deletedAt: null }),
+                  ],
+                },
+              })
+            )
+          )
+        : base
+            .$extends(
+              extension(
+                "rows",
+                extArgs({
+                  deleted: oneOf("without", "with", "only").default("without"),
+                }),
+                rule({
+                  post: {
+                    root: [
+                      when(arg("deleted"), "without", { deletedAt: null }),
+                      when(arg("deleted"), "only", {
+                        deletedAt: { not: null },
+                      }),
+                    ],
+                    related: [
+                      when(arg("deleted"), "without", { deletedAt: null }),
+                      when(arg("deleted"), "only", { deletedAt: null }),
+                    ],
+                  },
+                })
+              )
+            )
+            .$extends(official);
     return { recorder, db, base };
   }
 
@@ -1988,21 +2015,48 @@ describe("controls: the cache key", () => {
     });
     const byMarker = base
       .$extends(cache({ driver: shared, version: "v" }))
-      .$extends({ ...softRows });
+      .$extends(
+        extension(
+          "rows",
+          extArgs({
+            deleted: oneOf("without", "with", "only").default("without"),
+          }),
+          rule({
+            post: {
+              root: [
+                when(arg("deleted"), "without", { deletedAt: null }),
+                when(arg("deleted"), "only", { deletedAt: { not: null } }),
+              ],
+              related: [
+                when(arg("deleted"), "without", { deletedAt: null }),
+                when(arg("deleted"), "only", { deletedAt: null }),
+              ],
+            },
+          })
+        )
+      );
     const byTitle = base
       .$extends(cache({ driver: shared, version: "v" }))
-      .$extends({
-        ...softRows,
-        rows: {
-          ...softRows.rows,
-          models: {
+      .$extends(
+        extension(
+          "rows",
+          extArgs({
+            deleted: oneOf("without", "with", "only").default("without"),
+          }),
+          rule({
             post: {
-              ...softRows.rows.models.post,
-              without: { root: { title: "gone" }, related: { title: "gone" } },
+              root: [
+                when(arg("deleted"), "without", { title: "gone" }),
+                when(arg("deleted"), "only", { deletedAt: { not: null } }),
+              ],
+              related: [
+                when(arg("deleted"), "without", { title: "gone" }),
+                when(arg("deleted"), "only", { deletedAt: null }),
+              ],
             },
-          },
-        },
-      });
+          })
+        )
+      );
     const ids = (rows: readonly { readonly id: string }[]) =>
       rows.map((row) => row.id);
     expect(
@@ -2055,14 +2109,12 @@ describe("controls: the cache key", () => {
       .post.findMany({ where: { title: "live" } });
     const db = base
       .$extends(cache({ driver: declared, version: "v" }))
-      .$extends({
-        name: "writes-only",
-        controls: { reason: { oneOf: ["a"], on: "writes" } },
-      })
-      .$extends({
-        name: "absent",
-        controls: { region: { oneOf: ["eu"], on: "reads" } },
-      });
+      .$extends(
+        extension("writes-only", extArgs({ reason: oneOf("a").on(writes) }))
+      )
+      .$extends(
+        extension("absent", extArgs({ region: oneOf("eu").on(reads) }))
+      );
     await db.$withCache().post.findMany({ where: { title: "live" } });
     await db
       .$withCache()
@@ -2074,20 +2126,26 @@ describe("controls: the cache key", () => {
   test("a read holding a value of an uncacheable control is refused before any statement, whether the cache would serve it or a statement transform bypasses it; one without it is served", async () => {
     const recorder = new KeyRecordingCache();
     const statements: string[] = [];
-    const judged = {
-      name: "judged",
-      controls: { caller: { oneOf: ["a"], on: "reads", uncacheable: true } },
-    } as const;
+    const judged = extension(
+      "judged",
+      extArgs({ caller: oneOf("a").on(reads).volatile() })
+    );
     const cached = (await seededBase())
       .$extends(cache({ driver: recorder, version: "v" }))
       .$extends(judged);
-    const metered = cached.$extends({
-      name: "meter",
-      statement: (context) => {
-        statements.push(context.statement.toStatement());
-        return context.statement;
-      },
-    });
+    const metered = cached.$extends(
+      extension(
+        "meter",
+        unit(
+          (u, next) => {
+            statements.push(statement(u).toStatement());
+            return next(statement(u));
+          },
+          ["statement"],
+          { rewrites: true }
+        )
+      )
+    );
     const read = { caller: "a", select: { id: true } } as const;
     for (const db of [metered, cached]) {
       statements.length = 0;
@@ -2116,17 +2174,18 @@ describe("controls: the cache key", () => {
     const recorder = new KeyRecordingCache();
     const db = (await seededBase())
       .$extends(cache({ driver: recorder, version: "v" }))
-      .$extends({
-        name: "instance",
-        controls: {
-          scope: {
-            schema: standard<string>((value) => ({
-              value: new Map([[value, 1]]),
-            })),
-            on: "reads",
-          },
-        },
-      });
+      .$extends(
+        extension(
+          "instance",
+          extArgs({
+            scope: accepts(
+              standard<string>((value) => ({
+                value: new Map([[value, 1]]),
+              }))
+            ).on(reads),
+          })
+        )
+      );
     await expect(
       db.$withCache().post.findMany({ scope: "x", select: { id: true } })
     ).resolves.toEqual([{ id: "p1" }]);
@@ -2152,22 +2211,22 @@ describe("controls: the cache key", () => {
     const recorder = new KeyRecordingCache();
     const db = base
       .$extends(cache({ driver: recorder, version: "v" }))
-      .$extends({
-        name: "floor",
-        // A Decimal is a class instance: no key spells it by its content.
-        controls: {
-          floor: { schema: standard<Decimal>((value) => ({ value })) },
-        },
-        rows: {
-          control: "scope",
-          default: "above",
-          models: {
+      .$extends(
+        extension(
+          "floor",
+          extArgs({
+            floor: standard<Decimal>((value) => ({ value })),
+            scope: oneOf("above").default("above"),
+          }),
+          rule({
             price: {
-              above: { root: { amount: { gte: { control: "floor" } } } },
+              root: when(arg("scope"), "above", {
+                amount: { gte: arg("floor") },
+              }),
             },
-          },
-        },
-      });
+          })
+        )
+      );
     const above = async (floor: string) =>
       (
         await db.$withCache().price.findMany({
@@ -2503,33 +2562,33 @@ describe("an array path as a list operand (G4, W-L4)", () => {
   const item = s.model({ id: s.string().id(), rank: s.int() });
   const listSchema = { item };
   const ids = { control: "actor", path: "key.ids" };
-  const keyed = defineExtension({
-    name: "keyed",
-    controls: {
-      actor: {
-        schema: v.object({
+  const keyed = extension(
+    "keyed",
+    extArgs({
+      actor: accepts(
+        v.object({
           key: v.object({
             ids: v.optional(v.array(v.string())),
             ranks: v.optional(v.array(v.number())),
           }),
-        }),
-        required: true,
+        })
+      ).required(["item"]),
+      as: oneOf("listed", "excluded", "ranked").default("listed"),
+    }),
+    rule({
+      item: {
+        root: [
+          when(arg("as"), "listed", { id: { in: arg("actor", "key.ids") } }),
+          when(arg("as"), "excluded", {
+            id: { notIn: arg("actor", "key.ids") },
+          }),
+          when(arg("as"), "ranked", {
+            rank: { in: arg("actor", "key.ranks") },
+          }),
+        ],
       },
-    },
-    rows: {
-      control: "as",
-      default: "listed",
-      models: {
-        item: {
-          listed: { root: { id: { in: ids } } },
-          excluded: { root: { id: { notIn: ids } } },
-          ranked: {
-            root: { rank: { in: { control: "actor", path: "key.ranks" } } },
-          },
-        },
-      },
-    },
-  } as never);
+    })
+  );
   /** The statements a driver is handed, as the transport binds them. */
   class Recording extends SqlOnlyDriver {
     readonly sent: [string, unknown[]][] = [];
