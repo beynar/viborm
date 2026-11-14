@@ -14,9 +14,9 @@ import type {
 } from "@extensions/contract";
 import { defaults, omitted } from "@extensions/defaults";
 import { extension } from "@extensions/extension";
+import type { VibORMConfig } from "./client";
 import type { ClientOmitConfig, ExactClientOmitConfig } from "./omit";
 import type { ClientSchema } from "./schema-links";
-import type { VibORMConfig } from "./client";
 
 const NAME = "viborm.defaultOmit";
 
@@ -63,8 +63,12 @@ export function defaultOmit(
     entries[model] = { fields: own };
   }
   // Built against no client: `defaultOmit`'s own signature types what it adds.
+  // Named by what it omits: several on one chain add up per model.
+  const omits = Object.entries(entries).flatMap(([model, { fields }]) =>
+    Object.keys(fields).map((field) => `${model}.${field}`)
+  );
   return extension<Untyped>(
-    NAME,
+    `${NAME}(${omits.join(",")})`,
     defaults<Untyped, () => object>(() => entries)
   );
 }

@@ -34,10 +34,11 @@ export interface VerbsBound {
   readonly bound?: RowDomain["bound"];
   /** Whether one of their predicates may read a call value. */
   readonly reads: boolean;
+  /** Each layer's draft for a model, an entry given as a function read and checked. */
+  readonly drafts: (model: string) => readonly (VerbsDraft | undefined)[];
 }
 
 /** No restriction: what a key an entry leaves out takes. */
-
 
 const fields = (
   map: Readonly<Record<string, unknown>> | undefined
@@ -114,15 +115,16 @@ class LazyJudge implements Judge {
 
 /** What projects for a chain with an entry given as a function, as {@link LazyJudge} judges. */
 class LazyProjection implements Projection {
-  readonly #of: (model: AnyModel) => Projection | undefined;
+  readonly #from: (model: AnyModel) => Projection | undefined;
   /** What the first model read brought: what a question naming no model goes to. */
   #any: Projection | undefined;
   constructor(of: (model: AnyModel) => Projection | undefined) {
-    this.#of = (model) => {
-      const found = of(model);
-      this.#any ??= found;
-      return found;
-    };
+    this.#from = of;
+  }
+  #of(model: AnyModel): Projection | undefined {
+    const found = this.#from(model);
+    this.#any ??= found;
+    return found;
   }
   lower(...args: Parameters<Projection["lower"]>) {
     return this.#of(args[1])!.lower(...args);
@@ -314,5 +316,6 @@ export function bindVerbs(chain: ResolvedExtensionChain): VerbsBound {
     // An entry given as a function's predicates are not known yet: its
     // calls carry their values.
     reads: lazy || layers.some((layer) => layer.references.verbs.length > 0),
+    drafts: draftsOf,
   };
 }

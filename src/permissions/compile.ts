@@ -192,7 +192,7 @@ const QUANTIFIERS = new Set(["is", "isNot", "some", "every", "none"]);
  * symbol: read as a record it would be `{}`, true everywhere, so an object
  * with a symbol key is a value.
  */
-const isRecord = (value: unknown): value is Record<string, unknown> => {
+export const isRecord = (value: unknown): value is Record<string, unknown> => {
   if (typeof value !== "object" || value === null) return false;
   const prototype = Object.getPrototypeOf(value);
   return (
@@ -439,6 +439,33 @@ export function verbsOf(
       ]
     )
   );
+}
+
+/**
+ * What a policy's arguments accept, read from the declaration alone: every
+ * `as` value (the default, each listed model's actions and domains) and
+ * each credential scope with the scopes it implies. A declaration the
+ * compiler refuses yields the default alone: applying it refuses it there.
+ */
+export function policyArguments(config: PermissionsConfig): {
+  readonly modes: readonly string[];
+  readonly scopes: Readonly<Record<string, readonly string[]>>;
+} {
+  try {
+    const modes = new Set<string>([DEFAULT_MODE]);
+    const scopes: Record<string, readonly string[]> = {};
+    for (const [name, policy] of Object.entries(config.models)) {
+      const { closure } = actionsOf(name, policy);
+      for (const [action, implied] of closure) {
+        modes.add(action);
+        scopes[`${name}.${action}`] = implied.map((next) => `${name}.${next}`);
+      }
+      for (const domain of Object.keys(policy.domains ?? {})) modes.add(domain);
+    }
+    return { modes: [...modes], scopes };
+  } catch {
+    return { modes: [DEFAULT_MODE], scopes: {} };
+  }
 }
 
 /** Compiles a policy against the schema it governs, every model at once. */

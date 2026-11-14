@@ -185,10 +185,11 @@ const defaultsPart: ExtensionPart = {
  * schema, it is read where the extension is applied.
  */
 export function defaults<T extends AnyTarget, const D = DefaultsInput<T>>(
-  defaults: D & DefaultsInput<T> &
-    NoInfer<Exact<D, DefaultsInput<T>>>
+  defaults: D & DefaultsInput<T> & NoInfer<Exact<D, DefaultsInput<T>>>
 ): Part<T, DefaultsFacts<D>>;
-export function defaults(entries: Entry | ((schema: Schema) => Entry)): unknown {
+export function defaults(
+  entries: Entry | ((schema: Schema) => Entry)
+): unknown {
   return builtPart([defaultsPart], (draft, schema) =>
     writeDefaults(
       draft,

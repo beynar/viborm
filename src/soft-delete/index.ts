@@ -5,10 +5,11 @@ import { ClientInitializationError } from "../errors"; // viborm's own class
 import type { PlacedControl } from "../extensions/controls";
 import {
   type AnyTarget,
+  arg,
+  args,
   type ClientSchema,
   type DelegateOperationArgs,
   type DelegateOperationResult,
-  deletes,
   type EmptyFacts,
   type Exact,
   type Extension,
@@ -25,8 +26,6 @@ import {
   unless,
   type VibORMConfig,
   when,
-  arg,
-  args,
 } from "../index";
 
 export interface SoftDeleteModel {
@@ -185,7 +184,8 @@ export function softDelete(config: SoftDeleteConfig): unknown {
       deleted: oneOf("without", "with", "only")
         .default("without")
         .on(selecting),
-      mode: oneOf("soft", "hard").on(deletes).models(managed),
+      // Named, not `deletes`: that set brings what watches writes.
+      mode: oneOf("soft", "hard").on(["delete", "deleteMany"]).models(managed),
     }),
     // Read where the extension is applied: a marker that is not a nullable
     // DateTime is refused there, before its filters would refuse it less

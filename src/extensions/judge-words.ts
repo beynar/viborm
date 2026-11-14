@@ -146,9 +146,12 @@ class Kept extends CarriedValue {
     super();
     this.data = data;
   }
-  join({ key, model, schema, draft, lazy, refuse }: Site): void {
+  join({ key, model, schema, draft, lazy, refuse: given }: Site): void {
+    // Typed where it is declared, so a refusal narrows what follows it.
+    const refuse: (problem: string) => never = given;
     if (key !== "delete.instead") refuse(`${key} does not take keep()`);
-    if (lazy) refuse("keep() is written in an entry, not one given as a function");
+    if (lazy)
+      refuse("keep() is written in an entry, not one given as a function");
     let data = this.data;
     let removeWhen: Record<string, string | number | boolean> | undefined;
     if (data instanceof ArgTestFilter && data.kind !== "provided") {
@@ -168,12 +171,12 @@ class Kept extends CarriedValue {
           typeof removes !== "number" &&
           typeof removes !== "boolean")
       )
-        return refuse("keep() takes data, or unless(arg(name), value, data)");
+        refuse("keep() takes data, or unless(arg(name), value, data)");
       removeWhen = { [arg.name]: removes };
       data = data.then;
     }
     if (!isPlainRecord(data))
-      return refuse("keep() takes the data the row is updated with");
+      refuse("keep() takes the data the row is updated with");
     const { state } = schema[model]!["~"];
     let at: string | undefined;
     const assign: Record<string, unknown> = {};

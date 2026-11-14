@@ -40,7 +40,13 @@ const judges = (own: ModelVerbs | undefined): own is JudgedVerbs =>
 /** What the engine and the drivers ask of what judges a domain's writes. */
 export type Judge = Pick<
   RowJudge,
-  "binds" | "inserted" | "updated" | "refusal" | "located" | "produced" | "cycles"
+  | "binds"
+  | "inserted"
+  | "updated"
+  | "refusal"
+  | "located"
+  | "produced"
+  | "cycles"
 >;
 
 /** What judges the rows a write produces, for one domain: brought by `check`. */

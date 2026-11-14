@@ -7,11 +7,9 @@
 import type { ClientOmitConfig } from "@client/omit";
 import type { Schema } from "@client/types";
 import { ClientInitializationError, type DiagnosticDisclosure } from "@errors";
-import { errorCause } from "../errors/diagnostic-safety";
-import type {
-  ModelStamps,
-} from "@query-engine/raptor3/shared/row-scope";
+import type { ModelStamps } from "@query-engine/raptor3/shared/row-scope";
 import type { Input } from "@query-engine/raptor3/shared/schema";
+import { errorCause } from "../errors/diagnostic-safety";
 import type { RuleLayer } from "./admission";
 import type { CallEntry } from "./call";
 import type { ExtensionPart } from "./chain";

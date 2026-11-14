@@ -68,6 +68,19 @@ export interface VerbsDraft {
     readonly names: readonly (readonly [string, unknown])[];
   };
   acyclic?: readonly string[] | (() => readonly string[]);
+  /**
+   * An entry given as a function's filters, as written, then as admitted
+   * per value of the layer's mode argument (`""` without one): bound before
+   * any entry is resolved, they are read with its other keys.
+   */
+  root?: readonly unknown[];
+  related?: readonly unknown[];
+  filters?: {
+    readonly [mode: string]: {
+      readonly root?: Input;
+      readonly related?: Input;
+    };
+  };
   /** `acyclic` as admission checked it against the model's self relations. */
   cycles?: readonly string[] | LazyRelations;
   /** What judges the rows a write produces: brought by the word that asks it. */
@@ -254,7 +267,8 @@ export function admission(
         references.add(word.name);
         return new Parameter(word.name, word.path);
       }
-      if (word instanceof RowValue) return new OuterColumn(word.column, word.up);
+      if (word instanceof RowValue)
+        return new OuterColumn(word.column, word.up);
       if (!(word instanceof NowValue)) return undefined;
       references.add(undefined);
       return new Parameter();
@@ -469,29 +483,44 @@ export function admitLayer(
   const modes = layer.mode?.values ?? [""];
   const modeReferences: Record<string, References> = {};
   const models: Record<string, Record<string, object>> = {};
-  for (const name of new Set([
-    ...Object.keys(layer.root),
-    ...Object.keys(layer.related),
-  ])) {
-    const byMode: Record<string, object> = {};
+  /** One model's filters, per mode, each purpose's admitted. */
+  const filtersOf = (
+    name: string,
+    lists: {
+      readonly root?: readonly unknown[];
+      readonly related?: readonly unknown[];
+    },
+    referencesOf: (mode: string) => References,
+    of: string
+  ) => {
+    const byMode: Record<string, { root?: Input; related?: Input }> = {};
     for (const mode of modes) {
-      const references = (modeReferences[mode] ??= new Set());
-      const out: Record<string, Input> = {};
+      const out: { root?: Input; related?: Input } = {};
       for (const purpose of ["root", "related"] as const) {
-        const predicate = filterIn(layer[purpose][name] ?? [], layer, mode);
+        const predicate = filterIn(lists[purpose] ?? [], layer, mode);
         if (predicate !== undefined)
           out[purpose] = admit(
             name,
             `${name}.${purpose}`,
             predicate,
-            references,
-            `mode ${mode}`
+            referencesOf(mode),
+            `${of} ${mode}`
           );
       }
       byMode[mode] = Object.freeze(out);
     }
-    models[name] = Object.freeze(byMode);
-  }
+    return Object.freeze(byMode);
+  };
+  for (const name of new Set([
+    ...Object.keys(layer.root),
+    ...Object.keys(layer.related),
+  ]))
+    models[name] = filtersOf(
+      name,
+      { root: layer.root[name], related: layer.related[name] },
+      (mode) => (modeReferences[mode] ??= new Set()),
+      "mode"
+    );
   const verbsReferences: References = new Set();
   const verbs: Record<string, VerbsDraft | (() => VerbsDraft)> = {};
   for (const [name, draft] of Object.entries(layer.verbs)) {
@@ -502,22 +531,37 @@ export function admitLayer(
     // Read and admitted once, the first time the model is read; its own
     // references are checked then, against the chain it is bound to.
     let resolved: VerbsDraft | undefined;
-    verbs[name] = () => {
+    const resolve = (): VerbsDraft => {
       if (resolved !== undefined) return resolved;
       const references: References = new Set();
-      resolved = admitDraft(admitting, name, draft(), references, `lazy ${name}`);
+      const { root, related, ...given } = draft();
+      const own = admitDraft(
+        admitting,
+        name,
+        given,
+        references,
+        `lazy ${name}`
+      );
+      resolved =
+        root === undefined && related === undefined
+          ? own
+          : Object.freeze({
+              ...own,
+              filters: filtersOf(
+                name,
+                { root, related },
+                () => references,
+                `lazy ${name}`
+              ),
+            });
       lazyReferences.set(resolved, [...references]);
       return resolved;
     };
+    verbs[name] = resolve;
   }
   const confine: Record<string, Input> = {};
   for (const [name, predicate] of Object.entries(layer.confine))
-    confine[name] = admit(
-      name,
-      `${name}.confine`,
-      predicate,
-      verbsReferences
-    );
+    confine[name] = admit(name, `${name}.confine`, predicate, verbsReferences);
   const out: AdmittedLayer = Object.freeze({
     extension,
     ...(layer.mode && { mode: layer.mode }),
@@ -535,9 +579,9 @@ export function admitLayer(
     }),
   });
   if (native) {
-    if (byLayer === undefined) admitted.set(registry, (byLayer = new WeakMap()));
+    if (byLayer === undefined)
+      admitted.set(registry, (byLayer = new WeakMap()));
     byLayer.set(layer, out);
   }
   return out;
 }
-

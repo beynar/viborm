@@ -10,13 +10,7 @@
 import type { Schema } from "@client/types";
 import { isPlainRecord } from "@schema/relation/terminal";
 import type { RuleLayer, VerbsDraft } from "./admission";
-import type {
-  AnyTarget,
-  Exact,
-  Part,
-  RuleFacts,
-  RuleInput,
-} from "./contract";
+import type { AnyTarget, Exact, Part, RuleFacts, RuleInput } from "./contract";
 import { extensionError } from "./definition";
 import { builtPart, type DefinitionDraft } from "./extension";
 import { rulePart } from "./rows";
@@ -60,7 +54,8 @@ export function draftOf(
   const made = () => (verbs ??= {});
   const join = (value: unknown, key: string, field?: string) => {
     if (value === undefined) return;
-    if (!(value instanceof CarriedValue)) refuse(`${key} is written with a word`);
+    if (!(value instanceof CarriedValue))
+      refuse(`${key} is written with a word`);
     value.join({
       model,
       key,
@@ -106,7 +101,9 @@ export function draftOf(
     made().acyclic = acyclic as VerbsDraft["acyclic"];
     // A loop is refused where the row an update produces is judged.
     if (verbs!.judge === undefined)
-      refuse("acyclic is judged with the rows a write produces: write a check() on the model beside it");
+      refuse(
+        "acyclic is judged with the rows a write produces: write a check() on the model beside it"
+      );
   }
   return verbs;
 }
@@ -127,7 +124,11 @@ function layerOf(draft: DefinitionDraft): RuleLayer {
         continue;
       if (item.arg.path !== undefined) continue;
       const spec = draft.args?.[item.arg.name];
-      if (spec === undefined || !("oneOf" in spec) || spec.default === undefined)
+      if (
+        spec === undefined ||
+        !("oneOf" in spec) ||
+        spec.default === undefined
+      )
         continue;
       layer.mode = {
         name: item.arg.name,
@@ -136,6 +137,21 @@ function layerOf(draft: DefinitionDraft): RuleLayer {
       };
       return;
     }
+    // An entry given as a function is read later: its filters are decided
+    // by the first argument of the extension a value of which picks a mode.
+    if (
+      !Object.values(layer.verbs).some((entry) => typeof entry === "function")
+    )
+      return;
+    for (const [name, spec] of Object.entries(draft.args ?? {}))
+      if ("oneOf" in spec && spec.default !== undefined) {
+        layer.mode = {
+          name,
+          values: spec.oneOf.map(String),
+          fallback: String(spec.default),
+        };
+        return;
+      }
   });
   return layer;
 }
@@ -162,16 +178,19 @@ function writeRule(
     };
     if (typeof entry === "function") {
       judged();
-      layer.verbs[model] = () => {
+      const read = () => {
         const given: unknown = Reflect.apply(entry, undefined, []);
-        const read = own(own(given).delete);
-        for (const key of ["root", "related", "confine"])
-          if (own(given)[key] !== undefined)
-            refuse(`an entry given as a function holds no ${key}`);
-        if (read.instead !== undefined)
-          refuse("an entry given as a function holds no delete.instead");
-        return draftOf(given, model, schema, draft, refuse, true) ?? {};
+        const written = own(given);
+        if (written.confine !== undefined)
+          refuse("an entry given as a function holds no confine");
+        const verbs = draftOf(given, model, schema, draft, refuse, true) ?? {};
+        const root = listOf(written.root);
+        const related = listOf(written.related);
+        return root.length + related.length === 0
+          ? verbs
+          : { ...verbs, root, related };
       };
+      layer.verbs[model] = read;
       continue;
     }
     const verbs = draftOf(entry, model, schema, draft, refuse, false);
@@ -203,12 +222,9 @@ function writeRule(
  * schema is written apart from any client).
  */
 export function rule<T extends AnyTarget, const R = RuleInput<T>>(
-  rules: R & RuleInput<T> &
-    NoInfer<Exact<R, RuleInput<T>>>
+  rules: R & RuleInput<T> & NoInfer<Exact<R, RuleInput<T>>>
 ): Part<T, RuleFacts<R>>;
-export function rule(
-  rules: Entry | ((schema: Schema) => Entry)
-): unknown {
+export function rule(rules: Entry | ((schema: Schema) => Entry)): unknown {
   return builtPart([rulePart], (draft, schema) =>
     writeRule(
       draft,

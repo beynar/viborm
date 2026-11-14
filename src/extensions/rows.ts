@@ -69,7 +69,8 @@ function requiredOn(controls: ResolvedControls | undefined): RequiredOn {
 function modelDomain(
   layers: readonly AdmittedLayer[],
   modes: readonly string[],
-  purpose: "root" | "related"
+  purpose: "root" | "related",
+  drafts: VerbsBound["drafts"]
 ): ModelDomain {
   const built = new Map<string, readonly Input[] | null>();
   return {
@@ -77,7 +78,13 @@ function modelDomain(
       memo(built, model, () => {
         let list: Input[] | null = null;
         for (const [layer, member] of layers.entries()) {
-          const where = member.models[model]?.[modes[layer]!]?.[purpose];
+          // An entry given as a function holds its filters: read it now.
+          const filters =
+            member.models[model] ??
+            (typeof member.verbs[model] === "function"
+              ? drafts(model)[layer]?.filters
+              : undefined);
+          const where = filters?.[modes[layer]!]?.[purpose];
           if (where !== undefined) (list ??= [])[layer] = where;
         }
         return list;
@@ -97,7 +104,8 @@ export class RowsBinding implements CallRowsBinding {
   readonly #modes: readonly BoundMode[];
   readonly #chain: ResolvedExtensionChain;
   readonly #layers: readonly AdmittedLayer[];
-  readonly #verbs: Omit<VerbsBound, "reads">;
+  readonly #verbs: Omit<VerbsBound, "reads" | "drafts">;
+  readonly #drafts: VerbsBound["drafts"];
   /** Some predicate reads a call value: every call carries its values. */
   readonly #parametric: boolean;
   readonly #order: ReadonlyMap<string, readonly Input[]> | undefined;
@@ -123,7 +131,8 @@ export class RowsBinding implements CallRowsBinding {
       stride *= names.length;
       return bound;
     });
-    const { reads, ...verbs } = bindVerbs(chain);
+    const { reads, drafts, ...verbs } = bindVerbs(chain);
+    this.#drafts = drafts;
     this.#chain = chain;
     this.#layers = layers;
     this.#verbs = verbs;
@@ -151,8 +160,8 @@ export class RowsBinding implements CallRowsBinding {
     return memo(this.#domains, combination, () => {
       const modes = this.#names(combination);
       return Object.freeze({
-        root: modelDomain(this.#layers, modes, "root"),
-        related: modelDomain(this.#layers, modes, "related"),
+        root: modelDomain(this.#layers, modes, "root", this.#drafts),
+        related: modelDomain(this.#layers, modes, "related", this.#drafts),
         ...this.#verbs,
         ...(this.#order && { order: this.#order }),
       });
