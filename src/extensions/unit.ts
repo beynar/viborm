@@ -7,7 +7,6 @@
  * statement: `next(sql)`, once per logical statement, before rendering.
  */
 import type { Sql } from "@sql";
-import { isFunction } from "@validation/value-guards";
 import type {
   AnyTarget,
   EmptyFacts,
@@ -40,8 +39,6 @@ export function unit(
   kinds?: readonly UnitKind[],
   options?: { readonly rewrites?: true }
 ): unknown {
-  if (!isFunction(handler))
-    throw new TypeError("unit() takes a function of the unit and its next");
   return builtPart(
     [
       options?.rewrites === true

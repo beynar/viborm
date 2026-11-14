@@ -5,7 +5,6 @@
  * model method is called with `this` equal to the delegate it is read from.
  * The methods host (`methods.ts`) runs and checks it.
  */
-import { isFunction } from "@validation/value-guards";
 import type {
   AnyTarget,
   ConsumesResults,
@@ -40,8 +39,6 @@ export function buildMethods(
   factory: (scope: never) => unknown
 ): Part<AnyTarget, EmptyFacts>;
 export function buildMethods(factory: (scope: never) => unknown): unknown {
-  if (!isFunction(factory))
-    throw new TypeError("methods() takes a factory of the client's scope");
   return builtPart([methodsPart], (draft) => {
     draft.methods = factory;
   });

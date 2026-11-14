@@ -14,7 +14,6 @@
  * never sees a raw statement.
  */
 import type { Schema } from "@client/types";
-import type { AnyDriver } from "@drivers/exports";
 import { QueryError, VibORMError } from "@errors";
 import { isFunction, isRecord } from "@validation/value-guards";
 import { errorCause } from "../errors/diagnostic-safety";
@@ -338,8 +337,8 @@ function placed<H extends CallableFunction>(
 const firstPart: ExtensionPart = {
   join(application: Application) {
     const { next, chain, definition } = application;
-    const entries = definition.calls;
-    if (entries === undefined) return;
+    // Only `call` and `around` bring this part, and each writes its entry.
+    const entries = definition.calls!;
     next.request = Object.freeze({
       ...handlersOf([
         ...(chain?.request?.placed ?? []),
@@ -356,7 +355,9 @@ const aroundPart: ExtensionPart = {
   join(application: Application) {
     const { next, chain, definition } = application;
     let list = chain?.query?.placed ?? [];
-    for (const entry of definition.calls ?? []) {
+    // Only `around` brings this part, and it writes an entry with a second
+    // moment: the list always gains one.
+    for (const entry of definition.calls!) {
       if (entry.keep === undefined) continue;
       const handler = placed(entry, secondMoment(entry.first), application);
       // One placed nearest the core (`inner`) runs after every other,
@@ -370,7 +371,6 @@ const aroundPart: ExtensionPart = {
             ...list.filter((other) => other.inner),
           ];
     }
-    if (list === (chain?.query?.placed ?? [])) return;
     next.query = Object.freeze(handlersOf(list));
     coordinate(next, QUERIES);
   },
