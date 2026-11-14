@@ -22,7 +22,7 @@ import {
 import type { SchemaRegistryLookup } from "@validation/types";
 import type { ResolvedControls } from "./chain";
 import type { RowsContribution } from "./controls";
-import { verbsAdmission } from "./rows-slot";
+import type { VERBS } from "./verbs";
 
 /**
  * Each domain predicate admitted once, when its extension is applied, through
@@ -229,13 +229,15 @@ const ROWS_KEYS: ReadonlySet<string> = new Set([
  * `ClientInitializationError`s naming the extension, the model, the
  * predicate's place in `rows` and the path inside it. Admitted once per
  * schema registry and declaration object, where the schema's scalars admit
- * with the engine's own schemas.
+ * with the engine's own schemas. `reader` admits `verbs` and `confine`: the
+ * part that reads them hands it, for a member that declares either.
  */
 export function admitRows(
   rows: AdmittedRows,
   schema: Schema,
   extension: string,
-  registry: SchemaRegistryLookup<Schema> = standaloneRegistry(schema)
+  registry: SchemaRegistryLookup<Schema> = standaloneRegistry(schema),
+  reader?: typeof VERBS
 ): AdmittedRows {
   // A field's own schema may read its value differently on another call.
   const native = Object.values(schema).every((model) => {
@@ -348,12 +350,8 @@ export function admitRows(
     );
   };
   const admission: PredicateAdmission = { schema, admit, refuse };
-  // What reads `verbs` and `confine` is there where the extension that
-  // declares one was built with it.
-  const reader =
-    rows.verbs === undefined && rows.confine === undefined
-      ? undefined
-      : verbsAdmission();
+  // What reads `verbs` and `confine` is handed by the part that reads them,
+  // the one that admits a member declaring either.
   const verbsControls: References = new Set(prior?.verbs);
   const verbs =
     rows.verbs && reader!.verbs(rows.verbs, admission, verbsControls);

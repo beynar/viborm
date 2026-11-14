@@ -13,15 +13,10 @@ import { cache } from "@cache/extension";
 import { createClient } from "@drivers/sqlite3";
 import { ClientInitializationError } from "@errors";
 import { appendResolvedExtension } from "@extensions/chain";
-import { withRows, withVerbs } from "@extensions/rows-runtime";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { v } from "@validation";
 import { afterEach, beforeEach, expect, test } from "vitest";
-
-// These definitions are stated as plain objects: what reads their rows is brought here.
-withRows();
-withVerbs();
 
 const node = s.model({
   id: s.string().id(),
@@ -332,7 +327,7 @@ test("reading a model's verbs resolves its entry alone; a mode naming one of its
     },
     schema
   );
-  const { domain } = chain.callRows!.physical[0]!;
+  const { domain } = chain.callRows!.call("node", undefined);
   const verbs = domain.verbs!;
   expect(verbs.has("node")).toBe(true);
   expect(verbs.has("missing")).toBe(false);
@@ -451,7 +446,7 @@ test("a mode and a lazy entry that read only the call's instant name no control,
     },
     { event }
   );
-  const binding = chain.callRows!;
-  expect(binding.parametric).toEqual([true]);
-  expect(binding.physical[0]!.domain.verbs!.get("event")).toHaveLength(1);
+  const facts = chain.callRows!.call("event", undefined);
+  expect(facts.values).toBeDefined();
+  expect(facts.domain.verbs!.get("event")).toHaveLength(1);
 });

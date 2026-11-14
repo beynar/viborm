@@ -15,7 +15,8 @@ import { controlsPart } from "../extensions/controls";
 import { defineWith } from "../extensions/define";
 import { methodsPart } from "../extensions/methods";
 import { queryPart } from "../extensions/query";
-import { rowsPart, verbsPart } from "../extensions/rows-part";
+import { filtersPart } from "../extensions/rows";
+import { verbsPart } from "../extensions/rows-part";
 import type {
   ClientSchema,
   ClientTypeState,
@@ -888,7 +889,7 @@ export function permissions<const Config extends PermissionsConfig>(
   // brought as the policy is made: compiling it reads its rows.
   const define = defineWith(
     controlsPart,
-    rowsPart,
+    filtersPart,
     verbsPart,
     queryPart,
     methodsPart

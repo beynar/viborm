@@ -21,7 +21,8 @@ import {
 import { ValidationError } from "../errors/validation";
 import { defineWith } from "../extensions/define";
 import { methodsPart } from "../extensions/methods";
-import { rowsPart } from "../extensions/rows-part";
+import { defaultOrderPart } from "../extensions/order";
+import { defaultDataPart } from "../extensions/stamps";
 import type {
   ClientSchema,
   ClientTypeState,
@@ -1221,7 +1222,8 @@ function definitionOf<
   const { $driver } = client as unknown as { $driver: Driver };
   // The parts that read the declarations made here, and only those.
   return defineWith(
-    rowsPart,
+    defaultOrderPart,
+    defaultDataPart,
     methodsPart
   )({
     name: NAME,

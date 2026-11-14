@@ -26,7 +26,11 @@ import {
   QueryError,
   ValidationError,
 } from "@errors";
-import { appendResolvedExtension } from "@extensions/chain";
+import {
+  appendResolvedExtension,
+  type ResolvedDeletion,
+  type ResolvedExtensionChain,
+} from "@extensions/chain";
 import {
   isStableControlValue,
   placeControls,
@@ -34,9 +38,15 @@ import {
 } from "@extensions/controls";
 import { defineExtension } from "@extensions/define";
 import type { ExtensionDefinitionInput } from "@extensions/definition";
-import { bindRows, callRows } from "@extensions/rows";
-import { withRows, withVerbs } from "@extensions/rows-runtime";
-import { Condition, Parameter } from "@query-engine/raptor3/shared/row-scope";
+import { Kept } from "@extensions/kept";
+import { bindPlain } from "@extensions/plain-domain";
+import { bindRows } from "@extensions/rows";
+import { Stamps } from "@extensions/stamps";
+import {
+  Condition,
+  type ModelStamps,
+  Parameter,
+} from "@query-engine/raptor3/shared/row-scope";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { s } from "@schema";
 import { Decimal } from "@src/index";
@@ -52,10 +62,6 @@ import {
 import { failure } from "@tests/fixtures/failure";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, describe, expect, test } from "vitest";
-
-// These definitions are stated as plain objects: what reads their rows is brought here.
-withRows();
-withVerbs();
 
 const user = s.model({
   id: s.string().id(),
@@ -1124,41 +1130,46 @@ describe("controls: rows bound to the call", () => {
     return chain!.callRows!;
   };
 
-  test("every call shares its combination's domains; a call whose predicates read a value carries its controls, others the precomputed facts", () => {
+  test("every call shares its combination's domains; a call whose predicates read a value carries its controls, others the shared facts", () => {
     const binding = bound(tenancyRecipe(["post"]), softRows);
-    // Every combination's default domain reads the tenant.
-    expect(binding.parametric).toEqual([true, true, true, true, true, true]);
-    const acme = callRows(binding, "post", { tenant: "acme" });
-    const globex = callRows(binding, "post", { tenant: "globex" });
+    const acme = binding.call("post", { tenant: "acme" });
+    const globex = binding.call("post", { tenant: "globex" });
     expect(acme.domain).toBe(globex.domain);
-    expect(acme.domain).toBe(binding.tombstoning[0]!.domain);
+    expect(acme.domain).toBe(binding.call("post", undefined).domain);
     expect(acme.values?.controls).toEqual({ tenant: "acme" });
     expect(globex.values?.controls).toEqual({ tenant: "globex" });
     expect(acme.values?.required("tenant", "post")).toBe(true);
+    // Every combination's default domain reads the tenant.
+    for (const deleted of ["without", "with", "only"])
+      expect(
+        binding.call("post", { tenant: "acme", deleted }).values
+      ).toBeDefined();
     const soft = bound(softRows);
-    expect(soft.parametric).toEqual([false, false, false]);
-    expect(callRows(soft, "post", { deleted: "with" })).toBe(
-      soft.tombstoning[1]
-    );
+    const withDeleted = soft.call("post", { deleted: "with" });
+    expect(withDeleted.values).toBeUndefined();
+    expect(soft.call("post", { deleted: "with" })).toBe(withDeleted);
+    expect(withDeleted.domain).not.toBe(soft.call("post", undefined).domain);
   });
 
   test("a predicate's value is a parameter; an absent optional value travels as absent", () => {
     const binding = bound(optimisticLock(["post"]));
-    // `unchecked` names nothing, but its default domain does.
-    expect(binding.parametric).toEqual([true, true]);
-    const [checked] = binding.physical[0]!.domain.root.get("post")!;
+    const [checked] = binding.call("post", undefined).domain.root.get("post")!;
     const operand = (checked as { version: { equals: unknown } }).version
       .equals;
     expect(operand).toBeInstanceOf(Parameter);
     expect(operand).toMatchObject({ control: "expectedVersion" });
     // Absent, the lock's value still travels as absent: the engine drops it,
     // as no control of the chain is required.
-    const absent = callRows(binding, "post", undefined).values!;
+    const absent = binding.call("post", undefined).values!;
     expect(absent.controls).toEqual({});
     expect(absent.required("expectedVersion", "post")).toBe(false);
-    expect(
-      callRows(binding, "post", { versionCheck: "unchecked" }).domain
-    ).toBe(binding.tombstoning[1]!.domain);
+    // `unchecked` names nothing, but its default domain does.
+    const unchecked = binding.call("post", { versionCheck: "unchecked" });
+    expect(unchecked.values).toBeDefined();
+    expect(unchecked.domain).toBe(
+      binding.call("post", { versionCheck: "unchecked", expectedVersion: 2 })
+        .domain
+    );
   });
 
   test("a model's own AND, OR or NOT field is a field at its filter, a combinator elsewhere", () => {
@@ -1198,13 +1209,17 @@ describe("controls: rows bound to the call", () => {
       },
       { ...schema, logical }
     );
-    const [fields] = chain.callRows!.physical[0]!.domain.root.get("logical")!;
+    const [fields] = chain
+      .callRows!.call("logical", undefined)
+      .domain.root.get("logical")!;
     for (const field of ["AND", "OR", "NOT"])
       expect(
         (fields as Record<string, { equals: unknown }>)[field]!.equals
       ).toBeInstanceOf(Parameter);
     // `post` declares no such field: there `AND` combines filters.
-    const [combined] = chain.callRows!.physical[0]!.domain.root.get("post")!;
+    const [combined] = chain
+      .callRows!.call("post", undefined)
+      .domain.root.get("post")!;
     expect(
       (combined as { AND: { title: { equals: unknown } }[] }).AND[0]!.title
         .equals
@@ -1459,29 +1474,32 @@ describe("controls: rows bound to the call", () => {
       tenancyRecipe(["post"]),
       scopedSchema
     ).rows!;
-    const binding = bindRows([tenantRows!], deletion);
-    const operator = callRows(binding, "post", {
-      tenant: "acme",
-      scope: "all",
+    const kept = (entry: ResolvedDeletion) => new Kept([["post", entry]]);
+    const binding = bindRows({
+      extensions: [],
+      rows: [tenantRows!],
+      kept: kept(deletion.post),
     });
+    const defaults = binding.call("post", undefined);
+    const operator = binding.call("post", { tenant: "acme", scope: "all" });
     expect(operator.domain.related.get("post")).toBeUndefined();
-    expect(operator.defaults).toBe(binding.tombstoning[0]!.domain);
-    expect(operator.tombstones).toBe(binding.tombstoning[1]!.tombstones);
+    expect(operator.defaults).toBe(defaults.domain);
+    expect(operator.tombstones).toBe(defaults.tombstones);
     expect(operator.values?.controls).toEqual({ tenant: "acme", scope: "all" });
-    const own = callRows(binding, "post", { tenant: "acme" });
+    const own = binding.call("post", { tenant: "acme" });
     expect(own.defaults).toBe(own.domain);
-    const physical = bindRows([tenantRows!], {
-      post: { ...deletion.post, removeWhen: { mode: "hard" } },
+    const physical = bindRows({
+      extensions: [],
+      rows: [tenantRows!],
+      kept: kept({ ...deletion.post, removeWhen: { mode: "hard" } }),
     });
-    const removing = callRows(physical, "post", {
-      tenant: "acme",
-      mode: "hard",
-    });
+    const removing = physical.call("post", { tenant: "acme", mode: "hard" });
+    const tombstoning = physical.call("post", { tenant: "acme" });
     expect(removing.tombstones).toBeUndefined();
-    expect(removing.domain).toBe(physical.physical[0]!.domain);
-    expect(callRows(physical, "post", { tenant: "acme" }).tombstones).toBe(
-      physical.tombstoning[0]!.tombstones
-    );
+    expect(removing.domain).toBe(tombstoning.domain);
+    expect(tombstoning.tombstones?.get("post")).toMatchObject({
+      removeWhen: { mode: "hard" },
+    });
   });
 });
 
@@ -1502,10 +1520,9 @@ describe("rows: each predicate admitted at $extends", () => {
       } as ExtensionDefinitionInput,
       schema
     );
-    return chain.callRows!.physical[0]!.domain.root.get("post")![0] as Record<
-      string,
-      unknown
-    >;
+    return chain
+      .callRows!.call("post", undefined)
+      .domain.root.get("post")![0] as Record<string, unknown>;
   };
 
   test("a reference, a path into one and the call's instant are parameters; anything else is a literal", () => {
@@ -1612,7 +1629,9 @@ describe("rows: each predicate admitted at $extends", () => {
         },
       },
       { node }
-    ).callRows!.physical[0]!.domain.root.get("node")![0] as {
+    )
+      .callRows!.call("node", undefined)
+      .domain.root.get("node")![0] as {
       parent: { is: unknown };
       children: { some: unknown; every: { control: { equals: unknown } } };
     };
@@ -1666,35 +1685,43 @@ describe("data: fields an extension writes", () => {
     },
     user: { update: { name: "touched" } },
   };
+  /**
+   * A chain's call facts with `data` and what else it holds: bound by the
+   * filters' binding where it filters or keeps rows, else plain.
+   */
+  const stamped = (
+    data: Readonly<Record<string, ModelStamps>>,
+    others: Pick<ResolvedExtensionChain, "rows" | "kept"> = {}
+  ) => {
+    const chain = { extensions: [], ...others, data, stamps: new Stamps(data) };
+    return others.rows || others.kept ? bindRows(chain) : bindPlain(chain);
+  };
 
   test("a stamp's control takes the call's value, put in per call, a field of an object control by its path; a field whose control the call did not pass is not written", () => {
-    const binding = bindRows(undefined, undefined, audit);
-    expect(binding.parametric).toEqual([false]);
-    expect(binding.bindsStamps).toBe(true);
-    const facts = callRows(binding, "post", { actor: "ann" });
+    const binding = stamped(audit);
+    expect(new Stamps(audit).named).toBe(true);
+    const facts = binding.call("post", { actor: "ann" });
     const post = facts.stamps!.get("post")!;
     expect(post.create).toEqual({ createdBy: "ann", source: "api" });
     expect(post.update).toBe(audit.post.update);
     expect(facts.stamps!.get("user")).toBe(audit.user);
-    expect(facts.domain).toBe(binding.physical[0]!.domain);
+    expect(facts.domain).toBe(binding.call("user", undefined).domain);
     expect(facts.values).toBeUndefined();
-    const absent = callRows(binding, "post", undefined);
+    const absent = binding.call("post", undefined);
     expect(absent.stamps!.get("post")!.create).toEqual({ source: "api" });
-    const pathed = bindRows(undefined, undefined, {
+    const pathed = stamped({
       post: { update: { deletedById: { control: "who", path: "user.id" } } },
     });
     expect(
-      callRows(pathed, "post", { who: { user: { id: "u7" } } }).stamps!.get(
-        "post"
-      )!.update
+      pathed.call("post", { who: { user: { id: "u7" } } }).stamps!.get("post")!
+        .update
     ).toEqual({ deletedById: "u7" });
     expect(
-      callRows(pathed, "post", { who: { user: {} } }).stamps!.get("post")!
-        .update
+      pathed.call("post", { who: { user: {} } }).stamps!.get("post")!.update
     ).toEqual({});
     // Inside a list, a reference is bound too, and its absence leaves the
     // field unwritten; a record with other keys is data.
-    const listed = bindRows(undefined, undefined, {
+    const listed = stamped({
       post: {
         update: {
           title: [{ control: "who" }, "x"],
@@ -1705,27 +1732,29 @@ describe("data: fields an extension writes", () => {
       },
     } as never);
     expect(
-      callRows(listed, "post", { who: "u1", step: 2 }).stamps!.get("post")!
-        .update
+      listed.call("post", { who: "u1", step: 2 }).stamps!.get("post")!.update
     ).toEqual({
       title: ["u1", "x"],
       deletedById: { control: "who", note: 1 },
       version: { increment: 2 },
       name: ["a", "b"],
     });
-    expect(
-      callRows(listed, "post", undefined).stamps!.get("post")!.update
-    ).toEqual({ deletedById: { control: "who", note: 1 }, name: ["a", "b"] });
+    expect(listed.call("post", undefined).stamps!.get("post")!.update).toEqual({
+      deletedById: { control: "who", note: 1 },
+      name: ["a", "b"],
+    });
   });
 
   test("a stamp's { now: true } is the call's instant, left for the engine to write; a record with other keys is data", () => {
-    const binding = bindRows(undefined, undefined, {
+    const data = {
       post: {
         create: { title: { now: true }, source: { now: true, at: 1 } },
         update: { title: { now: true }, createdBy: { now: true } },
       },
-    } as never);
-    const post = binding.physical[0]!.stamps!.get("post")!;
+    } as never;
+    const binding = stamped(data);
+    const facts = binding.call("post", undefined);
+    const post = facts.stamps!.get("post")!;
     const { title, source } = post.create as Record<string, unknown>;
     expect(title).toBeInstanceOf(Parameter);
     expect(title).toMatchObject({ now: true });
@@ -1733,8 +1762,8 @@ describe("data: fields an extension writes", () => {
     const update = post.update as Record<string, unknown>;
     expect([update.title, update.createdBy]).toEqual([title, title]);
     // An instant names no control: no call binds anything.
-    expect(binding.bindsStamps).toBe(false);
-    expect(callRows(binding, "post", undefined)).toBe(binding.physical[0]);
+    expect(new Stamps(data).named).toBe(false);
+    expect(binding.call("post", undefined)).toBe(facts);
   });
 
   test("stamps and values are a call's own: every tenant and writer shares one domain", () => {
@@ -1756,11 +1785,11 @@ describe("data: fields an extension writes", () => {
       },
       schema
     ).rows!;
-    const binding = bindRows(scoped, undefined, audit);
-    expect(binding.parametric).toEqual([true, true]);
-    const read = callRows(binding, "post", { tenant: "acme" });
-    const ann = callRows(binding, "post", { tenant: "acme", actor: "ann" });
-    const bob = callRows(binding, "post", { tenant: "globex", actor: "bob" });
+    const binding = stamped(audit, { rows: scoped });
+    const read = binding.call("post", { tenant: "acme" });
+    const ann = binding.call("post", { tenant: "acme", actor: "ann" });
+    const bob = binding.call("post", { tenant: "globex", actor: "bob" });
+    expect(binding.call("post", { scope: "all" }).values).toBeDefined();
     expect(ann.domain).toBe(read.domain);
     expect(bob.domain).toBe(read.domain);
     expect(bob.defaults).toBe(read.defaults);
@@ -1773,11 +1802,11 @@ describe("data: fields an extension writes", () => {
 
   test("constant stamps keep the precomputed facts; parameterized rows leave them as declared", () => {
     const constant = { user: audit.user };
-    const binding = bindRows(undefined, undefined, constant);
-    expect(binding.parametric).toEqual([false]);
-    expect(binding.bindsStamps).toBe(false);
-    const facts = callRows(binding, "user", undefined);
-    expect(facts).toBe(binding.physical[0]);
+    const binding = stamped(constant);
+    expect(new Stamps(constant).named).toBe(false);
+    const facts = binding.call("user", undefined);
+    expect(facts.values).toBeUndefined();
+    expect(binding.call("post", undefined)).toBe(facts);
     expect(facts.stamps!.get("user")).toBe(audit.user);
     const scoped = appendResolvedExtension(
       undefined,
@@ -1792,20 +1821,19 @@ describe("data: fields an extension writes", () => {
       },
       schema
     ).rows!;
-    const bound = bindRows(scoped, undefined, constant);
-    const tenant = callRows(bound, "post", { t: "acme" });
-    expect(tenant.domain).toBe(bound.physical[0]!.domain);
+    const bound = stamped(constant, { rows: scoped });
+    const tenant = bound.call("post", { t: "acme" });
+    const other = bound.call("post", { t: "globex" });
+    expect(tenant.domain).toBe(other.domain);
     expect(tenant.values?.controls).toEqual({ t: "acme" });
-    expect(tenant.stamps).toBe(bound.physical[0]!.stamps);
+    expect(tenant.stamps).toBe(other.stamps);
     // A tombstoning call writes them too: a tombstone is an update.
-    const managed = bindRows(
-      undefined,
-      { post: { extension: "managed", assign: {} } },
-      constant
-    );
-    expect(callRows(managed, "post", undefined).stamps!.get("user")).toBe(
-      audit.user
-    );
+    const managed = stamped(constant, {
+      kept: new Kept([["post", { extension: "managed", assign: {} }]]),
+    });
+    const tombstoning = managed.call("post", undefined);
+    expect(tombstoning.tombstones).toBeDefined();
+    expect(tombstoning.stamps!.get("user")).toBe(audit.user);
   });
 
   test("a chain merges every extension's fields per model and kind: a later extension wins a field", () => {
@@ -1835,7 +1863,7 @@ describe("data: fields an extension writes", () => {
       update: { title: "c" },
     });
     expect(second.data!.user).toEqual({ update: { name: "d" } });
-    expect(second.callRows!.physical[0]!.stamps!.get("post")).toBe(
+    expect(second.callRows!.call("post", undefined).stamps!.get("post")).toBe(
       second.data!.post
     );
     const third = appendResolvedExtension(second, { name: "third" }, schema);
@@ -2184,7 +2212,8 @@ describe("rows: named predicates and verbs, per model", () => {
         { post: { all: {}, titled: { root: "titled" } } }
       )
     );
-    const [all, titled] = binding.physical;
+    const all = binding.call("post", undefined);
+    const titled = binding.call("post", { as: "titled", who: "ann" });
     const layer = all!.domain.verbs!.get("post")![0]!;
     expect(titled!.domain.root.get("post")![0]).toBe(layer.writes.get("title"));
     expect(layer.read).toBe(layer.update);
@@ -2195,11 +2224,13 @@ describe("rows: named predicates and verbs, per model", () => {
     // Verbs are per model, not per mode: every combination shares them.
     expect(titled!.domain.verbs).toBe(all!.domain.verbs);
     // A value read by a verb's predicate alone makes the calls carry theirs.
-    expect(binding.parametric).toEqual([true, true]);
+    expect(all.values).toBeDefined();
+    expect(titled.values).toBeDefined();
     expect(
-      bound(declared({ post: { predicates: { titled: { title: "t" } } } }))
-        .parametric
-    ).toEqual([false]);
+      bound(
+        declared({ post: { predicates: { titled: { title: "t" } } } })
+      ).call("post", undefined).values
+    ).toBeUndefined();
   });
 
   test("an unknown model, predicate name or written field is refused at $extends, named by its place", () => {
@@ -2421,7 +2452,9 @@ describe("rows: named predicates and verbs, per model", () => {
       declared({
         post: { predicates: { both: { AND: [shared, { OR: [shared] }] } } },
       })
-    ).physical[0]!.domain.verbs!.get("post")![0]!;
+    )
+      .call("post", undefined)
+      .domain.verbs!.get("post")![0]!;
     expect(layer.read).toEqual({ OR: [] });
   });
 

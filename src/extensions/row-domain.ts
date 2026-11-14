@@ -31,7 +31,56 @@ import type { PreparedGuardFailure } from "@query-engine/types";
 import type { AnyModel } from "@schema/model";
 import type { Judge } from "./judge";
 import { layerOf } from "./layers";
+import { writeRefusal } from "./plain-domain";
 import type { Projection } from "./projection";
+
+/**
+ * What the engine and what judges or projects rows ask a call's prepared
+ * domain. {@link FilterDomain} answers for a chain whose parts filter, keep or
+ * judge rows; a chain that only orders and stamps rows answers with a domain
+ * that filters nothing (`plain-domain.ts`).
+ */
+export interface PreparedDomain {
+  readonly rows: RowDomain;
+  /** The domain absent controls select: what a layer's traversals read (R5). */
+  readonly defaults: PreparedDomain;
+  /** The view that prepares this domain's predicates. */
+  readonly queries: Queries;
+  /** What judges the rows a write produces: where some model's verbs judge them. */
+  readonly judge: Judge | undefined;
+  /** What a read carries and hides beside the rows: where some model's verbs say. */
+  readonly project: Projection | undefined;
+  prepare(model: AnyModel, input: Input): PreparedSelector;
+  conjunction(
+    model: AnyModel,
+    layers: Iterable<readonly [layer: number, inputs: readonly Input[]]>,
+    reading?: boolean
+  ): PreparedSelector | null;
+  reads(call: CallScope): Queries;
+  selector(
+    model: AnyModel,
+    purpose: RowPurpose,
+    excluded?: readonly number[],
+    judgement?: RowJudgement
+  ): PreparedSelector | undefined;
+  bound(
+    model: AnyModel,
+    excluded: readonly number[]
+  ): PreparedSelector | undefined;
+  restrictsLinkWrite(queries: Queries, model: AnyModel): boolean;
+  refusal(
+    operation: string,
+    model: AnyModel,
+    judgement?: RowJudgement,
+    nested?: readonly [verb: string, relation: string]
+  ): PreparedGuardFailure;
+  refuseHiddenLinkRow(
+    queries: Queries,
+    edge: Membership,
+    fields: readonly string[],
+    use: "read" | "filter"
+  ): void;
+}
 
 /**
  * One row domain as prepared meaning: per purpose and model, the conjunction
@@ -43,11 +92,9 @@ import type { Projection } from "./projection";
  * Prepared meaning holds no alias, adapter or driver, so the view's own
  * `Queries` prepares it.
  */
-export class PreparedDomain {
+export class FilterDomain implements PreparedDomain {
   readonly rows: RowDomain;
-  /** The domain absent controls select: what a layer's traversals read (R5). */
-  readonly defaults: PreparedDomain;
-  /** The view that prepares this domain's predicates. */
+  readonly defaults: FilterDomain;
   readonly queries: Queries;
   readonly #prepared = {
     root: new Map<string, PreparedSelector | null>(),
@@ -55,12 +102,10 @@ export class PreparedDomain {
   };
   readonly #inputs = new Map<Input, PreparedSelector>();
   readonly #bounds = new Map<string, PreparedSelector | null>();
-  /** What judges the rows a write produces: where some model's verbs judge them. */
   readonly judge: Judge | undefined;
-  /** What a read carries and hides beside the rows: where some model's verbs say. */
   readonly project: Projection | undefined;
   #view: Queries | undefined;
-  constructor(rows: RowDomain, queries: Queries, defaults?: PreparedDomain) {
+  constructor(rows: RowDomain, queries: Queries, defaults?: FilterDomain) {
     this.rows = rows;
     this.queries = queries;
     this.defaults = defaults ?? this;
@@ -223,20 +268,10 @@ export class PreparedDomain {
     judgement?: RowJudgement,
     nested?: readonly [verb: string, relation: string]
   ): PreparedGuardFailure {
-    if (nested)
-      return {
-        kind: "nestedWrite",
-        relation: nested[1],
-        message: `Cannot ${nested[0]} relation '${nested[1]}': the record it writes is not permitted.`,
-        raceable: false,
-      };
-    const forbidden: PreparedGuardFailure = {
-      kind: "forbidden",
-      message: `${operation} produced a row that is not permitted.`,
-      raceable: false,
-    };
-    const reason = judgement && this.judge?.reason(model, judgement);
-    return reason === undefined ? forbidden : { ...forbidden, reason };
+    const failure = writeRefusal(operation, nested);
+    const reason =
+      nested === undefined && judgement && this.judge?.reason(model, judgement);
+    return reason ? { ...failure, reason } : failure;
   }
   /**
    * What a direct read of the junction model would hide stays hidden from a
@@ -295,20 +330,16 @@ export function verbInputs(
  */
 const preparedDomains = new WeakMap<
   Queries,
-  WeakMap<RowDomain, PreparedDomain>
+  WeakMap<RowDomain, FilterDomain>
 >();
 
 function preparedDomain(
   queries: Queries,
   rows: RowDomain,
-  defaults?: PreparedDomain
-): PreparedDomain {
+  defaults?: FilterDomain
+): FilterDomain {
   const byDomain = memo(preparedDomains, queries, () => new WeakMap());
-  return memo(
-    byDomain,
-    rows,
-    () => new PreparedDomain(rows, queries, defaults)
-  );
+  return memo(byDomain, rows, () => new FilterDomain(rows, queries, defaults));
 }
 
 /** One call's row facts as the engine reads them: its domains prepared for `queries`. Stated on every {@link CallRows}. */

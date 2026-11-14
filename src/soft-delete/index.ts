@@ -10,9 +10,10 @@ import {
   type DelegateOperationResult,
   defineWith,
   type ExtensionState,
+  filtersPart,
+  keptRowsPart,
   methodsPart,
   type PendingOperation,
-  rowsPart,
   type VibORMClient,
   type VibORMConfig,
 } from "../index";
@@ -213,7 +214,8 @@ function apply<
   return base.$extends(
     defineWith(
       controlsPart,
-      rowsPart,
+      filtersPart,
+      keptRowsPart,
       methodsPart
     )(definitionOf<Config, C>(config, base.$schema))
   );
@@ -232,7 +234,9 @@ function rowsStep<
     base.$schema
   );
   admitMarkers(base.$schema, config);
-  return base.$extends(defineWith(controlsPart, rowsPart)(rows));
+  return base.$extends(
+    defineWith(controlsPart, filtersPart, keptRowsPart)(rows)
+  );
 }
 function methodsStep<
   Config extends SoftDeleteConfig,

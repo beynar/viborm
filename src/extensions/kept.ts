@@ -1,8 +1,8 @@
 /**
  * The rows a model keeps where a call deletes them: what such a row takes
  * instead of going, and what it meets where the database would have refused
- * its removal. The engine asks the call's tombstones; this module, loaded
- * with the extensions that declare a deletion, answers.
+ * its removal (`deletion`). The engine asks the call's tombstones; this
+ * module, loaded with the extensions that declare a deletion, answers.
  */
 import { assembleAdapterSelect } from "@adapters/adapter-internals";
 import type {
@@ -16,10 +16,7 @@ import {
   COUNT_LEAF,
   newSelectorFacts,
 } from "@query-engine/raptor3/shared/query";
-import type {
-  Tombstone,
-  Tombstones,
-} from "@query-engine/raptor3/shared/row-scope";
+import type { Tombstones } from "@query-engine/raptor3/shared/row-scope";
 import type { EngineSchema, Input } from "@query-engine/raptor3/shared/schema";
 import type { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import {
@@ -29,8 +26,28 @@ import {
 import type { Writer } from "@query-engine/raptor3/write/statements";
 import type { PreparedGuardFailure } from "@query-engine/types";
 import type { AnyModel } from "@schema/model";
+import { rebind, refuseUndeclared } from "./call-rows";
+import type { ExtensionPart } from "./chain";
+import type { ResolvedDeletion } from "./chain-state";
+import type { AdmittedControls } from "./controls";
+import { bindRows } from "./rows";
 
-export class Kept extends Map<string, Tombstone> implements Tombstones {
+/** Per managed model, what its deletes write instead, and who declared it. */
+export class Kept extends Map<string, ResolvedDeletion> implements Tombstones {
+  /**
+   * Whether a delete of `model` removes its rows: its entry names a
+   * `removeWhen` the call's controls match. That control is placed only on
+   * the deletes of the models the entry manages, so no other call matches.
+   */
+  removes(model: string, controls: AdmittedControls | undefined): boolean {
+    const removeWhen = this.get(model)?.removeWhen;
+    return (
+      removeWhen !== undefined &&
+      Object.entries(removeWhen).every(
+        ([control, value]) => controls?.[control] === value
+      )
+    );
+  }
   marks(writer: Writer, model: AnyModel): Input | undefined {
     const { scope, schema } = writer.operation;
     const mark = this.get(model["~"].names.ts!);
@@ -151,3 +168,38 @@ export class Kept extends Map<string, Tombstone> implements Tombstones {
     });
   }
 }
+
+const NO_ASSIGN: Readonly<Record<string, unknown>> = Object.freeze({});
+
+/**
+ * `deletion`: kept rows. A delete of a managed model is an update, which
+ * every filter of the chain reads as it reads any, so the filters' binding
+ * binds a chain that keeps rows.
+ */
+export const keptRowsPart: ExtensionPart = {
+  members: ["deletion"],
+  join(application) {
+    const { definition, chain, next } = application;
+    const { deletion, name: extension } = definition;
+    if (deletion === undefined) return;
+    refuseUndeclared(application, Object.keys(deletion.removeWhen ?? {}));
+    const kept = new Kept(chain?.kept);
+    for (const [model, entry] of Object.entries(deletion.models))
+      kept.set(
+        model,
+        Object.freeze({
+          extension,
+          ...entry,
+          assign: entry.assign ?? NO_ASSIGN,
+          ...(deletion.removeWhen === undefined
+            ? {}
+            : { removeWhen: deletion.removeWhen }),
+        })
+      );
+    next.kept = kept;
+    next.bindRows = bindRows;
+  },
+  seal(application) {
+    rebind(application, bindRows);
+  },
+};

@@ -1,22 +1,28 @@
-import {
-  type CallRows,
-  type ModelDomain,
-  type ModelStamps,
-  Parameter,
-  type RowDomain,
+/**
+ * Filters (`rows`): the rows each call may take, chosen by modes, admitted
+ * once per schema (`admission.ts`) and bound once per application into what
+ * each combination of modes selects. A chain whose parts filter, keep or
+ * judge rows binds its call facts here, with what its other parts posed: the
+ * kept rows, the stamps and the order.
+ */
+import type {
+  CallRows,
+  CallValues,
+  ModelDomain,
+  RowDomain,
 } from "@query-engine/raptor3/shared/row-scope";
 import { type Input, memo } from "@query-engine/raptor3/shared/schema";
-import { isPlainRecord } from "@schema/relation/terminal";
-import {
-  type AdmittedRows,
-  isInstant,
-  isReference,
-  type VerbsBound,
-} from "./admission";
-import type { ResolvedControls, ResolvedDeletion } from "./chain";
-import { type AdmittedControls, rowsModes } from "./controls";
-import type { RuntimeExtensionDefinition } from "./definition";
-import { Kept } from "./kept";
+import { type AdmittedRows, admitRows, type VerbsBound } from "./admission";
+import { rebind, refuseUndeclared } from "./call-rows";
+import type {
+  Application,
+  CallRowsBinding,
+  ExtensionPart,
+  ResolvedControls,
+  ResolvedExtensionChain,
+} from "./chain";
+import { type AdmittedControls, controlsPart, rowsModes } from "./controls";
+import { extensionError } from "./definition";
 import { prepareCall } from "./row-domain";
 
 /** One `rows` member: its control, and where each of its modes sits. */
@@ -29,173 +35,21 @@ interface BoundRowsMember {
   readonly stride: number;
 }
 
-/**
- * A chain's row facts, resolved once when an extension is applied: one
- * {@link CallRows} per combination of its `rows` members' modes, with and
- * without the tombstones, each with the chain's `data` stamps, so a call only
- * looks its facts up. The predicates hold the values they read as
- * parameters, prepared once for every call: a call whose combination reads
- * one carries its values beside the shared domains. When a stamp names a
- * control, the call's values are put in its stamps for that call alone.
- */
-export interface RowsBinding {
-  readonly members: readonly BoundRowsMember[];
-  readonly deletion: Readonly<Record<string, ResolvedDeletion>>;
-  /** Indexed by mode combination: the call writes tombstones. */
-  readonly tombstoning: readonly CallRows[];
-  /** Indexed by mode combination: the call deletes physically. */
-  readonly physical: readonly CallRows[];
-  /**
-   * Indexed by mode combination: its domain or the default one reads a call
-   * value, so its calls carry their values.
-   */
-  readonly parametric: readonly boolean[];
-  /** A stamp names a control: each call puts its values in the stamps. */
-  readonly bindsStamps: boolean;
-  /** Whether a call must pass a control to touch a model directly. */
-  readonly required: RequiredOn;
-  /** One call's row facts, from the controls it admitted ({@link callRows}). */
-  readonly call: (
-    model: string,
-    controls: AdmittedControls | undefined
-  ) => CallRows;
+/** What one combination of modes selects, with and without the tombstones. */
+interface Combination {
+  /** The call writes tombstones. */
+  readonly tombstoning: CallRows;
+  /** The call deletes physically. */
+  readonly physical: CallRows;
+  /** Its domain or the default one reads a call value: its calls carry their values. */
+  readonly parametric: boolean;
 }
 
-type RequiredOn = (control: string, model: string) => boolean;
+type RequiredOn = CallValues["required"];
 
 const NEVER_REQUIRED: RequiredOn = () => false;
 
-const NO_DELETION: Readonly<Record<string, ResolvedDeletion>> = Object.freeze(
-  Object.create(null)
-);
-
 const NO_CONTROLS: AdmittedControls = Object.freeze({});
-
-/** A named control the call did not pass. */
-const ABSENT = Symbol("absent");
-
-/**
- * A stamp's value with each reference it holds, at any depth, given what
- * `read` answers for it: itself when it holds none, {@link ABSENT} where
- * `read` answers nothing.
- */
-function stampValue(
-  value: unknown,
-  read: (control: string, path: string | undefined) => unknown
-): unknown {
-  if (isReference(value)) {
-    const given = read(value.control, value.path);
-    return given === undefined ? ABSENT : given;
-  }
-  if (Array.isArray(value)) {
-    const items = value.map((item) => stampValue(item, read));
-    if (items.includes(ABSENT)) return ABSENT;
-    return items.every((item, index) => item === value[index]) ? value : items;
-  }
-  if (!isPlainRecord(value)) return value;
-  let copy: Record<string, unknown> | undefined;
-  for (const [key, item] of Object.entries(value)) {
-    const bound = stampValue(item, read);
-    if (bound === ABSENT) return ABSENT;
-    if (bound !== item) (copy ??= { ...value })[key] = bound;
-  }
-  return copy ?? value;
-}
-
-/** The controls a stamp's fields name: its own keys are fields, never values. */
-function collectStampReferences(
-  stamp: Input | undefined,
-  names: Set<string>
-): void {
-  for (const value of Object.values(stamp ?? {}))
-    stampValue(value, (control) => names.add(control));
-}
-
-/**
- * The controls a definition names but does not declare; the chain admits
- * those an earlier extension declares.
- */
-export function undeclaredControlReferencesOf(
-  definition: RuntimeExtensionDefinition
-): readonly string[] {
-  const declared = new Set(Object.keys(definition.controls ?? {}));
-  const references = new Set<string>();
-  const { rows } = definition;
-  if (rows) {
-    declared.add(rows.control);
-    // Admission recorded the controls its predicates name.
-    for (const names of [
-      ...Object.values(rows.references!.modes),
-      rows.references!.verbs,
-    ])
-      for (const name of names) if (name !== undefined) references.add(name);
-  }
-  for (const entry of Object.values(definition.data?.models ?? {})) {
-    collectStampReferences(entry.create, references);
-    collectStampReferences(entry.update, references);
-  }
-  for (const name of Object.keys(definition.deletion?.removeWhen ?? {}))
-    references.add(name);
-  return [...references].filter((name) => !declared.has(name));
-}
-
-/**
- * A stamp bound: a field whose value names a control the call did not pass is
- * not written. The same object when no field names a control.
- */
-function boundStamp(
-  stamp: Input | undefined,
-  controls: AdmittedControls | undefined
-): Input | undefined {
-  if (stamp === undefined) return undefined;
-  const read = (control: string, path: string | undefined) => {
-    let given = controls?.[control];
-    for (const key of path === undefined ? [] : path.split("."))
-      given =
-        isPlainRecord(given) && Object.hasOwn(given, key)
-          ? given[key]
-          : undefined;
-    return given;
-  };
-  const values: Record<string, unknown> = {};
-  let changed = false;
-  for (const [field, value] of Object.entries(stamp)) {
-    const bound = stampValue(value, read);
-    changed ||= bound !== value;
-    if (bound !== ABSENT) values[field] = bound;
-  }
-  return changed ? Object.freeze(values) : stamp;
-}
-
-/** Each model's stamps bound; an entry naming no control is kept as is. */
-function boundStamps(
-  stamps: ReadonlyMap<string, ModelStamps>,
-  controls: AdmittedControls | undefined
-): ReadonlyMap<string, ModelStamps> {
-  const bound = new Map<string, ModelStamps>();
-  for (const [model, entry] of stamps) {
-    const create = boundStamp(entry.create, controls);
-    const update = boundStamp(entry.update, controls);
-    bound.set(
-      model,
-      create === entry.create && update === entry.update
-        ? entry
-        : Object.freeze({ create, update })
-    );
-  }
-  return bound;
-}
-
-/** The call's one instant, where a stamp's field writes `{ now: true }`. */
-const NOW = new Parameter();
-
-/** A stamp with each `{ now: true }` field as {@link NOW}: itself without one. */
-function withInstants(stamp: Input | undefined): Input | undefined {
-  let copy: Record<string, unknown> | undefined;
-  for (const [field, value] of Object.entries(stamp ?? {}))
-    if (isInstant(value)) (copy ??= { ...stamp })[field] = NOW;
-  return copy === undefined ? stamp : Object.freeze(copy);
-}
 
 /** The chain's `required` declarations as one test, by control and model. */
 function requiredOn(controls: ResolvedControls | undefined): RequiredOn {
@@ -245,153 +99,202 @@ function modelDomain(
   };
 }
 
-export function bindRows(
-  rows: readonly AdmittedRows[] | undefined,
-  deletion: Readonly<Record<string, ResolvedDeletion>> | undefined,
-  data?: Readonly<Record<string, ModelStamps>>,
-  controls?: ResolvedControls,
-  order?: Readonly<Record<string, readonly Input[]>>
-): RowsBinding {
-  const declared = rows ?? [];
-  let stride = 1;
-  const members = declared.map((member): BoundRowsMember => {
-    const modes = rowsModes(member);
-    const bound = {
-      control: member.control,
-      names: modes,
-      modes: new Map<unknown, number>(
-        modes.map((mode, index) => [mode, index])
-      ),
-      fallback: modes.indexOf(member.default),
-      stride,
+/**
+ * A chain's row facts, resolved once when an extension is applied: what
+ * each combination of its `rows` members' modes selects, built the first
+ * time a call takes it, with the chain's kept rows, stamps and order, so a
+ * call only looks its facts up. The predicates hold the values they read as
+ * parameters, prepared once for every call: a call whose combination reads
+ * one carries its values beside the shared domains.
+ */
+export class RowsBinding implements CallRowsBinding {
+  readonly members: readonly BoundRowsMember[];
+  readonly #chain: ResolvedExtensionChain;
+  readonly #rows: readonly AdmittedRows[];
+  readonly #verbs: Omit<VerbsBound, "reads">;
+  /** One of the verbs' predicates may read a call value. */
+  readonly #verbsRead: boolean;
+  readonly #order: ReadonlyMap<string, readonly Input[]> | undefined;
+  readonly #required: RequiredOn;
+  readonly #domains = new Map<number, RowDomain>();
+  readonly #combinations = new Map<number, Combination>();
+  /** The combination absent controls select. */
+  readonly #fallback: number;
+  constructor(chain: ResolvedExtensionChain) {
+    const rows = chain.rows ?? [];
+    let stride = 1;
+    this.members = rows.map((member): BoundRowsMember => {
+      const modes = rowsModes(member);
+      const bound = {
+        control: member.control,
+        names: modes,
+        modes: new Map<unknown, number>(
+          modes.map((mode, index) => [mode, index])
+        ),
+        fallback: modes.indexOf(member.default),
+        stride,
+      };
+      stride *= modes.length;
+      return bound;
+    });
+    // What reads the verbs and confinements, where a member declares one.
+    const binder = rows.find((member) => member.bind !== undefined)?.bind;
+    const { reads, ...verbs }: VerbsBound = binder?.(rows, chain.controls) ?? {
+      reads: false,
     };
-    stride *= modes.length;
-    return bound;
-  });
-  // What reads the verbs and confinements, where a member declares one.
-  const binder = declared.find((member) => member.bind !== undefined)?.bind;
-  const { reads: verbsRead, ...verbs }: VerbsBound = binder?.(
-    declared,
-    controls
-  ) ?? { reads: false };
-  const orders = order && new Map(Object.entries(order));
-  const domains: RowDomain[] = [];
-  const reading: boolean[] = [];
-  for (let combination = 0; combination < stride; combination++) {
-    const modes = members.map(
+    this.#chain = chain;
+    this.#rows = rows;
+    this.#verbs = verbs;
+    this.#verbsRead = reads;
+    this.#order = chain.order && new Map(Object.entries(chain.order));
+    this.#required = requiredOn(chain.controls);
+    this.#fallback = this.members.reduce(
+      (index, member) => index + member.fallback * member.stride,
+      0
+    );
+  }
+  /** Each member's mode in `combination`. */
+  #modes(combination: number): readonly string[] {
+    return this.members.map(
       (member) =>
         member.names[
           Math.floor(combination / member.stride) % member.names.length
         ]!
     );
-    domains.push(
-      Object.freeze({
-        root: modelDomain(declared, modes, "root", verbs.verbs),
-        related: modelDomain(declared, modes, "related", verbs.verbs),
+  }
+  /** What `combination` selects, one domain for every call that takes it. */
+  #domain(combination: number): RowDomain {
+    return memo(this.#domains, combination, () => {
+      const modes = this.#modes(combination);
+      const verbs = this.#verbs;
+      return Object.freeze({
+        root: modelDomain(this.#rows, modes, "root", verbs.verbs),
+        related: modelDomain(this.#rows, modes, "related", verbs.verbs),
         ...verbs,
-        ...(orders && { order: orders }),
-      })
-    );
-    reading.push(
-      verbsRead ||
-        modes.some(
-          (mode, layer) =>
-            (declared[layer]!.references!.modes[mode]?.length ?? 0) > 0
-        )
+        ...(this.#order && { order: this.#order }),
+      });
+    });
+  }
+  /** Whether `combination`'s predicates read a call value. */
+  #reads(combination: number): boolean {
+    return (
+      this.#verbsRead ||
+      this.#modes(combination).some(
+        (mode, layer) =>
+          (this.#rows[layer]!.references!.modes[mode]?.length ?? 0) > 0
+      )
     );
   }
-  const fallback = members.reduce(
-    (index, member) => index + member.fallback * member.stride,
-    0
-  );
-  const defaults = domains[fallback]!;
-  const tombstones =
-    deletion === undefined ? undefined : new Kept(Object.entries(deletion));
-  const stamps =
-    data === undefined
-      ? undefined
-      : new Map(
-          Object.entries(data).map(([model, entry]) => {
-            const create = withInstants(entry.create);
-            const update = withInstants(entry.update);
-            return [
-              model,
-              create === entry.create && update === entry.update
-                ? entry
-                : Object.freeze({ create, update }),
-            ] as const;
-          })
-        );
-  const stampReferences = new Set<string>();
-  for (const entry of stamps?.values() ?? []) {
-    collectStampReferences(entry.create, stampReferences);
-    collectStampReferences(entry.update, stampReferences);
-  }
-  const physical = domains.map((domain) =>
-    Object.freeze({
-      domain,
-      defaults,
-      ...(stamps && { stamps }),
+  #combination(combination: number): Combination {
+    const { kept, stamps } = this.#chain;
+    const physical: CallRows = Object.freeze({
+      domain: this.#domain(combination),
+      defaults: this.#domain(this.#fallback),
+      ...(stamps && { stamps: stamps.all }),
       prepare: prepareCall,
-    })
-  );
-  const binding: RowsBinding = Object.freeze({
-    members,
-    deletion: deletion ?? NO_DELETION,
-    physical,
-    tombstoning:
-      tombstones === undefined
-        ? physical
-        : physical.map((facts) => Object.freeze({ ...facts, tombstones })),
-    parametric: reading.map((reads) => reads || reading[fallback]!),
-    bindsStamps: stampReferences.size > 0,
-    required: requiredOn(controls),
-    call: (model, admitted) => callRows(binding, model, admitted),
-  });
-  return binding;
+    });
+    return {
+      physical,
+      tombstoning:
+        kept === undefined
+          ? physical
+          : Object.freeze({ ...physical, tombstones: kept }),
+      parametric: this.#reads(combination) || this.#reads(this.#fallback),
+    };
+  }
+  /**
+   * One call's row facts, from the controls it admitted: the modes its
+   * `rows` controls chose (an absent one reads as its default), and whether
+   * it deletes physically ({@link Kept.removes}). When its predicates read a
+   * call value, the call carries its controls; when a stamp names a control,
+   * the call's values are put in.
+   */
+  call(model: string, controls: AdmittedControls | undefined): CallRows {
+    let index = 0;
+    for (const member of this.members) {
+      index +=
+        member.stride *
+        (member.modes.get(controls?.[member.control]) ?? member.fallback);
+    }
+    const combination = memo(this.#combinations, index, () =>
+      this.#combination(index)
+    );
+    const { kept, stamps } = this.#chain;
+    const facts =
+      kept?.removes(model, controls) === true
+        ? combination.physical
+        : combination.tombstoning;
+    const { parametric } = combination;
+    const stamped = stamps?.named === true;
+    if (!(parametric || stamped)) return facts;
+    return Object.freeze({
+      ...facts,
+      ...(parametric && {
+        values: Object.freeze({
+          controls: controls ?? NO_CONTROLS,
+          required: this.#required,
+        }),
+      }),
+      ...(stamped && { stamps: stamps.of(controls) }),
+    });
+  }
+}
+
+/** The call facts of a chain whose parts filter, keep or judge rows. */
+export const bindRows = (chain: ResolvedExtensionChain): RowsBinding =>
+  new RowsBinding(chain);
+
+/** The controls an admitted member's predicates name, its mode control aside. */
+function namedControls(rows: AdmittedRows): (string | undefined)[] {
+  const { modes, verbs } = rows.references!;
+  return [...Object.values(modes).flat(), ...verbs];
 }
 
 /**
- * One call's row facts, from the controls it admitted: the modes its `rows`
- * controls chose (an absent one reads as its default), and whether it deletes
- * physically — its model's `deletion` entry names a `removeWhen` the call's
- * controls match. That control is placed only on the deletes of the models
- * the entry manages, so no other call can match it. When its predicates read
- * a call value, the call carries its controls; when a stamp names a control,
- * the call's values are put in.
+ * `rows` admitted where the extension is applied, through each model's
+ * `where` schema, unless it declares `verbs` or `confine`: what reads those
+ * admits it then ({@link verbsPart}).
  */
-export function callRows(
-  binding: RowsBinding,
-  model: string,
-  controls: AdmittedControls | undefined
-): CallRows {
-  let combination = 0;
-  for (const member of binding.members) {
-    combination +=
-      member.stride *
-      (member.modes.get(controls?.[member.control]) ?? member.fallback);
-  }
-  const removeWhen = binding.deletion[model]?.removeWhen;
-  const physical =
-    removeWhen !== undefined &&
-    Object.entries(removeWhen).every(
-      ([control, value]) => controls?.[control] === value
-    );
-  const facts = (physical ? binding.physical : binding.tombstoning)[
-    combination
-  ]!;
-  const parametric = binding.parametric[combination]!;
-  if (!(parametric || binding.bindsStamps)) return facts;
-  return Object.freeze({
-    ...facts,
-    ...(parametric && {
-      values: Object.freeze({
-        controls: controls ?? NO_CONTROLS,
-        required: binding.required,
-      }),
-    }),
-    ...(binding.bindsStamps && {
-      stamps: boundStamps(facts.stamps!, controls),
-    }),
+export function admitFilters(application: Application): void {
+  const { definition, schema, registry } = application;
+  const { rows } = definition;
+  if (
+    rows === undefined ||
+    rows.verbs !== undefined ||
+    rows.confine !== undefined
+  )
+    return;
+  application.definition = Object.freeze({
+    ...definition,
+    rows: admitRows(rows, schema, definition.name, registry),
   });
 }
+
+/**
+ * `rows`: filters. Its mode control is placed by the controls part, which it
+ * brings. A member that declares `verbs` or `confine` is admitted by what
+ * reads them: without it, it is refused rather than read as filters alone.
+ */
+export const filtersPart: ExtensionPart = {
+  members: ["rows"],
+  uses: [controlsPart],
+  admit: admitFilters,
+  join(application) {
+    const { definition, chain, next } = application;
+    const { rows } = definition;
+    if (rows === undefined) return;
+    if (rows.references === undefined)
+      extensionError(
+        "An extension whose `rows` declare `verbs` or `confine` must be built with defineExtension().",
+        definition.name
+      );
+    // A lazy `verbs` entry's references are checked when it is resolved, by
+    // the binding, against what the chain declared where it was applied.
+    refuseUndeclared(application, namedControls(rows));
+    next.rows = Object.freeze([...(chain?.rows ?? []), rows]);
+    next.bindRows = bindRows;
+  },
+  seal(application) {
+    rebind(application, bindRows);
+  },
+};
