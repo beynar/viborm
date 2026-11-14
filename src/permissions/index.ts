@@ -421,26 +421,20 @@ export interface Policy<Config extends PermissionsConfig> {
   ): CompiledPolicy;
 }
 
-/** The actions each root operation needs its model to grant (R9, K4). */
-const VERBS_OF: Readonly<Record<string, readonly string[]>> = {
-  findMany: ["read"],
-  findFirst: ["read"],
-  findUnique: ["read"],
-  findFirstOrThrow: ["read"],
-  findUniqueOrThrow: ["read"],
-  count: ["read"],
-  aggregate: ["read"],
-  groupBy: ["read"],
-  exist: ["read"],
-  create: ["create"],
-  createMany: ["create"],
-  update: ["update"],
-  updateMany: ["update"],
-  // An upsert's update is judged where it locates its row.
-  upsert: ["create"],
-  delete: ["delete"],
-  deleteMany: ["delete"],
-};
+const READS = /^(find|count|aggregate|groupBy|exist)/;
+const CREATES = /^(create|upsert)/;
+const WRITES = /^(update|delete)/;
+
+/**
+ * The action a root operation needs its model to grant (R9, K4), named by
+ * its family: an upsert's update is judged where it locates its row.
+ */
+const actionOf = (operation: string): string | undefined =>
+  READS.test(operation)
+    ? "read"
+    : CREATES.test(operation)
+      ? "create"
+      : WRITES.exec(operation)?.[0];
 
 /** What a root call may reach on one model before its predicates run (R9). */
 interface Reach {
@@ -509,28 +503,6 @@ function scopeSchema(
       },
     },
   };
-}
-
-/** Whether `name` has a self relation holding its key: what `acyclic` may name. */
-function selfKeyed(schema: Schema, name: string): boolean {
-  const relations = (
-    schema[name]!["~"].state as unknown as {
-      relations: Record<
-        string,
-        {
-          "~": {
-            state: { foreignKey?: unknown };
-            settleTarget(): unknown;
-          };
-        }
-      >;
-    }
-  ).relations;
-  return Object.values(relations).some(
-    (relation) =>
-      relation["~"].state.foreignKey !== undefined &&
-      relation["~"].settleTarget() === schema[name]
-  );
 }
 
 function reachOf(
@@ -759,9 +731,9 @@ export function permissions<const Config extends PermissionsConfig>(
               Object.hasOwn(model.modes, mode) ? P(model.modes[mode]) : nothing
             )
           ),
-      // Only a self relation holding the model's key can be kept acyclic,
-      // and knowing which takes every model compiled.
-      selfKeyed(schema, name) ? () => compiler.acyclic(name) : undefined
+      // Knowing which self relations are kept acyclic takes every model
+      // compiled: they are read when an update first writes a self key.
+      () => compiler.acyclic(name)
     );
   };
   const governed = extension(
@@ -804,9 +776,10 @@ export function permissions<const Config extends PermissionsConfig>(
       if (c.kind !== "model" || c.model === undefined) return;
       const at = applied.get(c.schema)?.reach.get(c.model);
       const mode: unknown = c.values[MODE];
+      const action = actionOf(c.operation);
       if (
         !at?.listed ||
-        (VERBS_OF[c.operation] ?? []).some((verb) => !at.verbs.has(verb)) ||
+        (action !== undefined && !at.verbs.has(action)) ||
         (typeof mode === "string" && !at.modes.has(mode))
       )
         throw new ForbiddenError(c.model, c.operation);

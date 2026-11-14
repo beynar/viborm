@@ -481,21 +481,6 @@ export function policyArguments(config: PermissionsConfig): {
   }
 }
 
-const isScalar = (value: unknown): value is string | number | boolean =>
-  typeof value === "string" ||
-  typeof value === "number" ||
-  typeof value === "boolean";
-
-/** A compiled condition's test, as `provided` reads it. */
-function argTest(test: Readonly<Record<string, unknown>>): ArgTest {
-  if (typeof test.exists === "boolean") return { exists: test.exists };
-  if (isScalar(test.equals)) return { equals: test.equals };
-  if (isScalar(test.has)) return { has: test.has };
-  if (Array.isArray(test.in)) return { in: test.in };
-  if (Array.isArray(test.hasSome)) return { hasSome: test.hasSome };
-  throw new TypeError("viborm/permissions compiled a condition it cannot test");
-}
-
 /** `{ control, path? }`: an argument's value, as the compiler writes one. */
 const isReference = (
   value: Record<string, unknown>
@@ -546,7 +531,8 @@ export function wordsOf(
         nodes.push(
           provided(
             arg(control as string, path as string | undefined),
-            argTest(test)
+            // The rule's admission checks the test and refuses another shape.
+            test as ArgTest
           )
         );
       }
