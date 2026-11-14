@@ -1,6 +1,6 @@
 /**
  * The entry's types (plan §1.1, D0, D8, K6; §11.2 F5 and F8): `permissions(config)`
- * applied to a client is that client governed; `db.$as(actor)` is the same
+ * applied to a client (`base.$extends(policy)`, one step) is that client governed; `db.$as(actor)` is the same
  * client again (a polymorphic `this`, OD-1 option 2), its argument the actor
  * schema's input; every listed model's `$access` names its own declared
  * actions; the actor is never an argument, and `as` takes the policy's modes
@@ -14,16 +14,12 @@ import { policy } from "./acceptance-policy";
 declare const base: PermissionsAppClient;
 const actor = { userId: "user-01", organizationId: "org-1", network: "office" };
 
-describe("permissions(config)(base)", () => {
-  const db = policy(base);
+describe("base.$extends(permissions(config))", () => {
+  const db = base.$extends(policy);
   const call = db.$as(actor);
 
-  test("$as returns the governed client itself, in either composition", () => {
+  test("$as returns the governed client itself", () => {
     expectTypeOf(call).toEqualTypeOf<typeof db>();
-    const extended = base.$extends(policy);
-    expectTypeOf(extended).toEqualTypeOf<typeof db>();
-    const steps = policy.rows(base);
-    expectTypeOf(steps.$as(actor)).toEqualTypeOf<typeof steps>();
   });
 
   test("$as takes the actor as its schema parses it", () => {

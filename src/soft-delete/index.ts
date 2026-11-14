@@ -11,6 +11,7 @@ import {
   type AnyTarget,
   type ClientSchema,
   type DelegateOperationArgs,
+  type DelegateOperationPayload,
   type DelegateOperationResult,
   type Exact,
   type Extension,
@@ -36,18 +37,26 @@ const NAME = "viborm.softDelete";
 
 // restore and purge take the model's own update and delete arguments
 // (restore minus `data`); other keys are flagged.
+// They are read from the delegate's own client (`Self`): written apart from
+// any client, the extension's own target knows no model.
 type ArgsOf<
   C extends VibORMConfig,
   K,
   O extends "update" | "updateMany" | "delete" | "deleteMany",
-> = OperationPayload<O, ClientSchema<C>[K & keyof ClientSchema<C>]>;
+  Self,
+> = DelegateOperationPayload<
+  Self,
+  O,
+  OperationPayload<O, ClientSchema<C>[K & keyof ClientSchema<C>]>
+>;
 type RestoreArgs<
   C extends VibORMConfig,
   K,
   O extends "update" | "updateMany",
-> = Omit<ArgsOf<C, K, O>, "data">;
-type PurgeManyArgs<C extends VibORMConfig, K> = NonNullable<
-  ArgsOf<C, K, "deleteMany">
+  Self,
+> = Omit<ArgsOf<C, K, O, Self>, "data">;
+type PurgeManyArgs<C extends VibORMConfig, K, Self> = NonNullable<
+  ArgsOf<C, K, "deleteMany", Self>
 >;
 type NoExtra<A, R> = A & Record<Exclude<keyof A, keyof R>, never>; // flags data and typos
 
@@ -61,25 +70,31 @@ type NoExtra<A, R> = A & Record<Exclude<keyof A, keyof R>, never>; // flags data
 export type SoftDeleteMethods<C extends VibORMConfig, K> = {
   restore<
     Self,
-    const A extends DelegateOperationArgs<Self, RestoreArgs<C, K, "update">>,
+    const A extends DelegateOperationArgs<
+      Self,
+      RestoreArgs<C, K, "update", Self>
+    >,
   >(
     this: Self,
-    args: NoExtra<A, RestoreArgs<C, K, "update">>
+    args: NoExtra<A, RestoreArgs<C, K, "update", Self>>
   ): PendingOperation<DelegateOperationResult<Self, "update", A>>;
-  restoreMany<Self, A extends RestoreArgs<C, K, "updateMany">>(
+  restoreMany<Self, A extends RestoreArgs<C, K, "updateMany", Self>>(
     this: Self,
-    args: NoExtra<A, RestoreArgs<C, K, "updateMany">>
+    args: NoExtra<A, RestoreArgs<C, K, "updateMany", Self>>
   ): PendingOperation<DelegateOperationResult<Self, "updateMany", A>>;
   purge<
     Self,
-    const A extends DelegateOperationArgs<Self, ArgsOf<C, K, "delete">>,
+    const A extends DelegateOperationArgs<Self, ArgsOf<C, K, "delete", Self>>,
   >(
     this: Self,
-    args: NoExtra<A, ArgsOf<C, K, "delete">>
+    args: NoExtra<A, ArgsOf<C, K, "delete", Self>>
   ): PendingOperation<DelegateOperationResult<Self, "delete", A>>;
-  purgeMany<Self, A extends PurgeManyArgs<C, K> = PurgeManyArgs<C, K>>(
+  purgeMany<
+    Self,
+    A extends PurgeManyArgs<C, K, Self> = PurgeManyArgs<C, K, Self>,
+  >(
     this: Self,
-    args?: NoExtra<A, PurgeManyArgs<C, K>>
+    args?: NoExtra<A, PurgeManyArgs<C, K, Self>>
   ): PendingOperation<DelegateOperationResult<Self, "deleteMany", A>>;
 };
 

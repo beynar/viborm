@@ -97,6 +97,7 @@ import type {
   ComputedOperation,
   ComputedResultContext,
   ContextualOperationResult,
+  OperationPayload,
   Operations,
   Schema,
   WithComputedResult,
@@ -707,6 +708,25 @@ export type ExtendedOperationResult<
       : never
     : never
   : never;
+
+/**
+ * One operation's own arguments on the model delegate `Delegate`, read from
+ * the client that delegate belongs to: what a model method written apart
+ * from any client (an official extension's, its target unknown) takes.
+ * `Fallback` where the delegate carries no chain.
+ */
+export type DelegateOperationPayload<
+  Delegate,
+  O extends Operations,
+  Fallback = never,
+> = Delegate extends DelegateState<
+  infer C extends VibORMConfig,
+  unknown,
+  unknown,
+  infer K
+>
+  ? OperationPayload<O, ClientSchema<C>[K & keyof ClientSchema<C>]>
+  : Fallback;
 
 /**
  * One operation's arguments on the model delegate `Delegate` it would run on:

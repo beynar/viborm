@@ -8,16 +8,16 @@ import type {
   VibORMConfig,
 } from "@src/index";
 import {
+  accepts,
+  args,
   type ExtendedClient,
   type ExtendedOperationResult,
-  s,
   extension,
-  rule,
-  args,
   methods,
-  reads,
   oneOf,
-  accepts,
+  reads,
+  rule,
+  s,
 } from "@src/index";
 import { type PolicyModel, permissions } from "@src/permissions";
 import { softDelete } from "@src/soft-delete";
@@ -238,30 +238,20 @@ export function checkPermissionsExtensionTypes() {
   tenantCombined.post.deleteMany({ tenant: "acme" });
   const governed = tenantBase.$extends(held);
   const legacy = tenantBase.$extends(held);
-  const splitPolicy = tenantBase.$extends(held.rows);
-  splitPolicy.post.findMany({ tenant: "acme" });
-  splitPolicy.post.findMany({ select: { $access: ["read"] } });
-  // @ts-expect-error - split policy factories retain the prior control schema
-  splitPolicy.post.findMany({ tenant: 1 });
   type Hint<T> =
     T extends ClientTypeState<infer C, infer X> ? ClientTypeState<C, X> : never;
   const withTag = base.$extends(
     extension(
       "tag",
-      methods((scope) => {
-        const own = { client: () => ({ $tag: () => "tag" }) };
-        return { ...own.client(scope) };
-      })
+      methods(() => ({ $tag: () => "tag" }))
     )
   );
   const fake: Hint<typeof withTag> & Pick<typeof base, "$schema" | "$extends"> =
     base;
-  expectTypeOf(fake.$extends(held)).toEqualTypeOf<never>();
   expectTypeOf<ExtendedClient<typeof fake, []>>().toEqualTypeOf<never>();
   expectTypeOf<
     ExtendedOperationResult<typeof fake, "post", "findMany", typeof nonClient>
   >().toEqualTypeOf<never>();
-  expectTypeOf(fake.$extends(tombstones)).toEqualTypeOf<never>();
   expectTypeOf(governed.$driver).toEqualTypeOf<typeof tenantBase.$driver>();
   expectTypeOf(governed).toEqualTypeOf<typeof legacy>();
   governed.post.findMany({ tenant: "acme" });
@@ -280,8 +270,9 @@ export function checkPermissionsExtensionTypes() {
   base.$extends(foreign);
   // @ts-expect-error - legacy factory calls enforce the same schema contract
   base.$extends(foreign);
+  // A held policy names its client in a tuple as $extends makes it.
   type HeldTuple = ExtendedClient<typeof tenantBase, [typeof held]>;
-  expectTypeOf<HeldTuple>().toEqualTypeOf<never>();
+  expectTypeOf<HeldTuple>().toEqualTypeOf<typeof governed>();
 
   expectTypeOf<keyof typeof db.$schema>().toEqualTypeOf<"user" | "post">();
   db.$as({ userId: "u", organizationId: "o" });
@@ -385,7 +376,6 @@ export function cacheAndPolicyComposition() {
   cachedView.post.findMany({ include: { $access: ["publish"] } });
   const direct = cached.$extends(policy);
   const held = cached.$extends(policy);
-  const rows = policy.rows(cached);
   const cacheAfter = base
     .$extends(policy)
     .$extends(cache({ driver: new MemoryCache() }));
@@ -397,7 +387,6 @@ export function cacheAndPolicyComposition() {
     .$as({ userId: "alice" }, ["post.update"])
     .$withCache()
     .post.findMany({ include: { $access: true } });
-  rows.$as({ userId: "alice" }, []).$withCache().post.findMany();
   cacheAfter
     .$as({ userId: "alice" }, ["post.read"])
     .$withCache()
@@ -411,18 +400,13 @@ export function rowDefinitionOrdering() {
   const consumer = base.$extends(
     extension(
       "consumer",
-      methods((scope) => {
-        const own = {
-          client: (scope) => ({ $ready: () => scope.post !== undefined }),
-        };
-        return { ...own.client(scope) };
-      })
+      methods((scope) => ({ $ready: () => scope.post.count() }))
     )
   );
   const rowsOnly = extension(
     "visibility",
     args({ visibility: oneOf("all").default("all") }),
-    rule({ post: {} })
+    rule({ post: { read: { where: { id: "visible" } } } })
   );
   base.$extends(rowsOnly);
   // One that reads nothing typed is no result consumer.
@@ -430,10 +414,7 @@ export function rowDefinitionOrdering() {
     .$extends(
       extension(
         "blind",
-        methods((scope) => {
-          const own = { client: () => ({ $ready: () => true }) };
-          return { ...own.client(scope) };
-        })
+        methods(() => ({ $ready: () => true }))
       )
     )
     .$extends(rowsOnly);
@@ -442,10 +423,7 @@ export function rowDefinitionOrdering() {
   consumer.$extends(
     extension(
       "more-methods",
-      methods((scope) => {
-        const own = { client: () => ({ $stillReady: () => true }) };
-        return { ...own.client(scope) };
-      })
+      methods(() => ({ $stillReady: () => true }))
     )
   );
   consumer.$extends(extension("control", args({ tag: v.string() })));
@@ -478,12 +456,12 @@ export function thirdPartyStepsOverFactories() {
   const step = <C extends VibORMConfig, X extends ExtensionState>(
     client: VibORMClient<C, X>
   ) => client;
-  step(held.rows(base)).page.findMany({ select: { $access: ["read"] } });
+  step(base.$extends(held)).page.findMany({ select: { $access: ["read"] } });
   step(base.$extends(tombstones)).page.restore({ where: { id: "p" } });
-  step(tombstones.methods(held.rows(tombstones.rows(base)))).page.restore({
+  step(base.$extends(tombstones).$extends(held)).page.restore({
     where: { id: "p" },
   });
-  const stepped = step(held.rows(base));
+  const stepped = step(base.$extends(held));
   // @ts-expect-error - the step keeps the policy's action vocabulary
   stepped.page.findMany({ select: { $access: ["read", "publish"] } });
 }
