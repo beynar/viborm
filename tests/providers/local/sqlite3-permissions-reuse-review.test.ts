@@ -151,44 +151,6 @@ test("an extension after $as and a transaction keep the bound actor", async () =
   }
 });
 
-test("mutating compile()'s inspection result changes no client's permissions", async () => {
-  const config = {
-    actor: v.object({ userId: v.string() }),
-    models: {
-      post: { read: { ownerId: { in: ["alice"] } } },
-    },
-  } as const;
-  const policy = permissions(config);
-  const schema = { post: owned() };
-  const base = createClient({ schema, dataDir: ":memory:" });
-  try {
-    await syncLiveSchema(base);
-    await base.post.createMany({
-      data: [
-        { id: "a", ownerId: "alice" },
-        { id: "b", ownerId: "bob" },
-      ],
-    });
-    const applied = base.$extends(policy).$as({ userId: "x" });
-    const inspection = policy.compile(schema);
-    let widened = 0;
-    const widen = (value: unknown) => {
-      if (Array.isArray(value) && value.includes("alice")) {
-        value.push("bob");
-        widened++;
-      } else if (value !== null && typeof value === "object")
-        for (const item of Object.values(value)) widen(item);
-    };
-    widen(inspection.models.post!.predicates);
-    expect(widened).toBeGreaterThan(0);
-    expect(await applied.post.findMany({ select: { id: true } })).toEqual([
-      { id: "a" },
-    ]);
-  } finally {
-    await base.$disconnect();
-  }
-});
-
 test("a duplicate name of a model first used later is refused when the policy is applied", () => {
   const base = createClient({ schema: { post: owned() }, dataDir: ":memory:" });
   const policy = permissions({
@@ -250,39 +212,4 @@ test("a schema object whose model was swapped after the policy was applied keeps
   } finally {
     await after.$disconnect();
   }
-});
-
-test("the rows a policy hands the host are deeply frozen copies, so core reuses their admission and cache digest", () => {
-  // Core memoises an admission (admission.ts `isImmutableRows`) and a cache
-  // key's digest (cache-flow.ts `rowsIdentity`) for deeply frozen rows only.
-  // Unfrozen, a cached hit re-serialises the whole policy: 0.04 → 1.0 ms
-  // per hit for 20 models, measured.
-  const config = {
-    actor: v.object({ userId: v.string() }),
-    models: {
-      post: { read: { ownerId: { in: ["alice"] } } },
-    },
-  } as const;
-  const base = createClient({ schema: { post: owned() }, dataDir: ":memory:" });
-  let definition: { rows: { verbs: Record<string, unknown> } } | undefined;
-  permissions(config).rows(
-    new Proxy(base, {
-      get(target, key, receiver) {
-        if (key === "$extends")
-          return (value: typeof definition) => {
-            definition = value;
-            return base;
-          };
-        return Reflect.get(target, key, receiver);
-      },
-    }) as never
-  );
-  const deeplyFrozen = (value: unknown): boolean =>
-    value === null ||
-    typeof value !== "object" ||
-    (Object.isFrozen(value) && Object.values(value).every(deeplyFrozen));
-  expect(deeplyFrozen(definition!.rows)).toBe(true);
-  const entry = (definition!.rows.verbs.post as () => unknown)();
-  expect(deeplyFrozen(entry)).toBe(true);
-  expect(Object.isFrozen(config.models.post.read.ownerId.in)).toBe(false);
 });

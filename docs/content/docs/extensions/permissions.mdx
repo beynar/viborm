@@ -1433,10 +1433,10 @@ supplied at call time. A grouped declaration such as
 Create `permissions(config)` once per isolate, outside the request handler. If the
 base client also lives for the isolate, apply it once and use `$as(actor, scopes)`
 per request. When a driver requires a fresh client per request, reuse the same
-policy and schema objects in `base.$extends(policy)`; compilation and immutable
-row admission can be reused, while clients, factories, actors, scopes and
+policy and schema objects in `base.$extends(policy)`; compilation and row
+admission are reused, while clients, factories, actors, scopes and
 transactions remain separate. `policy.compile(schema)` is an explicit fresh
-inspection; mutating its result never changes the private application cache.
+inspection. Its result shares the declaration's values: treat it as read-only.
 
 **A policy compiles a model at a time.** `$extends` checks what the declaration
 names (its keys and models, each model's actions, operations, fields

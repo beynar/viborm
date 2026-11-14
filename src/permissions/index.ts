@@ -33,7 +33,6 @@ import {
   policyCompiler,
   verbsOf,
 } from "./compile";
-import { plainFreezer } from "./reuse";
 import { FALSE, type PolicyModel, type Where } from "./rules";
 
 export type { ActorFacts, ActorPaths } from "./actor";
@@ -869,9 +868,6 @@ export function permissions<const Config extends PermissionsConfig>(
       return known.definition;
     const schema = { ...base };
     const compiler = policyCompiler(config, schema, actor);
-    // Frozen copies, never the declaration's own values: the host reuses the
-    // admission and the cache identity of deeply frozen rows only.
-    const freeze = plainFreezer();
     const verbs = Object.fromEntries(
       Object.keys(schema).map((name) => {
         if (!Object.hasOwn(config.models, name))
@@ -890,15 +886,13 @@ export function permissions<const Config extends PermissionsConfig>(
           const own = verbsOf({ models: { [name]: compiler.model(name) } })[
             name
           ]!;
-          const data = freeze(own) ?? own;
-          entry = Object.freeze(acyclic ? { ...data, acyclic } : { ...data });
+          entry = acyclic ? { ...own, acyclic } : own;
           return entry;
         };
         return [name, resolve];
       })
     );
     const definition = definitionOf(compiler.scopes, compiler.declared, verbs);
-    deepFreeze(definition.rows);
     prepared.set(base, { models: schema, definition });
     return definition;
   };
@@ -918,12 +912,4 @@ function extend(
   definition: object
 ): VibORMClient<VibORMConfig, ExtensionState> {
   return Reflect.apply(client.$extends, client, [definition]);
-}
-
-/** Freeze `value` and everything it holds; functions stay as they are. */
-function deepFreeze(value: unknown): void {
-  if (value === null || typeof value !== "object" || Object.isFrozen(value))
-    return;
-  for (const member of Object.values(value)) deepFreeze(member);
-  Object.freeze(value);
 }
