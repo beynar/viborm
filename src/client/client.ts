@@ -13,8 +13,10 @@ import type {
   ConfiguredBy,
   EmptyFacts,
   Extension,
+  Facts,
   Target,
 } from "@extensions/contract";
+import type { StampedFields } from "@extensions/controls";
 import { isAppliedExtension } from "@extensions/extension";
 import type {
   AccumulatedExtensionState,
@@ -86,6 +88,7 @@ import type {
   ComputedOperation,
   ComputedResultContext,
   ContextualOperationResult,
+  OperationPayload,
   Operations,
   Schema,
   WithComputedResult,
@@ -302,21 +305,74 @@ export type AppliedExtensionState<
   C extends VibORMConfig,
   X extends ExtensionStateConstraint,
   F extends AnyFacts,
-> = AccumulatedExtensionState<X, ProjectedStateOf<C, X, F>>;
+> = NoFacts<F> extends true
+  ? // Nothing contributed (hooks, units, a plain call): the client's own
+    // state, so the client keeps its very type.
+    X
+  : AccumulatedExtensionState<X, ProjectedStateOf<C, X, F>>;
 
 /**
  * The order rule: after a part typed against a result, a rule that hides
- * rows or a default that omits a field would make that type lie.
+ * rows or a default that omits a field would make that type lie. And one
+ * cache per chain: a second one's `$withCache` would replace the first's. A
+ * constraint on the facts, not a conditional beside the extension: a
+ * parameter type that depends on the facts being inferred gives the parts
+ * no client to be typed against.
  */
-type AfterConsumer<X extends ExtensionStateConstraint, F extends AnyFacts> = [
-  X["resultConsumer"],
-] extends [undefined]
+type AdmittedFacts<X extends ExtensionStateConstraint> = Facts<
+  object,
+  object,
+  object,
+  [X["resultConsumer"]] extends [undefined] ? string : never,
+  unknown,
+  object,
+  [X["resultConsumer"]] extends [undefined]
+    ? object
+    : { readonly [model: string]: never },
+  boolean,
+  HasExtensionCache<X> extends true ? false : boolean,
+  object
+>;
+
+type DataModels<D> = D extends StampedFields<infer M, PropertyKey> ? M : never;
+
+/** Literal model names only: `string` is every model, or names the types cannot read. */
+type Literal<K> = K extends string ? (string extends K ? never : K) : never;
+
+/**
+ * Every model an extension's facts name. Rows hidden, methods, omissions,
+ * projections and computed fields on `string` concern every model (a policy
+ * governs them all) or names only the runtime can check: none is named. A
+ * field written on create is the exception: written on `string`, it would be
+ * optional on every model, so `string` is named, and refused.
+ */
+type NamedModels<F extends AnyFacts> =
+  | Literal<
+      | F["rows"]
+      | keyof F["omit"]
+      | keyof F["models"]
+      | keyof F["verbs"]
+      | Exclude<keyof F["result"], "$allModels">
+    >
+  | DataModels<F["data"]>;
+
+/**
+ * The models the extension names that this client does not have. A part
+ * typed against the client refuses one where it is written; one written
+ * apart from any client (a recipe taking model names, `tenancy(["post"])`)
+ * is checked here, where it meets the client. A list of names the types
+ * cannot read (a `string[]`) names `string`, which no schema has.
+ */
+type KnownModels<Models, F extends AnyFacts> = [
+  Exclude<NamedModels<F>, Models>,
+] extends [never]
   ? unknown
-  : [F["rows"]] extends [never]
-    ? [keyof F["omit"]] extends [never]
-      ? unknown
-      : never
-    : never;
+  : {
+      readonly "names models this client does not have": Exclude<
+        NamedModels<F>,
+        Models
+      >;
+    };
 
 /**
  * The keys a proposed config names that the surface does not have: the typos.
@@ -515,10 +571,42 @@ export interface VibORMClientMembers<
    * extension is typed against this client. The extension is appended to an
    * immutable chain; this client is unchanged.
    */
-  $extends<F extends AnyFacts>(
-    extension: Extension<Target<C, X, EmptyFacts>, F> & AfterConsumer<X, F>
+  $extends<F extends AdmittedFacts<X>>(
+    // The check reads the model names only: two clients of one schema and
+    // different drivers stay assignable.
+    extension: Extension<Target<LinkedConfigOf<C>, X, EmptyFacts>, F> &
+      KnownModels<keyof C["schema"], F>
   ): VibORMClient<AppliedClientConfig<C, F>, AppliedExtensionState<C, X, F>>;
 }
+
+/**
+ * The config a client's parts are typed against: the linked snapshot
+ * `createClient` makes. A client type written with its plain config
+ * (`VibORMClient<{ schema: S; driver: D }>`) reads the same target as the
+ * client `createClient` returned, so the two stay assignable.
+ */
+export type LinkedConfigOf<C extends VibORMConfig> = AnyDriverOf<
+  " vibLinks" extends keyof C ? C : LinkedClientConfig<C>
+>;
+
+/**
+ * The driver is no part's concern: two clients of one schema on two drivers
+ * read one target, so a client type names either.
+ */
+type AnyDriverOf<C> = {
+  [K in keyof C]: K extends "driver" ? AnyDriver : C[K];
+};
+
+/**
+ * Whether `F` contributes nothing. Both ways: an empty fact (`never` rows,
+ * `{}` methods) is assignable to any fact of its kind, and any methods
+ * object to `{}`.
+ */
+type NoFacts<F extends AnyFacts> = [F] extends [EmptyFacts]
+  ? [EmptyFacts] extends [F]
+    ? true
+    : false
+  : false;
 
 type FactsOf<E> = E extends Extension<never, infer F> ? F : never;
 
@@ -529,12 +617,14 @@ type ApplyClientExtensions<
 > = Extensions extends readonly []
   ? VibORMClient<C, X>
   : Extensions extends readonly [infer First, ...infer Rest]
-    ? FactsOf<First> extends infer F extends AnyFacts
-      ? ApplyClientExtensions<
-          AppliedClientConfig<C, F>,
-          AppliedExtensionState<C, X, F>,
-          Rest
-        >
+    ? FactsOf<First> extends infer F extends AdmittedFacts<X>
+      ? unknown extends KnownModels<keyof C["schema"], F>
+        ? ApplyClientExtensions<
+            AppliedClientConfig<C, F>,
+            AppliedExtensionState<C, X, F>,
+            Rest
+          >
+        : never
       : never
     : never;
 
@@ -590,6 +680,25 @@ export type ExtendedOperationResult<
       : never
     : never
   : never;
+
+/**
+ * One operation's own arguments on the model delegate `Delegate`, read from
+ * the client that delegate belongs to: what a model method written apart
+ * from any client (an official extension's, its target unknown) takes.
+ * `Fallback` where the delegate carries no chain.
+ */
+export type DelegateOperationPayload<
+  Delegate,
+  O extends Operations,
+  Fallback = never,
+> = Delegate extends DelegateState<
+  infer C extends VibORMConfig,
+  unknown,
+  unknown,
+  infer K
+>
+  ? OperationPayload<O, ClientSchema<C>[K & keyof ClientSchema<C>]>
+  : Fallback;
 
 /**
  * One operation's arguments on the model delegate `Delegate` it would run on:

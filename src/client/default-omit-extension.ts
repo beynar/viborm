@@ -10,6 +10,7 @@ import type {
   EmptyFacts,
   Extension,
   Facts,
+  ModelName,
   Target,
 } from "@extensions/contract";
 import { defaults, omitted } from "@extensions/defaults";
@@ -31,15 +32,18 @@ type Untyped = Target<
   EmptyFacts
 >;
 
-/** What `defaultOmit(config)` adds: the fields it omits, per model. */
-type DefaultOmitFacts<Config> = Facts<
+/**
+ * What `defaultOmit(config)` adds: the fields it omits, per model of the
+ * target (`Names`; a model it does not have is refused at its key already).
+ */
+type DefaultOmitFacts<Config, Names extends string = string> = Facts<
   NoMethods,
   NoMethods,
   NoMethods,
   never,
   never,
   NoMethods,
-  Config & object
+  { readonly [M in keyof Config & Names]: Config[M] }
 >;
 
 /** Leave fields out of every result by default. */
@@ -47,7 +51,7 @@ export function defaultOmit<T extends AnyTarget, const Config>(
   config: Config &
     ClientOmitConfig<ClientSchema<T["config"]>> &
     NoInfer<ExactClientOmitConfig<Config, ClientSchema<T["config"]>>>
-): Extension<T, DefaultOmitFacts<Config>>;
+): Extension<T, DefaultOmitFacts<Config, ModelName<T>>>;
 export function defaultOmit(
   config: Readonly<Record<string, Readonly<Record<string, unknown>>>>
 ): unknown {

@@ -14,6 +14,7 @@ import type {
   Part,
   UnitContext,
   UnitKind,
+  UnitOf,
   UnitOutcome,
 } from "./contract";
 import { builtPart } from "./extension";
@@ -23,13 +24,16 @@ import { rewritePart } from "./statement";
 const nothing = (): undefined => undefined;
 
 /** A function around each unit of the kinds named (every kind when absent). */
-export function unit<T extends AnyTarget>(
+export function unit<
+  T extends AnyTarget,
+  Rewrites extends true | undefined = undefined,
+>(
   around: (
-    unit: UnitContext,
+    unit: UnitOf<Rewrites>,
     next: (sql?: Sql) => Promise<UnitOutcome>
   ) => unknown,
   kinds?: readonly UnitKind[],
-  options?: { readonly rewrites?: true }
+  options?: { readonly rewrites?: Rewrites }
 ): Part<T, EmptyFacts>;
 export function unit(
   handler: (unit: UnitContext, next: () => Promise<UnitOutcome>) => unknown,

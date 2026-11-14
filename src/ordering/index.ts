@@ -1202,15 +1202,42 @@ type ScalarFieldsOf<T extends AnyTarget, M> = M extends keyof ClientSchema<
 /** Each entry's model and fields, as the client `$extends` is called on has them. */
 type OrderingModelsOf<T extends AnyTarget> = {
   readonly [M in keyof ClientSchema<T["config"]> & string]?: {
-    readonly key: ScalarFieldsOf<T, M>;
-    readonly within?: readonly ScalarFieldsOf<T, M>[];
+    readonly key: FieldName<T, M>;
+    readonly within?: readonly FieldName<T, M>[];
   };
 };
 
-/** A key the config names that the client lacks: refused where it is written. */
+/**
+ * A field's name: the model's scalars complete, and a name widened to
+ * `string` (built at runtime) is accepted, the runtime's to check. A literal
+ * typo is refused by `KnownModels`.
+ */
+type FieldName<T extends AnyTarget, M> =
+  | ScalarFieldsOf<T, M>
+  | (string & Record<never, never>);
+
+/** A literal name the model lacks reads `never`; one widened to `string` passes. */
+type Known<Name, Fields> = string extends Name
+  ? Name
+  : Name extends Fields
+    ? Name
+    : never;
+
+/**
+ * A model or a field the config names that the client lacks: refused where
+ * it is written.
+ */
 type KnownModels<Config, T extends AnyTarget> = {
   readonly [M in keyof Config]: M extends keyof ClientSchema<T["config"]>
-    ? Config[M]
+    ? Config[M] extends {
+        readonly key: infer Key;
+        readonly within?: readonly (infer Within)[];
+      }
+      ? {
+          readonly key: Known<Key, ScalarFieldsOf<T, M>>;
+          readonly within?: readonly Known<Within, ScalarFieldsOf<T, M>>[];
+        }
+      : Config[M]
     : never;
 };
 

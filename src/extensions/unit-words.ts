@@ -12,7 +12,7 @@ import {
 import { QueryError } from "@errors";
 import type { Sql } from "@sql";
 import { errorOrigin } from "../errors/logged-errors";
-import type { UnitContext } from "./contract";
+import type { StatementUnit, UnitContext } from "./contract";
 import { originOf, sourceOf } from "./unit-source";
 
 /**
@@ -98,10 +98,14 @@ export const origin = (error: unknown): unknown => errorOrigin(error);
 
 /**
  * For a unit that rewrites statements: the statement before its rewrite, to
- * hand on, changed or not, to `next(sql)`.
+ * hand on, changed or not, to `next(sql)`. Always there in a part that
+ * rewrites.
  */
-export const statement = (u: UnitContext): Sql | undefined =>
-  sourceOf(u)?.statement;
+export function statement(u: StatementUnit): Sql;
+export function statement(u: UnitContext): Sql | undefined;
+export function statement(u: UnitContext): Sql | undefined {
+  return sourceOf(u)?.statement;
+}
 
 /**
  * For a `transaction` unit: runs `sql` in the transaction and gives its

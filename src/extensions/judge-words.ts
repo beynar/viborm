@@ -7,7 +7,14 @@
  */
 import type { ModelState } from "@schema/model";
 import { isPlainRecord } from "@schema/relation/terminal";
-import type { CheckWord, FactsWord, GateWord, KeepWord } from "./contract";
+import type {
+  CheckWord,
+  FactsWord,
+  GateWord,
+  HeldOperand,
+  IsHeld,
+  KeepWord,
+} from "./contract";
 import { judgeOf } from "./judge";
 import { keptRowsPart } from "./kept";
 import { projectionOf } from "./projection";
@@ -42,8 +49,14 @@ class Checked extends CarriedValue {
   }
 }
 
-/** The row a write leaves (or creates) must hold `where`. */
-export function check<W>(where: NoInfer<W>): CheckWord<W>;
+/**
+ * The row a write leaves (or creates) must hold `where`. Written apart from
+ * a rule (a shared constant), nothing types its operand: it is a check of
+ * any filter, which the rule's model admits where it is applied.
+ */
+export function check<W>(
+  where: HeldOperand<W>
+): IsHeld<W> extends true ? CheckWord<never> : CheckWord<W>;
 export function check(where: object): unknown {
   return new Checked(where);
 }
@@ -97,7 +110,9 @@ class Gated extends CarriedValue {
  * The field is present where `where` holds, absent elsewhere, and read as
  * `NULL` by every operand a call writes over it.
  */
-export function gate<W>(where: NoInfer<W>): GateWord<W>;
+export function gate<W>(
+  where: HeldOperand<W>
+): IsHeld<W> extends true ? GateWord<never> : GateWord<W>;
 export function gate(where: object): unknown {
   return new Gated(where);
 }

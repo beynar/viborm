@@ -10,7 +10,15 @@
 import type { Schema } from "@client/types";
 import { isPlainRecord } from "@schema/relation/terminal";
 import type { RuleLayer, VerbsDraft } from "./admission";
-import type { AnyTarget, Exact, Part, RuleFacts, RuleInput } from "./contract";
+import type {
+  AnyTarget,
+  ExactEntries,
+  FromSchema,
+  ModelName,
+  Part,
+  RuleFacts,
+  RuleInput,
+} from "./contract";
 import { extensionError } from "./definition";
 import { builtPart, type DefinitionDraft } from "./extension";
 import { rulePart } from "./rows";
@@ -222,8 +230,10 @@ function writeRule(
  * schema is written apart from any client).
  */
 export function rule<T extends AnyTarget, const R = RuleInput<T>>(
-  rules: R & RuleInput<T> & NoInfer<Exact<R, RuleInput<T>>>
-): Part<T, RuleFacts<R>>;
+  rules: R &
+    (RuleInput<T> | FromSchema<T, RuleInput<T>>) &
+    NoInfer<ExactEntries<R, RuleInput<T>>>
+): Part<T, RuleFacts<R, ModelName<T>>>;
 export function rule(rules: Entry | ((schema: Schema) => Entry)): unknown {
   return builtPart([rulePart], (draft, schema) =>
     writeRule(

@@ -1,7 +1,9 @@
-/** Type contract for the standalone E2 request-transform boundary. */
+/**
+ * Type contract for the patch a call's first moment sets (`c.set`): the
+ * keys that decide the result's shape are refused, fresh or held.
+ */
 
 import type {
-  RequestTransform,
   RequestTransformInput,
   RequestTransformPatch,
 } from "@extensions/request";
@@ -26,37 +28,15 @@ type _rowInputHidesEveryProjection = Expect<
   Equal<keyof RequestTransformInput<"findMany", RowInput>, "where" | "take">
 >;
 
-const _rowHandler: RequestTransform<"findMany", RowInput> = {
-  extension: "row",
-  handler({ model, operation, input }) {
-    const _concreteModel: string = model;
-    const _concreteOperation: "findMany" = operation;
-    input.where;
-    input.take;
-    // @ts-expect-error - select determines the call-site result
-    input.select;
-    // @ts-expect-error - include determines the call-site result
-    input.include;
-    // @ts-expect-error - omit determines the call-site result
-    input.omit;
-    return { take: 2 };
-  },
-};
-
 const heldProjectionPatch = { take: 1, select: { id: true } };
 // @ts-expect-error - protected keys are refused structurally beside a real patch key
 const _heldProjectionPatch: RequestTransformPatch<"findMany", RowInput> =
   heldProjectionPatch;
 
-const _inlineProjectionPatch: RequestTransform<"findMany", RowInput> = {
-  extension: "inline-projection",
+const _inlineProjectionPatch: RequestTransformPatch<"findMany", RowInput> = {
+  take: 1,
   // @ts-expect-error - a request patch cannot replace caller select
-  handler() {
-    return {
-      take: 1,
-      select: { id: true },
-    };
-  },
+  select: { id: true },
 };
 
 type CountInput = {

@@ -88,6 +88,7 @@ const _momentOne = base.$extends(
       },
       target("post", "findMany")
     ),
+    // Without a target, a call sees raw statements too, told apart by `kind`.
     call((c) => {
       if (c.kind === "raw") throw new Error("no raw statements");
     })

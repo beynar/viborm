@@ -1,4 +1,3 @@
-import type { ClientSchema } from "@client/schema-links";
 import type { AnyDriver } from "@drivers/exports";
 import { QueryError, VibORMError } from "@errors";
 import { isReadOperation } from "@query-engine/routed-operations";
@@ -111,54 +110,6 @@ export type GenericQueryHandler = GenericQueryHandlerCall & {
 /** Internal nominal call shape used by official query-based capabilities. */
 export type OfficialGenericQueryHandler = GenericQueryHandlerCall & {
   readonly [officialQueryHandlerIdentity]: true;
-};
-
-/**
- * Per-model query handlers. Their results read the result context of the
- * chain they are applied to: `Hidden` names the models its `rows` can hide
- * (`rows` cannot follow a model-mapped handler, so a later extension adds
- * none). A `rows` entry in the handler's OWN definition is not seen, as no
- * definition types against its own contributions: declare it one step
- * earlier.
- */
-export type QueryHandlerMap<
-  C extends VibORMConfig,
-  Hidden extends string = never,
-> = {
-  readonly [ModelName in keyof ClientSchema<C>]?: {
-    readonly [OperationName in Operations]?: <
-      Arg extends Exclude<
-        OperationPayload<OperationName, ClientSchema<C>[ModelName]>,
-        undefined
-      >,
-    >(context: {
-      readonly mode: QueryInterceptionMode;
-      readonly kind: "model";
-      readonly model: ModelName;
-      readonly operation: OperationName;
-      readonly input: Readonly<Arg>;
-      /** The call's controls this handler's extension declares, and only those. */
-      readonly controls?: AdmittedControls;
-      readonly proceed: () => Promise<
-        ContextualOperationResult<
-          C,
-          ModelName,
-          OperationName,
-          Arg,
-          ClientRowsContext<C, Hidden>
-        >
-      >;
-      readonly onWriteOutcome: (listener: WriteOutcomeListener) => void;
-    }) => Promise<
-      ContextualOperationResult<
-        C,
-        ModelName,
-        OperationName,
-        Arg,
-        ClientRowsContext<C, Hidden>
-      >
-    >;
-  };
 };
 
 export interface WriteOutcomeRegistration {
@@ -919,13 +870,7 @@ export function decomposeWriteOutcomePublicationFailure(
   return [failure];
 }
 
-import type { VibORMConfig } from "@client/client";
-import type {
-  ClientRowsContext,
-  ContextualOperationResult,
-  OperationPayload,
-  Operations,
-} from "@client/types";
+import type { Operations } from "@client/types";
 
 /**
  * `query`: handlers around each prepared call. A chain built with this part

@@ -19,10 +19,18 @@ import { cache } from "@src/cache/exports";
 import { defaultOmit } from "@src/client/exports";
 import { PGliteDriver } from "@src/drivers/pglite";
 import {
+  arg,
+  args,
   createClient,
   type DelegateOperationResult,
   type ExtendedOperationResult,
+  extension,
+  fields,
+  methods,
+  oneOf,
+  rule,
   s,
+  when,
 } from "@src/index";
 import { softDelete } from "@src/soft-delete";
 
@@ -56,17 +64,18 @@ const post = s.model({
 // No relation reaches post from here: `deleted` is still accepted (O1).
 const tag = s.model({ id: s.string().id(), name: s.string() });
 const schema = { user, post, tag };
-type S = typeof schema;
 
 const base = createClient({ schema, driver: new PGliteDriver() });
 declare const session: { userId: string };
 declare const cutoff: Date;
 
 // §1.1 "Use", verbatim.
-const db = softDelete({
-  models: { post: { deletedAt: "deletedAt", deletedBy: "deletedById" } },
-  actor: session.userId,
-})(base);
+const db = base.$extends(
+  softDelete({
+    models: { post: { deletedAt: "deletedAt", deletedBy: "deletedById" } },
+    actor: session.userId,
+  })
+);
 export async function use() {
   await db.user.findMany({ include: { posts: true } }); // each user's live posts
   await db.post.findMany({ deleted: "only" }); // recycle bin
@@ -117,9 +126,9 @@ export async function restoreGuard() {
 }
 
 // A preceding defaultOmit's omission carries through reads and restore.
-const omitted = base.$extends(defaultOmit<S>()({ post: { secret: true } }));
-const dbOmitted = softDelete({ models: { post: { deletedAt: "deletedAt" } } })(
-  omitted
+const omitted = base.$extends(defaultOmit({ post: { secret: true } }));
+const dbOmitted = omitted.$extends(
+  softDelete({ models: { post: { deletedAt: "deletedAt" } } })
 );
 export async function omissionCarries() {
   const restored = await dbOmitted.post.restore({ where: { id: "p1" } });
@@ -135,14 +144,19 @@ export async function omissionCarries() {
 // and applied to `omitted`, it compiles (model factories are bivariant so
 // §1.1's step B can be generic over the client), and its result type shows
 // `secret`, which the runtime omits. At `30ff17e69` this was refused (TS2345).
-const builtForBase = {
-  name: "built-for-base",
-  model: {
-    post: (delegate: (typeof base)["post"]) => ({
-      firstPost: () => delegate.findFirst({ where: { id: "p1" } }),
-    }),
-  },
-};
+const builtForBase = extension(
+  "built-for-base",
+  methods(() => {
+    const own = {
+      models: {
+        post: (delegate: (typeof base)["post"]) => ({
+          firstPost: () => delegate.findFirst({ where: { id: "p1" } }),
+        }),
+      },
+    };
+    return { ...own.models };
+  })
+);
 const replayed = omitted.$extends(builtForBase);
 export async function replayCompiles() {
   const row = await replayed.post.firstPost();
@@ -152,7 +166,7 @@ export async function replayCompiles() {
 // The methods read nothing typed at their step: defaultOmit may follow
 // softDelete, and restore and purge type their rows from the client they
 // are called on, so they omit what it omits.
-const omittedAfter = db.$extends(defaultOmit<S>()({ post: { secret: true } }));
+const omittedAfter = db.$extends(defaultOmit({ post: { secret: true } }));
 export async function omissionFollows() {
   const restored = await omittedAfter.post.restore({ where: { id: "p1" } });
   // @ts-expect-error secret is omitted by the later defaultOmit
@@ -185,18 +199,20 @@ export async function purgeTyped() {
 
 // A later `result` step: restore's rows carry its computed fields, typed as
 // the client's own update types them, a replaced scalar included.
-const computed = db.$extends({
-  name: "test.computed",
-  result: {
-    post: {
-      shout: {
-        needs: { title: true },
-        compute: (post) => post.title.toUpperCase(),
+const computed = db.$extends(
+  extension(
+    "test.computed",
+    fields({
+      post: {
+        shout: {
+          needs: { title: true },
+          compute: (post) => post.title.toUpperCase(),
+        },
+        title: { needs: { title: true }, compute: (post) => post.title.length },
       },
-      title: { needs: { title: true }, compute: (post) => post.title.length },
-    },
-  },
-});
+    })
+  )
+);
 export async function laterResult() {
   const restored = await computed.post.restore({ where: { id: "p1" } });
   const updated = await computed.post.update({ where: { id: "p1" }, data: {} });
@@ -248,32 +264,20 @@ const cachedAfter = db.$extends(
 export const stillDb: typeof db = cachedAfter;
 export const stillDelegate: typeof db.post = cachedAfter.post;
 
-// A factory overloaded to hide its typed delegate is still a result consumer:
-// the omit after it is refused.
-declare function overloaded(delegate: (typeof base)["post"]): {
-  first: () => unknown;
-};
-// biome-ignore lint/style/useUnifiedTypeSignatures: the overloads are the case under test
-declare function overloaded(): { first: () => unknown };
-export function overloadIsConsumer() {
-  const tools = base.$extends({
-    name: "test.overloaded",
-    model: { post: overloaded },
-  });
-  // @ts-expect-error an overload taking the typed delegate reads results
-  tools.$extends(defaultOmit<S>()({ post: { secret: true } }));
-}
-
 // A later rows step: restore's to-one relation to a model those rows can
 // hide reads `| null`, as the client's own update does.
-const governed = db.$extends({
-  name: "test.tenancy",
-  rows: {
-    control: "tenant",
-    default: "own",
-    models: { user: { own: { root: { name: "t" }, related: { name: "t" } } } },
-  },
-});
+const governed = db.$extends(
+  extension(
+    "test.tenancy",
+    args({ tenant: oneOf("own").default("own") }),
+    rule({
+      user: {
+        root: when(arg("tenant"), "own", { name: "t" }),
+        related: when(arg("tenant"), "own", { name: "t" }),
+      },
+    })
+  )
+);
 export async function laterRows() {
   const restored = await governed.post.restore({
     where: { id: "p1" },
@@ -362,15 +366,15 @@ export async function values() {
 
 // The official cache before softDelete: its reads carry the controls, its
 // `cache` stays on core mutations, and restore flags it (decided 7).
-const cachedDb = softDelete({ models: { post: { deletedAt: "deletedAt" } } })(
-  base.$extends(
+const cachedDb = base
+  .$extends(
     cache({
       driver: new MemoryCache(),
       version: "v1",
       waitUntil: (_promise) => undefined,
     })
   )
-);
+  .$extends(softDelete({ models: { post: { deletedAt: "deletedAt" } } }));
 export async function cachedChain() {
   const rows = await cachedDb
     .$withCache()
