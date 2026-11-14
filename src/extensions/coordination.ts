@@ -129,6 +129,9 @@ export function transact<T>(
     engine.driver
       .withTransaction(
         (driver) => {
+          // A run again follows a run whose commit failed: how far that
+          // commit went says nothing of this run's.
+          root.certainty = undefined;
           scope = made ?? scopeOf(engine, root);
           return body(driver, scope);
         },
