@@ -170,7 +170,7 @@ const priorRequest = base.$extends(
   extension(
     "prior-request",
     call((c) => {
-      c.set({});
+      if (c.kind === "model") c.set({});
     })
   )
 );
@@ -526,7 +526,7 @@ type _globalQueryKeepsOmittedResult = Expect<
 const safeReusable = extension(
   "safe-reusable",
   call((c) => {
-    c.set({ ...c.args });
+    if (c.kind === "model") c.set({ ...c.args });
   }),
   unit((u, next) => next(statement(u)), ["statement"], { rewrites: true }),
   unit((_u, next) => next())

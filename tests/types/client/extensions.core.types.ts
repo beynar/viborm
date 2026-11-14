@@ -207,11 +207,13 @@ const _genericQueryCannotFabricateOneUniversalResult = extension(
   })
 );
 
-// A plain `call` sees model calls only.
-const _plainCallSeesModels = extension(
+// Without a target, a plain `call` sees raw statements too, told apart by
+// `kind` (spec 3).
+const _plainCallSeesModelsAndRaw = extension(
   "plain-call",
   call((c) => {
-    expectTypeOf(c.kind).toEqualTypeOf<"model">();
+    expectTypeOf(c.kind).toEqualTypeOf<"model" | "raw">();
+    if (c.kind === "raw") return;
     expectTypeOf(c.args.where).toEqualTypeOf<unknown>();
     // Every argument is shown (spec §12.6); setting one that decides the
     // result's shape is refused.
@@ -223,6 +225,7 @@ const _plainCallSeesModels = extension(
 const _genericRequestFreshProtectedPatch = extension(
   "generic-request-fresh-protected-patch",
   call((c) => {
+    if (c.kind === "raw") return;
     // @ts-expect-error - a generic patch cannot add select beside the allowed where key
     c.set({ where: { published: true }, select: { id: true } });
   })
@@ -236,6 +239,7 @@ const heldGenericRequestPatch = {
 const _genericRequestHeldProtectedPatch = extension(
   "generic-request-held-protected-patch",
   call((c) => {
+    if (c.kind === "raw") return;
     // @ts-expect-error - held generic patches structurally refuse protected keys
     c.set(heldGenericRequestPatch);
   })

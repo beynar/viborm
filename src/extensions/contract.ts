@@ -407,7 +407,7 @@ export interface ModelCallContext<T extends AnyTarget, M, O> {
 }
 
 /**
- * Moment 1 of a raw statement, which only an `around` without a target
+ * Moment 1 of a raw statement, which a call or an `around` without a target
  * sees. It has no model and no arguments to set.
  */
 export interface RawCallContext<T extends AnyTarget> {
@@ -434,9 +434,12 @@ export type GenericAround = <R>(run: Run<unknown, R>) => Promise<R>;
 type Single<M, O> =
   IsUnion<M> extends true ? false : IsUnion<O> extends true ? false : true;
 
-/** A plain `call` sees model calls only: a raw statement is reached by `around`. */
+/**
+ * Without a target, a call also sees raw statements (spec 3), told apart by
+ * `kind`; a target names model operations only.
+ */
 export type MomentOne<T extends AnyTarget, M, O> = [M] extends [never]
-  ? ModelCallContext<T, ModelName<T>, Operations>
+  ? GenericCallContext<T, ModelName<T>, Operations>
   : Single<M, O> extends true
     ? O extends Operations
       ? CallContext<T, M, O>

@@ -88,12 +88,8 @@ const _momentOne = base.$extends(
       },
       target("post", "findMany")
     ),
-    // A plain call sees model calls only; an `around` without a target also
-    // sees raw statements, told apart by `kind`.
+    // Without a target, a call sees raw statements too, told apart by `kind`.
     call((c) => {
-      expectTypeOf(c.kind).toEqualTypeOf<"model">();
-    }),
-    around((c) => {
       if (c.kind === "raw") throw new Error("no raw statements");
     })
   )
