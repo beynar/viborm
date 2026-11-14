@@ -17,6 +17,7 @@ import {
   check,
   driver,
   extension,
+  gate,
   keep,
   lazy,
   notes,
@@ -161,6 +162,31 @@ describe("an entry given lazily beside one written out", () => {
     expect(
       (await db.user.create({ data: { id: "u3", name: "Cy" } })).name
     ).toBe("Cy");
+  });
+});
+
+describe("fields gated by one predicate", () => {
+  test("are shown and hidden together, row by row", async () => {
+    const mine = { ownerId: arg("me") };
+    const db = (await seeded()).$extends(
+      extension(
+        "private",
+        args({ me: oneOf("u1", "u2") }),
+        rule({
+          post: {
+            read: { fields: { title: gate(mine), deletedAt: gate(mine) } },
+          },
+        })
+      )
+    );
+    const rows = await db.post.findMany({ me: "u1", orderBy: { id: "asc" } });
+    // A hidden field is absent from its row.
+    expect(
+      rows.map((row) => [row.id, "title" in row, "deletedAt" in row])
+    ).toEqual([
+      ["p1", true, true],
+      ["p2", false, false],
+    ]);
   });
 });
 
