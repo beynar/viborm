@@ -21,6 +21,7 @@ import {
   target as extTarget,
   nothing,
   oneOf,
+  only,
   rule,
   statement,
   unit,
@@ -936,8 +937,8 @@ export function describeOrdering(
               rule({
                 card: {
                   read: { where: cardMine },
-                  update: { where: cardMine, check: check(cardMine) },
-                  delete: { where: nothing },
+                  update: { where: only(cardMine), check: check(cardMine) },
+                  delete: { where: only(nothing) },
                 },
               })
             )
@@ -1144,13 +1145,16 @@ export function describeOrdering(
                 card: {
                   read: { where: cardAny },
                   update: {
-                    where: cardAny,
+                    where: only(cardAny),
                     check: check(cardAny),
                     fields: {
-                      editedAt: { where: cardNone, check: check(cardNone) },
+                      editedAt: {
+                        where: only(cardNone),
+                        check: check(cardNone),
+                      },
                     },
                   },
-                  delete: { where: nothing },
+                  delete: { where: only(nothing) },
                 },
               })
             )

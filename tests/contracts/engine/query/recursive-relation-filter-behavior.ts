@@ -10,6 +10,7 @@ import {
   extension,
   nothing,
   oneOf,
+  only,
   rule,
   when,
 } from "@src/index";
@@ -1450,10 +1451,10 @@ export function runRecursiveRelationFilterBehavior(
             document: {
               read: { where: {} },
               update: {
-                where: parentOwnedByBen(self),
+                where: only(parentOwnedByBen(self)),
                 check: check(parentOwnedByBen(self)),
               },
-              delete: { where: nothing },
+              delete: { where: only(nothing) },
             },
           })
         )

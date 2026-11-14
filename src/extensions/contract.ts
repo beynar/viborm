@@ -757,6 +757,8 @@ declare const gateWord: unique symbol;
 declare const checkWord: unique symbol;
 declare const factsWord: unique symbol;
 declare const keepWord: unique symbol;
+declare const onlyWord: unique symbol;
+declare const lazyWord: unique symbol;
 declare const omittedWord: unique symbol;
 
 /** `gate(where)`: the field is present where the predicate holds. */
@@ -780,6 +782,16 @@ export interface FactsWord<
 /** `keep(data)`: the delete updates the row with `data` instead. */
 export interface KeepWord<out D> {
   readonly [keepWord]: D;
+}
+
+/** `only(where)`: a write takes only the rows that hold the predicate. */
+export interface OnlyWord<out W> {
+  readonly [onlyWord]: W;
+}
+
+/** `lazy(() => entry)`: the entry is read when its model is first read. */
+export interface LazyWord<out E> {
+  readonly [lazyWord]: E;
 }
 
 /** `omitted`: the field leaves the default result. */
@@ -810,18 +822,18 @@ export interface RuleEntry<M, K extends string> {
   readonly related?: RuleFilter<M, K>;
   readonly create?: { readonly check?: CheckWord<RuleWhere<M, K>> };
   readonly update?: {
-    readonly where?: RuleWhere<M, K>;
+    readonly where?: OnlyWord<RuleWhere<M, K>>;
     readonly check?: CheckWord<RuleWhere<M, K>>;
     readonly fields?: ScalarSlots<
       M,
       {
-        readonly where?: RuleWhere<M, K>;
+        readonly where?: OnlyWord<RuleWhere<M, K>>;
         readonly check?: CheckWord<RuleWhere<M, K>>;
       }
     >;
   };
   readonly delete?: {
-    readonly where?: RuleWhere<M, K>;
+    readonly where?: OnlyWord<RuleWhere<M, K>>;
     readonly instead?: KeepWord<
       DataValues<M, K> | WhenWord<K, DataValues<M, K>>
     >;
@@ -835,7 +847,7 @@ export interface RuleEntry<M, K extends string> {
 export type RuleInput<T extends AnyTarget> = {
   readonly [M in keyof SchemaOf<T> & string]?:
     | RuleEntry<SchemaOf<T>[M], KnownArgs<T>>
-    | (() => RuleEntry<SchemaOf<T>[M], KnownArgs<T>>);
+    | LazyWord<RuleEntry<SchemaOf<T>[M], KnownArgs<T>>>;
 };
 
 /** A model whose rows a call or a relation read can find hidden. */
@@ -843,7 +855,7 @@ type HidesRows =
   | { readonly read: { readonly where: object } }
   | { readonly root: unknown }
   | { readonly related: unknown }
-  | (() => unknown);
+  | LazyWord<unknown>;
 
 /** The projection facts of one entry, in the form the projected types read. */
 type EntryVerbs<E> = (E extends {
@@ -962,6 +974,8 @@ export type Exact<Given, Allowed> = Given extends
   | CheckWord<unknown>
   | FactsWord<string, boolean>
   | KeepWord<unknown>
+  | OnlyWord<unknown>
+  | LazyWord<unknown>
   | OmittedWord
   | ((...args: never[]) => unknown)
   ? Given
@@ -993,6 +1007,8 @@ type ObjectsOf<Allowed> = Exclude<
   | CheckWord<unknown>
   | FactsWord<string, boolean>
   | KeepWord<unknown>
+  | OnlyWord<unknown>
+  | LazyWord<unknown>
   | OmittedWord
   | ((...args: never[]) => unknown)
 >;

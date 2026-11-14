@@ -20,7 +20,6 @@ import {
 import type {
   CallRows,
   CallScope,
-  ModelVerbs,
   RowDomain,
   RowJudgement,
   RowPurpose,
@@ -29,32 +28,50 @@ import { type Input, memo } from "@query-engine/raptor3/shared/schema";
 import type { Membership } from "@query-engine/raptor3/shared/storage";
 import type { AnyModel } from "@schema/model";
 import type { Judge } from "./judge";
-import { layerOf } from "./layers";
 import type { Projection } from "./projection";
 
 /**
- * The predicates one layer's verbs give a write `judgement`, each once:
- * `delete`'s, or per field an update writes that field's own, else
- * `update`'s, or `update`'s when it writes none (R3).
+ * `predicate` as a layer resolved it, over a produced row a judgement lowers
+ * over: what judges brought folds the values the write sets into it.
  */
-export function verbInputs(
-  verbs: ModelVerbs,
-  judgement: RowJudgement
-): Input[] {
-  if (judgement.verb === "delete") return [verbs.delete];
-  if (judgement.writes.length === 0) return [verbs.update];
-  return [
-    ...new Set([
-      ...judgement.writes.map(
-        (field) => verbs.writes.get(field) ?? verbs.update
-      ),
-      ...(judgement.marks ? [verbs.delete] : []),
-    ]),
-  ];
+export function overKnown(
+  queries: Queries,
+  alias: string | undefined,
+  predicate: PreparedPredicate
+): PreparedPredicate {
+  const { known } = queries as Queries & {
+    known?: {
+      alias: string;
+      nulls: ReadonlyMap<string, boolean>;
+      fold: (
+        predicate: PreparedPredicate,
+        nulls: ReadonlyMap<string, boolean>
+      ) => PreparedPredicate;
+    };
+  };
+  return known !== undefined && alias === known.alias
+    ? known.fold(predicate, known.nulls)
+    : predicate;
 }
 
-/** No restriction: what a verb an entry leaves out takes, read as no predicate. */
-export const ALL: Input = Object.freeze({});
+/**
+ * `predicate` as `model`'s domain predicate of `layer`, where it reads
+ * nothing of its call: what it states, whatever the call.
+ */
+function plainLayer(
+  layer: number,
+  model: string,
+  predicate: PreparedPredicate
+): PreparedPredicate {
+  return freeze({
+    kind: "layer",
+    layer,
+    model,
+    predicate,
+    resolve: (queries: Queries, alias?: string) =>
+      overKnown(queries, alias, predicate),
+  });
+}
 
 /** A domain no member confines bounds no set. */
 const unbounded = (): undefined => undefined;
@@ -157,6 +174,7 @@ export class FilterDomain implements PreparedDomain {
   ): PreparedSelector | null {
     const name = model["~"].names.ts!;
     const queries = this.queries;
+    const layered = this.rows.layered ?? plainLayer;
     const parts: PreparedSelector[] = [];
     for (const [layer, inputs] of layers) {
       if (inputs.length === 0) continue;
@@ -165,7 +183,7 @@ export class FilterDomain implements PreparedDomain {
         wheres.length === 1 ? wheres[0]! : queries.andSelectors(model, wheres);
       if (part.predicate !== undefined)
         parts.push(
-          freeze({ ...part, predicate: layerOf(layer, name, part.predicate) })
+          freeze({ ...part, predicate: layered(layer, name, part.predicate) })
         );
       else if (!reading) parts.push(part);
     }
@@ -184,9 +202,8 @@ export class FilterDomain implements PreparedDomain {
   }
   /**
    * `model`'s predicate for `purpose` without the `excluded` layers, and,
-   * under a `judgement`, each layer's predicates of its verb: `delete`'s, or
-   * one per field an update writes (that field's own, else `update`'s), or
-   * `update`'s when it writes none (R3). `undefined` where it states none.
+   * under a `judgement`, what the layers' verbs add for it (`verbs.ts`).
+   * `undefined` where it states none.
    */
   selector(
     model: AnyModel,
@@ -195,37 +212,37 @@ export class FilterDomain implements PreparedDomain {
     judgement?: RowJudgement
   ): PreparedSelector | undefined {
     const name = model["~"].names.ts!;
-    const verbs = this.rows.verbs?.get(name);
-    const judged = verbs && judgement;
-    // The plain key allocates nothing: a read takes it at every lookup.
-    const key = judged
-      ? `${name} ${excluded} ${judged.verb}${judged.marks ? "+" : ""} ${[...judged.writes].sort()}`
-      : excluded.length === 0
-        ? name
-        : `${name} ${excluded}`;
+    const key = this.key(name, excluded, judgement);
     let prepared = this.#prepared[purpose].get(key);
     if (prepared === undefined)
-      prepared = memo(this.#prepared[purpose], key, () => {
-        const inputs = this.rows[purpose].get(name);
-        if (inputs === undefined && verbs === undefined) return null;
-        const layers: (readonly [number, Input[]])[] = [];
-        const count = Math.max(inputs?.length ?? 0, verbs?.length ?? 0);
-        for (let layer = 0; layer < count; layer++) {
-          if (excluded.includes(layer)) continue;
-          const own = verbs?.[layer];
-          const where = inputs?.[layer];
-          layers.push([
-            layer,
-            [
-              ...(own && own.read !== ALL ? [own.read] : []),
-              ...(where === undefined ? [] : [where]),
-              ...(own && judged ? verbInputs(own, judged) : []),
-            ],
-          ]);
-        }
-        return this.conjunction(model, layers);
-      });
+      prepared = memo(this.#prepared[purpose], key, () =>
+        this.conjunction(
+          model,
+          this.layers(name, this.rows[purpose].get(name), excluded, judgement)
+        )
+      );
     return prepared ?? undefined;
+  }
+  /** The plain key allocates nothing: a read takes it at every lookup. */
+  protected key(
+    name: string,
+    excluded: readonly number[],
+    _judgement?: RowJudgement
+  ): string {
+    return excluded.length === 0 ? name : `${name} ${excluded}`;
+  }
+  /** Each layer's inputs of a model, but the `excluded` layers'. */
+  protected layers(
+    _name: string,
+    inputs: readonly Input[] | undefined,
+    excluded: readonly number[],
+    _judgement?: RowJudgement
+  ): (readonly [number, readonly Input[]])[] {
+    const layers: (readonly [number, readonly Input[]])[] = [];
+    for (const [layer, where] of (inputs ?? []).entries())
+      if (where !== undefined && !excluded.includes(layer))
+        layers.push([layer, [where]]);
+    return layers;
   }
   /** Whether a call's `purpose` domain of `model` can leave a row out. */
   #hidesRows(queries: Queries, model: AnyModel, purpose: RowPurpose): boolean {
@@ -242,16 +259,14 @@ export class FilterDomain implements PreparedDomain {
   }
   /**
    * Whether a call's extensions judge writes to a junction model: its rows,
-   * its verbs. A link is written with neither read nor judged, so a `$through`
-   * write through it is refused where a direct write would have been judged.
+   * and its verbs where some word brought them (`verbs.ts`). A link is
+   * written with neither read nor judged, so a `$through` write through it
+   * is refused where a direct write would have been judged.
    */
   restrictsLinkWrite(queries: Queries, model: AnyModel): boolean {
     return (
       this.#hidesRows(queries, model, "root") ||
-      this.#hidesRows(queries, model, "related") ||
-      this.rows.verbs
-        ?.get(model["~"].names.ts!)
-        ?.some((verbs) => verbs !== undefined) === true
+      this.#hidesRows(queries, model, "related")
     );
   }
   /**
@@ -285,33 +300,41 @@ export class FilterDomain implements PreparedDomain {
  * domain derives only from the domain, that owner (its adapter and result
  * parser) and its defaults, so clients sharing the owner share it too. The
  * domain alone keys it: a chain's binding builds each domain with its one
- * default domain.
+ * default domain and one class.
  */
 const preparedDomains = new WeakMap<
   Queries,
   WeakMap<RowDomain, FilterDomain>
 >();
 
-function preparedDomain(
-  queries: Queries,
-  rows: RowDomain,
-  defaults?: FilterDomain
-): FilterDomain {
-  const byDomain = memo(preparedDomains, queries, () => new WeakMap());
-  return memo(byDomain, rows, () => new FilterDomain(rows, queries, defaults));
-}
-
-/** One call's row facts as the engine reads them: its domains prepared for `queries`. Stated on every {@link CallRows}. */
-export function prepareCall(
-  this: CallRows,
-  queries: Queries,
-  instant: () => Date
-): CallScope {
-  const defaults = preparedDomain(queries, this.defaults);
-  return {
-    rows: this,
-    domain: preparedDomain(queries, this.domain, defaults),
-    defaults,
-    instant,
+/**
+ * What prepares one call's row facts as the engine reads them, with
+ * `Domain`: its domains prepared for `queries`. Stated on every
+ * {@link CallRows}.
+ */
+export const preparer = (Domain: typeof FilterDomain) =>
+  function prepare(
+    this: CallRows,
+    queries: Queries,
+    instant: () => Date
+  ): CallScope {
+    const byDomain = memo(preparedDomains, queries, () => new WeakMap());
+    const defaults = memo(
+      byDomain,
+      this.defaults,
+      () => new Domain(this.defaults, queries)
+    );
+    return {
+      rows: this,
+      domain: memo(
+        byDomain,
+        this.domain,
+        () => new Domain(this.domain, queries, defaults)
+      ),
+      defaults,
+      instant,
+    };
   };
-}
+
+/** What prepares the call facts of a chain whose rules only filter. */
+export const prepareCall = /* @__PURE__ */ preparer(FilterDomain);

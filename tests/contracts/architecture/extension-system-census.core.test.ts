@@ -57,7 +57,6 @@ const OFFICIAL_EXTENSION_WORD =
  */
 const MODULE_STATE_LEFT = Object.freeze([
   "src/extensions/admission.ts admitted",
-  "src/extensions/admission.ts lazyReferences",
   "src/extensions/admission.ts registries",
   "src/extensions/call.ts seconds",
   "src/extensions/codec.ts codecs",
@@ -68,6 +67,7 @@ const MODULE_STATE_LEFT = Object.freeze([
   "src/extensions/row-domain.ts preparedDomains",
   "src/extensions/unit-source.ts operations",
   "src/extensions/unit-source.ts sources",
+  "src/extensions/verbs.ts lazyReferences",
   "src/extensions/watch-part.ts watched",
 ]);
 

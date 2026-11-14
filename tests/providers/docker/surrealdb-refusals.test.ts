@@ -5,7 +5,7 @@
 
 import { createClient } from "@client/client";
 import { s } from "@schema";
-import { check, nothing, parts, rule } from "@src/index";
+import { check, nothing, only, parts, rule } from "@src/index";
 import { softDelete } from "@src/soft-delete";
 import {
   createSurrealTestDriver,
@@ -412,8 +412,8 @@ describe.skipIf(!surrealUrl)("SurrealDB refusals against SQL", () => {
             rule({
               folder: {
                 read: { where: all },
-                update: { where: all, check: check(all) },
-                delete: { where: nothing },
+                update: { where: only(all), check: check(all) },
+                delete: { where: only(nothing) },
                 acyclic: ["parent"],
               },
             })

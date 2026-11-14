@@ -13,7 +13,10 @@ import type { AdmittedControls } from "./controls";
 /** The call's one instant, where a field writes `now`. */
 export const NOW = /* @__PURE__ */ new Parameter();
 
-const NO_VALUES = Object.freeze({ controls: {}, required: () => false });
+const NO_VALUES = /* @__PURE__ */ Object.freeze({
+  controls: {},
+  required: () => false,
+});
 
 /** Never read: a field naming an argument reads no instant. */
 const instant = () => new Date();

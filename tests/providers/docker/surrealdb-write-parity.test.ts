@@ -12,6 +12,7 @@ import {
   extension,
   facts,
   nothing,
+  only,
   parts,
   rule,
   unit,
@@ -1082,8 +1083,8 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
                   select: { $access: facts({ seen, own }) },
                 },
                 create: { check: check(own) },
-                update: { where: nothing },
-                delete: { where: nothing },
+                update: { where: only(nothing) },
+                delete: { where: only(nothing) },
               },
             })
           )

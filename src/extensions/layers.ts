@@ -1,8 +1,10 @@
 /**
- * A layer of a row domain as the engine lowers it: what its predicate is for
- * one call. Its conditions fold per call, a value it still reads that is
+ * A layer of a row domain as the engine lowers it, where its predicate reads
+ * its call (brought by `arg`, `now`, `when`, `unless`, `provided`): what its
+ * predicate is for one call. Its conditions fold per call, a value it still reads that is
  * absent makes it false where its control is required and drops it otherwise
- * (R6), and over a produced row the nullness the write states folds into it.
+ * (R6), and over a produced row what judges it folds the nullness the write
+ * states into it.
  * The engine asks a layer what it resolves to; this module, loaded with the
  * extensions that declare row domains, answers.
  */
@@ -17,6 +19,7 @@ import {
   type Condition,
   Parameter,
 } from "@query-engine/raptor3/shared/row-scope";
+import { overKnown } from "./row-domain";
 
 /** A layer's predicate under one outcome of its conditions. */
 interface Folded {
@@ -31,7 +34,7 @@ const ALWAYS_TRUE: PreparedPredicate = freeze({ kind: "always", value: true });
  * parameter inside it. `deep` folds the body of a relation too, which keeps
  * its quantifier: for an outcome that holds whatever row is read.
  */
-function fold(
+export function fold(
   predicate: PreparedPredicate,
   known: (leaf: PreparedPredicate) => boolean | undefined,
   deep: boolean
@@ -105,34 +108,6 @@ const foldConditions = (
     predicate,
     (leaf) => (leaf.kind === "condition" ? holds(leaf.condition) : undefined),
     true
-  );
-/**
- * `predicate` over a produced row whose fields' nullness the write states
- * (`nulls`: field to whether its value is null), each null test of such a
- * field replaced by its outcome: the values a write sets fold into its
- * judgement, so an arm on a key it leaves null does not reach the statement.
- * Only the row's own columns: a relation reads other rows, and is kept as it
- * is.
- */
-const foldKnownNulls = (
-  predicate: PreparedPredicate,
-  nulls: ReadonlyMap<string, boolean>
-): PreparedPredicate =>
-  fold(
-    predicate,
-    (leaf) => {
-      if (leaf.kind !== "operation") return;
-      const { target, operand } = leaf;
-      return leaf.operator === "equals" &&
-        target.kind === "column" &&
-        target.path === undefined &&
-        operand?.kind === "value" &&
-        operand.value === null &&
-        target.scalar.physical.scalar["~"].state.type !== "json"
-        ? nulls.get(target.scalar.field)
-        : undefined;
-    },
-    false
   );
 /** Every parameter and condition a layer's predicate reads. */
 function callReads(
@@ -224,13 +199,9 @@ export function layerOf(
         dropped = true;
       }
       if (dropped) return undefined;
-      // The values a write sets fold into its judgement of the row it produces.
-      const { known } = queries as Queries & {
-        known?: { alias: string; nulls: ReadonlyMap<string, boolean> };
-      };
-      return known !== undefined && alias === known.alias
-        ? foldKnownNulls(resolved, known.nulls)
-        : resolved;
+      // The values a write sets fold into its judgement of the row it
+      // produces: what judges brings what folds them (`produced.ts`).
+      return overKnown(queries, alias, resolved);
     },
   });
 }
