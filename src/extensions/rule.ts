@@ -15,7 +15,7 @@ import type { AnyTarget, Exact, Part, RuleFacts, RuleInput } from "./contract";
 import { extensionError } from "./definition";
 import { builtPart, type DefinitionDraft } from "./extension";
 import { rulePart } from "./rows";
-import { ArgTestFilter, CarriedValue } from "./rule-words";
+import { CarriedValue, PredicateWord } from "./rule-words";
 
 type Entry = Readonly<Record<string, unknown>>;
 
@@ -111,35 +111,8 @@ export function draftOf(
 
 /** The layer every rule part of one extension writes, made at its first. */
 function layerOf(draft: DefinitionDraft): RuleLayer {
-  if (draft.rule !== undefined) return draft.rule;
-  const layer: RuleLayer = { root: {}, related: {}, verbs: {}, confine: {} };
-  draft.rule = layer;
-  // Once every part wrote: the argument a mode test reads is the
-  // extension's, declared by its `args` part wherever it stands.
-  draft.finish.push(() => {
-    for (const item of [
-      ...Object.values(layer.root),
-      ...Object.values(layer.related),
-    ].flat()) {
-      if (!(item instanceof ArgTestFilter) || item.kind === "provided")
-        continue;
-      if (item.arg.path !== undefined) continue;
-      const spec = draft.args?.[item.arg.name];
-      if (
-        spec === undefined ||
-        !("oneOf" in spec) ||
-        spec.default === undefined
-      )
-        continue;
-      layer.mode = {
-        name: item.arg.name,
-        values: spec.oneOf.map(String),
-        fallback: String(spec.default),
-      };
-      return;
-    }
-  });
-  return layer;
+  draft.rule ??= { root: {}, related: {}, verbs: {}, confine: {} };
+  return draft.rule;
 }
 
 /** One rule part's entries, written on its extension's layer. */
@@ -188,6 +161,9 @@ function writeRule(
       root.unshift(where);
       related.unshift(where);
     }
+    // A test heading a list may decide the layer's mode.
+    for (const item of [...root, ...related])
+      if (item instanceof PredicateWord) item.place?.(layer, draft);
     if (root.length > 0)
       layer.root[model] = [...(layer.root[model] ?? []), ...root];
     if (related.length > 0)

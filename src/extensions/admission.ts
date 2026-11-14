@@ -8,19 +8,13 @@
  */
 import type { Schema } from "@client/types";
 import { ClientInitializationError } from "@errors";
-import {
-  type CallRows,
-  Condition,
-  type ConditionTest,
-  Existence,
-  type LazyRelations,
-  OuterColumn,
-  Parameter,
-  type RowDomain,
+import type {
+  CallRows,
+  LazyRelations,
+  RowDomain,
 } from "@query-engine/raptor3/shared/row-scope";
 import type { Input } from "@query-engine/raptor3/shared/schema";
 import type { ModelState } from "@schema/model";
-import { isPlainRecord } from "@schema/relation/terminal";
 import { createSchemaRegistry } from "@validation/builder";
 import { validateSchema } from "@validation/primitives/helpers";
 import {
@@ -33,13 +27,7 @@ import type { ResolvedExtensionChain } from "./chain-state";
 import type { Judge } from "./judge";
 import type { Projection } from "./projection";
 import type { PreparedDomain } from "./row-domain";
-import {
-  ArgTestFilter,
-  ArgValue,
-  ExistsFilter,
-  NowValue,
-  RowValue,
-} from "./rule-words";
+import { type Admitting, PredicateWord } from "./rule-words";
 
 /**
  * What predicates read of their call, as admission makes their parameters:
@@ -224,23 +212,6 @@ const admitted = new WeakMap<
 /** A layer without verbs. */
 const NO_VERBS: AdmittedLayer["verbs"] = Object.freeze({});
 
-/** A condition's tests, the filter vocabulary's own words (OD-12). */
-const TESTS = ["exists", "equals", "in", "has", "hasSome"];
-
-/** A test of an argument, or why it is refused. */
-function testOf(given: unknown): ConditionTest | string {
-  const test = isPlainRecord(given) ? given : { equals: given };
-  const [kind, ...others] = Object.keys(test);
-  const operand = test[kind!];
-  return !TESTS.includes(kind!) ||
-    others.length > 0 ||
-    (kind === "exists" && typeof operand !== "boolean") ||
-    ((kind === "in" || kind === "hasSome") && !Array.isArray(operand))
-    ? `a test is a value or exactly one of ${TESTS.join(", ")}`
-    : // Exactly one known test, its operand checked above.
-      (Object.freeze({ ...test }) as ConditionTest);
-}
-
 /**
  * The path at which `value` contains itself, `undefined` where it does not.
  * Only an object inside its own descendants is refused: a predicate may share
@@ -303,56 +274,11 @@ export function admission(
     if (cycle !== undefined)
       refuse(name, place, `at "${cycle}" contains itself`);
     const where = registry.getModelSchemas(schema[name]!).core.where;
-    const value = (word: unknown): object | undefined => {
-      if (word instanceof ArgValue) {
-        references.add(word.name);
-        return new Parameter(word.name, word.path);
-      }
-      if (word instanceof RowValue)
-        return new OuterColumn(word.column, word.up);
-      if (!(word instanceof NowValue)) return undefined;
-      references.add(undefined);
-      return new Parameter();
-    };
-    const filter = (word: object): FilterWord | undefined => {
-      if (word instanceof ExistsFilter) {
-        const models = Object.keys(word.spec);
-        const [model] = models;
-        const body = word.spec[model!];
-        if (models.length !== 1 || !Object.hasOwn(schema, model!))
-          return {
-            message:
-              "exists() names exactly one model of the schema and the `where` its rows must match",
-            path: [],
-          };
-        const result = validateSchema(
-          registry.getModelSchemas(schema[model!]!).core.where,
-          body
-        );
-        if (result.issues) {
-          const [issue] = result.issues;
-          return {
-            message: issue!.message,
-            path: [model!, ...(issue!.path ?? [])],
-          };
-        }
-        return { nodes: [new Existence(model!, result.value as Input)] };
-      }
-      if (!(word instanceof ArgTestFilter)) return undefined;
-      const test = testOf(word.test);
-      if (typeof test === "string") return { message: test, path: [] };
-      const { arg, kind, then } = word;
-      references.add(arg.name);
-      const condition = new Condition(new Parameter(arg.name, arg.path), test);
-      if (kind === "provided")
-        return then === undefined
-          ? { nodes: [condition] }
-          : { nodes: [condition], where: { AND: [condition, then] } };
-      return {
-        nodes: [condition],
-        where: { OR: [kind === "when" ? { NOT: condition } : condition, then] },
-      };
-    };
+    const at: Admitting = { references, schema, registry };
+    const value = (word: unknown): object | undefined =>
+      word instanceof PredicateWord ? word.value?.(at) : undefined;
+    const filter = (word: object): FilterWord | undefined =>
+      word instanceof PredicateWord ? word.filter?.(at) : undefined;
     let filters = filtersOf.get(of);
     if (filters === undefined) filtersOf.set(of, (filters = new WeakMap()));
     const result = admittingDomainPredicate(
@@ -389,39 +315,15 @@ function filterIn(
 ): unknown {
   const applied: unknown[] = [];
   for (const item of items) {
-    const tested = modeTest(item, layer.mode);
-    if (tested === undefined) applied.push(item);
-    else if (holds(tested, mode!)) applied.push(tested.then);
+    const kept =
+      item instanceof PredicateWord && item.under
+        ? item.under(layer.mode, mode!)
+        : item;
+    if (kept !== undefined) applied.push(kept);
   }
   if (applied.length === 0) return undefined;
   if (applied.length === 1) return applied[0];
   return { AND: applied };
-}
-
-/** A `when` or `unless` on the mode's argument: it decides per mode, not per call. */
-export function modeTest(
-  item: unknown,
-  mode: LayerMode | undefined
-): ArgTestFilter | undefined {
-  return item instanceof ArgTestFilter &&
-    item.kind !== "provided" &&
-    item.arg.path === undefined &&
-    item.arg.name === mode?.name
-    ? item
-    : undefined;
-}
-
-/** Whether a test of the mode's argument holds for one of its values. */
-function holds(filter: ArgTestFilter, mode: string): boolean {
-  const { test } = filter;
-  const passed = isPlainRecord(test)
-    ? "in" in test && Array.isArray(test.in)
-      ? test.in.includes(mode)
-      : "equals" in test
-        ? test.equals === mode
-        : "exists" in test && test.exists === true
-    : test === mode;
-  return filter.kind === "when" ? passed : !passed;
 }
 
 /**
