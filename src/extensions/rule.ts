@@ -11,6 +11,7 @@ import type {
   AnyTarget,
   EmptyFacts,
   Exact,
+  FromSchema,
   ModelName,
   Part,
   RuleFacts,
@@ -30,7 +31,9 @@ import { verbsTranslation } from "./verbs-translation";
  * schema is written apart from any client).
  */
 export function rule<T extends AnyTarget, const R = RuleInput<T>>(
-  rules: R & RuleInput<T> & NoInfer<Exact<R, RuleInput<T>>>
+  rules: R &
+    (RuleInput<T> | FromSchema<T, RuleInput<T>>) &
+    NoInfer<Exact<R, RuleInput<T>>>
 ): Part<T, RuleFacts<R, ModelName<T>>>;
 export function rule(
   rules:

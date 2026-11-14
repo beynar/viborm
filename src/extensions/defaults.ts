@@ -18,6 +18,7 @@ import type {
   DefaultsInput,
   EmptyFacts,
   Exact,
+  FromSchema,
   ModelName,
   OmittedWord,
   Part,
@@ -110,7 +111,9 @@ const has = (entry: unknown, ...keys: string[]): boolean =>
  * schema, it is read where the extension is applied.
  */
 export function defaults<T extends AnyTarget, const D = DefaultsInput<T>>(
-  defaults: D & DefaultsInput<T> & NoInfer<Exact<D, DefaultsInput<T>>>
+  defaults: D &
+    (DefaultsInput<T> | FromSchema<T, DefaultsInput<T>>) &
+    NoInfer<Exact<D, DefaultsInput<T>>>
 ): Part<T, DefaultsFacts<D, ModelName<T>>>;
 export function defaults(
   entries:

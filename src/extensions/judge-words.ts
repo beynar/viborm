@@ -48,7 +48,7 @@ export class Judging {
 export function check<W>(
   where: HeldOperand<W>
 ): IsHeld<W> extends true ? CheckWord<never> : CheckWord<W>;
-export function check(where: object): unknown {
+export function check(where: unknown): unknown {
   return new Judging("check", where);
 }
 
@@ -59,7 +59,7 @@ export function check(where: object): unknown {
 export function gate<W>(
   where: HeldOperand<W>
 ): IsHeld<W> extends true ? GateWord<never> : GateWord<W>;
-export function gate(where: object): unknown {
+export function gate(where: unknown): unknown {
   return new Judging("gate", where);
 }
 
