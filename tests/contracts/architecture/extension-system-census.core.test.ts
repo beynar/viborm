@@ -4,8 +4,8 @@ import { REPOSITORY_ROOT, SOURCE_ROOT } from "@tests/fixtures/repo-paths";
 import ts from "typescript";
 import { describe, expect, test } from "vitest";
 
-/** The one function that appends an extension to a chain: `partSet(…).append`. */
-const CANONICAL_CHAIN_OWNER = "src/extensions/chain.ts appendWith";
+/** The one function that appends an extension to a chain. */
+const CANONICAL_CHAIN_OWNER = "src/extensions/chain.ts appendParts";
 const SUPERSEDED_EXTENSION_OWNERS = Object.freeze([
   // The host before one mechanism: a definition read by host tables.
   "src/extensions/define.ts",
@@ -63,7 +63,6 @@ const MODULE_STATE_LEFT = Object.freeze([
   "src/extensions/gates.ts namedGatedFields",
   "src/extensions/plain-domain.ts NONE",
   "src/extensions/plain-domain.ts prepared",
-  "src/extensions/query.ts queryCoordinationFailures",
   "src/extensions/row-domain.ts preparedDomains",
   "src/extensions/unit-source.ts operations",
   "src/extensions/unit-source.ts sources",
@@ -163,12 +162,19 @@ function sourceRegistryEntries(
   const executableRegistries: string[] = [];
   const enclosing: string[] = [];
   const visit = (node: ts.Node): void => {
-    // Whatever writes a chain's list of extensions appends to a chain.
+    // Whatever writes a chain's list of extensions appends to a chain: by
+    // assignment, or in an object literal whose list extends a previous one
+    // (a chain built from nothing, as a carrier of its other facts, appends
+    // to none).
     if (
-      ts.isBinaryExpression(node) &&
-      node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
-      ts.isPropertyAccessExpression(node.left) &&
-      node.left.name.text === "extensions"
+      (ts.isBinaryExpression(node) &&
+        node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        ts.isPropertyAccessExpression(node.left) &&
+        node.left.name.text === "extensions") ||
+      (ts.isPropertyAssignment(node) &&
+        ts.isIdentifier(node.name) &&
+        node.name.text === "extensions" &&
+        node.initializer.getText(parsed).includes(".extensions"))
     ) {
       const owner = `${fileName} ${enclosing.at(-1) ?? "<module>"}`;
       if (!chainOwners.includes(owner)) chainOwners.push(owner);
@@ -671,6 +677,8 @@ describe("extension-system source census", () => {
         const runPluginPipeline = () => [];
         function createExtensionMiddlewareChain() { return []; }
         function grow(chain: { extensions: string[] }) { chain.extensions = []; }
+        function extend(chain: { extensions: string[] }) { return { ...chain, extensions: [...chain.extensions, "x"] }; }
+        function carrier() { return { extensions: [] }; }
       `
     );
     expect(witness.executableRegistries).toEqual([
@@ -680,6 +688,7 @@ describe("extension-system source census", () => {
     ]);
     expect(witness.chainOwners).toEqual([
       "witness/parallel-registry.ts createExtensionMiddlewareChain",
+      "witness/parallel-registry.ts extend",
       "witness/parallel-registry.ts grow",
     ]);
   });

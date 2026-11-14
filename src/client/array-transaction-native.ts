@@ -11,12 +11,7 @@ import {
   type ArrayAdmissionSlot,
   readArrayQuery,
 } from "@extensions/array-admission";
-import {
-  decomposeQueryCoordinationFailure,
-  decomposeWriteOutcomePublicationFailure,
-  type TransactionWriteOutcomes,
-  type WriteOutcome,
-} from "@extensions/query";
+import type { TransactionWriteOutcomes, WriteOutcome } from "@extensions/query";
 import type {
   TransactionOperationCapability,
   TransactionOperationOwner,
@@ -104,11 +99,7 @@ export async function executeInterceptedNativeArray(
   for (let index = 0; index < queryOutcomes.length; index += 1) {
     const outcome = queryOutcomes[index]!;
     if (outcome.status === "fulfilled") results[index] = outcome.value;
-    else {
-      for (const failure of queryFailureParts(outcome.reason)) {
-        queryFailures.push(failure);
-      }
-    }
+    else queryFailures.push(outcome.reason);
   }
   const failures = [
     ...queryFailures,
@@ -159,9 +150,7 @@ async function rejectAndCombine(
   for (const slot of slots) slot.child.reject(primary);
   const suppressed: unknown[] = [];
   for (const outcome of await Promise.allSettled(slots.map(readArrayQuery))) {
-    if (outcome.status === "rejected") {
-      suppressed.push(...queryFailureParts(outcome.reason));
-    }
+    if (outcome.status === "rejected") suppressed.push(outcome.reason);
   }
   return combineArrayFailures(primary, [...suppressed, ...extra]);
 }
@@ -189,15 +178,7 @@ async function publishNativeOutcome(
   try {
     await outcomes.publish(certainty);
   } catch (error) {
-    for (const failure of decomposeWriteOutcomePublicationFailure(error)) {
-      failures.push(failure);
-    }
+    failures.push(error);
   }
   return failures;
-}
-
-function queryFailureParts(failure: unknown): readonly unknown[] {
-  const coordination = decomposeQueryCoordinationFailure(failure);
-  if (coordination === undefined) return [failure];
-  return [coordination.child, ...coordination.postWork];
 }

@@ -5,7 +5,7 @@
  * its own state. An application writes `extension(name, ...parts)`.
  */
 import type { Schema } from "@client/types";
-import { partSet } from "@extensions/chain";
+import { appendParts } from "@extensions/chain";
 import type { ResolvedExtensionChain } from "@extensions/chain-state";
 import { controlsPart } from "@extensions/controls";
 import type { RuntimeExtensionDefinition } from "@extensions/definition";
@@ -20,14 +20,14 @@ import { queryPart } from "@extensions/query";
 import { resultPart } from "@extensions/result";
 import { rulePart } from "@extensions/rows";
 
-const hosts = partSet([
+const hosts = [
   controlsPart,
   rulePart,
   keptRowsPart,
   resultPart,
   methodsPart,
   queryPart,
-]);
+];
 
 /** A definition's members as the host parts read them. */
 export type HostDefinition = { readonly name: string } & Readonly<
@@ -44,7 +44,12 @@ export function appendResolvedExtension(
   schema: Schema
 ): ResolvedExtensionChain {
   if (isAppliedExtension(definition)) return definition.append(chain, schema);
-  return hosts.append(chain, definition as RuntimeExtensionDefinition, schema);
+  return appendParts(
+    hosts,
+    chain,
+    definition as RuntimeExtensionDefinition,
+    schema
+  );
 }
 
 /**
@@ -56,7 +61,7 @@ export function hostExtension(definition: HostDefinition): unknown {
   const { name, ...members } = definition;
   return extension(
     name,
-    builtPart(hosts.parts, (draft) => {
+    builtPart(hosts, (draft) => {
       Object.assign(draft, members);
     })
   );

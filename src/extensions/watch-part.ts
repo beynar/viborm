@@ -7,7 +7,7 @@
  */
 import type { Application, ExtensionPart } from "./chain";
 import { ARRAYS, coordinate } from "./coordination";
-import { type WrittenCall, type WrittenWatch, watchWrite } from "./written";
+import { type WrittenWatch, watchWrite } from "./written";
 
 /** The key a first moment's context registers watches through. */
 export const REGISTER = Symbol("viborm.watch");
@@ -17,6 +17,8 @@ export interface Watching {
   readonly wants?: WrittenWatch["wants"];
   readonly rows?: WrittenWatch["rows"];
   readonly settled?: WrittenWatch["settled"];
+  /** What shows the rows: what `watch` brings, never `settled`. */
+  readonly show?: WrittenWatch["show"];
 }
 
 /**
@@ -26,15 +28,7 @@ export interface Watching {
 const watched = new WeakMap<object, Map<string, Watching[]>>();
 
 /** What one extension's first moments registered for a write call, as one watch. */
-function watchOf(
-  extension: string,
-  written: WrittenCall
-): WrittenWatch | undefined {
-  const own =
-    written.call === undefined
-      ? undefined
-      : watched.get(written.call)?.get(extension);
-  if (own === undefined) return undefined;
+function watchOf(own: readonly Watching[]): WrittenWatch {
   return {
     wants: (model, kind) =>
       own.some((watching) => watching.wants?.(model, kind) === true),
@@ -46,14 +40,10 @@ function watchOf(
     async settled(outcome) {
       for (const watching of own) await watching.settled?.(outcome);
     },
-    sees: own.some((watching) => watching.wants !== undefined),
+    show: own.find((watching) => watching.show)?.show,
   };
 }
 
-/**
- * What tells the watches `watch` and `settled` register of the rows a write
- * writes and of its commit: brought by the `writes` and `deletes` sets.
- */
 /** What a first moment's context registers watches through, for one call. */
 export interface Registering {
   readonly [REGISTER]: (watching: Watching) => boolean;
@@ -83,20 +73,22 @@ export const watchPart: WatchPart = {
     },
   }),
   join({ next, chain, owner }: Application) {
-    const name = owner.name;
-    if (chain?.written?.handlers.some((handler) => handler.extension === name))
-      return;
-    const handlers = Object.freeze([
-      ...(chain?.written?.handlers ?? []),
-      Object.freeze({
-        extension: name,
-        handler: (written: WrittenCall) => watchOf(name, written),
-      }),
+    const extensions = Object.freeze([
+      ...(chain?.written?.extensions ?? []),
+      owner.name,
     ]);
     next.written = Object.freeze({
-      handlers,
-      watch: (call, controls, context, late) =>
-        watchWrite(handlers, call, controls, context, late),
+      extensions,
+      watch: (written, _controls, context, late) => {
+        const byExtension =
+          written.call === undefined ? undefined : watched.get(written.call);
+        const watches: (readonly [string, WrittenWatch])[] = [];
+        for (const extension of extensions) {
+          const own = byExtension?.get(extension);
+          if (own !== undefined) watches.push([extension, watchOf(own)]);
+        }
+        return watchWrite(watches, context, late);
+      },
     });
     coordinate(next, ARRAYS);
   },

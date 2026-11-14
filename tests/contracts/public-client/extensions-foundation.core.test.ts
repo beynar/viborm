@@ -99,12 +99,10 @@ describe("client extension foundation", () => {
       { name: "generic-only", query: async () => [] },
       schema
     );
-    expect(genericOnly.hasQueryHandlers).toBe(true);
     expect(genericOnly.query!.global).toHaveLength(1);
-    expect(Object.keys(genericOnly.query!.models)).toEqual([]);
     expect(
       lookupResolvedExtensionHandlers(genericOnly, "query", "item", "findMany")
-    ).toBe(genericOnly.query!.global);
+    ).toEqual(genericOnly.query!.global);
     expect(
       lookupResolvedExtensionHandlers(
         genericOnly,
@@ -124,8 +122,10 @@ describe("client extension foundation", () => {
       { name: "empty-model-query", query: { item: {} } },
       schema
     );
-    expect(emptyQuery.hasQueryHandlers).toBe(false);
-    expect(emptyModelQuery.hasQueryHandlers).toBe(false);
+    // A chain without a handler wraps no call.
+    expect(emptyQuery.query!.placed).toEqual([]);
+    expect(emptyModelQuery.query!.placed).toEqual([]);
+    expect(emptyQuery.coordination).toBeUndefined();
   });
 
   it("threads the exact chain through derived and transaction engine scopes", () => {

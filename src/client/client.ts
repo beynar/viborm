@@ -59,7 +59,6 @@ import {
 } from "@schema/validation/validator";
 import { createResolvedSchemaRegistry } from "@validation/builder";
 import { executeArrayTransaction } from "./array-transaction";
-import { getOfficialDefaultOmitChainCapability } from "./default-omit-chain";
 import {
   applyClientOmit,
   type ClientOmitResolver,
@@ -970,7 +969,7 @@ export class VibORM<C extends VibORMConfig> {
   #resolveClientOmit(
     chain: ResolvedExtensionChain
   ): ClientOmitResolver | undefined {
-    const capability = getOfficialDefaultOmitChainCapability(chain);
+    const capability = chain.omit;
     if (capability === undefined) return undefined;
     const resolvers =
       this.#extensionOmitResolvers ??

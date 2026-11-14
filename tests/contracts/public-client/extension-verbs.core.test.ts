@@ -206,6 +206,8 @@ describe("a nested delete judged at the target's delete verb", () => {
       });
     }
     const all = { read: { where: {} }, update: { where: only({}) } };
+    // Held, written apart from the rule: no row may be deleted.
+    const noDelete = { where: only(nothing) };
     const labelled = {
       read: { where: seen },
       update: { where: only(seen) },
@@ -215,8 +217,8 @@ describe("a nested delete judged at the target's delete verb", () => {
       extension(
         "verbs",
         rule({
-          holder: { ...all, delete: { where: only(nothing) } },
-          card: { ...all, delete: { where: only(nothing) } },
+          holder: { ...all, delete: noDelete },
+          card: { ...all, delete: noDelete },
           badge: labelled,
           crew: labelled,
         })

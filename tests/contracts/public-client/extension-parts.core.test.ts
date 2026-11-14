@@ -71,7 +71,7 @@ describe("extension parts", () => {
       )
     );
     expect(watching.request?.handlers("item", "create")).toHaveLength(1);
-    expect(watching.written?.handlers).toHaveLength(1);
+    expect(watching.written?.extensions).toEqual(["watching"]);
     expect(watching.query).toBeUndefined();
     expect(watching.methods).toBeUndefined();
 

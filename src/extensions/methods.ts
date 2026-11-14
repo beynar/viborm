@@ -319,8 +319,10 @@ export interface ExtensionMethods {
   readonly model: (model: string) => MethodRecord;
 }
 
-const NO_METHODS: MethodRecord = Object.freeze(Object.create(null));
-const NO_LAYER: ExtensionMethods = Object.freeze({
+const NO_METHODS: MethodRecord = /* @__PURE__ */ Object.freeze(
+  Object.create(null)
+);
+const NO_LAYER: ExtensionMethods = /* @__PURE__ */ Object.freeze({
   client: () => NO_METHODS,
   model: () => NO_METHODS,
 });
@@ -501,7 +503,6 @@ export interface ExtensionMethodsState {
 
 /** `methods`: what a view answers, in chain order. */
 export const methodsPart: ExtensionPart = {
-  members: ["methods"],
   join({ next, chain, definition, schema }) {
     const { name, methods: factory } = definition;
     if (factory === undefined) return;

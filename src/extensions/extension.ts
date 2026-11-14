@@ -9,7 +9,7 @@
 import type { Schema } from "@client/types";
 import type { SchemaRegistryLookup } from "@validation/types";
 import { isFunction, isRecord } from "@validation/value-guards";
-import { type ExtensionPart, partSet } from "./chain";
+import { appendParts, type ExtensionPart } from "./chain";
 import type { ResolvedExtensionChain } from "./chain-state";
 import type {
   AnyFacts,
@@ -122,15 +122,13 @@ export function extension<
 export function extension(name: string, ...parts: unknown[]): unknown {
   if (typeof name !== "string" || name.trim().length === 0)
     extensionError("An extension's name must be a non-empty string.");
-  const builds = parts.map((part) => {
-    if (!isBuilt(part))
-      extensionError(
-        `Extension "${name}" takes parts built by viborm's part builders.`,
-        name
-      );
-    return part;
-  });
-  const set = partSet(builds.flatMap((build) => build.host));
+  const builds = parts.filter(isBuilt);
+  if (builds.length !== parts.length)
+    extensionError(
+      `Extension "${name}" takes parts built by viborm's part builders.`,
+      name
+    );
+  const host = builds.flatMap((build) => build.host);
   const written = new WeakMap<
     Schema,
     { readonly definition: RuntimeExtensionDefinition; readonly models: Schema }
@@ -153,10 +151,13 @@ export function extension(name: string, ...parts: unknown[]): unknown {
     append: (chain, schema, registry) => {
       const definition = definitionFor(schema);
       // A word writes the part that runs it, where its part is written.
-      const own = definition.parts
-        ? partSet([...set.parts, ...definition.parts])
-        : set;
-      return own.append(chain, definition, schema, registry);
+      return appendParts(
+        [...host, ...(definition.parts ?? [])],
+        chain,
+        definition,
+        schema,
+        registry
+      );
     },
   };
   return Object.freeze(applied);

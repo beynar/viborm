@@ -1,25 +1,34 @@
 /**
- * The handlers of `request` and `query`, compiled once per chain: one frozen
- * array for each exact (model, operation) a definition names, and one for
- * every other call.
+ * The handlers of `call` and `around`, in chain order, each with the calls
+ * its target selects, and the handlers one call runs: found the first time
+ * a (model, operation) asks, and kept for the chain.
  */
 import type { FirstMoment, runFirstMoments } from "./call";
-import type { Application } from "./chain";
 import type {
   ResolvedExtensionChain,
-  ResolvedExtensionOperationLookup,
   ResolvedOperationHandler,
 } from "./chain-state";
 
-/** A compiled lookup, and the handlers one call runs. */
+/** One handler of a chain, and the calls it concerns. */
+export interface PlacedHandler<
+  Handler extends CallableFunction = CallableFunction,
+> extends ResolvedOperationHandler<Handler> {
+  /** The models and operations a target selects; every call without one. */
+  readonly on?: {
+    readonly models: ReadonlySet<string>;
+    readonly operations: ReadonlySet<string>;
+  };
+  /** Placed nearest the core, after every other handler (`around`'s `inner`). */
+  readonly inner?: boolean;
+}
+
+/** A chain's handlers of one moment, and the handlers one call runs. */
 export interface OperationHandlers<
   Handler extends CallableFunction = CallableFunction,
-> extends ResolvedExtensionOperationLookup<Handler> {
-  /**
-   * The precompiled array itself: lookup scans and merges nothing. A call
-   * of no model (raw SQL) runs only the handlers of every call, and only
-   * where they may run on one.
-   */
+> {
+  readonly placed: readonly PlacedHandler<Handler>[];
+  /** The handlers without a target: the only ones a raw statement runs. */
+  readonly global: readonly ResolvedOperationHandler<Handler>[];
   readonly handlers: (
     model: string | undefined,
     operation: string
@@ -31,74 +40,31 @@ export interface RequestHandlers extends OperationHandlers<FirstMoment> {
   readonly apply: typeof runFirstMoments;
 }
 
-/**
- * `previous` with one definition's `request` or `query` appended. Every
- * array of `previous` is copied, so the chain it belongs to keeps its own.
- */
-export function compileHandlers<Handler extends CallableFunction>(
-  previous: ResolvedExtensionOperationLookup<Handler> | undefined,
-  owner: Application["owner"],
-  contribution:
-    | Handler
-    | Readonly<Record<string, Readonly<Record<string, Handler>>>>
-    | undefined,
-  raw: boolean
+/** The lookup of `placed`, in its order. */
+export function handlersOf<Handler extends CallableFunction>(
+  placed: readonly PlacedHandler<Handler>[]
 ): OperationHandlers<Handler> {
-  // `controls` stays undefined for an extension that declares none.
-  const own = (handler: Handler): ResolvedOperationHandler<Handler> =>
-    Object.freeze({ extension: owner.name, handler, controls: owner.controls });
-  const global = [...(previous?.global ?? [])];
-  const models: Record<
-    string,
-    Record<string, ResolvedOperationHandler<Handler>[]>
-  > = Object.create(null);
-  for (const [model, operations] of Object.entries(previous?.models ?? {})) {
-    const copied: Record<string, ResolvedOperationHandler<Handler>[]> =
-      Object.create(null);
-    for (const [operation, handlers] of Object.entries(operations))
-      copied[operation] = [...handlers];
-    models[model] = copied;
-  }
-  if (typeof contribution === "function") {
-    const handler = own(contribution);
-    global.push(handler);
-    for (const operations of Object.values(models))
-      for (const handlers of Object.values(operations)) handlers.push(handler);
-  } else if (contribution !== undefined) {
-    for (const [model, operations] of Object.entries(contribution)) {
-      for (const [operation, handler] of Object.entries(operations)) {
-        const modelOperations = (models[model] ??= Object.create(null));
-        (modelOperations[operation] ??= [...global]).push(own(handler));
-      }
-    }
-  }
-  // Frozen in place: every array and record here is this lookup's own.
-  for (const operations of Object.values(models)) {
-    for (const handlers of Object.values(operations)) Object.freeze(handlers);
-    Object.freeze(operations);
-  }
-  const every = global.length === 0 ? undefined : global;
+  const global = Object.freeze(placed.filter((entry) => !entry.on));
+  const found = new Map<string, readonly PlacedHandler<Handler>[]>();
   return {
-    global: Object.freeze(global),
-    models: Object.freeze(models),
-    handlers: (model, operation) =>
-      model === undefined
-        ? raw
-          ? every
-          : undefined
-        : (models[model]?.[operation] ?? every),
+    placed,
+    global,
+    handlers(model, operation) {
+      if (model === undefined) return global.length > 0 ? global : undefined;
+      const key = `${model}.${operation}`;
+      let list = found.get(key);
+      if (list === undefined) {
+        list = Object.freeze(
+          placed.filter(
+            ({ on }) =>
+              !on || (on.models.has(model) && on.operations.has(operation))
+          )
+        );
+        found.set(key, list);
+      }
+      return list.length > 0 ? list : undefined;
+    },
   };
-}
-
-/** Whether `lookup` holds a handler for some call. */
-export function hasCompiledHandlers(
-  lookup: ResolvedExtensionOperationLookup
-): boolean {
-  if (lookup.global.length > 0) return true;
-  for (const operations of Object.values(lookup.models)) {
-    if (Object.keys(operations).length > 0) return true;
-  }
-  return false;
 }
 
 /** The handlers one call of `chain` runs, as its `request` or `query` answers. */
