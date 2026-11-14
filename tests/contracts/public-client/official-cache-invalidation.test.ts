@@ -15,6 +15,7 @@ import {
   s,
   settled,
   target,
+  writes,
 } from "@src/index";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test, vi } from "vitest";
@@ -152,6 +153,7 @@ describe("official cache mutation ownership", () => {
           "inspect-clean-query",
           around(
             (c) => {
+              if (c.operation !== "create") return;
               settled(c, ({ certainty }) => {
                 timeline.push(`public:${certainty}`);
               });
@@ -161,7 +163,7 @@ describe("official cache mutation ownership", () => {
                 return run();
               };
             },
-            target("user", "create")
+            target("user", writes)
           )
         )
       );
@@ -463,6 +465,7 @@ describe("official cache mutation ownership", () => {
         "inspect-ambiguous-cache-outcome",
         around(
           (c) => {
+            if (c.operation !== "create") return;
             settled(c, ({ certainty }) => {
               certainties.push(certainty);
             });
@@ -470,7 +473,7 @@ describe("official cache mutation ownership", () => {
               return run();
             };
           },
-          target("user", "create")
+          target("user", writes)
         )
       )
     );
