@@ -2,10 +2,12 @@
 /**
  * The extension codemod: rewrites extension definitions written in the
  * contract of 1.14 into the contract of the extension rewrite
- * (`extension-contract-spec.md`, section 8: "old member → new part").
+ * (`extension-contract-spec.md`, section 8: "old member → new part", as
+ * corrected by section 11, version 1: six primitives, `order` and `data`
+ * written with `defaults`, `statement(u)` for a statement unit).
  *
- *   defineExtension({ name: "audit", controls: {…}, data: {…} })
- *   → extension("audit", args({…}), rule({…}))
+ *   defineExtension({ name: "audit", controls: {…}, rows: {…}, data: {…} })
+ *   → extension("audit", args({…}), rule({…}), defaults({…}))
  *
  * It finds a definition wherever one is written: an object literal passed to
  * `$extends`, to `defineExtension(…)`, `defineExtension<S>()(…)`, a binder
@@ -15,7 +17,8 @@
  * receives. `as const`, `satisfies …` and casts to an extension type around it
  * are dropped. It also folds the two-step application of an official
  * extension (`.$extends(x.rows)…$extends(x.methods)`) into one
- * `$extends(x)` (owner rule D11), and deletes `enableExtensions()`.
+ * `$extends(x)` (owner rule D11), writes `defaultOmit<S>()(config)` as
+ * `defaultOmit(config)`, and deletes `enableExtensions()`.
  *
  * Every definition is converted whole, or left untouched and reported with
  * its member and the reason: the codemod never guesses. A conversion whose
@@ -576,14 +579,42 @@ function findSites(sf, checker) {
 // =============================================================================
 
 /** The words a file imports, aliased where the file already uses a name. */
-function wordTable(taken) {
+const PLACEHOLDER = /__word_(\w+)__/g;
+
+/**
+ * The words a file uses. A printer gets a placeholder; each word's local
+ * name is chosen once the file is converted (`resolve`), from the names the
+ * converted text still uses: a handler parameter named `statement` that the
+ * conversion removed does not make the word `statement` an alias.
+ */
+function wordTable() {
   const local = new Map();
   const used = new Set();
   const w = (word) => {
     used.add(word);
-    if (!local.has(word)) {
+    return `__word_${word}__`;
+  };
+  /** Pick each word's name and write it in place of its placeholders. */
+  const resolve = (text, fileName, specifier) => {
+    const { sf } = parse(text, fileName);
+    const taken = identifierNames(sf);
+    // A word the file already imports from the same module under its own
+    // name is that import, not a clash.
+    const own = new Set();
+    for (const statement of sf.statements)
+      if (
+        ts.isImportDeclaration(statement) &&
+        ts.isStringLiteral(statement.moduleSpecifier) &&
+        statement.moduleSpecifier.text === specifier &&
+        statement.importClause?.namedBindings &&
+        ts.isNamedImports(statement.importClause.namedBindings)
+      )
+        for (const element of statement.importClause.namedBindings.elements)
+          if (!element.propertyName) own.add(element.name.text);
+    for (const word of used) {
+      if (local.has(word)) continue;
       let name = word;
-      if (taken.has(name)) {
+      if (taken.has(name) && !own.has(name)) {
         const base = `ext${word[0].toUpperCase()}${word.slice(1)}`;
         name = base;
         for (let i = 2; taken.has(name); i++) name = `${base}${i}`;
@@ -591,9 +622,9 @@ function wordTable(taken) {
       taken.add(name);
       local.set(word, name);
     }
-    return local.get(word);
+    return text.replace(PLACEHOLDER, (_, word) => local.get(word));
   };
-  return { w, local, used };
+  return { w, local, used, resolve };
 }
 
 /** Names fresh for a handler: none of them appears in `node`. */
@@ -1337,7 +1368,8 @@ function convertTransaction(ctx, property) {
   const value = functionText(ctx, "transaction", property);
   const names = handlerNames(property, ctx);
   const open = names.fresh("open");
-  const statement = "statement";
+  // Not `statement`: that is a word a file may import.
+  const statement = "query";
   const u = names.u();
   const next = names.next();
   const handler = P.printUnitHandler(
@@ -1358,7 +1390,7 @@ function convertStatement(ctx, property) {
   if (readsReceiver(fn)) refuse(member, "its handler reads this");
   const names = handlerNames(fn, ctx);
   const props = {
-    statement: { text: () => P.printSql(names.u()), moment: 1 },
+    statement: { text: () => P.printStatement(names.u()), moment: 1 },
     model: { text: () => P.printUnitModel(names.u()), moment: 1 },
     operation: { text: () => P.printUnitOperation(names.u()), moment: 1 },
   };
@@ -1795,14 +1827,18 @@ function perModelCall(sf, call) {
   )
     returned = build.body.statements[0].expression;
   if (!returned) return undefined;
-  let entry = skipParens(returned);
+  // The template replaces the entry with its parentheses, so two members
+  // whose entries differ only by them (`() => ({…})`, `() => […]`) share it.
+  let slot = returned;
   if (pair) {
-    if (!ts.isArrayLiteralExpression(entry) || entry.elements.length !== 2)
+    const array = skipParens(returned);
+    if (!ts.isArrayLiteralExpression(array) || array.elements.length !== 2)
       return undefined;
-    entry = skipParens(entry.elements[1]);
+    slot = array.elements[1];
   }
+  const entry = skipParens(slot);
   const template = render(sf, call, (node) =>
-    node === entry ? ENTRY : undefined
+    node === slot ? ENTRY : undefined
   );
   return { target: { group: template, template, list }, entry };
 }
@@ -1816,7 +1852,12 @@ const camel = (text) =>
 
 /** The rule entries of one definition, merged per model. */
 class Rules {
-  constructor() {
+  /**
+   * `kind` is the part the entries print as: `rule` (what binds the caller)
+   * or `defaults` (what holds when the caller says nothing, D13).
+   */
+  constructor(kind = "rule") {
+    this.kind = kind;
     this.targets = new Map();
   }
   target(target) {
@@ -1868,23 +1909,31 @@ class Rules {
           return [key, leaf.value];
         })
       );
-    const ORDER = [
-      "read",
-      "root",
-      "related",
-      "create",
-      "update",
-      "delete",
-      "acyclic",
-      "confine",
-    ];
-    const entryText = (state) => {
-      const sorted = new Map(
-        [...state.tree.entries()].sort(
-          ([a], [b]) => ORDER.indexOf(a) - ORDER.indexOf(b)
+    const ORDER =
+      this.kind === "rule"
+        ? [
+            "read",
+            "root",
+            "related",
+            "create",
+            "update",
+            "delete",
+            "acyclic",
+            "confine",
+          ]
+        : ["orderBy", "create", "update", "fields"];
+    const printPart = (models) =>
+      this.kind === "rule" ? P.printRule(models) : P.printDefaults(models);
+    const sortedTree = (tree) =>
+      printTree(
+        new Map(
+          [...tree.entries()].sort(
+            ([a], [b]) => ORDER.indexOf(a) - ORDER.indexOf(b)
+          )
         )
       );
-      const entry = printTree(sorted);
+    const entryText = (state) => {
+      const entry = sortedTree(state.tree);
       if (state.lazy)
         return P.printLazyEntry(
           state.lazy.parameters,
@@ -1900,25 +1949,23 @@ class Rules {
         statics.push([state.target.model, entryText(state)]);
       else
         groups.push(
-          state.target.template.replace(ENTRY, printTree(state.tree))
+          // Parenthesized: the entry may be an arrow's concise body.
+          state.target.template.replace(ENTRY, `(${sortedTree(state.tree)})`)
         );
     if (!(statics.length || groups.length)) return [];
     if (statics.length && groups.length) {
       flags.push(
-        "models named one by one and models built per list cannot be merged: two rule parts, check no model is in both"
+        `models named one by one and models built per list cannot be merged: two ${this.kind} parts, check no model is in both`
       );
-      return [
-        P.printRule(printObject(statics)),
-        ...groups.map((group) => P.printRule(group)),
-      ];
+      return [printPart(printObject(statics)), ...groups.map(printPart)];
     }
     if (groups.length > 1)
       flags.push(
-        "several per-model lists: one rule part each, check no model is in two"
+        `several per-model lists: one ${this.kind} part each, check no model is in two`
       );
     return statics.length
-      ? [P.printRule(printObject(statics))]
-      : groups.map((group) => P.printRule(group));
+      ? [printPart(printObject(statics))]
+      : groups.map(printPart);
   }
 }
 
@@ -2330,12 +2377,7 @@ function convertData(ctx, property, rules, flags) {
       const value = valueNodeOf(ctx.checker, p);
       if (!value || (key !== "create" && key !== "update"))
         refuse(member, `\`${key ?? "…"}\` is not create or update`);
-      rules.set(
-        member,
-        target,
-        [key, "data"],
-        dataText(ctx, member, value, flags)
-      );
+      rules.set(member, target, [key], dataText(ctx, member, value, flags));
     }
     rules.target(target);
     named.push(target);
@@ -2408,7 +2450,7 @@ function convertOrder(ctx, property, rules) {
   const models = membersOf(ctx, member, property, ["models"]).get("models");
   if (!models) refuse(member, "no `models`");
   for (const { target, entry } of modelEntries(ctx, member, models))
-    rules.set(member, target, ["read", "orderBy"], entry.getText(ctx.sf));
+    rules.set(member, target, ["orderBy"], entry.getText(ctx.sf));
 }
 
 /** A member whose value is an object literal: its properties by name. */
@@ -2610,6 +2652,8 @@ function convertDefinition(ctx, site) {
     },
   };
   const rules = new Rules();
+  // `data` and `order` hold when the caller says nothing: a `defaults` part (D13).
+  const defaults = new Rules("defaults");
   const argEntries = [];
   const argFlags = [];
   const ruleFlags = [];
@@ -2627,12 +2671,12 @@ function convertDefinition(ctx, site) {
       )
     );
   if (members.has("data"))
-    named.push(...convertData(ctx, members.get("data"), rules, ruleFlags));
+    named.push(...convertData(ctx, members.get("data"), defaults, ruleFlags));
   if (members.has("deletion")) {
     deletion = convertDeletion(ctx, members.get("deletion"), rules, ruleFlags);
     named.push(...deletion.named);
   }
-  if (members.has("order")) convertOrder(ctx, members.get("order"), rules);
+  if (members.has("order")) convertOrder(ctx, members.get("order"), defaults);
   const listOf = (targets) => {
     const names = [
       ...new Set(
@@ -2688,7 +2732,10 @@ function convertDefinition(ctx, site) {
   else if (members.has("observes"))
     refuse("observes", "`observes` without an observer");
   const rulePrintFlags = [];
-  const ruleParts = rules.print(P, rulePrintFlags);
+  const ruleParts = [
+    ...rules.print(P, rulePrintFlags),
+    ...defaults.print(P, rulePrintFlags),
+  ];
   const allRuleFlags = [...new Set([...ruleFlags, ...rulePrintFlags])];
   ruleParts.forEach((part, index) => {
     parts.push(
@@ -2742,7 +2789,7 @@ function convertDefinition(ctx, site) {
 }
 
 // =============================================================================
-// TWO-STEP OFFICIAL EXTENSIONS (D11)
+// OFFICIAL EXTENSIONS IN ONE STEP (D11, spec §11)
 // =============================================================================
 
 const OFFICIAL_STEPPED = new Set(["softDelete", "permissions", "ordering"]);
@@ -2873,6 +2920,36 @@ function foldSteps(sf, checker) {
         });
     }
   });
+  // `defaultOmit<S>()(config)` → `defaultOmit(config)`: one call (spec §11).
+  walk(sf, (node) => {
+    if (
+      !(
+        ts.isCallExpression(node) &&
+        ts.isIdentifier(node.expression) &&
+        node.expression.text === "defaultOmit" &&
+        node.arguments.length === 0
+      )
+    )
+      return;
+    const { parent } = node;
+    if (ts.isCallExpression(parent) && parent.expression === node) {
+      edits.push({
+        start: node.getStart(sf),
+        end: node.getEnd(),
+        text: "defaultOmit",
+      });
+      folded.push({
+        line: lineOf(node),
+        official: "defaultOmit",
+        value: "defaultOmit<S>()(…) → defaultOmit(…)",
+      });
+    } else
+      reported.push({
+        line: lineOf(node),
+        official: "defaultOmit",
+        why: "`defaultOmit<S>()` is held before it is called: write `defaultOmit(config)` where it is called",
+      });
+  });
   return { edits, folded, reported };
 }
 
@@ -2979,7 +3056,7 @@ export function convertSource(
 ) {
   const first = parse(text, fileName);
   const taken = identifierNames(first.sf);
-  const words = wordTable(taken);
+  const words = wordTable();
   const P = printers(words.w);
   const specifier = wordSpecifier(
     first.sf,
@@ -3079,6 +3156,16 @@ export function convertSource(
   }
 
   const changed = current !== text;
+  if (changed) {
+    current = words.resolve(current, fileName, specifier);
+    const named = (snippet) =>
+      snippet.replace(PLACEHOLDER, (_, word) => words.local.get(word));
+    for (const definition of definitions) {
+      if (definition.after) definition.after = named(definition.after);
+      if (definition.declared)
+        definition.declared = definition.declared.map(named);
+    }
+  }
   if (changed || ENABLE_CALL.test(current))
     current = fixImports(current, fileName, words, specifier, importsOnlyIfAny);
   return {
@@ -3491,12 +3578,17 @@ function report({ files, options, formatChecks }) {
     (f) => f.replace(/`[^`]*`/g, (m) => (m.length > 30 ? "`…`" : m))
   ))
     lines.push(`| ${count} | ${flag} |`);
-  lines.push("", "## Official extensions applied in two steps (D11)", "");
   lines.push(
-    `Folded into one \`$extends(x)\`: ${steps.folded.length}. Left for hand review: ${steps.reported.length}.`,
+    "",
+    "## Official extensions applied in one step (D11, spec §11)",
     ""
   );
-  for (const s of steps.folded)
+  const omits = steps.folded.filter((s) => s.official === "defaultOmit").length;
+  lines.push(
+    `Two-step chains folded into one \`$extends(x)\`: ${steps.folded.length - omits}. \`defaultOmit<S>()(…)\` written \`defaultOmit(…)\`: ${omits}. Left for hand review: ${steps.reported.length}.`,
+    ""
+  );
+  for (const s of steps.folded.filter((f) => f.official !== "defaultOmit"))
     lines.push(`- folded \`${s.file}:${s.line}\` ${s.official} \`${s.value}\``);
   for (const s of steps.reported)
     lines.push(`- hand review \`${s.file}:${s.line}\` ${s.official}: ${s.why}`);

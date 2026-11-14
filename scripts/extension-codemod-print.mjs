@@ -29,6 +29,7 @@ export const WORDS = [
   "call",
   "unit",
   "rule",
+  "defaults",
   "args",
   "methods",
   "fields",
@@ -53,7 +54,7 @@ export const WORDS = [
   "settled",
   "again",
   "via",
-  "sql",
+  "statement",
   "run",
 ];
 
@@ -153,7 +154,8 @@ export function printers(w) {
     },
     printUnitModel: (u) => `${u}.model`,
     printUnitOperation: (u) => `${u}.operation`,
-    printSql: (u) => `${w("sql")}(${u})`,
+    /** The statement a `statement` unit sends, before any rewrite (spec §11). */
+    printStatement: (u) => `${w("statement")}(${u})`,
     printNext: (next, statement) => `${next}(${statement ?? ""})`,
     printRunInUnit: (u, statement) => `${w("run")}(${u}, ${statement})`,
 
@@ -207,6 +209,11 @@ export function printers(w) {
     },
 
     /** `rule(models)`, `models` a printed object or expression. */
+    /** `defaults(models)`: orderBy, create, update, fields (D13). */
+    printDefaults(models) {
+      return `${w("defaults")}(${models})`;
+    },
+
     printRule(models) {
       return `${w("rule")}(${models})`;
     },

@@ -59,11 +59,11 @@ const a = define({ name: "a", order: { models: { post: { title: "asc" } } } });
 const b = defineExtension<typeof schema>()({ name: "b", order: { models: { post: { title: "desc" } } } });`);
   has(
     r,
-    `const a = extension("a", rule({ post: { read: { orderBy: { title: "asc" } } } }));`
+    `const a = extension("a", defaults({ post: { orderBy: { title: "asc" } } }));`
   );
   has(
     r,
-    `const b = extension("b", rule({ post: { read: { orderBy: { title: "desc" } } } }));`
+    `const b = extension("b", defaults({ post: { orderBy: { title: "desc" } } }));`
   );
   lacks(r, "define =", "defineExtension");
 });
@@ -74,11 +74,11 @@ client.$extends(defineHooks({ name: "h", statement: ({ statement }) => statement
 client.$extends({ name: "lit", order: { models: { post: { id: "asc" } } } });`);
   has(
     r,
-    `client.$extends(extension("h", unit((u, next) => next(sql(u)), ["statement"], { rewrites: true })));`
+    `client.$extends(extension("h", unit((u, next) => next(statement(u)), ["statement"], { rewrites: true })));`
   );
   has(
     r,
-    `client.$extends(extension("lit", rule({ post: { read: { orderBy: { id: "asc" } } } })));`
+    `client.$extends(extension("lit", defaults({ post: { orderBy: { id: "asc" } } })));`
   );
   has(r, `from "viborm"`);
 });
@@ -104,7 +104,7 @@ test("a definition a local helper function returns is converted where it is writ
 client.$extends(make("m"));`);
   has(
     r,
-    `return extension(label, rule({ post: { read: { orderBy: { id: "asc" } } } }));`,
+    `return extension(label, defaults({ post: { orderBy: { id: "asc" } } }));`,
     `client.$extends(make("m"));`
   );
 });
@@ -115,7 +115,7 @@ test("a spread of a definition the file writes is read member by member, later m
 client.$extends({ ...base, name: "copy" });`);
   has(
     r,
-    `client.$extends(extension("copy", rule({ post: { read: { orderBy: { id: "asc" } } } })));`
+    `client.$extends(extension("copy", defaults({ post: { orderBy: { id: "asc" } } })));`
   );
 });
 
@@ -262,11 +262,11 @@ test("written → call with watch and settled, on(writes); its call's members be
   rows(model, kind, rows) { seen.push(rows); },
   async settled(outcome) { done.push(outcome.certainty, call.controls); },
 }) });`);
-  // The old handler's parameter is named `call`: the word is aliased.
+  // The old handler's parameter named `call` is gone: the word keeps its name.
   has(
     r,
-    "extCall((c) => { watch(c, { wants: (model, kind) => c.model === model, rows(model, kind, rows) { seen.push(rows); } }); settled(c, async (outcome) => { done.push(outcome.certainty, c.values); }); }, on(writes))",
-    "call as extCall"
+    "call((c) => { watch(c, { wants: (model, kind) => c.model === model, rows(model, kind, rows) { seen.push(rows); } }); settled(c, async (outcome) => { done.push(outcome.certainty, c.values); }); }, on(writes))",
+    "import { extension, call, on, writes, watch, settled }"
   );
 });
 
@@ -308,7 +308,7 @@ test("transaction → a transaction unit that runs the old handler with run(u, s
   );
   has(
     r,
-    `unit(async (u, next) => { const open = async (run) => { await run(setup); }; await open((statement) => extRun(u, statement)); return next(); }, ["transaction"])`
+    `unit(async (u, next) => { const open = async (run) => { await run(setup); }; await open((query) => extRun(u, query)); return next(); }, ["transaction"])`
   );
   has(r, "run as extRun");
 });
@@ -321,18 +321,18 @@ test("statement → a rewriting statement unit; every return goes through next",
 } });`);
   has(
     r,
-    `unit((u, next) => { if (u.operation === "$queryRaw") return next(sql(u)); return next(rewrite(sql(u))); }, ["statement"], { rewrites: true })`
+    `unit((u, next) => { if (u.operation === "$queryRaw") return next(statement(u)); return next(rewrite(statement(u))); }, ["statement"], { rewrites: true })`
   );
 });
 
-test("observe → a unit on every kind; a parameter named unit does not clash with the word", () => {
+test("observe → a unit on every kind; the parameter named unit gives way to the word", () => {
   const r = convert(
     `client.$extends({ name: "o", observe: async (unit, proceed) => { const end = await proceed(); log(unit.kind, end.status); } });`
   );
   has(
     r,
-    "extUnit(async (u, next) => { const end = await next(); log(u.kind, end.status); })",
-    "unit as extUnit"
+    "unit(async (u, next) => { const end = await next(); log(u.kind, end.status); })",
+    "import { extension, unit }"
   );
 });
 
@@ -442,33 +442,62 @@ test("deletion → delete.instead, unless(arg(removeWhen), value, …); its cont
   );
 });
 
-test("data, deletion and order naming one model are merged into one entry of one rule", () => {
+const RULE_CALL = /\brule\(/g;
+const DEFAULTS_CALL = /\bdefaults\(/g;
+
+test("members naming one model merge into one entry per part: rows and deletion in rule, data and order in defaults (D13)", () => {
   const r = convert(`client.$extends({ name: "m",
-  data: { models: { post: { create: { at: { now: true } }, update: { by: { control: "actor" }, version: { increment: 1 } } } } },
+  rows: { control: "deleted", default: "without", models: { post: { without: { root: { deletedAt: null } }, with: {} } } },
   deletion: { models: { post: { at: "deletedAt" } } },
+  data: { models: { post: { create: { at: { now: true } }, update: { by: { control: "actor" }, version: { increment: 1 } } } } },
   order: { models: { post: [{ rank: "asc" }] } } });`);
   has(
     r,
-    `rule({ post: { read: { orderBy: [{ rank: "asc" }] }, create: { data: { at: now } }, update: { data: { by: arg("actor"), version: { increment: 1 } } }, delete: { instead: instead({ deletedAt: now }) } } })`
+    `rule({ post: { root: when(arg("deleted"), "without", { deletedAt: null }), delete: { instead: instead({ deletedAt: now }) } } })`,
+    `defaults({ post: { orderBy: [{ rank: "asc" }], create: { at: now }, update: { by: arg("actor"), version: { increment: 1 } } } })`
   );
-  assert.equal((r.text.match(/rule\(/g) ?? []).length, 1);
+  assert.equal(r.text.match(RULE_CALL)?.length, 1);
+  assert.equal(r.text.match(DEFAULTS_CALL)?.length, 1);
 });
 
-test("per-model calls: members built by the same call over the same list merge inside it (the recipes)", () => {
+test("per-model calls: members built by the same call over the same list merge inside it, per part (the recipes)", () => {
   const r =
     convert(`${HEAD}export const tenancy = <const M extends readonly string[]>(models: M) => defineExtension({
   name: "tenancy",
   controls: { tenant: { schema: v.string(), required: true } },
   rows: { control: "scope", default: "tenant", models: perModel(models, () => ({ tenant: { root: { tenantId: { control: "tenant" } } }, all: {} })) },
+  deletion: { models: perModel(models, () => ({ at: "deletedAt" })) },
   data: { models: perModel(models, () => ({ create: { tenantId: { control: "tenant" } } })) },
+  order: { models: perModel(models, () => [{ id: "asc" }]) },
 });`);
   has(
     r,
-    `args({ tenant: accepts(v.string()).required(models), scope: oneOf("tenant", "all").default("tenant") })`
+    `args({ tenant: accepts(v.string()).required(models), scope: oneOf("tenant", "all").default("tenant") })`,
+    `rule(perModel(models, () => ({ root: when(arg("scope"), "tenant", { tenantId: arg("tenant") }), delete: { instead: instead({ deletedAt: now }) } })))`,
+    `defaults(perModel(models, () => ({ orderBy: [{ id: "asc" }], create: { tenantId: arg("tenant") } })))`
   );
+});
+
+test("defaultOmit<S>()(config) is written defaultOmit(config); a held binder is reported", () => {
+  const r = convert(`import { defaultOmit } from "@src/client/default-omit";
+const db = client.$extends(defaultOmit<typeof schema>()({ user: { passwordHash: true } }));
+const bind = defaultOmit<typeof schema>();`);
   has(
     r,
-    `rule(perModel(models, () => ({ root: when(arg("scope"), "tenant", { tenantId: arg("tenant") }), create: { data: { tenantId: arg("tenant") } } })))`
+    "client.$extends(defaultOmit({ user: { passwordHash: true } }))",
+    "const bind = defaultOmit<typeof schema>();"
+  );
+  assert.equal(r.steps.folded.length, 1);
+  assert.equal(r.steps.reported.length, 1);
+});
+
+test("the word statement is imported under its own name once the handler parameter it replaced is gone", () => {
+  const r = convert(`import { defineHooks } from "viborm";
+client.$extends(defineHooks({ name: "s", statement: ({ statement }) => statement }));`);
+  has(
+    r,
+    `import { extension, unit, statement } from "viborm";`,
+    "next(statement(u))"
   );
 });
 
@@ -576,10 +605,13 @@ const x = defineExtension({ name: "x", order: { models: { post: { id: "asc" } } 
 client.$extends({ name: "y", ... });
 \`\`\`
 `);
-  assert.ok(text.includes(`import { extension, rule } from "viborm";`), text);
+  assert.ok(
+    text.includes(`import { extension, defaults } from "viborm";`),
+    text
+  );
   assert.ok(
     text.includes(
-      `const x = extension("x", rule({ post: { read: { orderBy: { id: "asc" } } } }));`
+      `const x = extension("x", defaults({ post: { orderBy: { id: "asc" } } }));`
     ),
     text
   );
