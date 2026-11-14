@@ -8,11 +8,12 @@ import type {
 } from "../types";
 import { isFunction, isRecord } from "../value-guards";
 import {
-  buildValidator,
   collectingAllIssues,
   createSchema,
   issuesUnder,
   ok,
+  withTransform,
+  wrapped,
 } from "./helpers";
 
 // =============================================================================
@@ -933,10 +934,12 @@ export function object<
     array,
     transform,
   } = options ?? {};
-  let validate = buildValidator<any, any>(
-    createObjectValidator(entries as ObjectEntries, options),
-    { optional, nullable, array, transform },
-    "object"
+  const parsed = createObjectValidator(entries as ObjectEntries, options);
+  let validate = wrapped(
+    transform ? withTransform(parsed, transform) : parsed,
+    array,
+    nullable,
+    optional
   );
   // An object's default answers an absent optional value as it stands: it
   // does not cross the parser, and without `optional` it is never read.
