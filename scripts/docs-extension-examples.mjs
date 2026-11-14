@@ -472,7 +472,15 @@ function main() {
           typeRoots: [join(ROOT, "node_modules", "@types")],
           paths: { ...entryPaths(), ...sourceAliases() },
         },
-        files: [...modules.keys()].map((file) => relative(OUT, file)),
+        // Ambient declarations a preamble needs (a runtime's own module,
+        // such as `cloudflare:workers`) come from the preamble folder's
+        // `modules/*.d.ts`.
+        files: [
+          ...(existsSync(relatives)
+            ? readdirSync(relatives).filter((name) => name.endsWith(".d.ts"))
+            : []),
+          ...[...modules.keys()].map((file) => relative(OUT, file)),
+        ],
       },
       null,
       2
