@@ -2340,7 +2340,11 @@ export class SurrealReadBackend implements ReadBackend {
     input: Input,
     path = ""
   ): Sql | undefined {
-    const { predicate } = this.#queries.domain!.layered(model, layer, input);
+    const { predicate } = this.#queries.domain!.project!.layered(
+      model,
+      layer,
+      input
+    );
     return predicate && this.predicate(predicate, true, path);
   }
 
@@ -2353,7 +2357,7 @@ export class SurrealReadBackend implements ReadBackend {
   #gated(model: AnyModel, field: string, column: Sql, path = ""): Sql {
     const q = this.#queries;
     if (q.lowersLayer) return column;
-    const gate = q.domain?.projected(model)?.gates.get(field);
+    const gate = q.domain?.project?.projected(model)?.gates.get(field);
     if (!gate) return column;
     const held = gate.flatMap(([layer, read, input]) => {
       if (input === read) return [];
@@ -2371,7 +2375,8 @@ export class SurrealReadBackend implements ReadBackend {
   #gatedHere(model: AnyModel, field: string): boolean {
     const q = this.#queries;
     return (
-      !q.lowersLayer && q.domain?.projected(model)?.gates.has(field) === true
+      !q.lowersLayer &&
+      q.domain?.project?.projected(model)?.gates.has(field) === true
     );
   }
 

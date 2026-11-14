@@ -9,7 +9,7 @@
 
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { PgDriver } from "@drivers/pg";
-import { withRows } from "@extensions/rows-runtime";
+import { withRows, withVerbs } from "@extensions/rows-runtime";
 import {
   type BeforeStatement,
   runDeletionRaceBehavior,
@@ -19,6 +19,7 @@ import { dropEveryLiveTable, TEST_CONNECTION_STRING } from "./pg-fixtures";
 
 // These definitions are stated as plain objects: what reads their rows is brought here.
 withRows();
+withVerbs();
 
 /** A pg driver that awaits `beforeStatement` before each statement. */
 class PausingPgDriver extends PgDriver {

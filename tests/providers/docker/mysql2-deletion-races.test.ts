@@ -8,7 +8,7 @@
 
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { MySQL2Driver } from "@drivers/mysql2";
-import { withRows } from "@extensions/rows-runtime";
+import { withRows, withVerbs } from "@extensions/rows-runtime";
 import {
   type BeforeStatement,
   runDeletionRaceBehavior,
@@ -18,6 +18,7 @@ import { dropEveryLiveTable, TEST_CONNECTION_STRING } from "./mysql2-fixtures";
 
 // These definitions are stated as plain objects: what reads their rows is brought here.
 withRows();
+withVerbs();
 
 /** A mysql2 driver that awaits `beforeStatement` before each statement. */
 class PausingMySQL2Driver extends MySQL2Driver {

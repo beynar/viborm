@@ -1,4 +1,4 @@
-export { defineExtension, defineHooks } from "./define";
+export { defineExtension, defineFilters, defineHooks } from "./define";
 export type { ClientExtension } from "./definition";
 export { enableExtensions } from "./host";
 export type {

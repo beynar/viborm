@@ -1775,9 +1775,10 @@ export class SqlQueries extends Queries {
    * itself: they lower inside the layer.
    */
   #guarded(model: AnyModel, field: string, column: Sql, alias?: string): Sql {
-    return this.#lowersLayer || this.#masked || !this.domain
+    const project = this.domain?.project;
+    return this.#lowersLayer || this.#masked || !project
       ? column
-      : this.domain.guarded(this, model, field, column, alias);
+      : project.guarded(this, model, field, column, alias);
   }
   /** `model`'s `field` at `alias` as an operand the caller wrote ({@link guarded}). */
   #operand(model: AnyModel, field: string, alias?: string): Sql {
@@ -1787,7 +1788,7 @@ export class SqlQueries extends Queries {
   #gatedHere(model: AnyModel, field: string): boolean {
     return (
       !this.#lowersLayer &&
-      this.domain?.projected(model)?.gates.has(field) === true
+      this.domain?.project?.projected(model)?.gates.has(field) === true
     );
   }
   /**
@@ -1798,7 +1799,7 @@ export class SqlQueries extends Queries {
   #masks(model: AnyModel): boolean {
     return (
       !(this.#lowersLayer || this.#masked) &&
-      (this.domain?.projected(model)?.gates.size ?? 0) > 0
+      (this.domain?.project?.projected(model)?.gates.size ?? 0) > 0
     );
   }
   /** `fn` lowered over a masked window ({@link masked}). */
@@ -4415,23 +4416,13 @@ export class SqlQueries extends Queries {
       expression = this.projectedColumn(projection.model, field.name, alias);
     } else if (field.kind === "sentinel") {
       expression = this.#cast(this.#literal(1), "integer");
-    } else if (field.kind === "evidence") {
-      expression = this.domain!.evidence(
+    } else if (field.kind === "evidence" || field.kind === "gate") {
+      expression = this.domain!.project!.lower(
         this,
         projection.model,
         field,
         alias,
         visible
-      );
-    } else if (field.kind === "gate") {
-      expression = this.truth(
-        this.domain!.gateHolds(
-          this,
-          projection.model,
-          field.gate,
-          alias,
-          visible
-        )
       );
     } else if (field.kind === "relation") {
       expression = this.#duplicateMembershipGuard(
@@ -5246,7 +5237,7 @@ export class SqlQueries extends Queries {
     const aggregates = this.#prepareAggregates(model, args);
     const fields: Record<string, Shape | Leaf> = {};
     const gates = this.#masked
-      ? this.domain?.projected(model)?.gates
+      ? this.domain?.project?.projected(model)?.gates
       : undefined;
     const columns: Sql[] = by.map((field) => {
       const leaf = this.scalarShape(model, field);

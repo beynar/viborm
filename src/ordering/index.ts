@@ -19,7 +19,7 @@ import {
   QueryError,
 } from "../errors";
 import { ValidationError } from "../errors/validation";
-import { defineExtension } from "../extensions/define";
+import { defineFilters } from "../extensions/define";
 import type {
   ClientSchema,
   ClientTypeState,
@@ -1213,8 +1213,9 @@ function definitionOf<
   C extends Governed<Config>,
   X extends ExtensionState,
 >(config: Config, client: VibORMClient<C, X>) {
-  // `defineExtension` brings what reads the declarations made here.
-  defineExtension();
+  // `defineFilters` brings what reads the declarations made here: they judge
+  // no written row and project nothing.
+  defineFilters();
   const admitted = admit(client.$schema, config);
   // Respacing renders with the client's driver: the scope a method is given
   // has none.

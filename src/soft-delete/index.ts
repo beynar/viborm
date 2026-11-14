@@ -7,7 +7,7 @@ import {
   type ClientTypeState,
   type DelegateOperationArgs,
   type DelegateOperationResult,
-  defineExtension,
+  defineFilters,
   type ExtensionState,
   type PendingOperation,
   type VibORMClient,
@@ -130,8 +130,9 @@ function definitionOf<
   Config extends SoftDeleteConfig,
   C extends Governed<Config>,
 >(config: Config, schema: ClientSchema<C>) {
-  // `defineExtension` brings what reads the rows and the deletion declared here.
-  defineExtension();
+  // `defineFilters` brings what reads the rows and the deletion declared here:
+  // they filter, and judge no written row.
+  defineFilters();
   return {
     name: NAME,
     controls: { mode: { oneOf: ["soft", "hard"] } }, // deletion places it on managed deletes

@@ -53,6 +53,7 @@ const documentedRuntimeExports = [
   "createClient",
   "createModelFieldRefs",
   "defineExtension",
+  "defineFilters",
   "defineHooks",
   "empty",
   "enableExtensions",

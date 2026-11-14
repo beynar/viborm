@@ -5,7 +5,8 @@
  * reads those declarations.
  */
 import { withHost } from "@extensions/host";
-import { withRows } from "@extensions/rows-runtime";
+import { withRows, withVerbs } from "@extensions/rows-runtime";
 
 withHost();
 withRows();
+withVerbs();

@@ -5,7 +5,7 @@
  */
 
 import { createClient } from "@client/client";
-import { withRows } from "@extensions/rows-runtime";
+import { withRows, withVerbs } from "@extensions/rows-runtime";
 import { DbNull, JsonNull, s } from "@schema";
 import { sql } from "@sql";
 import { defineExtension } from "@src/index";
@@ -28,6 +28,7 @@ import {
 
 // These definitions are stated as plain objects: what reads their rows is brought here.
 withRows();
+withVerbs();
 
 const WRITES_A_ROW = /\b(?:CREATE|INSERT)\b/;
 

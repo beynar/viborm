@@ -16,12 +16,12 @@ import type { ModelStamps } from "@query-engine/raptor3/shared/row-scope";
 import type { Input } from "@query-engine/raptor3/shared/schema";
 import type { SchemaRegistryLookup } from "@validation/types";
 import { isFunction } from "@validation/value-guards";
+import type { AdmittedRows } from "./admission";
 import {
   type DataContribution,
   type DeletionContribution,
   placeControls,
   type ResolvedControl,
-  type RowsContribution,
 } from "./controls";
 import {
   type ControlLiteral,
@@ -119,11 +119,11 @@ export interface ResolvedDeletion {
 export interface ResolvedExtensionChain {
   readonly controls?: ResolvedControls;
   /**
-   * Every `rows` member, as declared (plain data): also a cached read's key,
-   * so two chains whose `rows` differ never share an entry and two that
-   * declare the same always do.
+   * Every `rows` member, as admitted: also a cached read's key, so two
+   * chains whose `rows` differ never share an entry and two that declare
+   * the same always do.
    */
-  readonly rows?: readonly RowsContribution[];
+  readonly rows?: readonly AdmittedRows[];
   readonly deletion?: Readonly<Record<string, ResolvedDeletion>>;
   /** Per model, every extension's `data` fields: a later one wins a field. */
   readonly data?: Readonly<Record<string, ModelStamps>>;
@@ -584,29 +584,12 @@ export function appendResolvedExtension(
     declaredControls === undefined
       ? chain?.controls
       : appendControls(chain?.controls, declaredControls);
-  // A lazy `verbs` entry's references are checked when it is resolved,
-  // against what this chain declared here, as the loop above checks the rest.
-  const ownControls = new Set([
-    ...Object.keys(effectiveDefinition.controls ?? {}),
-    ...(effectiveDefinition.rows ? [effectiveDefinition.rows.control] : []),
-  ]);
-  const declaredHere = chain?.controls?.names;
+  // A lazy `verbs` entry's references are checked when it is resolved, by
+  // the binding, against what the chain declared where it was applied.
   const rows =
     effectiveDefinition.rows === undefined
       ? chain?.rows
-      : Object.freeze([
-          ...(chain?.rows ?? []),
-          rowsRuntime().checkingLazyReferences(
-            effectiveDefinition.rows,
-            (control) =>
-              ownControls.has(control) || declaredHere?.has(control) === true,
-            (control) =>
-              extensionError(
-                `Extension "${definition.name}" references undeclared control "${control}".`,
-                definition.name
-              )
-          ),
-        ]);
+      : Object.freeze([...(chain?.rows ?? []), effectiveDefinition.rows]);
   const deletion =
     effectiveDefinition.deletion === undefined
       ? chain?.deletion

@@ -482,7 +482,7 @@ export class Writer {
     if (fields === 0 || fields !== columns.length) return false;
     const bound = this.operation.driver.maxBindParametersPerStatement;
     if (bound === undefined) return true;
-    const placed = this.#q.domain?.produced(model);
+    const placed = this.#q.domain?.judge?.produced(model);
     return (
       (count + 1) * fields +
         ((placed && this.#q.lowerSelector(placed)?.values.length) ?? 0) <=
@@ -502,14 +502,15 @@ export class Writer {
     const { capabilities, mutations } = this.adapter;
     const rows = await this.computed(model, values);
     const fields = Object.keys(rows[0]!);
-    const placed = q.domain?.produced(model);
+    const judge = q.domain?.judge;
+    const placed = judge?.produced(model);
     // A row of defaults only has no value to judge before it is written.
     if (fields.length === 0 && placed)
       unsupported(
         `Cannot create a '${nameOf(model)}' row that writes no field: its placement is judged on the values it writes.`
       );
     const select =
-      placed && q.domain!.producedSource(q, model, fields, rows, placed);
+      placed && judge!.producedSource(q, model, fields, rows, placed);
     // Rows that hold what another row alone may hold are passed by.
     const skip = skips
       ? mutations.skipDuplicates(q.columnName(model, fields[0]!))
@@ -544,7 +545,7 @@ export class Writer {
           : insert,
       ...(select && {
         probe: select,
-        stops: q.domain!.refusal(
+        stops: judge!.refusal(
           this.operation.operation,
           model,
           undefined,
@@ -580,21 +581,22 @@ export class Writer {
     const statement = this.#answered(
       model,
       () => {
+        const judge = q.domain?.judge;
         const produced =
           judged &&
-          q.domain &&
-          q.domain.producedWhere(
+          judge &&
+          judge.producedWhere(
             q,
             model,
             (alias) => this.#among(question, selector, alias),
             set!,
-            q.domain.produced(model, judged, Object.keys(set!)),
-            q.domain.cycles(model, judged),
+            judge.produced(model, judged, Object.keys(set!)),
+            judge.cycles(model, judged),
             limit
           );
         const edge = question.member?.edge ?? question.through;
         if (produced)
-          stops = q.domain!.refusal(
+          stops = judge!.refusal(
             this.operation.operation,
             model,
             judged,
