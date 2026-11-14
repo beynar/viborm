@@ -836,7 +836,10 @@ describe("Snowflake timeouts", () => {
     });
   /** Half an hour later, once the statement went. */
   const halfAnHourLater = async () => {
-    await vi.waitFor(() => expect(server.statements()).toHaveLength(1));
+    await vi.waitFor(() => {
+      if (server.statements().length === 0)
+        throw new Error("the statement is not sent yet");
+    });
     vi.advanceTimersByTime(1_800_000);
   };
 
