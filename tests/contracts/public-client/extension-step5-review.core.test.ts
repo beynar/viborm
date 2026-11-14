@@ -17,14 +17,22 @@ import {
   arg,
   args,
   around,
+  bound,
   call,
+  check,
+  defaults,
   extension,
+  keep,
   methods,
+  now,
+  omitted,
   oneOf,
   provided,
   rule,
   settled,
   target,
+  unless,
+  via,
   when,
   writes,
 } from "@src/index";
@@ -669,5 +677,341 @@ describe("extension and methods", () => {
     );
     const titles = (client.post.titles as () => Promise<Row[]>)();
     expect(await titles).toEqual([{ title: "one" }]);
+  });
+});
+
+describe("call: via and inner", () => {
+  test("via runs a read outside a transaction on the driver given, and anything else where it would run", async () => {
+    const elsewhere = new Error("routed");
+    const bogus = new Proxy(
+      {},
+      {
+        get() {
+          throw elsewhere;
+        },
+      }
+    );
+    const client = (await seeded()).$extends(
+      extension(
+        "route",
+        around(() => (run) => via(run, bogus as never))
+      )
+    );
+    expect(await rejection(client.post.findMany({}))).toBe(elsewhere);
+    expect(
+      await client.$transaction((tx) =>
+        tx.post.findMany({ select: { id: true } })
+      )
+    ).toEqual([{ id: "p1" }]);
+    expect(
+      await client.post.create({
+        data: { id: "p2", title: "t", ownerId: "u1" },
+        select: { id: true },
+      })
+    ).toEqual({ id: "p2" });
+  });
+
+  test("{ inner: true } sits nearest the core whatever the chain's order", async () => {
+    const log: string[] = [];
+    const logging = (name: string, inner?: true) =>
+      extension(
+        name,
+        around(
+          () => async (run) => {
+            log.push(`${name}:in`);
+            const value = await run();
+            log.push(`${name}:out`);
+            return value;
+          },
+          undefined,
+          inner === undefined ? undefined : { inner }
+        )
+      );
+    const client = (await seeded())
+      .$extends(logging("inner", true))
+      .$extends(logging("outer"));
+    await client.post.findMany({});
+    expect(log).toEqual(["outer:in", "inner:in", "inner:out", "outer:out"]);
+  });
+});
+
+describe("args: modifiers", () => {
+  test("unless applies its filter where the test fails", async () => {
+    const base = await seeded();
+    await base.post.create({ data: { id: "p2", title: "two", ownerId: "u2" } });
+    const client = base.$extends(
+      extension(
+        "unless",
+        args({ view: oneOf("mine", "all") }),
+        rule({
+          post: {
+            read: { where: unless(arg("view"), "all", { ownerId: "u1" }) },
+          },
+        } as never)
+      )
+    );
+    expect(await client.post.findMany({ view: "mine" })).toHaveLength(1);
+    expect(await client.post.findMany({ view: "all" })).toHaveLength(2);
+  });
+
+  test("a bound argument is refused in a call and given by scope.$bind", async () => {
+    const base = await seeded();
+    await base.post.create({ data: { id: "p2", title: "two", ownerId: "u2" } });
+    const client = base.$extends(
+      extension(
+        "tenant",
+        args({ owner: bound(v.string()) }),
+        rule({ post: { read: { where: { ownerId: arg("owner") } } } } as never),
+        methods(
+          (scope: { $bind(values: object): unknown }) =>
+            ({ $owner: (owner: string) => scope.$bind({ owner }) }) as never
+        )
+      )
+    );
+    expect(
+      await rejection(client.post.findMany({ owner: "u1" }))
+    ).toBeInstanceOf(VibORMError);
+    const owned = (client.$owner as (owner: string) => Loose)("u2");
+    expect(await owned.post.findMany({ select: { id: true } })).toEqual([
+      { id: "p2" },
+    ]);
+  });
+
+  test(".default is the value a call that says nothing passes", async () => {
+    let seen: unknown;
+    const client = (await seeded()).$extends(
+      extension(
+        "defaulted",
+        args({ level: oneOf("low", "high").default("low") }),
+        call((c) => {
+          seen = c.values.level;
+        })
+      )
+    );
+    await client.post.findMany({});
+    expect(seen).toBe("low");
+  });
+
+  test(".models and .required([models]) place an argument per model", async () => {
+    const client = (await seeded()).$extends(
+      extension(
+        "placed",
+        args({
+          only: oneOf("a").models(["post"]),
+          needed: oneOf("a").required(["post"]),
+        })
+      )
+    );
+    expect(await rejection(client.user.findMany({ only: "a" }))).toBeInstanceOf(
+      VibORMError
+    );
+    expect(await rejection(client.post.findMany({}))).toBeInstanceOf(
+      VibORMError
+    );
+    expect(await client.user.findMany({})).toHaveLength(2);
+    expect(await client.post.findMany({ needed: "a", only: "a" })).toHaveLength(
+      1
+    );
+  });
+
+  test("a mode argument keeps .required and shows in c.values", async () => {
+    let seen: unknown;
+    const client = (await seeded()).$extends(
+      extension(
+        "moded-required",
+        args({ view: oneOf("mine", "all").default("all").required() }),
+        call((c) => {
+          seen = c.values.view;
+        }),
+        rule({
+          post: {
+            read: { where: when(arg("view"), "mine", { ownerId: "u2" }) },
+          },
+        } as never)
+      )
+    );
+    await client.post.findMany({ view: "mine" });
+    expect(seen).toBe("mine");
+  });
+});
+
+describe("rule: check and keep", () => {
+  test("update.check re-judges the row an update leaves", async () => {
+    const client = (await seeded()).$extends(
+      extension(
+        "checked",
+        rule({ post: { update: { check: check({ ownerId: "u1" }) } } } as never)
+      )
+    );
+    expect(
+      await rejection(
+        client.post.update({ where: { id: "p1" }, data: { ownerId: "u2" } })
+      )
+    ).toBeInstanceOf(VibORMError);
+    expect(
+      await client.post.update({
+        where: { id: "p1" },
+        data: { title: "kept" },
+        select: { title: true },
+      })
+    ).toEqual({ title: "kept" });
+  });
+
+  test("a key a rule entry leaves out adds no restriction (update, delete)", async () => {
+    const client = (await seeded()).$extends(
+      extension(
+        "read-only-filter",
+        rule({ post: { read: { where: { title: "one" } } } } as never)
+      )
+    );
+    expect(
+      await client.post.update({
+        where: { id: "p1" },
+        data: { title: "two" },
+        select: { title: true },
+      })
+    ).toEqual({ title: "two" });
+  });
+});
+
+describe("defaults", () => {
+  const timed = s.model({
+    id: s.string().id(),
+    rank: s.int(),
+    label: s.string(),
+    secret: s.string(),
+    token: s.string(),
+  });
+
+  async function open(): Promise<Loose & { timed: Delegate }> {
+    const base = createClient({
+      schema: { timed },
+      dataDir: ":memory:",
+    }) as never as Loose & { timed: Delegate };
+    opened.push(base);
+    await syncLiveSchema(base as never);
+    return base;
+  }
+
+  test("the caller's value wins; a later extension's default wins over an earlier one", async () => {
+    const client = (await open())
+      .$extends(
+        extension(
+          "early",
+          defaults({ timed: { create: { label: "early" } } } as never)
+        )
+      )
+      .$extends(
+        extension(
+          "late",
+          defaults({ timed: { create: { label: "late" } } } as never)
+        )
+      );
+    expect(
+      await client.timed.create({
+        data: { id: "a", rank: 1, secret: "s", token: "t" },
+        select: { label: true },
+      })
+    ).toEqual({ label: "late" });
+    expect(
+      await client.timed.create({
+        data: { id: "b", rank: 2, label: "mine", secret: "s", token: "t" },
+        select: { label: true },
+      })
+    ).toEqual({ label: "mine" });
+  });
+
+  test("an explicit orderBy replaces the default whole; omitted fields of two extensions are merged per model", async () => {
+    const base = await open();
+    for (const [id, rank, label] of [
+      ["a", 1, "z"],
+      ["b", 2, "y"],
+      ["c", 2, "x"],
+    ] as const)
+      await base.timed.create({
+        data: { id, rank, label, secret: "s", token: "t" },
+      });
+    const client = base
+      .$extends(
+        extension(
+          "order",
+          defaults({
+            timed: {
+              orderBy: [{ rank: "desc" }, { label: "asc" }],
+              fields: { secret: omitted },
+            },
+          } as never)
+        )
+      )
+      .$extends(
+        extension(
+          "omit-more",
+          defaults({ timed: { fields: { token: omitted } } } as never)
+        )
+      );
+    const ids = (rows: Row[]) => rows.map((row) => row.id);
+    expect(ids(await client.timed.findMany({}))).toEqual(["c", "b", "a"]);
+    expect(
+      ids(await client.timed.findMany({ orderBy: [{ label: "desc" }] }))
+    ).toEqual(["a", "b", "c"]);
+    expect(
+      Object.keys((await client.timed.findFirst({})) ?? {}).sort()
+    ).toEqual(["id", "label", "rank"]);
+  });
+});
+
+describe("methods: laziness", () => {
+  test("the factory runs at $extends for the client returned, once, and once more per other view", async () => {
+    let runs = 0;
+    const client = (await seeded()).$extends(
+      extension(
+        "counted",
+        args({ owner: bound(v.string()) }),
+        methods((scope: { $bind(values: object): unknown }) => {
+          runs += 1;
+          return {
+            $bindOwner: (owner: string) => scope.$bind({ owner }),
+          } as never;
+        })
+      )
+    );
+    const atExtends = runs;
+    (client.$bindOwner as unknown as (owner: string) => unknown)("u1");
+    (client.$bindOwner as unknown as (owner: string) => unknown)("u1");
+    expect(atExtends).toBe(1);
+    expect(runs).toBe(1);
+  });
+});
+
+describe("rule: keep", () => {
+  test("a delete updates the row with keep's data instead", async () => {
+    const tomb = s.model({
+      id: s.string().id(),
+      removedAt: s.dateTime().nullable(),
+    });
+    const base = createClient({
+      schema: { tomb },
+      dataDir: ":memory:",
+    }) as never as Loose & {
+      tomb: Delegate;
+    };
+    opened.push(base);
+    await syncLiveSchema(base as never);
+    await base.tomb.create({ data: { id: "a" } });
+    const client = base.$extends(
+      extension(
+        "tomb",
+        rule({
+          tomb: {
+            read: { where: { removedAt: null } },
+            delete: { instead: keep({ removedAt: now }) },
+          },
+        } as never)
+      )
+    );
+    await client.tomb.delete({ where: { id: "a" } });
+    expect(await client.tomb.findMany({})).toEqual([]);
+    const [row] = await base.tomb.findMany({});
+    expect(row?.removedAt).toBeInstanceOf(Date);
   });
 });

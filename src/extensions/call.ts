@@ -394,14 +394,10 @@ const aroundPart: ExtensionPart = {
   uses: [firstPart],
   join({ next, chain, definition, owner, schema }: Application) {
     let query: OperationHandlers | undefined = chain?.query;
-    let inner = false;
     for (const entry of definition.calls ?? []) {
       if (!entry.around) continue;
       const second = secondMoment(firstOf(entry, schema), owner.name);
-      if (entry.inner) {
-        INNER.add(second);
-        inner = true;
-      }
+      if (entry.inner) INNER.add(second);
       query = compileHandlers(
         query,
         owner,
@@ -410,7 +406,9 @@ const aroundPart: ExtensionPart = {
       );
     }
     if (query === chain?.query) return;
-    next.query = Object.freeze(inner ? innerLast(query!) : query!);
+    // Reordered at every join: a later extension's handler lands after an
+    // earlier one placed nearest the core.
+    next.query = Object.freeze(innerLast(query!));
     next.hasQueryHandlers = true;
     coordinate(next, QUERIES);
   },
