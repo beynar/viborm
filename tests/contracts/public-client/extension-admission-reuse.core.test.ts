@@ -4,6 +4,7 @@ import { ClientInitializationError } from "@errors";
 import { admitRows } from "@extensions/admission";
 import type { RowsContribution } from "@extensions/controls";
 import { s } from "@schema";
+import { arg, args, bound, extension, oneOf, rule, when } from "@src/index";
 import { v } from "@validation";
 import { createSchemaRegistry } from "@validation/builder";
 import type { SchemaRegistryLookup } from "@validation/types";
@@ -106,14 +107,11 @@ test("a client created per request applies one declaration without reading its p
       return "one";
     },
   };
-  const definition = {
-    name: "filter",
-    rows: {
-      control: "visibility",
-      default: "visible",
-      models: { post: { visible: { root: predicate } } },
-    },
-  };
+  const definition = extension(
+    "filter",
+    args({ visibility: oneOf("visible").default("visible") }),
+    rule({ post: { root: when(arg("visibility"), "visible", predicate) } })
+  );
   const counts: number[] = [];
   for (let request = 0; request < 3; request++) {
     const client = createClient({ schema, dataDir: ":memory:" });
@@ -133,16 +131,14 @@ test("cached row references are checked against each receiving chain", () => {
     schema: { post: s.model({ id: s.string().id() }) },
     dataDir: ":memory:",
   });
-  const definition = {
-    name: "filter",
-    rows: frozenRows(
-      Object.freeze({ id: Object.freeze({ control: "tenant" }) })
-    ),
-  };
-  const scoped = base.$extends({
-    name: "tenant",
-    controls: { tenant: { schema: v.string(), bound: true } },
-  });
+  const tenant = arg("tenant");
+  const definition = extension(
+    "filter",
+    rule({ post: { root: { id: tenant } } })
+  );
+  const scoped = base.$extends(
+    extension("tenant", args({ tenant: bound(v.string()) }))
+  );
   expect(() => scoped.$extends(definition)).not.toThrow();
   expect(() => scoped.$extends(definition)).not.toThrow();
   expect(() => base.$extends(definition)).toThrow(
