@@ -18,6 +18,7 @@ const schema = { user, post };
 type Row = Record<string, unknown>;
 interface Delegate {
   findMany(args?: object): Promise<Row[]>;
+  create(args: object): Promise<Row>;
   [method: string]: unknown;
 }
 // The chains below are applied whatever their declared state: only their

@@ -531,9 +531,9 @@ describe("public request-transform integration", () => {
         "both",
         around((c) => {
           seen.push(`first ${c.operation}`);
-          return async (run: () => Promise<unknown>) => {
+          return (run) => {
             seen.push("second");
-            return await run();
+            return run();
           };
         })
       )
@@ -566,7 +566,7 @@ describe("public request-transform integration", () => {
       base.$extends(
         extension(
           "unknown-operation",
-          around(() => undefined, extTarget("entry", "findAll" as never))
+          call(() => undefined, extTarget("entry", "findAll" as never))
         )
       )
     ).toThrow(
