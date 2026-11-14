@@ -25,16 +25,6 @@ import type {
 import type { AdmittedControls } from "./controls";
 import { type PreparedDomain, prepareCall } from "./row-domain";
 
-/** One layer's mode: its argument, and where each of its values sits. */
-interface BoundMode {
-  readonly control: string | undefined;
-  readonly names: readonly string[];
-  readonly modes: ReadonlyMap<unknown, number>;
-  readonly fallback: number;
-  /** How far one step of this layer's mode moves the combination index. */
-  readonly stride: number;
-}
-
 /** What one combination of modes selects, with and without the tombstones. */
 interface Combination {
   /** The call writes tombstones. */
@@ -130,7 +120,6 @@ function bound(domain: PreparedDomain) {
  * value, each call carries its values beside the shared domains.
  */
 export class RowsBinding implements CallRowsBinding {
-  readonly #modes: readonly BoundMode[];
   readonly #chain: ResolvedExtensionChain;
   readonly #layers: readonly AdmittedLayer[];
   /** What the domains hold beside the filters: verbs, confinements. */
@@ -141,27 +130,13 @@ export class RowsBinding implements CallRowsBinding {
   readonly #parametric: boolean;
   readonly #order: ReadonlyMap<string, readonly Input[]> | undefined;
   readonly #required: RequiredOn;
-  readonly #domains = new Map<number, RowDomain>();
-  readonly #combinations = new Map<number, Combination>();
+  /** Per combination of the layers' modes, its key: each value, then NUL. */
+  readonly #domains = new Map<string, RowDomain>();
+  readonly #combinations = new Map<string, Combination>();
   /** The combination absent arguments select. */
-  readonly #fallback: number;
+  readonly #fallback: string;
   constructor(chain: ResolvedExtensionChain) {
     const layers = chain.rows ?? [];
-    let stride = 1;
-    this.#modes = layers.map(({ mode }): BoundMode => {
-      const names = mode?.values ?? [""];
-      const bound = {
-        control: mode?.name,
-        names,
-        modes: new Map<unknown, number>(
-          names.map((name, index) => [name, index])
-        ),
-        fallback: mode === undefined ? 0 : names.indexOf(mode.fallback),
-        stride,
-      };
-      stride *= names.length;
-      return bound;
-    });
     // The verbs, where some word brought what binds them.
     const host = layers.find((layer) => layer.host)?.host;
     const {
@@ -195,22 +170,25 @@ export class RowsBinding implements CallRowsBinding {
       );
     this.#order = chain.order && new Map(Object.entries(chain.order));
     this.#required = requiredOn(chain.controls);
-    this.#fallback = this.#modes.reduce(
-      (index, mode) => index + mode.fallback * mode.stride,
-      0
-    );
+    this.#fallback = this.#key(undefined);
   }
-  /** Each layer's mode in `combination`. */
-  #names(combination: number): readonly string[] {
-    return this.#modes.map(
-      (mode) =>
-        mode.names[Math.floor(combination / mode.stride) % mode.names.length]!
-    );
+  /**
+   * The combination `controls` select: each layer's mode, the value its
+   * argument took, or its default where it took none of the mode's values.
+   */
+  #key(controls: AdmittedControls | undefined): string {
+    let key = "";
+    for (const { mode } of this.#layers) {
+      const value = mode && controls?.[mode.name];
+      const taken = mode?.values.find((name) => name === value);
+      key += `${taken ?? mode?.fallback ?? ""}\u0000`;
+    }
+    return key;
   }
   /** What `combination` selects, one domain for every call that takes it. */
-  #domain(combination: number): RowDomain {
+  #domain(combination: string): RowDomain {
     return memo(this.#domains, combination, () => {
-      const modes = this.#names(combination);
+      const modes = combination.split("\u0000");
       return Object.freeze({
         root: modelDomain(this.#layers, modes, "root", this.#lazy),
         related: modelDomain(this.#layers, modes, "related", this.#lazy),
@@ -219,7 +197,7 @@ export class RowsBinding implements CallRowsBinding {
       });
     });
   }
-  #combination(combination: number): Combination {
+  #combination(combination: string): Combination {
     const { kept, stamps } = this.#chain;
     const physical: CallRows = Object.freeze({
       domain: this.#domain(combination),
@@ -243,18 +221,12 @@ export class RowsBinding implements CallRowsBinding {
    * stamp names one, the call's values are put in.
    */
   call(model: string, controls: AdmittedControls | undefined): CallRows {
-    let index = 0;
-    for (const mode of this.#modes) {
-      if (mode.control !== undefined)
-        index +=
-          mode.stride *
-          (mode.modes.get(controls?.[mode.control]) ?? mode.fallback);
-    }
+    const key = this.#key(controls);
     // Looked up without a closure: every call of the chain passes here.
-    let combination = this.#combinations.get(index);
+    let combination = this.#combinations.get(key);
     if (combination === undefined) {
-      combination = this.#combination(index);
-      this.#combinations.set(index, combination);
+      combination = this.#combination(key);
+      this.#combinations.set(key, combination);
     }
     const { kept, stamps } = this.#chain;
     const facts =
