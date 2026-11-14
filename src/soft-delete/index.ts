@@ -12,6 +12,7 @@ import {
   type ClientSchema,
   type DelegateOperationArgs,
   type DelegateOperationResult,
+  type Exact,
   type Extension,
   extension,
   type Facts,
@@ -95,13 +96,6 @@ type ScalarsOf<T extends AnyTarget, M> = M extends keyof ClientSchema<
   ? Extract<keyof ClientSchema<T["config"]>[M]["~"]["state"]["scalars"], string>
   : never;
 
-/** A model the config names that the client lacks: refused where it is written. */
-type KnownModels<Models, T extends AnyTarget> = {
-  readonly [M in keyof Models]: M extends keyof ClientSchema<T["config"]>
-    ? Models[M]
-    : never;
-};
-
 /** What `softDelete(config)` adds: its two arguments, the models it hides rows of, the methods. */
 type SoftDeleteFacts<T extends AnyTarget, Models> = Facts<
   Record<never, never>,
@@ -150,7 +144,7 @@ type Self = Readonly<Record<string, (args: object) => unknown>>;
 export function softDelete<T extends AnyTarget, const Models>(config: {
   readonly models: Models &
     SoftDeleteModels<T> &
-    NoInfer<KnownModels<Models, T>>;
+    NoInfer<Exact<Models, SoftDeleteModels<T>>>;
   /** What a delete writes into `deletedBy`, fixed per extension. */
   readonly actorId?: string | number | bigint;
   /** `actorId`'s name before 1.9.1, still accepted. */

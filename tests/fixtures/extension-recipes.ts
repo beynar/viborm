@@ -15,15 +15,15 @@
  */
 
 import {
-  extension,
-  rule,
-  defaults,
-  args,
-  writes,
-  oneOf,
   accepts,
   arg,
+  args,
+  defaults,
+  extension,
+  oneOf,
+  rule,
   when,
+  writes,
 } from "@src/index";
 import { v } from "@src/validation";
 
@@ -36,9 +36,9 @@ export const perModel = <Models extends readonly string[], T>(
   models: Models,
   build: () => T
 ) =>
-  Object.fromEntries(models.map((model) => [model, build()])) as {
-    readonly [Model in Models[number]]: T;
-  };
+  Object.fromEntries(models.map((model) => [model, build()])) as Readonly<
+    Record<string, T>
+  >;
 
 export const tenancy = <const Models extends readonly string[]>(
   models: Models

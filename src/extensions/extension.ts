@@ -10,6 +10,15 @@ import type { Schema } from "@client/types";
 import type { SchemaRegistryLookup } from "@validation/types";
 import { type ExtensionPart, partSet } from "./chain";
 import type { ResolvedExtensionChain } from "./chain-state";
+import type {
+  AnyFacts,
+  AnyTarget,
+  EmptyFacts,
+  Extension,
+  MergeAll,
+  Part,
+  With,
+} from "./contract";
 import type { ControlDeclaration } from "./controls";
 import { extensionError, type RuntimeExtensionDefinition } from "./definition";
 
@@ -46,6 +55,10 @@ const built = new WeakMap<object, PartBuild>();
 export function builtPart(
   host: readonly ExtensionPart[],
   write: PartBuild["write"]
+): Part<AnyTarget, EmptyFacts>;
+export function builtPart(
+  host: readonly ExtensionPart[],
+  write: PartBuild["write"]
 ): object {
   const part = Object.freeze({});
   built.set(part, { host, write });
@@ -67,6 +80,30 @@ export interface AppliedExtension {
  * parts write is built once per schema, so every client of a schema applies
  * the same values (what the host admits once per schema stays admitted).
  */
+export function extension<
+  T extends AnyTarget,
+  F1 extends AnyFacts = EmptyFacts,
+  F2 extends AnyFacts = EmptyFacts,
+  F3 extends AnyFacts = EmptyFacts,
+  F4 extends AnyFacts = EmptyFacts,
+  F5 extends AnyFacts = EmptyFacts,
+  F6 extends AnyFacts = EmptyFacts,
+  F7 extends AnyFacts = EmptyFacts,
+  F8 extends AnyFacts = EmptyFacts,
+>(
+  name: string,
+  p1?: Part<T, F1>,
+  p2?: Part<With<T, F1>, F2>,
+  p3?: Part<With<With<T, F1>, F2>, F3>,
+  p4?: Part<With<With<With<T, F1>, F2>, F3>, F4>,
+  p5?: Part<With<With<With<With<T, F1>, F2>, F3>, F4>, F5>,
+  p6?: Part<With<With<With<With<With<T, F1>, F2>, F3>, F4>, F5>, F6>,
+  p7?: Part<With<With<With<With<With<With<T, F1>, F2>, F3>, F4>, F5>, F6>, F7>,
+  p8?: Part<
+    With<With<With<With<With<With<With<T, F1>, F2>, F3>, F4>, F5>, F6>, F7>,
+    F8
+  >
+): Extension<T, MergeAll<F1, F2, F3, F4, F5, F6, F7, F8>>;
 export function extension(name: string, ...parts: unknown[]): unknown {
   if (typeof name !== "string" || name.trim().length === 0)
     extensionError("An extension's name must be a non-empty string.");

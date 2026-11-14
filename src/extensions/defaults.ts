@@ -112,9 +112,6 @@ const has = (entry: unknown, ...keys: string[]): boolean =>
 export function defaults<T extends AnyTarget, const D = DefaultsInput<T>>(
   defaults: D & DefaultsInput<T> & NoInfer<Exact<D, DefaultsInput<T>>>
 ): Part<T, DefaultsFacts<D>>;
-export function defaults<T extends AnyTarget>(
-  build: (schema: SchemaOf<T>) => Readonly<Record<string, object>>
-): Part<T, EmptyFacts>;
 export function defaults(
   entries:
     | Readonly<Record<string, unknown>>
@@ -137,6 +134,12 @@ export function defaults(
  * the host parts it names (what stamps and orders, what omits): it carries
  * no other.
  */
+export function buildDefaults(
+  entries:
+    | Readonly<Record<string, unknown>>
+    | ((schema: Schema) => Readonly<Record<string, unknown>>),
+  host: readonly ExtensionPart[]
+): Part<AnyTarget, EmptyFacts>;
 export function buildDefaults(
   entries:
     | Readonly<Record<string, unknown>>

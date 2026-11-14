@@ -8,6 +8,7 @@
 import type { Schema } from "@client/types";
 import { isPlainRecord } from "@schema/relation/terminal";
 import type { ExtensionPart } from "./chain";
+import type { AnyTarget, EmptyFacts, Part } from "./contract";
 import type {
   DeletionContribution,
   RowsContribution,
@@ -336,6 +337,13 @@ export const judges = (entry: unknown): boolean =>
  * it is handed beside the filters' (what judges rows, what keeps deleted
  * rows): an extension whose rules only filter carries neither.
  */
+export function buildRule(
+  rules:
+    | Readonly<Record<string, unknown>>
+    | ((schema: Schema) => Readonly<Record<string, unknown>>),
+  host: readonly ExtensionPart[],
+  translate?: VerbsTranslation
+): Part<AnyTarget, EmptyFacts>;
 export function buildRule(
   rules:
     | Readonly<Record<string, unknown>>

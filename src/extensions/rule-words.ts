@@ -79,9 +79,9 @@ function argValueOf(word: unknown, role: string): ArgValue {
  * the argument is required.
  */
 export function arg<N extends string>(
-  name: NoInfer<N>,
+  name: [N] extends [never] ? string : NoInfer<N>,
   path?: string
-): string extends N ? HeldArg : ArgWord<N>;
+): [N] extends [never] ? HeldArg : string extends N ? HeldArg : ArgWord<N>;
 export function arg(name: string, path?: string): unknown {
   return new ArgValue(name, path);
 }

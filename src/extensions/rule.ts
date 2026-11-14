@@ -32,9 +32,6 @@ import { verbsTranslation } from "./verbs-translation";
 export function rule<T extends AnyTarget, const R = RuleInput<T>>(
   rules: R & RuleInput<T> & NoInfer<Exact<R, RuleInput<T>>>
 ): Part<T, RuleFacts<R>>;
-export function rule<T extends AnyTarget>(
-  build: (schema: SchemaOf<T>) => Readonly<Record<string, object>>
-): Part<T, EmptyFacts>;
 export function rule(
   rules:
     | Readonly<Record<string, unknown>>
@@ -64,6 +61,12 @@ export function rule(
  * schema where the extension is applied: how `permissions` hands its
  * compiled policy to the host until its compiler writes rules (temporary).
  */
+export function compiledRows(
+  build: (schema: Schema) => {
+    readonly rows: RowsContribution;
+    readonly controls?: DefinitionDraft["controls"];
+  }
+): Part<AnyTarget, EmptyFacts>;
 export function compiledRows(
   build: (schema: Schema) => {
     readonly rows: RowsContribution;

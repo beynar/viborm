@@ -9,6 +9,7 @@
 import { isFunction } from "@validation/value-guards";
 import type {
   AnyTarget,
+  EmptyFacts,
   MethodsFacts,
   MethodsScope,
   Part,
@@ -43,6 +44,9 @@ export function methods(factory: (scope: never) => unknown): unknown {
  * `methods` untyped: what an official extension builds its methods with,
  * typed by its own entry point rather than by an inferred target.
  */
+export function buildMethods(
+  factory: (scope: never) => unknown
+): Part<AnyTarget, EmptyFacts>;
 export function buildMethods(factory: (scope: never) => unknown): unknown {
   if (!isFunction(factory))
     throw new TypeError("methods() takes a factory of the client's scope");

@@ -703,7 +703,7 @@ type WordValue<V, K extends string> =
 type Connective<M, K extends string> =
   | RuleWhere<M, K>
   | WhenWord<K, RuleWhere<M, K>>
-  | WhenWord<string, unknown>
+  | WhenWord<string, RuleWhere<M, K>>
   | ProvidedWord<K>
   | ProvidedWord<string>
   | ExistsWord;
@@ -778,11 +778,11 @@ export interface OmittedWord {
 type RuleFilter<M, K extends string> =
   | RuleWhere<M, K>
   | WhenWord<K, RuleWhere<M, K>>
-  | WhenWord<string, unknown>
+  | WhenWord<string, RuleWhere<M, K>>
   | readonly (
       | RuleWhere<M, K>
       | WhenWord<K, RuleWhere<M, K>>
-      | WhenWord<string, unknown>
+      | WhenWord<string, RuleWhere<M, K>>
     )[];
 
 type RelationKeysOf<M> =
@@ -1003,28 +1003,24 @@ type ElementOf<Allowed> = Allowed extends readonly (infer Element)[]
  * `R` has no constraint on purpose: its constraint would be read with `T`
  * unresolved while the literal is typed, and the words inside would lose the
  * argument names. The literal is typed by `RuleInput<T>` beside it instead.
- * The second form reads the schema the extension is applied to: written
- * apart from any client (an official extension that depends on the schema),
- * it is typed by the schema alone.
+ * One signature: a second would let the first fix the literal's type and
+ * report a typo at the call instead of at its key. A rule read from the
+ * schema (`(schema) => entries`) runs, untyped by this signature.
  */
-export interface RuleFunction<Bound extends AnyTarget | undefined> {
-  <T extends Within<Bound>, const R = RuleInput<T>>(
-    rules: R & RuleInput<T> & NoInfer<Exact<R, RuleInput<T>>>
-  ): Part<T, RuleFacts<R>>;
-  <T extends Within<Bound>>(
-    build: (schema: SchemaOf<T>) => Readonly<Record<string, object>>
-  ): Part<T, EmptyFacts>;
-}
+export type RuleFunction<Bound extends AnyTarget | undefined> = <
+  T extends Within<Bound>,
+  const R = RuleInput<T>,
+>(
+  rules: R & RuleInput<T> & NoInfer<Exact<R, RuleInput<T>>>
+) => Part<T, RuleFacts<R>>;
 
 /** Same shape as `rule`: `D` unconstrained, typed by `DefaultsInput<T>` beside it. */
-export interface DefaultsFunction<Bound extends AnyTarget | undefined> {
-  <T extends Within<Bound>, const D = DefaultsInput<T>>(
-    defaults: D & DefaultsInput<T> & NoInfer<Exact<D, DefaultsInput<T>>>
-  ): Part<T, DefaultsFacts<D>>;
-  <T extends Within<Bound>>(
-    build: (schema: SchemaOf<T>) => Readonly<Record<string, object>>
-  ): Part<T, EmptyFacts>;
-}
+export type DefaultsFunction<Bound extends AnyTarget | undefined> = <
+  T extends Within<Bound>,
+  const D = DefaultsInput<T>,
+>(
+  defaults: D & DefaultsInput<T> & NoInfer<Exact<D, DefaultsInput<T>>>
+) => Part<T, DefaultsFacts<D>>;
 
 // =============================================================================
 // args({ name: declaration })

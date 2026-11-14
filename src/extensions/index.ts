@@ -16,6 +16,7 @@ export type {
   CallResult,
   ConfiguredBy,
   EmptyFacts,
+  Exact,
   Extension,
   Facts,
   GenericCallContext,
