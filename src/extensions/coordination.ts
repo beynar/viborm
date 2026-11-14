@@ -15,6 +15,7 @@
 import type { ArraySlot } from "@client/array-transaction";
 import { appendExecutionTransactionPhases } from "@drivers/execution-context";
 import type { AnyDriver, QueryExecutionContext } from "@drivers/exports";
+import { afterFulfilled } from "@drivers/rejection-observed-promise";
 import type { TransactionOptions } from "@drivers/shared/transaction-options";
 import type { QueryEngine } from "@query-engine/query-engine";
 import { admitArray, interceptsArray, stageArray } from "./array-admission";
@@ -125,35 +126,32 @@ export function transact<T>(
           ? Promise.reject(settled)
           : settled;
     };
-  return (
-    engine.driver
-      .withTransaction(
-        (driver) => {
-          // A run again follows a run whose commit failed: how far that
-          // commit went says nothing of this run's.
-          root.certainty = undefined;
-          scope = made ?? scopeOf(engine, root);
-          return body(driver, scope);
-        },
-        options,
-        // Only where a part may register: a chain of `call` parts, rules or
-        // defaults alone runs its transactions as an unextended client does.
-        parent || !(chain?.coordination || chain?.methods)
-          ? context
-          : appendExecutionTransactionPhases(context, {
-              readyToCommit: () => {
-                root.certainty = "may-have-committed";
-              },
-              committed: () => {
-                root.certainty = "committed";
-              },
-            })
-      )
-      // A savepoint that fails drops what it collected: no handler of its
-      // rejection, which only the caller's own observes (an unobserved one
-      // fails the outer transaction).
-      .then(end(), parent ? undefined : end(true))
+  const ran = engine.driver.withTransaction(
+    (driver) => {
+      // A run again follows a run whose commit failed: how far that
+      // commit went says nothing of this run's.
+      root.certainty = undefined;
+      scope = made ?? scopeOf(engine, root);
+      return body(driver, scope);
+    },
+    options,
+    // Only where a part may register: a chain of `call` parts, rules or
+    // defaults alone runs its transactions as an unextended client does.
+    parent || !(chain?.coordination || chain?.methods)
+      ? context
+      : appendExecutionTransactionPhases(context, {
+          readyToCommit: () => {
+            root.certainty = "may-have-committed";
+          },
+          committed: () => {
+            root.certainty = "committed";
+          },
+        })
   );
+  // A savepoint that fails drops what it collected: no handler of its
+  // rejection, which only the caller's own observes (an unobserved one fails
+  // the outer transaction, and is reported there alone).
+  return parent ? afterFulfilled(ran, end()) : ran.then(end(), end(true));
 }
 
 /**
