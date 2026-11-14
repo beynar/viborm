@@ -363,7 +363,7 @@ and commit publication.
 | `src/extensions/methods-part.ts`, `methods.ts` | `methods(factory)`: one factory per view (eager on the client `$extends` returns, lazy elsewhere), collisions, `scope.$bind`; on a chain that declares create data, the model delegate's five narrowed writes (`ExtensionModelDelegate`) |
 | `src/extensions/fields.ts`, `result.ts`, `result-types.ts` | `fields` (computed fields): the per-call plan (needs read, computed names removed from `select`/`omit`) made after default omit, and the finish that copies each row and attaches each field as a lazy memoized getter; applied once per operation by `PendingOperation` and once per member by `executeArrayTransaction` |
 | `src/extensions/unit.ts`, `unit-words.ts`, `unit-source.ts`, `observation.ts`, `statement.ts` | `unit`, its words and `work`; the one generation of unit handlers; rewriting units |
-| `src/extensions/query.ts`, `coordination.ts`, `array-admission.ts` | The authoritative continuation and the write-outcome rail; extension-only native/fallback admission latch, never core array dispatch |
+| `src/extensions/query.ts`, `coordination.ts`, `array-admission.ts`, `settled.ts` | The authoritative continuation; the write-outcome rail (`WRITE_RAIL`), which only what can register an outcome brings (`watch`, `unit` parts, the `query` member, importing `settled`), so a chain of `around` parts alone runs its transactions plainly; the `admit` hook that starts array members' handlers before anything is sent, never core array dispatch |
 | `src/extensions/key.ts`, `codec.ts`, `database.ts`, `origin.ts` | `key`, `codec`, `database`; the symbols by which a word finds its call, run or scope |
 | `src/extensions/disclosure.ts` | `disclosure`: what an error thrown by a call of the chain may carry |
 | `src/extensions/on.ts`, `parts.ts`, `contract.ts`, `index.ts` | `target` and the operation sets; `parts<Of>()`; the vocabulary's types; the intentional surface |
@@ -586,12 +586,15 @@ and cardinality once against its full query list; a multi-statement member then
 trusts and consumes its exact result slice. Pass every original `QueryResult`,
 including `insertId`, to its consumer; never rewrap it or strip its fields.
 
-`array-transaction-native-batch.ts` is the single owner of provider dispatch
-attribution, normalized batch cardinality, and native-batch transaction errors.
-The legacy, observe-only, and intercepted shells keep their preparation and
-result-window loops local: extracting those measured hot loops adds per-member
-CPU and per-array allocation. Keep the unextended legacy shell monomorphic and
-free of extension slots, outcome collectors, and async helper frames.
+`array-transaction.ts` is the one executor of `$transaction([...])` and the
+single owner of provider dispatch attribution, normalized batch cardinality,
+and native-batch transaction errors. A member gets a slot (its child, its
+handlers' promise) only where the chain may intercept it (`coordination.admit`)
+or observes a native batch's units; then its unit is entered, its arguments
+admitted and its handlers started before anything is sent. The plain path
+allocates no slot, deferred result, outcome collector or admission callback,
+and the chain's hooks are optional calls on its state, so an application
+without extension carries the executor and nothing of interception.
 
 ## Coverage Gate
 

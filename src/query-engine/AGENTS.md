@@ -225,8 +225,9 @@ A write shows the rows it wrote to `write-sinks.ts` where a part watches it
 (`watch` on a `writes` or `deletes` target); a write nothing watches sends
 exactly the statements it sends unwatched. The engine consumes the state the
 parts wrote on the chain (`chain.request`, `chain.query`, `chain.statement`,
-`chain.observation`, `chain.written`); native and fallback arrays share only
-the extension admission latch in `src/extensions/array-admission.ts`. The
+`chain.observation`, `chain.written`); the one array executor
+(`src/client/array-transaction.ts`) asks the chain only for its `admit` hook
+(`src/extensions/array-admission.ts`), which starts the members' handlers. The
 query engine retains only irreducible lifecycle triggers and the facts it can
 know at execution time; it does not wrap, copy, or reinterpret an extension
 handler. Core array dispatch remains here and in the client rather than
