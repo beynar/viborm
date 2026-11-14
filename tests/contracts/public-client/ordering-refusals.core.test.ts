@@ -216,3 +216,66 @@ describe("the ends of the key range", () => {
     expect(isKeyFormat("01")).toBe(false);
   });
 });
+
+describe("a move between tied keys", () => {
+  /** A list whose rows hold the keys given, in that order of creation. */
+  async function tied(keys: readonly string[]): Promise<Loose> {
+    const db = (await base()).$extends(
+      ordering({ card: { key: "rank", within: ["columnId"] } })
+    );
+    for (const [at, rank] of keys.entries()) {
+      const id = String.fromCharCode(97 + at);
+      await db.card.create({
+        data: { id, columnId: "c1", title: id, tags: [], rank },
+      });
+    }
+    return db;
+  }
+  const order = async (db: Loose) =>
+    (
+      await db.card.findMany({
+        where: { columnId: "c1" },
+        orderBy: [{ rank: "asc" }, { id: "asc" }],
+      })
+    ).map((row) => row.id);
+
+  test("after an anchor whose next row ties with it, the row lands between them", async () => {
+    const db = await tied(["15", "15", "17"]);
+    await db.card.move({ where: { id: "c" }, after: { id: "a" } });
+    expect(await order(db)).toEqual(["a", "c", "b"]);
+  });
+
+  test("first of its list when the first rows tie", async () => {
+    const db = await tied(["15", "15", "17"]);
+    await db.card.move({ where: { id: "c" }, first: true });
+    expect((await order(db))[0]).toBe("c");
+  });
+
+  test("into another list, first and last", async () => {
+    const db = await tied(["15", "15", "17"]);
+    await db.card.create({
+      data: { id: "x", columnId: "c2", title: "x", tags: [], rank: "15" },
+    });
+    await db.card.create({
+      data: { id: "y", columnId: "c2", title: "y", tags: [], rank: "15" },
+    });
+    await db.card.move({
+      where: { id: "a" },
+      to: { columnId: "c2" },
+      first: true,
+    });
+    await db.card.move({
+      where: { id: "b" },
+      to: { columnId: "c2" },
+      last: true,
+    });
+    const c2 = (
+      await db.card.findMany({
+        where: { columnId: "c2" },
+        orderBy: [{ rank: "asc" }, { id: "asc" }],
+      })
+    ).map((row) => row.id);
+    expect(c2[0]).toBe("a");
+    expect(c2.at(-1)).toBe("b");
+  });
+});
