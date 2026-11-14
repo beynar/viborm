@@ -8,6 +8,8 @@ import { v } from "@src/validation";
 // Application grant/token vocabulary. These explicit tables describe which
 // stored values cover each requested action; they are not a graph interpreter.
 const levels = ["read", "update", "full"] as const;
+/** The graph of most models: full implies update, update implies read. */
+const ladder = { read: [], update: ["read"], full: ["update"] } as const;
 const levelCoverage = {
   read: [...levels],
   update: ["update", "full"],
@@ -256,11 +258,19 @@ export const tokenRestrictions: Rule = (action, model) => ({
                 },
               },
               {
-                parent: {
-                  recurse: { depth: false },
-                  self: true,
-                  some: { id: { in: { actor: "key.resources.document" } } },
-                },
+                // `key` is optional: its resources are read only where it is
+                // present. The `$if` above already holds only with a key; the
+                // test restates it where the key is read.
+                AND: [
+                  { $if: { control: "actor", path: "key", exists: true } },
+                  {
+                    parent: {
+                      recurse: { depth: false },
+                      self: true,
+                      some: { id: { in: { actor: "key.resources.document" } } },
+                    },
+                  },
+                ],
               },
             ],
           }
@@ -349,7 +359,6 @@ export function policyFor(
   });
   return permissions({
     actor: Actor,
-    levels, // ordered: full implies update implies read
     models: {
       organization: {
         actions: {
@@ -366,6 +375,7 @@ export function policyFor(
         }), // a row fact, and a request fact
       },
       member: {
+        actions: { ...ladder, create: [] },
         mandatory: memberBoundary,
         read: capped({}),
         update: capped(admin), // the new row too: no move into an org the actor does not run
@@ -373,6 +383,7 @@ export function policyFor(
         operations: { delete: "update" },
       },
       user: {
+        actions: ladder,
         read: token({
           members: { some: { organizationId: { actor: "organizationId" } } },
         }),
@@ -410,17 +421,20 @@ export function policyFor(
         operations: { update: "manage", delete: "manage" },
       },
       accessGrant: {
+        actions: { ...ladder, create: [] },
         read: token({ OR: [{ userId: { actor: "userId" } }, administerGrant] }),
         update: token(administerGrant),
         create: token(placeGrant), // admin, one thing at least, contents bounded by what is held
         operations: { delete: "update" },
       },
       pageGroup: {
+        actions: ladder,
         operations: { delete: "full" },
         mandatory: memberBoundary,
         "read, update, full": capped(pageGroupAccess),
       },
       page: {
+        actions: { ...ladder, create: [] },
         operations: { delete: "full" },
         mandatory: memberBoundary,
         "read, update, full": capped(pageAccess),
@@ -458,6 +472,7 @@ export function policyFor(
         },
       },
       collection: {
+        actions: { ...ladder, create: [] },
         operations: { delete: "full" },
         mandatory: memberBoundary,
         "read, update, full": capped(collectionAccess),
@@ -467,6 +482,7 @@ export function policyFor(
       // The fixture's polymorphic model (W-R9): a user's pins of pages and
       // documents; its `subject` arm reads under the target's own `read`.
       bookmark: {
+        actions: ladder,
         operations: { delete: "full" },
         mandatory: memberBoundary,
         "read, update, full": capped(bookmarkAccess),

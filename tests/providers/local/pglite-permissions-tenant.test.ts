@@ -27,6 +27,9 @@ import { actors } from "@tests/package/fixtures/permissions-app/seed";
 import { policy } from "@tests/types/permissions/acceptance-policy";
 import { beforeEach, describe, expect, test } from "vitest";
 
+/** The graph these policies declared with `levels: ["read", "update"]`. */
+const ladder = { read: [], update: ["read"] } as const;
+
 type Row = Record<string, unknown>;
 type Delegate = {
   findMany(args?: object): Promise<Row[]>;
@@ -127,11 +130,11 @@ describe("PGlite: a policy's tenant on the acceptance estate", () => {
         return context.statement;
       },
     });
-    plain = policy.methods(
-      tombstones.methods(policy.rows(tombstones.rows(recorded)))
+    plain = tombstones.methods(
+      policy.rows(tombstones.rows(recorded))
     ) as unknown as Governed;
-    bounded = tenanted.methods(
-      tombstones.methods(tenanted.rows(tombstones.rows(recorded)))
+    bounded = tombstones.methods(
+      tenanted.rows(tombstones.rows(recorded))
     ) as unknown as Governed;
   }, 300_000);
 
@@ -217,10 +220,10 @@ describe("PGlite: a policy's tenant on rows that cross tenants", () => {
   const policyOf = (tenant?: typeof TENANT) =>
     permissions({
       actor: v.object({ userId: v.string(), organizationId: v.string() }),
-      levels: ["read", "update"],
       ...(tenant === undefined ? {} : { tenant }),
       models: {
         page: {
+          actions: ladder,
           mandatory: { organizationId: { actor: "organizationId" } },
           read: { NOT: { grants: { some: { revoked: true } } } },
           update: {
@@ -228,7 +231,7 @@ describe("PGlite: a policy's tenant on rows that cross tenants", () => {
             NOT: { grants: { some: { revoked: true } } },
           },
         },
-        grant: { read: {} },
+        grant: { actions: ladder, read: {} },
       },
     });
   const family = usePGliteSchemaFamily(schema);
@@ -297,7 +300,6 @@ describe("PGlite: a policy's tenant on rows that cross tenants", () => {
     const open = (tenant?: typeof TENANT) =>
       permissions({
         actor: v.object({ userId: v.string(), organizationId: v.string() }),
-        levels: ["read"],
         ...(tenant === undefined ? {} : { tenant }),
         models: {
           page: {
@@ -371,10 +373,10 @@ describe("PGlite: a policy's tenant beside another extension's related rows", ()
   const policyOf = (tenant?: typeof TENANT) =>
     permissions({
       actor: v.object({ userId: v.string(), organizationId: v.string() }),
-      levels: ["read", "update"],
       ...(tenant === undefined ? {} : { tenant }),
       models: {
         page: {
+          actions: ladder,
           mandatory: { organizationId: { actor: "organizationId" } },
           read: { grants: { none: { revoked: true } } },
           update: { grants: { none: { revoked: true } }, id: { not: "-" } },
@@ -543,15 +545,15 @@ describe("PGlite: a policy's tenant beside another extension's negative test", (
   const policyOf = (tenant?: typeof TENANT) =>
     permissions({
       actor: v.object({ userId: v.string(), organizationId: v.string() }),
-      levels: ["read", "update"],
       ...(tenant === undefined ? {} : { tenant }),
       models: {
         page: {
+          actions: ladder,
           mandatory: { organizationId: { actor: "organizationId" } },
           read: true,
           update: true,
         },
-        block: { read: true },
+        block: { actions: ladder, read: true },
       },
     });
 
@@ -678,9 +680,9 @@ describe("PGlite: a policy's tenant compiled when applied", () => {
     const db = permissions({
       actor: v.object({ userId: v.string(), organizationId: v.string() }),
       tenant: TENANT,
-      levels: ["read", "update"],
       models: {
         parent: {
+          actions: ladder,
           // A Date: the declaration cannot be copied, so it compiles when
           // applied.
           read: {
@@ -689,7 +691,7 @@ describe("PGlite: a policy's tenant compiled when applied", () => {
           },
           update: { ...granted, id: { not: "-" } },
         },
-        share: { read: true },
+        share: { actions: ladder, read: true },
       },
     })(
       family().client.$extends(recorder(statements) as never) as never

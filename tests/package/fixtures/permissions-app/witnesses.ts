@@ -352,12 +352,16 @@ export const WITNESSES: readonly WitnessCase[] = Object.freeze([
     ]
   ),
   ...family("C7", "U5+U9", NODE_SQL, [
-    ["W-CAN1", "can, single action", "access"],
-    ["W-CAN2", "can, a list of actions in one statement", "access"],
-    ["W-CAN3", "can on a hidden row is false", "access"],
-    ["W-CAN4", "assert throws ForbiddenError", "access"],
+    ["W-CAN1", "one row's $access, single action", "access"],
+    [
+      "W-CAN2",
+      "one row's $access, a list of actions in one statement",
+      "access",
+    ],
+    ["W-CAN3", "a hidden row holds no action", "access"],
+    ["W-CAN4", "a visible row lacking the action reads false", "access"],
     ["W-CAN5", "organization-level actions", "access"],
-    ["W-CAN6", "can equals the oracle on every seeded row", "access"],
+    ["W-CAN6", "$access equals the oracle on every seeded row", "access"],
   ]),
   ...family("C8", "U7+U9", NO_NEKI, [
     ["W-EV1", "$access equals the oracle per row", "access"],

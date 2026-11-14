@@ -48,7 +48,12 @@ const policy = permissions({
   models: {
     user: { read: true },
     page: { read: { owner: { actor: "userId" } } },
-    project: { read: true, full: false, fields: { budget: { read: "full" } } },
+    project: {
+      actions: { read: [], full: [] },
+      read: true,
+      full: false,
+      fields: { budget: { read: "full" } },
+    },
   },
 });
 

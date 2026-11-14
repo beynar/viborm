@@ -244,6 +244,11 @@ export async function runExtensionSeed(
       const tombstones = softDelete({
         models: { post: { deletedAt: "deletedAt" } },
       });
+      // `userId` is optional: every rule that reads it tests its presence,
+      // or a call without one would close the whole permission.
+      const known = {
+        $if: { control: "actor", path: "userId", exists: true },
+      } as const;
       const policy = permissions({
         actor: v.object({
           tenantId: v.string(),
@@ -261,9 +266,10 @@ export async function runExtensionSeed(
             read: {
               OR: [
                 { published: true },
-                { ownerId: { actor: "userId" } },
+                { ...known, ownerId: { actor: "userId" } },
                 // About the actor alone: the same check for every row.
                 {
+                  ...known,
                   $exists: {
                     member: {
                       tenantId: { actor: "tenantId" },
@@ -276,9 +282,10 @@ export async function runExtensionSeed(
             },
             update: {
               OR: [
-                { ownerId: { actor: "userId" } },
+                { ...known, ownerId: { actor: "userId" } },
                 // About this post: its tenant and its editor role.
                 {
+                  ...known,
                   $exists: {
                     member: {
                       tenantId: { $row: "tenantId", up: 1 },
@@ -290,7 +297,7 @@ export async function runExtensionSeed(
               ],
             },
             delete: { actor: { admin: true } },
-            create: { ownerId: { actor: "userId" } },
+            create: { ...known, ownerId: { actor: "userId" } },
           },
         },
       });
@@ -513,8 +520,12 @@ export async function runExtensionSeed(
           } else await refused(run, NotFoundError);
         } else if (operation === "access") {
           for (const action of actions) {
+            const row = await view.post.findUnique({
+              where: { id: target.id },
+              select: { $access: [action] },
+            });
             assert.equal(
-              await view.post.can(action, { id: target.id }),
+              row?.$access[action] === true,
               !target.deleted &&
                 allows(target, actor, scopes, "read") &&
                 allows(target, actor, scopes, action)

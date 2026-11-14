@@ -323,11 +323,18 @@ export function runPermissionsAdversarialBehavior(substrate: {
       ).toBe("original");
     });
 
-    test("a successful can check does not outlive a committed membership revocation", async () => {
+    test("a held $access does not outlive a committed membership revocation", async () => {
       const db = alice();
-      expect(await db.document.can("update", { id: "alice-a" })).toBe(true);
+      const update = async () =>
+        (
+          await db.document.findUnique({
+            where: { id: "alice-a" },
+            select: { $access: ["update"] },
+          })
+        )?.$access.update === true;
+      expect(await update()).toBe(true);
       await base.membership.delete({ where: { id: "alice-a" } });
-      expect(await db.document.can("update", { id: "alice-a" })).toBe(false);
+      expect(await update()).toBe(false);
       await expect(
         db.document.update({
           where: { id: "alice-a" },

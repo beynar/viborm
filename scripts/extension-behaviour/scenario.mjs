@@ -363,8 +363,13 @@ const governed = async (step) => {
   await step("pm delete not admin", () =>
     call.post.delete({ where: { id: "p2" } })
   );
-  await step("pm can", () => call.post.can("update", { id: "p2" }));
-  await step("pm can other", () => call.post.can("update", { id: "p1" }));
+  // `can` was removed: an application reads the row's `$access`.
+  const can = (delegate, action, id) =>
+    delegate
+      .findUnique({ where: { id }, select: { $access: [action] } })
+      .then((row) => row?.$access[action] === true);
+  await step("pm can", () => can(call.post, "update", "p2"));
+  await step("pm can other", () => can(call.post, "update", "p1"));
   await step("pm access", () =>
     call.post.findMany({
       select: { id: true, $access: true },
@@ -1292,7 +1297,11 @@ const statements = async (step) => {
     captured(() => u1.post.restore({ where: { id: "a" } }).then((r) => r.id))
   );
   await step("sq can", () =>
-    captured(() => u1.post.can("delete", { id: "a" }))
+    captured(() =>
+      u1.post
+        .findUnique({ where: { id: "a" }, select: { $access: ["delete"] } })
+        .then((row) => row?.$access.delete === true)
+    )
   );
   await step("sq access", () =>
     captured(() =>

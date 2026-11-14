@@ -162,9 +162,7 @@ const AUDIT = {
 };
 function throughEntry(base: PermissionsAppClient, stamped: boolean) {
   const rows = entryPolicy.rows(tombstones.rows(base));
-  return entryPolicy.methods(
-    tombstones.methods(stamped ? rows.$extends(AUDIT as never) : rows)
-  );
+  return tombstones.methods(stamped ? rows.$extends(AUDIT as never) : rows);
 }
 
 export interface VerbsRun {

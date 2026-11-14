@@ -316,16 +316,18 @@ soft delete from public exports only: `base.$extends(permissions(config))` compi
 predicate per (model, action) against `base`'s schema and applies a rows step
 (a bound-only, required `actor`; the `as` mode; every model's `verbs`; a
 generic `query` handler refusing a root call false when applied; and `$as`,
-which lives with the control it binds) and then a methods step
-(`can`/`assert`). Core names nothing of it. Its only runtime export is `permissions`;
+which lives with the control it binds); it has no methods step: one row's
+`$access` answers what a check asks. Core names nothing of it. Its only runtime export is `permissions`;
 applications own field names, membership, grant, credential and role conventions through explicit
 predicates. `src/permissions/rules.ts` owns `Rule`, `Where` and rule functions' readonly
 model `name` and `actions` metadata; no graph traversal or domain helper API is
 shipped. CRUD permissions are `create`, `read`, `update` and `delete`;
 `operations` remaps read/update/delete only. Creation uses `create` independently
-of update and evaluates the proposed row. The default graph makes update
-and delete imply read; create implies nothing; custom graphs and levels add
-implications.
+of update and evaluates the proposed row. Without an `actions` graph a model's
+actions are create, read, update and delete, and any other rule key is refused;
+a model's `actions` graph declares custom actions and adds implications; the
+retired global `levels` is refused. The default graph makes update and delete
+imply read; create implies nothing.
 A rule's `true` grants; a directly declared literal `false` blocks inherited
 grants, while a callback returning `false` or an omitted rule supplies no direct
 grant. Global and model `mandatory` are action-independent predicates;
@@ -345,16 +347,13 @@ and `within` keys are refused rather than admitted as implicit actions.
 Comma-separated rule keys assign one rule to individual actions, with surrounding
 ASCII whitespace ignored. `compile.ts` resolves the graph, rule bindings and
 evidence together; overlapping assignments, empty members and grouped reserved
-keys are refused. Levels, graph edges and call sites still name single actions.
-`$as` rejects missing required actor fields at binding. A missing optional
-actor dependency disables its positive OR alternative, or its declared grant
-when there is no enclosing positive OR. Other alternatives and inherited grants
-remain available. Automatic guards traverse AND and positive relation bodies,
-never NOT/none/isNot/every or named predicate boundaries; authored dependencies
-remain authoritative under negation. Explicit `$if` guards fold first.
-Missing dependencies in global or model `mandatory` still deny the complete
-permission. Generic `rows` R6 semantics are unchanged: Permissions expresses
-grant availability through the existing public conditions.
+keys are refused. Graph edges and call sites still name single actions.
+`$as` rejects missing required actor fields at binding. Permissions adds no
+absence guard: an optional actor value read outside an authored `$if` closes
+the whole permission (generic `rows` R6), its other alternatives and inherited
+grants included, so an author guards each rule or alternative that reads one.
+A written foreign key needs a target the actor reads; a `create` rule equating
+it with a readable row's key restricts the row, never grants the target.
 Predicate simplification preserves row truth and conditional actor dependency
 checks. Conditional read summaries include AND-false and OR-true folding and
 distinguish scalar from whole-list parameters. Unproved or unsupported shapes
