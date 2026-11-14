@@ -46,6 +46,12 @@ export type References = Set<string | undefined>;
  */
 export interface VerbsDraft {
   read?: unknown;
+  /**
+   * An eager entry's `read.where`, where it carries or hides fields: what a
+   * row a write returns must hold for its facts and gated fields to show.
+   * Its filters are the layer's own, so it is never read as one again.
+   */
+  shown?: unknown;
   update?: unknown;
   delete?: unknown;
   writes?: Record<string, unknown>;

@@ -67,6 +67,7 @@ function layerVerbs(draft: VerbsDraft): ModelVerbs {
   const of = (where: unknown): Input => (where as Input | undefined) ?? ALL;
   return Object.freeze({
     read: of(draft.read),
+    ...(draft.shown !== undefined && { shown: of(draft.shown) }),
     update: of(draft.update),
     delete: of(draft.delete),
     writes: fields(draft.writes),
@@ -145,7 +146,7 @@ class JudgedDomain extends FilterDomain {
 const prepareJudged = /* @__PURE__ */ preparer(JudgedDomain);
 
 /** The keys of a draft that hold one predicate, each admitted as one. */
-const SINGLE = ["read", "update", "delete", "place", "check"] as const;
+const SINGLE = ["read", "shown", "update", "delete", "place", "check"] as const;
 /** The keys of a draft that hold one predicate per field. */
 const PER_FIELD = ["writes", "moves", "reads"] as const;
 

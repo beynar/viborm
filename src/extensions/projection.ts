@@ -207,7 +207,7 @@ class RowProjection {
         this.#domain.rows.verbs?.get(name) ?? []
       ).entries()) {
         if (verbs === undefined) continue;
-        const { evidence, read } = verbs;
+        const { evidence, shown: read = verbs.read } = verbs;
         if (evidence)
           keys.set(evidence.as, freeze({ layer, read, names: evidence.names }));
         for (const [field, input] of verbs.reads)

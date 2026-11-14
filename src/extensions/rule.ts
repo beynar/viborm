@@ -115,6 +115,12 @@ export function draftOf(
     join(slot.where, `update.fields.${field}.where`, field);
     join(slot.check, `update.fields.${field}.check`, field);
   }
+  if (
+    !lazy &&
+    read.where !== undefined &&
+    (verbs?.evidence !== undefined || verbs?.reads !== undefined)
+  )
+    verbs.shown = read.where;
   const { acyclic } = entry;
   if (acyclic !== undefined) {
     if (!(Array.isArray(acyclic) || typeof acyclic === "function"))
