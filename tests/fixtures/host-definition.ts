@@ -16,20 +16,14 @@ import {
 } from "@extensions/extension";
 import { keptRowsPart } from "@extensions/kept";
 import { methodsPart } from "@extensions/methods";
-import { defaultOrderPart } from "@extensions/order";
 import { queryPart } from "@extensions/query";
 import { resultPart } from "@extensions/result";
-import { filtersPart } from "@extensions/rows";
-import { verbsPart } from "@extensions/rows-part";
-import { defaultDataPart } from "@extensions/stamps";
+import { rulePart } from "@extensions/rows";
 
 const hosts = partSet([
   controlsPart,
-  filtersPart,
+  rulePart,
   keptRowsPart,
-  defaultDataPart,
-  defaultOrderPart,
-  verbsPart,
   resultPart,
   methodsPart,
   queryPart,

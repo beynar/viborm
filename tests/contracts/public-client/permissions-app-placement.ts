@@ -1,7 +1,7 @@
 import { ForbiddenError, NestedWriteError, NotFoundError } from "@errors";
-import { verbsOf } from "@src/permissions/compile";
+import { accepts, args, extension, methods, rule } from "@src/index";
+import { ruleEntryOf } from "@src/permissions/compile";
 import { v } from "@src/validation";
-import { hostExtension } from "@tests/fixtures/host-definition";
 import {
   CREATES,
   createOracle,
@@ -93,31 +93,35 @@ export function runPermissionsAppPlacement(
   const now = new Date();
   const opts: OracleOptions = { now, tombstones: false };
   const compiled = policy.compile(schema);
-  const declaration = {
-    name: "placement",
-    controls: {
-      actor: { schema: ActorSchema, required: true },
-      scopes: {
-        schema: v.object({
+  const declaration = extension(
+    "placement",
+    args({
+      actor: accepts(ActorSchema).required(),
+      scopes: accepts(
+        v.object({
           unrestricted: v.boolean(),
           allowed: v.array(v.string()),
-        }),
-        required: true,
-      },
-    },
-    client: (scope: {
-      $bind(values: Readonly<Record<string, unknown>>): unknown;
-    }) => ({
-      $unrestricted: () =>
-        scope.$bind({ scopes: { unrestricted: true, allowed: [] } }),
+        })
+      ).required(),
     }),
-    rows: {
-      control: "as",
-      default: "all",
-      models: Object.fromEntries(GOVERNED_MODELS.map((m) => [m, { all: {} }])),
-      verbs: verbsOf(compiled),
-    },
-  };
+    rule(
+      Object.fromEntries(
+        // Every model of the schema: one the policy does not list holds nothing (R9).
+        Object.entries(compiled.models).map(([model, own]) => [
+          model,
+          ruleEntryOf(own, () => []),
+        ])
+      ) as never
+    ),
+    methods(
+      (scope: {
+        $bind(values: Readonly<Record<string, unknown>>): unknown;
+      }) => ({
+        $unrestricted: () =>
+          scope.$bind({ scopes: { unrestricted: true, allowed: [] } }),
+      })
+    )
+  );
   /** The oracle over the rows a nested child's statement sees: the seed and its created parent. */
   const withCreated = (model: keyof PermissionsSeed, row: Row) =>
     createOracle({
@@ -160,9 +164,7 @@ export function runPermissionsAppPlacement(
       base = createPermissionsAppClient(substrate.createDriver());
       await substrate.prepare(base);
       await loadPermissionsSeed(base);
-      const unbound = base.$extends(
-        hostExtension(declaration) as never
-      ) as unknown as {
+      const unbound = base.$extends(declaration as never) as unknown as {
         $unrestricted(): Loose;
       };
       db = unbound.$unrestricted();

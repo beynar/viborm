@@ -1,8 +1,17 @@
 import { ForbiddenError, NestedWriteError, NotFoundError } from "@errors";
-import { defaults, extension } from "@src/index";
+import {
+  arg,
+  args,
+  check,
+  defaults,
+  extension,
+  oneOf,
+  rule,
+  selecting,
+  when,
+} from "@src/index";
 import { permissions } from "@src/permissions";
 import { softDelete } from "@src/soft-delete/index";
-import { hostExtension } from "@tests/fixtures/host-definition";
 import {
   actionsOf,
   createOracle,
@@ -35,10 +44,11 @@ import {
  * that take them, and every write is judged by the statement it emits. The
  * declaration is plain data, the hand-written policy of `rules.ts` with the
  * actor's facts inlined, one predicate per (model, action): `viborm/permissions`
- * does not compile it yet. It reaches the verbs host as raw members
- * (`hostExtension`), the way the policy's compiled verbs do: `rule` has no
- * spelling for a field whose write takes its own action instead of the
- * update verb's. Every expectation is the independent oracle's
+ * does not compile it yet. It is written as a `rule`, the way the policy's
+ * compiled verbs are: a field whose write takes its own action instead of
+ * the update verb's is `update.fields[f].where`, and the row an update
+ * leaves is judged again (`check`) at what judged it. Every expectation is
+ * the independent oracle's
  * (`oracle.ts`): a write succeeds, and touches exactly the rows, the oracle
  * holds at the action the write takes. Writes run in a transaction rolled
  * back after each probe, or are undone by the substrate's `restore`, so the
@@ -85,47 +95,57 @@ const givenTo = (actor: Actor): Where => ({
 });
 
 /**
- * The plain `rows` declaration of one actor's policy: per model its actions
- * as named predicates, `read` at `read` (live rows only on a tombstoned
- * model), each write verb at its action; `page` and `document` carry modes
- * that narrow by name.
+ * One actor's policy as a rule: per model its read action (live rows only on
+ * a tombstoned model), each write verb at its action, the fields whose write
+ * takes its own action, the row an update leaves judged again at what judged
+ * it; `page` and `document` carry modes that narrow by name.
  */
 function declaration(actor: Actor, now: Date, stamped = false) {
   const rules = handRules(actor, { now });
-  const verbs: Record<string, object> = {};
+  const entries: Record<string, object> = {};
   for (const model of GOVERNED_MODELS) {
     const predicates: Record<string, Where> = {};
     for (const action of actionsOf(model))
       predicates[action] = rules.predicate(model, action) ?? NOTHING;
-    if (TOMBSTONED.has(model))
-      predicates.read = and({ deletedAt: null }, predicates.read!) ?? NOTHING;
-    verbs[model] = {
-      predicates,
-      read: "read",
-      update: UPDATE[model] ?? "update",
-      delete: DELETE[model] ?? "full",
-      ...(WRITES[model] && { writes: WRITES[model] }),
+    const of = (action: string) => predicates[action] ?? NOTHING;
+    const read = TOMBSTONED.has(model)
+      ? (and({ deletedAt: null }, of("read")) ?? NOTHING)
+      : of("read");
+    const writes = WRITES[model] ?? {};
+    const moded = model === "page" || model === "document";
+    entries[model] = {
+      read: { where: read },
+      ...(moded && {
+        root: [
+          when(arg("as"), "read", read),
+          when(arg("as"), "update", of("update")),
+          when(arg("as"), "given", givenTo(actor)),
+        ],
+      }),
+      update: {
+        where: of(UPDATE[model] ?? "update"),
+        check: check(read),
+        fields: Object.fromEntries(
+          Object.entries(writes).map(([field, action]) => [
+            field,
+            { where: of(action) },
+          ])
+        ),
+      },
+      delete: { where: of(DELETE[model] ?? "full") },
     };
   }
-  const modes = {
-    all: {},
-    read: { root: "read" },
-    update: { root: "update" },
-    given: { root: givenTo(actor) },
-  };
-  return {
-    name: "verbs",
-    rows: {
-      control: "as",
-      default: "all",
-      models: { page: modes, document: modes },
-      verbs,
-    },
-    // An audit stamp on every document update (W-W5′).
-    ...(stamped && {
-      data: { models: { document: { update: { searchKey: "audited" } } } },
+  return extension(
+    "verbs",
+    args({
+      as: oneOf("all", "read", "update", "given").default("all").on(selecting),
     }),
-  };
+    rule(entries as never),
+    // An audit stamp on every document update (W-W5′).
+    ...(stamped
+      ? [defaults({ document: { update: { searchKey: "audited" } } } as never)]
+      : [])
+  );
 }
 
 /**
@@ -248,7 +268,7 @@ export function runPermissionsAppVerbs(
       if (!entry)
         return loose(
           Reflect.apply(Reflect.get(base, "$extends"), base, [
-            hostExtension(declaration(actor, now, stamped)),
+            declaration(actor, now, stamped),
           ])
         );
       let client = entries.get(stamped);

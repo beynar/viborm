@@ -14,27 +14,19 @@ import { ForbiddenError } from "../errors";
 import type { DefinitionControls } from "../extensions/controls";
 import {
   type AnyTarget,
-  type ArgTest,
   arg,
   args,
   bound,
   type ClientSchema,
   call,
-  check,
   type EmptyFacts,
   type Extension,
   models as everyOperation,
-  exists,
   extension,
   type Facts,
-  facts,
-  gate,
   methods,
   nothing,
-  now,
   oneOf,
-  provided,
-  row,
   rule,
   selecting,
   type Target,
@@ -45,18 +37,18 @@ import {
 import type { InferOutput } from "../validation";
 import { type ActorFacts, type ActorPaths, actorContract } from "./actor";
 import {
-  type CompiledModel,
   type CompiledPolicy,
   compilePolicy,
   DEFAULT_MODE,
   type DeclaredModel,
   type EVIDENCE_KEY,
-  isRecord,
   type ModelPolicy,
   type PermissionsConfig,
   type PolicyCompiler,
   policyArguments,
   policyCompiler,
+  ruleEntryOf,
+  wordsOf,
 } from "./compile";
 import type { PolicyModel, Where } from "./rules";
 
@@ -443,7 +435,8 @@ const VERBS_OF: Readonly<Record<string, readonly string[]>> = {
   createMany: ["create"],
   update: ["update"],
   updateMany: ["update"],
-  upsert: ["create", "update"],
+  // An upsert's update is judged where it locates its row.
+  upsert: ["create"],
   delete: ["delete"],
   deleteMany: ["delete"],
 };
@@ -539,21 +532,6 @@ function selfKeyed(schema: Schema, name: string): boolean {
   );
 }
 
-const isScalar = (value: unknown): value is string | number | boolean =>
-  typeof value === "string" ||
-  typeof value === "number" ||
-  typeof value === "boolean";
-
-/** A compiled condition's test, as `provided` reads it. */
-function argTest(test: Readonly<Record<string, unknown>>): ArgTest {
-  if (typeof test.exists === "boolean") return { exists: test.exists };
-  if (isScalar(test.equals)) return { equals: test.equals };
-  if (isScalar(test.has)) return { has: test.has };
-  if (Array.isArray(test.in)) return { in: test.in };
-  if (Array.isArray(test.hasSome)) return { hasSome: test.hasSome };
-  throw new TypeError("viborm/permissions compiled a condition it cannot test");
-}
-
 function reachOf(
   config: PermissionsConfig,
   models: { readonly [model: string]: DeclaredModel }
@@ -573,66 +551,6 @@ function reachOf(
       },
     ])
   );
-}
-
-/**
- * A compiled predicate in the words of a rule: an actor value is
- * `arg("actor", path)`, an enclosing column `row`, a condition `provided`
- * (beside the filter it sits in), another model's rows `exists`. Each
- * object once, so the predicates the compiler shares stay shared.
- */
-function wordsOf(value: Where, known: WeakMap<object, unknown>): object;
-function wordsOf(value: unknown, known: WeakMap<object, unknown>): unknown;
-function wordsOf(value: unknown, known: WeakMap<object, unknown>): unknown {
-  if (typeof value !== "object" || value === null) return value;
-  const done = known.get(value);
-  if (done !== undefined) return done;
-  let out: unknown = value;
-  if (Array.isArray(value)) out = value.map((item) => wordsOf(item, known));
-  else if (isRecord(value)) {
-    const keys = Object.keys(value);
-    if (
-      typeof value.control === "string" &&
-      keys.every((key) => key === "control" || key === "path")
-    )
-      out = arg(value.control, value.path as string | undefined);
-    else if (typeof value.$row === "string" && keys.length === 2)
-      out = row(value.$row, value.up as number);
-    else if (value.now === true && keys.length === 1) out = now;
-    else {
-      const { $if: condition, $exists: existence, ...filter } = value;
-      const own: Record<string, unknown> = {};
-      for (const [key, item] of Object.entries(filter))
-        own[key] = wordsOf(item, known);
-      const nodes: unknown[] = [];
-      if (isRecord(condition)) {
-        const { control, path, ...test } = condition;
-        nodes.push(
-          provided(
-            arg(control as string, path as string | undefined),
-            argTest(test)
-          )
-        );
-      }
-      if (isRecord(existence)) {
-        const spec: Record<string, object> = {};
-        for (const [model, where] of Object.entries(existence)) {
-          const words = wordsOf(where, known);
-          if (typeof words === "object" && words !== null) spec[model] = words;
-        }
-        nodes.push(exists(spec));
-      }
-      const plain = Object.keys(own).length === 0;
-      out =
-        nodes.length === 0
-          ? own
-          : plain && nodes.length === 1
-            ? nodes[0]
-            : { AND: [...(plain ? [] : [own]), ...nodes] };
-    }
-  }
-  known.set(value, out);
-  return out;
 }
 
 /** No client: what an extension written apart from one is built against. */
@@ -799,15 +717,24 @@ export function permissions<const Config extends PermissionsConfig>(
   const applied = new WeakMap<
     Schema,
     {
+      readonly models: Schema;
       readonly compiler: PolicyCompiler;
       readonly reach: ReadonlyMap<string, Reach>;
     }
   >();
   const appliedTo = (schema: Schema) => {
     let known = applied.get(schema);
-    if (known === undefined) {
-      const compiler = policyCompiler(config, { ...schema }, actor);
-      known = { compiler, reach: reachOf(config, compiler.declared) };
+    // A schema object that gained or swapped a model is applied again: a
+    // model the policy lacks would be left open (R9).
+    const keys = Object.keys(schema);
+    if (
+      known === undefined ||
+      keys.length !== Object.keys(known.models).length ||
+      keys.some((name) => known?.models[name] !== schema[name])
+    ) {
+      const models = { ...schema };
+      const compiler = policyCompiler(config, models, actor);
+      known = { models, compiler, reach: reachOf(config, compiler.declared) };
       applied.set(schema, known);
     }
     return known;
@@ -815,68 +742,26 @@ export function permissions<const Config extends PermissionsConfig>(
   /** One model's compiled predicates as a rule entry. */
   const entryOf = (schema: Schema, name: string) => {
     const { compiler } = appliedTo(schema);
-    const model: CompiledModel = compiler.model(name);
-    const known = new WeakMap<object, unknown>();
-    // An action the model does not grant takes no row: a key an entry
-    // leaves out restricts nothing.
-    const P = (named: string | undefined) =>
-      named === undefined ? nothing : wordsOf(model.predicates[named]!, known);
-    const writes = model.writes;
-    const moves = model.moves;
-    const { evidence } = model;
-    return {
-      read: {
-        where: P(model.read),
-        fields: Object.fromEntries(
-          Object.entries(model.reads).map(([field, named]) => [
-            field,
-            gate(P(named)),
-          ])
-        ),
-        ...(evidence && {
-          select: {
-            [evidence.as]: facts(
-              Object.fromEntries(evidence.names.map((fact) => [fact, P(fact)]))
-            ),
-          },
-        }),
-      },
+    const model = compiler.model(name);
+    return ruleEntryOf(
+      model,
       // The default and the model's read action narrow nothing (`read`
       // holds in every mode); another of its actions or domains narrows by
       // its predicate (R8); a mode it does not declare holds nothing.
-      root: modes
-        .filter((mode) => mode !== DEFAULT_MODE && mode !== model.read)
-        .map((mode) =>
-          when(
-            arg(MODE),
-            mode,
-            Object.hasOwn(model.modes, mode) ? P(model.modes[mode]) : nothing
-          )
-        ),
-      create: { check: check(P(model.place)) },
-      update: {
-        where: P(model.update),
-        fields: Object.fromEntries(
-          [...new Set([...Object.keys(writes), ...Object.keys(moves)])].map(
-            (field) => [
-              field,
-              {
-                ...(writes[field] !== undefined && { where: P(writes[field]) }),
-                ...(moves[field] !== undefined && {
-                  check: check(P(moves[field])),
-                }),
-              },
-            ]
-          )
-        ),
-      },
-      delete: { where: P(model.delete) },
+      (P) =>
+        modes
+          .filter((mode) => mode !== DEFAULT_MODE && mode !== model.read)
+          .map((mode) =>
+            when(
+              arg(MODE),
+              mode,
+              Object.hasOwn(model.modes, mode) ? P(model.modes[mode]) : nothing
+            )
+          ),
       // Only a self relation holding the model's key can be kept acyclic,
       // and knowing which takes every model compiled.
-      ...(selfKeyed(schema, name) && {
-        acyclic: () => compiler.acyclic(name),
-      }),
-    };
+      selfKeyed(schema, name) ? () => compiler.acyclic(name) : undefined
+    );
   };
   const governed = extension(
     NAME,
