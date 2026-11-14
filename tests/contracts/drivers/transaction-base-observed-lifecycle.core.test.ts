@@ -26,14 +26,14 @@ import {
   type TransactionOptionSupport,
 } from "@drivers/shared";
 import type { QueryExecutionContext, QueryResult } from "@drivers/types";
-import { appendResolvedExtension } from "@extensions/chain";
-import type { ObservationCompletion } from "@extensions/observation";
 import { SPAN_TRANSACTION } from "@instrumentation/spans";
 import { sql } from "@sql";
+import { extension, unit } from "@src/index";
 import {
   type InstrumentationConfig,
   instrumentation,
 } from "@src/instrumentation/exports";
+import { appendResolvedExtension } from "@tests/fixtures/host-definition";
 import {
   type OtelRecorder,
   withOtelRecorder,
@@ -77,23 +77,19 @@ function held<T>() {
 function completionRecorder() {
   const pending: Promise<unknown>[] = [];
   const records: string[] = [];
-  const extension = {
-    name: "completion-recorder",
-    observe(
-      unit: { readonly kind: string },
-      proceed: () => Promise<ObservationCompletion>
-    ) {
-      const observed = proceed().then((completion) => {
-        records.push(
-          `${unit.kind}:${completion.status}:${completion.certainty ?? "none"}`
-        );
-      });
-      pending.push(observed);
-      return observed;
-    },
-  };
   return {
-    extension,
+    extension: extension(
+      "completion-recorder",
+      unit((observedUnit, proceed) => {
+        const observed = proceed().then((completion) => {
+          records.push(
+            `${observedUnit.kind}:${completion.status}:${completion.certainty ?? "none"}`
+          );
+        });
+        pending.push(observed);
+        return observed;
+      })
+    ),
     records,
     async settle(): Promise<void> {
       await Promise.allSettled(pending);
@@ -106,7 +102,7 @@ function completionRecorder() {
 function observedContext(
   config: InstrumentationConfig,
   values: QueryExecutionContext,
-  companion?: Readonly<Record<string, unknown>>
+  companion?: unknown
 ): QueryExecutionContext {
   let chain = appendResolvedExtension(undefined, instrumentation(config), {});
   if (companion) chain = appendResolvedExtension(chain, companion, {});
@@ -340,16 +336,13 @@ describe("observed lifecycle units", () => {
     const context = observedContext(
       QUIET_OBSERVATION,
       { operation: "$transaction" },
-      {
-        name: "lifecycle-recorder",
-        observe(
-          unit: { readonly kind: string },
-          next: () => Promise<ObservationCompletion>
-        ) {
-          kinds.push(unit.kind);
+      extension(
+        "lifecycle-recorder",
+        unit((observed, next) => {
+          kinds.push(observed.kind);
           return next();
-        },
-      }
+        })
+      )
     );
     const driver = new PhasedDriver();
 

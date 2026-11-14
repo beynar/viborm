@@ -195,13 +195,13 @@ function presentOperation(
       error instanceof Error &&
       logs(context, "error")
     ) {
+      // A failure a statement log presented is not presented again; every
+      // operation whose own failure it is presents it, as before.
       const first = origin(error);
-      if (typeof first === "object" && first !== null && !logged.has(first)) {
-        logged.add(first);
+      if (!(typeof first === "object" && first !== null && logged.has(first)))
         context.logger?.error(
           createOperationErrorLogEvent(unit, error, settled.duration)
         );
-      }
     }
     return endWith(end, unit);
   };
@@ -242,7 +242,10 @@ function presentStatement(
               unit,
               startedAt,
               member?.sql ?? text(unit),
-              member?.parameters ?? shown,
+              // A batch's snapshot holds one list per member.
+              member === undefined || index === undefined
+                ? shown
+                : batchMemberParameters(shown, index),
               member,
               error
             )
@@ -273,6 +276,14 @@ function presentStatement(
         settle
       )
     : settle();
+}
+
+function batchMemberParameters(
+  shown: readonly unknown[] | undefined,
+  index: number
+): readonly unknown[] | undefined {
+  const member = shown?.[index];
+  return Array.isArray(member) ? member : undefined;
 }
 
 function presentLifecycle(

@@ -108,7 +108,7 @@ export async function executeInterceptedArray(
       ));
   // What a member's unit handler threw, once its child succeeded, fails the
   // array: the host contains nothing a handler does.
-  if (units !== undefined) await Promise.all(units);
+  await units?.done;
   return values;
 }
 
@@ -127,27 +127,20 @@ function createArraySlot(operation: TransactionOperationCapability): ArraySlot {
  * first (for a tracer to load) does so before the array's work, which then
  * runs inside each member's unit.
  */
-async function startArrayOperationUnits(
+function startArrayOperationUnits(
   slots: readonly ArraySlot[],
   engine: QueryEngine
-): Promise<readonly Promise<unknown>[] | undefined> {
-  const observation = engine.extensionChain?.observation;
-  if (observation === undefined) return undefined;
-  const units = slots.map((slot) => {
-    const child = createArrayDeferred<unknown>();
-    slot.observation = child;
-    const unit = observation.enter(
-      {
-        ...slot.owner.unit(slot.operation),
-        certainty: () => slot.certainty,
-      },
-      () => child.promise
-    );
-    unit.done.catch(() => undefined);
-    return unit;
-  });
-  await Promise.all(units.map((unit) => unit.reached));
-  return units.map((unit) => unit.done);
+): Promise<{ readonly done: Promise<unknown> }> | undefined {
+  return engine.extensionChain?.observation?.members(
+    slots.map((slot) => {
+      const child = createArrayDeferred<unknown>();
+      slot.observation = child;
+      return [
+        { ...slot.owner.unit(slot.operation), certainty: () => slot.certainty },
+        () => child.promise,
+      ];
+    })
+  );
 }
 
 function closeArrayOperationObservers(

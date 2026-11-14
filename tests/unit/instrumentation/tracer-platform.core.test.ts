@@ -32,7 +32,7 @@ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { MemoryCache } from "@cache/drivers/memory";
 import { cache } from "@cache/extension";
 import { isVibORMError } from "@errors";
-import { createClient, s, sql } from "@src/index";
+import { call, createClient, extension, s, sql } from "@src/index";
 import { createInstrumentationContext } from "@src/instrumentation/context";
 import { instrumentation } from "@src/instrumentation/exports";
 import {
@@ -48,7 +48,6 @@ import {
 } from "@src/instrumentation/spans";
 import {
   createTracerWrapper,
-  prewarmTracer,
   shouldTraceSpan,
 } from "@src/instrumentation/tracer";
 import type {
@@ -299,15 +298,13 @@ describe("tracing.tracer: spans start through the handed tracer", () => {
     ]);
   });
 
-  it("is enabled at once and has no readiness to prewarm", () => {
+  it("is enabled at once", () => {
     const { tracer } = fakeTracer();
     const wrapper = createTracerWrapper({ tracer });
     const context = createInstrumentationContext({ tracing: { tracer } });
 
     expect(wrapper.isEnabled()).toBe(true);
-    expect(prewarmTracer(wrapper)).toBeUndefined();
     expect(context.tracer.isEnabled()).toBe(true);
-    expect(prewarmTracer(context.tracer)).toBeUndefined();
     expect(Object.isFrozen(wrapper)).toBe(true);
   });
 });
@@ -685,12 +682,14 @@ describe("tracing.tracer: span and driver failures stay outside the operation", 
           },
         })
       )
-      .$extends({
-        name: "failing-request",
-        request() {
-          throw new Error("request transform failed");
-        },
-      });
+      .$extends(
+        extension(
+          "failing-request",
+          call(() => {
+            throw new Error("request transform failed");
+          })
+        )
+      );
 
     const failure = await client.record.findMany().catch((error) => error);
 
@@ -816,7 +815,5 @@ describe("tracing.tracer: the configured extension", () => {
       includeParams: false,
       includeSql: true,
     });
-    // Only the auto-detected path has a load to prewarm.
-    expect(prewarmTracer(refused.tracer)).toBeInstanceOf(Promise);
   });
 });

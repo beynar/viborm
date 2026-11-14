@@ -27,16 +27,39 @@ import type {
   QueryResult,
 } from "@drivers/types";
 import { UnsupportedOperationError } from "@errors";
-import { appendResolvedExtension } from "@extensions/chain";
-import type {
-  LifecycleUnit,
-  ObservationCompletion,
-} from "@extensions/observation";
-import type { StatementContext } from "@extensions/statement";
+import type { Sql } from "@sql";
 import { sql } from "@sql";
+import {
+  extension,
+  type UnitContext as LifecycleUnit,
+  type UnitOutcome as ObservationCompletion,
+  statement as statementOf,
+  unit,
+} from "@src/index";
 import { instrumentation } from "@src/instrumentation/exports";
+import { appendResolvedExtension } from "@tests/fixtures/host-definition";
 import { createOfficialTestExecutionContext } from "@tests/unit/instrumentation/_official-context";
 import { describe, expect, test, vi } from "vitest";
+
+interface StatementContext {
+  readonly statement: Sql;
+  readonly model: string | undefined;
+  readonly operation: string | undefined;
+}
+
+/** A rewriting unit written as the transform it applies. */
+const rewriting = (transform: (context: StatementContext) => Sql) =>
+  unit(
+    (u, next) => {
+      const statement = statementOf(u);
+      if (statement === undefined) return next();
+      return next(
+        transform({ statement, model: u.model, operation: u.operation })
+      );
+    },
+    ["statement"],
+    { rewrites: true }
+  );
 
 interface FakeSession {
   readonly id: string;
@@ -443,24 +466,25 @@ describe("_prepare typed provenance", () => {
     const calls: string[] = [];
     const chain = appendResolvedExtension(
       undefined,
-      {
-        name: "dispatch-only",
-        statement({ statement }: StatementContext) {
-          calls.push("transform");
-          return sql`${statement} /* transformed */`;
-        },
-        ...(observed
-          ? {
-              observe(
-                unit: LifecycleUnit,
-                next: () => Promise<ObservationCompletion>
-              ) {
-                if (unit.kind === "statement") calls.push("observe");
-                return next();
-              },
-            }
-          : {}),
-      },
+      observed
+        ? extension(
+            "dispatch-only",
+            rewriting(({ statement }) => {
+              calls.push("transform");
+              return sql`${statement} /* transformed */`;
+            }),
+            unit((observedUnit, next) => {
+              if (observedUnit.kind === "statement") calls.push("observe");
+              return next();
+            })
+          )
+        : extension(
+            "dispatch-only",
+            rewriting(({ statement }) => {
+              calls.push("transform");
+              return sql`${statement} /* transformed */`;
+            })
+          ),
       {}
     );
     const context = createExecutionContext(
@@ -529,23 +553,27 @@ describe("_prepare typed provenance", () => {
     );
     const chain = appendResolvedExtension(
       official,
-      {
-        name: "prepared-sequential-completion",
-        statement({ statement, operation }: StatementContext) {
+      extension(
+        "prepared-sequential-completion",
+        rewriting(({ statement, operation }) => {
           events.push(`transform:${operation}`);
           return sql`${statement} /* ${sql.raw(operation ?? "unknown")} */`;
-        },
-        observe(
-          unit: LifecycleUnit,
-          proceed: () => Promise<ObservationCompletion>
-        ) {
-          if (unit.kind !== "statement") return proceed();
-          events.push(`observe:${unit.operation}`);
-          return proceed().then((completion) => {
-            events.push(`complete:${unit.operation}:${completion.status}`);
-          });
-        },
-      },
+        }),
+        unit(
+          (
+            observed: LifecycleUnit,
+            proceed: () => Promise<ObservationCompletion>
+          ) => {
+            if (observed.kind !== "statement") return proceed();
+            events.push(`observe:${observed.operation}`);
+            return proceed().then((completion) => {
+              events.push(
+                `complete:${observed.operation}:${completion.status}`
+              );
+            });
+          }
+        )
+      ),
       {}
     );
     const contexts = [1, 2, 3].map((index) =>
@@ -624,9 +652,9 @@ describe("_prepare typed provenance", () => {
     const transformed: string[] = [];
     const chain = appendResolvedExtension(
       undefined,
-      {
-        name: "preparation-failure",
-        statement({ statement, model }: StatementContext) {
+      extension(
+        "preparation-failure",
+        rewriting(({ statement, model }) => {
           transformed.push(model ?? "unknown");
           if (model === "second") {
             if (failure === "throw")
@@ -634,21 +662,14 @@ describe("_prepare typed provenance", () => {
             return sql`${statement}, ${2}`;
           }
           return statement;
-        },
-        ...(observing
-          ? {
-              observe(
-                unit: LifecycleUnit,
-                proceed: () => Promise<ObservationCompletion>
-              ) {
-                if (unit.kind !== "statement") return proceed();
-                return proceed().then((completion) => {
-                  completions.push(`${unit.model}:${completion.status}`);
-                });
-              },
-            }
-          : {}),
-      },
+        }),
+        unit((observed, proceed) => {
+          if (!observing || observed.kind !== "statement") return proceed();
+          return proceed().then((completion) => {
+            completions.push(`${observed.model}:${completion.status}`);
+          });
+        })
+      ),
       {}
     );
     const contexts = ["first", "second", "third"].map((model) =>
@@ -682,13 +703,13 @@ describe("_prepare typed provenance", () => {
     let calls = 0;
     const chain = appendResolvedExtension(
       undefined,
-      {
-        name: "bind-growth",
-        statement({ statement }: StatementContext) {
+      extension(
+        "bind-growth",
+        rewriting(({ statement }) => {
           calls++;
           return sql`${statement}, ${1}, ${2}`;
-        },
-      },
+        })
+      ),
       {}
     );
     const context = createExecutionContext(

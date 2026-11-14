@@ -104,7 +104,9 @@ export function createCacheSpanOptions(
   return {
     name,
     attributes: {
-      ...(cacheDriver === undefined ? {} : { [ATTR_CACHE_DRIVER]: cacheDriver }),
+      ...(cacheDriver === undefined
+        ? {}
+        : { [ATTR_CACHE_DRIVER]: cacheDriver }),
       ...(ttl === undefined ? {} : { [ATTR_CACHE_TTL]: String(ttl) }),
       ...(read === undefined
         ? {}

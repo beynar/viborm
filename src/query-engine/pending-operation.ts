@@ -12,12 +12,12 @@ import {
 } from "@errors";
 import type { ResolvedOperationHandler } from "@extensions/chain";
 import type { AdmittedControls } from "@extensions/controls";
-import type { UnitSource } from "@extensions/unit-source";
 import type {
   PreparedModelQueryContext,
   QueryInterceptionMode,
   WriteOutcomeRegistration,
 } from "@extensions/query";
+import type { UnitSource } from "@extensions/unit-source";
 import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
 import type { CacheResultCodec } from "./cache-flow";

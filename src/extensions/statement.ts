@@ -1,202 +1,96 @@
-import type { RawSurface } from "@client/raw";
-import type { Operations } from "@client/types";
+/**
+ * The rewriting units of a chain (`unit(fn, kinds, { rewrites: true })`):
+ * they run once per logical statement, before rendering, in chain order.
+ * The statement's own `statement` unit runs later, around the provider call.
+ * A chain with one is never served by the cache, and verbatim unsafe raw
+ * queries are never rewritten.
+ */
 import { QueryError } from "@errors";
-import { isSql, type Sql } from "@sql";
-import { isFunction, isRecord } from "@validation/value-guards";
-import { isError } from "../errors/diagnostic-safety";
-import type { ExtensionPart, ResolvedExtensionHandler } from "./chain";
+import type { Sql } from "@sql";
+import type { ExtensionPart } from "./chain";
 import { type UnitEnd, type UnitHandler, unitOf } from "./unit-source";
 
-/** The trusted identity exposed to one low-level statement transform. */
-export interface StatementContext {
-  readonly statement: Sql;
-  readonly model: string | undefined;
-  readonly operation: Operations | keyof RawSurface;
-}
-
-export type StatementHandler = (context: StatementContext) => Sql;
-
-/**
- * Applies resolved statement transforms before placeholder rendering.
- *
- * The empty path is deliberately an identity path: it does not inspect the
- * statement and does not allocate a context.
- */
-export function applyStatementTransforms(
+type Rewrite = (
   statement: Sql,
   model: string | undefined,
-  operation: string,
-  transforms: readonly ResolvedExtensionHandler[] | undefined
-): Sql {
-  if (transforms === undefined || transforms.length === 0) return statement;
+  operation: string
+) => Sql;
 
-  let transformedStatement = statement;
-  for (const transform of transforms) {
-    const context = Object.freeze({
-      statement: transformedStatement,
-      model,
-      operation,
-    });
-
-    let transformed: unknown;
-    try {
-      transformed = Reflect.apply(transform.handler, undefined, [context]);
-    } catch (reason) {
-      throw statementTransformFailure(
-        transform.extension,
-        model,
-        operation,
-        "threw",
-        normalizeThrown(reason)
-      );
-    }
-
-    try {
-      if (isSql(transformed)) {
-        const toStatement = Reflect.get(transformed, "toStatement");
-        if (!isFunction(toStatement)) {
-          throw new TypeError(
-            "Statement transform returned a Sql value without a callable toStatement method"
-          );
-        }
-        const rendered = Reflect.apply(toStatement, transformed, ["?"]);
-        if (typeof rendered !== "string") {
-          throw new TypeError(
-            "Statement transform returned a Sql value whose toStatement method did not return a string"
-          );
-        }
-        transformedStatement = transformed;
-        continue;
-      }
-    } catch (reason) {
-      throw statementTransformFailure(
-        transform.extension,
-        model,
-        operation,
-        "returned an unreadable value",
-        normalizeUnreadableReturn(reason)
-      );
-    }
-
-    let thenable: boolean;
-    try {
-      thenable = isThenable(transformed);
-    } catch (reason) {
-      throw statementTransformFailure(
-        transform.extension,
-        model,
-        operation,
-        "returned an unreadable value",
-        normalizeUnreadableReturn(reason)
-      );
-    }
-
-    const failure = thenable
-      ? "returned a promise or thenable"
-      : "returned a non-Sql value";
-    throw statementTransformFailure(
-      transform.extension,
-      model,
-      operation,
-      failure,
-      new TypeError(`Statement transform ${failure}`)
-    );
-  }
-
-  return transformedStatement;
-}
-
-function isThenable(value: unknown): boolean {
-  if (!(isRecord(value) || isFunction(value))) return false;
-  return isFunction(Reflect.get(value, "then"));
-}
-
-function normalizeThrown(reason: unknown): Error {
-  return isError(reason)
-    ? reason
-    : new Error("Statement transform threw a non-Error value");
-}
-
-function normalizeUnreadableReturn(reason: unknown): Error {
-  return isError(reason)
-    ? reason
-    : new Error("Statement transform returned an unreadable value");
-}
-
-function statementTransformFailure(
-  extension: string,
-  model: string | undefined,
-  operation: string,
-  failure: string,
-  cause: Error
-): QueryError {
-  const identity = model === undefined ? operation : `${model}.${operation}`;
-  return new QueryError(
-    `Extension "${extension}" statement handler for ${identity} ${failure}.`,
-    {
-      cause,
-      meta: { method: "statement", model, operation },
-    }
-  );
-}
-
-/** A chain's statement transforms, and what applies them to one statement. */
+/** A chain's rewriting units, and what applies them to one statement. */
 export interface StatementHandlers {
-  readonly handlers: readonly ResolvedExtensionHandler[];
-  readonly apply: (
-    statement: Sql,
-    model: string | undefined,
-    operation: string
-  ) => Sql;
+  readonly rewrites: readonly Rewrite[];
+  readonly apply: Rewrite;
 }
 
 const REWRITTEN: UnitEnd = Object.freeze({ status: "success", duration: 0 });
 
 /**
- * A rewriting unit as the driver runs it: once per logical statement, before
- * rendering, in chain order. `statement(unit)` reads the statement as the
- * earlier rewrites left it; `next(sql)`, called before the handler returns,
- * hands on what is sent (unchanged without an argument). A rewriting unit
- * does not observe: the statement's own unit runs later, around the provider
- * call, so its `next()` resolves at once.
+ * One rewriting unit: `statement(unit)` reads the statement as the earlier
+ * rewrites left it; `next(sql)`, called before the handler returns, hands on
+ * what is sent (unchanged without an argument), and resolves at once.
  */
-function rewriting(handler: UnitHandler): StatementHandler {
-  return (context) => {
+function rewriting(extension: string, handler: UnitHandler): Rewrite {
+  return (statement, model, operation) => {
     let rewritten: Sql | undefined;
-    const returned = handler(
-      unitOf({
-        kind: "statement",
-        operation: context.operation,
-        model: context.model,
-        statement: context.statement,
-      }),
-      (statement = context.statement) => {
-        rewritten ??= statement;
-        return Promise.resolve(REWRITTEN);
-      }
-    );
+    let returned: unknown;
+    try {
+      returned = handler(
+        unitOf({ kind: "statement", operation, model, statement }),
+        (sql = statement) => {
+          rewritten ??= sql;
+          return Promise.resolve(REWRITTEN);
+        }
+      );
+    } catch (cause) {
+      throw rewriteFailure(extension, model, operation, "threw", cause);
+    }
     // The rewrite is what `next(sql)` was handed, synchronously.
     if (returned instanceof Promise) returned.catch(() => undefined);
     if (rewritten === undefined)
-      throw new TypeError("A rewriting unit returned without calling next().");
+      throw rewriteFailure(
+        extension,
+        model,
+        operation,
+        "returned without calling next()"
+      );
     return rewritten;
   };
 }
 
+function rewriteFailure(
+  extension: string,
+  model: string | undefined,
+  operation: string,
+  failure: string,
+  cause?: unknown
+): QueryError {
+  const identity = model === undefined ? operation : `${model}.${operation}`;
+  return new QueryError(
+    `Extension "${extension}" rewriting unit for ${identity} ${failure}.`,
+    {
+      ...(cause instanceof Error ? { cause } : {}),
+      meta: { method: "unit", model, operation },
+    }
+  );
+}
+
 /** The host part of `unit(handler, kinds, { rewrites: true })`. */
 export function rewritePart(handler: UnitHandler): ExtensionPart {
-  const transform = rewriting(handler);
   return {
     join({ next, chain, owner }) {
-      const handlers = Object.freeze([
-        ...(chain?.statement?.handlers ?? []),
-        Object.freeze({ extension: owner.name, handler: transform }),
-      ]);
-      next.statement = Object.freeze({
-        handlers,
-        apply: (statement: Sql, model: string | undefined, operation: string) =>
-          applyStatementTransforms(statement, model, operation, handlers),
-      });
+      const rewrites = [
+        ...(chain?.statement?.rewrites ?? []),
+        rewriting(owner.name, handler),
+      ];
+      next.statement = {
+        rewrites,
+        apply: (statement, model, operation) => {
+          let sent = statement;
+          for (const rewrite of rewrites)
+            sent = rewrite(sent, model, operation);
+          return sent;
+        },
+      };
     },
   };
 }

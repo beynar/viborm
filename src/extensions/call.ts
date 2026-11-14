@@ -28,12 +28,12 @@ import type {
 import { type AdmittedControls, controlsOwnedBy } from "./controls";
 import { coordinate, QUERIES } from "./coordination";
 import { extensionError } from "./definition";
-import { CALL } from "./unit-source";
 import { builtPart, type DefinitionDraft } from "./extension";
 import { compileHandlers, type OperationHandlers } from "./handlers";
 import { MODEL_OPERATIONS, type SelectionValue, selectionOf } from "./on";
 import type { QueryInterceptorContext } from "./query";
 import type { RequestControls, RuntimeRequestContribution } from "./request";
+import { CALL } from "./unit-source";
 import { REGISTER, type Watching, watched, watchPart } from "./watch-part";
 
 /** One `call` or `around` part, as the extension wrote it. */

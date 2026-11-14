@@ -1,4 +1,5 @@
 import type { AnyDriver, QueryResult } from "@drivers";
+import type { UnitSource } from "@extensions/unit-source";
 import {
   readTransactionOperation,
   registerTransactionOperationOwner,
@@ -54,8 +55,8 @@ export class TestTransactionOperationView {
     return this.#owner.requiresInterception(this.#capability);
   }
 
-  hasObservation(): boolean {
-    return this.#owner.hasObservation(this.#capability);
+  unit(): UnitSource {
+    return this.#owner.unit(this.#capability);
   }
 
   executeWith(driver: AnyDriver): Promise<unknown> {
@@ -127,14 +128,7 @@ export class TestTransactionOperation<T> implements PromiseLike<T> {
           notifications
         ),
       isWrite: (operation) => operation.#owner.isWrite(operation.#capability),
-      hasObservation: (operation) =>
-        operation.#owner.hasObservation(operation.#capability),
-      observe: (operation, child, readCompletionFacts) =>
-        operation.#owner.observe(
-          operation.#capability,
-          child,
-          readCompletionFacts
-        ),
+      unit: (operation) => operation.#owner.unit(operation.#capability),
       reserveWith: (operation, driver) =>
         operation.#owner.reserveWith(operation.#capability, driver),
       executeWith: (operation, driver) =>

@@ -1,6 +1,7 @@
 /** Transaction and atomic batch orchestration shared by all drivers. */
 
 import { TransactionError } from "@errors";
+import type { UnitSource } from "@extensions/unit-source";
 import { Sql } from "@sql";
 import {
   connectionQueueWait,
@@ -18,7 +19,6 @@ import {
   appendExecutionTransactionPhases,
   getExecutionExtensionChain,
 } from "./execution-context";
-import type { UnitSource } from "@extensions/unit-source";
 import {
   assertNormalizedBatchResults,
   assertNormalizedQueryResult,
@@ -613,8 +613,7 @@ export abstract class DriverTransactionBase<
       async (tx) => {
         txDriver = this.createTransactionBoundDriver(tx, executionContext);
         const boundDriver = txDriver;
-        const scopedBody = () =>
-          this.runTransactionBody(() => fn(boundDriver));
+        const scopedBody = () => this.runTransactionBody(() => fn(boundDriver));
         const runBody = () =>
           timeoutMs === undefined
             ? scopedBody()

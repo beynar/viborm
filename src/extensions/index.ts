@@ -40,6 +40,7 @@ export { extension } from "./extension";
 export { fields } from "./fields";
 export { check, facts, gate, keep } from "./judge-words";
 export { methods } from "./methods-part";
+export { work } from "./observation";
 export { deletes, models, reads, selecting, target, writes } from "./on";
 export { parts } from "./parts";
 export type { WriteOutcome } from "./query";
@@ -54,7 +55,6 @@ export {
   unless,
   when,
 } from "./rule-words";
-export { work } from "./observation";
 export { unit } from "./unit";
 export {
   type BatchMember,

@@ -56,8 +56,7 @@ export const correlation = (u: UnitContext): string | undefined =>
   sourceOf(u)?.context?.correlationId;
 
 /** The SQL name of the model an `operation` unit addresses. */
-export const table = (u: UnitContext): string | undefined =>
-  sourceOf(u)?.table;
+export const table = (u: UnitContext): string | undefined => sourceOf(u)?.table;
 
 /** One member of a native batch, as `statements(u)` gives it. */
 export interface BatchMember {
@@ -73,12 +72,13 @@ export interface BatchMember {
  * `undefined` for a unit that sends one statement. A failure that names a
  * member carries its index (`meta.statementIndex`).
  */
-export function statements(
-  u: UnitContext
-): readonly BatchMember[] | undefined {
+export function statements(u: UnitContext): readonly BatchMember[] | undefined {
   return sourceOf(u)?.batch?.map(({ sql, params, context }) => ({
     sql,
-    parameters: snapshotDiagnosticParameters(params ?? []),
+    // A snapshot only when read, as `parameters(u)` takes one.
+    get parameters() {
+      return snapshotDiagnosticParameters(params ?? []);
+    },
     ...(context?.model === undefined ? {} : { model: context.model }),
     ...(context?.operation === undefined
       ? {}

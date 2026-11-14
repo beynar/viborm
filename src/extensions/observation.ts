@@ -9,7 +9,7 @@ import {
 } from "@drivers/execution-context";
 import { QueryError } from "@errors";
 import type { ExtensionPart } from "./chain";
-import { ARRAYS, coordinate } from "./coordination";
+import { coordinate, UNITS } from "./coordination";
 import {
   originOf,
   type TransactionStatementRunner,
@@ -53,7 +53,9 @@ export function runUnit<Result>(
     return core;
   };
   const transaction =
-    source.kind === "transaction" ? openTransaction(source, startCore) : undefined;
+    source.kind === "transaction"
+      ? openTransaction(source, startCore)
+      : undefined;
   const enter = (index: number): Promise<Result> => {
     const resolved = handlers[index];
     // A layer that names other kinds is not around this unit at all.
@@ -230,29 +232,44 @@ export interface Observation {
     source: UnitSource,
     child: () => Promise<Result>
   ) => { readonly done: Promise<Result>; readonly reached: Promise<void> };
+  /**
+   * Every member's unit, entered: resolves once each reached its child, with
+   * what settles once every unit did (and fails as the first that failed).
+   */
+  readonly members: (
+    members: readonly (readonly [UnitSource, () => Promise<unknown>])[]
+  ) => Promise<{ readonly done: Promise<unknown> }>;
 }
 
 function observationOf(handlers: readonly UnitLayer[]): Observation {
+  const enter: Observation["enter"] = (source, child) => {
+    let reach: (() => void) | undefined;
+    const reached = new Promise<void>((resolve) => {
+      reach = resolve;
+    });
+    const done = runUnit(handlers, source, child, reach);
+    done.then(reach, reach);
+    return { done, reached };
+  };
   return {
     handlers,
     run: (source, child) => runUnit(handlers, source, child),
-    enter: (source, child) => {
-      let reach: (() => void) | undefined;
-      const reached = new Promise<void>((resolve) => {
-        reach = resolve;
-      });
-      const done = runUnit(handlers, source, child, reach);
-      done.then(reach, reach);
-      return { done, reached };
+    enter,
+    members: async (members) => {
+      const units = members.map(([source, child]) => enter(source, child));
+      await Promise.all(units.map((unit) => unit.reached));
+      const done = Promise.all(units.map((unit) => unit.done));
+      done.catch(() => undefined);
+      return { done };
     },
   };
 }
 
 /**
  * The host part of one `unit(handler, kinds)`: it adds a layer to the
- * chain's units, the first extension outermost. A chain with a unit part
- * intercepts the members of `$transaction([...])`, whose units start before
- * any member is prepared.
+ * chain's units, the first extension outermost. It brings no interception
+ * of `$transaction([...])`: the array starts every member's unit, and waits
+ * until each reached its child, before it prepares any member.
  */
 export function unitLayerPart(
   handler: UnitHandler,
@@ -264,7 +281,7 @@ export function unitLayerPart(
         ...(chain?.observation?.handlers ?? []),
         { extension: owner.name, handler, kinds },
       ]);
-      coordinate(next, ARRAYS);
+      coordinate(next, UNITS);
     },
   };
 }
