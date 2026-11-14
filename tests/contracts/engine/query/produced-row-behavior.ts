@@ -21,7 +21,7 @@ import {
   nothing,
   only,
   parts,
-  text,
+  statement,
   unit,
 } from "@src/index";
 import { v } from "@src/validation";
@@ -353,7 +353,7 @@ export function runProducedRowBehavior(substrate: ProducedRowSubstrate): void {
           "statements",
           unit(
             (u, next) => {
-              statements.push(text(u) ?? "");
+              statements.push(statement(u)?.toStatement() ?? "");
               return next();
             },
             ["statement"],

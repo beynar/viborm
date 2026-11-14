@@ -224,7 +224,7 @@ afterEach(async () => {
 });
 
 describe("public protected cache observers", () => {
-  test("observes only get, set, and outer invalidate", async () => {
+  test("observes get, set, an invalidation and the backend delete it runs", async () => {
     const state = createObservedCacheClient();
 
     await expect(
@@ -237,10 +237,12 @@ describe("public protected cache observers", () => {
     await state.client.$invalidate("records");
     await settleObservations(state.observations);
 
+    // The backend delete an invalidation runs is a public cache unit too.
     expect(cacheOperations(state.observations)).toEqual([
       "get",
       "set",
       "get",
+      "delete",
       "invalidate",
     ]);
     for (const observation of state.observations) {
@@ -277,15 +279,20 @@ describe("public protected cache observers", () => {
 
     const invalidateFailure = new Error("cache delete refused");
     state.cache.failDelete = invalidateFailure;
-    await expect(state.client.$invalidate("get-failure")).rejects.toBe(
-      invalidateFailure
+    // A backend failure of `$invalidate` is the cache's configuration error,
+    // as a write's invalidation failure is; the backend's error is its cause.
+    await expect(state.client.$invalidate("get-failure")).rejects.toMatchObject(
+      {
+        name: "CacheConfigurationError",
+        meta: { method: "invalidate" },
+      }
     );
     await settleObservations(state.observations);
     expect(
       state.observations
         .filter(({ summary }) => summary?.status === "failure")
         .map(({ unit }) => unit.operation)
-    ).toEqual(["set", "get", "invalidate"]);
+    ).toEqual(["set", "get", "delete", "invalidate"]);
     expect(
       state.observations
         .filter(({ summary }) => summary?.status === "failure")

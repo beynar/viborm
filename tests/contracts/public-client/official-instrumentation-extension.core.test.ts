@@ -6,7 +6,6 @@ import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { Driver } from "@drivers";
 import type { CommittedBatchNotification } from "@drivers/types";
 import { isVibORMError } from "@errors";
-import { getOfficialInstrumentationChainCapability } from "@extensions/observation";
 import { ATTR_DB_OPERATION_NAME, SPAN_OPERATION } from "@instrumentation/spans";
 import { SpanStatusCode, trace } from "@opentelemetry/api";
 import {
@@ -20,7 +19,6 @@ import {
 } from "@src/index";
 import { instrumentation } from "@src/instrumentation/exports";
 import { appendResolvedExtension } from "@tests/fixtures/host-definition";
-import { readTestTransactionOperation } from "@tests/fixtures/transaction-operation";
 import {
   captureLogs,
   withOtelRecorder,
@@ -211,15 +209,9 @@ describe("official instrumentation extension construction", () => {
       diagnostics: { includeSql: true },
     });
     const chain = appendResolvedExtension(undefined, diagnostics, schema);
-    expect(chain.observe).toHaveLength(0);
-    expect(getOfficialInstrumentationChainCapability(chain)).toBeDefined();
-
-    const { client: base } = baseClient();
-    const client = base.$extends(diagnostics);
-    const operation = client.record.findMany();
-    expect(readTestTransactionOperation(operation)?.hasObservation()).toBe(
-      false
-    );
+    // Its disclosure part alone: no unit handler, so no unit is ever built.
+    expect(chain.observation).toBeUndefined();
+    expect(chain.disclosure).toMatchObject({ includeSql: true });
   });
 });
 
@@ -412,10 +404,9 @@ describe("official logical operation presentation", () => {
       .catch((failure) => failure);
     await waitFor(() => timeline.includes("A.out"));
 
-    // Today's order: a `unit` handler hears its completion one turn after
-    // the official logger. It moves with the observation rebuild (1.14 had
-    // B.out before I.out).
-    expect(timeline).toEqual(["A.in", "B.in", "I.out", "B.out", "A.out"]);
+    // Handlers nest in chain order: the inner one hears its completion
+    // before the official logger, as in 1.14.
+    expect(timeline).toEqual(["A.in", "B.in", "B.out", "I.out", "A.out"]);
     expect(officialLogs.events).toHaveLength(1);
     expect(isVibORMError(officialFailure)).toBe(true);
     expect(officialLogs.events[0]).toMatchObject({
@@ -615,10 +606,11 @@ describe("official array observation readiness", () => {
         timeline.indexOf("provider")
       );
 
+      // No prewarm: the host awaits each handler, and a second array enters
+      // its member's unit first all the same.
       const warmedStart = timeline.length;
-      const warmed = client.$transaction([client.record.findMany()]);
+      await client.$transaction([client.record.findMany()]);
       expect(timeline[warmedStart]).toBe("observer:findMany:true");
-      await warmed;
     } finally {
       await recorder.dispose();
     }

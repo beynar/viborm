@@ -6,6 +6,7 @@
 export { accepts, args, bound, oneOf } from "./args";
 export { around, call } from "./call";
 export { again, settled, via, watch } from "./call-words";
+export { type Codec, codec } from "./codec";
 export type {
   Accepted,
   AnyFacts,
@@ -34,12 +35,15 @@ export type {
   Watcher,
   With,
 } from "./contract";
+export { type Database, database } from "./database";
 export { defaults, omitted } from "./defaults";
 export { type DisclosurePolicy, disclosure } from "./disclosure";
 export { extension } from "./extension";
 export { fields } from "./fields";
 export { check, facts, gate, keep, lazy, only } from "./judge-words";
+export { key } from "./key";
 export { methods } from "./methods-part";
+export { work } from "./observation";
 export { deletes, models, reads, selecting, target, writes } from "./on";
 export { parts } from "./parts";
 export type { WriteOutcome } from "./query";
@@ -56,11 +60,18 @@ export {
 } from "./rule-words";
 export { unit } from "./unit";
 export {
+  type BatchMember,
+  correlation,
   driver,
   failure,
+  note,
+  notes,
+  origin,
   parameters,
   run,
   statement,
+  statements,
+  table,
   text,
 } from "./unit-words";
 export type { WriteKind } from "./written";

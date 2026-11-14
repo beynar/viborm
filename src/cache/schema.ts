@@ -1,3 +1,9 @@
+import {
+  CacheConfigurationError,
+  CacheOperationNotCacheableError,
+} from "@errors";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
+import { parse } from "@validation";
 import v, { type V } from "@validation/primitives/v";
 import { parseTTL } from "./ttl";
 
@@ -130,3 +136,88 @@ export const withCacheSchema = v.object(
  * Input type for $withCache options (inferred from schema)
  */
 export type WithCacheOptions = WithCacheSchema[" vibInferred"]["0"];
+
+// =============================================================================
+// THE CACHE'S TWO ARGUMENTS, AND THE READS IT SERVES
+// =============================================================================
+
+/** The reads a cached view serves; anything else through it is refused. */
+export const CACHEABLE: readonly string[] = Object.freeze([
+  "findFirst",
+  "findMany",
+  "findUnique",
+  "findUniqueOrThrow",
+  "findFirstOrThrow",
+  "count",
+  "aggregate",
+  "groupBy",
+  "exist",
+]);
+
+/** Refuse an operation a cached view does not serve. */
+export function validateCacheableOperation(operation: string): void {
+  if (CACHEABLE.includes(operation)) return;
+  throw new CacheOperationNotCacheableError(operation, [...CACHEABLE]);
+}
+
+/** One read's options, as the cache applies them. */
+export interface CacheReadOptions {
+  readonly ttlMs: number;
+  readonly swr: number | false;
+  readonly bypass: boolean;
+  readonly key?: string;
+}
+
+/** The SWR window an option gives: its stale window added to the TTL. */
+function resolveSwr(
+  swr: boolean | number | undefined,
+  ttlMs: number
+): number | false {
+  if (swr === undefined || swr === false) return false;
+  if (swr === true) return ttlMs * 2;
+  return ttlMs + swr;
+}
+
+function refused(what: string, issues: readonly { message: string }[]): never {
+  throw new CacheConfigurationError(
+    `Invalid ${what}: ${issues.map((issue) => issue.message).join(", ")}`
+  );
+}
+
+/**
+ * A write's `cache` argument: what it invalidates once durable. Frozen, as
+ * the argument a call admitted and nothing else holds.
+ */
+export function admitMutationOptions(value: unknown): CacheInvalidationOptions {
+  const parsed = parse(cacheInvalidationSchema, value);
+  if (parsed.issues) refused("mutation cache options", parsed.issues);
+  const { autoInvalidate, invalidate } = parsed.value;
+  if (invalidate === undefined) return Object.freeze({ autoInvalidate });
+  const keys = [...invalidate];
+  Object.freeze(keys);
+  return Object.freeze({ autoInvalidate, invalidate: keys });
+}
+
+/** `$withCache(options)`: the options of every read through the view. */
+export function admitReadOptions(value: unknown): CacheReadOptions {
+  const parsed = parse(withCacheSchema, value);
+  if (parsed.issues) refused("cache options", parsed.issues);
+  const { bypass, key, ttl, swr } = parsed.value;
+  return Object.freeze({
+    ttlMs: ttl,
+    swr: resolveSwr(swr, ttl),
+    bypass,
+    ...(key === undefined ? {} : { key }),
+  });
+}
+
+/**
+ * A write's `cache` argument as the extension declares it: a value only
+ * the cache's own validator admits, refused as `CacheConfigurationError`.
+ */
+export type OfficialCacheControls = {
+  readonly cache: {
+    readonly schema: StandardSchemaV1<CacheInvalidationOptions>;
+    readonly on: "writes";
+  };
+};

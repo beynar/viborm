@@ -1331,7 +1331,7 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
       await expect(
         loose(base).$extends(gated).$as(actors.u01!).page!.findMany({})
       ).rejects.toThrow(
-        'rule.page: read.fields.groupId names a key, a unique or a foreign key field'
+        "rule.page: read.fields.groupId names a key, a unique or a foreign key field"
       );
       // A unique field: a write of a guessed value would be refused by its
       // constraint exactly when a row holds it (review FDOCS-4).
@@ -1348,7 +1348,7 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
       await expect(
         loose(base).$extends(unique).$as(actors.u01!).user!.findMany({})
       ).rejects.toThrow(
-        'rule.user: read.fields.email names a key, a unique or a foreign key field'
+        "rule.user: read.fields.email names a key, a unique or a foreign key field"
       );
     });
 
@@ -1910,7 +1910,7 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
     // --- OD-10: a cached read is an observation, not a judgement ----------
 
     test(
-      'W-C7: $withCache on a governed read is refused before any statement, below or above the cache, unless the policy declares cache: "allow" (OD-10)',
+      'W-C7: $withCache on a governed read runs it uncached, below or above the cache, unless the policy declares cache: "allow" (OD-10)',
       async () => {
         const actor = actors[judged[0]!]!;
         const counted: string[] = [];
@@ -1932,21 +1932,27 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
           ["above", metered.$extends(policy).$extends(memo())],
         ] as const) {
           const call = governed.$as(actor);
-          counted.length = 0;
-          expect(
-            await outcomeOf(() => call.$withCache().page!.findMany()),
-            order
-          ).toBe(ValidationError.name);
-          expect(counted, order).toEqual([]);
-          // The same read uncached is the policy's (no soft delete here).
-          expect(
-            keys("page", await call.page!.findMany({ select: keyOf("page") })),
-            order
-          ).toEqual(at(actor, "page", "read", { tombstones: false }));
+          // The actor is volatile: the read is the policy's, sent each time,
+          // never served from the cache nor kept in it (no soft delete here).
+          for (const attempt of [1, 2]) {
+            counted.length = 0;
+            expect(
+              keys(
+                "page",
+                await call
+                  .$withCache({ ttl: 60_000 })
+                  .page!.findMany({ select: keyOf("page") })
+              ),
+              `${order} ${attempt}`
+            ).toEqual(at(actor, "page", "read", { tombstones: false }));
+            expect(counted, `${order} ${attempt}`).toEqual(["statement"]);
+          }
         }
 
-        // Declared: the read is served from the cache, stale after a write
-        // the cache did not see, which is why it is refused by default.
+        // Declared: the read is keyed by the statement the policy produces.
+        // This policy binds the call's instant (a session's expiry), so each
+        // read sends another statement and none is served: a read is never
+        // served past the facts its statement was judged on.
         const allowing = permissions({ ...policy.config, cache: "allow" });
         const call = loose(base).$extends(memo()).$extends(allowing).$as(actor);
         const [id] = at(actor, "page", "read", { tombstones: false });
@@ -1963,7 +1969,7 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
           data: { title: "w-c7" },
         });
         try {
-          expect(await read()).toEqual(before);
+          expect(await read()).toEqual([{ id, title: "w-c7" }]);
           expect(
             await call.page!.findMany({
               where: { id },

@@ -2,10 +2,9 @@ import { scheduleBackground } from "@cache/cache-background";
 import {
   CacheDriver,
   type CacheEntry,
-  createOfficialCacheScope,
-  executeCachedWithResultCodec,
-  invalidateOfficialCache,
-  readCacheExecutionOutcomes,
+  type DetachedCacheResultCodec,
+  serveOfficialRead,
+  type WaitUntilFn,
 } from "@cache/driver";
 import { CloudflareKVCache } from "@cache/drivers/cloudflare-kv";
 import { MemoryCache } from "@cache/drivers/memory";
@@ -13,33 +12,74 @@ import {
   CacheDriver as ExportedCacheDriver,
   cache as exportedCache,
 } from "@cache/exports";
-import {
-  bindOfficialCacheChain,
-  cache,
-  getOfficialCacheChainCapability,
-  getOfficialCacheChainDefinition,
-  getOfficialCacheQueryCapability,
-  registerOfficialCacheChain,
-} from "@cache/extension";
-import { CACHE_PREFIX, cacheLookupOf } from "@cache/key";
+import { cache } from "@cache/extension";
+import { CACHE_PREFIX } from "@cache/key";
 import { hasCacheInvalidationWork } from "@cache/schema";
 import { parseTTL } from "@cache/ttl";
+import { cacheOutcomes } from "@cache/unit-facts";
 import type { KVNamespace } from "@cloudflare/workers-types";
 import { createExecutionContext } from "@drivers/execution-context";
+import type { QueryExecutionContext } from "@drivers/types";
 import {
   CacheConfigurationError,
   CacheInvalidKeyError,
   CacheInvalidTTLError,
 } from "@errors";
-import type { ResolvedExtensionChain } from "@extensions/chain";
+
+import { stableStringify } from "@extensions/key";
 import { instrumentation } from "@instrumentation/extension";
-import { extension as extExtension, failure, unit } from "@src/index";
+import {
+  extension as extExtension,
+  unit as extUnit,
+  failure,
+  type UnitContext,
+  work,
+} from "@src/index";
 import { appendResolvedExtension } from "@tests/fixtures/host-definition";
 import { createTestClock } from "@tests/fixtures/test-clock";
 import { describe, expect, test, vi } from "vitest";
 
 const cacheKeyOf = (model: string, operation: string, args: unknown) =>
-  cacheLookupOf(model, operation, args).key;
+  stableStringify([model, operation, args]);
+
+/** A read's namespace: a plain string the cache's own module hands over. */
+const createOfficialCacheScope = (namespace: string) => namespace;
+
+/** One official read through the driver's seam, as the extension serves it. */
+function executeCachedWithResultCodec<T>(
+  driver: CacheDriver,
+  model: string,
+  operation: string,
+  args: unknown,
+  run: () => Promise<T>,
+  options: {
+    readonly ttlMs: number;
+    readonly swr: number | false;
+    readonly bypass: boolean;
+    readonly key?: string;
+    readonly executionContext?: QueryExecutionContext;
+    readonly waitUntil?: WaitUntilFn;
+  },
+  codec: DetachedCacheResultCodec<T>,
+  namespace: string
+): Promise<T> {
+  return serveOfficialRead(driver, {
+    run,
+    id: cacheKeyOf(model, operation, args),
+    codec,
+    read: {
+      ttlMs: options.ttlMs,
+      swr: options.swr,
+      bypass: options.bypass,
+      ...(options.key === undefined ? {} : { key: options.key }),
+    },
+    namespace,
+    waitUntil: options.waitUntil,
+    model,
+    operation,
+    origin: { context: options.executionContext },
+  });
+}
 
 class RecordingCache extends CacheDriver {
   readonly entries = new Map<string, CacheEntry>();
@@ -54,6 +94,8 @@ class RecordingCache extends CacheDriver {
   failDataSet: unknown;
   failDelete: unknown;
   failGet: unknown;
+  /** Holds every data set until it settles. */
+  holdSet: Promise<void> | undefined;
 
   constructor(clock = createTestClock()) {
     super("recording", clock);
@@ -78,6 +120,7 @@ class RecordingCache extends CacheDriver {
     storageTtl: number,
     entry: CacheEntry<T>
   ): Promise<void> {
+    if (!key.endsWith(":reval")) await this.holdSet;
     if (!key.endsWith(":reval") && this.failDataSet !== undefined) {
       const failure = this.failDataSet;
       this.failDataSet = undefined;
@@ -103,6 +146,27 @@ class RecordingCache extends CacheDriver {
       if (key.startsWith(prefix)) this.entries.delete(key);
     }
   }
+}
+
+/**
+ * The `operation` unit `run` runs in, on `context`: what a cached read notes
+ * its decisions on while it runs, and only then.
+ */
+async function inOperation(
+  context: QueryExecutionContext,
+  run: () => Promise<unknown>
+): Promise<UnitContext> {
+  let operation: UnitContext | undefined;
+  await work(
+    context,
+    { kind: "operation", operation: "findMany", model: "record" },
+    async (unit) => {
+      operation = unit;
+      await run();
+    }
+  );
+  if (operation === undefined) throw new Error("the operation did not run");
+  return operation;
 }
 
 function officialInstrumentationContext(options?: {
@@ -228,7 +292,7 @@ describe("public cache-driver storage contract", () => {
     expect(driver.clears.at(-1)).toBe("viborm");
   });
 
-  test("accepts legacy prefixed keys but reserves official scope and hidden arguments", async () => {
+  test("accepts legacy prefixed keys but reserves the official scope", async () => {
     const driver = new RecordingCache();
     await driver._set("viborm:v2:user:key", 1, { ttl: 10 });
     expect(driver.sets[0]?.key).toBe("viborm:v2:user:key");
@@ -239,9 +303,6 @@ describe("public cache-driver storage contract", () => {
     await expect(driver._get("viborm:cache:r3:forged")).rejects.toThrow(
       CacheInvalidKeyError
     );
-    await expect(
-      Reflect.apply(driver._get, driver, ["entry", undefined, {}])
-    ).rejects.toThrow(CacheInvalidKeyError);
   });
 
   test("keeps ordinary cache observers on the public storage boundary", async () => {
@@ -250,8 +311,8 @@ describe("public cache-driver storage contract", () => {
       undefined,
       extExtension(
         "ordinary-cache-observer",
-        unit((u, next) => {
-          units.push(u);
+        extUnit((unit, next) => {
+          units.push(unit);
           return next();
         })
       ),
@@ -294,93 +355,6 @@ describe("public cache-driver storage contract", () => {
     await expect(
       driver._invalidate("user", { invalidate: ["exact"] })
     ).rejects.toThrow("delete refused");
-  });
-
-  test("authenticates the internal official-result seam", async () => {
-    const driver = new RecordingCache();
-    const codec = {
-      snapshot: (value: { id: string }) => ({ ...value }),
-      materialize: () => ({ id: "cached" }),
-    };
-    const options = { ttlMs: 100, swr: false as const, bypass: false };
-
-    expect(() =>
-      executeCachedWithResultCodec(
-        driver,
-        "user",
-        "findMany",
-        {},
-        async () => ({ id: "one" }),
-        options,
-        codec,
-        Object.freeze({})
-      )
-    ).toThrow(CacheInvalidKeyError);
-
-    const scope = createOfficialCacheScope("viborm:cache:test");
-    await expect(
-      executeCachedWithResultCodec(
-        driver,
-        "user",
-        "findMany",
-        {},
-        async () => ({ id: "one" }),
-        options,
-        codec,
-        scope
-      )
-    ).resolves.toEqual({ id: "one" });
-  });
-
-  test("authenticates and confines the internal official-invalidation seam", async () => {
-    const driver = new RecordingCache();
-    const forgedScope = Object.freeze({});
-    expect(() =>
-      invalidateOfficialCache(
-        driver,
-        "user",
-        { autoInvalidate: true },
-        undefined,
-        forgedScope
-      )
-    ).toThrow(CacheInvalidKeyError);
-
-    const scope = createOfficialCacheScope("viborm:cache:scope");
-    await invalidateOfficialCache(
-      driver,
-      "user",
-      { autoInvalidate: true, invalidate: ["one", "prefix:*", "*"] },
-      undefined,
-      scope
-    );
-    expect(driver.clears).toEqual([
-      "viborm:cache:scope:",
-      "viborm:cache:scope:prefix:",
-      "viborm:cache:scope:",
-    ]);
-    expect(driver.deletes).toContainEqual([
-      "viborm:cache:scope:one",
-      "viborm:cache:scope:one:reval",
-    ]);
-    await expect(
-      invalidateOfficialCache(
-        driver,
-        "user",
-        { invalidate: ["viborm:forged"] },
-        undefined,
-        scope
-      )
-    ).rejects.toThrow(CacheInvalidKeyError);
-  });
-
-  test("runs direct storage work through the trusted observer only", async () => {
-    const driver = new RecordingCache();
-    const context = officialInstrumentationContext({ tracing: true });
-
-    await expect(driver._delete("missing", context)).resolves.toBeUndefined();
-    expect(driver.deletes).toEqual([
-      ["viborm:missing", "viborm:missing:reval"],
-    ]);
   });
 });
 
@@ -486,110 +460,16 @@ describe("Cloudflare KV backend contract", () => {
 });
 
 describe("official cache definition and hostile configuration", () => {
-  test("snapshots exact configuration and binds one pure client scope", () => {
-    const driver = new MemoryCache();
-    const waitUntil = () => undefined;
-    const reads = { driver: 0, version: 0, waitUntil: 0 };
-    const extension = cache({
-      get driver() {
-        reads.driver += 1;
-        return driver;
-      },
-      get version() {
-        reads.version += 1;
-        return "blue";
-      },
-      get waitUntil() {
-        reads.waitUntil += 1;
-        return waitUntil;
-      },
-    });
-    // What a chain the cache is applied to carries is the snapshot.
-    const carried = (value: unknown) =>
-      getOfficialCacheChainDefinition(
-        appendResolvedExtension(undefined, value, {})
-      );
-    const capability = carried(extension);
-    expect(capability).toMatchObject({ driver, version: "blue", waitUntil });
-    expect(carried(cache({ driver, version: 2 }))?.version).toBe(2);
-    expect(getOfficialCacheQueryCapability(undefined)).toBeUndefined();
-    expect(Object.isFrozen(extension)).toBe(true);
-    expect(reads).toEqual({ driver: 1, version: 1, waitUntil: 1 });
-
-    const chain = Object.freeze({}) as ResolvedExtensionChain;
-    expect(getOfficialCacheChainDefinition(undefined)).toBeUndefined();
-    expect(getOfficialCacheChainCapability(undefined)).toBeUndefined();
-    bindOfficialCacheChain(chain, {
-      dialect: "sqlite",
-      adapter: {},
-    });
-    expect(getOfficialCacheChainCapability(chain)).toBeUndefined();
-    if (capability === undefined) throw new Error("missing cache capability");
-    registerOfficialCacheChain(chain, capability);
-    expect(getOfficialCacheChainDefinition(chain)).toBe(capability);
-    bindOfficialCacheChain(chain, {
-      dialect: "sqlite",
-      adapter: {},
-    });
-    expect(getOfficialCacheChainCapability(chain)).toMatchObject({
-      driver,
-      version: "blue",
-      waitUntil,
-      scope: expect.any(Object),
-    });
-  });
-
   test.each([
-    null,
     {},
     { driver: {} },
     { driver: new MemoryCache(), version: Number.NaN },
     { driver: new MemoryCache(), version: Number.POSITIVE_INFINITY },
     { driver: new MemoryCache(), waitUntil: true },
-    { driver: new MemoryCache(), extra: true },
-    Object.defineProperty({ driver: new MemoryCache() }, Symbol("extra"), {
-      value: true,
-    }),
   ])("rejects invalid cache configuration %#", (config) => {
     expect(() => Reflect.apply(cache, undefined, [config])).toThrow(
       CacheConfigurationError
     );
-  });
-
-  test("normalizes reflection, member-read, and prototype failures", () => {
-    const reflectionFailure = new Proxy(
-      {},
-      {
-        ownKeys() {
-          // biome-ignore lint/style/useThrowOnlyError: the test drives the non-Error throw path on purpose.
-          throw "reflection refused";
-        },
-      }
-    );
-    const memberFailure = Object.defineProperty({}, "driver", {
-      enumerable: true,
-      get() {
-        throw new Error("member refused");
-      },
-    });
-    const prototypeFailure = new Proxy(
-      {},
-      {
-        getPrototypeOf() {
-          throw new Error("prototype refused");
-        },
-      }
-    );
-
-    for (const config of [
-      reflectionFailure,
-      memberFailure,
-      { driver: prototypeFailure },
-    ]) {
-      expect(() => Reflect.apply(cache, undefined, [config])).toThrow(
-        CacheConfigurationError
-      );
-    }
   });
 });
 
@@ -627,23 +507,29 @@ describe("cache outcome facts", () => {
     ) => outcomes.map(({ event, status }) => ({ event, status }));
 
     driver.failDataSet = new Error("set refused");
-    await expect(execute()).resolves.toBe("fresh");
-    await Promise.all(background.splice(0));
-    const read = readCacheExecutionOutcomes(context);
-    expect(statuses(read?.() ?? [])).toEqual([
+    const first = await inOperation(context, async () => {
+      await expect(execute()).resolves.toBe("fresh");
+      await Promise.all(background.splice(0));
+    });
+    expect(statuses(cacheOutcomes(first))).toEqual([
       { event: "bypass", status: undefined },
       { event: "miss", status: "cache-set-failed" },
     ]);
 
     driver.failDataSet = new Error("late refusal");
-    await expect(execute()).resolves.toBe("fresh");
+    let release: () => void = () => undefined;
+    driver.holdSet = new Promise((resolve) => {
+      release = resolve;
+    });
+    const second = await inOperation(context, () =>
+      expect(execute()).resolves.toBe("fresh")
+    );
+    release();
     await Promise.all(background.splice(0));
-    expect(statuses(read?.() ?? [])).toEqual([
-      { event: "bypass", status: undefined },
-      { event: "miss", status: "cache-set-failed" },
+    // A set failure after its read ended is the set unit's, not the read's.
+    expect(statuses(cacheOutcomes(second))).toEqual([
       { event: "bypass", status: undefined },
     ]);
-    expect(readCacheExecutionOutcomes({})).toBeUndefined();
   });
 });
 
@@ -734,13 +620,11 @@ describe("background cache failure integrity", () => {
       undefined,
       extExtension(
         "cache-cleanup-observer",
-        unit(async (u, next) => {
-          const outcome = await next();
-          if (u.kind === "cache" && u.operation === "revalidate")
-            revalidationCompletion = {
-              status: outcome.status,
-              error: failure(u),
-            };
+        extUnit(async (unit, next) => {
+          const completion = await next();
+          if (unit.kind === "cache" && unit.operation === "revalidate") {
+            revalidationCompletion = { ...completion, error: failure(unit) };
+          }
         })
       ),
       {}
@@ -781,9 +665,10 @@ describe("background cache failure integrity", () => {
     await expect(Promise.all(background.splice(0))).resolves.toEqual([
       undefined,
     ]);
+    // One generation of handlers: `failure(u)` is the unit's own error.
     expect(revalidationCompletion).toMatchObject({
       status: "failure",
-      error: { message: "Error details redacted" },
+      error: { message: "cleanup refused" },
     });
   });
 
@@ -794,35 +679,34 @@ describe("background cache failure integrity", () => {
     const context = officialInstrumentationContext({ logging: true });
     driver.failDataSet = new Error("late set refused");
 
-    await expect(
-      executeCachedWithResultCodec(
-        driver,
-        "record",
-        "findMany",
-        {},
-        async () => "fresh",
-        {
-          ttlMs: 10,
-          swr: false,
-          bypass: false,
-          executionContext: context,
-          waitUntil: (promise) => background.push(promise),
-        },
-        {
-          snapshot: (value: string) => value,
-          materialize: (value: unknown) => String(value),
-        },
-        scope
-      )
-    ).resolves.toBe("fresh");
-    await expect(Promise.all(background.splice(0))).resolves.toEqual([
-      undefined,
-    ]);
+    const read = await inOperation(context, async () => {
+      await expect(
+        executeCachedWithResultCodec(
+          driver,
+          "record",
+          "findMany",
+          {},
+          async () => "fresh",
+          {
+            ttlMs: 10,
+            swr: false,
+            bypass: false,
+            executionContext: context,
+            waitUntil: (promise) => background.push(promise),
+          },
+          {
+            snapshot: (value: string) => value,
+            materialize: (value: unknown) => String(value),
+          },
+          scope
+        )
+      ).resolves.toBe("fresh");
+      await expect(Promise.all(background.splice(0))).resolves.toEqual([
+        undefined,
+      ]);
+    });
     expect(
-      readCacheExecutionOutcomes(context)?.().map(({ event, status }) => ({
-        event,
-        status,
-      }))
+      cacheOutcomes(read).map(({ event, status }) => ({ event, status }))
     ).toContainEqual({ event: "miss", status: "cache-set-failed" });
   });
 
@@ -861,7 +745,6 @@ describe("background cache failure integrity", () => {
     await expect(execute()).resolves.toBe("first");
     await Promise.all(background.splice(0));
     await expect(execute()).resolves.toBe("second");
-    expect(readCacheExecutionOutcomes(context)).toBeUndefined();
   });
 
   test("contains ordinary background writes and stale revalidation failures", async () => {

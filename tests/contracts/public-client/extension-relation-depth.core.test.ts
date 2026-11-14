@@ -14,7 +14,7 @@
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
 import { s } from "@schema";
-import { accepts, arg, extension, parts, text, unit } from "@src/index";
+import { accepts, arg, extension, parts, statement, unit } from "@src/index";
 import { v } from "@src/validation";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -91,7 +91,7 @@ async function open(deepExpressions: boolean) {
       "statements",
       unit(
         (u, next) => {
-          statements.push(text(u) ?? "");
+          statements.push(statement(u)?.toStatement() ?? "");
           return next();
         },
         ["statement"],

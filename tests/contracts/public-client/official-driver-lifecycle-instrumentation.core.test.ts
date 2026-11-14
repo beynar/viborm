@@ -318,8 +318,12 @@ describe("official driver lifecycle instrumentation", () => {
       expect(officialDriver.timeline).toContain(
         `provider:disconnect:${SPAN_DISCONNECT}`
       );
+      // One generation of handlers, nested in chain order: a handler applied
+      // after the instrumentation runs inside the span it opened.
       expect(officialDriver.timeline[0]).toBe("A:connection:in:none");
-      expect(officialDriver.timeline[1]).toBe("B:connection:in:none");
+      expect(officialDriver.timeline[1]).toBe(
+        `B:connection:in:${SPAN_CONNECT}`
+      );
     } finally {
       await recorder.dispose();
     }
@@ -348,9 +352,11 @@ describe("official driver lifecycle instrumentation", () => {
         const second = tx.$transaction(async () => undefined);
         await firstStarted.promise;
 
+        // A unit starts at its physical boundary: the queued savepoint's once
+        // its own SAVEPOINT is sent, after the first releases.
         expect(
           driver.timeline.filter((event) => event.startsWith("B:savepoint:in"))
-        ).toHaveLength(2);
+        ).toHaveLength(1);
         expect(
           driver.timeline.filter((event) =>
             event.startsWith("provider:SAVEPOINT")
@@ -487,12 +493,13 @@ describe("official driver lifecycle instrumentation", () => {
       await first;
       await settle(captures);
 
+      // A transaction refused before it is dispatched reached no physical
+      // boundary: it is no unit, and no span.
       const transactions = captures.filter(
         ({ kind }) => kind === "transaction"
       );
-      expect(transactions).toHaveLength(2);
-      expect(transactions[1]?.summary).toMatchObject({ status: "failure" });
-      expect(transactions[1]?.summary?.certainty).toBeUndefined();
+      expect(transactions).toHaveLength(1);
+      expect(transactions[0]?.summary).toMatchObject({ status: "success" });
       expect(
         driverSpans(recorder.spans(), "max-wait-lifecycle").filter(
           ({ name }) => name === SPAN_TRANSACTION
@@ -719,8 +726,8 @@ describe("official driver lifecycle instrumentation", () => {
       expect(overlapFailure.meta.correlationId).not.toBe(
         disconnectSpans[0]?.attributes[ATTR_VIBORM_CORRELATION_ID]
       );
-      expect(captures.map(({ summary }) => summary?.status).sort()).toEqual([
-        "failure",
+      // The refused disconnect reached no provider: it is no unit.
+      expect(captures.map(({ summary }) => summary?.status)).toEqual([
         "success",
       ]);
       expect(driver.closeCount).toBe(1);
@@ -775,8 +782,8 @@ describe("official driver lifecycle instrumentation", () => {
       expect(reentrantFailure.meta.correlationId).not.toBe(
         disconnectSpans[0]?.attributes[ATTR_VIBORM_CORRELATION_ID]
       );
-      expect(captures.map(({ summary }) => summary?.status).sort()).toEqual([
-        "failure",
+      // The refused disconnect reached no provider: it is no unit.
+      expect(captures.map(({ summary }) => summary?.status)).toEqual([
         "success",
       ]);
       expect(driver.closeCount).toBe(1);

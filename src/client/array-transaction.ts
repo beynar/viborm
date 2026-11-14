@@ -55,10 +55,8 @@ export function executeArrayTransaction(
       throw snapshotFailure;
     }
     return observers.run(
-      { kind: "batch", operation: "$transaction([...])" },
-      () => {
-        throw snapshotFailure;
-      }
+      { kind: "batch", operation: "$transaction([...])", context },
+      () => Promise.reject(snapshotFailure)
     );
   }
   if (observers === undefined) {
@@ -74,7 +72,12 @@ export function executeArrayTransaction(
   const observation: ArrayObservationState = {};
   return finishArrayResults(operations, engine, () =>
     observers.run(
-      { kind: "batch", operation: "$transaction([...])" },
+      {
+        kind: "batch",
+        operation: "$transaction([...])",
+        context,
+        certainty: () => observation.certainty,
+      },
       () => {
         assertOwnedOperations(operations, engine);
         if (operations.length === 0) return Promise.resolve(operations);
@@ -91,11 +94,7 @@ export function executeArrayTransaction(
                 observation.certainty = certainty;
               }
             );
-      },
-      () =>
-        observation.certainty === undefined
-          ? undefined
-          : { commitCertainty: observation.certainty }
+      }
     )
   );
 }

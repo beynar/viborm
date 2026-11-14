@@ -20,7 +20,7 @@ import type {
 
 // `deprecation` and `notice` carry ORM-authored notice text (constant wording
 // around schema and driver names, never user data or query text), so they are
-// disclosed on the warning channel unconditionally.
+// disclosed unconditionally.
 const LOG_META_KEYS = new Set(["deprecation", "event", "notice", "status"]);
 
 /** The log event metadata a logger may present: known keys and values only. */
@@ -41,8 +41,6 @@ export interface Logger {
   query(event: Omit<LogEvent, "level">): void;
   /** Log a cache event */
   cache(event: Omit<LogEvent, "level">): void;
-  /** Log a warning event */
-  warn(event: Omit<LogEvent, "level">): void;
   /** Log an error event */
   error(event: Omit<LogEvent, "level">): void;
   /** Check if a specific level is enabled */
@@ -75,19 +73,12 @@ function prettyLog(event: LogEvent): void {
         isString(event.meta?.status) ? `(${event.meta.status})` : ""
       );
       break;
-    case "warning":
-      console.warn("[WARN]", time, target, formatDiagnostic(event.meta));
-      break;
     case "error":
       console.error("[ERROR]", time, target, duration);
       if (event.error) console.error(`  ${event.error.message}`);
       if (event.sql) console.error(`  ${event.sql}`);
       break;
   }
-}
-
-function formatDiagnostic(value: unknown): string {
-  return value === undefined ? "" : String(JSON.stringify(value));
 }
 
 /**
@@ -116,7 +107,6 @@ export function createLogger(config: LoggingConfig): Logger {
       cache: getHandler(config, "cache"),
       error: getHandler(config, "error"),
       query: getHandler(config, "query"),
-      warning: getHandler(config, "warning"),
     });
 
   function sanitizeEvent(
@@ -181,10 +171,6 @@ export function createLogger(config: LoggingConfig): Logger {
 
     cache(event: Omit<LogEvent, "level">): void {
       emit(event, "cache");
-    },
-
-    warn(event: Omit<LogEvent, "level">): void {
-      emit(event, "warning");
     },
 
     error(event: Omit<LogEvent, "level">): void {

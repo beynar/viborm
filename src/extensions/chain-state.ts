@@ -5,7 +5,7 @@
  * client asks the chain and imports nothing that runs extensions.
  */
 
-import type { DiagnosticDisclosure, ValidationError } from "@errors";
+import type { DiagnosticDisclosure } from "@errors";
 import type {
   CallRows,
   ModelStamps,
@@ -24,11 +24,10 @@ import type { ControlLiteral } from "./definition";
 import type { OperationHandlers, RequestHandlers } from "./handlers";
 import type { Kept } from "./kept";
 import type { ExtensionMethodsState } from "./methods";
-import type { Observation, ObservesFacts } from "./observation";
+import type { Observation } from "./observation";
 import type { ResultFields } from "./result";
 import type { Stamps } from "./stamps";
 import type { StatementHandlers } from "./statement";
-import type { UnitHandlers } from "./units";
 import type { WrittenHandlers } from "./written";
 
 export interface ResolvedExtensionHandler<
@@ -108,12 +107,6 @@ export interface ResolvedControls {
     values: Readonly<Record<string, unknown>>,
     previous: AdmittedControls | undefined
   ) => AdmittedControls;
-  /** Why a read holding a value of an `uncacheable` control is not cached. */
-  readonly uncacheable: (
-    admitted: AdmittedControls | undefined,
-    model: string,
-    operation: Operation
-  ) => ValidationError | undefined;
 }
 
 /**
@@ -146,7 +139,7 @@ export interface ResolvedExtensionChain {
   /**
    * How a call whose execution an extension wraps is run, and how a
    * transaction collects its write outcomes: present on a chain with query
-   * handlers, `written`, `retry`, `route`, a lifecycle observer or the cache.
+   * handlers, `written`, `retry`, `route` or a lifecycle observer.
    */
   readonly coordination?: Coordination;
   readonly controls?: ResolvedControls;
@@ -183,24 +176,18 @@ export interface ResolvedExtensionChain {
   /** Whether `query` holds a handler for some call. */
   readonly hasQueryHandlers?: boolean;
   readonly statement?: StatementHandlers;
-  /** Every lifecycle observer, in chain order, as declared. */
-  readonly observe?: readonly ResolvedExtensionHandler[];
-  /** What runs a unit under `observe`: present when it holds one. */
+  /**
+   * Every handler around a unit of real work, in chain order, and what runs
+   * a unit under them: present when the chain holds one. A producer builds a
+   * unit only where it is present.
+   */
   readonly observation?: Observation;
-  /** What reads the declaration of the one observer handed facts. */
-  readonly observes?: ObservesFacts;
   /** Every `written` declaration, in chain order: what watches a write call. */
   readonly written?: WrittenHandlers;
-  /** Every `retry` and `route` declaration, and what sends a call under them. */
-  readonly units?: UnitHandlers;
-  /** Every `transaction` declaration, in chain order. */
-  readonly transaction?: readonly ResolvedExtensionHandler[];
   /** Per model, every extension's computed fields, and what plans a call's. */
   readonly result?: ResultFields;
   /** Every extension's client and model methods, and what binds a view's. */
   readonly methods?: ExtensionMethodsState;
-  /** Whether the chain carries the official cache. */
-  readonly hasCache?: boolean;
   /** What an error of a call may carry, as the last `disclosure` part says. */
   readonly disclosure?: DiagnosticDisclosure;
 }

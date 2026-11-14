@@ -22,7 +22,7 @@ import {
   parts,
   rule,
   s,
-  text,
+  statement,
   unit,
 } from "@src/index";
 import {
@@ -100,7 +100,7 @@ describe("K5: declared projection keys and read-gated fields", () => {
         "meter",
         unit(
           (u, next) => {
-            statements.push(text(u) ?? "");
+            statements.push(statement(u)?.toStatement() ?? "");
             return next();
           },
           ["statement"],

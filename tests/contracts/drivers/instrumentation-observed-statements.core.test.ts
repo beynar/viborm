@@ -34,7 +34,7 @@ import {
   SPAN_EXECUTE,
 } from "@instrumentation/spans";
 import { sql } from "@sql";
-import { extension, statement as extStatement, unit } from "@src/index";
+import { extension, statement, unit } from "@src/index";
 import {
   type InstrumentationConfig,
   instrumentation,
@@ -163,9 +163,14 @@ async function waitFor(check: () => boolean): Promise<void> {
 /** One extension that appends a comment to every statement it is given. */
 const taggingExtension = extension(
   "statement-tagger",
-  unit((u, next) => next(sql`${extStatement(u)} /* tagged */`), ["statement"], {
-    rewrites: true,
-  })
+  unit(
+    (u, next) => {
+      const sent = statement(u);
+      return next(sent && sql`${sent} /* tagged */`);
+    },
+    ["statement"],
+    { rewrites: true }
+  )
 );
 
 describe("observed statement disclosure", () => {

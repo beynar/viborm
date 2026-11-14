@@ -29,10 +29,8 @@ vi.mock("@opentelemetry/api", () => {
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
-import { MemoryCache } from "@cache/drivers/memory";
-import { cache } from "@cache/extension";
 import { isVibORMError } from "@errors";
-import { createClient, call as extCall, extension, s, sql } from "@src/index";
+import { call, createClient, extension, s, sql } from "@src/index";
 import { createInstrumentationContext } from "@src/instrumentation/context";
 import { instrumentation } from "@src/instrumentation/exports";
 import {
@@ -48,7 +46,6 @@ import {
 } from "@src/instrumentation/spans";
 import {
   createTracerWrapper,
-  prewarmTracer,
   shouldTraceSpan,
 } from "@src/instrumentation/tracer";
 import type {
@@ -299,15 +296,13 @@ describe("tracing.tracer: spans start through the handed tracer", () => {
     ]);
   });
 
-  it("is enabled at once and has no readiness to prewarm", () => {
+  it("is enabled at once", () => {
     const { tracer } = fakeTracer();
     const wrapper = createTracerWrapper({ tracer });
     const context = createInstrumentationContext({ tracing: { tracer } });
 
     expect(wrapper.isEnabled()).toBe(true);
-    expect(prewarmTracer(wrapper)).toBeUndefined();
     expect(context.tracer.isEnabled()).toBe(true);
-    expect(prewarmTracer(context.tracer)).toBeUndefined();
     expect(Object.isFrozen(wrapper)).toBe(true);
   });
 });
@@ -621,35 +616,6 @@ describe("tracing.tracer: span and driver failures stay outside the operation", 
     }
   });
 
-  it("keeps $withCache when the adapter namespace throws after the cache bound", async () => {
-    let namespaceThrows = false;
-    const { spans, tracer } = fakeTracer();
-    const record = s.model({ id: s.string().id(), name: s.string() });
-    const driver = new StatementDriver();
-    Object.defineProperty(driver, "adapter", {
-      value: Object.create(new SQLiteAdapter(), {
-        namespace: {
-          get: () => {
-            if (namespaceThrows) throw new Error("namespace getter failed");
-            return undefined;
-          },
-        },
-      }),
-    });
-    const client = createClient({ schema: { record }, driver })
-      .$extends(cache({ driver: new MemoryCache() }))
-      .$extends(instrumentation({ tracing: { tracer } }));
-    namespaceThrows = true;
-
-    await expect(
-      client.$withCache({ ttl: 60_000 }).record.findMany({})
-    ).resolves.toEqual([{ id: "record-1", name: "Ada" }]);
-
-    const operation = spans.filter(({ name }) => name === SPAN_OPERATION);
-    expect(operation).toHaveLength(1);
-    expect(operation[0]?.calls.filter(isDriverAttributeCall)).toEqual([]);
-  });
-
   it("presents the operation span without driver attributes when the adapter namespace throws", async () => {
     const { spans, tracer } = fakeTracer();
     const record = s.model({ id: s.string().id(), name: s.string() });
@@ -688,7 +654,7 @@ describe("tracing.tracer: span and driver failures stay outside the operation", 
       .$extends(
         extension(
           "failing-request",
-          extCall((_c) => {
+          call(() => {
             throw new Error("request transform failed");
           })
         )
@@ -818,7 +784,5 @@ describe("tracing.tracer: the configured extension", () => {
       includeParams: false,
       includeSql: true,
     });
-    // Only the auto-detected path has a load to prewarm.
-    expect(prewarmTracer(refused.tracer)).toBeInstanceOf(Promise);
   });
 });

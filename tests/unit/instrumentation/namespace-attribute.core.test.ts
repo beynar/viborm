@@ -27,9 +27,7 @@ import { cache as cacheExtension } from "@cache/extension";
 import { createClient } from "@client/client";
 import { Driver } from "@drivers/driver";
 import { readDriverIdentity } from "@drivers/driver-identity";
-import { getExecutionExtensionChain } from "@drivers/execution-context";
 import type { QueryResult } from "@drivers/types";
-import { getOfficialInstrumentationChainCapability } from "@extensions/observation";
 import { createDriverAttributes } from "@instrumentation/presentation";
 import {
   ATTR_DB_NAMESPACE,
@@ -323,11 +321,6 @@ describe("context attribution presents only supplied facts", () => {
       { tracing: true },
       { model: "", operation: "" }
     );
-    const capability = getOfficialInstrumentationChainCapability(
-      getExecutionExtensionChain(context)
-    );
-    if (capability === undefined) throw new Error("no official capability");
-    await capability.prewarm?.();
     const from = mark();
     await driver._executeRaw("SELECT 1", [], context);
     // The observer ends the span after the authoritative result settles.

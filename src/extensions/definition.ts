@@ -16,7 +16,6 @@ import type { ExtensionPart } from "./chain";
 import type { ControlsContribution } from "./controls";
 import type { Deletion } from "./kept";
 import type { RuntimeMethodsFactory } from "./methods";
-import type { OfficialObservationCapability } from "./official-facts";
 import type { RuntimeQueryContribution } from "./query";
 import type { RuntimeResultContribution } from "./result";
 
@@ -27,14 +26,7 @@ export interface RuntimeExtensionDefinition {
   /** Each `call` and `around` part, in the order the extension names them. */
   readonly calls?: readonly CallEntry[];
   readonly query?: RuntimeQueryContribution;
-  readonly statement?: RuntimeExtensionFunction;
-  readonly observe?: RuntimeExtensionFunction;
-  /** What `observe` is handed facts for. */
-  readonly observes?: OfficialObservationCapability;
   readonly written?: RuntimeExtensionFunction;
-  readonly retry?: RuntimeExtensionFunction;
-  readonly route?: RuntimeExtensionFunction;
-  readonly transaction?: RuntimeExtensionFunction;
   /** The factory `methods` takes. */
   readonly methods?: RuntimeMethodsFactory;
   readonly controls?: ControlsContribution;

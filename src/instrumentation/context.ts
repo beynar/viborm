@@ -173,8 +173,7 @@ function snapshotLoggingConfig(
   const cache = readLogHandler(value, "cache");
   const error = readLogHandler(value, "error");
   const query = readLogHandler(value, "query");
-  const warning = readLogHandler(value, "warning");
-  if ([all, cache, error, query, warning].every((handler) => !handler)) {
+  if ([all, cache, error, query].every((handler) => !handler)) {
     return undefined;
   }
   return Object.freeze({
@@ -184,13 +183,12 @@ function snapshotLoggingConfig(
     cache,
     error,
     query,
-    warning,
   });
 }
 
 function readLogHandler(
   value: Record<string, unknown>,
-  key: "all" | "cache" | "error" | "query" | "warning"
+  key: "all" | "cache" | "error" | "query"
 ): LogLevelHandler | undefined {
   const handler = safeRead(value, key);
   return handler === true || isFunction<LogCallback>(handler)

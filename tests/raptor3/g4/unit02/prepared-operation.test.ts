@@ -7,13 +7,11 @@
  * and `prepareBatch` are its callers.
  */
 
-// The route's cache codec belongs to the cache runtime `viborm/cache` loads.
-import { routedCodec } from "@cache/result-codec";
-import "@cache/runtime";
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { NotFoundError, ValidationError } from "@errors";
+import { codecOf } from "@extensions/codec";
 import { createCommandEngine } from "@query-engine/raptor3/commands";
 import type { ReadOperation } from "@query-engine/raptor3/shared/schema";
 import { s } from "@schema";
@@ -174,7 +172,7 @@ describe("G4-02 prepared operation boundary", () => {
         );
         const admitted = handle.args;
         const statement = handle.read?.statement;
-        const codec = routedCodec(handle);
+        const codec = codecOf(handle);
         assert.ok(statement);
         assert.deepEqual(admitted.select, request.args.select);
         return { request, handle, admitted, statement, codec };
@@ -203,7 +201,7 @@ describe("G4-02 prepared operation boundary", () => {
             );
             assert.equal(handle.args, admitted);
             assert.equal(handle.read?.statement, statement);
-            assert.equal(routedCodec(handle), codec);
+            assert.equal(codecOf(handle), codec);
           }
         )
       );

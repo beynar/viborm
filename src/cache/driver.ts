@@ -6,35 +6,30 @@
  * Handles both storage operations and cache orchestration (hit/miss/stale/SWR).
  */
 
-import type { DriverIdentity } from "@drivers/driver-identity";
-import { getExecutionExtensionChain } from "@drivers/execution-context";
-import type { QueryExecutionContext } from "@drivers/exports";
 import { CacheInvalidKeyError } from "@errors";
-import {
-  getOfficialInstrumentationChainCapability,
-  runProtectedObservers,
-  selectTrustedObservers,
-} from "@extensions/observation";
-import type {
-  CacheCompletionFacts,
-  CacheOutcome,
-  CacheUnitFacts,
-} from "@extensions/official-facts";
+import { note } from "@extensions/unit-words";
 import { type Clock, systemClock } from "../clock";
 import {
   REVALIDATING_SUFFIX,
   REVALIDATING_TTL_MS,
   scheduleBackground,
 } from "./cache-background";
-import {
-  CACHE_PREFIX,
-  cacheLookupOf,
-  OFFICIAL_CACHE_NAMESPACE_ROOT,
-} from "./key";
+import { CACHE_PREFIX, fastHash, OFFICIAL_CACHE_NAMESPACE_ROOT } from "./key";
 import {
   type CacheInvalidationOptions,
+  type CacheReadOptions,
   hasCacheInvalidationWork,
 } from "./schema";
+import type { CacheNote } from "./unit-facts";
+import {
+  type CacheContext,
+  type CacheOrigin,
+  cacheOutcome,
+  cacheStep,
+  placeSetFailure,
+  recordOutcome,
+  revalidation,
+} from "./units";
 
 /** Extend a request lifetime until background cache work settles. */
 export type WaitUntilFn = (promise: Promise<unknown>) => void;
@@ -58,154 +53,36 @@ export interface CacheSetOptions {
   swrTtl?: number;
 }
 
-/** Parsed options for one cached ORM execution. */
-export interface CacheExecutionOptions {
-  ttlMs: number;
-  swr: number | false;
-  bypass: boolean;
-  key?: string;
-  waitUntil?: WaitUntilFn;
-  /**
-   * The database driver's identity, read once at `$withCache`; absent when
-   * that read throws, and the revalidation root is presented without it.
-   */
-  driverIdentity?: DriverIdentity | undefined;
-  executionContext?: QueryExecutionContext;
-}
-
 export interface DetachedCacheResultCodec<T> {
   snapshot(value: T): unknown;
   materialize(snapshot: unknown): T;
 }
 
-interface ObservedRevalidationFailure {
-  failed: boolean;
-  error: unknown;
+/** One read the official cache serves, as its extension hands it over. */
+export interface CacheServe<T> {
+  /** Runs the prepared read: during the serve, or once after it as a refresh. */
+  readonly run: () => Promise<T>;
+  /** The prepared call's key: equal for two reads that send one statement. */
+  readonly id: string;
+  readonly codec: DetachedCacheResultCodec<T>;
+  readonly read: CacheReadOptions;
+  readonly namespace: string;
+  readonly waitUntil: WaitUntilFn | undefined;
+  readonly model: string;
+  readonly operation: string;
+  readonly origin: CacheOrigin;
 }
 
-type ExecuteCachedWithResultCodec = <T>(
-  cache: CacheDriver,
-  modelName: string,
-  operation: string,
-  args: unknown,
-  executor: () => Promise<T>,
-  options: CacheExecutionOptions,
-  codec: DetachedCacheResultCodec<T>,
-  scope: object
-) => Promise<T>;
+type Serve = <T>(cache: CacheDriver, request: CacheServe<T>) => Promise<T>;
+let serveFriend: Serve;
 
-let executeCachedWithResultCodecFriend: ExecuteCachedWithResultCodec;
-
-type InvalidateOfficialCache = (
+type Invalidate = (
   cache: CacheDriver,
-  modelName: string,
   options: CacheInvalidationOptions | undefined,
-  context: QueryExecutionContext | undefined,
-  scope: object
+  context: CacheContext | undefined,
+  namespace: string
 ) => Promise<void>;
-
-let invalidateOfficialCacheFriend: InvalidateOfficialCache;
-
-const officialCacheNamespaces = new WeakMap<object, string>();
-
-interface CacheOutcomeList {
-  readonly outcomes: CacheOutcome[];
-  /** Set once the operation completion has read the list. */
-  completed: boolean;
-}
-
-/** One outcome list per logical cache execution, keyed by its context. */
-const executionOutcomes = new WeakMap<
-  QueryExecutionContext,
-  CacheOutcomeList
->();
-
-const completeWithoutFacts = (): undefined => undefined;
-
-function createCacheOutcome(
-  event: CacheOutcome["event"],
-  status?: string,
-  error?: unknown
-): CacheOutcome {
-  return { event, status, at: Date.now(), error };
-}
-
-/** Record one decision of this execution when its capability wants outcomes. */
-function recordCacheOutcome(
-  context: QueryExecutionContext | undefined,
-  event: CacheOutcome["event"],
-  status?: string,
-  error?: unknown
-): void {
-  if (
-    context === undefined ||
-    getOfficialInstrumentationChainCapability(
-      getExecutionExtensionChain(context)
-    )?.wants("cache-outcomes") !== true
-  ) {
-    return;
-  }
-  let list = executionOutcomes.get(context);
-  if (list === undefined) {
-    list = { outcomes: [], completed: false };
-    executionOutcomes.set(context, list);
-  }
-  list.outcomes.push(createCacheOutcome(event, status, error));
-}
-
-/**
- * A background set failure joins its execution's list while that list is still
- * open, so it presents after the logical miss; otherwise it completes the set
- * unit itself.
- */
-function placeCacheSetFailure(
-  context: QueryExecutionContext,
-  failure: unknown
-): CacheCompletionFacts | undefined {
-  const outcome = createCacheOutcome("miss", "cache-set-failed", failure);
-  const list = executionOutcomes.get(context);
-  if (list !== undefined && !list.completed) {
-    list.outcomes.push(outcome);
-    return undefined;
-  }
-  return Object.freeze({ kind: "cache", outcomes: [outcome] });
-}
-
-/** Close and read one execution's outcome list at its operation completion. */
-export function readCacheExecutionOutcomes(
-  context: QueryExecutionContext
-): (() => readonly CacheOutcome[]) | undefined {
-  const list = executionOutcomes.get(context);
-  if (list === undefined) return undefined;
-  return () => {
-    list.completed = true;
-    return Object.freeze([...list.outcomes]);
-  };
-}
-
-/** Create one opaque scope recognized only by this module's private namespace map. */
-export function createOfficialCacheScope(namespace: string): object {
-  const scope = Object.freeze({});
-  officialCacheNamespaces.set(scope, namespace);
-  return scope;
-}
-
-function readOfficialCacheNamespace(scope: object): string {
-  const namespace = officialCacheNamespaces.get(scope);
-  if (namespace === undefined) {
-    throw new CacheInvalidKeyError(
-      "Official cache scope is not authentic for this cache execution."
-    );
-  }
-  return namespace;
-}
-
-function refuseExternalScope(scope: unknown): void {
-  if (scope === undefined) return;
-  throw new CacheInvalidKeyError(
-    "Cache driver methods do not accept an external cache scope."
-  );
-}
+let invalidateFriend: Invalidate;
 
 interface PreparedInvalidationTarget {
   readonly kind: "clear" | "delete";
@@ -232,40 +109,9 @@ export abstract class CacheDriver {
   protected readonly clock: Clock;
 
   static {
-    executeCachedWithResultCodecFriend = (
-      cache,
-      modelName,
-      operation,
-      args,
-      executor,
-      options,
-      codec,
-      scope
-    ) => {
-      const namespace = readOfficialCacheNamespace(scope);
-      return cache.#executeCached(
-        modelName,
-        operation,
-        args,
-        executor,
-        options,
-        codec,
-        namespace
-      );
-    };
-    invalidateOfficialCacheFriend = (
-      cache,
-      modelName,
-      options,
-      context,
-      scope
-    ) =>
-      cache.#invalidateScoped(
-        modelName,
-        options,
-        context,
-        readOfficialCacheNamespace(scope)
-      );
+    serveFriend = (cache, request) => cache.#serve(request);
+    invalidateFriend = (cache, options, context, namespace) =>
+      cache.#invalidateScoped("", options, context, namespace);
   }
 
   constructor(driverName: string, clock: Clock = systemClock) {
@@ -310,108 +156,80 @@ export abstract class CacheDriver {
   // CACHE ORCHESTRATION - Hit/Miss/Stale/SWR logic
   // ============================================================
 
-  async #executeCached<T>(
-    modelName: string,
-    operation: string,
-    args: unknown,
-    executor: () => Promise<T>,
-    options: CacheExecutionOptions,
-    codec: DetachedCacheResultCodec<T>,
-    namespace: string
-  ): Promise<T> {
-    const lookup = cacheLookupOf(modelName, operation, args);
-    const cacheKey = `${lookup.key}${options.key === undefined ? "" : `:${options.key}`}`;
-    const identity = JSON.stringify([lookup.identity, options.key]);
+  async #serve<T>(request: CacheServe<T>): Promise<T> {
+    const { id, read, namespace, codec, model, operation, origin } = request;
+    const { context } = origin;
+    const cacheKey = `${model}:${operation}:${fastHash(id)}${read.key === undefined ? "" : `:${read.key}`}`;
+    const identity = JSON.stringify([id, read.key]);
     const revision = this.#fillRevision;
 
-    // Core execution logic
-    const executeCore = async (): Promise<T> => {
-      // Bypass cache read if requested
-      if (options.bypass) {
-        const result = await executor();
-        this.#setResultInBackground(
-          cacheKey,
-          result,
-          options,
-          codec,
-          namespace,
-          identity,
-          revision
-        );
-        recordCacheOutcome(options.executionContext, "bypass");
-        return result;
-      }
-
-      // Try to get from cache
-      const cached = await this.#getCachedResult<T>(
-        cacheKey,
-        options.executionContext,
-        namespace,
-        codec,
-        identity
-      );
-
-      if (cached) {
-        const age = this.clock.now() - cached.createdAt;
-        const isStale = age >= cached.ttl;
-
-        if (!isStale) {
-          // Fresh cache hit
-          recordCacheOutcome(options.executionContext, "hit");
-          return cached.value;
-        }
-
-        const swrTtl = options.swr;
-        if (
-          swrTtl !== false &&
-          age < swrTtl &&
-          (cached.expiresAt === undefined ||
-            this.clock.now() < cached.expiresAt)
-        ) {
-          // Stale but SWR enabled - return stale and revalidate in background
-          scheduleBackground(
-            this.#revalidateInBackground(
-              modelName,
-              operation,
-              cacheKey,
-              executor,
-              options,
-              swrTtl,
-              codec,
-              namespace,
-              identity,
-              revision
-            ),
-            options.waitUntil
-          );
-          recordCacheOutcome(options.executionContext, "hit", "stale");
-          return cached.value;
-        }
-
-        // Stale and no SWR - fall through to fetch fresh
-      }
-
-      // Cache miss or stale without SWR - execute query
-      const result = await executor();
+    // Bypass cache read if requested
+    if (read.bypass) {
+      const result = await request.run();
       this.#setResultInBackground(
         cacheKey,
         result,
-        options,
-        codec,
-        namespace,
+        request,
         identity,
         revision
       );
-      recordCacheOutcome(options.executionContext, "miss");
+      recordOutcome(context, "bypass");
       return result;
-    };
+    }
 
-    return executeCore();
+    // Try to get from cache
+    const cached = await this.#getCachedResult<T>(
+      cacheKey,
+      context,
+      namespace,
+      codec,
+      identity
+    );
+
+    if (cached) {
+      const age = this.clock.now() - cached.createdAt;
+      if (age < cached.ttl) {
+        // Fresh cache hit
+        recordOutcome(context, "hit");
+        return cached.value;
+      }
+
+      const swrTtl = read.swr;
+      if (
+        swrTtl !== false &&
+        age < swrTtl &&
+        (cached.expiresAt === undefined || this.clock.now() < cached.expiresAt)
+      ) {
+        // Stale but SWR enabled - return stale and revalidate in background.
+        // The refresh runs the read once more after this serve returned: the
+        // core alone.
+        scheduleBackground(
+          this.#revalidateInBackground(
+            cacheKey,
+            request,
+            swrTtl,
+            identity,
+            revision
+          ),
+          request.waitUntil
+        );
+        recordOutcome(context, "hit", "stale");
+        return cached.value;
+      }
+
+      // Stale and no SWR - fall through to fetch fresh
+    }
+
+    // Cache miss or stale without SWR - execute query
+    const result = await request.run();
+    this.#setResultInBackground(cacheKey, result, request, identity, revision);
+    recordOutcome(context, "miss");
+    return result;
   }
 
   async #getCachedResult<T>(
     key: string,
-    context: QueryExecutionContext | undefined,
+    context: CacheContext | undefined,
     namespace: string,
     codec: DetachedCacheResultCodec<T>,
     identity: string
@@ -437,56 +255,35 @@ export abstract class CacheDriver {
   #setResultInBackground<T>(
     key: string,
     value: T,
-    options: CacheExecutionOptions,
-    codec: DetachedCacheResultCodec<T>,
-    namespace: string,
+    request: CacheServe<T>,
     identity: string,
     revision: number
   ): void {
     if (revision !== this.#fillRevision) return;
+    const { read, origin } = request;
     let stored: unknown;
     try {
-      stored = codec.snapshot(value);
+      stored = request.codec.snapshot(value);
     } catch (error) {
-      recordCacheOutcome(
-        options.executionContext,
-        "miss",
-        "cache-set-failed",
-        error
-      );
+      recordOutcome(origin.context, "miss", "cache-set-failed", error);
       return;
     }
-    this.#setInBackground(key, stored, options, namespace, identity, revision);
-  }
-
-  /**
-   * Set cache value in background (non-blocking)
-   */
-  #setInBackground<T>(
-    key: string,
-    value: T,
-    options: CacheExecutionOptions,
-    namespace: string,
-    identity: string,
-    revision: number
-  ): void {
     // The observed set unit presents a failure; without the catch it would
     // become an unhandled rejection.
     const cachePromise = this.#setScoped(
       key,
-      value,
+      stored,
       {
-        ttl: options.ttlMs,
-        swrTtl: options.swr !== false ? options.swr : undefined,
+        ttl: read.ttlMs,
+        swrTtl: read.swr !== false ? read.swr : undefined,
       },
-      options.executionContext,
-      namespace,
-      options.executionContext,
+      origin.context,
+      request.namespace,
+      origin.context,
       identity,
       revision
     ).catch(() => undefined);
-
-    scheduleBackground(cachePromise, options.waitUntil);
+    scheduleBackground(cachePromise, request.waitUntil);
   }
 
   /**
@@ -494,17 +291,13 @@ export abstract class CacheDriver {
    * Uses the backing cache marker for best-effort duplicate suppression.
    */
   async #revalidateInBackground<T>(
-    modelName: string,
-    operation: string,
     cacheKey: string,
-    executor: () => Promise<T>,
-    options: CacheExecutionOptions,
+    request: CacheServe<T>,
     swrTtl: number,
-    codec: DetachedCacheResultCodec<T>,
-    namespace: string,
     identity: string,
     revision: number
   ): Promise<void> {
+    const { namespace, codec, read, origin } = request;
     // Check whether another request has already published this marker.
     let shouldRevalidate: boolean;
     try {
@@ -516,102 +309,62 @@ export abstract class CacheDriver {
       // If marking fails, skip revalidation to avoid request failure
       return;
     }
-    if (!shouldRevalidate) {
-      // Another request is handling revalidation, skip
-      return;
-    }
+    // Another request is handling revalidation, skip
+    if (!shouldRevalidate) return;
 
-    const observers = getExecutionExtensionChain(
-      options.executionContext
-    )?.observe;
-    const observedFailure: ObservedRevalidationFailure | undefined =
-      observers === undefined || observers.length === 0
-        ? undefined
-        : { failed: false, error: undefined };
-    // The observed child stores its terminal outcome before it settles, and the
-    // rail reads completion facts only after that.
-    let completion: CacheCompletionFacts | undefined;
-
-    const doRevalidate = async (): Promise<CacheOutcome> => {
-      let terminal: CacheOutcome;
-      try {
-        const result = await executor();
-        const stored = codec.snapshot(result);
-        await this.#setScoped(
-          cacheKey,
-          stored,
-          {
-            ttl: options.ttlMs,
-            swrTtl,
-          },
-          options.executionContext,
-          namespace,
-          undefined,
-          identity,
-          revision
-        );
-        terminal = createCacheOutcome("revalidate", "success");
-      } catch (error) {
-        // Log error but don't throw - this is background operation
-        if (observedFailure !== undefined) {
-          observedFailure.failed = true;
-          observedFailure.error = error;
-        }
-        terminal = createCacheOutcome("revalidate", "error", error);
-      } finally {
-        if (observedFailure === undefined) {
-          await this.#clearRevalidatingScoped(cacheKey, namespace).catch(
-            () => undefined
+    await revalidation(
+      origin,
+      request.model,
+      request.operation,
+      async (observed) => {
+        let terminal: ReturnType<typeof cacheOutcome>;
+        try {
+          const result = await request.run();
+          const stored = codec.snapshot(result);
+          await this.#setScoped(
+            cacheKey,
+            stored,
+            { ttl: read.ttlMs, swrTtl },
+            origin.context,
+            namespace,
+            undefined,
+            identity,
+            revision
           );
-        } else {
-          try {
-            await this.#clearRevalidatingScoped(cacheKey, namespace);
-          } catch (cleanupFailure) {
-            if (observedFailure.failed) {
-              const workerFailure = observedFailure.error;
-              observedFailure.error = new AggregateError(
-                [workerFailure, cleanupFailure],
-                "Cache revalidation work and cleanup both failed.",
-                { cause: workerFailure }
-              );
-            } else {
-              observedFailure.failed = true;
-              observedFailure.error = cleanupFailure;
+          terminal = cacheOutcome("revalidate", "success");
+        } catch (error) {
+          // Background work never rejects; the observed unit presents it.
+          if (observed !== undefined) {
+            observed.failed = true;
+            observed.error = error;
+          }
+          terminal = cacheOutcome("revalidate", "error", error);
+        } finally {
+          if (observed === undefined) {
+            await this.#clearRevalidatingScoped(cacheKey, namespace).catch(
+              () => undefined
+            );
+          } else {
+            try {
+              await this.#clearRevalidatingScoped(cacheKey, namespace);
+            } catch (cleanupFailure) {
+              if (observed.failed) {
+                const workerFailure = observed.error;
+                observed.error = new AggregateError(
+                  [workerFailure, cleanupFailure],
+                  "Cache revalidation work and cleanup both failed.",
+                  { cause: workerFailure }
+                );
+              } else {
+                observed.failed = true;
+                observed.error = cleanupFailure;
+              }
             }
           }
         }
+        return terminal;
       }
-      return terminal;
-    };
-
-    const revalidationPromise =
-      observedFailure === undefined
-        ? doRevalidate()
-        : runProtectedObservers(
-            { kind: "cache", operation: "revalidate" },
-            observers,
-            async () => {
-              completion = Object.freeze({
-                kind: "cache",
-                outcomes: [await doRevalidate()],
-              });
-              if (observedFailure.failed) throw observedFailure.error;
-            },
-            undefined,
-            (): CacheUnitFacts =>
-              Object.freeze({
-                kind: "cache",
-                context: options.executionContext,
-                read: Object.freeze({
-                  model: modelName,
-                  operation,
-                  identity: options.driverIdentity,
-                }),
-                complete: () => completion,
-              })
-          );
-
-    await revalidationPromise;
+    );
   }
 
   // ============================================================
@@ -619,90 +372,36 @@ export abstract class CacheDriver {
   // ============================================================
 
   /**
-   * Run one cache step inside its exact chain's observers. A backend delete or
-   * clear has no public unit and reaches only the trusted observer.
-   */
-  #observe<T>(
-    step: "clear" | "delete" | "get" | "invalidate" | "set",
-    context: QueryExecutionContext | undefined,
-    execute: () => Promise<T>,
-    complete: CacheUnitFacts["complete"] = completeWithoutFacts,
-    ttl?: number
-  ): Promise<T> {
-    const observers = getExecutionExtensionChain(context)?.observe;
-    // An unobserved step builds no unit and no facts closure, as the
-    // revalidation above does. Measured on a no-op backend: without this, a get
-    // allocates about 330 B more and takes about 16 ns longer.
-    if (observers === undefined || observers.length === 0) return execute();
-    const backend = step === "clear" || step === "delete";
-    return runProtectedObservers(
-      { kind: "cache", operation: backend ? "invalidate" : step },
-      backend ? selectTrustedObservers(observers) : observers,
-      execute,
-      undefined,
-      () =>
-        Object.freeze(
-          backend
-            ? {
-                kind: "cache-backend",
-                boundary: step,
-                driverName: this.driverName,
-                complete: completeWithoutFacts,
-              }
-            : {
-                kind: "cache",
-                context,
-                driverName: this.driverName,
-                ...(ttl === undefined ? {} : { ttl }),
-                complete,
-              }
-        )
-    );
-  }
-
-  /**
    * Get a value from cache
    * @param key - Cache key (will be prefixed automatically)
    */
-  _get<T>(
-    key: string,
-    context?: QueryExecutionContext
-  ): Promise<CacheEntry<T> | null>;
   async _get<T>(
     key: string,
-    context?: QueryExecutionContext,
-    externalScope?: unknown
+    context?: CacheContext
   ): Promise<CacheEntry<T> | null> {
-    refuseExternalScope(externalScope);
     return this.#getScoped<T>(key, context);
   }
 
   async #getScoped<T>(
     key: string,
-    context?: QueryExecutionContext,
+    context?: CacheContext,
     namespace?: string
   ): Promise<CacheEntry<T> | null> {
     const prefixedKey = this.#prefixKey(key, namespace);
-    let cacheResult: "hit" | "miss" | "stale" | undefined;
-
-    return this.#observe(
-      "get",
-      context,
-      async () => {
-        const entry = await this.get<T>(prefixedKey);
-        if (entry) {
-          const isStale = this.clock.now() - entry.createdAt > entry.ttl;
-          cacheResult = isStale ? "stale" : "hit";
-        } else {
-          cacheResult = "miss";
-        }
-        return entry;
-      },
-      () =>
-        cacheResult === undefined
-          ? undefined
-          : Object.freeze({ kind: "cache", result: cacheResult })
-    );
+    return cacheStep("get", context, this.driverName, async (unit) => {
+      const entry = await this.get<T>(prefixedKey);
+      if (unit !== undefined) {
+        const fact: CacheNote = {
+          cacheResult: entry
+            ? this.clock.now() - entry.createdAt > entry.ttl
+              ? "stale"
+              : "hit"
+            : "miss",
+        };
+        note(unit, fact);
+      }
+      return entry;
+    });
   }
 
   /**
@@ -711,20 +410,12 @@ export abstract class CacheDriver {
    * @param value - Value to cache
    * @param options - Cache options including TTL
    */
-  _set<T>(
-    key: string,
-    value: T,
-    options: CacheSetOptions,
-    context?: QueryExecutionContext
-  ): Promise<void>;
   async _set<T>(
     key: string,
     value: T,
     options: CacheSetOptions,
-    context?: QueryExecutionContext,
-    externalScope?: unknown
+    context?: CacheContext
   ): Promise<void> {
-    refuseExternalScope(externalScope);
     return this.#setScoped(key, value, options, context);
   }
 
@@ -732,10 +423,10 @@ export abstract class CacheDriver {
     key: string,
     value: T,
     options: CacheSetOptions,
-    context?: QueryExecutionContext,
+    context?: CacheContext,
     namespace?: string,
     /** The logical execution a background set belongs to, which a failure joins. */
-    backgroundOf?: QueryExecutionContext,
+    backgroundOf?: CacheContext,
     identity?: string,
     revision?: number
   ): Promise<void> {
@@ -756,22 +447,23 @@ export abstract class CacheDriver {
     // Use SWR TTL if provided, otherwise just use regular TTL
     const storageTtl = options.swrTtl ?? options.ttl;
 
-    return this.#observe(
+    return cacheStep(
       "set",
       context,
-      async () => {
-        await this.set(prefixedKey, storageTtl, entry);
-        // A durable invalidation may finish while a backend set is pending.
-        // Suppress this obsolete fill locally; generic KV remains eventual.
-        if (revision !== undefined && revision !== this.#fillRevision)
-          await this.delete([prefixedKey]);
+      this.driverName,
+      async (unit) => {
+        try {
+          await this.set(prefixedKey, storageTtl, entry);
+          // A durable invalidation may finish while a backend set is pending.
+          // Suppress this obsolete fill locally; generic KV remains eventual.
+          if (revision !== undefined && revision !== this.#fillRevision)
+            await this.delete([prefixedKey]);
+        } catch (failure) {
+          if (backgroundOf !== undefined && unit !== undefined)
+            placeSetFailure(backgroundOf, failure, unit);
+          throw failure;
+        }
       },
-      backgroundOf === undefined
-        ? undefined
-        : (outcome) =>
-            outcome.status === "failure"
-              ? placeCacheSetFailure(backgroundOf, outcome.failure)
-              : undefined,
       options.ttl
     );
   }
@@ -780,13 +472,7 @@ export abstract class CacheDriver {
    * Delete a specific key (and its revalidating key)
    * @param key - Cache key (will be prefixed automatically)
    */
-  _delete(key: string, context?: QueryExecutionContext): Promise<void>;
-  async _delete(
-    key: string,
-    context?: QueryExecutionContext,
-    externalScope?: unknown
-  ): Promise<void> {
-    refuseExternalScope(externalScope);
+  async _delete(key: string, context?: CacheContext): Promise<void> {
     const prefixedKey = this.#prefixKey(key);
     return this.#deletePrefixed(prefixedKey, context);
   }
@@ -795,13 +481,7 @@ export abstract class CacheDriver {
    * Clear cache by prefix or all within the public unscoped namespace.
    * @param prefix - Optional prefix to clear (will be prefixed automatically)
    */
-  _clear(prefix?: string, context?: QueryExecutionContext): Promise<void>;
-  async _clear(
-    prefix?: string,
-    context?: QueryExecutionContext,
-    externalScope?: unknown
-  ): Promise<void> {
-    refuseExternalScope(externalScope);
+  async _clear(prefix?: string, context?: CacheContext): Promise<void> {
     const prefixedPrefix = this.#prefixKey(prefix ?? "");
     return this.#clearPrefixed(prefixedPrefix, context);
   }
@@ -811,12 +491,7 @@ export abstract class CacheDriver {
    * Returns true if this caller should perform revalidation
    * @param key - Cache key (will be prefixed automatically)
    */
-  _markRevalidating(key: string): Promise<boolean>;
-  async _markRevalidating(
-    key: string,
-    externalScope?: unknown
-  ): Promise<boolean> {
-    refuseExternalScope(externalScope);
+  async _markRevalidating(key: string): Promise<boolean> {
     return this.#markRevalidatingScoped(key);
   }
 
@@ -846,12 +521,7 @@ export abstract class CacheDriver {
    * Clear revalidating flag
    * @param key - Cache key (will be prefixed automatically)
    */
-  _clearRevalidating(key: string): Promise<void>;
-  async _clearRevalidating(
-    key: string,
-    externalScope?: unknown
-  ): Promise<void> {
-    refuseExternalScope(externalScope);
+  async _clearRevalidating(key: string): Promise<void> {
     return this.#clearRevalidatingScoped(key);
   }
 
@@ -868,25 +538,18 @@ export abstract class CacheDriver {
    * @param modelName - The model name for auto-invalidation
    * @param options - Cache invalidation options
    */
-  _invalidate(
-    modelName: string,
-    options?: CacheInvalidationOptions,
-    context?: QueryExecutionContext
-  ): Promise<void>;
   async _invalidate(
     modelName: string,
     options?: CacheInvalidationOptions,
-    context?: QueryExecutionContext,
-    externalScope?: unknown
+    context?: CacheContext
   ): Promise<void> {
-    refuseExternalScope(externalScope);
     return this.#invalidateScoped(modelName, options, context);
   }
 
   async #invalidateScoped(
     modelName: string,
     options?: CacheInvalidationOptions,
-    context?: QueryExecutionContext,
+    context?: CacheContext,
     namespace?: string
   ): Promise<void> {
     if (!hasCacheInvalidationWork(options)) return;
@@ -911,7 +574,7 @@ export abstract class CacheDriver {
         });
       }
     }
-    return this.#observe("invalidate", context, async () => {
+    return cacheStep("invalidate", context, this.driverName, async () => {
       const promises: Promise<void>[] = [];
       for (const target of targets) {
         promises.push(
@@ -938,21 +601,19 @@ export abstract class CacheDriver {
   // INTERNAL HELPERS
   // ============================================================
 
-  #deletePrefixed(
-    prefixedKey: string,
-    context?: QueryExecutionContext
-  ): Promise<void> {
+  #deletePrefixed(prefixedKey: string, context?: CacheContext): Promise<void> {
     this.#fillRevision += 1;
     const keys = [prefixedKey, `${prefixedKey}${REVALIDATING_SUFFIX}`];
-    return this.#observe("delete", context, () => this.delete(keys));
+    return cacheStep("delete", context, this.driverName, () =>
+      this.delete(keys)
+    );
   }
 
-  #clearPrefixed(
-    prefixedKey: string,
-    context?: QueryExecutionContext
-  ): Promise<void> {
+  #clearPrefixed(prefixedKey: string, context?: CacheContext): Promise<void> {
     this.#fillRevision += 1;
-    return this.#observe("clear", context, () => this.clear(prefixedKey));
+    return cacheStep("clear", context, this.driverName, () =>
+      this.clear(prefixedKey)
+    );
   }
 
   /**
@@ -1003,42 +664,20 @@ export abstract class CacheDriver {
   }
 }
 
-/** Internal cache-result seam; absent from the package cache barrel. */
-export function executeCachedWithResultCodec<T>(
+/** Serve one official read: the extension's seam, absent from the package barrel. */
+export function serveOfficialRead<T>(
   cache: CacheDriver,
-  modelName: string,
-  operation: string,
-  args: unknown,
-  executor: () => Promise<T>,
-  options: CacheExecutionOptions,
-  codec: DetachedCacheResultCodec<T>,
-  scope: object
+  request: CacheServe<T>
 ): Promise<T> {
-  return executeCachedWithResultCodecFriend(
-    cache,
-    modelName,
-    operation,
-    args,
-    executor,
-    options,
-    codec,
-    scope
-  );
+  return serveFriend(cache, request);
 }
 
-/** Internal official invalidation seam; absent from the package cache barrel. */
+/** Invalidate inside one official namespace: absent from the package barrel. */
 export function invalidateOfficialCache(
   cache: CacheDriver,
-  modelName: string,
   options: CacheInvalidationOptions | undefined,
-  context: QueryExecutionContext | undefined,
-  scope: object
+  context: CacheContext | undefined,
+  namespace: string
 ): Promise<void> {
-  return invalidateOfficialCacheFriend(
-    cache,
-    modelName,
-    options,
-    context,
-    scope
-  );
+  return invalidateFriend(cache, options, context, namespace);
 }

@@ -450,8 +450,16 @@ describe("RQ-05 recursive reads through the official cache", () => {
       );
       assert(overridden, "a cached read is a pending operation");
       assert.deepStrictEqual(await overridden.executeWith(driver), value);
+      // A transaction's view has the cache's methods (they are a part's,
+      // served to every view); its reads never touch the cache.
       await arrayClient.$transaction(async (tx) => {
-        assert.equal(Reflect.get(tx, "$withCache"), undefined);
+        const withCache = Reflect.get(tx, "$withCache");
+        assert.equal(typeof withCache, "function");
+        const cached: unknown = Reflect.apply(withCache, tx, []);
+        assert.deepStrictEqual(
+          await call(Reflect.get(Object(cached), "node"), "findMany", args),
+          value
+        );
         assert.deepStrictEqual(await call(tx.node, "findMany", args), value);
       });
       assert.deepEqual(arrayCache.calls, {

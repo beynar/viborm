@@ -4,6 +4,7 @@ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { Driver } from "@drivers/driver";
 import { readDriverIdentity } from "@drivers/driver-identity";
 import type { QueryExecutionContext, QueryResult } from "@drivers/types";
+import { unitOf } from "@extensions/unit-source";
 import {
   createDriverAttributes,
   createLifecycleSpanOptions,
@@ -14,6 +15,7 @@ import {
   ATTR_DB_OPERATION_NAME,
   ATTR_DB_SYSTEM,
   ATTR_VIBORM_CORRELATION_ID,
+  SPAN_CONNECT,
 } from "@instrumentation/spans";
 import { describe, expect, test } from "vitest";
 
@@ -64,13 +66,18 @@ describe("driver instrumentation attributes", () => {
   test("omits an absent namespace and appends only supplied context facts", () => {
     const driver = new AttributeDriver(new SQLiteAdapter(), "sqlite");
 
+    // A connect unit as its driver makes it: its facts are read on demand.
     const present = (context: QueryExecutionContext) =>
-      createLifecycleSpanOptions({
-        boundary: "connect",
-        context,
-        driver,
-        start: () => undefined,
-      }).attributes;
+      createLifecycleSpanOptions(
+        SPAN_CONNECT,
+        unitOf({
+          kind: "connect",
+          model: context.model,
+          operation: context.operation,
+          context,
+          driver,
+        })
+      ).attributes;
 
     expect(present({})).toEqual({
       [ATTR_DB_SYSTEM]: "sqlite",

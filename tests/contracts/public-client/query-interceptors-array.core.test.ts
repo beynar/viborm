@@ -1151,7 +1151,7 @@ describe("native array query execution", () => {
     expect(timeline).toEqual(["provider", "post-work", "outcome"]);
   });
 
-  test("attempts every cache invalidation before listeners and keeps a commit failure primary", async () => {
+  test("attempts every settled function, member by member in each call's chain order, and keeps a commit failure primary", async () => {
     const timeline: string[] = [];
     let invalidation = 0;
     const cache = new ArrayInvalidationCache(() => {
@@ -1198,10 +1198,12 @@ describe("native array query execution", () => {
     expect(primaryOf(failure)).toMatchObject({
       meta: expect.objectContaining({ commitCertainty: "committed" }),
     });
+    // Each call's `settled` functions run in chain order, all of them; the
+    // cache is applied first, so it invalidates before each call's listener.
     expect(timeline).toEqual([
       "cache:1",
-      "cache:2",
       "listener:deleteMany",
+      "cache:2",
       "listener:updateMany",
     ]);
   });
@@ -1635,16 +1637,6 @@ describe("array ownership and zero-handler path", () => {
     expect(
       readTestTransactionOperation(rawOperation)?.requiresInterception()
     ).toBe(false);
-    expect(readTestTransactionOperation(baseOperation)?.hasObservation()).toBe(
-      false
-    );
-    expect(readTestTransactionOperation(baseRaw)?.hasObservation()).toBe(false);
-    expect(readTestTransactionOperation(operation)?.hasObservation()).toBe(
-      false
-    );
-    expect(readTestTransactionOperation(rawOperation)?.hasObservation()).toBe(
-      false
-    );
     await client.$transaction([operation]);
 
     const intercepted = base.$extends(
@@ -1921,7 +1913,7 @@ describe("public array lifecycle observers", () => {
     expect(operationCompletions).toEqual(["failure"]);
   });
 
-  test("starts fallback statement observers before transforms and contains transform failure", async () => {
+  test("rewrites fallback members before any statement unit starts, and contains transform failure", async () => {
     const timeline: string[] = [];
     const { client: base, driver } = fallbackClient();
     let statementUnits = 0;
@@ -1961,6 +1953,7 @@ describe("public array lifecycle observers", () => {
     const second = driver._prepare(sql`SELECT 2`, context);
     expect(transformCalls).toBe(0);
 
+    // A statement unit starts at its physical send, which never comes.
     await expect(
       driver._executeBatch([first, second], undefined, context)
     ).rejects.toBeInstanceOf(QueryError);
@@ -1968,22 +1961,9 @@ describe("public array lifecycle observers", () => {
     expect(driver.events[0]).toBe("BEGIN");
     expect(providerStatements(driver.events)).toEqual([]);
     expect(driver.events.at(-1)).toBe("ROLLBACK");
-    expect(timeline.indexOf("statement:in:1")).toBeLessThan(
-      timeline.indexOf("transform:1")
-    );
-    expect(timeline.indexOf("statement:in:2")).toBeLessThan(
-      timeline.indexOf("transform:2")
-    );
-    expect(statementUnits).toBe(2);
+    expect(statementUnits).toBe(0);
     expect(transformCalls).toBe(2);
-    expect(timeline).toEqual([
-      "statement:in:1",
-      "transform:1",
-      "statement:in:2",
-      "transform:2",
-      "statement:out:2:failure",
-      "statement:out:1:failure",
-    ]);
+    expect(timeline).toEqual(["transform:1", "transform:2"]);
   });
 
   test("orders native statement onions before transforms and submits nothing on failure", async () => {
@@ -2015,21 +1995,14 @@ describe("public array lifecycle observers", () => {
     const second = client.record.count();
     expect(timeline).toEqual([]);
 
-    await expect(client.$transaction([first, second])).rejects.toBeInstanceOf(
-      QueryError
+    // Every member is rewritten before the one native send; what a rewriting
+    // unit throws fails the call as it is (D5), and nothing is sent.
+    await expect(client.$transaction([first, second])).rejects.toThrow(
+      "native transform failed"
     );
     await Promise.resolve();
     expect(driver.events).toEqual([]);
-    expect(timeline.slice(0, 4)).toEqual([
-      "statement:in:findMany",
-      "transform:findMany",
-      "statement:in:count",
-      "transform:count",
-    ]);
-    expect(timeline.slice(4)).toEqual([
-      "statement:out:count:failure",
-      "statement:out:findMany:failure",
-    ]);
+    expect(timeline).toEqual(["transform:findMany", "transform:count"]);
   });
 
   test("keeps prepared Sql provenance private from copied and hostile batch queries", async () => {
@@ -2103,7 +2076,8 @@ describe("public array lifecycle observers", () => {
     await Promise.resolve();
     expect(driver.events).toHaveLength(providerCalls);
     expect(transformCalls).toBe(1);
-    expect(statementCompletions).toEqual(["success", "success", "failure"]);
+    // The hostile batch is refused before its send: no statement unit.
+    expect(statementCompletions).toEqual(["success", "success"]);
   });
 
   test("uses the legacy fallback path with one batch, member, and physical-statement unit", async () => {
@@ -2208,8 +2182,6 @@ describe("public array lifecycle observers", () => {
     expect(readTestTransactionOperation(read)?.requiresInterception()).toBe(
       false
     );
-    expect(readTestTransactionOperation(write)?.hasObservation()).toBe(true);
-    expect(readTestTransactionOperation(read)?.hasObservation()).toBe(true);
     const reflected = [write, read].flatMap((operation) => {
       const prototype = Reflect.getPrototypeOf(operation);
       return [
@@ -2229,9 +2201,10 @@ describe("public array lifecycle observers", () => {
     expect(units.filter((unit) => unit.startsWith("operation:"))).toHaveLength(
       2
     );
-    expect(units.filter((unit) => unit.startsWith("statement:"))).toHaveLength(
-      2
-    );
+    // One statement unit per physical send: the native batch is one.
+    expect(units.filter((unit) => unit.startsWith("statement:"))).toEqual([
+      "statement:$transaction([...])",
+    ]);
     expect(
       completions
         .filter(

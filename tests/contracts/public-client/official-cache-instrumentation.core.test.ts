@@ -733,14 +733,20 @@ describe("official cache instrumentation", () => {
         ...second.map(({ completion }) => completion),
       ]);
 
-      expect(first.map(({ operation }) => operation)).toEqual([
+      // The backend steps an invalidation runs are public cache units too,
+      // each nested in its invalidation (the spans below say where). Each
+      // observer records a unit once its `next()` returned, after the
+      // children it started: the set of units is what is compared.
+      const steps = [
+        "clear",
+        "clear",
+        "delete",
+        "delete",
         "invalidate",
         "invalidate",
-      ]);
-      expect(second.map(({ operation }) => operation)).toEqual([
-        "invalidate",
-        "invalidate",
-      ]);
+      ];
+      expect(first.map(({ operation }) => operation).sort()).toEqual(steps);
+      expect(second.map(({ operation }) => operation).sort()).toEqual(steps);
       const spans = recorder.spans();
       const invalidations = spans.filter(
         ({ name }) => name === SPAN_CACHE_INVALIDATE

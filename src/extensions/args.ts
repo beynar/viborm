@@ -28,7 +28,7 @@ function declared(spec: ArgSpec): Declared {
     models: (models: readonly string[]) => declared({ ...spec, models }),
     required: (models?: readonly string[]) =>
       declared({ ...spec, required: models ?? true }),
-    volatile: () => declared({ ...spec, uncacheable: true }),
+    volatile: () => declared({ ...spec, volatile: true }),
   });
 }
 

@@ -94,7 +94,6 @@ const orm = createClient({ schema }).$extends(
       query: (_event, log) => {
         if (isShowcaseRunning) log();
       },
-      warning: true,
       error: true,
     },
     tracing: {

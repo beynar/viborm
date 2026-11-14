@@ -35,9 +35,9 @@ import type {
   RawQueryKind,
   WriteOutcomeNotifications,
 } from "@extensions/query";
+import type { UnitSource } from "@extensions/unit-source";
 import {
   createOperationExecutionContext,
-  createRawOperationInstrumentationFacts,
   observeTransactionBatchPhase,
   withOperationErrorContext,
 } from "@query-engine/execution-context";
@@ -436,19 +436,7 @@ class DeferredRawOperation<T>
           operation.#runResolved(driver, operation.#resolve(), notifications)
         ),
       isWrite: (operation) => isRawWrite(operation.#method),
-      hasObservation: (operation) =>
-        operation.#engine.extensionChain?.observation !== undefined,
-      observe: (operation, child, readCompletionFacts) => {
-        const observation = operation.#engine.extensionChain?.observation;
-        if (observation === undefined) return child();
-        return observation.operation(
-          operation.#method,
-          undefined,
-          child,
-          readCompletionFacts,
-          operation.#readInstrumentationFacts()
-        );
-      },
+      unit: (operation) => operation.#unit(),
       reserveWith: (operation, driver) => {
         operation.#execution.reserveWith(driver);
       },
@@ -460,18 +448,7 @@ class DeferredRawOperation<T>
           return operation.#execution.executeWith(driver, execute);
         }
         return operation.#execution.executeWith(driver, () =>
-          observation.operation(
-            operation.#method,
-            undefined,
-            execute,
-            () =>
-              operation.#observationCommitCertainty === undefined
-                ? undefined
-                : {
-                    commitCertainty: operation.#observationCommitCertainty,
-                  },
-            operation.#readInstrumentationFacts()
-          )
+          observation.run(operation.#unit(true), execute)
         );
       },
       prepare: (operation, driver = operation.#engine.driver) => {
@@ -714,25 +691,24 @@ class DeferredRawOperation<T>
       if (observation === undefined) {
         return this.#run(this.#engine.driver);
       }
-      return observation.operation(
-        this.#method,
-        undefined,
-        () => this.#run(this.#engine.driver),
-        () =>
-          this.#observationCommitCertainty === undefined
-            ? undefined
-            : { commitCertainty: this.#observationCommitCertainty },
-        this.#readInstrumentationFacts()
+      return observation.run(this.#unit(true), () =>
+        this.#run(this.#engine.driver)
       );
     });
   }
 
-  #readInstrumentationFacts() {
-    return createRawOperationInstrumentationFacts(
-      this.#engine.driver,
-      this.#context,
-      this.#method
-    );
+  /**
+   * This call's `operation` unit. Its certainty is the call's own, except
+   * for an array member, whose array reports it.
+   */
+  #unit(certain?: true): UnitSource {
+    return {
+      kind: "operation",
+      operation: this.#method,
+      context: this.#context,
+      driver: this.#engine.driver,
+      ...(certain ? { certainty: () => this.#observationCommitCertainty } : {}),
+    };
   }
 
   #withObservationNotifications(

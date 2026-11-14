@@ -738,8 +738,9 @@ const cached = async (step) => {
   const units = [];
   const counter = extension(
     "units",
-    extUnit((u, _next) => {
+    extUnit((u, next) => {
       units.push(unitName(u));
+      return next();
     })
   );
   const db = base
@@ -893,7 +894,6 @@ const instrumented = async (step) => {
       logging: {
         query: logged("query"),
         error: logged("error"),
-        warning: logged("warning"),
         includeSql: true,
         includeParams: true,
       },

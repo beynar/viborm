@@ -26,6 +26,7 @@ import type {
   AroundHandler,
   EmptyFacts,
   MomentOne,
+  Outcome,
   Part,
   Selection,
 } from "./contract";
@@ -35,9 +36,10 @@ import { extensionError } from "./definition";
 import { builtPart, type DefinitionDraft } from "./extension";
 import { compileHandlers, type OperationHandlers } from "./handlers";
 import { MODEL_OPERATIONS, type SelectionValue, selectionOf } from "./on";
+import { CALL } from "./origin";
 import type { QueryInterceptorContext } from "./query";
 import { SHAPE_KEYS } from "./request";
-import type { Registering, WatchPart } from "./watch-part";
+import { REGISTER, type Registering, type WatchPart } from "./watch-part";
 
 /**
  * What a first moment is handed, beside what `contract.ts` types: where the
@@ -51,6 +53,8 @@ interface FirstContext extends Partial<Registering> {
   readonly args: Readonly<Record<string, unknown>>;
   readonly values: AdmittedControls;
   set(patch: unknown): void;
+  /** A model call itself, for the words that read it (`database`, `key`). */
+  readonly [CALL]: object | undefined;
 }
 
 /**
@@ -67,6 +71,11 @@ interface CallSpec {
     first: FirstMoment,
     second: SecondMoment
   ) => void;
+  /**
+   * `around` only: what a raw statement's first moment registers `settled`
+   * through, kept for its second moment, which the host tells the outcome.
+   */
+  readonly told?: (call: object, first: FirstMoment) => Registering;
   /** What registers `watch` and `settled`, where the part brings what tells them. */
   readonly watch?: WatchPart | undefined;
   /** `around` only: placed nearest the core. */
@@ -118,7 +127,7 @@ const NO_VALUES: AdmittedControls = Object.freeze({});
  * call.
  */
 function firstOf(
-  { handler, keep, watch }: CallSpec,
+  { handler, keep, told, watch }: CallSpec,
   schema: Schema
 ): FirstMoment {
   const first: FirstMoment = (
@@ -161,9 +170,13 @@ function firstOf(
           }
           state.args = Object.freeze({ ...state.args, ...patch });
         },
-        // Only a part on a set of writes has one, and a raw statement never
-        // reaches such a part.
-        ...watch?.registering(call, extension),
+        // Only a part on a set of writes watches a model call, and a raw
+        // statement never reaches such a part; an `around` hears a raw
+        // statement's outcome.
+        ...(model === undefined
+          ? told?.(call, first)
+          : watch?.registering(call, extension)),
+        [CALL]: model === undefined ? undefined : call,
       });
     } catch (cause) {
       if (cause instanceof VibORMError) throw cause;
@@ -197,18 +210,36 @@ export function runFirstMoments(
   controls?: ResolvedControls,
   admitted?: AdmittedControls
 ): Record<string, unknown> {
-  const state = { args: Object.freeze({ ...input }) };
+  // An argument that is no object is validation's to refuse, as it is.
+  const state = {
+    args: isRecord(input) ? Object.freeze({ ...input }) : input,
+  };
   for (const handler of handlers)
     handler.handler(handler, model, operation, state, call, controls, admitted);
   return state.args;
 }
 
+/** What one `around` part's first moment left its second, for one call. */
+interface Kept {
+  second?: SecondMoment;
+  /** A raw statement's `settled` functions, told its outcome by the host. */
+  settled?: ((outcome: Outcome) => unknown)[];
+}
+
 /**
- * Per call, what each `around` part's first moment returned for its second:
+ * Per call, what each `around` part's first moment left for its second:
  * kept beside the call, never on a chain or a part (both outlive the call),
  * and gone with the call.
  */
-const seconds = new WeakMap<object, Map<FirstMoment, SecondMoment>>();
+const seconds = new WeakMap<object, Map<FirstMoment, Kept>>();
+
+function keptFor(call: object, first: FirstMoment): Kept {
+  let byFirst = seconds.get(call);
+  if (byFirst === undefined) seconds.set(call, (byFirst = new Map()));
+  let kept = byFirst.get(first);
+  if (kept === undefined) byFirst.set(first, (kept = {}));
+  return kept;
+}
 
 /** What `around` hands its first moments: the call's second moments kept. */
 function keepSecond(
@@ -216,10 +247,21 @@ function keepSecond(
   first: FirstMoment,
   second: SecondMoment
 ): void {
-  let returnedBy = seconds.get(call);
-  if (returnedBy === undefined) seconds.set(call, (returnedBy = new Map()));
-  returnedBy.set(first, second);
+  keptFor(call, first).second = second;
 }
+
+/**
+ * What a raw statement's first moment registers through: its `settled`
+ * functions, kept for the second moment. A raw statement shows no rows: a
+ * `watch` would never be told, and is refused.
+ */
+const rawTold = (call: object, first: FirstMoment): Registering => ({
+  [REGISTER](watching) {
+    if (watching.settled === undefined) return false;
+    (keptFor(call, first).settled ??= []).push(watching.settled);
+    return true;
+  },
+});
 
 /**
  * The second moment of one `around` part, as a query handler: the second
@@ -233,7 +275,12 @@ function secondMoment(first: FirstMoment, inner: boolean) {
     // The object both moments of the call were handed: a model call's
     // own, and for a raw statement its input, which `raw.ts` hands both.
     const call = context.kind === "model" ? context.call : context.input;
-    const second = call && seconds.get(call)?.get(first);
+    const kept = call && seconds.get(call)?.get(first);
+    // The host tells a raw execute family's outcome to what its first
+    // moment registered; a raw read's outcome is no write and is dropped.
+    for (const listener of kept?.settled ?? [])
+      context.onWriteOutcome(listener);
+    const second = kept?.second;
     if (second === undefined) return context.proceed();
     let failed: { readonly error: unknown } | undefined;
     const settle = (promise: Promise<unknown>) =>
@@ -247,14 +294,23 @@ function secondMoment(first: FirstMoment, inner: boolean) {
           throw error;
         }
       );
-    const run = Object.defineProperties(() => settle(context.proceed()), {
-      input: { get: () => context.input },
-      mode: { value: context.mode },
-      [AGAIN]: { value: context.again },
-      [VIA]: {
-        value: (driver: AnyDriver) => settle(context.proceedOn(driver)),
-      },
-    });
+    // Once the second moment returned, `run()` is a direct read's refresh:
+    // the core alone, never awaited by the call.
+    let returned = false;
+    const run = Object.defineProperties(
+      () => (returned ? context.replay() : settle(context.proceed())),
+      {
+        input: { get: () => context.input },
+        mode: { value: context.mode },
+        [CALL]: {
+          value: context.kind === "model" ? context.call : undefined,
+        },
+        [AGAIN]: { value: context.again },
+        [VIA]: {
+          value: (driver: AnyDriver) => settle(context.proceedOn(driver)),
+        },
+      }
+    );
     let value: unknown;
     try {
       value = await second(run);
@@ -262,6 +318,7 @@ function secondMoment(first: FirstMoment, inner: boolean) {
       // Once the child failed, its error is the call's.
       throw failed === undefined ? error : failed.error;
     }
+    returned = true;
     if (failed !== undefined) throw failed.error;
     return value;
   };
@@ -449,6 +506,7 @@ export function around(
       handler,
       on,
       keep: keepSecond,
+      told: rawTold,
       watch: on?.watch,
       inner: options?.inner,
     })

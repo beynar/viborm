@@ -530,6 +530,10 @@ export type Outcome = WriteOutcome;
 // unit(fn, kinds?, options?)
 // =============================================================================
 
+/**
+ * The kinds the core emits, and any an extension emits of its own (`work`):
+ * an open string.
+ */
 export type UnitKind =
   | "operation"
   | "statement"
@@ -537,7 +541,7 @@ export type UnitKind =
   | "transaction"
   | "savepoint"
   | "connection"
-  | "cache";
+  | (string & {});
 
 export interface UnitContext {
   readonly kind: UnitKind;
@@ -545,11 +549,21 @@ export interface UnitContext {
   readonly operation: string | undefined;
 }
 
-/** How a unit ended: never the application's result. */
+/**
+ * How a unit's child ended, as `next()` resolves it: never the application's
+ * result; the failure itself is read by `failure(unit)`.
+ */
 export interface UnitOutcome {
   readonly status: "success" | "failure";
+  /** Milliseconds from `next()` to the child's settlement. */
   readonly duration: number;
+  /** Present where the child's work reached a commit. */
   readonly certainty?: "committed" | "may-have-committed";
+  /**
+   * The child failed and its owner recovered (a `findUnique` batch's shared
+   * read, whose callers each ran alone): the failure is not the call's.
+   */
+  readonly recovered?: true;
 }
 
 export type UnitFunction<Bound extends AnyTarget | undefined> = <

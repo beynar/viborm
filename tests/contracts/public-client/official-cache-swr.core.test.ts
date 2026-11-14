@@ -606,8 +606,16 @@ describe("official cache stale-while-revalidate", () => {
       [{ name: "old" }]
     );
     await expect(state.settle()).resolves.toBeUndefined();
+    // One generation of handlers: `failure(u)` is the unit's own error,
+    // the worker's and the cleanup's failures together.
     await expect(Promise.all(completions)).resolves.toMatchObject([
-      { status: "failure", error: { name: "Error" } },
+      {
+        status: "failure",
+        error: {
+          name: "AggregateError",
+          message: "Cache revalidation work and cleanup both failed.",
+        },
+      },
     ]);
     expect(driver.readCalls).toBe(2);
     expect(cache.deletes.some((keys) => keys[0]?.endsWith(":reval"))).toBe(

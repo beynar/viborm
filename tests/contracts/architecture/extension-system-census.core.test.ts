@@ -59,29 +59,24 @@ const MODULE_STATE_LEFT = Object.freeze([
   "src/extensions/admission.ts admitted",
   "src/extensions/admission.ts registries",
   "src/extensions/call.ts seconds",
+  "src/extensions/codec.ts codecs",
   "src/extensions/gates.ts namedGatedFields",
-  "src/extensions/observation.ts lifecycleFacts",
-  "src/extensions/observation.ts officialCapabilitiesByChain",
-  "src/extensions/observation.ts trustedObservers",
   "src/extensions/plain-domain.ts NONE",
   "src/extensions/plain-domain.ts prepared",
-  "src/extensions/query.ts publicationFailures",
   "src/extensions/query.ts queryCoordinationFailures",
   "src/extensions/row-domain.ts preparedDomains",
+  "src/extensions/unit-source.ts operations",
+  "src/extensions/unit-source.ts sources",
   "src/extensions/verbs.ts lazyReferences",
   "src/extensions/watch-part.ts watched",
 ]);
 
 /**
- * What the chain's state still names of an official extension. The
+ * What the chain's state still names of an official extension: nothing. The
  * mechanism (`chain.ts`) names none; the state's members are written by the
- * parts, and an official extension's own fact leaves with its port.
+ * parts, and the cache's own facts left with its port.
  */
-const OFFICIAL_NAMES_IN_CHAIN_STATE = Object.freeze([
-  "src/extensions/chain-state.ts hasCache",
-  // A volatile argument's read is neither served nor stored by the cache.
-  "src/extensions/chain-state.ts uncacheable",
-]);
+const OFFICIAL_NAMES_IN_CHAIN_STATE: readonly string[] = Object.freeze([]);
 
 interface ExtensionSystemCensus {
   readonly chainOwners: string[];

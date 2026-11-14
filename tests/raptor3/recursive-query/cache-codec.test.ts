@@ -1,3 +1,5 @@
+import type { PreparedOperation } from "@query-engine/raptor3/commands";
+
 /**
  * RQ-05 — the live recursive cache codec, entered through the real route.
  *
@@ -33,13 +35,12 @@
  * itself recursive and would measure the assertion, not the codec.
  */
 
-// The route's cache codec belongs to the cache runtime `viborm/cache` loads.
-import { routedCodec } from "@cache/result-codec";
-import "@cache/runtime";
 import assert from "node:assert/strict";
+import { cacheCodec } from "@cache/result-codec";
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { CacheConfigurationError } from "@errors";
+import { codecOf } from "@extensions/codec";
 import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { CacheSnapshotFailure } from "@query-engine/result/cache-snapshot-structure";
 import {
@@ -53,6 +54,10 @@ import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import Database from "better-sqlite3";
 import { afterEach, describe, it } from "vitest";
 import { seedCacheWorld } from "./cache-world";
+
+/** The cache's codec of one prepared operation: the codec word, its failures the cache's. */
+const routedCodec = (operation: PreparedOperation) =>
+  cacheCodec(codecOf(operation), operation.requested.operation);
 
 const node = s
   .model({

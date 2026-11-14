@@ -59,6 +59,12 @@ export interface WrittenWatch {
    * it throws rejects that promise, and the write stays made.
    */
   settled(outcome: WriteOutcome): unknown;
+  /**
+   * Whether it is shown rows. One that is not waits for none: it is told the
+   * outcome when it is heard, even where the call fails to read its rows
+   * back after its commit.
+   */
+  readonly sees: boolean;
 }
 
 /**
@@ -69,8 +75,8 @@ export type WrittenHandler = (call: WrittenCall) => WrittenWatch | undefined;
 
 /**
  * One write call under a chain's `written` declarations: the engine is told
- * what they want to see, and the call's one outcome registration tells them,
- * after `cached`'s, that it settled. A unit handed over whole answers after
+ * what they want to see, and the call's one outcome registration tells them
+ * that it settled. A unit handed over whole answers after
  * it commits: what watches is then told it settled once its rows are, by
  * what `late` receives, which the call's value runs and waits for.
  */
@@ -79,11 +85,12 @@ export function watchWrite(
   call: Omit<WrittenCall, "controls">,
   controls: AdmittedControls | undefined,
   context: QueryExecutionContext,
-  cached: WriteOutcomeRegistration | undefined,
   late: (settle: () => Promise<void>) => void
 ): WriteOutcomeRegistration | undefined {
   const watches: WrittenWatch[] = [];
   const settled: WriteOutcomeRegistration[] = [];
+  const seeing: WriteOutcomeRegistration[] = [];
+  const blind: WriteOutcomeRegistration[] = [];
   for (const { extension, handler, controls: own } of handlers) {
     const watch = (handler as WrittenHandler)(
       Object.freeze(
@@ -92,12 +99,14 @@ export function watchWrite(
     );
     if (!watch) continue;
     watches.push(watch);
-    settled.push({
+    const registration: WriteOutcomeRegistration = {
       extension,
       listener: (outcome) => watch.settled(outcome),
-    });
+    };
+    settled.push(registration);
+    (watch.sees ? seeing : blind).push(registration);
   }
-  if (watches.length === 0) return cached;
+  if (watches.length === 0) return undefined;
   let told = false;
   let heard: WriteOutcome | undefined;
   const wants = (model: string, kind: WriteKind) =>
@@ -169,7 +178,7 @@ export function watchWrite(
                 );
           told = true;
           const outcome = heard;
-          if (outcome) late(() => publishWriteOutcomes(settled, outcome));
+          if (outcome) late(() => publishWriteOutcomes(seeing, outcome));
         },
       };
     },
@@ -179,13 +188,11 @@ export function watchWrite(
     // Each listener's failure is already said as its own.
     failurePolicy: "boundary-owned",
     listener(outcome: WriteOutcome) {
-      if (told)
-        return publishWriteOutcomes(
-          cached ? [cached, ...settled] : settled,
-          outcome
-        );
+      // A write that may have committed failed: no rows will be told.
+      if (told || outcome.certainty === "may-have-committed")
+        return publishWriteOutcomes(settled, outcome);
       heard = outcome;
-      return cached?.listener(outcome);
+      if (blind.length > 0) return publishWriteOutcomes(blind, outcome);
     },
   });
 }
@@ -197,7 +204,6 @@ export interface WrittenHandlers {
     call: Omit<WrittenCall, "controls">,
     controls: AdmittedControls | undefined,
     context: QueryExecutionContext,
-    cached: WriteOutcomeRegistration | undefined,
     late: (settle: () => Promise<void>) => void
   ) => WriteOutcomeRegistration | undefined;
 }
