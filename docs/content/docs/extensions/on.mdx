@@ -33,7 +33,7 @@ misspelt model, hook or field is an editor error.
 
 ## What a hook receives
 
-```ts
+```ts no-check
 (rows, event) => unknown
 ```
 
@@ -180,7 +180,7 @@ const db = base.$extends(
   keep the next from running; each failure is reported on its own.
 - The [cache](/docs/extensions/cache)'s own invalidation failure is not a
   hook's: it still fails the write, as it does without `on()`.
-- A [`call.around`](/docs/extensions/create#the-second-moment-callaround)
+- An [`around`](/docs/extensions/create#the-second-moment-around)
   that throws after its write committed does not lose the hook: it has
   already run.
 
@@ -308,19 +308,26 @@ transaction adds its `BEGIN` and `COMMIT`:
 Apply `on()` before or after any other extension. It sees the writes of the whole chain, including the update a soft
 delete makes of a delete and the rows a permission lets a call write (a row the
 call may not write is not written, so it calls no hook). Every other
-extension's `call.around` sees the call's own value, exactly what the caller
+extension's `around` sees the call's own value, exactly what the caller
 asked for, never the whole rows the hook receives.
 
-One client can carry several `on()`: each runs its own hooks, in the order they
-were applied. Applying the same `on()` value twice to one client is refused.
-The declaration is checked when it is applied: a model the schema lacks, a hook name other than
-`create`, `update` and `delete`, or a hook that is no function is a
-`ClientInitializationError` there. To name a hooked client's type, use
-`typeof` on the client `$extends(on(...))` returns.
+One client can carry several `on()`: each call of `on()` makes an extension of
+its own name (`viborm.on`, then `viborm.on.2`, …), and each runs its own hooks,
+in the order they were applied. Applying the same `on()` value twice to one
+client is refused, as any extension applied twice. A hook name other than
+`create`, `update` and `delete`, a hook that is no function, and an `onError`
+that is no function are refused when `on()` is called; a model the schema
+lacks is refused when the extension is applied. Each is a
+`ClientInitializationError`. To name a hooked client's type, use `typeof` on
+the client `$extends(on(...))` returns.
 
-`on` is also the name of the selector `viborm` exports for a `call` part
-(`on("post", "findMany")`). In a module that imports both, rename one:
-`import { on as hooks } from "viborm/on"`.
+`on()` is written with the public parts: a `call` on
+[`target(writes)`](/docs/extensions/create#which-calls-target) that
+[`watch`](/docs/extensions/create#receive-the-rows-a-write-wrote-watch)es the
+rows a write wrote and is
+[`settled`](/docs/extensions/create#act-after-the-commit-settled) after its
+commit. The selector of a call part is `target`, so `on` names only this
+extension.
 
 ## Not covered
 

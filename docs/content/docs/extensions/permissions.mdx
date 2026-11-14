@@ -218,7 +218,7 @@ const policy = permissions({
 
 Remap read, update or delete per model with `operations`:
 
-```ts
+```ts no-check
 post: { /* … */ operations: { delete: "update" } }, // authors may delete too
 ```
 
@@ -244,7 +244,7 @@ database optimizer decide which expressions actually need execution.
 A create has no row yet, so its rule reads the row it would insert: the
 values the call writes, and the rows they point at.
 
-```ts
+```ts no-check
 post: {
   // …
   create: { authorId: { actor: "userId" } }, // the new post is the caller's
@@ -286,7 +286,7 @@ follows another's, without writing it twice.
 A subpage stores the same `teamspaceId` as its parent. The `create` rule can
 say so, comparing the key with the parent's own through `$row`:
 
-```ts
+```ts no-check
 page: {
   // …
   create: {
@@ -321,14 +321,15 @@ caller is a member of the row's organization". Write it once in `mandatory`.
 import { permissions } from "viborm/permissions";
 
 // These names and fields belong to this application's schema.
+// `as const` keeps "userId" a literal, which the actor's paths are checked against.
 const inOrg = {
   organization: { is: { members: { some: { userId: { actor: "userId" } } } } },
-};
+} as const;
 const admin = {
   organization: {
     is: { members: { some: { userId: { actor: "userId" }, role: "admin" } } },
   },
-};
+} as const;
 
 const ladder = { read: [], update: ["read"], full: ["update"] } as const;
 
@@ -397,7 +398,7 @@ every action's rule.
 membership, and never grants a permission by itself. Put action-specific role
 requirements in the action that grants access:
 
-```ts
+```ts no-check
 const mayUpdate = {
   organization: {
     is: {
@@ -434,7 +435,7 @@ some models have `organizationId`, put that restriction on those models instead.
 Some fields need more than the row's `update` to write, or more than `read` to
 read:
 
-```ts
+```ts no-check
 project: {
   // …
   fields: {
@@ -476,7 +477,7 @@ it with the other ways to grant each named permission:
 
 <Tabs>
   <Tab title="Policy">
-```ts
+```ts no-check
 import type { Rule } from "viborm/permissions";
 
 // Stored grant levels use this policy's action names.
@@ -518,7 +519,7 @@ const accessGrant = s.model({
 
 At `update`, `shared` is, simplified, this `where`:
 
-```ts
+```ts no-check
 {
   grants: {
     some: {
@@ -558,7 +559,7 @@ is no longer seen by the next statement.
 Who may *write* a grant row is a rule on the grant model like any other: for
 example only whoever holds `full` on its project:
 
-```ts
+```ts no-check
 accessGrant: {
   read: { project: "full" },
   update: { project: "full" },
@@ -586,7 +587,7 @@ application stores a nullable `level` and an `actions` list on each grant.
 Declare which values each attachment accepts, then require the writer to hold
 every permission the grant carries:
 
-```ts
+```ts no-check
 // Application data: document uses independent actions in this example.
 const grantTargets = [
   {
@@ -646,7 +647,7 @@ rule for each of its actions, so stronger shares also grant reading. The travers
 
 <Tabs>
   <Tab title="Policy">
-```ts
+```ts no-check
 document: {
   actions: ladder,
   mandatory: inOrg,
@@ -681,7 +682,7 @@ Read it as: "among this document and all its ancestors, *some* is owned by
 me or shared with me at the declared level". The comma-separated key assigns
 that traversal to each permission. You can also name the reusable predicate:
 
-```ts
+```ts no-check
 const inheritedAccess: Rule = {
   parent: {
     recurse: { depth: false },
@@ -726,7 +727,7 @@ WHERE EXISTS (
   `update` (when the `create` rule reads `parent`, as below).
 - **No cycles.** A document cannot be moved under itself or its own subtree.
 
-```ts
+```ts no-check
 document: {
   // …
   create: {
@@ -779,7 +780,7 @@ application's team and grant schema:
 
 <Tabs>
   <Tab title="Policy">
-```ts
+```ts no-check
 // Stored levels use the declared action names, as in the sharing example.
 const shared: Rule = (action) => ({
   grants: {
@@ -868,7 +869,7 @@ const documents = await call.document.findMany({
   where: { parentId: null },
   include: { $access: true, children: { include: { $access: true } } },
 });
-documents[0].$access; // { read: true, update: true, full: false, create: false }
+documents[0]?.$access; // { read: true, update: true, full: false, create: false }
 ```
 
 The result is **always one boolean per action**, whatever the model's graph.
@@ -1030,7 +1031,7 @@ The model rule above grants the service its rights; creating a service identity
 or key does not grant anything by itself. The key's scopes only restrict those
 rights. After authentication, bind the stored identity and scopes:
 
-```ts
+```ts with=service
 async function handleServiceRequest(request: Request) {
   // Application code: verify the presented secret, expiry and revocation.
   // Return trusted stored metadata; never accept actor/scopes from request JSON.
@@ -1075,7 +1076,7 @@ Credential scopes select operations; a mandatory predicate selects rows.
 For example, extend the actor schema with `documentIds: v.array(v.string())`
 and use this on `document`:
 
-```ts
+```ts no-check
 document: {
   mandatory: {
     AND: [
@@ -1363,7 +1364,7 @@ proposed row and implies nothing. Without `actions`, a model's actions are
 `create`, `read`, `update` and `delete`, and any other rule key is refused. A
 custom action, or an ordered hierarchy, is declared in the model's graph:
 
-```ts
+```ts no-check
 document: {
   actions: {
     read: [],
@@ -1389,7 +1390,7 @@ deletion, write `operations: { delete: "full" }` explicitly.
 
 `as` narrows a call to an action or a named domain, never wider:
 
-```ts
+```ts no-check
 await call.project.findMany({ as: "update" }); // the projects the caller may edit
 page: { /* … */ domains: { given: shared } }  // await call.page.findMany({ as: "given" })
 ```
@@ -1398,7 +1399,7 @@ page: { /* … */ domains: { given: shared } }  // await call.page.findMany({ as
 
 Use a comma-separated key to assign the same rule to several named permissions:
 
-```ts
+```ts no-check
 document: {
   mandatory: inOrg,
   "read, update": {
@@ -1557,7 +1558,7 @@ errors are a separate boundary; see [Boundaries](#boundaries).
 is served until the entry expires. So a governed view refuses `$withCache`
 with a `ValidationError`, unless the policy accepts the staleness:
 
-```ts
+```ts no-check
 const policy = permissions({ actor: Actor, cache: "allow", models: { … } });
 ```
 
@@ -1757,7 +1758,9 @@ const TENANT = {
   organizationId: { actor: "organizationId" },
   organization: { is: { members: { some: liveMembership } } },
 };
+```
 
+```ts
 // After: the row is in the actor's organization, and the actor is a live
 // member of that organization: the same check wherever it appears.
 const TENANT = {
@@ -1773,7 +1776,7 @@ Role checks follow the same rule. A grant to a role,
 actor's membership with `$exists` per role, or compare with the grant's own
 columns in one check:
 
-```ts
+```ts no-check
 {
   granteeRole: { not: null },
   $exists: {
@@ -1813,7 +1816,7 @@ When every governed call stays in the actor's organization, as a policy
 whose every model's `mandatory` holds `organizationId: { actor:
 "organizationId" }` does, say so once:
 
-```ts
+```ts no-check
 const policy = permissions({
   actor: Actor,
   tenant: { field: "organizationId", actor: "organizationId" },
@@ -1850,7 +1853,7 @@ organization (a shared catalogue whose `organizationId` is `null`, or a
 sentinel value), which `tenant` would otherwise drop from a rule's sets as
 another organization's:
 
-```ts
+```ts no-check
 tenant: {
   field: "organizationId",
   actor: "organizationId",

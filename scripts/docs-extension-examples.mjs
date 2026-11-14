@@ -154,6 +154,7 @@ function bindingNames(name) {
 export function preambleFor(preamble, code) {
   if (preamble === "") return "";
   const own = declaredNames(code);
+  const gone = new Set(own);
   const file = ts.createSourceFile(
     "preamble.ts",
     preamble,
@@ -168,10 +169,43 @@ export function preambleFor(preamble, code) {
       continue;
     }
     const names = statementNames(statement);
-    if (names.some((name) => own.has(name))) continue;
+    // A statement the block redeclares goes, and so does one that reads
+    // what went: the block's own name would otherwise be read before it is
+    // declared.
+    if (names.some((name) => own.has(name)) || readsAny(statement, gone)) {
+      for (const name of names) gone.add(name);
+      continue;
+    }
     kept.push(text);
   }
   return kept.filter((text) => text !== "").join("");
+}
+
+/** Whether a statement names one of `names` anywhere inside it. */
+function readsAny(statement, names) {
+  let found = false;
+  const visit = (node) => {
+    if (found) return;
+    if (ts.isIdentifier(node) && names.has(node.text) && !isKeyName(node))
+      found = true;
+    else ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(statement, visit);
+  return found;
+}
+
+/** A property's own name (`{ user: … }`, `a.user`), which reads no variable. */
+function isKeyName(node) {
+  const { parent } = node;
+  return (
+    ((ts.isPropertyAssignment(parent) ||
+      ts.isPropertySignature(parent) ||
+      ts.isMethodDeclaration(parent) ||
+      ts.isPropertyDeclaration(parent)) &&
+      parent.name === node) ||
+    (ts.isPropertyAccessExpression(parent) && parent.name === node) ||
+    (ts.isBindingElement(parent) && parent.propertyName === node)
+  );
 }
 
 function importWithout(statement, text, own) {
@@ -217,9 +251,17 @@ export function splitPreamble(text) {
   };
 }
 
-/** One block's module, and the number of preamble lines before its code. */
-export function assemble(preamble, code) {
-  const head = preambleFor(preamble, code).replace(/^\n+/, "");
+/**
+ * One block's module, and the number of preamble lines before its code. A
+ * named section overrides the common preamble as the block does.
+ */
+export function assemble(preamble, code, sections = "") {
+  const head = [
+    preambleFor(preamble, `${sections}\n${code}`),
+    preambleFor(sections, code),
+  ]
+    .join("\n")
+    .replace(/^\n+/, "");
   const prefix = head === "" ? "" : `${head}\n`;
   const offset = prefix === "" ? 0 : prefix.split("\n").length - 1;
   return { text: `${prefix}${code}\nexport {};\n`, offset };
@@ -385,11 +427,11 @@ function main() {
         throw new Error(
           `docs/content/docs/${page}:${block.line} names preamble sections ${unknown.join(", ")}, which scripts/docs-extension-examples/${preamblePath} does not have`
         );
-      const preamble = [
+      const { text, offset } = assemble(
         common,
-        ...block.sections.map((name) => sections.get(name)),
-      ].join("\n");
-      const { text, offset } = assemble(preamble, block.code);
+        block.code,
+        block.sections.map((name) => sections.get(name)).join("\n")
+      );
       const unparsed = syntaxErrors(text);
       if (unparsed.length > 0) {
         const module = { page, block, offset, preamble: preamblePath };

@@ -317,8 +317,11 @@ const outbox = extension(
   them, so a part that never watches carries none of it. Anywhere else they
   are refused with a `TypeError`, never ignored: `target("order", "update")`
   names an operation, not a set, and brings nothing that watches.
-- A call that fails calls neither `rows` nor `settled`. Several extensions can
-  watch; each is told in the order the extensions were applied.
+- A call that fails calls neither `rows` nor `settled`, with one exception:
+  a write whose statement failed after it was sent may have committed, so
+  `settled` is told (`certainty: "may-have-committed"`) and `rows` is not.
+  Several extensions can watch; each is told in the order the extensions
+  were applied.
   [`viborm/on`](/docs/extensions/on) is built on this word.
 
 ### Act after the commit: `settled`
