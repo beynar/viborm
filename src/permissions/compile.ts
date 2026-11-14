@@ -14,7 +14,6 @@
 // judgement the same statement makes, provably implies (plan §11.4). It
 // names no engine structure; the entry hands it to the chain.
 
-import type { RowsVerbs } from "../client/exports";
 import { ClientInitializationError } from "../errors";
 import { check, facts, gate, only } from "../extensions/judge-words";
 import {
@@ -113,6 +112,30 @@ export interface PermissionsConfig {
     readonly actor: string;
     readonly except?: readonly string[];
   };
+}
+
+/**
+ * One model's named predicates (each a `where`) and the verbs, written
+ * fields, placement, moves, acyclic relations, projection key and read-gated
+ * fields that name them: what the policy compiles to before its entry is
+ * written as a rule (`ruleEntryOf`).
+ */
+export interface RowsVerbs {
+  readonly predicates: {
+    readonly [name: string]: { readonly [field: string]: unknown };
+  };
+  readonly read?: string;
+  readonly update?: string;
+  readonly delete?: string;
+  readonly writes?: { readonly [field: string]: string };
+  readonly place?: string;
+  readonly moves?: { readonly [field: string]: string };
+  readonly acyclic?: readonly string[] | (() => readonly string[]);
+  readonly evidence?: {
+    readonly as: string;
+    readonly names: readonly string[];
+  };
+  readonly reads?: { readonly [field: string]: string };
 }
 
 /**

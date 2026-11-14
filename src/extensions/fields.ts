@@ -3,8 +3,7 @@
  * fields computed from the columns each row a call returns reads. A part of
  * its own: an extension that does not import it carries none of it.
  */
-import type { AnyTarget, Facts, ModelName, Part } from "./contract";
-import type { NoControls } from "./controls";
+import type { AnyTarget, Facts, ModelName, NoControls, Part } from "./contract";
 import { builtPart } from "./extension";
 import {
   type ComputedFieldDeclaration,

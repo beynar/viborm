@@ -20,11 +20,8 @@ import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { isFunction, isRecord } from "@validation/value-guards";
 import { errorCause } from "../errors/diagnostic-safety";
 import type { ExtensionPart } from "./chain";
-import {
-  type AdmittedControls,
-  type NoControls,
-  undeclaredBinding,
-} from "./controls";
+import type { NoControls } from "./contract";
+import { type AdmittedControls, undeclaredBinding } from "./controls";
 import { extensionError } from "./definition";
 import type { MergeResultFields } from "./result-types";
 

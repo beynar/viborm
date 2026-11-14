@@ -56,7 +56,7 @@ export type {
   NoControls,
   PlacedControl,
   StampedFields,
-} from "./extensions/controls.js";
+} from "./extensions/contract.js";
 export * from "./extensions/index.js";
 export type {
   AccumulatedExtensionState,

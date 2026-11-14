@@ -6,12 +6,7 @@
  */
 
 // Named so an exported extended client's declaration can write them.
-export type {
-  DefinitionControls,
-  PlacedControl,
-  RowsVerbs,
-  StampedFields,
-} from "../extensions/controls";
+export type { PlacedControl, StampedFields } from "../extensions/contract";
 export type {
   ExtensionCacheState,
   ExtensionResultConsumerState,
