@@ -34,8 +34,7 @@ export function key(run: Run<unknown, unknown>): string | undefined {
     admitted !== undefined &&
     chain?.controls?.all.some(
       (control) =>
-        control.declaration.volatile === true &&
-        admitted[control.name] !== undefined
+        control.volatile === true && admitted[control.name] !== undefined
     )
   )
     return undefined;

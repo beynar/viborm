@@ -43,7 +43,7 @@ const requiredOn =
   (controls: ResolvedControls | undefined): CallValues["required"] =>
   (control, model) => {
     const on = controls?.all.find(({ name }) => name === control)?.required;
-    return on === true || on?.has(model) === true;
+    return on === true || on?.includes(model) === true;
   };
 
 /**
