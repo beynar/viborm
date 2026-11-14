@@ -196,8 +196,10 @@ And with an `UnsupportedOperationError`, before anything is sent:
 What VibORM does not refuse can still write: `$queryRaw` and
 `$queryRawUnsafe` send their text as written, and so do `$driver._execute`
 and a query interceptor. A role with only `SELECT` privileges is what
-guarantees nothing writes. An extension's write verb (`move`, `restore`) may
-send its reads before its write is refused.
+guarantees nothing writes. An extension's write verbs are refused before
+anything is sent too: `restore` and `delete` of `viborm/soft-delete` and
+`create` of `viborm/ordering` by the write refusal, and its `move` by its
+first read, a cursor in the list's order.
 
 ### Why VibORM does not write to Snowflake
 

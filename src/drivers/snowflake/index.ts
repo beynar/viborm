@@ -31,6 +31,7 @@ import {
   VibORMErrorCode,
 } from "@errors";
 import { queryBackend } from "@query-engine/raptor3/shared/query-backend";
+import { Writer } from "@query-engine/raptor3/write/statements";
 import { isRecord } from "@validation/value-guards";
 import { Driver, type QueryExecutionContext } from "../driver";
 import type { TransactionOptionSupport } from "../shared";
@@ -297,6 +298,8 @@ export class SnowflakeDriver extends Driver<
   override readonly backend = queryBackend({
     queries: SnowflakeQueries,
     context: SnowflakeOperationContext,
+    // Never built: SnowflakeOperationContext refuses every write call first.
+    writer: Writer,
   });
   // The SQL API runs each statement on its own: there is nothing to hold a
   // transaction open across two, and a read needs none.

@@ -570,6 +570,7 @@ export class SnowflakeAdapter implements DatabaseAdapter {
     returning: (): Sql => noSpelling("RETURNING"),
     onConflict: (): Sql => noSpelling("ON CONFLICT"),
     onConflictUpdate: (): Sql => noSpelling("ON CONFLICT"),
+    insertAbsent: (): Sql[] => noSpelling("ON CONFLICT"),
     skipDuplicates: (): { prefix: Sql; suffix: Sql } =>
       noSpelling("ON CONFLICT"),
   };

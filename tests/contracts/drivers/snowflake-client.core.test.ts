@@ -16,8 +16,10 @@ import {
   VibORMErrorCode,
 } from "@errors";
 import { s } from "@schema";
+import { on } from "@src/on";
 import { ordering, orderingKey } from "@src/ordering";
 import { permissions } from "@src/permissions";
+import { softDelete } from "@src/soft-delete";
 import { v } from "@src/validation";
 import {
   type FakeAnswer,
@@ -403,6 +405,21 @@ describe("Snowflake refusals", () => {
       }),
     delete: (db) => db.author.delete({ where: { id: 1 } }),
     deleteMany: (db) => db.author.deleteMany({ where: {} }),
+    "a nested connect": (db) =>
+      db.author.update({
+        where: { id: 1 },
+        data: { posts: { connect: { id: 2 } } },
+      }),
+    "a nested update": (db) =>
+      db.author.update({
+        where: { id: 1 },
+        data: { posts: { updateMany: { where: {}, data: { title: "u" } } } },
+      }),
+    "a nested delete": (db) =>
+      db.author.update({
+        where: { id: 1 },
+        data: { posts: { deleteMany: {} } },
+      }),
     "a nested create": (db) =>
       db.author.update({
         where: { id: 1 },
@@ -446,6 +463,36 @@ describe("Snowflake refusals", () => {
     expect(server.statements().map((sent) => sent.statement)).toEqual([
       "SELECT 1",
     ]);
+  });
+
+  it("refuses an extension's write verbs before sending anything", async () => {
+    const base = () =>
+      createClient({
+        schema: { author, post, tag, card, memo },
+        account: "myorg-acct",
+        token: "t",
+        host: server.host,
+        fetch: server.fetch,
+      });
+    const ordered = ordering({ card: { key: "rank" } })(base());
+    const soft = base().$extends(
+      softDelete({ models: { memo: { deletedAt: "deletedAt" } } })
+    );
+    const hooked = base().$extends(on({ author: { create: () => undefined } }));
+    const writes = [
+      () => ordered.card.create({ data: { id: 1 } }),
+      () => soft.memo.delete({ where: { id: 1 } }),
+      () => soft.memo.restore({ where: { id: 1 } }),
+      () => hooked.author.create({ data: { id: 1, name: "a", email: "a@x" } }),
+    ];
+    for (const write of writes)
+      await expect(write()).rejects.toBeInstanceOf(FeatureNotSupportedError);
+    // move reads its anchor first, by a cursor in the list's order, which
+    // Snowflake cannot evaluate: refused there, still before any request.
+    await expect(
+      ordered.card.move({ where: { id: 1 }, after: { id: 2 } })
+    ).rejects.toBeInstanceOf(UnsupportedOperationError);
+    expect(server.requests).toEqual([]);
   });
 
   it("refuses a transaction, callback or array, before sending anything", async () => {
@@ -526,6 +573,10 @@ const pair = s
 const card = s
   .model({ id: s.int().id(), rank: s.string().schema(orderingKey) })
   .map("CARDS");
+
+const memo = s
+  .model({ id: s.int().id(), deletedAt: s.dateTime().nullable() })
+  .map("MEMOS");
 
 function docs() {
   return createClient({
