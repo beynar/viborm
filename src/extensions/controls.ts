@@ -16,7 +16,7 @@ import {
 } from "@query-engine/routed-operations";
 import type { Operation } from "@query-engine/types";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { isFunction, isRecord } from "@validation/value-guards";
+import { discardAsyncValidationResult } from "@validation/parse-failure";
 import { errorCause } from "../errors/diagnostic-safety";
 import type { ExtensionPart } from "./chain";
 import type { ResolvedControls } from "./chain-state";
@@ -622,93 +622,35 @@ function admitControl(
       `must be one of ${declaration.oneOf.map((allowed) => JSON.stringify(allowed)).join(", ")}`,
     ]);
   }
-  let result: unknown;
+  let result: ReturnType<StandardSchemaV1["~standard"]["validate"]>;
   try {
     result = declaration.schema["~standard"].validate(value);
   } catch (cause) {
     // A validator may own its typed failure; anything else is a failure of
     // extension code, as a throwing request transform is.
-    if (isVibORMFailure(cause)) throw cause;
+    if (cause instanceof VibORMError) throw cause;
     throw validatorFailure(control, model, operation, "threw", cause);
   }
-  let shape: "promise" | "malformed" | "issues" | "value" = "malformed";
-  let issues: readonly unknown[] = [];
-  let admitted: unknown;
-  try {
-    if (isRecord(result)) {
-      const then = "then" in result ? result.then : undefined;
-      if (isFunction(then)) {
-        shape = "promise";
-        // The refused promise is still live; without a handler its rejection
-        // would surface as an unhandled rejection (D-37).
-        Reflect.apply(then, result, [undefined, () => undefined]);
-      } else {
-        const listed = result.issues;
-        if (listed !== undefined) {
-          if (Array.isArray(listed)) {
-            shape = "issues";
-            issues = listed;
-          }
-        } else if ("value" in result) {
-          shape = "value";
-          admitted = result.value;
-        }
-      }
-    }
-  } catch (cause) {
+  if ("then" in result) {
+    // The refused promise is still live; without a handler its rejection
+    // would surface as an unhandled rejection (D-37).
+    discardAsyncValidationResult(result);
     throw validatorFailure(
       control,
       model,
       operation,
-      "returned an unreadable result",
-      cause
+      "returned a promise",
+      new TypeError("Control validators must return synchronously")
     );
   }
-  switch (shape) {
-    case "value":
-      return admitted;
-    case "issues":
-      throw invalidControl(control, model, operation, issueMessages(issues));
-    case "promise":
-      throw validatorFailure(
-        control,
-        model,
-        operation,
-        "returned a promise",
-        new TypeError("Control validators must return synchronously")
-      );
-    default:
-      throw validatorFailure(
-        control,
-        model,
-        operation,
-        "returned a malformed result",
-        new TypeError("A Standard Schema result has a value or an issue list")
-      );
-  }
-}
-
-/** Each issue's message; an issue that cannot be read still refuses. */
-function issueMessages(issues: readonly unknown[]): string[] {
-  const messages: string[] = [];
-  try {
-    for (const issue of issues) {
-      const message = isRecord(issue) ? issue.message : undefined;
-      messages.push(typeof message === "string" ? message : "is invalid");
-    }
-  } catch {
-    return ["is invalid"];
-  }
-  return messages.length === 0 ? ["is invalid"] : messages;
-}
-
-/** Contained: `instanceof` on a hostile thrown proxy is itself a throw site. */
-function isVibORMFailure(value: unknown): value is VibORMError {
-  try {
-    return value instanceof VibORMError;
-  } catch {
-    return false;
-  }
+  if (result.issues)
+    throw invalidControl(
+      control,
+      model,
+      operation,
+      result.issues.map((issue) => issue.message)
+    );
+  return result.value;
 }
 
 /**
@@ -760,24 +702,10 @@ function validatorFailure(
   failure: string,
   cause: unknown
 ): QueryError {
-  return controlFailure(
-    `Extension "${control.extension}" control "${control.name}" validator for ${operation === undefined ? "$bind" : `${model}.${operation}`} ${failure}`,
-    model,
-    operation,
-    cause
+  return new QueryError(
+    `Extension "${control.extension}" control "${control.name}" validator for ${operation === undefined ? "$bind" : `${model}.${operation}`} ${failure}.`,
+    { cause: errorCause(cause), meta: { model, operation } }
   );
-}
-
-function controlFailure(
-  message: string,
-  model: string | undefined,
-  operation: Operation | undefined,
-  cause: unknown
-): QueryError {
-  return new QueryError(`${message}.`, {
-    cause: errorCause(cause),
-    meta: { model, operation },
-  });
 }
 
 const NO_CONTROLS: readonly ResolvedControl[] = Object.freeze([]);
