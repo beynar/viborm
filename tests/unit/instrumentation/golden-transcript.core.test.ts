@@ -43,7 +43,16 @@ import { runTransactionLifecycle } from "@drivers/shared/transactions";
 import type { CommittedBatchNotification } from "@drivers/types";
 import { QueryError } from "@errors";
 import { cache } from "@src/cache/exports";
-import { createClient, defineExtension, s, sql } from "@src/index";
+import {
+  around,
+  createClient,
+  extension,
+  statement as extStatement,
+  failure,
+  s,
+  sql,
+  unit,
+} from "@src/index";
 import {
   type InstrumentationConfig,
   instrumentation,
@@ -369,18 +378,25 @@ function recordingObserver(
   name: string,
   after?: () => unknown
 ) {
-  return defineExtension<typeof schema>()({
+  return extension(
     name,
-    observe(unit, proceed) {
-      const entry: ObservedUnit = { observer: name, unit: { ...unit } };
+    unit((u, next) => {
+      const entry: ObservedUnit = { observer: name, unit: { ...u } };
       observed.push(entry);
-      const completion = proceed();
-      completion.then((summary) => {
-        entry.completion = { ...summary };
+      const completion = next();
+      // The transcript keeps the summary's words: how long, how sure, why.
+      completion.then(({ status, duration, certainty }) => {
+        const error = failure(u);
+        entry.completion = {
+          status,
+          durationMs: duration,
+          ...(certainty === undefined ? {} : { commitCertainty: certainty }),
+          ...(error === undefined ? {} : { error }),
+        };
       });
       return after === undefined ? completion : after();
-    },
-  });
+    })
+  );
 }
 
 const clients: Array<{ $disconnect(): Promise<void> }> = [];
@@ -591,13 +607,21 @@ const SCENARIOS: ReadonlyArray<
           })
         )
         .$extends(observer("ordinary"))
-        .$extends({
-          name: "native-statement-transform",
-          statement({ statement }) {
-            transforms += 1;
-            return sql`${sql.raw(`/* ${transforms} */ `)}${statement}`;
-          },
-        });
+        .$extends(
+          extension(
+            "native-statement-transform",
+            unit(
+              (u, next) => {
+                transforms += 1;
+                return next(
+                  sql`${sql.raw(`/* ${transforms} */ `)}${extStatement(u)}`
+                );
+              },
+              ["statement"],
+              { rewrites: true }
+            )
+          )
+        );
       await settle(
         client.$transaction([
           client.$queryRaw(sql`SELECT ${1}`),
@@ -636,12 +660,14 @@ const SCENARIOS: ReadonlyArray<
           })
         )
         .$extends(observer("ordinary"))
-        .$extends({
-          name: "intercepted-native-error-dedup",
-          async query({ proceed }) {
-            return proceed();
-          },
-        });
+        .$extends(
+          extension(
+            "intercepted-native-error-dedup",
+            around(() => async (run) => {
+              return run();
+            })
+          )
+        );
       await settle(
         client.$transaction([
           client.record.findMany(),
@@ -663,12 +689,14 @@ const SCENARIOS: ReadonlyArray<
           })
         )
         .$extends(observer("ordinary"))
-        .$extends({
-          name: "successor-error-dedup",
-          async query({ proceed }) {
-            return proceed();
-          },
-        });
+        .$extends(
+          extension(
+            "successor-error-dedup",
+            around(() => async (run) => {
+              return run();
+            })
+          )
+        );
       await settle(
         client.$transaction([
           client.record.findMany(),
@@ -1037,15 +1065,18 @@ describe("instrumentation golden transcript", () => {
     const completions: number[] = [];
     const client = createClient({ schema, driver: new StatementDriver() })
       .$extends(instrumentation({ logging: { query: logs.callback } }))
-      .$extends({
-        name: "real-clock-operation",
-        observe(unit, proceed) {
-          if (unit.kind !== "operation") return;
-          return proceed().then(({ durationMs }) => {
-            completions.push(durationMs);
-          });
-        },
-      });
+      .$extends(
+        extension(
+          "real-clock-operation",
+          unit(
+            (_u, next) =>
+              next().then(({ duration }) => {
+                completions.push(duration);
+              }),
+            ["operation"]
+          )
+        )
+      );
     clients.push(client);
 
     await client.$queryRaw(sql`SELECT ${1}`);
