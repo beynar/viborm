@@ -9,7 +9,7 @@
 // what the types check is the declaration's names: models, fields and actions
 // against the schema and each other, actor paths against the actor schema.
 
-import type { OperationPayload, RowsVerbs } from "../client/exports";
+import type { RowsVerbs } from "../client/exports";
 import { ForbiddenError } from "../errors";
 import type {
   ControlsContribution,
@@ -36,14 +36,12 @@ import {
   compilePolicy,
   DEFAULT_MODE,
   type DeclaredModel,
-  EVIDENCE_KEY,
-  evidenceOf,
+  type EVIDENCE_KEY,
   type ModelPolicy,
   type PermissionsConfig,
   policyCompiler,
   verbsOf,
 } from "./compile";
-import { plainFreezer } from "./reuse";
 import { FALSE, type PolicyModel, type Where } from "./rules";
 
 export type { ActorFacts, ActorPaths } from "./actor";
@@ -56,19 +54,14 @@ export type {
 export type { PolicyModel, Rule, Where } from "./rules";
 
 type Schema = VibORMConfig["schema"];
-type Row = Readonly<Record<string, unknown>>;
 
 // =============================================================================
 // ACTIONS: what each model declares, and the names that must be among them
 // =============================================================================
 
 type Reserved = "mandatory" | "actions" | "operations" | "fields" | "domains";
-
-type Levels<Config> = Config extends { readonly levels: infer L }
-  ? L extends readonly (infer Level extends string)[]
-    ? Level
-    : never
-  : never;
+/** A model's actions when it declares no `actions` graph. */
+type Crud = "create" | "read" | "update" | "delete";
 
 type RuleKeys<M> = Exclude<keyof M & string, Reserved>;
 type Space = " " | "\t" | "\r" | "\n";
@@ -82,12 +75,12 @@ type SplitActions<S extends string> = S extends `${infer Head},${infer Tail}`
   : S;
 
 /** Groups contribute their individual actions, never a combined action name. */
-type DeclaredActions<M, L extends string> =
-  | (M extends { readonly actions: infer A } ? keyof A & string : L)
+type DeclaredActions<M> =
+  | (M extends { readonly actions: infer A } ? keyof A & string : never)
   | SplitActions<RuleKeys<M>>;
-type ActionsOf<M, L extends string> =
-  | DeclaredActions<M, L>
-  | (Extract<DeclaredActions<M, L>, "update" | "delete"> extends never
+type ActionsOf<M> =
+  | DeclaredActions<M>
+  | (Extract<DeclaredActions<M>, "update" | "delete"> extends never
       ? never
       : "read");
 
@@ -133,7 +126,12 @@ type NamedActions<M> =
         }>
       : never);
 
-/** Retired declaration keys and rules absent from an explicit action list. */
+/**
+ * Retired declaration keys, and rules absent from the model's action list:
+ * its explicit graph, else create, read, update and delete. A declaration
+ * still widened to its constraint (while a callback in it is inferred) has
+ * no keys of its own to check.
+ */
 type UnlistedKeys<M> =
   | Extract<RuleKeys<M>, "within" | "arms">
   | InvalidRuleKeys<M>
@@ -141,24 +139,21 @@ type UnlistedKeys<M> =
       ?
           | InvalidActionName<keyof A>
           | Exclude<SplitActions<RuleKeys<M>>, keyof A & string>
-      : never);
+      : string extends RuleKeys<M>
+        ? never
+        : Exclude<SplitActions<RuleKeys<M>>, Crud>);
 
-type UnknownActions<Config extends PermissionsConfig> =
-  | InvalidActionName<Levels<Config>>
-  | {
-      [K in keyof Config["models"] & string]: Exclude<
-        NamedActions<Config["models"][K]> | UnlistedKeys<Config["models"][K]>,
-        | Exclude<
-            ActionsOf<Config["models"][K], Levels<Config>>,
-            UnlistedKeys<Config["models"][K]>
-          >
-        | undefined
-      > extends infer Unknown extends string
-        ? [Unknown] extends [never]
-          ? never
-          : `${K}: ${Unknown}`
-        : never;
-    }[keyof Config["models"] & string];
+type UnknownActions<Config extends PermissionsConfig> = {
+  [K in keyof Config["models"] & string]: Exclude<
+    NamedActions<Config["models"][K]> | UnlistedKeys<Config["models"][K]>,
+    | Exclude<ActionsOf<Config["models"][K]>, UnlistedKeys<Config["models"][K]>>
+    | undefined
+  > extends infer Unknown extends string
+    ? [Unknown] extends [never]
+      ? never
+      : `${K}: ${Unknown}`
+    : never;
+}[keyof Config["models"] & string];
 
 // =============================================================================
 // ACTOR PATHS: the ones the declaration spells, against the actor schema
@@ -221,13 +216,7 @@ type UnknownActorPaths<Config extends PermissionsConfig> = Exclude<
   ActorPaths<InferOutput<Config["actor"]>>
 >;
 
-type ConfigKey =
-  | "actor"
-  | "levels"
-  | "mandatory"
-  | "models"
-  | "cache"
-  | "tenant";
+type ConfigKey = "actor" | "mandatory" | "models" | "cache" | "tenant";
 
 /** `unknown` when the declaration's names agree; else a member naming the first disagreement. */
 type DeclarationCheck<Config extends PermissionsConfig> = [
@@ -299,7 +288,7 @@ type SchemaCheck<
     : { readonly "unknown model": Exclude<keyof Models, keyof S> };
 
 // =============================================================================
-// THE ENTRY: a rows step and a methods step (plan §1.1; K7(b), OD-1 option 2)
+// THE ENTRY: one rows step (plan §1.1; K7(b))
 // =============================================================================
 
 const NAME = "viborm.permissions";
@@ -310,7 +299,7 @@ type Listed<Config extends PermissionsConfig> = keyof Config["models"] & string;
 type ActionOf<
   Config extends PermissionsConfig,
   K extends Listed<Config>,
-> = ActionsOf<Config["models"][K], Levels<Config>>;
+> = ActionsOf<Config["models"][K]>;
 type DomainsOf<M> = M extends { readonly domains: infer D }
   ? keyof D & string
   : never;
@@ -360,7 +349,6 @@ type ModelVerbs<Config extends PermissionsConfig, K extends Listed<Config>> = {
       readonly evidence: {
         readonly as: typeof EVIDENCE_KEY;
         readonly names: readonly ActionOf<Config, K>[];
-        readonly ordered: false;
       };
     }) &
   ([GatedOf<Config["models"][K]>] extends [never]
@@ -388,58 +376,17 @@ type PolicyControls<Config extends PermissionsConfig> = DefinitionControls<{
   };
 }>;
 
-type WhereOf<C extends VibORMConfig, K> = Exclude<
-  OperationPayload<"findUnique", ClientSchema<C>[K & keyof ClientSchema<C>]>,
-  undefined
->["where"];
-
-/**
- * One listed model's answers, from its own predicates, through `$access` (D8).
- * Exported, and generic over the client config and model rather than over the
- * selector, so an exported client's declaration names it instead of spelling
- * the selector out. `in out`: one client's answers are only ever compared with
- * its own, and measuring the variance of a whole config cost the native
- * compiler 50% more instantiations on the permissions consumer (316k to 473k).
- */
-export interface ModelAnswers<
-  Action extends string,
-  in out C extends VibORMConfig,
-  in out K,
-> {
-  /**
-   * Whether the actor holds `action` on the one row `where` names (a unique
-   * selector, as `findUnique` takes), or, for a list, each listed action,
-   * each from its own predicate. A row the actor does not view holds none.
-   */
-  can(action: Action, where: WhereOf<C, K>): Promise<boolean>;
-  can<const Asked extends readonly Action[]>(
-    actions: Asked,
-    where: WhereOf<C, K>
-  ): Promise<{ readonly [A in Asked[number]]: boolean }>;
-  /** Resolves when `can` holds for every action; else `ForbiddenError`, hidden row or not. */
-  assert(
-    action: Action | readonly Action[],
-    where: WhereOf<C, K>
-  ): Promise<void>;
-}
-
 /**
  * What applying the policy adds: its arguments, every model of the client
  * governed (a to-one relation reads `| null`), the projection key and the
- * read-gated fields of each listed model, `$as`, and `can` and `assert`.
+ * read-gated fields of each listed model, and `$as`.
  */
 type PermissionsFacts<
   T extends AnyTarget,
   Config extends PermissionsConfig,
 > = Facts<
   AsMethod<ActorFacts<InferOutput<Config["actor"]>>, ScopeOf<Config>>,
-  {
-    readonly [K in Listed<Config>]: ModelAnswers<
-      ActionOf<Config, K>,
-      T["config"],
-      K
-    >;
-  },
+  Record<never, never>,
   PolicyControls<Config>,
   keyof ClientSchema<T["config"]> & string,
   never,
@@ -707,13 +654,10 @@ type GroupSuggestions<
     ? `${Head},${GroupSuggestions<Tail, Exclude<Actions, Trim<Head>>>}`
     : `${Head},${Tail extends ` ${string}` ? " " : ""}${Exclude<Actions, Trim<Head>>}`
   : never;
-type SuggestedRules<M, L extends string> =
-  | "create"
-  | "read"
-  | "update"
-  | "delete"
-  | ActionsOf<M, L>
-  | GroupSuggestions<RuleKeys<M>, ActionsOf<M, L>>;
+type SuggestedRules<M> =
+  | Crud
+  | ActionsOf<M>
+  | GroupSuggestions<RuleKeys<M>, ActionsOf<M>>;
 
 type ContextualPolicy<
   C extends VibORMConfig,
@@ -732,8 +676,7 @@ type ContextualPolicy<
           readonly [Action in SuggestedRules<
             Model extends keyof Config["models"]
               ? Config["models"][Model]
-              : never,
-            Levels<Config>
+              : never
           >]?: ContextualRule<ClientSchema<C>[Model], Actor>;
         } & {
           readonly [Action: string]:
@@ -803,9 +746,6 @@ export function permissions<const Config extends PermissionsConfig>(
       return known;
     const schema = { ...base };
     const compiler = policyCompiler(config, schema, actor);
-    // Frozen copies, never the declaration's own values: the host reuses the
-    // admission and the cache identity of deeply frozen rows only.
-    const freeze = plainFreezer();
     const verbs = Object.fromEntries(
       Object.keys(schema).map((name) => {
         if (!Object.hasOwn(config.models, name))
@@ -824,8 +764,7 @@ export function permissions<const Config extends PermissionsConfig>(
           const own = verbsOf({ models: { [name]: compiler.model(name) } })[
             name
           ]!;
-          const data = freeze(own) ?? own;
-          entry = Object.freeze(acyclic ? { ...data, acyclic } : { ...data });
+          entry = acyclic ? { ...own, acyclic } : own;
           return entry;
         };
         return [name, resolve];
@@ -839,7 +778,6 @@ export function permissions<const Config extends PermissionsConfig>(
       verbs,
       ...confineOf(declared),
     };
-    deepFreeze(rows);
     const uncacheable = config.cache !== "allow";
     const application: Application = {
       models: schema,
@@ -862,54 +800,6 @@ export function permissions<const Config extends PermissionsConfig>(
     };
     prepared.set(base, application);
     return application;
-  };
-  /**
-   * Every listed model's actions, checked (a misspelled action is refused
-   * here): they depend on the declaration alone, so once per policy.
-   */
-  let actions: ReadonlyMap<string, readonly string[]> | undefined;
-  const declaredActions = () => {
-    actions ??= new Map(
-      Object.keys(config.models).map((model) => [
-        model,
-        evidenceOf(config, model).names,
-      ])
-    );
-    return actions;
-  };
-  /** One listed model's `can` and `assert`, read through the delegate called. */
-  const answers = (model: string, delegate: Delegate) => {
-    const names = declaredActions().get(model)!;
-    // One scoped read projects each requested permission independently.
-    const ask = async (asked: readonly string[], where: object) => {
-      // R9 (OD-7): an action the model does not declare is refused
-      // before any statement, as an `as` mode it does not declare is.
-      for (const action of asked)
-        if (!names.includes(action)) throw new ForbiddenError(model, action);
-      const row = await delegate.findUnique({
-        where,
-        select: { [EVIDENCE_KEY]: asked },
-      });
-      const held = row?.[EVIDENCE_KEY] as
-        | Readonly<Record<string, boolean>>
-        | undefined;
-      return asked.map((action) => held?.[action] === true);
-    };
-    return {
-      can: async (action: string | readonly string[], where: object) => {
-        if (typeof action === "string") return (await ask([action], where))[0];
-        const held = await ask(action, where);
-        return Object.fromEntries(
-          action.map((name, index) => [name, held[index]])
-        );
-      },
-      assert: async (action: string | readonly string[], where: object) => {
-        const asked = typeof action === "string" ? [action] : action;
-        const held = await ask(asked, where);
-        const lacking = asked.find((_, index) => !held[index]);
-        if (lacking !== undefined) throw new ForbiddenError(model, lacking);
-      },
-    };
   };
   const governed = extension(
     NAME,
@@ -935,42 +825,8 @@ export function permissions<const Config extends PermissionsConfig>(
       }) => ({
         $as: (bound: unknown, scopes?: readonly string[]) =>
           scope.$bind({ actor: bound, scopes }),
-        ...Object.fromEntries(
-          [...declaredActions().keys()].map((model) => [
-            model,
-            {
-              can(
-                this: Delegate,
-                action: string | readonly string[],
-                where: object
-              ) {
-                return answers(model, this).can(action, where);
-              },
-              assert(
-                this: Delegate,
-                action: string | readonly string[],
-                where: object
-              ) {
-                return answers(model, this).assert(action, where);
-              },
-            },
-          ])
-        ),
       })
     )
   );
   return Object.freeze({ ...(governed as object), config, compile });
-}
-
-/** A listed model's delegate, as `can` and `assert` read through it. */
-interface Delegate {
-  findUnique(args: object): PromiseLike<Row | null>;
-}
-
-/** Freeze `value` and everything it holds; functions stay as they are. */
-function deepFreeze(value: unknown): void {
-  if (value === null || typeof value !== "object" || Object.isFrozen(value))
-    return;
-  for (const member of Object.values(value)) deepFreeze(member);
-  Object.freeze(value);
 }

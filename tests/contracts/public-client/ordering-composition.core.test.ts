@@ -862,6 +862,7 @@ describe("ordering: what a move sends", () => {
           actor: v.object({ admin: v.boolean() }),
           models: {
             ticket: {
+              actions: { read: [], create: [], update: ["read"], audit: [] },
               read: true,
               create: true,
               update: true,
@@ -898,6 +899,7 @@ describe("ordering: what a move sends", () => {
         actor: v.object({ admin: v.boolean() }),
         models: {
           ticket: {
+            actions: { read: [], create: [], update: ["read"], transfer: [] },
             read: true,
             create: true,
             update: true,

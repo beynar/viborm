@@ -1,15 +1,20 @@
+import type { Schema } from "@client/types";
 import { createClient } from "@drivers/sqlite3";
 import { ClientInitializationError } from "@errors";
-import { normalizeExtensionDefinition } from "@extensions/definition";
-import { withRows, withVerbs } from "@extensions/rows-runtime";
+import { admitRows } from "@extensions/admission";
+import type { RowsContribution } from "@extensions/controls";
 import { s } from "@schema";
 import { v } from "@validation";
 import { createSchemaRegistry } from "@validation/builder";
+import type { SchemaRegistryLookup } from "@validation/types";
 import { expect, test } from "vitest";
 
-// These definitions are stated as plain objects: what reads their rows is brought here.
-withRows();
-withVerbs();
+/** A definition's `rows` as applying it admits them. */
+const admitted = (
+  definition: { readonly name: string; readonly rows: RowsContribution },
+  schema: Schema,
+  registry: SchemaRegistryLookup<Schema>
+) => admitRows(definition.rows, schema, definition.name, registry);
 
 function frozenRows(predicate: Readonly<Record<string, unknown>>) {
   return Object.freeze({
@@ -28,17 +33,11 @@ test("immutable row admission reuses facts within one registry only", () => {
     name: "filter",
     rows: frozenRows(Object.freeze({ id: "one" })),
   };
-  const first = normalizeExtensionDefinition(definition, schema, registry);
-  expect(normalizeExtensionDefinition(definition, schema, registry).rows).toBe(
-    first.rows
+  const first = admitted(definition, schema, registry);
+  expect(admitted(definition, schema, registry)).toBe(first);
+  expect(admitted(definition, schema, createSchemaRegistry(schema))).not.toBe(
+    first
   );
-  expect(
-    normalizeExtensionDefinition(
-      definition,
-      schema,
-      createSchemaRegistry(schema)
-    ).rows
-  ).not.toBe(first.rows);
 });
 
 test("a declaration changed after it was applied is not read again; a field's own schema reads it at each application", () => {
@@ -53,11 +52,11 @@ test("a declaration changed after it was applied is not read again; a field's ow
       models: { post: { visible: { root: predicate } } },
     },
   };
-  const first = normalizeExtensionDefinition(definition, schema, registry);
+  const first = admitted(definition, schema, registry);
   predicate.id = "two";
-  const second = normalizeExtensionDefinition(definition, schema, registry);
-  expect(second.rows).toBe(first.rows);
-  expect(second.rows?.models.post?.visible?.root).toEqual({
+  const second = admitted(definition, schema, registry);
+  expect(second).toBe(first);
+  expect(second.models.post?.visible?.root).toEqual({
     id: { equals: "one" },
   });
   const custom = {
@@ -71,14 +70,8 @@ test("a declaration changed after it was applied is not read again; a field's ow
     name: "custom",
     rows: frozenRows(Object.freeze({ id: "one" })),
   };
-  const admitted = normalizeExtensionDefinition(
-    immutable,
-    custom,
-    customRegistry
-  );
-  expect(
-    normalizeExtensionDefinition(immutable, custom, customRegistry).rows
-  ).not.toBe(admitted.rows);
+  const once = admitted(immutable, custom, customRegistry);
+  expect(admitted(immutable, custom, customRegistry)).not.toBe(once);
 });
 
 test("an edited schema, prepared again, and invalid predicates never inherit an earlier admission", () => {
@@ -88,23 +81,19 @@ test("an edited schema, prepared again, and invalid predicates never inherit an 
     name: "filter",
     rows: frozenRows(Object.freeze({ id: "one" })),
   };
-  const first = normalizeExtensionDefinition(definition, schema, registry);
+  const first = admitted(definition, schema, registry);
   schema.post = s.model({ id: s.string().id() });
-  expect(
-    normalizeExtensionDefinition(
-      definition,
-      schema,
-      createSchemaRegistry(schema)
-    ).rows
-  ).not.toBe(first.rows);
+  expect(admitted(definition, schema, createSchemaRegistry(schema))).not.toBe(
+    first
+  );
   const invalid = frozenRows(Object.freeze({ misspelled: true }));
   for (const name of ["first", "second"]) {
-    expect(() =>
-      normalizeExtensionDefinition({ name, rows: invalid }, schema, registry)
-    ).toThrow(ClientInitializationError);
-    expect(() =>
-      normalizeExtensionDefinition({ name, rows: invalid }, schema, registry)
-    ).toThrow(name);
+    expect(() => admitted({ name, rows: invalid }, schema, registry)).toThrow(
+      ClientInitializationError
+    );
+    expect(() => admitted({ name, rows: invalid }, schema, registry)).toThrow(
+      name
+    );
   }
 });
 

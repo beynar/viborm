@@ -7,7 +7,6 @@
  */
 import type { Schema } from "@client/types";
 import { isPlainRecord } from "@schema/relation/terminal";
-import { admitRows } from "./admission";
 import type { ExtensionPart } from "./chain";
 import type {
   DeletionContribution,
@@ -17,7 +16,7 @@ import type {
 import { extensionError } from "./definition";
 import { builtPart, type DefinitionDraft } from "./extension";
 import { Kept } from "./judge-words";
-import { rowsPart } from "./rows-part";
+import { filtersPart } from "./rows";
 import {
   ArgTestFilter,
   ArgValue,
@@ -180,7 +179,8 @@ function writeRule(
   draft: DefinitionDraft,
   entries: Readonly<Record<string, unknown>>,
   schema: Schema,
-  judge: VerbsTranslation | undefined
+  judge: VerbsTranslation | undefined,
+  host: readonly ExtensionPart[]
 ): void {
   const { name } = draft;
   let state = states.get(draft);
@@ -260,9 +260,11 @@ function writeRule(
       const kept = remove.instead;
       if (!(kept instanceof Kept))
         refuse("delete.instead is written keep(data)");
+      // What keeps deleted rows comes with `keep` in an entry written out.
+      if (!host.includes(kept.host))
+        refuse("keep() is written in an entry, not one given as a function");
       kept.write({
         model,
-        schema,
         args: draft.args,
         deletion: () => (state.deletion ??= { models: {} }),
         refuse,
@@ -316,18 +318,6 @@ function finishRules(draft: DefinitionDraft, state: RulesState): void {
   draft.rows = rows;
 }
 
-/** Admits the rows a rule wrote, against the schema it is applied to. */
-export const ruleAdmission: ExtensionPart = {
-  admit(application) {
-    const { definition, schema, registry } = application;
-    if (definition.rows === undefined) return;
-    application.definition = {
-      ...definition,
-      rows: admitRows(definition.rows, schema, definition.name, registry),
-    };
-  },
-};
-
 /** Whether an entry holds what only judging rows applies. */
 export const judges = (entry: unknown): boolean =>
   typeof entry === "function" ||
@@ -342,24 +332,24 @@ export const judges = (entry: unknown): boolean =>
 
 /**
  * `rule` untyped: what an official extension builds its rule with, typed by
- * its own entry point rather than by an inferred target. It brings what
- * judges rows (`verbs`) only when handed it: an extension whose rules only
- * filter does not carry it.
+ * its own entry point rather than by an inferred target, with the host parts
+ * it is handed beside the filters' (what judges rows, what keeps deleted
+ * rows): an extension whose rules only filter carries neither.
  */
 export function buildRule(
   rules:
     | Readonly<Record<string, unknown>>
     | ((schema: Schema) => Readonly<Record<string, unknown>>),
-  verbs?: { readonly part: ExtensionPart; readonly translate: VerbsTranslation }
+  host: readonly ExtensionPart[],
+  translate?: VerbsTranslation
 ): unknown {
-  const host: ExtensionPart[] = [ruleAdmission, rowsPart];
-  if (verbs !== undefined) host.push(verbs.part);
-  return builtPart(host, (draft, schema) =>
+  return builtPart([filtersPart, ...host], (draft, schema) =>
     writeRule(
       draft,
       typeof rules === "function" ? rules(schema) : rules,
       schema,
-      verbs?.translate
+      translate,
+      host
     )
   );
 }

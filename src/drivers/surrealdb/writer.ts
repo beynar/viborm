@@ -13,7 +13,6 @@ import {
   type UniqueConstraintError,
   UnsupportedOperationError,
 } from "@errors";
-import { writeRefusal } from "@extensions/row-domain";
 import { dividesByZero } from "@query-engine/raptor3/shared/decimal";
 import { JoinedValue } from "@query-engine/raptor3/shared/insert-value";
 import {
@@ -624,18 +623,14 @@ export class SurrealWriter extends Writer {
     question: Question,
     judgement: RowJudgement | undefined
   ): PreparedGuardFailure | undefined {
-    if (!(judgement && this.#q.domain)) return undefined;
-    const edge = question.member?.edge ?? question.through;
-    const nested =
-      edge && question.verb ? ([question.verb, edge.name] as const) : undefined;
-    // Where nothing judges the rows a write leaves, its refusal says no why.
-    return (
-      this.#q.domain.judge?.refusal(
-        this.operation.operation,
-        question.model,
-        judgement,
-        nested
-      ) ?? writeRefusal(this.operation.operation, nested)
+    const judge = this.#q.domain?.judge;
+    if (!(judgement && judge)) return undefined;
+    return judge.refusal(
+      this.operation.operation,
+      question.model,
+      judgement,
+      question.verb,
+      (question.member?.edge ?? question.through)?.name
     );
   }
 
@@ -650,7 +645,8 @@ export class SurrealWriter extends Writer {
     const low = this.#low;
     const rows = await this.computed(model, values);
     const table = fieldName(model["~"].names.sql!);
-    const judge = this.#q.domain?.judge?.produced(model);
+    const judges = this.#q.domain?.judge;
+    const judge = judges?.produced(model);
     const judged = judge?.predicate !== undefined;
     const verb = sql.raw(skips ? "INSERT IGNORE" : "INSERT");
     const statement = low.hoisted(() => {
@@ -685,11 +681,12 @@ export class SurrealWriter extends Writer {
       model,
       sql: statement,
       ...(judged && {
-        stops: this.#q.domain!.judge!.refusal(
+        stops: judges!.refusal(
           this.operation.operation,
           model,
           undefined,
-          relation === undefined ? undefined : ["create", relation]
+          "create",
+          relation
         ),
       }),
     };

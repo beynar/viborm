@@ -8,13 +8,8 @@
  */
 
 import { PgDriver } from "@drivers/pg";
-import { withRows, withVerbs } from "@extensions/rows-runtime";
 import { runDeletionCapabilityBehavior } from "@tests/contracts/engine/write/deletion-capability-behavior";
 import { dropEveryLiveTable, TEST_CONNECTION_STRING } from "./pg-fixtures";
-
-// These definitions are stated as plain objects: what reads their rows is brought here.
-withRows();
-withVerbs();
 
 const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
 

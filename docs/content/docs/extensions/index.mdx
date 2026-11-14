@@ -1,6 +1,6 @@
 ---
 title: Extensions
-description: Extend request, query, statement, observation, client, and model boundaries, and declare arguments, visible rows, what a delete does, fields an extension writes, and fields computed on the rows a call returns
+description: Extend a client with calls, units, arguments, rules, defaults, methods and computed fields, each part paying only for itself
 icon: puzzle
 ---
 
@@ -9,78 +9,72 @@ and the derived client carries one ordered extension chain and its own operation
 scope.
 
 ```ts
-import { defineExtension } from "viborm";
+import { call, extension } from "viborm";
 
-const timing = defineExtension({
-  name: "timing",
-  query: async ({ proceed }) => {
+const timing = extension(
+  "timing",
+  call.around(() => async (run) => {
     const startedAt = performance.now();
-    const value = await proceed();
+    const value = await run();
     recordDuration(performance.now() - startedAt);
     return value;
-  },
-});
+  })
+);
 
 const measured = client.$extends(timing);
 ```
 
-`$extends()` also accepts a synchronous client factory. It receives the exact
-current view, including earlier extensions, and returns its derived client:
-
-```ts
-const extended = client.$extends(base => base.$extends(timing));
-```
-
-Schema-dependent extensions such as `client.$extends(permissions({...}))` use this
-same path. Factories apply ordinary definitions through `$extends()`; they do
-not create a second extension chain or bypass its admission rules.
+An extension is always applied the same way: `client.$extends(extension)`,
+where `extension` is a value built by `extension(name, ...parts)` or returned
+by an official extension, such as `client.$extends(permissions({...}))`.
+`$extends()` takes no object literal and no function of the client.
 
 <CardGroup>
   <Card
     title="Create an extension"
     href="/docs/extensions/create">
-    Choose the right boundary and build a typed reusable extension
+    Choose the narrowest part and build a typed extension
   </Card>
   <Card
     title="Recipes"
     href="/docs/extensions/recipes">
-    Tenancy, audit stamping and optimistic locking, one declaration each
+    Tenancy, audit stamping and optimistic locking, one extension each
+  </Card>
+  <Card
+    title="Migrating an extension"
+    href="/docs/extensions/migrating">
+    From the earlier contract: each old member and the part that replaces it
   </Card>
 </CardGroup>
 
-## The twelve capabilities
+## The parts
 
-An extension has one name and any subset of twelve capabilities:
+An extension has one name and up to eight parts, each built by a function
+imported from `viborm`. Each part brings into your bundle the code that runs
+it, and nothing else:
 
-| Capability | Boundary | Authority |
+| Part | Boundary | Authority |
 |---|---|---|
-| `request` | Unvalidated model-operation input | Return a synchronous patch before core validation |
-| `query` | Prepared logical model or raw operation | Wrap execution; a read can return without provider execution |
-| `statement` | One materialized typed `Sql` statement | Return a replacement `Sql` before rendering |
-| `observe` | A real lifecycle unit | Read completion only; cannot change application behavior |
-| `client` | Derived client proxy | Add typed dollar-prefixed methods |
-| `model` | Derived model delegate | Add typed model methods |
-| `controls` | Operation arguments | Declare an argument; only the declaring extension's handlers see its value |
-| `rows` | Which rows an operation sees | Row filters per model, chosen per call by one argument, with the call's values |
-| `deletion` | What a delete does | Turn a delete of a model into an update with fixed data and the call's time |
-| `data` | Fields every create and update writes | Fixed values or the call's values, written where the caller left the field out |
-| `order` | The order a model's reads take | Per model, the `orderBy` its reads take when the caller gives none |
-| `result` | The rows an operation returns | Fields computed from each row's `needs`, selectable and omittable by name |
+| `call` | A logical model or raw call, before validation | Patch the arguments with a synchronous shallow patch, or refuse the call |
+| `call.around` | The prepared call | Wrap execution; a read outside an array can answer without it |
+| `unit` | A real unit of work: operation, statement, batch, transaction, savepoint, connection | Observe its end; a declared part may rewrite a statement |
+| `args` | A call's arguments | Declare an argument; only the declaring extension's parts and the chain's rules read its value |
+| `rule` | The rows every call of the client reads and writes | Filters, write judgements, gated fields and kept rows, per model, in the ORM's own `where` and `data` |
+| `defaults` | What a call gets when it says nothing | Default order, default data and default omission, per model; the caller can override them |
+| `methods` | The derived client and its model delegates | Add typed `$`-prefixed client methods and model methods |
+| `fields` | The rows an operation returns | Fields computed from each row's `needs`, selectable and omittable by name |
 
-These are one extension language, not one universal hook. Request transforms
-are synchronous. Query interceptors are asynchronous and authoritative.
-Statement transforms are trusted low-level SQL rewrites. Observers are
-protected and failure-contained. Client and model factories change the static
-surface. `controls`, `rows`, `deletion`, `data` and `order` are plain data: core applies them at
-every place they concern, so an extension declares what it wants instead of
-rewriting queries.
+These are one extension language, not one universal hook. A first moment is
+synchronous and runs before validation. A second moment is asynchronous and
+the child it runs is authoritative. A unit wraps physical work, and a rewrite
+is trusted low-level SQL. Methods change the static surface. Rules and
+defaults are plain data: the engine applies them at every place they concern,
+so an extension declares what it wants instead of rewriting queries.
 
 ## Official extensions
 
-Official extensions use the same composition language. Cache, instrumentation,
-default omit, write hooks and ordering retain private access to the core facts
-they need; soft delete and Permissions are built only from the public
-capabilities above:
+Official extensions are built from the same public parts and applied in one
+step:
 
 <CardGroup>
   <Card
@@ -91,7 +85,7 @@ capabilities above:
   <Card
     title="Instrumentation"
     href="/docs/extensions/instrumentation">
-    Protected tracing, structured logging, and diagnostic disclosure
+    Tracing, structured logging, and diagnostic disclosure
   </Card>
   <Card
     title="Default omit"
@@ -122,114 +116,101 @@ capabilities above:
 
 ## Operation lifecycle
 
-Calling a model method still creates a lazy operation. Its operation handlers
-start only when that operation is awaited or admitted to an array transaction.
-Definition normalization and client/model method factories instead run when a
-derived root or transaction view is constructed:
+Calling a model method still creates a lazy operation. Its parts start only
+when that operation is awaited or admitted to an array transaction. A
+`methods` factory runs when the client `$extends()` returns is built, and in
+every other view when what it returns is first read:
 
 ```text
-operation observer begins
-  declared controls taken out of the arguments and checked
-  request transforms
-  default omit
-  computed fields planned (`result`: their needs read, their names removed)
-  core validation and mandatory preparation
-  query interceptors
-    official cache around the prepared core read
-      planning, compilation, and late validation
-      for each physical statement
-        statement observer begins
-        statement transform
-        render and provider execution
-      core result parse
-    query post-work
-  computed fields attached to the returned rows (computed when first read)
-operation observer completes
+unit `operation` begins                                     [unit]
+  extension arguments taken out of the arguments, validated  [args]
+  first moments, in chain order                             [call]
+  default omission                                          [defaults]
+  computed fields planned                                   [fields]
+  validation and preparation
+  second moments, nested, the first applied outermost       [call.around]
+    { inner: true } parts (the official cache), closest to the core
+      planning and compilation
+      for each logical statement
+        rewrites, in chain order                            [unit, rewrites]
+        rendering, parameter snapshot, connection
+        unit `statement` begins, one per physical send      [unit]
+          driver
+      result read
+  computed fields attached (computed when first read)
+unit `operation` ends
 ```
 
-Array transactions add one outer `batch` unit. Every member completes request
-preparation and query admission before provider work begins. Fallback execution
-then runs members in order inside the real transaction or savepoint; a native
-batch uses one provider submission while retaining one logical operation and
-one physical statement unit for each member statement.
+Rules and defaults are not a moment: the engine applies them wherever a model
+appears in the query.
 
-The `statement` transform receives safe model statements and tagged/fragment
-raw `Sql`. It excludes verbatim `$queryRawUnsafe` and `$executeRawUnsafe` text.
-Physical statement observation still covers unsafe raw without disclosing SQL
-or parameters.
+Array transactions add one outer `batch` unit. Every member completes its
+first moments and reaches `run()` in its second before provider work begins.
+Fallback execution then runs members in order inside the real transaction or
+savepoint; a native batch uses one provider submission while retaining one
+logical operation per member and one `statement` unit for the submission.
 
-## Query continuation authority
+A rewrite receives safe model statements and tagged/fragment raw `Sql`. It
+excludes verbatim `$queryRawUnsafe` and `$executeRawUnsafe` text, whose
+physical execution is still a `statement` unit.
 
-For mutations and raw operations, a matched query interceptor must call
-`proceed()` exactly once. Reads may deliberately return without it. Once
-`proceed()` starts, the child result or error is authoritative: returning a
-fabricated value does not replace it. A rejected child and rejected post-work
-remain distinct failures.
+## Continuation authority
 
-In `$transaction([...])`, all matched query chains must reach `proceed()`
+For writes and raw queries, a matched `call.around` must call `run()` exactly
+once. Reads outside an array may deliberately return without it. Once `run()`
+starts, the child's result or error is authoritative: returning a fabricated
+value does not replace a failure, and a child that fails fails the call with
+its own error, whatever the handler throws after. There is no aggregated
+error.
+
+In `$transaction([...])`, all matched second moments must reach `run()`
 before any provider work. A refusal, double call, late detached call, or
 rejected handler aborts admission and submits nothing.
 
-## Protected observation
+## Observation
 
-An ordinary observer receives only a frozen lifecycle unit and a protected
-completion:
-
-```ts
-const audit = defineExtension({
-  name: "audit",
-  observe(unit, proceed) {
-    void proceed().then((completion) => {
-      record({ unit, completion });
-    });
-  },
-});
-```
-
-Units are discriminated as `operation`, `statement`, `batch`, `transaction`,
-`savepoint`, `connection`, or `cache`. Public facts are limited to
-the unit kind, applicable model/operation spelling, duration, success/failure,
-a sanitized error summary, and optional commit certainty. Observers never see
-the application result, rows, SQL, parameters, cache keys, raw provider error,
-driver, correlation identity, or internal tokens. A throw, rejection, or
-never-settling promise returned by an ordinary observer cannot delay or alter
-the application.
-
-The official `instrumentation()` extension uses the same protected rail plus
-private core facts. Public observers do not gain those facts or their disclosure
-authority.
-
-## Reusable and schema-bound definitions
-
-`defineExtension({...})` creates a schema-generic extension. Its request and
-query contributions use the polymorphic all-operation function form.
-Schema-specific model/operation maps use the curried binder:
+A `unit` part wraps a real unit of work and reads its end:
 
 ```ts
-const tenant = defineExtension<typeof schema>()({
-  name: "tenant",
-  request: {
-    post: {
-      findMany({ input }) {
-        return { where: addTenant(input.where, tenantId) };
-      },
-    },
-  },
-});
+import { extension, unit } from "viborm";
+
+const audit = extension(
+  "audit",
+  unit(async (u, next) => {
+    const end = await next();
+    record({ kind: u.kind, model: u.model, operation: u.operation, end });
+    return end;
+  })
+);
 ```
+
+Units are `operation`, `statement`, `batch`, `transaction`, `savepoint`,
+`connection`, and the kinds extensions emit (the official cache emits
+`cache`). The end has the status, duration, and commit certainty where there
+is a commit; it never carries the application result.
+
+Facts are read on demand, through words imported from `viborm`: `sql(u)`,
+`parameters(u)`, `driver(u)`, `failure(u)` and the others in
+[Create an extension](/docs/extensions/create#unit-around-physical-work). A
+fact no word reads is never produced.
+
+A unit handler runs in the call: VibORM awaits it, and what it throws fails
+the call. An observer that must never affect the application contains its own
+failures, as the official [`instrumentation()`](/docs/extensions/instrumentation)
+does.
 
 ## Authorization boundary
 
-Request and query capabilities are useful policy foundations, but a root
-filter is not complete authorization. Nested reads and writes, relation membership,
-field use, raw SQL, statement transforms, and data-dependent write scopes need
-one graph-wide semantic policy owner. [`viborm/permissions`](/docs/extensions/permissions)
-is that owner: one predicate per model and action, judged in the statement at
-every scope; raw SQL and statement transforms still see every row. `omit` is
-presentation control, not authorization: query-level and client-default
-omission can be overridden, and even model `.omit()` does not replace
-database authorization. `rows` and the soft-delete extension built on it
-decide which rows are visible, not who may see them: any caller can choose
-another mode or pass another value, and raw SQL ignores them. A tenant filter
-keeps a call inside the tenant it names; your server, not the caller, must
-choose that tenant.
+Calls, rules and defaults are useful policy foundations, but a root filter is
+not complete authorization. Nested reads and writes, relation membership,
+field use, raw SQL, and statement rewrites need one graph-wide semantic policy
+owner. [`viborm/permissions`](/docs/extensions/permissions) is that owner: one
+predicate per model and action, judged in the statement at every scope; raw
+SQL and statement rewrites still see every row. Omission is presentation
+control, not authorization: query-level and default omission can be
+overridden, and even model `.omit()` does not replace database authorization.
+A `rule`, and the soft-delete extension built on one, decides which rows are
+visible, not who may see them: any caller can choose another mode or pass
+another value unless it is a `bound` argument, and raw SQL ignores them. A
+tenant filter keeps a call inside the tenant it names; your server, not the
+caller, must choose that tenant.

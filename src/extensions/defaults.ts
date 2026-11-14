@@ -11,7 +11,6 @@
 import { omitPart } from "@client/default-omit-identity";
 import type { ClientOmitConfig } from "@client/omit";
 import type { Schema } from "@client/types";
-import { getModelKeyCatalog } from "@schema/model/keys";
 import type { ExtensionPart } from "./chain";
 import type {
   AnyTarget,
@@ -26,8 +25,9 @@ import type {
 import type { DataContribution, OrderContribution } from "./controls";
 import { extensionError } from "./definition";
 import { builtPart, type DefinitionDraft } from "./extension";
-import { rowsPart } from "./rows-part";
+import { defaultOrderPart } from "./order";
 import { hostValue } from "./rows-translation";
+import { defaultDataPart } from "./stamps";
 
 /** `omitted`'s value. */
 class OmittedValue {}
@@ -38,9 +38,6 @@ function omittedValue(): OmittedWord;
 function omittedValue(): unknown {
   return Object.freeze(new OmittedValue());
 }
-
-const DIRECTIONS = new Set(["asc", "desc"]);
-const UNORDERED_SCALARS = new Set(["json", "vector", "point", "blob"]);
 
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
@@ -72,58 +69,20 @@ function writeDefaults(
         name
       );
     if (!isPlain(entry)) refuse("an entry is an object");
-    const scalars = schema[model]!["~"].state.scalars;
-    const fields = (kind: string, given: unknown): Record<string, unknown> => {
-      if (!isPlain(given)) refuse(`${kind} is an object of fields`);
-      const out: Record<string, unknown> = {};
-      for (const [field, value] of Object.entries(given)) {
-        if (!Object.hasOwn(scalars, field))
-          refuse(`${kind} names unknown field "${field}"`);
-        out[field] = hostValue(value);
-      }
-      return out;
-    };
+    // The data and order parts check the fields and terms against the model.
+    const fields = (given: unknown) =>
+      hostValue(given) as Record<string, unknown>;
     for (const key of Object.keys(entry))
       if (!["orderBy", "create", "update", "fields"].includes(key))
         refuse(`"${key}" is not a defaults key`);
     if (entry.create !== undefined || entry.update !== undefined)
       (data.models as Record<string, object>)[model] = {
         ...data.models[model],
-        ...(entry.create === undefined
-          ? {}
-          : { create: fields("create", entry.create) }),
-        ...(entry.update === undefined
-          ? {}
-          : { update: fields("update", entry.update) }),
+        ...(entry.create === undefined ? {} : { create: fields(entry.create) }),
+        ...(entry.update === undefined ? {} : { update: fields(entry.update) }),
       };
-    if (entry.orderBy !== undefined) {
-      const terms = Array.isArray(entry.orderBy)
-        ? entry.orderBy
-        : [entry.orderBy];
-      // Its reads end with the model's key, so the order is total.
-      if (getModelKeyCatalog(schema[model]!).rowKey === undefined)
-        refuse("orderBy needs a model with a key");
-      const admitted = terms.map((term: unknown) => {
-        const [field, ...others] = isPlain(term) ? Object.keys(term) : [];
-        const state =
-          field !== undefined && Object.hasOwn(scalars, field)
-            ? scalars[field]!["~"].state
-            : undefined;
-        if (
-          others.length > 0 ||
-          state === undefined ||
-          state.array ||
-          UNORDERED_SCALARS.has(state.type) ||
-          !DIRECTIONS.has(String((term as Record<string, unknown>)[field!]))
-        )
-          refuse(
-            'orderBy is { field: "asc" | "desc" } terms over its ordered scalars'
-          );
-        return Object.freeze({ ...(term as Record<string, "asc" | "desc">) });
-      });
-      if (admitted.length === 0) refuse("orderBy names a term");
-      (order.models as Record<string, object>)[model] = Object.freeze(admitted);
-    }
+    if (entry.orderBy !== undefined)
+      (order.models as Record<string, unknown>)[model] = entry.orderBy;
     if (entry.fields !== undefined) {
       if (!isPlain(entry.fields)) refuse("fields is an object");
       const own: Partial<Record<string, true>> = { ...omit[model] };
@@ -141,15 +100,9 @@ function writeDefaults(
   if (Object.keys(omit).length > 0) draft.omit = omit;
 }
 
-/** Whether an entry omits a field: then the part brings what omits it. */
-const omits = (entry: unknown): boolean =>
-  isPlain(entry) && entry.fields !== undefined;
-/** Whether an entry writes or orders: then the part brings what does. */
-const stamps = (entry: unknown): boolean =>
-  isPlain(entry) &&
-  (entry.create !== undefined ||
-    entry.update !== undefined ||
-    entry.orderBy !== undefined);
+/** Whether an entry holds one of `keys`: then the part brings what reads it. */
+const has = (entry: unknown, ...keys: string[]): boolean =>
+  isPlain(entry) && keys.some((key) => entry[key] !== undefined);
 
 /**
  * What holds where the caller says nothing: the order of reads, the fields
@@ -169,8 +122,12 @@ export function defaults(
 ): unknown {
   const lazy = typeof entries === "function";
   const host: ExtensionPart[] = [];
-  if (lazy || Object.values(entries).some(stamps)) host.push(rowsPart);
-  if (lazy || Object.values(entries).some(omits)) host.push(omitPart);
+  const given = lazy ? [] : Object.values(entries);
+  if (lazy || given.some((entry) => has(entry, "create", "update")))
+    host.push(defaultDataPart);
+  if (lazy || given.some((entry) => has(entry, "orderBy")))
+    host.push(defaultOrderPart);
+  if (lazy || given.some((entry) => has(entry, "fields"))) host.push(omitPart);
   return buildDefaults(entries, host);
 }
 

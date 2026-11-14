@@ -110,7 +110,7 @@ describe("SQLite3: viborm/soft-delete configuration branches", () => {
     expect(() =>
       base.$extends(softDelete({ models: { model: { deletedAt: "missing" } } }))
     ).toThrow(
-      'Extension "viborm.softDelete" rule.model: keep() names unknown field "missing".'
+      'Extension "viborm.softDelete" deletion.model.at names unknown scalar.'
     );
   });
 });

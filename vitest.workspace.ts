@@ -211,7 +211,6 @@ export const projects: TestProjectConfiguration[] = [
         "tests/unit/instrumentation/official-observer*.core.test.ts",
         "tests/unit/permissions/actor.core.test.ts",
         "tests/unit/permissions/compile.core.test.ts",
-        "tests/unit/permissions/reuse.core.test.ts",
         "tests/unit/permissions/availability-boundaries.core.test.ts",
         "tests/providers/local/sqlite3-permissions-compiled-policy.test.ts",
         "tests/providers/local/sqlite3-permissions-entry.test.ts",

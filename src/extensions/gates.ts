@@ -54,7 +54,8 @@ export function gateHolds(
   const held: Sql[] = [];
   // A gate masks a value: neither a positive nor a negative test, so no
   // set it reads is bounded ({@link setBound}) and it holds where it would.
-  q.unbounded(() => {
+  q.unbounded++;
+  try {
     for (const [layer, read, input] of gate) {
       const tested = input === read ? [read] : [read, input];
       for (const where of visible ? tested.slice(1) : tested) {
@@ -62,7 +63,9 @@ export function gateHolds(
         if (lowered !== undefined) held.push(lowered);
       }
     }
-  });
+  } finally {
+    q.unbounded--;
+  }
   return held.length === 0 ? undefined : q.adapter.operators.and(...held);
 }
 /**
@@ -160,8 +163,7 @@ export function refuseGatedRows(
 }
 /**
  * A declared projection key's value on the row at `alias` (K5): the
- * layer's `read` once, around one test per name. Ordered, the last name
- * that holds; else a document of one boolean per name.
+ * layer's `read` once, around a document of one boolean per name.
  */
 export function evidence(
   q: SqlQueries,
@@ -171,25 +173,10 @@ export function evidence(
   taken: boolean
 ): Sql {
   const a = q.adapter;
-  const { layer, read, ordered } = field.evidence;
+  const { layer, read } = field.evidence;
   const visible = taken ? undefined : layerHolds(q, model, layer, read, alias);
   const test = (input: Input) =>
     input === read ? undefined : layerHolds(q, model, layer, input, alias);
-  if (ordered) {
-    const highest = a.expressions.caseWhen(
-      [...field.names].reverse().map(([name, input]) => ({
-        when: test(input) ?? a.literals.true(),
-        then: a.expressions.cast(q.value(name), "text"),
-      })),
-      a.literals.null()
-    );
-    return visible === undefined
-      ? highest
-      : a.expressions.caseWhen(
-          [{ when: visible, then: highest }],
-          a.literals.null()
-        );
-  }
   const held = a.json.objectFromColumns(
     field.names.map(([name, input]) => [name, q.truth(test(input))])
   );

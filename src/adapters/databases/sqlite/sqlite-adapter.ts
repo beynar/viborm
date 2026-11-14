@@ -69,7 +69,6 @@ import {
   createSubqueries,
   decimalCoefficientPrecision,
   escapeGlobLiteral,
-  rowValues,
   stringifyJson,
 } from "../../shared/standard-sql";
 import { SQLITE_BINARY64_FORMAT } from "./storage/json-number";
@@ -770,9 +769,6 @@ const SQLITE_ASSERTIONS = {
     sql`SELECT CASE WHEN EXISTS (${query}) THEN 1 ELSE json_extract('x', '$') END AS "__viborm_assert__"`,
   notExists: (query: Sql): Sql =>
     sql`SELECT CASE WHEN NOT EXISTS (${query}) THEN 1 ELSE json_extract('x', '$') END AS "__viborm_assert__"`,
-  // The refusal names its sentinel (`bad JSON path: '__viborm_refused__'`).
-  holds: (condition: Sql, from?: Sql): Sql =>
-    sql`SELECT CASE WHEN ${condition} THEN 1 ELSE json_extract('{}', '__viborm_refused__') END AS "__viborm_judged__"${from ? sql` FROM ${from}` : sql``}`,
 };
 
 const SQLITE_JOINS = {
@@ -884,18 +880,7 @@ const SQLITE_CTE = createCteBuilders(quoteIdent, {
   materializing: sql.raw("MATERIALIZED"),
 });
 
-/**
- * A multi-row `VALUES` is the one compound SQLite does not count against
- * `SQLITE_MAX_COMPOUND_SELECT` (500 terms; measured on 3.53.2: 500 `UNION
- * ALL SELECT` arms refused, 10,922 `VALUES` rows read), so the produced rows
- * follow their typed head as one: the head's columns still type every row,
- * as an arm's did (affinity and collation measured equal).
- */
-const SQLITE_SET_OPERATIONS = createSetOperations(
-  quoteIdent,
-  (typed, rows, alias) =>
-    sql`(${typed.head} UNION ALL VALUES ${sql.join(rows.map(rowValues), ", ")}) AS ${sql.raw(quoteIdent(alias))}`
-);
+const SQLITE_SET_OPERATIONS = createSetOperations();
 
 const SQLITE_RAW = createRawSql();
 

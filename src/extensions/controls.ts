@@ -140,9 +140,8 @@ export type RowsContribution = {
  *
  * `evidence` declares a projection key (`evidence.as`) a `select` or
  * `include` may name at every depth, on reads and on the rows a write
- * returns: per row, whether each of `names` holds there beside `read`, or,
- * `ordered`, the last of them that holds (`null` on a row `read` does not
- * hold). `reads` gates a field on a predicate: the row carries it only where
+ * returns: per row, whether each of `names` holds there beside `read`.
+ * `reads` gates a field on a predicate: the row carries it only where
  * `read` and that predicate hold, a `select` naming it fails on a row
  * without them, and every operand a call writes over it (`where`, `orderBy`,
  * aggregates, `distinct`, unique lookups, relation filters) reads it as
@@ -160,7 +159,6 @@ export type RowsVerbs = {
   readonly evidence?: {
     readonly as: string;
     readonly names: readonly string[];
-    readonly ordered?: boolean;
   };
   readonly reads?: { readonly [field: string]: string };
 };

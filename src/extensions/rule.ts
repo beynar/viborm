@@ -6,6 +6,7 @@
  * is `rows-translation.ts`.
  */
 import type { Schema } from "@client/types";
+import { isPlainRecord } from "@schema/relation/terminal";
 import type {
   AnyTarget,
   EmptyFacts,
@@ -17,8 +18,9 @@ import type {
 } from "./contract";
 import type { RowsContribution } from "./controls";
 import { builtPart, type DefinitionDraft } from "./extension";
-import { rowsPart, verbsPart } from "./rows-part";
-import { buildRule, judges, ruleAdmission } from "./rows-translation";
+import { Kept } from "./judge-words";
+import { verbsPart } from "./rows-part";
+import { buildRule, judges } from "./rows-translation";
 import { verbsTranslation } from "./verbs-translation";
 
 /**
@@ -38,13 +40,22 @@ export function rule(
     | Readonly<Record<string, unknown>>
     | ((schema: Schema) => Readonly<Record<string, unknown>>)
 ): unknown {
-  // What judges rows comes with an entry that judges: one of a function is
-  // not known before it is read.
+  // What judges rows comes with an entry that judges (one of a function is
+  // not known before it is read); what keeps deleted rows, with `keep`.
+  const lazy = typeof rules === "function";
+  const entries = lazy ? [] : Object.values(rules);
+  const judged = lazy || entries.some(judges);
+  const kept = entries.flatMap((entry) => {
+    const instead =
+      isPlainRecord(entry) && isPlainRecord(entry.delete)
+        ? entry.delete.instead
+        : undefined;
+    return instead instanceof Kept ? [instead.host] : [];
+  });
   return buildRule(
     rules,
-    typeof rules === "function" || Object.values(rules).some(judges)
-      ? { part: verbsPart, translate: verbsTranslation }
-      : undefined
+    [...(judged ? [verbsPart] : []), ...new Set(kept)],
+    judged ? verbsTranslation : undefined
   );
 }
 
@@ -59,7 +70,7 @@ export function compiledRows(
     readonly controls?: DefinitionDraft["controls"];
   }
 ): unknown {
-  return builtPart([ruleAdmission, rowsPart, verbsPart], (draft, schema) => {
+  return builtPart([verbsPart], (draft, schema) => {
     const { rows, controls } = build(schema);
     draft.rows = rows;
     if (controls !== undefined)

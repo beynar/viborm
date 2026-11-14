@@ -7,12 +7,11 @@
  */
 
 import type { Schema } from "@client/types";
-import { ClientInitializationError } from "@errors";
 import type { SchemaRegistryLookup } from "@validation/types";
 import { type ExtensionPart, partSet } from "./chain";
 import type { ResolvedExtensionChain } from "./chain-state";
 import type { ControlDeclaration } from "./controls";
-import type { RuntimeExtensionDefinition } from "./definition";
+import { extensionError, type RuntimeExtensionDefinition } from "./definition";
 
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
@@ -63,12 +62,6 @@ export interface AppliedExtension {
   ) => ResolvedExtensionChain;
 }
 
-function refuse(message: string, extension?: string): never {
-  throw new ClientInitializationError(message, {
-    meta: extension === undefined ? undefined : { extension },
-  });
-}
-
 /**
  * An extension: a non-empty name and its parts, in order. The definition its
  * parts write is built once per schema, so every client of a schema applies
@@ -76,19 +69,18 @@ function refuse(message: string, extension?: string): never {
  */
 export function extension(name: string, ...parts: unknown[]): unknown {
   if (typeof name !== "string" || name.trim().length === 0)
-    refuse("An extension's name must be a non-empty string.");
+    extensionError("An extension's name must be a non-empty string.");
   const builds = parts.map((part) => {
     const build =
       typeof part === "object" && part !== null ? built.get(part) : undefined;
     if (build === undefined)
-      refuse(
+      extensionError(
         `Extension "${name}" takes parts built by viborm's part builders.`,
         name
       );
     return build;
   });
   const set = partSet(builds.flatMap((build) => build.host));
-  for (const part of set.parts) part.bring?.();
   const written = new WeakMap<Schema, RuntimeExtensionDefinition>();
   const definitionFor = (schema: Schema): RuntimeExtensionDefinition => {
     let definition = written.get(schema);

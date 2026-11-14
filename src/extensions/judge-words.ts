@@ -5,12 +5,12 @@
  * key) and `keep` (a delete updates the row instead). Plain data the rule's
  * part reads where the extension is applied.
  */
-import type { Schema } from "@client/types";
 import { isPlainRecord } from "@schema/relation/terminal";
-import type { AnyRelation } from "@schema/relation/types";
+import type { ExtensionPart } from "./chain";
 import type { CheckWord, FactsWord, GateWord, KeepWord } from "./contract";
 import type { DeletionContribution } from "./controls";
 import type { DefinitionDraft } from "./extension";
+import { keptRowsPart } from "./kept";
 import { ArgTestFilter, ArgValue, NowValue, RowValue } from "./rule-words";
 
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
@@ -69,29 +69,12 @@ export function facts(
 /** The delete updates the row with `data` instead of removing it. */
 export function keep<D>(data: D): KeepWord<D>;
 export function keep(data: object): unknown {
-  return new Kept(data);
-}
-
-/** The slot a model is the declared junction of, for a refusal to name. */
-function junctionHolder(schema: Schema, model: Schema[string]) {
-  for (const [holder, candidate] of Object.entries(schema))
-    for (const [field, relation] of Object.entries(
-      candidate["~"].state.relations
-    )) {
-      const internal = (relation as AnyRelation)["~"];
-      if (
-        internal.state.junction?.model !== undefined &&
-        internal.settleJunctionModel!() === model
-      )
-        return `${holder}.${field}`;
-    }
-  return undefined;
+  return new Kept(data, keptRowsPart);
 }
 
 /** What a delete of one model writes instead, written where its rule is applied. */
 export interface KeepTarget {
   readonly model: string;
-  readonly schema: Schema;
   readonly args: DefinitionDraft["args"];
   /** The extension's deletion member, made at its first `keep`. */
   readonly deletion: () => Mutable<DeletionContribution>;
@@ -101,8 +84,11 @@ export interface KeepTarget {
 /** `keep(data)`'s value: it writes the deletion member the rows host reads. */
 export class Kept {
   readonly data: unknown;
-  constructor(data: unknown) {
+  /** What keeps deleted rows: brought by `keep` itself. */
+  readonly host: ExtensionPart;
+  constructor(data: unknown, host: ExtensionPart) {
     this.data = data;
+    this.host = host;
   }
   write(target: KeepTarget): void {
     keepInto(target, this.data);
@@ -110,14 +96,9 @@ export class Kept {
 }
 
 function keepInto(
-  { model, schema, args, deletion: made, refuse }: KeepTarget,
+  { model, args, deletion: made, refuse }: KeepTarget,
   given: unknown
 ): void {
-  const holder = junctionHolder(schema, schema[model]!);
-  if (holder !== undefined)
-    refuse(
-      `the model is the junction of '${holder}': delete the link with the relation's disconnect`
-    );
   let data = given;
   let removeWhen: Record<string, string | number | boolean> | undefined;
   if (data instanceof ArgTestFilter && data.kind !== "provided") {
@@ -143,17 +124,11 @@ function keepInto(
   }
   if (!isPlain(data))
     throw refuse("keep() takes the data the row is updated with");
-  const scalars = schema[model]!["~"].state.scalars;
   let at: string | undefined;
   const assign: Record<string, unknown> = {};
   for (const [field, value] of Object.entries(data)) {
-    if (!Object.hasOwn(scalars, field))
-      refuse(`keep() names unknown field "${field}"`);
     if (value instanceof NowValue) {
       if (at !== undefined) refuse("keep() writes now in one field");
-      const state = scalars[field]!["~"].state;
-      if (state.type !== "datetime" || state.array)
-        refuse(`keep() writes now in a DateTime field: ${field} is not one`);
       at = field;
     } else if (value instanceof ArgValue || value instanceof RowValue)
       refuse("keep() writes constants and now");

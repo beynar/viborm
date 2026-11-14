@@ -283,17 +283,22 @@ not change. It goes in a `where` (and in permission rules); a
 ## Check your own reads
 
 Both options promise the same rows, so the only question is speed on your
-data. Capture the statement a read sends with the `statement` hook:
+data. Capture the statement a read sends with a `unit` part:
 
 ```ts
+import { extension, statement, unit } from "viborm";
+
 const statements: { text: string; values: unknown[] }[] = [];
-const traced = db.$extends({
-  name: "trace",
-  statement({ statement }) {
-    statements.push({ text: statement.toStatement("$n"), values: statement.values });
-    return statement;
-  },
-});
+const traced = db.$extends(
+  extension(
+    "trace",
+    unit((u, next) => {
+      const sent = statement(u);
+      statements.push({ text: sent.toStatement("$n"), values: sent.values });
+      return next();
+    }, ["statement"])
+  )
+);
 
 await traced.folder.findMany({ /* the read */ });
 ```

@@ -48,8 +48,6 @@ export interface ExtensionPart {
    * definition was built with: what must follow the chain, not a definition.
    */
   readonly carry?: boolean;
-  /** Brought into the program when an extension is built with this part. */
-  readonly bring?: () => void;
   /** Refuse the definition, or replace it, before its name is checked. */
   readonly admit?: (application: Application) => void;
   /** Write what the other parts of the same definition read. */

@@ -22,7 +22,8 @@ import { ValidationError } from "../errors/validation";
 import type { StampedFields } from "../extensions/controls";
 import { buildDefaults } from "../extensions/defaults";
 import { buildMethods } from "../extensions/methods-part";
-import { rowsPart } from "../extensions/rows-part";
+import { defaultOrderPart } from "../extensions/order";
+import { defaultDataPart } from "../extensions/stamps";
 import type {
   AnyTarget,
   ClientSchema,
@@ -1255,7 +1256,7 @@ function orderingOf(config: OrderingConfig): unknown {
             },
           ])
         ),
-      [rowsPart]
+      [defaultOrderPart, defaultDataPart]
     ),
     buildMethods((scope: { readonly $schema: Schema }) =>
       Object.fromEntries(

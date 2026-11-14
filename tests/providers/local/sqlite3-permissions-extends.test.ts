@@ -12,6 +12,9 @@ import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { expect, test } from "vitest";
 
+/** An optional actor value's presence: the guard an author writes. */
+const present = (path: string) => ({ control: "actor", path, exists: true });
+
 test.each([
   "absent",
   "false guard",
@@ -28,12 +31,27 @@ test.each([
     await base.post.create({
       data: { id: "p", authorId: "alice", title: "public" },
     });
+    const actor = v.object({
+      userId: v.string({ optional: true, nullable: true }),
+      admin: v.boolean(),
+    });
+    // Update implies read: unguarded, its missing value closes read too.
+    const unguarded = base.$extends(
+      permissions({
+        actor,
+        models: {
+          post: {
+            read: { title: "public" },
+            update: { title: "public", authorId: { actor: "userId" } },
+          },
+        },
+      })
+    );
+    // @ts-expect-error Contextual scalar options widen; exercise runtime omission.
+    expect(await unguarded.$as({ admin: false }).post.findMany()).toEqual([]);
     const db = base.$extends(
       permissions({
-        actor: v.object({
-          userId: v.string({ optional: true, nullable: true }),
-          admin: v.boolean(),
-        }),
+        actor,
         models: {
           post: {
             read:
@@ -56,13 +74,17 @@ test.each([
                       ],
                     }
                   : { title: "public" },
-            update: { title: "public", authorId: { actor: "userId" } },
+            // Guarded by its author, a missing update fact never closes the
+            // independent public read grant.
+            update: {
+              $if: present("userId"),
+              title: "public",
+              authorId: { actor: "userId" },
+            },
           },
         },
       })
     );
-    // Each declared grant owns its actor dependencies. Missing optional
-    // update facts never close the independent public read grant.
     for (const actor of [
       { admin: false },
       { admin: false, userId: undefined },
@@ -106,6 +128,7 @@ test("absorption preserves conditional actor reads and whole-list validation", a
             read: { title: "public" },
             update: {
               actor: { network: "home" },
+              $if: present("ids"),
               title: "public",
               authorId: { in: { actor: "ids" } },
             },
@@ -170,7 +193,7 @@ test("absorption reverses containment for a negative relation quantifier", async
   }
 });
 
-test("$extends applies Permissions with actor isolation, methods and transactions", async () => {
+test("$extends applies Permissions with actor isolation and transactions", async () => {
   const post = s.model({
     id: s.string().id(),
     authorId: s.string(),
@@ -204,11 +227,20 @@ test("$extends applies Permissions with actor isolation, methods and transaction
     expect(await bob.post.findMany()).toEqual([
       { id: "b", authorId: "bob", title: "Bob" },
     ]);
-    expect(await alice.post.can("update", { id: "b" })).toBe(false);
-    await alice.post.assert("update", { id: "a" });
     expect(
-      await alice.$transaction((tx) => tx.post.can("update", { id: "a" }))
-    ).toBe(true);
+      await alice.post.findUnique({
+        where: { id: "b" },
+        select: { $access: ["update"] },
+      })
+    ).toBeNull();
+    expect(
+      await alice.$transaction((tx) =>
+        tx.post.findUnique({
+          where: { id: "a" },
+          select: { $access: ["update"] },
+        })
+      )
+    ).toEqual({ $access: { update: true } });
     const derived = alice.$extends((client) =>
       client.$extends({ name: "after-policy" })
     );
@@ -216,7 +248,12 @@ test("$extends applies Permissions with actor isolation, methods and transaction
     const rollback = new Error("rollback governed transaction");
     await expect(
       derived.$transaction(async (tx) => {
-        expect(await tx.post.can("update", { id: "b" })).toBe(false);
+        expect(
+          await tx.post.findUnique({
+            where: { id: "b" },
+            select: { $access: ["update"] },
+          })
+        ).toBeNull();
         await tx.post.update({
           where: { id: "a" },
           data: { title: "temporary" },
@@ -305,7 +342,7 @@ test("$extends composes soft-delete rows, Permissions and restore methods", asyn
   }
 });
 
-test("$extends refuses repeated levels before a read rule can authorize a write", async () => {
+test("$extends refuses the retired levels, and a read rule never authorizes a write", async () => {
   const post = s.model({ id: s.string().id(), title: s.string() });
   const base = createClient({ schema: { post }, dataDir: ":memory:" });
   try {
@@ -315,21 +352,27 @@ test("$extends refuses repeated levels before a read rule can authorize a write"
       base.$extends(
         permissions({
           actor: v.object({}),
-          levels: ["read", "update", "read"],
+          levels: ["read", "update"],
           models: { post: { read: {} } },
-        })
+        } as never)
       )
-    ).toThrow("levels must list each action only once");
+    ).toThrow("levels was removed: declare the graph on each model instead");
     const db = base
       .$extends(
         permissions({
           actor: v.object({}),
-          levels: ["read", "update"],
-          models: { post: { read: {} } },
+          models: {
+            post: { actions: { read: [], update: ["read"] }, read: {} },
+          },
         })
       )
       .$as({});
-    expect(await db.post.can("update", { id: "p" })).toBe(false);
+    expect(
+      await db.post.findUnique({
+        where: { id: "p" },
+        select: { $access: ["update"] },
+      })
+    ).toEqual({ $access: { update: false } });
     await expect(
       db.post.update({ where: { id: "p" }, data: { title: "changed" } })
     ).rejects.toThrow();
@@ -387,7 +430,12 @@ test("an explicit target role table denies an undeclared requested action", asyn
         })
       )
       .$as({});
-    expect(await db.post.can("update", { id: "p" })).toBe(false);
+    expect(
+      await db.post.findUnique({
+        where: { id: "p" },
+        select: { $access: ["update"] },
+      })
+    ).toEqual({ $access: { update: false } });
     await expect(
       db.post.update({ where: { id: "p" }, data: { title: "changed" } })
     ).rejects.toThrow();
@@ -422,11 +470,16 @@ test("prototype-spelled action and domain names preserve filtering and answers",
     expect(await db.post.findMany({ as: "__proto__" })).toEqual([
       { id: "allowed" },
     ]);
-    expect(await db.post.can("__proto__", { id: "allowed" })).toBe(true);
-    expect(await db.post.can("__proto__", { id: "denied" })).toBe(false);
-    expect(await db.post.can(["__proto__"], { id: "allowed" })).toEqual({
-      ["__proto__"]: true,
-    });
+    for (const [id, held] of [
+      ["allowed", true],
+      ["denied", false],
+    ] as const)
+      expect(
+        await db.post.findUnique({
+          where: { id },
+          select: { $access: ["__proto__"] },
+        })
+      ).toEqual({ $access: { ["__proto__"]: held } });
     const narrowed = base
       .$extends(
         permissions({
@@ -454,31 +507,57 @@ test("delete always requires its own action unless explicitly mapped", async () 
   try {
     await syncLiveSchema(base);
     await base.post.create({ data: { id: "p" } });
-    for (const rules of [{ full: {} }, { full: {}, share: {} }]) {
-      const db = base
-        .$extends(
-          permissions({
-            actor: v.object({}),
-            levels: ["read", "update", "full"],
-            models: { post: rules },
-          })
-        )
-        .$as({});
-      expect(await db.post.can("full", { id: "p" })).toBe(true);
-      await expect(
-        db.post.delete({ where: { id: "p" } })
-      ).rejects.toBeInstanceOf(ForbiddenError);
-      await expect(db.post.deleteMany({})).rejects.toBeInstanceOf(
-        ForbiddenError
-      );
+    const ladder = { read: [], update: ["read"], full: ["update"] } as const;
+    const refusesDelete = async (
+      full: () => Promise<unknown>,
+      remove: () => Promise<unknown>,
+      removeMany: () => Promise<unknown>
+    ) => {
+      expect(await full()).toEqual({ $access: { full: true } });
+      await expect(remove()).rejects.toBeInstanceOf(ForbiddenError);
+      await expect(removeMany()).rejects.toBeInstanceOf(ForbiddenError);
       expect(await base.post.count()).toBe(1);
-    }
+    };
+    const select = { $access: ["full"] } as const;
+    const plain = base
+      .$extends(
+        permissions({
+          actor: v.object({}),
+          models: { post: { actions: ladder, full: {} } },
+        })
+      )
+      .$as({});
+    await refusesDelete(
+      () => plain.post.findUnique({ where: { id: "p" }, select }),
+      () => plain.post.delete({ where: { id: "p" } }),
+      () => plain.post.deleteMany({})
+    );
+    const shared = base
+      .$extends(
+        permissions({
+          actor: v.object({}),
+          models: {
+            post: { actions: { ...ladder, share: [] }, full: {}, share: {} },
+          },
+        })
+      )
+      .$as({});
+    await refusesDelete(
+      () => shared.post.findUnique({ where: { id: "p" }, select }),
+      () => shared.post.delete({ where: { id: "p" } }),
+      () => shared.post.deleteMany({})
+    );
     const mapped = base
       .$extends(
         permissions({
           actor: v.object({}),
-          levels: ["read", "update", "full"],
-          models: { post: { full: {}, operations: { delete: "full" } } },
+          models: {
+            post: {
+              actions: ladder,
+              full: {},
+              operations: { delete: "full" },
+            },
+          },
         })
       )
       .$as({});
@@ -555,12 +634,19 @@ test("CRUD grants, explicit denials and scoped service principals compose", asyn
     expect(normal.map(({ id }) => id)).toEqual(["mine"]);
     expect(scoped.map(({ id }) => id)).toEqual(["mine", "other"]);
     expect(denied).toEqual([]);
+    // Hidden, the row is null; visible, its action is false.
     expect(
-      await db.$as(alice, ["post.update"]).post.can("update", { id: "other" })
-    ).toBe(false);
+      await db.$as(alice, ["post.update"]).post.findUnique({
+        where: { id: "other" },
+        select: { $access: ["update"] },
+      })
+    ).toBeNull();
     expect(
-      await db.$as(service, ["post.delete"]).post.can("delete", { id: "mine" })
-    ).toBe(false);
+      await db.$as(service, ["post.delete"]).post.findUnique({
+        where: { id: "mine" },
+        select: { $access: ["delete"] },
+      })
+    ).toEqual({ $access: { delete: false } });
     await expect(
       db
         .$as(service, ["post.read"])
@@ -724,27 +810,50 @@ test("field write grants complement the base update permission and credential sc
   try {
     await syncLiveSchema(base);
     await base.post.create({ data: { id: "p", title: "original" } });
-    for (const model of [
-      {
-        read: true,
-        update: false,
-        full: true,
-        fields: { title: { write: "full" as const } },
-      },
-      { read: true, full: true, fields: { title: { write: "full" as const } } },
-    ]) {
-      const call = base
-        .$extends(permissions({ actor: v.object({}), models: { post: model } }))
-        .$as({});
-      await expect(
-        call.post.update({ where: { id: "p" }, data: { title: "denied" } })
-      ).rejects.toThrow();
-    }
+    const data = { title: "denied" };
+    const denied = base
+      .$extends(
+        permissions({
+          actor: v.object({}),
+          models: {
+            post: {
+              actions: { read: [], update: ["read"], full: [] },
+              read: true,
+              update: false,
+              full: true,
+              fields: { title: { write: "full" } },
+            },
+          },
+        })
+      )
+      .$as({});
+    await expect(
+      denied.post.update({ where: { id: "p" }, data })
+    ).rejects.toThrow();
+    const absent = base
+      .$extends(
+        permissions({
+          actor: v.object({}),
+          models: {
+            post: {
+              actions: { read: [], full: [] },
+              read: true,
+              full: true,
+              fields: { title: { write: "full" } },
+            },
+          },
+        })
+      )
+      .$as({});
+    await expect(
+      absent.post.update({ where: { id: "p" }, data })
+    ).rejects.toThrow();
     const db = base.$extends(
       permissions({
         actor: v.object({}),
         models: {
           post: {
+            actions: { read: [], update: ["read"], full: [] },
             read: true,
             update: true,
             full: true,
@@ -921,6 +1030,7 @@ test("a read-gated field reads NULL where withheld: distinct and groupBy over it
         actor: v.object({ admin: v.boolean() }),
         models: {
           project: {
+            actions: { read: [], full: [] },
             read: true,
             full: { actor: { admin: true } },
             fields: { budget: { read: "full" } },
@@ -997,12 +1107,77 @@ test("a refused new row names the key an update writes through a nested to-one d
         data: { author: { delete: true } },
       })
     ).rejects.toThrow(
-      "The update on post is not permitted: the row it would leave, judged again because it writes authorId (through author), is refused"
+      "The update on post is not permitted: it writes authorId"
     );
     await expect(
       db.post.update({ where: { id: "p1" }, data: { authorId: null } })
-    ).rejects.toThrow("because it writes authorId, is refused");
+    ).rejects.toThrow(
+      "The update on post is not permitted: it writes authorId"
+    );
     expect(await base.author.count()).toBe(1);
+  } finally {
+    await base.$disconnect();
+  }
+});
+
+test("a tenant bounds the policy's own sets and reads the same rows as without it", async () => {
+  const page = s.model({
+    id: s.string().id(),
+    organizationId: s.string(),
+    grants: s.toMany(() => grant),
+  });
+  const grant = s.model({
+    id: s.string().id(),
+    organizationId: s.string(),
+    userId: s.string(),
+    pageId: s.string(),
+    page: s
+      .toOne(() => page)
+      .fields("pageId")
+      .references("id"),
+  });
+  const base = createClient({ schema: { page, grant }, dataDir: ":memory:" });
+  try {
+    await syncLiveSchema(base);
+    await base.page.createMany({
+      data: [
+        { id: "a1", organizationId: "a" },
+        { id: "a2", organizationId: "a" },
+        { id: "b1", organizationId: "b" },
+      ],
+    });
+    await base.grant.createMany({
+      data: [
+        { id: "g1", organizationId: "a", userId: "ada", pageId: "a1" },
+        { id: "g2", organizationId: "b", userId: "ada", pageId: "b1" },
+      ],
+    });
+    const read = async (tenant: boolean) =>
+      (
+        await base
+          .$extends(
+            permissions({
+              actor: v.object({
+                userId: v.string(),
+                organizationId: v.string(),
+              }),
+              ...(tenant && {
+                tenant: { field: "organizationId", actor: "organizationId" },
+              }),
+              models: {
+                page: {
+                  mandatory: { organizationId: { actor: "organizationId" } },
+                  read: { grants: { some: { userId: { actor: "userId" } } } },
+                },
+                grant: { read: true },
+              },
+            })
+          )
+          .$as({ userId: "ada", organizationId: "a" })
+          .page.findMany({ select: { id: true } })
+      ).map(({ id }) => id);
+    expect(await read(true)).toEqual(["a1"]);
+    expect(await read(false)).toEqual(["a1"]);
   } finally {
     await base.$disconnect();
   }

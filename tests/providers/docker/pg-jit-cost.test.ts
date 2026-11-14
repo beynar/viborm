@@ -74,9 +74,7 @@ function governed(url: string) {
       return context.statement;
     },
   });
-  const db = policy.methods(
-    tombstones.methods(policy.rows(tombstones.rows(recorded)))
-  );
+  const db = tombstones.methods(policy.rows(tombstones.rows(recorded)));
   return { base, db, statements };
 }
 

@@ -13,7 +13,7 @@ import type { Operations, Schema } from "@client/types";
 import type { AnyDriver } from "@drivers/exports";
 import { QueryError, VibORMError } from "@errors";
 import { isFunction, isRecord } from "@validation/value-guards";
-import { isError } from "../errors/diagnostic-safety";
+import { errorCause } from "../errors/diagnostic-safety";
 import type { Application, ExtensionPart } from "./chain";
 import type { ResolvedOperationHandler } from "./chain-state";
 import type {
@@ -32,11 +32,7 @@ import { builtPart, type DefinitionDraft } from "./extension";
 import { compileHandlers, type OperationHandlers } from "./handlers";
 import { MODEL_OPERATIONS, type SelectionValue, selectionOf } from "./on";
 import type { QueryInterceptorContext } from "./query";
-import {
-  RESULT_SHAPE_KEYS_BY_OPERATION,
-  type RequestControls,
-  type RuntimeRequestContribution,
-} from "./request";
+import type { RequestControls, RuntimeRequestContribution } from "./request";
 import { REGISTER, type Watching, watched, watchPart } from "./watch-part";
 
 /** One `call` or `around` part, as the extension wrote it. */
@@ -83,6 +79,19 @@ const schemas = new WeakMap<CallableFunction, Schema>();
 
 const NO_VALUES: AdmittedControls = Object.freeze({});
 
+/** The keys of a call's arguments that decide its result's shape. */
+const SHAPE_KEYS: ReadonlySet<string> = new Set([
+  "select",
+  "include",
+  "omit",
+  "_count",
+  "_avg",
+  "_sum",
+  "_min",
+  "_max",
+  "by",
+]);
+
 function failure(
   extension: string,
   model: string | undefined,
@@ -90,19 +99,9 @@ function failure(
   problem: string,
   cause?: unknown
 ): QueryError {
-  const at = model === undefined ? operation : `${model}.${operation}`;
   return new QueryError(
-    `Extension "${extension}" request handler for ${at} ${problem}.`,
-    {
-      ...(cause === undefined
-        ? {}
-        : {
-            cause: isError(cause)
-              ? cause
-              : new Error("Request transform threw a non-Error value"),
-          }),
-      meta: { model, operation },
-    }
+    `Extension "${extension}" request handler for ${model === undefined ? operation : `${model}.${operation}`} ${problem}.`,
+    { cause: errorCause(cause), meta: { model, operation } }
   );
 }
 
@@ -153,11 +152,7 @@ function firstContext(
   call: object | undefined
 ): FirstContext {
   const { extension } = handler;
-  const shape: readonly string[] =
-    model === undefined
-      ? []
-      : (RESULT_SHAPE_KEYS_BY_OPERATION[operation as Operations] ?? []);
-  return Object.freeze({
+  return {
     kind: model === undefined ? ("raw" as const) : ("model" as const),
     schema: schemas.get(handler.handler),
     model,
@@ -170,27 +165,23 @@ function firstContext(
         ? NO_VALUES
         : controlsOwnedBy(controls?.admitted, handler.controls),
     set(patch: unknown) {
-      const refuse = (problem: string, cause: string) =>
-        failure(extension, model, operation, problem, new TypeError(cause));
-      if (model === undefined)
-        throw refuse(
-          "set a raw statement's arguments",
-          "c.set patches a model call"
+      if (model === undefined || !isRecord(patch))
+        throw failure(
+          extension,
+          model,
+          operation,
+          "set no model call's arguments"
         );
-      if (!isRecord(patch))
-        throw refuse("set a non-record patch", "c.set takes an object");
-      for (const key of Object.keys(patch)) {
-        if (shape.includes(key))
-          throw refuse(
-            `set "${key}", which decides the result's shape`,
-            "c.set cannot set a key that decides the result's shape"
+      for (const key of Object.keys(patch))
+        if (SHAPE_KEYS.has(key) || controls?.names.has(key))
+          throw failure(
+            extension,
+            model,
+            operation,
+            SHAPE_KEYS.has(key)
+              ? `set "${key}", which decides the result's shape`
+              : `named control "${key}"`
           );
-        if (controls?.names.has(key))
-          throw refuse(
-            `named control "${key}"`,
-            "c.set cannot set an extension's argument"
-          );
-      }
       state.args = Object.freeze({ ...state.args, ...patch });
     },
     [REGISTER]: (watching: Watching) => {
@@ -198,11 +189,12 @@ function firstContext(
       let byExtension = watched.get(call);
       if (byExtension === undefined)
         watched.set(call, (byExtension = new Map()));
-      const own = byExtension.get(extension);
-      if (own === undefined) byExtension.set(extension, [watching]);
-      else own.push(watching);
+      byExtension.set(extension, [
+        ...(byExtension.get(extension) ?? []),
+        watching,
+      ]);
     },
-  });
+  };
 }
 
 /**
@@ -288,9 +280,7 @@ const momentOneOnly =
   (context) => {
     const returned = handler(context as never);
     if (isFunction(returned))
-      throw new TypeError(
-        "call() returned a function: a part that wraps the call is written around()"
-      );
+      throw new TypeError("call() returned a function: write around()");
     return returned;
   };
 
@@ -431,7 +421,7 @@ export function call<T extends AnyTarget, M = never, O = never>(
 ): Part<T, EmptyFacts>;
 export function call(
   handler: CallEntry["handler"],
-  selected?: object
+  selected?: unknown
 ): unknown {
   if (!isFunction(handler))
     throw new TypeError("call() takes a function of the call");
@@ -459,7 +449,7 @@ export function around<T extends AnyTarget, M = never, O = never>(
 ): Part<T, AroundFacts<M, O>>;
 export function around(
   handler: CallEntry["handler"],
-  selected?: object,
+  selected?: unknown,
   options?: { readonly inner?: true }
 ): unknown {
   if (!isFunction(handler))

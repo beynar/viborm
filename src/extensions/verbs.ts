@@ -1,23 +1,27 @@
 /**
  * What reads a `rows` member's `verbs` and `confine`: their admission, their
  * binding to a chain, and what a prepared domain asks of them (`judge.ts`,
- * `projection.ts`). Brought by `withVerbs()`: a program whose extensions only
+ * `projection.ts`). Brought by `verbsPart`: a program whose extensions only
  * filter rows does not hold it, and the filters reach it only through what
  * its admission leaves in the admitted declaration (`bind`).
  */
 import { ClientInitializationError } from "@errors";
-import { NO_RELATIONS } from "@query-engine/raptor3/shared/query";
+import {
+  NO_RELATIONS,
+  type PreparedSelector,
+} from "@query-engine/raptor3/shared/query";
 import type {
   LazyRelations,
   ModelVerbs,
 } from "@query-engine/raptor3/shared/row-scope";
 import { type Input, memo } from "@query-engine/raptor3/shared/schema";
-import type { ModelState } from "@schema/model";
+import type { AnyModel, ModelState } from "@schema/model";
 import { isPlainRecord } from "@schema/relation/terminal";
 import type { PredicateAdmission, References, VerbsBinder } from "./admission";
 import type { RowsContribution, RowsVerbs } from "./controls";
 import { Judge } from "./judge";
 import { Projection } from "./projection";
+import type { PreparedDomain } from "./row-domain";
 
 type Verbs = NonNullable<RowsContribution["verbs"]>;
 
@@ -75,11 +79,16 @@ const entryReferences = new WeakMap<
   readonly (string | undefined)[]
 >();
 
-/** One model's `verbs` entry, every predicate admitted and every name checked. */
+/**
+ * One model's `verbs` entry, every predicate admitted and every name
+ * checked; a lazy one's parsed apart (`of`), so it records every control it
+ * names.
+ */
 function admitEntry(
   { schema, admit, refuse }: PredicateAdmission,
   name: string,
-  entry: RowsVerbs
+  entry: RowsVerbs,
+  of?: string
 ): RowsVerbs {
   const place = `verbs.${name}`;
   if (!isPlainRecord(entry))
@@ -101,7 +110,7 @@ function admitEntry(
   const predicates = Object.fromEntries(
     Object.entries(entry.predicates).map(([key, predicate]) => [
       key,
-      admit(name, `${place}.predicates.${key}`, predicate, references),
+      admit(name, `${place}.predicates.${key}`, predicate, references, of),
     ])
   );
   const known = (at: string, predicate: string | undefined) => {
@@ -201,7 +210,8 @@ function admitVerbs(
       admission.refuse(name, `verbs.${name}`, "root", "names an unknown model");
     if (typeof entry === "function") {
       let resolved: RowsVerbs | undefined;
-      const lazily = () => (resolved ??= admitEntry(admission, name, entry()));
+      const lazily = () =>
+        (resolved ??= admitEntry(admission, name, entry(), `lazy ${name}`));
       admitted[name] = lazily;
       continue;
     }
@@ -291,7 +301,6 @@ function layerVerbs(entry: RowsVerbs): ModelVerbs {
             Object.freeze([name, of(name)] as const)
           )
         ),
-        ordered: entry.evidence.ordered === true,
       }),
     }),
     reads: fields(entry.reads),
@@ -386,7 +395,7 @@ const bindVerbs: VerbsBinder = (members, controls) => {
   );
   return {
     ...(verbs && { verbs, judge: (domain) => new Judge(domain) }),
-    ...(confine.size > 0 && { confine }),
+    ...(confine.size > 0 && { confine, bound }),
     // Whether a model may project: a lazy entry may, until it is read.
     ...(entries.some(
       (entry) =>
@@ -405,7 +414,39 @@ const bindVerbs: VerbsBinder = (members, controls) => {
   };
 };
 
-/** What admits and binds `verbs` and `confine`: brought by `withVerbs()`. */
+/**
+ * What an `excluded` layer states its own whole-table sets of a model hold
+ * (`rows.confine`), for one prepared domain: inside its own predicates a
+ * layer reads nothing of itself, but a set the statement computes over a
+ * whole table (a shared body, a reaching set) still holds only what it
+ * bounds. `undefined` where none states one.
+ */
+function bound(domain: PreparedDomain) {
+  const bounds = new Map<string, PreparedSelector | null>();
+  return (
+    model: AnyModel,
+    excluded: readonly number[]
+  ): PreparedSelector | undefined => {
+    const name = model["~"].names.ts!;
+    const inputs = domain.rows.confine?.get(name);
+    if (inputs === undefined) return undefined;
+    // Every excluded layer's: each only narrows, and one left out would let
+    // another's widen what it bounds.
+    return (
+      memo(bounds, `${name} ${excluded}`, () =>
+        domain.conjunction(
+          model,
+          excluded.map((layer) => {
+            const input = inputs[layer];
+            return [layer, input === undefined ? [] : [input]] as const;
+          })
+        )
+      ) ?? undefined
+    );
+  };
+}
+
+/** What admits and binds `verbs` and `confine`: brought by `verbsPart`. */
 export const VERBS = Object.freeze({
   verbs: admitVerbs,
   named,

@@ -10,6 +10,13 @@ import { s } from "@src/schema";
 import { v } from "@src/validation";
 
 export const LEVELS = ["read", "comment", "update", "full"] as const;
+/** The ordered levels as each model's graph: a level implies the one below. */
+const ladder = {
+  read: [],
+  comment: ["read"],
+  update: ["comment"],
+  full: ["update"],
+} as const;
 
 const page = s
   .model({
@@ -126,8 +133,8 @@ const sharedWith = (level: string) => ({
 });
 
 /**
- * One level's rule. `levels` ORs the rule of every level at or above the one
- * asked, so `read` carries four copies of it, each with its ancestor walk.
+ * One level's rule. The ladder ORs the rule of every level at or above the
+ * one asked, so `read` carries four copies of it, each with its ancestor walk.
  */
 const access = (level: string): Rule => ({
   OR: [
@@ -181,6 +188,7 @@ const compactAccess = (level: string): Rule => ({
 
 const pageRules = (rule: (level: string) => Rule) =>
   ({
+    actions: { ...ladder, create: [] },
     operations: { delete: "full" },
     "read, comment, update": rule,
     full: (level: string) => ({
@@ -192,6 +200,7 @@ const pageRules = (rule: (level: string) => Rule) =>
 
 const supportingRules = {
   teamspace: {
+    actions: { ...ladder, create: [] },
     read: {
       OR: [
         {
@@ -207,12 +216,14 @@ const supportingRules = {
     create: { actor: { guest: false } },
   },
   teamspaceMember: {
+    actions: { ...ladder, create: [], delete: [] },
     read: { teamspace: "read" },
     create: { teamspace: "update" },
     update: { teamspace: "update" },
     delete: { teamspace: "update" },
   },
   grant: {
+    actions: { ...ladder, create: [] },
     read: { page: "read" },
     "create, update": { page: "full" },
     operations: { delete: "update" },
@@ -222,14 +233,12 @@ const supportingRules = {
 /** Every share kind spelled out per level: the deeper of the two. */
 export const sketchPolicy = permissions({
   actor: actorSchema,
-  levels: LEVELS,
   models: { page: pageRules(access), ...supportingRules },
 });
 
 /** The level as data, shares matched by key. */
 export const compactPolicy = permissions({
   actor: actorSchema,
-  levels: LEVELS,
   models: { page: pageRules(compactAccess), ...supportingRules },
 });
 

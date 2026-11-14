@@ -7,6 +7,7 @@
 import type { ClientOmitConfig } from "@client/omit";
 import type { Schema } from "@client/types";
 import { ClientInitializationError, type DiagnosticDisclosure } from "@errors";
+import { errorCause } from "../errors/diagnostic-safety";
 import type { AdmittedRows } from "./admission";
 import type { CallEntry } from "./call";
 import type {
@@ -61,4 +62,39 @@ export function extensionError(message: string, extension?: string): never {
   throw new ClientInitializationError(message, {
     meta: extension ? { extension } : undefined,
   });
+}
+
+/** A record's own keys, for what reads a member the rows host admits. */
+export function readOwnKeys(
+  value: Record<string, unknown>,
+  extension?: string
+): PropertyKey[] {
+  try {
+    return Reflect.ownKeys(value);
+  } catch (cause) {
+    throw new ClientInitializationError(
+      extension
+        ? `Extension "${extension}" members could not be inspected.`
+        : "Client extension members could not be inspected.",
+      { cause: errorCause(cause), meta: extension ? { extension } : undefined }
+    );
+  }
+}
+
+/** One member of a record, for what reads a member the rows host admits. */
+export function readOwn(
+  value: Record<string, unknown>,
+  key: string,
+  extension?: string
+): unknown {
+  try {
+    return value[key];
+  } catch (cause) {
+    throw new ClientInitializationError(
+      extension
+        ? `Extension "${extension}" member "${key}" could not be read.`
+        : `Client extension member "${key}" could not be read.`,
+      { cause: errorCause(cause), meta: extension ? { extension } : undefined }
+    );
+  }
 }

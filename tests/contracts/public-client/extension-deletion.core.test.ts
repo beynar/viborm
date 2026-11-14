@@ -17,14 +17,7 @@ import type { BatchQuery, QueryResult } from "@drivers/types";
 import { ForeignKeyError, NotFoundError } from "@errors";
 import type { ResolvedExtensionChain } from "@extensions/chain";
 import { isAppliedExtension } from "@extensions/extension";
-import { callRows } from "@extensions/rows";
 import { s } from "@schema";
-import { openDeletionFixture } from "@tests/contracts/engine/write/deletion-capability-behavior";
-import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
-import { failure } from "@tests/fixtures/failure";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import type Database from "better-sqlite3";
-import { afterEach, describe, expect, test } from "vitest";
 import {
   arg,
   args,
@@ -36,6 +29,12 @@ import {
   unless,
   when,
 } from "@src/index";
+import { openDeletionFixture } from "@tests/contracts/engine/write/deletion-capability-behavior";
+import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
+import { failure } from "@tests/fixtures/failure";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import type Database from "better-sqlite3";
+import { afterEach, describe, expect, test } from "vitest";
 
 const UNKNOWN_MODEL_PATTERN = /unknown model/;
 
@@ -252,7 +251,7 @@ describe("a chain's rows and deletion resolve to one call's facts", () => {
       chain
     );
     const binding = chain.callRows!;
-    const defaults = callRows(binding, "item", undefined);
+    const defaults = binding.call("item", undefined);
     expect(defaults.domain).toBe(defaults.defaults);
     // Each predicate as admission left it, at its member's layer.
     expect(defaults.domain.root.get("item")).toEqual([
@@ -266,7 +265,7 @@ describe("a chain's rows and deletion resolve to one call's facts", () => {
     expect(defaults.tombstones?.get("item")).toMatchObject({
       at: "archivedAt",
     });
-    const archived = callRows(binding, "item", {
+    const archived = binding.call("item", {
       archived: "yes",
       hidden: "include",
     });
@@ -275,16 +274,14 @@ describe("a chain's rows and deletion resolve to one call's facts", () => {
       { archivedAt: { not: { equals: null } } },
     ]);
     // Explicit defaults resolve to the very same facts as absent controls.
-    expect(
-      callRows(binding, "item", { archived: "no", hidden: "exclude" })
-    ).toBe(defaults);
-    const purge = callRows(binding, "item", { purge: true });
+    expect(binding.call("item", { archived: "no", hidden: "exclude" })).toBe(
+      defaults
+    );
+    const purge = binding.call("item", { purge: true });
     expect(purge.tombstones).toBeUndefined();
     expect(purge.domain).toBe(defaults.domain);
     // `removeWhen` belongs to the managed model: another model never matches.
-    expect(
-      callRows(binding, "other", { purge: true }).tombstones
-    ).toBeDefined();
+    expect(binding.call("other", { purge: true }).tombstones).toBeDefined();
   });
 
   test("a chain that declares no rows and no deletion binds nothing", () => {
@@ -554,7 +551,7 @@ describe("a declared junction model", () => {
   test("leaves every other model's `deletion` alone", () => {
     expect(() => client().$extends(deletion("other"))).not.toThrow();
     expect(() => client().$extends(deletion("node"))).toThrow(
-      'names unknown field "removedAt"'
+      "deletion.node.at names unknown scalar"
     );
   });
 });

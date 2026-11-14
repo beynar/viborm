@@ -1,12 +1,12 @@
 ---
 title: Instrumentation
-description: Official protected tracing, logging, and diagnostic disclosure
+description: Official tracing, logging, and diagnostic disclosure
 icon: activity
 ---
 
 Instrumentation is an official client extension. It presents tracing and
-structured logging from VibORM's protected lifecycle rail without giving
-observer code authority over the application.
+structured logging from VibORM's lifecycle units, read through a `unit` part,
+and contains its own failures, so telemetry never changes the application.
 
 ```ts
 import { createClient } from "viborm";
@@ -18,7 +18,6 @@ const client = createClient({ schema, driver }).$extends(
     logging: {
       query: true,
       cache: true,
-      warning: true,
       error: true,
     },
     diagnostics: { includeSql: false, includeParams: false },
@@ -55,8 +54,8 @@ credentials, named passwords/tokens, and bearer credentials redacted. Provider
 text can still contain application data, so choose disclosure deliberately.
 Migration commands of a client extended with this extension
 (`createMigrationClient(client)`) disclose their failures under the same
-`diagnostics`; only its `diagnostics`, never its observers or transforms, reach
-migration statements.
+`diagnostics`; only its `diagnostics`, never its units, reach migration
+statements.
 `includeCallsite` captures `meta.callsite` when a deferred raw or model operation
 is created, before its later await; ordinary operations allocate no diagnostic
 stack. The selected details and callsite survive official error logs and JSON
@@ -75,36 +74,38 @@ Parameters may contain credentials, personal data, or application secrets.
 
 ## Lifecycle coverage
 
-Official instrumentation consumes the same real lifecycle units exposed to
-ordinary observers: logical operation, physical statement, public array batch,
-transaction, savepoint, connection, and cache.
+Official instrumentation reads the same real units any `unit` part sees:
+logical operation, physical statement, public array batch, transaction,
+savepoint, connection, and the `cache` units the cache emits.
 
-- A native array produces one batch, N logical operations, N physical statement
-  units, and one provider execution presentation. It produces no fictional
+- A native array produces one batch, N logical operations, and one statement
+  unit for its one provider submission. It produces no fictional
   transaction.
 - A fallback array uses the real transaction or savepoint lifecycle.
 - Cache revalidation contains the nested cache set and marker cleanup while the
   stale application result stays authoritative.
 - Connect and disconnect each produce one connection lifecycle.
 
-Logical operation spans begin before lazy request transformation and finish
-after query-interceptor post-work. Execute spans begin at the provider dispatch
-boundary, after statement transformation and client acquisition. Correlation
+Logical operation spans begin before the first moments of the extensions'
+`call` parts and finish after their second moments' post-work. Execute spans
+begin at the provider dispatch boundary, after statement rewriting, rendering
+and client acquisition. Correlation
 is carried by the authenticated execution context, so clients sharing a driver
 or cache keep isolated spans and logs.
 
 ## Failure containment
 
-Telemetry is observational. A logger callback, console method, OTel provider,
-observer, or dynamic OTel import can throw, reject, or never settle without
-changing the application value, application error, transaction outcome, or
-commit certainty. The core selects and deduplicates the application error;
-instrumentation receives only normalized and disclosure-approved facts.
+Telemetry is observational. Instrumentation contains its own failures: a
+logger callback, console method, OTel provider, or dynamic OTel import can
+throw, reject, or never settle without changing the application value,
+application error, transaction outcome, or commit certainty. The core selects
+and deduplicates the application error; instrumentation presents only
+normalized and disclosure-approved facts.
 
-An ordinary `observe` contribution is even narrower: it receives a frozen
-public unit and sanitized completion only. It never receives SQL, parameters,
-rows, result values, cache keys, raw errors, drivers, correlation identity, or
-private facts.
+A `unit` part of your own has no such containment: VibORM awaits it, and what
+it throws fails the call. It reads the facts it needs through words
+(`sql(u)`, `parameters(u)`, `failure(u)`, …), produced only when read; see
+[Create an extension](/docs/extensions/create#unit-around-physical-work).
 
 ## Optional OpenTelemetry dependency
 
@@ -112,10 +113,9 @@ private facts.
 extension a tracer (`tracing: { tracer }`, for example Cloudflare Workers'
 `tracing` from `cloudflare:workers`), VibORM never imports the package and
 tracing is ready at once. Otherwise the package is loaded dynamically; if it is
-absent or setup fails, database work proceeds normally, and the official
-observer prewarms the tracer once so the first operation still enters the
-correct active context; later operations do not pay a permanent readiness
-microtask. See [Tracing](/docs/extensions/instrumentation/tracing).
+absent or setup fails, database work proceeds normally. The first operation
+waits for that load inside its `operation` unit, so it still enters the
+correct active context; later operations do not wait. See [Tracing](/docs/extensions/instrumentation/tracing).
 
 <CardGroup>
   <Card title="Logging" href="/docs/extensions/instrumentation/logging">

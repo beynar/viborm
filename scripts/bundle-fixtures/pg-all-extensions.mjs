@@ -74,6 +74,9 @@ export async function run(session) {
   await call.post.move({ where: { id: created.id }, first: true });
   await call.post.delete({ where: { id: created.id } });
   await call.post.restore({ where: { id: created.id } });
-  await call.post.can("update", { id: created.id });
+  await call.post.findUnique({
+    where: { id: created.id },
+    select: { $access: ["update"] },
+  });
   return users;
 }

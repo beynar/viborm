@@ -482,10 +482,9 @@ export class Writer {
     if (fields === 0 || fields !== columns.length) return false;
     const bound = this.operation.driver.maxBindParametersPerStatement;
     if (bound === undefined) return true;
-    const placed = this.#q.domain?.judge?.produced(model);
     return (
       (count + 1) * fields +
-        ((placed && this.#q.lowerSelector(placed)?.values.length) ?? 0) <=
+        (this.#q.domain?.judge?.binds(this.#q, model) ?? 0) <=
       bound
     );
   }
@@ -502,15 +501,14 @@ export class Writer {
     const { capabilities, mutations } = this.adapter;
     const rows = await this.computed(model, values);
     const fields = Object.keys(rows[0]!);
-    const judge = q.domain?.judge;
-    const placed = judge?.produced(model);
-    // A row of defaults only has no value to judge before it is written.
-    if (fields.length === 0 && placed)
-      unsupported(
-        `Cannot create a '${nameOf(model)}' row that writes no field: its placement is judged on the values it writes.`
-      );
-    const select =
-      placed && judge!.producedSource(q, model, fields, rows, placed);
+    const judged = q.domain?.judge?.inserted(
+      q,
+      this.operation,
+      model,
+      fields,
+      rows,
+      relation
+    );
     // Rows that hold what another row alone may hold are passed by.
     const skip = skips
       ? mutations.skipDuplicates(q.columnName(model, fields[0]!))
@@ -521,8 +519,8 @@ export class Writer {
         ? mutations.insert(
             q.table(model),
             fields.map((field) => q.columnName(model, field)),
-            select
-              ? { select }
+            judged
+              ? { select: judged.probe }
               : rows.map((row) =>
                   fields.map((field) => q.fieldValue(model, field, row[field]))
                 ),
@@ -543,15 +541,7 @@ export class Writer {
               beside ? q.lowerProjection(this.fields(model, beside)) : []
             )
           : insert,
-      ...(select && {
-        probe: select,
-        stops: judge!.refusal(
-          this.operation.operation,
-          model,
-          undefined,
-          relation === undefined ? undefined : ["create", relation]
-        ),
-      }),
+      ...judged,
     };
   }
   /**
@@ -581,30 +571,20 @@ export class Writer {
     const statement = this.#answered(
       model,
       () => {
-        const judge = q.domain?.judge;
         const produced =
           judged &&
-          judge &&
-          judge.producedWhere(
+          q.domain?.judge?.updated(
             q,
-            model,
+            this.operation,
+            question,
             (alias) => this.#among(question, selector, alias),
             set!,
-            judge.produced(model, judged, Object.keys(set!)),
-            judge.cycles(model, judged),
+            judged,
             limit
           );
-        const edge = question.member?.edge ?? question.through;
-        if (produced)
-          stops = judge!.refusal(
-            this.operation.operation,
-            model,
-            judged,
-            edge && question.verb ? [question.verb, edge.name] : undefined
-          );
-        const named = produced
-          ? { where: produced, suffix: undefined }
-          : this.#limited(question, selector, keys);
+        stops = produced?.stops;
+        const named: { where?: Sql; suffix?: Sql } =
+          produced || this.#limited(question, selector, keys);
         const sets = this.#sets(model, set!);
         const join = joined?.join(
           q.spelling(model, this.operation.driver.dialect),

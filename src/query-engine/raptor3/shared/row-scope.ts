@@ -61,6 +61,17 @@ export interface RowDomain {
    */
   readonly project?: (domain: PreparedDomain) => Projection;
   /**
+   * What an `excluded` layer states its own whole-table sets of a model hold
+   * (`confine`), made once per prepared domain: stated where some member
+   * confines one, by what reads the verbs.
+   */
+  readonly bound?: (
+    domain: PreparedDomain
+  ) => (
+    model: AnyModel,
+    excluded: readonly number[]
+  ) => PreparedSelector | undefined;
+  /**
    * Per model (its TS name), the order its reads take when the caller gives
    * none (`orderBy` input, as admitted): a root `findMany`/`findFirst`, a
    * to-many relation read at any depth, and a paged aggregate's window.
@@ -102,13 +113,11 @@ export interface ModelVerbs {
 
 /**
  * A projection key and what it reports per row, each name with its admitted
- * predicate in declared order: whether each holds beside `read`, or, when
- * `ordered`, the last that does.
+ * predicate in declared order: whether each holds beside `read`.
  */
 export interface ModelEvidence {
   readonly as: string;
   readonly names: readonly (readonly [string, Input])[];
-  readonly ordered: boolean;
 }
 
 /**

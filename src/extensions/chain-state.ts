@@ -6,7 +6,10 @@
  */
 
 import type { DiagnosticDisclosure, ValidationError } from "@errors";
-import type { ModelStamps } from "@query-engine/raptor3/shared/row-scope";
+import type {
+  CallRows,
+  ModelStamps,
+} from "@query-engine/raptor3/shared/row-scope";
 import type { Input } from "@query-engine/raptor3/shared/schema";
 import type { Operation } from "@query-engine/types";
 import type { AdmittedRows } from "./admission";
@@ -19,10 +22,11 @@ import type {
 import type { Coordination } from "./coordination";
 import type { ControlLiteral } from "./definition";
 import type { OperationHandlers, RequestHandlers } from "./handlers";
+import type { Kept } from "./kept";
 import type { ExtensionMethodsState } from "./methods";
 import type { Observation, ObservesFacts } from "./observation";
 import type { ResultFields } from "./result";
-import type { RowsBinding } from "./rows";
+import type { Stamps } from "./stamps";
 import type { StatementHandlers } from "./statement";
 import type { UnitHandlers } from "./units";
 import type { WrittenHandlers } from "./written";
@@ -101,6 +105,15 @@ export interface ResolvedControls {
   ) => ValidationError | undefined;
 }
 
+/**
+ * One call's row facts, from the controls it admitted: what the client asks
+ * the chain, and what the parts that read rows, kept rows, data and order
+ * bind (`rows.ts`, `plain-domain.ts`).
+ */
+export interface CallRowsBinding {
+  call(model: string, controls: AdmittedControls | undefined): CallRows;
+}
+
 /** What a delete of one managed model writes, and who declared it. */
 export interface ResolvedDeletion {
   readonly extension: string;
@@ -111,8 +124,8 @@ export interface ResolvedDeletion {
 
 /**
  * Absent on an unextended client; frozen whenever it exists, except the
- * `controls`, `rows`, `deletion` and `data` values a definition wrote, held
- * as written. Each member is written by the part that reads it, and absent
+ * `controls`, `rows` and `data` values a definition wrote, held as written,
+ * and what the parts built from them. Each member is written by the part that reads it, and absent
  * where no extension of the chain was built with that part.
  */
 export interface ResolvedExtensionChain {
@@ -132,19 +145,28 @@ export interface ResolvedExtensionChain {
    * the same always do.
    */
   readonly rows?: readonly AdmittedRows[];
-  readonly deletion?: Readonly<Record<string, ResolvedDeletion>>;
+  /** Per managed model, what its deletes write instead: a later entry replaces one. */
+  readonly kept?: Kept;
   /** Per model, every extension's `data` fields: a later one wins a field. */
   readonly data?: Readonly<Record<string, ModelStamps>>;
+  /** `data` as a call writes it. */
+  readonly stamps?: Stamps;
   /**
    * Per model, the order its reads take when the caller gives none: a later
    * extension's entry replaces an earlier one's. Also a cached read's key.
    */
   readonly order?: Readonly<Record<string, readonly Input[]>>;
   /**
-   * Derived from `rows`, `deletion` and `data`: what each call's controls
-   * resolve to.
+   * What binds the call facts once a part of the chain filters, keeps or
+   * judges rows: they then read what every other part posed. Absent, a chain
+   * that only orders and stamps rows binds them plain (`plain-domain.ts`).
    */
-  readonly callRows?: RowsBinding;
+  readonly bindRows?: (chain: ResolvedExtensionChain) => CallRowsBinding;
+  /**
+   * Derived from `rows`, `kept`, `stamps` and `order`: what each call's
+   * controls resolve to.
+   */
+  readonly callRows?: CallRowsBinding;
   readonly request?: RequestHandlers;
   readonly query?: OperationHandlers;
   /** Whether `query` holds a handler for some call. */

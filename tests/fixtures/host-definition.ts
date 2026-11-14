@@ -10,21 +10,25 @@ import type { ResolvedExtensionChain } from "@extensions/chain-state";
 import { controlsPart } from "@extensions/controls";
 import type { RuntimeExtensionDefinition } from "@extensions/definition";
 import { builtPart, extension } from "@extensions/extension";
+import { keptRowsPart } from "@extensions/kept";
 import { methodsPart } from "@extensions/methods";
+import { defaultOrderPart } from "@extensions/order";
 import { queryPart } from "@extensions/query";
 import { resultPart } from "@extensions/result";
-import { rowsPart, verbsPart } from "@extensions/rows-part";
-import { ruleAdmission } from "@extensions/rows-translation";
+import { filtersPart } from "@extensions/rows";
+import { verbsPart } from "@extensions/rows-part";
+import { defaultDataPart } from "@extensions/stamps";
 
 const hosts = partSet([
   controlsPart,
-  ruleAdmission,
-  rowsPart,
+  filtersPart,
+  keptRowsPart,
+  defaultDataPart,
+  defaultOrderPart,
   verbsPart,
   resultPart,
   methodsPart,
 ]);
-for (const part of hosts.parts) part.bring?.();
 
 /** A definition's members as the host parts read them. */
 export type HostDefinition = { readonly name: string } & Readonly<

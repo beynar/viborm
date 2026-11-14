@@ -3,25 +3,20 @@
 import type { OperationPayload } from "../client/exports"; // public today
 import { ClientInitializationError } from "../errors"; // viborm's own class
 import type { PlacedControl } from "../extensions/controls";
+import { builtPart } from "../extensions/extension";
+import { keptRowsPart } from "../extensions/kept";
 import { buildMethods } from "../extensions/methods-part";
-import { buildRule } from "../extensions/rows-translation";
+import { filtersPart } from "../extensions/rows";
 import {
   type AnyTarget,
-  arg,
-  args,
   type ClientSchema,
   type DelegateOperationArgs,
   type DelegateOperationResult,
   type Extension,
   extension,
   type Facts,
-  keep,
-  now,
-  oneOf,
   type PendingOperation,
-  unless,
   type VibORMConfig,
-  when,
 } from "../index";
 
 export interface SoftDeleteModel {
@@ -169,42 +164,50 @@ export function softDelete(config: SoftDeleteConfig): unknown {
     );
   const actor = config.actorId ?? config.actor ?? null;
   const entries = Object.entries(config.models);
-  // Written apart from the rule, its argument names are checked where the
-  // extension is applied.
-  const rows = Object.fromEntries(
-    entries.map(([model, { deletedAt, deletedBy }]) => [
-      model,
-      {
-        root: [
-          when(arg("deleted"), "without", { [deletedAt]: null }),
-          when(arg("deleted"), "only", { [deletedAt]: { not: null } }),
-        ],
-        related: unless(arg("deleted"), "with", { [deletedAt]: null }),
-        delete: {
-          instead: keep(
-            unless(arg("mode"), "hard", {
-              [deletedAt]: now,
-              ...(deletedBy ? { [deletedBy]: actor } : {}),
-            })
-          ),
-        },
-      },
-    ])
-  );
   return extension(
     NAME,
-    args({
-      // A delete of a managed model with mode "hard" deletes physically.
-      mode: oneOf("soft", "hard"),
-      // The call argument that picks which rows a call sees.
-      deleted: oneOf("without", "with", "only").default("without"),
-    }),
-    // Read where the extension is applied: a marker that is not a nullable
-    // DateTime is refused there, before its filters would refuse it less
-    // clearly (a string field would fail at the first delete).
-    buildRule((schema) => {
+    // The rows and the kept rows as the rows host reads them, written where
+    // the extension is applied: a marker that is not a nullable DateTime is
+    // refused there, before its filters would refuse it less clearly (a
+    // string field would fail at the first delete). Until that host reads a
+    // rule as it is, the extension hands it these members (temporary: the
+    // rule it states is `root`/`related` by `deleted`, `delete.instead: keep(
+    // unless(arg("mode"), "hard", { [deletedAt]: now, … }))`).
+    builtPart([filtersPart, keptRowsPart], (draft, schema) => {
       admitMarkers(schema, entries);
-      return rows;
+      draft.controls = { mode: { oneOf: ["soft", "hard"] } };
+      draft.rows = {
+        control: "deleted",
+        default: "without",
+        models: Object.fromEntries(
+          entries.map(([model, { deletedAt }]) => [
+            model,
+            {
+              without: {
+                root: { [deletedAt]: null },
+                related: { [deletedAt]: null },
+              },
+              with: {},
+              only: {
+                root: { [deletedAt]: { not: null } },
+                related: { [deletedAt]: null },
+              },
+            },
+          ])
+        ),
+      };
+      draft.deletion = {
+        removeWhen: { mode: "hard" },
+        models: Object.fromEntries(
+          entries.map(([model, { deletedAt, deletedBy }]) => [
+            model,
+            {
+              at: deletedAt,
+              assign: deletedBy ? { [deletedBy]: actor } : {},
+            },
+          ])
+        ),
+      };
     }),
     // The methods read nothing typed at this step (each result is typed from
     // the delegate it is called on), so later extensions may hide rows or

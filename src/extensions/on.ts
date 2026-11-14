@@ -3,9 +3,10 @@
  * and the named operation sets `target` and an argument's `.on(...)` take.
  * (`target`, not `on`: `on` is the hooks of `viborm/on`.) A selection is plain
  * data; the part that reads it resolves it against the schema it is joined
- * to.
+ * to. The types refuse an operation or a model a client does not have.
  */
 import type { Operations } from "@client/types";
+import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import type { ExtensionPart } from "./chain";
 import type {
   AnyTarget,
@@ -19,12 +20,14 @@ import type {
 } from "./contract";
 import { watchPart } from "./watch-part";
 
-const SET = Symbol("viborm.operations");
-
-/** An operation set at runtime: its operations, and what watches them. */
-export interface OperationList {
-  readonly [SET]: readonly Operations[];
-  readonly watch?: ExtensionPart;
+/** What `target(...)` returns at runtime, and what an operation set is. */
+export interface SelectionValue {
+  /** The models named; every model when absent. */
+  readonly models?: readonly string[] | undefined;
+  /** The operations named; every operation when absent. */
+  readonly operations?: readonly Operations[] | undefined;
+  /** What watches the writes named, when a set that brings it named them. */
+  readonly watch?: ExtensionPart | undefined;
 }
 
 function set<O extends Operations>(
@@ -35,61 +38,37 @@ function set(
   operations: readonly Operations[],
   watch?: ExtensionPart
 ): unknown {
-  const list: OperationList = {
-    [SET]: Object.freeze([...operations]),
-    ...(watch === undefined ? {} : { watch }),
-  };
-  return Object.freeze(list);
+  return Object.freeze({ operations, watch });
 }
 
-const READS = [
-  "findMany",
-  "findUnique",
-  "findFirst",
-  "findUniqueOrThrow",
-  "findFirstOrThrow",
-  "count",
-  "aggregate",
-  "groupBy",
-  "exist",
-] as const;
-const WRITES = [
-  "create",
-  "update",
-  "delete",
-  "upsert",
-  "createMany",
-  "updateMany",
-  "deleteMany",
-] as const;
-
 /** Every operation a model has. */
-export const MODEL_OPERATIONS = [
-  "findMany",
-  "findUnique",
-  "findFirst",
-  "findUniqueOrThrow",
-  "findFirstOrThrow",
-  "count",
-  "aggregate",
-  "groupBy",
-  "exist",
-  "create",
-  "update",
-  "delete",
-  "upsert",
-  "createMany",
-  "updateMany",
-  "deleteMany",
-] as const;
-
-const isOperation = (value: unknown): value is Operations =>
-  MODEL_OPERATIONS.some((operation) => operation === value);
+export const MODEL_OPERATIONS: ReadonlySet<string> = ROUTED_OPERATIONS;
 
 /** Every read. */
-export const reads = /* @__PURE__ */ set<ReadOperations>(READS);
+export const reads = /* @__PURE__ */ set<ReadOperations>([
+  "findMany",
+  "findUnique",
+  "findFirst",
+  "findUniqueOrThrow",
+  "findFirstOrThrow",
+  "count",
+  "aggregate",
+  "groupBy",
+  "exist",
+]);
 /** Every write: a `call` on them may `watch` its rows and be `settled`. */
-export const writes = /* @__PURE__ */ set<WriteOperations>(WRITES, watchPart);
+export const writes = /* @__PURE__ */ set<WriteOperations>(
+  [
+    "create",
+    "update",
+    "delete",
+    "upsert",
+    "createMany",
+    "updateMany",
+    "deleteMany",
+  ],
+  watchPart
+);
 /** `delete` and `deleteMany`. */
 export const deletes = /* @__PURE__ */ set<DeleteOperations>(
   ["delete", "deleteMany"],
@@ -113,40 +92,44 @@ export const selecting = /* @__PURE__ */ set<SelectingOperations>([
   "deleteMany",
 ]);
 /** Every model operation, and no raw statement. */
-export const models = /* @__PURE__ */ set<Operations>(MODEL_OPERATIONS);
+export const models = /* @__PURE__ */ set<Operations>([
+  "findMany",
+  "findUnique",
+  "findFirst",
+  "findUniqueOrThrow",
+  "findFirstOrThrow",
+  "count",
+  "aggregate",
+  "groupBy",
+  "exist",
+  "create",
+  "update",
+  "delete",
+  "upsert",
+  "createMany",
+  "updateMany",
+  "deleteMany",
+]);
+
+/**
+ * A `Selection` or an `OperationSet` as it is at runtime: the value
+ * `target(...)` or a set returned. Their types carry what only the compiler
+ * reads (the client a selection is typed against), so this one assertion
+ * crosses from those types to the value.
+ */
+export const selectionOf = (value: unknown): SelectionValue | undefined =>
+  value as SelectionValue | undefined;
 
 /** The operations of a set, of a list, or of one name. */
-export function operationsOf(
+export const operationsOf = (
   value: unknown
-): readonly Operations[] | undefined {
-  if (value === undefined) return undefined;
-  const named: unknown[] | undefined =
-    typeof value === "string"
-      ? [value]
-      : Array.isArray(value)
-        ? value
-        : undefined;
-  if (named !== undefined) {
-    if (!named.every(isOperation))
-      throw new TypeError("target() and .on() name model operations");
-    return named;
-  }
-  const listed =
-    typeof value === "object" && value !== null && SET in value
-      ? value[SET]
-      : undefined;
-  return Array.isArray(listed) ? listed : undefined;
-}
-
-/** What `target(...)` returns at runtime. */
-export interface SelectionValue {
-  /** The models named; every model when absent. */
-  readonly models?: readonly string[];
-  /** The operations named; every operation when absent. */
-  readonly operations?: readonly string[];
-  /** What watches the writes named, when they were named by a set that brings it. */
-  readonly watch?: ExtensionPart;
-}
+): readonly Operations[] | undefined =>
+  typeof value === "string"
+    ? // One name, which the overloads typed as an operation.
+      [value as Operations]
+    : Array.isArray(value)
+      ? value
+      : selectionOf(value)?.operations;
 
 /** Every model, these operations: `target(reads)`. */
 export function target<T extends AnyTarget, O extends Operations>(
@@ -163,46 +146,12 @@ export function target<
 ): Selection<T, M, O>;
 export function target(first: unknown, operations?: unknown): unknown {
   // An operation set alone: every model, those operations.
-  if (typeof first === "object" && first !== null && !Array.isArray(first))
-    return Object.freeze({
-      operations: operationsOf(first),
-      ...watchOf(first),
-    });
-  const listed = operationsOf(operations);
-  return Object.freeze({
-    models: typeof first === "string" ? [first] : first,
-    ...(listed === undefined ? {} : { operations: listed }),
-    ...watchOf(operations),
-  });
-}
-
-/** What watches the writes of a set that brings it. */
-function watchOf(value: unknown): { readonly watch?: ExtensionPart } {
-  const watch =
-    typeof value === "object" && value !== null && "watch" in value
-      ? value.watch
-      : undefined;
-  return typeof watch === "object" && watch !== null
-    ? { watch: watch as ExtensionPart }
-    : {};
-}
-
-/** A selection `target(...)` built, read back where a part is written. */
-export function selectionOf(
-  value: object | undefined
-): SelectionValue | undefined {
-  if (value === undefined) return undefined;
-  const models = "models" in value ? value.models : undefined;
-  const operations = "operations" in value ? value.operations : undefined;
-  const { watch } = watchOf(value);
-  if (
-    (models !== undefined && !Array.isArray(models)) ||
-    (operations !== undefined && !Array.isArray(operations))
-  )
-    throw new TypeError("A part's selection is written with target(...)");
+  if (typeof first === "object" && !Array.isArray(first)) return first;
   return {
-    ...(models === undefined ? {} : { models }),
-    ...(operations === undefined ? {} : { operations }),
-    ...(watch === undefined ? {} : { watch }),
+    models: typeof first === "string" ? [first] : first,
+    operations: operationsOf(operations),
+    watch: Array.isArray(operations)
+      ? undefined
+      : selectionOf(operations)?.watch,
   };
 }
