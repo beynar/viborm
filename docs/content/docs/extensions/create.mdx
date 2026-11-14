@@ -372,8 +372,9 @@ Bound it yourself: VibORM allows another run as long as `again` answers
 `true`. A call inside a transaction is never made again (the transaction is
 the caller's to make again), nor a write that committed or may have. A write
 sent as one statement outside a transaction that fails is held to be possibly
-made, so it is not made again: reads are, and writes whose own transaction
-rolled back.
+made, so it is not made again, unless its failure proves it was not (a key
+already taken, `UniqueConstraintError`): reads are made again, and so are
+writes whose own transaction rolled back.
 
 ### Send a read to another driver: `via`
 
@@ -785,8 +786,10 @@ await db.post.findMany(); // ValidationError: "tenant" is required
 | `unless(arg, test, filter)` | a filter | `filter` applies when the test does not hold |
 | `provided(arg, test, filter?)` | a filter | Holds only when the test holds (and `filter`, if given); false otherwise |
 
-A test is a value, or `{ exists }`, `{ in }`, `{ equals }`, `{ has }`,
-`{ hasSome }`. It is folded before any row is read: a test that does not hold
+A test is a value, or exactly one of `{ exists }`, `{ in }`, `{ equals }`,
+`{ has }`, `{ hasSome }`; any other object, one with an extra key included,
+is refused where the entry is checked (at `$extends()`, or when a `lazy`
+entry is first read). It is folded before any row is read: a test that does not hold
 removes its arm, the values inside it included.
 
 - An argument can sit anywhere a filter takes a value: on a field
@@ -949,8 +952,6 @@ await db.document.update({ user: "ada", where: { id }, data: { archivedAt: new D
   others. A `connect`, `set` or `disconnect` naming a linked row the call may
   not write is `NestedWriteError`. `set: []` refuses a visible link the call
   may not write the same way; a hidden one keeps its link.
-- A predicate object that contains itself is refused when the extension is
-  applied.
 
 ### Lazy entries: `lazy`
 
@@ -1015,6 +1016,9 @@ const judged = client.$extends(
   writes a field the predicate reads, and at each written field's `check`:
   an update that writes nothing the predicate reads cannot move the row out
   of it, and its statement carries no judgement.
+- `acyclic` is judged with the rows a write produces, so it needs a `check`
+  on the same model (`create.check`, `update.check` or a field's `check`):
+  without one, `$extends()` refuses it.
 - `acyclic` may be a function returning the list: it is called the first time
   an update writes the key of one of the model's self relations.
 - A refused row is written by no statement: at the root `ForbiddenError`, in
