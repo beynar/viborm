@@ -20,16 +20,11 @@ import type {
 } from "./contract";
 import { judgeOf } from "./judge";
 import { keptRowsPart } from "./kept";
+import { layerOf } from "./layers";
 import { projectionOf } from "./projection";
 import { draftOf, listOf } from "./rule";
-import {
-  ArgTestFilter,
-  ArgValue,
-  CarriedValue,
-  NowValue,
-  RowValue,
-  type Site,
-} from "./rule-words";
+import { CarriedValue, PredicateWord, type Site } from "./rule-words";
+import { NOW } from "./stamps";
 import { VERBS, verbsOf } from "./verbs";
 
 const UPDATE_FIELD = /^update\.fields\.[^.]+\.check$/;
@@ -195,13 +190,14 @@ class Kept extends CarriedValue {
       refuse("keep() is written in an entry, not one given as a function");
     let data = this.data;
     let removeWhen: Record<string, string | number | boolean> | undefined;
-    if (data instanceof ArgTestFilter && data.kind !== "provided") {
-      const { arg, test } = data;
+    const tested = data instanceof PredicateWord ? data.tested?.() : undefined;
+    if (tested !== undefined) {
+      const { arg, test } = tested;
       const spec = draft.args?.[arg.name];
       const values =
         spec !== undefined && "oneOf" in spec ? spec.oneOf : undefined;
       const removes =
-        data.kind === "unless"
+        tested.kind === "unless"
           ? test
           : values?.length === 2
             ? values.find((value) => value !== test)
@@ -214,7 +210,7 @@ class Kept extends CarriedValue {
       )
         refuse("keep() takes data, or unless(arg(name), value, data)");
       removeWhen = { [arg.name]: removes };
-      data = data.then;
+      data = tested.then;
     }
     if (!isPlainRecord(data))
       refuse("keep() takes the data the row is updated with");
@@ -224,12 +220,11 @@ class Kept extends CarriedValue {
     for (const [field, value] of Object.entries(data)) {
       if (!Object.hasOwn(state.scalars, field))
         refuse(`keep() names unknown field "${field}"`);
-      if (value instanceof NowValue) {
-        if (at !== undefined) refuse("keep() writes now in one field");
-        at = field;
-      } else if (value instanceof ArgValue || value instanceof RowValue)
+      if (!(value instanceof PredicateWord)) assign[field] = value;
+      else if (value.stamp?.() !== NOW)
         refuse("keep() writes constants and now");
-      else assign[field] = value;
+      else if (at !== undefined) refuse("keep() writes now in one field");
+      else at = field;
     }
     const deletion = (draft.deletion ??= { models: {} });
     if (removeWhen !== undefined) {
@@ -262,6 +257,8 @@ class Lazy extends CarriedValue {
     if (key !== "the entry") refuse(`${key} does not take lazy()`);
     const layer = draft.rule!;
     layer.host = VERBS;
+    // What the entry reads of its call is known once it is read.
+    layer.layered = layerOf;
     const read = (): VerbsDraft => {
       const given: unknown = Reflect.apply(this.read, undefined, []);
       const written: Readonly<Record<string, unknown>> = isPlainRecord(given)

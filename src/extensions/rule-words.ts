@@ -18,7 +18,13 @@ import { isPlainRecord } from "@schema/relation/terminal";
 import { validateSchema } from "@validation/primitives/helpers";
 import type { FilterWord } from "@validation/primitives/parameter";
 import type { SchemaRegistryLookup } from "@validation/types";
-import type { LayerMode, References, RuleLayer, VerbsDraft } from "./admission";
+import type {
+  Layered,
+  LayerMode,
+  References,
+  RuleLayer,
+  VerbsDraft,
+} from "./admission";
 import type {
   ArgTest,
   ArgWord,
@@ -30,6 +36,8 @@ import type {
   WhenWord,
 } from "./contract";
 import type { DefinitionDraft } from "./extension";
+import { layerOf } from "./layers";
+import { NOW } from "./stamps";
 
 /**
  * Where one carried word is written: its model, its place (`create.check`,
@@ -77,6 +85,17 @@ export abstract class PredicateWord {
    * what it applies there, or `undefined` where it applies nothing.
    */
   under?(mode: LayerMode | undefined, value: string): unknown;
+  /** What a field of default or kept data writes for the word. */
+  stamp?(): unknown;
+  /** A `when` or an `unless`: its argument, its test and what it applies. */
+  tested?():
+    | {
+        readonly kind: "when" | "unless";
+        readonly arg: ArgValue;
+        readonly test: ArgTest;
+        readonly then: unknown;
+      }
+    | undefined;
 }
 
 /** What admission hands a word: what records its call values, and the schema. */
@@ -84,6 +103,8 @@ export interface Admitting {
   readonly references: References;
   readonly schema: Schema;
   readonly registry: SchemaRegistryLookup<Schema>;
+  /** What lowers a layer that reads its call: set by the words that read it. */
+  layered?: Layered;
 }
 
 /** `arg(name, path?)`'s value: the call's value for one argument, or a field of it. */
@@ -95,17 +116,25 @@ export class ArgValue extends PredicateWord {
     this.name = name;
     this.path = path;
   }
-  override value({ references }: Admitting): object {
-    references.add(this.name);
+  override value(at: Admitting): object {
+    at.references.add(this.name);
+    at.layered = layerOf;
+    return this.stamp();
+  }
+  override stamp(): Parameter {
     return new Parameter(this.name, this.path);
   }
 }
 
 /** `now`'s value: the call's one instant. */
 export class NowValue extends PredicateWord {
-  override value({ references }: Admitting): object {
-    references.add(undefined);
+  override value(at: Admitting): object {
+    at.references.add(undefined);
+    at.layered = layerOf;
     return new Parameter();
+  }
+  override stamp(): Parameter {
+    return NOW;
   }
 }
 
@@ -196,11 +225,12 @@ export class ArgTestFilter extends PredicateWord {
     this.test = test;
     this.then = then;
   }
-  override filter({ references }: Admitting): FilterWord {
+  override filter(at: Admitting): FilterWord {
     const test = testOf(this.test);
     if (typeof test === "string") return { message: test, path: [] };
     const { arg, kind, then } = this;
-    references.add(arg.name);
+    at.references.add(arg.name);
+    at.layered = layerOf;
     const condition = new Condition(new Parameter(arg.name, arg.path), test);
     if (kind === "provided")
       return then === undefined
@@ -242,6 +272,10 @@ export class ArgTestFilter extends PredicateWord {
         return;
       }
     });
+  }
+  override tested() {
+    const { kind, arg, test, then } = this;
+    return kind === "provided" ? undefined : { kind, arg, test, then };
   }
   override under(mode: LayerMode | undefined, value: string): unknown {
     const { arg, kind, test } = this;

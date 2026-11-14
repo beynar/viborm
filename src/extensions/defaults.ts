@@ -30,8 +30,8 @@ import { extensionError } from "./definition";
 import { builtPart, type DefinitionDraft } from "./extension";
 import { orderOf } from "./order";
 import { bindPlain } from "./plain-domain";
-import { ArgValue, CarriedValue, NowValue, type Site } from "./rule-words";
-import { NOW, Stamps } from "./stamps";
+import { CarriedValue, PredicateWord, type Site } from "./rule-words";
+import { Stamps } from "./stamps";
 
 type Entry = Readonly<Record<string, unknown>>;
 
@@ -70,11 +70,7 @@ function stampOf(
     if (!Object.hasOwn(scalars, field))
       refuse(`names unknown field "${field}"`);
     out[field] =
-      value instanceof NowValue
-        ? NOW
-        : value instanceof ArgValue
-          ? new Parameter(value.name, value.path)
-          : value;
+      value instanceof PredicateWord && value.stamp ? value.stamp() : value;
   }
   return Object.freeze(out);
 }

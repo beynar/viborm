@@ -178,7 +178,12 @@ export class RowsBinding implements CallRowsBinding {
     this.#prepare = prepare;
     this.#chain = chain;
     this.#layers = layers;
-    this.#beside = { ...verbs, ...(confine.size > 0 && { confine, bound }) };
+    const layered = layers.find((layer) => layer.layered)?.layered;
+    this.#beside = {
+      ...verbs,
+      ...(confine.size > 0 && { confine, bound }),
+      ...(layered && { layered }),
+    };
     // An entry given lazily's predicates are not known yet: its calls
     // carry their values.
     this.#parametric =

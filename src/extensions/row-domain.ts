@@ -28,8 +28,50 @@ import { type Input, memo } from "@query-engine/raptor3/shared/schema";
 import type { Membership } from "@query-engine/raptor3/shared/storage";
 import type { AnyModel } from "@schema/model";
 import type { Judge } from "./judge";
-import { layerOf } from "./layers";
 import type { Projection } from "./projection";
+
+/**
+ * `predicate` as a layer resolved it, over a produced row a judgement lowers
+ * over: what judges brought folds the values the write sets into it.
+ */
+export function overKnown(
+  queries: Queries,
+  alias: string | undefined,
+  predicate: PreparedPredicate
+): PreparedPredicate {
+  const { known } = queries as Queries & {
+    known?: {
+      alias: string;
+      nulls: ReadonlyMap<string, boolean>;
+      fold: (
+        predicate: PreparedPredicate,
+        nulls: ReadonlyMap<string, boolean>
+      ) => PreparedPredicate;
+    };
+  };
+  return known !== undefined && alias === known.alias
+    ? known.fold(predicate, known.nulls)
+    : predicate;
+}
+
+/**
+ * `predicate` as `model`'s domain predicate of `layer`, where it reads
+ * nothing of its call: what it states, whatever the call.
+ */
+function plainLayer(
+  layer: number,
+  model: string,
+  predicate: PreparedPredicate
+): PreparedPredicate {
+  return freeze({
+    kind: "layer",
+    layer,
+    model,
+    predicate,
+    resolve: (queries: Queries, alias?: string) =>
+      overKnown(queries, alias, predicate),
+  });
+}
 
 /** A domain no member confines bounds no set. */
 const unbounded = (): undefined => undefined;
@@ -132,6 +174,7 @@ export class FilterDomain implements PreparedDomain {
   ): PreparedSelector | null {
     const name = model["~"].names.ts!;
     const queries = this.queries;
+    const layered = this.rows.layered ?? plainLayer;
     const parts: PreparedSelector[] = [];
     for (const [layer, inputs] of layers) {
       if (inputs.length === 0) continue;
@@ -140,7 +183,7 @@ export class FilterDomain implements PreparedDomain {
         wheres.length === 1 ? wheres[0]! : queries.andSelectors(model, wheres);
       if (part.predicate !== undefined)
         parts.push(
-          freeze({ ...part, predicate: layerOf(layer, name, part.predicate) })
+          freeze({ ...part, predicate: layered(layer, name, part.predicate) })
         );
       else if (!reading) parts.push(part);
     }

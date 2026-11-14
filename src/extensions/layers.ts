@@ -1,6 +1,7 @@
 /**
- * A layer of a row domain as the engine lowers it: what its predicate is for
- * one call. Its conditions fold per call, a value it still reads that is
+ * A layer of a row domain as the engine lowers it, where its predicate reads
+ * its call (brought by `arg`, `now`, `when`, `unless`, `provided`): what its
+ * predicate is for one call. Its conditions fold per call, a value it still reads that is
  * absent makes it false where its control is required and drops it otherwise
  * (R6), and over a produced row what judges it folds the nullness the write
  * states into it.
@@ -18,6 +19,7 @@ import {
   type Condition,
   Parameter,
 } from "@query-engine/raptor3/shared/row-scope";
+import { overKnown } from "./row-domain";
 
 /** A layer's predicate under one outcome of its conditions. */
 interface Folded {
@@ -199,19 +201,7 @@ export function layerOf(
       if (dropped) return undefined;
       // The values a write sets fold into its judgement of the row it
       // produces: what judges brings what folds them (`produced.ts`).
-      const { known } = queries as Queries & {
-        known?: {
-          alias: string;
-          nulls: ReadonlyMap<string, boolean>;
-          fold: (
-            predicate: PreparedPredicate,
-            nulls: ReadonlyMap<string, boolean>
-          ) => PreparedPredicate;
-        };
-      };
-      return known !== undefined && alias === known.alias
-        ? known.fold(resolved, known.nulls)
-        : resolved;
+      return overKnown(queries, alias, resolved);
     },
   });
 }

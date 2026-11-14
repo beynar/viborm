@@ -99,7 +99,12 @@ export interface RuleLayer {
    * (`verbs.ts`), so a rule that only filters holds none of that code.
    */
   host?: VerbsHost;
+  /** What lowers its layer, set where an entry read later may read its call. */
+  layered?: Layered;
 }
+
+/** What makes a layer's node of a predicate: `RowDomain.layered`. */
+export type Layered = NonNullable<RowDomain["layered"]>;
 
 /** One model's filters per value of its layer's mode argument (`""` without one). */
 export interface ModeFilters {
@@ -162,6 +167,8 @@ export interface AdmittedLayer {
   };
   /** What admitted `verbs`, and binds them. */
   readonly host?: VerbsHost;
+  /** What lowers the layer, where some predicate of it reads its call. */
+  readonly layered?: Layered;
   readonly confine: { readonly [model: string]: Input };
   /** Per mode, its filters'; then its eager keys' and confinements'. */
   readonly references: {
@@ -190,6 +197,8 @@ export interface Admission {
     of?: string
   ) => Input;
   readonly refuse: (name: string, place: string, reason: string) => never;
+  /** What lowers the layer, once a predicate admitted reads its call. */
+  layered?: Layered;
 }
 
 /**
@@ -286,6 +295,7 @@ export function admission(
       () => validateSchema(where, predicate),
       filters
     );
+    admitting.layered ??= at.layered;
     if (!result.issues) return result.value as Input;
     const [issue] = result.issues;
     return refuse(
@@ -294,7 +304,8 @@ export function admission(
       `at "${issue!.path?.map(String).join(".") || "root"}": ${issue!.message}`
     );
   };
-  return { schema, admit, refuse };
+  const admitting: Admission = { schema, admit, refuse };
+  return admitting;
 }
 
 /** Whether every scalar of the schema reads its value with the engine's own schema. */
@@ -391,12 +402,14 @@ export function admitLayer(
   const confine: Record<string, Input> = {};
   for (const [name, predicate] of Object.entries(layer.confine))
     confine[name] = admit(name, `${name}.confine`, predicate, verbsReferences);
+  const layered = layer.layered ?? admitting.layered;
   const out: AdmittedLayer = Object.freeze({
     extension,
     ...(layer.mode && { mode: layer.mode }),
     models: Object.freeze(models),
     verbs,
     ...(host && { host }),
+    ...(layered && { layered }),
     confine: Object.freeze(confine),
     references: Object.freeze({
       modes: Object.fromEntries(

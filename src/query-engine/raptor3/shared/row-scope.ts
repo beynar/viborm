@@ -4,7 +4,13 @@ import type { AnyModel } from "@schema/model";
 import { parseProviding } from "@validation/primitives/object";
 import type { PreparedGuardFailure } from "../../types";
 import type { Writer } from "../write/statements";
-import type { PreparedDomain, PreparedSelector, Queries, Query } from "./query";
+import type {
+  PreparedDomain,
+  PreparedPredicate,
+  PreparedSelector,
+  Queries,
+  Query,
+} from "./query";
 import type { EngineSchema, Input } from "./schema";
 import type { Membership } from "./storage";
 
@@ -39,6 +45,16 @@ export interface LazyRelations {
 export interface RowDomain {
   readonly root: ModelDomain;
   readonly related: ModelDomain;
+  /**
+   * What makes a layer's node of a predicate that reads its call (an
+   * argument, the instant, a test of an argument): brought by the words
+   * that read it. Absent, a layer is what it states.
+   */
+  readonly layered?: (
+    layer: number,
+    model: string,
+    predicate: PreparedPredicate
+  ) => PreparedPredicate;
   /** What a layer's own whole-table sets hold (`rows.confine`), in every mode. */
   readonly confine?: ModelDomain;
   /**
