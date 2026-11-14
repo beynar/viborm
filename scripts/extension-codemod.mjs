@@ -45,9 +45,11 @@
 
 import { spawnSync } from "node:child_process";
 import {
+  closeSync,
   existsSync,
   globSync,
   mkdirSync,
+  openSync,
   readdirSync,
   readFileSync,
   statSync,
@@ -3363,12 +3365,17 @@ function biomeFormatCopy(path) {
   const input = readFileSync(path, "utf8");
   // A block whose only content was `enableExtensions()` is left empty.
   if (input.trim() === "") return { ok: true, output: "", empty: true };
+  // The file itself is stdin: a piped input past 64 kB deadlocks spawnSync
+  // against Biome.
+  const stdin = openSync(path, "r");
   const result = spawnSync(BIOME, ["format", `--stdin-file-path=${name}`], {
     cwd: ROOT,
     encoding: "utf8",
-    input,
+    stdio: [stdin, "pipe", "pipe"],
+    maxBuffer: 64 * 1024 * 1024,
     timeout: 60_000,
   });
+  closeSync(stdin);
   if (result.status === 0 && result.stdout) writeFileSync(path, result.stdout);
   const output = result.error
     ? `biome did not answer: ${result.error.message}`
