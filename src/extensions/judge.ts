@@ -12,7 +12,6 @@ import {
 } from "@query-engine/raptor3/shared/query";
 import type {
   LazyRelations,
-  ModelVerbs,
   RowJudgement,
 } from "@query-engine/raptor3/shared/row-scope";
 import { type Input, memo } from "@query-engine/raptor3/shared/schema";
@@ -26,17 +25,7 @@ import type { Sql } from "@sql";
 import { producedSource, producedWhere } from "./produced";
 import { readsAny } from "./reads";
 import type { PreparedDomain } from "./row-domain";
-import { verbInputs } from "./verbs";
-
-/** A layer a check made judge the rows its writes produce (`verbs.ts`). */
-interface JudgedVerbs extends ModelVerbs {
-  readonly judged: true;
-  /** `update.check`: judged with the predicates that judged the old row. */
-  readonly check?: Input;
-}
-
-const judges = (own: ModelVerbs | undefined): own is JudgedVerbs =>
-  own !== undefined && "judged" in own;
+import { ALL, verbInputs } from "./verbs";
 
 /** What the engine and the drivers ask of what judges a domain's writes. */
 export type Judge = Pick<
@@ -182,11 +171,12 @@ class RowJudge {
   located(model: AnyModel): ((cause: Error) => Error) | undefined {
     const name = model["~"].names.ts!;
     const never = this.#domain.rows.verbs?.get(name)?.some((layer) => {
-      const members = layer?.update.OR;
+      const update = layer?.update;
+      const members = update?.OR;
       return (
         Array.isArray(members) &&
         members.length === 0 &&
-        Object.keys(layer!.update).length === 1
+        Object.keys(update!).length === 1
       );
     });
     return never
@@ -206,7 +196,7 @@ class RowJudge {
   #reason(model: AnyModel, judgement: RowJudgement): string | undefined {
     const layers = this.#domain.rows.verbs?.get(model["~"].names.ts!);
     const moved = judgement.writes.filter((field) =>
-      layers?.some((layer) => layer?.moves.has(field))
+      layers?.some((layer) => layer?.moves?.has(field))
     );
     return moved.length === 0 ? undefined : `it writes ${moved.join(", ")}`;
   }
@@ -242,13 +232,13 @@ class RowJudge {
         const layers: (readonly [number, Input[]])[] = [];
         for (const [layer, own] of verbs.entries()) {
           // A layer judges the rows its writes produce where a check said so.
-          if (!judges(own)) continue;
+          if (own?.judge === undefined) continue;
           // What judged the old row judges the new one, unless the write
           // assigns nothing it reads: then the new row's answer is the old
           // row's, which the statement's own candidates already state.
           const checked = judgement
             ? [
-                own.read,
+                own.read ?? ALL,
                 ...verbInputs(own, judgement),
                 ...(own.check === undefined ? [] : [own.check]),
               ]
@@ -265,7 +255,7 @@ class RowJudge {
             ? [
                 ...(unchanged ? [] : checked),
                 ...judgement.writes.flatMap((field) => {
-                  const move = own.moves.get(field);
+                  const move = own.moves?.get(field);
                   return move === undefined ? [] : [move];
                 }),
               ]
@@ -299,7 +289,7 @@ class RowJudge {
       );
     };
     for (const own of verbs) {
-      const acyclic = own?.acyclic;
+      const acyclic = own?.cycles;
       if (acyclic === undefined) continue;
       const named = Array.isArray(acyclic)
         ? acyclic

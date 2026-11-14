@@ -44,7 +44,7 @@ class Only extends CarriedValue {
     else if (key === "delete.where") own.delete = this.where;
     // An update writing the field takes this instead of `update.where`.
     else if (FIELD_WHERE.test(key))
-      own.writes = { ...own.writes, [field!]: this.where };
+      (own.writes ??= new Map()).set(field!, this.where);
     else refuse(`${key} does not take only()`);
   }
 }
@@ -71,7 +71,7 @@ class Checked extends CarriedValue {
     // field the predicate reads (`update.check`), or the field named.
     else if (key === "update.check") own.check = this.where;
     else if (UPDATE_FIELD.test(key)) {
-      own.moves = { ...own.moves, [field!]: this.where };
+      (own.moves ??= new Map()).set(field!, this.where);
     } else refuse(`${key} does not take check()`);
   }
 }
@@ -124,7 +124,7 @@ class Gated extends CarriedValue {
       refuse(`${key} names a key, a unique or a foreign key field`);
     const own = verbsOf(site);
     own.project = projectionOf;
-    own.reads = { ...own.reads, [field!]: this.where };
+    (own.reads ??= new Map()).set(field!, this.where);
   }
 }
 

@@ -43,6 +43,7 @@ import {
 } from "./gates";
 import { admitProjected } from "./projected";
 import type { PreparedDomain } from "./row-domain";
+import { ALL } from "./verbs";
 
 /** Equal gates shared, so a projection carries one member per distinct gate. */
 function sharedGate(gate: FieldGate, known: FieldGate[]): FieldGate {
@@ -207,10 +208,10 @@ class RowProjection {
         this.#domain.rows.verbs?.get(name) ?? []
       ).entries()) {
         if (verbs === undefined) continue;
-        const { evidence, read } = verbs;
+        const { evidence, read = ALL } = verbs;
         if (evidence)
           keys.set(evidence.as, freeze({ layer, read, names: evidence.names }));
-        for (const [field, input] of verbs.reads)
+        for (const [field, input] of verbs.reads ?? [])
           gates.set(field, [
             ...(gates.get(field) ?? []),
             freeze([layer, read, input] as const),
