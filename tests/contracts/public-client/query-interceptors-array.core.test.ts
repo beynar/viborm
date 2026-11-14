@@ -1934,7 +1934,7 @@ describe("public array lifecycle observers", () => {
       extension(
         "ownership-observer",
         extUnit((u, next) => {
-          if (u.kind !== "batch") return;
+          if (u.kind !== "batch") return next();
           next().then((completion) => {
             completions.push({
               certainty: completion.commitCertainty,
@@ -1961,7 +1961,7 @@ describe("public array lifecycle observers", () => {
       extension(
         "snapshot-failure-observer",
         extUnit((u, next) => {
-          if (u.kind !== "batch") return;
+          if (u.kind !== "batch") return next();
           next().then((completion) => {
             completions.push(completion.status);
           });
@@ -2001,7 +2001,7 @@ describe("public array lifecycle observers", () => {
       extension(
         "snapshot-length-failure-observer",
         extUnit((u, next) => {
-          if (u.kind !== "batch") return;
+          if (u.kind !== "batch") return next();
           next().then((completion) => {
             completions.push(completion.status);
           });
@@ -2048,7 +2048,7 @@ describe("public array lifecycle observers", () => {
           extTarget("record", "findMany")
         ),
         extUnit((u, next) => {
-          if (u.kind !== "operation") return;
+          if (u.kind !== "operation") return next();
           next().then((completion) => {
             operationCompletions.push(completion.status);
           });
@@ -2085,7 +2085,7 @@ describe("public array lifecycle observers", () => {
           { rewrites: true }
         ),
         extUnit((u, next) => {
-          if (u.kind !== "statement") return;
+          if (u.kind !== "statement") return next();
           statementUnits += 1;
           const statementUnit = statementUnits;
           timeline.push(`statement:in:${statementUnit}`);
@@ -2146,7 +2146,7 @@ describe("public array lifecycle observers", () => {
           { rewrites: true }
         ),
         extUnit((u, next) => {
-          if (u.kind !== "statement") return;
+          if (u.kind !== "statement") return next();
           timeline.push(`statement:in:${u.operation}`);
           next().then((completion) => {
             timeline.push(`statement:out:${u.operation}:${completion.status}`);
@@ -2199,7 +2199,7 @@ describe("public array lifecycle observers", () => {
           { rewrites: true }
         ),
         extUnit((u, next) => {
-          if (u.kind !== "statement") return;
+          if (u.kind !== "statement") return next();
           next().then((completion) => {
             statementCompletions.push(completion.status);
           });
@@ -2446,7 +2446,7 @@ describe("public array lifecycle observers", () => {
           extTarget("record", "findMany")
         ),
         extUnit((u, next) => {
-          if (u.kind !== "operation" && u.kind !== "batch") return;
+          if (u.kind !== "operation" && u.kind !== "batch") return next();
           next().then((completion) => {
             completions.push({
               kind: u.kind,
@@ -2529,7 +2529,7 @@ describe("public array lifecycle observers", () => {
       extension(
         "nested-observer",
         extUnit((u, next) => {
-          if (u.kind !== "batch") return;
+          if (u.kind !== "batch") return next();
           next().then((completion) => {
             certainties.push(completion.commitCertainty);
           });

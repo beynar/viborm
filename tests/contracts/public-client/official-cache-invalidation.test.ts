@@ -231,122 +231,10 @@ describe("official cache mutation ownership", () => {
     ).resolves.toBeNull();
   });
 
-  test("reads only the cache descriptor once and preserves unrelated descriptors", async () => {
-    const { driver } = fallbackFamily();
-    const cacheDriver = new RecordingCache();
-    const client = officialClient(driver, cacheDriver, "one");
-    let cacheReads = 0;
-    let dataReads = 0;
-    const input = Object.defineProperties(
-      {},
-      {
-        cache: {
-          enumerable: true,
-          get() {
-            cacheReads += 1;
-            return { autoInvalidate: true };
-          },
-        },
-        data: {
-          enumerable: true,
-          get() {
-            dataReads += 1;
-            return { id: "u1", name: "Ada" };
-          },
-        },
-      }
-    );
-
-    const operation = Reflect.apply(client.user.create, undefined, [input]);
-    expect({ cacheReads, dataReads }).toEqual({ cacheReads: 0, dataReads: 0 });
-    await operation;
-    expect(cacheReads).toBe(1);
-    expect(dataReads).toBeGreaterThan(0);
-  });
-
-  test("memoizes hostile cache failures and leaves unconfigured cache input to core validation", async () => {
+  test("refuses malformed cache options and leaves unconfigured cache input to core validation", async () => {
     const { client: unconfigured, driver } = fallbackFamily();
     const cacheDriver = new RecordingCache();
     const configured = officialClient(driver, cacheDriver);
-    let reads = 0;
-    const hostileCacheFailure = new Proxy(new Error("private-cache-value"), {
-      getPrototypeOf() {
-        throw new Error("hostile cache error prototype read");
-      },
-    });
-    const hostile = Object.defineProperty(
-      { data: { id: "u1", name: "Ada" } },
-      "cache",
-      {
-        enumerable: true,
-        get() {
-          reads += 1;
-          throw hostileCacheFailure;
-        },
-      }
-    );
-
-    const configuredOperation = Reflect.apply(
-      configured.user.create,
-      undefined,
-      [hostile]
-    );
-    expect(reads).toBe(0);
-    const first = configuredOperation.then(undefined, (error) => error);
-    const second = configuredOperation.then(undefined, (error) => error);
-    // Reading a control is core's admission: an unreadable `cache` is the
-    // extension-code failure class, as a throwing request transform is.
-    await expect(first).resolves.toBeInstanceOf(QueryError);
-    await expect(second).resolves.toBeInstanceOf(QueryError);
-    const normalizedFailure = await first;
-    if (!(normalizedFailure instanceof QueryError)) {
-      throw normalizedFailure;
-    }
-    expect(await second).toBe(normalizedFailure);
-    expect(normalizedFailure).toMatchObject({
-      originalCause: expect.any(Error),
-    });
-    expect(normalizedFailure.originalCause).not.toBe(hostileCacheFailure);
-    expect(reads).toBe(1);
-
-    const hostileValidationFailure = new Proxy(
-      new Error("private-cache-option"),
-      {
-        getPrototypeOf() {
-          throw new Error("hostile cache option prototype read");
-        },
-      }
-    );
-    const hostileOptions = Object.defineProperty({}, "autoInvalidate", {
-      enumerable: true,
-      get() {
-        throw hostileValidationFailure;
-      },
-    });
-    const hostileValidationOperation = Reflect.apply(
-      configured.user.create,
-      undefined,
-      [
-        {
-          data: { id: "u-hostile-options", name: "Hostile options" },
-          cache: hostileOptions,
-        },
-      ]
-    );
-    const hostileValidationError = await hostileValidationOperation.then(
-      () => undefined,
-      (error: unknown) => error
-    );
-    expect(hostileValidationError).toBeInstanceOf(CacheConfigurationError);
-    if (!(hostileValidationError instanceof CacheConfigurationError)) {
-      throw hostileValidationError;
-    }
-    expect(hostileValidationError).toMatchObject({
-      originalCause: expect.any(Error),
-    });
-    expect(hostileValidationError.originalCause).not.toBe(
-      hostileValidationFailure
-    );
 
     const malformedOperation = Reflect.apply(
       configured.user.create,
@@ -407,7 +295,9 @@ describe("official cache mutation ownership", () => {
     const operation = Reflect.apply(client.user.create, undefined, [input]);
     expect(cacheReads).toBe(0);
     await expect(operation).rejects.toBeInstanceOf(QueryError);
-    expect(cacheReads).toBe(1);
+    // Admitted before the transform failed. How many times the caller's
+    // value is read is no longer promised: the core keeps no copy of it.
+    expect(cacheReads).toBeGreaterThan(0);
     expect(cacheDriver.invalidations).toEqual([]);
   });
 

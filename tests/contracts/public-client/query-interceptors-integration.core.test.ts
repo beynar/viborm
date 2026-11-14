@@ -1650,7 +1650,7 @@ describe("public protected operation and statement observers", () => {
       extension(
         "preparation-observer",
         extUnit((u, next) => {
-          if (u.kind !== "operation") return;
+          if (u.kind !== "operation") return next();
           timeline.push("operation:in");
           next().then((completion) => {
             timeline.push(`operation:out:${completion.status}`);
@@ -1704,7 +1704,7 @@ describe("public protected operation and statement observers", () => {
           { rewrites: true }
         ),
         extUnit((u, next) => {
-          if (u.kind !== "operation" && u.kind !== "statement") return;
+          if (u.kind !== "operation" && u.kind !== "statement") return next();
           allUnitsFrozen &&= Object.isFrozen(u);
           observedUnitKeys.push(Reflect.ownKeys(u));
           timeline.push(`${u.kind}:in`);
@@ -1757,7 +1757,7 @@ describe("public protected operation and statement observers", () => {
           { rewrites: true }
         ),
         extUnit((u, next) => {
-          if (u.kind !== "statement") return;
+          if (u.kind !== "statement") return next();
           timeline.push("statement:in");
           next().then((completion) => {
             timeline.push(`statement:out:${completion.status}`);
@@ -1800,7 +1800,7 @@ describe("public protected operation and statement observers", () => {
           { rewrites: true }
         ),
         extUnit((u, next) => {
-          if (u.kind !== "operation" && u.kind !== "statement") return;
+          if (u.kind !== "operation" && u.kind !== "statement") return next();
           units.push(u);
           next().then((completion) => {
             completions.push({
@@ -1863,7 +1863,7 @@ describe("public protected operation and statement observers", () => {
       extension(
         "or-throw-observer",
         extUnit((u, next) => {
-          if (u.kind !== "operation") return;
+          if (u.kind !== "operation") return next();
           operationName = u.operation;
           next().then((completion) => {
             observedFailure = completion;

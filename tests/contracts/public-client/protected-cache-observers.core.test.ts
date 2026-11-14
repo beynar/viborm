@@ -165,7 +165,7 @@ function createObservedCacheClient(options?: { hostile?: boolean }) {
     extension(
       "protected-cache-observer",
       extUnit((u, next) => {
-        if (u.kind !== "cache") return;
+        if (u.kind !== "cache") return next();
         timeline.push(`observer:${u.operation}:in`);
         const completion = next();
         const observation: CacheObservation = { unit: u, completion };

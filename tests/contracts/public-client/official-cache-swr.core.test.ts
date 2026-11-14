@@ -9,6 +9,7 @@ import {
   extension,
   call,
   unit,
+  failure,
   target,
   around,
   statement as extStatement,
@@ -581,9 +582,14 @@ describe("official cache stale-while-revalidate", () => {
             "official-swr-observer",
             unit((u, next) => {
               if (u.kind !== "cache" || u.operation !== "revalidate") {
-                return;
+                return next();
               }
-              completions.push(next());
+              const completion = next().then((outcome) => ({
+                ...outcome,
+                error: failure(u),
+              }));
+              completions.push(completion);
+              return completion;
             })
           )
         )

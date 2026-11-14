@@ -27,7 +27,7 @@ const record = s.model({ id: s.string().id(), name: s.string() });
 const schema = { record };
 
 interface LifecycleSummary {
-  readonly commitCertainty?: "committed" | "may-have-committed";
+  readonly certainty?: "committed" | "may-have-committed";
   readonly status: "failure" | "success";
 }
 
@@ -195,7 +195,7 @@ function lifecycleObserver(
         u.kind !== "savepoint" &&
         u.kind !== "transaction"
       ) {
-        return;
+        return next();
       }
       timeline.push(`${label}:${u.kind}:in:${activeSpanName()}`);
       const completion = next();
@@ -208,9 +208,10 @@ function lifecycleObserver(
       completion.then((summary) => {
         capture.summary = summary;
         timeline.push(
-          `${label}:${u.kind}:out:${summary.status}:${summary.commitCertainty ?? "none"}`
+          `${label}:${u.kind}:out:${summary.status}:${summary.certainty ?? "none"}`
         );
       });
+      return completion;
     })
   );
 }
@@ -366,7 +367,7 @@ describe("official driver lifecycle instrumentation", () => {
           .every(
             ({ summary }) =>
               summary?.status === "success" &&
-              summary.commitCertainty === undefined
+              summary.certainty === undefined
           )
       ).toBe(true);
       expect(
@@ -395,7 +396,7 @@ describe("official driver lifecycle instrumentation", () => {
       const cases: Array<{
         readonly bodyFailure?: Error;
         readonly configure: (driver: OfficialLifecycleDriver) => void;
-        readonly expected: LifecycleSummary["commitCertainty"];
+        readonly expected: LifecycleSummary["certainty"];
         readonly name: string;
       }> = [
         {
@@ -447,7 +448,7 @@ describe("official driver lifecycle instrumentation", () => {
 
         const transaction = captures.find(({ kind }) => kind === "transaction");
         expect(transaction?.summary).toMatchObject({ status: "failure" });
-        expect(transaction?.summary?.commitCertainty).toBe(
+        expect(transaction?.summary?.certainty).toBe(
           lifecycleCase.expected
         );
         const span = driverSpans(recorder.spans(), lifecycleCase.name).find(
@@ -494,7 +495,7 @@ describe("official driver lifecycle instrumentation", () => {
       );
       expect(transactions).toHaveLength(2);
       expect(transactions[1]?.summary).toMatchObject({ status: "failure" });
-      expect(transactions[1]?.summary?.commitCertainty).toBeUndefined();
+      expect(transactions[1]?.summary?.certainty).toBeUndefined();
       expect(
         driverSpans(recorder.spans(), "max-wait-lifecycle").filter(
           ({ name }) => name === SPAN_TRANSACTION
@@ -554,9 +555,7 @@ describe("official driver lifecycle instrumentation", () => {
         base.$extends(
           extension(
             "ordinary-only-lifecycle",
-            unit((u, next) => {
-              next();
-            })
+            unit((_u, next) => next())
           )
         )
       );
