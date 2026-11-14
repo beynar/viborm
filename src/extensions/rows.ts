@@ -103,11 +103,11 @@ function modelDomain(
  * each combination of its `rows` members' modes selects, built the first
  * time a call takes it, with the chain's kept rows, stamps and order, so a
  * call only looks its facts up. The predicates hold the values they read as
- * parameters, prepared once for every call: a call whose combination reads
- * one carries its values beside the shared domains.
+ * parameters, prepared once for every call: where one of them reads a call
+ * value, each call carries its values beside the shared domains.
  */
 export class RowsBinding implements CallRowsBinding {
-  readonly members: readonly BoundRowsMember[];
+  readonly #members: readonly BoundRowsMember[];
   readonly #chain: ResolvedExtensionChain;
   readonly #rows: readonly AdmittedRows[];
   readonly #verbs: Omit<VerbsBound, "reads">;
@@ -122,7 +122,7 @@ export class RowsBinding implements CallRowsBinding {
   constructor(chain: ResolvedExtensionChain) {
     const rows = chain.rows ?? [];
     let stride = 1;
-    this.members = rows.map((member): BoundRowsMember => {
+    this.#members = rows.map((member): BoundRowsMember => {
       const modes = rowsModes(member);
       const bound = {
         control: member.control,
@@ -151,14 +151,14 @@ export class RowsBinding implements CallRowsBinding {
       );
     this.#order = chain.order && new Map(Object.entries(chain.order));
     this.#required = requiredOn(chain.controls);
-    this.#fallback = this.members.reduce(
+    this.#fallback = this.#members.reduce(
       (index, member) => index + member.fallback * member.stride,
       0
     );
   }
   /** Each member's mode in `combination`. */
   #modes(combination: number): readonly string[] {
-    return this.members.map(
+    return this.#members.map(
       (member) =>
         member.names[
           Math.floor(combination / member.stride) % member.names.length
@@ -203,14 +203,17 @@ export class RowsBinding implements CallRowsBinding {
    */
   call(model: string, controls: AdmittedControls | undefined): CallRows {
     let index = 0;
-    for (const member of this.members) {
+    for (const member of this.#members) {
       index +=
         member.stride *
         (member.modes.get(controls?.[member.control]) ?? member.fallback);
     }
-    const combination = memo(this.#combinations, index, () =>
-      this.#combination(index)
-    );
+    // Looked up without a closure: every call of the chain passes here.
+    let combination = this.#combinations.get(index);
+    if (combination === undefined) {
+      combination = this.#combination(index);
+      this.#combinations.set(index, combination);
+    }
     const { kept, stamps } = this.#chain;
     const facts =
       kept?.removes(model, controls) === true
