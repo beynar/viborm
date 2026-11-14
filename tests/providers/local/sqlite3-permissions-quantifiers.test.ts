@@ -3,7 +3,7 @@ import { s } from "@schema";
 import { permissions, type Rule } from "@src/permissions";
 import { v } from "@src/validation";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import { expect, test } from "vitest";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 /** An optional actor value's presence: the guard an author writes. */
 const present = (path: string) => ({ control: "actor", path, exists: true });
@@ -517,4 +517,106 @@ test("guarded OR alternatives isolate missing facts through nested relations; un
   } finally {
     await base.$disconnect();
   }
+});
+
+describe("a rule another model reads at an action name under a negation", () => {
+  const organization = s.model({
+    id: s.string().id(),
+    ownerId: s.string(),
+    documents: s.toMany(() => document),
+  });
+  const document = s.model({
+    id: s.string().id(),
+    organizationId: s.string(),
+    organization: s
+      .toOne(() => organization)
+      .fields("organizationId")
+      .references("id"),
+  });
+  const base = createClient({
+    schema: { organization, document },
+    dataDir: ":memory:",
+  });
+  const actor = v.object({ userId: v.optional(v.string()) });
+  const owner = { ownerId: { actor: "userId" } } as const;
+  const ids = async (db: unknown, facts: object) =>
+    (
+      await (
+        db as {
+          $as(facts: object): {
+            document: { findMany(args: object): Promise<{ id: string }[]> };
+          };
+        }
+      )
+        .$as(facts)
+        .document.findMany({ select: { id: true }, orderBy: { id: "asc" } })
+    ).map(({ id }) => id);
+  beforeAll(async () => {
+    await syncLiveSchema(base);
+    await base.organization.createMany({
+      data: [
+        { id: "alice", ownerId: "alice" },
+        { id: "bob", ownerId: "bob" },
+      ],
+    });
+    await base.document.createMany({
+      data: [
+        { id: "alice", organizationId: "alice" },
+        { id: "bob", organizationId: "bob" },
+      ],
+    });
+  });
+  afterAll(() => base.$disconnect());
+
+  test("in mandatory, never lets an actor without the value that rule reads through", async () => {
+    // Released through 1.13.0: the automatic guard folded the update rule
+    // false for an actor without userId, so the restriction held on every row.
+    const db = base.$extends(
+      permissions({
+        actor,
+        models: {
+          organization: { read: true, update: owner },
+          document: {
+            mandatory: { NOT: { organization: "update" } },
+            read: true,
+          },
+        },
+      })
+    );
+    expect(await ids(db, { userId: "alice" })).toEqual(["bob"]);
+    expect(await ids(db, {})).toEqual([]);
+  });
+
+  test("is negated with its guards: a guard inside the negation grants on absence, one outside it skips the alternative", async () => {
+    const guarded = {
+      read: true,
+      update: { $if: present("userId"), ...owner },
+    };
+    const inside = base.$extends(
+      permissions({
+        actor,
+        models: {
+          organization: guarded,
+          document: { read: { NOT: { organization: "update" } } },
+        },
+      })
+    );
+    // The skipped rule is false, so its negation holds on every row, the
+    // row alice may not read included.
+    expect(await ids(inside, { userId: "alice" })).toEqual(["bob"]);
+    expect(await ids(inside, {})).toEqual(["alice", "bob"]);
+    const outside = base.$extends(
+      permissions({
+        actor,
+        models: {
+          organization: guarded,
+          document: {
+            read: { $if: present("userId"), NOT: { organization: "update" } },
+          },
+        },
+      })
+    );
+    expect(await ids(outside, { userId: "alice" })).toEqual(["bob"]);
+    expect(await ids(outside, {})).toEqual([]);
+  });
 });
