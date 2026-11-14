@@ -20,6 +20,7 @@ import {
 import type {
   CallRows,
   CallScope,
+  ModelVerbs,
   RowDomain,
   RowJudgement,
   RowPurpose,
@@ -30,6 +31,27 @@ import type { AnyModel } from "@schema/model";
 import type { Judge } from "./judge";
 import { layerOf } from "./layers";
 import type { Projection } from "./projection";
+
+/**
+ * The predicates one layer's verbs give a write `judgement`, each once:
+ * `delete`'s, or per field an update writes that field's own, else
+ * `update`'s, or `update`'s when it writes none (R3).
+ */
+export function verbInputs(
+  verbs: ModelVerbs,
+  judgement: RowJudgement
+): Input[] {
+  if (judgement.verb === "delete") return [verbs.delete];
+  if (judgement.writes.length === 0) return [verbs.update];
+  return [
+    ...new Set([
+      ...judgement.writes.map(
+        (field) => verbs.writes.get(field) ?? verbs.update
+      ),
+      ...(judgement.marks ? [verbs.delete] : []),
+    ]),
+  ];
+}
 
 /** A domain no member confines bounds no set. */
 const unbounded = (): undefined => undefined;
@@ -194,7 +216,7 @@ export class FilterDomain implements PreparedDomain {
             [
               ...(own ? [own.read] : []),
               ...(where === undefined ? [] : [where]),
-              ...(own && judged ? this.judge!.inputs(own, judged) : []),
+              ...(own && judged ? verbInputs(own, judged) : []),
             ],
           ]);
         }

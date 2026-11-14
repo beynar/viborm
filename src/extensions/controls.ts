@@ -414,13 +414,6 @@ const PLACEMENTS: Readonly<
   all: ROUTED_OPERATIONS,
 };
 
-/** Every operation that selects candidates: where a `rows` control goes. */
-const CANDIDATE_OPERATIONS: ReadonlySet<string> = new Set(
-  [...ROUTED_OPERATIONS].filter(
-    (operation) => operation !== "create" && operation !== "createMany"
-  )
-);
-
 /** Where a `deletion.removeWhen` control goes, on the models it manages. */
 const DELETE_OPERATIONS: ReadonlySet<string> = new Set([
   "delete",
@@ -441,7 +434,7 @@ export interface ResolvedControl {
    * accepts it (`true`), on these models only, or nowhere when absent.
    */
   readonly required?: true | ReadonlySet<string>;
-  /** What an absent argument admits: the `rows` control's default mode. */
+  /** What an absent argument admits: its default. */
   readonly fallback?: ControlLiteral;
   /** Accepted only from a binding, never read from the arguments. */
   readonly bound?: true;
@@ -450,26 +443,25 @@ export interface ResolvedControl {
 }
 
 /**
- * Give every control of one definition its placement. A control
- * `deletion.removeWhen` names goes on the deletes of the models `deletion`
- * manages; the `rows` control on every candidate-selecting operation of every
- * model, its values the mode names; every other control where its own `on`
- * says (every operation without one), on every model. A `required` control
- * is asked for only on the models the definition names in `rows`, `data` or
- * `deletion`, and on every model when it names none.
+ * Give every control of one definition its placement. A control a `keep`
+ * removes on goes on the deletes of the models it keeps; every other control
+ * where its own `on` says (every operation without one), on every model. A
+ * `required` control is asked for only on the models the definition's rule,
+ * defaults or kept rows name, and on every model when they name none.
  */
 export function placeControls(
   definition: RuntimeExtensionDefinition
 ): readonly ResolvedControl[] {
   const placed: ResolvedControl[] = [];
-  const { name: extension, controls, rows, deletion, data } = definition;
+  const { name: extension, controls, rule, deletion, data } = definition;
   const removeWhen = deletion?.removeWhen ?? {};
   const managed = new Set(Object.keys(deletion?.models ?? {}));
   const named = new Set([
     ...managed,
-    ...Object.keys(rows?.models ?? {}),
-    ...Object.keys(rows?.verbs ?? {}),
-    ...Object.keys(data?.models ?? {}),
+    ...(rule
+      ? [rule.root, rule.related, rule.verbs, rule.confine].flatMap(Object.keys)
+      : []),
+    ...Object.keys(data ?? {}),
   ]);
   const requiredOn = named.size === 0 ? true : named;
   for (const [name, declaration] of Object.entries(controls ?? {})) {
@@ -496,30 +488,12 @@ export function placeControls(
       ...(declaration.uncacheable === true && { uncacheable: true }),
     });
   }
-  if (rows !== undefined) {
-    placed.push({
-      name: rows.control,
-      extension,
-      declaration: Object.freeze({ oneOf: Object.freeze(rowsModes(rows)) }),
-      operations: CANDIDATE_OPERATIONS,
-      fallback: rows.default,
-    });
-  }
   return placed;
 }
 
 function placementOf(on: ControlDeclaration["on"]): ReadonlySet<string> {
   if (on === undefined) return ROUTED_OPERATIONS;
   return typeof on === "string" ? PLACEMENTS[on] : new Set<string>(on);
-}
-
-/**
- * The `rows` control's values: the mode names, which every model entry
- * declares alike, or the default alone when no model is named.
- */
-export function rowsModes(rows: RowsContribution): readonly string[] {
-  const [modes] = Object.values(rows.models);
-  return modes === undefined ? [rows.default] : Object.keys(modes);
 }
 
 // =============================================================================
@@ -886,15 +860,13 @@ function appendControls(
 
 /**
  * `controls`: arguments an extension adds to calls. Declared before any
- * other part joins: a definition's handlers see its own controls, and its
- * `rows` control is one of them.
+ * other part joins: a definition's handlers see its own controls.
  */
 export const controlsPart: ExtensionPart = {
   members: ["controls"],
   declare(application) {
     const { definition, chain, next } = application;
-    if (definition.controls === undefined && definition.rows === undefined)
-      return;
+    if (definition.controls === undefined) return;
     const declared = placeControls(definition);
     next.controls = appendControls(chain?.controls, declared);
     application.owner = {

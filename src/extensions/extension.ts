@@ -133,8 +133,14 @@ export function extension(name: string, ...parts: unknown[]): unknown {
   };
   const applied: AppliedExtension = {
     name,
-    append: (chain, schema, registry) =>
-      set.append(chain, definitionFor(schema), schema, registry),
+    append: (chain, schema, registry) => {
+      const definition = definitionFor(schema);
+      // A word writes the part that runs it, where its part is written.
+      const own = definition.parts
+        ? partSet([...set.parts, ...definition.parts])
+        : set;
+      return own.append(chain, definition, schema, registry);
+    },
   };
   return Object.freeze(applied);
 }

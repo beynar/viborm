@@ -1,8 +1,8 @@
 /**
  * What a read carries beside its rows and what it hides of them, for one
  * prepared domain: the verbs' projection keys (`evidence`) and read-gated
- * fields (`reads`). Made by what reads the verbs (`verbs.ts`), only for a
- * domain whose models may declare either.
+ * fields (`reads`). Brought by `gate` and `facts`: a program whose rules
+ * neither gate nor report holds none of it.
  */
 import { assembleAdapterSelect } from "@adapters/adapter-internals";
 import { UnsupportedOperationError } from "@errors";
@@ -59,7 +59,26 @@ function sharedGate(gate: FieldGate, known: FieldGate[]): FieldGate {
   return gate;
 }
 
-export class Projection {
+/** What the engine asks of what projects and hides a domain's fields. */
+export type Projection = Pick<
+  RowProjection,
+  | "lower"
+  | "window"
+  | "gatedDocument"
+  | "guarded"
+  | "admit"
+  | "refuseGatedLink"
+  | "refuseGatedRows"
+  | "layered"
+  | "projected"
+  | "preparing"
+>;
+
+/** What projects and hides fields, for one domain: brought by `gate` and `facts`. */
+export const projectionOf = (domain: PreparedDomain): Projection =>
+  new RowProjection(domain);
+
+class RowProjection {
   readonly #domain: PreparedDomain;
   readonly #facts = new Map<string, ProjectedFacts | null>();
   readonly #layered = new Map<string, Map<Input, PreparedSelector>>();

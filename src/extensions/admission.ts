@@ -1,13 +1,20 @@
+/**
+ * Each predicate of a rule admitted once, when its extension is applied,
+ * through its model's `where` schema: a misspelt key fails here, never at
+ * the first read, and the engine prepares what a caller's `where` would be
+ * (K1(a)). The words are read as they are: `arg` and `now` are call values
+ * (parameters), `row` an enclosing column, `when`, `unless` and `provided`
+ * conditions folded per call, `exists` another model's rows.
+ */
 import type { Schema } from "@client/types";
 import { ClientInitializationError } from "@errors";
 import {
   Condition,
   type ConditionTest,
   Existence,
-  type ModelDomain,
+  type LazyRelations,
   OuterColumn,
   Parameter,
-  type RowDomain,
 } from "@query-engine/raptor3/shared/row-scope";
 import type { Input } from "@query-engine/raptor3/shared/schema";
 import type { ModelState } from "@schema/model";
@@ -17,26 +24,112 @@ import { validateSchema } from "@validation/primitives/helpers";
 import {
   type AdmittedFilters,
   admittingDomainPredicate,
-  type DomainMarkers,
+  type FilterWord,
 } from "@validation/primitives/parameter";
 import type { SchemaRegistryLookup } from "@validation/types";
-import type { ResolvedControls } from "./chain";
-import type { RowsContribution } from "./controls";
-import type { VERBS } from "./verbs";
+import type { Judge } from "./judge";
+import type { Projection } from "./projection";
+import type { PreparedDomain } from "./row-domain";
+import {
+  ArgTestFilter,
+  ArgValue,
+  ExistsFilter,
+  NowValue,
+  RowValue,
+} from "./rule-words";
 
 /**
- * Each domain predicate admitted once, when its extension is applied, through
- * its model's `where` schema: a misspelt key fails here, never at the first
- * read, and the engine prepares what a caller's `where` would be (K1(a)).
- * This module admits a member's modes; its `verbs` and `confine` are
- * admitted by what reads them (`verbs.ts`), handed what admits a predicate.
+ * What predicates read of their call, as admission makes their parameters:
+ * each argument they name, and `undefined` for the call's instant.
  */
+export type References = Set<string | undefined>;
 
-/** What admits one predicate of a member, for what admits its verbs. */
-export interface PredicateAdmission {
+/**
+ * One model's keys of one rule layer beyond its filters, as written (the
+ * words' predicates raw) or as admitted: which rows a write may take
+ * (`update`, `delete`, `writes`), what the rows it produces must hold
+ * (`place`, `moves`, `acyclic`, with what judges them), and what a read
+ * carries or hides (`evidence`, `reads`, with what projects them). `read`
+ * is an entry given as a function's `read.where`: its filters are read
+ * there, since what filters is bound before any entry is resolved.
+ */
+export interface VerbsDraft {
+  read?: unknown;
+  update?: unknown;
+  delete?: unknown;
+  writes?: Record<string, unknown>;
+  place?: unknown;
+  moves?: Record<string, unknown>;
+  reads?: Record<string, unknown>;
+  evidence?: {
+    readonly as: string;
+    readonly names: readonly (readonly [string, unknown])[];
+  };
+  acyclic?: readonly string[] | (() => readonly string[]);
+  /** `acyclic` as admission checked it against the model's self relations. */
+  cycles?: readonly string[] | LazyRelations;
+  /** What judges the rows a write produces: brought by the word that asks it. */
+  judge?: (domain: PreparedDomain) => Judge;
+  /** What projects and hides fields: brought by the word that asks it. */
+  project?: (domain: PreparedDomain) => Projection;
+}
+
+/** The argument a layer's filters are decided by, one domain per value. */
+export interface LayerMode {
+  readonly name: string;
+  readonly values: readonly string[];
+  readonly fallback: string;
+}
+
+/**
+ * One extension's rule parts as written, per model: its filters by purpose
+ * (each a list of `where`s and words), the argument they are decided by,
+ * its other keys and its confinements. A function entry's keys are read
+ * when its model is first read.
+ */
+export interface RuleLayer {
+  readonly root: Record<string, unknown[]>;
+  readonly related: Record<string, unknown[]>;
+  mode?: LayerMode;
+  readonly verbs: Record<string, VerbsDraft | (() => VerbsDraft)>;
+  readonly confine: Record<string, unknown>;
+}
+
+/**
+ * A rule layer as admission left it: per model, each value of its mode's
+ * argument (`""` without one) and its filters by purpose; its other keys
+ * per model (a function entry's admitted when first read); its
+ * confinements; and the arguments its predicates read.
+ */
+export interface AdmittedLayer {
+  readonly extension: string;
+  readonly mode?: LayerMode;
+  readonly models: {
+    readonly [model: string]: {
+      readonly [mode: string]: {
+        readonly root?: Input;
+        readonly related?: Input;
+      };
+    };
+  };
+  readonly verbs: {
+    readonly [model: string]: VerbsDraft | (() => VerbsDraft);
+  };
+  readonly confine: { readonly [model: string]: Input };
+  /** Per mode, its filters'; then its eager keys' and confinements'. */
+  readonly references: {
+    readonly modes: {
+      readonly [mode: string]: readonly (string | undefined)[];
+    };
+    readonly verbs: readonly (string | undefined)[];
+  };
+}
+
+/** What admits the predicates of one layer, for what reads a word's keys. */
+export interface Admission {
   readonly schema: Schema;
   /**
-   * `predicate`, one of model `name`'s, at `place` in `rows`, admitted
+   * `predicate`, one of model `name`'s, at `place` in the rule, admitted
    * through the model's `where` schema; what it reads of its call is added
    * to `references` as its parameters are made. A sub-predicate parsed
    * before under the same `of` is reused and adds nothing: predicates whose
@@ -49,54 +142,7 @@ export interface PredicateAdmission {
     references: References,
     of?: string
   ) => Input;
-  readonly refuse: (
-    name: string,
-    place: string,
-    at: string,
-    reason: string
-  ) => never;
-}
-
-/**
- * What predicates read of their call, as admission makes their parameters:
- * each control they name, and `undefined` for the call's instant.
- */
-export type References = Set<string | undefined>;
-
-/** What an admitted member's predicates read of their call ({@link References}). */
-export interface AdmittedReferences {
-  /** Per mode, its own predicates'. */
-  readonly modes: { readonly [mode: string]: readonly (string | undefined)[] };
-  /** Its `confine`'s and its eager `verbs` entries'; a lazy entry's are its own. */
-  readonly verbs: readonly (string | undefined)[];
-}
-
-/** What a chain's verbs and confinements bind to, for every mode combination. */
-export interface VerbsBound {
-  readonly verbs?: RowDomain["verbs"];
-  readonly confine?: ModelDomain;
-  readonly judge?: RowDomain["judge"];
-  readonly project?: RowDomain["project"];
-  readonly bound?: RowDomain["bound"];
-  /** Whether one of their predicates may read a call value. */
-  readonly reads: boolean;
-}
-
-/** Binds every member's verbs and confinements to a chain with `controls`. */
-export type VerbsBinder = (
-  members: readonly AdmittedRows[],
-  controls: ResolvedControls | undefined
-) => VerbsBound;
-
-/**
- * A `rows` member as admission left it: its predicates admitted, the
- * controls they name, and, where it declares `verbs` or `confine`, what
- * binds them (left by what admitted them, so only a member declaring one
- * brings it).
- */
-export interface AdmittedRows extends RowsContribution {
-  readonly references?: AdmittedReferences;
-  readonly bind?: VerbsBinder;
+  readonly refuse: (name: string, place: string, reason: string) => never;
 }
 
 /**
@@ -105,86 +151,38 @@ export interface AdmittedRows extends RowsContribution {
  */
 const registries = new WeakMap<Schema, SchemaRegistryLookup<Schema>>();
 
-function standaloneRegistry(schema: Schema): SchemaRegistryLookup<Schema> {
-  let registry = registries.get(schema);
-  if (registry === undefined) {
-    registry = createSchemaRegistry(schema);
-    registries.set(schema, registry);
-  }
-  return registry;
-}
-
 /**
- * Each declaration's admission, per schema registry: a registry is prepared
- * once per schema, so a client created per request over the same schema
- * applies the same declaration object without reading its predicates again.
- * A declaration changed after it was applied is not read again.
+ * Each layer's admission, per schema registry: a registry is prepared once
+ * per schema, and so is the layer an extension writes, so a client created
+ * per request over the same schema applies the same layer without reading
+ * its predicates again.
  */
-const admittedRows = new WeakMap<
+const admitted = new WeakMap<
   SchemaRegistryLookup<Schema>,
-  WeakMap<RowsContribution, AdmittedRows>
+  WeakMap<RuleLayer, AdmittedLayer>
 >();
 
-/**
- * What admission returned. Applied again, a member is made of nodes, which
- * admit as themselves and make no parameter: what its admission recorded
- * stands.
- */
-const outputs = new WeakSet<AdmittedRows>();
-
-/** The keys admission adds to a member, read back where it is applied again. */
-const ADMITTED_KEYS: ReadonlySet<string> = new Set(["references", "bind"]);
+/** What a function entry's predicates read, recorded when it was first read. */
+export const lazyReferences = new WeakMap<
+  VerbsDraft,
+  readonly (string | undefined)[]
+>();
 
 /** A condition's tests, the filter vocabulary's own words (OD-12). */
-const TESTS = ["exists", "equals", "in", "has", "hasSome"] as const;
+const TESTS = ["exists", "equals", "in", "has", "hasSome"];
 
-/** `{ control, path? }`: a control's value, or a field of it. */
-export function isReference(
-  value: unknown
-): value is { readonly control: string; readonly path?: string } {
-  return (
-    isPlainRecord(value) &&
-    typeof value.control === "string" &&
-    Object.keys(value).every((key) => key === "control" || key === "path") &&
-    (value.path === undefined || typeof value.path === "string")
-  );
-}
-
-/** `{ $row, up }`: a column of an enclosing row (resolved where it is compared). */
-export const isOuterColumn = (
-  value: unknown
-): value is { readonly $row: string; readonly up: number } =>
-  isPlainRecord(value) &&
-  Object.keys(value).length === 2 &&
-  typeof value.$row === "string" &&
-  Number.isSafeInteger(value.up) &&
-  (value.up as number) >= 0;
-
-/** `{ now: true }`: the call's one instant. */
-export const isInstant = (value: unknown): boolean =>
-  isPlainRecord(value) && value.now === true && Object.keys(value).length === 1;
-
-const REFUSED_CONDITION = `a condition names one control and exactly one of ${TESTS.join(", ")}`;
-
-/** `$if`'s `{ control, path?, <one test> }` as a condition, or the refusal. */
-function conditionOf(spec: unknown): Condition | string {
-  if (!isPlainRecord(spec)) return REFUSED_CONDITION;
-  const { control, path, ...tests } = spec;
-  const [test, ...others] = Object.keys(tests);
-  const operand = tests[test!];
-  if (
-    typeof control !== "string" ||
-    (path !== undefined && typeof path !== "string") ||
-    !TESTS.includes(test as (typeof TESTS)[number]) ||
+/** A test of an argument, or why it is refused. */
+function testOf(given: unknown): ConditionTest | string {
+  const test = isPlainRecord(given) ? given : { equals: given };
+  const [kind, ...others] = Object.keys(test);
+  const operand = test[kind!];
+  return !TESTS.includes(kind!) ||
     others.length > 0 ||
-    (test === "exists" && typeof operand !== "boolean") ||
-    ((test === "in" || test === "hasSome") && !Array.isArray(operand))
-  )
-    return REFUSED_CONDITION;
-  return new Condition(
-    new Parameter(control, path),
-    Object.freeze({ [test!]: operand }) as unknown as ConditionTest
-  );
+    (kind === "exists" && typeof operand !== "boolean") ||
+    ((kind === "in" || kind === "hasSome") && !Array.isArray(operand))
+    ? `a test is a value or exactly one of ${TESTS.join(", ")}`
+    : // Exactly one known test, its operand checked above.
+      (Object.freeze({ ...test }) as ConditionTest);
 }
 
 /**
@@ -215,57 +213,19 @@ function cyclePath(
   return undefined;
 }
 
-/** The keys a definition's `rows` reads. */
-const ROWS_KEYS: ReadonlySet<string> = new Set([
-  "control",
-  "default",
-  "models",
-  "verbs",
-  "confine",
-]);
-
 /**
- * One definition's `rows` with every predicate admitted, each named predicate
- * once and a mode naming one given its admitted object: refusals are
+ * What admits one schema's predicates: refusals are
  * `ClientInitializationError`s naming the extension, the model, the
- * predicate's place in `rows` and the path inside it. Admitted once per
- * schema registry and declaration object, where the schema's scalars admit
- * with the engine's own schemas. `reader` admits `verbs` and `confine`: the
- * part that reads them hands it, for a member that declares either.
+ * predicate's place in the rule and the path inside it.
  */
-export function admitRows(
-  rows: AdmittedRows,
+export function admission(
   schema: Schema,
   extension: string,
-  registry: SchemaRegistryLookup<Schema> = standaloneRegistry(schema),
-  reader?: typeof VERBS
-): AdmittedRows {
-  // A field's own schema may read its value differently on another call.
-  const native = Object.values(schema).every((model) => {
-    const state: ModelState = model["~"].state;
-    return Object.values(state.scalars).every(
-      (scalar) => scalar["~"].state.schema === undefined
-    );
-  });
-  const known = native ? admittedRows.get(registry)?.get(rows) : undefined;
-  if (known) return known;
-  const prior = outputs.has(rows) ? rows.references : undefined;
-  // A key `rows` does not read is refused, not dropped: `bound` (1.9, 1.10)
-  // would otherwise lose its confinement silently.
-  for (const key of Object.keys(rows))
-    if (!(ROWS_KEYS.has(key) || (prior && ADMITTED_KEYS.has(key))))
-      throw new ClientInitializationError(
-        `Extension "${extension}" rows.${key} is not a rows key${key === "bound" ? ": it is named rows.confine since 1.11" : ""}.`,
-        { meta: { extension } }
-      );
-  const refuse = (
-    name: string,
-    place: string,
-    at: string,
-    reason: string
-  ): never => {
+  registry: SchemaRegistryLookup<Schema>
+): Admission {
+  const refuse = (name: string, place: string, reason: string): never => {
     throw new ClientInitializationError(
-      `Extension "${extension}" rows.${place} at "${at}": ${reason}.`,
+      `Extension "${extension}" rule.${place}: ${reason}.`,
       { meta: { extension, model: name } }
     );
   };
@@ -273,8 +233,7 @@ export function admitRows(
   /**
    * Shared sub-predicates are walked and parsed once per set of predicates
    * whose references are told apart: a reused parse makes no parameter, so
-   * it records nothing. A mode's, the eager verbs and confinements', and
-   * each lazy entry's, checked on its own when it is resolved.
+   * it records nothing.
    */
   const filtersOf = new Map<string, AdmittedFilters>();
   const admit = (
@@ -285,44 +244,33 @@ export function admitRows(
     of = ""
   ): Input => {
     const cycle = cyclePath(predicate, acyclic);
-    if (cycle !== undefined) refuse(name, place, cycle, "contains itself");
+    if (cycle !== undefined)
+      refuse(name, place, `at "${cycle}" contains itself`);
     const where = registry.getModelSchemas(schema[name]!).core.where;
-    const markers: DomainMarkers = {
-      value: (value) => {
-        if (isReference(value)) {
-          references.add(value.control);
-          return new Parameter(value.control, value.path);
-        }
-        if (isOuterColumn(value)) return new OuterColumn(value.$row, value.up);
-        if (!isInstant(value)) return undefined;
-        references.add(undefined);
-        return new Parameter();
-      },
-      condition: (spec) => {
-        const node = conditionOf(spec);
-        if (typeof node !== "string") references.add(node.parameter.control!);
-        return node;
-      },
-      /**
-       * `$exists`: one model of the schema and its `where`, admitted with
-       * that model's own schema (its markers and depth rules included).
-       */
-      exists: (spec) => {
-        const models = isPlainRecord(spec) ? Object.keys(spec) : [];
+    const value = (word: unknown): object | undefined => {
+      if (word instanceof ArgValue) {
+        references.add(word.name);
+        return new Parameter(word.name, word.path);
+      }
+      if (word instanceof RowValue) return new OuterColumn(word.column, word.up);
+      if (!(word instanceof NowValue)) return undefined;
+      references.add(undefined);
+      return new Parameter();
+    };
+    const filter = (word: object): FilterWord | undefined => {
+      if (word instanceof ExistsFilter) {
+        const models = Object.keys(word.spec);
         const [model] = models;
-        if (
-          models.length !== 1 ||
-          !Object.hasOwn(schema, model!) ||
-          !isPlainRecord((spec as Record<string, unknown>)[model!])
-        )
+        const body = word.spec[model!];
+        if (models.length !== 1 || !Object.hasOwn(schema, model!))
           return {
             message:
-              "names exactly one model of the schema and the `where` its rows must match",
+              "exists() names exactly one model of the schema and the `where` its rows must match",
             path: [],
           };
         const result = validateSchema(
           registry.getModelSchemas(schema[model!]!).core.where,
-          (spec as Record<string, unknown>)[model!]
+          body
         );
         if (result.issues) {
           const [issue] = result.issues;
@@ -331,13 +279,27 @@ export function admitRows(
             path: [model!, ...(issue!.path ?? [])],
           };
         }
-        return new Existence(model!, result.value as Input);
-      },
+        return { nodes: [new Existence(model!, result.value as Input)] };
+      }
+      if (!(word instanceof ArgTestFilter)) return undefined;
+      const test = testOf(word.test);
+      if (typeof test === "string") return { message: test, path: [] };
+      const { arg, kind, then } = word;
+      references.add(arg.name);
+      const condition = new Condition(new Parameter(arg.name, arg.path), test);
+      if (kind === "provided")
+        return then === undefined
+          ? { nodes: [condition] }
+          : { nodes: [condition], where: { AND: [condition, then] } };
+      return {
+        nodes: [condition],
+        where: { OR: [kind === "when" ? { NOT: condition } : condition, then] },
+      };
     };
     let filters = filtersOf.get(of);
     if (filters === undefined) filtersOf.set(of, (filters = new WeakMap()));
     const result = admittingDomainPredicate(
-      markers,
+      { value, filter },
       () => validateSchema(where, predicate),
       filters
     );
@@ -346,71 +308,234 @@ export function admitRows(
     return refuse(
       name,
       place,
-      issue!.path?.map(String).join(".") || "root",
-      issue!.message
+      `at "${issue!.path?.map(String).join(".") || "root"}": ${issue!.message}`
     );
   };
-  const admission: PredicateAdmission = { schema, admit, refuse };
-  // What reads `verbs` and `confine` is handed by the part that reads them,
-  // the one that admits a member declaring either.
-  const verbsControls: References = new Set(prior?.verbs);
-  const verbs =
-    rows.verbs && reader!.verbs(rows.verbs, admission, verbsControls);
+  return { schema, admit, refuse };
+}
+
+/** Whether every scalar of the schema reads its value with the engine's own schema. */
+function nativeSchema(schema: Schema): boolean {
+  return Object.values(schema).every((model) => {
+    const state: ModelState = model["~"].state;
+    return Object.values(state.scalars).every(
+      (scalar) => scalar["~"].state.schema === undefined
+    );
+  });
+}
+
+/** The items of a filter list that hold in `mode`, as one `where`. */
+function filterIn(
+  items: readonly unknown[],
+  layer: RuleLayer,
+  mode: string | undefined
+): unknown {
+  const applied: unknown[] = [];
+  for (const item of items) {
+    const tested = modeTest(item, layer.mode);
+    if (tested === undefined) applied.push(item);
+    else if (holds(tested, mode!)) applied.push(tested.then);
+  }
+  if (applied.length === 0) return undefined;
+  if (applied.length === 1) return applied[0];
+  return { AND: applied };
+}
+
+/** A `when` or `unless` on the mode's argument: it decides per mode, not per call. */
+export function modeTest(
+  item: unknown,
+  mode: LayerMode | undefined
+): ArgTestFilter | undefined {
+  return item instanceof ArgTestFilter &&
+    item.kind !== "provided" &&
+    item.arg.path === undefined &&
+    item.arg.name === mode?.name
+    ? item
+    : undefined;
+}
+
+/** Whether a test of the mode's argument holds for one of its values. */
+function holds(filter: ArgTestFilter, mode: string): boolean {
+  const { test } = filter;
+  const passed = isPlainRecord(test)
+    ? "in" in test && Array.isArray(test.in)
+      ? test.in.includes(mode)
+      : "equals" in test
+        ? test.equals === mode
+        : "exists" in test && test.exists === true
+    : test === mode;
+  return filter.kind === "when" ? passed : !passed;
+}
+
+/** The keys of a draft that hold one predicate, each admitted as one. */
+const SINGLE = ["read", "update", "delete", "place"] as const;
+/** The keys of a draft that hold one predicate per field. */
+const PER_FIELD = ["writes", "moves", "reads"] as const;
+
+/**
+ * The self relations `acyclic` names, each checked to be one of `model`'s
+ * to itself holding its key: only those can loop. Given as a function, they
+ * are read and checked when an update first writes one of those keys.
+ */
+function cyclesOf(
+  { schema, refuse }: Admission,
+  name: string,
+  declared: NonNullable<VerbsDraft["acyclic"]>
+): readonly string[] | LazyRelations {
+  const model = schema[name]!;
+  const { relations } = model["~"].state;
+  const keyed = Object.keys(relations).filter((relation) => {
+    const held = relations[relation]!["~"];
+    return held.state.foreignKey !== undefined && held.settleTarget() === model;
+  });
+  const checked = (listed: readonly string[]): readonly string[] => {
+    for (const relation of listed)
+      if (!keyed.includes(relation))
+        refuse(
+          name,
+          `${name}.acyclic.${relation}`,
+          "names no to-one relation of the model to itself holding its key"
+        );
+    return Object.freeze([...listed]);
+  };
+  if (typeof declared !== "function") return checked(declared);
+  let resolved: readonly string[] | undefined;
+  return Object.freeze({
+    candidates: Object.freeze(keyed),
+    resolve: () => (resolved ??= checked(declared())),
+  });
+}
+
+/** One model's draft with every predicate admitted. */
+export function admitDraft(
+  admission: Admission,
+  name: string,
+  draft: VerbsDraft,
+  references: References,
+  of?: string
+): VerbsDraft {
+  const { admit } = admission;
+  const out: VerbsDraft = { ...draft };
+  if (draft.acyclic !== undefined)
+    out.cycles = cyclesOf(admission, name, draft.acyclic);
+  for (const key of SINGLE)
+    if (draft[key] !== undefined)
+      out[key] = admit(name, `${name}.${key}`, draft[key], references, of);
+  for (const key of PER_FIELD)
+    if (draft[key] !== undefined)
+      out[key] = Object.fromEntries(
+        Object.entries(draft[key]).map(([field, where]) => [
+          field,
+          admit(name, `${name}.${key}.${field}`, where, references, of),
+        ])
+      );
+  if (draft.evidence !== undefined)
+    out.evidence = {
+      as: draft.evidence.as,
+      names: draft.evidence.names.map(([fact, where]) => [
+        fact,
+        admit(name, `${name}.read.select.${fact}`, where, references, of),
+      ]),
+    };
+  return Object.freeze(out);
+}
+
+/**
+ * One extension's rule layer with every predicate admitted: each filter
+ * once per value of its mode's argument, and each other key once. Admitted
+ * once per schema registry, where the schema's scalars admit with the
+ * engine's own schemas.
+ */
+export function admitLayer(
+  layer: RuleLayer,
+  schema: Schema,
+  extension: string,
+  given?: SchemaRegistryLookup<Schema>
+): AdmittedLayer {
+  let registry = given ?? registries.get(schema);
+  if (registry === undefined) {
+    registry = createSchemaRegistry(schema);
+    registries.set(schema, registry);
+  }
+  // A field's own schema may read its value differently on another call.
+  const native = nativeSchema(schema);
+  let byLayer = admitted.get(registry);
+  const known = native ? byLayer?.get(layer) : undefined;
+  if (known) return known;
+  const admitting = admission(schema, extension, registry);
+  const { admit } = admitting;
+  const modes = layer.mode?.values ?? [""];
+  const modeReferences: Record<string, References> = {};
   const models: Record<string, Record<string, object>> = {};
-  const modes = new Map<string, References>();
-  for (const [name, entries] of Object.entries(rows.models)) {
-    const admitted = new Map<string, object>();
-    for (const [mode, purposes] of Object.entries(entries)) {
-      let references = modes.get(mode);
-      if (references === undefined)
-        modes.set(mode, (references = new Set(prior?.modes[mode])));
-      const out: Record<string, unknown> = {};
+  for (const name of new Set([
+    ...Object.keys(layer.root),
+    ...Object.keys(layer.related),
+  ])) {
+    const byMode: Record<string, object> = {};
+    for (const mode of modes) {
+      const references = (modeReferences[mode] ??= new Set());
+      const out: Record<string, Input> = {};
       for (const purpose of ["root", "related"] as const) {
-        const predicate = purposes[purpose];
-        if (predicate === undefined) continue;
-        const place = `${name}.${mode}.${purpose}`;
-        const unknown = (): never =>
-          refuse(name, place, "root", `names unknown predicate "${predicate}"`);
-        if (typeof predicate !== "string")
+        const predicate = filterIn(layer[purpose][name] ?? [], layer, mode);
+        if (predicate !== undefined)
           out[purpose] = admit(
             name,
-            place,
+            `${name}.${purpose}`,
             predicate,
             references,
             `mode ${mode}`
           );
-        else if (verbs === undefined) unknown();
-        else out[purpose] = reader!.named(verbs[name], predicate, unknown);
       }
-      admitted.set(mode, Object.freeze(out));
+      byMode[mode] = Object.freeze(out);
     }
-    models[name] = Object.freeze(Object.fromEntries(admitted));
+    models[name] = Object.freeze(byMode);
   }
-  const confine =
-    rows.confine && reader!.confine(rows.confine, admission, verbsControls);
-  const admitted: AdmittedRows = Object.freeze({
-    ...rows,
+  const verbsReferences: References = new Set();
+  const verbs: Record<string, VerbsDraft | (() => VerbsDraft)> = {};
+  for (const [name, draft] of Object.entries(layer.verbs)) {
+    if (typeof draft !== "function") {
+      verbs[name] = admitDraft(admitting, name, draft, verbsReferences);
+      continue;
+    }
+    // Read and admitted once, the first time the model is read; its own
+    // references are checked then, against the chain it is bound to.
+    let resolved: VerbsDraft | undefined;
+    verbs[name] = () => {
+      if (resolved !== undefined) return resolved;
+      const references: References = new Set();
+      resolved = admitDraft(admitting, name, draft(), references, `lazy ${name}`);
+      lazyReferences.set(resolved, [...references]);
+      return resolved;
+    };
+  }
+  const confine: Record<string, Input> = {};
+  for (const [name, predicate] of Object.entries(layer.confine))
+    confine[name] = admit(
+      name,
+      `${name}.confine`,
+      predicate,
+      verbsReferences
+    );
+  const out: AdmittedLayer = Object.freeze({
+    extension,
+    ...(layer.mode && { mode: layer.mode }),
     models: Object.freeze(models),
-    ...(verbs && { verbs }),
-    ...(confine && { confine }),
+    verbs: Object.freeze(verbs),
+    confine: Object.freeze(confine),
     references: Object.freeze({
-      modes: Object.freeze(
-        Object.fromEntries(
-          [...modes].map(([mode, names]) => [mode, Object.freeze([...names])])
-        )
+      modes: Object.fromEntries(
+        Object.entries(modeReferences).map(([mode, names]) => [
+          mode,
+          [...names],
+        ])
       ),
-      verbs: Object.freeze([...verbsControls]),
+      verbs: [...verbsReferences],
     }),
-    ...(reader && { bind: reader.bind }),
   });
-  outputs.add(admitted);
   if (native) {
-    let cache = admittedRows.get(registry);
-    if (!cache) {
-      cache = new WeakMap();
-      admittedRows.set(registry, cache);
-    }
-    cache.set(rows, admitted);
+    if (byLayer === undefined) admitted.set(registry, (byLayer = new WeakMap()));
+    byLayer.set(layer, out);
   }
-  return admitted;
+  return out;
 }
+

@@ -1,8 +1,8 @@
 /**
  * What judges the rows a write produces, for one prepared domain: the verbs'
  * `place`, `moves` and `acyclic` rules, the refusal a judged write fails
- * with, and what an upsert says of a row it located. Made by what reads the
- * verbs (`verbs.ts`), only for a domain whose models declare verbs.
+ * with, and what an upsert says of a row it located. Brought by `check`:
+ * a program whose rules judge no produced row does not hold it.
  */
 import { JUDGED } from "@adapters/judged";
 import { ForbiddenError } from "@errors";
@@ -25,26 +25,22 @@ import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
 import { producedSource, producedWhere } from "./produced";
 import { readsAny } from "./reads";
-import type { PreparedDomain } from "./row-domain";
+import { type PreparedDomain, verbInputs } from "./row-domain";
 
-export class Judge {
+/** What the engine and the drivers ask of what judges a domain's writes. */
+export type Judge = Pick<
+  RowJudge,
+  "binds" | "inserted" | "updated" | "refusal" | "located" | "produced" | "cycles"
+>;
+
+/** What judges the rows a write produces, for one domain: brought by `check`. */
+export const judgeOf = (domain: PreparedDomain): Judge => new RowJudge(domain);
+
+class RowJudge {
   readonly #domain: PreparedDomain;
   readonly #produced = new Map<string, PreparedSelector | null>();
   constructor(domain: PreparedDomain) {
     this.#domain = domain;
-  }
-  /** The verb predicates one layer's `judgement` takes, each once. */
-  inputs(verbs: ModelVerbs, judgement: RowJudgement): Input[] {
-    if (judgement.verb === "delete") return [verbs.delete];
-    if (judgement.writes.length === 0) return [verbs.update];
-    return [
-      ...new Set([
-        ...judgement.writes.map(
-          (field) => verbs.writes.get(field) ?? verbs.update
-        ),
-        ...(judgement.marks ? [verbs.delete] : []),
-      ]),
-    ];
   }
   /**
    * The values the judgement of a created row of `model` binds, beside the
@@ -228,12 +224,13 @@ export class Judge {
       () => {
         const layers: (readonly [number, Input[]])[] = [];
         for (const [layer, own] of verbs.entries()) {
-          if (own === undefined) continue;
+          // A layer judges the rows its writes produce where a check said so.
+          if (own === undefined || !("judged" in own)) continue;
           // What judged the old row judges the new one, unless the write
           // assigns nothing it reads: then the new row's answer is the old
           // row's, which the statement's own candidates already state.
           const checked = judgement
-            ? [own.read, ...this.inputs(own, judgement)]
+            ? [own.read, ...verbInputs(own, judgement)]
             : [];
           const unchanged =
             changed !== undefined &&

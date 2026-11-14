@@ -1,9 +1,11 @@
 /**
- * What reads a `rows` member's `verbs` and `confine`: their admission, their
- * binding to a chain, and what a prepared domain asks of them (`judge.ts`,
- * `projection.ts`). Brought by `verbsPart`: a program whose extensions only
- * filter rows does not hold it, and the filters reach it only through what
- * its admission leaves in the admitted declaration (`bind`).
+ * A chain's rule keys beyond its filters, bound once per application: per
+ * model and layer, which rows a write may take (`update`, `delete`,
+ * `writes`), what the rows it produces must hold and what a read carries
+ * or hides, as the engine reads them (`ModelVerbs`); and the layers'
+ * confinements. What judges and what projects come with the words that ask
+ * for them; for an entry given as a function, whose words are known only
+ * once its model is read, a forwarder asks the model first.
  */
 import { ClientInitializationError } from "@errors";
 import {
@@ -11,415 +13,158 @@ import {
   type PreparedSelector,
 } from "@query-engine/raptor3/shared/query";
 import type {
-  LazyRelations,
+  ModelDomain,
   ModelVerbs,
+  RowDomain,
 } from "@query-engine/raptor3/shared/row-scope";
 import { type Input, memo } from "@query-engine/raptor3/shared/schema";
-import type { AnyModel, ModelState } from "@schema/model";
-import { isPlainRecord } from "@schema/relation/terminal";
-import type { PredicateAdmission, References, VerbsBinder } from "./admission";
-import type { RowsContribution, RowsVerbs } from "./controls";
-import { Judge } from "./judge";
-import { Projection } from "./projection";
+import type { AnyModel } from "@schema/model";
+import { lazyReferences, type VerbsDraft } from "./admission";
+import type { ResolvedExtensionChain } from "./chain-state";
+import type { Judge } from "./judge";
+import type { Projection } from "./projection";
 import type { PreparedDomain } from "./row-domain";
 
-type Verbs = NonNullable<RowsContribution["verbs"]>;
-
-/** A model's `rows.verbs` entry, key by key. */
-const VERBS_KEYS: Record<keyof RowsVerbs, true> = {
-  predicates: true,
-  read: true,
-  update: true,
-  delete: true,
-  writes: true,
-  place: true,
-  moves: true,
-  acyclic: true,
-  evidence: true,
-  reads: true,
-};
-
-/**
- * A declared projection key's spelling: `$` and an identifier. No model
- * member and no engine carrier is spelled so, so a key never hides either,
- * whatever the schema later adds.
- */
-const PROJECTION_KEY = /^\$[a-zA-Z_][a-zA-Z0-9_]*$/;
-
-/**
- * A model's key, unique and foreign-key fields: what identity and every join
- * read, and what a unique constraint answers for on a write, so none of them
- * is ever read-gated.
- */
-function keyFields(state: ModelState): ReadonlySet<string> {
-  return new Set([
-    ...Object.entries(state.scalars)
-      .filter(([, scalar]) => scalar["~"].state.isId === true)
-      .map(([field]) => field),
-    // A write of a guessed value fails on the constraint exactly when some
-    // row holds it: a gate on a unique field would be confirmed by it.
-    ...Object.keys(state.uniques),
-    ...[
-      ...Object.values(state.compoundId ?? {}),
-      ...Object.values(state.compoundUniques ?? {}),
-    ].flatMap(({ entries }) => Object.keys(entries)),
-    ...Object.values(state.relations).flatMap(
-      (relation) => relation["~"].state.foreignKey?.fields ?? []
-    ),
-  ]);
+/** What a chain's rule keys bind to, for every mode combination. */
+export interface VerbsBound {
+  readonly verbs?: RowDomain["verbs"];
+  readonly confine?: ModelDomain;
+  readonly judge?: RowDomain["judge"];
+  readonly project?: RowDomain["project"];
+  readonly bound?: RowDomain["bound"];
+  /** Whether one of their predicates may read a call value. */
+  readonly reads: boolean;
 }
 
-/**
- * The controls an admitted entry's predicates name, recorded as admission
- * made their parameters: a lazy entry's are checked against each chain when
- * it is resolved there.
- */
-const entryReferences = new WeakMap<
-  RowsVerbs,
-  readonly (string | undefined)[]
->();
+/** No restriction: what a key an entry leaves out takes. */
+const ALL: Input = Object.freeze({});
 
-/**
- * One model's `verbs` entry, every predicate admitted and every name
- * checked; a lazy one's parsed apart (`of`), so it records every control it
- * names.
- */
-function admitEntry(
-  { schema, admit, refuse }: PredicateAdmission,
-  name: string,
-  entry: RowsVerbs,
-  of?: string
-): RowsVerbs {
-  const place = `verbs.${name}`;
-  if (!isPlainRecord(entry))
-    refuse(name, place, "root", "is not an object or a function");
-  // Policies may be data built at runtime: a misspelt `writes` would leave
-  // its field judged at `update`, which widens the write.
-  for (const key of Object.keys(entry))
-    if (!Object.hasOwn(VERBS_KEYS, key))
-      refuse(
-        name,
-        place,
-        key,
-        `is not one of ${Object.keys(VERBS_KEYS).join(", ")}`
-      );
-  const { state } = schema[name]!["~"];
-  // An entry admitted before is made of nodes, which admit as themselves
-  // and make no parameter: what its admission recorded stands.
-  const references: References = new Set(entryReferences.get(entry));
-  const predicates = Object.fromEntries(
-    Object.entries(entry.predicates).map(([key, predicate]) => [
-      key,
-      admit(name, `${place}.predicates.${key}`, predicate, references, of),
-    ])
-  );
-  const known = (at: string, predicate: string | undefined) => {
-    if (predicate !== undefined && !Object.hasOwn(predicates, predicate))
-      refuse(name, place, at, `names unknown predicate "${predicate}"`);
-  };
-  known("read", entry.read);
-  known("update", entry.update);
-  known("delete", entry.delete);
-  known("place", entry.place);
-  for (const key of ["writes", "moves"] as const)
-    for (const [field, predicate] of Object.entries(entry[key] ?? {})) {
-      if (
-        !(
-          Object.hasOwn(state.scalars, field) ||
-          Object.hasOwn(state.relations, field)
-        )
-      )
-        refuse(name, place, `${key}.${field}`, "names an unknown field");
-      known(`${key}.${field}`, predicate);
-    }
-  /** The self relations of the model holding its key: what `acyclic` may name. */
-  const selfKeys = Object.keys(state.relations).filter((relation) => {
-    const held = state.relations[relation]!["~"];
-    return (
-      held.state.foreignKey !== undefined &&
-      held.settleTarget() === schema[name]
-    );
-  });
-  const acyclicOf = (relations: readonly string[]): readonly string[] => {
-    for (const relation of relations)
-      if (!selfKeys.includes(relation))
-        refuse(
-          name,
-          place,
-          `acyclic.${relation}`,
-          "names no to-one relation of the model to itself holding its key"
-        );
-    return relations;
-  };
-  let cycles: readonly string[] | LazyRelations | undefined;
-  const declared = entry.acyclic;
-  if (typeof declared === "function") {
-    let resolved: readonly string[] | undefined;
-    cycles = Object.freeze({
-      candidates: Object.freeze(selfKeys),
-      resolve: () => (resolved ??= Object.freeze([...acyclicOf(declared())])),
-    });
-  } else if (declared !== undefined) cycles = acyclicOf(declared);
-  const { evidence } = entry;
-  if (evidence !== undefined) {
-    if (!PROJECTION_KEY.test(evidence.as))
-      refuse(name, place, "evidence.as", "is not `$` and an identifier");
-    for (const [index, predicate] of evidence.names.entries())
-      known(`evidence.names.${index}`, predicate);
-  }
-  const keys = entry.reads === undefined ? undefined : keyFields(state);
-  for (const [field, predicate] of Object.entries(entry.reads ?? {})) {
-    if (!Object.hasOwn(state.scalars, field))
-      refuse(name, place, `reads.${field}`, "names no scalar of the model");
-    // Masked in a caller's operands while identity and joins read it raw,
-    // a key would answer through a relation what a filter hides.
-    if (keys!.has(field))
-      refuse(
-        name,
-        place,
-        `reads.${field}`,
-        "names a key, a unique or a foreign key field"
-      );
-    known(`reads.${field}`, predicate);
-  }
-  const admitted: RowsVerbs = Object.freeze({
-    ...entry,
-    predicates: Object.freeze(predicates),
-    // Admission leaves a lazy `acyclic` as its candidates and resolver, read
-    // back as such by the binding: the declared type has no name for it.
-    ...(cycles !== undefined && { acyclic: cycles as RowsVerbs["acyclic"] }),
-  });
-  entryReferences.set(admitted, [...references]);
-  return admitted;
-}
+const fields = (
+  map: Readonly<Record<string, unknown>> | undefined
+): ReadonlyMap<string, Input> =>
+  // Admission left every value an admitted predicate.
+  new Map(Object.entries(map ?? {}) as [string, Input][]);
 
-/**
- * Every model's `verbs` entry admitted, the controls the eager ones name
- * added to `references`. An entry given as a function is admitted the first
- * time it is resolved, then kept: once for the admitted declaration, so
- * once per schema where its declaration is admitted once.
- */
-function admitVerbs(
-  verbs: Verbs,
-  admission: PredicateAdmission,
-  references: References
-): Verbs {
-  const admitted: Record<string, RowsVerbs | (() => RowsVerbs)> = {};
-  for (const [name, entry] of Object.entries(verbs)) {
-    if (!Object.hasOwn(admission.schema, name))
-      admission.refuse(name, `verbs.${name}`, "root", "names an unknown model");
-    if (typeof entry === "function") {
-      let resolved: RowsVerbs | undefined;
-      const lazily = () =>
-        (resolved ??= admitEntry(admission, name, entry(), `lazy ${name}`));
-      admitted[name] = lazily;
-      continue;
-    }
-    const own = admitEntry(admission, name, entry);
-    for (const control of entryReferences.get(own)!) references.add(control);
-    admitted[name] = own;
-  }
-  return Object.freeze(admitted);
-}
-
-/**
- * The predicate a mode names among its model's `verbs` entry: at once, or,
- * for an entry given as a function, when the model is first read.
- */
-function named(
-  entry: RowsVerbs | (() => RowsVerbs) | undefined,
-  predicate: string,
-  refuse: () => never
-): Input | (() => Input) {
-  const of = (own: RowsVerbs | undefined): Input =>
-    own && Object.hasOwn(own.predicates, predicate)
-      ? own.predicates[predicate]!
-      : refuse();
-  return typeof entry === "function" ? () => of(entry()) : of(entry);
-}
-
-/** `confine`: per model, a `where` over its own columns. */
-function admitConfine(
-  confine: NonNullable<RowsContribution["confine"]>,
-  { schema, admit, refuse }: PredicateAdmission,
-  references: References
-): Record<string, Input> {
-  const admitted: Record<string, Input> = {};
-  for (const [name, predicate] of Object.entries(confine)) {
-    const place = `confine.${name}`;
-    if (!Object.hasOwn(schema, name))
-      refuse(name, place, "root", "names an unknown model");
-    // The model's own columns: a confinement reads no relation, so lowering
-    // it never builds another set it would confine in turn.
-    const scalars = schema[name]!["~"].state.scalars;
-    for (const field of Object.keys(predicate ?? {}))
-      if (!Object.hasOwn(scalars, field))
-        refuse(
-          name,
-          place,
-          "root",
-          `names "${field}", which is not a scalar field: a confinement states the model's own columns`
-        );
-    admitted[name] = admit(name, place, predicate, references);
-  }
-  return Object.freeze(admitted);
-}
-
-/** `{ OR: [] }`, false: what a verb a model's `verbs` leaves out takes. */
-const NOTHING: Input = Object.freeze({ OR: Object.freeze([]) });
-
-/** One layer's admitted entry as the engine reads it. */
-function layerVerbs(entry: RowsVerbs): ModelVerbs {
-  const of = (name: string | undefined): Input =>
-    name === undefined ? NOTHING : entry.predicates[name]!;
-  const fields = (
-    map: { readonly [field: string]: string } | undefined
-  ): ReadonlyMap<string, Input> =>
-    new Map(
-      Object.entries(map ?? {}).map(([field, name]) => [field, of(name)])
-    );
-  // Admission leaves a lazy `acyclic` as its candidates and resolver.
-  const acyclic = entry.acyclic as
-    | readonly string[]
-    | LazyRelations
-    | undefined;
+/** One layer's admitted draft for `model` as the engine reads it. */
+function layerVerbs(draft: VerbsDraft): ModelVerbs {
+  // Admission left every predicate of the draft admitted.
+  const of = (where: unknown): Input => (where as Input | undefined) ?? ALL;
   return Object.freeze({
-    read: of(entry.read),
-    update: of(entry.update),
-    delete: of(entry.delete),
-    writes: fields(entry.writes),
-    ...(entry.place !== undefined && { place: of(entry.place) }),
-    moves: fields(entry.moves),
-    acyclic: Array.isArray(acyclic)
-      ? Object.freeze([...acyclic])
-      : ((acyclic as LazyRelations | undefined) ?? NO_RELATIONS),
-    ...(entry.evidence && {
+    read: of(draft.read),
+    update: of(draft.update),
+    delete: of(draft.delete),
+    writes: fields(draft.writes),
+    ...(draft.place !== undefined && { place: of(draft.place) }),
+    moves: fields(draft.moves),
+    acyclic: draft.cycles ?? NO_RELATIONS,
+    ...(draft.evidence && {
       evidence: Object.freeze({
-        as: entry.evidence.as,
+        as: draft.evidence.as,
         names: Object.freeze(
-          entry.evidence.names.map((name) =>
-            Object.freeze([name, of(name)] as const)
+          draft.evidence.names.map(([fact, where]) =>
+            Object.freeze([fact, of(where)] as const)
           )
         ),
       }),
     }),
-    reads: fields(entry.reads),
+    reads: fields(draft.reads),
+    ...(draft.judge && { judged: true }),
   });
 }
 
 /**
- * Every member's `verbs` and `confine` bound to a chain whose controls are
- * `controls`. A model's verbs, each at its member's layer, are built the
- * first time the model is read: an entry given as a function is resolved
- * then, and the controls it names checked against what the chain declared
- * where its member was applied, as `$extends` checks an eager entry's.
+ * What judges for a chain with an entry given as a function: each question
+ * asked of a model first reads the model's entries, then goes to what their
+ * words brought, made once for the domain.
  */
-const bindVerbs: VerbsBinder = (members, controls) => {
-  /**
-   * What the chain declared where `member` was applied: every control up to
-   * its own `rows` control, which that application placed after its others.
-   */
-  const declaredAt = (member: RowsContribution) => {
-    const all = controls!.all;
-    const at = all.findIndex((control) => control.name === member.control);
-    return { names: all.slice(0, at + 1), extension: all[at]!.extension };
-  };
-  const resolved = (layer: number, model: string): RowsVerbs | undefined => {
-    const member = members[layer]!;
-    const entry = member.verbs?.[model];
-    if (typeof entry !== "function") return entry;
-    const admitted = entry();
-    const { names, extension } = declaredAt(member);
-    for (const control of entryReferences.get(admitted)!)
-      if (
-        control !== undefined &&
-        !names.some((declared) => declared.name === control)
-      )
-        throw new ClientInitializationError(
-          `Extension "${extension}" references undeclared control "${control}".`,
-          { meta: { extension } }
-        );
-    return admitted;
-  };
-  const declares = (model: string) =>
-    members.some(
-      (member) =>
-        member.verbs !== undefined && Object.hasOwn(member.verbs, model)
-    );
-  const built = new Map<string, readonly (ModelVerbs | undefined)[]>();
-  const verbs = members.some((member) => member.verbs !== undefined)
-    ? {
-        has: declares,
-        get: (model: string) =>
-          declares(model)
-            ? memo(built, model, () => {
-                const entries = members.map((_, layer) =>
-                  resolved(layer, model)
-                );
-                const keys = new Set<string>();
-                const layers: (ModelVerbs | undefined)[] = [];
-                for (const [layer, entry] of entries.entries()) {
-                  if (entry === undefined) continue;
-                  // One projection key, one layer: a second would hide the first.
-                  const key = entry.evidence?.as;
-                  if (key === "$through")
-                    throw new ClientInitializationError(
-                      `rows.verbs.${model}.evidence.as "$through" is reserved for a relation's link row.`,
-                      { meta: { model } }
-                    );
-                  if (key !== undefined && keys.has(key))
-                    throw new ClientInitializationError(
-                      `rows.verbs.${model}.evidence.as "${key}" is declared by two extensions of the chain.`,
-                      { meta: { model } }
-                    );
-                  if (key !== undefined) keys.add(key);
-                  layers[layer] = layerVerbs(entry);
-                }
-                return layers;
-              })
-            : undefined,
+class LazyJudge implements Judge {
+  readonly #of: (model: AnyModel) => Judge | undefined;
+  constructor(of: (model: AnyModel) => Judge | undefined) {
+    this.#of = of;
+  }
+  binds(...args: Parameters<Judge["binds"]>) {
+    return this.#of(args[1])?.binds(...args) ?? 0;
+  }
+  inserted(...args: Parameters<Judge["inserted"]>) {
+    return this.#of(args[2])?.inserted(...args);
+  }
+  updated(...args: Parameters<Judge["updated"]>) {
+    return this.#of(args[2].model)?.updated(...args);
+  }
+  located(model: AnyModel) {
+    return this.#of(model)?.located(model);
+  }
+  produced(...args: Parameters<Judge["produced"]>) {
+    return this.#of(args[0])?.produced(...args);
+  }
+  cycles(...args: Parameters<Judge["cycles"]>) {
+    return this.#of(args[0])?.cycles(...args) ?? NO_RELATIONS;
+  }
+  refusal(...args: Parameters<Judge["refusal"]>) {
+    return (
+      this.#of(args[1])?.refusal(...args) ?? {
+        kind: "forbidden",
+        message: `${args[0]} produced a row that is not permitted.`,
+        raceable: false,
       }
-    : undefined;
-  // A model no member declares lazily is built now: its refusals are the
-  // application's, as they would be at admission.
-  for (const member of members)
-    for (const model of Object.keys(member.verbs ?? {}))
-      if (members.every((other) => typeof other.verbs?.[model] !== "function"))
-        verbs!.get(model);
-  const confine = new Map<string, Input[]>();
-  for (const [layer, member] of members.entries())
-    for (const [model, where] of Object.entries(member.confine ?? {}))
-      memo(confine, model, () => [])[layer] = where;
-  const entries = members.flatMap((member) =>
-    Object.values(member.verbs ?? {})
-  );
-  return {
-    ...(verbs && { verbs, judge: (domain) => new Judge(domain) }),
-    ...(confine.size > 0 && { confine, bound }),
-    // Whether a model may project: a lazy entry may, until it is read.
-    ...(entries.some(
-      (entry) =>
-        typeof entry === "function" ||
-        entry.evidence !== undefined ||
-        Object.keys(entry.reads ?? {}).length > 0
-    ) && { project: (domain) => new Projection(domain) }),
-    // A lazy entry's predicates are not known yet: its calls carry their values.
-    reads: members.some(
-      (member) =>
-        (member.references?.verbs.length ?? 0) > 0 ||
-        Object.values(member.verbs ?? {}).some(
-          (entry) => typeof entry === "function"
-        )
-    ),
-  };
-};
+    );
+  }
+}
+
+/** What projects for a chain with an entry given as a function, as {@link LazyJudge} judges. */
+class LazyProjection implements Projection {
+  readonly #of: (model: AnyModel) => Projection | undefined;
+  /** What the first model read brought: what a question naming no model goes to. */
+  #any: Projection | undefined;
+  constructor(of: (model: AnyModel) => Projection | undefined) {
+    this.#of = (model) => {
+      const found = of(model);
+      this.#any ??= found;
+      return found;
+    };
+  }
+  lower(...args: Parameters<Projection["lower"]>) {
+    return this.#of(args[1])!.lower(...args);
+  }
+  window(...args: Parameters<Projection["window"]>) {
+    return this.#of(args[1])?.window(...args);
+  }
+  gatedDocument(...args: Parameters<Projection["gatedDocument"]>) {
+    // Asked only of a projection whose model said it gates a field.
+    return this.#any!.gatedDocument(...args);
+  }
+  guarded(...args: Parameters<Projection["guarded"]>) {
+    return this.#of(args[1])?.guarded(...args) ?? args[3];
+  }
+  admit(...args: Parameters<Projection["admit"]>) {
+    const [schema, model, operation, raw] = args;
+    return (
+      this.#of(model)?.admit(...args) ?? schema.admit(model, operation, raw)
+    );
+  }
+  refuseGatedLink(...args: Parameters<Projection["refuseGatedLink"]>) {
+    this.#of(args[1])?.refuseGatedLink(...args);
+  }
+  refuseGatedRows(model: AnyModel) {
+    this.#of(model)?.refuseGatedRows(model);
+  }
+  layered(...args: Parameters<Projection["layered"]>) {
+    return this.#of(args[0])!.layered(...args);
+  }
+  projected(model: AnyModel) {
+    return this.#of(model)?.projected(model);
+  }
+  preparing(...args: Parameters<Projection["preparing"]>) {
+    return this.#of(args[0])?.preparing(...args);
+  }
+}
 
 /**
  * What an `excluded` layer states its own whole-table sets of a model hold
- * (`rows.confine`), for one prepared domain: inside its own predicates a
- * layer reads nothing of itself, but a set the statement computes over a
- * whole table (a shared body, a reaching set) still holds only what it
- * bounds. `undefined` where none states one.
+ * (`confine`), for one prepared domain: inside its own predicates a layer
+ * reads nothing of itself, but a set the statement computes over a whole
+ * table (a shared body, a reaching set) still holds only what it bounds.
+ * `undefined` where none states one.
  */
 function bound(domain: PreparedDomain) {
   const bounds = new Map<string, PreparedSelector | null>();
@@ -446,10 +191,127 @@ function bound(domain: PreparedDomain) {
   };
 }
 
-/** What admits and binds `verbs` and `confine`: brought by `verbsPart`. */
-export const VERBS = Object.freeze({
-  verbs: admitVerbs,
-  named,
-  confine: admitConfine,
-  bind: bindVerbs,
-});
+/**
+ * Every layer's keys bound to `chain`. A model's verbs, each at its layer,
+ * are built the first time the model is read: an entry given as a function
+ * is read then, and the arguments it names checked against what the chain
+ * declared up to its extension, as `$extends` checks an eager entry's.
+ */
+export function bindVerbs(chain: ResolvedExtensionChain): VerbsBound {
+  const layers = chain.rows ?? [];
+  const declaredUpTo = (extension: string): ReadonlySet<string> => {
+    const at = chain.extensions.findIndex((own) => own.name === extension);
+    const names = new Set(
+      chain.extensions.slice(0, at + 1).map((own) => own.name)
+    );
+    return new Set(
+      (chain.controls?.all ?? [])
+        .filter((control) => names.has(control.extension))
+        .map((control) => control.name)
+    );
+  };
+  const drafts = (model: string): (VerbsDraft | undefined)[] =>
+    layers.map(({ verbs, extension }) => {
+      const entry = verbs[model];
+      if (typeof entry !== "function") return entry;
+      const draft = entry();
+      const declared = declaredUpTo(extension);
+      for (const name of lazyReferences.get(draft)!)
+        if (name !== undefined && !declared.has(name))
+          throw new ClientInitializationError(
+            `Extension "${extension}" references undeclared control "${name}".`,
+            { meta: { extension } }
+          );
+      return draft;
+    });
+  const declares = (model: string) =>
+    layers.some((layer) => Object.hasOwn(layer.verbs, model));
+  const built = new Map<string, readonly (ModelVerbs | undefined)[]>();
+  const carried = new Map<string, readonly (VerbsDraft | undefined)[]>();
+  const draftsOf = (model: string) => memo(carried, model, () => drafts(model));
+  const verbs = layers.some((layer) => Object.keys(layer.verbs).length > 0)
+    ? {
+        has: declares,
+        get: (model: string) =>
+          declares(model)
+            ? memo(built, model, () => {
+                const keys = new Set<string>();
+                const out: (ModelVerbs | undefined)[] = [];
+                for (const [layer, draft] of draftsOf(model).entries()) {
+                  if (draft === undefined) continue;
+                  // One projection key, one layer: a second would hide the first.
+                  const key = draft.evidence?.as;
+                  if (key === "$through")
+                    throw new ClientInitializationError(
+                      `rule.${model}.read.select "$through" is reserved for a relation's link row.`,
+                      { meta: { model } }
+                    );
+                  if (key !== undefined && keys.has(key))
+                    throw new ClientInitializationError(
+                      `rule.${model}.read.select "${key}" is declared by two extensions of the chain.`,
+                      { meta: { model } }
+                    );
+                  if (key !== undefined) keys.add(key);
+                  out[layer] = layerVerbs(draft);
+                }
+                return out;
+              })
+            : undefined,
+      }
+    : undefined;
+  const lazy = layers.some((layer) =>
+    Object.values(layer.verbs).some((entry) => typeof entry === "function")
+  );
+  // A model no layer gives as a function is built now: its refusals are the
+  // application's, as they would be at admission.
+  for (const layer of layers)
+    for (const model of Object.keys(layer.verbs))
+      if (layers.every((other) => typeof other.verbs[model] !== "function"))
+        verbs!.get(model);
+  /** What the words of the eager entries brought, of one kind. */
+  const eager = <K extends "judge" | "project">(kind: K) => {
+    for (const layer of layers)
+      for (const entry of Object.values(layer.verbs))
+        if (typeof entry !== "function" && entry[kind] !== undefined)
+          return entry[kind];
+    return undefined;
+  };
+  /** What a model's entries brought of one kind, made once per domain. */
+  const forModel = <T>(kind: "judge" | "project", domain: PreparedDomain) => {
+    const made = new Map<unknown, T>();
+    return (model: AnyModel): T | undefined => {
+      const name = model["~"].names.ts!;
+      if (!declares(name)) return undefined;
+      verbs!.get(name);
+      const make = draftsOf(name).find((draft) => draft?.[kind])?.[kind] as
+        | ((domain: PreparedDomain) => T)
+        | undefined;
+      return make && memo(made, make, () => make(domain));
+    };
+  };
+  const judge =
+    eager("judge") ??
+    (lazy
+      ? (domain: PreparedDomain) =>
+          new LazyJudge(forModel<Judge>("judge", domain))
+      : undefined);
+  const project =
+    eager("project") ??
+    (lazy
+      ? (domain: PreparedDomain) =>
+          new LazyProjection(forModel<Projection>("project", domain))
+      : undefined);
+  const confine = new Map<string, Input[]>();
+  for (const [layer, member] of layers.entries())
+    for (const [model, where] of Object.entries(member.confine))
+      memo(confine, model, () => [])[layer] = where;
+  return {
+    ...(verbs && { verbs }),
+    ...(judge && { judge }),
+    ...(project && { project }),
+    ...(confine.size > 0 && { confine, bound }),
+    // An entry given as a function's predicates are not known yet: its
+    // calls carry their values.
+    reads: lazy || layers.some((layer) => layer.references.verbs.length > 0),
+  };
+}
