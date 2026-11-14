@@ -322,7 +322,9 @@ export abstract class DriverTransactionBase<
           true
         ),
       sql,
-      executionParams
+      executionParams,
+      undefined,
+      diagnosticParams
     );
   }
 
@@ -779,7 +781,9 @@ export abstract class DriverTransactionBase<
                   );
                 }),
               sql,
-              params ?? []
+              params ?? [],
+              undefined,
+              diagnosticParams
             )
           );
         }

@@ -4,7 +4,11 @@
  * fact nobody reads is never computed, and a word a program does not import
  * is not in its bundle.
  */
-import { snapshotDiagnosticParameters } from "@drivers/driver-diagnostics";
+import {
+  BATCH_DIAGNOSTIC_PARAMS,
+  EMPTY_DIAGNOSTIC_PARAMS,
+  snapshotDiagnosticParameters,
+} from "@drivers/driver-diagnostics";
 import {
   type DriverIdentity,
   readDriverIdentity,
@@ -23,19 +27,31 @@ import { originOf, sourceOf } from "./unit-source";
 export const text = (u: UnitContext): string | undefined => sourceOf(u)?.sql;
 
 /**
+ * The snapshot the driver took for its diagnostics, or one taken now: a
+ * caller's parameter is read once however many read it.
+ */
+const shownOf = (
+  taken: unknown,
+  params: readonly unknown[] | undefined
+): readonly unknown[] =>
+  Array.isArray(taken) && taken !== EMPTY_DIAGNOSTIC_PARAMS
+    ? taken
+    : snapshotDiagnosticParameters(params ?? []);
+
+/**
  * A bounded snapshot of the parameters a `statement` unit sends; for a
  * native batch, one list per member. Read it before `next()`: a provider may
- * change what it was handed. Each read takes its own snapshot.
+ * change what it was handed.
  */
 export function parameters(u: UnitContext): readonly unknown[] | undefined {
   const source = sourceOf(u);
   if (source?.batch !== undefined)
     return source.batch.map((member) =>
-      snapshotDiagnosticParameters(member.params ?? [])
+      shownOf(Reflect.get(member, BATCH_DIAGNOSTIC_PARAMS), member.params)
     );
   return source?.params === undefined
     ? undefined
-    : snapshotDiagnosticParameters(source.params);
+    : shownOf(source.shown, source.params);
 }
 
 /**
@@ -73,19 +89,24 @@ export interface BatchMember {
  * member carries its index (`meta.statementIndex`).
  */
 export function statements(u: UnitContext): readonly BatchMember[] | undefined {
-  return sourceOf(u)?.batch?.map(({ sql, params, context }) => ({
-    sql,
+  return sourceOf(u)?.batch?.map((member) => ({
+    sql: member.sql,
     // A snapshot only when read, as `parameters(u)` takes one.
     get parameters() {
-      return snapshotDiagnosticParameters(params ?? []);
+      return shownOf(
+        Reflect.get(member, BATCH_DIAGNOSTIC_PARAMS),
+        member.params
+      );
     },
-    ...(context?.model === undefined ? {} : { model: context.model }),
-    ...(context?.operation === undefined
+    ...(member.context?.model === undefined
       ? {}
-      : { operation: context.operation }),
-    ...(context?.correlationId === undefined
+      : { model: member.context.model }),
+    ...(member.context?.operation === undefined
       ? {}
-      : { correlation: context.correlationId }),
+      : { operation: member.context.operation }),
+    ...(member.context?.correlationId === undefined
+      ? {}
+      : { correlation: member.context.correlationId }),
   }));
 }
 

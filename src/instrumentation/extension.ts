@@ -184,6 +184,7 @@ function presentOperation(
   next: () => Promise<UnitEnd>
 ): Promise<unknown> {
   const settle = async (): Promise<void> => {
+    const startedAt = Date.now();
     const end = next();
     const settled = await end;
     if (logs(context, "cache"))
@@ -200,7 +201,7 @@ function presentOperation(
       const first = origin(error);
       if (!(typeof first === "object" && first !== null && logged.has(first)))
         context.logger?.error(
-          createOperationErrorLogEvent(unit, error, settled.duration)
+          createOperationErrorLogEvent(unit, error, startedAt, settled.duration)
         );
     }
     return endWith(end, unit);
@@ -241,6 +242,7 @@ function presentStatement(
               context.config.logging,
               unit,
               startedAt,
+              settled.duration,
               member?.sql ?? text(unit),
               // A batch's snapshot holds one list per member.
               member === undefined || index === undefined
@@ -257,6 +259,7 @@ function presentStatement(
             context.config.logging,
             unit,
             startedAt,
+            settled.duration,
             text(unit),
             shown
           )

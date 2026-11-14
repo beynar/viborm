@@ -52,6 +52,11 @@ export interface UnitSource {
   readonly sql?: string | undefined;
   /** statement: the parameters sent, as the driver detached them. */
   readonly params?: readonly unknown[] | undefined;
+  /**
+   * statement: the diagnostic snapshot of `params` the driver took (its
+   * empty constant when it took none): what `parameters(u)` reads.
+   */
+  readonly shown?: readonly unknown[] | undefined;
   /** statement: a native batch's members, in order. */
   readonly batch?: readonly BatchQuery[] | undefined;
   /**
@@ -73,6 +78,12 @@ export interface UnitSource {
   /** Set by the runner once the child settled. */
   failed?: boolean;
   failure?: unknown;
+  /**
+   * The instant the child settled, read by the innermost layer's end: an
+   * outer layer's end comes after the inner handlers continued, and still
+   * reports the child's instant.
+   */
+  settledAt?: number;
 }
 
 const sources = new WeakMap<object, UnitSource>();

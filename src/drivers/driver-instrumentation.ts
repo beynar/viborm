@@ -563,7 +563,10 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
     child: () => Promise<Result>,
     sql?: string,
     params?: readonly unknown[],
-    batch?: readonly BatchQuery[]
+    batch?: readonly BatchQuery[],
+    // The diagnostic snapshot of `params` already taken, if any: a unit that
+    // reads the parameters reads it, so a caller's value is read once.
+    shown?: readonly unknown[]
   ): Promise<Result> {
     const observation = getExecutionExtensionChain(context)?.observation;
     return observation === undefined
@@ -578,6 +581,7 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
             sql,
             params,
             batch,
+            shown,
           },
           child
         );

@@ -8,7 +8,7 @@ import {
   trustedExecutionContext,
 } from "@drivers/execution-context";
 import { QueryError } from "@errors";
-import type { Sql } from "@sql";
+import { Sql } from "@sql";
 import type { ExtensionPart } from "./chain";
 import { coordinate, UNITS } from "./coordination";
 import {
@@ -114,9 +114,17 @@ async function around<Result>(
       return Promise.reject(misuse);
     }
     const at = Date.now();
-    if (statement !== undefined && source.statement !== undefined)
-      source.statement = statement;
-    started = rest();
+    const handed = statement !== undefined && source.statement !== undefined;
+    // The statement is rendered after every rewrite: refused here, it is
+    // refused in the extension's name, not as the renderer's TypeError.
+    if (handed && !(statement instanceof Sql))
+      started = Promise.reject(
+        unitError(resolved, unit, "handed next() something not a statement")
+      );
+    else {
+      if (handed) source.statement = statement;
+      started = rest();
+    }
     return started.then(
       () => settle(source, at, false, undefined),
       (failure: unknown) => settle(source, at, true, failure)
@@ -153,10 +161,11 @@ function settle(
 ): UnitEnd {
   source.failed = failed;
   source.failure = failure;
+  source.settledAt ??= Date.now();
   const certainty = source.certainty?.();
   return {
     status: failed ? "failure" : "success",
-    duration: Math.max(0, Date.now() - at),
+    duration: Math.max(0, source.settledAt - at),
     ...(certainty === undefined ? {} : { certainty }),
     ...(failed && isRecoverableExecution(source.context)
       ? { recovered: true as const }
