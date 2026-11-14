@@ -1,5 +1,6 @@
 import { ValidationError } from "@errors";
 import type {
+  Operation as Admitted,
   Arguments,
   EngineSchema,
   Input,
@@ -244,17 +245,18 @@ function attach(
 }
 
 /**
- * `raw` admitted by `admit` with the projection keys and named gated fields
- * of `domain` kept: as `admit(raw)` where the call names neither.
+ * `raw` admitted by the schema with the projection keys and named gated
+ * fields of `domain` kept: as the schema admits it where the call names
+ * neither.
  */
 export function admitProjected(
   domain: Projection,
   schema: EngineSchema,
   model: AnyModel,
-  operation: Operation,
-  raw: unknown,
-  admit: (raw: unknown) => Arguments
+  operation: Admitted,
+  raw: unknown
 ): Arguments {
+  const admit = (node: unknown) => schema.admit(model, operation, node);
   const stripped = ROW_RESULTS.has(operation)
     ? strip(domain, schema, model, raw)
     : undefined;

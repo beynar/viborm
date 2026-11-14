@@ -4,6 +4,7 @@
  * fields (`reads`). Made by what reads the verbs (`verbs.ts`), only for a
  * domain whose models may declare either.
  */
+import { assembleAdapterSelect } from "@adapters/adapter-internals";
 import {
   BOOLEAN_LEAF,
   type DeclaredEvidence,
@@ -14,8 +15,12 @@ import {
   type PreparedProjectionField,
   type PreparedSelector,
   type ProjectedFacts,
+  type ProjectionShape,
+  type Queries,
+  type Reader,
   type Shape,
 } from "@query-engine/raptor3/shared/query";
+import type { Operation as Admitted } from "@query-engine/raptor3/shared/schema";
 import {
   type Arguments,
   type EngineSchema,
@@ -23,7 +28,7 @@ import {
   memo,
 } from "@query-engine/raptor3/shared/schema";
 import type { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
-import type { Operation } from "@query-engine/types";
+import { listed } from "@query-engine/raptor3/shared/terms";
 import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
 import {
@@ -79,9 +84,53 @@ export class Projection {
       ? evidence(q, model, field, alias, taken)
       : q.truth(gateHolds(q, model, field.gate, alias, taken));
   }
-  /** What a rule hides of a row read. */
-  readonly gatedDocument = gatedDocument;
-  readonly gating = gating;
+  /**
+   * A read-gated model's rows `where` keeps, as a window whose gated
+   * columns read NULL on a row that does not carry them (K5), for a group
+   * read: each gate lowered once per row, where a gate repeated in the
+   * grouping, the projection and the order would be three expressions to
+   * the provider. `undefined` where the model gates nothing.
+   */
+  window(
+    q: SqlQueries,
+    model: AnyModel,
+    where: Input | undefined
+  ): Sql | undefined {
+    if (!this.projected(model)?.gates.size) return undefined;
+    const a = q.adapter;
+    const inner = q.alias();
+    return assembleAdapterSelect(a, {
+      columns: listed(
+        q.schema
+          .storedFields(model)
+          .map((field) =>
+            a.identifiers.aliased(
+              guarded(q, model, field, q.column(model, field, inner), inner),
+              q.columnName(model, field)
+            )
+          )
+      ),
+      from: q.table(model, inner),
+      where: q.lowerWhere(model, where, inner),
+    });
+  }
+  /** What a rule hides of a row read: its gates read as `q` reads a boolean. */
+  gatedDocument(
+    q: Queries,
+    carried: boolean,
+    shape: Extract<ProjectionShape, { kind: "object" }>,
+    fields: readonly string[],
+    readers: readonly Reader[],
+    columns?: readonly string[]
+  ): Reader {
+    return gatedDocument(
+      q.compileReader(BOOLEAN_LEAF, false, carried),
+      shape,
+      fields,
+      readers,
+      columns
+    );
+  }
   readonly guarded = guarded;
   /**
    * A call's arguments admitted with the projection keys this domain
@@ -90,11 +139,10 @@ export class Projection {
   admit(
     schema: EngineSchema,
     model: AnyModel,
-    operation: Operation,
-    raw: unknown,
-    admit: (raw: unknown) => Arguments
+    operation: Admitted,
+    raw: unknown
   ): Arguments {
-    return admitProjected(this, schema, model, operation, raw, admit);
+    return admitProjected(this, schema, model, operation, raw);
   }
   refuseGatedRows(model: AnyModel): void {
     refuseGatedRows(this.projected(model), model["~"].names.ts!);
@@ -146,12 +194,40 @@ export class Projection {
     return facts ?? undefined;
   }
   /**
+   * What this domain adds to one projection of `model` a caller reads (K5),
+   * `undefined` where it declares neither key nor gate on the model: the
+   * default projections it shares, its declared keys (`key`: whether `name`
+   * is one, projected), and each gate of a scalar it reads (`field`, after
+   * the scalar), with the shape that says which member decides each field.
+   */
+  preparing(model: AnyModel, select: unknown, path: string) {
+    const projected = this.projected(model);
+    if (projected === undefined) return undefined;
+    const gates = gating(projected, select, path);
+    return {
+      defaults: this.defaultProjections,
+      key: (
+        name: string,
+        selection: unknown,
+        fields: Record<string, Shape | Leaf>,
+        prepared: PreparedProjectionField[]
+      ): boolean => {
+        const evidence = projected.keys.get(name);
+        if (evidence === undefined) return false;
+        this.#projectEvidence(evidence, name, selection, fields, prepared);
+        return true;
+      },
+      field: gates.field,
+      shape: gates.shape,
+    };
+  }
+  /**
    * A declared projection key (K5): `true` reports every declared name, a
    * list the names it gives, in declared order. Admission refused any other
    * value. With `ordered`, the last name that holds, `null` where `read` does
    * not; else one boolean per name.
    */
-  projectEvidence(
+  #projectEvidence(
     evidence: DeclaredEvidence,
     name: string,
     selection: unknown,

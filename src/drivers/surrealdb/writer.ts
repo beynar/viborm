@@ -623,13 +623,14 @@ export class SurrealWriter extends Writer {
     question: Question,
     judgement: RowJudgement | undefined
   ): PreparedGuardFailure | undefined {
-    if (!(judgement && this.#q.domain)) return undefined;
-    const edge = question.member?.edge ?? question.through;
-    return this.#q.domain.refusal(
+    const judge = this.#q.domain?.judge;
+    if (!(judgement && judge)) return undefined;
+    return judge.refusal(
       this.operation.operation,
       question.model,
       judgement,
-      edge && question.verb ? [question.verb, edge.name] : undefined
+      question.verb,
+      (question.member?.edge ?? question.through)?.name
     );
   }
 
@@ -644,7 +645,8 @@ export class SurrealWriter extends Writer {
     const low = this.#low;
     const rows = await this.computed(model, values);
     const table = fieldName(model["~"].names.sql!);
-    const judge = this.#q.domain?.judge?.produced(model);
+    const judges = this.#q.domain?.judge;
+    const judge = judges?.produced(model);
     const judged = judge?.predicate !== undefined;
     const verb = sql.raw(skips ? "INSERT IGNORE" : "INSERT");
     const statement = low.hoisted(() => {
@@ -679,11 +681,12 @@ export class SurrealWriter extends Writer {
       model,
       sql: statement,
       ...(judged && {
-        stops: this.#q.domain!.refusal(
+        stops: judges!.refusal(
           this.operation.operation,
           model,
           undefined,
-          relation === undefined ? undefined : ["create", relation]
+          "create",
+          relation
         ),
       }),
     };

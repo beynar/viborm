@@ -27,7 +27,6 @@ import type {
 } from "@query-engine/raptor3/shared/row-scope";
 import { type Input, memo } from "@query-engine/raptor3/shared/schema";
 import type { Membership } from "@query-engine/raptor3/shared/storage";
-import type { PreparedGuardFailure } from "@query-engine/types";
 import type { AnyModel } from "@schema/model";
 import type { Judge } from "./judge";
 import { layerOf } from "./layers";
@@ -211,32 +210,6 @@ export class PreparedDomain {
         ?.get(model["~"].names.ts!)
         ?.some((verbs) => verbs !== undefined) === true
     );
-  }
-  /**
-   * What a write of `operation` says when the row it would leave is refused:
-   * `nested`, the verb and the relation it is written through. What judges
-   * the rows a write produces may say why ({@link Judge.reason}).
-   */
-  refusal(
-    operation: string,
-    model: AnyModel,
-    judgement?: RowJudgement,
-    nested?: readonly [verb: string, relation: string]
-  ): PreparedGuardFailure {
-    if (nested)
-      return {
-        kind: "nestedWrite",
-        relation: nested[1],
-        message: `Cannot ${nested[0]} relation '${nested[1]}': the record it writes is not permitted.`,
-        raceable: false,
-      };
-    const forbidden: PreparedGuardFailure = {
-      kind: "forbidden",
-      message: `${operation} produced a row that is not permitted.`,
-      raceable: false,
-    };
-    const reason = judgement && this.judge?.reason(model, judgement);
-    return reason === undefined ? forbidden : { ...forbidden, reason };
   }
   /**
    * What a direct read of the junction model would hide stays hidden from a

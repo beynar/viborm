@@ -217,19 +217,13 @@ class PreparedCommand implements PreparedOperation {
     if (this.#admitted) return this.#admitted;
     const { schema } = this.#queries;
     const stamps = this.#scope?.rows.stamps;
-    const project = this.#scope?.domain.project;
-    const own = (raw: unknown) =>
-      schema.admit(this.#model, this.#operation, raw);
-    const admit = project
-      ? () =>
-          project.admit(
-            schema,
-            this.#model,
-            this.#operation,
-            this.#rawArgs,
-            own
-          )
-      : () => own(this.#rawArgs);
+    const admit = () =>
+      this.#scope?.domain.project?.admit(
+        schema,
+        this.#model,
+        this.#operation,
+        this.#rawArgs
+      ) ?? schema.admit(this.#model, this.#operation, this.#rawArgs);
     return (this.#admitted =
       stamps === undefined ? admit() : parseStamped(stamps, admit));
   }

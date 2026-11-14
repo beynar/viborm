@@ -5,6 +5,7 @@
  * judgement rides the write, is stated here, beside what declares it.
  */
 import { assembleAdapterSelect } from "@adapters/adapter-internals";
+import { type JudgedSpelling, holds as judgedHolds } from "@adapters/judged";
 import {
   NO_RELATIONS,
   type PreparedSelector,
@@ -24,11 +25,12 @@ import { readsAny } from "./reads";
  * where it says nothing). The model's own columns type them, through an
  * empty read of the table, so a bound value takes its column's type where
  * PostgreSQL would resolve a bare parameter as text; how the rows follow
- * it is the dialect's (`setOperations.typedRows`), so a chunk is bounded
- * by its binds alone.
+ * it is the dialect's (`typedRows`), so a chunk is bounded by its binds
+ * alone.
  */
 function producedRows(
   q: SqlQueries,
+  spelling: JudgedSpelling,
   model: AnyModel,
   rows: readonly ((field: string) => Sql | undefined)[],
   alias: string
@@ -45,7 +47,8 @@ function producedRows(
     from,
     where: a.literals.false(),
   });
-  return a.setOperations.typedRows(
+  return spelling.typedRows(
+    a,
     {
       head,
       from,
@@ -97,6 +100,7 @@ function outsideOwnSubtree(
  */
 function holds(
   q: SqlQueries,
+  spelling: JudgedSpelling,
   model: AnyModel,
   judged: Pick<PreparedSelector, "model" | "predicate"> | undefined,
   alias: string,
@@ -119,7 +123,7 @@ function holds(
   ];
   if (conditions.length === 0) return undefined;
   return a.subqueries.scalar(
-    a.assertions.holds(a.operators.and(...conditions), from)
+    judgedHolds(a, spelling, a.operators.and(...conditions), from)
   );
 }
 /**
@@ -131,6 +135,7 @@ function holds(
  */
 export function producedSource(
   q: SqlQueries,
+  spelling: JudgedSpelling,
   model: AnyModel,
   columns: readonly string[],
   rows: readonly Input[],
@@ -141,6 +146,7 @@ export function producedSource(
   const written = new Set(columns);
   const from = producedRows(
     q,
+    spelling,
     model,
     rows.map(
       (row) => (field) =>
@@ -164,7 +170,7 @@ export function producedSource(
     if (states.size === 1 && state !== undefined) nulls.set(field, state);
   }
   return q.sharing(() => {
-    const guard = holds(q, model, judged, alias, nulls);
+    const guard = holds(q, spelling, model, judged, alias, nulls);
     if (guard === undefined) return undefined;
     return assembleAdapterSelect(a, {
       columns: sql.join(
@@ -200,6 +206,7 @@ export function producedSource(
  */
 export function producedWhere(
   q: SqlQueries,
+  spelling: JudgedSpelling,
   model: AnyModel,
   candidates: (alias: string) => Sql | undefined,
   values: Input,
@@ -232,6 +239,7 @@ export function producedWhere(
     );
   const from = producedRows(
     q,
+    spelling,
     model,
     [
       (field) =>
@@ -249,7 +257,16 @@ export function producedWhere(
       nulls.set(field, whole.value === null);
   }
   const judgedSet = (): Sql | undefined => {
-    const guard = holds(q, model, judged, produced, nulls, from, acyclic);
+    const guard = holds(
+      q,
+      spelling,
+      model,
+      judged,
+      produced,
+      nulls,
+      from,
+      acyclic
+    );
     if (guard === undefined) return undefined;
     const keys = q.keyOrder(model).map(current);
     return assembleAdapterSelect(a, {

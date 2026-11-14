@@ -54,7 +54,8 @@ export function gateHolds(
   const held: Sql[] = [];
   // A gate masks a value: neither a positive nor a negative test, so no
   // set it reads is bounded ({@link setBound}) and it holds where it would.
-  q.unbounded(() => {
+  q.unbounded++;
+  try {
     for (const [layer, read, input] of gate) {
       const tested = input === read ? [read] : [read, input];
       for (const where of visible ? tested.slice(1) : tested) {
@@ -62,7 +63,9 @@ export function gateHolds(
         if (lowered !== undefined) held.push(lowered);
       }
     }
-  });
+  } finally {
+    q.unbounded--;
+  }
   return held.length === 0 ? undefined : q.adapter.operators.and(...held);
 }
 /**

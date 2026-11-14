@@ -133,16 +133,16 @@ is the one answer to "what is the row this write produces judged at":
 records it) and its written fields' `moves`; nothing for a delete, a
 tombstone or a model without verbs, whose statements keep their bytes. The
 row is judged as a VALUE, against the rows before the write, inside the
-statement that writes it, and a refused row raises the adapter's
-`assertions.holds` there, before any row is written and before any
-constraint. An INSERT (`OperationContext.#insertStatement`, every create
+statement that writes it, and a refused row raises the dialect's
+`holds` (`src/adapters/judged.ts`) there, before any row is written and
+before any constraint. An INSERT (`OperationContext.#insertStatement`, every create
 site: root, `createMany` chunks, nested, `connectOrCreate`, upsert arms)
 reads its rows from `Queries.producedSource`: one FROM item of the values,
 typed by the model's own columns (an empty read of the table, so a bound
 value is never PostgreSQL's untyped text), each row kept where its `holds`
 is 1; one statement's rows never see each other (`INSERT … SELECT`
 materializes its source). How the rows follow the typed read is the
-adapter's (`setOperations.typedRows`, ENG-3, review 2): one `UNION ALL
+dialect's (`typedRows`, ENG-3, review 2): one `UNION ALL
 SELECT` arm per row on MySQL, one `VALUES` list after the head on SQLite
 (the compound limit, 500 terms, does not count it), one `VALUES` list typed
 by its first row (`COALESCE` with a NULL of the table's row type) on
