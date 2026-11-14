@@ -366,12 +366,13 @@ export const next = (
   const state = { ...scalar.state, ...update };
   // The base validator follows from the state: no modifier builds it itself.
   if (rebuilt) state.base = scalar.rebase(state);
-  return new (
-    scalar.constructor as new (
-      state: ScalarState,
-      nativeType?: NativeTypeDeclaration
-    ) => ScalarChain
-  )(state, scalar._nativeType);
+  // The scalar a modifier answers is of the class that says how its base is
+  // built, whatever the receiver is an instance of: a subclass's constructor
+  // is not asked to carry a state it may not take.
+  let concrete = Object.getPrototypeOf(scalar);
+  while (!Object.hasOwn(concrete, "rebase"))
+    concrete = Object.getPrototypeOf(concrete);
+  return new concrete.constructor(state, scalar._nativeType);
 };
 
 /**
