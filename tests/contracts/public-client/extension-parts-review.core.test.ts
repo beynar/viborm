@@ -9,7 +9,17 @@
 
 import { createClient } from "@drivers/sqlite3";
 import { s } from "@schema";
-import { defineExtension } from "@src/index";
+import {
+  extension,
+  rule,
+  defaults,
+  args as extArgs,
+  methods,
+  oneOf,
+  bound,
+  arg,
+  when,
+} from "@src/index";
 import { softDelete } from "@src/soft-delete";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { v } from "@validation";
@@ -74,23 +84,21 @@ async function seeded(): Promise<Loose> {
 
 const ids = (rows: readonly Row[]) => rows.map((row) => row.id);
 
-const byRank = defineExtension({
-  name: "by-rank",
-  order: { models: { node: [{ rank: "desc" }] } },
-});
-const user = defineExtension({
-  name: "user",
-  controls: { user: { schema: v.string() } },
-});
-const owned = { ownerId: { control: "user" } };
-const ownedRows = defineExtension({
-  name: "owned",
-  rows: {
-    control: "scope",
-    default: "mine",
-    models: { node: { mine: { root: owned, related: owned }, all: {} } },
-  },
-});
+const byRank = extension(
+  "by-rank",
+  defaults({ node: { orderBy: [{ rank: "desc" }] } })
+);
+const user = extension("user", extArgs({ user: v.string() }));
+const ownedRows = extension(
+  "owned",
+  extArgs({ scope: oneOf("mine", "all").default("mine") }),
+  rule({
+    node: {
+      root: when(arg("scope"), "mine", { ownerId: arg("user") }),
+      related: when(arg("scope"), "mine", { ownerId: arg("user") }),
+    },
+  })
+);
 const tombstones = softDelete({ models: { node: { deletedAt: "deletedAt" } } });
 
 describe("a chain that orders rows, and filters or keeps them too", () => {
@@ -168,20 +176,15 @@ describe("a chain that orders rows, and filters or keeps them too", () => {
 });
 
 describe("default data on a chain that neither filters nor keeps rows", () => {
-  const stamping = defineExtension({
-    name: "stamping",
-    data: {
-      models: { node: { create: { by: { control: "actor", path: "id" } } } },
-    },
-  });
+  const stamping = extension(
+    "stamping",
+    defaults({ node: { create: { by: arg("actor", "id") } } })
+  );
 
   test("overlapping calls each write their own control's value", async () => {
     const db = (await seeded())
       .$extends(
-        defineExtension({
-          name: "actor",
-          controls: { actor: { schema: v.object({ id: v.string() }) } },
-        })
+        extension("actor", extArgs({ actor: v.object({ id: v.string() }) }))
       )
       .$extends(stamping);
     const made = await Promise.all(
@@ -203,15 +206,13 @@ describe("default data on a chain that neither filters nor keeps rows", () => {
   test("overlapping bound views each write their own bound value", async () => {
     const db = (await seeded())
       .$extends(
-        defineExtension({
-          name: "bound-actor",
-          controls: {
-            actor: { schema: v.object({ id: v.string() }), bound: true },
-          },
-          client: (scope: { $bind(values: object): unknown }) => ({
+        extension(
+          "bound-actor",
+          extArgs({ actor: bound(v.object({ id: v.string() })) }),
+          methods((scope) => ({
             $as: (id: string) => scope.$bind({ actor: { id } }),
-          }),
-        })
+          }))
+        )
       )
       .$extends(stamping);
     const [one, two] = await Promise.all([
