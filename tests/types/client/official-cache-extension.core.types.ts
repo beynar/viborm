@@ -4,14 +4,7 @@ import {
   createClient as createPGliteClient,
   PGliteDriver,
 } from "@src/drivers/pglite";
-import {
-  type ClientExtension,
-  createClient,
-  s,
-  extension,
-  call,
-  target,
-} from "@src/index";
+import { call, createClient, extension, s, target } from "@src/index";
 import { expectTypeOf } from "vitest";
 
 const user = s.model({ id: s.string().id(), name: s.string() });
@@ -53,10 +46,8 @@ const official = cache({
   version: "v1",
   waitUntil: (_promise) => undefined,
 });
-// @ts-expect-error - official provenance cannot be erased into an ordinary extension
-const _erasedOfficial: ClientExtension = official;
 const cached = base.$extends(official);
-// @ts-expect-error - the official cache capability is unique in one chain
+// @ts-expect-error - one cache per chain: a second one's $withCache would replace the first's
 cached.$extends(official);
 cached.$withCache({ ttl: 1000 });
 cached.$invalidate("user:*");
@@ -137,23 +128,6 @@ const chain10 = chain9.$extends(extension("ten"));
 chain2.$withCache();
 chain5.$withCache();
 chain10.$withCache();
-
-const cloned = { ...official };
-base.$extends(cloned).$withCache();
-// @ts-expect-error - genuine provenance cannot be renamed
-base.$extends({ ...official, name: "renamed-cache" });
-const replacedContribution = {
-  ...official,
-  query: async ({ proceed }) => proceed(),
-};
-// @ts-expect-error - replacing the genuine query identity loses authenticity
-base.$extends(replacedContribution);
-// @ts-expect-error - binding replaces the exact contribution identity
-base.$extends({ ...official, query: official.query.bind(undefined) });
-
-const fakeReserved = extension("viborm.cache");
-// @ts-expect-error - the reserved name is never accepted from an ordinary value
-base.$extends(fakeReserved);
 
 cache({
   driver: cacheDriver,

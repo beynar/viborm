@@ -1,7 +1,7 @@
-/** Public E5 protected-observer authority and privacy boundary. */
+/** What a `unit` part is handed: a unit's kind, model and operation, and how it ended; nothing of the application. */
 
 import { PGliteDriver } from "@drivers/pglite";
-import { createClient, s } from "@src/index";
+import { createClient, extension, s, unit } from "@src/index";
 
 const record = s.model({
   id: s.string().id(),
@@ -11,92 +11,55 @@ const record = s.model({
 const client = createClient({
   schema: { record },
   driver: new PGliteDriver(),
-}).$extends({
-  name: "observer-surface",
-  observe(unit, proceed) {
-    const proveDiscriminant = () => {
-      switch (unit.kind) {
-        case "operation": {
-          const operation: string = unit.operation;
-          const model: string | undefined = unit.model;
-          return { model, operation };
-        }
-        case "statement": {
-          const operation: string | undefined = unit.operation;
-          const model: string | undefined = unit.model;
-          return { model, operation };
-        }
-        case "batch": {
-          const operation: string = unit.operation;
-          // @ts-expect-error - batch units disclose no model
-          unit.model;
-          return operation;
-        }
-        case "transaction":
-        case "savepoint":
-        case "connection": {
-          const operation: string | undefined = unit.operation;
-          // @ts-expect-error - these units disclose no model
-          unit.model;
-          return operation;
-        }
-        case "cache": {
-          const operation: "get" | "set" | "revalidate" | "invalidate" =
-            unit.operation;
-          // @ts-expect-error - cache units disclose no model
-          unit.model;
-          return operation;
-        }
-        default: {
-          const exhaustive: never = unit;
-          return exhaustive;
-        }
-      }
-    };
-    proveDiscriminant();
-    const kind:
-      | "operation"
-      | "statement"
-      | "batch"
-      | "transaction"
-      | "savepoint"
-      | "connection"
-      | "cache" = unit.kind;
-    const model: string | undefined = "model" in unit ? unit.model : undefined;
-    const operation: string | undefined = unit.operation;
-    proceed().then((summary) => {
-      const status: "success" | "failure" = summary.status;
-      const certainty: "committed" | "may-have-committed" | undefined =
-        summary.commitCertainty;
-      // @ts-expect-error - the immutable completion cannot be rewritten
-      summary.status = "success";
-      // @ts-expect-error - application results never cross the observer boundary
-      summary.result;
-      // @ts-expect-error - raw application errors never cross the boundary
-      summary.cause;
-      return { certainty, status };
-    });
-    // @ts-expect-error - observers receive no SQL disclosure
-    unit.sql;
-    // @ts-expect-error - observers receive no parameter disclosure
-    unit.params;
-    // @ts-expect-error - cache keys never cross the observer boundary
-    unit.key;
-    // @ts-expect-error - cache values never cross the observer boundary
-    unit.value;
-    // @ts-expect-error - cache provider state never crosses the observer boundary
-    unit.cacheDriver;
-    // @ts-expect-error - raw failures never cross the observer boundary
-    unit.error;
-    // @ts-expect-error - observers receive no driver authority
-    unit.driver;
-    // @ts-expect-error - observers receive no array coordination token
-    unit.token;
-    // @ts-expect-error - proceed is completion-only and accepts no value
-    proceed("fabricated");
-    return { fabricated: { kind, model, operation } };
-  },
-});
+}).$extends(
+  extension(
+    "observer-surface",
+    unit((u, next) => {
+      const kind:
+        | "operation"
+        | "statement"
+        | "batch"
+        | "transaction"
+        | "savepoint"
+        | "connection"
+        | "cache" = u.kind;
+      const model: string | undefined = u.model;
+      const operation: string | undefined = u.operation;
+      next().then((summary) => {
+        const status: "success" | "failure" = summary.status;
+        const duration: number = summary.duration;
+        const certainty: "committed" | "may-have-committed" | undefined =
+          summary.certainty;
+        // @ts-expect-error - the immutable completion cannot be rewritten
+        summary.status = "success";
+        // @ts-expect-error - application results never cross the unit boundary
+        summary.result;
+        // @ts-expect-error - a failure is read through failure(u), never on the completion
+        summary.cause;
+        return { certainty, duration, status };
+      });
+      // @ts-expect-error - a unit carries no SQL: text(u) reads it on demand
+      u.sql;
+      // @ts-expect-error - nor parameters: parameters(u) reads them on demand
+      u.params;
+      // @ts-expect-error - cache keys never cross the unit boundary
+      u.key;
+      // @ts-expect-error - cache values never cross the unit boundary
+      u.value;
+      // @ts-expect-error - cache provider state never crosses the unit boundary
+      u.cacheDriver;
+      // @ts-expect-error - raw failures are read through failure(u)
+      u.error;
+      // @ts-expect-error - the driver is read through driver(u)
+      u.driver;
+      // @ts-expect-error - units receive no array coordination token
+      u.token;
+      // @ts-expect-error - next takes a statement (Sql) to run instead, never a value
+      next("fabricated");
+      return { kind, model, operation };
+    })
+  )
+);
 
 const operation = client.record.findMany();
 // @ts-expect-error - no observation lifecycle is published on a model operation

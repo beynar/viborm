@@ -730,7 +730,7 @@ type Connective<M, K extends string> =
   | ProvidedWord<K>
   | ExistsWord;
 
-export type RuleWhere<M, K extends string> = {
+export type RuleWhere<in out M, in out K extends string> = {
   readonly [F in keyof WhereOf<M> & string]?: F extends "AND" | "OR" | "NOT"
     ? Connective<M, K> | readonly Connective<M, K>[]
     : WordValue<WhereOf<M>[F], K>;
@@ -750,14 +750,14 @@ type CreateData<M> =
  * TypeScript does not try to infer the client back from the literal (that
  * attempt overflowed: TS2589 on a typo). A relation key reads `never`.
  */
-export type ScalarSlots<M, Value> = {
+export type ScalarSlots<in out M, in out Value> = {
   readonly [F in keyof CreateData<M> & string]?: F extends ScalarKeysOf<M>
     ? Value
     : never;
 };
 
 /** A row's values: constants or words, per scalar field. */
-export type DataValues<M, K extends string> = {
+export type DataValues<in out M, in out K extends string> = {
   readonly [F in keyof CreateData<M> & string]?: F extends ScalarKeysOf<M>
     ? CreateData<M>[F] | Words<K> | { readonly increment: number }
     : never;

@@ -324,27 +324,26 @@ export type AppliedExtensionState<
 
 /**
  * The order rule: after a part typed against a result, a rule that hides
- * rows or a default that omits a field would make that type lie. A
+ * rows or a default that omits a field would make that type lie. And one
+ * cache per chain: a second one's `$withCache` would replace the first's. A
  * constraint on the facts, not a conditional beside the extension: a
  * parameter type that depends on the facts being inferred gives the parts
  * no client to be typed against.
  */
-type AdmittedFacts<X extends ExtensionStateConstraint> = [
-  X["resultConsumer"],
-] extends [undefined]
-  ? AnyFacts
-  : Facts<
-      object,
-      object,
-      object,
-      never,
-      unknown,
-      object,
-      { readonly [model: string]: never },
-      boolean,
-      boolean,
-      object
-    >;
+type AdmittedFacts<X extends ExtensionStateConstraint> = Facts<
+  object,
+  object,
+  object,
+  [X["resultConsumer"]] extends [undefined] ? string : never,
+  unknown,
+  object,
+  [X["resultConsumer"]] extends [undefined]
+    ? object
+    : { readonly [model: string]: never },
+  boolean,
+  HasExtensionCache<X> extends true ? false : boolean,
+  object
+>;
 
 type DataModels<D> = D extends StampedFields<infer M, PropertyKey> ? M : never;
 
@@ -577,8 +576,32 @@ export interface VibORMClientMembers<
    */
   $extends<F extends AdmittedFacts<X>>(
     extension: Extension<Target<C, X, EmptyFacts>, F> & KnownModels<C, F>
-  ): VibORMClient<AppliedClientConfig<C, F>, AppliedExtensionState<C, X, F>>;
+  ): AppliedClient<C, X, F>;
 }
+
+/**
+ * The client an extension with facts `F` makes. One that contributes nothing
+ * the types read (hooks, units, a plain call) leaves the client's type as it
+ * is: the same type, not an equal one rebuilt.
+ */
+export type AppliedClient<
+  C extends VibORMConfig,
+  X extends ExtensionStateConstraint,
+  F extends AnyFacts,
+> = NoFacts<F> extends true
+  ? VibORMClient<C, X>
+  : VibORMClient<AppliedClientConfig<C, F>, AppliedExtensionState<C, X, F>>;
+
+/**
+ * Whether `F` contributes nothing. Both ways: an empty fact (`never` rows,
+ * `{}` methods) is assignable to any fact of its kind, and any methods
+ * object to `{}`.
+ */
+type NoFacts<F extends AnyFacts> = [F] extends [EmptyFacts]
+  ? [EmptyFacts] extends [F]
+    ? true
+    : false
+  : false;
 
 type FactsOf<E> = E extends Extension<never, infer F> ? F : never;
 
@@ -590,11 +613,13 @@ type ApplyClientExtensions<
   ? VibORMClient<C, X>
   : Extensions extends readonly [infer First, ...infer Rest]
     ? FactsOf<First> extends infer F extends AnyFacts
-      ? ApplyClientExtensions<
-          AppliedClientConfig<C, F>,
-          AppliedExtensionState<C, X, F>,
-          Rest
-        >
+      ? NoFacts<F> extends true
+        ? ApplyClientExtensions<C, X, Rest>
+        : ApplyClientExtensions<
+            AppliedClientConfig<C, F>,
+            AppliedExtensionState<C, X, F>,
+            Rest
+          >
       : never
     : never;
 
