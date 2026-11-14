@@ -146,8 +146,8 @@ export class FilterDomain implements PreparedDomain {
    * (`rows.confine`): nothing where no member confines one.
    */
   readonly bound: ReturnType<NonNullable<RowDomain["bound"]>>;
-  /** Read at the arguments' defaults: what its layers take as theirs. */
-  readonly #fallback: RowDomain["fallback"];
+  /** Its layers read every argument with a default at it. */
+  readonly #atDefaults: boolean;
   #view: Queries | undefined;
   /** One read view per shared values, which no call's instant is read under. */
   readonly #views = new WeakMap<CallValues, Queries>();
@@ -158,7 +158,7 @@ export class FilterDomain implements PreparedDomain {
   constructor(rows: RowDomain, queries: Queries, atDefaults = false) {
     this.rows = rows;
     this.queries = queries;
-    this.#fallback = atDefaults ? rows.fallback : undefined;
+    this.#atDefaults = atDefaults;
     this.defaults =
       atDefaults || rows.fallback === undefined
         ? this
@@ -198,7 +198,7 @@ export class FilterDomain implements PreparedDomain {
         parts.push(
           freeze({
             ...part,
-            predicate: layered(layer, name, part.predicate, this.#fallback),
+            predicate: layered(layer, name, part.predicate, this.#atDefaults),
           })
         );
       else if (!reading) parts.push(part);
@@ -340,16 +340,10 @@ export const preparer = (Domain: typeof FilterDomain) =>
       this.domain,
       () => new Domain(this.domain, queries)
     );
-    const { fallback } = this.domain;
-    const controls = this.values?.controls;
-    let departs = false;
-    if (fallback !== undefined && controls !== undefined)
-      for (const name in fallback)
-        departs ||= !Object.is(controls[name], fallback[name]);
     return {
       rows: this,
       domain,
-      defaults: departs ? domain.defaults : domain,
+      defaults: this.values?.defaults ? domain.defaults : domain,
       instant,
     };
   };

@@ -48,14 +48,14 @@ export interface RowDomain {
   /**
    * What makes a layer's node of a predicate that reads its call (an
    * argument, the instant, a test of an argument): brought by the words
-   * that read it. Absent, a layer is what it states. Given `fallback`, the
-   * node reads each argument with a default at its default.
+   * that read it. Absent, a layer is what it states. `atDefaults`: the node
+   * reads each argument with a default at it ({@link CallValues.defaults}).
    */
   readonly layered?: (
     layer: number,
     model: string,
     predicate: PreparedPredicate,
-    fallback?: Readonly<Record<string, unknown>>
+    atDefaults?: boolean
   ) => PreparedPredicate;
   /**
    * The value each argument with a default takes where a call passes none:
@@ -274,6 +274,11 @@ export interface CallValues {
    * predicate reads the instant: one read view serves them all.
    */
   readonly shared?: true;
+  /**
+   * The values where every argument with a default takes it, where this
+   * call's differ: what the default domain reads (`CallScope.defaults`).
+   */
+  readonly defaults?: CallValues;
 }
 
 /**

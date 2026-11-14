@@ -11,7 +11,6 @@
 import {
   freeze,
   mergeQuantifiers,
-  type PreparedOperand,
   type PreparedPredicate,
   type Queries,
   VACUOUS_FALSE,
@@ -49,15 +48,15 @@ interface Folded {
 }
 const ALWAYS_TRUE: PreparedPredicate = freeze({ kind: "always", value: true });
 /**
- * `predicate` with the leaves `known` answers for replaced by their outcome,
- * or by the leaf it answers, and the logical combinators simplified, so a
- * false arm goes with every parameter inside it. `deep` folds the body of a
+ * `predicate` with the leaves `known` answers for replaced by their outcome
+ * and the logical combinators simplified, so a false arm goes with every
+ * parameter inside it. `deep` folds the body of a
  * relation too, which keeps its quantifier: for an outcome that holds
  * whatever row is read.
  */
 export function fold(
   predicate: PreparedPredicate,
-  known: (leaf: PreparedPredicate) => boolean | PreparedPredicate | undefined,
+  known: (leaf: PreparedPredicate) => boolean | undefined,
   deep: boolean
 ): PreparedPredicate {
   switch (predicate.kind) {
@@ -65,7 +64,6 @@ export function fold(
     case "operation": {
       const outcome = known(predicate);
       if (outcome === undefined) return predicate;
-      if (typeof outcome !== "boolean") return outcome;
       return outcome ? ALWAYS_TRUE : VACUOUS_FALSE;
     }
     case "and":
@@ -174,75 +172,17 @@ function callReads(
 }
 
 /**
- * `predicate` read where every argument with a default takes it (`fallback`):
- * each test of such an argument folded once, and each value it reads bound,
- * as lowering binds a call's. A list operand takes an array, which no default
- * is: R6 reads it from the call as it would anywhere.
- */
-function atDefaults(
-  predicate: PreparedPredicate,
-  fallback: Readonly<Record<string, unknown>>
-): PreparedPredicate {
-  const values: CallValues = { controls: fallback, required: () => false };
-  const defaulted = (parameter: Parameter): boolean =>
-    parameter.control !== undefined &&
-    Object.hasOwn(fallback, parameter.control);
-  let changed = false;
-  const bound = <O extends PreparedOperand | undefined>(operand: O) => {
-    if (
-      operand?.kind !== "parameter" ||
-      operand.spread === true ||
-      !defaulted(operand.parameter)
-    )
-      return operand;
-    changed = true;
-    return {
-      kind: "value" as const,
-      value: fallback[operand.parameter.control!],
-    };
-  };
-  return fold(
-    predicate,
-    (leaf) => {
-      // An argument read here has a control: the instant is never asked.
-      if (leaf.kind === "condition")
-        return defaulted(leaf.condition.parameter)
-          ? leaf.condition.holds(values, () => new Date())
-          : undefined;
-      if (leaf.kind !== "operation") return;
-      changed = false;
-      const { operand, operands, value } = leaf;
-      let read = value;
-      if (value instanceof Parameter && defaulted(value)) {
-        changed = true;
-        read = fallback[value.control!];
-      }
-      const out = freeze({
-        ...leaf,
-        ...(operand && { operand: bound(operand) }),
-        ...(operands && { operands: freeze(operands.map(bound)) }),
-        value: read,
-      });
-      return changed ? out : undefined;
-    },
-    true
-  );
-}
-
-/**
  * `predicate` as `model`'s domain predicate of `layer`, read with each
- * call's values, or, given `fallback`, where every argument with a default
+ * call's values, or, `atDefaults`, where every argument with a default
  * takes it: inside another layer's relation reads, and for the rows a kept
- * delete takes. A layer whose predicate folds to true states nothing.
+ * delete takes.
  */
 export function layerOf(
   layer: number,
   model: string,
-  given: PreparedPredicate,
-  fallback?: Readonly<Record<string, unknown>>
+  predicate: PreparedPredicate,
+  atDefaults?: boolean
 ): PreparedPredicate {
-  const predicate =
-    fallback === undefined ? given : atDefaults(given, fallback);
   // A list of `when`s and `unless`es only states nothing where none of them
   // applies anything.
   const chosen = itemsOf(predicate).every((item) => {
@@ -285,7 +225,8 @@ export function layerOf(
     model,
     predicate,
     resolve(queries: Queries, alias?: string) {
-      const { values, instant } = queries;
+      const { instant } = queries;
+      const values = (atDefaults && queries.values?.defaults) || queries.values;
       // A call resolves each layer several times with one values object, and
       // values shared by calls read no instant: the last outcome is theirs.
       if (values !== last) {

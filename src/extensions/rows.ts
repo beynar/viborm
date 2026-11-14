@@ -196,6 +196,33 @@ export class RowsBinding implements CallRowsBinding {
         : Object.freeze({ ...this.#physical, tombstones: kept });
   }
   /**
+   * What a call's predicates read: its arguments, each one with a default at
+   * it where the call passes none, and, where they differ from the
+   * defaults, the defaults too (`CallValues.defaults`).
+   */
+  #values(controls: AdmittedControls | undefined, shared?: true): CallValues {
+    let given = controls ?? NO_CONTROLS;
+    const fallback = this.#fallback;
+    let departs = false;
+    if (fallback !== undefined)
+      for (const name in fallback)
+        if (Object.hasOwn(given, name))
+          departs ||= !Object.is(given[name], fallback[name]);
+        else given = { ...fallback, ...given };
+    const required = this.#required;
+    return Object.freeze({
+      controls: given,
+      required,
+      ...(shared && { shared }),
+      ...(departs && {
+        defaults: Object.freeze({
+          controls: { ...given, ...fallback },
+          required,
+        }),
+      }),
+    });
+  }
+  /**
    * One call's row facts, from the arguments it admitted, and whether it
    * deletes physically ({@link Kept.removes}). When its predicates read a
    * call value, the call carries its arguments, each one with a default at
@@ -212,26 +239,16 @@ export class RowsBinding implements CallRowsBinding {
     const stamps = this.#stamps;
     const stamped = stamps?.named === true;
     if (!(parametric || stamped)) return facts;
-    let values = controls ?? NO_CONTROLS;
-    const fallback = this.#fallback;
-    if (fallback !== undefined)
-      for (const name in fallback)
-        if (!Object.hasOwn(values, name)) {
-          values = { ...fallback, ...values };
-          break;
-        }
     const closed = this.#closed;
     if (closed === undefined)
       return Object.freeze({
         ...facts,
-        ...(parametric && {
-          values: Object.freeze({ controls: values, required: this.#required }),
-        }),
+        ...(parametric && { values: this.#values(controls) }),
         ...(stamped && { stamps: stamps.of(controls) }),
       });
     let node = facts === this.#physical ? this.#shared : this.#sharedKept;
     for (const name of closed) {
-      const value = values[name];
+      const value = controls?.[name];
       let next = node.next.get(value);
       if (next === undefined)
         node.next.set(value, (next = { next: new Map() }));
@@ -239,11 +256,7 @@ export class RowsBinding implements CallRowsBinding {
     }
     node.rows ??= Object.freeze({
       ...facts,
-      values: Object.freeze({
-        controls: values,
-        required: this.#required,
-        shared: true as const,
-      }),
+      values: this.#values(controls, true),
     });
     return node.rows;
   }
