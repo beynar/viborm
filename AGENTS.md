@@ -265,8 +265,8 @@ carries the figures of the release.
 
 **What an application that applies no extension carries:** 112 bytes of
 `src/extensions` (`isAppliedExtension` of `extension.ts`, the symbols of
-`origin.ts`), measured on `pg-representative`, which weighs 508,589 bytes
-minified, 10,733 under the host it replaced. It must not grow by one byte:
+`origin.ts`), measured on `pg-representative`, which weighs 508,794 bytes
+minified, 10,528 under the host it replaced. It must not grow by one byte:
 the client asks the chain, and a part's state on the chain carries the code
 that runs it (`chain.written.watch`, `chain.controls.admit`,
 `chain.observation.run`), so the client, the engine, the executor and the
