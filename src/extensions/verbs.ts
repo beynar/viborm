@@ -297,7 +297,6 @@ function layerVerbs(entry: RowsVerbs): ModelVerbs {
             Object.freeze([name, of(name)] as const)
           )
         ),
-        ordered: entry.evidence.ordered === true,
       }),
     }),
     reads: fields(entry.reads),

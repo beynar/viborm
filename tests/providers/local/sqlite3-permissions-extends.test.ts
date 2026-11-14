@@ -997,11 +997,13 @@ test("a refused new row names the key an update writes through a nested to-one d
         data: { author: { delete: true } },
       })
     ).rejects.toThrow(
-      "The update on post is not permitted: the row it would leave, judged again because it writes authorId (through author), is refused"
+      "The update on post is not permitted: it writes authorId"
     );
     await expect(
       db.post.update({ where: { id: "p1" }, data: { authorId: null } })
-    ).rejects.toThrow("because it writes authorId, is refused");
+    ).rejects.toThrow(
+      "The update on post is not permitted: it writes authorId"
+    );
     expect(await base.author.count()).toBe(1);
   } finally {
     await base.$disconnect();

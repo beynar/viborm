@@ -171,26 +171,17 @@ export class Judge {
       : undefined;
   }
   /**
-   * Why the row an update judged at `judgement` would leave is refused,
-   * where it writes a field some layer `moves` judges again; `undefined`
-   * where it says nothing more than that the row is not permitted.
+   * Why the row an update judged at `judgement` would leave is refused: the
+   * fields it writes that some layer `moves` judges again (a relation's
+   * write names its key fields); `undefined` where it says nothing more
+   * than that the row is not permitted.
    */
   #reason(model: AnyModel, judgement: RowJudgement): string | undefined {
     const layers = this.#domain.rows.verbs?.get(model["~"].names.ts!);
-    if (layers === undefined) return undefined;
     const moved = judgement.writes.filter((field) =>
-      layers.some((layer) => layer?.moves.has(field) === true)
+      layers?.some((layer) => layer?.moves.has(field))
     );
-    if (moved.length === 0) return undefined;
-    const relations = model["~"].state.relations;
-    const through = judgement.writes.filter(
-      (field) =>
-        Object.hasOwn(relations, field) &&
-        relations[field]!["~"].state.foreignKey?.fields.some((key) =>
-          moved.includes(key)
-        ) === true
-    );
-    return `the row it would leave, judged again because it writes ${moved.join(", ")}${through.length > 0 ? ` (through ${through.join(", ")})` : ""}, is refused`;
+    return moved.length === 0 ? undefined : `it writes ${moved.join(", ")}`;
   }
   /**
    * What the row a write of `model` produces is judged at, as a value,

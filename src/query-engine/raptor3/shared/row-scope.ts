@@ -102,13 +102,11 @@ export interface ModelVerbs {
 
 /**
  * A projection key and what it reports per row, each name with its admitted
- * predicate in declared order: whether each holds beside `read`, or, when
- * `ordered`, the last that does.
+ * predicate in declared order: whether each holds beside `read`.
  */
 export interface ModelEvidence {
   readonly as: string;
   readonly names: readonly (readonly [string, Input])[];
-  readonly ordered: boolean;
 }
 
 /**

@@ -163,8 +163,7 @@ export function refuseGatedRows(
 }
 /**
  * A declared projection key's value on the row at `alias` (K5): the
- * layer's `read` once, around one test per name. Ordered, the last name
- * that holds; else a document of one boolean per name.
+ * layer's `read` once, around a document of one boolean per name.
  */
 export function evidence(
   q: SqlQueries,
@@ -174,25 +173,10 @@ export function evidence(
   taken: boolean
 ): Sql {
   const a = q.adapter;
-  const { layer, read, ordered } = field.evidence;
+  const { layer, read } = field.evidence;
   const visible = taken ? undefined : layerHolds(q, model, layer, read, alias);
   const test = (input: Input) =>
     input === read ? undefined : layerHolds(q, model, layer, input, alias);
-  if (ordered) {
-    const highest = a.expressions.caseWhen(
-      [...field.names].reverse().map(([name, input]) => ({
-        when: test(input) ?? a.literals.true(),
-        then: a.expressions.cast(q.value(name), "text"),
-      })),
-      a.literals.null()
-    );
-    return visible === undefined
-      ? highest
-      : a.expressions.caseWhen(
-          [{ when: visible, then: highest }],
-          a.literals.null()
-        );
-  }
   const held = a.json.objectFromColumns(
     field.names.map(([name, input]) => [name, q.truth(test(input))])
   );

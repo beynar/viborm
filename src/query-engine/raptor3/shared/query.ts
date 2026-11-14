@@ -264,8 +264,7 @@ export type PreparedProjectionField =
   | {
       /**
        * A declared projection key (K5): per row, whether each named
-       * predicate holds beside the layer's `read`, or, `ordered`, the last
-       * name that does.
+       * predicate holds beside the layer's `read`.
        */
       readonly kind: "evidence";
       readonly name: string;
@@ -1606,7 +1605,6 @@ export interface DeclaredEvidence {
   readonly layer: number;
   readonly read: Input;
   readonly names: readonly (readonly [string, Input])[];
-  readonly ordered: boolean;
 }
 /**
  * What a read-gated field's row must hold, per layer gating it: the layer's

@@ -325,8 +325,7 @@ into a `select` naming every scalar. The walk includes singular variant arms
 and collection `variants`, resolving each target from the shared membership
 index and retaining its exact projection path; variant tags never name a
 second evidence or field-gating contract. `prepareProjection` lowers a key as the
-`evidence` field (a document of booleans, or `ordered`, the last name that
-holds) and a gated field beside one `gate` member per distinct gate
+`evidence` field (a document of booleans) and a gated field beside one `gate` member per distinct gate
 (`0viborm_gate:<n>`, never published); a projection the engine reads for
 itself is `internal` and carries neither, and an internal decode reads every
 member it asked for. The decoder (`#compileGatedDocument`) writes a gated

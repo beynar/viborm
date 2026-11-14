@@ -60,11 +60,7 @@ const db = base.$extends({
       user: {
         predicates: { view: {}, edit: {}, full: {} },
         read: "view",
-        evidence: {
-          as: "$access",
-          names: ["view", "edit", "full"],
-          ordered: true,
-        },
+        evidence: { as: "$access", names: ["view", "edit", "full"] },
       },
       note: { predicates: { view: {} }, read: "view" },
     },
@@ -72,7 +68,7 @@ const db = base.$extends({
 });
 
 describe("a declared projection key", () => {
-  test("reports the model's names at the root, a list its own, ordered the highest", async () => {
+  test("reports the model's names at the root, a list its own", async () => {
     const posts = await db.post.findMany({
       select: { id: true, $access: true },
     });
@@ -90,9 +86,11 @@ describe("a declared projection key", () => {
     const users = await db.user.findMany({
       select: { id: true, $access: true },
     });
-    expectTypeOf(users[0]!.$access).toEqualTypeOf<
-      "view" | "edit" | "full" | null
-    >();
+    expectTypeOf(users[0]!.$access).toEqualTypeOf<{
+      readonly view: boolean;
+      readonly edit: boolean;
+      readonly full: boolean;
+    }>();
   });
 
   test("is admitted at every depth, at the target's own names", async () => {
@@ -110,9 +108,11 @@ describe("a declared projection key", () => {
       include: { author: { include: { $access: true } } },
     });
     // A to-one onto a model a `rows` member names may read hidden: `null`.
-    expectTypeOf(posts[0]!.author!.$access).toEqualTypeOf<
-      "view" | "edit" | "full" | null
-    >();
+    expectTypeOf(posts[0]!.author!.$access).toEqualTypeOf<{
+      readonly view: boolean;
+      readonly edit: boolean;
+      readonly full: boolean;
+    }>();
   });
 
   test("rides a write's result", async () => {
@@ -211,9 +211,17 @@ test("cached views preserve two projection keys and exact nested results", () =>
       }[]
     >
   >();
-  const ordered = cached.user.findMany({ select: { $access: true } });
-  expectTypeOf(ordered).toEqualTypeOf<
-    Promise<{ readonly $access: "view" | "edit" | "full" | null }[]>
+  const all = cached.user.findMany({ select: { $access: true } });
+  expectTypeOf(all).toEqualTypeOf<
+    Promise<
+      {
+        readonly $access: {
+          readonly view: boolean;
+          readonly edit: boolean;
+          readonly full: boolean;
+        };
+      }[]
+    >
   >();
   // @ts-expect-error - each projection retains its own permission vocabulary
   cached.post.findMany({ select: { $review: ["edit"] } });

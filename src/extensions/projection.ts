@@ -169,15 +169,7 @@ export class Projection {
         if (verbs === undefined) continue;
         const { evidence, read } = verbs;
         if (evidence)
-          keys.set(
-            evidence.as,
-            freeze({
-              layer,
-              read,
-              names: evidence.names,
-              ordered: evidence.ordered,
-            })
-          );
+          keys.set(evidence.as, freeze({ layer, read, names: evidence.names }));
         for (const [field, input] of verbs.reads)
           gates.set(field, [
             ...(gates.get(field) ?? []),
@@ -223,9 +215,8 @@ export class Projection {
   }
   /**
    * A declared projection key (K5): `true` reports every declared name, a
-   * list the names it gives, in declared order. Admission refused any other
-   * value. With `ordered`, the last name that holds, `null` where `read` does
-   * not; else one boolean per name.
+   * list the names it gives, in declared order, one boolean per name.
+   * Admission refused any other value.
    */
   #projectEvidence(
     evidence: DeclaredEvidence,
@@ -240,20 +231,13 @@ export class Projection {
         : evidence.names.filter(([held]) =>
             (selection as readonly string[]).includes(held)
           );
-    fields[name] = evidence.ordered
-      ? freeze({
-          kind: "scalar",
-          type: "enum",
-          nullable: true,
-          enumValues: new Set(names.map(([held]) => held)),
-        })
-      : freeze({
-          kind: "object",
-          nullable: false,
-          fields: freeze(
-            Object.fromEntries(names.map(([held]) => [held, BOOLEAN_LEAF]))
-          ),
-        });
+    fields[name] = freeze({
+      kind: "object",
+      nullable: false,
+      fields: freeze(
+        Object.fromEntries(names.map(([held]) => [held, BOOLEAN_LEAF]))
+      ),
+    });
     prepared.push(freeze({ kind: "evidence", name, evidence, names }));
   }
 }
