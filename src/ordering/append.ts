@@ -16,7 +16,8 @@
 // below serves a driver that could not read first.
 
 import { UnsupportedOperationError } from "../errors";
-import { type ComputedContext, computed } from "../index";
+import { computed } from "../extensions/values";
+import type { ComputedContext } from "../index";
 import { type Sql, sql } from "../sql/sql";
 import { keysAfter } from "./keys";
 

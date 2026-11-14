@@ -16,20 +16,16 @@
 
 import type { RowsVerbs } from "../client/exports";
 import { ClientInitializationError } from "../errors";
+import { check, facts, gate, only } from "../extensions/judge-words";
 import {
-  type ArgTest,
   arg,
-  check,
   exists,
-  facts,
-  gate,
   nothing,
   now,
-  only,
   provided,
   row,
-  type VibORMConfig,
-} from "../index";
+} from "../extensions/rule-words";
+import type { ArgTest, VibORMConfig } from "../index";
 import { type ActorContract, actorContract, refuse } from "./actor";
 import { FALSE, type PolicyModel, type Rule, type Where } from "./rules";
 

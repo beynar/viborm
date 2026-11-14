@@ -20,6 +20,10 @@ import {
 } from "../errors";
 import { ValidationError } from "../errors/validation";
 import type { StampedFields } from "../extensions/controls";
+import { defaults } from "../extensions/defaults";
+import { extension } from "../extensions/extension";
+import { methods as methodsOf } from "../extensions/methods-part";
+import { computed, joined, stored } from "../extensions/values";
 import type {
   AnyTarget,
   ClientSchema,
@@ -33,14 +37,6 @@ import type {
   Target,
   VibORMClient,
   VibORMConfig,
-} from "../index";
-import {
-  computed,
-  defaults,
-  extension,
-  joined,
-  methods as methodsOf,
-  stored,
 } from "../index";
 import { getRowKey } from "../schema/model/keys";
 import { type Sql, sql } from "../sql/sql";
