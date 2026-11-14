@@ -17,6 +17,7 @@ import {
   check,
   driver,
   extension,
+  fields,
   gate,
   keep,
   lazy,
@@ -57,7 +58,12 @@ const node = s.model({
     .name("tree"),
   children: s.toMany(() => node).name("tree"),
 });
-const schema = { user, post, node };
+const doc = s.model({
+  id: s.string().id(),
+  data: s.json(),
+  blob: s.blob(),
+});
+const schema = { user, post, node, doc };
 
 type Row = Record<string, unknown>;
 interface Delegate {
@@ -69,6 +75,7 @@ interface Loose {
   user: Delegate;
   post: Delegate;
   node: Delegate & { update(args: object): Promise<Row> };
+  doc: Delegate;
   $extends(definition: unknown): Loose;
   $disconnect(): Promise<void>;
 }
@@ -231,6 +238,45 @@ describe("an acyclic relation beside a check", () => {
       (await db.node.update({ where: { id: "c" }, data: { parentId: "b" } }))
         .parentId
     ).toBe("b");
+  });
+});
+
+describe("a computed field reads the row as it was fetched", () => {
+  test("an edit of the row before the field is read changes nothing it computes", async () => {
+    const base = await seeded();
+    await base.doc.create({
+      data: {
+        id: "d1",
+        data: { tags: ["a"], meta: { size: 1 } },
+        blob: new Uint8Array([1, 2, 3]),
+      },
+    });
+    const db = base.$extends(
+      extension(
+        "summary",
+        fields({
+          doc: {
+            summary: {
+              needs: { data: true, blob: true },
+              compute: (row: Row) => {
+                const data = row.data as {
+                  tags: string[];
+                  meta: { size: number };
+                };
+                const blob = row.blob as Uint8Array;
+                return `${data.tags.join(",")}/${data.meta.size}/${[...blob].join(",")}`;
+              },
+            },
+          },
+        } as never)
+      )
+    );
+    const [row] = await db.doc.findMany({});
+    const data = row!.data as { tags: string[]; meta: { size: number } };
+    data.tags.push("b");
+    data.meta.size = 9;
+    (row!.blob as Uint8Array)[0] = 7;
+    expect(row!.summary).toBe("a/1/1,2,3");
   });
 });
 
