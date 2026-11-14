@@ -131,7 +131,8 @@ provider names the violated key; otherwise the `UniqueConstraintError` itself).
 (and `read` to return a row that exists).
 
 A root call whose model grants nothing for its operation's action is refused
-before any statement, with `ForbiddenError`: a read needs the read action, a
+before its arguments are validated and before any statement, with
+`ForbiddenError`: a read needs the read action, a
 `create` or `createMany` the `create` action, an update the update action,
 and any other operation (`delete`, `deleteMany`) the delete action. An
 `upsert` is not refused up front: each arm is judged where it runs, the
@@ -150,7 +151,8 @@ What follows from it:
   read: every relation uses its target model's configured read action (`read`
   by default).
 - **A model the policy does not list is closed.** `call.comment.findMany()`
-  is refused before any statement, and through a relation an unlisted model
+  is refused with `ForbiddenError` before its arguments are validated (a
+  misspelt `where` on it is not reported) and before any statement, and through a relation an unlisted model
   reads `null` or `[]`. List a model with `read: true` to allow reading,
   subject to its restrictions.
 - **Nothing runs without an actor.** `db.post.findMany()` (no `$as`) is refused
@@ -1551,7 +1553,7 @@ reads and polymorphic arms.
 | a `$if` whose test is not exactly one of `exists`, `equals`, `in`, `has`, `hasSome` (an extra key included) | `ClientInitializationError` | at the first call that needs the model |
 | a `{ $row, up }` across a polymorphic relation, or naming a column its field cannot be compared with (another type, a decimal of another scale) | `UnsupportedOperationError` | at the first call whose statement reads the rule; `policy.compile(schema)` does not check it |
 | an unknown field inside a rule; `recurse: true`; a read-protected key or unique field | `ClientInitializationError` | at the first call that needs the model |
-| an unlisted model; an operation whose action the model does not grant (an `upsert` excepted), or an `as` it does not declare | `ForbiddenError` | before any statement |
+| an unlisted model; an operation whose action the model does not grant (an `upsert` excepted), or an `as` it does not declare | `ForbiddenError` | before the call's arguments are validated, and before any statement |
 | an `upsert` onto an existing row of a model without the update action | `ForbiddenError` for the update, the unique violation as `cause` | after the statement |
 | a hidden root row in `findUnique` or `findFirst` | `null` (or `NotFoundError` for the `OrThrow` variants) | after the statement |
 | a hidden or non-writable root row in a singular update/delete | `NotFoundError` | after the statement |

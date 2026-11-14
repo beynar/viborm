@@ -86,10 +86,10 @@ so an extension declares what it wants instead of rewriting queries.
 ## Official extensions
 
 Official extensions are built from the same public parts and applied in one
-step, `client.$extends(softDelete(config))`. Soft delete, ordering,
-permissions and the write hooks import only names any author can import; the
-cache and instrumentation still read a few private helpers (execution
-context, error sanitizers, driver identity), which is being removed:
+step, `client.$extends(softDelete(config))`. The cache, default omission,
+soft delete, ordering, permissions and the write hooks import only names any
+author can import; the instrumentation still presents errors, parameters and
+log metadata through the package's private sanitizers:
 
 <CardGroup>
   <Card
@@ -225,7 +225,7 @@ SQL and statement rewrites still see every row. Omission is presentation
 control, not authorization: query-level and default omission can be
 overridden, and even model `.omit()` does not replace database authorization.
 A `rule`, and the soft-delete extension built on one, decides which rows are
-visible, not who may see them: any caller can choose another mode or pass
-another value unless it is a `bound` argument, and raw SQL ignores them. A
+visible, not who may see them: any caller can pass another value of an
+argument unless it is a `bound` one, and raw SQL ignores them. A
 tenant filter keeps a call inside the tenant it names; your server, not the
 caller, must choose that tenant.

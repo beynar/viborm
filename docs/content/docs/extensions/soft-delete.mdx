@@ -162,7 +162,7 @@ comment.post; // Post | null: null while the post is a tombstone
 
 So on a client with the extension, TypeScript types every to-one relation to
 a configured model as `| null`, even one that is required in the schema and
-even under `deleted: "with"` (the type does not read the call's mode). A
+even under `deleted: "with"` (the type does not read the call's `deleted`). A
 to-one relation to a model you did not configure keeps its type, unless that
 model has exactly the same field and relation names as a configured one:
 TypeScript compares models by those names and cannot tell the two apart, so

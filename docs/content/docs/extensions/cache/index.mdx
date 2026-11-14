@@ -60,7 +60,7 @@ validated arguments, and the prepared statement's text and parameters
 (`key(run)`), inside a namespace made of the cache's private storage
 revision, the database (dialect and SQL namespace, so one store can serve
 several databases) and the extension's `version`. A rule that changes the
-statement (a tenant, a soft-delete mode, a permission) changes the key; an
+statement (a tenant, soft delete's `deleted`, a permission) changes the key; an
 argument that changes no statement does not, unless it is declared
 `.volatile()`, in which case the read is not cached. A custom `key` is only a
 suffix contribution. It does not replace the canonical identity, so two

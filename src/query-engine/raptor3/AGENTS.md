@@ -63,8 +63,8 @@ Junction capture stores the exact membership pair, not a synthetic row lookup.
 *Row domains (an extension's `rule`: `read.where`, `root`, `related`, written
 with `when`/`unless`; root Rule 6).* A call of a client whose chain has a
 `rule` carries its facts (`CallScope`, `shared/row-scope.ts`), built by
-`src/extensions/rows.ts` and `row-domain.ts`: the domain its mode arguments
-chose and the default one, each a `PreparedDomain`
+`src/extensions/rows.ts` and `row-domain.ts`: the domain its arguments chose
+and the default one (every argument with a default read at it), each a `PreparedDomain`
 prepared at most once per engine view, model and purpose. A `Queries` is scoped
 to one domain: reads get `PreparedDomain.reads(call)`: the domain's one read
 view (built on first use, living as long as the domain), or the call's own
@@ -173,7 +173,7 @@ was measured judging a row the update does not write, and a guard in `SET`
 is evaluated row by row by SQLite and MySQL and was measured seeing the
 statement's own earlier rows. The values a write sets fold into its
 judgement where they are null tests of the produced row's own columns
-(`foldKnownNulls`, `src/extensions/layers.ts`): an arm on a key the write leaves null never reaches the
+(`foldKnownNulls`, `src/extensions/produced.ts`): an arm on a key the write leaves null never reaches the
 statement. An acyclic relation is a physical walk under no domain
 (`outsideOwnSubtree`, `src/extensions/produced.ts`). A refused write raises its adapter's refusal sentinel
 (`__viborm_refused__` under the `__viborm_judged__` alias, never a premise's
@@ -443,7 +443,7 @@ both `rootUpsert` arms), relation-free root `createMany` rows and `updateMany`,
 the nested relation-free `updateMany`, and `Commands.tombstone`, whose stamped
 data every tombstone site reads; a captured member a series tombstones is
 admitted again from the tombstone's raw data and stamped there. Stamps that
-name a control are put in per call outside the engine (`callRows`); a
+name an argument are put in per call outside the engine (`callRows`); a
 domain's values are parameters read at lowering, so every tenant's domain is
 one object whoever writes. A
 `connect`/`set` that only moves a foreign key (`MEMBERSHIP_MOVE`) is not

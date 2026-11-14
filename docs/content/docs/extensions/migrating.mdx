@@ -23,8 +23,8 @@ longer compiles, and the "after" block is the extension to write now.
 
 ## One spelling
 
-`defineExtension`, `defineHooks`, `defineFilters`, `enableExtensions` and an
-object literal passed to `$extends()` are gone. So is a function of the client
+`defineExtension`, `defineHooks`, `enableExtensions` and an object literal
+passed to `$extends()` are gone. So is a function of the client
 passed to `$extends()`. An extension is a value, applied with
 `client.$extends(value)`:
 
@@ -473,7 +473,7 @@ const own = { ownerId: arg("user") };
 const db = client.$extends(
   extension(
     "sharing",
-    args({ user: accepts(v.string()).required() }),
+    args({ user: accepts(v.string()).required(["document"]) }),
     rule({
       document: {
         read: { where: seen, fields: { notes: gate(own) } },
@@ -626,7 +626,7 @@ field named `control`, as any other object.
 
 ## What goes without replacement
 
-- The object literal passed to `$extends()`, `defineHooks`, `defineFilters`,
+- The object literal passed to `$extends()`, `defineHooks`,
   `enableExtensions`, and a function of the client passed to `$extends()`.
 - The refusal "nothing brought the code that runs extensions" or "that reads
   `rows`": every part brings its own code.
@@ -640,9 +640,15 @@ field named `control`, as any other object.
 - The implicit judgement of an updated row (write `update.check`), and the
   `required` placement deduced from `rows`, `data` and `deletion` (list the
   models).
-- `warn`, the `warning` log level, `prewarm`, and the types
-  `ObservesDeclaration`, `ObservedFacts`, `ObserveHandler`,
-  `ObservationCompletion` and `ResultConsumerContextOf`.
+- `warn`, the `warning` log level, `prewarm`, and the types of the earlier
+  definition: from `viborm`, `ClientExtension`, `MergeExtensionState`,
+  `ObservationCompletion`, `ObservationFacts`, `ObservationNeed`,
+  `ObservationUnit`, `ObservedFacts`, `ObserveHandler`, `ObservesDeclaration`,
+  `RetryHandler`, `RouteHandler`, `StatementContext`, `StatementHandler`,
+  `TransactionHandler`, `UnitCall`, `WrittenCall`, `WrittenHandler` and
+  `WrittenWatch`; from `viborm/client`, those of them it exported, and
+  `DefinitionControls` and `RowsVerbs`. `PlacedControl` is `PlacedArgument`
+  and `NoControls` is `NoArguments`.
 - One default omission per client: the omissions of different extensions
   written with `defaults` and `omitted` now add up per model.
   `defaultOmit()` itself is one extension, applied once per chain.
@@ -679,10 +685,11 @@ const db4 = base.$extends(defaultOmit({ user: { passwordHash: true } }));
   applied steps as functions (`methods(policy(rows(base)))`) becomes
   successive `$extends()` calls.
 - `defaultOmit<typeof schema>()(config)` is `defaultOmit(config)`, typed
-  against the client it is applied to. A chain applies it once: a second is
-  refused when it is applied, with a message that says to merge the two
-  configs. Another extension that omits fields with `defaults` adds to it per
-  model.
+  against the client it is applied to. A chain applies it once: it is the
+  extension `viborm.defaultOmit`, and a second is refused when it is applied
+  as any extension applied twice (`Extension "viborm.defaultOmit" is already
+  present on this client.`): merge the two configs. Another extension that
+  omits fields with `defaults` adds to it per model.
 - `instrumentation()` no longer takes a `logging.warning` level: nothing
   produced warnings.
 - The cache: a read that carries a `.volatile()` argument through

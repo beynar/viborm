@@ -271,13 +271,16 @@ the chain, and a part's state on the chain carries the code that runs it
 (`chain.watch.watch`, `chain.args.admit`, `chain.observation.run`), so the
 client, the engine, the executor and the drivers import no builder. What
 core imports of `src/extensions` at runtime is how a transaction scope runs
-(`transact`, `coordination.ts`: what its calls register waits in the scope,
-whose collector the first registration installs), `isAppliedExtension`,
-the unit records (`unit-source.ts`, `unit-words.ts`, `observation.ts`), the
-call's row scope (`row-domain.ts`) and the origin symbols (`origin.ts`),
-each reached only through state a part wrote. It must not grow by one byte
-(`pg-representative`, measured by `extension-bytes.mjs`): a chain member a
-core path reads is named short, since minified property names are kept.
+(`transact` and `scopeOf`, `coordination.ts`: what its calls register waits
+in the scope, whose collector the first registration installs),
+`isAppliedExtension` (`extension.ts`) and the `SCOPE` symbol (`origin.ts`);
+the unit records (`unit-source.ts`), the handler and write-outcome types
+(`query.ts`), the call's row scope (`row-domain.ts`) and the chain's state
+(`chain-state.ts`) are imported for their types only. It must not grow by
+one byte (`pg-representative`, measured by `extension-bytes.mjs`: 508,261
+bytes minified on the tree of the extension rewrite, of which 603 come from
+`src/extensions`): a chain member a core path reads is named short, since
+minified property names are kept.
 
 **The chain.** `src/extensions/chain.ts` is the one mechanism. An extension
 value (`extension.ts`) is a name and its parts; `$extends` hands them to
@@ -293,8 +296,8 @@ extension's arguments on `next.args` and `owner`, which `call`, `around`,
 make)` keeps what the parts make of one schema, once per extension and
 schema (the one rule layer an extension's `rule` parts write, a `defaults`
 part's reading), which is also what keeps an admitted layer admitted for
-every client of the schema. `chain.ts` imports only `chain-state.ts` and
-names no member, no part, no capability and no official extension
+every client of the schema. Of `src/extensions`, `chain.ts` imports only
+`chain-state.ts`; it names no member, no part, no capability and no official extension
 (`tests/contracts/architecture/extension-system-census.core.test.ts`);
 every member of `ResolvedExtensionChain` is written by a part and named
 after the word that brings it (`call`, `around`, `rewrites`, `watch`,
@@ -303,9 +306,10 @@ trusted code made by a builder, not hostile data: nothing is read
 defensively and nothing internal is frozen; what is frozen is what a
 promise pins (an extension value, `c.args`). No module holds a registry of
 extensions or parts; what `src/extensions` keeps at module level is per-
-object caches keyed by a schema, a call or a prepared operation, listed in
-the census's `MODULE_STATE_LEFT`, which may only shrink, and the census
-refuses a module-level assignment (an import that brings code).
+object caches (`WeakMap`s keyed by the object they describe) and one empty
+constant, listed with `src/on`'s name counter in the census's
+`MODULE_STATE_LEFT`, which may only shrink, and the census refuses a
+module-level assignment (an import that brings code).
 
 **The life of a call.** The pending operation owns the admission record.
 Unit `operation` begins (`observation.ts`, the one generation of unit
@@ -321,7 +325,8 @@ as it is, anything else as the cause of a `QueryError` naming the
 extension; a promise, or a function returned from `call`, is refused);
 default omission and computed fields are planned; validation and
 preparation; second moments nest, the first applied outermost, `{ inner:
-true }` parts nearest the core whatever the order (`innerLast`); rewrites
+true }` parts nearest the core whatever the order (`aroundPart`, `call.ts`);
+rewrites
 (`statement.ts`, units declared `{ rewrites: true }`, per logical
 statement, in chain order); rendering, the parameter snapshot, the
 connection; one `statement` unit per physical send (a native batch is one,
@@ -496,8 +501,8 @@ instrumentation presents whoever wrote them.
   returns the adapter's `mutations.upserted` marker (PostgreSQL's
   `xmax = 0`) beside the row, and where an adapter has none a probe of the
   key rides the same unit just before it. Nested writes report through the
-  same sink: where it `wants` a model, `OperationContext.captureRows` reads
-  each written row by key (before a delete; a cleared foreign key's rows
+  same sink: where it `wants` a model, the write store
+  (`raptor3/write/store.ts`) reads each written row by key (before a delete; a cleared foreign key's rows
   before, reported cleared) in the operation's own unit, and a nested
   `updateMany`/`deleteMany` returns its rows from its own `RETURNING`. A
   write nothing wants sends exactly the statements it sends unwatched. The
@@ -513,14 +518,15 @@ instrumentation presents whoever wrote them.
   `InsertValue`, `raptor3/shared/insert-value.ts`: every INSERT path of
   `OperationContext` asks it for its values once the rows are final), and
   `methods` (`move`, `rekey`, lazy thenables an array transaction refuses
-  before any statement). `AppendKey`
-  answers with one SQL expression per row over `MAX(key)` of the row's list
+  before any statement). `appendKey`
+  (`src/ordering/append.ts`, a `computed()` value) answers with one SQL
+  expression per row over `MAX(key)` of the row's list
   (PostgreSQL, SQLite), or, on MySQL outside batch preparation, with keys it
   computes after one consistent read. Ordering writes no SQL past the
   client. The SQL it writes (the move's subqueries, respacing's ranks) reads
   `model AS alias` beside a `RowsOf` (`raptor3/shared/rows-of.ts`), which the
   operation's `Queries` settles to the call's root domain at that alias when
-  it lowers the caller's fragment (`Queries.#settleRows`), so every extension
+  it lowers the caller's fragment (`Queries.settleRows`), so every extension
   applies to it as to any read. Respacing (`rekey`, and `move` on a tie or a
   used-up gap) is one `updateMany` through the delegate, its key a
   `JoinedValue`: a derived table ranking the lists' members maps each to a
