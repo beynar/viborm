@@ -8,6 +8,8 @@ import { createClient } from "@client/client";
 import { DbNull, JsonNull, s } from "@schema";
 import { sql } from "@sql";
 import {
+  around,
+  call,
   check,
   extension,
   facts,
@@ -16,7 +18,11 @@ import {
   only,
   parts,
   rule,
+  settled,
+  target,
   unit,
+  watch,
+  writes,
 } from "@src/index";
 import { ordering } from "@src/ordering";
 import { permissions } from "@src/permissions";
@@ -1781,6 +1787,144 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
         ).rejects.toMatchObject({ code: "V5001" });
         expect(runs).toBe(1);
         await root.$disconnect();
+      });
+      /**
+       * Clients of one item, each extended so that a raw write's `settled`
+       * is told as `<client>:<run>`: the run of that client's callback the
+       * write was made in. Without `watch`, the chain hears no write, so the
+       * driver may run a callback again.
+       */
+      const tellers = async (count: number, watching = false) => {
+        const told: string[] = [];
+        const watched: string[] = [];
+        const runs: number[] = new Array(count).fill(0);
+        const clients: any[] = [];
+        for (let index = 0; index < count; index++) {
+          const base: any = createClient({
+            schema: { item },
+            driver: createSurrealTestDriver({ rerunsOnConflict: 5 }),
+          });
+          if (index === 0) {
+            await syncLiveSchema(base);
+            await base.item.create({ data: { id: "a", n: 0 } });
+          }
+          const parts: any[] = [
+            around((c) => {
+              if (c.kind !== "raw") return;
+              const run = `${index}:${runs[index]}`;
+              settled(c, ({ certainty }) => {
+                told.push(`${run} ${certainty}`);
+              });
+            }),
+          ];
+          if (watching)
+            parts.push(
+              call((c) => {
+                watch(c, {
+                  wants: () => true,
+                  rows: (_model, kind, rows) => {
+                    watched.push(
+                      `${index}:${runs[index]} ${kind} ${rows.length}`
+                    );
+                  },
+                });
+              }, target(writes))
+            );
+          clients.push(base.$extends(extension("tell", ...parts)));
+        }
+        await Promise.all(clients.map((db) => db.item.findMany()));
+        return { clients, told, watched, runs };
+      };
+      const bump = sql`UPDATE item:a SET n += 1`;
+      it("two writers that meet: the loser runs again, both commits are seen once, and settled is told once per commit, never for the run that was rerun", async () => {
+        const { clients, told, runs } = await tellers(2);
+        let entered = 0;
+        let release = () => undefined as void;
+        const barrier = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        try {
+          await Promise.all(
+            clients.map((db, index) =>
+              db.$transaction(async (tx: any) => {
+                runs[index] += 1;
+                await tx.$executeRaw(bump);
+                if (++entered === clients.length) release();
+                await barrier;
+              })
+            )
+          );
+          const [row] = await clients[0].item.findMany();
+          expect(row.n).toBe(2);
+          expect(runs[0] + runs[1]).toBeGreaterThan(2);
+          expect([...told].sort()).toEqual(
+            [`0:${runs[0]} committed`, `1:${runs[1]} committed`].sort()
+          );
+        } finally {
+          await Promise.all(clients.map((db) => db.$disconnect()));
+        }
+      });
+      it("a run again that fails before its commit tells nothing of what it registered", async () => {
+        const { clients, told, runs } = await tellers(2);
+        let entered = 0;
+        let release = () => undefined as void;
+        const barrier = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        try {
+          const results = await Promise.all(
+            clients.map((db, index) =>
+              db
+                .$transaction(async (tx: any) => {
+                  runs[index] += 1;
+                  await tx.$executeRaw(bump);
+                  // The loser of the commit refuses in its run again.
+                  if (runs[index] > 1) throw new TypeError("run again refuses");
+                  if (++entered === clients.length) release();
+                  await barrier;
+                  return "committed";
+                })
+                .catch((error: unknown) => error)
+            )
+          );
+          const loser = results.findIndex((result) => result !== "committed");
+          expect(loser).not.toBe(-1);
+          expect(results[loser]).toBeInstanceOf(TypeError);
+          expect(runs[loser]).toBe(2);
+          expect(told).toEqual([`${1 - loser}:1 committed`]);
+          const [row] = await clients[0].item.findMany();
+          expect(row.n).toBe(1);
+        } finally {
+          await Promise.all(clients.map((client) => client.$disconnect()));
+        }
+      });
+      it("under a part that watches writes, a loser is not run again: its writes were told, its settled is not, nothing of it committed", async () => {
+        const { clients, told, watched, runs } = await tellers(2, true);
+        const [db, other] = clients;
+        try {
+          const failed = await db
+            .$transaction(async (tx: any) => {
+              runs[0] += 1;
+              await tx.$executeRaw(bump);
+              await tx.item.update({
+                where: { id: "a" },
+                data: { n: { increment: 1 } },
+              });
+              await other.item.update({
+                where: { id: "a" },
+                data: { n: { increment: 10 } },
+              });
+            })
+            .catch((error: unknown) => error);
+          expect(runs[0]).toBe(1);
+          expect(failed).toMatchObject({ code: "V5001" });
+          expect(watched).toEqual(["0:1 update 1", "1:0 update 1"]);
+          expect(told).toEqual([]);
+          const [row] = await db.item.findMany();
+          expect(row.n).toBe(10);
+        } finally {
+          await Promise.all(clients.map((client) => client.$disconnect()));
+        }
       });
       it("does not run a callback again over the callback's own failure", async () => {
         const db: any = createClient({
