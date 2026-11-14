@@ -8,6 +8,7 @@ import {
   type GovernedModel,
   type OracleOptions,
 } from "@tests/package/fixtures/permissions-app/oracle";
+import { hostExtension } from "@tests/fixtures/host-definition";
 import { schema } from "@tests/package/fixtures/permissions-app/schema";
 import {
   type AccessGrantRow,
@@ -159,7 +160,9 @@ export function runPermissionsAppPlacement(
       base = createPermissionsAppClient(substrate.createDriver());
       await substrate.prepare(base);
       await loadPermissionsSeed(base);
-      const unbound = base.$extends(declaration as never) as unknown as {
+      const unbound = base.$extends(
+        hostExtension(declaration) as never
+      ) as unknown as {
         $unrestricted(): Loose;
       };
       db = unbound.$unrestricted();

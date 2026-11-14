@@ -41,7 +41,16 @@ import {
   type PermissionsAppClient,
   type PermissionsAppSubstrate,
 } from "./permissions-app-behavior";
-import { extension, unit, statement } from "@src/index";
+import {
+  accepts,
+  arg,
+  args,
+  defaults,
+  extension,
+  rule,
+  statement,
+  unit,
+} from "@src/index";
 
 /**
  * `viborm/permissions` itself (plan §1.1, §3.3 D0, D8, D11; §7 C1, C7, C10, C11,
@@ -135,14 +144,12 @@ const tombstones = softDelete({
 });
 
 /**
- * §1.1's `server.ts` chain over `client`: soft delete's and permissions's rows
- * steps, then `between` (an extension that comes after every rows step),
- * then soft delete's methods step.
+ * §1.1's `server.ts` chain over `client`: soft delete, permissions, then
+ * `between` (an extension that comes after both).
  */
 function governedOver(client: PermissionsAppClient, between?: object): Loose {
-  const rows = policy.rows(tombstones.rows(client));
-  const middle = between === undefined ? rows : loose(rows).$extends(between);
-  return loose(tombstones.methods(middle as typeof rows));
+  const governed = loose(client.$extends(tombstones).$extends(policy));
+  return between === undefined ? governed : governed.$extends(between);
 }
 
 /** A copy of the model's first seeded row under new keys: valid create data. */
@@ -672,9 +679,8 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
             },
           },
         });
-        const rows = gated.rows(tombstones.rows(base));
-        const call = (actor: Actor) =>
-          loose(tombstones.methods(rows)).$as(actor);
+        const governed = loose(base.$extends(tombstones).$extends(gated));
+        const call = (actor: Actor) => governed.$as(actor);
         let present = 0;
         let absent = 0;
         // One statement per actor: every actor, so both readings occur.
@@ -845,8 +851,7 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
       "W-L3: an actor without a key is not narrowed: reapplying the policy reads the same rows, on every model",
       async () => {
         const open = permissions(policy.config);
-        const rows = open.rows(tombstones.rows(base));
-        const unnarrowed = loose(tombstones.methods(rows));
+        const unnarrowed = loose(base.$extends(tombstones).$extends(open));
         for (const name of READERS) {
           const actor = actors[name]!;
           expect(actor.key, name).toBeUndefined();
@@ -959,8 +964,7 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
             },
           },
         });
-        const rows = domains.rows(tombstones.rows(base));
-        const narrowed = loose(tombstones.methods(rows));
+        const narrowed = loose(base.$extends(tombstones).$extends(domains));
         let refused = 0;
         for (const name of READERS) {
           const actor = actors[name]!;
@@ -1171,17 +1175,17 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
     });
 
     test("W-D8: the §1.1 policy, its stored-role variant and the blog apply to the fixture's client", async () => {
-      expect(() => policy(base)).not.toThrow();
-      expect(() => storedPolicy(base)).not.toThrow();
-      expect(() => blog(base)).not.toThrow();
-      const blogged = loose(blog(base)).$as({
+      expect(() => base.$extends(policy)).not.toThrow();
+      expect(() => base.$extends(storedPolicy)).not.toThrow();
+      expect(() => base.$extends(blog)).not.toThrow();
+      const blogged = loose(base.$extends(blog)).$as({
         userId: "user-03",
         admin: false,
       });
       expect(await blogged.page!.count()).toBe(seed.page.length);
       expect(
         await issued(() =>
-          loose(blog(base))
+          loose(base.$extends(blog))
             .$as({ userId: "user-03", admin: false })
             .team!.count()
         )
@@ -1191,7 +1195,7 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
     test(
       "the blog (§1.1, nine lines): everyone reads every page, the author edits, an admin claim deletes, a page is created by its author only",
       async () => {
-        const blogged = loose(blog(base));
+        const blogged = loose(base.$extends(blog));
         const author = "user-03";
         const own = seed.page.find((page) => page.ownerId === author)!;
         const other = seed.page.find(
@@ -1750,7 +1754,7 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
         expect(restored).toBeGreaterThan(0);
         // No order guard: soft delete applied whole after the policy reads
         // exactly what the steps apart read.
-        const reversed = loose((policy(base) as never).$extends(tombstones));
+        const reversed = loose(base.$extends(policy).$extends(tombstones));
         for (const name of READERS) {
           const actor = actors[name]!;
           for (const deleted of ["without", "only"] as const)
@@ -1787,20 +1791,16 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
           "document",
           "collection",
         ] as const;
-        const tenancy = {
-          name: "tenancy",
-          controls: { tenant: { schema: v.string(), required: true } },
-          rows: {
-            control: "scope",
-            default: "tenant",
-            models: Object.fromEntries(
-              tenanted.map((model) => {
-                const mine = { organizationId: { control: "tenant" } };
-                return [model, { tenant: { root: mine, related: mine } }];
-              })
-            ),
-          },
-        };
+        const mine = { organizationId: arg("tenant") };
+        const tenancy = extension(
+          "tenancy",
+          args({ tenant: accepts(v.string()).required() }),
+          rule(
+            Object.fromEntries(
+              tenanted.map((model) => [model, { root: mine, related: mine }])
+            )
+          )
+        );
         const governed = governedOver(
           loose(base).$extends(tenancy) as unknown as PermissionsAppClient
         );
@@ -1842,16 +1842,12 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
     test(
       "W-C3: audit after the rows steps stamps the bound actor's userId (K7(c)) and cannot bypass base update and field permissions",
       async () => {
-        const audit = {
-          name: "audit",
-          data: {
-            models: {
-              document: {
-                update: { searchKey: { control: "actor", path: "userId" } },
-              },
-            },
-          },
-        };
+        const audit = extension(
+          "audit",
+          defaults({
+            document: { update: { searchKey: arg("actor", "userId") } },
+          })
+        );
         const governed = governedOver(base, audit);
         const instant = new Date("2031-01-01T00:00:00.000Z");
         let archivers = 0;
@@ -1936,8 +1932,8 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
         const memo = () => cache({ driver: new MemoryCache() });
         const metered = loose(base).$extends(meter);
         for (const [order, governed] of [
-          ["below", loose(policy(metered.$extends(memo()) as never))],
-          ["above", loose(policy(metered as never)).$extends(memo())],
+          ["below", metered.$extends(memo()).$extends(policy)],
+          ["above", metered.$extends(policy).$extends(memo())],
         ] as const) {
           const call = governed.$as(actor);
           counted.length = 0;

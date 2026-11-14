@@ -16,6 +16,7 @@ import {
   type OracleOptions,
   rowKey,
 } from "@tests/package/fixtures/permissions-app/oracle";
+import { hostExtension } from "@tests/fixtures/host-definition";
 import { schema } from "@tests/package/fixtures/permissions-app/schema";
 import {
   type Actor,
@@ -126,7 +127,7 @@ export function runCompiledPolicyBehavior(
       let client = clients.get(name);
       if (client === undefined) {
         const unbound = base.$extends(
-          extensionOf(name, compiled) as never
+          hostExtension(extensionOf(name, compiled)) as never
         ) as unknown as { $unrestricted(): unknown };
         client = unbound.$unrestricted();
         clients.set(name, client);

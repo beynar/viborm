@@ -16,6 +16,7 @@ import {
   type OracleOptions,
   rowKey,
 } from "@tests/package/fixtures/permissions-app/oracle";
+import { hostExtension } from "@tests/fixtures/host-definition";
 import { schema } from "@tests/package/fixtures/permissions-app/schema";
 import {
   type Actor,
@@ -69,7 +70,10 @@ const KEY = "$access";
 const MODE = "as";
 const ROLLBACK = new Error("rolled back");
 
-/** The plain extension carrying the compiled policy and K5's declarations. */
+/**
+ * The raw members carrying the compiled policy and K5's declarations, read
+ * by the host parts as `viborm/permissions` hands them its compiled verbs.
+ */
 export const evidenceExtension = (compiled: CompiledPolicy) => ({
   name: "evidence",
   controls: {
@@ -210,7 +214,7 @@ export function runPermissionsEvidenceBehavior(
       await substrate.prepare(base);
       await loadPermissionsSeed(base);
       db = (base as unknown as Client)
-        .$extends(evidenceExtension(policy.compile(schema)))
+        .$extends(hostExtension(evidenceExtension(policy.compile(schema))))
         .$unrestricted()
         .$extends(
           extension(

@@ -1,13 +1,25 @@
 /** Native PostgreSQL array values must retain their member boundaries when sharing relation bodies. */
 
 import { createClient } from "@client/client";
-import { defineExtension } from "@extensions/define";
 import { s } from "@schema";
 import { v } from "@src/validation";
 import { runSharedBodiesBehavior } from "@tests/contracts/public-client/shared-bodies-behavior";
 import { createInMemoryPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, expect, test } from "vitest";
+import {
+  extension,
+  unit,
+  rule,
+  args,
+  nothing,
+  oneOf,
+  accepts,
+  arg,
+  exists,
+  when,
+  statement as extStatement,
+} from "@src/index";
 
 /** A relation body, read per row through its key: inlined. */
 const SHARED_RELATION_BODY =
@@ -55,29 +67,33 @@ const doc = s.model({
 const user = { control: "user" } as const;
 const inOrg = { org: { members: { some: { userId: user } } } };
 const anyMembership = { $exists: { member: { userId: user } } };
-const policy = defineExtension({
-  name: "policy",
-  controls: { user: { schema: v.string(), required: true } },
-  rows: {
-    control: "scope",
-    default: "all",
-    models: {},
-    verbs: {
-      doc: {
-        predicates: {
-          held: {
-            OR: [
-              { AND: [inOrg, { title: "a" }] },
-              { AND: [inOrg, anyMembership] },
-              { AND: [anyMembership, { title: "c" }] },
-            ],
-          },
+const policy = extension(
+  "policy",
+  args({
+    user: accepts(v.string()).required(["doc"]),
+    scope: oneOf("all").default("all"),
+  }),
+  rule({
+    doc: {
+      read: {
+        where: {
+          OR: [
+            { AND: [inOrg, { title: "a" }] },
+            { AND: [inOrg, exists({ member: { userId: arg("user") } })] },
+            {
+              AND: [
+                exists({ member: { userId: arg("user") } }),
+                { title: "c" },
+              ],
+            },
+          ],
         },
-        read: "held",
       },
+      update: { where: nothing },
+      delete: { where: nothing },
     },
-  },
-});
+  })
+);
 
 const clients: { $disconnect(): Promise<void> }[] = [];
 const closeClients = async () => {
@@ -122,13 +138,19 @@ test("PGlite: a shared relation body reading no other is NOT MATERIALIZED; one r
       ],
     });
     const statements: string[] = [];
-    const db = base.$extends(policy).$extends({
-      name: "statements",
-      statement(context) {
-        statements.push(context.statement.toStatement());
-        return context.statement;
-      },
-    });
+    const db = base.$extends(policy).$extends(
+      extension(
+        "statements",
+        unit(
+          (u, next) => {
+            statements.push(extStatement(u).toStatement());
+            return next(extStatement(u));
+          },
+          ["statement"],
+          { rewrites: true }
+        )
+      )
+    );
     rows.push(
       await db.doc.findMany({
         user: "ann",
@@ -153,27 +175,24 @@ test("PGlite: a shared relation body reading no other is NOT MATERIALIZED; one r
 // one `WITH` member ahead of the `SELECT … FOR UPDATE`, which still locks
 // only the row it locates.
 test("PGlite: an upsert's locked lookup states its repeated body once, ahead of FOR UPDATE", async () => {
-  const scoped = defineExtension({
-    name: "scoped",
-    controls: { user: { schema: v.string(), required: true } },
-    rows: {
-      control: "scope",
-      default: "member",
-      models: {
-        doc: {
-          member: {
-            root: {
-              OR: [
-                { AND: [inOrg, { title: "a" }] },
-                { AND: [inOrg, anyMembership] },
-              ],
-            },
-            related: inOrg,
-          },
-        },
+  const scoped = extension(
+    "scoped",
+    args({
+      user: accepts(v.string()).required(["doc"]),
+      scope: oneOf("member").default("member"),
+    }),
+    rule({
+      doc: {
+        root: when(arg("scope"), "member", {
+          OR: [
+            { AND: [inOrg, { title: "a" }] },
+            { AND: [inOrg, exists({ member: { userId: arg("user") } })] },
+          ],
+        }),
+        related: when(arg("scope"), "member", inOrg),
       },
-    },
-  });
+    })
+  );
   const answers: unknown[] = [];
   for (const shared of [true, false]) {
     const driver = createInMemoryPGliteDriver();
@@ -192,13 +211,19 @@ test("PGlite: an upsert's locked lookup states its repeated body once, ahead of 
       ],
     });
     const statements: string[] = [];
-    const db = base.$extends(scoped).$extends({
-      name: "statements",
-      statement(context) {
-        statements.push(context.statement.toStatement());
-        return context.statement;
-      },
-    });
+    const db = base.$extends(scoped).$extends(
+      extension(
+        "statements",
+        unit(
+          (u, next) => {
+            statements.push(extStatement(u).toStatement());
+            return next(extStatement(u));
+          },
+          ["statement"],
+          { rewrites: true }
+        )
+      )
+    );
     for (const id of ["d1", "d2"])
       answers.push(
         await db.doc.upsert({
@@ -281,36 +306,41 @@ test("PGlite: a shared relation body over a table named like a body is still NOT
   const statements: string[] = [];
   const db = base
     .$extends(
-      defineExtension({
-        name: "policy",
-        controls: { user: { schema: v.string(), required: true } },
-        rows: {
-          control: "scope",
-          default: "all",
-          models: {},
-          verbs: {
-            note: {
-              predicates: {
-                held: {
-                  OR: [
-                    { AND: [seated, { title: "a" }] },
-                    { AND: [seated, { title: "b" }] },
-                  ],
-                },
+      extension(
+        "policy",
+        args({
+          user: accepts(v.string()).required(["note"]),
+          scope: oneOf("all").default("all"),
+        }),
+        rule({
+          note: {
+            read: {
+              where: {
+                OR: [
+                  { AND: [seated, { title: "a" }] },
+                  { AND: [seated, { title: "b" }] },
+                ],
               },
-              read: "held",
             },
+            update: { where: nothing },
+            delete: { where: nothing },
           },
-        },
-      })
+        })
+      )
     )
-    .$extends({
-      name: "statements",
-      statement(context) {
-        statements.push(context.statement.toStatement());
-        return context.statement;
-      },
-    });
+    .$extends(
+      extension(
+        "statements",
+        unit(
+          (u, next) => {
+            statements.push(extStatement(u).toStatement());
+            return next(extStatement(u));
+          },
+          ["statement"],
+          { rewrites: true }
+        )
+      )
+    );
   expect(
     await db.note.findMany({
       user: "ann",

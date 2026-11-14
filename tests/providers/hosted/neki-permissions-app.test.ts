@@ -45,6 +45,7 @@ import { actors } from "@tests/package/fixtures/permissions-app/seed";
 import { policy } from "@tests/types/permissions/acceptance-policy";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { extension, unit, statement as extStatement } from "@src/index";
 
 const NEKI_URL = process.env.NEKI_DEV_CONNECTION_STRING;
 const TIMEOUT = 300_000;
@@ -131,16 +132,22 @@ type Governed = { $as(actor: unknown): View };
 /** The acceptance policy over `driver`, recording each statement it sends. */
 function governed(driver: AnyDriver, statements: string[] = []) {
   const base = createPermissionsAppClient(driver);
-  const recorded = base.$extends({
-    name: "statements",
-    statement(context) {
-      statements.push(context.statement.toStatement());
-      return context.statement;
-    },
-  });
-  const db = tombstones.methods(
-    policy.rows(tombstones.rows(recorded))
-  ) as unknown as Governed;
+  const recorded = base.$extends(
+    extension(
+      "statements",
+      unit(
+        (u, next) => {
+          statements.push(extStatement(u).toStatement());
+          return next(extStatement(u));
+        },
+        ["statement"],
+        { rewrites: true }
+      )
+    )
+  );
+  const db = recorded
+    .$extends(tombstones)
+    .$extends(policy) as unknown as Governed;
   return { base, db };
 }
 // Neki's count: every `FROM` item, aliased `q<n>` or a bare shared member.

@@ -659,11 +659,11 @@ export function describeOrdering(
         where: { id: "y" },
         data: { deletedAt: new Date("2026-01-01T00:00:00.000Z") },
       });
-      const governed = softDelete({
-        models: { legacy: { deletedAt: "deletedAt" } },
-      })(
-        (counted_ as any).$extends(ordering({ legacy: { key: "rank" } })) as any
-      ) as any;
+      const governed = (counted_ as any)
+        .$extends(ordering({ legacy: { key: "rank" } }))
+        .$extends(
+          softDelete({ models: { legacy: { deletedAt: "deletedAt" } } })
+        );
       expect(await governed.legacy.rekey()).toEqual({ count: 2 });
       const ranks = Object.fromEntries(
         (await base_.legacy.findMany({ select: { id: true, rank: true } })).map(
@@ -793,12 +793,12 @@ export function describeOrdering(
       // UPDATE; MySQL takes it ungoverned too.
       const governedMove = move;
       const viaPolicy = [
-        policy(counted_.$extends(order) as any),
-        order(counted_.$extends(policy) as any),
+        (counted_ as any).$extends(order).$extends(policy),
+        (counted_ as any).$extends(policy).$extends(order),
       ].map((chain: any) => chain.$as({ userId: "u1" }));
       const viaTombs = [
-        tombs(counted_.$extends(order) as any),
-        order(counted_.$extends(tombs) as any),
+        (counted_ as any).$extends(order).$extends(tombs),
+        (counted_ as any).$extends(tombs).$extends(order),
       ];
       for (const governed of [...viaPolicy, ...viaTombs] as any[]) {
         const before = await ranks();
@@ -932,7 +932,7 @@ export function describeOrdering(
           .$extends(
             extension(
               "test.owner",
-              extArgs({ owner: oneOf("mine").default("mine") }), // FIXME(extension-codemod): an updated row was judged again by the predicates that took it: written as update.check / fields[f].check, check whether `read` belongs in it
+              extArgs({ owner: oneOf("mine").default("mine") }),
               rule({
                 card: {
                   read: { where: cardMine },
@@ -1139,7 +1139,7 @@ export function describeOrdering(
           .$extends(
             extension(
               "test.edited",
-              extArgs({ edited: oneOf("on").default("on") }), // FIXME(extension-codemod): an updated row was judged again by the predicates that took it: written as update.check / fields[f].check, check whether `read` belongs in it
+              extArgs({ edited: oneOf("on").default("on") }),
               rule({
                 card: {
                   read: { where: cardAny },
@@ -1188,13 +1188,10 @@ export function describeOrdering(
         where: { id: "t" },
         data: { deletedAt: new Date("2026-01-01T00:00:00.000Z") },
       });
-      const governed = (
-        softDelete({ models: { card: { deletedAt: "deletedAt" } } })(
-          (counted_ as any).$extends(
-            ordering({ card: { key: "rank", within: ["columnId"] } })
-          ) as any
-        ) as any
-      ).card;
+      const governed = (counted_ as any)
+        .$extends(ordering({ card: { key: "rank", within: ["columnId"] } }))
+        .$extends(softDelete({ models: { card: { deletedAt: "deletedAt" } } }))
+        .card;
       await base_.column.create({ data: { id: "c3" } });
       const into = async (id: string, columnId: string) =>
         (await governed.move({ where: { id }, first: true, to: { columnId } }))
