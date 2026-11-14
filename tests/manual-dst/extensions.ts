@@ -9,6 +9,7 @@ import { SQLite3Driver } from "@drivers/sqlite3";
 import type { QueryResult } from "@drivers/types";
 import { ForbiddenError, NotFoundError, QueryError } from "@errors";
 import { s } from "@schema";
+import { extension, statement, unit } from "@src/index";
 import { permissions } from "@src/permissions";
 import { softDelete } from "@src/soft-delete";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -302,31 +303,36 @@ export async function runExtensionSeed(
         },
       });
       const db = base
-        .$extends(defaultOmit<typeof schema>()({ post: { secret: true } }))
+        .$extends(defaultOmit({ post: { secret: true } }))
         .$extends(cache({ driver: new MemoryCache(), version: "manual-dst" }))
-        .$extends(tombstones.rows)
+        .$extends(tombstones)
         .$extends(policy)
-        .$extends(tombstones.methods)
-        .$extends({
-          name: "manual-dst-fault",
-          statement(context) {
-            if (failAfter > 0 && --failAfter === 0) {
-              recorder.record({
-                kind: "injected-failure",
-                cut: "statement-transform",
-              });
-              throw new Error("manual-dst injected statement failure");
-            }
-            return context.statement;
-          },
-        });
+        .$extends(
+          extension(
+            "manual-dst-fault",
+            unit(
+              (u, next) => {
+                if (failAfter > 0 && --failAfter === 0) {
+                  recorder.record({
+                    kind: "injected-failure",
+                    cut: "statement-transform",
+                  });
+                  throw new Error("manual-dst injected statement failure");
+                }
+                return next(statement(u));
+              },
+              ["statement"],
+              { rewrites: true }
+            )
+          )
+        );
       // A statement transform disables caching by contract. The cached chain
       // must be built without that transform, while retaining the same policies.
       const cached = base
         .$extends(
           cache({ driver: new MemoryCache(), version: "manual-dst-cache" })
         )
-        .$extends(tombstones.rows)
+        .$extends(tombstones)
         .$extends(policy);
       const rawState = () =>
         database
