@@ -9,9 +9,9 @@ delete stops removing the row: it writes the time (and, optionally, who did
 it) into the row instead. Reads then skip those rows, everywhere a query
 reaches them.
 
-The extension is built only from public extension
-capabilities (`controls`, `rows` and `deletion`, see
-[Create an extension](/docs/extensions/create#declare-arguments-with-controls)). It
+The extension is built only from public extension parts (`args`, `rule` with
+`keep`, and `methods`, see
+[Create an extension](/docs/extensions/create#keep-deleted-rows-keep)). It
 lives in its own entry point, so an application that does not import it pays
 nothing for it.
 
@@ -42,34 +42,33 @@ await db.post.delete({ where: { id: "p1" } });        // a tombstone again
 await db.post.purge({ where: { id: "p1" } });         // removes the tombstone
 ```
 
-`softDelete(config)` returns a client factory accepted by `$extends()`. Direct
-application with `softDelete(config)(base)` also works. The original client is
-unchanged: keep it for maintenance work that must see every row.
+`softDelete(config)` returns an extension, applied with `$extends()`. The
+original client is unchanged: keep it for maintenance work that must see every
+row.
 
 ### With other extensions
 
 `softDelete()` is one step, applied in any order with the other extensions:
 [permissions](/docs/extensions/permissions#11-with-soft-delete-and-other-extensions),
 [ordering](/docs/extensions/ordering), [`on`](/docs/extensions/on), the
-[cache](#caching), `defaultOmit()` and your own `rows` extensions.
+[cache](#caching), `defaultOmit()` and your own rules.
 
 ```ts
 const db = base
   .$extends(softDelete({ models: { post: { deletedAt: "deletedAt" } } }))
   .$extends(permissions(policy))
-  .$extends(defaultOmit<typeof schema>()({ post: { secret: true } }));
+  .$extends(defaultOmit({ post: { secret: true } }));
 ```
 
 Every extension's rows apply to every call, whichever came first: a row must
 pass all of them. The `restore` and `purge` methods type their result from
 the client you call them on, so an extension applied after soft delete
 shapes it too: a later `defaultOmit` leaves its fields out, and a later
-`rows` extension types a to-one relation it can hide as `| null`.
+`rule` that hides rows types a to-one relation it can hide as `| null`.
 
-A chain written before 1.8 applied the two steps apart,
-`softDelete(config).rows` and `softDelete(config).methods`, around other
-extensions. That chain still works, and needs no change; one `$extends` does
-the same.
+The two steps a chain written before 1.8 applied apart,
+`softDelete(config).rows` and `softDelete(config).methods`, are gone: apply
+`softDelete(config)` once ([migrating](/docs/extensions/migrating#users-of-the-official-extensions)).
 
 ## Configuration
 
@@ -92,7 +91,7 @@ derive one client per request:
 
 ```ts
 function clientFor(session: Session) {
-  return softDelete({ models, actorId: session.userId })(base);
+  return base.$extends(softDelete({ models, actorId: session.userId }));
 }
 ```
 
@@ -176,8 +175,9 @@ tombstone reads `null`.
 the schema alone and do not know about the extension: on a soft-delete
 client they type a to-one relation as present where it can read `null`. Use
 `ExtendedOperationResult<typeof db, "comment", "findMany", Args>` for the
-client's own result types. A model-mapped query handler applied to the
-soft-delete client reads its `proceed()` result the same way.
+client's own result types. A `call.around` naming one model and one
+operation, applied to the soft-delete client, reads its `run()` result the
+same way.
 
 ## Deleting
 
@@ -369,9 +369,9 @@ the client it was built from never share entries. A delete with
 a durable write, including entries for other models that include the deleted row,
 as after a hard delete. Automatic invalidation is enabled by default; opting out
 requires manual invalidation. The cache works in either
-order: `softDelete(config)(client.$extends(cache(…)))` or
-`softDelete(config)(client).$extends(cache(…))`, and so does a purge's
-invalidation, as any delete's.
+order: `client.$extends(cache(…)).$extends(softDelete(config))` or
+`client.$extends(softDelete(config)).$extends(cache(…))`, and so does a
+purge's invalidation, as any delete's.
 
 ## Adopting soft delete
 
@@ -393,7 +393,7 @@ to:
 - `create` and `createMany`, or the `data` of an update;
 - linking and unlinking (`connect`, `disconnect`, `set`) beyond the rules above;
 - which fields a query may use;
-- raw SQL (`$queryRaw`, `$executeRaw`) and statement transforms, which see
+- raw SQL (`$queryRaw`, `$executeRaw`) and statement rewrites, which see
   every row; a raw read skips tombstones through a model's
   [`$rows(alias)`](/docs/client/raw-sql#governed-raw-reads).
 
@@ -401,6 +401,6 @@ to:
 erasure. A marker is not a version: deleting, restoring and deleting again
 leaves no trace of the first deletion.
 
-**Never use soft delete (or the `rows` capability it is built on) for tenant
+**Never use soft delete (or the `rule` part it is built on) for tenant
 isolation or authorization.** Any caller can pass `deleted: "with"`, and raw SQL
 ignores it.
