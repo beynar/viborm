@@ -271,8 +271,9 @@ the client asks the chain, and a part's state on the chain carries the code
 that runs it (`chain.written.watch`, `chain.controls.admit`,
 `chain.observation.run`), so the client, the engine, the executor and the
 drivers import no builder. What core imports of `src/extensions` at runtime
-is the chain's write-outcome rail as a part brought it (`railOf`,
-`coordination.ts`), the unit records (`unit-source.ts`, `unit-words.ts`,
+is how a transaction scope runs (`transact`, `coordination.ts`: what its
+calls register waits in the scope, whose collector the first registration
+installs by value), the unit records (`unit-source.ts`, `unit-words.ts`,
 `observation.ts`), the call's row scope (`row-domain.ts`) and the origin
 symbols (`origin.ts`), each reached only through state a part wrote.
 

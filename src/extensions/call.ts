@@ -25,7 +25,6 @@ import type {
   AroundHandler,
   EmptyFacts,
   MomentOne,
-  Outcome,
   Part,
   Selection,
 } from "./contract";
@@ -38,7 +37,12 @@ import { MODEL_OPERATIONS, type SelectionValue, selectionOf } from "./on";
 import { CALL, type CallOrigin } from "./origin";
 import type { AroundRunner } from "./query";
 import { SHAPE_KEYS } from "./request";
-import { REGISTER, type Registering, type WatchPart } from "./watch-part";
+import {
+  REGISTER,
+  type Registering,
+  type Watching,
+  type WatchPart,
+} from "./watch-part";
 
 /**
  * What a first moment is handed, beside what `contract.ts` types: where the
@@ -211,8 +215,8 @@ export function runFirstMoments(
 /** What one `around` part's first moment left its second, for one call. */
 interface Kept {
   second?: SecondMoment;
-  /** A raw statement's `settled` functions, told its outcome by the host. */
-  settled?: ((outcome: Outcome) => unknown)[];
+  /** A raw statement's `settled` registrations, told its outcome by the host. */
+  settled?: Watching[];
 }
 
 /** A call's `seconds`: by the first moment of each `around` part. */
@@ -242,7 +246,7 @@ function keepSecond(
 const rawTold = (call: CallOrigin, first: FirstMoment): Registering => ({
   [REGISTER](watching) {
     if (watching.settled === undefined) return false;
-    (keptFor(call, first).settled ??= []).push(watching.settled);
+    (keptFor(call, first).settled ??= []).push(watching);
     return true;
   },
 });
@@ -258,7 +262,8 @@ const secondMoment =
     const kept = prepared.call?.seconds?.get(first);
     // The host tells a raw execute family's outcome to what its first
     // moment registered; a raw read's outcome is no write and is dropped.
-    for (const listener of kept?.settled ?? []) register(listener);
+    for (const { settled, collect } of kept?.settled ?? [])
+      if (settled) register(settled, collect);
     return kept?.second === undefined ? run() : kept.second(run);
   };
 

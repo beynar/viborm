@@ -8,8 +8,7 @@ import {
   admitArray,
   admitArrayQueries,
 } from "@extensions/array-admission";
-import { TransactionWriteOutcomes } from "@extensions/query";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test } from "vitest";
 
 function createSlot(): AdmissionSlot {
   return {
@@ -24,14 +23,10 @@ describe("array query admission", () => {
     const second = createSlot();
     const slots = [first, second];
     const started: AdmissionSlot[] = [];
-    const admission = admitArrayQueries(
-      slots,
-      new TransactionWriteOutcomes(),
-      (slot, child) => {
-        started.push(slot);
-        return child();
-      }
-    );
+    const admission = admitArrayQueries(slots, (slot, child) => {
+      started.push(slot);
+      return child();
+    });
 
     await expect(admission).resolves.toBeUndefined();
     expect(started).toEqual(slots);
@@ -45,16 +40,13 @@ describe("array query admission", () => {
     ]);
   });
 
-  test("discards staged outcomes and rejects every child on admission failure", async () => {
+  test("rejects every child on admission failure", async () => {
     const failure = new Error("first admission failed");
     const first = createSlot();
     const second = createSlot();
     const slots = [first, second];
-    const outcomes = new TransactionWriteOutcomes();
-    const discardAll = vi.spyOn(outcomes, "discardAll");
-
     await expect(
-      admitArrayQueries(slots, outcomes, (slot, child, control) => {
+      admitArrayQueries(slots, (slot, child, control) => {
         if (slot === first) {
           control.reportAdmissionFailure?.(failure);
           throw failure;
@@ -63,22 +55,17 @@ describe("array query admission", () => {
       })
     ).resolves.toEqual([failure]);
 
-    expect(discardAll).toHaveBeenCalledOnce();
     await expect(first.child.promise).rejects.toBe(failure);
     await expect(second.child.promise).rejects.toBe(failure);
   });
 
   test("makes the handlers' outcome the member's value once admitted", async () => {
     const slot = createSlot();
-    const admission = admitArrayQueries(
-      [slot],
-      new TransactionWriteOutcomes(),
-      (_slot, child) => {
-        // biome-ignore lint/complexity/noVoid: the child promise is deliberately left floating; the discard marks that
-        void child();
-        return Promise.resolve("observed query");
-      }
-    );
+    const admission = admitArrayQueries([slot], (_slot, child) => {
+      // biome-ignore lint/complexity/noVoid: the child promise is deliberately left floating; the discard marks that
+      void child();
+      return Promise.resolve("observed query");
+    });
 
     await expect(admission).resolves.toBeUndefined();
     await expect(memberValue(slot)).resolves.toBe("observed query");
@@ -90,15 +77,11 @@ describe("array query admission", () => {
     const slot = createSlot();
 
     await expect(
-      admitArrayQueries(
-        [slot],
-        new TransactionWriteOutcomes(),
-        (_slot, child) => {
-          // biome-ignore lint/complexity/noVoid: the child promise is deliberately left floating; the discard marks that
-          void child();
-          return Promise.reject(failure);
-        }
-      )
+      admitArrayQueries([slot], (_slot, child) => {
+        // biome-ignore lint/complexity/noVoid: the child promise is deliberately left floating; the discard marks that
+        void child();
+        return Promise.reject(failure);
+      })
     ).resolves.toEqual([failure]);
 
     await expect(memberValue(slot)).rejects.toBe(failure);
@@ -111,15 +94,11 @@ describe("array query admission", () => {
     const slot = createSlot();
 
     await expect(
-      admitArrayQueries(
-        [slot],
-        new TransactionWriteOutcomes(),
-        (_slot, child, control) => {
-          control.reportAdmissionFailure?.(firstFailure);
-          control.reportAdmissionFailure?.(secondFailure);
-          return child();
-        }
-      )
+      admitArrayQueries([slot], (_slot, child, control) => {
+        control.reportAdmissionFailure?.(firstFailure);
+        control.reportAdmissionFailure?.(secondFailure);
+        return child();
+      })
     ).resolves.toEqual([firstFailure, secondFailure]);
   });
 
@@ -140,9 +119,7 @@ describe("array query admission", () => {
 describe("coverage low value", () => {
   test("admits an empty internal slot list", async () => {
     await expect(
-      admitArrayQueries([], new TransactionWriteOutcomes(), () =>
-        Promise.resolve(undefined)
-      )
+      admitArrayQueries([], () => Promise.resolve(undefined))
     ).resolves.toBeUndefined();
   });
 
@@ -160,17 +137,13 @@ describe("coverage low value", () => {
     const failed = createSlot();
 
     await expect(
-      admitArrayQueries(
-        [fulfilled, failed],
-        new TransactionWriteOutcomes(),
-        (slot, _child, control) => {
-          if (slot === failed) {
-            control.reportAdmissionFailure?.(failure);
-            return Promise.reject(failure);
-          }
-          return Promise.resolve("detached result");
+      admitArrayQueries([fulfilled, failed], (slot, _child, control) => {
+        if (slot === failed) {
+          control.reportAdmissionFailure?.(failure);
+          return Promise.reject(failure);
         }
-      )
+        return Promise.resolve("detached result");
+      })
     ).resolves.toEqual([failure]);
   });
 
@@ -179,12 +152,12 @@ describe("coverage low value", () => {
     const slot = createSlot();
 
     await expect(
-      admitArrayQueries([slot], undefined, () => Promise.reject(failure))
+      admitArrayQueries([slot], () => Promise.reject(failure))
     ).resolves.toEqual([failure]);
     await expect(slot.child.promise).rejects.toBe(failure);
   });
 
-  test("starts a member's listener without a collector to stage it in", async () => {
+  test("starts a member's listener in a scope with no collector yet", async () => {
     const registration = { extension: "listener", listener: () => undefined };
     const slot: ArraySlot = {
       operation: {},
@@ -205,14 +178,14 @@ describe("coverage low value", () => {
       _handlers,
       child,
       _write,
-      outcomes
+      scope
     ) => {
-      collectors.push(outcomes);
+      collectors.push(scope?.outcomes);
       return child();
     };
 
     await expect(
-      admitArray([slot], undefined, execute)
+      admitArray([slot], { parent: undefined, root: {} }, execute)
     ).resolves.toBeUndefined();
     expect(collectors).toEqual([undefined]);
   });

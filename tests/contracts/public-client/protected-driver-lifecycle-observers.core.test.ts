@@ -5,13 +5,7 @@ import { Driver } from "@drivers";
 import { getExecutionTransactionPhases } from "@drivers/execution-context";
 import { runTransactionLifecycle } from "@drivers/shared/transactions";
 import type { CommittedBatchNotification } from "@drivers/types";
-import {
-  createClient,
-  extension,
-  unit as extUnit,
-  methods,
-  s,
-} from "@src/index";
+import { call, createClient, extension, unit as extUnit, s } from "@src/index";
 import { readTestTransactionOperation } from "@tests/fixtures/transaction-operation";
 import { afterEach, describe, expect, test } from "vitest";
 
@@ -681,8 +675,8 @@ describe("public protected driver lifecycle observers", () => {
 
     const noObserver = base.$extends(
       extension(
-        "methods-only",
-        methods(() => ({ $ready: () => true }))
+        "call-only",
+        call(() => undefined)
       )
     );
     await noObserver.$transaction(async () => "base");

@@ -13,6 +13,7 @@ import { Sql } from "@sql";
 import type { ExtensionPart } from "./chain";
 import { coordinate, UNITS } from "./coordination";
 import { scopeOf } from "./origin";
+import { collect } from "./query";
 import {
   originOf,
   type TransactionStatementRunner,
@@ -306,7 +307,7 @@ export function unitLayerPart(
         ...(chain?.observation?.handlers ?? []),
         { extension: owner.name, handler, kinds },
       ]);
-      coordinate(next, UNITS);
+      coordinate(next, UNITS, collect);
     },
   };
 }

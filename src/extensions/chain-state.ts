@@ -19,12 +19,12 @@ import type {
   ControlAdmission,
   ResolvedControl,
 } from "./controls";
-import type { Coordination, Rail } from "./coordination";
+import type { Coordination } from "./coordination";
 import type { OperationHandlers, RequestHandlers } from "./handlers";
 import type { Kept } from "./kept";
 import type { ExtensionMethodsState } from "./methods";
 import type { Observation } from "./observation";
-import type { AroundRunner } from "./query";
+import type { AroundRunner, collect } from "./query";
 import type { ResultFields } from "./result";
 import type { Stamps } from "./stamps";
 import type { StatementHandlers } from "./statement";
@@ -120,11 +120,10 @@ export interface ResolvedExtensionChain {
    */
   readonly coordination?: Coordination;
   /**
-   * The write rail of the parts that may register a write's outcome, which
-   * collects a transaction's outcomes and publishes them after its commit
-   * (see `railOf`).
+   * Where a part hears writes (`written`, `observation`): the collector each
+   * transaction scope installs from its start (`transact`).
    */
-  readonly rail?: Rail;
+  readonly collect?: typeof collect;
   readonly controls?: ResolvedControls;
   /**
    * Every extension's rule layer, as admitted: also a cached read's key, so

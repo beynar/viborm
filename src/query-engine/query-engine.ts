@@ -1,7 +1,7 @@
 import type { AnyDriver } from "@drivers/exports";
 import type { ResolvedExtensionChain } from "@extensions/chain";
 import type { AdmittedControls } from "@extensions/controls";
-import type { TransactionWriteOutcomes } from "@extensions/query";
+import type { TransactionScope } from "@extensions/query";
 import type { Model } from "@schema/model";
 import {
   createPendingOperation,
@@ -16,12 +16,11 @@ import type { Operation, PrepareOptions } from "./types";
 export class QueryEngine {
   readonly driver: AnyDriver;
   readonly extensionChain: ResolvedExtensionChain | undefined;
-  readonly transactionWriteOutcomes: TransactionWriteOutcomes | undefined;
   /**
-   * Whether this engine runs inside a callback transaction: a chain without
-   * the write rail collects no outcomes there, and its calls still know it.
+   * The transaction scope this engine runs in, inside a callback
+   * transaction: what its calls register there waits for its end.
    */
-  readonly inTransaction: boolean;
+  readonly transaction: TransactionScope | undefined;
   /**
    * The control values this view binds, admitted on each of its calls as if
    * passed. Every engine bound from it keeps them (transactions, `$extends`).
@@ -49,18 +48,16 @@ export class QueryEngine {
     clientId = Symbol("viborm.client"),
     scopeId = Symbol("viborm.scope"),
     extensionChain?: ResolvedExtensionChain,
-    transactionWriteOutcomes?: TransactionWriteOutcomes,
-    bound?: AdmittedControls,
-    inTransaction = false
+    transaction?: TransactionScope,
+    bound?: AdmittedControls
   ) {
     this.driver = driver;
     this.route = route;
     this.extensionChain = extensionChain;
-    this.transactionWriteOutcomes = transactionWriteOutcomes;
+    this.transaction = transaction;
     this.clientId = clientId;
     this.scopeId = scopeId;
     this.bound = bound;
-    this.inTransaction = inTransaction;
   }
 
   /**
@@ -74,18 +71,15 @@ export class QueryEngine {
       this.clientId,
       this.scopeId,
       this.extensionChain,
-      this.transactionWriteOutcomes,
-      bound,
-      this.inTransaction
+      this.transaction,
+      bound
     );
   }
 
   bind(
     driver: AnyDriver,
     extensionChain: ResolvedExtensionChain | undefined = this.extensionChain,
-    transactionWriteOutcomes: TransactionWriteOutcomes | undefined = this
-      .transactionWriteOutcomes,
-    inTransaction = this.inTransaction
+    transaction: TransactionScope | undefined = this.transaction
   ): QueryEngine {
     return new QueryEngine(
       driver,
@@ -93,9 +87,8 @@ export class QueryEngine {
       this.clientId,
       Symbol("viborm.scope"),
       extensionChain,
-      transactionWriteOutcomes,
-      this.bound,
-      inTransaction
+      transaction,
+      this.bound
     );
   }
 

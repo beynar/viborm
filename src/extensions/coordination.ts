@@ -5,47 +5,39 @@
  * one executor of `$transaction([...])` (`@client/array-transaction`)
  * admits its members. A chain of none of those parts carries none of it.
  *
- * The write rail (`WRITE_RAIL`) collects a transaction's write outcomes and
- * publishes them after its commit. It comes with the parts whose work is to
- * hear writes: the part that watches a set of writes (`watch-part.ts`) and
- * `unit` parts. A chain of `around` parts alone runs its transactions as an
- * unextended client does; a `settled` registered on a raw statement or a
- * method's scope inside one of its transactions is refused, since nothing
- * would hold it until the commit.
+ * And how every transaction scope runs (`transact`): what a call registers
+ * there waits in its scope, and the first registration installs the
+ * collector by value (`collect`, imported by what registers: `settled`, the
+ * part that watches writes, `unit` parts), so an extension behaves the same
+ * whatever else its chain holds, and a transaction where nothing registers
+ * runs none of that code.
  */
 import type { ArraySlot } from "@client/array-transaction";
+import { appendExecutionTransactionPhases } from "@drivers/execution-context";
+import type { AnyDriver, QueryExecutionContext } from "@drivers/exports";
+import type { TransactionOptions } from "@drivers/shared/transaction-options";
+import type { QueryEngine } from "@query-engine/query-engine";
 import { admitArray, interceptsArray, stageArray } from "./array-admission";
-import type { ResolvedExtensionChain } from "./chain-state";
 import {
+  type CommitPhase,
+  type collect,
   executePreparedQuery,
   executeRegisteredQuery,
-  runOutcomeTransaction,
-  TransactionWriteOutcomes,
-  type WriteOutcome,
+  type TransactionScope,
 } from "./query";
 
 /** The commit certainty one array reports to its `batch` unit. */
-export interface ArrayCertainty {
-  certainty?: WriteOutcome["certainty"];
-}
-
-/** What collects and publishes the write outcomes of a transaction. */
-export interface Rail {
-  /** A collector for the write outcomes of one transaction scope. */
-  readonly outcomes: () => TransactionWriteOutcomes;
-  readonly runTransaction: typeof runOutcomeTransaction;
-}
-
-export const WRITE_RAIL: Rail = {
-  outcomes: () => new TransactionWriteOutcomes(),
-  runTransaction: runOutcomeTransaction,
-};
+export type ArrayCertainty = CommitPhase;
 
 export interface Coordination {
   /** What it adds to the one before it: a chain keeps the highest it needs. */
   readonly rank: number;
-  /** The write rail it brings to the chain, whatever its rank. */
-  readonly rail?: Rail;
+  /**
+   * Where its parts hear writes: the collector installed in each transaction
+   * scope from its start, so the scope's failure carries its commit
+   * certainty even when nothing registered.
+   */
+  readonly collect?: typeof collect;
   readonly executePreparedQuery: typeof executePreparedQuery;
   /** Present with `admit`: whether a part intercepts one of the members. */
   readonly intercepts?: typeof interceptsArray;
@@ -56,18 +48,16 @@ export interface Coordination {
    */
   readonly admit?: (
     slots: readonly ArraySlot[],
-    outcomes: TransactionWriteOutcomes | undefined
+    scope: TransactionScope
   ) => ReturnType<typeof admitArray>;
 }
 
 /**
- * For `unit` parts: a transaction collects its write outcomes, so a unit
- * inside one never reports a write as committed before its commit. Nothing
- * of the chain wraps a call: the prepared call runs as it is.
+ * For `unit` parts: nothing of the chain wraps a call, the prepared call
+ * runs as it is.
  */
 export const UNITS: Coordination = {
   rank: -1,
-  rail: WRITE_RAIL,
   executePreparedQuery: (_context, _handlers, child) => child(),
 };
 
@@ -77,7 +67,6 @@ export const UNITS: Coordination = {
  */
 export const ARRAYS: Coordination = {
   rank: 1,
-  rail: WRITE_RAIL,
   executePreparedQuery: executeRegisteredQuery,
   intercepts: interceptsArray,
   admit: stageArray,
@@ -88,25 +77,86 @@ export const QUERIES: Coordination = {
   rank: 2,
   executePreparedQuery,
   intercepts: interceptsArray,
-  admit: (slots, outcomes) => admitArray(slots, outcomes, executePreparedQuery),
+  admit: (slots, scope) => admitArray(slots, scope, executePreparedQuery),
 };
 
 /**
  * The chain being built coordinated as `needed` asks, never less than it
- * was, with the write rail `needed` brings.
+ * was; `collect` is kept whatever the rank.
  */
 export function coordinate(
-  next: { coordination?: Coordination; rail?: Rail },
-  needed: Coordination
+  next: { coordination?: Coordination; collect?: typeof collect },
+  needed: Coordination,
+  collects?: typeof collect
 ): void {
-  if (needed.rail) next.rail = needed.rail;
+  if (collects) next.collect = collects;
   if (next.coordination === undefined || needed.rank > next.coordination.rank)
     next.coordination = needed;
 }
 
-/** The write rail a chain runs its transactions with, if a part brought one. */
-export function railOf(
-  chain: ResolvedExtensionChain | undefined
-): Rail | undefined {
-  return chain?.rail;
+/**
+ * Run one transaction scope. A savepoint's scope is a child of its parent's;
+ * the outermost one hears its commit phases where a part may register, for
+ * the certainty of what was registered in it. What its calls register installs
+ * the collector that ends it (`TransactionWriteOutcomes.end`). A body run
+ * again (a driver that reruns a callback on a conflict) gets a scope of its
+ * own: nothing the failed run registered is told. An array's scope is made
+ * before its members are admitted, and passed.
+ */
+export function transact<T>(
+  engine: QueryEngine,
+  options: TransactionOptions | undefined,
+  context: QueryExecutionContext,
+  body: (driver: AnyDriver, scope: TransactionScope) => Promise<T>,
+  made?: TransactionScope,
+  root: CommitPhase = made?.root ?? {}
+): Promise<T> {
+  const chain = engine.extensionChain;
+  const parent = engine.transaction;
+  let scope: TransactionScope | undefined;
+  const end =
+    (failed?: true) =>
+    (settled: T): T | Promise<T> => {
+      // A driver that reports no phase still committed what resolved.
+      if (!(failed || parent)) root.certainty = "committed";
+      return scope?.outcomes
+        ? scope.outcomes.end(scope, settled, failed)
+        : failed
+          ? Promise.reject(settled)
+          : settled;
+    };
+  return engine.driver
+    .withTransaction(
+      (driver) => {
+        scope = made ?? scopeOf(engine, root);
+        return body(driver, scope);
+      },
+      options,
+      // Only where a part may register: a chain of `call` parts, rules or
+      // defaults alone runs its transactions as an unextended client does.
+      parent || !(chain?.coordination || chain?.methods)
+        ? context
+        : appendExecutionTransactionPhases(context, {
+            readyToCommit: () => {
+              root.certainty = "may-have-committed";
+            },
+            committed: () => {
+              root.certainty = "committed";
+            },
+          })
+    )
+    .then(end(), end(true));
+}
+
+/**
+ * A transaction scope inside `engine`'s, with the collector of a chain whose
+ * parts hear writes installed from its start.
+ */
+export function scopeOf(
+  engine: QueryEngine,
+  root: CommitPhase
+): TransactionScope {
+  const scope = { parent: engine.transaction, root };
+  engine.extensionChain?.collect?.(scope);
+  return scope;
 }

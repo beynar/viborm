@@ -602,7 +602,7 @@ class DeferredRawOperation<T>
     }
     return coordination.executePreparedQuery<T, Record<string, unknown>>(
       this.#queryContext(
-        this.#engine.inTransaction ? "transaction" : "direct",
+        this.#engine.transaction ? "transaction" : "direct",
         query
       ),
       handlers,
@@ -613,7 +613,7 @@ class DeferredRawOperation<T>
           this.#withObservationNotifications(notifications)
         ),
       isRawWrite(this.#method),
-      this.#engine.transactionWriteOutcomes
+      this.#engine.transaction
     );
   }
 
@@ -694,7 +694,7 @@ class DeferredRawOperation<T>
     notifications?: WriteOutcomeNotifications
   ): WriteOutcomeNotifications | undefined {
     if (
-      this.#engine.transactionWriteOutcomes !== undefined ||
+      this.#engine.transaction !== undefined ||
       this.#engine.extensionChain?.observation === undefined
     ) {
       return notifications;

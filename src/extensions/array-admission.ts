@@ -21,7 +21,7 @@ import {
   type AroundExecutionControl,
   type executePreparedQuery,
   executeRegisteredQuery,
-  type TransactionWriteOutcomes,
+  type TransactionScope,
   type WriteOutcomeNotifications,
 } from "./query";
 
@@ -47,7 +47,7 @@ export function interceptsArray(
  */
 export async function stageArray(
   slots: readonly ArraySlot[],
-  outcomes: TransactionWriteOutcomes | undefined
+  scope: TransactionScope
 ): Promise<undefined> {
   for (const slot of slots) {
     const { write, registration } = slot.owner.interception(slot.operation);
@@ -61,7 +61,7 @@ export async function stageArray(
       undefined,
       child,
       write,
-      outcomes,
+      scope,
       undefined,
       registration
     );
@@ -82,27 +82,20 @@ const ignore = (): undefined => undefined;
  */
 export function admitArray(
   slots: readonly ArraySlot[],
-  outcomes: TransactionWriteOutcomes | undefined,
+  scope: TransactionScope,
   execute: typeof executePreparedQuery
 ): Promise<readonly unknown[] | undefined> {
   const facts = slots.map((slot) => {
     const interception = slot.owner.interception(slot.operation);
-    if (interception.registration) outcomes?.stage(interception.registration);
+    if (interception.registration)
+      scope.outcomes?.stage(interception.registration);
     return interception;
   });
-  return admitArrayQueries(slots, outcomes, (slot, child, control) => {
+  return admitArrayQueries(slots, (slot, child, control) => {
     const { context, handlers, write, registration } =
       facts[slots.indexOf(slot)]!;
     return handlers?.length || registration
-      ? execute(
-          context,
-          handlers,
-          child,
-          write,
-          outcomes,
-          control,
-          registration
-        )
+      ? execute(context, handlers, child, write, scope, control, registration)
       : child();
   });
 }
@@ -114,7 +107,6 @@ export function admitArray(
  */
 export async function admitArrayQueries<Slot extends AdmissionSlot>(
   slots: readonly Slot[],
-  outcomes: TransactionWriteOutcomes | undefined,
   start: (
     slot: Slot,
     child: (notifications?: WriteOutcomeNotifications) => Promise<unknown>,
@@ -166,7 +158,6 @@ export async function admitArrayQueries<Slot extends AdmissionSlot>(
     if (failed) throw failed.failure;
     return undefined;
   } catch (failure) {
-    outcomes?.discardAll();
     for (const slot of slots) slot.child.reject(failure);
     await Promise.allSettled(slots.map(memberValue));
     const reported: unknown[] = [];

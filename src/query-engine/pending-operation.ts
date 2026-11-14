@@ -575,7 +575,7 @@ export class PendingOperation<T>
       handlers === undefined || handlers.length === 0
         ? undefined
         : this.#queryContext(
-            this.#engine.inTransaction ? "transaction" : "direct",
+            this.#engine.transaction ? "transaction" : "direct",
             preparedInput
           );
     return coordination.executePreparedQuery<T, Record<string, unknown>>(
@@ -600,7 +600,7 @@ export class PendingOperation<T>
           )
         ),
       !isReadOperation(requestedOperation),
-      this.#engine.transactionWriteOutcomes,
+      this.#engine.transaction,
       undefined,
       writeOutcomeRegistration
     );
@@ -610,7 +610,7 @@ export class PendingOperation<T>
     certainty: "committed" | "may-have-committed"
   ): (() => Promise<void>) | undefined {
     if (
-      this.#engine.transactionWriteOutcomes !== undefined ||
+      this.#engine.transaction !== undefined ||
       this.#engine.extensionChain?.observation === undefined
     ) {
       return undefined;

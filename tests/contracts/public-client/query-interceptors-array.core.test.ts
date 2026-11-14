@@ -295,7 +295,7 @@ afterEach(async () => {
 });
 
 describe("a chain without the write rail", () => {
-  test("a chain of around parts alone runs transactions plainly and still tells run() its mode", async () => {
+  test("a chain of around parts alone tells run() its mode", async () => {
     const modes: string[] = [];
     const reading = extension(
       "modes",
@@ -883,9 +883,6 @@ describe("raw write-outcome classification", () => {
     const client = base.$extends(
       extension(
         "private-raw-state",
-        // A part that hears writes gives the chain the collector a raw
-        // statement's settled needs inside a transaction.
-        call(() => undefined, extTarget(writes)),
         around((c) => {
           settled(c, ({ certainty }) => observations.push(certainty));
           return async (run) => {
@@ -965,7 +962,6 @@ describe("raw write-outcome classification", () => {
     const client = base.$extends(
       extension(
         "fallback-raw-outcomes",
-        call(() => undefined, extTarget(writes)),
         around((c) => {
           if (c.kind !== "model") {
             settled(c, ({ certainty }) =>
@@ -1006,7 +1002,6 @@ describe("raw write-outcome classification", () => {
     const success = successBase.$extends(
       extension(
         "native-raw-outcomes",
-        call(() => undefined, extTarget(writes)),
         around((c) => {
           if (c.kind !== "model") {
             settled(c, ({ certainty }) =>
@@ -1053,7 +1048,6 @@ describe("raw write-outcome classification", () => {
     const write = writeBase.$extends(
       extension(
         "native-raw-write-failure",
-        call(() => undefined, extTarget(writes)),
         around((c) => {
           settled(c, ({ certainty }) =>
             writeOutcomes.push(`${c.operation}:${certainty}`)

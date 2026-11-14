@@ -1,14 +1,15 @@
 /**
  * The word `settled`. On a call it registers through what the call's part
  * brought; on a method's scope it publishes at once outside a transaction,
- * and inside one through the transaction's collector, which a part that
- * hears writes brought to the chain (`coordination.ts`).
+ * and inside one in the transaction's scope, installing its collector
+ * (`collect`) if nothing registered there yet: the word brings that code,
+ * whatever else the chain holds.
  */
 
 import { registerOn } from "./call-words";
 import type { Outcome } from "./contract";
 import { scopeOf } from "./origin";
-import { publishWriteOutcomes, refuseUncollected } from "./query";
+import { collect, publishWriteOutcomes } from "./query";
 
 /**
  * Be told when the call's write is durable: after its commit, after the
@@ -35,15 +36,14 @@ export function settled(
 ): Promise<void> | undefined {
   const scope = scopeOf(target);
   if (scope === undefined) {
-    registerOn(target, { settled: listener });
+    registerOn(target, { settled: listener, collect });
     return;
   }
   const registration = { extension: scope.extension, listener };
-  const outcomes = scope.engine.transactionWriteOutcomes;
-  if (outcomes === undefined) {
-    if (scope.engine.inTransaction) refuseUncollected();
+  const transaction = scope.engine.transaction;
+  if (transaction === undefined)
     return publishWriteOutcomes([registration], { certainty: "committed" });
-  }
+  const outcomes = collect(transaction);
   outcomes.stage(registration);
   outcomes.confirm([registration]);
   return Promise.resolve();

@@ -27,10 +27,11 @@ import {
 import {
   type ArrayCertainty,
   type Coordination,
-  railOf,
+  scopeOf,
+  transact,
 } from "@extensions/coordination";
 import type {
-  TransactionWriteOutcomes,
+  TransactionScope,
   WriteOutcome,
   WriteOutcomeNotifications,
 } from "@extensions/query";
@@ -214,7 +215,8 @@ async function executeSlots(
   native: boolean
 ): Promise<unknown[]> {
   const { driver } = engine;
-  const outcomes = railOf(engine.extensionChain)?.outcomes();
+  // The array's scope, made before its members are admitted, which stage in it.
+  const scope = scopeOf(engine, batch ?? {});
   const slots = operations.map(
     (operation): ArraySlot => ({
       operation,
@@ -244,7 +246,7 @@ async function executeSlots(
     for (const slot of slots) slot.child.reject(error);
     throw error;
   }
-  const failures = await coordination.admit?.(slots, outcomes);
+  const failures = await coordination.admit?.(slots, scope);
   if (failures !== undefined)
     throw combineArrayFailures(failures[0], failures.slice(1));
   let values: unknown[];
@@ -256,7 +258,7 @@ async function executeSlots(
           options,
           context,
           slots,
-          outcomes,
+          scope,
           batch
         )
       : sendTransaction(
@@ -266,7 +268,7 @@ async function executeSlots(
           context,
           batch,
           slots,
-          outcomes
+          scope
         ));
   } catch (failure) {
     // A transaction that failed before a member ran still lets that
@@ -288,7 +290,7 @@ function sendTransaction(
   context: QueryExecutionContext,
   batch: ArrayCertainty | undefined,
   slots?: ArraySlot[],
-  outcomes?: TransactionWriteOutcomes
+  scope?: TransactionScope
 ): Promise<unknown[]> {
   const results: unknown[] = operations;
   const body = async (transactionDriver: AnyDriver): Promise<unknown[]> => {
@@ -316,27 +318,7 @@ function sendTransaction(
     }
     return results;
   };
-  const rail = railOf(engine.extensionChain);
-  // A chain with the write rail collects the array's write outcomes and
-  // reports its commit certainty to the `batch` unit.
-  return rail
-    ? rail.runTransaction(
-        engine.driver,
-        outcomes ?? rail.outcomes(),
-        engine.transactionWriteOutcomes,
-        options as TransactionOptions | undefined,
-        context,
-        body,
-        batch &&
-          ((certainty) => {
-            batch.certainty = certainty;
-          })
-      )
-    : engine.driver.withTransaction(
-        body,
-        options as TransactionOptions | undefined,
-        context
-      );
+  return transact(engine, options, context, body, scope, batch);
 }
 
 /** The members prepared in order and sent as one native batch. */
@@ -346,7 +328,7 @@ async function sendNativeBatch(
   options: ArrayOptions,
   context: QueryExecutionContext,
   slots?: ArraySlot[],
-  outcomes?: TransactionWriteOutcomes,
+  scope?: TransactionScope,
   batch?: ArrayCertainty
 ): Promise<unknown[]> {
   // Slots were reserved before they were admitted.
@@ -373,7 +355,7 @@ async function sendNativeBatch(
       }
     }
     try {
-      await outcomes?.publish(certainty);
+      await scope?.outcomes?.publish(certainty);
     } catch (error) {
       late.push(error);
     }
@@ -382,7 +364,6 @@ async function sendNativeBatch(
   const close = async (failure: unknown, sent?: true): Promise<unknown> => {
     if (slots === undefined) return failure;
     if (sent) await publish("may-have-committed");
-    else outcomes?.discardAll();
     await settleSlots(
       slots,
       [reached ? markCommitCertainty(failure, reached) : failure],

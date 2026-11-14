@@ -1,7 +1,5 @@
 import { attachCommitCertainty } from "@drivers/driver-error-context";
-import { bindExecutionTransactionPhases } from "@drivers/execution-context";
-import type { AnyDriver, QueryExecutionContext } from "@drivers/exports";
-import type { TransactionOptions } from "@drivers/shared/transaction-options";
+import type { AnyDriver } from "@drivers/exports";
 import {
   isVibORMError,
   QueryError,
@@ -71,6 +69,12 @@ export interface WriteOutcomeRegistration {
   readonly listener: WriteOutcomeListener;
   /** Package-owned listeners may already translate failures at their boundary. */
   readonly failurePolicy?: "boundary-owned";
+  /**
+   * What installs a transaction scope's collector, brought by the word that
+   * registered (`settled`); absent, the scope's own, installed at its start
+   * by a chain whose parts hear writes.
+   */
+  readonly collect?: typeof collect;
 }
 
 export type WriteOutcomeRegistrationCapture = (
@@ -96,7 +100,7 @@ type Child<Result> = (driver?: AnyDriver) => Promise<Result>;
 export type AroundRunner = (
   prepared: PreparedQueryContext<object>,
   run: () => Promise<unknown>,
-  register: (listener: WriteOutcomeListener) => void
+  register: (listener: WriteOutcomeListener, brought?: typeof collect) => void
 ) => unknown;
 
 /** The `around` parts one call runs, the first applied outermost. */
@@ -124,7 +128,7 @@ export function executePreparedQuery<Result, Input extends object>(
     driver?: AnyDriver
   ) => Promise<Result>,
   isWrite: boolean,
-  transactionWriteOutcomes?: TransactionWriteOutcomes,
+  scope?: TransactionScope,
   control?: AroundExecutionControl,
   preRegisteredWriteOutcome?: WriteOutcomeRegistration
 ): Promise<Result> {
@@ -155,21 +159,10 @@ export function executePreparedQuery<Result, Input extends object>(
     arounds,
     child,
     isWrite,
-    transactionWriteOutcomes,
+    scope,
     control,
     preRegisteredWriteOutcome,
-    (prepared, handlers, executeChild, capture, ...rest) =>
-      runArounds(
-        prepared,
-        handlers,
-        executeChild,
-        // Inside a transaction, only a collector holds a raw statement's
-        // `settled` until the commit: without one it is refused.
-        transactionWriteOutcomes !== undefined || prepared.mode === "direct"
-          ? capture
-          : refuseUncollected,
-        ...rest
-      )
+    runArounds
   );
 }
 
@@ -186,7 +179,7 @@ export function executeRegisteredQuery<Result, Input extends object>(
     driver?: AnyDriver
   ) => Promise<Result>,
   isWrite: boolean,
-  transactionWriteOutcomes?: TransactionWriteOutcomes,
+  scope?: TransactionScope,
   control?: AroundExecutionControl,
   preRegisteredWriteOutcome?: WriteOutcomeRegistration
 ): Promise<Result> {
@@ -195,7 +188,7 @@ export function executeRegisteredQuery<Result, Input extends object>(
     undefined,
     child,
     isWrite,
-    transactionWriteOutcomes,
+    scope,
     control,
     preRegisteredWriteOutcome
   );
@@ -213,7 +206,7 @@ async function executeInterceptedQuery<Result, Input extends object>(
     driver?: AnyDriver
   ) => Promise<Result>,
   isWrite: boolean,
-  transactionWriteOutcomes: TransactionWriteOutcomes | undefined,
+  scope: TransactionScope | undefined,
   control: AroundExecutionControl | undefined,
   preRegisteredWriteOutcome: WriteOutcomeRegistration | undefined,
   // Passed by the caller that has handlers to run: the one that has none
@@ -222,14 +215,16 @@ async function executeInterceptedQuery<Result, Input extends object>(
 ): Promise<Result> {
   const registrations: WriteOutcomeRegistration[] =
     preRegisteredWriteOutcome === undefined ? [] : [preRegisteredWriteOutcome];
-  if (preRegisteredWriteOutcome !== undefined) {
-    transactionWriteOutcomes?.stage(preRegisteredWriteOutcome);
-  }
+  const stage = (registration: WriteOutcomeRegistration): void => {
+    if (scope)
+      (registration.collect?.(scope) ?? scope.outcomes)?.stage(registration);
+  };
+  if (preRegisteredWriteOutcome !== undefined) stage(preRegisteredWriteOutcome);
   const captureWriteOutcome = (
     registration: WriteOutcomeRegistration
   ): void => {
     registrations.push(registration);
-    transactionWriteOutcomes?.stage(registration);
+    stage(registration);
   };
   let publishedDirectUnits = 0;
   let directCommitCertainty: WriteOutcome["certainty"] | undefined;
@@ -237,11 +232,11 @@ async function executeInterceptedQuery<Result, Input extends object>(
   const publish = async (
     certainty: WriteOutcome["certainty"]
   ): Promise<void> => {
-    if (transactionWriteOutcomes) {
+    if (scope) {
       if (registrations.length === 0) return;
       if (transactionConfirmed) return;
       transactionConfirmed = true;
-      transactionWriteOutcomes.confirm(registrations);
+      scope.outcomes?.confirm(registrations);
       return;
     }
     publishedDirectUnits += 1;
@@ -256,17 +251,12 @@ async function executeInterceptedQuery<Result, Input extends object>(
   const executeChild = async (driver?: AnyDriver): Promise<Result> => {
     try {
       const value = await child(notifications, driver);
-      if (
-        isWrite &&
-        (transactionWriteOutcomes !== undefined || publishedDirectUnits === 0)
-      ) {
+      if (isWrite && (scope !== undefined || publishedDirectUnits === 0)) {
         await publish("committed");
       }
       return value;
     } catch (error) {
-      if (transactionWriteOutcomes && !transactionConfirmed) {
-        transactionWriteOutcomes.discard(registrations);
-      }
+      if (!transactionConfirmed) scope?.outcomes?.discard(registrations);
       throw error;
     }
   };
@@ -288,9 +278,7 @@ async function executeInterceptedQuery<Result, Input extends object>(
           );
     return value;
   } catch (error) {
-    if (transactionWriteOutcomes && !transactionConfirmed) {
-      transactionWriteOutcomes.discard(registrations);
-    }
+    if (!transactionConfirmed) scope?.outcomes?.discard(registrations);
     throw error;
   }
 }
@@ -412,8 +400,8 @@ async function runAround<Result, Input extends object>(
     outcome = {
       // A second moment answers the call: `around`'s types hold its value
       // to the call's result.
-      value: (await part.handler(prepared, run, (listener) =>
-        captureWriteOutcome({ extension, listener })
+      value: (await part.handler(prepared, run, (listener, brought) =>
+        captureWriteOutcome({ extension, listener, collect: brought })
       )) as Result,
     };
   } catch (reason) {
@@ -521,10 +509,6 @@ export class TransactionWriteOutcomes {
     this.#setState(registrations, "discarded");
   }
 
-  discardAll(): void {
-    for (const staged of this.#staged) staged.state = "discarded";
-  }
-
   promoteTo(parent: TransactionWriteOutcomes): void {
     for (const staged of this.#staged) {
       if (staged.state === "confirmed") {
@@ -545,6 +529,36 @@ export class TransactionWriteOutcomes {
     await publishWriteOutcomes(registrations, { certainty });
   }
 
+  /**
+   * End the scope this collects for, with what its transaction settled
+   * with. A savepoint that commits hands its outcomes to its parent's
+   * collector, which owns the decision; the outermost publishes them after
+   * its commit, or, when its commit failed after COMMIT was sent, with the
+   * certainty reached, which the failure then carries.
+   */
+  async end<T>(
+    { parent, root }: TransactionScope,
+    settled: T,
+    failed?: true
+  ): Promise<T> {
+    if (!failed) {
+      if (parent) this.promoteTo(collect(parent));
+      else await this.publish("committed");
+      return settled;
+    }
+    const { certainty } = root;
+    if (parent || certainty === undefined) throw settled;
+    const primary = isVibORMError(settled)
+      ? attachCommitCertainty(settled, certainty)
+      : settled;
+    try {
+      await this.publish(certainty);
+    } catch (outcomeFailure) {
+      throw retainWriteOutcomeFailure(primary, outcomeFailure);
+    }
+    throw primary;
+  }
+
   #setState(
     registrations: readonly WriteOutcomeRegistration[],
     state: "confirmed" | "discarded"
@@ -561,70 +575,29 @@ export class TransactionWriteOutcomes {
 }
 
 /**
- * Run one transaction whose write outcomes this scope collects. A root scope
- * tracks the commit phases, so a failure after COMMIT was sent still reports
- * its certainty and publishes what may have committed; a savepoint promotes
- * its outcomes into the parent collector, which owns that decision.
+ * One transaction scope, as `transact` (`coordination.ts`) runs it: what its
+ * calls register waits in it until it ends. The scope holds no code: the
+ * first registration installs the collector (`collect`), which brings the
+ * code that ends the scope, so a transaction where nothing registers runs
+ * none of it.
  */
-export async function runOutcomeTransaction<T>(
-  driver: AnyDriver,
-  outcomes: TransactionWriteOutcomes,
-  parentOutcomes: TransactionWriteOutcomes | undefined,
-  options: TransactionOptions | undefined,
-  context: QueryExecutionContext,
-  body: (driver: AnyDriver) => Promise<T>,
-  report?: (certainty: WriteOutcome["certainty"]) => void
-): Promise<T> {
-  let phase: "ready" | "committed" | undefined;
-  let result: T;
-  try {
-    result = await driver.withTransaction(
-      body,
-      options,
-      parentOutcomes
-        ? context
-        : bindExecutionTransactionPhases(context, {
-            readyToCommit: () => {
-              phase = "ready";
-            },
-            committed: () => {
-              phase = "committed";
-            },
-          })
-    );
-  } catch (failure) {
-    if (phase === undefined) {
-      outcomes.discardAll();
-      throw failure;
-    }
-    const certainty = phase === "ready" ? "may-have-committed" : phase;
-    report?.(certainty);
-    const primary = isVibORMError(failure)
-      ? attachCommitCertainty(failure, certainty)
-      : failure;
-    try {
-      await outcomes.publish(certainty);
-    } catch (outcomeFailure) {
-      throw retainWriteOutcomeFailure(primary, outcomeFailure);
-    }
-    throw primary;
-  }
-  if (parentOutcomes) outcomes.promoteTo(parentOutcomes);
-  else {
-    report?.("committed");
-    await outcomes.publish("committed");
-  }
-  return result;
+export interface TransactionScope {
+  /** The scope this one is a savepoint of. */
+  readonly parent: TransactionScope | undefined;
+  /** The outermost scope's commit phase, as its driver reports it. */
+  readonly root: CommitPhase;
+  outcomes?: TransactionWriteOutcomes;
 }
 
-/**
- * Refuse a `settled` registered inside a transaction whose chain collects no
- * write outcome: it could only be told before the commit, or never.
- */
-export function refuseUncollected(): never {
-  throw new TypeError(
-    "settled() in a transaction needs a part on target(writes)"
-  );
+/** How far a transaction's commit went; nothing before COMMIT was sent. */
+export interface CommitPhase {
+  certainty?: WriteOutcome["certainty"];
+}
+
+/** The collector of a transaction scope, installed by its first registration. */
+export function collect(scope: TransactionScope): TransactionWriteOutcomes {
+  scope.outcomes ??= new TransactionWriteOutcomes();
+  return scope.outcomes;
 }
 
 /**

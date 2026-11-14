@@ -68,17 +68,10 @@ export class TestQueryEngine extends QueryEngine {
     clientId?: symbol,
     scopeId?: symbol,
     extensionChain?: ResolvedExtensionChain,
-    transactionWriteOutcomes?: TransactionWriteOutcomes,
+    transaction?: TransactionWriteOutcomes,
     route: CommandEngine = provisionedRoute(driver, registry)
   ) {
-    super(
-      driver,
-      route,
-      clientId,
-      scopeId,
-      extensionChain,
-      transactionWriteOutcomes
-    );
+    super(driver, route, clientId, scopeId, extensionChain, transaction);
   }
 
   /** The one statement an operation compiles to, or the refusal. */

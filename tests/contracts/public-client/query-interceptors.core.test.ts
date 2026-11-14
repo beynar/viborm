@@ -769,47 +769,70 @@ describe("an array a part hears without wrapping it", () => {
   });
 });
 
-describe("settled where nothing collects a transaction's outcomes", () => {
-  // A chain of around parts and methods alone runs its transactions as an
-  // unextended client does: nothing would hold what settled registers there
-  // until the commit, so it is refused, not told early.
+describe("settled in a transaction whose chain hears no writes", () => {
+  // What settled registers waits in the transaction's scope, whose
+  // collector the word installs: told after the commit, never before it,
+  // never after a rollback, whatever else the chain holds.
+  const told: string[] = [];
   const raw = extension(
     "raw-outcomes",
     around((c) => {
-      if (c.kind === "raw") settled(c, () => undefined);
+      if (c.kind === "raw")
+        settled(c, ({ certainty }) => {
+          told.push(`raw:${certainty}`);
+        });
       return (run) => run();
     })
   );
   const scoped = extension(
     "scoped",
-    methods((scope) => ({ $after: () => settled(scope, () => undefined) }))
-  );
-  const watcher = extension(
-    "watcher",
-    call(() => undefined, target(writes))
+    methods((scope) => ({
+      $after: () =>
+        settled(scope, ({ certainty }) => {
+          told.push(`method:${certainty}`);
+        }),
+    }))
   );
 
-  test("a raw statement's settled inside a transaction is refused, and outside one is told", async () => {
+  test("a raw statement's settled is told after the commit, and never after a rollback", async () => {
+    told.length = 0;
     const db = (await seededClient()).$extends(raw);
+    await db.$transaction(async (tx) => {
+      await tx.$executeRaw(sql`DELETE FROM post`);
+      told.push("body-end");
+    });
+    expect(told).toEqual(["body-end", "raw:committed"]);
+    told.length = 0;
+    await db.$transaction([db.$executeRaw(sql`DELETE FROM post`)]);
+    expect(told).toEqual(["raw:committed"]);
+    told.length = 0;
     await expect(
-      db.$transaction(async (tx) => tx.$executeRaw(sql`DELETE FROM post`))
-    ).rejects.toThrow(TypeError);
-    await expect(
-      db.$transaction([db.$executeRaw(sql`DELETE FROM post`)])
-    ).rejects.toThrow(TypeError);
-    await expect(db.post.count()).resolves.toBe(1);
-    await expect(db.$executeRaw(sql`DELETE FROM post`)).resolves.toBe(1);
+      db.$transaction(async (tx) => {
+        await tx.$executeRaw(sql`DELETE FROM post`);
+        throw new Error("rolled back");
+      })
+    ).rejects.toThrow("rolled back");
+    expect(told).toEqual([]);
+    await expect(db.$executeRaw(sql`DELETE FROM post`)).resolves.toBe(0);
+    expect(told).toEqual(["raw:committed"]);
   });
 
-  test("a method's settled inside a transaction is refused; a part that watches writes collects it", async () => {
-    const base = await seededClient();
-    await expect(
-      base.$extends(scoped).$transaction(async (tx) => tx.$after())
-    ).rejects.toThrow(TypeError);
-    const collected = base.$extends(scoped).$extends(watcher);
-    await expect(
-      collected.$transaction(async (tx) => tx.$after())
-    ).resolves.toBeUndefined();
+  test("a method's settled is told after the outermost commit; a savepoint rolled back tells nothing", async () => {
+    told.length = 0;
+    const db = (await seededClient()).$extends(scoped);
+    await db.$transaction(async (tx) => {
+      await tx.$transaction(async (inner) => {
+        await inner.$after();
+      });
+      await tx
+        .$transaction(async (inner) => {
+          await inner.$after();
+          throw new Error("savepoint rolled back");
+        })
+        .catch(() => undefined);
+      told.push("body-end");
+    });
+    expect(told).toEqual(["body-end", "method:committed"]);
   });
 });
 
@@ -844,18 +867,6 @@ describe("write-outcome publication", () => {
     expect(published).toEqual(["confirmed:may-have-committed"]);
     await parent.publish("committed");
     expect(published).toEqual(["confirmed:may-have-committed"]);
-  });
-
-  test("discards every pending registration as one transaction unit", async () => {
-    const listener = vi.fn();
-    const outcomes = new TransactionWriteOutcomes();
-    const registration = Object.freeze({ extension: "discard-all", listener });
-    outcomes.stage(registration);
-    outcomes.confirm([registration]);
-    outcomes.discardAll();
-
-    await outcomes.publish("committed");
-    expect(listener).not.toHaveBeenCalled();
   });
 
   test("attempts every listener; the first fault rejects and later ones are lost", async () => {

@@ -8,6 +8,7 @@
 import type { Application, ExtensionPart } from "./chain";
 import { ARRAYS, coordinate } from "./coordination";
 import type { CallOrigin } from "./origin";
+import { collect } from "./query";
 import { type WrittenWatch, watchWrite } from "./written";
 
 /** The key a first moment's context registers watches through. */
@@ -20,6 +21,8 @@ export interface Watching {
   readonly settled?: WrittenWatch["settled"];
   /** What shows the rows: what `watch` brings, never `settled`. */
   readonly show?: WrittenWatch["show"];
+  /** What installs a transaction's collector: what `settled` brings. */
+  readonly collect?: typeof collect;
 }
 
 /** A call's `watched`: what each extension's first moments registered. */
@@ -85,6 +88,6 @@ export const watchPart: WatchPart = {
         return watchWrite(watches, context, late);
       },
     });
-    coordinate(next, ARRAYS);
+    coordinate(next, ARRAYS, collect);
   },
 };
