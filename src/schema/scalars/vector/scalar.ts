@@ -1,13 +1,16 @@
 // Vector Scalar
-// Standalone scalar class with State generic pattern
+// The modifiers every scalar shares are implemented once, in the chain this
+// class extends; the class types them for this scalar's own state
 
 import { ValidationError } from "@errors";
 import v from "@validation/primitives/v";
+import type { VectorSchema } from "@validation/primitives/vector";
 import {
   createDefaultState,
   type DefaultValueInput,
-  nullableDefault,
   type ScalarState,
+  scalarChain,
+  type UpdateState,
   updateState,
 } from "../common";
 import { admitNativeType } from "../native-catalog";
@@ -20,51 +23,59 @@ import type {
 
 const vectorBase = v.vector();
 
-export class VectorScalar<State extends ScalarState<"vector">> {
-  private readonly state: State;
-  private readonly _nativeType?: NativeTypeDeclaration | undefined;
-
-  constructor(state: State, _nativeType?: NativeTypeDeclaration) {
-    this.state = state;
-    this._nativeType = _nativeType;
-  }
-
-  nullable() {
-    return new VectorScalar(
-      updateState(this, {
-        nullable: true,
-        hasDefault: true,
-        default: nullableDefault(this.state),
-        optional: true,
-        base: v.vector<{
-          nullable: true;
-        }>(this.state.dimension, {
-          nullable: true,
-        }),
-      }),
-      this._nativeType
-    );
-  }
-
-  default<V extends DefaultValueInput<State>>(value: V) {
-    return new VectorScalar(
-      updateState(this, {
-        hasDefault: true,
-        default: value,
-        optional: true,
-      }),
-      this._nativeType
-    );
-  }
-
+export class VectorScalar<
+  State extends ScalarState<"vector">,
+> extends scalarChain<State> {
+  private declare readonly state: State;
+  private declare readonly _nativeType: NativeTypeDeclaration | undefined;
+  declare readonly nullable: () => VectorScalar<
+    UpdateState<
+      State,
+      {
+        readonly nullable: true;
+        readonly hasDefault: true;
+        readonly default: State["hasDefault"] extends true
+          ? State["default"]
+          : null;
+        readonly optional: true;
+        readonly base: VectorSchema<number[] | null, number[] | null> & {
+          dimensions?: number;
+        };
+      }
+    >
+  >;
+  declare readonly default: <V extends DefaultValueInput<State>>(
+    value: V
+  ) => VectorScalar<
+    UpdateState<
+      State,
+      {
+        readonly hasDefault: true;
+        readonly default: V;
+        readonly optional: true;
+      }
+    >
+  >;
   /**
    * Maps this scalar to a custom column name in the database
    */
-  map(columnName: string) {
-    return new VectorScalar(
-      updateState(this, { columnName }),
-      this._nativeType
-    );
+  declare readonly map: (columnName: string) => VectorScalar<
+    UpdateState<
+      State,
+      {
+        readonly columnName: string;
+      }
+    >
+  >;
+  declare readonly ["~"]: {
+    state: State;
+    nativeType: NativeTypeDeclaration | undefined;
+  };
+
+  protected rebase(state: State) {
+    return v.vector(state.dimension, {
+      nullable: state.nullable,
+    });
   }
 
   dimension(dim: number) {
@@ -86,13 +97,6 @@ export class VectorScalar<State extends ScalarState<"vector">> {
       }),
       this._nativeType
     );
-  }
-
-  get ["~"]() {
-    return {
-      state: this.state,
-      nativeType: this._nativeType,
-    };
   }
 }
 

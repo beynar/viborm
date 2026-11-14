@@ -326,6 +326,37 @@ export class VibORMError extends Error {
   }
 }
 
+/** The class `coded` answers: the statics of every package error, and a constructor that fixes the code. */
+export type CodedError<
+  Code extends VibORMErrorCode,
+  Options extends VibORMErrorOptions,
+> = Pick<typeof VibORMError, keyof typeof VibORMError> &
+  (new (
+    message: string,
+    options?: Options
+  ) => VibORMError & { readonly code: Code });
+
+/**
+ * An error class that states only its name and its code: one code, or with
+ * `open` a default among several the caller may name. The class a module
+ * exports extends the answer, so `instanceof` and the name hold.
+ */
+export const coded = <
+  Code extends VibORMErrorCode,
+  Options extends VibORMErrorOptions = VibORMErrorOptions,
+>(
+  diagnosticName: string,
+  code: Code,
+  open = false
+) =>
+  class extends VibORMError {
+    static override readonly diagnosticName = diagnosticName;
+    constructor(message: string, options?: Options & { code?: Code }) {
+      // An open class takes one of its codes from the caller; `code` is its default.
+      super(message, (open && options?.code) || code, options);
+    }
+  } as unknown as CodedError<Code, Options>;
+
 function readDiagnosticName(errorConstructor: typeof VibORMError): string {
   let candidate: unknown = errorConstructor;
   for (

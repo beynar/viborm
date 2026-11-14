@@ -1,4 +1,3 @@
-import { createJsonSchemaConverter } from "../json-schema/factory";
 import type {
   InferInputShape,
   InferOutputShape,
@@ -10,12 +9,11 @@ import type {
 import { isFunction, isRecord } from "../value-guards";
 import {
   collectingAllIssues,
-  fail,
+  createSchema,
   issuesUnder,
-  OK_NULL,
-  OK_UNDEFINED,
   ok,
-  validateArray,
+  withTransform,
+  wrapped,
 } from "./helpers";
 
 // =============================================================================
@@ -686,6 +684,19 @@ function createObjectValidator(
     return unmet ? gathered(issues, unmet) : issues;
   };
 
+  /** What a parse answers once every key is read: its issues, the object's own refusal, or the output. */
+  const settle = (
+    issues: ValidationIssue[] | undefined,
+    output: Record<string, unknown>
+  ): Result => {
+    if (issues) return { issues };
+    const refusal = refuse?.(output);
+    if (!refusal) return { value: output };
+    return {
+      issues: [typeof refusal === "string" ? { message: refusal } : refusal],
+    };
+  };
+
   // Fast path for fully-partial objects (where/select/orderBy args):
   // iterate input keys instead of all schema keys, and don't materialize
   // undefined entries for absent keys — output stays input-sized.
@@ -757,12 +768,7 @@ function createObjectValidator(
       }
     }
 
-    if (issues) return { issues };
-    const refusal = refuse?.(output);
-    if (!refusal) return { value: output };
-    return {
-      issues: [typeof refusal === "string" ? { message: refusal } : refusal],
-    };
+    return settle(issues, output);
   };
 
   // Slow path (partial: false or atLeast): output is intentionally DENSE —
@@ -850,12 +856,7 @@ function createObjectValidator(
       output[key] = result.value;
     }
 
-    if (issues) return { issues };
-    const refusal = refuse?.(output);
-    if (!refusal) return { value: output };
-    return {
-      issues: [typeof refusal === "string" ? { message: refusal } : refusal],
-    };
+    return settle(issues, output);
   };
 
   return partial && !atLeast ? parsePartial : parseDense;
@@ -926,128 +927,34 @@ export function object<
   const TOpts extends ObjectOptions | undefined,
   R = ObjectSchema<TEntries, TOpts>,
 >(entries: TEntries, options?: TOpts): R extends infer _ ? _ : never {
-  type BaseOutput = ComputeObjectOutput<TEntries, TOpts>;
-
-  // Pre-create the optimized object validator (caches keys and schemas)
-  const validateObj = createObjectValidator(entries as ObjectEntries, options);
-
-  // Check if we have wrapper options (optional/nullable/array)
-  const hasOptional = options?.optional === true;
-  const hasNullable = options?.nullable === true;
-  const hasArray = options?.array === true;
-  const hasTransform = options?.transform !== undefined;
-  const hasDefault = options?.default !== undefined;
-
-  // Fast path: no wrapper options (most common case)
-  const needsWrapper =
-    hasOptional || hasNullable || hasArray || hasTransform || hasDefault;
-
-  let validate: (value: unknown) => any;
-
-  if (needsWrapper) {
-    // Pre-compute default getter once (avoid repeated typeof checks)
-    const getDefault = hasDefault
-      ? isFunction(options!.default)
-        ? (options!.default as () => BaseOutput)
-        : () => options!.default as BaseOutput
-      : null;
-
-    // Create the base validator (with optional transform)
-    const validateItem = hasTransform
-      ? (value: unknown): ValidationResult<any> => {
-          const result = validateObj(value);
-          if (result.issues) return result;
-          try {
-            return ok(options!.transform!((result as { value: any }).value));
-          } catch (error) {
-            return fail(
-              `Transform failed: ${error instanceof Error ? error.message : String(error)}`
-            );
-          }
-        }
-      : validateObj;
-
-    // Build wrapper based on options
-    if (hasArray) {
-      // Array mode: use shared validateArray utility
-      const arrayValidate = (value: unknown) =>
-        validateArray(value, validateItem);
-
-      if (hasOptional && hasNullable) {
-        validate = (value: unknown) => {
-          if (value === undefined)
-            return getDefault ? ok(getDefault()) : OK_UNDEFINED;
-          if (value === null) return OK_NULL;
-          return arrayValidate(value);
-        };
-      } else if (hasOptional) {
-        validate = (value: unknown) => {
-          if (value === undefined)
-            return getDefault ? ok(getDefault()) : OK_UNDEFINED;
-          return arrayValidate(value);
-        };
-      } else if (hasNullable) {
-        validate = (value: unknown) => {
-          if (value === null) return OK_NULL;
-          return arrayValidate(value);
-        };
-      } else {
-        validate = arrayValidate;
-      }
-    } else if (hasOptional && hasNullable) {
-      // Single object mode
-      validate = (value: unknown) => {
-        if (value === undefined)
-          return getDefault ? ok(getDefault()) : OK_UNDEFINED;
-        if (value === null) return OK_NULL;
-        return validateItem(value);
-      };
-    } else if (hasOptional) {
-      validate = (value: unknown) => {
-        if (value === undefined)
-          return getDefault ? ok(getDefault()) : OK_UNDEFINED;
-        return validateItem(value);
-      };
-    } else if (hasNullable) {
-      validate = (value: unknown) => {
-        if (value === null) return OK_NULL;
-        return validateItem(value);
-      };
-    } else {
-      // Only transform, no optional/nullable
-      validate = validateItem;
-    }
-  } else {
-    // Fast path: direct object validation
-    validate = validateObj;
+  const {
+    default: fallback,
+    optional,
+    nullable,
+    array,
+    transform,
+  } = options ?? {};
+  const parsed = createObjectValidator(entries as ObjectEntries, options);
+  let validate = wrapped(
+    transform ? withTransform(parsed, transform) : parsed,
+    array,
+    nullable,
+    optional
+  );
+  // An object's default answers an absent optional value as it stands: it
+  // does not cross the parser, and without `optional` it is never read.
+  if (optional === true && fallback !== undefined) {
+    const present = validate;
+    const getDefault = isFunction(fallback) ? fallback : () => fallback;
+    validate = (value) =>
+      value === undefined ? ok(getDefault()) : present(value);
   }
 
-  const schema = {
-    type: "object" as const,
+  return Object.assign(createSchema("object", validate), {
     entries,
     options,
-    acceptsUndefined: hasOptional || hasDefault,
-    "~standard": {
-      version: 1 as const,
-      vendor: "viborm" as const,
-      validate,
-      // Lazy jsonSchema - converter is created when first accessed
-      get jsonSchema() {
-        const converter = createJsonSchemaConverter(
-          schema as unknown as VibSchema<unknown, unknown>
-        );
-        // Replace getter with static value for subsequent access
-        Object.defineProperty(this, "jsonSchema", {
-          value: converter,
-          writable: false,
-          enumerable: true,
-        });
-        return converter;
-      },
-    },
+    acceptsUndefined: optional === true || fallback !== undefined,
     extend: (newEntries: ObjectEntries) =>
       object({ ...entries, ...newEntries } as any, options),
-  };
-
-  return schema as R extends infer _ ? _ : never;
+  }) as R extends infer _ ? _ : never;
 }

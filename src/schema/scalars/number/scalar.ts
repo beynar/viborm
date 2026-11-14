@@ -1,11 +1,13 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type { NumberSchema } from "@validation/primitives/number";
 import v from "@validation/primitives/v";
+import type { ComputeInput, ComputeOutput } from "@validation/types";
 import {
   createDefaultState,
   type DefaultValueInput,
-  nullableDefault,
+  keyedScalarChain,
   type ScalarState,
-  updateState,
+  type UpdateState,
 } from "../common";
 import { admitNativeType } from "../native-catalog";
 import type {
@@ -17,109 +19,143 @@ import type {
 
 const numberBase = v.number();
 
-export class NumberScalar<State extends ScalarState<"number">> {
-  private readonly state: State;
-  private readonly _nativeType?: NativeTypeDeclaration | undefined;
+export class NumberScalar<
+  State extends ScalarState<"number">,
+> extends keyedScalarChain<State> {
+  private declare readonly state: State;
+  declare readonly nullable: () => NumberScalar<
+    UpdateState<
+      State,
+      {
+        readonly nullable: true;
+        readonly hasDefault: true;
+        readonly default: State["hasDefault"] extends true
+          ? State["default"]
+          : null;
+        readonly optional: true;
+        readonly base: NumberSchema<
+          ComputeInput<
+            number,
+            {
+              nullable: true;
+              array: State["array"];
+              schema: State["schema"];
+            }
+          >,
+          ComputeOutput<
+            number,
+            {
+              nullable: true;
+              array: State["array"];
+              schema: State["schema"];
+            }
+          >
+        >;
+      }
+    >
+  >;
+  declare readonly array: () => NumberScalar<
+    UpdateState<
+      State,
+      {
+        readonly array: true;
+        readonly base: NumberSchema<
+          ComputeInput<
+            number,
+            {
+              nullable: State["nullable"];
+              array: true;
+              schema: State["schema"];
+            }
+          >,
+          ComputeOutput<
+            number,
+            {
+              nullable: State["nullable"];
+              array: true;
+              schema: State["schema"];
+            }
+          >
+        >;
+      }
+    >
+  >;
+  declare readonly id: () => NumberScalar<
+    UpdateState<
+      State,
+      {
+        readonly isId: true;
+        readonly isUnique: true;
+      }
+    >
+  >;
+  declare readonly unique: () => NumberScalar<
+    UpdateState<
+      State,
+      {
+        readonly isUnique: true;
+      }
+    >
+  >;
+  declare readonly default: <V extends DefaultValueInput<State>>(
+    value: V
+  ) => NumberScalar<
+    UpdateState<
+      State,
+      {
+        readonly hasDefault: true;
+        readonly default: V;
+        readonly optional: true;
+      }
+    >
+  >;
+  declare readonly schema: <S extends StandardSchemaV1<number>>(
+    schema: S
+  ) => NumberScalar<
+    UpdateState<
+      State,
+      {
+        readonly schema: S;
+        readonly base: NumberSchema<
+          ComputeInput<
+            number,
+            {
+              nullable: State["nullable"];
+              array: State["array"];
+              schema: S;
+            }
+          >,
+          ComputeOutput<
+            number,
+            {
+              nullable: State["nullable"];
+              array: State["array"];
+              schema: S;
+            }
+          >
+        >;
+      }
+    >
+  >;
+  declare readonly map: (columnName: string) => NumberScalar<
+    UpdateState<
+      State,
+      {
+        readonly columnName: string;
+      }
+    >
+  >;
+  declare readonly ["~"]: {
+    state: State;
+    nativeType: NativeTypeDeclaration | undefined;
+  };
 
-  constructor(state: State, _nativeType?: NativeTypeDeclaration) {
-    this.state = state;
-    this._nativeType = _nativeType;
-  }
-
-  nullable() {
-    return new NumberScalar(
-      updateState(this, {
-        nullable: true,
-        hasDefault: true,
-        default: nullableDefault(this.state),
-        optional: true,
-        base: v.number<{
-          nullable: true;
-          array: State["array"];
-          schema: State["schema"];
-        }>({
-          nullable: true,
-          array: this.state.array,
-          schema: this.state.schema,
-        }),
-      }),
-      this._nativeType
-    );
-  }
-
-  array() {
-    return new NumberScalar(
-      updateState(this, {
-        array: true,
-        base: v.number<{
-          nullable: State["nullable"];
-          array: true;
-          schema: State["schema"];
-        }>({
-          nullable: this.state.nullable,
-          array: true,
-          schema: this.state.schema,
-        }),
-      }),
-      this._nativeType
-    );
-  }
-
-  id() {
-    return new NumberScalar(
-      updateState(this, { isId: true, isUnique: true }),
-      this._nativeType
-    );
-  }
-
-  unique() {
-    return new NumberScalar(
-      updateState(this, { isUnique: true }),
-      this._nativeType
-    );
-  }
-
-  default<V extends DefaultValueInput<State>>(value: V) {
-    return new NumberScalar(
-      updateState(this, {
-        hasDefault: true,
-        default: value,
-        optional: true,
-      }),
-      this._nativeType
-    );
-  }
-
-  schema<S extends StandardSchemaV1<number>>(schema: S) {
-    return new NumberScalar(
-      updateState(this, {
-        schema,
-        base: v.number<{
-          nullable: State["nullable"];
-          array: State["array"];
-          schema: S;
-        }>({
-          nullable: this.state.nullable,
-          array: this.state.array,
-          schema,
-        }),
-      }),
-      this._nativeType
-    );
-  }
-
-  map(columnName: string) {
-    return new NumberScalar(
-      updateState(this, { columnName }),
-      this._nativeType
-    );
-  }
-
-  get ["~"]() {
-    return {
-      state: this.state,
-      nativeType: this._nativeType,
-    };
+  protected rebase(state: State) {
+    return v.number({
+      nullable: state.nullable,
+      array: state.array,
+      schema: state.schema,
+    });
   }
 }
 

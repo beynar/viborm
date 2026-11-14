@@ -380,6 +380,14 @@ function baseClassName(node: ts.ClassDeclaration): string | undefined {
     if (expression && ts.isIdentifier(expression)) {
       return expression.text;
     }
+    // A class declared through `coded(name, code)` extends the root itself.
+    if (
+      expression &&
+      ts.isCallExpression(expression) &&
+      expression.expression.getText() === "coded"
+    ) {
+      return TAXONOMY_ROOT;
+    }
   }
   return undefined;
 }

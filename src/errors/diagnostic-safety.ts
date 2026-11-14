@@ -256,23 +256,6 @@ export function defineSafe(target: object, key: string, value: unknown): void {
   }
 }
 
-export function defineHidden(
-  target: object,
-  key: symbol,
-  value: unknown
-): void {
-  try {
-    Object.defineProperty(target, key, {
-      configurable: false,
-      enumerable: false,
-      value,
-      writable: false,
-    });
-  } catch {
-    // Registration is hardening; boundary sanitization still fails closed.
-  }
-}
-
 export function filterSafeErrorProperty(
   key: (typeof SAFE_ERROR_KEYS)[number],
   value: unknown

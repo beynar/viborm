@@ -1,13 +1,16 @@
 // Boolean Scalar
-// Standalone scalar class with State generic pattern
+// The modifiers every scalar shares are implemented once, in the chain this
+// class extends; the class types them for this scalar's own state
 
+import type { BooleanSchema } from "@validation/primitives/boolean";
 import v from "@validation/primitives/v";
+import type { ComputeInput, ComputeOutput } from "@validation/types";
 import {
   createDefaultState,
   type DefaultValueInput,
-  nullableDefault,
+  listScalarChain,
   type ScalarState,
-  updateState,
+  type UpdateState,
 } from "../common";
 import { admitNativeType } from "../native-catalog";
 import type {
@@ -19,80 +22,95 @@ import type {
 
 const booleanBase = v.boolean();
 
-export class BooleanScalar<State extends ScalarState<"boolean">> {
-  private readonly state: State;
-  private readonly _nativeType?: NativeTypeDeclaration | undefined;
-
-  constructor(state: State, _nativeType?: NativeTypeDeclaration) {
-    this.state = state;
-    this._nativeType = _nativeType;
-  }
-
-  nullable() {
-    return new BooleanScalar(
-      updateState(this, {
-        nullable: true,
-        hasDefault: true,
-        default: nullableDefault(this.state),
-        optional: true,
-        base: v.boolean<{
-          nullable: true;
-          array: State["array"];
-        }>({
-          nullable: true,
-          array: this.state.array,
-        }),
-      }),
-      this._nativeType
-    );
-  }
-
-  array() {
-    return new BooleanScalar(
-      updateState(this, {
-        array: true,
-        base: v.boolean<{
-          nullable: State["nullable"];
-          array: true;
-        }>({
-          nullable: this.state.nullable,
-          array: true,
-        }),
-      }),
-      this._nativeType
-    );
-  }
-
-  default<V extends DefaultValueInput<State>>(value: V) {
-    return new BooleanScalar(
-      updateState(this, {
-        hasDefault: true,
-        default: value,
-        optional: true,
-      }),
-      this._nativeType
-    );
-  }
-
+export class BooleanScalar<
+  State extends ScalarState<"boolean">,
+> extends listScalarChain<State> {
+  private declare readonly state: State;
+  declare readonly nullable: () => BooleanScalar<
+    UpdateState<
+      State,
+      {
+        readonly nullable: true;
+        readonly hasDefault: true;
+        readonly default: State["hasDefault"] extends true
+          ? State["default"]
+          : null;
+        readonly optional: true;
+        readonly base: BooleanSchema<
+          ComputeInput<
+            boolean,
+            {
+              nullable: true;
+              array: State["array"];
+            }
+          >,
+          ComputeOutput<
+            boolean,
+            {
+              nullable: true;
+              array: State["array"];
+            }
+          >
+        >;
+      }
+    >
+  >;
+  declare readonly array: () => BooleanScalar<
+    UpdateState<
+      State,
+      {
+        readonly array: true;
+        readonly base: BooleanSchema<
+          ComputeInput<
+            boolean,
+            {
+              nullable: State["nullable"];
+              array: true;
+            }
+          >,
+          ComputeOutput<
+            boolean,
+            {
+              nullable: State["nullable"];
+              array: true;
+            }
+          >
+        >;
+      }
+    >
+  >;
+  declare readonly default: <V extends DefaultValueInput<State>>(
+    value: V
+  ) => BooleanScalar<
+    UpdateState<
+      State,
+      {
+        readonly hasDefault: true;
+        readonly default: V;
+        readonly optional: true;
+      }
+    >
+  >;
   /**
    * Maps this scalar to a custom column name in the database
    */
-  map(columnName: string) {
-    return new BooleanScalar(
-      updateState(this, { columnName }),
-      this._nativeType
-    );
-  }
-
-  private _internal?: {
+  declare readonly map: (columnName: string) => BooleanScalar<
+    UpdateState<
+      State,
+      {
+        readonly columnName: string;
+      }
+    >
+  >;
+  declare readonly ["~"]: {
     state: State;
     nativeType: NativeTypeDeclaration | undefined;
   };
 
-  get ["~"]() {
-    return (this._internal ??= {
-      state: this.state,
-      nativeType: this._nativeType,
+  protected rebase(state: State) {
+    return v.boolean({
+      nullable: state.nullable,
+      array: state.array,
     });
   }
 }

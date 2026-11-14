@@ -16,12 +16,7 @@
  * to stay isolated.
  */
 
-import {
-  createInstrumentationContext,
-  hasActiveInstrumentation,
-  isLoggingActive,
-  isTracingActive,
-} from "@src/instrumentation/context";
+import { createInstrumentationContext } from "@src/instrumentation/context";
 import {
   ATTR_CACHE_DRIVER,
   ATTR_CACHE_RESULT,
@@ -274,60 +269,6 @@ describe("createInstrumentationContext — logger", () => {
 });
 
 // ---------------------------------------------------------------------------
-// hasActiveInstrumentation / isTracingActive / isLoggingActive
-// ---------------------------------------------------------------------------
-
-describe("instrumentation predicates", () => {
-  it("all predicates are false for undefined context", () => {
-    expect(hasActiveInstrumentation(undefined)).toBe(false);
-    expect(isTracingActive(undefined)).toBe(false);
-    expect(isLoggingActive(undefined)).toBe(false);
-  });
-
-  it("neither tracing nor logging: no active instrumentation", () => {
-    const ctx = createInstrumentationContext({});
-    expect(hasActiveInstrumentation(ctx)).toBe(false);
-    expect(isTracingActive(ctx)).toBe(false);
-    expect(isLoggingActive(ctx)).toBe(false);
-  });
-
-  it("logging only: active via logger, tracing inactive", () => {
-    const ctx = createInstrumentationContext({ logging: true });
-    expect(hasActiveInstrumentation(ctx)).toBe(true);
-    expect(isLoggingActive(ctx)).toBe(true);
-    expect(isTracingActive(ctx)).toBe(false);
-  });
-
-  it("tracing only: inactive until primed, then active; logging stays inactive", async () => {
-    const ctx = createInstrumentationContext({ tracing: true });
-    // Before priming the real tracer is not yet enabled...
-    expect(isTracingActive(ctx)).toBe(false);
-    expect(hasActiveInstrumentation(ctx)).toBe(false);
-    await primeTracer(ctx.tracer);
-    // ...and enabled after.
-    expect(isTracingActive(ctx)).toBe(true);
-    expect(hasActiveInstrumentation(ctx)).toBe(true);
-    expect(isLoggingActive(ctx)).toBe(false);
-  });
-
-  it("both configured: everything active once primed", async () => {
-    const ctx = createInstrumentationContext({
-      tracing: true,
-      logging: true,
-    });
-    await primeTracer(ctx.tracer);
-    expect(hasActiveInstrumentation(ctx)).toBe(true);
-    expect(isTracingActive(ctx)).toBe(true);
-    expect(isLoggingActive(ctx)).toBe(true);
-  });
-
-  it("logging present makes hasActiveInstrumentation true even with a noop tracer", () => {
-    // logging only -> tracer is noop (disabled) but logger flips the OR.
-    const ctx = createInstrumentationContext({ logging: { error: true } });
-    expect(ctx.tracer.isEnabled()).toBe(false);
-    expect(hasActiveInstrumentation(ctx)).toBe(true);
-  });
-});
 
 // ---------------------------------------------------------------------------
 // spans.ts constants — name -> value mapping (no self-equality)

@@ -6,14 +6,16 @@ import {
 } from "@schema/json-null";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { JsonValue } from "@validation";
-import type { JsonInput } from "@validation/primitives/json";
+import type { JsonInput, JsonSchema } from "@validation/primitives/json";
 import v from "@validation/primitives/v";
+import type { ComputeInput, ComputeOutput } from "@validation/types";
 import {
   createDefaultState,
   type DefaultValue,
   type DefaultValueInput,
-  nullableDefault,
   type ScalarState,
+  scalarChain,
+  type UpdateState,
   updateState,
 } from "../common";
 import { admitNativeType } from "../native-catalog";
@@ -28,31 +30,56 @@ const jsonBase = v.json();
 
 export class JsonScalar<
   State extends ScalarState<"json"> = ScalarState<"json">,
-> {
-  private readonly state: State;
-  private readonly _nativeType?: NativeTypeDeclaration | undefined;
-  constructor(state: State, _nativeType?: NativeTypeDeclaration) {
-    this.state = state;
-    this._nativeType = _nativeType;
-  }
+> extends scalarChain<State> {
+  private declare readonly state: State;
+  private declare readonly _nativeType: NativeTypeDeclaration | undefined;
+  declare readonly nullable: () => JsonScalar<
+    UpdateState<
+      State,
+      {
+        readonly nullable: true;
+        readonly hasDefault: true;
+        readonly default: State["hasDefault"] extends true
+          ? State["default"]
+          : null;
+        readonly optional: true;
+        readonly base: JsonSchema<
+          ComputeInput<
+            JsonInput,
+            {
+              nullable: true;
+              schema: State["schema"];
+            }
+          >,
+          ComputeOutput<
+            JsonValue,
+            {
+              nullable: true;
+              schema: State["schema"];
+            }
+          >
+        >;
+      }
+    >
+  >;
+  declare readonly map: (columnName: string) => JsonScalar<
+    UpdateState<
+      State,
+      {
+        readonly columnName: string;
+      }
+    >
+  >;
+  declare readonly ["~"]: {
+    state: State;
+    nativeType: NativeTypeDeclaration | undefined;
+  };
 
-  nullable() {
-    return new JsonScalar(
-      updateState(this, {
-        nullable: true,
-        hasDefault: true,
-        default: nullableDefault(this.state),
-        optional: true,
-        base: v.json<{
-          nullable: true;
-          schema: State["schema"];
-        }>({
-          nullable: true,
-          schema: this.state.schema,
-        }),
-      }),
-      this._nativeType
-    );
+  protected rebase(state: State) {
+    return v.json({
+      nullable: state.nullable,
+      schema: state.schema,
+    });
   }
 
   default<
@@ -102,17 +129,6 @@ export class JsonScalar<
       }),
       this._nativeType
     );
-  }
-
-  map(columnName: string) {
-    return new JsonScalar(updateState(this, { columnName }), this._nativeType);
-  }
-
-  get ["~"]() {
-    return {
-      state: this.state,
-      nativeType: this._nativeType,
-    };
   }
 }
 

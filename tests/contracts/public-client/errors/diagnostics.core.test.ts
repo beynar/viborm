@@ -22,7 +22,6 @@ import {
 import {
   boundTrustedString,
   createSafeRecord,
-  defineHidden,
   defineSafe,
   filterSafeErrorProperty,
   freezeDiagnosticValue,
@@ -656,7 +655,6 @@ describe("coverage low value", () => {
   it("keeps owned diagnostic writes total if a target rejects them", () => {
     const frozen = Object.freeze({});
     expect(() => defineSafe(frozen, "visible", true)).not.toThrow();
-    expect(() => defineHidden(frozen, Symbol("hidden"), true)).not.toThrow();
     expect(frozen).toEqual({});
 
     const safe = createSafeRecord();

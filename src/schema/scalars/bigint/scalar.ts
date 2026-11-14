@@ -1,13 +1,17 @@
 // BigInt Scalar
-// Standalone scalar class with State generic pattern
+// The modifiers every scalar shares are implemented once, in the chain this
+// class extends; the class types them for this scalar's own state
 
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type { BigIntSchema } from "@validation/primitives/bigint";
 import v from "@validation/primitives/v";
+import type { ComputeInput, ComputeOutput } from "@validation/types";
 import {
   createDefaultState,
   type DefaultValueInput,
-  nullableDefault,
+  keyedScalarChain,
   type ScalarState,
+  type UpdateState,
   updateState,
 } from "../common";
 import { admitNativeType } from "../native-catalog";
@@ -20,98 +24,144 @@ import type {
 
 const bigIntBase = v.bigint();
 
-export class BigIntScalar<State extends ScalarState<"bigint">> {
-  private readonly state: State;
-  private readonly _nativeType?: NativeTypeDeclaration | undefined;
+export class BigIntScalar<
+  State extends ScalarState<"bigint">,
+> extends keyedScalarChain<State> {
+  private declare readonly state: State;
+  private declare readonly _nativeType: NativeTypeDeclaration | undefined;
+  declare readonly nullable: () => BigIntScalar<
+    UpdateState<
+      State,
+      {
+        readonly nullable: true;
+        readonly hasDefault: true;
+        readonly default: State["hasDefault"] extends true
+          ? State["default"]
+          : null;
+        readonly optional: true;
+        readonly base: BigIntSchema<
+          ComputeInput<
+            bigint,
+            {
+              nullable: true;
+              array: State["array"];
+              schema: State["schema"];
+            }
+          >,
+          ComputeOutput<
+            bigint,
+            {
+              nullable: true;
+              array: State["array"];
+              schema: State["schema"];
+            }
+          >
+        >;
+      }
+    >
+  >;
+  declare readonly array: () => BigIntScalar<
+    UpdateState<
+      State,
+      {
+        readonly array: true;
+        readonly base: BigIntSchema<
+          ComputeInput<
+            bigint,
+            {
+              nullable: State["nullable"];
+              array: true;
+              schema: State["schema"];
+            }
+          >,
+          ComputeOutput<
+            bigint,
+            {
+              nullable: State["nullable"];
+              array: true;
+              schema: State["schema"];
+            }
+          >
+        >;
+      }
+    >
+  >;
+  declare readonly id: () => BigIntScalar<
+    UpdateState<
+      State,
+      {
+        readonly isId: true;
+        readonly isUnique: true;
+      }
+    >
+  >;
+  declare readonly unique: () => BigIntScalar<
+    UpdateState<
+      State,
+      {
+        readonly isUnique: true;
+      }
+    >
+  >;
+  declare readonly default: <V extends DefaultValueInput<State>>(
+    value: V
+  ) => BigIntScalar<
+    UpdateState<
+      State,
+      {
+        readonly hasDefault: true;
+        readonly default: V;
+        readonly optional: true;
+      }
+    >
+  >;
+  declare readonly schema: <S extends StandardSchemaV1<bigint>>(
+    schema: S
+  ) => BigIntScalar<
+    UpdateState<
+      State,
+      {
+        readonly schema: S;
+        readonly base: BigIntSchema<
+          ComputeInput<
+            bigint,
+            {
+              nullable: State["nullable"];
+              array: State["array"];
+              schema: S;
+            }
+          >,
+          ComputeOutput<
+            bigint,
+            {
+              nullable: State["nullable"];
+              array: State["array"];
+              schema: S;
+            }
+          >
+        >;
+      }
+    >
+  >;
+  declare readonly map: (columnName: string) => BigIntScalar<
+    UpdateState<
+      State,
+      {
+        readonly columnName: string;
+      }
+    >
+  >;
+  declare readonly ["~"]: {
+    state: State;
+    nativeType: NativeTypeDeclaration | undefined;
+  };
 
-  constructor(state: State, _nativeType?: NativeTypeDeclaration) {
-    this.state = state;
-    this._nativeType = _nativeType;
-  }
-
-  nullable() {
-    return new BigIntScalar(
-      updateState(this, {
-        nullable: true,
-        hasDefault: true,
-        default: nullableDefault(this.state),
-        optional: true,
-        base: v.bigint<{
-          nullable: true;
-          array: State["array"];
-          schema: State["schema"];
-        }>({
-          nullable: true,
-          array: this.state.array,
-          schema: this.state.schema,
-        }),
-      }),
-      this._nativeType
-    );
-  }
-
-  array() {
-    return new BigIntScalar(
-      updateState(this, {
-        array: true,
-        base: v.bigint<{
-          nullable: State["nullable"];
-          array: true;
-          schema: State["schema"];
-        }>({
-          nullable: this.state.nullable,
-          array: true,
-          schema: this.state.schema,
-        }),
-      }),
-      this._nativeType
-    );
-  }
-
-  id() {
-    return new BigIntScalar(
-      updateState(this, { isId: true, isUnique: true }),
-      this._nativeType
-    );
-  }
-
-  unique() {
-    return new BigIntScalar(
-      updateState(this, { isUnique: true }),
-      this._nativeType
-    );
-  }
-
-  default<V extends DefaultValueInput<State>>(value: V) {
-    return new BigIntScalar(
-      updateState(this, { hasDefault: true, default: value, optional: true }),
-      this._nativeType
-    );
-  }
-
-  schema<S extends StandardSchemaV1<bigint>>(schema: S) {
-    return new BigIntScalar(
-      updateState(this, {
-        schema,
-        base: v.bigint<{
-          nullable: State["nullable"];
-          array: State["array"];
-          schema: S;
-        }>({
-          nullable: this.state.nullable,
-          array: this.state.array,
-          schema,
-        }),
-      }),
-      this._nativeType
-    );
-  }
-
-  map(columnName: string) {
-    return new BigIntScalar(
-      updateState(this, { columnName }),
-      this._nativeType
-    );
+  protected rebase(state: State) {
+    return v.bigint({
+      nullable: state.nullable,
+      array: state.array,
+      schema: state.schema,
+    });
   }
 
   increment() {
@@ -125,13 +175,6 @@ export class BigIntScalar<State extends ScalarState<"bigint">> {
       }),
       this._nativeType
     );
-  }
-
-  get ["~"]() {
-    return {
-      state: this.state,
-      nativeType: this._nativeType,
-    };
   }
 }
 

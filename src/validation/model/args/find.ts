@@ -77,72 +77,10 @@ export const getFindUniqueArgs = <
 };
 
 /**
- * FindFirst args: { where?, orderBy?, take?, skip?, cursor?, select?, include?, distinct? }
- */
-export type FindFirstArgs<
-  M extends AnyModel,
-  F extends ScalarSchemas<M>,
-> = V.Object<
-  {
-    where: CoreSchemas<M, F>["where"];
-    orderBy: V.Union<
-      readonly [
-        CoreSchemas<M, F>["orderBy"],
-        V.Array<CoreSchemas<M, F>["orderBy"]>,
-      ]
-    >;
-    take: PaginationTakeSchema;
-    skip: PaginationSkipSchema;
-    cursor: CoreSchemas<M, F>["whereUnique"];
-    select: CoreSchemas<M, F>["select"];
-    include: CoreSchemas<M, F>["include"];
-    omit: OmitSchema<M>;
-    distinct: DistinctSchema<M>;
-  },
-  { optional: true }
->;
-
-export const getFindFirstArgs = <
-  M extends AnyModel,
-  F extends ScalarSchemas<M>,
->(
-  model: M,
-  core: CoreSchemas<M, F>
-): FindFirstArgs<M, F> => {
-  return withOmitProjection(
-    rejectSelectInclude(
-      v.object(
-        {
-          where: v.lazyRef(() => core.where),
-          orderBy: v.lazyRef(() =>
-            v.union([core.orderBy, v.array(core.orderBy)])
-          ),
-          take: paginationTake(),
-          skip: paginationSkip(),
-          cursor: v.lazyRef(() => core.whereUnique),
-          select: v.lazyRef(() => core.select),
-          include: v.lazyRef(() => core.include),
-          omit: v.lazyRef(() => core.omit),
-          // Prisma has distinct on findFirst too; it compiles through the same
-          // findMany-with-limit path (ReadOperation), so nothing else changes.
-          distinct: v.lazyRef(() => getDistinctSchema(model)),
-        },
-        {
-          optional: true,
-        }
-      )
-    ),
-    model,
-    "findFirst"
-  );
-};
-
-// =============================================================================
-// FIND MANY ARGS
-// =============================================================================
-
-/**
- * FindMany args: { where?, orderBy?, take?, skip?, cursor?, select?, include?, distinct? }
+ * FindFirst and FindMany args: { where?, orderBy?, take?, skip?, cursor?,
+ * select?, include?, distinct? }. Prisma has distinct on findFirst too; it
+ * compiles through the same findMany-with-limit path (ReadOperation), so the two
+ * operations take one schema and differ only in the name a refusal carries.
  */
 export type FindManyArgs<
   M extends AnyModel,
@@ -166,30 +104,40 @@ export type FindManyArgs<
   },
   { optional: true }
 >;
-export const getFindManyArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
-  model: M,
-  core: CoreSchemas<M, F>
-): FindManyArgs<M, F> => {
-  return withOmitProjection(
-    rejectSelectInclude(
-      v.object(
-        {
-          where: v.lazyRef(() => core.where),
-          orderBy: v.lazyRef(() =>
-            v.union([core.orderBy, v.array(core.orderBy)])
-          ),
-          take: paginationTake(),
-          skip: paginationSkip(),
-          cursor: v.lazyRef(() => core.whereUnique),
-          select: v.lazyRef(() => core.select),
-          include: v.lazyRef(() => core.include),
-          omit: v.lazyRef(() => core.omit),
-          distinct: v.lazyRef(() => getDistinctSchema(model)),
-        },
-        { optional: true }
-      )
-    ),
-    model,
-    "findMany"
-  );
-};
+
+export type FindFirstArgs<
+  M extends AnyModel,
+  F extends ScalarSchemas<M>,
+> = FindManyArgs<M, F>;
+
+const getFindArgs =
+  (operation: "findFirst" | "findMany") =>
+  <M extends AnyModel, F extends ScalarSchemas<M>>(
+    model: M,
+    core: CoreSchemas<M, F>
+  ): FindManyArgs<M, F> =>
+    withOmitProjection(
+      rejectSelectInclude(
+        v.object(
+          {
+            where: v.lazyRef(() => core.where),
+            orderBy: v.lazyRef(() =>
+              v.union([core.orderBy, v.array(core.orderBy)])
+            ),
+            take: paginationTake(),
+            skip: paginationSkip(),
+            cursor: v.lazyRef(() => core.whereUnique),
+            select: v.lazyRef(() => core.select),
+            include: v.lazyRef(() => core.include),
+            omit: v.lazyRef(() => core.omit),
+            distinct: v.lazyRef(() => getDistinctSchema(model)),
+          },
+          { optional: true }
+        )
+      ),
+      model,
+      operation
+    );
+
+export const getFindFirstArgs = getFindArgs("findFirst");
+export const getFindManyArgs = getFindArgs("findMany");
