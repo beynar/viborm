@@ -291,7 +291,7 @@ function checkModes(application: Application): void {
  * admits it then ({@link verbsPart}). Once every part has checked what it
  * reads, so a refusal names the member at fault, whichever part it is.
  */
-export function admitFilters(application: Application): void {
+function admitFilters(application: Application): void {
   const { definition, schema, registry } = application;
   const { rows } = definition;
   if (
