@@ -405,21 +405,17 @@ export type StampedFieldNames<Data, ModelName> =
 // PLACEMENT: where each declared control is accepted
 // =============================================================================
 
-/** Where a control goes when its declaration names a placement. */
-const PLACEMENTS: Readonly<
-  Record<"reads" | "writes" | "all", ReadonlySet<string>>
-> = {
-  reads: new Set([...ROUTED_OPERATIONS].filter(isReadOperation)),
-  writes: new Set([...ROUTED_OPERATIONS].filter(isWriteOperation)),
-  all: ROUTED_OPERATIONS,
-};
-
-/** Every operation that selects candidates: where a `rows` control goes. */
-const CANDIDATE_OPERATIONS: ReadonlySet<string> = new Set(
-  [...ROUTED_OPERATIONS].filter(
-    (operation) => operation !== "create" && operation !== "createMany"
-  )
-);
+/**
+ * Every operation that selects candidates: where a `rows` control goes. Made
+ * where it is used, never at module level, where a bundle would keep it for
+ * every importer of this file.
+ */
+const candidateOperations = (): ReadonlySet<string> =>
+  new Set(
+    [...ROUTED_OPERATIONS].filter(
+      (operation) => operation !== "create" && operation !== "createMany"
+    )
+  );
 
 /** Where a `deletion.removeWhen` control goes, on the models it manages. */
 const DELETE_OPERATIONS: ReadonlySet<string> = new Set([
@@ -501,16 +497,23 @@ export function placeControls(
       name: rows.control,
       extension,
       declaration: Object.freeze({ oneOf: Object.freeze(rowsModes(rows)) }),
-      operations: CANDIDATE_OPERATIONS,
+      operations: candidateOperations(),
       fallback: rows.default,
     });
   }
   return placed;
 }
 
+/** Where a control goes: every operation, reads, writes, or those it names. */
 function placementOf(on: ControlDeclaration["on"]): ReadonlySet<string> {
-  if (on === undefined) return ROUTED_OPERATIONS;
-  return typeof on === "string" ? PLACEMENTS[on] : new Set<string>(on);
+  if (on === undefined || on === "all") return ROUTED_OPERATIONS;
+  return new Set<string>(
+    typeof on === "string"
+      ? [...ROUTED_OPERATIONS].filter(
+          on === "reads" ? isReadOperation : isWriteOperation
+        )
+      : on
+  );
 }
 
 /**
@@ -806,7 +809,9 @@ function controlFailure(
   });
 }
 
-const NO_CONTROLS: readonly ResolvedControl[] = Object.freeze([]);
+const NO_CONTROLS: readonly ResolvedControl[] = /* @__PURE__ */ Object.freeze(
+  []
+);
 
 /**
  * The chain's controls with one definition's added, indexed by operation for
@@ -859,6 +864,7 @@ function appendControls(
     names,
     all,
     placed,
+    owned: controlsOwnedBy,
     admit: (
       model: string,
       placement: string,

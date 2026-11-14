@@ -7,12 +7,14 @@
 import { ClientInitializationError } from "@errors";
 import type { AnyTarget, Extension, Facts } from "@extensions/contract";
 import { buildDefaults, omitted } from "@extensions/defaults";
-import { extension } from "@extensions/extension";
+import { builtPart, extension } from "@extensions/extension";
 import { omitPart } from "./default-omit-identity";
 import type { ClientOmitConfig, ExactClientOmitConfig } from "./omit";
 import type { ClientSchema } from "./schema-links";
 
 const NAME = "viborm.defaultOmit";
+const DUPLICATE =
+  " A chain applies defaultOmit() once: give it every field to leave out, or omit fields from another extension with defaults({ model: { fields: { field: omitted } } }); the omissions of different extensions add up per model.";
 
 type NoMethods = Record<never, never>;
 
@@ -49,5 +51,13 @@ export function defaultOmit(
     }
     entries[model] = { fields: own };
   }
-  return extension(NAME, buildDefaults(entries, [omitPart]));
+  return extension(
+    NAME,
+    buildDefaults(entries, [omitPart]),
+    // Its name is fixed and a name is unique in a chain: a second
+    // application is refused, and its refusal says what adds up instead.
+    builtPart([], (draft) => {
+      draft.duplicate = DUPLICATE;
+    })
+  );
 }

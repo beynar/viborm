@@ -23,8 +23,14 @@ The configuration is typed against the client it is applied to. Model and
 scalar names are checked exactly, and omitted entries must use the literal
 value `true`. It is the `defaults` part's
 [`omitted`](/docs/extensions/create#default-omission-omitted) word: an
-extension of your own can omit fields the same way. Several `defaultOmit()`
-on one chain add up per model.
+extension of your own can omit fields the same way.
+
+A chain applies `defaultOmit()` once: its name is fixed and an extension's name
+is unique in a chain, so a second `defaultOmit()` is refused. Give the one
+application every field to leave out. The omissions of different extensions
+add up per model: an extension of your own that omits a field with
+`defaults({ model: { fields: { field: omitted } } })` adds it to the fields
+`defaultOmit()` leaves out.
 
 ## Results and overrides
 

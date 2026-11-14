@@ -104,12 +104,12 @@ function appendWith(
     next,
     owner: { name },
     schema,
-    ...(registry === undefined ? {} : { registry }),
+    registry,
   };
   for (const part of parts) part.admit?.(application);
   if (chain?.extensions.some((extension) => extension.name === name)) {
     extensionError(
-      `Extension "${name}" is already present on this client.`,
+      `Extension "${name}" is already present on this client.${definition.duplicate ?? ""}`,
       name
     );
   }

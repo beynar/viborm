@@ -32,12 +32,11 @@ export function assertOfficialExtensionAdmission(options: {
 
 /**
  * An official extension's member that is its identity rather than a handler
- * (default omit's `request`, the cache's `query`) leaves the definition the
- * other parts read.
+ * (the cache's `query`) leaves the definition the other parts read.
  */
 export function withoutIdentity(
   definition: RuntimeExtensionDefinition,
-  member: "request" | "query"
+  member: "query"
 ): RuntimeExtensionDefinition {
   const { [member]: _identity, ...ordinaryDefinition } = definition;
   return Object.freeze(ordinaryDefinition);

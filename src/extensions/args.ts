@@ -12,12 +12,15 @@ import { controlsPart } from "./controls";
 import { type ArgSpec, builtPart, type DefinitionDraft } from "./extension";
 import { operationsOf } from "./on";
 
-/** What each declaration `oneOf`, `accepts` and `bound` made reads as. */
-const specs = new WeakMap<object, ArgSpec>();
+/** A declaration `oneOf`, `accepts` or `bound` made: what it reads as. */
+interface Declared {
+  readonly spec: ArgSpec;
+}
 
 /** A declaration with its modifiers, each returning a new one. */
-function declared(spec: ArgSpec): object {
-  const value = Object.freeze({
+function declared(spec: ArgSpec): Declared {
+  return Object.freeze({
+    spec,
     default: (fallback: string | number | boolean) =>
       declared({ ...spec, default: fallback }),
     on: (operations: unknown) =>
@@ -27,8 +30,6 @@ function declared(spec: ArgSpec): object {
       declared({ ...spec, required: models ?? true }),
     volatile: () => declared({ ...spec, uncacheable: true }),
   });
-  specs.set(value, spec);
-  return value;
 }
 
 /** An argument whose value is one of `values`. */
@@ -61,11 +62,14 @@ export function bound(schema: StandardSchemaV1): unknown {
 const isSchema = (value: object): value is StandardSchemaV1 =>
   "~standard" in value;
 
+/** Whether `value` is a declaration: its `spec` is one only a builder writes. */
+const isDeclared = (value: object): value is Declared =>
+  "spec" in value && typeof value.spec === "object" && value.spec !== null;
+
 function specOf(name: string, value: unknown): ArgSpec {
   if (typeof value === "object" && value !== null) {
-    const spec = specs.get(value);
-    if (spec !== undefined) return spec;
     if (isSchema(value)) return { schema: value };
+    if (isDeclared(value)) return value.spec;
   }
   throw new TypeError(
     `Argument "${name}" is declared with oneOf(...), accepts(schema), bound(schema) or a Standard Schema`

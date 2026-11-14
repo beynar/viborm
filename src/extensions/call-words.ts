@@ -10,14 +10,15 @@ import { REGISTER } from "./watch-part";
 
 /**
  * A registration nothing would tell is refused, never dropped: only the
- * first moment of `around`, or of a `call` on a set that brings what tells
- * the watches, registers one.
+ * first moment of a model call, in a `call` or an `around` on a set that
+ * brings what tells the watches (`target(writes)`, `target(deletes)`),
+ * registers one.
  */
 function registerOn(c: object, watching: object): void {
   const register = REGISTER in c ? c[REGISTER] : undefined;
   if (typeof register !== "function" || register(watching) !== true)
     throw new TypeError(
-      "watch() and settled() take the first moment of around(), or of a call on target(writes) or target(deletes), of a model call"
+      "watch() and settled() take the first moment of a call or an around on target(writes) or target(deletes), of a model call"
     );
 }
 
