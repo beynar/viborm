@@ -1,13 +1,15 @@
 import { QueryError } from "@errors";
 import type { ResolvedExtensionHandler } from "@extensions/chain";
 import {
+  observeDriverLifecycle,
+  observeOperation,
+  observeStatement,
+} from "@extensions/host-slot";
+import {
   getTrustedProtectedObserverCapability,
   type LifecycleUnit,
   type ObservationCompletion,
   type ObserveHandler,
-  observeDriverLifecycle,
-  observeOperation,
-  observeStatement,
   prewarmProtectedObservers,
   registerTrustedProtectedObserver,
   runProtectedObservers,

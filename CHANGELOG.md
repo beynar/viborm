@@ -5,11 +5,43 @@ Versioning.
 
 ## Unreleased
 
+The write half of the engine is rewritten, for SQL and for SurrealDB. An
+application without extensions is smaller, a nested write sends fewer
+statements, and a many-row write on a batch-only driver is all-or-nothing when
+it fits one batch.
+
 VibORM now reads and writes Microsoft SQL Server, and reads an existing SQL
 Server schema into a schema document.
 
 ### Added
 
+- **`written`, a new extension capability.** A definition is asked once per
+  write call and can return a watch: which rows it wants (`wants`), the whole
+  rows the call wrote, nested writes included (`rows`), then the commit
+  (`settled`). `viborm/on` is now built on it and has no private channel into
+  the client. See "Receive the rows a write wrote with `written`" in the
+  extension guide.
+- **`computed()`, `stored()` and `joined()`: values a write computes.** A value
+  computed when the statement is written, a field kept as stored, and an
+  `updateMany` value each row reads from a joined table. `viborm/ordering` used
+  private forms of them; they are now exported from `viborm` for any caller.
+- **`db.<model>.$sql`.** The model's table, columns and bound values as the
+  client's statements spell them, and `visible()`, the rows a call may see as a
+  condition, for a fragment you write by hand.
+- **`getRowKey(model)`.** A model's primary key fields in constraint order,
+  and the compound key's name. `viborm/client` also exports the type
+  `NoExtraOperationKeys`.
+- **`observes`, beside `observe`.** One extension per client declares the facts
+  its observer needs (statement text, parameters, driver identity, cache
+  outcomes) and receives them as a third argument. `viborm/instrumentation` is
+  built on it and no longer registers a private identity.
+- **`retry`, `route` and `transaction`: three points where an extension decides
+  how a call is sent.** Make a failed call again when nothing of it was
+  written, send a read outside a transaction to another driver (a read
+  replica), and run statements first in every transaction (`SET LOCAL` for row
+  level security).
+- **Several `on()` on one client.** Each runs its own hooks, in the order they
+  were applied. A second `on()` was refused before.
 - **`viborm/mssql`, a SQL Server driver** (the `mssql` package, tedious), for
   SQL Server 2022 and later and Azure SQL. Queries, nested writes and
   transactions run on it (savepoints are `SAVE TRANSACTION`, the isolation
@@ -70,11 +102,93 @@ Server schema into a schema document.
   INSERT` trigger on SQL Server) fails with a `QueryEngineError` that names
   the cause and what works there.
 
+### Changed
+
+- **An application that applies no extension no longer carries the code that
+  runs extensions**: about 12 kB gzip less in a PostgreSQL application.
+  `defineExtension()`, the new `defineHooks()` (the same without the code that
+  reads `rows`, `data`, `deletion` and `order`), every official extension and
+  the new `enableExtensions()` bring it. **Breaking for one case**: a bare
+  object literal passed to `$extends` in a program that calls none of them is
+  refused with a `ClientInitializationError` that says so. Build it with
+  `defineHooks()` or `defineExtension()`, or call `enableExtensions()` once.
+- **`viborm/ordering` on SurrealDB brings its own SurrealQL.** The driver no
+  longer holds code for it: it writes a `joined()` value from the list the
+  extension gives it.
+- **The name `viborm.instrumentation` is no longer reserved.** A copy of the
+  extension under another name is refused only where the client already
+  carries one that declares `observes`.
+- **The name `viborm.on` is no longer reserved.** `on()` is an extension like
+  any other.
+- **Nested writes send fewer statements.** A write reads what it needs
+  together, then sends its writes as one unit. No call that succeeds sends more
+  statements or more round trips than before. The SQL of a write may differ.
+- **Many-row writes with relations on batch-only drivers (D1, neon-http) are
+  all-or-nothing** when the call fits one atomic batch. They ran one batch per
+  row before, and a failure could leave earlier rows written. A call past the
+  batch limits still runs in several batches and reports its progress
+  (`RecordSeriesProgress`).
+- **A row found and then changed by another session makes the call run
+  again** where it used to fail with `NestedWriteError` ("replaced by another
+  transaction"). On a driver with transactions the call runs again once, in a
+  new transaction. On a batch-only driver it plans again up to three times,
+  then fails with `NotFoundError`.
+- **SurrealDB: a write that needs no answer between its statements is one
+  request**, a transaction of its own. Only `create` was sent so before. A
+  request of several statements that fails runs again, one statement per
+  request, so that the error is the failing statement's own. `logging.query`
+  reports such a request once, under the call's model; a `statement` hook still
+  sees each statement.
+- **SurrealDB: changing a record's key reads the rows first**, under the
+  call's own filters and permissions, then moves them.
+- **A refused produced row on a batch-only driver reports its own error**
+  (`ForbiddenError`) where it reported the generic batch failure.
+- **`$transaction([...])` on a batch-only driver accepts more calls**: a write
+  whose answer reads a relation now fits the batch. A member that would need a
+  read between two statements is still refused with `TransactionError`.
+- **Two of the three to-one compositions the documentation listed as refused
+  run** (`delete` then `connect`, with or without `update`, where the child
+  holds the key). `delete` then `connect` where the parent holds the key is
+  still refused.
+- **A `default()` function is called once per written row, before any read.**
+  A nested `updateMany` called it once more than it wrote rows.
+- **Every statement of a call is attributed to the operation the caller
+  asked for** and to the model the statement touches. A nested create under
+  `post.createMany` was attributed to `create`.
+- **Changing a key that a row with a restricting `onUpdate` references fails
+  with the database's own foreign-key error.** Nothing is written in either
+  case; the error used to be a `NestedWriteError` raised before the write.
+- **Two `deleteMany` on the same junction relation in one call run in order**
+  where they were refused.
+
 ### Fixed
 
 - **A statement over the bind budget inside a transaction** on better-sqlite3
   was numbered with merged values its transport reads as names, and failed as
   a raw `QueryError`; it is refused as it is outside one.
+- **A soft delete in an interactive transaction locks its row before its
+  referential check** also where the row is named by its key and its
+  statement cannot hand it back (SQL Server; on PostgreSQL, a projection
+  with a read-gated field, a variant slot or a recursive relation). A create
+  connecting the row between the check and the tombstone could leave a live
+  child under it.
+
+### Upgrade notes
+
+- **Extension authors: build every definition with `defineExtension()`.** A
+  plain object that declares `rows`, `data`, `deletion` or `order` and was not
+  passed to `defineExtension()` is refused by `$extends()` with
+  `ClientInitializationError`. The code that reads these declarations is now
+  brought by `defineExtension()` and by the official extensions, so a client
+  without them does not carry it. See
+  [Create an extension](https://viborm.dev/docs/extensions/create).
+- **Tests that count statements or assert exact SQL of a write** need new
+  expectations. Assert the rows a call returns and the rows it leaves.
+- **Code that caught `NestedWriteError` for a concurrent change** now sees the
+  call succeed after it planned again, or `NotFoundError` when it kept losing
+  the race.
+- **On D1 and neon-http, do not rely on partial progress** of a many-row write
+  with relations that fits one batch: nothing is left when it fails.
 
 ### Not supported on SQL Server
 

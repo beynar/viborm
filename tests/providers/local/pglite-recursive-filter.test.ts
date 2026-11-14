@@ -9,8 +9,12 @@
  */
 
 import { PGliteDriver } from "@drivers/pglite";
+import { withRows } from "@extensions/rows-runtime";
 import { runRecursiveRelationFilterBehavior } from "@tests/contracts/engine/query/recursive-relation-filter-behavior";
 import { createInMemoryPGliteDriver } from "@tests/fixtures/drivers/pglite";
+
+// These definitions are stated as plain objects: what reads their rows is brought here.
+withRows();
 
 describe("PGlite Driver", () => {
   runRecursiveRelationFilterBehavior({

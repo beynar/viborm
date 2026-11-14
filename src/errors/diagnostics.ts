@@ -1,13 +1,11 @@
 import {
   boundTrustedString,
   createSafeRecord,
-  defineHidden,
   defineSafe,
   filterSafeErrorProperty,
   freezeDiagnosticValue,
   getNestedCause,
   isArrayValue,
-  isError,
   isRecord,
   MAX_DIAGNOSTIC_ARRAY_LENGTH,
   MAX_DIAGNOSTIC_ENTRIES,
@@ -226,10 +224,10 @@ const REDACTED_ERROR_MESSAGE = "Error details redacted";
 const CIRCULAR_VALUE = "[Circular]";
 const TRUNCATED_VALUE = TRUNCATED_DIAGNOSTIC_VALUE;
 const UNREADABLE_VALUE = UNREADABLE_DIAGNOSTIC_VALUE;
-const TRUSTED_ERROR_SNAPSHOT = Symbol("viborm.trustedErrorSnapshot");
-const TRUSTED_RECORD_SERIES_PROGRESS = Symbol(
-  "viborm.trustedRecordSeriesProgress"
-);
+// What the package itself recorded of an error, held apart from the error: no
+// object can carry, inherit or forge an entry, so a reader takes it as it is.
+const TRUSTED_SNAPSHOTS = new WeakMap<object, TrustedErrorSnapshot>();
+const TRUSTED_RECORD_SERIES_PROGRESS = new WeakMap<object, unknown>();
 
 export function resolveDiagnosticDisclosure(
   disclosure?: DiagnosticDisclosure
@@ -332,7 +330,8 @@ export function registerTrustedError(
         }
       : {}),
   });
-  defineHidden(error, TRUSTED_ERROR_SNAPSHOT, trusted);
+  // The first registration stands: a later one never replaces it.
+  if (!TRUSTED_SNAPSHOTS.has(error)) TRUSTED_SNAPSHOTS.set(error, trusted);
 }
 
 export function serializeTrustedError(
@@ -370,18 +369,15 @@ export function registerTrustedRecordSeriesProgress(
   error: Error,
   progress: RecordSeriesProgress
 ): void {
-  defineHidden(
-    error,
-    TRUSTED_RECORD_SERIES_PROGRESS,
-    freezeDiagnosticValue(progress)
-  );
+  if (!TRUSTED_RECORD_SERIES_PROGRESS.has(error))
+    TRUSTED_RECORD_SERIES_PROGRESS.set(error, freezeDiagnosticValue(progress));
 }
 
 export function getTrustedRecordSeriesProgress(
   error: Error
 ): RecordSeriesProgress | undefined {
   return sanitizeRecordSeriesProgress(
-    safeRead(error, TRUSTED_RECORD_SERIES_PROGRESS)
+    TRUSTED_RECORD_SERIES_PROGRESS.get(error)
   );
 }
 
@@ -765,7 +761,7 @@ function sanitizeError(
       value: () => serializeTrustedError(sanitized),
     });
     const progress = sanitizeRecordSeriesProgress(
-      safeRead(error, TRUSTED_RECORD_SERIES_PROGRESS)
+      TRUSTED_RECORD_SERIES_PROGRESS.get(error)
     );
     if (progress) registerTrustedRecordSeriesProgress(sanitized, progress);
   }
@@ -864,7 +860,7 @@ function trustedMetaWithRecordSeriesProgress(
 ): Record<string, unknown> {
   const meta = sanitizeErrorMetadata(snapshot.meta, snapshot.disclosure);
   const progress = sanitizeRecordSeriesProgress(
-    safeRead(error, TRUSTED_RECORD_SERIES_PROGRESS)
+    TRUSTED_RECORD_SERIES_PROGRESS.get(error)
   );
   if (progress) defineSafe(meta, "recordSeriesProgress", progress);
   return meta;
@@ -886,53 +882,7 @@ function sanitizeStringArray(value: unknown): string[] | undefined {
 function getTrustedErrorSnapshot(
   error: Error
 ): TrustedErrorSnapshot | undefined {
-  const snapshot = safeRead(error, TRUSTED_ERROR_SNAPSHOT);
-  if (!isRecord(snapshot)) return undefined;
-  const cause = safeRead(snapshot, "cause");
-  const code = safeRead(snapshot, "code");
-  const disclosure = safeRead(snapshot, "disclosure");
-  const message = safeRead(snapshot, "message");
-  const meta = safeRead(snapshot, "meta");
-  const name = safeRead(snapshot, "name");
-  const prismaCode = sanitizeTrustedPrismaCode(
-    safeRead(snapshot, "prismaCode")
-  );
-  const timestamp = safeRead(snapshot, "timestamp");
-  const validation = ownValue(snapshot, "validation");
-  if (
-    (cause !== undefined && !isError(cause)) ||
-    typeof code !== "string" ||
-    !isResolvedDisclosure(disclosure) ||
-    typeof message !== "string" ||
-    !isRecord(meta) ||
-    typeof name !== "string" ||
-    typeof timestamp !== "string"
-  ) {
-    return undefined;
-  }
-  return {
-    cause,
-    code,
-    disclosure,
-    message,
-    meta,
-    name,
-    prismaCode,
-    timestamp,
-    ...(isRecord(validation) ? { validation } : {}),
-  };
-}
-
-function isResolvedDisclosure(
-  value: unknown
-): value is ResolvedDiagnosticDisclosure {
-  return (
-    isRecord(value) &&
-    typeof value.includeSql === "boolean" &&
-    typeof value.includeParams === "boolean" &&
-    typeof value.includeProviderDetails === "boolean" &&
-    typeof value.includeCallsite === "boolean"
-  );
+  return TRUSTED_SNAPSHOTS.get(error);
 }
 
 function serializeError(

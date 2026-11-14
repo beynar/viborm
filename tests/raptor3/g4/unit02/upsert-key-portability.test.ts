@@ -249,23 +249,21 @@ describe("G4-02 — a relation-bearing upsert update DOES carry it", () => {
     ]);
   });
 
-  it("refuses ahead of a conditional that would skip, identically on both seams", async () => {
-    // Shipped order: found-arm legality runs BEFORE conditional skip/update
-    // selection, so an unmatched `targetWhere` does not hide the refusal.
+  it("asks nothing of an update arm a condition keeps from running", async () => {
+    // The key's rule is asked where the update arm runs. The engine that is
+    // gone asked it before the condition; an arm that writes nothing has
+    // nothing to refuse.
     const outcome = await bothEngines("owner", "g4u2u_owners", {
       where: { id: 6 },
       create: { id: 6, label: "o" },
       targetWhere: { label: "absent" },
       update: { id: { multiply: 2 }, notes: { create: [{ id: 1 }] } },
     });
-    assert.equal(
-      outcome.answer,
-      "UnsupportedOperationError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value."
-    );
+    assert.equal(outcome.answer, 'ok:{"id":6,"label":"o"}');
   });
 });
 
-describe("G4-02 — the THIRD owner the deleted engine had: the key transition at analysis", () => {
+describe("G4-02 — one rule for a key's update, where the deleted engine had three owners", () => {
   it("refuses divide-by-zero beside a relation write at input admission", async () => {
     const outcome = await bothEngines("intOwner", "g4u2u_int_owners", {
       where: { id: 6 },
@@ -338,14 +336,10 @@ describe("G4-02 — the THIRD owner the deleted engine had: the key transition a
     );
   });
 
-  it("R-D2 (c) PARITY: answers the transition's OWN sentence for an upsert with relations", async () => {
-    // R-D2 (c), decided by Arnaud on 2026-09-15: `set` beside an operator
-    // reverts to the shipped refusals. This shape has its own sentence, from
-    // this same analysis-time owner (`mutation-identity.ts:187`, reached from
-    // the `UpsertOperation` constructor), because the post-transition key value
-    // is what cannot be computed — so it is refused BEFORE either arm, and no
-    // row is written. The `update`/`updateMany` arity sentence is in
-    // `key-arithmetic.test.ts`; both belong to the one family.
+  it("R-D2 (c): `set` beside an operator answers the key's one sentence on the row found", async () => {
+    // The engine that is gone refused this shape before either arm, with a
+    // sentence of its own. A key takes exactly one operation: one rule, asked
+    // where the update arm runs.
     const args = {
       where: { id: 6 },
       create: { id: 6, label: "o" },
@@ -354,32 +348,26 @@ describe("G4-02 — the THIRD owner the deleted engine had: the key transition a
     const outcome = await bothEngines("owner", "g4u2u_owners", args);
     assert.equal(
       outcome.answer,
-      "UnsupportedOperationError: Cannot determine the updated primary key for model 'owner' because field 'id' uses an unsupported operation."
+      "UnsupportedOperationError: Primary key field 'id' accepts exactly one update operation; received set, multiply."
     );
     assert.deepEqual(outcome.rows, [{ id: 6, label: "o" }]);
   });
 
-  it("R-D2 (c) refuses the SAME way on a missing row, and writes nothing", async () => {
-    // The owner is the transition, not the found arm: an absent row is refused
-    // too, and the `create` arm never runs — the half of the placement that a
-    // found-arm-only refusal would get wrong.
+  it("R-D2 (c): a missing row is created, whatever the update arm would have written", async () => {
     const args = {
       where: { id: 99 },
       create: { id: 99, label: "fresh" },
       update: { id: { set: 8, multiply: 2 }, notes: { create: [{ id: 7 }] } },
     };
     const outcome = await bothEngines("owner", "g4u2u_owners", args);
-    assert.equal(
-      outcome.answer,
-      "UnsupportedOperationError: Cannot determine the updated primary key for model 'owner' because field 'id' uses an unsupported operation."
-    );
-    assert.deepEqual(outcome.rows, [{ id: 6, label: "o" }]);
+    assert.equal(outcome.answer, 'ok:{"id":99,"label":"fresh"}');
+    assert.deepEqual(outcome.rows, [
+      { id: 6, label: "o" },
+      { id: 99, label: "fresh" },
+    ]);
   });
 
-  it("R-D2 (c) answers the ARITY sentence where no transition is built", async () => {
-    // A PARENT-held relation beside the same payload builds no referenced-key
-    // transition, so the third owner never runs and the found arm's validator
-    // answers — the `update`/`updateMany` sentence, on both engines.
+  it("R-D2 (c) answers the same sentence beside a relation the row itself holds", async () => {
     const args = {
       where: { id: 4 },
       create: { id: 4 },

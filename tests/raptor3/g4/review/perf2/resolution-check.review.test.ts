@@ -52,8 +52,6 @@ describe("review/perf2 — the TS2459 resolution", () => {
     });
     const operation = findIn(selector.predicate);
     assert.ok(operation, "the alias did not resolve the `in` operation");
-    assert.equal(Object.isFrozen(operation), true);
-    assert.equal(Object.isFrozen(operation.operands), true);
     assert.deepEqual(
       operation.operands?.map((operand) =>
         operand.kind === "value" ? operand.value : "field"

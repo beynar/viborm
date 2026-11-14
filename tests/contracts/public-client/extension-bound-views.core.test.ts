@@ -8,6 +8,7 @@
  */
 
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
+import { withRows } from "@extensions/rows-runtime";
 import { createClient, s } from "@src/index";
 import { v } from "@src/validation";
 import { runBoundViewsBehavior } from "@tests/contracts/public-client/extension-bound-views-behavior";
@@ -15,6 +16,9 @@ import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { describe, expect, test } from "vitest";
+
+// These definitions are stated as plain objects: what reads their rows is brought here.
+withRows();
 
 runBoundViewsBehavior({
   name: "SQLite3",

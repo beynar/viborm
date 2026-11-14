@@ -1,9 +1,12 @@
 // String Scalar
-// Standalone scalar class with State generic pattern
+// The modifiers every scalar shares are implemented once, in the chain this
+// class extends; the class types them for this scalar's own state
 
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { hasIdPrefix, refuseId } from "@validation/primitives/id-formats";
+import type { StringSchema } from "@validation/primitives/string";
 import v from "@validation/primitives/v";
+import type { ComputeInput, ComputeOutput } from "@validation/types";
 import {
   type AutoGenerate,
   createDefaultState,
@@ -11,7 +14,7 @@ import {
   type GeneratorDefaultBrand,
   generatorDefault,
   isGeneratorDefault,
-  nullableDefault,
+  keyedScalarChain,
   refuseListGenerator,
   type ScalarState,
   type UpdateState,
@@ -140,34 +143,112 @@ function identifierGenerator(declaration: AutoGenerate): () => string {
 
 const stringBase = v.string();
 
-export class StringScalar<State extends ScalarState<"string">> {
-  private readonly state: State;
-  private readonly _nativeType?: NativeTypeDeclaration | undefined;
+export class StringScalar<
+  State extends ScalarState<"string">,
+> extends keyedScalarChain<State> {
+  private declare readonly state: State;
+  private declare readonly _nativeType: NativeTypeDeclaration | undefined;
+  declare readonly nullable: () => StringScalar<
+    UpdateState<
+      State,
+      {
+        readonly nullable: true;
+        readonly hasDefault: true;
+        readonly default: State["hasDefault"] extends true
+          ? State["default"]
+          : null;
+        readonly optional: true;
+        readonly base: StringSchema<
+          ComputeInput<
+            string,
+            {
+              nullable: true;
+              array: State["array"];
+              schema: State["schema"];
+            }
+          >,
+          ComputeOutput<
+            string,
+            {
+              nullable: true;
+              array: State["array"];
+              schema: State["schema"];
+            }
+          >
+        >;
+      }
+    >
+  >;
+  declare readonly unique: () => StringScalar<
+    UpdateState<
+      State,
+      {
+        readonly isUnique: true;
+      }
+    >
+  >;
+  declare readonly default: <V extends DefaultValueInput<State>>(
+    value: V
+  ) => StringScalar<
+    UpdateState<
+      State,
+      {
+        readonly hasDefault: true;
+        readonly default: V;
+        readonly optional: true;
+      }
+    >
+  >;
+  declare readonly schema: <S extends StandardSchemaV1<string>>(
+    schema: S
+  ) => StringScalar<
+    UpdateState<
+      State,
+      {
+        readonly schema: S;
+        readonly base: StringSchema<
+          ComputeInput<
+            string,
+            {
+              nullable: State["nullable"];
+              array: State["array"];
+              schema: S;
+            }
+          >,
+          ComputeOutput<
+            string,
+            {
+              nullable: State["nullable"];
+              array: State["array"];
+              schema: S;
+            }
+          >
+        >;
+      }
+    >
+  >;
+  /**
+   * Maps this scalar to a custom column name in the database
+   */
+  declare readonly map: (columnName: string) => StringScalar<
+    UpdateState<
+      State,
+      {
+        readonly columnName: string;
+      }
+    >
+  >;
+  declare readonly ["~"]: {
+    state: State;
+    nativeType: NativeTypeDeclaration | undefined;
+  };
 
-  constructor(state: State, _nativeType?: NativeTypeDeclaration) {
-    this.state = state;
-    this._nativeType = _nativeType;
-  }
-
-  nullable() {
-    return new StringScalar(
-      updateState(this, {
-        nullable: true,
-        hasDefault: true,
-        default: nullableDefault(this.state),
-        optional: true,
-        base: v.string<{
-          nullable: true;
-          array: State["array"];
-          schema: State["schema"];
-        }>({
-          nullable: true,
-          array: this.state.array,
-          schema: this.state.schema,
-        }),
-      }),
-      this._nativeType
-    );
+  protected rebase(state: State) {
+    return v.string({
+      nullable: state.nullable,
+      array: state.array,
+      schema: state.schema,
+    });
   }
 
   array() {
@@ -201,54 +282,6 @@ export class StringScalar<State extends ScalarState<"string">> {
       ? { ...declared, generate: generate ?? declared.generate }
       : { kind: "ulid", prefix, implicit: true, generate };
     return this.withIdentifier(declaration, true);
-  }
-
-  unique() {
-    return new StringScalar(
-      updateState(this, {
-        isUnique: true,
-      }),
-      this._nativeType
-    );
-  }
-
-  default<V extends DefaultValueInput<State>>(value: V) {
-    return new StringScalar(
-      updateState(this, {
-        hasDefault: true,
-        default: value,
-        optional: true,
-      }),
-      this._nativeType
-    );
-  }
-
-  schema<S extends StandardSchemaV1<string>>(schema: S) {
-    return new StringScalar(
-      updateState(this, {
-        schema,
-        base: v.string<{
-          nullable: State["nullable"];
-          array: State["array"];
-          schema: S;
-        }>({
-          nullable: this.state.nullable,
-          array: this.state.array,
-          schema,
-        }),
-      }),
-      this._nativeType
-    );
-  }
-
-  /**
-   * Maps this scalar to a custom column name in the database
-   */
-  map(columnName: string) {
-    return new StringScalar(
-      updateState(this, { columnName }),
-      this._nativeType
-    );
   }
 
   uuid<const Given extends string | FormatOptions | undefined = undefined>(
@@ -341,18 +374,6 @@ export class StringScalar<State extends ScalarState<"string">> {
       }),
       this._nativeType
     );
-  }
-
-  private _internal?: {
-    state: State;
-    nativeType: NativeTypeDeclaration | undefined;
-  };
-
-  get ["~"]() {
-    return (this._internal ??= {
-      state: this.state,
-      nativeType: this._nativeType,
-    });
   }
 }
 

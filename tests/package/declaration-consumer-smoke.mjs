@@ -85,8 +85,10 @@ export async function consumer() {
 }
 `;
 
-const extensionSource = `import { createClient, s } from "viborm";
+const extensionSource = `import { createClient, enableExtensions, s } from "viborm";
 import { SQLite3Driver } from "viborm/sqlite3";
+// The literals below are written in place, typed from the client they extend.
+enableExtensions();
 const model = s.model({ id: s.string().id(), name: s.string() });
 const zero = createClient({ schema: { model }, driver: new SQLite3Driver() });
 const one = zero.$extends({ name: "chain-1", client() { return { $one: () => 1 }; } });

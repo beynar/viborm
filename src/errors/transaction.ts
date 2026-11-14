@@ -1,4 +1,5 @@
 import {
+  coded,
   VibORMError,
   VibORMErrorCode,
   type VibORMErrorMeta,
@@ -26,23 +27,10 @@ export type TransactionErrorCode =
 /**
  * Transaction errors
  */
-export class TransactionError extends VibORMError {
-  static override readonly diagnosticName = "TransactionError";
-
-  /** Discriminant: one of {@link TransactionErrorCode}, never a code outside the family. */
-  declare readonly code: TransactionErrorCode;
-
-  constructor(
-    message: string,
-    options?: VibORMErrorOptions & { code?: TransactionErrorCode | undefined }
-  ) {
-    super(
-      message,
-      options?.code ?? VibORMErrorCode.TRANSACTION_FAILED,
-      options
-    );
-  }
-}
+export class TransactionError extends coded<
+  TransactionErrorCode,
+  VibORMErrorOptions & { code?: TransactionErrorCode | undefined }
+>("TransactionError", VibORMErrorCode.TRANSACTION_FAILED, true) {}
 
 /**
  * Invalid input passed to $transaction array mode

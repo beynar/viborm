@@ -32,11 +32,10 @@ import {
   placeControls,
   snapshotControlValue,
 } from "@extensions/controls";
-import {
-  defineExtension,
-  type ExtensionDefinitionInput,
-} from "@extensions/definition";
+import { defineExtension } from "@extensions/define";
+import type { ExtensionDefinitionInput } from "@extensions/definition";
 import { bindRows, callRows } from "@extensions/rows";
+import { withRows } from "@extensions/rows-runtime";
 import { Condition, Parameter } from "@query-engine/raptor3/shared/row-scope";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { s } from "@schema";
@@ -53,6 +52,9 @@ import {
 import { failure } from "@tests/fixtures/failure";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, describe, expect, test } from "vitest";
+
+// These definitions are stated as plain objects: what reads their rows is brought here.
+withRows();
 
 const user = s.model({
   id: s.string().id(),

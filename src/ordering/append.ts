@@ -1,4 +1,3 @@
-import type { SqlQueries } from "../query-engine/raptor3/shared/sql-queries";
 // viborm/ordering appends: the key of a row created without one, after the
 // last key of its group.
 //
@@ -16,14 +15,13 @@ import type { SqlQueries } from "../query-engine/raptor3/shared/sql-queries";
 // interactively, so this read always happens there; the MySQL expression
 // below serves a driver that could not read first.
 
-import { type Sql, sql } from "@sql";
-import {
-  InsertValue,
-  type InsertValueContext,
-} from "../query-engine/raptor3/shared/insert-value";
-import type { Input } from "../query-engine/raptor3/shared/schema";
-import { spellings } from "./between";
+import { UnsupportedOperationError } from "../errors";
+import { type ComputedContext, computed } from "../index";
+import { type Sql, sql } from "../sql/sql";
+import { type Spelling, spellings } from "./between";
 import { keysAfter } from "./keys";
+
+type Input = Readonly<Record<string, unknown>>;
 
 /** One group: the indexes of its rows, and its fields' values. */
 interface Group {
@@ -61,59 +59,79 @@ function groupsOf(
 }
 
 /** The key of a row created without one: last of its group. */
-export class AppendKey extends InsertValue {
-  readonly within: readonly string[];
-  constructor(within: readonly string[]) {
-    super();
-    this.within = Object.freeze([...within]);
-  }
+export const appendKey = (within: readonly string[]): string =>
+  computed<string>((context, indexes) => appended(within, context, indexes));
 
-  /**
-   * `SELECT MAX(key) FROM table WHERE group`, null-safe, over the values
-   * that are digit strings of two digits or more: a value that is no key (a
-   * backfilled constant) is never the list's last, so an append is placed
-   * after the list's keys on every dialect and never casts a non-digit.
-   */
-  #last(context: InsertValueContext, values: readonly unknown[]): Sql {
-    const { model, field } = context;
-    const q = context.queries as SqlQueries;
-    const key = q.column(model, field);
-    const where = this.within.map((name, position) => {
+/**
+ * `SELECT MAX(key) FROM table WHERE group`, null-safe, over the values
+ * that are digit strings of two digits or more: a value that is no key (a
+ * backfilled constant) is never the list's last, so an append is placed
+ * after the list's keys on every dialect and never casts a non-digit.
+ */
+function lastOf(
+  within: readonly string[],
+  context: ComputedContext,
+  spelling: Spelling,
+  values: readonly unknown[]
+): Sql {
+  {
+    const q = context.sql;
+    const key = q.column(context.field);
+    const where = within.map((name, position) => {
       const value = values[position];
       return value === null
-        ? sql`${q.column(model, name)} IS NULL`
-        : sql`${q.column(model, name)} = ${q.fieldValue(model, name, value)}`;
+        ? sql`${q.column(name)} IS NULL`
+        : sql`${q.column(name)} = ${q.value(name, value)}`;
     });
-    where.push(spellings[context.dialect].digits(key));
-    return sql`SELECT MAX(${key}) AS k FROM ${q.table(model)} WHERE ${sql.join(where, " AND ")}`;
+    where.push(spelling.digits(key));
+    return sql`SELECT MAX(${key}) AS k FROM ${q.table()} WHERE ${sql.join(where, " AND ")}`;
   }
+}
 
-  /**
-   * The INSERT's own expression for the `step`-th appended row of a group
-   * (1-based): integer max(last, -1) + step with a random fraction, as
-   * `keysBetween(last, null, …)` computes it.
-   */
-  #expression(context: InsertValueContext, last: Sql, step: number): Sql {
-    return spellings[context.dialect].appended(
-      last,
-      sql.raw(String(step - 1)),
-      sql.raw(String(step))
-    );
-  }
+/**
+ * The INSERT's own expression for the `step`-th appended row of a group
+ * (1-based): integer max(last, -1) + step with a random fraction, as
+ * `keysBetween(last, null, …)` computes it.
+ */
+function expression(spelling: Spelling, last: Sql, step: number): Sql {
+  return spelling.appended(
+    last,
+    sql.raw(String(step - 1)),
+    sql.raw(String(step))
+  );
+}
 
-  async compute(
-    context: InsertValueContext,
-    indexes: readonly number[]
-  ): Promise<readonly unknown[]> {
-    const groups = groupsOf(this.within, context.rows, indexes);
+async function appended(
+  within: readonly string[],
+  context: ComputedContext,
+  indexes: readonly number[]
+): Promise<readonly unknown[]> {
+  {
+    const groups = groupsOf(within, context.rows, indexes);
     const keys = new Map<number, unknown>();
-    if (context.lastKey) {
+    // SurrealDB computes no key in the statement: the last key is read, in
+    // the call's unit, and the keys are computed here.
+    if (context.dialect === "surrealql") {
+      const { read } = context;
+      if (!read)
+        throw new UnsupportedOperationError(
+          "viborm/ordering on SurrealDB reads a list's last key before it appends: not in a batch."
+        );
+      const q = context.sql;
+      const key = q.column(context.field);
       for (const group of groups) {
-        const list = Object.fromEntries(
-          this.within.map((field, position) => [field, group.values[position]])
-        ) as Input;
+        const held = within.map((name, position) => {
+          const value = group.values[position];
+          return value === null
+            ? sql`${q.column(name)} = NONE`
+            : sql`${q.column(name)} = ${q.value(name, value)}`;
+        });
+        held.push(sql`string::matches(${key}, ${"^[0-9]{2,}$"})`);
+        const [last] = await read(
+          sql`SELECT ${key} AS key, id FROM ${q.table()} WHERE ${sql.join(held, " AND ")} ORDER BY key DESC LIMIT 1`
+        );
         const made = keysAfter(
-          await context.lastKey(list, context.field),
+          (last?.key as string | undefined) ?? null,
           group.at.length
         );
         for (const [step, index] of group.at.entries())
@@ -121,10 +139,11 @@ export class AppendKey extends InsertValue {
       }
       return indexes.map((index) => keys.get(index));
     }
+    const spelling = spellings[context.dialect];
     if (context.dialect === "mysql" && context.read !== undefined) {
       const reads = groups.map(
         (group, position) =>
-          sql`(${this.#last(context, group.values)}) AS ${sql.raw(`g${position}`)}`
+          sql`(${lastOf(within, context, spelling, group.values)}) AS ${sql.raw(`g${position}`)}`
       );
       const [answer] = await context.read(sql`SELECT ${sql.join(reads, ", ")}`);
       for (const [position, group] of groups.entries()) {
@@ -135,9 +154,9 @@ export class AppendKey extends InsertValue {
       }
     } else {
       for (const group of groups) {
-        const last = this.#last(context, group.values);
+        const last = lastOf(within, context, spelling, group.values);
         for (const [step, index] of group.at.entries())
-          keys.set(index, this.#expression(context, last, step + 1));
+          keys.set(index, expression(spelling, last, step + 1));
       }
     }
     return indexes.map((index) => keys.get(index));

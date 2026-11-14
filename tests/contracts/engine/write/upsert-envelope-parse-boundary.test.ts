@@ -75,7 +75,8 @@ describe("E5-U3 the upsert envelope", () => {
 
   test("a NON-OBJECT arm is refused before any I/O", async () => {
     // BASELINE, measured at 79b32ba: `UnsupportedOperationError: 'upsert.update' must
-    // be an object.`
+    // be an object.` Since 2026-11-12 an upsert is admitted by its model's own
+    // argument schema, as every verb is: it says what `create({ data: "nope" })` says.
     const error = await refusal(
       client.account.upsert({
         where: { id: "a2" },
@@ -86,16 +87,13 @@ describe("E5-U3 the upsert envelope", () => {
     expect(error.constructor.name).toBe("ValidationError");
     expect(error.prismaCode).toBe("P2009");
     expect(error.message).toBe(
-      "Validation failed for account.upsert: update: Expected object, received string"
+      "Validation failed for account.upsert: update: Expected object"
     );
     expect(error.issues?.[0]?.path).toBe("update");
     expect(await client.account.count({})).toBe(0);
   }, 120_000);
 
-  test("an ARRAY arm is refused, named as an array", async () => {
-    // The leaf's array fact, carried through the envelope: `record` says the same
-    // sentence about the same input, so the two object leaves cannot describe it two
-    // ways.
+  test("an ARRAY arm is refused as any arm that is no object", async () => {
     const error = await refusal(
       client.account.upsert({
         where: { id: "a3" },
@@ -105,7 +103,7 @@ describe("E5-U3 the upsert envelope", () => {
     );
     expect(error.constructor.name).toBe("ValidationError");
     expect(error.message).toBe(
-      "Validation failed for account.upsert: update: Expected object, received array"
+      "Validation failed for account.upsert: update: Expected object"
     );
     expect(await client.account.count({})).toBe(0);
   }, 120_000);
@@ -126,13 +124,7 @@ describe("E5-U3 the upsert envelope", () => {
     expect(await client.account.count({})).toBe(0);
   }, 120_000);
 
-  test("the arms reach the operation BY REFERENCE — the envelope transforms nothing", async () => {
-    // The property the whole move rests on, exercised end to end on both branches: the
-    // arms are re-parsed by the delegated sub-ops, so a transformed copy here would
-    // make the second parse see the first parse's output. The leaf's reference equality
-    // is asserted directly in `tests/validation/raw-record.test.ts`; this is the round
-    // trip that depends on it. The `createMany` transform this protects — the measured
-    // X2 regression — is exercised by `tests/query-engine/nested-create-many.test.ts`.
+  test("both arms run as written, on either branch", async () => {
     const created = await client.account.upsert({
       where: { id: "a5" },
       create: { id: "a5", email: "a5@x" },

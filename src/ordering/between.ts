@@ -15,7 +15,6 @@
 // between tied keys, the expression is NULL, and the move respaces the list.
 
 import type { SqlDialect } from "../drivers/types";
-import { InsertValue } from "../query-engine/raptor3/shared/insert-value";
 import { type Sql, sql } from "../sql/sql";
 import { MAX_KEY_LENGTH } from "./keys";
 
@@ -227,16 +226,4 @@ export function jitter(): string {
   const first = digits[0] ?? 5;
   const last = digits.slice(1).find((digit) => digit !== 0) ?? 5;
   return `${first}${last}`;
-}
-
-/** A value the UPDATE (or INSERT) computes: the expression, as written. */
-export class Computed extends InsertValue {
-  readonly expression: Sql;
-  constructor(expression: Sql) {
-    super();
-    this.expression = expression;
-  }
-  compute(): readonly unknown[] {
-    return [this.expression];
-  }
 }

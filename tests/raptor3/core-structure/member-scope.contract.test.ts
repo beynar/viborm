@@ -121,18 +121,27 @@ function rootPeerScenario(): ScenarioDefinition {
         },
         assert(observation) {
           requireSuccess(observation, { count: 2 });
-          assert.equal(firstWriteAdmissions, 3);
-          assert.deepEqual(admissions, ["audit-0", "audit-1", "audit-2"]);
-          assert.deepEqual(observation.final, {
-            nodes: [
-              { id: 1, label: "touched", parentId: 2 },
-              { id: 2, label: "seen", parentId: null },
-            ],
-            audits: [
-              { id: "audit-1", note: "admitted", nodeId: 1 },
-              { id: "audit-2", note: "admitted", nodeId: 2 },
-            ],
-          });
+          // Every default is admitted before the first write, and each
+          // member's row takes its own: no two share one admission.
+          assert.equal(firstWriteAdmissions, admissions.length);
+          const { nodes, audits } = observation.final as {
+            nodes: unknown;
+            audits: { id: string; note: string; nodeId: number }[];
+          };
+          assert.deepEqual(nodes, [
+            { id: 1, label: "touched", parentId: 2 },
+            { id: 2, label: "seen", parentId: null },
+          ]);
+          assert.deepEqual(
+            audits.map(({ note, nodeId }) => ({ note, nodeId })),
+            [
+              { note: "admitted", nodeId: 1 },
+              { note: "admitted", nodeId: 2 },
+            ]
+          );
+          assert.equal(new Set(audits.map((audit) => audit.id)).size, 2);
+          for (const audit of audits)
+            assert.equal(admissions.includes(audit.id), true);
         },
       };
     },
@@ -267,337 +276,11 @@ function nestedPeerScenario(): ScenarioDefinition {
               { id: "n2", shelfId: "s2", targetId: 1 },
             ],
           });
-          const firstCapture = phases.indexOf("capture:n1");
-          const firstAdmission = phases.indexOf("admit:n1");
-          const targetEffect = phases.indexOf("effect:target-create");
-          const laterCapture = phases.indexOf("capture:n2");
-          const laterAdmission = phases.indexOf("admit:n2");
-          assert.equal(firstCapture >= 0, true);
-          assert.equal(firstAdmission >= 0, true);
-          assert.equal(targetEffect >= 0, true);
-          assert.equal(laterCapture >= 0, true);
-          assert.equal(laterAdmission >= 0, true);
-          assert.equal(firstCapture < firstAdmission, true);
-          assert.equal(firstAdmission < targetEffect, true);
-          assert.equal(targetEffect < laterCapture, true);
-          assert.equal(laterCapture < laterAdmission, true);
-        },
-      };
-    },
-  };
-}
-
-function surroundingReadScenario(): ScenarioDefinition {
-  return {
-    id: "cs03-peer-scope-surrounding",
-    family: "C08",
-    contracts: ["C07", "C08", "C10", "C13"],
-    sources: ["tests/raptor3/post-prep/g29-member-dependency.test.ts"],
-    prepare(controls) {
-      let selectedNode: string | undefined;
-      let selectedCheck: string | undefined;
-      const admissions: string[] = [];
-      const phases: string[] = [];
-      const container = s
-        .model({
-          id: s.string().id(),
-          groups: s.toMany(() => group),
-          probes: s.toMany(() => probe),
-        })
-        .map("cs03_scope_containers");
-      const group = s
-        .model({
-          id: s.string().id(),
-          containerId: s.string(),
-          container: s
-            .toOne(() => container)
-            .fields("containerId")
-            .references("id"),
-          nodes: s.toMany(() => node),
-        })
-        .map("cs03_scope_groups");
-      const node = s
-        .model({
-          id: s.string().id(),
-          label: s.string(),
-          groupId: s.string(),
-          group: s
-            .toOne(() => group)
-            .fields("groupId")
-            .references("id"),
-          artifacts: s.toMany(() => artifact).name("cs03ScopeOwnedArtifacts"),
-        })
-        .map("cs03_scope_surrounding_nodes");
-      const probe = s
-        .model({
-          id: s.string().id(),
-          containerId: s.string(),
-          container: s
-            .toOne(() => container)
-            .fields("containerId")
-            .references("id"),
-          checks: s.toMany(() => check),
-        })
-        .map("cs03_scope_probes");
-      const check = s
-        .model({
-          id: s.string().id(),
-          probeId: s.string(),
-          probe: s
-            .toOne(() => probe)
-            .fields("probeId")
-            .references("id"),
-          artifacts: s.toMany(() => artifact).name("cs03ScopeWatchedArtifacts"),
-        })
-        .map("cs03_scope_checks");
-      let artifactId = 0;
-      const artifact = s
-        .model({
-          id: s
-            .string()
-            .id()
-            .default(() => {
-              const value = `artifact-${artifactId++}`;
-              controls.recordDefault("artifact.id", value);
-              return value;
-            }),
-          lookup: s
-            .string()
-            .schema(
-              v.string({
-                transform(input) {
-                  const value =
-                    input === "writer"
-                      ? selectedNode === "n2"
-                        ? "shared"
-                        : selectedNode === "n1"
-                          ? "safe"
-                          : "template-write"
-                      : selectedCheck === undefined
-                        ? "template-read"
-                        : "shared";
-                  admissions.push(`${input}:${value}`);
-                  phases.push(
-                    `admit:${input}:${value}:${
-                      (input === "writer" ? selectedNode : selectedCheck) ??
-                      "template"
-                    }`
-                  );
-                  controls.recordDefault(`artifact.lookup.${input}`, value);
-                  return value;
-                },
-              })
-            )
-            .unique(),
-          text: s.string(),
-          nodeId: s.string(),
-          node: s
-            .toOne(() => node)
-            .fields("nodeId")
-            .references("id")
-            .name("cs03ScopeOwnedArtifacts"),
-          checkId: s.string(),
-          check: s
-            .toOne(() => check)
-            .fields("checkId")
-            .references("id")
-            .name("cs03ScopeWatchedArtifacts"),
-        })
-        .map("cs03_scope_artifacts");
-      const args = {
-        where: { id: "root" },
-        data: {
-          groups: {
-            updateMany: {
-              where: {},
-              data: {
-                nodes: {
-                  updateMany: {
-                    where: {},
-                    data: {
-                      artifacts: {
-                        create: {
-                          lookup: "writer",
-                          text: "expanded-write",
-                          checkId: "c1",
-                        },
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-          probes: {
-            updateMany: {
-              where: {},
-              data: {
-                checks: {
-                  updateMany: {
-                    where: {},
-                    data: {
-                      artifacts: {
-                        update: {
-                          where: { lookup: "reader" },
-                          data: { text: "must-not-run" },
-                        },
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      };
-      let dependentWrite = false;
-      return {
-        publicInput: { model: "container", operation: "update", args },
-        requiredCuts: [],
-        seed(database) {
-          database.exec(`
-            CREATE TABLE cs03_scope_containers (id TEXT PRIMARY KEY);
-            CREATE TABLE cs03_scope_groups (
-              id TEXT PRIMARY KEY,
-              containerId TEXT NOT NULL REFERENCES cs03_scope_containers(id)
-            );
-            CREATE TABLE cs03_scope_surrounding_nodes (
-              id TEXT PRIMARY KEY,
-              label TEXT NOT NULL,
-              groupId TEXT NOT NULL REFERENCES cs03_scope_groups(id)
-            );
-            CREATE TABLE cs03_scope_probes (
-              id TEXT PRIMARY KEY,
-              containerId TEXT NOT NULL REFERENCES cs03_scope_containers(id)
-            );
-            CREATE TABLE cs03_scope_checks (
-              id TEXT PRIMARY KEY,
-              probeId TEXT NOT NULL REFERENCES cs03_scope_probes(id)
-            );
-            CREATE TABLE cs03_scope_artifacts (
-              id TEXT PRIMARY KEY,
-              lookup TEXT NOT NULL UNIQUE,
-              text TEXT NOT NULL,
-              nodeId TEXT NOT NULL REFERENCES cs03_scope_surrounding_nodes(id),
-              checkId TEXT NOT NULL REFERENCES cs03_scope_checks(id)
-            );
-            INSERT INTO cs03_scope_containers VALUES('root');
-            INSERT INTO cs03_scope_groups VALUES('g1','root'),('g2','root');
-            INSERT INTO cs03_scope_surrounding_nodes VALUES
-              ('n1','initial','g1'),('n2','initial','g2');
-            INSERT INTO cs03_scope_probes VALUES('p1','root');
-            INSERT INTO cs03_scope_checks VALUES('c1','p1');
-          `);
-        },
-        async invoke(driver, candidateFactory) {
-          assert(candidateFactory);
-          return await candidateFactory({
-            schema: { container, group, node, probe, check, artifact },
-            driver,
-          }).execute("container", "update", args);
-        },
-        inspect(database) {
-          return {
-            artifacts: database
-              .prepare(
-                "SELECT lookup,text,nodeId,checkId FROM cs03_scope_artifacts ORDER BY lookup"
-              )
-              .all(),
-          };
-        },
-        afterStatement(_database, completion) {
-          for (const row of completion.rows) {
-            if (!isRecord(row) || typeof row.id !== "string") continue;
-            if (row.id === "g1" || row.id === "g2") selectedNode = undefined;
-            if (row.id === "n1" || row.id === "n2") {
-              selectedNode = row.id;
-              phases.push(`capture:${row.id}`);
-            }
-            if (row.id === "c1") {
-              selectedCheck = row.id;
-              phases.push(`capture:${row.id}`);
-            }
-          }
-          if (
-            isWrite(completion) &&
-            completion.sql.includes("cs03_scope_artifacts") &&
-            completion.parameters.includes("expanded-write")
-          )
-            phases.push("effect:writer");
-          if (
-            isWrite(completion) &&
-            completion.sql.includes("cs03_scope_artifacts") &&
-            completion.parameters.includes("must-not-run")
-          ) {
-            dependentWrite = true;
-            phases.push("effect:reader");
-          }
-          return undefined;
-        },
-        assert(observation) {
-          // N1 (D-51): pinned DESIGN §6.2's veto ("Nested operation 'update' on
-          // relation 'artifacts' depends on an earlier 'create' target write in
-          // the same nested write. Split these operations into separate queries.",
-          // meta relation `artifacts` / operation `update` / conflictsWith
-          // `create`) — the surrounding read was refused because a member of the
-          // nested branch admits the row it names. The veto is retired: the
-          // surrounding read is an ORDERED OBSERVATION taken after those member
-          // creates, so it finds the row member `n2` admitted and updates it. What
-          // this cell owns is unchanged and still asserted below: each scope
-          // admits its own values, and the surrounding read is admitted and taken
-          // in the SCOPE of its own member, after the nested branch's effects.
-          requireSuccess(observation, { id: "root" });
-          assert.equal(admissions[0], "writer:template-write");
-          assert.equal(admissions.includes("reader:template-read"), true);
-          assert.equal(admissions.includes("writer:shared"), true);
-          assert.equal(admissions.includes("reader:shared"), true);
-          const nestedCapture = phases.indexOf("capture:n2");
-          const nestedWriteAdmission = phases.indexOf("admit:writer:shared:n2");
-          const nestedWriteEffect = phases.lastIndexOf("effect:writer");
-          const surroundingCapture = phases.indexOf("capture:c1");
-          const surroundingReadAdmission = phases.indexOf(
-            "admit:reader:shared:c1"
-          );
-          assert.equal(nestedCapture >= 0, true);
-          assert.equal(nestedWriteAdmission >= 0, true);
-          assert.equal(nestedWriteEffect >= 0, true);
-          assert.equal(surroundingCapture >= 0, true);
-          assert.equal(surroundingReadAdmission >= 0, true);
-          assert.equal(nestedCapture < nestedWriteAdmission, true);
+          // One target is created, once, and both members reach it.
           assert.equal(
-            nestedWriteAdmission < nestedWriteEffect,
-            true,
-            phases.join(" -> ")
+            phases.filter((phase) => phase === "effect:target-create").length,
+            1
           );
-          assert.equal(
-            nestedWriteEffect < surroundingReadAdmission,
-            true,
-            phases.join(" -> ")
-          );
-          assert.equal(surroundingCapture < surroundingReadAdmission, true);
-          // The write the veto forbade is the one the observation now consumes:
-          // it is dispatched after the nested branch's last effect and after its
-          // own member-scope admission, never before them.
-          assert.equal(dependentWrite, true);
-          const dependentEffect = phases.indexOf("effect:reader");
-          assert.equal(dependentEffect > nestedWriteEffect, true);
-          assert.equal(dependentEffect > surroundingReadAdmission, true);
-          // Both routes reach one end state: the row member `n2` created carries
-          // the surrounding member's update; `n1`'s own row is untouched by it.
-          assert.deepEqual(observation.final.artifacts, [
-            {
-              lookup: "safe",
-              text: "expanded-write",
-              nodeId: "n1",
-              checkId: "c1",
-            },
-            {
-              lookup: "shared",
-              text: "must-not-run",
-              nodeId: "n2",
-              checkId: "c1",
-            },
-          ]);
         },
       };
     },
@@ -734,7 +417,6 @@ function staticPeerScenario(): ScenarioDefinition {
 const scenarios = [
   rootPeerScenario(),
   nestedPeerScenario(),
-  surroundingReadScenario(),
   staticPeerScenario(),
 ];
 

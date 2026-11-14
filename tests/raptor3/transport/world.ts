@@ -240,7 +240,8 @@ function actorScript(
     const empty = actor.fault === "producer-empty";
     replies.push({
       name: `${actor.name}:producer`,
-      via: "batch",
+      // A created root whose generated value its members read is sent alone and heard first.
+      via: mode === "create" ? "execute" : "batch",
       statements: [
         {
           action: "INSERT",

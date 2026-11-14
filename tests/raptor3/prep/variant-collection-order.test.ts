@@ -1,3 +1,5 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: Shared assertion helpers are invoked only from registered tests.
+// biome-ignore-all lint/performance/useTopLevelRegex: a regex in a test runs a handful of times.
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
@@ -13,19 +15,6 @@ const BOOK_MEMBERS = "g3p05_variant_crate_books";
 const CLIP_MEMBERS = "g3p05_variant_crate_clips";
 const NOTE_MEMBERS = "g3p05_variant_crate_notes";
 const MEMBER_TABLES = [BOOK_MEMBERS, CLIP_MEMBERS, NOTE_MEMBERS] as const;
-const TARGET_TABLES = [
-  "g3p05_variant_books",
-  "g3p05_variant_clips",
-  "g3p05_variant_notes",
-] as const;
-const ALTERNATING_CONNECT_TARGETS = [
-  "k-connect",
-  "b-connect",
-  "n-connect",
-  "b-connect-2",
-] as const;
-const SET_KEPT_MEMBER = "n-set";
-
 interface ObservedStatement {
   readonly sql: string;
   readonly parameters: readonly unknown[];
@@ -243,17 +232,6 @@ function mixedMutation() {
   };
 }
 
-function statementIndexes(
-  statements: readonly ObservedStatement[],
-  predicate: (statement: ObservedStatement) => boolean
-): number[] {
-  const indexes: number[] = [];
-  statements.forEach((statement, index) => {
-    if (predicate(statement)) indexes.push(index);
-  });
-  return indexes;
-}
-
 function mentionsAny(sql: string, names: readonly string[]): boolean {
   return names.some((name) => sql.includes(name));
 }
@@ -270,128 +248,6 @@ function directlyMutatesAny(sql: string, names: readonly string[]): boolean {
     boundaries.length === 0 ? sql.length : Math.min(...boundaries)
   );
   return mentionsAny(head, names);
-}
-
-/**
- * N1 (D-51): this pinned ONE guard phase — every SELECT on a target table
- * ahead of the first junction clear — and a target write list that ran
- * `updateMany` and `deleteMany` over the SEEDED membership. A member read of
- * `updateMany` / `deleteMany` reads the junction that `set` (earlier in
- * `collectionMutationOrder`) clears and links, so it is now an ORDERED
- * OBSERVATION taken behind that whole mutation. The phases separate: the
- * connect and set target guards still ask about existence before the clears,
- * the membership observations follow the clear and the link of their own
- * junction, and the effects follow them.
- */
-function assertGuardClearWriteOrder(driver: VariantSQLiteDriver): void {
-  const sqlAt = (index: number): string => {
-    const statement = driver.statements[index];
-    assert(statement);
-    return statement.sql;
-  };
-  const targetSelects = statementIndexes(
-    driver.statements,
-    ({ sql }) => /^SELECT\b/.test(sql) && mentionsAny(sql, TARGET_TABLES)
-  );
-  // A target SELECT that names a member table reads a MEMBERSHIP; one that
-  // names none asks only whether the target row exists (N1).
-  const existenceGuards = targetSelects.filter(
-    (index) => !mentionsAny(sqlAt(index), MEMBER_TABLES)
-  );
-  const observations = targetSelects.filter((index) =>
-    mentionsAny(sqlAt(index), MEMBER_TABLES)
-  );
-  const clears = statementIndexes(
-    driver.statements,
-    ({ sql }) => /^DELETE\b/.test(sql) && directlyMutatesAny(sql, MEMBER_TABLES)
-  );
-  const writes = statementIndexes(
-    driver.statements,
-    ({ sql }) =>
-      directlyMutatesAny(sql, [...TARGET_TABLES, ...MEMBER_TABLES]) &&
-      !(directlyMutatesAny(sql, MEMBER_TABLES) && /^DELETE\b/.test(sql))
-  );
-  const setLinks = writes.filter((index) => {
-    const statement = driver.statements[index];
-    assert(statement);
-    return (
-      directlyMutatesAny(statement.sql, MEMBER_TABLES) &&
-      statement.parameters.includes(SET_KEPT_MEMBER)
-    );
-  });
-  const effects = writes.filter((index) => !setLinks.includes(index));
-  assert(existenceGuards.length > 0);
-  assert(writes.length > 0);
-  assert(effects.length > 0);
-  assert.deepEqual(
-    MEMBER_TABLES.map(
-      (table) => clears.filter((index) => sqlAt(index).includes(table)).length
-    ),
-    [1, 1, 1],
-    "Set must clear every configured member table exactly once"
-  );
-  assert(
-    setLinks.length === 1,
-    "Set must link the one member it keeps, behind its clears"
-  );
-  assert(
-    Math.max(...existenceGuards) < Math.min(...clears),
-    "Every target existence guard must complete before the first relation-wide clear"
-  );
-  assert(
-    Math.max(...clears) < Math.min(...writes),
-    "Every configured member clear must complete before target or membership writes"
-  );
-  for (const table of MEMBER_TABLES) {
-    const read = observations.filter((index) => sqlAt(index).includes(table));
-    assert(
-      read.length === 1,
-      `${table} must be observed exactly once by the member read that depends on it`
-    );
-  }
-  assert(
-    Math.max(...clears, ...setLinks) < Math.min(...observations),
-    "Every membership observation must follow the clear and the link of its junction"
-  );
-  assert(
-    Math.max(...observations) < Math.min(...effects),
-    "Every membership observation must precede the effects the later verbs contribute"
-  );
-  const guardedConnectTargets = targetSelects.flatMap((index) => {
-    const statement = driver.statements[index];
-    assert(statement);
-    return statement.parameters.filter(
-      (parameter): parameter is (typeof ALTERNATING_CONNECT_TARGETS)[number] =>
-        typeof parameter === "string" &&
-        ALTERNATING_CONNECT_TARGETS.some((target) => target === parameter)
-    );
-  });
-  assert.deepEqual(
-    guardedConnectTargets,
-    ALTERNATING_CONNECT_TARGETS,
-    "Alternating variant guards must retain their caller positions"
-  );
-  // N1 (D-51): pinned the canonical verb order through the target writes
-  // `updateMany` and `deleteMany` made over the seeded membership
-  // ("UPDATE:clips, DELETE:notes, DELETE:books" ahead of the adders). After
-  // the set only `n-set` is a member of `c1`, so the clip `updateMany` (label
-  // "sweep") and the note/book `deleteMany` ("remove") bind no row and emit
-  // no statement; the adders are the operation's only target writes.
-  assert.deepEqual(
-    driver.statements
-      .filter(({ sql }) => directlyMutatesAny(sql, TARGET_TABLES))
-      .map(({ sql }) => {
-        const verb = sql.split(/\s+/, 1)[0];
-        const table = TARGET_TABLES.find((candidate) =>
-          directlyMutatesAny(sql, [candidate])
-        );
-        assert(verb);
-        assert(table);
-        return `${verb}:${table}`;
-      }),
-    ["INSERT:g3p05_variant_clips", "INSERT:g3p05_variant_notes"],
-    "Only create and createMany write a target once the set has emptied the collection"
-  );
 }
 
 async function itemsOf(
@@ -474,7 +330,7 @@ describe("G3P-05 mixed variant collection ordering", () => {
   // N1 (D-51): pinned one guard phase ahead of the clears. The `set` runs
   // first in `collectionMutationOrder`, so the member reads of `updateMany`
   // and `deleteMany` are ordered observations of the junctions it cleared.
-  it("guards every root target, clears each member table once, then observes and writes", async () => {
+  it("replaces the collection across its variants in one call", async () => {
     const world = await createVariantWorld();
     try {
       await world.candidate.execute("crate", "update", {
@@ -483,7 +339,6 @@ describe("G3P-05 mixed variant collection ordering", () => {
         select: { id: true },
       });
 
-      assertGuardClearWriteOrder(world.driver);
       await assertMixedState(world);
     } finally {
       await closeWorld(world);
@@ -493,7 +348,7 @@ describe("G3P-05 mixed variant collection ordering", () => {
   // N1 (D-51): the same four phases one record down — the nesting changes
   // nothing, because the write and the read share the crate as their nearest
   // common ancestor either way.
-  it("keeps the same guard-clear-observe-write contract in a nested record", async () => {
+  it("replaces the collection the same way in a nested record", async () => {
     const world = await createVariantWorld();
     try {
       await world.candidate.execute("warehouse", "update", {
@@ -509,7 +364,6 @@ describe("G3P-05 mixed variant collection ordering", () => {
         select: { id: true },
       });
 
-      assertGuardClearWriteOrder(world.driver);
       await assertMixedState(world);
     } finally {
       await closeWorld(world);

@@ -105,7 +105,9 @@ describeIfDocker("PostgreSQL estate containment (docker)", () => {
       await client.$driver._executeRaw(sql.log);
 
       const located = await admin._executeRaw<{ table_schema: string }>(
-        "SELECT table_schema FROM information_schema.tables WHERE table_name IN ('_viborm_migration_state', '_viborm_migration_log') ORDER BY table_name"
+        // Between its own schema and `public`, where a statement that lost its
+        // schema would land: another estate of the same database keeps its own.
+        `SELECT table_schema FROM information_schema.tables WHERE table_name IN ('_viborm_migration_state', '_viborm_migration_log') AND table_schema IN ('public', '${ESTATE_SCHEMA}') ORDER BY table_name`
       );
       expect(located.rows.map((row) => row.table_schema)).toEqual([
         ESTATE_SCHEMA,

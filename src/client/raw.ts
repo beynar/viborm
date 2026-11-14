@@ -29,20 +29,19 @@ import {
   retainWriteOutcomeFailure,
   VibORMErrorCode,
 } from "@errors";
-import {
-  lookupPlacedControls,
-  lookupResolvedExtensionHandlers,
-  type ResolvedExtensionHandler,
-} from "@extensions/chain";
-import { admitControls } from "@extensions/controls";
-import { observeOperation } from "@extensions/observation";
+import type { ResolvedExtensionHandler } from "@extensions/chain";
 import {
   executePreparedQuery,
-  type QueryInterceptionMode,
-  type RawQueryKind,
-  type WriteOutcomeNotifications,
+  extensionHost,
+  lookupPlacedControls,
+  lookupResolvedExtensionHandlers,
+  observeOperation,
+} from "@extensions/host-slot";
+import type {
+  QueryInterceptionMode,
+  RawQueryKind,
+  WriteOutcomeNotifications,
 } from "@extensions/query";
-import { callRows } from "@extensions/rows";
 import {
   createOperationExecutionContext,
   createRawOperationInstrumentationFacts,
@@ -148,12 +147,17 @@ function settleRawRows(
   if (binding !== undefined) {
     const name = model["~"].names.ts!;
     const placed = lookupPlacedControls(chain, name, "findMany");
-    facts = callRows(
-      binding,
+    facts = binding.call(
       name,
       placed.length === 0
         ? undefined
-        : admitControls(name, "findMany", {}, placed, client.bound).controls
+        : extensionHost().admitControls(
+            name,
+            "findMany",
+            {},
+            placed,
+            client.bound
+          ).controls
     );
   }
   return engine.route.rowsOf(model, alias, facts, instant);

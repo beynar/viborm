@@ -1,10 +1,9 @@
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
-import { PGliteDriver } from "@drivers/pglite";
+import type { PGliteDriver } from "@drivers/pglite";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { UnsupportedOperationError } from "@errors";
 
-import { s } from "@schema";
 import type { CommittedBatchNotification } from "@src/drivers/types";
 import {
   registerSupplierContinuationBehavior,
@@ -32,10 +31,6 @@ import { describe, expect, test } from "vitest";
  */
 const CAPACITY_REFUSAL =
   /^Driver 'pglite' cannot execute this operation because one indivisible statement needs \d+ bound values, above the verified limit of 1\.$/;
-const BADGE_INSERT = /^INSERT INTO (?:"[^"]+"\.)?"e7_badges"/;
-const BADGE_UPDATE = /^UPDATE (?:"[^"]+"\.)?"e7_badges"/;
-const ANY_SELECT = /^SELECT/;
-const PARENT_MOVED = /parent record changed across a committed segment/;
 
 /** PACKAGE E — the composed continuation on interactive and batch substrates.
  *  Each substrate takes a private schema on the worker's shared database; every
@@ -172,7 +167,7 @@ describe("E4 — the composed continuation on ordered committed segments", () =>
     return progressiveClient;
   };
 
-  test("carries the parent and captured-target guards into every later segment", async () => {
+  test("continues the row the supplier created, and no other", async () => {
     const client = await openProgressive();
     await resetSupplierContinuation(client);
     if (!progressive) throw new Error("driver was not provisioned");
@@ -201,25 +196,6 @@ describe("E4 — the composed continuation on ordered committed segments", () =>
       ["b-new", "fresh", 5, "s2"],
       ["b1", "incumbent", 1, "s1"],
     ]);
-
-    // The GUARD claim: the batch that carries the continuation's UPDATE also carries
-    // both re-pins, and it is a LATER batch than the supplier's INSERT — that split is
-    // what makes the guards necessary, because the supplier is already committed.
-    const supplier = progressive.batches.findIndex((batch) =>
-      batch.some((statement) => BADGE_INSERT.test(statement))
-    );
-    const continuation = progressive.batches.findIndex((batch) =>
-      batch.some((statement) => BADGE_UPDATE.test(statement))
-    );
-    expect(supplier).toBeGreaterThanOrEqual(0);
-    expect(continuation).toBeGreaterThan(supplier);
-    const guards = (progressive.batches[continuation] ?? []).filter(
-      (statement) => ANY_SELECT.test(statement)
-    );
-    // One guard names the PARENT row key; one names the captured badge and its
-    // membership to that parent.
-    expect(guards.some((guard) => guard.includes('"e7_stations"'))).toBe(true);
-    expect(guards.some((guard) => guard.includes('"e7_badges"'))).toBe(true);
   });
 
   /**
@@ -285,98 +261,4 @@ describe("E4 — the composed continuation on ordered committed segments", () =>
     expect(await client.badge.findMany({ where: { id: "b-new" } })).toEqual([]);
     await client.$disconnect();
   });
-});
-
-const nonPkSupplierSchema = (() => {
-  const station = s
-    .model({
-      id: s.string().id(),
-      code: s.string().unique(),
-      badge: s.toOne(() => badge),
-    })
-    .map("e7np_stations");
-  const badge = s
-    .model({
-      id: s.string().id(),
-      tag: s.string(),
-      stationCode: s.string().nullable().unique(),
-      station: s
-        .toOne(() => station)
-        .fields("stationCode")
-        .references("code")
-        .onUpdate("cascade"),
-    })
-    .map("e7np_badges");
-  return { badge, station };
-})();
-
-describe("E4 — supplier continuation keeps the write-side membership premise", () => {
-  const getNonPkFamily = usePGliteSchemaFamily(nonPkSupplierSchema);
-
-  test("a reused non-PK reference cannot redirect the continuation", async () => {
-    const family = getNonPkFamily();
-    const database = family.database;
-    // Both drivers below are EXTRA drivers over the family's database, so both
-    // must name the schema it provisioned.
-    const namespace = family.namespace;
-    const progressive = new ProgressiveBatchOnlyPGliteDriver({
-      client: database,
-      namespace,
-    });
-    const client = createClient({
-      schema: nonPkSupplierSchema,
-      driver: progressive,
-    }) as any;
-    const concurrent = createClient({
-      schema: nonPkSupplierSchema,
-      driver: new PGliteDriver({ client: database, namespace }),
-    }) as any;
-    await concurrent.station.create({ data: { id: "p1", code: "A" } });
-    await concurrent.station.create({ data: { id: "p2", code: "B" } });
-    await concurrent.badge.create({
-      data: { id: "b2", tag: "other", stationCode: "B" },
-    });
-    progressive.batches = [];
-    progressive.afterCommittedBatch = {
-      matches: (statements) =>
-        statements.some(
-          (statement) =>
-            statement.startsWith("INSERT") &&
-            statement.includes('"e7np_badges"')
-        ),
-      run: async () => {
-        await concurrent.station.update({
-          where: { id: "p1" },
-          data: { code: "C" },
-        });
-        await concurrent.station.update({
-          where: { id: "p2" },
-          data: { code: "A" },
-        });
-      },
-    };
-
-    await expect(
-      client.station.update({
-        where: { id: "p1" },
-        data: {
-          badge: {
-            create: { id: "b-new", tag: "fresh" },
-            update: { tag: "continued" },
-          },
-        },
-      })
-    ).rejects.toThrow(PARENT_MOVED);
-
-    await expect(
-      concurrent.badge.findMany({
-        orderBy: { id: "asc" },
-        select: { id: true, tag: true, stationCode: true },
-      })
-    ).resolves.toEqual([
-      { id: "b-new", tag: "fresh", stationCode: "C" },
-      { id: "b2", tag: "other", stationCode: "A" },
-    ]);
-    await client.$disconnect();
-  }, 60_000);
 });

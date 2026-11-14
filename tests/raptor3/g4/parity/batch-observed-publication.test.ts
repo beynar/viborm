@@ -59,7 +59,6 @@ const schema = { numKey, bigKey, decKey, intKey };
 
 const UPDATE_NUM = /^UPDATE "n4_num_keys"/;
 const SELECT_NUM = /^SELECT .* FROM "n4_num_keys"/;
-const STORE = /^INSERT INTO "__viborm_batch_refs"/;
 const UPDATE_INT = /^UPDATE "n4_int_keys"/;
 const SELECT_INT = /^SELECT .* FROM "n4_int_keys"/;
 
@@ -154,12 +153,11 @@ for (const [route, make] of [
       const observation = indexOf(SELECT_NUM, write + 1);
       assert.ok(observation > write, statements().join("\n"));
       if (!batch) return;
-      // In the UPDATE's own native batch, behind it; the published row is
-      // read in the NEXT batch — D-51's succession of statements.
-      const unit = groups().findIndex((group) =>
-        group.some((sql) => UPDATE_NUM.test(sql))
-      );
-      const group = groups()[unit]!;
+      // In the UPDATE's own native batch, behind it: the unit that moves the
+      // key reads the row under the key it will have.
+      const group = groups().find((each) =>
+        each.some((sql) => UPDATE_NUM.test(sql))
+      )!;
       const written = group.findIndex((sql) => UPDATE_NUM.test(sql));
       assert.ok(
         group.findIndex(
@@ -167,17 +165,9 @@ for (const [route, make] of [
         ) > written,
         group.join("\n")
       );
-      assert.ok(
-        groups()
-          .slice(unit + 1)
-          .some((later) => later.some((sql) => SELECT_NUM.test(sql))),
-        groups()
-          .map((later) => later.join("\n"))
-          .join("\n--\n")
-      );
     });
 
-    it("an INT key still travels through the scratch", async () => {
+    it("an INT key is read behind the write that moves it", async () => {
       const client = await world();
       assert.deepEqual(
         await client.intKey.upsert({
@@ -187,16 +177,11 @@ for (const [route, make] of [
         }),
         { id: 7, label: "a" }
       );
-      if (!batch) return;
-      // The scratch's whole point: the value travels as an expression, so no
-      // read of the row sits between the scratch store and the UPDATE — the
-      // first read of the table after the store is the published row, behind
-      // the write.
-      const store = indexOf(STORE);
-      const write = indexOf(UPDATE_INT, store + 1);
-      assert.ok(store >= 0 && write > store, statements().join("\n"));
+      // The published row is read after the write, under its new key.
+      const write = indexOf(UPDATE_INT);
+      assert.ok(write >= 0, statements().join("\n"));
       assert.ok(
-        indexOf(SELECT_INT, store + 1) > write,
+        indexOf(SELECT_INT, write + 1) > write,
         statements().join("\n")
       );
     });

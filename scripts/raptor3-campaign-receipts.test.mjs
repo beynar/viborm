@@ -1100,9 +1100,11 @@ test("G4 fixed modes admit their exact contract without filters", () => {
     (sum, count) => sum + count,
     0
   );
+  // 63 since the recursive-fit cells joined the family (3 cells); the pin had
+  // stayed at 62 and failed on 1.14.0 too.
   assert.equal(
     total,
-    62,
+    63,
     "The fixed C01/C12 read family lost or gained a witness cell"
   );
   // The G4-01 evidence landed from that unit's worktree. Its two registered
@@ -1114,9 +1116,10 @@ test("G4 fixed modes admit their exact contract without filters", () => {
   // at its baseline and re-froze it here.
   const sum = (counts) =>
     Object.values(counts).reduce((carried, count) => carried + count, 0);
+  // 85 since `g4/unit01/variants.test.ts` counts its four cells.
   assert.equal(
     sum(G4_UNIT01_AUTHOR_COUNTS),
-    84,
+    85,
     "The landed G4-01 author checks lost or gained a cell"
   );
   // 200 until C-01 retired the two cells that pinned the deleted engine's

@@ -9,7 +9,7 @@ import {
   type PrepareOperationInput,
   type PrepareWriteOutcomeRegistration,
 } from "./pending-operation";
-import type { ClientOperationRoute } from "./raptor3/route/client-route";
+import type { CommandEngine } from "./raptor3/commands";
 import type { Operation, PrepareOptions } from "./types";
 
 /** Client-scoped owner of query infrastructure and operation creation. */
@@ -36,11 +36,11 @@ export class QueryEngine {
    * registry, and `bind()` forwards it, so every engine of a lineage shares it
    * by identity and no engine has two.
    */
-  readonly route: ClientOperationRoute;
+  readonly route: CommandEngine;
 
   constructor(
     driver: AnyDriver,
-    route: ClientOperationRoute,
+    route: CommandEngine,
     clientId = Symbol("viborm.client"),
     scopeId = Symbol("viborm.scope"),
     extensionChain?: ResolvedExtensionChain,

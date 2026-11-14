@@ -88,10 +88,9 @@ export const missingLookupScenario: ScenarioDefinition = {
           insert: { id: 44, title: "Missing" },
         },
       },
-      requiredCuts: [
-        "missing-target-peer-inserted",
-        "missing-target-reobserved",
-      ],
+      // How the row that came since is found again is the engine's: a
+      // second lookup, or the key the create arm is written under.
+      requiredCuts: ["missing-target-peer-inserted"],
       seed(database) {
         database.exec(`
           CREATE TABLE g25_timing_shelves(id INTEGER PRIMARY KEY,label TEXT NOT NULL);
@@ -149,10 +148,10 @@ export const missingLookupScenario: ScenarioDefinition = {
           "A missing pre-effect observation must not freeze the create arm"
         );
         assert.deepEqual(observation.defaults, []);
-        assert.deepEqual(observation.reachedCuts, [
-          "missing-target-peer-inserted",
-          "missing-target-reobserved",
-        ]);
+        assert.equal(
+          observation.reachedCuts[0],
+          "missing-target-peer-inserted"
+        );
         assert.deepEqual(observation.outcome, {
           kind: "success",
           value: { id: 1, label: "selected" },

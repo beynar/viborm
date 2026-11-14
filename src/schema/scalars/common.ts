@@ -6,6 +6,7 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { InferInput, VibSchema } from "@validation";
 import type { DecimalDescriptor } from "@validation/primitives/decimal-codec";
 import type { Scalar } from "./base";
+import type { NativeTypeDeclaration } from "./native-types";
 
 // =============================================================================
 // SCHEMA NAMES (hydrated by client at initialization)
@@ -351,3 +352,131 @@ export {
   shorthandFilter,
   shorthandUpdate,
 } from "@validation/primitives/shorthand";
+
+// =============================================================================
+// THE CHAIN EVERY SCALAR SHARES
+// =============================================================================
+
+/** The scalar a modifier answers: this one's state with what the modifier changes. */
+export const next = (
+  scalar: ScalarChain,
+  update: Partial<ScalarState>,
+  rebuilt = false
+) => {
+  const state = { ...scalar.state, ...update };
+  // The base validator follows from the state: no modifier builds it itself.
+  if (rebuilt) state.base = scalar.rebase(state);
+  // The scalar a modifier answers is of the class that says how its base is
+  // built, whatever the receiver is an instance of: a subclass's constructor
+  // is not asked to carry a state it may not take.
+  let concrete = Object.getPrototypeOf(scalar);
+  while (!Object.hasOwn(concrete, "rebase"))
+    concrete = Object.getPrototypeOf(concrete);
+  return new concrete.constructor(state, scalar._nativeType);
+};
+
+/**
+ * The modifiers every scalar has, written once. Each scalar class types them
+ * for its own state and says how its base validator is built from a state.
+ */
+abstract class ScalarChain {
+  readonly state: ScalarState;
+  readonly _nativeType?: NativeTypeDeclaration | undefined;
+  #internal?: {
+    state: ScalarState;
+    nativeType: NativeTypeDeclaration | undefined;
+  };
+
+  constructor(state: ScalarState, _nativeType?: NativeTypeDeclaration) {
+    this.state = state;
+    this._nativeType = _nativeType;
+  }
+  abstract rebase(state: ScalarState): VibSchema;
+  nullable() {
+    return next(
+      this,
+      {
+        nullable: true,
+        hasDefault: true,
+        default: nullableDefault(this.state),
+        optional: true,
+      },
+      true
+    );
+  }
+  default(value: unknown) {
+    return next(this, { hasDefault: true, default: value, optional: true });
+  }
+  map(columnName: string) {
+    return next(this, { columnName });
+  }
+  get ["~"]() {
+    return (this.#internal ??= {
+      state: this.state,
+      nativeType: this._nativeType,
+    });
+  }
+}
+
+/** The chain of a scalar that can be a list. */
+abstract class ListScalarChain extends ScalarChain {
+  array() {
+    return next(this, { array: true }, true);
+  }
+}
+
+/** The chain of a scalar that can be a key and can carry a custom schema. */
+export abstract class KeyedScalarChain extends ListScalarChain {
+  id() {
+    return next(this, { isId: true, isUnique: true });
+  }
+  unique() {
+    return next(this, { isUnique: true });
+  }
+  schema(schema: StandardSchemaV1<any, any>) {
+    return next(this, { schema }, true);
+  }
+}
+
+/**
+ * A chain as a scalar class extends it. The class types the members for its
+ * own state; what it inherits here is one type for every scalar and state,
+ * so a schema's fields cost a consumer's compiler nothing more.
+ */
+export declare abstract class TypedScalarChain {
+  /** The base validator of a scalar in this state. */
+  protected abstract rebase(state: any): VibSchema;
+}
+type Chain = abstract new <State>(
+  state: State,
+  nativeType?: NativeTypeDeclaration
+) => TypedScalarChain;
+/**
+ * The list chain with its members left untyped, for a class that types them
+ * as methods of its own and hands their work back with `super`.
+ */
+export declare abstract class UntypedScalarChain extends TypedScalarChain {
+  nullable(): unknown;
+  array(): unknown;
+  default(value: unknown): unknown;
+  map(columnName: string): unknown;
+}
+export const untypedListScalarChain =
+  ListScalarChain as unknown as abstract new <State>(
+    state: State,
+    nativeType?: NativeTypeDeclaration
+  ) => UntypedScalarChain;
+/** The keyed chain, untyped in the same way. */
+export declare abstract class UntypedKeyedScalarChain extends UntypedScalarChain {
+  id(): unknown;
+  unique(): unknown;
+  schema(schema: StandardSchemaV1<any, any>): unknown;
+}
+export const untypedKeyedScalarChain =
+  KeyedScalarChain as unknown as abstract new <State>(
+    state: State,
+    nativeType?: NativeTypeDeclaration
+  ) => UntypedKeyedScalarChain;
+export const scalarChain = ScalarChain as unknown as Chain;
+export const listScalarChain = ListScalarChain as unknown as Chain;
+export const keyedScalarChain = KeyedScalarChain as unknown as Chain;

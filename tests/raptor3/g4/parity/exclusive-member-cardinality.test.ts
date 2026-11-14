@@ -263,7 +263,7 @@ for (const [route, make] of [
       );
     });
 
-    it("an enclosing parent's own SET is durable on the batch route when the refusal fires, and rolled back on the live one", async () => {
+    it("an enclosing parent's own SET is not written when the refusal fires, on either route", async () => {
       const client = await world();
       assert.equal(
         await answer(
@@ -288,17 +288,11 @@ for (const [route, make] of [
         ),
         junctionHeld("connect", "items")
       );
-      // The refusal is stated where the observed count is FIRST KNOWN — the
-      // capture that reads it — and a capture FLUSHES: on the batch route that
-      // flush has already committed the enclosing parent's own segment, so the
-      // parent's SET stands and no refusal can take it back. The two routes
-      // answer with the SAME sentence and differ only in what is committed
-      // behind it (D-51's succession of segments); the live route holds one
-      // transaction and rolls the SET back. Neither route writes anything of
-      // the member the refusal names.
+      // The call is one unit on both routes: a refusal leaves nothing of it,
+      // the enclosing parent's own SET included.
       assert.equal(
         (await client.warehouse.findUnique({ where: { id: "w1" } }))?.tag,
-        route === "live" ? "before" : "must-not-write"
+        "before"
       );
       assert.deepEqual(await state(client), UNTOUCHED);
     });

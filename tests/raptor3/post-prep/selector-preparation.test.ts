@@ -3,7 +3,6 @@ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import type { QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { QueryEngineError } from "@errors";
-import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
 import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import { s } from "@schema";
@@ -23,8 +22,6 @@ const COLUMN_GREATER = /"([^"]+)"\."left_value"\s*>\s*"\1"\."right_value"/;
 const COLUMN_EQUAL = /"([^"]+)"\."left_value"\s*=\s*"\1"\."right_value"/;
 const FOREIGN_COLUMN =
   /Field reference 'other\.right' cannot be used while filtering 'row': a field reference may only compare columns of the same model\./;
-const STATEMENT_VERB = /^\w+/;
-
 function selectorSchema() {
   const tenant = s
     .model({
@@ -52,17 +49,6 @@ function selectorSchema() {
     })
     .map("post_g3_selector_others");
   return { tenant, row, other };
-}
-
-function conditionalUpsertSchema() {
-  const account = s
-    .model({
-      id: s.int().id(),
-      email: s.string().unique(),
-      count: s.int(),
-    })
-    .map("post_g3_selector_upserts");
-  return { account };
 }
 
 class SelectorRecordingSQLiteDriver extends SQLite3Driver {
@@ -188,11 +174,10 @@ describe("post-G3 selector preparation", () => {
       new SQLiteAdapter()
     );
     const prepared = queries.prepareSelector(schema.row, { id: 1 });
-    const identity = queries.identitySelector(schema.row, { id: 1 });
     const excluded = queries.excludeIdentities(schema.row, [{ id: 1 }]);
     const included = queries.includeIdentities(schema.row, [{ id: 1 }]);
     const conjoined = queries.andSelectors(schema.row, [prepared, included]);
-    const scopes = [prepared, identity, excluded, included, conjoined];
+    const scopes = [prepared, excluded, included, conjoined];
 
     for (const [index, selector] of scopes.entries()) {
       for (const other of scopes.slice(index + 1)) {
@@ -204,32 +189,69 @@ describe("post-G3 selector preparation", () => {
     }
 
     prepared.facts.fields.add("leaked");
-    assert.equal(identity.facts.fields.has("leaked"), false);
+    assert.equal(excluded.facts.fields.has("leaked"), false);
 
-    const firstRelation = queries.prepareSelector(schema.row, {
+    const related = queries.prepareSelector(schema.row, {
       tenant: { is: { id: "t1" } },
-    }).facts.reads[0];
-    const secondRelation = queries.prepareSelector(schema.row, {
-      tenant: { is: { id: "t1" } },
-    }).facts.reads[0];
-    assert(firstRelation);
-    assert(secondRelation);
-    assert.notEqual(firstRelation.fields, secondRelation.fields);
-    assert.notEqual(firstRelation.equals, secondRelation.equals);
-    firstRelation.fields.add("leaked");
-    assert.equal(secondRelation.fields.has("leaked"), false);
+    }).facts.reads;
+    related.add("leaked");
+    assert.equal(
+      queries
+        .prepareSelector(schema.row, { tenant: { is: { id: "t1" } } })
+        .facts.reads.has("leaked"),
+      false
+    );
+  });
+
+  it("pins nothing by a captured set of several rows, nor by the rows it leaves out", () => {
+    const pair = s
+      .model({ a: s.string(), b: s.string() })
+      .id(["a", "b"])
+      .map("post_g3_selector_pairs");
+    const queries = new SqlQueries(
+      new EngineSchema({ pair }),
+      new SQLiteAdapter()
+    );
+    const one = [{ a: "1", b: "x" }];
+    const two = [...one, { a: "2", b: "y" }];
+    // One row: every row the selector takes holds its key.
+    assert.deepEqual(
+      [...queries.includeIdentities(pair, one).facts.equals],
+      [
+        ["a", "1"],
+        ["b", "x"],
+      ]
+    );
+    // Several rows, or the rows left out: no value every taken row holds.
+    assert.deepEqual(
+      [...queries.includeIdentities(pair, two).facts.equals],
+      []
+    );
+    assert.deepEqual(
+      [...queries.excludeIdentities(pair, one).facts.equals],
+      []
+    );
+    assert.deepEqual(
+      [...queries.excludeIdentities(pair, two).facts.equals],
+      []
+    );
+    assert.deepEqual(
+      [...queries.excludeIdentities(pair, two).facts.fields].sort(),
+      ["a", "b"]
+    );
   });
 
   it("prepares mixed compound and relation facts without SQL or alias allocation", () => {
     const schema = selectorSchema();
     const adapter = new SQLiteAdapter();
-    const queries = new SqlQueries(new EngineSchema(schema), adapter);
     const refs = createModelFieldRefs("row", schema.row);
     const column = vi.spyOn(adapter.identifiers, "column");
     const conjunction = vi.spyOn(adapter.operators, "and");
     const equality = vi.spyOn(adapter.operators, "eq");
     const comparison = vi.spyOn(adapter.operators, "gt");
     const existence = vi.spyOn(adapter.subqueries, "existsCheck");
+    // The owner holds the adapter's spellings from its start: watched first.
+    const queries = new SqlQueries(new EngineSchema(schema), adapter);
 
     assert.equal(queries.alias(), "q0");
     const prepared = queries.prepareSelector(schema.row, {
@@ -249,7 +271,6 @@ describe("post-G3 selector preparation", () => {
     assert.equal(comparison.mock.calls.length, 0);
     assert.equal(existence.mock.calls.length, 0);
     assert.equal(queries.alias(), "q1");
-    assert.equal(queries.selectorFacts(prepared), prepared.facts);
     assert.equal(prepared.uniqueKey, undefined);
     assert.deepEqual(exactCompound.uniqueKey, {
       kind: "compoundUnique",
@@ -259,14 +280,7 @@ describe("post-G3 selector preparation", () => {
     assert.deepEqual([...prepared.facts.fields], ["tenantId", "left"]);
     assert.deepEqual([...prepared.facts.equals], [["tenantId", "t1"]]);
     assert.equal(prepared.facts.exact, false);
-    assert.equal(prepared.facts.reads.length, 1);
-    const relationRead = prepared.facts.reads[0];
-    assert(relationRead);
-    assert.equal(relationRead.model, schema.tenant);
-    assert.equal(relationRead.path.length, 1);
-    assert.deepEqual([...relationRead.fields], ["id"]);
-    assert.deepEqual([...relationRead.equals], [["id", "t1"]]);
-    assert.equal(relationRead.exact, true);
+    assert.deepEqual([...prepared.facts.reads], [schema.tenant]);
 
     const left = queries.lowerSelector(prepared, "left_source");
     const right = queries.lowerSelector(prepared, "right_source");
@@ -361,138 +375,6 @@ describe("post-G3 selector preparation", () => {
       assert.match(failure.message, FOREIGN_COLUMN);
       assert.equal(driver.statements.length, 0);
     } finally {
-      await driver.disconnect();
-      database.close();
-    }
-  });
-
-  it("reuses one upsert base selector across both prepared condition probes", async () => {
-    const schema = conditionalUpsertSchema();
-    const database = new Database(":memory:");
-    database.exec(`
-      CREATE TABLE post_g3_selector_upserts(
-        id INTEGER PRIMARY KEY,
-        email TEXT NOT NULL UNIQUE,
-        count INTEGER NOT NULL
-      );
-      INSERT INTO post_g3_selector_upserts(id, email, count)
-      VALUES (1, 'wanted', 10);
-    `);
-    const driver = new SelectorRecordingSQLiteDriver({ client: database });
-    const candidate = createTestCommandEngine({ schema, driver });
-    const preparation = vi.spyOn(Queries.prototype, "prepareSelector");
-    const conjunction = vi.spyOn(Queries.prototype, "andSelectors");
-    const lowering = vi.spyOn(SqlQueries.prototype, "lowerSelector");
-
-    try {
-      assert.deepEqual(
-        await candidate.execute("account", "upsert", {
-          where: { email: "wanted" },
-          targetWhere: { count: 10 },
-          setWhere: { count: 10 },
-          create: { id: 2, email: "wanted", count: 0 },
-          update: { count: 15 },
-          select: { id: true, email: true, count: true },
-        }),
-        { id: 1, email: "wanted", count: 15 }
-      );
-
-      assert.equal(preparation.mock.calls.length, 3);
-      assert.deepEqual(preparation.mock.calls[0]?.[1], { email: "wanted" });
-      assert.deepEqual(preparation.mock.calls[1]?.[1], {
-        count: { equals: 10 },
-      });
-      assert.deepEqual(preparation.mock.calls[2]?.[1], {
-        count: { equals: 10 },
-      });
-      const baseResult = preparation.mock.results[0];
-      const targetResult = preparation.mock.results[1];
-      const setResult = preparation.mock.results[2];
-      assert(baseResult);
-      assert(targetResult);
-      assert(setResult);
-      if (baseResult.type !== "return")
-        assert.fail("base selector preparation did not return normally");
-      if (targetResult.type !== "return")
-        assert.fail("target condition preparation did not return normally");
-      if (setResult.type !== "return")
-        assert.fail("set condition preparation did not return normally");
-      const base = baseResult.value;
-      const target = targetResult.value;
-      const set = setResult.value;
-
-      // Three conjunctions, one per prepared meaning this shape needs: the two
-      // condition probes, and — the repair prompt §1, the shared
-      // FOUND-consumption rule — the ONE confirmation that re-takes the located
-      // row under lock over EVERY matched condition. That third operand list is
-      // the two probe selectors themselves, so the base is reused a third time
-      // and nothing is prepared again (`preparation` is still 3 above).
-      assert.equal(conjunction.mock.calls.length, 3);
-      const targetOperands = conjunction.mock.calls[0]?.[1];
-      const setOperands = conjunction.mock.calls[1]?.[1];
-      assert(targetOperands);
-      assert(setOperands);
-      assert.equal(targetOperands.length, 2);
-      assert.equal(targetOperands[0], base);
-      assert.equal(targetOperands[1], target);
-      assert.equal(setOperands.length, 2);
-      assert.equal(setOperands[0], base);
-      assert.equal(setOperands[1], set);
-      const targetConjunctionResult = conjunction.mock.results[0];
-      const setConjunctionResult = conjunction.mock.results[1];
-      assert(targetConjunctionResult);
-      assert(setConjunctionResult);
-      if (targetConjunctionResult.type !== "return")
-        assert.fail("target selector conjunction did not return normally");
-      if (setConjunctionResult.type !== "return")
-        assert.fail("set selector conjunction did not return normally");
-      assert(
-        lowering.mock.calls.some(
-          ([selector]) => selector === targetConjunctionResult.value
-        )
-      );
-      assert(
-        lowering.mock.calls.some(
-          ([selector]) => selector === setConjunctionResult.value
-        )
-      );
-      const confirmationOperands = conjunction.mock.calls[2]?.[1];
-      assert(confirmationOperands);
-      assert.deepEqual(
-        [...confirmationOperands],
-        [targetConjunctionResult.value, setConjunctionResult.value]
-      );
-      const confirmationResult = conjunction.mock.results[2];
-      assert(confirmationResult);
-      if (confirmationResult.type !== "return")
-        assert.fail("confirmation conjunction did not return normally");
-      assert(
-        lowering.mock.calls.some(
-          ([selector]) => selector === confirmationResult.value
-        )
-      );
-
-      // The locator probe, the two condition probes, ONE confirmation of the
-      // located row carrying both matched conditions, the update arm's effect
-      // and the terminal read (repair prompt §1: the confirmation is one
-      // statement over every requirement the operation owns, not one statement
-      // per requirement).
-      assert.deepEqual(
-        driver.statements.map(
-          (statement) => statement.match(STATEMENT_VERB)?.[0]
-        ),
-        ["SELECT", "SELECT", "SELECT", "SELECT", "UPDATE", "SELECT"]
-      );
-      assert.deepEqual(
-        database
-          .prepare("SELECT id, email, count FROM post_g3_selector_upserts")
-          .get(),
-        { id: 1, email: "wanted", count: 15 }
-      );
-    } finally {
-      preparation.mockRestore();
-      conjunction.mockRestore();
-      lowering.mockRestore();
       await driver.disconnect();
       database.close();
     }

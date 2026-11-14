@@ -1,10 +1,12 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: Shared assertion helpers are invoked only from registered tests.
+// biome-ignore-all lint/performance/useTopLevelRegex: a regex in a test runs a handful of times.
 /**
  * C-01 cutover review probe (independent reviewer, not a registered mode).
  *
  * The replacing invariant the unit claims is: "every client lineage installs the
  * route in `VibORM`'s constructor and `bind()` forwards it — there is exactly one
  * operation owner and no routeless path". The note proves it by grep
- * (`client.ts:489` builds `createCandidateRoute(...)` unconditionally). These cells
+ * (`client.ts:489` builds `createCommandEngine(...)` unconditionally). These cells
  * prove it by observation instead, on the three lineages a client can reach:
  * the root view, a callback `$transaction`, and an array `$transaction([...])`.
  *
@@ -104,9 +106,9 @@ describe("C-01 review — one operation owner on every lineage", () => {
     const { base, driver } = await world();
     const results = await (
       base as unknown as {
-        $transaction(members: readonly PromiseLike<unknown>[]): Promise<
-          unknown[]
-        >;
+        $transaction(
+          members: readonly PromiseLike<unknown>[]
+        ): Promise<unknown[]>;
       }
     ).$transaction([
       base.author.findMany({ where: { name: "Ada" } }),

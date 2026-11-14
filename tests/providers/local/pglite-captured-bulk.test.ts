@@ -229,7 +229,12 @@ describe("PGlite captured selected bulk mutations", () => {
       expect(await rows()).toEqual([["n3", "three", false]]);
     });
 
-    for (const verb of ["updateMany", "deleteMany"] as const) {
+    // On the interactive route the drift this bed applies comes from the
+    // call's own connection, inside its transaction: no other writer can do
+    // that, and the rows the call read there are held until it writes them.
+    for (const verb of route === "atomicBatch"
+      ? (["updateMany", "deleteMany"] as const)
+      : []) {
       test(`${route}: a captured row that stops matching before the ${verb} write is answered by the cardinality sentence`, async () => {
         const { client: current, driver, rows } = await world(route);
         driver.driftBeforeWrite();
@@ -250,17 +255,6 @@ describe("PGlite captured selected bulk mutations", () => {
         expect(driver.drifted).toBe(true);
         expect(outcome.value).toBeUndefined();
         expect(messageOf(outcome.error)).toContain(CHANGED(verb));
-        if (route === "interactive") {
-          // The capture and its write are one region: the whole unit, drift
-          // included, rolls back at its owner.
-          expect(progressOf(outcome.error)).toBeUndefined();
-          expect(await rows()).toEqual([
-            ["n1", "one", true],
-            ["n2", "two", true],
-            ["n3", "three", false],
-          ]);
-          return;
-        }
         // The batch already acknowledged: what it committed stands, and the
         // RESULT-phase failure says so. The row that stopped matching was
         // left alone by the write's own selector (D-65).

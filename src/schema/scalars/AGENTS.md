@@ -26,7 +26,7 @@ Each method returns a NEW instance with updated State generic. This enables Type
 | File | Purpose | Update When |
 |------|---------|-------------|
 | `base.ts` | `Scalar` union type | **Adding new scalar type!** |
-| `common.ts` | ScalarState, UpdateState helpers | Rarely |
+| `common.ts` | ScalarState, UpdateState helpers, the shared modifier chain (Rule 5) | Rarely |
 | `{type}/scalar.ts` | Scalar class implementation | Adding methods to scalar |
 
 ---
@@ -56,11 +56,17 @@ selection fields.
 Every scalar carries configuration as a type parameter. TypeScript tracks state changes at compile time.
 
 ```typescript
-class StringScalar<State extends ScalarState<"string">> {
-  constructor(readonly state: State) {}
-  
-  nullable(): StringScalar<UpdateState<State, { nullable: true }>> {
-    return new StringScalar({ ...this.state, nullable: true });
+class StringScalar<
+  State extends ScalarState<"string">,
+> extends keyedScalarChain<State> {
+  private declare readonly state: State;
+  // Typed here for this scalar's State; implemented once in the chain (Rule 5).
+  declare readonly nullable: () => StringScalar<
+    UpdateState<State, { readonly nullable: true /* … */ }>
+  >;
+
+  protected rebase(state: State) {
+    return v.string({ nullable: state.nullable, array: state.array, schema: state.schema });
   }
 }
 ```
@@ -107,12 +113,43 @@ function buildStringSchema(state: ScalarState<"string">) {
 
 **Why:** Ensures consistency while keeping operation schemas out of the schema layer.
 
-### Rule 5: Shared Contracts, Concrete Implementations
-Modifier behavior is tested through parameterized contracts, but each concrete
-scalar continues to rebuild the validation primitive that owns its value type.
-`updateState` owns the shared immutable merge. Do not introduce a generic
-scalar base class that hides the state type or moves base-schema ownership out
-of the concrete scalar.
+### Rule 5: One Chain, Concrete Types and Concrete Base Schemas
+The modifiers every scalar shares (`nullable`, `array`, `default`, `schema`,
+`map`, `id`, `unique`, the `["~"]` view) are implemented once, in the chain of
+`common.ts` (`scalarChain`, `listScalarChain`, `keyedScalarChain`, and
+`datetime/chain.ts` for `now` / `updatedAt`). What stays in each concrete
+scalar is what this rule has always protected:
+
+- **Its types.** The class declares every shared modifier for its own `State`
+  (`declare readonly nullable: () => XScalar<UpdateState<State, …>>`), so
+  autocompletion and inference are the concrete scalar's, never the chain's.
+  The chain is not exported as a type a caller can name. `pnpm test:types` and
+  the package type budgets (`tests/package/type-budgets.json`) hold this: a
+  shared modifier typed anywhere else (an interface merged with the class, a
+  class with no private member) costs a consumer's compiler about 700 types at
+  50 models.
+- **Its base schema.** `rebase(state)` builds the validation primitive that
+  owns the scalar's value type. The chain decides WHEN a modifier rebuilds the
+  base; only the concrete scalar says HOW.
+- **Its own modifiers** (`increment`, `uuid`, `withoutTimezone`, `dimension`,
+  `name`, …), which use `updateState` for their immutable merge.
+
+A scalar whose modifiers do more than the shared rule (`enum`: types that
+depend on its values; `decimal`: list-key refusals and a literal default
+normalized again through the rebuilt base) keeps them as methods and hands the
+shared part back with `super`, from the untyped chain variants. Such a class
+states `out State` and writes its return types so that a precise scalar is one
+of the wide kind member by member: inferred return types used to hide that the
+comparison held only through TypeScript's variance shortcut.
+
+A modifier answers a scalar of the class that declares `rebase`, built from the
+state the modifier made, whatever the receiver is an instance of
+(`tests/unit/scalars/subclassed-scalar.core.test.ts`).
+
+Modifier behavior is tested through parameterized contracts
+(`tests/unit/scalars/modifier-contracts.core.test.ts`). Do not move a type or
+a base schema into the chain, and do not add a scalar-specific branch to it:
+a rule one scalar needs alone belongs in that scalar.
 
 Use `pnpm test:coverage:schema` for the memory-capped schema-subsystem report.
 It gates statements, branches, functions, and lines at 100% and writes
@@ -265,11 +302,19 @@ Methods that don't return `this` type or new instance. Breaks the fluent API tha
 
 1. **Create directory** `scalars/{type}/`
 
-2. **Create `scalar.ts`** with State generic:
+2. **Create `scalar.ts`** with State generic, on the chain that fits
+   (`scalarChain`; `listScalarChain` if it can be a list; `keyedScalarChain`
+   if it can also be a key and carry a custom schema):
    ```typescript
-   export class MyScalar<State extends ScalarState<"mytype">> {
-     constructor(readonly state: State) {}
-     // Chainable methods returning new instances
+   export class MyScalar<
+     State extends ScalarState<"mytype">,
+   > extends listScalarChain<State> {
+     private declare readonly state: State;
+     // One `declare readonly` per shared modifier, typed for this State.
+     protected rebase(state: State) {
+       return v.mytype({ nullable: state.nullable, array: state.array });
+     }
+     // Modifiers of its own return new instances through updateState.
    }
    ```
 

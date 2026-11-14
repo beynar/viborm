@@ -16,13 +16,7 @@ import type {
   TransactionOptions,
 } from "@drivers/shared/transaction-options";
 import { ClientInitializationError, isVibORMError } from "@errors";
-import {
-  appendResolvedExtension,
-  lookupPlacedControls,
-  lookupResolvedExtensionHandlers,
-  type ResolvedExtensionChain,
-} from "@extensions/chain";
-import { bindControls, uncacheableRead } from "@extensions/controls";
+import type { ResolvedExtensionChain } from "@extensions/chain";
 import type {
   ClientExtension,
   ContextualExtensionDefinition,
@@ -31,25 +25,25 @@ import type {
   SchemaBoundExtensionAdmission,
 } from "@extensions/definition";
 import {
-  type AccumulatedExtensionState,
-  bindExtensionMethods,
-  type DelegateState,
-  type EmptyClientExtensionState,
-  type EnableExtensionCache,
-  type ExtensionMethods,
-  type ExtensionModelClient,
-  type ExtensionStateConstraint,
-  type ExtensionStateContributionOf,
-  type HasExtensionCache,
-  type HasResultConsumingExtension,
-  type MergeModelMethods,
+  extensionHost,
+  getOfficialInstrumentationChainCapability,
+  lookupPlacedControls,
+  lookupResolvedExtensionHandlers,
+} from "@extensions/host-slot";
+import type {
+  AccumulatedExtensionState,
+  DelegateState,
+  EmptyClientExtensionState,
+  EnableExtensionCache,
+  ExtensionMethods,
+  ExtensionModelClient,
+  ExtensionStateConstraint,
+  ExtensionStateContributionOf,
+  HasExtensionCache,
+  HasResultConsumingExtension,
+  MergeModelMethods,
 } from "@extensions/methods";
-import { getOfficialInstrumentationChainCapability } from "@extensions/observation";
-import { TransactionWriteOutcomes } from "@extensions/query";
-import { applyRequestTransforms } from "@extensions/request";
-import { planResultFields } from "@extensions/result";
 import type { ResultInference } from "@extensions/result-types";
-import type { WritePlan } from "@extensions/writes";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { enableFindUniqueBatching } from "@query-engine/find-unique-batch";
 import {
@@ -60,7 +54,8 @@ import {
   readPendingCacheResult,
 } from "@query-engine/pending-operation";
 import { QueryEngine } from "@query-engine/query-engine";
-import { createCandidateRoute } from "@query-engine/raptor3/route/client-route";
+import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { renderers } from "@query-engine/raptor3/shared/insert-value";
 import {
   baseOperation,
   isWriteOperation,
@@ -79,14 +74,11 @@ import {
   resolveSchemaOrThrow,
 } from "@schema/validation/validator";
 import { createResolvedSchemaRegistry } from "@validation/builder";
-import {
-  executeArrayTransaction,
-  runOutcomeTransaction,
-} from "./array-transaction";
-import {
-  getOfficialDefaultOmitChainCapability,
-  type OfficialDefaultOmitExtension,
-  type OfficialDefaultOmitRequestContribution,
+import { executeArrayTransaction } from "./array-transaction";
+import { getOfficialDefaultOmitChainCapability } from "./default-omit-chain";
+import type {
+  OfficialDefaultOmitExtension,
+  OfficialDefaultOmitRequestContribution,
 } from "./default-omit-extension";
 import {
   applyClientOmit,
@@ -164,7 +156,8 @@ function createModelProxy<S extends Schema, R>(
     args: unknown;
   }) => R,
   modelMethods?: ExtensionMethods["model"],
-  rowsOf?: (model: keyof S, alias: unknown) => unknown,
+  /** A model's core members beside its operations: `$rows(alias)`, and `$sql` where no alias is given. */
+  rowsOf?: (model: keyof S, alias?: unknown) => unknown,
   path: string[] = []
 ): unknown {
   // A model's own methods, read (and their factories invoked) only once the
@@ -176,7 +169,7 @@ function createModelProxy<S extends Schema, R>(
       : path.length === 1
         ? [
             ...ROUTED_OPERATIONS,
-            ...(rowsOf ? ["$rows"] : []),
+            ...(rowsOf ? ["$rows", "$sql"] : []),
             ...Object.keys(methods ?? {}),
           ]
         : []
@@ -188,6 +181,7 @@ function createModelProxy<S extends Schema, R>(
     if (methods !== undefined && Object.hasOwn(methods, key)) {
       return methods[key];
     }
+    if (key === "$sql" && rowsOf) return rowsOf(path[0]!);
     let child = children.get(key);
     if (child === undefined) {
       child =
@@ -799,9 +793,10 @@ export class VibORM<C extends VibORMConfig> {
     // validates and registers nothing a second time (B-3).
     this.#engine = new QueryEngine(
       config.driver,
-      createCandidateRoute(this.#schema, config.driver, {
-        index: relations,
-        registry: schemaRegistry,
+      createCommandEngine({
+        schema: this.#schema,
+        driver: config.driver,
+        resolved: { index: relations, registry: schemaRegistry },
       })
     );
     if (config.findUniqueBatching === true)
@@ -828,8 +823,13 @@ export class VibORM<C extends VibORMConfig> {
           clientOmit
         ),
       modelMethods,
-      (modelName, alias) =>
-        createRowsFragment(engine, this.#schema[modelName]!, alias)
+      (modelName, ...alias) =>
+        alias.length === 0
+          ? renderers
+              .get(this.#schema)!
+              .get(engine.driver.adapter)!
+              .spelling(this.#schema[modelName]!, engine.driver.dialect)
+          : createRowsFragment(engine, this.#schema[modelName]!, alias[0])
     ) as Client<C>;
   }
 
@@ -871,30 +871,29 @@ export class VibORM<C extends VibORMConfig> {
     let prepareInput: PrepareOperationInput | undefined;
     const resultFields = chain?.result;
     let finishResult: ((value: unknown) => unknown) | undefined;
-    const writes = isWrite ? chain?.writes : undefined;
-    let writePlan: WritePlan | undefined;
+    const written = isWrite ? chain?.written : undefined;
+    /** The call's arguments as what watches its writes is told them. */
+    let callArgs: Record<string, unknown> | undefined;
+    /** What watches the call's writes is told late that they settled: the call's value runs it and waits. */
+    let settle: (() => Promise<void>) | undefined;
     // Apply the client omit, then refuse an empty unique where, then plan
-    // the chain's computed fields, then widen a write to the rows its hooks
-    // receive.
+    // the chain's computed fields.
     const finish = (requestArgs: Record<string, unknown>) => {
       const omittedArgs = clientOmit
         ? applyClientOmit(model, operation, requestArgs, clientOmit)
         : requestArgs;
       assertNonEmptyUniqueWhere(modelNameStr, operation, omittedArgs);
-      let planned = omittedArgs;
-      if (resultFields !== undefined) {
-        const fields = planResultFields(
-          resultFields,
-          this.#relations,
-          model,
-          operation,
-          omittedArgs
-        );
-        finishResult = fields?.finish;
-        planned = fields?.args ?? omittedArgs;
-      }
-      writePlan = writes?.plan(model, operation, planned, chain!, omittedArgs);
-      return writePlan?.args ?? planned;
+      callArgs = omittedArgs;
+      if (resultFields === undefined) return omittedArgs;
+      const fields = extensionHost().planResultFields(
+        resultFields,
+        this.#relations,
+        model,
+        operation,
+        omittedArgs
+      );
+      finishResult = fields?.finish;
+      return fields?.args ?? omittedArgs;
     };
 
     if (
@@ -912,7 +911,7 @@ export class VibORM<C extends VibORMConfig> {
         const transformed =
           requestHandlers === undefined
             ? controlFreeArgs
-            : applyRequestTransforms(
+            : extensionHost().applyRequestTransforms(
                 modelNameStr,
                 operation,
                 controlFreeArgs,
@@ -928,7 +927,7 @@ export class VibORM<C extends VibORMConfig> {
     const prepareWriteOutcomeRegistration:
       | PrepareWriteOutcomeRegistration
       | undefined =
-      (officialCache === undefined && writes === undefined) || !isWrite
+      (officialCache === undefined && written === undefined) || !isWrite
         ? undefined
         : (context, controls) => {
             const cached =
@@ -941,8 +940,17 @@ export class VibORM<C extends VibORMConfig> {
                 context,
                 officialCache.scope
               );
-            return writePlan
-              ? writePlan.register(context, controls, cached)
+            return written
+              ? extensionHost().watchWrite(
+                  written,
+                  { model: modelNameStr, operation, args: callArgs! },
+                  controls,
+                  context,
+                  cached,
+                  (late) => {
+                    settle = late;
+                  }
+                )
               : cached;
           };
 
@@ -953,22 +961,19 @@ export class VibORM<C extends VibORMConfig> {
       model,
       operation,
       operationArgs,
-      resultFields === undefined && writes === undefined
+      resultFields === undefined && written === undefined
         ? officialReadCache
           ? { skipSpan: true }
           : undefined
         : {
             ...(officialReadCache ? { skipSpan: true } : {}),
-            ...(writes && {
-              takeResult: (value: unknown, settle?: true) =>
-                writePlan ? writePlan.take(value, settle) : value,
-            }),
-            finishResult: (value) =>
-              writePlan
-                ? writePlan.finish(value, finishResult)
-                : finishResult === undefined
-                  ? value
-                  : finishResult(value),
+            finishResult(value) {
+              const finished =
+                finishResult === undefined ? value : finishResult(value);
+              const late = settle;
+              settle = undefined;
+              return late ? late().then(() => finished) : finished;
+            },
           },
       prepareInput,
       prepareWriteOutcomeRegistration
@@ -1046,7 +1051,7 @@ export class VibORM<C extends VibORMConfig> {
       pendingOperation,
       async (execute, driverOverride) => {
         const cacheResult = readPendingCacheResult(pendingOperation);
-        const refused = uncacheableRead(
+        const refused = extensionHost().uncacheableRead(
           engine.extensionChain?.controls?.all ?? [],
           cacheResult.controls,
           modelName,
@@ -1149,7 +1154,7 @@ export class VibORM<C extends VibORMConfig> {
     const chain = engine.extensionChain;
     const methods =
       chain &&
-      bindExtensionMethods(chain, (prior, extension) =>
+      extensionHost().bindExtensionMethods(chain, (prior, extension) =>
         this.#createViewProxy<object>(
           engine,
           clientOmit,
@@ -1160,7 +1165,7 @@ export class VibORM<C extends VibORMConfig> {
               ? (values: Readonly<Record<string, unknown>>) =>
                   rebuild!(
                     engine.withBound(
-                      bindControls(
+                      extensionHost().bindControls(
                         chain.controls?.all ?? [],
                         extension,
                         values,
@@ -1215,9 +1220,11 @@ export class VibORM<C extends VibORMConfig> {
       const outcomes =
         chain?.hasQueryHandlers ||
         chain?.hasCache ||
-        chain?.writes ||
+        chain?.written ||
+        chain?.retry ||
+        chain?.route ||
         (chain?.observe.length ?? 0) > 0
-          ? new TransactionWriteOutcomes()
+          ? new (extensionHost().TransactionWriteOutcomes)()
           : undefined;
       const view = (
         bound: QueryEngine
@@ -1226,7 +1233,7 @@ export class VibORM<C extends VibORMConfig> {
       const body = async (txDriver: AnyDriver) =>
         input(view(engine.bind(txDriver, chain, outcomes)));
       return outcomes
-        ? runOutcomeTransaction(
+        ? extensionHost().runOutcomeTransaction(
             engine.driver,
             outcomes,
             engine.transactionWriteOutcomes,
@@ -1280,7 +1287,7 @@ export class VibORM<C extends VibORMConfig> {
               | ((client: VibORMClient<ViewConfig, X>) => unknown)
           ) => {
             if (typeof extension === "function") return extension(view);
-            const extensionChain = appendResolvedExtension(
+            const extensionChain = extensionHost().appendResolvedExtension(
               chain,
               extension,
               this.#schema,

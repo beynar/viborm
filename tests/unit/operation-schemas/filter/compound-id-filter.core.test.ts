@@ -5,7 +5,7 @@
  * constraints as single keys with nested field objects.
  */
 
-import { generateCacheKey } from "@cache/key";
+import { cacheLookupOf } from "@cache/key";
 import { ValidationError } from "@errors";
 import { s } from "@schema";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
@@ -16,6 +16,9 @@ import {
 } from "@tests/unit/operation-schemas/fixtures";
 import { createSchemaRegistry, parse } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
+
+const cacheKeyOf = (model: string, operation: string, args: unknown) =>
+  cacheLookupOf(model, operation, args).key;
 
 // =============================================================================
 // TYPE TESTS - Compound ID Model
@@ -242,7 +245,7 @@ describe("Compound ID Filter - a derived member beside a declared one", () => {
 
   test("runtime: two spellings of one key make one cache key", () => {
     const keyFor = (roomId: string, slotId: string) =>
-      generateCacheKey(
+      cacheKeyOf(
         "seat",
         "findUnique",
         registry.validate("seat", "findUnique", selector(roomId, slotId))

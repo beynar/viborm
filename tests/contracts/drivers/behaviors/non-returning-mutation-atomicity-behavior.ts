@@ -348,7 +348,7 @@ export function runNonReturningMutationAtomicityBehavior(
     );
 
     test(
-      "a competing upsert waits on the held row and consumes the committed row, not the one it probed",
+      "a competing upsert waits on the held row and acts on the committed row, not the one it probed",
       { timeout: 30_000 },
       async () => {
         // The control for the row above (repair prompt §1: prove the
@@ -435,12 +435,15 @@ export function runNonReturningMutationAtomicityBehavior(
 
         // The waiter then read what the holder COMMITTED: the row is still
         // there, at the identity the probe named, and no longer carries the
-        // selector it was found under.
-        expect(secondOutcome?.value).toBeUndefined();
-        expect(secondOutcome?.failure).toBeInstanceOf(NotFoundError);
-        expect((secondOutcome?.failure as Error).message).toBe(
-          "No item record found for update"
-        );
+        // selector it was found under. The row it found is not updated; the
+        // call is made again, once, on what is committed: no row answers the
+        // selector any more, so the upsert creates one.
+        expect(secondOutcome?.failure).toBeUndefined();
+        expect(secondOutcome?.value).toMatchObject({
+          id: "unused-second",
+          email: "held@test.com",
+          name: "second",
+        });
         expect(secondDriver.statements.some(isNativeUpsert)).toBe(false);
         expect(secondDriver.statements.some(isItemUpdate)).toBe(false);
         await expect(
@@ -449,11 +452,11 @@ export function runNonReturningMutationAtomicityBehavior(
         await expect(
           seeder.item.findMany({
             where: { email: { in: ["held@test.com", "moved@test.com"] } },
+            orderBy: { id: "asc" },
           })
-        ).resolves.toHaveLength(1);
+        ).resolves.toMatchObject([{ id: "held" }, { id: "unused-second" }]);
+        // The call made again is another unit, which may take another connection.
         assertConnectionAffinity(firstDriver);
-        assertConnectionAffinity(secondDriver);
-        assertDifferentConnections(firstDriver, secondDriver);
       }
     );
   });

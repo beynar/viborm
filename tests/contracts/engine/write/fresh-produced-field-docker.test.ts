@@ -79,7 +79,11 @@ function connector(
 const mysql = connector(
   producedFieldSchema,
   PRODUCED_TABLES,
-  () => new MySQL2Driver({ databaseUrl: MYSQL as string })
+  () =>
+    new MySQL2Driver({
+      databaseUrl: MYSQL as string,
+      migrationNamespaceAttestation: "non-redirecting",
+    })
 );
 registerProducedFieldBehavior(
   "Docker MySQL",

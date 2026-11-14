@@ -385,23 +385,28 @@ export class PostgresDriver extends Driver<
     maxWaitMs: number
   ): Promise<void> {
     // postgres.js can retain a fatal response across reconnect, rejecting the
-    // next acquisition before dispatch. Drain that startup error with leases,
-    // never caller SQL; the callback above has provably not entered. A drain
-    // that cannot connect needs no quarantine: a connection failure before the
-    // callback leaves no live session, and the next lease that connects
-    // clears the state.
+    // next acquisition before dispatch. Drain that startup error with the
+    // driver's own probe, never caller SQL; the callback above has provably
+    // not entered. Not with `reserve()`: where the retained error refuses a
+    // lease, postgres.js loses the connection the lease asked for, and with
+    // `max: 1` every later query waits for ever (seen on Neon's direct
+    // endpoint, where the socket closes before the fatal response is read).
+    // A drain that cannot connect needs no quarantine: a connection failure
+    // before the callback leaves no live session, and the next statement
+    // that connects clears the state.
     const deadline = Date.now() + maxWaitMs;
     for (let attempt = 0; attempt < 2; attempt++) {
       const remaining = deadline - Date.now();
       if (remaining <= 0) break;
       try {
-        const lease = await acquireWithMaxWait(
-          () => client.reserve(),
-          (late) => late.release(),
+        await acquireWithMaxWait(
+          async () => {
+            await client.unsafe("SELECT 1");
+          },
+          () => undefined,
           remaining,
           { driverName: this.driverName, form: "callback" }
         );
-        lease.release();
         return;
       } catch (cleanup) {
         withSuppressedFailure(primary, cleanup);

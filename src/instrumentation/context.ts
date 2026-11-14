@@ -197,32 +197,3 @@ function readLogHandler(
     ? handler
     : undefined;
 }
-
-/**
- * Check if instrumentation context has any active features
- * (tracing is enabled OR logging is enabled)
- */
-export function hasActiveInstrumentation(
-  context: InstrumentationContext | undefined
-): boolean {
-  if (!context) return false;
-  return context.tracer.isEnabled() || !!context.logger;
-}
-
-/**
- * Check if tracing is active in context
- */
-export function isTracingActive(
-  context: InstrumentationContext | undefined
-): boolean {
-  return context?.tracer.isEnabled() ?? false;
-}
-
-/**
- * Check if logging is active in context
- */
-export function isLoggingActive(
-  context: InstrumentationContext | undefined
-): boolean {
-  return !!context?.logger;
-}

@@ -16,13 +16,9 @@ const CENSUS: Readonly<Record<string, string>> = {
   // Statements only SQL's plan writes: this driver answers these in its own.
   "an assignment spelled apart from its statement": NEVER_ASKED,
   "a condition spelled apart from its statement": NEVER_ASKED,
-  locks: "NEVER: supportsRowLocks is false, so the engine takes no lock here",
   "a read over a write's own rows": NEVER_ASKED,
-  "a premise stated for a batch": "NEVER: supportsBatch is false",
-  "statements queued for a batch": "NEVER: supportsBatch is false",
-  "a computed value ('…')": NEVER_ASKED,
-  "the relation '…' in a write": NEVER_ASKED,
-  "changing a record's key": NEVER_ASKED,
+  "a write that reads before it writes, in a batch":
+    "NEVER: a call here is sent in a transaction, where each answer is heard",
   "'…'": NEVER_ASKED,
   "a '…' projection": NEVER_ASKED,
   "a '…' filter": NEVER_ASKED,
@@ -46,7 +42,6 @@ const CENSUS: Readonly<Record<string, string>> = {
   "a recursive filter through a to-one link": NEVER_ASKED,
   "a filter through a to-one link into a declared junction": NEVER_ASKED,
   "a to-many filter through a to-one link": NEVER_ASKED,
-  "clearing this relation": NEVER_ASKED,
   // Migrations: a snapshot that does not hold together, which the differ never plans.
   "a field of type '…'": NEVER_ASKED,
   "a native enum": "NEVER: supportsNativeEnums is false",
@@ -87,7 +82,7 @@ const CENSUS: Readonly<Record<string, string>> = {
 
 const SOURCES = [
   "src/drivers/surrealdb/queries.ts",
-  "src/drivers/surrealdb/operation-context.ts",
+  "src/drivers/surrealdb/writer.ts",
   "src/drivers/surrealdb/read-backend.ts",
   "src/migrations/drivers/surrealql/index.ts",
 ];

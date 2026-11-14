@@ -6,6 +6,7 @@
 
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { MssqlDriver } from "@drivers/mssql";
+import { withRows } from "@extensions/rows-runtime";
 import {
   type BeforeStatement,
   runDeletionRaceBehavior,
@@ -17,6 +18,9 @@ import {
   SQL_SERVER,
   TEST_CONNECTION_STRING,
 } from "./mssql-fixtures";
+
+// These definitions are stated as plain objects: what reads their rows is brought here.
+withRows();
 
 /** A SQL Server driver that awaits `beforeStatement` before each statement. */
 class PausingMssqlDriver extends MssqlDriver {

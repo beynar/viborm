@@ -247,6 +247,9 @@ not give it.
   and a second cascade path into one table; declare such keys `NO ACTION`.
   Deleting a row its children still reference then fails with a
   `ForeignKeyError`: detach them first (a reply's `parentId` set to `null`).
+  The same holds for a junction whose key to one side is `NO ACTION`: a
+  nested `delete` of a row it still links fails, at the root as nested;
+  `disconnect` it first.
 - **Triggers**: a count VibORM answers (`createMany`, `updateMany`,
   `deleteMany`) is the statement's own, a trigger's statements aside. Under an
   `INSTEAD OF` trigger it is the number of rows handed to the trigger, whatever

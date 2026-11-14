@@ -9,9 +9,9 @@
 // what the types check is the declaration's names: models, fields and actions
 // against the schema and each other, actor paths against the actor schema.
 
-import type { OperationPayload } from "../client/exports"; // public today
+import type { OperationPayload, RowsVerbs } from "../client/exports";
 import { ForbiddenError } from "../errors";
-import type { RowsVerbs } from "../extensions/controls";
+import { defineExtension } from "../extensions/define";
 import type {
   ClientSchema,
   ClientTypeState,
@@ -884,6 +884,8 @@ export function permissions<
 export function permissions<const Config extends PermissionsConfig>(
   config: Config & DeclarationCheck<Config>
 ): Policy<Config> {
+  // `defineExtension` brings what reads the declarations made here.
+  defineExtension();
   const actor = actorContract(config.actor);
   const compile = (schema: Schema) => compilePolicy(config, schema, actor);
   // Public compile() remains an independent inspection result. Application

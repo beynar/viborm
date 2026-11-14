@@ -378,10 +378,18 @@ export function runThroughModelBehavior(
         orderBy: { id: "asc" },
       });
       expect(parents.map((team) => team.name)).toEqual(["renamed", "also"]);
-      await client.team.update({
+      const deleting = client.team.update({
         where: { id: "a" },
         data: { parents: { delete: { id: "b" } } },
       });
+      if (options.heldParentPath) {
+        // The link's key to its parent holds NO ACTION: the database refuses
+        // the target while a link names it, nested as at the root.
+        await expect(deleting).rejects.toBeInstanceOf(ForeignKeyError);
+        expect(await parentsOf("a")).toEqual(["b", "c"]);
+        return;
+      }
+      await deleting;
       expect(await parentsOf("a")).toEqual(["c"]);
       expect(await client.team.findUnique({ where: { id: "b" } })).toBeNull();
     });

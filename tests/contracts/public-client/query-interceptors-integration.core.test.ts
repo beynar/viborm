@@ -81,9 +81,11 @@ class QueryIntegrationDriver extends Driver<object, object> {
     const failure = this.nextFailure;
     this.nextFailure = undefined;
     if (failure) throw failure;
-    const rows = sql.trimStart().startsWith("SELECT")
-      ? (this.selectRows ?? [])
-      : [];
+    // A statement that answers with rows: a read, or a write that says what it wrote.
+    const rows =
+      sql.trimStart().startsWith("SELECT") || sql.includes("RETURNING")
+        ? (this.selectRows ?? [])
+        : [];
     return { rows: rows as T[], rowCount: 1 };
   }
 
@@ -275,7 +277,9 @@ describe("public query-interceptor integration", () => {
   test("snapshots input once for the chain, at its first read, the same before and after proceed", async () => {
     const seen: unknown[] = [];
     const keys: unknown[] = [];
-    const { client: base } = integrationClient();
+    const { client: base, driver } = integrationClient();
+    // The row a create answers with is the row its statement returns.
+    driver.respondToSelectsWith([{ id: "r1", name: "Ada" }]);
     const client = base
       .$extends({
         name: "reads-after",

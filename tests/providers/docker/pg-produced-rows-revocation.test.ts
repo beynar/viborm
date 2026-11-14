@@ -22,6 +22,7 @@
 import { randomBytes } from "node:crypto";
 import { PgDriver } from "@drivers/pg";
 import { ForbiddenError } from "@errors";
+import { withRows } from "@extensions/rows-runtime";
 import {
   createProducedRowClient,
   type ProducedRowClient,
@@ -33,6 +34,9 @@ import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import pg from "pg";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { TEST_CONNECTION_STRING } from "./pg-fixtures";
+
+// These definitions are stated as plain objects: what reads their rows is brought here.
+withRows();
 
 const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
 

@@ -1,13 +1,15 @@
 // Blob Scalar
-// Standalone scalar class with State generic pattern
+// The modifiers every scalar shares are implemented once, in the chain this
+// class extends; the class types them for this scalar's own state
 
+import type { BlobSchema } from "@validation/primitives/blob";
 import v from "@validation/primitives/v";
 import {
   createDefaultState,
   type DefaultValueInput,
-  nullableDefault,
   type ScalarState,
-  updateState,
+  scalarChain,
+  type UpdateState,
 } from "../common";
 import { admitNativeType } from "../native-catalog";
 import type {
@@ -19,48 +21,59 @@ import type {
 
 const blobBase = v.blob();
 
-export class BlobScalar<State extends ScalarState<"blob">> {
-  private readonly state: State;
-  private readonly _nativeType?: NativeTypeDeclaration | undefined;
-
-  constructor(state: State, _nativeType?: NativeTypeDeclaration) {
-    this.state = state;
-    this._nativeType = _nativeType;
-  }
-
-  nullable() {
-    return new BlobScalar(
-      updateState(this, {
-        nullable: true,
-        hasDefault: true,
-        default: nullableDefault(this.state),
-        optional: true,
-        base: v.blob<{
-          nullable: true;
-        }>({
-          nullable: true,
-        }),
-      }),
-      this._nativeType
-    );
-  }
-
-  default<V extends DefaultValueInput<State>>(value: V) {
-    return new BlobScalar(
-      updateState(this, {
-        hasDefault: true,
-        default: value,
-        optional: true,
-      }),
-      this._nativeType
-    );
-  }
-
+export class BlobScalar<
+  State extends ScalarState<"blob">,
+> extends scalarChain<State> {
+  private declare readonly state: State;
+  declare readonly nullable: () => BlobScalar<
+    UpdateState<
+      State,
+      {
+        readonly nullable: true;
+        readonly hasDefault: true;
+        readonly default: State["hasDefault"] extends true
+          ? State["default"]
+          : null;
+        readonly optional: true;
+        readonly base: BlobSchema<
+          Uint8Array<ArrayBufferLike> | null,
+          Uint8Array<ArrayBufferLike> | null
+        >;
+      }
+    >
+  >;
+  declare readonly default: <V extends DefaultValueInput<State>>(
+    value: V
+  ) => BlobScalar<
+    UpdateState<
+      State,
+      {
+        readonly hasDefault: true;
+        readonly default: V;
+        readonly optional: true;
+      }
+    >
+  >;
   /**
    * Maps this scalar to a custom column name in the database
    */
-  map(columnName: string) {
-    return new BlobScalar(updateState(this, { columnName }), this._nativeType);
+  declare readonly map: (columnName: string) => BlobScalar<
+    UpdateState<
+      State,
+      {
+        readonly columnName: string;
+      }
+    >
+  >;
+  declare readonly ["~"]: {
+    state: State;
+    nativeType: NativeTypeDeclaration | undefined;
+  };
+
+  protected rebase(state: State) {
+    return v.blob({
+      nullable: state.nullable,
+    });
   }
 
   // Blob scalars don't support array(), id(), or unique()
@@ -74,13 +87,6 @@ export class BlobScalar<State extends ScalarState<"blob">> {
 
   unique(): never {
     throw new Error("Blob scalars cannot be unique");
-  }
-
-  get ["~"]() {
-    return {
-      state: this.state,
-      nativeType: this._nativeType,
-    };
   }
 }
 

@@ -782,6 +782,40 @@ export class MySQLAdapter implements DatabaseAdapter {
   mutations = {
     skipDuplicatesStrategy: "recoverableUniqueError" as const,
     insert: createInsertStatement(quoteIdent),
+    // `ON DUPLICATE KEY UPDATE` names no key: each row is selected where no
+    // row holds its key, and what a row that is there takes is written after.
+    insertAbsent: (
+      table: Sql,
+      columns: string[],
+      rows: Sql[][],
+      key: readonly string[],
+      sets?: Sql,
+      unless?: Sql
+    ): Sql[] => {
+      const name = (column: string) => sql.raw(quoteIdent(column));
+      return rows.flatMap((row) => [
+        sql`INSERT INTO ${table} (${sql.join(columns.map(name), ", ")}) SELECT * FROM (SELECT ${sql.join(
+          row.map((value, at) => sql`${value} AS ${name(columns[at]!)}`),
+          ", "
+        )}) AS \`new\` WHERE NOT EXISTS (SELECT 1 FROM ${table} AS \`old\` WHERE ${sql.join(
+          key.map(
+            (column) => sql`\`old\`.${name(column)} = \`new\`.${name(column)}`
+          ),
+          " AND "
+        )})`,
+        ...(sets
+          ? [
+              sql`UPDATE ${table} SET ${sets} WHERE ${sql.join(
+                key.map(
+                  (column) =>
+                    sql`${name(column)} = ${row[columns.indexOf(column)]!}`
+                ),
+                " AND "
+              )}${unless ? sql` AND NOT (${unless})` : sql.empty}`,
+            ]
+          : []),
+      ]);
+    },
     insertDefault: (table: Sql): Sql => sql`INSERT INTO ${table} () VALUES ()`,
 
     ...createMutationCommands(),

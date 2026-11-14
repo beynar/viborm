@@ -278,15 +278,7 @@ export function buildValidator<T, TOut, TSchemaOut = T>(
   // it crosses scalar/custom/transform, member-array, and nullability rules in
   // exactly the same order as an explicit input.
 
-  if (array) {
-    const itemValidator = validate;
-    validate = (val) => validateArray(val, itemValidator);
-  }
-
-  if (nullable) {
-    const nonNullValidate = validate;
-    validate = (val) => (val === null ? OK_NULL : nonNullValidate(val));
-  }
+  validate = wrapped(validate, array, nullable);
 
   if (hasDefault) {
     // Compute default getter once
@@ -299,13 +291,36 @@ export function buildValidator<T, TOut, TSchemaOut = T>(
 
   // Nullability is already part of the composed validator. Only optionality
   // remains when no default consumes undefined.
+  return wrapped(validate, false, false, optional) as ValidatorFn<TOut>;
+}
+
+/**
+ * The wrappers every schema shares, innermost first: a list of the value,
+ * `null`, `undefined`. Apart from {@link buildValidator}, so a schema that
+ * needs these alone (an object) does not carry what a scalar field may
+ * declare: an identifier domain and its codec.
+ */
+export function wrapped(
+  inner: ValidatorFn<any>,
+  array?: boolean,
+  nullable?: boolean,
+  optional?: boolean
+): ValidatorFn<any> {
+  let validate = inner;
+  if (array) {
+    const itemValidator = validate;
+    validate = (val) => validateArray(val, itemValidator);
+  }
+  if (nullable) {
+    const nonNullValidate = validate;
+    validate = (val) => (val === null ? OK_NULL : nonNullValidate(val));
+  }
   if (optional) {
     const requiredValidate = validate;
     validate = (val) =>
       val === undefined ? OK_UNDEFINED : requiredValidate(val);
   }
-
-  return validate as ValidatorFn<TOut>;
+  return validate;
 }
 
 // The rarely declared field options, each composed by its own function so a
@@ -343,7 +358,7 @@ function withCustomSchema(
   return admitIdDomain ? thenValidate(validate, admitIdDomain) : validate;
 }
 
-function withTransform(
+export function withTransform(
   prev: ValidatorFn<any>,
   fn: (value: any) => any
 ): ValidatorFn<any> {

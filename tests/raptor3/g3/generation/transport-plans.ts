@@ -1,20 +1,20 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: Shared assertion helpers are invoked only from registered tests.
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import type { Schema } from "@client/types";
 import type { AnyDriver, QueryResult } from "@drivers";
-import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import { overrideTransactionOperation } from "@tests/fixtures/transaction-operation";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import type {
   DefaultObservation,
   OperationOutcome,
 } from "../../harness/protocol";
-import { Recorder } from "../../harness/recorder";
-import {
-  type ActorScript,
-  type ExpectedStatement,
-  type Reply,
-  ScriptedTransport,
+import type { Recorder } from "../../harness/recorder";
+import type {
+  ActorScript,
+  ExpectedStatement,
+  Reply,
 } from "../../transport/driver";
 import type { G3GeneratedRecipe } from "./recipe";
 import { recurrenceCompoundWorld } from "./recurrence-compound-world";
@@ -67,12 +67,13 @@ function scriptedReply(options: {
   responses: QueryResult<unknown>[];
   fault: boolean;
   allowsChildContexts?: true;
+  committed?: boolean;
 }): Reply {
   return {
     name: options.name,
     via: options.via,
     statements: options.statements,
-    committed: true,
+    committed: options.committed ?? true,
     ...(options.allowsChildContexts ? { allowsChildContexts: true } : {}),
     ...(options.fault ? { injected: true } : {}),
     outcome: options.fault
@@ -321,9 +322,11 @@ function suppressionTransportPlan(
             name,
             run: () => candidate.execute("post", "createMany", args),
             assert(outcome) {
+              // As documented: a batch-only driver has no savepoint to
+              // suppress a subtree in, and refuses before any write.
               assert.equal(outcome.kind, "failure");
               if (outcome.kind === "failure")
-                assert.equal(outcome.failure.name, "TransactionError");
+                assert.equal(outcome.failure.name, "UnsupportedOperationError");
             },
           };
         }
@@ -502,154 +505,57 @@ function recurrenceFirstParameter(
   return `n-${recipe.seed}-${operation}-s0`;
 }
 
-function recurrenceSegment(
-  name: string,
-  statements: readonly ExpectedStatement[],
-  expected: unknown | undefined,
-  fault: boolean,
-  via: "batch" | "execute" = "batch"
-): Reply {
-  return scriptedReply({
-    name,
-    via,
-    statements: [...statements],
-    responses: statements.map((statement, index) =>
-      expected !== undefined && index === statements.length - 1
-        ? response([expected], 1)
-        : response([], statement.action === "SELECT" ? 0 : 1)
-    ),
-    fault,
-  });
-}
+const GUARD = "__viborm_assert__";
+
+const VERB = /^\s*(\w+)/;
 
 /**
- * The ORDINARY and REPEATED recurrence shapes' packaging: one dispatched unit.
- *
- * N5 derives it from the boundary rule rather than from the spelling of the
- * nesting. A member takes a segment of its own only where a LATER member must
- * OBSERVE an earlier one's row — a `connectOrCreate` probe, an ordered
- * observation, a produced identity — because a dispatch commits the whole
- * queue and D-51 admits a succession of segments only while the two routes
- * keep ONE result. The recurrence world's nodes spell every key and read
- * nothing (`recurrence-ordinary-world.ts`), so no member of either shape
- * observes another: `children: { create: [...] }` and
- * `children: { createMany: { data: [...] } }` package identically, at every
- * depth and fanout, and the terminal re-read rides the same batch behind the
- * writes.
- *
- * Per representative recipe, that is: `8019` (depth 2, fanout 2, ordinary) 7
- * INSERTs; `8023` (depth 2, fanout 2, repeated) the same 7; `8031` (depth 2,
- * fanout 0, repeated) 3; `8027` (depth 0, fanout 3, repeated) and `8611`
- * (depth 0, ordinary) the folded root `create` below. A faulted recipe carries
- * its fault on that one segment, because there is no earlier segment for it to
- * commit behind.
+ * What a recurrence call's requests are owed, whatever the engine packs into
+ * each: a write is acknowledged, a guard holds, the row the call starts from
+ * is `before` where the shape has one, and the read that answers the call
+ * returns `expected`. How many statements a request holds, and how many
+ * requests there are, is the engine's to decide: the campaign judges the
+ * call's outcome under each transport's acknowledgement, and the fault falls
+ * on the first request that writes.
  */
-function ordinaryRecurrenceReplies(
-  recipe: Extract<G3GeneratedRecipe, { contract: "C11" }>,
+function recurrenceAnswers(
   name: string,
-  firstParameter: string,
-  expected: unknown,
-  fault: boolean
-): Reply[] {
-  const insertCount = recipe.depth + 1 + recipe.depth * recipe.fanout;
-  // `insertCount === 1` (depth 0) is the scalar-only root `create`: it names no
-  // relation, its projection is RETURNING-safe and the adapter has RETURNING,
-  // so the candidate folds the write and the read into one statement and
-  // publishes the row from the INSERT's own RETURNING — the shipped engine's
-  // tape. There is no re-read left to script. A depth >= 1 recipe names a
-  // relation, does not fold, and keeps the trailing SELECT.
-  // (`g4/unit02/note.md` §P.4.7, §R2.5 — recorded root-`create` fold.)
-  const folded = insertCount === 1;
-  return [
-    recurrenceSegment(
-      `${name}:recurrence-0`,
-      [
-        ...expectedStatements("INSERT", insertCount, firstParameter),
-        ...(folded ? [] : expectedStatements("SELECT", 1)),
-      ],
-      expected,
-      fault,
-      // D-7: the folded root `create` is the operation's ONLY statement, so it
-      // needs no batch envelope and runs on the plain execute path — the
-      // shipped `runStatementAtomic` transport. Every other segment here is a
-      // record-series member and stays in its batch.
-      folded ? "execute" : "batch"
-    ),
-  ];
-}
-
-function variantRecurrenceReplies(
-  recipe: Extract<G3GeneratedRecipe, { contract: "C11" }>,
-  name: string,
-  firstParameter: string,
-  expected: unknown,
-  fault: boolean
-): Reply[] {
-  const insertCount = (recipe.depth + 1) * (1 + 2 * (recipe.fanout + 1));
-  return [
-    recurrenceSegment(
-      `${name}:recurrence-0`,
-      [
-        ...expectedStatements("INSERT", insertCount, firstParameter),
-        ...expectedStatements("SELECT", 1),
-      ],
-      expected,
-      fault
-    ),
-  ];
-}
-
-function compoundRecurrenceReplies(
-  recipe: Extract<G3GeneratedRecipe, { contract: "C11" }>,
-  name: string,
-  firstParameter: string,
   expected: unknown,
   fault: boolean,
-  operation: number
-): Reply[] {
-  const lookup: Reply = {
-    name: `${name}:lookup`,
-    via: "execute",
-    statements: [{ action: "SELECT", parameters: [firstParameter] }],
-    committed: false,
-    outcome: {
-      kind: "rows",
-      responses: [
-        response(
-          [
-            {
-              region: `old-r-${operation}`,
-              code: `old-c-${operation}`,
-              isbn: firstParameter,
-              title: "before",
-            },
-          ],
-          1
-        ),
-      ],
-    },
-  };
-  const chapterCount = recipe.depth + 1 + recipe.depth * recipe.fanout;
-  const mutationStatements = [
-    ...expectedStatements("SELECT", 2),
-    ...expectedStatements("UPDATE", 1),
-    ...expectedStatements("INSERT", chapterCount),
-    ...expectedStatements("SELECT", 1),
-  ];
-  const mutation = scriptedReply({
-    name: `${name}:recurrence-0`,
-    via: "batch",
-    statements: mutationStatements,
-    responses: mutationStatements.map((statement, index) =>
-      index <= 1
-        ? response([{ __viborm_assert__: 1 }], 1)
-        : index === mutationStatements.length - 1
+  before: Readonly<Record<string, unknown>> | undefined
+): NonNullable<ActorScript["answers"]> {
+  let started = before === undefined;
+  let wrote = false;
+  return (via, queries, position) => {
+    const statements = queries.map((query): ExpectedStatement => {
+      const action = VERB.exec(query.sql)![1]!.toUpperCase();
+      return { action: action as ExpectedStatement["action"], parameters: [] };
+    });
+    const writes = statements.some(({ action }) => action !== "SELECT");
+    const failing = fault && writes && !wrote;
+    wrote ||= writes;
+    const responses = queries.map((query, index) => {
+      if (statements[index]!.action !== "SELECT")
+        // A write that returns its row is owed the row; any other, a count.
+        return query.sql.includes(" RETURNING ")
           ? response([expected], 1)
-          : response([], statement.action === "SELECT" ? 0 : 1)
-    ),
-    fault,
-  });
-  return [lookup, mutation];
+          : response([], 1);
+      if (query.sql.includes(GUARD)) return response([{ [GUARD]: 1 }], 1);
+      if (!started) {
+        started = true;
+        return response([before], 1);
+      }
+      return response([expected], 1);
+    });
+    return scriptedReply({
+      name: `${name}:recurrence-${position}`,
+      via,
+      statements,
+      responses,
+      fault: failing,
+      committed: writes,
+    });
+  };
 }
 
 function recurrenceTransportPlan(
@@ -679,34 +585,26 @@ function recurrenceTransportPlan(
         assert(publicOperation, "G3 recurrence operation is missing");
         const firstParameter = recurrenceFirstParameter(recipe, operation);
         const fault = recipe.fault !== "none" && operation === 0;
-        const replies: Reply[] =
-          recipe.shape === "compound"
-            ? compoundRecurrenceReplies(
-                recipe,
-                name,
-                firstParameter,
-                publicOperation.expected,
-                fault,
-                operation
-              )
-            : recipe.shape === "variant"
-              ? variantRecurrenceReplies(
-                  recipe,
-                  name,
-                  firstParameter,
-                  publicOperation.expected,
-                  fault
-                )
-              : ordinaryRecurrenceReplies(
-                  recipe,
-                  name,
-                  firstParameter,
-                  publicOperation.expected,
-                  fault
-                );
         return {
           name,
-          script: { name, firstParameter, replies },
+          script: {
+            name,
+            firstParameter,
+            replies: [],
+            answers: recurrenceAnswers(
+              name,
+              publicOperation.expected,
+              fault,
+              recipe.shape === "compound"
+                ? {
+                    region: `old-r-${operation}`,
+                    code: `old-c-${operation}`,
+                    isbn: firstParameter,
+                    title: "before",
+                  }
+                : undefined
+            ),
+          },
           run: () =>
             candidate.execute(
               publicOperation.model,

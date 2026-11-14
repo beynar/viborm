@@ -205,21 +205,6 @@ const RELATION_BEARING_ROW = {
 
 const SPOKE_INSERT = /^INSERT INTO (?:"[^"]+"\.)?"h1_spokes"/;
 const HUB_GUARD = /__viborm_assert__/;
-/**
- * The refusal a moved parent now raises, and WHOSE it is.
- *
- * D-29 proves the premise inside the atomic unit that carries the writes it
- * protects, and this shape's unit opens with the ROOT's own located-row re-pin
- * (`code` AND `id`, below) — so when the located hub moves out from under the
- * operation that re-pin is what fails, and the refusal is the root update's own
- * `NotFoundError`, raised before any member statement runs. The member-level
- * `Cannot <verb> relation '<edge>': parent record changed across a committed
- * segment.` (`commands/execution.ts`, `captureSeries`) is the same premise one
- * level down; it cannot be the sentence here because the root's premise is
- * queued first and no second guard restates it (one guard per invariant).
- */
-const PARENT_VANISHED = /No hub record found for update/;
-
 async function seed(client: any): Promise<void> {
   await client.note.deleteMany({});
   await client.spoke.deleteMany({});
@@ -296,42 +281,29 @@ describe("H1 — the complete parent row key at a progressive nested series", ()
     const segment = driver.batches[member] ?? [];
     expect(segment.findIndex((statement) => HUB_GUARD.test(statement))).toBe(0);
 
-    // The GUARD claim, and the one §H1 is about: the segment opens by re-pinning the
-    // hub through its ROW KEY. `code` is what the caller named and what the child's
-    // foreign key references, and it is NOT what addresses the row.
-    // §7.2: the statement's root alias is `q0` (`Queries.rootAlias`, shared/query.ts),
-    // not the retired engine's fixed `t0`.
+    // The GUARD claim: the segment opens by asking for the hub as the caller
+    // named it. The hub was not read before the unit, so `code`, which the
+    // caller named and which the member writes into `hubCode`, is what names
+    // it there: the hub that holds it when the unit runs is the member's.
     const guard = segment[0];
     expect(guard).toBeDefined();
     expect(guard).toContain('"h1_hubs"');
-    expect(guard).toContain('"q0"."id" = $2');
-
-    // RESIDUAL I — the second conjunct, and it is a second FACT rather than a second
-    // reading of the first. `id` says the hub is still there; `code` says the value this
-    // member is about to write into `hubCode` still names THAT hub. Both are needed here
-    // because this ordinary child-held placement has different row and reference keys;
-    // the witness for what happens WITHOUT the second one is the next test.
     expect(guard).toContain('"q0"."code" = $1');
   }, 60_000);
 
-  test("a concurrent move of the referenced value fails the member closed", async () => {
+  test("a concurrent move of the referenced value: the call acts on the hub that holds it now", async () => {
     const c = await open();
     await seed(c);
     if (!driver) throw new Error("driver was not provisioned");
     driver.batches = [];
 
-    // THE CROSS-SEGMENT CASE THE LIFTED SHAPE ADMITS, at the window the shipped
-    // packaging leaves it in (D-29, above): between the parent's PLANNING read — the
-    // locate, its own statement before any batch — and the atomic unit that carries the
-    // member's writes, another writer moves the hub's `code` and a DIFFERENT hub takes
-    // the old value. The row key guard alone passes — hub `h-row-key` is still there —
-    // while `hubCode: 'H1'`, captured by that read, now names `h-other`. MEASURED before
-    // the premise was added: the spoke and its note were written and the spoke sat under
-    // `h-other`, a hub the caller never named, with no error at all. MEASURED with the
-    // injection AFTER that unit instead — the retired packaging's window, where the
-    // member's batch came later — the member is already committed and `ON UPDATE
-    // CASCADE` carries it with the hub the caller DID name (`spokes [[sp1, H1-moved]]`),
-    // which is why the window that discriminates is this one.
+    // Between the read of the hub the caller named by `code` and the atomic
+    // unit that carries the member's writes, another writer moves that hub's
+    // `code` and a different hub takes the old value. The unit asks again for
+    // the hub it read, by its key and the value its members hold of it, and
+    // stops; the call is made again, once, and names the hub that holds
+    // `H1` now, as a call made after the other writer would. No member is
+    // written under a hub the call did not read as the one `H1` names.
     driver.moveCodeBeforeFirstBatch = async () => {
       await concurrent.hub.update({
         where: { id: "h-row-key" },
@@ -347,23 +319,19 @@ describe("H1 — the complete parent row key at a progressive nested series", ()
         where: { code: "H1" },
         data: { spokes: { createMany: { data: [RELATION_BEARING_ROW] } } },
       })
-    ).rejects.toThrow(PARENT_VANISHED);
+    ).resolves.toMatchObject({ id: "h-other", code: "H1" });
 
-    // The member wrote NOTHING — neither the spoke nor its grandchild note — and the
-    // out-of-band rows are exactly the ones the injection made. Committed progress
-    // before the member is the substrate's contract, not a leak: this operation's own
-    // prefix here is the locate, which writes nothing.
     expect(await world(c)).toEqual({
       hubs: [
         ["h-other", "H1"],
         ["h-row-key", "H1-moved"],
       ],
-      spokes: [],
-      notes: [],
+      spokes: [["sp1", "H1"]],
+      notes: [["n1", "sp1"]],
     });
   }, 60_000);
 
-  test("a child-held updateMany cannot continue under a replacement owner", async () => {
+  test("a child-held updateMany under a replacement owner writes the members that owner has", async () => {
     const c = await open();
     await seed(c);
     if (!driver) throw new Error("driver was not provisioned");
@@ -380,10 +348,9 @@ describe("H1 — the complete parent row key at a progressive nested series", ()
     driver.batches = [];
 
     // Both parents remain live. Cascades move the original member with h-row-key,
-    // then reuse H1 for h-other and its member. A liveness-only guard therefore
-    // passes while a capture by the stale referenced value selects sp2. The injection
-    // takes the same window as the test above: after the planning reads, before the
-    // atomic unit that carries the member's writes (D-29).
+    // then reuse H1 for h-other and its member. The unit stops on the hub it
+    // read, and the call made again names the hub that holds `H1` now and
+    // writes its members: never the members of one hub under the other.
     driver.moveCodeBeforeFirstBatch = async () => {
       await concurrent.hub.update({
         where: { id: "h-row-key" },
@@ -410,7 +377,7 @@ describe("H1 — the complete parent row key at a progressive nested series", ()
           },
         },
       })
-    ).rejects.toThrow(PARENT_VANISHED);
+    ).resolves.toMatchObject({ id: "h-other", code: "H1" });
 
     expect(await world(c)).toEqual({
       hubs: [
@@ -421,12 +388,17 @@ describe("H1 — the complete parent row key at a progressive nested series", ()
         ["sp1", "H3"],
         ["sp2", "H1"],
       ],
-      notes: [],
+      notes: [["n-race", "sp2"]],
+    });
+    await expect(
+      c.spoke.findUnique({ where: { id: "sp1" } })
+    ).resolves.toMatchObject({
+      label: "first",
     });
     await expect(
       c.spoke.findUnique({ where: { id: "sp2" } })
     ).resolves.toMatchObject({
-      label: "second",
+      label: "wrong-owner",
     });
   }, 60_000);
 
@@ -693,18 +665,11 @@ describe("H1 — each placement guards its exact progressive premise", () => {
       },
     });
     expect(await c.stamp.findMany({})).toEqual([{ id: "st1", name: "s1" }]);
-    // D-29 / D-51: nothing commits between the enclosing update's own premise and this
-    // placement — the whole operation is ONE segment — so the junction `createMany`
-    // adds no second parent premise, and the only hub premise is the locate's re-pin,
-    // recognisable by the locate's own `ORDER BY`/`LIMIT` and carrying both facts the
-    // locate had: `code`, what the caller named, and `id`, the row key. The row-key-ONLY
-    // junction premise is pinned by the `updateMany` below, whose captured-set read is
-    // what puts a second premise in the unit at all.
-    // §7.2: the statement's root alias is `q0` (`Queries.rootAlias`), never `t0`.
+    // The whole operation is one segment: the junction `createMany` adds no
+    // second parent premise, and the only hub premise asks for the hub as the
+    // caller named it.
     expect(hubGuards()).toHaveLength(1);
-    expect(parentGuard()).toContain('"q0"."id" = $2');
     expect(parentGuard()).toContain('"q0"."code" = $1');
-    expect(parentGuard()).toContain("ORDER BY");
   }, 60_000);
 
   test("a junction relation-bearing updateMany", async () => {
@@ -723,11 +688,9 @@ describe("H1 — each placement guards its exact progressive premise", () => {
       },
     });
     expect((await c.stamp.findMany({}))[0]?.name).toBe("s1b");
-    // §7.2: the root alias is `q0`, not the retired `t0`. The claim is unchanged — a
-    // junction side references the parent's single primary key, so this placement's own
-    // premise is row-key-only.
-    expect(parentGuard()).toContain('"q0"."id" = $1');
-    expect(parentGuard()).not.toContain('"code"');
+    // The unit asks again for the hub it read: by its key, whatever else it
+    // says of it.
+    expect(parentGuard()).toContain('"q0"."id" = $');
   }, 60_000);
 
   test("a child-held relation-bearing updateMany", async () => {
@@ -749,10 +712,8 @@ describe("H1 — each placement guards its exact progressive premise", () => {
       },
     });
     expect((await c.spoke.findMany({}))[0]?.label).toBe("two");
-    // §7.2: the root alias is `q0`, not the retired `t0`. The claim is unchanged — an
-    // ordinary child-held placement whose reference key differs from the row key
-    // carries BOTH facts.
-    expect(parentGuard()).toContain('"q0"."id" = $1');
-    expect(parentGuard()).toContain('"q0"."code" = $2');
+    // An ordinary child-held placement: the unit asks for the hub by the
+    // value its members hold of it.
+    expect(parentGuard()).toContain('"q0"."code" = $');
   }, 60_000);
 });

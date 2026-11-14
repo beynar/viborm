@@ -245,6 +245,31 @@ export function runOnBehavior(provider: OnProvider): void {
         expect(calls[0]!.rows).toEqual([post("p1", "u1", 3)]);
       });
 
+      test("an include rides along too: the caller keeps the relation it included, the hook the row alone", async () => {
+        const { db, calls } = await open();
+        const updated = await db.post.update({
+          where: { id: "p1" },
+          data: { views: 2 },
+          include: { author: { select: { name: true } } },
+        });
+        expect(updated).toEqual({
+          ...post("p1", "u1", 2),
+          author: { name: "Ada" },
+        });
+        expect(calls[0]!.rows).toEqual([post("p1", "u1", 2)]);
+        const created = await db.user.create({
+          data: {
+            id: "u7",
+            email: "g@example.com",
+            name: "Gil",
+            posts: { create: [{ id: "p7", title: "title p7" }] },
+          },
+          include: { posts: { select: { id: true } } },
+        });
+        expect(created.posts).toEqual([{ id: "p7" }]);
+        expect(calls[1]!.rows.map((row) => row.id)).toEqual(["u7"]);
+      });
+
       test("updateMany: exactly the rows it matched, after the write", async () => {
         const { db, calls } = await open();
         expect(
@@ -614,9 +639,30 @@ export function runOnBehavior(provider: OnProvider): void {
     });
 
     describe("application", () => {
-      test("one client carries one on(): a second is refused", async () => {
-        const { db } = await open();
-        expect(() => db.$extends(on({ user: {} }))).toThrow(
+      test("one client carries several on(): each runs its own hooks, in the order they were applied", async () => {
+        const { db, calls } = await open();
+        const second: string[] = [];
+        const both = db.$extends(
+          on({
+            user: {
+              update: (rows) => {
+                second.push(`second after ${calls.length}: ${rows[0]!.name}`);
+              },
+            },
+          })
+        );
+        await both.user.update({
+          where: { id: "u1" },
+          data: { name: "Twice" },
+        });
+        expect(calls.map((call) => call.hook)).toEqual(["user.update"]);
+        expect(second).toEqual(["second after 1: Twice"]);
+      });
+
+      test("the same on() applied twice to one client is refused", async () => {
+        const { base } = await open();
+        const once = on({ user: {} });
+        expect(() => base.$extends(once).$extends(once)).toThrow(
           ClientInitializationError
         );
       });
@@ -964,16 +1010,19 @@ export function runOnBehavior(provider: OnProvider): void {
           data: { edited: { set: [] } },
         });
         expect(updated).toEqual([post("p1", "u1")]);
-        // The rows are read before the UPDATE that clears their key: where
-        // the session locks (its read of the user), they are read locked too.
+        // Where the rows are read before the UPDATE that clears their key,
+        // they are read locked as the session's other reads are; where the
+        // UPDATE says them itself, nothing is read to lock.
         const unlink = texts.findIndex((text) => text.startsWith("UPDATE"));
-        const read = texts
+        const reads = texts
           .slice(0, unlink)
-          .reverse()
-          .find((text) => text.startsWith("SELECT") && text.includes("post"));
-        expect(read?.endsWith("FOR UPDATE")).toBe(
-          texts[0]!.endsWith("FOR UPDATE")
-        );
+          .filter((text) => text.startsWith("SELECT") && text.includes("post"));
+        expect(
+          reads.every(
+            (text) =>
+              text.endsWith("FOR UPDATE") === texts[0]!.endsWith("FOR UPDATE")
+          )
+        ).toBe(true);
       });
 
       test("nested delete and deleteMany: the rows as they were before; updateMany: after", async () => {
@@ -1347,29 +1396,6 @@ export function runOnBehavior(provider: OnProvider): void {
       test("onError that is no function is refused at once", () => {
         expect(() =>
           on({}, { onError: "log" as unknown as () => undefined })
-        ).toThrow(ClientInitializationError);
-      });
-
-      test("the official name is reserved, and a second on() is refused under any name", async () => {
-        const { base, db } = await open();
-        expect(() =>
-          base.$extends({
-            name: "viborm.on",
-            statement: (s: { statement: Sql }) => s.statement,
-          })
-        ).toThrow(ClientInitializationError);
-        const second = on({ user: { update: () => undefined } }) as unknown as (
-          b: object
-        ) => unknown;
-        let definition: { name: string; query: unknown } | undefined;
-        second({
-          $schema: base.$schema,
-          $extends: (value: { name: string; query: unknown }) => {
-            definition = value;
-          },
-        });
-        expect(() =>
-          db.$extends({ ...definition!, name: "renamed" } as never)
         ).toThrow(ClientInitializationError);
       });
 

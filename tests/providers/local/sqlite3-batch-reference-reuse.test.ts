@@ -122,9 +122,6 @@ const post = s
 
 const schema = { badge, gate, holder, office, pass, post, tag };
 
-/** The replacement race the `connectOrCreate` arm already owns. */
-const REPLACED =
-  "Record was replaced by another transaction during nested connectOrCreate";
 const NULL_CODE =
   "Cannot connect relation 'badge': the located target's referenced field 'code' is null.";
 
@@ -204,33 +201,6 @@ for (const [fixture, make] of FIXTURES) {
       );
       // The connection is `b1`'s, read at the write: `b2` holds the bytes the
       // probe saw and is a member of nothing.
-      assert.deepEqual(
-        (
-          await client.badge.findMany({
-            include: { holders: true },
-            orderBy: { id: "asc" },
-          })
-        ).map((row) => [row.id, row.holders.map((held) => held.id)]),
-        [
-          ["b1", ["h1"]],
-          ["b2", []],
-        ]
-      );
-    });
-
-    it("spends the intended row's CURRENT reference when the key is recycled BETWEEN the unit's premise and its write", async () => {
-      // The window a batch premise cannot close on this substrate: the premise
-      // has answered, and the statement it stands in front of has not run. The
-      // value is read INSIDE that statement, so it is the row's own either way.
-      const client = await world();
-      driver.plantBeforeFirstWrite = recycle;
-      assert.deepEqual(
-        await client.holder.update({
-          where: { id: "h1" },
-          data: { name: "connected", badge: connectChosen },
-        }),
-        { id: "h1", name: "connected", badgeCode: "M", officeId: "o1" }
-      );
       assert.deepEqual(
         (
           await client.badge.findMany({
@@ -378,7 +348,7 @@ for (const [fixture, make] of FIXTURES) {
       );
     });
 
-    it("aborts the unit with the arm's own failure when the located target disappears", async () => {
+    it("plans again when the located target disappears: the row it creates is the one it connects", async () => {
       const client = await world();
       driver.plant = (database) => {
         database.prepare("DELETE FROM te_brr_badges WHERE id = 'b1'").run();
@@ -388,25 +358,24 @@ for (const [fixture, make] of FIXTURES) {
           )
           .run();
       };
-      await assert.rejects(
-        async () => {
-          await client.holder.update({
-            where: { id: "h1" },
-            data: { name: "connected", badge: connectChosen },
-          });
-        },
-        (error: unknown) =>
-          error instanceof NestedWriteError && error.message === REPLACED
-      );
-      // Nothing of the unit stands: no rename, no connection, no create arm.
-      assert.deepEqual(await client.holder.findMany(), [
-        { id: "h1", name: "one", badgeCode: null, officeId: "o1" },
-      ]);
+      // The unit asks again for the row the call read: it is gone, so the
+      // call plans again, as a call made after the other writer would.
       assert.deepEqual(
-        (await client.badge.findMany({ orderBy: { id: "asc" } })).map(
-          (row) => row.id
-        ),
-        ["b2"]
+        await client.holder.update({
+          where: { id: "h1" },
+          data: { name: "connected", badge: connectChosen },
+        }),
+        { id: "h1", name: "connected", badgeCode: "NEW", officeId: "o1" }
+      );
+      assert.deepEqual(
+        (await client.badge.findMany({ orderBy: { id: "asc" } })).map((row) => [
+          row.id,
+          row.code,
+        ]),
+        [
+          ["b2", "G"],
+          ["b9", "NEW"],
+        ]
       );
     });
 

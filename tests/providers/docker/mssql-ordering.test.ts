@@ -34,10 +34,11 @@ describeIf("SQL Server Driver", () => {
     2,
     // A move reads the anchor, then its neighbours within its list (the
     // list field is nullable here), then updates, as on MySQL; an update
-    // locks its row, writes it, and reads it back once (no RETURNING). An
-    // upsert locates its row first: a create then inserts and reads it (the
-    // ordered one computing its key in its INSERT); an update locks, writes
-    // and reads it.
-    { move: 5, update: 3, upsert: [3, 5, 3, 5] }
+    // writes its row and reads it back once (no RETURNING), with no lock
+    // first: SQL Server counts the rows an UPDATE found, not those it
+    // changed. An upsert locates its row first: a create then inserts and
+    // reads it (the ordered one computing its key in its INSERT); an update
+    // locks, writes and reads it.
+    { move: 5, update: 2, upsert: [3, 5, 3, 5] }
   );
 });

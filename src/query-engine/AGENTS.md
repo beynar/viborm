@@ -191,7 +191,7 @@ code on disk.
 | `result/groupby-fields.ts` | the groupBy field vocabulary `result/result-shape.ts` reads |
 | `result/cache-*.ts` | the cache boundary's codecs and snapshot structure |
 | `result/result-shape.ts`, `result-column.ts`, `result-aggregate-leaf.ts` | the result-shape vocabulary the client's TypeScript renderer reads; `result-shape.ts` also owns the selection rules the prepared projection shares with it (`selectedArm`, the distance sentences) |
-| `context/`, `bind-budget.ts`, `execution-context.ts`, `cache-flow.ts`, `query-inspection.ts`, `result-aliases.ts` | retained boundaries outside either engine |
+| `bind-budget.ts`, `execution-context.ts`, `cache-flow.ts`, `query-inspection.ts`, `result-aliases.ts` | retained boundaries outside either engine |
 
 Do not add a generic mutation DSL, payload walker, branch-step IR, locator,
 strategy, lifecycle hook, or shared utility landfill. Do not recreate a second

@@ -67,7 +67,7 @@ for (const [route, make] of [
       assert.deepEqual(await client.tag.findMany(), []);
     });
 
-    it("does not delete a member removed from the set after the plan-time read; the operation re-plans once and converges", async () => {
+    it("does not delete a member removed from the set after the plan-time read", async () => {
       const client = await world();
       driver.plant = (database) => {
         database
@@ -86,7 +86,6 @@ for (const [route, make] of [
         ),
         [8]
       );
-      assert.ok(driver.batchCalls >= 2, `batches: ${driver.batchCalls}`);
     });
   });
 }

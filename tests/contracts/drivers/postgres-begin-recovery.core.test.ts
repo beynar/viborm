@@ -30,9 +30,14 @@ function fixture() {
   });
   const end = vi.spyOn(client, "end");
   const reserve = vi.spyOn(client, "reserve");
+  // The driver's own probe, which drains what postgres.js retained. Never a
+  // lease: a lease the retained error refuses loses its connection.
+  const probe = vi.spyOn(client, "unsafe");
   const driver = new BeginProbe({ client });
-  return { client, release, lease, end, reserve, driver };
+  return { client, release, lease, end, reserve, probe, driver };
 }
+const answered = () =>
+  Object.assign([{ "?column?": 1 }], { count: 1, command: "SELECT" }) as never;
 const closed = () =>
   Object.assign(new Error("Physical socket closed"), {
     code: "CONNECTION_CLOSED",
@@ -46,24 +51,24 @@ afterEach(() => {
 });
 
 describe("postgres.js failed BEGIN recovery", () => {
-  it("drains a stale acquisition without replaying callback or closing the borrowed pool", async () => {
-    const { client, release, lease, end, reserve, driver } = fixture();
+  it("drains a stale acquisition without replaying callback, taking a lease or closing the borrowed pool", async () => {
+    const { client, end, reserve, probe, driver } = fixture();
     const primary = closed();
     const prior = stale();
     vi.spyOn(client, "begin").mockRejectedValue(primary);
-    reserve.mockRejectedValueOnce(prior).mockResolvedValueOnce(lease);
+    probe.mockRejectedValueOnce(prior).mockResolvedValueOnce(answered());
     const callback = vi.fn(async () => "unreachable");
     await expect(driver.invoke(client, callback)).rejects.toBe(primary);
     expect(callback).not.toHaveBeenCalled();
-    expect(reserve).toHaveBeenCalledTimes(2);
-    expect(release).toHaveBeenCalledOnce();
+    expect(probe.mock.calls).toEqual([["SELECT 1"], ["SELECT 1"]]);
+    expect(reserve).not.toHaveBeenCalled();
     expect(readSuppressedFailures(primary)).toEqual([prior]);
     await driver._disconnect();
     expect(end).not.toHaveBeenCalled();
   });
 
-  it("successful native BEGIN has no recovery lease", async () => {
-    const { client, lease, reserve, driver } = fixture();
+  it("successful native BEGIN has no recovery probe", async () => {
+    const { client, lease, reserve, probe, driver } = fixture();
     Object.defineProperty(client, "begin", {
       configurable: true,
       value: (callback: (tx: postgres.TransactionSql) => Promise<string>) =>
@@ -73,15 +78,16 @@ describe("postgres.js failed BEGIN recovery", () => {
     await expect(driver.invoke(client, callback)).resolves.toBe("committed");
     expect(callback).toHaveBeenCalledOnce();
     expect(reserve).not.toHaveBeenCalled();
+    expect(probe).not.toHaveBeenCalled();
   });
 
-  it("retains primary and both terminal acquisition failures, then stays usable because no live session remains", async () => {
-    const { client, end, reserve, driver } = fixture();
+  it("retains primary and both terminal probe failures, then stays usable because no live session remains", async () => {
+    const { client, end, probe, driver } = fixture();
     const primary = closed();
     const prior = stale();
     const terminal = closed();
     vi.spyOn(client, "begin").mockRejectedValue(primary);
-    reserve.mockRejectedValueOnce(prior).mockRejectedValueOnce(terminal);
+    probe.mockRejectedValueOnce(prior).mockRejectedValueOnce(terminal);
     await expect(driver.invoke(client, async () => "unreachable")).rejects.toBe(
       primary
     );
@@ -98,17 +104,17 @@ describe("postgres.js failed BEGIN recovery", () => {
     expect(end).not.toHaveBeenCalled();
   });
 
-  it("keeps one cleanup deadline and releases a lease arriving after expiry", async () => {
+  it("keeps one cleanup deadline and does not wait for a probe still pending at expiry", async () => {
     vi.useFakeTimers();
-    const { client, release, lease, end, reserve, driver } = fixture();
+    const { client, end, reserve, probe, driver } = fixture();
     const primary = closed();
-    let arrive: ((value: typeof lease) => void) | undefined;
+    let arrive: ((value: never) => void) | undefined;
     vi.spyOn(client, "begin").mockRejectedValue(primary);
-    reserve.mockRejectedValueOnce(stale()).mockImplementationOnce(
+    probe.mockRejectedValueOnce(stale()).mockImplementationOnce(
       () =>
         new Promise((resolve) => {
           arrive = resolve;
-        })
+        }) as never
     );
     const invocation = driver.invoke(client, async () => "unreachable", {
       maxWaitMs: 20,
@@ -118,33 +124,33 @@ describe("postgres.js failed BEGIN recovery", () => {
     await settled;
     expect(readSuppressedFailures(primary)).toHaveLength(2);
     expect(readSuppressedFailures(primary)[1]).toMatchObject({ code: "V5002" });
-    if (!arrive) throw new Error("The acquisition did not start");
-    arrive(lease);
+    if (!arrive) throw new Error("The probe did not start");
+    arrive(answered());
     await vi.advanceTimersByTimeAsync(0);
-    expect(release).toHaveBeenCalledOnce();
+    expect(reserve).not.toHaveBeenCalled();
     expect(end).not.toHaveBeenCalled();
   });
 
-  it("does not start a second lease when the original deadline is exhausted", async () => {
+  it("does not start a second probe when the original deadline is exhausted", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
-    const { client, lease, reserve, driver } = fixture();
+    const { client, probe, driver } = fixture();
     const primary = closed();
     vi.spyOn(client, "begin").mockRejectedValue(primary);
-    reserve
-      .mockImplementationOnce(async () => {
+    probe
+      .mockImplementationOnce((async () => {
         vi.setSystemTime(20);
         throw stale();
-      })
-      .mockResolvedValueOnce(lease);
+      }) as never)
+      .mockResolvedValueOnce(answered());
     await expect(
       driver.invoke(client, async () => "unreachable", { maxWaitMs: 20 })
     ).rejects.toBe(primary);
-    expect(reserve).toHaveBeenCalledOnce();
+    expect(probe).toHaveBeenCalledOnce();
   });
 
   it("never probes after callback entry or a configuration refusal", async () => {
-    const { client, lease, reserve, driver } = fixture();
+    const { client, lease, reserve, probe, driver } = fixture();
     const callbackFailure = closed();
     Object.defineProperty(client, "begin", {
       configurable: true,
@@ -166,5 +172,6 @@ describe("postgres.js failed BEGIN recovery", () => {
       driver.invoke(client, async () => "unreachable")
     ).rejects.toThrow("Authentication refused");
     expect(reserve).not.toHaveBeenCalled();
+    expect(probe).not.toHaveBeenCalled();
   });
 });

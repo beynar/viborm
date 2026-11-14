@@ -5,9 +5,13 @@
  * connection.
  */
 
+import { withRows } from "@extensions/rows-runtime";
 import { runDomainPredicateBehavior } from "@tests/contracts/engine/query/domain-predicate-behavior";
 import { runRowScopeBehavior } from "@tests/contracts/engine/query/row-scope-behavior";
 import { createInMemoryPGliteDriver } from "@tests/fixtures/drivers/pglite";
+
+// These definitions are stated as plain objects: what reads their rows is brought here.
+withRows();
 
 describe("PGlite Driver", () => {
   runRowScopeBehavior({

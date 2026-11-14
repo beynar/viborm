@@ -15,6 +15,7 @@ import type {
   StampedOperations,
 } from "@client/types";
 import { ClientInitializationError } from "@errors";
+import type { ModelSql } from "@query-engine/raptor3/shared/insert-value";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { isFunction, isRecord } from "@validation/value-guards";
 import type { OfficialCacheControls } from "../cache/capability";
@@ -198,6 +199,13 @@ interface ModelRows {
    * ```
    */
   $rows(alias: string): RowsFragment;
+  /**
+   * This model's names and values as this client's statements spell them:
+   * its table, its columns, a value bound as one of its fields, and the rows
+   * a call may see as a condition. For a fragment you write by hand and hand
+   * to a model operation (a `computed` value, a filter's expression).
+   */
+  readonly $sql: ModelSql;
 }
 
 /**

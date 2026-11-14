@@ -5,7 +5,9 @@
  * write reads through this. Everything else it asks of `Queries` is shared.
  */
 
+import type { Dialect } from "@drivers/types";
 import { UnsupportedOperationError } from "@errors";
+import type { ModelSql } from "@query-engine/raptor3/shared/insert-value";
 import {
   type PreparedDomain,
   type PreparedPredicate,
@@ -13,9 +15,7 @@ import {
   type PreparedSelector,
   Queries,
   type Query,
-  type RowCondition,
   type SelectControls,
-  wholeValue,
 } from "@query-engine/raptor3/shared/query";
 import type {
   CallScope,
@@ -29,7 +29,6 @@ import { Sql, sql } from "@sql";
 import { SurrealReadBackend } from "./read-backend";
 
 type AnyModel = Parameters<Queries["select"]>[0];
-type Junction = Extract<Membership, { kind: "junction" }>;
 
 function refuse(what: string): never {
   throw new UnsupportedOperationError(
@@ -52,7 +51,12 @@ export class SurrealQueries extends Queries {
     filter: { readonly linkFields?: readonly string[] }
   ): void {
     if (!this.lowersLayer)
-      this.refuseHiddenLinkRow(edge, filter.linkFields!, "filter");
+      this.domain?.refuseHiddenLinkRow(
+        this,
+        edge,
+        filter.linkFields!,
+        "filter"
+      );
   }
 
   override under(domain: PreparedDomain, call?: CallScope): Queries {
@@ -70,14 +74,14 @@ export class SurrealQueries extends Queries {
   resolved(
     node: Extract<PreparedPredicate, { kind: "layer" }>
   ): PreparedPredicate | undefined {
-    return this.resolve(node);
+    return node.resolve(this);
   }
 
   layer(
     node: Extract<PreparedPredicate, { kind: "layer" }>,
     lower: (resolved: PreparedPredicate) => Sql
   ): Sql | undefined {
-    const resolved = this.resolve(node);
+    const resolved = node.resolve(this);
     if (resolved === undefined) return undefined;
     const excluded = (this.excluded ??= []);
     excluded.push(node.layer);
@@ -125,7 +129,7 @@ export class SurrealQueries extends Queries {
     operation: Parameters<Queries["read"]>[1],
     args: Arguments
   ) {
-    return this.#lowering.read(model, operation, args);
+    return this.lowering.read(model, operation, args);
   }
 
   /** These spell a statement's parts, and only a statement written whole is read here. */
@@ -137,50 +141,42 @@ export class SurrealQueries extends Queries {
     return refuse("a condition spelled apart from its statement");
   }
 
-  override lockAll(): Query {
-    return refuse("locks");
+  spelling(model: AnyModel, dialect: Dialect): ModelSql {
+    const low = this.lowering;
+    return {
+      dialect,
+      table: () => sql.raw(model["~"].names.sql!),
+      column: (field) => low.physical(model, field),
+      value: (field, value) => low.value(model, field, value),
+      name: (...path) => sql.raw(path.join(".")),
+      visible: (_alias, options) => {
+        if (options?.update)
+          throw new UnsupportedOperationError(
+            "SurrealDB: the rows a call may update are not a condition yet"
+          );
+        const seen = this.scoped(
+          model,
+          options?.where === undefined
+            ? undefined
+            : this.prepareSelector(
+                model,
+                this.schema.admit(model, "findMany", {
+                  where: options.where as Input,
+                }).where as Input
+              ).predicate,
+          "root"
+        );
+        return seen ? low.predicate(seen, true) : sql.raw("true");
+      },
+    };
   }
 
   #backend: SurrealReadBackend | undefined;
 
-  get #lowering(): SurrealReadBackend {
+  /** What spells this call's reads, and the parts of its writes that read: one, so that what a statement computes ahead of itself is stated once. */
+  get lowering(): SurrealReadBackend {
     this.#backend ??= new SurrealReadBackend(this);
     return this.#backend;
-  }
-
-  #row(model: AnyModel, row: RowCondition): Sql {
-    switch (row.kind) {
-      case "fieldNull":
-        return sql`${this.#lowering.physical(model, row.field)} = NONE`;
-      case "notIdentity":
-        return sql`!(${sql.join(
-          row.identities.map(
-            (identity) => sql`(${this.#lowering.identity(model, identity)})`
-          ),
-          " OR "
-        )})`;
-      default: {
-        // A located value is read where it is spent, so the database compares it.
-        const moves = row.fields.flatMap((field) => {
-          const stated = row.after[field];
-          // Nothing this write states: the column keeps what it holds.
-          if (stated === undefined) return [];
-          const whole = wholeValue(stated);
-          if (!whole) return [sql.raw("true")];
-          const after = whole.value;
-          if (after instanceof Sql)
-            return [
-              sql`({ LET $moved = ${after}; (IF type::is_record($moved) { record::id($moved) } ELSE { $moved }) != ${row.before[field]} })`,
-            ];
-          return String(row.before[field]) === String(after)
-            ? []
-            : [sql.raw("true")];
-        });
-        return moves.length
-          ? sql`(${sql.join(moves, " OR ")})`
-          : sql.raw("false");
-      }
-    }
   }
 
   /** A field of the row `selector` names, read inside the statement that spends it. */
@@ -190,47 +186,9 @@ export class SurrealQueries extends Queries {
     selector: PreparedSelector
   ): Sql {
     const where = selector.predicate
-      ? sql`WHERE ${this.#lowering.predicate(selector.predicate, true)} `
+      ? sql`WHERE ${this.lowering.predicate(selector.predicate, true)} `
       : sql.raw("");
-    return sql`(SELECT VALUE ${this.#lowering.physical(model, field)} FROM ${sql.raw(model["~"].names.sql!)} ${where}LIMIT 1)[0]`;
-  }
-
-  /** The edge between two records, named by each side's junction field. */
-  override junction(edge: Junction, values: Input): Query {
-    if (edge.declared) return this.#lowering.linkRowQuery(edge, values);
-    const { table, near, far, out } = this.#lowering.edgeOf(edge);
-    const knows = (side: Junction["sourceSide"]) =>
-      Object.hasOwn(values, side.members[0]!.junctionField);
-    const end = (side: Junction["sourceSide"]) =>
-      this.#lowering.end(side, (pair) => values[pair.junctionField]);
-    // From its source, an edge is reached along the record's own list.
-    const edges = knows(edge.sourceSide)
-      ? sql`${end(edge.sourceSide)}${out}`
-      : table;
-    const conditions = [
-      ...(knows(edge.targetSide)
-        ? [sql`${far} = ${end(edge.targetSide)}`]
-        : []),
-    ];
-    const unique = edge.uniqueSide === "target";
-    const owner = unique ? edge.sourceSide : edge.targetSide;
-    const read = unique ? near : far;
-    const fields: Record<string, ReturnType<typeof this.scalarShape>> = {};
-    const columns = owner.members.map((pair, index) => {
-      fields[pair.junctionField] = this.scalarShape(
-        owner.model,
-        pair.referencedField
-      );
-      const value =
-        owner.members.length === 1
-          ? read
-          : sql`record::id(${read})[${sql.raw(String(index))}]`;
-      return sql`${value} AS ${sql.raw(pair.junctionField)}`;
-    });
-    return {
-      sql: sql`SELECT ${sql.join(columns, ", ")} FROM ${edges}${conditions.length ? sql` WHERE ${sql.join(conditions, " AND ")}` : sql.raw("")}`,
-      shape: { kind: "object", fields },
-    };
+    return sql`(SELECT VALUE ${this.lowering.physical(model, field)} FROM ${sql.raw(model["~"].names.sql!)} ${where}LIMIT 1)[0]`;
   }
 
   /** Rows a write named, by key, in the order it named them: a list reads so. */
@@ -241,11 +199,11 @@ export class SurrealQueries extends Queries {
   ): Query {
     const { model } = prepared;
     const records = sql.join(
-      identities.map((identity) => this.#lowering.recordOfRow(model, identity)),
+      identities.map((identity) => this.lowering.recordOfRow(model, identity)),
       ", "
     );
     return {
-      sql: sql`SELECT ${this.#lowering.columns(prepared)} FROM [${records}]`,
+      sql: sql`SELECT ${this.lowering.columns(prepared)} FROM [${records}]`,
       shape: prepared.shape,
       expectedRows: this.seriesExpectation(model, identities.length, operation),
     };
@@ -258,7 +216,7 @@ export class SurrealQueries extends Queries {
   override select(
     model: AnyModel,
     args: Partial<Arguments>,
-    membership?: { edge: Membership; parent: Input; outside?: boolean },
+    membership?: { edge: Membership; parent: Input },
     controls: SelectControls = {}
   ): Query {
     if (controls.source) refuse("a read over a write's own rows");
@@ -274,10 +232,8 @@ export class SurrealQueries extends Queries {
       : given;
     // A path reads a record's members without scanning the table holding them.
     const path =
-      membership?.edge.kind === "junction" &&
-      !membership.edge.declared &&
-      !membership.outside
-        ? this.#lowering.membersOf(membership.edge, membership.parent)
+      membership?.edge.kind === "junction" && !membership.edge.declared
+        ? this.lowering.membersOf(membership.edge, membership.parent)
         : undefined;
     // A whole key stated as values is the record itself, read without a filter.
     const identity = controls.identity;
@@ -287,29 +243,20 @@ export class SurrealQueries extends Queries {
       this.keyOrder(model).every(
         (key) => identity[key] != null && !(identity[key] instanceof Sql)
       )
-        ? this.#lowering.recordOfRow(model, identity)
+        ? this.lowering.recordOfRow(model, identity)
         : undefined;
     const conditions = () => [
       ...(membership && !path
-        ? [
-            this.#lowering.member(
-              membership.edge,
-              membership.parent,
-              membership.outside
-            ),
-          ]
+        ? [this.lowering.member(membership.edge, membership.parent)]
         : []),
-      ...(identity && !record
-        ? [this.#lowering.identity(model, identity)]
-        : []),
+      ...(identity && !record ? [this.lowering.identity(model, identity)] : []),
       ...(controls.unless?.predicate
-        ? [this.#lowering.predicate(controls.unless.predicate, false)]
+        ? [this.lowering.predicate(controls.unless.predicate, false)]
         : []),
-      ...(controls.row ? [this.#row(model, controls.row)] : []),
     ];
     return {
-      sql: this.#lowering.hoisted(() =>
-        this.#lowering.statement(
+      sql: this.lowering.hoisted(() =>
+        this.lowering.statement(
           model,
           projection,
           record ? { ...args, unordered: true } : args,

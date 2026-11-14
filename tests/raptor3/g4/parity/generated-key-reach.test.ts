@@ -37,10 +37,9 @@ import { RecordingSQLiteDriver } from "../unit02/world";
 
 const INSERT_STATEMENT = /^\s*insert\b/i;
 const RETURNING_CLAUSE = /returning/i;
-const INTERACTIVE_REFUSAL =
+/** One sentence, whichever verb creates the row. */
+const UNNAMEABLE =
   /Returning generated values requires RETURNING support or one generated increment field/;
-const CREATE_MANY_REFUSAL =
-  /cannot locate one selected createMany row after insertion/;
 
 /**
  * MySQL's transport profile on a credential-free driver: an interactive
@@ -290,13 +289,13 @@ describe("M1: the key a non-RETURNING provider must already know", () => {
         data: { label: "x" },
         select: { left: true, right: true, label: true },
       });
-    }, INTERACTIVE_REFUSAL);
+    }, UNNAMEABLE);
     await assert.rejects(async () => {
       await client.pair.createMany({
         data: [{ label: "y" }],
         select: { left: true, right: true },
       });
-    }, CREATE_MANY_REFUSAL);
+    }, UNNAMEABLE);
     // Neither refusal wrote anything.
     assert.deepEqual(
       await client.pair.findMany({ select: { label: true } }),

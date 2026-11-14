@@ -26,15 +26,13 @@ export const supplierContinuationScenarios: ScenarioDefinition[] = cases.map(
       "src/query-engine/write-engine/OperationExecutor.ts",
       "src/errors/record-series-progress.ts",
     ],
-    prepare(controls) {
+    prepare() {
       const found = id === "g2-supplier-coc-found-modify";
       const missing = id === "g2-supplier-coc-missing-modify";
       const uniqueFailure = id === "g2-supplier-modifier-unique-failure";
       const filterMiss = id === "g2-supplier-wrapper-filter-miss";
       const untaken = id === "g2-supplier-untaken-upsert";
       const failed = uniqueFailure || filterMiss;
-      const committedPrefix =
-        failed && controls.profile === "sqlite-atomic-batch";
       const station = s
         .model({
           id: s.string().id(),
@@ -130,9 +128,9 @@ export const supplierContinuationScenarios: ScenarioDefinition[] = cases.map(
             badges: initial.badges,
           }
         : failed
-          ? committedPrefix
-            ? prefix
-            : initial
+          ? // A supplier and its continuation are one unit on every route: a
+            // continuation that fails leaves no supplier behind.
+            initial
           : {
               stations: initial.stations,
               badges: found
@@ -153,13 +151,9 @@ export const supplierContinuationScenarios: ScenarioDefinition[] = cases.map(
           .all(),
       });
       let supplierSeen = false;
-      let prefixCommitted = false;
-      const requiredCuts = untaken
-        ? []
-        : [
-            "supplier-visible",
-            ...(committedPrefix ? ["supplier-prefix-committed"] : []),
-          ];
+      // A call that is refused need not show its supplier at any boundary.
+      // A call that is refused need not show its supplier at any boundary.
+      const requiredCuts = untaken || failed ? [] : ["supplier-visible"];
       return {
         publicInput: untaken
           ? { model: "station", operation: "upsert", args: upsertArgs }
@@ -204,23 +198,6 @@ export const supplierContinuationScenarios: ScenarioDefinition[] = cases.map(
           }
           return undefined;
         },
-        afterTransaction(database, phase) {
-          if (committedPrefix && phase === "commit" && !prefixCommitted) {
-            assert.equal(database.inTransaction, false);
-            assert.deepEqual(
-              inspect(database),
-              prefix,
-              "The supplier prefix is committed before its failing continuation"
-            );
-            assert(
-              supplierSeen,
-              "A committed supplier was never observed at the statement boundary"
-            );
-            prefixCommitted = true;
-            return "supplier-prefix-committed";
-          }
-          return undefined;
-        },
         assert(observation) {
           assert.deepEqual(observation.initial, initial);
           assert.deepEqual(
@@ -229,8 +206,8 @@ export const supplierContinuationScenarios: ScenarioDefinition[] = cases.map(
             JSON.stringify(observation.outcome)
           );
           assert.deepEqual(observation.defaults, []);
-          assert.deepEqual(observation.reachedCuts, requiredCuts);
           if (!failed) {
+            assert.deepEqual(observation.reachedCuts, requiredCuts);
             assert.deepEqual(observation.outcome, {
               kind: "success",
               value: untaken
@@ -266,27 +243,10 @@ export const supplierContinuationScenarios: ScenarioDefinition[] = cases.map(
               "The modifier must fail on the requested target key, not on supplier occupancy"
             );
           }
-          const progress =
-            "recordSeriesProgress" in failure.meta
-              ? failure.meta.recordSeriesProgress
-              : undefined;
-          // A capability-false native batch proves commitment by successful
-          // return, not by an invented pre-result ACK. Its failed next segment
-          // cannot erase or replay the already committed supplier.
-          assert.deepEqual(
-            progress,
-            committedPrefix
-              ? {
-                  atomicity: "segment",
-                  phase: uniqueFailure ? "member" : "capture",
-                  committedSegments: 1,
-                  completedMembers: 0,
-                  committedWriteMembers: 1,
-                  ...(uniqueFailure
-                    ? { memberPath: [0], totalMembers: 1 }
-                    : {}),
-                }
-              : undefined
+          assert.equal(
+            "recordSeriesProgress" in failure.meta,
+            false,
+            "Nothing of a refused call stands: it reports no progress"
           );
         },
       };

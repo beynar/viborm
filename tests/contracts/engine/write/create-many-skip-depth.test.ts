@@ -180,18 +180,6 @@ describe("X1b mechanism 3 — createMany skipDuplicates under a located update t
     ["t0", null, "taken"],
   ];
 
-  // What the batch route keeps once the skip is dropped - the same rows the
-  // plain createMany keeps: each row under a located target is its own
-  // committed member, so g1 stays and the colliding g2 fails.
-  const kept = [
-    ["c0", null, "c0"],
-    ["c1", "c0", "c1"],
-    ["d0", null, "d0"],
-    ["d1", "d0", "d1"],
-    ["g1", "c1", "fresh"],
-    ["t0", null, "taken"],
-  ];
-
   test("tx: skip keeps the fresh child under c1, drops the duplicate, native Observed", async () => {
     const { state, engines } = await runObserved("tx", seed, op, snap);
     expect(engines).toEqual(new Set(["production"]));
@@ -205,7 +193,9 @@ describe("X1b mechanism 3 — createMany skipDuplicates under a located update t
     expect(outcome.warnings).toEqual([]);
     expect(outcome.keptDropped).toEqual(outcome.before);
     expect(outcome.plain).toBeInstanceOf(UniqueConstraintError);
-    expect(outcome.keptPlain).toEqual(kept);
+    // The plain createMany fits one unit: the row that collides undoes the
+    // rows written beside it.
+    expect(outcome.keptPlain).toEqual(outcome.before);
   });
 });
 

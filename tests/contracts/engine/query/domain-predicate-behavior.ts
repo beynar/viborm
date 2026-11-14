@@ -2,7 +2,7 @@
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { ClientInitializationError } from "@errors";
-import { defineExtension } from "@extensions/definition";
+import { defineExtension } from "@extensions/define";
 import { s } from "@schema";
 import { v } from "@src/validation";
 import {

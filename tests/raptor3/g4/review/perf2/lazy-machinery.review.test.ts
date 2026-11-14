@@ -19,7 +19,6 @@
 
 import assert from "node:assert/strict";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
-import type { OperationContext } from "@query-engine/raptor3/shared/operation-context";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
 import { SqlOperationContext } from "@query-engine/raptor3/shared/sql-operation-context";
 import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
@@ -39,7 +38,7 @@ type ContextInternals = {
   correlationIdValue?: unknown;
 };
 
-const internals = (context: OperationContext): ContextInternals =>
+const internals = (context: SqlOperationContext): ContextInternals =>
   context as unknown as ContextInternals;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;

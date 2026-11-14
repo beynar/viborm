@@ -221,10 +221,7 @@ export const createNumericSetOperations = (): NumericSetOperations => ({
 
 export const createRelationFilters = (): DatabaseAdapter["filters"] => ({
   some: (subquery: Sql): Sql => sql`EXISTS (${subquery})`,
-  every: (subquery: Sql): Sql => sql`NOT EXISTS (${subquery})`,
   none: (subquery: Sql): Sql => sql`NOT EXISTS (${subquery})`,
-  is: (subquery: Sql): Sql => sql`EXISTS (${subquery})`,
-  isNot: (subquery: Sql): Sql => sql`NOT EXISTS (${subquery})`,
 });
 
 export const createMutationCommands = (): MutationCommands => ({
@@ -446,6 +443,20 @@ export const createInsertStatement =
       ", "
     )}) ${body}`;
   };
+
+/** `INSERT … ON CONFLICT (key) DO NOTHING | UPDATE SET …`: PostgreSQL and SQLite. */
+export const createInsertAbsent =
+  (
+    quoteIdent: IdentifierQuoter
+  ): DatabaseAdapter["mutations"]["insertAbsent"] =>
+  (table, columns, rows, key, sets, unless) => [
+    sql`${createInsertStatement(quoteIdent)(table, columns, rows)} ON CONFLICT (${sql.join(
+      key.map((column) => sql.raw(quoteIdent(column))),
+      ", "
+    )}) DO ${sets ? sql`UPDATE SET ${sets}` : sql`NOTHING`}${
+      unless ? sql` WHERE NOT (${unless})` : sql.empty
+    }`,
+  ];
 
 /**
  * Standard ON CONFLICT grammar shared by PostgreSQL and SQLite.
