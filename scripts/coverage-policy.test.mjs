@@ -247,6 +247,14 @@ test("the extensions lane owns every file of the official permissions and soft-d
   }
 });
 
+test("every test a lane names exists", () => {
+  // Vitest runs the files a filter matches and ignores one that matches
+  // nothing: a deleted test would leave its lane measuring less, silently.
+  for (const { id, tests = [] } of coverageSubsystems)
+    for (const file of tests)
+      assert.ok(existsSync(file), `${id} names missing test ${file}`);
+});
+
 test("subsystem configs derive includes and thresholds from the manifest", () => {
   for (const subsystem of coverageSubsystems) {
     const options = coverageOptionsForSubsystem(subsystem.id);
