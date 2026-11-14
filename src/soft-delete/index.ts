@@ -3,7 +3,6 @@
 import type { OperationPayload } from "../client/exports"; // public today
 import { ClientInitializationError } from "../errors"; // viborm's own class
 import { args, oneOf } from "../extensions/args";
-import type { PlacedControl } from "../extensions/controls";
 import { extension } from "../extensions/extension";
 import { keep } from "../extensions/judge-words";
 import { methods } from "../extensions/methods-part";
@@ -21,6 +20,7 @@ import type {
   Extension,
   Facts,
   PendingOperation,
+  PlacedControl,
   Target,
   VibORMConfig,
 } from "../index";

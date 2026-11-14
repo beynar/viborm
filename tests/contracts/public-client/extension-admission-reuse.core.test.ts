@@ -141,6 +141,6 @@ test("cached row references are checked against each receiving chain", () => {
   expect(() => scoped.$extends(definition)).not.toThrow();
   expect(() => scoped.$extends(definition)).not.toThrow();
   expect(() => base.$extends(definition)).toThrow(
-    'references undeclared control "tenant"'
+    'references undeclared argument "tenant"'
   );
 });

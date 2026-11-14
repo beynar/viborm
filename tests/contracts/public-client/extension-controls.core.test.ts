@@ -440,7 +440,10 @@ describe("controls: admission and ownership", () => {
     expect(outside).toBeInstanceOf(ValidationError);
     if (!(outside instanceof ValidationError)) throw outside;
     expect(outside.issues).toEqual([
-      { path: "region", message: 'Control "region" must be one of "eu", "us"' },
+      {
+        path: "region",
+        message: 'Argument "region" must be one of "eu", "us"',
+      },
     ]);
     expect(outside.operation).toBe("findMany");
   });
@@ -470,7 +473,7 @@ describe("controls: admission and ownership", () => {
     expect(invalid).toBeInstanceOf(ValidationError);
     if (!(invalid instanceof ValidationError)) throw invalid;
     expect(invalid.issues).toEqual([
-      { path: "reason", message: 'Control "reason" too short' },
+      { path: "reason", message: 'Argument "reason" too short' },
     ]);
 
     const cases: ReadonlyArray<
@@ -525,7 +528,7 @@ describe("controls: admission and ownership", () => {
     expect(invalid).toBeInstanceOf(ValidationError);
     if (!(invalid instanceof ValidationError)) throw invalid;
     expect(invalid.issues).toEqual([
-      { path: "reason", message: 'Control "reason" is not why' },
+      { path: "reason", message: 'Argument "reason" is not why' },
     ]);
   });
 
@@ -681,11 +684,15 @@ describe("controls: a defined extension", () => {
 });
 
 describe("controls: placement", () => {
-  // Plan §2.3: each removeWhen control is placed only on its own managed
-  // model's deletes, whichever extension declares it and in either order.
+  const DELETES = ["delete", "deleteMany"] as const;
+  // Each kept-rows argument is placed where its own declaration says, on its
+  // own managed model's deletes, whichever extension declares it and in
+  // either order: what a `keep` reads does not move it.
   const managing = {
     name: "managing",
-    controls: { mode: { oneOf: ["soft", "hard"] } },
+    controls: {
+      mode: { oneOf: ["soft", "hard"], on: DELETES, models: ["post"] },
+    },
     deletion: {
       removeWhen: { mode: "hard" },
       models: { post: { at: "deletedAt" } },
@@ -693,7 +700,9 @@ describe("controls: placement", () => {
   } as const;
   const purging = {
     name: "purging",
-    controls: { purge: { oneOf: ["no", "yes"] } },
+    controls: {
+      purge: { oneOf: ["no", "yes"], on: DELETES, models: ["user"] },
+    },
     deletion: {
       removeWhen: { purge: "yes" },
       models: { user: { at: "removedAt" } },
@@ -747,10 +756,10 @@ describe("controls: placement", () => {
 
 describe("controls: required", () => {
   const REQUIRED = [
-    { path: "tenant", message: 'Control "tenant" is required' },
+    { path: "tenant", message: 'Argument "tenant" is required' },
   ];
 
-  test("an extension that names no model asks for a required control on every model: a call that does not pass it is refused at its path on every operation it is placed on, before it writes; passed, it is admitted", async () => {
+  test("a required control is asked for on every model that accepts it: a call that does not pass it is refused at its path on every operation it is placed on, before it writes; passed, it is admitted", async () => {
     const base = await seededBase();
     const db = base.$extends(
       extension("tenant", extArgs({ tenant: oneOf("acme").required() }))
@@ -843,7 +852,7 @@ describe("controls: required", () => {
       })
     );
     expect((unmoded as ValidationError).issues).toEqual([
-      { path: "mode", message: 'Control "mode" is required' },
+      { path: "mode", message: 'Argument "mode" is required' },
     ]);
   });
 
@@ -874,7 +883,7 @@ describe("controls: required", () => {
       expect(
         await issues(callUnchecked(db, "note", operation, {})),
         operation
-      ).toEqual([{ path: "tenant", message: 'Control "tenant" is required' }]);
+      ).toEqual([{ path: "tenant", message: 'Argument "tenant" is required' }]);
     }
     expect(
       await issues(
@@ -883,7 +892,7 @@ describe("controls: required", () => {
           tenant: "acme",
         })
       )
-    ).toEqual([{ path: "actor", message: 'Control "actor" is required' }]);
+    ).toEqual([{ path: "actor", message: 'Argument "actor" is required' }]);
     await expect(
       db.note.create({
         data: { id: "n1", body: "x" },
@@ -968,7 +977,7 @@ describe("controls: required", () => {
     );
     const refused = await failure(callUnchecked(db, "note", "findMany", {}));
     expect((refused as ValidationError).issues).toEqual([
-      { path: "tenant", message: 'Control "tenant" is required' },
+      { path: "tenant", message: 'Argument "tenant" is required' },
     ]);
     await expect(
       db.note.findMany({ tenant: "acme", select: { id: true } })
@@ -1070,7 +1079,7 @@ describe("controls: rows bound to the call", () => {
           })
         )
       )
-    ).toThrow('references undeclared control "x"');
+    ).toThrow('references undeclared argument "x"');
   });
 
   test("a remembered domain holds its own copy of the values it was bound from: a Date or an array the caller mutates after its call never reaches a later call with equal values (F1)", async () => {

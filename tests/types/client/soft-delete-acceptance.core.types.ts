@@ -360,7 +360,7 @@ export async function values() {
   await db.post.findMany({ deleted: "onyl" });
   // @ts-expect-error unknown mode value
   await db.post.delete({ where: { id: "p1" }, mode: "purge" });
-  // @ts-expect-error an undeclared control is an unknown key
+  // @ts-expect-error an undeclared argument is an unknown key
   await db.post.findMany({ archived: true });
 }
 

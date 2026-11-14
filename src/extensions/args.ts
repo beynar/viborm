@@ -99,7 +99,7 @@ export function args(declarations: Readonly<Record<string, unknown>>): unknown {
     for (const name of Object.keys(specs))
       if (draft.controls !== undefined && Object.hasOwn(draft.controls, name))
         extensionError(
-          `Extension "${draft.name}" declares control "${name}", which extension "${draft.name}" already declares.`,
+          `Extension "${draft.name}" declares argument "${name}", which extension "${draft.name}" already declares.`,
           draft.name
         );
     draft.controls = { ...draft.controls, ...specs };

@@ -302,7 +302,7 @@ export const LAZY_VERBS: VerbsHost = {
           )
         )
           throw new ClientInitializationError(
-            `Extension "${extension}" references undeclared control "${name}".`,
+            `Extension "${extension}" references undeclared argument "${name}".`,
             { meta: { extension } }
           );
       return draft;

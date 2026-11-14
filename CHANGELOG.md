@@ -45,7 +45,14 @@ all-or-nothing when it fits one batch.
   verb used to take no row); an updated row is judged again only where
   `update.check` says so; a unit handler is awaited and what it throws fails
   the call; a child's failure stands and no error is aggregated; `settled`
-  is also told of a write that may have committed. The full mapping is in
+  is also told of a write that may have committed; an argument is accepted
+  only where its own `.on(…)` and `.models([…])` say, and a bare
+  `.required()` asks for it on every model that accepts it (a `controls`
+  entry that a `deletion` removed on was placed on the managed models'
+  deletes, whatever its `on`: write `.on(["delete", "deleteMany"])
+  .models([…])`; a `required` control was asked for only on the models the
+  extension's `rows`, `data` and `deletion` named: write
+  `.required([…])`). The full mapping is in
   [Migrating an extension](https://viborm.dev/docs/extensions/migrating).
 - **For users of official extensions, one step.** Every official extension is
   applied as `client.$extends(official(config))`. `softDelete(config).rows`
@@ -98,7 +105,12 @@ all-or-nothing when it fits one batch.
 - **`instrumentation()` no longer takes a `logging.warning` level**: nothing
   produced warnings.
 - **Error texts changed throughout the extension host.** Match errors on their
-  class and code.
+  class and code. An argument's refusals name it an argument
+  (`Argument "tenant" is required`, `references undeclared argument "x"`)
+  where they said `Control`.
+- **`viborm/client` no longer exports `DefinitionControls` and `RowsVerbs`**,
+  the types of the earlier extension definition. An exported extended
+  client's declaration names `PlacedControl` for each argument, as before.
 - **What each extension adds to a PostgreSQL application, minified**
   (measured with `node scripts/extension-bytes.mjs`; before → now):
   default omission 45,233 → 6,479 bytes; `on` 47,016 → 16,451;

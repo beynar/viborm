@@ -205,7 +205,7 @@ test("a lazy entry's control references are checked against the chain where it w
     })
   );
   await expect(db.note!.findMany({ user: "alice" } as object)).rejects.toThrow(
-    'Extension "lazy" references undeclared control "tenant".'
+    'Extension "lazy" references undeclared argument "tenant".'
   );
   // Declared earlier in the chain: admitted.
   const tenant = base
