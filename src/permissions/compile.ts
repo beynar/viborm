@@ -1248,30 +1248,8 @@ export function policyCompiler(
       }
     return { yes, no, reads };
   };
-  const summaries = new Map(
-    Object.keys(schema).map((name) => [
-      name,
-      new WeakMap<object, ReadSummary | null>(),
-    ])
-  );
-  const sourceSummaries = new Map(
-    Object.keys(schema).map((name) => [
-      name,
-      new WeakMap<object, ReadSummary | null>(),
-    ])
-  );
-  const negativeSummaries = new Map(
-    Object.keys(schema).map((name) => [
-      name,
-      new WeakMap<object, ReadSummary | null>(),
-    ])
-  );
-  const compiledSummaries = new Map(
-    Object.keys(schema).map((name) => [
-      name,
-      new WeakMap<object, ReadSummary | null>(),
-    ])
-  );
+  /** Each clause's summary, per reading and model: a shared clause is walked once each. */
+  const summaries = new Map<string, WeakMap<object, ReadSummary | null>>();
   const parameterKey = (
     operand: unknown,
     spread: boolean
@@ -1354,15 +1332,9 @@ export function policyCompiler(
       if (original !== undefined)
         return negative ? original : summarizeReads(name, clause, "compiled");
     }
-    const cache = (
-      source === "compiled"
-        ? compiledSummaries
-        : source
-          ? negative
-            ? negativeSummaries
-            : sourceSummaries
-          : summaries
-    ).get(name)!;
+    const reading = `${source ?? ""}${source === "source" && negative ? "-" : ""}:${name}`;
+    let cache = summaries.get(reading);
+    if (cache === undefined) summaries.set(reading, (cache = new WeakMap()));
     const known = cache.get(clause);
     if (known !== undefined) return known;
     const parts: ReadSummary[] = [];
@@ -1977,7 +1949,8 @@ export function policyCompiler(
       declarations.get(name)!;
     const verbs = verbsFor(name);
     const named = new Map<string, Where>();
-    /** One name space per model: actions, domains, placement and moves. */
+    // The declaration's names were claimed when the policy was applied; a
+    // move's name is new here, and a domain may take one.
     const claim = (key: string, at: string, clause: Where) => {
       if (named.has(key))
         refuse(
@@ -1993,9 +1966,8 @@ export function policyCompiler(
     // write predicate per field, so compose both permissions here rather
     // than letting a field grant replace a denied or absent update grant.
     for (const [field, write] of protectedWrites)
-      claim(
+      named.set(
         `$write:${field}`,
-        `models.${name}.fields.${field}.write`,
         and([
           verbs.update === undefined ? false : named.get(verbs.update)!,
           named.get(write)!,
@@ -2006,9 +1978,8 @@ export function policyCompiler(
     // create credential scope for an update.
     const create = P(name, "create");
     const keys = keysOf(name, create);
-    claim(
+    named.set(
       PLACE,
-      `models.${name}.create`,
       conjoin(name, [
         create,
         scope(name, "create"),
