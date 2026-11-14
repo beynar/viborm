@@ -9,6 +9,7 @@
 import { isFunction } from "@validation/value-guards";
 import type {
   AnyTarget,
+  ConsumesResults,
   EmptyFacts,
   MethodsCheck,
   MethodsFacts,
@@ -33,14 +34,7 @@ export function methods<
   ) => object,
 >(
   factory: F
-): Part<
-  T,
-  MethodsFacts<
-    ReturnType<F>,
-    Parameters<F> extends readonly [] ? false : true,
-    ModelName<T>
-  >
->;
+): Part<T, MethodsFacts<ReturnType<F>, ConsumesResults<F>, ModelName<T>>>;
 export function methods(factory: (scope: never) => unknown): unknown {
   return buildMethods(factory);
 }

@@ -11,13 +11,13 @@
 import { defaultOmit } from "@src/client/exports";
 import { PGliteDriver } from "@src/drivers/pglite";
 import {
-  createClient,
-  s,
-  extension,
-  rule,
-  args,
-  oneOf,
   arg,
+  args,
+  createClient,
+  extension,
+  oneOf,
+  rule,
+  s,
   when,
 } from "@src/index";
 import { keyBetween, ordering, orderingKey } from "@src/ordering";
@@ -102,9 +102,9 @@ export async function probes() {
   bare.title;
   // A list field omitted before ordering is applied is still named by `to`:
   // destinations are inputs, not presented rows.
-  const omittedFirst = ordering({
-    card: { key: "rank", within: ["columnId"] },
-  })(base.$extends(defaultOmit({ card: { columnId: true } })));
+  const omittedFirst = base
+    .$extends(defaultOmit({ card: { columnId: true } }))
+    .$extends(ordering({ card: { key: "rank", within: ["columnId"] } }));
   await omittedFirst.card.move({ where: { id: "a" }, to: { columnId: "c2" } });
   // `to` names the list by its fields, with their types.
   // @ts-expect-error not a list field
@@ -224,13 +224,13 @@ export async function probes() {
   // @ts-expect-error the key is one of the model's fields
   base.$extends(ordering({ models: { card: { key: "rnak" } } }));
   base.$extends(
-    // @ts-expect-error so is each list field, beside a real one
     ordering({
+      // @ts-expect-error so is each list field, beside a real one
       models: { card: { key: "rank", within: ["columnId", "colmnId"] } },
     })
   );
-  // @ts-expect-error a list field is a scalar, not a relation
   base.$extends(
+    // @ts-expect-error a list field is a scalar, not a relation
     ordering({ models: { card: { key: "rank", within: ["column"] } } })
   );
   const heldTypo = { models: { card: { key: "rnak" } } } as const;

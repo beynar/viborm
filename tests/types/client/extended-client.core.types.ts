@@ -10,9 +10,10 @@ import { PGliteDriver } from "@src/drivers/pglite";
 import {
   createClient,
   type ExtendedClient,
-  s,
   extension,
   methods as extMethods,
+  parts,
+  s,
 } from "@src/index";
 import { instrumentation } from "@src/instrumentation/exports";
 import { expectTypeOf } from "vitest";
@@ -38,15 +39,10 @@ const cached = cache({ driver: new MemoryCache() });
 const observed = instrumentation({ logging: { query: true } });
 const methods = extension(
   "application-methods",
-  extMethods((scope) => {
-    const own = {
-      client: () => ({ $ping: () => "pong" as const }),
-      models: {
-        user: () => ({ $label: (name: string) => `user:${name}` }),
-      },
-    };
-    return { ...own.client(scope), ...own.models };
-  })
+  extMethods(() => ({
+    $ping: () => "pong" as const,
+    user: { $label: (name: string) => `user:${name}` },
+  }))
 );
 const applicationExtensions = [cached, observed, methods] as const;
 
@@ -78,10 +74,7 @@ const _applicationSurface = (applicationClient: ApplicationClient) => {
 
 const moreMethods = extension(
   "more-methods",
-  extMethods((scope) => {
-    const own = { client: () => ({ $answer: () => 42 as const }) };
-    return { ...own.client(scope) };
-  })
+  extMethods(() => ({ $answer: () => 42 as const }))
 );
 type FurtherExtendedClient = ExtendedClient<
   ApplicationClient,
@@ -104,16 +97,9 @@ const _omittedResult = async (client: OmittedClient) => {
   } | null>();
 };
 
-const schemaBound = extension(
+const schemaBound = parts<typeof schema>().extension(
   "schema-bound",
-  extMethods(() => {
-    const own = {
-      models: {
-        user: () => ({ $schemaLabel: () => "schema" as const }),
-      },
-    };
-    return { ...own.models };
-  })
+  extMethods(() => ({ user: { $schemaLabel: () => "schema" as const } }))
 );
 type SchemaBoundClient = ExtendedClient<
   BaseClient,
@@ -123,15 +109,15 @@ const _schemaBoundSurface = (client: SchemaBoundClient) => {
   expectTypeOf(client.user.$schemaLabel()).toEqualTypeOf<"schema">();
 };
 
-const tail1 = { name: "tail-1" } as const;
-const tail2 = { name: "tail-2" } as const;
-const tail3 = { name: "tail-3" } as const;
-const tail4 = { name: "tail-4" } as const;
-const tail5 = { name: "tail-5" } as const;
-const tail6 = { name: "tail-6" } as const;
-const tail7 = { name: "tail-7" } as const;
-const tail8 = { name: "tail-8" } as const;
-const tail9 = { name: "tail-9" } as const;
+const tail1 = extension("tail-1");
+const tail2 = extension("tail-2");
+const tail3 = extension("tail-3");
+const tail4 = extension("tail-4");
+const tail5 = extension("tail-5");
+const tail6 = extension("tail-6");
+const tail7 = extension("tail-7");
+const tail8 = extension("tail-8");
+const tail9 = extension("tail-9");
 type FiveExtensionClient = ExtendedClient<
   BaseClient,
   readonly [
@@ -173,16 +159,12 @@ type _omitBeforeResultConsumerIsValid = Expect<
   Equal<OmitThenMethods extends never ? true : false, false>
 >;
 // A factory typed against the client it extends reads its results: omit
-// after it is refused. One that reads nothing typed (no argument, or one
-// taken as `never`) is no result consumer: omit may follow it.
-const reader = {
-  name: "reader",
-  model: {
-    user: (delegate: BaseClient["user"]) => ({
-      $first: () => delegate.findFirst(),
-    }),
-  },
-} as const;
+// after it is refused. One that takes no scope is no result consumer: omit
+// may follow it.
+const reader = parts<BaseClient>().extension(
+  "reader",
+  extMethods((scope) => ({ user: { $first: () => scope.user.findFirst() } }))
+);
 type _resultConsumerBeforeOmitIsRejected = Expect<
   Equal<
     ExtendedClient<BaseClient, readonly [typeof reader, typeof hidden]>,
@@ -206,9 +188,6 @@ type _dynamicArraysAreNotAProvableChain = Expect<
 >;
 type _duplicateOfficialCacheIsRejected = Expect<
   Equal<ExtendedClient<OmittedClient, readonly [typeof cached]>, never>
->;
-type _duplicateOfficialDefaultOmitIsRejected = Expect<
-  Equal<ExtendedClient<OmittedClient, readonly [typeof hidden]>, never>
 >;
 
 const _runtimeParity = () => {

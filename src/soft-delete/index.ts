@@ -1,6 +1,6 @@
 // viborm/soft-delete: the entire extension.
 
-import type { OperationPayload } from "../client/exports"; // public today
+import type { OperationPayload, Operations } from "../client/exports"; // public today
 import { ClientInitializationError } from "../errors"; // viborm's own class
 import type { PlacedControl } from "../extensions/controls";
 import { builtPart } from "../extensions/extension";
@@ -104,7 +104,12 @@ type SoftDeleteFacts<T extends AnyTarget, Models> = Facts<
       keyof ClientSchema<T["config"]>]: SoftDeleteMethods<T["config"], K>;
   },
   {
-    readonly deleted: PlacedControl<"without" | "with" | "only">;
+    // A mode chooses rows a call selects: a create selects none.
+    readonly deleted: PlacedControl<
+      "without" | "with" | "only",
+      PropertyKey,
+      Exclude<Operations, "create" | "createMany">
+    >;
     readonly mode: PlacedControl<
       "soft" | "hard",
       keyof Models,

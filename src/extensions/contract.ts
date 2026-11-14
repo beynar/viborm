@@ -1016,16 +1016,19 @@ type EntryVerbs<E> = (E extends {
     ? { readonly reads: { readonly [F in keyof Gated]: string } }
     : unknown);
 
+/** An entry as written, or as the function of a lazy entry returns it. */
+type EntryOf<E> = E extends () => infer Returned ? Returned : E;
+
 type RuleVerbs<R, Names extends string> = {
   readonly [M in keyof R as M extends Names
-    ? R[M] extends {
+    ? EntryOf<R[M]> extends {
         readonly read:
           | { readonly select: object }
           | { readonly fields: object };
       }
       ? M
       : never
-    : never]: EntryVerbs<R[M]>;
+    : never]: EntryVerbs<EntryOf<R[M]>>;
 };
 
 /**
@@ -1348,6 +1351,28 @@ export type MethodsFacts<
   Consumer
 >;
 
+/**
+ * Whether a methods factory reads the client's types: it takes the scope,
+ * or one of its model entries is a function of the delegate (the runtime
+ * calls it with the delegate and the scope).
+ */
+export type ConsumesResults<F extends (...args: never[]) => unknown> =
+  Parameters<F> extends readonly []
+    ? [TakesDelegate<ReturnType<F>>] extends [never]
+      ? false
+      : true
+    : true;
+
+type TakesDelegate<R> = {
+  [M in keyof R]: M extends `$${string}`
+    ? never
+    : R[M] extends (...args: never[]) => unknown
+      ? R[M] extends () => unknown
+        ? never
+        : M
+      : never;
+}[keyof R];
+
 export type MethodsScope<T extends AnyTarget> = ExtensionClientScope<
   T["config"],
   T["state"]
@@ -1407,14 +1432,7 @@ export type MethodsFunction<T extends AnyTarget> = <
   ) => object,
 >(
   factory: F
-) => Part<
-  T,
-  MethodsFacts<
-    ReturnType<F>,
-    Parameters<F> extends readonly [] ? false : true,
-    ModelName<T>
-  >
->;
+) => Part<T, MethodsFacts<ReturnType<F>, ConsumesResults<F>, ModelName<T>>>;
 
 // =============================================================================
 // fields({ model: { name: { needs, compute } } })

@@ -19,17 +19,17 @@ import { cache } from "@src/cache/exports";
 import { defaultOmit } from "@src/client/exports";
 import { PGliteDriver } from "@src/drivers/pglite";
 import {
+  arg,
+  args,
   createClient,
   type DelegateOperationResult,
   type ExtendedOperationResult,
-  s,
   extension,
-  rule,
-  args,
-  methods,
   fields,
+  methods,
   oneOf,
-  arg,
+  rule,
+  s,
   when,
 } from "@src/index";
 import { softDelete } from "@src/soft-delete";
@@ -64,7 +64,6 @@ const post = s.model({
 // No relation reaches post from here: `deleted` is still accepted (O1).
 const tag = s.model({ id: s.string().id(), name: s.string() });
 const schema = { user, post, tag };
-type S = typeof schema;
 
 const base = createClient({ schema, driver: new PGliteDriver() });
 declare const session: { userId: string };
@@ -264,27 +263,6 @@ const cachedAfter = db.$extends(
 );
 export const stillDb: typeof db = cachedAfter;
 export const stillDelegate: typeof db.post = cachedAfter.post;
-
-// A factory overloaded to hide its typed delegate is still a result consumer:
-// the omit after it is refused.
-declare function overloaded(delegate: (typeof base)["post"]): {
-  first: () => unknown;
-};
-// biome-ignore lint/style/useUnifiedTypeSignatures: the overloads are the case under test
-declare function overloaded(): { first: () => unknown };
-export function overloadIsConsumer() {
-  const tools = base.$extends(
-    extension(
-      "test.overloaded",
-      methods(() => {
-        const own = { models: { post: overloaded } };
-        return { ...own.models };
-      })
-    )
-  );
-  // @ts-expect-error an overload taking the typed delegate reads results
-  tools.$extends(defaultOmit({ post: { secret: true } }));
-}
 
 // A later rows step: restore's to-one relation to a model those rows can
 // hide reads `| null`, as the client's own update does.

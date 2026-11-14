@@ -644,12 +644,14 @@ type ApplyClientExtensions<
 > = Extensions extends readonly []
   ? VibORMClient<C, X>
   : Extensions extends readonly [infer First, ...infer Rest]
-    ? FactsOf<First> extends infer F extends AnyFacts
-      ? ApplyClientExtensions<
-          AppliedClientConfig<C, F>,
-          AppliedExtensionState<C, X, F>,
-          Rest
-        >
+    ? FactsOf<First> extends infer F extends AdmittedFacts<X>
+      ? unknown extends KnownModels<keyof C["schema"], F>
+        ? ApplyClientExtensions<
+            AppliedClientConfig<C, F>,
+            AppliedExtensionState<C, X, F>,
+            Rest
+          >
+        : never
       : never
     : never;
 

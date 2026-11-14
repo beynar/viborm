@@ -52,7 +52,11 @@ export interface ExtensionResultConsumerState {
 export interface ClientExtensionState<
   ClientMethods extends object = NoMethods,
   ModelMethods extends object = NoMethods,
-  CacheState extends ExtensionCacheState | undefined = undefined,
+  // Without the cache, either: a client the cache extends stays assignable
+  // to the type of the client before it (the cache reads, it hides nothing).
+  CacheState extends ExtensionCacheState | undefined =
+    | ExtensionCacheState
+    | undefined,
   ResultConsumerState extends
     | ExtensionResultConsumerState
     | undefined = undefined,
@@ -293,7 +297,11 @@ export interface ExtensionContributionState<
   ConsumerContext extends string,
   // Defaulted: 1.3.3 exported this state with six parameters.
   Result extends object = Record<never, never>,
-  CacheState extends ExtensionCacheState | undefined = undefined,
+  // Without the cache, either: a client the cache extends stays assignable
+  // to the type of the client before it (the cache reads, it hides nothing).
+  CacheState extends ExtensionCacheState | undefined =
+    | ExtensionCacheState
+    | undefined,
 > extends ExtensionStateConstraint {
   readonly client: ClientMethods;
   readonly models: ModelMethods;
