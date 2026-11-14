@@ -17,6 +17,7 @@ import {
   ValidationError,
   VibORMErrorCode,
 } from "@errors";
+import { brought } from "@extensions/coordination";
 import { s } from "@schema";
 import { raw, sql } from "@sql";
 import {
@@ -292,6 +293,69 @@ function providerStatements(events: readonly string[]): string[] {
 
 afterEach(async () => {
   for (const client of clients.splice(0)) await client.$disconnect();
+});
+
+describe("a chain without the write rail", () => {
+  test("runs transactions plainly and still tells run() its mode where settled was never imported", async () => {
+    // The test process loads every module, `settled` among them: the rail
+    // it brings is taken away for this one test.
+    const rail = brought.rail;
+    brought.rail = undefined;
+    try {
+      const modes: string[] = [];
+      const reading = extension(
+        "modes",
+        around(() => async (run) => {
+          modes.push(run.mode);
+          return run();
+        })
+      );
+      const fallback = fallbackClient().client.$extends(reading);
+      await fallback.$transaction(async (tx) => {
+        await tx.record.findMany();
+        await tx.$transaction(async (inner) => inner.record.findMany());
+      });
+      await fallback.$transaction([
+        fallback.record.findMany(),
+        fallback.$executeRawUnsafe("UPDATE record SET name = ?", "x"),
+      ]);
+      const { client: native, driver } = nativeClient();
+      const nativeReading = native.$extends(reading);
+      await nativeReading.$transaction([nativeReading.record.findMany()]);
+      driver.failProvider = new Error("batch refused");
+      await expect(
+        nativeReading.$transaction([nativeReading.record.findMany()])
+      ).rejects.toThrow();
+      driver.failProvider = undefined;
+      const unbatchable = overrideTransactionOperation(
+        nativeReading.record.findMany(),
+        {
+          prepare: () => undefined,
+          prepareBatch: () => Promise.resolve(undefined),
+        }
+      );
+      await expect(
+        // @ts-expect-error - the array overload names only the operation
+        // classes the client produces; this shell registers the same owner.
+        nativeReading.$transaction([unbatchable])
+      ).rejects.toThrow("cannot be batched atomically");
+      await fallback.record.findMany();
+      expect(modes).toEqual([
+        "transaction",
+        "transaction",
+        // Two members, one batch, one refused by its provider, and one that
+        // cannot be batched, which its handler still admits.
+        "array",
+        "array",
+        "array",
+        "array",
+        "array",
+        "direct",
+      ]);
+    } finally {
+      brought.rail = rail;
+    }
+  });
 });
 
 describe("array query admission", () => {

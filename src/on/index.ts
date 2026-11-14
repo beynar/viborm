@@ -12,9 +12,10 @@ import type { OperationResult } from "../client/exports"; // public today
 // The classes and the words are imported where viborm defines them.
 import { ClientInitializationError, QueryError } from "../errors";
 import { call } from "../extensions/call";
-import { settled, watch } from "../extensions/call-words";
+import { watch } from "../extensions/call-words";
 import { extension } from "../extensions/extension";
 import { target, writes } from "../extensions/on";
+import { settled } from "../extensions/settled";
 // Types only from the root: a value imported from it would make this entry
 // reach every module the root reaches, and the build would put them all in
 // the chunk this entry shares with the root.

@@ -19,7 +19,7 @@ import type {
   ControlAdmission,
   ResolvedControl,
 } from "./controls";
-import type { Coordination } from "./coordination";
+import type { Coordination, Rail } from "./coordination";
 import type { ControlLiteral } from "./definition";
 import type { OperationHandlers, RequestHandlers } from "./handlers";
 import type { Kept } from "./kept";
@@ -127,6 +127,12 @@ export interface ResolvedExtensionChain {
    * handlers, `written`, `retry`, `route` or a lifecycle observer.
    */
   readonly coordination?: Coordination;
+  /**
+   * The write rail of the parts that may register a write's outcome, which
+   * collects a transaction's outcomes and publishes them after its commit
+   * (see `railOf`).
+   */
+  readonly rail?: Rail;
   readonly controls?: ResolvedControls;
   /**
    * Every extension's rule layer, as admitted: also a cached read's key, so

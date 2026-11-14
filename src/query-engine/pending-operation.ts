@@ -576,7 +576,7 @@ export class PendingOperation<T>
       handlers === undefined || handlers.length === 0
         ? undefined
         : this.#queryContext(
-            this.#engine.transactionWriteOutcomes ? "transaction" : "direct",
+            this.#engine.inTransaction ? "transaction" : "direct",
             preparedInput
           );
     return coordination.executePreparedQuery<T, Record<string, unknown>>(

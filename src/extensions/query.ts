@@ -13,7 +13,7 @@ import { isFunction } from "@validation/value-guards";
 import { isError } from "../errors/diagnostic-safety";
 import type { ExtensionPart, ResolvedOperationHandler } from "./chain";
 import { type AdmittedControls, controlsOwnedBy } from "./controls";
-import { coordinate, QUERIES } from "./coordination";
+import { coordinate, QUERIES, UNITS } from "./coordination";
 import { handlersOf, type PlacedHandler } from "./handlers";
 
 /** Frozen runtime contribution after hostile definition normalization. */
@@ -600,10 +600,6 @@ export class TransactionWriteOutcomes {
     }
   }
 
-  publishCommitted(): Promise<void> {
-    return this.publish("committed");
-  }
-
   async publish(certainty: WriteOutcome["certainty"]): Promise<void> {
     const registrations: WriteOutcomeRegistration[] = [];
     for (const staged of this.#staged) {
@@ -682,7 +678,7 @@ export async function runOutcomeTransaction<T>(
   if (parentOutcomes) outcomes.promoteTo(parentOutcomes);
   else {
     report?.("committed");
-    await outcomes.publishCommitted();
+    await outcomes.publish("committed");
   }
   return result;
 }
@@ -780,6 +776,10 @@ export const queryPart: ExtensionPart = {
     next.query = Object.freeze(
       handlersOf([...(chain?.query?.placed ?? []), ...added])
     );
-    if (next.query.placed.length > 0) coordinate(next, QUERIES);
+    // Its handlers may register write outcomes: the write rail comes too.
+    if (next.query.placed.length > 0) {
+      coordinate(next, QUERIES);
+      coordinate(next, UNITS);
+    }
   },
 };

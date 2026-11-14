@@ -24,7 +24,11 @@ import {
   PendingOperationError,
   TransactionError,
 } from "@errors";
-import type { ArrayCertainty, Coordination } from "@extensions/coordination";
+import {
+  type ArrayCertainty,
+  type Coordination,
+  railOf,
+} from "@extensions/coordination";
 import type {
   TransactionWriteOutcomes,
   WriteOutcome,
@@ -212,7 +216,7 @@ async function executeSlots(
   native: boolean
 ): Promise<unknown[]> {
   const { driver } = engine;
-  const outcomes = coordination.outcomes();
+  const outcomes = railOf(engine.extensionChain)?.outcomes();
   const slots = operations.map(
     (operation): ArraySlot => ({
       operation,
@@ -321,13 +325,13 @@ function sendTransaction(
     }
     return results;
   };
-  const coordination = engine.extensionChain?.coordination;
-  // A coordinated chain collects the array's write outcomes and reports its
-  // commit certainty to the `batch` unit.
-  return coordination
-    ? coordination.runTransaction(
+  const rail = railOf(engine.extensionChain);
+  // A chain with the write rail collects the array's write outcomes and
+  // reports its commit certainty to the `batch` unit.
+  return rail
+    ? rail.runTransaction(
         engine.driver,
-        outcomes ?? coordination.outcomes(),
+        outcomes ?? rail.outcomes(),
         engine.transactionWriteOutcomes,
         options as TransactionOptions | undefined,
         context,
@@ -377,7 +381,7 @@ async function sendNativeBatch(
         late.push(error);
       }
     try {
-      await outcomes!.publish(certainty);
+      await outcomes?.publish(certainty);
     } catch (error) {
       late.push(error);
     }
@@ -386,7 +390,7 @@ async function sendNativeBatch(
   const close = async (failure: unknown, sent?: true): Promise<unknown> => {
     if (slots === undefined) return failure;
     if (sent) await publish("may-have-committed");
-    else outcomes!.discardAll();
+    else outcomes?.discardAll();
     await settleSlots(
       slots,
       [reached ? markCommitCertainty(failure, reached) : failure],

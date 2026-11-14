@@ -1030,11 +1030,11 @@ describe("query write-outcome publication", () => {
     child.discard([discarded]);
     child.promoteTo(parent);
 
-    await child.publishCommitted();
+    await child.publish("committed");
     expect(published).toEqual([]);
     await parent.publish("may-have-committed");
     expect(published).toEqual(["confirmed:may-have-committed"]);
-    await parent.publishCommitted();
+    await parent.publish("committed");
     expect(published).toEqual(["confirmed:may-have-committed"]);
   });
 
@@ -1046,7 +1046,7 @@ describe("query write-outcome publication", () => {
     outcomes.confirm([registration]);
     outcomes.discardAll();
 
-    await outcomes.publishCommitted();
+    await outcomes.publish("committed");
     expect(listener).not.toHaveBeenCalled();
   });
 

@@ -601,7 +601,7 @@ class DeferredRawOperation<T>
     }
     return coordination.executePreparedQuery<T, Record<string, unknown>>(
       this.#queryContext(
-        this.#engine.transactionWriteOutcomes ? "transaction" : "direct",
+        this.#engine.inTransaction ? "transaction" : "direct",
         query
       ),
       handlers,

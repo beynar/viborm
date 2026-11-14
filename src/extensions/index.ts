@@ -5,7 +5,7 @@
  */
 export { accepts, args, bound, oneOf } from "./args";
 export { around, call } from "./call";
-export { again, settled, via, watch } from "./call-words";
+export { again, via, watch } from "./call-words";
 export { type Codec, codec } from "./codec";
 export type {
   Accepted,
@@ -58,6 +58,7 @@ export {
   unless,
   when,
 } from "./rule-words";
+export { settled } from "./settled";
 export { unit } from "./unit";
 export {
   type BatchMember,

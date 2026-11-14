@@ -1,6 +1,11 @@
-import { createArrayDeferred, memberValue } from "@client/array-transaction";
+import {
+  type ArraySlot,
+  createArrayDeferred,
+  memberValue,
+} from "@client/array-transaction";
 import {
   type AdmissionSlot,
+  admitArray,
   admitArrayQueries,
 } from "@extensions/array-admission";
 import { TransactionWriteOutcomes } from "@extensions/query";
@@ -167,5 +172,48 @@ describe("coverage low value", () => {
         }
       )
     ).resolves.toEqual([failure]);
+  });
+
+  test("admits without a collector where the chain has no write rail", async () => {
+    const failure = new Error("refused without a collector");
+    const slot = createSlot();
+
+    await expect(
+      admitArrayQueries([slot], undefined, () => Promise.reject(failure))
+    ).resolves.toEqual([failure]);
+    await expect(slot.child.promise).rejects.toBe(failure);
+  });
+
+  test("starts a member's listener without a collector to stage it in", async () => {
+    const registration = { extension: "listener", listener: () => undefined };
+    const slot: ArraySlot = {
+      operation: {},
+      // A member whose owner only answers what admission reads of it.
+      owner: {
+        interception: () => ({
+          context: undefined,
+          handlers: undefined,
+          write: true,
+          registration,
+        }),
+      } as unknown as ArraySlot["owner"],
+      child: createArrayDeferred<unknown>(),
+    };
+    const collectors: unknown[] = [];
+    const execute: Parameters<typeof admitArray>[2] = (
+      _context,
+      _handlers,
+      child,
+      _write,
+      outcomes
+    ) => {
+      collectors.push(outcomes);
+      return child();
+    };
+
+    await expect(
+      admitArray([slot], undefined, execute)
+    ).resolves.toBeUndefined();
+    expect(collectors).toEqual([undefined]);
   });
 });

@@ -17,6 +17,7 @@ import type {
   Target,
 } from "@extensions/contract";
 import type { StampedFields } from "@extensions/controls";
+import { railOf } from "@extensions/coordination";
 import { isAppliedExtension } from "@extensions/extension";
 import type {
   AccumulatedExtensionState,
@@ -1115,18 +1116,18 @@ export class VibORM<C extends VibORMConfig> {
       if (isArray) {
         return executeArrayTransaction(input, engine, options, context);
       }
-      // A coordinated chain collects write outcomes per scope: the root
-      // publishes them, a savepoint promotes them into its parent's collector.
-      const coordination = chain?.coordination;
-      const outcomes = coordination?.outcomes();
+      // A chain with the write rail collects write outcomes per scope: the
+      // root publishes them, a savepoint promotes them into its parent's.
+      const rail = railOf(chain);
+      const outcomes = rail?.outcomes();
       const view = (
         bound: QueryEngine
       ): TransactionClient<C, ExtensionStateConstraint> =>
         this.#createView(bound, clientOmit, view, false);
       const body = async (txDriver: AnyDriver) =>
-        input(view(engine.bind(txDriver, chain, outcomes)));
-      return coordination && outcomes
-        ? coordination.runTransaction(
+        input(view(engine.bind(txDriver, chain, outcomes, true)));
+      return rail && outcomes
+        ? rail.runTransaction(
             engine.driver,
             outcomes,
             engine.transactionWriteOutcomes,

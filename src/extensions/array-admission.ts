@@ -42,12 +42,12 @@ export function interceptsArray(
  */
 export function admitArray(
   slots: readonly ArraySlot[],
-  outcomes: TransactionWriteOutcomes,
+  outcomes: TransactionWriteOutcomes | undefined,
   execute: typeof executePreparedQuery
 ): Promise<readonly unknown[] | undefined> {
   const facts = slots.map((slot) => {
     const interception = slot.owner.interception(slot.operation);
-    if (interception.registration) outcomes.stage(interception.registration);
+    if (interception.registration) outcomes?.stage(interception.registration);
     return interception;
   });
   return admitArrayQueries(slots, outcomes, (slot, child, control) => {
@@ -74,7 +74,7 @@ export function admitArray(
  */
 export async function admitArrayQueries<Slot extends AdmissionSlot>(
   slots: readonly Slot[],
-  outcomes: TransactionWriteOutcomes,
+  outcomes: TransactionWriteOutcomes | undefined,
   start: (
     slot: Slot,
     child: (notifications?: WriteOutcomeNotifications) => Promise<unknown>,
@@ -126,7 +126,7 @@ export async function admitArrayQueries<Slot extends AdmissionSlot>(
     if (failed) throw failed.failure;
     return undefined;
   } catch (failure) {
-    outcomes.discardAll();
+    outcomes?.discardAll();
     for (const slot of slots) slot.child.reject(failure);
     await Promise.allSettled(slots.map(memberValue));
     const reported: unknown[] = [];
