@@ -26,8 +26,6 @@ import {
   type TransactionOptionSupport,
 } from "@drivers/shared";
 import type { QueryExecutionContext, QueryResult } from "@drivers/types";
-import { appendResolvedExtension } from "@extensions/chain";
-import type { ObservationCompletion } from "@extensions/observation";
 import {
   getOfficialInstrumentationChainCapability,
   registerOfficialInstrumentationChain,
@@ -35,10 +33,12 @@ import {
 import type { ObservationNeed } from "@extensions/official-facts";
 import { SPAN_TRANSACTION } from "@instrumentation/spans";
 import { sql } from "@sql";
+import { extension as extExtension, unit } from "@src/index";
 import {
   type InstrumentationConfig,
   instrumentation,
 } from "@src/instrumentation/exports";
+import { appendResolvedExtension } from "@tests/fixtures/host-definition";
 import {
   type OtelRecorder,
   withOtelRecorder,
@@ -78,25 +78,22 @@ function held<T>() {
   return { promise, settle: (value: T) => settle?.(value) };
 }
 
-/** Records the completion every ordinary `observe` handler is handed. */
+/** Records how every unit an ordinary `unit` part sees ended. */
 function completionRecorder() {
   const pending: Promise<unknown>[] = [];
   const records: string[] = [];
-  const extension = {
-    name: "completion-recorder",
-    observe(
-      unit: { readonly kind: string },
-      proceed: () => Promise<ObservationCompletion>
-    ) {
-      const observed = proceed().then((completion) => {
+  const extension = extExtension(
+    "completion-recorder",
+    unit((u, next) => {
+      const observed = next().then((outcome) => {
         records.push(
-          `${unit.kind}:${completion.status}:${completion.commitCertainty ?? "none"}`
+          `${u.kind}:${outcome.status}:${outcome.certainty ?? "none"}`
         );
       });
       pending.push(observed);
       return observed;
-    },
-  };
+    })
+  );
   return {
     extension,
     records,
@@ -111,7 +108,7 @@ function completionRecorder() {
 function observedContext(
   config: InstrumentationConfig,
   values: QueryExecutionContext,
-  companion?: Readonly<Record<string, unknown>>
+  companion?: unknown
 ): QueryExecutionContext {
   let chain = appendResolvedExtension(undefined, instrumentation(config), {});
   if (companion) chain = appendResolvedExtension(chain, companion, {});

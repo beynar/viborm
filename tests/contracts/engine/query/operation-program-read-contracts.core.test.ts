@@ -4,8 +4,8 @@ import { type Dialect, Driver } from "@drivers";
 import type { QueryResult } from "@drivers/types";
 import { SPAN_EXECUTE, SPAN_OPERATION } from "@instrumentation/spans";
 import { hydrateSchemaNames, s } from "@schema";
-import { appendResolvedExtension } from "@src/extensions/chain";
 import { instrumentation } from "@src/instrumentation/exports";
+import { appendResolvedExtension } from "@tests/fixtures/host-definition";
 import {
   createModelRegistry,
   TestQueryEngine,

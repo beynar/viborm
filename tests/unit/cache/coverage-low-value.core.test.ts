@@ -31,11 +31,10 @@ import {
   CacheInvalidKeyError,
   CacheInvalidTTLError,
 } from "@errors";
-import {
-  appendResolvedExtension,
-  type ResolvedExtensionChain,
-} from "@extensions/chain";
+import type { ResolvedExtensionChain } from "@extensions/chain";
 import { instrumentation } from "@instrumentation/extension";
+import { extension as extExtension, failure, unit } from "@src/index";
+import { appendResolvedExtension } from "@tests/fixtures/host-definition";
 import { createTestClock } from "@tests/fixtures/test-clock";
 import { describe, expect, test, vi } from "vitest";
 
@@ -249,13 +248,13 @@ describe("public cache-driver storage contract", () => {
     const units: unknown[] = [];
     const chain = appendResolvedExtension(
       undefined,
-      {
-        name: "ordinary-cache-observer",
-        observe(unit, proceed) {
-          units.push(unit);
-          return proceed();
-        },
-      },
+      extExtension(
+        "ordinary-cache-observer",
+        unit((u, next) => {
+          units.push(u);
+          return next();
+        })
+      ),
       {}
     );
     const context = createExecutionContext(
@@ -505,12 +504,14 @@ describe("official cache definition and hostile configuration", () => {
         return waitUntil;
       },
     });
-    const capability = getOfficialCacheQueryCapability(extension.query);
+    // What a chain the cache is applied to carries is the snapshot.
+    const carried = (value: unknown) =>
+      getOfficialCacheChainDefinition(
+        appendResolvedExtension(undefined, value, {})
+      );
+    const capability = carried(extension);
     expect(capability).toMatchObject({ driver, version: "blue", waitUntil });
-    expect(
-      getOfficialCacheQueryCapability(cache({ driver, version: 2 }).query)
-        ?.version
-    ).toBe(2);
+    expect(carried(cache({ driver, version: 2 }))?.version).toBe(2);
     expect(getOfficialCacheQueryCapability(undefined)).toBeUndefined();
     expect(Object.isFrozen(extension)).toBe(true);
     expect(reads).toEqual({ driver: 1, version: 1, waitUntil: 1 });
@@ -731,15 +732,17 @@ describe("background cache failure integrity", () => {
     let revalidationCompletion: unknown;
     const chain = appendResolvedExtension(
       undefined,
-      {
-        name: "cache-cleanup-observer",
-        async observe(unit, proceed) {
-          const completion = await proceed();
-          if (unit.kind === "cache" && unit.operation === "revalidate") {
-            revalidationCompletion = completion;
-          }
-        },
-      },
+      extExtension(
+        "cache-cleanup-observer",
+        unit(async (u, next) => {
+          const outcome = await next();
+          if (u.kind === "cache" && u.operation === "revalidate")
+            revalidationCompletion = {
+              status: outcome.status,
+              error: failure(u),
+            };
+        })
+      ),
       {}
     );
     const context = createExecutionContext(
@@ -1055,7 +1058,7 @@ describe("coverage low value", () => {
     expect(exportedCache).toBe(cache);
   });
 
-  test("executes the browser byte encoder and fixed official query token", async () => {
+  test("executes the browser byte encoder", () => {
     const nodeBuffer = globalThis.Buffer;
     vi.stubGlobal("Buffer", undefined);
     try {
@@ -1065,13 +1068,5 @@ describe("coverage low value", () => {
     } finally {
       vi.stubGlobal("Buffer", nodeBuffer);
     }
-
-    const extension = cache({ driver: new MemoryCache() });
-    const value = { answer: 42 };
-    await expect(
-      Reflect.apply(extension.query, undefined, [
-        { proceed: async () => value },
-      ])
-    ).resolves.toBe(value);
   });
 });

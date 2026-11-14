@@ -7,7 +7,7 @@ import { instrumentation } from "@instrumentation/extension";
 import type { LogEvent } from "@instrumentation/types";
 import { s } from "@schema";
 import type { AnyModel } from "@schema/model";
-import { defineExtension } from "@src/index";
+import { extension } from "@src/index";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import v from "@validation/primitives/v";
@@ -566,9 +566,7 @@ describe("G3P-04 exact suppression and replay scopes", () => {
     const schema = rootSeriesSchema();
     const driver = new BatchOnlySQLiteDriver({ client: database });
     const world = await migratedWorld(schema, driver);
-    const derived = world.client.$extends(
-      defineExtension<typeof schema>()({ name: "derived-view" })
-    );
+    const derived = world.client.$extends(extension("derived-view"));
     const independent = createClient({ schema, driver });
     try {
       for (const client of [world.client, derived, independent])

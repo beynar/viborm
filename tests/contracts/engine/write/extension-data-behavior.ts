@@ -2,7 +2,22 @@ import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { NotFoundError } from "@errors";
 import { s } from "@schema";
-import { defineExtension } from "@src/index";
+import {
+  accepts,
+  arg,
+  args,
+  defaults,
+  deletes,
+  extension,
+  keep,
+  now,
+  oneOf,
+  rule,
+  statement,
+  unit,
+  unless,
+  writes,
+} from "@src/index";
 import {
   audit,
   optimisticLock,
@@ -93,44 +108,55 @@ const UPDATE_STATEMENT = /(?:^|[;({])\s*UPDATE\b/i;
 const DELETE_STATEMENT = /(?:^|[;({])\s*DELETE\b/i;
 
 /** A soft delete without row modes: it only turns deletes into updates. */
-const softDelete = defineExtension({
-  name: "test.softDelete",
-  controls: { mode: { oneOf: ["soft", "hard"] } },
-  deletion: {
-    removeWhen: { mode: "hard" },
-    models: {
-      post: { at: "deletedAt" },
-      comment: { at: "deletedAt" },
-      tag: { at: "deletedAt" },
-    },
-  },
-});
-
-/** A second extension on posts: `source` from an optional control, and `createdBy`. */
-const origin = defineExtension({
-  name: "origin",
-  controls: { device: { schema: v.string(), on: "writes" } },
-  data: {
-    models: {
-      post: {
-        create: { source: { control: "device" }, createdBy: "system" },
+const softDelete = extension(
+  "test.softDelete",
+  args({
+    mode: oneOf("soft", "hard").on(deletes).models(["post", "comment", "tag"]),
+  }),
+  rule({
+    post: {
+      delete: {
+        instead: keep(unless(arg("mode"), "hard", { deletedAt: now })),
       },
     },
-  },
-});
+    comment: {
+      delete: {
+        instead: keep(unless(arg("mode"), "hard", { deletedAt: now })),
+      },
+    },
+    tag: {
+      delete: {
+        instead: keep(unless(arg("mode"), "hard", { deletedAt: now })),
+      },
+    },
+  })
+);
+
+/** A second extension on posts: `source` from an optional control, and `createdBy`. */
+const origin = extension(
+  "origin",
+  args({ device: accepts(v.string()).on(writes) }),
+  defaults({ post: { create: { source: arg("device"), createdBy: "system" } } })
+);
 
 /** The empty database, its audited client and a statement log. */
 export async function openDataFixture(driver: AnyDriver) {
   const statements: string[] = [];
   const base = createClient({ schema: dataSchema(), driver });
   await syncLiveSchema(base);
-  const logged = base.$extends({
-    name: "test.statements",
-    statement: (statement) => {
-      statements.push(statement.statement.toStatement("?"));
-      return statement.statement;
-    },
-  });
+  const logged = base.$extends(
+    extension(
+      "test.statements",
+      unit(
+        (u, next) => {
+          statements.push(statement(u).toStatement("?"));
+          return next(statement(u));
+        },
+        ["statement"],
+        { rewrites: true }
+      )
+    )
+  );
   const db = logged.$extends(softDelete).$extends(audit(MODELS));
   return { base, db, logged, statements };
 }
@@ -646,10 +672,10 @@ export function runExtensionDataBehavior(provider: DataProvider): void {
       });
       // The later extension owns `source` even on a call without its
       // control: the earlier constant is not written then.
-      const imported = defineExtension({
-        name: "imported",
-        data: { models: { post: { create: { source: "import" } } } },
-      });
+      const imported = extension(
+        "imported",
+        defaults({ post: { create: { source: "import" } } })
+      );
       const replaced = logged.$extends(imported).$extends(origin);
       await replaced.post.create({ data: { id: 5, title: "e" } });
       await replaced.post.create({
@@ -825,10 +851,9 @@ export function runExtensionDataBehavior(provider: DataProvider): void {
       const { base, logged } = context;
       for (const id of [1, 2])
         await base.post.create({ data: { id, title: `p${id}` } });
-      const touched = logged.$extends({
-        name: "touched",
-        data: { models: { post: { update: { deletedAt: { now: true } } } } },
-      });
+      const touched = logged.$extends(
+        extension("touched", defaults({ post: { update: { deletedAt: now } } }))
+      );
       const before = Date.now();
       expect(await touched.post.updateMany({ data: { title: "x" } })).toEqual({
         count: 2,

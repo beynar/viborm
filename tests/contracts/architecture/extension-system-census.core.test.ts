@@ -4,8 +4,15 @@ import { REPOSITORY_ROOT, SOURCE_ROOT } from "@tests/fixtures/repo-paths";
 import ts from "typescript";
 import { describe, expect, test } from "vitest";
 
-const CANONICAL_CHAIN_OWNER = "src/extensions/chain.ts appendResolvedExtension";
+/** The one function that appends an extension to a chain: `partSet(…).append`. */
+const CANONICAL_CHAIN_OWNER = "src/extensions/chain.ts appendWith";
 const SUPERSEDED_EXTENSION_OWNERS = Object.freeze([
+  // The host before one mechanism: a definition read by host tables.
+  "src/extensions/define.ts",
+  "src/extensions/host.ts",
+  "src/extensions/host-slot.ts",
+  "src/extensions/rows-runtime.ts",
+  "src/extensions/rows-slot.ts",
   "src/client/extension-chain.ts",
   "src/client/extension-definition.ts",
   "src/client/extensions.ts",
@@ -38,6 +45,50 @@ const OPERATION_NAME = /operation/i;
 const AUTHORITY_ROLE = /program|fragment|step|token|capability/i;
 const RUNTIME_EXTENSION = /\.js$/;
 const PROTOTYPE_OWNER_MAP = "transactionOperationOwnersByPrototype";
+const EXTENSIONS_FOLDER = join(SOURCE_ROOT, "extensions");
+const OFFICIAL_EXTENSION_WORD =
+  /cache|instrumentation|soft.?delete|permission|ordering|tenant|actor|official/i;
+
+/**
+ * The module-level state `src/extensions` still holds: a `let`, or a
+ * collection created empty for the run to fill. The plan's host has none
+ * ("ni table d'accueil, ni registre, ni état de module"): an entry leaves
+ * this list when its module stops holding it, and nothing joins it.
+ */
+const MODULE_STATE_LEFT = Object.freeze([
+  "src/extensions/admission.ts admittedRows",
+  "src/extensions/admission.ts outputs",
+  "src/extensions/admission.ts registries",
+  "src/extensions/args.ts specs",
+  "src/extensions/call.ts INNER",
+  "src/extensions/call.ts firsts",
+  "src/extensions/call.ts schemas",
+  "src/extensions/call.ts seconds",
+  "src/extensions/extension.ts built",
+  "src/extensions/gates.ts namedGatedFields",
+  "src/extensions/observation.ts lifecycleFacts",
+  "src/extensions/observation.ts officialCapabilitiesByChain",
+  "src/extensions/observation.ts trustedObservers",
+  "src/extensions/plain-domain.ts NONE",
+  "src/extensions/plain-domain.ts prepared",
+  "src/extensions/query.ts publicationFailures",
+  "src/extensions/query.ts queryCoordinationFailures",
+  "src/extensions/row-domain.ts preparedDomains",
+  "src/extensions/rows-translation.ts states",
+  "src/extensions/verbs.ts entryReferences",
+  "src/extensions/watch-part.ts watched",
+]);
+
+/**
+ * What the chain's state still names of an official extension. The
+ * mechanism (`chain.ts`) names none; the state's members are written by the
+ * parts, and an official extension's own fact leaves with its port.
+ */
+const OFFICIAL_NAMES_IN_CHAIN_STATE = Object.freeze([
+  "src/extensions/chain-state.ts hasCache",
+  // A volatile argument's read is neither served nor stored by the cache.
+  "src/extensions/chain-state.ts uncacheable",
+]);
 
 interface ExtensionSystemCensus {
   readonly chainOwners: string[];
@@ -122,7 +173,18 @@ function sourceRegistryEntries(
   const parsed = sourceFile(fileName, source);
   const chainOwners: string[] = [];
   const executableRegistries: string[] = [];
+  const enclosing: string[] = [];
   const visit = (node: ts.Node): void => {
+    // Whatever writes a chain's list of extensions appends to a chain.
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      ts.isPropertyAccessExpression(node.left) &&
+      node.left.name.text === "extensions"
+    ) {
+      const owner = `${fileName} ${enclosing.at(-1) ?? "<module>"}`;
+      if (!chainOwners.includes(owner)) chainOwners.push(owner);
+    }
     if (
       ts.isFunctionDeclaration(node) ||
       ts.isClassDeclaration(node) ||
@@ -155,7 +217,13 @@ function sourceRegistryEntries(
         executableRegistries.push(`${fileName} ${name}`);
       }
     }
+    const named =
+      ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)
+        ? nodeName(node)
+        : undefined;
+    if (named !== undefined) enclosing.push(named);
     ts.forEachChild(node, visit);
+    if (named !== undefined) enclosing.pop();
   };
   visit(parsed);
   return {
@@ -288,6 +356,67 @@ function publicAuthorityExports(
     );
   }
   return entries.sort();
+}
+
+/**
+ * A module's top-level state: a `let`, or a `Map`, `Set`, `WeakMap` or
+ * `WeakSet` created empty, which only the run fills. A collection created
+ * with its contents is a constant table.
+ */
+function moduleState(fileName: string, source: string): string[] {
+  const state: string[] = [];
+  for (const statement of sourceFile(fileName, source).statements) {
+    if (!ts.isVariableStatement(statement)) continue;
+    const mutable =
+      statement.declarationList.getFirstToken()?.kind ===
+      ts.SyntaxKind.LetKeyword;
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name)) continue;
+      const initializer = declaration.initializer;
+      const emptyCollection =
+        initializer !== undefined &&
+        ts.isNewExpression(initializer) &&
+        ts.isIdentifier(initializer.expression) &&
+        COLLECTION_NAMES.has(initializer.expression.text) &&
+        (initializer.arguments?.length ?? 0) === 0;
+      if (mutable || emptyCollection)
+        state.push(`${fileName} ${declaration.name.text}`);
+    }
+  }
+  return state;
+}
+
+function extensionsModuleState(): string[] {
+  return sourceFiles(EXTENSIONS_FOLDER)
+    .flatMap((path) =>
+      moduleState(relative(REPOSITORY_ROOT, path), readFileSync(path, "utf8"))
+    )
+    .sort();
+}
+
+/** The modules a file imports by a relative path, as written. */
+function relativeImports(path: string): string[] {
+  return sourceFile(path, readFileSync(path, "utf8"))
+    .statements.flatMap((statement) =>
+      ts.isImportDeclaration(statement) &&
+      ts.isStringLiteral(statement.moduleSpecifier) &&
+      statement.moduleSpecifier.text.startsWith(".")
+        ? [statement.moduleSpecifier.text]
+        : []
+    )
+    .sort();
+}
+
+/** The identifiers of a file's code that name an official extension. */
+function officialNames(fileName: string, source: string): string[] {
+  const names = new Set<string>();
+  const visit = (node: ts.Node): void => {
+    if (ts.isIdentifier(node) && OFFICIAL_EXTENSION_WORD.test(node.text))
+      names.add(`${fileName} ${node.text}`);
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile(fileName, source));
+  return [...names].sort();
 }
 
 function collectCensus(): ExtensionSystemCensus {
@@ -445,6 +574,58 @@ describe("extension-system source census", () => {
     expect(census.executableRegistries).toEqual([]);
   });
 
+  test("holds no module-level state in src/extensions beyond what is left to remove", () => {
+    expect(extensionsModuleState()).toEqual([...MODULE_STATE_LEFT]);
+  });
+
+  test("the chain imports no part and its code names no official extension", () => {
+    // The mechanism reads the definition and writes the state; every member
+    // of that state is a part's.
+    expect(relativeImports(join(EXTENSIONS_FOLDER, "chain.ts"))).toEqual([
+      "./chain-state",
+      "./definition",
+    ]);
+    expect(
+      ["chain.ts", "chain-state.ts"].flatMap((file) => {
+        const path = join(EXTENSIONS_FOLDER, file);
+        return officialNames(
+          relative(REPOSITORY_ROOT, path),
+          readFileSync(path, "utf8")
+        );
+      })
+    ).toEqual([...OFFICIAL_NAMES_IN_CHAIN_STATE]);
+  });
+
+  test("detects module state, but no constant table and no local state", () => {
+    expect(
+      moduleState(
+        "witness/state.ts",
+        `
+          let counter = 0;
+          const byKey = new WeakMap<object, string>();
+          const seen = /* @__PURE__ */ new Set<string>();
+          const TABLE = new Set(["a", "b"]);
+          const FROZEN: ReadonlyMap<string, number> = new Map([["a", 1]]);
+          function local() { const memo = new Map(); let n = 0; return [memo, n]; }
+        `
+      )
+    ).toEqual([
+      "witness/state.ts counter",
+      "witness/state.ts byKey",
+      "witness/state.ts seen",
+    ]);
+    expect(
+      officialNames(
+        "witness/chain.ts",
+        `
+          // The official cache, named in a comment only.
+          const label = "cache";
+          interface Chain { readonly hasCache?: boolean; readonly rows?: unknown }
+        `
+      )
+    ).toEqual(["witness/chain.ts hasCache"]);
+  });
+
   test("keeps no superseded owner or parallel runtime handler carrier", () => {
     expect(
       SUPERSEDED_EXTENSION_OWNERS.filter((path) =>
@@ -501,6 +682,7 @@ describe("extension-system source census", () => {
         const extensionHandlerRegistry = new WeakMap<object, CallableFunction>();
         const runPluginPipeline = () => [];
         function createExtensionMiddlewareChain() { return []; }
+        function grow(chain: { extensions: string[] }) { chain.extensions = []; }
       `
     );
     expect(witness.executableRegistries).toEqual([
@@ -510,6 +692,7 @@ describe("extension-system source census", () => {
     ]);
     expect(witness.chainOwners).toEqual([
       "witness/parallel-registry.ts createExtensionMiddlewareChain",
+      "witness/parallel-registry.ts grow",
     ]);
   });
 

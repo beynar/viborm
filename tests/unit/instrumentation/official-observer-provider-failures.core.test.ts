@@ -1,15 +1,13 @@
+import type { ResolvedExtensionHandler } from "@extensions/chain";
 import type { LifecycleUnit } from "@extensions/observation";
-import {
-  registerFactsObserver,
-  runProtectedObservers,
-} from "@extensions/observation";
+import { runProtectedObservers } from "@extensions/observation";
 import type {
   CacheUnitFacts,
   LifecycleDispatch,
   LifecycleFacts,
   OfficialLifecycleFacts,
 } from "@extensions/official-facts";
-import type { OfficialInstrumentationExtension } from "@src/instrumentation/extension";
+import { appendResolvedExtension } from "@tests/fixtures/host-definition";
 import { describe, expect, it, vi } from "vitest";
 
 /** A transaction dispatch record whose `start` releases the gated child. */
@@ -88,23 +86,27 @@ vi.mock("@opentelemetry/api", () => {
 
 import { instrumentation } from "@src/instrumentation/extension";
 
-/** The extension as a chain admits it: its observer is the one handed facts. */
-function admitted(
-  extension: OfficialInstrumentationExtension
-): OfficialInstrumentationExtension {
-  registerFactsObserver(extension.observe, extension.observes);
-  return extension;
+/**
+ * The official observer as `$extends` applies the extension: the one observer
+ * its chain holds, registered as the one handed facts.
+ */
+function observerOf(extension: unknown): ResolvedExtensionHandler {
+  const observer = appendResolvedExtension(undefined, extension, {})
+    .observe?.[0];
+  if (observer === undefined)
+    throw new Error("The official instrumentation observes nothing here");
+  return observer;
 }
 
 function runObserved<Result>(
-  extension: OfficialInstrumentationExtension,
+  extension: unknown,
   unit: LifecycleUnit,
   facts: OfficialLifecycleFacts,
   child: () => Promise<Result>
 ): Promise<Result> {
   return runProtectedObservers(
     unit,
-    [{ extension: extension.name, handler: admitted(extension).observe }],
+    [observerOf(extension)],
     child,
     undefined,
     () => facts
