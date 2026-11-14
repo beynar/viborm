@@ -46,7 +46,18 @@ const post = s.model({
   ownerId: s.string(),
   deletedAt: s.dateTime().nullable(),
 });
-const schema = { user, post };
+const node = s.model({
+  id: s.string().id(),
+  title: s.string(),
+  parentId: s.string().nullable(),
+  parent: s
+    .toOne(() => node)
+    .fields("parentId")
+    .references("id")
+    .name("tree"),
+  children: s.toMany(() => node).name("tree"),
+});
+const schema = { user, post, node };
 
 type Row = Record<string, unknown>;
 interface Delegate {
@@ -57,6 +68,7 @@ interface Delegate {
 interface Loose {
   user: Delegate;
   post: Delegate;
+  node: Delegate & { update(args: object): Promise<Row> };
   $extends(definition: unknown): Loose;
   $disconnect(): Promise<void>;
 }
@@ -188,6 +200,37 @@ describe("fields gated by one predicate", () => {
       ["p1", true, true],
       ["p2", false, false],
     ]);
+  });
+});
+
+describe("an acyclic relation beside a check", () => {
+  test("a write of another field passes; a write that closes a loop is refused", async () => {
+    const base = await seeded();
+    await base.node.create({ data: { id: "a", title: "a", parentId: null } });
+    await base.node.create({ data: { id: "b", title: "b", parentId: "a" } });
+    await base.node.create({ data: { id: "c", title: "c", parentId: null } });
+    const db = base.$extends(
+      extension(
+        "tree",
+        rule({
+          node: {
+            update: { check: check({ title: { not: "" } }) },
+            acyclic: ["parent"],
+          },
+        })
+      )
+    );
+    expect(
+      (await db.node.update({ where: { id: "a" }, data: { title: "root" } }))
+        .title
+    ).toBe("root");
+    await expect(
+      db.node.update({ where: { id: "a" }, data: { parentId: "b" } })
+    ).rejects.toThrow();
+    expect(
+      (await db.node.update({ where: { id: "c" }, data: { parentId: "b" } }))
+        .parentId
+    ).toBe("b");
   });
 });
 
