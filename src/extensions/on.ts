@@ -162,14 +162,16 @@ export function target<
   operations?: O | readonly O[] | OperationSet<O>
 ): Selection<T, M, O>;
 export function target(first: unknown, operations?: unknown): unknown {
-  const named = operationsOf(first);
   // An operation set alone: every model, those operations.
-  if (named !== undefined && typeof first === "object" && !Array.isArray(first))
-    return Object.freeze({ operations: named, ...watchOf(first) });
+  if (typeof first === "object" && first !== null && !Array.isArray(first))
+    return Object.freeze({
+      operations: operationsOf(first),
+      ...watchOf(first),
+    });
   const listed = operationsOf(operations);
   return Object.freeze({
-    models: Object.freeze(typeof first === "string" ? [first] : [...named!]),
-    ...(listed === undefined ? {} : { operations: Object.freeze([...listed]) }),
+    models: typeof first === "string" ? [first] : first,
+    ...(listed === undefined ? {} : { operations: listed }),
     ...watchOf(operations),
   });
 }

@@ -161,14 +161,14 @@ test("request, function form: input → c.args, controls → c.values, every ret
   );
 });
 
-test("request, map form: one call part per model operation, with on(model, operation)", () => {
+test("request, map form: one call part per model operation, with target(model, operation)", () => {
   const r = convert(
     `client.$extends({ name: "r", request: { post: { findMany({ input }) { return { take: 1 }; }, count: () => ({ skip: 2 }) } } });`
   );
   has(
     r,
-    `call((c) => { c.set({ take: 1 }); }, on("post", "findMany"))`,
-    `call((c) => { c.set({ skip: 2 }); }, on("post", "count"))`
+    `call((c) => { c.set({ take: 1 }); }, target("post", "findMany"))`,
+    `call((c) => { c.set({ skip: 2 }); }, target("post", "count"))`
   );
 });
 
@@ -180,7 +180,7 @@ test("query, destructured: proceed → run, input → run.input, mode → run.mo
 } });`);
   has(
     r,
-    "call.around((c) => async (run) => { log(c.model, run.mode, run.input); return run(); })"
+    "around((c) => async (run) => { log(c.model, run.mode, run.input); return run(); })"
   );
 });
 
@@ -188,14 +188,14 @@ test("query, named context: property accesses are rewritten; a moment-2-only han
   const r = convert(
     `client.$extends({ name: "q", async query(context) { return context.proceed(); } });`
   );
-  has(r, "call.around(() => async (run) => { return run(); })");
+  has(r, "around(() => async (run) => { return run(); })");
 });
 
 test("query, shorthand property in the body keeps its name", () => {
   const r = convert(
     `client.$extends({ name: "q", query: ({ proceed, input }) => send({ input }, proceed) });`
   );
-  has(r, "call.around(() => (run) => send({ input: run.input }, run))");
+  has(r, "around(() => (run) => send({ input: run.input }, run))");
 });
 
 test("query, a rest pattern keeps the body and binds the old names first", () => {
@@ -218,7 +218,7 @@ test("query map: an unconditional onWriteOutcome before proceed() is hoisted to 
   } } } });`);
   has(
     r,
-    `call.around((c) => { settled(c, ({ certainty }) => events.push(c.operation + certainty)); return async (run) => { events.push("in"); return await run(); }; }, on("record", "deleteMany"))`
+    `around((c) => { settled(c, ({ certainty }) => events.push(c.operation + certainty)); return async (run) => { events.push("in"); return await run(); }; }, target("record", "deleteMany"))`
   );
   assert.equal(r.definitions[0].status, "converted");
 });
@@ -249,14 +249,11 @@ test("query held in a variable the file does not write: called with the old cont
   const r = convert(
     `import { handler } from "./h";\nclient.$extends({ name: "q", query: handler });`
   );
-  has(
-    r,
-    "call.around((c) => (run) => handler({ proceed: run, input: run.input"
-  );
+  has(r, "around((c) => (run) => handler({ proceed: run, input: run.input");
   assert.equal(r.definitions[0].status, "flagged");
 });
 
-test("written → call with watch and settled, on(writes); its call's members become c's", () => {
+test("written → call with watch and settled, target(writes); its call's members become c's", () => {
   const r = convert(`client.$extends({ name: "w", written: (call) => ({
   wants: (model, kind) => call.model === model,
   rows(model, kind, rows) { seen.push(rows); },
@@ -265,8 +262,8 @@ test("written → call with watch and settled, on(writes); its call's members be
   // The old handler's parameter named `call` is gone: the word keeps its name.
   has(
     r,
-    "call((c) => { watch(c, { wants: (model, kind) => c.model === model, rows(model, kind, rows) { seen.push(rows); } }); settled(c, async (outcome) => { done.push(outcome.certainty, c.values); }); }, on(writes))",
-    "import { extension, call, on, writes, watch, settled }"
+    "call((c) => { watch(c, { wants: (model, kind) => c.model === model, rows(model, kind, rows) { seen.push(rows); } }); settled(c, async (outcome) => { done.push(outcome.certainty, c.values); }); }, target(writes))",
+    "import { extension, call, target, writes, watch, settled }"
   );
 });
 
@@ -285,7 +282,7 @@ test("retry → a second moment that runs again while again(run) and the old han
   );
   has(
     r,
-    "call.around((c) => { const retry = (error, attempt) => attempt < 3; return async (run) => { for (let attempt = 1; ; attempt++) { try { return await run(); } catch (error) { if (!(again(run) && (await retry(error, attempt, { model: c.model, operation: c.operation })))) throw error; } } }; })"
+    "around((c) => { const retry = (error, attempt) => attempt < 3; return async (run) => { for (let attempt = 1; ; attempt++) { try { return await run(); } catch (error) { if (!(again(run) && (await retry(error, attempt, { model: c.model, operation: c.operation })))) throw error; } } }; })"
   );
 });
 
@@ -293,7 +290,7 @@ test("route → via(run, driver) on reads, flagged", () => {
   const r = convert(`client.$extends({ name: "r", route: () => replica });`);
   has(
     r,
-    "call.around((c) => { const route = () => replica; return (run) => { const driver = route({ model: c.model, operation: c.operation, args: run.input }); return driver === undefined ? run() : via(run, driver); }; }, on(reads))"
+    "around((c) => { const route = () => replica; return (run) => { const driver = route({ model: c.model, operation: c.operation, args: run.input }); return driver === undefined ? run() : via(run, driver); }; }, target(reads))"
   );
   assert.equal(r.definitions[0].status, "flagged");
 });
@@ -420,7 +417,7 @@ test("rows.verbs, lazy entry: the model's whole entry becomes a function and its
   verbs: { doc: () => { const id = load(); return { predicates: { own: { ownerId: id } }, read: "own", delete: "own" }; } } } });`);
   has(
     r,
-    `doc: () => { const id = load(); const docOwn = { ownerId: id }; return { read: { where: docOwn }, root: when(arg("m"), "on", docOwn), delete: { where: docOwn } }; }`
+    `doc: () => { const id = load(); const docOwn = { ownerId: id }; return { read: { where: docOwn }, root: when(arg("m"), "on", docOwn), update: { where: nothing }, delete: { where: docOwn } }; }`
   );
 });
 
@@ -438,7 +435,7 @@ test("deletion → delete.instead, unless(arg(removeWhen), value, …); its cont
   has(r, `args({ mode: oneOf("soft", "hard").on(deletes).models(["post"]) })`);
   has(
     r,
-    `delete: { instead: instead(unless(arg("mode"), "hard", { deletedAt: now, reason: arg("why") })) }`
+    `delete: { instead: keep(unless(arg("mode"), "hard", { deletedAt: now, reason: arg("why") })) }`
   );
 });
 
@@ -453,7 +450,7 @@ test("members naming one model merge into one entry per part: rows and deletion 
   order: { models: { post: [{ rank: "asc" }] } } });`);
   has(
     r,
-    `rule({ post: { root: when(arg("deleted"), "without", { deletedAt: null }), delete: { instead: instead({ deletedAt: now }) } } })`,
+    `rule({ post: { root: when(arg("deleted"), "without", { deletedAt: null }), delete: { instead: keep({ deletedAt: now }) } } })`,
     `defaults({ post: { orderBy: [{ rank: "asc" }], create: { at: now }, update: { by: arg("actor"), version: { increment: 1 } } } })`
   );
   assert.equal(r.text.match(RULE_CALL)?.length, 1);
@@ -473,7 +470,7 @@ test("per-model calls: members built by the same call over the same list merge i
   has(
     r,
     `args({ tenant: accepts(v.string()).required(models), scope: oneOf("tenant", "all").default("tenant") })`,
-    `rule(perModel(models, () => ({ root: when(arg("scope"), "tenant", { tenantId: arg("tenant") }), delete: { instead: instead({ deletedAt: now }) } })))`,
+    `rule(perModel(models, () => ({ root: when(arg("scope"), "tenant", { tenantId: arg("tenant") }), delete: { instead: keep({ deletedAt: now }) } })))`,
     `defaults(perModel(models, () => ({ orderBy: [{ id: "asc" }], create: { tenantId: arg("tenant") } })))`
   );
 });
@@ -507,7 +504,7 @@ test("result → fields; client and model → methods({ client, models })", () =
   client(scope) { return { $ping: () => scope }; }, model: { post: (delegate) => ({ top: () => delegate.findFirst() }) } });`);
   has(
     r,
-    "methods({ client(scope) { return { $ping: () => scope }; }, models: { post: (delegate) => ({ top: () => delegate.findFirst() }) } })"
+    "methods((scope) => { const own = { client(scope) { return { $ping: () => scope }; }, models: { post: (delegate) => ({ top: () => delegate.findFirst() }) } }; return { ...own.client?.(scope), ...own.models }; })"
   );
   has(
     r,
@@ -547,16 +544,16 @@ client.$extends({ name: "p", rows: { control: "m", default: "on", models: { org:
   );
 });
 
-test("$if → when(arg, test, filter), flagged: the spec does not say what a failed when means in a filter", () => {
+test("$if → provided(arg, test, filter?): it holds only where its test holds", () => {
   const r =
     convert(`client.$extends({ name: "p", rows: { control: "m", default: "on", models: { doc: { on: {
   root: { OR: [{ $if: { control: "scopes", path: "all", equals: true } }, { $if: { control: "actor", path: "id", exists: true }, ownerId: { control: "actor", path: "id" } }] },
 } } } } });`);
   has(
     r,
-    `OR: [when(arg("scopes", "all"), true, {}), when(arg("actor", "id"), { exists: true }, { ownerId: arg("actor", "id") })]`
+    `OR: [provided(arg("scopes", "all"), true), provided(arg("actor", "id"), { exists: true }, { ownerId: arg("actor", "id") })]`
   );
-  assert.equal(r.definitions[0].status, "flagged");
+  assert.equal(r.definitions[0].status, "converted");
 });
 
 // ---------------------------------------------------------------------------
@@ -569,8 +566,8 @@ import { on } from "viborm/on";
 client.$extends(on({})).$extends(defineExtension({ name: "r", request: { post: { findMany: () => ({ take: 1 }) } } }));`);
   has(
     r,
-    `import { extension, call, on as extOn } from "viborm";`,
-    `extOn("post", "findMany")`,
+    `import { extension, call, target } from "viborm";`,
+    `target("post", "findMany")`,
     `import { on } from "viborm/on";`
   );
 });

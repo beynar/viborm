@@ -79,7 +79,11 @@ export function buildMethods(factory: (scope: never) => unknown): unknown {
       Object.keys(schema).map((model) => [
         model,
         (delegate: object, scope: object) => {
-          const own = run(scope)[model];
+          const given = run(scope)[model];
+          // A model's entry may be a function of its delegate and the scope.
+          const own: unknown = isFunction(given)
+            ? Reflect.apply(given, undefined, [delegate, scope])
+            : given;
           if (own === undefined) return {};
           if (!isRecord(own))
             extensionError(

@@ -1724,10 +1724,8 @@ function filterText(ctx, member, node, flags) {
   const test = fieldsOf.get(tests[0]);
   if (!ts.isPropertyAssignment(test))
     refuse(member, "`$if`'s test is not a property");
-  flags.push(
-    "`$if` made its arm false when the test failed; `when` without an else: check the spec gives it that meaning"
-  );
-  return P.printWhen(
+  // `$if` holds only where its test holds: `provided` (spec §12.1).
+  return P.printProvided(
     P.printArg(
       control.initializer.getText(sf),
       path && ts.isPropertyAssignment(path)
@@ -2247,15 +2245,26 @@ function convertRows(ctx, property, rules, argEntries, flags, consts) {
         ].includes(key)
       )
         refuse("rows.verbs", `\`${key}\` is not a verb the codemod reads`);
-    if (members.has("read"))
-      rules.set(member, target, ["read", "where"], refOf("read"));
+    // A verb a 1.14 entry left out matched nothing; a rule key left out adds
+    // no restriction (spec §13.4): the conversion writes `nothing` for it.
+    rules.set(
+      member,
+      target,
+      ["read", "where"],
+      members.has("read") ? refOf("read") : P.printNothing()
+    );
     if (members.has("update")) {
       const where = refOf("update");
       rules.set(member, target, ["update", "where"], where);
       rules.set(member, target, ["update", "check"], where, "checks");
-    }
-    if (members.has("delete"))
-      rules.set(member, target, ["delete", "where"], refOf("delete"));
+    } else if (!members.has("writes"))
+      rules.set(member, target, ["update", "where"], P.printNothing());
+    rules.set(
+      member,
+      target,
+      ["delete", "where"],
+      members.has("delete") ? refOf("delete") : P.printNothing()
+    );
     if (members.has("place"))
       rules.set(member, target, ["create", "check"], refOf("place"), "checks");
     if (members.has("writes"))

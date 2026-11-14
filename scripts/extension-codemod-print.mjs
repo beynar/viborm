@@ -33,10 +33,12 @@ export const WORDS = [
   "args",
   "methods",
   "fields",
-  "on",
+  "target",
   "reads",
   "writes",
   "deletes",
+  "around",
+  "nothing",
   "oneOf",
   "accepts",
   "bound",
@@ -46,10 +48,11 @@ export const WORDS = [
   "exists",
   "when",
   "unless",
+  "provided",
   "check",
   "gate",
   "facts",
-  "instead",
+  "keep",
   "watch",
   "settled",
   "again",
@@ -64,8 +67,8 @@ export const WORDS = [
  */
 export const PARAMETERS = { call: "c", run: "run", unit: "u", next: "next" };
 
-/** The construction of a part that has a second moment (spec §3, open point 2). */
-const AROUND = "call.around";
+/** The construction of a part that has a second moment (spec §13: its own export). */
+const AROUND = "around";
 
 const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
 
@@ -105,14 +108,14 @@ export function printers(w) {
       return `${[w(head), ...rest].join(".")}(${handler}${on ? `, ${on}` : ""})`;
     },
 
-    /** `on("post", "findMany")` for one model operation. */
+    /** `target("post", "findMany")` for one model operation. */
     printOnOperation(model, operation) {
-      return `${w("on")}(${printString(model)}, ${printString(operation)})`;
+      return `${w("target")}(${printString(model)}, ${printString(operation)})`;
     },
 
-    /** `on(writes)`, `on(reads)`, `on(deletes)`. */
+    /** `target(writes)`, `target(reads)`, `target(deletes)`. */
     printOnFamily(family) {
-      return `${w("on")}(${w(family)})`;
+      return `${w("target")}(${w(family)})`;
     },
 
     /** The first-moment handler: `(c) => body`, `() => body` when it reads no `c`. */
@@ -242,10 +245,14 @@ export function printers(w) {
     // The words of a rule.
     printArg: (name, path) => `${w("arg")}(${name}${path ? `, ${path}` : ""})`,
     printNow: () => w("now"),
+    /** The filter no row holds: a verb a 1.14 entry left out. */
+    printNothing: () => w("nothing"),
     printRow: (column, up) => `${w("row")}(${column}, ${up})`,
     printExists: (spec) => `${w("exists")}(${spec})`,
     printWhen: (value, test, then) =>
       `${w("when")}(${value}, ${test}, ${then})`,
+    printProvided: (value, test, then) =>
+      `${w("provided")}(${value}, ${test}${then === "{}" ? "" : `, ${then}`})`,
     printUnless: (value, test, then) =>
       `${w("unless")}(${value}, ${test}, ${then})`,
     printCheck: (where) => `${w("check")}(${where})`,
@@ -254,22 +261,26 @@ export function printers(w) {
     printFacts(entries, ordered) {
       return `${w("facts")}(${printObject(entries)}${ordered ? ", { ordered: true }" : ""})`;
     },
-    printInstead: (data) => `${w("instead")}(${data})`,
+    printInstead: (data) => `${w("keep")}(${data})`,
     /** `deletion`'s tombstone: kept unless the call's argument says to remove. */
     printDeleteInstead(data, removeWhen) {
       const kept = removeWhen
         ? `${w("unless")}(${removeWhen.value}, ${removeWhen.test}, ${data})`
         : data;
-      return `${w("instead")}(${kept})`;
+      return `${w("keep")}(${kept})`;
     },
     /** A condition test of `$if`: `equals` is the value itself. */
     printTest(test, operand) {
       return test === "equals" ? operand : `{ ${test}: ${operand} }`;
     },
 
-    /** `methods({ client, models })`, members already printed. */
+    /**
+     * `methods((scope) => …)`: the old `client` factory's methods, and each
+     * old model factory as a model's entry given as a function of its
+     * delegate and the scope.
+     */
     printMethods(members) {
-      return `${w("methods")}({ ${members.join(", ")} })`;
+      return `${w("methods")}((scope) => { const own = { ${members.join(", ")} }; return { ...own.client?.(scope), ...own.models }; })`;
     },
     printFields: (definition) => `${w("fields")}(${definition})`,
 

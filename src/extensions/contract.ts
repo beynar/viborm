@@ -1119,7 +1119,11 @@ type ClientKeys<R> = Extract<keyof R, `$${string}`>;
 export type MethodsFacts<R, Consumer extends boolean> = Facts<
   { readonly [Key in ClientKeys<R>]: R[Key] },
   {
-    readonly [M in Exclude<keyof R, ClientKeys<R>>]: R[M];
+    readonly [M in Exclude<keyof R, ClientKeys<R>>]: R[M] extends (
+      ...args: never[]
+    ) => infer Methods
+      ? Methods
+      : R[M];
   },
   NoControls,
   never,

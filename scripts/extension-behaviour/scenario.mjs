@@ -5,12 +5,29 @@
 // names one call and never changes meaning: add a call under a new label.
 
 import {
+  accepts,
+  again,
+  arg,
+  args,
+  around,
   createClient,
-  defineExtension,
-  defineHooks,
-  enableExtensions,
+  defaults,
+  call as extCall,
+  extension,
+  fields as extFields,
+  unit as extUnit,
+  methods,
+  now,
+  oneOf,
   raw,
+  reads,
+  rule,
   sql,
+  statement,
+  target,
+  via,
+  when,
+  writes,
 } from "viborm";
 import { cache } from "viborm/cache";
 import { MemoryCache } from "viborm/cache/memory";
@@ -155,7 +172,9 @@ const blogPolicy = (deleteRule) =>
 const softDeleted = async (step) => {
   const base = await open(blog());
   await seed(base);
-  const db = softDelete({ models: { post: { deletedAt: "deletedAt" } } })(base);
+  const db = base.$extends(
+    softDelete({ models: { post: { deletedAt: "deletedAt" } } })
+  );
   await step("sd delete", () =>
     db.post
       .delete({ where: { id: "p1" } })
@@ -216,7 +235,7 @@ const softDeleted = async (step) => {
       .then((u) => ids(u.posts))
   );
   await step("sd unknown model", () =>
-    softDelete({ models: { nope: { deletedAt: "deletedAt" } } })(base)
+    base.$extends(softDelete({ models: { nope: { deletedAt: "deletedAt" } } }))
   );
   await base.$disconnect();
 };
@@ -234,7 +253,9 @@ const ordered = async (step) => {
       .references("id"),
   });
   const base = await open({ column, card });
-  const db = ordering({ card: { key: "rank", within: ["columnId"] } })(base);
+  const db = base.$extends(
+    ordering({ card: { key: "rank", within: ["columnId"] } })
+  );
   await base.column.create({ data: { id: "c1" } });
   for (const id of ["a", "b", "c"]) {
     await step(`or create ${id}`, () =>
@@ -331,7 +352,7 @@ const governed = async (step) => {
   const base = await open(plainBlog());
   await seedUsers(base);
   await base.post.create({ data: { id: "p1", title: "one", authorId: "u2" } });
-  const db = blogPolicy({ actor: { admin: true } })(base);
+  const db = base.$extends(blogPolicy({ actor: { admin: true } }));
   const call = db.$as({ userId: "u1", admin: false });
   const admin = db.$as({ userId: "u2", admin: true });
   await step("pm unbound", () => db.post.findMany());
@@ -393,35 +414,27 @@ const governed = async (step) => {
 };
 
 const tenancyDefinition = () =>
-  defineExtension({
-    name: "tenancy",
-    controls: {
-      tenant: { schema: v.string(), required: true },
-      reason: { oneOf: ["typo", "legal"], on: "writes" },
-    },
-    rows: {
-      control: "scope",
-      default: "tenant",
-      models: {
-        post: {
-          tenant: {
-            root: { tenantId: { control: "tenant" } },
-            related: { tenantId: { control: "tenant" } },
-          },
-          all: {},
-        },
+  extension(
+    "tenancy",
+    args({
+      tenant: accepts(v.string()).required(["post"]),
+      reason: oneOf("typo", "legal").on(writes),
+      scope: oneOf("tenant", "all").default("tenant"),
+    }),
+    rule({
+      post: {
+        root: when(arg("scope"), "tenant", { tenantId: arg("tenant") }),
+        related: when(arg("scope"), "tenant", { tenantId: arg("tenant") }),
       },
-    },
-    data: {
-      models: {
-        post: {
-          create: { tenantId: { control: "tenant" }, stampedAt: { now: true } },
-          update: { views: { increment: 1 } },
-        },
+    }),
+    defaults({
+      post: {
+        orderBy: [{ title: "desc" }],
+        create: { tenantId: arg("tenant"), stampedAt: now },
+        update: { views: { increment: 1 } },
       },
-    },
-    order: { models: { post: [{ title: "desc" }] } },
-  });
+    })
+  );
 
 const tenanted = async (step) => {
   const base = await open(blog());
@@ -500,20 +513,15 @@ const tenanted = async (step) => {
   await step("tn count", () => db.post.count({ tenant: "globex" }));
   await step("tn typo filter", () =>
     base.$extends(
-      defineExtension({
-        name: "typo",
-        rows: {
-          control: "m",
-          default: "d",
-          models: { post: { d: { root: { tenantIdd: "x" } } } },
-        },
-      })
+      extension(
+        "typo",
+        args({ m: oneOf("d").default("d") }),
+        rule({ post: { root: when(arg("m"), "d", { tenantIdd: "x" }) } })
+      )
     )
   );
   await step("tn dup control", () =>
-    db.$extends(
-      defineExtension({ name: "again", controls: { tenant: { oneOf: [1] } } })
-    )
+    db.$extends(extension("again", args({ tenant: oneOf(1) })))
   );
   await step("tn dup name", () => db.$extends(tenancy));
   await base.$disconnect();
@@ -523,40 +531,53 @@ const handlers = async (step, note) => {
   const base = await open(blog());
   await seed(base);
   const log = [];
-  const tools = defineExtension({
-    name: "tools",
-    request: ({ input }) => ({ take: Math.min(input.take ?? 2, 2) }),
-    async query(context) {
-      log.push(["query", context.model ?? context.kind, context.operation]);
-      const result = await context.proceed();
+  const tools = extension(
+    "tools",
+    extCall((c) => {
+      c.set({ take: Math.min(c.args.take ?? 2, 2) });
+    }),
+    around((c) => async (run) => {
+      log.push(["query", c.model ?? c.kind, c.operation]);
+      const result = await run();
       log.push([
         "after",
         Array.isArray(result) ? result.length : typeof result,
       ]);
       return result;
-    },
-    statement({ statement }) {
-      log.push(["statement"]);
-      return statement;
-    },
-    client: (scope) => ({ $postCount: () => scope.post.count() }),
-    model: {
-      post: (delegate) => ({
-        titled: (title) => delegate.findMany({ where: { title } }),
-      }),
-    },
-  });
-  const db = base.$extends(tools).$extends({
-    name: "names",
-    result: {
-      user: {
-        handle: {
-          needs: { email: true },
-          compute: (user) => user.email.split("@")[0],
-        },
+    }),
+    extUnit(
+      (u, next) => {
+        log.push(["statement"]);
+        return next(statement(u));
       },
-    },
-  });
+      ["statement"],
+      { rewrites: true }
+    ),
+    methods((scope) => {
+      const own = {
+        client: (scope) => ({ $postCount: () => scope.post.count() }),
+        models: {
+          post: (delegate) => ({
+            titled: (title) => delegate.findMany({ where: { title } }),
+          }),
+        },
+      };
+      return { ...own.client?.(scope), ...own.models };
+    })
+  );
+  const db = base.$extends(tools).$extends(
+    extension(
+      "names",
+      extFields({
+        user: {
+          handle: {
+            needs: { email: true },
+            compute: (user) => user.email.split("@")[0],
+          },
+        },
+      })
+    )
+  );
   await step("hk findMany", () =>
     db.post.findMany({ orderBy: { id: "asc" } }).then(ids)
   );
@@ -583,15 +604,23 @@ const handlers = async (step, note) => {
   );
   await step("hk collide", () =>
     base.$extends(
-      defineExtension({
-        name: "bad",
-        client: () => ({ $transaction: () => 1 }),
-      })
+      extension(
+        "bad",
+        methods((scope) => {
+          const own = { client: () => ({ $transaction: () => 1 }) };
+          return { ...own.client?.(scope), ...own.models };
+        })
+      )
     )
   );
   await step("hk no proceed", () =>
     base
-      .$extends(defineExtension({ name: "np", query: async () => 1 }))
+      .$extends(
+        extension(
+          "np",
+          around(() => async (_run) => 1)
+        )
+      )
       .post.update({ where: { id: "p1" }, data: { title: "q" } })
   );
   note("hk log", log);
@@ -602,21 +631,19 @@ const allFour = (base, seen, inner = base) => {
   const remember = (kind) => (rows) => {
     seen.push([kind, ids(rows)]);
   };
-  return blogPolicy({ authorId: { actor: "userId" } })(
-    ordering({ post: { key: "rank", within: ["authorId"] } })(
-      softDelete({ models: { post: { deletedAt: "deletedAt" } } })(
-        inner.$extends(
-          on({
-            post: {
-              create: remember("create"),
-              update: remember("update"),
-              delete: remember("delete"),
-            },
-          })
-        )
-      )
+  return inner
+    .$extends(
+      on({
+        post: {
+          create: remember("create"),
+          update: remember("update"),
+          delete: remember("delete"),
+        },
+      })
     )
-  );
+    .$extends(softDelete({ models: { post: { deletedAt: "deletedAt" } } }))
+    .$extends(ordering({ post: { key: "rank", within: ["authorId"] } }))
+    .$extends(blogPolicy({ authorId: { actor: "userId" } }));
 };
 
 const everyOfficial = async (step, note) => {
@@ -704,12 +731,12 @@ const cached = async (step) => {
   const base = await open(blog());
   await seed(base);
   const units = [];
-  const counter = defineHooks({
-    name: "units",
-    observe(unit) {
-      units.push(unitName(unit));
-    },
-  });
+  const counter = extension(
+    "units",
+    extUnit((u, _next) => {
+      units.push(unitName(u));
+    })
+  );
   const db = base
     .$extends(counter)
     .$extends(cache({ driver: new MemoryCache(), version: "1" }));
@@ -792,7 +819,12 @@ const cached = async (step) => {
     )
   );
   const rewritten = db.$extends(
-    defineHooks({ name: "rewrites", statement: ({ statement }) => statement })
+    extension(
+      "rewrites",
+      extUnit((u, next) => next(statement(u)), ["statement"], {
+        rewrites: true,
+      })
+    )
   );
   const rewrittenRead = () =>
     rewritten.$withCache({ ttl: 60_000 }).post.findMany().then(ids);
@@ -810,15 +842,15 @@ const instrumented = async (step) => {
   const base = await open(blog());
   await seed(base);
   const events = [];
-  const observer = defineHooks({
-    name: "observer",
-    observe(unit, proceed) {
-      events.push(["start", unitName(unit)]);
-      proceed().then((completion) => {
-        events.push(["end", unitName(unit), completion.status]);
+  const observer = extension(
+    "observer",
+    extUnit((u, next) => {
+      events.push(["start", unitName(u)]);
+      next().then((completion) => {
+        events.push(["end", unitName(u), completion.status]);
       });
-    },
-  });
+    })
+  );
   const spans = [];
   const tracer = {
     startActiveSpan(name, run) {
@@ -910,18 +942,12 @@ const instrumented = async (step) => {
   );
   await step("in second observes", () =>
     db.$extends(
-      defineHooks({
-        name: "second",
-        observes: {
-          observesLifecycle: true,
-          diagnostics: undefined,
-          wants: () => true,
-          warn: () => false,
-        },
-        observe() {
+      extension(
+        "second",
+        extUnit((_u, _next) => {
           return undefined;
-        },
-      })
+        })
+      )
     )
   );
   await base.$disconnect();
@@ -946,7 +972,7 @@ const omitted = async (step) => {
   const base = await open({ user, post });
   await base.user.create({ data: { id: "u1", email: "a@x", secret: "s1" } });
   await base.post.create({ data: { id: "p1", title: "t", authorId: "u1" } });
-  const db = base.$extends(defaultOmit()({ user: { secret: true } }));
+  const db = base.$extends(defaultOmit({ user: { secret: true } }));
   await step("om root", () =>
     db.user.findMany().then((rows) => rows.map(keys))
   );
@@ -980,7 +1006,7 @@ const omitted = async (step) => {
       .then(([users, posts]) => [users.map(keys), posts.map(keys)])
   );
   await step("om unknown field", () =>
-    base.$extends(defaultOmit()({ user: { nope: true } }))
+    base.$extends(defaultOmit({ user: { nope: true } }))
   );
   await step("om base unchanged", () =>
     base.user.findFirst({ where: { id: "u1" } }).then(keys)
@@ -989,7 +1015,6 @@ const omitted = async (step) => {
 };
 
 const computed = async (step) => {
-  enableExtensions();
   const base = await open(blog());
   await seed(base);
   const fields = {
@@ -1006,7 +1031,7 @@ const computed = async (step) => {
       },
     },
   };
-  const db = base.$extends({ name: "fields", result: fields });
+  const db = base.$extends(extension("fields", extFields(fields)));
   await step("rs root", () =>
     db.post
       .findMany({ orderBy: { id: "asc" } })
@@ -1046,22 +1071,26 @@ const computed = async (step) => {
     )
   );
   await step("rs unknown need", () =>
-    base.$extends({
-      name: "bad-need",
-      result: { user: { x: { needs: { nope: true }, compute: () => 1 } } },
-    })
+    base.$extends(
+      extension(
+        "bad-need",
+        extFields({ user: { x: { needs: { nope: true }, compute: () => 1 } } })
+      )
+    )
   );
   await step("rs relation name", () =>
-    base.$extends({
-      name: "bad-name",
-      result: { user: { posts: { needs: {}, compute: () => 1 } } },
-    })
+    base.$extends(
+      extension(
+        "bad-name",
+        extFields({ user: { posts: { needs: {}, compute: () => 1 } } })
+      )
+    )
   );
   // A known fault of the starting commit, recorded so its fix shows: a
   // `result` built through `defineExtension` is read again by `$extends`.
   await step("rs through defineExtension", () =>
     base
-      .$extends(defineExtension({ name: "defined", result: fields }))
+      .$extends(extension("defined", extFields(fields)))
       .user.findMany()
       .then((users) => users.map((u) => u.handle))
   );
@@ -1073,15 +1102,15 @@ const arrays = async (step, note) => {
   await seed(base);
   const log = [];
   const db = base.$extends(
-    defineHooks({
-      name: "around",
-      async query({ model, operation, proceed }) {
-        log.push(["before", model, operation]);
-        const result = await proceed();
-        log.push(["after", model, operation]);
+    extension(
+      "around",
+      around((c) => async (run) => {
+        log.push(["before", c.model, c.operation]);
+        const result = await run();
+        log.push(["after", c.model, c.operation]);
         return Array.isArray(result) ? result.length : result;
-      },
-    })
+      })
+    )
   );
   await step("ar mapped", () =>
     db.$transaction([
@@ -1100,24 +1129,23 @@ const arrays = async (step, note) => {
     base.post.findUnique({ where: { id: "p9" } })
   );
   const skipping = base.$extends(
-    defineHooks({
-      name: "skip",
-      query: async ({ operation, proceed }) =>
-        operation === "findMany" ? [] : proceed(),
-    })
+    extension(
+      "skip",
+      around((c) => async (run) => (c.operation === "findMany" ? [] : run()))
+    )
   );
   await step("ar handler skips", () =>
     skipping.$transaction([skipping.post.findMany(), skipping.post.count()])
   );
   await step("ar direct skip", () => skipping.post.findMany());
   const refusing = base.$extends(
-    defineHooks({
-      name: "refuse",
-      async query({ operation, proceed }) {
-        if (operation === "create") throw new Error("refused by handler");
-        return await proceed();
-      },
-    })
+    extension(
+      "refuse",
+      around((c) => async (run) => {
+        if (c.operation === "create") throw new Error("refused by handler");
+        return await run();
+      })
+    )
   );
   await step("ar handler throws", () =>
     refusing.$transaction([
@@ -1141,23 +1169,47 @@ const routed = async (step, note) => {
   let broken = 0;
   const attempts = [];
   const db = base.$extends(
-    defineHooks({
-      name: "resilience",
-      statement({ statement }) {
-        if (broken === 0) return statement;
-        broken -= 1;
-        return sql`${raw("SELECT missing FROM no_such_table")}`;
-      },
-      retry(error, attempt, call) {
-        attempts.push([
-          error?.constructor?.name,
-          attempt,
-          call.model,
-          call.operation,
-        ]);
-        return attempt < 2;
-      },
-    })
+    extension(
+      "resilience",
+      around((c) => {
+        const retry = (error, attempt, call) => {
+          attempts.push([
+            error?.constructor?.name,
+            attempt,
+            call.model,
+            call.operation,
+          ]);
+          return attempt < 2;
+        };
+        return async (run) => {
+          for (let attempt = 1; ; attempt++) {
+            try {
+              return await run();
+            } catch (error) {
+              if (
+                !(
+                  again(run) &&
+                  (await retry(error, attempt, {
+                    model: c.model,
+                    operation: c.operation,
+                  }))
+                )
+              )
+                throw error;
+            }
+          }
+        };
+      }),
+      extUnit(
+        (u, next) => {
+          if (broken === 0) return next(statement(u));
+          broken -= 1;
+          return next(sql`${raw("SELECT missing FROM no_such_table")}`);
+        },
+        ["statement"],
+        { rewrites: true }
+      )
+    )
   );
   await step("rt read retried", () => {
     broken = 1;
@@ -1190,13 +1242,25 @@ const routed = async (step, note) => {
   });
   const asked = [];
   const routedDb = base.$extends(
-    defineHooks({
-      name: "replica",
-      route({ model, operation }) {
-        asked.push([model, operation]);
-        return operation.startsWith("find") ? replicaDriver : undefined;
-      },
-    })
+    extension(
+      "replica",
+      around((c) => {
+        const route = ({ model, operation }) => {
+          asked.push([model, operation]);
+          return operation.startsWith("find") ? replicaDriver : undefined;
+        };
+        return (run) => {
+          // `via` routes a read outside a transaction only: only then asked.
+          if (run.mode !== "direct") return run();
+          const driver = route({
+            model: c.model,
+            operation: c.operation,
+            args: run.input,
+          });
+          return driver === undefined ? run() : via(run, driver);
+        };
+      }, target(reads))
+    )
   );
   await step("ro read", () => routedDb.post.findMany().then(ids));
   await step("ro count", () => routedDb.post.count());

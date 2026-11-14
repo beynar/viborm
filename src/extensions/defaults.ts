@@ -128,8 +128,7 @@ function writeDefaults(
       if (!isPlain(entry.fields)) refuse("fields is an object");
       const own: Partial<Record<string, true>> = { ...omit[model] };
       for (const [field, word] of Object.entries(entry.fields)) {
-        if (!Object.hasOwn(scalars, field))
-          refuse(`fields names unknown field "${field}"`);
+        // A field it cannot omit is refused by the client's own omission.
         if (!(word instanceof OmittedValue))
           refuse(`fields.${field} is written omitted`);
         own[field] = true;
