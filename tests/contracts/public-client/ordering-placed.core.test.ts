@@ -67,7 +67,7 @@ async function list(
     .$extends(
       extension(
         "mine",
-        rule({ card: { update: { where: only({ owner: "me" }) } } })
+        rule({ card: { update: { where: only({ owner: "me" }) } } } as never)
       )
     )
     .$extends(ordering({ card: { key: "rank", within: ["columnId"] } }));

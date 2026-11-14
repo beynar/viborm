@@ -182,7 +182,7 @@ describe("an entry given lazily beside one written out", () => {
         rule({
           post: lazy(() => ({ root: { ownerId: "u1" } })),
           user: { create: { check: check({ name: { not: "" } }) } },
-        })
+        } as never)
       )
     );
     expect(ids(await db.post.findMany({}))).toEqual(["p1"]);
@@ -234,7 +234,7 @@ describe("an acyclic relation beside a check", () => {
             update: { check: check({ title: { not: "" } }) },
             acyclic: ["parent"],
           },
-        })
+        } as never)
       )
     );
     expect(

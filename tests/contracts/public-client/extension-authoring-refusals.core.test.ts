@@ -323,7 +323,9 @@ describe("rule: an entry's keys and the words they take", () => {
         applying(
           args({ tenant: oneOf("a", "b") }),
           loose(rule, {
-            post: { read: { where: when(arg("tenant"), { near: "a" }, {}) } },
+            post: {
+              read: { where: when(arg("tenant"), { near: "a" } as never, {}) },
+            },
           })
         )
       )
