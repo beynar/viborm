@@ -10,6 +10,8 @@ application without extensions is smaller, a nested write sends fewer
 statements, and a many-row write on a batch-only driver is all-or-nothing when
 it fits one batch.
 
+VibORM reads Snowflake.
+
 ### Added
 
 - **`written`, a new extension capability.** A definition is asked once per
@@ -39,6 +41,44 @@ it fits one batch.
   level security).
 - **Several `on()` on one client.** Each runs its own hooks, in the order they
   were applied. A second `on()` was refused before.
+- **`viborm/snowflake`, a read-only driver for Snowflake's SQL API v2.** It
+  sends `fetch` requests and signs its key-pair JWT with WebCrypto (an OAuth or
+  programmatic access token works too), so it runs in Node, Bun, Workers and
+  Durable Objects without `snowflake-sdk`. It polls a statement that answers
+  202, reads every result partition, sends a failed request again with the
+  same `requestId`, and stops a statement past its `timeout`: half an hour by
+  default, held by the driver alone so a shorter account, user or warehouse
+  limit still applies, and `timeout: false` for none of the driver's
+  (Snowflake's own timeout, and a cancel once Snowflake has answered its
+  handle). `findMany`,
+  `findFirst`, `findUnique`, `count`, `exist`, `aggregate`, `groupBy` and
+  `$queryRaw` run, with nested `include`/`select`: Snowflake refuses a
+  correlated `LIMIT`, so a relation is read from an uncorrelated page numbered
+  per key, and only its `ARRAY_AGG` is correlated. Values cross exactly:
+  `bigint` and `Decimal` as text, timestamps to the nanosecond in a UTC
+  session. Every write, `$executeRaw` and `$transaction` fails before anything
+  is sent, and `createMigrationClient` refuses a Snowflake client (`V8001`):
+  Snowflake enforces no key, has no savepoint and no `RETURNING`. A recursive
+  filter and a root `cursor` not ordered by the model's single-field key are
+  refused too, as Snowflake refuses the SQL they need. Only `QUERY_TAG`,
+  `USE_CACHED_RESULT` and `CLIENT_RESULT_CHUNK_SIZE` pass as session
+  parameters, and an `account` that would send the token to another host, or
+  a `host` that is not `https://`, is refused. `s.time()` reads a `TIME` to the
+  millisecond, flat and nested, and refuses a finer one. A `5xx` is sent again
+  (same `requestId`, `retry=true`) and, still answered, is a `ConnectionError`;
+  a statement whose status reads fail is cancelled. A `NaN` or `Infinity`
+  inside a `VARIANT` reads as the string `STRICT_JSON_OUTPUT` prints, whatever
+  the account sets, and a raw result naming one column twice is refused.
+  `s.vector()` reads `VECTOR(FLOAT, n)` (`l2` and `cosine` distances) and
+  `s.point()` reads `GEOGRAPHY` (equality, bounds, polygons, distance in the
+  same metres as every provider; a point exactly on a polygon hole's edge reads
+  as outside there). See the
+  [Snowflake](https://viborm.dev/docs/drivers/snowflake) page.
+- **`introspectSchema({ driver })` reads a Snowflake schema**, its declared
+  (unenforced) foreign keys as relations (a key into another schema or
+  database is listed in `skipped`), with
+  `viborm/migrations/snowflake` registering only the Snowflake migration
+  driver, which reads and writes no DDL.
 
 ### Changed
 

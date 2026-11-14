@@ -8,6 +8,7 @@
  * client and migration composition roots retain their own error classes.
  */
 
+import type { Dialect } from "@drivers/types";
 import type { AnyModel } from "@schema/model";
 import type { Scalar } from "@schema/scalars/base";
 import {
@@ -16,29 +17,38 @@ import {
   describeProviderLimitRefusal,
 } from "@validation/primitives/decimal-codec";
 
-type ProviderDialect = "postgresql" | "mysql" | "sqlite";
-
 export interface DecimalProviderLimitRefusal {
   readonly modelName: string;
   readonly fieldName: string;
-  readonly dialect: ProviderDialect;
+  readonly dialect: Dialect;
   readonly descriptor: DecimalDescriptor;
   readonly reason: string;
 }
 
-/** The driver's dialect in the decimal codec's physical vocabulary. */
-function decimalDialectOf(dialect: ProviderDialect): DecimalDialect {
-  if (dialect === "postgresql") return "pg";
-  if (dialect === "mysql") return "mysql";
-  return "sqlite";
-}
+/**
+ * The dialects with no limit to fit: a SurrealDB `decimal` holds any
+ * precision and scale, and VibORM stores nothing in Snowflake.
+ */
+type NoDecimalLimit = "surrealql" | "snowflake";
+
+/**
+ * Every other dialect in the decimal codec's physical vocabulary: one added
+ * to `Dialect` does not compile until it is here or above. Checked by the type
+ * only, so the dialects above cost an application no byte.
+ */
+const DECIMAL_DIALECT: Readonly<Partial<Record<Dialect, DecimalDialect>>> = {
+  postgresql: "pg",
+  mysql: "mysql",
+  sqlite: "sqlite",
+} satisfies Record<Exclude<Dialect, NoDecimalLimit>, DecimalDialect>;
 
 /** Return the first declared decimal domain the selected provider cannot hold. */
 export function findDecimalProviderLimitRefusal(
   schema: Record<string, AnyModel>,
-  dialect: ProviderDialect
+  dialect: Dialect
 ): DecimalProviderLimitRefusal | undefined {
-  const decimalDialect = decimalDialectOf(dialect);
+  const decimalDialect = DECIMAL_DIALECT[dialect];
+  if (!decimalDialect) return;
   for (const [modelName, model] of Object.entries(schema)) {
     const scalars: Record<string, Scalar> = model["~"].state.scalars;
     for (const [fieldName, scalar] of Object.entries(scalars)) {

@@ -1,6 +1,6 @@
 ---
 title: From an existing database
-description: "Read a PostgreSQL, MySQL or SQLite database into a JSON schema document, and query it at once"
+description: "Read a PostgreSQL, MySQL, SQLite or Snowflake database into a JSON schema document, and query it at once"
 icon: database-zap
 ---
 
@@ -194,6 +194,16 @@ database then plans a destructive `alterColumn` per column, a rebuild of the
 table that adds `NOT NULL` (a `drift` warning says so). The rebuild fails while
 a row's key is NULL, and cannot keep what the table carries beyond the document
 (its `unstated` warnings: a collation, `STRICT`, a trigger).
+
+## Snowflake
+
+Pass a [`SnowflakeDriver`](/docs/drivers/snowflake): a `snowflake://` URL carries
+no key or token, and `introspectSchema({ url })` refuses one. Snowflake declares
+keys and enforces none: each declared foreign key becomes a relation, and an
+`approximated` warning says the document's keys may not hold. A key into
+another schema or database is listed in `skipped`. Nothing is ever
+pushed to Snowflake, so no `drift` warning is reported. The
+[Snowflake page](/docs/drivers/snowflake#introspection) lists the types.
 
 ## What is skipped
 

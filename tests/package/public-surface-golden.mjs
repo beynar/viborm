@@ -521,6 +521,11 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
     ["SurrealClientConfig", "SurrealDriverOptions"],
     ["SurrealDriver"]
   ),
+  "./snowflake": surface(
+    ["SnowflakeDriver", "createClient"],
+    ["SnowflakeClientConfig", "SnowflakeDriverOptions"],
+    ["SnowflakeDriver"]
+  ),
   "./mysql2": surface(
     ["MySQL2Driver", "createClient"],
     ["MySQL2ClientConfig", "MySQL2DriverOptions", "MySQL2Options"],
@@ -591,6 +596,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
   "./migrations/postgres": MIGRATIONS_SURFACE,
   "./migrations/sqlite": MIGRATIONS_SURFACE,
   "./migrations/surrealdb": MIGRATIONS_SURFACE,
+  "./migrations/snowflake": MIGRATIONS_SURFACE,
   "./migrations/mysql": MIGRATIONS_SURFACE,
   "./migrations/storage/fs": surface(["createFsStorageWriter"], [], []),
   "./migrations/storage/durable-object": surface(

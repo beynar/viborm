@@ -1,0 +1,316 @@
+---
+title: Snowflake
+description: Read a Snowflake warehouse with VibORM, over the SQL API
+---
+
+`viborm/snowflake` reads a Snowflake warehouse. It speaks to Snowflake's
+[SQL API v2](https://docs.snowflake.com/en/developer-guide/sql-api/index) with
+`fetch`, and signs its key-pair JWT with WebCrypto, so it runs in Node, Bun,
+Cloudflare Workers and Durable Objects. It needs no `snowflake-sdk`.
+
+VibORM **only reads** Snowflake. Writes and migrations are refused (see
+[What is refused](#what-is-refused)).
+
+```bash
+npm install viborm
+```
+
+```ts
+import { createClient } from "viborm/snowflake";
+import { schema } from "./schema";
+
+const db = createClient({
+  schema,
+  databaseUrl: "snowflake://READER@myorg-myaccount/SALES/PUBLIC?warehouse=WH&role=ANALYST",
+  privateKey: env.SNOWFLAKE_PRIVATE_KEY, // PKCS#8 or PKCS#1 PEM, unencrypted
+});
+
+const customers = await db.customer.findMany({
+  where: { segment: "retail" },
+  include: { orders: { orderBy: { placedAt: "desc" }, take: 5 } },
+});
+```
+
+The URL names the user, the account, the database and the schema. It never
+carries the key or the token: pass `privateKey` or `token` beside it.
+
+## Options
+
+| Option | Meaning |
+| --- | --- |
+| `databaseUrl` | `snowflake://USER@ACCOUNT/DATABASE/SCHEMA?warehouse=…&role=…` |
+| `account` | The account identifier (see below) |
+| `username` | The user the key belongs to |
+| `privateKey` | The RSA private key of key-pair authentication (PKCS#8 or PKCS#1 PEM, its line breaks real or written `\n`), or an imported **extractable** `CryptoKey` |
+| `token` | An OAuth token, or a function answering a fresh one, asked before each request (for refreshing) |
+| `tokenType` | `"OAUTH"` (default) or `"PROGRAMMATIC_ACCESS_TOKEN"`; workload identity federation is not offered |
+| `warehouse`, `database`, `role` | The context every statement runs in, spelled as the catalog spells them (usually upper case) |
+| `namespace` | The schema every statement runs in, and the one VibORM qualifies its tables with |
+| `timeout` | Seconds a statement may run, sent to Snowflake. Absent: half an hour (1,800), held by the driver alone; `false`: no limit of the driver's (see [Timeouts](#timeouts)) |
+| `host` | The API's `https://` base URL, when it is not `https://<account>.snowflakecomputing.com`: the China region, a proxy. The token goes wherever it says |
+| `fetch` | The `fetch` to send with: any `(url, init) => Promise<Response>` |
+| `parameters` | `QUERY_TAG`, `USE_CACHED_RESULT` or `CLIENT_RESULT_CHUNK_SIZE`, added to every statement's session: a string, a number or a boolean, sent as text; one `undefined` is not sent |
+
+A field given beside `databaseUrl` takes precedence over the URL's. Use exactly
+one credential: a `privateKey` (with `username`) or a `token`.
+
+The account is the first labels of the API's host, and nothing else: an
+organization and account name (`myorg-myaccount`), a locator with its region
+(`xy12345.us-east-1`, `xy12345.us-east-1.aws`), or a private link
+(`xy12345.us-east-1.privatelink`). VibORM refuses, before sending anything, an
+account that would name another host: a scheme, a path, a user, a port or a
+query. An account in Snowflake's China region answers under
+`.snowflakecomputing.cn`, and a proxy anywhere: pass it as `host`, an
+`https://` URL (VibORM refuses any other, since the token goes there).
+
+A `CryptoKey` must be extractable: the driver reads its public half to compute
+the fingerprint Snowflake checks, and refuses a key it cannot read with a
+`ClientInitializationError`.
+
+Every other session parameter is refused when the client is created, in any
+case: the driver decodes results in the formats and time zone it fixes (a
+`DATE_OUTPUT_FORMAT` or `BINARY_OUTPUT_FORMAT` would make it read wrong
+values), runs one statement at a time (`MULTI_STATEMENT_COUNT`) and reads
+every row (`ROWS_PER_RESULTSET`).
+
+The user's `QUOTED_IDENTIFIERS_IGNORE_CASE` must stay `FALSE`, its default:
+with it, Snowflake upper-cases every quoted name a statement gives its columns,
+and VibORM finds none of them. The SQL API refuses to set it per statement, so
+the driver cannot set it for you (measured).
+
+## Names
+
+VibORM quotes every identifier, so a model reads the table and the columns
+whose names it maps to **exactly**. Snowflake stores an unquoted name in upper
+case: a table created as `CREATE TABLE orders (id NUMBER)` is `ORDERS`, its
+column `ID`, and its model needs `.map("ORDERS")` and `id: s.int().id().map("ID")`.
+[`introspectSchema`](/docs/schema/introspect) writes each name as the catalog
+spells it, so a schema built from it needs no care.
+
+## What runs
+
+| Operation | Notes |
+| --- | --- |
+| `findMany`, `findFirst`, `findUnique` and their `OrThrow` forms | With nested `include` / `select`, `where`, `orderBy`, `take`, `skip`, `distinct` at the root, and `cursor` ordered by the model's single-field key alone |
+| Nested relations | `where`, `orderBy` on the related row's own fields, `take` (negative included), `skip`, `_count` |
+| Relation filters | `some`, `every`, `none`, `is`, `isNot` |
+| `count`, `exist`, `aggregate`, `groupBy` | Sums and averages exact on `NUMBER` columns |
+| `$queryRaw`, `$queryRawUnsafe` | Sent as written, with typed bindings |
+| `s.vector()` on `VECTOR(FLOAT, n)` | Read, `equals`, and `_distance` (`l2`, `cosine`) to filter, select and order |
+| `s.point()` on `GEOGRAPHY` | Read, `equals`, `within` bounds and polygons, and `_distance` in metres |
+
+### How a nested read is written
+
+Snowflake refuses a correlated subquery holding a `LIMIT`, and a derived table
+that reads an outer row. So a relation is read from an **uncorrelated** page of
+the related table: the page states the key it joins its parent on and numbers
+its rows per key (`ROW_NUMBER() … QUALIFY`), and only the `ARRAY_AGG` around it
+is correlated, by an equality, which Snowflake turns into a grouped join.
+
+That page reads the related table set-wise. On a large table, a nested read
+costs what its whole relation costs, not what the parent's rows reach. Two
+levels deep, the second level's page carries no filter from the root: expect
+it to read every row of its relation, whichever parents the root keeps.
+`findUnique` with an `include` pays the same.
+
+### Keys Snowflake does not enforce
+
+Snowflake stores a `PRIMARY KEY` and a `UNIQUE` key and enforces neither. A
+read that relies on one reads what the table holds: `findUnique` answers the
+first of two rows sharing the key, and an order by a to-one relation lists a
+row twice when two target rows share the key it joins on. VibORM cannot tell:
+keep the keys true with Snowflake's own tools.
+
+### Timeouts
+
+Without `timeout`, a statement may run half an hour (1,800 seconds), and the
+driver alone holds that limit: it sends Snowflake no `timeout`, so a shorter
+`STATEMENT_TIMEOUT_IN_SECONDS` on the account, the user or the warehouse
+still stops the statement first. A `timeout` sent with a statement replaces
+the account's and the user's value, longer or shorter alike (measured: with
+the user at 5 seconds, a statement sent with `timeout: 1800` ran its full 9
+seconds), while a warehouse's lower value still wins.
+
+`timeout: n` sends `n` to Snowflake and holds it in the driver too.
+`timeout: false` holds no limit of the driver's: the statement runs as long as
+Snowflake lets it, `STATEMENT_TIMEOUT_IN_SECONDS`, two days unless the
+account, the user or the warehouse lowers it. `0` is refused: Snowflake reads
+it as its maximum, seven days, not as no limit.
+
+The SQL API answers with a statement's handle only at its first `202`, after
+45 seconds. Before it, Snowflake's own timeout stops the statement (measured:
+no cancel is sent, and the account's query history shows the statement
+failed). After it, the driver cancels the statement when its limit passes,
+the default's as a given one's: Snowflake acknowledges the cancel and the
+statement fails (measured with a statement abandoned after its `202`). The
+driver waits at most 2 seconds for that answer, and answers `QUERY_TIMEOUT`
+whether it comes or not (tested against a local server).
+
+The driver takes no `AbortSignal` of the caller's: a read runs until its
+result, its timeout, or Snowflake's own limits.
+
+### Requests that fail
+
+A submission that fails before Snowflake answers it (a network failure, any
+`5xx`, a `429`) is sent again with the same `requestId` and `retry=true`, which
+never runs a statement twice: three sends in all. Reading a statement's status
+or a partition gets three more, since a read changes nothing. A `5xx` still
+answered after the last send is a `ConnectionError`, never Snowflake refusing
+the statement. After a submission's last `5xx` the statement's outcome is not
+known: a gateway can answer `504` after Snowflake started it, and with no
+statement handle the driver cannot cancel it: only Snowflake's limit for it
+bounds it (a `timeout` sent with it, else `STATEMENT_TIMEOUT_IN_SECONDS`). When reading a statement's status fails, the driver cancels it
+before it answers the failure, so it does not keep running on the warehouse.
+
+### Results are read whole
+
+Every row of every partition is read into memory before the call returns:
+about 100 MB for 200,000 rows of three columns (measured on a local server).
+Page a large read with `take` and `skip`, or a key `cursor`.
+
+### Collations
+
+VibORM compares text as Snowflake does for the column. A column declared with
+a case-insensitive collation (`COLLATE 'en-ci'`, or one inherited from
+`DEFAULT_DDL_COLLATION`) makes `equals`, `contains` and `startsWith`
+case-insensitive there (measured), and `endsWith` with them.
+
+## What is refused
+
+Every one of these fails with a `FeatureNotSupportedError` (`V8001`) **before
+anything is sent**:
+
+- `create`, `createMany`, `update`, `updateMany`, `upsert`, `delete`,
+  `deleteMany`, and every nested write;
+- `$executeRaw` and `$executeRawUnsafe`.
+
+`createMigrationClient` refuses a Snowflake client with a `MigrationError`
+(`V8001`), so every migration command (`push`, `apply`, `log`, `status`, …) is
+refused before it reads its storage or sends anything. Only
+[introspection](#introspection) reads a warehouse.
+
+A `$transaction`, callback or array, fails with a `TransactionError` before
+anything is sent: VibORM sends one statement per request and holds no session
+between two, and a read needs no transaction.
+
+And with an `UnsupportedOperationError`, before anything is sent:
+
+- a recursive filter (`recurse` in a `where`, the caller's or a permission
+  rule's): Snowflake refuses the recursive walk VibORM writes ("is an invalid
+  Recursive CTE", measured);
+- a root `cursor` ordered by anything but the model's single-field key (an
+  order an extension such as `viborm/ordering` gives the model counts): the
+  comparison would need a multi-column subquery, which Snowflake refuses
+  (measured); order by the key, or page with `skip`;
+- in a nested relation: `cursor`, `distinct`, an order by a related row or a
+  `_count`, a recursive relation, a polymorphic slot, a junction's `$through`
+  row.
+
+What VibORM does not refuse can still write: `$queryRaw` and
+`$queryRawUnsafe` send their text as written, and so do `$driver._execute`
+and a query interceptor. A role with only `SELECT` privileges is what
+guarantees nothing writes. An extension's write verbs are refused before
+anything is sent too: `restore` and `delete` of `viborm/soft-delete` and
+`create` of `viborm/ordering` by the write refusal, and its `move` by its
+first read, a cursor in the list's order.
+
+### Why VibORM does not write to Snowflake
+
+Snowflake enforces no `PRIMARY KEY`, `UNIQUE` or `FOREIGN KEY` (only `NOT NULL`),
+has no savepoint and no `RETURNING`, and every statement takes 100 ms to a second
+on a warehouse that bills while it runs. What a VibORM write promises — the row a
+unique key addresses, a relation that holds, a nested write that rolls back to
+where it failed — would not hold there. Write with Snowflake's own tools
+(`COPY INTO`, `MERGE`, tasks, dbt).
+
+## Types
+
+The API answers every value as text. The driver reads each one exactly:
+
+| Snowflake | Read as |
+| --- | --- |
+| `NUMBER(p,0)` | `number` while a safe integer, else `bigint` (`$queryRaw`); the field's scalar otherwise |
+| `NUMBER(p,s)`, s > 0 | exact decimal text (`$queryRaw`); a `Decimal` for `s.decimal()` |
+| `FLOAT` | `number`, `Infinity` and `NaN` included (`$queryRaw`); `s.number()` refuses `NaN` and `Infinity`, as on every provider |
+| `VARCHAR`, `BOOLEAN` | `string`, `boolean` |
+| `DATE` | `"YYYY-MM-DD"` |
+| `TIME` | `"HH:MM:SS.fffffffff"` (`$queryRaw`); for `s.time()`, `"HH:MM:SS"` with its fraction to the millisecond (`"12:34:56.12"`), and a value finer than the millisecond is refused, flat or nested, since VibORM's time holds milliseconds |
+| `TIMESTAMP_NTZ`, `TIMESTAMP_LTZ` | an ISO instant to the nanosecond (`$queryRaw`); a `Date` for `s.dateTime()` |
+| `TIMESTAMP_TZ` | the same at its own offset (`…+05:30`) |
+| `BINARY` | `Uint8Array` |
+| `VARIANT`, `OBJECT`, `ARRAY` | the parsed JSON; a `NaN` or `Infinity` inside reads as the string `"NaN"` or `"Infinity"`, as Snowflake prints it under `STRICT_JSON_OUTPUT` (which the SQL API refuses per request, measured), so the value is the same on every account |
+| `VECTOR(FLOAT, n)` | `number[]` for `s.vector()`, each member the exact double its float32 widens to (`0.10000000149011612`) |
+| `GEOGRAPHY` | `{ longitude, latitude }` for `s.point()`; the GeoJSON object (`$queryRaw`) |
+
+Every statement runs with `TIMEZONE = 'UTC'`: a `TIMESTAMP_NTZ` holds a wall
+clock with no zone, and VibORM reads it, and compares it, as UTC. It runs with
+`ROWS_PER_RESULTSET = 0` too, so no account or user setting caps a result, and
+`MULTI_STATEMENT_COUNT = 1`. A `Date` operand binds as a `TIMESTAMP_TZ` at UTC,
+and a `bigint` inside a bound JSON object as a string (`{ a: 1n }` binds
+`{"a":"1"}`), so a JSON filter compares it with a string.
+
+A list filter (`has`, `hasSome`, `hasEvery`) compares each member as it is
+bound and, when its text is a number, as that number, so a `bigint` or
+`decimal` list matches the numbers a Snowflake `ARRAY` holds, exactly past
+2^53, and a string list's text stays text (measured).
+
+A `$queryRaw` result naming one column twice (`SELECT a.id, b.id`) is refused:
+a row holds one value per name. Alias one of them.
+
+A JSON number inside a `VARIANT` read through `$queryRaw` is parsed by
+`JSON.parse`, so an integer past 2^53 there rounds, and the SQL API prints a
+`VECTOR` with six decimals. A SQL `NULL` inside an `ARRAY` reads as `null`. VibORM's own reads lose nothing: `bigint`,
+`Decimal` and `number` values travel as text inside the documents they build (a
+`VARIANT` prints a double with 16 significant digits, one short of every
+double), a vector as the text of its exact members, and a point as two exact
+JSON numbers.
+
+### Vectors and points
+
+`s.vector().dimension(n)` reads a `VECTOR(FLOAT, n)` column; a `VECTOR(INT, n)`
+has no VibORM scalar. Snowflake has no vector index, so every distance order is
+exact. A zero vector's cosine distance reads `null`, as on PostgreSQL.
+
+`s.point()` reads a `GEOGRAPHY` column holding points: Snowflake's `GEOGRAPHY`
+is WGS 84, the EPSG:4326 VibORM's point language is fixed to. A row holding
+another shape does not decode. `_distance` is the haversine distance on
+VibORM's fixed radius, the metres every provider answers. A polygon filter is
+`ST_INTERSECTS` with geodesic edges, its outer boundary included and its holes
+excluded, with one reading of Snowflake's own, measured: **a point exactly on a
+hole's edge reads as outside**, where VibORM's polygon holds it. A `GEOMETRY`
+is planar, in any SRID, and has no VibORM scalar.
+
+## Introspection
+
+[`introspectSchema`](/docs/schema/introspect) reads a Snowflake schema into a
+schema document. Pass a driver, since a URL carries no credential:
+
+```ts
+import { introspectSchema } from "viborm/schema/introspect";
+import { SnowflakeDriver } from "viborm/snowflake";
+
+const { document, skipped, warnings } = await introspectSchema({
+  driver: new SnowflakeDriver({ databaseUrl, privateKey }),
+  light: true,
+});
+```
+
+It reads `INFORMATION_SCHEMA.TABLES` and `COLUMNS`, and the keys a table declares
+from `SHOW PRIMARY KEYS`, `SHOW UNIQUE KEYS` and `SHOW IMPORTED KEYS`. Snowflake
+enforces none of them, and they are still what the warehouse's designer said the
+relations are: each declared foreign key becomes a relation. A warning says so.
+
+- `NUMBER(p,0)` becomes `int` up to nine digits, `bigint` beyond (Snowflake's
+  `INTEGER` is `NUMBER(38,0)`); `NUMBER(p,s)` a `decimal`; `FLOAT` a `number`;
+  `VARCHAR` a `string`; the three timestamps a `dateTime` (a `TIMESTAMP_NTZ`
+  with an `approximated` warning: it is read as UTC); `BINARY` a `blob`;
+  `VARIANT`, `OBJECT` and `ARRAY` a `json`; `VECTOR(FLOAT, n)` a `vector` of
+  dimension `n` (read from `SHOW COLUMNS` of its table, since
+  `INFORMATION_SCHEMA` does not state it); `GEOGRAPHY` a `point`, with an `approximated` warning (it may hold
+  another shape); `CURRENT_TIMESTAMP()` a `now` default.
+- A view, and a column with no VibORM scalar (`GEOMETRY`, `VECTOR(INT, n)`),
+  are listed in `skipped`.
+- No `drift` warning is reported: nothing is ever pushed to Snowflake.
+- A key into another schema or another database is listed in `skipped`, with
+  the table it names (`CRM.PUBLIC.CUSTOMERS`): never read as a relation to
+  this schema's table of the same name.

@@ -13,6 +13,7 @@ import { readArrayLiteralText } from "../../adapters/databases/postgres/array-li
 import type {
   DecimalFieldDocument,
   EnumFieldDocument,
+  PointFieldDocument,
   ScalarFieldDocument,
   ValueFieldDocument,
 } from "../../schema/json/document";
@@ -75,7 +76,8 @@ type ValueDraft = Mutable<ValueFieldDocument>;
 type FieldDraft =
   | ValueDraft
   | Mutable<EnumFieldDocument>
-  | Mutable<DecimalFieldDocument>;
+  | Mutable<DecimalFieldDocument>
+  | Mutable<PointFieldDocument>;
 
 // =============================================================================
 // DEFAULTS (shared literal reading)
@@ -673,4 +675,99 @@ export function translateMysqlColumn(
       ? "a BINARY(16) key is read as a UUID, the key VibORM stores as sixteen bytes on MySQL; a key holding other bytes does not decode"
       : undefined;
   return finish(base, context, false, "mysql", undefined, approximated);
+}
+
+// =============================================================================
+// SNOWFLAKE
+// =============================================================================
+
+const SNOWFLAKE_NUMBER = /^number\((\d+),(\d+)\)$/;
+const TYPE_PARAMETERS = /\(.*\)$/;
+const SNOWFLAKE_VECTOR = /^vector\((float|int), (\d+)\)$/;
+const SNOWFLAKE_NOW =
+  /^(?:current_timestamp|sysdate|systimestamp|localtimestamp|current_date|current_time|getdate)(?:\(\d*\))?$/i;
+
+/**
+ * Snowflake's column type (as its introspection spells it, lower case) as a
+ * field draft. A `NUMBER(p,0)` wider than nine digits is a `bigint`, so no
+ * integer past 2^53 is read through a JavaScript number; Snowflake's own
+ * `INTEGER` is `NUMBER(38,0)`.
+ */
+function snowflakeBase(column: ColumnDef): FieldDraft | string {
+  const type = column.type.toLowerCase();
+  const number = SNOWFLAKE_NUMBER.exec(type);
+  if (number) {
+    const precision = Number(number[1]);
+    const scale = Number(number[2]);
+    if (scale === 0) return { type: precision <= 9 ? "int" : "bigint" };
+    return { type: "decimal", precision, scale };
+  }
+  const base = type.replace(TYPE_PARAMETERS, "");
+  switch (base) {
+    case "float":
+      return { type: "number" };
+    case "varchar":
+      return { type: "string" };
+    case "boolean":
+      return { type: "boolean" };
+    case "date":
+      return { type: "date" };
+    case "time":
+      return { type: "time" };
+    case "timestamp_ntz":
+    case "timestamp_ltz":
+    case "timestamp_tz":
+      return { type: "datetime" };
+    case "binary":
+      return { type: "blob" };
+    case "variant":
+    case "object":
+    case "array":
+      return { type: "json" };
+    case "geography":
+      return { type: "point" };
+    case "geometry":
+      return "a GEOMETRY is planar, in any SRID: VibORM's point is a geographic EPSG:4326 point (a GEOGRAPHY)";
+    default:
+      break;
+  }
+  const vector = SNOWFLAKE_VECTOR.exec(type);
+  if (vector?.[1] === "float")
+    return { type: "vector", dimension: Number(vector[2]) };
+  if (vector)
+    return "a VECTOR(INT) has no VibORM scalar: `s.vector()` holds floats";
+  return `the type \`${column.type.toUpperCase()}\` has no VibORM scalar`;
+}
+
+export function translateSnowflakeColumn(
+  context: ColumnContext
+): ColumnTranslation {
+  const { column } = context;
+  const base = snowflakeBase(column);
+  if (typeof base === "string") return { skip: base };
+  const timestamp = column.type.toLowerCase().replace(TYPE_PARAMETERS, "");
+  const approximated =
+    timestamp === "timestamp_ntz"
+      ? "a TIMESTAMP_NTZ holds a wall clock with no zone; VibORM reads it as UTC"
+      : timestamp === "geography"
+        ? "a GEOGRAPHY may hold any shape; VibORM reads it as a point, and a row holding another shape does not decode"
+        : undefined;
+  // Snowflake's clocks are functions VibORM's generator stands for.
+  if (
+    column.default !== undefined &&
+    SNOWFLAKE_NOW.test(column.default.trim()) &&
+    (base.type === "datetime" || base.type === "date" || base.type === "time")
+  ) {
+    base.generate = { kind: "now" };
+    const { default: _clock, ...rest } = column;
+    return finish(
+      base,
+      { ...context, column: rest },
+      false,
+      "snowflake",
+      undefined,
+      approximated
+    );
+  }
+  return finish(base, context, false, "snowflake", undefined, approximated);
 }

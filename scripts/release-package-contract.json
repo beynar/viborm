@@ -40,6 +40,6 @@
     ],
     "maximumCompressedBytes": 2950000,
     "maximumUnpackedBytes": 11200000,
-    "maximumFileCount": 300
+    "maximumFileCount": 305
   }
 }

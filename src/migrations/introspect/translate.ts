@@ -34,6 +34,7 @@ import {
   type ColumnTranslation,
   translateMysqlColumn,
   translatePostgresColumn,
+  translateSnowflakeColumn,
   translateSqliteColumn,
 } from "./columns";
 import { KeyAllocator, memberAllocator, relationNameFromColumn } from "./names";
@@ -83,12 +84,14 @@ const TRANSLATORS: Record<
   postgresql: translatePostgresColumn,
   sqlite: translateSqliteColumn,
   mysql: translateMysqlColumn,
+  snowflake: translateSnowflakeColumn,
 };
 
 const BINARY_KEY_TYPES: Record<IntrospectionDialect, string | undefined> = {
   postgresql: undefined,
   sqlite: "BLOB",
   mysql: "BINARY(16)",
+  snowflake: undefined,
 };
 
 /** `.map()` takes identifiers only, so a name outside them has no spelling. */

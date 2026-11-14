@@ -89,7 +89,18 @@ const DIALECTS: readonly IntrospectionDialect[] = [
   "postgresql",
   "sqlite",
   "mysql",
+  "snowflake",
 ];
+
+/**
+ * Snowflake is read, never pushed to: a drift against it has no push to
+ * describe, and what the document cannot promise is that its keys hold.
+ */
+const SNOWFLAKE_KEYS: IntrospectionWarning = {
+  kind: "approximated",
+  message:
+    "Snowflake enforces no primary, unique or foreign key: the document's keys, uniques and relations are the ones the catalog declares, and a row may break them",
+};
 
 function isIntrospectionDialect(
   dialect: string
@@ -155,7 +166,7 @@ async function introspectDriver(
   const introspectionDialect = driver.dialect;
   if (!isIntrospectionDialect(introspectionDialect))
     throw new MigrationError(
-      `introspectSchema does not translate ${introspectionDialect} yet; PostgreSQL, SQLite and MySQL are supported.`,
+      `introspectSchema does not translate ${introspectionDialect} yet; PostgreSQL, SQLite, MySQL and Snowflake are supported.`,
       VibORMErrorCode.FEATURE_NOT_SUPPORTED,
       { meta: { dialect: introspectionDialect, feature: "introspect-schema" } }
     );
@@ -173,11 +184,14 @@ async function introspectDriver(
       identityColumns: catalog.identityColumns,
       junctionModels,
     });
-    const verification = await verifyDocument(
-      translation.document,
-      declaredSnapshot(catalog.snapshot, translation.tables),
-      catalog.migrationDriver
-    );
+    const verification =
+      introspectionDialect === "snowflake"
+        ? { warnings: [SNOWFLAKE_KEYS], drifted: new Set<string>() }
+        : await verifyDocument(
+            translation.document,
+            declaredSnapshot(catalog.snapshot, translation.tables),
+            catalog.migrationDriver
+          );
     const demote = [...translation.generatedJunctions].filter((table) =>
       verification.drifted.has(table)
     );

@@ -425,6 +425,68 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=3072
         run: node node_modules/vitest/vitest.mjs run --config vitest.workspace.ts --project provider-surrealdb --testTimeout=120000 --hookTimeout=240000 --bail=0
 
+  snowflake-provider:
+    name: Snowflake provider
+    runs-on: ubuntu-latest
+    # Reports, and no release waits on it: it reads a trial account that will
+    # expire, so a red result stays visible on the job without failing the run
+    # (scripts/release-ci.mjs refuses a release when the run is not a success).
+    # It reads a real account only where the repository holds
+    # SNOWFLAKE_TEST_CREDENTIALS, and says so where it does not (a fork's pull
+    # request never has it). Only the test step sees the secret.
+    continue-on-error: true
+    timeout-minutes: 20
+    steps:
+      - name: Say whether an account is configured
+        id: account
+        env:
+          SNOWFLAKE_TEST_CREDENTIALS: ${{ secrets.SNOWFLAKE_TEST_CREDENTIALS }}
+        run: |
+          if [ -z "$SNOWFLAKE_TEST_CREDENTIALS" ]; then
+            echo "::notice title=Snowflake provider::SNOWFLAKE_TEST_CREDENTIALS is not set: the real-account reads did not run."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out the exact revision
+        if: steps.account.outputs.configured == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/docs/architecture/raptor3-evidence/
+
+      - name: Install pnpm
+        if: steps.account.outputs.configured == 'true'
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Install Node.js
+        if: steps.account.outputs.configured == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.account.outputs.configured == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Read a real Snowflake account
+        if: steps.account.outputs.configured == 'true'
+        # Under the job's own limit: an account that stops answering fails
+        # this step, and the job fails into continue-on-error, rather than
+        # the job being cancelled at its limit (about 3.5 min when it runs).
+        timeout-minutes: 10
+        env:
+          SNOWFLAKE_TEST_CREDENTIALS: ${{ secrets.SNOWFLAKE_TEST_CREDENTIALS }}
+        run: node node_modules/vitest/vitest.mjs run --config vitest.workspace.ts --project provider-snowflake --testTimeout=120000 --hookTimeout=300000
+
   platform-providers:
     name: Bun and D1 providers
     runs-on: ubuntu-latest
