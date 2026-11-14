@@ -1266,8 +1266,8 @@ query brings it back with `omit: { passwordHash: false }` or a `select` that
 names it. Two parts that omit fields of one model add up, in one extension or
 in two. A default does not change a bulk operation from `{ count }` to
 returned rows. The official [`defaultOmit()`](/docs/extensions/omit) is this
-word in an extension named `defaultOmit`, so one chain applies it once;
-further omissions go in your own extensions' `defaults`.
+word in an extension named `viborm.defaultOmit`, so one chain applies it
+once; further omissions go in your own extensions' `defaults`.
 
 ## Write values the statement computes
 

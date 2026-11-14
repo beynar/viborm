@@ -26,6 +26,7 @@ export const post = s.model({
   createdBy: s.string().nullable(),
   updatedBy: s.string().nullable(),
   editedAt: s.dateTime().nullable(),
+  deletedAt: s.dateTime().nullable(),
   version: s.int().default(0),
   author: s
     .toOne(() => user)

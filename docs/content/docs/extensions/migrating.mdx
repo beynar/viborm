@@ -5,15 +5,21 @@ icon: arrow-right-left
 ---
 
 The extension contract is now one function, `extension(name, ...parts)`, and
-seven functions that build a part: `call`, `unit`, `args`, `rule`, `defaults`,
-`methods` and `fields`. Each part brings into your bundle only the code that
-runs it. This page maps each member of the earlier definition object to its
-part, then lists what goes without replacement and what changes for users of
-the official extensions.
+the functions that build a part: the six primitives `call`, `unit`, `args`,
+`rule`, `defaults` and `methods`, with `around` (a `call` with a second
+moment), `fields` and `disclosure`. Inside the parts, imported words carry the
+rest (`target`, `watch`, `settled`, `arg`, `only`, `check`, `text`, …). Each
+part and each word brings into your bundle only the code that runs it. This
+page maps each member of the earlier definition object to its part, then
+lists what goes without replacement and what changes for users of the
+official extensions.
 
 The rules an extension follows are in
 [Create an extension](/docs/extensions/create). Error texts changed too: match
 errors on their class and code, not on their message.
+
+In the pairs below, the "before" block is the earlier contract, which no
+longer compiles, and the "after" block is the extension to write now.
 
 ## One spelling
 
@@ -22,7 +28,7 @@ object literal passed to `$extends()` are gone. So is a function of the client
 passed to `$extends()`. An extension is a value, applied with
 `client.$extends(value)`:
 
-```ts
+```ts no-check
 // Before
 const timing = defineExtension({
   name: "timing",
@@ -30,11 +36,15 @@ const timing = defineExtension({
     return proceed();
   },
 });
+```
 
+```ts
 // After
+import { around, extension } from "viborm";
+
 const timing = extension(
   "timing",
-  call.around(() => async (run) => run())
+  around(() => async (run) => run())
 );
 
 client.$extends(timing);
@@ -43,34 +53,41 @@ client.$extends(timing);
 An extension that names models was bound with
 `defineExtension<typeof schema>()({...})`. Write it inside `$extends(...)` to
 type it from the client, or bind it with `parts<typeof schema>()` when it is
-written apart:
+written apart, or write it with plain `extension(...)` and let `$extends()`
+check its names when it is applied (see
+[Extensions written apart](/docs/extensions/create#extensions-written-apart-partsof)):
 
-```ts
+```ts no-check
 // Before
 const postTools = defineExtension<typeof schema>()({ name: "post-tools", /* … */ });
+```
 
+```ts
 // After
+import { parts } from "viborm";
+import type { schema } from "./schema";
+
 const postTools = parts<typeof schema>().extension("post-tools" /* , parts… */);
 ```
 
 A factory passed to `$extends()`, `client.$extends((base) => …)`, has no
 replacement form: build the extension as a value. One that read the schema to
-build its rows passes a function of the schema to `rule` or `defaults`:
+build its rows passes a function of the schema to `rule`:
 `rule((schema) => entries)`.
 
 ## Member by member
 
 | Earlier member | Part |
 |---|---|
-| `request` | `call((c) => { c.set(patch) }, on?)` |
-| `query` | `call.around((c) => async (run) => …, on?)` |
-| `onWriteOutcome` | `settled(c, fn)` in the first moment |
-| `written` | `watch(c, …)` and `settled(c, …)` in a `call` on writes |
-| `retry` | `again(run)` in a `call.around` |
-| `route` | `via(run, driver)` in a `call.around` |
+| `request` | `call((c) => { c.set(patch) }, target?)` |
+| `query` | `around((c) => async (run) => …, target?)` |
+| `onWriteOutcome` | `settled(c, fn)` in the first moment, on `target(writes)` |
+| `written` | `watch(c, …)` and `settled(c, …)` in a `call` on `target(writes)` |
+| `retry` | `again(run)` in an `around` |
+| `route` | `via(run, driver)` in an `around` |
 | `transaction` | `unit` on `"transaction"`, with `run(u, sql)` |
 | `statement` | `unit` on `"statement"`, `{ rewrites: true }`, with `next(sql)` |
-| `observe`, `observes` | `unit((u, next) => …)` with the words `sql`, `parameters`, `driver`, `failure` |
+| `observe`, `observes` | `unit((u, next) => …)` with the words `text`, `parameters`, `driver`, `failure` |
 | `controls` | `args({...})` with its modifiers |
 | `rows.control`, `rows.default`, `rows.models` | An argument `oneOf(...modes).default(d)`, and `root` / `related` written with `when` |
 | `rows.verbs` | The keys of `rule`; named predicates become shared constants |
@@ -80,15 +97,16 @@ build its rows passes a function of the schema to `rule` or `defaults`:
 | `order` | `defaults({ m: { orderBy } })` |
 | `result` | `fields({...})` |
 | `client`, `model` | `methods((scope) => ({ $name, model: { … } }))` |
+| `diagnostics` of an error | `disclosure({ sql, parameters, … })` |
 | `{ control, path }`, `{ now: true }`, `{ $row, up }`, `{ $exists }`, `{ $if }` | `arg(name, path)`, `now`, `row(column, up)`, `exists(…)`, `provided(…)` |
 
 ### `request` → `call`
 
 `input` is `c.args`, `controls` is `c.values`. The patch is passed to
 `c.set` instead of being returned. A map of models and operations becomes one
-part per entry, selected with `on`:
+part per entry, selected with `target`:
 
-```ts
+```ts no-check
 // Before
 request: {
   post: {
@@ -97,23 +115,35 @@ request: {
     },
   },
 },
+```
 
+```ts
 // After
-call((c) => {
-  c.set({ take: Math.min(c.args.take ?? 100, 100) });
-}, on("post", "findMany")),
+import { call, extension, target } from "viborm";
+
+const db = client.$extends(
+  extension(
+    "bounded-reads",
+    call((c) => {
+      c.set({ take: Math.min(c.args.take ?? 100, 100) });
+    }, target("post", "findMany"))
+  )
+);
 ```
 
 A generic `request` function ran for model operations only: select them with
-`on(models)`. `c.args` shows every argument of the call, read-only; a handler
-that read `input` relied on the result-shaping keys being absent from it.
+`target(models)`. A `call` without a target sees raw queries too
+(`c.kind === "raw"`), whose arguments it cannot patch. `c.args` shows every
+argument of the call, read-only; a handler that read `input` relied on the
+result-shaping keys being absent from it.
 
-### `query` → `call.around`
+### `query` → `around`
 
 `proceed` is `run`, `input` is `run.input`, `mode` is `run.mode`; `kind`,
-`model` and `operation` stay on `c`:
+`model` and `operation` stay on `c`. `around` is imported on its own: it is
+not `call.around`.
 
-```ts
+```ts no-check
 // Before
 query: {
   post: {
@@ -123,51 +153,80 @@ query: {
     },
   },
 },
+```
 
+```ts
 // After
-call.around((c) => async (run) => {
-  beforeRead({ mode: run.mode, input: run.input });
-  return run();
-}, on("post", "findMany")),
+import { around, extension, target } from "viborm";
+
+const db = client.$extends(
+  extension(
+    "around-posts",
+    around((c) => async (run) => {
+      beforeRead({ mode: run.mode, input: run.input });
+      return run();
+    }, target("post", "findMany"))
+  )
+);
 ```
 
 ### `onWriteOutcome` → `settled`
 
-```ts
+```ts no-check
 // Before
 async update({ onWriteOutcome, proceed }) {
   onWriteOutcome(({ certainty }) => enqueueRefresh({ certainty }));
   return proceed();
 },
-
-// After
-call((c) => {
-  settled(c, ({ certainty }) => enqueueRefresh({ certainty }));
-}, on("post", "update")),
 ```
 
-A failure in `settled` rejects the call: a VibORM error as it is, anything
-else as a `QueryError`. The functions of several extensions run in chain
-order, and the first failure rejects the call.
+```ts
+// After
+import { call, extension, settled, target, writes } from "viborm";
+
+const refresh = extension(
+  "refresh",
+  call((c) => {
+    if (c.model === "post" && c.operation === "update")
+      settled(c, ({ certainty }) => enqueueRefresh({ certainty }));
+  }, target(writes))
+);
+```
+
+`settled` needs a target that is a set of writes (`target(writes)`,
+`target(deletes)`, `target("post", writes)`): a target that names one
+operation (`target("post", "update")`) brings nothing that watches writes,
+and `settled` there is refused with a `TypeError`. A failure in `settled`
+rejects the call: a VibORM error as it is, anything else as a `QueryError`.
+The functions of several extensions all run, in chain order, and the first
+failure rejects the call. `settled` is also told of a write that may have
+committed (`certainty: "may-have-committed"`).
 
 ### `written` → `watch` and `settled`
 
-```ts
+```ts no-check
 // Before
 written: () => ({
   wants: (model) => model === "order",
   rows: (model, kind, rows) => keep(rows),
   settled: ({ certainty }) => publish(certainty),
 }),
+```
 
+```ts
 // After
-call((c) => {
-  watch(c, {
-    wants: (model) => model === "order",
-    rows: (model, kind, rows) => keep(rows),
-  });
-  settled(c, ({ certainty }) => publish(certainty));
-}, on(writes)),
+import { call, extension, settled, target, watch, writes } from "viborm";
+
+const outbox = extension(
+  "outbox",
+  call((c) => {
+    watch(c, {
+      wants: (model) => model === "order",
+      rows: (model, kind, rows) => keepRows(rows),
+    });
+    settled(c, ({ certainty }) => publish(certainty));
+  }, target(writes))
+);
 ```
 
 ### `retry` → `again`
@@ -175,88 +234,127 @@ call((c) => {
 `retry` was asked after a failure. `again(run)` says whether `run()` may be
 called again, and you call it:
 
-```ts
+```ts no-check
 // Before
 retry: (error, attempt) => attempt < 3 && isRetryableError(error),
+```
 
+```ts
 // After
-call.around(() => async (run) => {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      return await run();
-    } catch (error) {
-      if (attempt >= 3 || !again(run) || !isRetryableError(error)) throw error;
+import { again, around, extension } from "viborm";
+
+const resilience = extension(
+  "resilience",
+  around(() => async (run) => {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await run();
+      } catch (error) {
+        if (attempt >= 3 || !again(run) || !isRetryableError(error)) throw error;
+      }
     }
-  }
-}),
+  })
+);
 ```
 
 ### `route` → `via`
 
-```ts
+```ts no-check
 // Before
 route: ({ operation }) => (operation.startsWith("find") ? replica : undefined),
+```
 
+```ts
 // After
-call.around(() => (run) => via(run, replica), on(reads)),
+import { around, extension, reads, target, via } from "viborm";
+
+const replicas = extension(
+  "replicas",
+  around(() => (run) => via(run, replica), target(reads))
+);
 ```
 
 ### `transaction` → `unit` and `run`
 
-```ts
+```ts no-check
 // Before
 transaction: async (run) => {
   await run(sql`SET LOCAL app.tenant = ${tenant}`);
 },
+```
 
+```ts
 // After
-unit(async (u, next) => {
-  await run(u, sql`SET LOCAL app.tenant = ${tenant}`);
-  return next();
-}, ["transaction"]),
+import { extension, run, sql, unit } from "viborm";
+
+const tenantSession = extension(
+  "tenant-session",
+  unit(async (u, next) => {
+    await run(u, sql`SET LOCAL app.tenant = ${tenant}`);
+    return next();
+  }, ["transaction"])
+);
 ```
 
 ### `statement` → a rewriting `unit`
 
-```ts
+```ts no-check
 // Before
 statement({ statement, model }) {
   return model === "post" ? sql`${raw("/* posts */ ")}${statement}` : statement;
 },
+```
 
+```ts
 // After
-unit(
-  (u, next) =>
-    u.model === "post" ? next(sql`${raw("/* posts */ ")}${statement(u)}`) : next(),
-  ["statement"],
-  { rewrites: true }
-),
+import { extension, raw, sql, statement, unit } from "viborm";
+
+const labels = extension(
+  "statement-labels",
+  unit(
+    (u, next) =>
+      u.model === "post" ? next(sql`${raw("/* posts */ ")}${statement(u)}`) : next(),
+    ["statement"],
+    { rewrites: true }
+  )
+);
 ```
 
 ### `observe` and `observes` → `unit` and its words
 
 `observes` declared which facts core produced; now a word reads a fact when
-you need it, and a fact no word reads is not produced:
+you need it, and a fact no word reads is not produced. The rendered text is
+read by `text(u)` (not `sql(u)`: `sql` is the tagged template):
 
-```ts
+```ts no-check
 // Before
 observes: { observesLifecycle: true, wants: (need) => need === "statement" },
 observe(unit, proceed, facts) {
   const known = facts?.read();
   void proceed().then((completion) => record(unit, known, completion));
 },
+```
 
+```ts
 // After
-unit(async (u, next) => {
-  const text = u.kind === "statement" ? sql(u) : undefined;
-  const end = await next();
-  record(u, text, end, failure(u));
-  return end;
-}),
+import { extension, failure, text, unit } from "viborm";
+
+const observer = extension(
+  "observer",
+  unit(async (u, next) => {
+    const sent = u.kind === "statement" ? text(u) : undefined;
+    const end = await next();
+    record(u, sent, end, failure(u));
+    return end;
+  })
+);
 ```
 
 A unit handler is awaited and runs in the call: what it throws fails the call.
-Contain your own failures.
+Contain your own failures. `next()` is called exactly once; there is one
+`statement` unit per physical send (a native batch is one, its members read
+by `statements(u)`). An extension emits units of its own kind with `work`,
+and attaches facts with `note`.
 
 ### `controls` → `args`
 
@@ -266,27 +364,37 @@ Contain your own failures.
 | `{ schema: v.string() }` | `v.string()`, or `accepts(v.string())` to add modifiers |
 | `on: "reads"`, `"writes"`, a list | `.on(reads)`, `.on(writes)`, `.on([...])`; nothing for every operation |
 | `required: true` | `.required()` everywhere it is accepted, or `.required([...models])` |
-| `bound: true` | `bound(declaration)` |
+| `bound: true` | `bound(schema)` |
 | `uncacheable: true` | `.volatile()` |
 
-```ts
+```ts no-check
 // Before
 controls: { tenant: { schema: v.string(), required: true } },
+```
 
+```ts
 // After
-args({ tenant: accepts(v.string()).required(["post", "comment"]) }),
+import { accepts, args, extension } from "viborm";
+import { v } from "viborm/validation";
+
+const tenancy = extension(
+  "tenancy",
+  args({ tenant: accepts(v.string()).required(["post", "comment"]) })
+);
 ```
 
 `required: true` was asked on the models the extension named in `rows`,
 `data` or `deletion`. Nothing is deduced now: list those models in
-`.required([...])`, or leave the list out to ask everywhere.
+`.required([...])`, or leave the list out to ask everywhere. One extension
+declares a name once: two `args` parts of one extension that declare the
+same name are refused, as two extensions are.
 
 ### `rows` → `args` and `rule`
 
 A mode control becomes an argument with a default; each mode's filters become
 `when` and `unless`:
 
-```ts
+```ts no-check
 // Before
 rows: {
   control: "archived",
@@ -299,18 +407,27 @@ rows: {
     },
   },
 },
+```
 
+```ts
 // After
-args({ archived: oneOf("hide", "show", "only").default("hide").on(selecting) }),
-rule({
-  project: {
-    root: [
-      when(arg("archived"), "hide", { archivedAt: null }),
-      when(arg("archived"), "only", { archivedAt: { not: null } }),
-    ],
-    related: unless(arg("archived"), "show", { archivedAt: null }),
-  },
-}),
+import { arg, args, extension, oneOf, rule, selecting, unless, when } from "viborm";
+
+const db = client.$extends(
+  extension(
+    "archiving",
+    args({ archived: oneOf("hide", "show", "only").default("hide").on(selecting) }),
+    rule({
+      project: {
+        root: [
+          when(arg("archived"), "hide", { archivedAt: null }),
+          when(arg("archived"), "only", { archivedAt: { not: null } }),
+        ],
+        related: unless(arg("archived"), "show", { archivedAt: null }),
+      },
+    })
+  )
+);
 ```
 
 A filter with no mode is `read.where`. `when` applies its filter when the test
@@ -323,16 +440,17 @@ when the test holds, as `$if` did.
 |---|---|
 | `predicates` | Shared constants: two keys share a predicate by sharing the object |
 | `read` | `read.where` |
-| `update` | `update.where` |
-| `delete` | `delete.where` |
-| `writes: { f }` | `update.fields.f.where` |
+| `update` | `update: { where: only(where) }` |
+| `delete` | `delete: { where: only(where) }` |
+| `writes: { f }` | `update.fields.f: { where: only(where) }`, which replaces `update.where` for a write of `f` |
 | `place` | `create: { check: check(where) }` |
-| `moves: { f }` | `update.fields.f.check` |
+| `moves: { f }` | `update.fields.f: { check: check(where) }` |
 | `acyclic` | `acyclic` |
-| `evidence` | `read.select: { $access: facts({ … }) }` |
+| `evidence` | `read.select: { $access: facts({ … }) }` (no `ordered` option) |
 | `reads: { f }` | `read.fields: { f: gate(where) }` |
+| an entry given as a function | `lazy(() => entry)` |
 
-```ts
+```ts no-check
 // Before
 verbs: {
   document: {
@@ -342,40 +460,72 @@ verbs: {
     reads: { notes: "own" },
   },
 },
-
-// After
-rule({
-  document: {
-    read: { where: seen, fields: { notes: gate(own) } },
-    update: { where: own, check: check({ AND: [seen, own] }) },
-  },
-}),
 ```
 
-An updated row was judged again, implicitly, at the predicates that let the
-update take it. Nothing is implied now: `update.check` says what the row an
-update leaves must hold. To keep the earlier meaning, write it with the read
-predicate and the update predicate, as above.
+```ts
+// After
+import { accepts, arg, args, check, extension, gate, nothing, only, rule } from "viborm";
+import { v } from "viborm/validation";
+
+const seen = { OR: [{ public: true }, { ownerId: arg("user") }] };
+const own = { ownerId: arg("user") };
+
+const db = client.$extends(
+  extension(
+    "sharing",
+    args({ user: accepts(v.string()).required() }),
+    rule({
+      document: {
+        read: { where: seen, fields: { notes: gate(own) } },
+        update: { where: only(own), check: check({ AND: [seen, own] }) },
+        delete: { where: only(nothing) }, // no delete, as the omitted verb meant
+      },
+    })
+  )
+);
+```
+
+Two meanings changed:
+
+- **A key an entry leaves out adds no restriction.** An earlier verb an entry
+  omitted took no row (no `delete` verb: no delete). A `rule` entry without
+  `delete` lets a call delete every row it can read. To keep the earlier
+  meaning, write a filter that takes no row, as above:
+  `delete: { where: only(nothing) }` (`nothing` is `{ OR: [] }`).
+- **Nothing is implied.** An updated row was judged again, implicitly, at the
+  predicates that let the update take it. `update.check` says what the row an
+  update leaves must hold; it is stated in the statement only when the update
+  writes a field the predicate reads. To keep the earlier meaning, write it
+  with the read predicate and the update predicate, as above.
 
 ### `deletion` → `keep`
 
-```ts
+```ts no-check
 // Before
 controls: { purge: { oneOf: [true] } },
 deletion: {
   removeWhen: { purge: true },
   models: { project: { at: "archivedAt", assign: { archivedBy: "system" } } },
 },
+```
 
+```ts
 // After
-args({ purge: oneOf(true).on(deletes).models(["project"]) }),
-rule({
-  project: {
-    delete: {
-      instead: keep(unless(arg("purge"), true, { archivedAt: now, archivedBy: "system" })),
-    },
-  },
-}),
+import { arg, args, deletes, extension, keep, now, oneOf, rule, unless } from "viborm";
+
+const db = client.$extends(
+  extension(
+    "archiving",
+    args({ purge: oneOf(true).on(deletes).models(["project"]) }),
+    rule({
+      project: {
+        delete: {
+          instead: keep(unless(arg("purge"), true, { archivedAt: now, archivedBy: "system" })),
+        },
+      },
+    })
+  )
+);
 ```
 
 `removeWhen` placed its control on the deletes of the managed models; write
@@ -383,54 +533,83 @@ that placement yourself with `.on(deletes).models([...])`.
 
 ### `data` and `order` → `defaults`
 
-```ts
+```ts no-check
 // Before
 data: { models: { post: { create: { createdBy: { control: "actor" } } } } },
 order: { models: { card: [{ columnId: "asc" }, { rank: "asc" }] } },
+```
 
+```ts
 // After
-defaults({
-  post: { create: { createdBy: arg("actor") } },
-  card: { orderBy: [{ columnId: "asc" }, { rank: "asc" }] },
-}),
+import { accepts, arg, args, defaults, extension, writes } from "viborm";
+import { v } from "viborm/validation";
+
+const db = client.$extends(
+  extension(
+    "house-style",
+    args({ actor: accepts(v.string()).on(writes) }),
+    defaults({
+      post: { create: { createdBy: arg("actor") } },
+      card: { orderBy: [{ columnId: "asc" }, { rank: "asc" }] },
+    })
+  )
+);
 ```
 
 ### `result` → `fields`
 
-```ts
+```ts no-check
 // Before
 result: { user: { fullName: { needs: { firstName: true }, compute: (u) => u.firstName } } },
+```
 
+```ts
 // After
-fields({ user: { fullName: { needs: { firstName: true }, compute: (u) => u.firstName } } }),
+import { extension, fields } from "viborm";
+
+const db = client.$extends(
+  extension(
+    "names",
+    fields({ user: { fullName: { needs: { firstName: true }, compute: (u) => u.firstName } } })
+  )
+);
 ```
 
 ### `client` and `model` → `methods`
 
-One factory returns both. A model method is called with `this` set to its
-delegate, so a model factory that received the delegate becomes a method that
-reads `this`:
+One factory returns both:
 
-```ts
+```ts no-check
 // Before
 client: (scope) => ({ $postCount: () => scope.post.count() }),
 model: { post: (delegate) => ({ findPublished: () => delegate.findMany({ where: { published: true } }) }) },
-
-// After
-methods((scope) => ({
-  $postCount: () => scope.post.count(),
-  post: {
-    findPublished() {
-      return scope.post.findMany({ where: { published: true } });
-    },
-  },
-})),
 ```
 
-A factory that takes `scope` is a result consumer, as a typed factory was:
-TypeScript refuses a later rule that hides rows or a later omission. Type a
-model method through `this` and `DelegateOperationResult` and take no `scope`
-to avoid that ([methods](/docs/extensions/create#methods-client-and-model-methods)).
+```ts
+// After
+import { extension, methods } from "viborm";
+
+const db = client.$extends(
+  extension(
+    "post-tools",
+    methods((scope) => ({
+      $postCount: () => scope.post.count(),
+      post: {
+        findPublished() {
+          return scope.post.findMany({ where: { published: true } });
+        },
+      },
+    }))
+  )
+);
+```
+
+A model method is called with `this` set to its delegate, so a model factory
+that received the delegate can become a method that reads `this`. A factory
+that takes `scope` is a result consumer, as a typed factory was: TypeScript
+refuses a later rule that hides rows or a later omission. Type a model method
+through `this` and `DelegateOperationResult` and take no `scope` to avoid that
+([methods](/docs/extensions/create#methods-client-and-model-methods)).
 
 ### Spelled values → words
 
@@ -457,7 +636,7 @@ field named `control`, as any other object.
   error stands.
 - Core containment of observers. A `unit` that throws fails the call.
 - `observes`, and its rule of one per client.
-- Named predicates (`verbs.predicates`).
+- Named predicates (`verbs.predicates`), and `facts`' `ordered` option.
 - The implicit judgement of an updated row (write `update.check`), and the
   `required` placement deduced from `rows`, `data` and `deletion` (list the
   models).
@@ -465,23 +644,34 @@ field named `control`, as any other object.
   `ObservesDeclaration`, `ObservedFacts`, `ObserveHandler`,
   `ObservationCompletion` and `ResultConsumerContextOf`.
 - One default omission per client: the omissions of different extensions
-  (`defaults` with `omitted`, and `defaultOmit()`) now add up per model.
+  written with `defaults` and `omitted` now add up per model.
+  `defaultOmit()` itself is one extension, applied once per chain.
 
 ## Users of the official extensions
 
 Every official extension is applied in one step:
 `client.$extends(official(config))`.
 
-```ts
+```ts no-check
 // Before
 const db = softDelete(config)(base);
 const db2 = ordering(config)(base);
 const db3 = base.$extends(softDelete(config).rows).$extends(policy).$extends(softDelete(config).methods);
+const db4 = base.$extends(defaultOmit<typeof schema>()({ user: { passwordHash: true } }));
+```
 
+```ts
 // After
-const db = base.$extends(softDelete(config));
-const db2 = base.$extends(ordering(config));
-const db3 = base.$extends(softDelete(config)).$extends(policy);
+import { defaultOmit } from "viborm/client";
+import { ordering } from "viborm/ordering";
+import { softDelete } from "viborm/soft-delete";
+
+const db = base.$extends(softDelete({ models: { post: { deletedAt: "deletedAt" } } }));
+const db2 = base.$extends(ordering({ models: { card: { key: "rank" } } }));
+const db3 = base
+  .$extends(softDelete({ models: { post: { deletedAt: "deletedAt" } } }))
+  .$extends(policy);
+const db4 = base.$extends(defaultOmit({ user: { passwordHash: true } }));
 ```
 
 - `softDelete(config).rows` and `softDelete(config).methods` are gone, and so
@@ -489,14 +679,18 @@ const db3 = base.$extends(softDelete(config)).$extends(policy);
   applied steps as functions (`methods(policy(rows(base)))`) becomes
   successive `$extends()` calls.
 - `defaultOmit<typeof schema>()(config)` is `defaultOmit(config)`, typed
-  against the client it is applied to. A chain applies it once (a second is
-  refused, as any extension applied twice); another extension that omits
-  fields with `defaults` adds to it per model.
+  against the client it is applied to. A chain applies it once: a second is
+  refused when it is applied, with a message that says to merge the two
+  configs. Another extension that omits fields with `defaults` adds to it per
+  model.
 - `instrumentation()` no longer takes a `logging.warning` level: nothing
   produced warnings.
-- The cache: a read that carries a `.volatile()` argument (permissions' actor)
-  through `$withCache()` runs without being served or stored instead of being
-  refused. Apply `cache()` before `on()` so a write's invalidation runs before
-  its hooks.
-- `viborm/permissions`: its policy language changed as well; see
-  [Permissions](/docs/extensions/permissions).
+- The cache: a read that carries a `.volatile()` argument through
+  `$withCache()` runs without being served or stored instead of being
+  refused. Reads are keyed by the statement they send. `tx.$withCache()` and
+  `tx.$invalidate()` exist in an interactive transaction. A backend that
+  fails during `$invalidate()` is a `CacheConfigurationError`.
+- `viborm/permissions`: five forms of its policy language are gone, and so
+  are `can` and `assert` (read `$access` instead); see
+  [Permissions](/docs/extensions/permissions#removed-in-this-version).
+- Error texts changed throughout: match on the error's class and code.
