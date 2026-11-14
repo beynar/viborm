@@ -16,22 +16,17 @@ import type {
   DeletionContribution,
   OrderContribution,
 } from "./controls";
-import type {
-  RuntimeClientMethodContribution,
-  RuntimeModelMethodContribution,
-} from "./methods";
+import type { RuntimeMethodsFactory } from "./methods";
 import type { OfficialObservationCapability } from "./official-facts";
 import type { RuntimeQueryContribution } from "./query";
-import type { RuntimeRequestContribution } from "./request";
 import type { RuntimeResultContribution } from "./result";
 
 type RuntimeExtensionFunction = (...args: never[]) => unknown;
 
 export interface RuntimeExtensionDefinition {
   readonly name: string;
-  /** Each `call` and `call.around` part, in the order the extension names them. */
+  /** Each `call` and `around` part, in the order the extension names them. */
   readonly calls?: readonly CallEntry[];
-  readonly request?: RuntimeRequestContribution;
   readonly query?: RuntimeQueryContribution;
   readonly statement?: RuntimeExtensionFunction;
   readonly observe?: RuntimeExtensionFunction;
@@ -41,8 +36,8 @@ export interface RuntimeExtensionDefinition {
   readonly retry?: RuntimeExtensionFunction;
   readonly route?: RuntimeExtensionFunction;
   readonly transaction?: RuntimeExtensionFunction;
-  readonly client?: RuntimeClientMethodContribution;
-  readonly model?: RuntimeModelMethodContribution;
+  /** The factory `methods` takes. */
+  readonly methods?: RuntimeMethodsFactory;
   readonly controls?: ControlsContribution;
   /** As admitted against the schema the extension is applied to. */
   readonly rows?: AdmittedRows;
@@ -54,6 +49,11 @@ export interface RuntimeExtensionDefinition {
   readonly omit?: ClientOmitConfig<Schema>;
   /** What an error of a call may carry (`disclosure`). */
   readonly disclosure?: DiagnosticDisclosure;
+  /**
+   * What the refusal of a second application of this extension adds: how
+   * one application, or another extension, does what the author wanted.
+   */
+  readonly duplicate?: string;
 }
 
 export type ControlLiteral = string | number | boolean;

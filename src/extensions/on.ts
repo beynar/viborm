@@ -11,7 +11,6 @@ import type {
   Operations,
 } from "@client/types";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
-import type { ExtensionPart } from "./chain";
 import type {
   AnyTarget,
   DeleteOperations,
@@ -20,7 +19,7 @@ import type {
   SelectingOperations,
   Selection,
 } from "./contract";
-import { watchPart } from "./watch-part";
+import { type WatchPart, watchPart } from "./watch-part";
 
 /** What `target(...)` returns at runtime, and what an operation set is. */
 export interface SelectionValue {
@@ -29,17 +28,14 @@ export interface SelectionValue {
   /** The operations named; every operation when absent. */
   readonly operations?: readonly Operations[] | undefined;
   /** What watches the writes named, when a set that brings it named them. */
-  readonly watch?: ExtensionPart | undefined;
+  readonly watch?: WatchPart | undefined;
 }
 
 function set<O extends Operations>(
   operations: readonly O[],
-  watch?: ExtensionPart
+  watch?: WatchPart
 ): OperationSet<O>;
-function set(
-  operations: readonly Operations[],
-  watch?: ExtensionPart
-): unknown {
+function set(operations: readonly Operations[], watch?: WatchPart): unknown {
   return Object.freeze({ operations, watch });
 }
 
@@ -58,7 +54,7 @@ export const reads = /* @__PURE__ */ set<CacheableOperations>([
   "groupBy",
   "exist",
 ]);
-/** Every write: a `call` on them may `watch` its rows and be `settled`. */
+/** Every write: a `call` or an `around` on them may `watch` its rows and be `settled`. */
 export const writes = /* @__PURE__ */ set<MutationOperations>(
   [
     "create",
@@ -152,8 +148,7 @@ export function target(first: unknown, operations?: unknown): unknown {
   return {
     models: typeof first === "string" ? [first] : first,
     operations: operationsOf(operations),
-    watch: Array.isArray(operations)
-      ? undefined
-      : selectionOf(operations)?.watch,
+    // A set's own; a list or a name has none.
+    watch: selectionOf(operations)?.watch,
   };
 }

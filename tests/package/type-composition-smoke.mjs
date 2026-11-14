@@ -6,7 +6,7 @@
  * relation per other model; every other model owned by a user and
  * soft-deletable), then:
  *
- *   soft   `softDelete(config)(base)` and `base.$extends(softDelete(config))`
+ *   soft      `base.$extends(softDelete(config))`
  *   chain     `base.$extends(tombstones).$extends(policy)`, the guide's
  *             composition (each official extension one step, any order)
  *   reversed  `base.$extends(policy).$extends(tombstones)`
@@ -115,8 +115,7 @@ const softSource = (
   models
 ) => `import { base, tombstones } from "./schema-${models}";
 
-export const db = tombstones(base);
-export const viaExtends: typeof db = base.$extends(tombstones);
+export const db = base.$extends(tombstones);
 
 export async function reads() {
   const [row] = await db.m0.findMany({ include: { owner: true } });

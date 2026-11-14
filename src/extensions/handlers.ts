@@ -3,18 +3,18 @@
  * array for each exact (model, operation) a definition names, and one for
  * every other call.
  */
-import { isFunction } from "@validation/value-guards";
-import type { runFirstMoments } from "./call";
+import type { FirstMoment, runFirstMoments } from "./call";
 import type { Application } from "./chain";
 import type {
   ResolvedExtensionChain,
   ResolvedExtensionOperationLookup,
   ResolvedOperationHandler,
 } from "./chain-state";
-import type { RuntimeExtensionDefinition } from "./definition";
 
 /** A compiled lookup, and the handlers one call runs. */
-export interface OperationHandlers extends ResolvedExtensionOperationLookup {
+export interface OperationHandlers<
+  Handler extends CallableFunction = CallableFunction,
+> extends ResolvedExtensionOperationLookup<Handler> {
   /**
    * The precompiled array itself: lookup scans and merges nothing. A call
    * of no model (raw SQL) runs only the handlers of every call, and only
@@ -23,10 +23,11 @@ export interface OperationHandlers extends ResolvedExtensionOperationLookup {
   readonly handlers: (
     model: string | undefined,
     operation: string
-  ) => readonly ResolvedOperationHandler[] | undefined;
+  ) => readonly ResolvedOperationHandler<Handler>[] | undefined;
 }
 
-export interface RequestHandlers extends OperationHandlers {
+/** The first moments of `call` and `around`, and what runs them for one call. */
+export interface RequestHandlers extends OperationHandlers<FirstMoment> {
   readonly apply: typeof runFirstMoments;
 }
 
@@ -34,31 +35,31 @@ export interface RequestHandlers extends OperationHandlers {
  * `previous` with one definition's `request` or `query` appended. Every
  * array of `previous` is copied, so the chain it belongs to keeps its own.
  */
-export function compileHandlers(
-  previous: ResolvedExtensionOperationLookup | undefined,
+export function compileHandlers<Handler extends CallableFunction>(
+  previous: ResolvedExtensionOperationLookup<Handler> | undefined,
   owner: Application["owner"],
-  contribution: RuntimeExtensionDefinition["request"],
+  contribution:
+    | Handler
+    | Readonly<Record<string, Readonly<Record<string, Handler>>>>
+    | undefined,
   raw: boolean
-): OperationHandlers {
-  const own = (handler: CallableFunction): ResolvedOperationHandler =>
-    Object.freeze(
-      owner.controls === undefined
-        ? { extension: owner.name, handler }
-        : { extension: owner.name, handler, controls: owner.controls }
-    );
+): OperationHandlers<Handler> {
+  // `controls` stays undefined for an extension that declares none.
+  const own = (handler: Handler): ResolvedOperationHandler<Handler> =>
+    Object.freeze({ extension: owner.name, handler, controls: owner.controls });
   const global = [...(previous?.global ?? [])];
   const models: Record<
     string,
-    Record<string, ResolvedOperationHandler[]>
+    Record<string, ResolvedOperationHandler<Handler>[]>
   > = Object.create(null);
   for (const [model, operations] of Object.entries(previous?.models ?? {})) {
-    const copied: Record<string, ResolvedOperationHandler[]> =
+    const copied: Record<string, ResolvedOperationHandler<Handler>[]> =
       Object.create(null);
     for (const [operation, handlers] of Object.entries(operations))
       copied[operation] = [...handlers];
     models[model] = copied;
   }
-  if (isFunction(contribution)) {
+  if (typeof contribution === "function") {
     const handler = own(contribution);
     global.push(handler);
     for (const operations of Object.values(models))
@@ -71,24 +72,21 @@ export function compileHandlers(
       }
     }
   }
-  const frozen: Record<
-    string,
-    Readonly<Record<string, readonly ResolvedOperationHandler[]>>
-  > = Object.create(null);
-  for (const [model, operations] of Object.entries(models)) {
+  // Frozen in place: every array and record here is this lookup's own.
+  for (const operations of Object.values(models)) {
     for (const handlers of Object.values(operations)) Object.freeze(handlers);
-    frozen[model] = Object.freeze(operations);
+    Object.freeze(operations);
   }
-  const every = global.length === 0 ? undefined : Object.freeze(global);
+  const every = global.length === 0 ? undefined : global;
   return {
-    global: every ?? Object.freeze([]),
-    models: Object.freeze(frozen),
+    global: Object.freeze(global),
+    models: Object.freeze(models),
     handlers: (model, operation) =>
       model === undefined
         ? raw
           ? every
           : undefined
-        : (frozen[model]?.[operation] ?? every),
+        : (models[model]?.[operation] ?? every),
   };
 }
 

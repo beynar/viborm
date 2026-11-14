@@ -8,11 +8,11 @@ import {
   args,
   exists,
   extension,
+  statement as extStatement,
   nothing,
   oneOf,
   parts,
   rule,
-  text,
   unit,
   when,
 } from "@src/index";
@@ -65,30 +65,27 @@ const doc = s.model({
     .fields("orgId")
     .references("id"),
 });
-/** The schema the two policies below are written for, away from a client. */
-const docs = { org, member, doc };
-const forDocs = parts<typeof docs>();
 const user = arg("user");
 const inOrg = { org: { members: { some: { userId: user } } } };
-const policy = forDocs.extension(
+const anyMembership = exists({ member: { userId: user } });
+const policy = parts<{
+  org: typeof org;
+  member: typeof member;
+  doc: typeof doc;
+}>().extension(
   "policy",
-  forDocs.args({
+  args({
     user: accepts(v.string()).required(["doc"]),
     scope: oneOf("all").default("all"),
   }),
-  forDocs.rule({
+  rule({
     doc: {
       read: {
         where: {
           OR: [
             { AND: [inOrg, { title: "a" }] },
-            { AND: [inOrg, exists({ member: { userId: arg("user") } })] },
-            {
-              AND: [
-                exists({ member: { userId: arg("user") } }),
-                { title: "c" },
-              ],
-            },
+            { AND: [inOrg, anyMembership] },
+            { AND: [anyMembership, { title: "c" }] },
           ],
         },
       },
@@ -146,8 +143,10 @@ test("PGlite: a shared relation body reading no other is NOT MATERIALIZED; one r
         "statements",
         unit(
           (u, next) => {
-            statements.push(text(u) ?? "");
-            return next();
+            const sent = extStatement(u);
+            if (sent === undefined) return next();
+            statements.push(sent.toStatement());
+            return next(sent);
           },
           ["statement"],
           { rewrites: true }
@@ -178,18 +177,22 @@ test("PGlite: a shared relation body reading no other is NOT MATERIALIZED; one r
 // one `WITH` member ahead of the `SELECT … FOR UPDATE`, which still locks
 // only the row it locates.
 test("PGlite: an upsert's locked lookup states its repeated body once, ahead of FOR UPDATE", async () => {
-  const scoped = forDocs.extension(
+  const scoped = parts<{
+    org: typeof org;
+    member: typeof member;
+    doc: typeof doc;
+  }>().extension(
     "scoped",
-    forDocs.args({
+    args({
       user: accepts(v.string()).required(["doc"]),
       scope: oneOf("member").default("member"),
     }),
-    forDocs.rule({
+    rule({
       doc: {
         root: when(arg("scope"), "member", {
           OR: [
             { AND: [inOrg, { title: "a" }] },
-            { AND: [inOrg, exists({ member: { userId: arg("user") } })] },
+            { AND: [inOrg, anyMembership] },
           ],
         }),
         related: when(arg("scope"), "member", inOrg),
@@ -219,8 +222,10 @@ test("PGlite: an upsert's locked lookup states its repeated body once, ahead of 
         "statements",
         unit(
           (u, next) => {
-            statements.push(text(u) ?? "");
-            return next();
+            const sent = extStatement(u);
+            if (sent === undefined) return next();
+            statements.push(sent.toStatement());
+            return next(sent);
           },
           ["statement"],
           { rewrites: true }
@@ -336,8 +341,10 @@ test("PGlite: a shared relation body over a table named like a body is still NOT
         "statements",
         unit(
           (u, next) => {
-            statements.push(text(u) ?? "");
-            return next();
+            const sent = extStatement(u);
+            if (sent === undefined) return next();
+            statements.push(sent.toStatement());
+            return next(sent);
           },
           ["statement"],
           { rewrites: true }

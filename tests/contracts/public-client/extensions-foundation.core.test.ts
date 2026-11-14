@@ -86,9 +86,9 @@ describe("client extension foundation", () => {
       lookupResolvedExtensionHandlers(chain, "query", "item", "findMany")
     ).toBe(lookupResolvedExtensionHandlers(chain, "query", "item", "findMany"));
     expect(order("request", "audit", "findMany")).toEqual(["B"]);
-    // A raw statement reaches a second moment with no target, never a first.
+    // A raw statement reaches both moments of a part without a target.
     expect(order("query", undefined, "$queryRaw")).toEqual(["B"]);
-    expect(order("request", undefined, "$queryRaw")).toBeUndefined();
+    expect(order("request", undefined, "$queryRaw")).toEqual(["B"]);
     expect(Object.isFrozen(chain)).toBe(true);
 
     const genericOnly = appendResolvedExtension(

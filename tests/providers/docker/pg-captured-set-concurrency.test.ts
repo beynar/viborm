@@ -79,6 +79,7 @@ import type { QueryExecutionContext } from "@drivers/driver";
 import { PgDriver } from "@drivers/pg";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import { s } from "@schema";
+import { around, extension, settled as extSettled, target } from "@src/index";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { Client as NativePgClient, type Pool, type PoolClient } from "pg";
 import {
@@ -396,25 +397,33 @@ const COMPOSED = "Query execution and write-outcome publication both failed.";
  * happens BEFORE the operation has answered for that batch.
  */
 const withFailingOutcome = (client: FcpgClient) =>
-  client.$extends({
-    name: "failing-outcome",
-    query: {
-      note: {
-        deleteMany({ onWriteOutcome, proceed }) {
-          onWriteOutcome(() => {
+  client.$extends(
+    extension(
+      "failing-outcome",
+      around(
+        (c) => {
+          extSettled(c, () => {
             throw new Error(OUTCOME_THREW);
           });
-          return proceed();
+          return (run) => {
+            return run();
+          };
         },
-        updateMany({ onWriteOutcome, proceed }) {
-          onWriteOutcome(() => {
+        target("note", "deleteMany")
+      ),
+      around(
+        (c) => {
+          extSettled(c, () => {
             throw new Error(OUTCOME_THREW);
           });
-          return proceed();
+          return (run) => {
+            return run();
+          };
         },
-      },
-    },
-  });
+        target("note", "updateMany")
+      )
+    )
+  );
 
 /**
  * The composition, read as the estate's ONE composition states it

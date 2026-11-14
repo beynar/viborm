@@ -6,8 +6,20 @@
  */
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { defineExtension } from "@extensions/define";
 import { s } from "@schema";
+import {
+  accepts,
+  arg,
+  args,
+  check,
+  extension,
+  rule as extRule,
+  oneOf,
+  parts,
+  statement,
+  unit,
+  when,
+} from "@src/index";
 import { permissions } from "@src/permissions";
 import { v } from "@src/validation";
 import { createInMemoryPGliteDriver } from "@tests/fixtures/drivers/pglite";
@@ -21,7 +33,7 @@ const RECURSIVE_MEMBER = /RECURSIVE/g;
 const EXISTS_READ = /EXISTS \(SELECT 1 FROM "__shared_\d+" WHERE TRUE\)/;
 const CROSS_JOIN = /CROSS JOIN/g;
 
-const user = { control: "user" } as const;
+const user = arg("user");
 
 const clients: { $disconnect(): Promise<void> }[] = [];
 const closeClients = async () => {
@@ -105,42 +117,44 @@ const grantedTwice = (team: object) => ({
     { grants: { some: { id: { not: "-" }, team: { is: team } } } },
   ],
 });
+type Teams = {
+  team: typeof team;
+  seat: typeof seat;
+  page: typeof page;
+  grant: typeof grant;
+};
 /** Each arm repeats the rule, so its bodies are shared. */
-const teamsPolicy = (rule: object) =>
-  defineExtension({
-    name: "teams",
-    controls: { user: { schema: v.string(), required: true } },
-    rows: {
-      control: "scope",
-      default: "all",
-      models: {},
-      verbs: {
-        page: {
-          predicates: {
-            held: {
-              OR: [
-                { AND: [rule, { title: "a" }] },
-                { AND: [rule, { title: { not: "a" } }] },
-              ],
-            },
-          },
-          read: "held",
-          update: "held",
-          delete: "held",
-        },
+const teamsPolicy = (rule: object) => {
+  const held = {
+    OR: [
+      { AND: [rule, { title: "a" }] },
+      { AND: [rule, { title: { not: "a" } }] },
+    ],
+  };
+  return parts<Teams>().extension(
+    "teams",
+    args({
+      user: accepts(v.string()).required(["page"]),
+      scope: oneOf("all").default("all"),
+    }),
+    extRule({
+      page: {
+        read: { where: held },
+        update: { where: held, check: check(held) },
+        delete: { where: held },
       },
-    },
-  });
+    })
+  );
+};
 /** Another layer: what a team read through a relation must hold. */
 const visible = (related: object) =>
-  defineExtension({
-    name: "visible",
-    rows: {
-      control: "visibility",
-      default: "on",
-      models: { team: { on: { related: { AND: [related] } } } },
-    },
-  });
+  parts<Teams>().extension(
+    "visible",
+    args({ visibility: oneOf("on").default("on") }),
+    extRule({
+      team: { related: when(arg("visibility"), "on", { AND: [related] }) },
+    })
+  );
 type Dialect = "PGlite" | "SQLite";
 /** A seeded client under `rule`, and the statements it sends. */
 const teamsClient = async (
@@ -187,13 +201,21 @@ const teamsClient = async (
     ],
   });
   const statements: string[] = [];
-  const db = base.$extends(teamsPolicy(rule)).$extends({
-    name: "statements",
-    statement(context) {
-      statements.push(context.statement.toStatement());
-      return context.statement;
-    },
-  });
+  const db = base.$extends(teamsPolicy(rule)).$extends(
+    extension(
+      "statements",
+      unit(
+        (u, next) => {
+          const sent = statement(u);
+          if (sent === undefined) return next();
+          statements.push(sent.toStatement());
+          return next(sent);
+        },
+        ["statement"],
+        { rewrites: true }
+      )
+    )
+  );
   return { base, db, statements };
 };
 /** A walk left in place: its own recursive `WITH` inside an `EXISTS`. */
@@ -205,8 +227,17 @@ const UNSTATED_PAGES = `WITH "__shared_0" AS NOT MATERIALIZED (SELECT "q4"."team
         UNION
         SELECT "q8"."id" AS "__q5_child_0" FROM "__q5_recursive" AS "q7" INNER JOIN "public"."team" AS "q8" ON "q7"."__q5_child_0" = "q8"."parentId"
       ) SELECT 1 FROM "__q5_recursive" AS "q7" INNER JOIN "public"."team" AS "q3" ON "q3"."id" = "q7"."__q5_child_0" WHERE EXISTS (SELECT 1 FROM "__shared_0" WHERE "q3"."id" = "__shared_0"."k0"))), "__shared_3" AS (SELECT "q1"."pageId" AS "k0" FROM "public"."grant" AS "q1" WHERE (EXISTS (SELECT 1 FROM "__shared_2" WHERE "q1"."teamId" = "__shared_2"."k0") OR (NOT ("q1"."id" = ?) AND EXISTS (SELECT 1 FROM "__shared_2" WHERE "q1"."teamId" = "__shared_2"."k0")))) SELECT "q0"."id" FROM "public"."page" AS "q0" WHERE ((EXISTS (SELECT 1 FROM "__shared_3" WHERE "q0"."id" = "__shared_3"."k0") AND "q0"."title" = ?) OR (EXISTS (SELECT 1 FROM "__shared_3" WHERE "q0"."id" = "__shared_3"."k0") AND NOT ("q0"."title" = ?))) ORDER BY "q0"."id" ASC`;
+// Structural: a client with one more layer is not the type of the one without.
 const pagesOf = (
-  db: Awaited<ReturnType<typeof teamsClient>>["db"],
+  db: {
+    readonly page: {
+      findMany(args: {
+        user: string;
+        select: { id: true };
+        orderBy: { id: "asc" };
+      }): Promise<unknown>;
+    };
+  },
   who: string
 ) =>
   db.page.findMany({ user: who, select: { id: true }, orderBy: { id: "asc" } });
@@ -340,13 +371,21 @@ test("a selective walk in a related domain stays where its own body keeps it inl
       const db = base
         .$extends(teamsPolicy(grantedThrough({ id: { not: "-" } })))
         .$extends(visible(walk(selective, { id: "leaf" })))
-        .$extends({
-          name: "statements",
-          statement(context) {
-            statements.push(context.statement.toStatement());
-            return context.statement;
-          },
-        });
+        .$extends(
+          extension(
+            "statements",
+            unit(
+              (u, next) => {
+                const sent = statement(u);
+                if (sent === undefined) return next();
+                statements.push(sent.toStatement());
+                return next(sent);
+              },
+              ["statement"],
+              { rewrites: true }
+            )
+          )
+        );
       runs.push({ statements, answers: await pagesOf(db, "ann") });
     }
     expect(runs[1], dialect).toEqual(runs[0]);
@@ -561,13 +600,21 @@ test("a declared junction's hop reads a column beyond the key: a walk from a sel
       ],
     });
     const statements: string[] = [];
-    const db = base.$extends(governed).$extends({
-      name: "statements",
-      statement(context) {
-        statements.push(context.statement.toStatement());
-        return context.statement;
-      },
-    });
+    const db = base.$extends(governed).$extends(
+      extension(
+        "statements",
+        unit(
+          (u, next) => {
+            const sent = statement(u);
+            if (sent === undefined) return next();
+            statements.push(sent.toStatement());
+            return next(sent);
+          },
+          ["statement"],
+          { rewrites: true }
+        )
+      )
+    );
     const row = { id: true, $access: true } as const;
     answers.push(
       await db.$as({ organizationId: "o", userId: "ann" }).tree.findMany({

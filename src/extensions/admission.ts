@@ -164,11 +164,14 @@ export const isOuterColumn = (
 export const isInstant = (value: unknown): boolean =>
   isPlainRecord(value) && value.now === true && Object.keys(value).length === 1;
 
-const REFUSED_CONDITION = `a condition names one control and exactly one of ${TESTS.join(", ")}`;
+// Made where it is refused: at module level, a bundle would keep it (and
+// `TESTS`) for every importer of this file.
+const refusedCondition = (): string =>
+  `a condition names one control and exactly one of ${TESTS.join(", ")}`;
 
 /** `$if`'s `{ control, path?, <one test> }` as a condition, or the refusal. */
 function conditionOf(spec: unknown): Condition | string {
-  if (!isPlainRecord(spec)) return REFUSED_CONDITION;
+  if (!isPlainRecord(spec)) return refusedCondition();
   const { control, path, ...tests } = spec;
   const [test, ...others] = Object.keys(tests);
   const operand = tests[test!];
@@ -180,7 +183,7 @@ function conditionOf(spec: unknown): Condition | string {
     (test === "exists" && typeof operand !== "boolean") ||
     ((test === "in" || test === "hasSome") && !Array.isArray(operand))
   )
-    return REFUSED_CONDITION;
+    return refusedCondition();
   return new Condition(
     new Parameter(control, path),
     Object.freeze({ [test!]: operand }) as unknown as ConditionTest

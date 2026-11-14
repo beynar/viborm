@@ -11,6 +11,7 @@ import { defaultOmit } from "@client/default-omit-extension";
 import { createClient } from "@drivers/sqlite3";
 import { ForbiddenError, VibORMError } from "@errors";
 import { s } from "@schema";
+import { defaults, extension, omitted } from "@src/index";
 import { permissions } from "@src/permissions";
 import { softDelete } from "@src/soft-delete";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -278,11 +279,26 @@ describe("permissions: an update that writes the field its rule reads", () => {
 });
 
 describe("defaultOmit", () => {
-  test("several defaultOmit() on one chain add up per model, as the docs say", async () => {
+  test("a second defaultOmit() on one chain is refused as a duplicate, and its refusal says what adds up", async () => {
+    const base = await seeded();
+    const once = base.$extends(defaultOmit({ post: { title: true } } as never));
+    expect(() =>
+      once.$extends(defaultOmit({ post: { deletedAt: true } } as never))
+    ).toThrow(
+      'Extension "viborm.defaultOmit" is already present on this client. A chain applies defaultOmit() once: give it every field to leave out, or omit fields from another extension with defaults({ model: { fields: { field: omitted } } }); the omissions of different extensions add up per model.'
+    );
+  });
+
+  test("the omissions of different extensions add up per model, defaultOmit() among them", async () => {
     const base = await seeded();
     const client = base
       .$extends(defaultOmit({ post: { title: true } } as never))
-      .$extends(defaultOmit({ post: { deletedAt: true } } as never));
+      .$extends(
+        extension(
+          "omits-more",
+          defaults({ post: { fields: { deletedAt: omitted } } } as never)
+        )
+      );
     const row = (await client.post.findFirst({ where: { id: "a" } })) as Row;
     expect(Object.keys(row).sort()).toEqual(["authorId", "id"]);
   });

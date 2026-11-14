@@ -13,9 +13,21 @@ import {
   UnsupportedOperationError,
   ValidationError,
 } from "@errors";
-import { defineExtension } from "@extensions/define";
 import { s } from "@schema";
 import { sql } from "@sql";
+import {
+  arg,
+  args,
+  bound,
+  extension,
+  methods as extMethods,
+  statement as extStatement,
+  oneOf,
+  parts,
+  rule,
+  unit,
+  when,
+} from "@src/index";
 import { permissions } from "@src/permissions";
 import { softDelete } from "@src/soft-delete/index";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -59,21 +71,22 @@ const policy = permissions({
 
 /** A bound control choosing the tenant, as the tenancy recipe's, with `$tenant`. */
 type Tenants = { $tenant<Self>(this: Self, tenant: string): Self };
-const tenancy = defineExtension<typeof schema>()({
-  name: "tenancy",
-  controls: { tenant: { schema: v.string(), bound: true, required: true } },
-  rows: {
-    control: "scope",
-    default: "tenant",
-    models: { page: { tenant: { root: { tenant: { control: "tenant" } } } } },
-  },
-  client: (scope) => {
+const tenancy = parts<typeof schema>().extension(
+  "tenancy",
+  args({
+    tenant: bound(v.string()).required(["page"]),
+    scope: oneOf("tenant").default("tenant"),
+  }),
+  rule({
+    page: { root: when(arg("scope"), "tenant", { tenant: arg("tenant") }) },
+  }),
+  extMethods((scope) => {
     const methods: Tenants = {
       $tenant: (tenant) => scope.$bind({ tenant }) as never,
     };
     return methods;
-  },
-});
+  })
+);
 
 type Row = Record<string, unknown>;
 const ANOTHER_VIEW = /received a \$rows\(\) fragment of another client or view/;
@@ -109,13 +122,21 @@ afterEach(async () => {
 describe("$rows", () => {
   test("without a rows extension it is the whole table, as a derived table", async () => {
     let statement: string | undefined;
-    const seen = base.$extends({
-      name: "seen",
-      statement: (context) => {
-        statement = context.statement.toStatement();
-        return context.statement;
-      },
-    });
+    const seen = base.$extends(
+      extension(
+        "seen",
+        unit(
+          (u, next) => {
+            const sent = extStatement(u);
+            if (sent === undefined) return next();
+            statement = sent.toStatement();
+            return next(sent);
+          },
+          ["statement"],
+          { rewrites: true }
+        )
+      )
+    );
     const rows =
       await seen.$queryRaw`SELECT p.id FROM ${seen.page.$rows("p")} ORDER BY p.id`;
     expect(ids(rows)).toEqual(["a", "b", "c"]);
@@ -138,13 +159,21 @@ describe("$rows", () => {
       WHERE page_fts MATCH ${"one OR three"}`;
     expect(hits).toEqual([{ id: "a" }]);
     let statement: string | undefined;
-    const seen = base.$extends({
-      name: "seen",
-      statement: (context) => {
-        statement = context.statement.toStatement();
-        return context.statement;
-      },
-    });
+    const seen = base.$extends(
+      extension(
+        "seen",
+        unit(
+          (u, next) => {
+            const sent = extStatement(u);
+            if (sent === undefined) return next();
+            statement = sent.toStatement();
+            return next(sent);
+          },
+          ["statement"],
+          { rewrites: true }
+        )
+      )
+    );
     await seen.$queryRaw`SELECT t.id FROM ${seen.tag.$rows("t")}`;
     expect(statement).toBe(
       'SELECT t.id FROM (SELECT * FROM "main"."tag" AS "q0" WHERE 1 = 1) AS "t"'
@@ -332,10 +361,12 @@ describe("$rows", () => {
 
   test("an extension's model method cannot take its name", () => {
     expect(() =>
-      base.$extends({
-        name: "shadowing",
-        model: { page: () => ({ $rows: () => "mine" }) },
-      } as never)
+      base.$extends(
+        extension(
+          "shadowing",
+          extMethods(() => ({ page: { $rows: () => "mine" } }))
+        )
+      )
     ).toThrow(
       'model method "page.$rows" collides with the existing model surface'
     );

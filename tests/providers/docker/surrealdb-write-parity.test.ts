@@ -7,7 +7,15 @@
 import { createClient } from "@client/client";
 import { DbNull, JsonNull, s } from "@schema";
 import { sql } from "@sql";
-import { defineExtension } from "@src/index";
+import {
+  check,
+  extension,
+  facts,
+  nothing,
+  parts,
+  rule,
+  unit,
+} from "@src/index";
 import { ordering } from "@src/ordering";
 import { permissions } from "@src/permissions";
 import {
@@ -1062,24 +1070,24 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
       });
     it("a created row a caller may not read carries no evidence", async () => {
       await compare({ task: task() }, async (db) => {
-        const governed = db.$extends({
-          name: "evidence",
-          rows: {
-            default: "on",
-            models: { task: { on: {} } },
-            verbs: {
+        const seen = { status: "open" };
+        const own = { owner: "ann" };
+        const governed = db.$extends(
+          parts<{ task: ReturnType<typeof task> }>().extension(
+            "evidence",
+            rule({
               task: {
-                predicates: {
-                  seen: { status: "open" },
-                  own: { owner: "ann" },
+                read: {
+                  where: seen,
+                  select: { $access: facts({ seen, own }) },
                 },
-                read: "seen",
-                place: "own",
-                evidence: { as: "$access", names: ["seen", "own"] },
+                create: { check: check(own) },
+                update: { where: nothing },
+                delete: { where: nothing },
               },
-            },
-          },
-        });
+            })
+          )
+        );
         const created = await caught(() =>
           governed.task.create({
             data: { id: "a", status: "closed", owner: "ann" },
@@ -1717,10 +1725,10 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
       it("does not run a callback twice under an extension that collects its writes", async () => {
         const { root, db } = await counter((client) =>
           client.$extends(
-            defineExtension()({
-              name: "observer",
-              observe: (_unit: unknown, proceed: () => unknown) => proceed(),
-            } as any)
+            extension(
+              "observer",
+              unit((_u, next) => next())
+            )
           )
         );
         let runs = 0;
@@ -1911,7 +1919,8 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
             { id: 2, rank: "15" },
           ],
         });
-        const restricted = ordering({ item: { key: "rank" } })(db)
+        const restricted = db
+          .$extends(ordering({ item: { key: "rank" } }))
           .$extends(
             permissions({
               actor: v.object({ userId: v.string() }),
@@ -1930,9 +1939,9 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
             { id: 10, rank: "15" },
           ],
         });
-        const result = await ordering({ item: { key: "rank" } })(
-          db
-        ).item.rekey();
+        const result = await db
+          .$extends(ordering({ item: { key: "rank" } }))
+          .item.rekey();
         return { result, rows: await rows(db, "item") };
       }));
   });

@@ -9,7 +9,15 @@ import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { Driver } from "@drivers";
 import { QueryError, ValidationError } from "@errors";
 import { s } from "@schema";
-import { call, extension, target as extTarget, methods } from "@src/index";
+import {
+  around,
+  call,
+  extension,
+  target as extTarget,
+  methods,
+  models,
+  watch,
+} from "@src/index";
 import { readTestTransactionOperation } from "@tests/fixtures/transaction-operation";
 import { afterEach, describe, expect, test } from "vitest";
 
@@ -436,14 +444,14 @@ describe("public request-transform integration", () => {
     expect(seen).toEqual(new Set(protectedKeys.keys()));
   });
 
-  test("runs through array prepare admission and never for raw calls", async () => {
+  test("runs through array prepare admission, and once for a raw statement when it has no target", async () => {
     let requestCalls = 0;
     const client = integratedClient().$extends(
       extension(
         "array-admission",
         call((c) => {
           requestCalls += 1;
-          c.set({});
+          if (c.kind === "model") c.set({});
         })
       )
     );
@@ -453,7 +461,117 @@ describe("public request-transform integration", () => {
     await expect(client.$transaction([operation])).resolves.toEqual([[]]);
     expect(requestCalls).toBe(1);
     await expect(client.$queryRawUnsafe("SELECT 1")).resolves.toEqual([]);
-    expect(requestCalls).toBe(1);
+    expect(requestCalls).toBe(2);
+    const raw = client.$executeRawUnsafe("DELETE FROM entry");
+    await expect(client.$transaction([raw])).resolves.toEqual([0]);
+    expect(requestCalls).toBe(3);
+  });
+
+  test("a raw statement shows its input, refuses a patch and a watch, and reaches no targeted part", async () => {
+    const seen: unknown[] = [];
+    const client = integratedClient()
+      .$extends(
+        extension(
+          "targeted",
+          call(() => {
+            seen.push("targeted");
+          }, extTarget(models)),
+          around(() => {
+            seen.push("around targeted");
+          }, extTarget("entry"))
+        )
+      )
+      .$extends(
+        extension(
+          "raw",
+          call((c) => {
+            seen.push([c.kind, c.model, c.operation, c.args]);
+          })
+        )
+      );
+    await client.$queryRawUnsafe("SELECT $1", 1);
+    expect(seen).toEqual([
+      ["raw", undefined, "$queryRawUnsafe", { sql: "SELECT $1", params: [1] }],
+    ]);
+
+    const patching = integratedClient().$extends(
+      extension(
+        "patching",
+        call((c) => c.set({ take: 1 }))
+      )
+    );
+    await expect(patching.$queryRawUnsafe("SELECT 1")).rejects.toThrow(
+      'Extension "patching" request handler for $queryRawUnsafe set no model call\'s arguments.'
+    );
+
+    const watching = integratedClient().$extends(
+      extension(
+        "watching",
+        around((c) => {
+          watch(c, { wants: () => true, rows: () => undefined });
+        })
+      )
+    );
+    const refusal = await watching.$executeRawUnsafe("DELETE FROM entry").then(
+      () => undefined,
+      (error: unknown) => error
+    );
+    // A raw statement writes no rows to tell: the registration is refused.
+    expect(refusal).toBeInstanceOf(QueryError);
+    expect(refusal).toMatchObject({
+      message:
+        'Extension "watching" request handler for $executeRawUnsafe threw.',
+    });
+  });
+
+  test("an around without a target runs its first moment once for a raw statement, its second around it", async () => {
+    const seen: string[] = [];
+    const client = integratedClient().$extends(
+      extension(
+        "both",
+        around((c) => {
+          seen.push(`first ${c.operation}`);
+          return (run) => {
+            seen.push("second");
+            return run();
+          };
+        })
+      )
+    );
+    await expect(client.$queryRawUnsafe("SELECT 1")).resolves.toEqual([]);
+    await expect(
+      client.$transaction([client.$queryRawUnsafe("SELECT 2")])
+    ).resolves.toEqual([[]]);
+    expect(seen).toEqual([
+      "first $queryRawUnsafe",
+      "second",
+      "first $queryRawUnsafe",
+      "second",
+    ]);
+  });
+
+  test("a target naming a model or an operation the client lacks is refused at $extends", () => {
+    const base = integratedClient();
+    expect(() =>
+      base.$extends(
+        extension(
+          "unknown-model",
+          call(() => undefined, extTarget("nobody" as never))
+        )
+      )
+    ).toThrow(
+      'Extension "unknown-model" target names unknown model or operation "nobody".'
+    );
+    expect(() =>
+      base.$extends(
+        extension(
+          "unknown-operation",
+          call(() => undefined, extTarget("entry", "findAll" as never))
+        )
+      )
+    ).toThrow(
+      'Extension "unknown-operation" target names unknown model or operation "findAll".'
+    );
   });
 
   test("memoizes a request failure across wrapped lifecycle entry points", async () => {

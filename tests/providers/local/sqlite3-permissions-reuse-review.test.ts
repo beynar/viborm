@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { createClient } from "@drivers/sqlite3";
 import { ForbiddenError } from "@errors";
 import { s } from "@schema";
+import { extension, methods } from "@src/index";
 import { permissions } from "@src/permissions";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { v } from "@validation";
@@ -131,7 +132,10 @@ test("an extension after $as and a transaction keep the bound actor", async () =
         { id: "b", ownerId: "bob" },
       ],
     });
-    const witness = { name: "witness", client: () => ({ $witness: () => 1 }) };
+    const witness = extension(
+      "witness",
+      methods(() => ({ $witness: () => 1 }))
+    );
     const alice = base.$extends(policy).$as({ userId: "alice" });
     const extended = alice.$extends(witness);
     const bob = base.$extends(policy).$as({ userId: "bob" });
