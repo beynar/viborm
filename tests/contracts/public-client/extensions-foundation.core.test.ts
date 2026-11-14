@@ -55,7 +55,10 @@ afterEach(async () => {
 
 describe("client extension foundation", () => {
   it("precompiles one exact application-ordered lookup of first and second moments", () => {
-    const wrap = () => (run: () => Promise<unknown>) => run();
+    const wrap =
+      () =>
+      <R>(run: () => Promise<R>) =>
+        run();
     const first = appendResolvedExtension(
       undefined,
       extExtension("A", around(wrap, target("item", "findMany"))),
@@ -172,7 +175,7 @@ describe("client extension foundation", () => {
     const base = baseClient();
     const definition = extExtension(
       "identity",
-      extMethods((scope) => {
+      extMethods((_scope) => {
         const own = {
           client: () => ({ $identity: () => "derived" }),
           models: {
@@ -181,7 +184,7 @@ describe("client extension foundation", () => {
             }),
           },
         };
-        return { ...own.client?.(scope), ...own.models };
+        return { ...own.client(), ...own.models };
       })
     );
 
@@ -321,7 +324,7 @@ describe("client extension foundation", () => {
     expect(withMethods.request).toBe(withHandlers.request);
     expect(withMethods.query).toBe(withHandlers.query);
     expect(withMethods.statement).toBe(withHandlers.statement);
-    expect(withMethods.observe).toBe(withHandlers.observe);
+    expect(withMethods.observation).toBe(withHandlers.observation);
   });
 
   // A root view `$extends` returns runs every factory at once, where an
@@ -383,12 +386,12 @@ describe("client extension foundation", () => {
     const valid = base.$extends(
       extExtension(
         "valid",
-        extMethods((scope) => {
+        extMethods((_scope) => {
           const own = {
             client: () => ({ $valid: () => true }),
             models: { item: () => ({ valid: () => true }) },
           };
-          return { ...own.client?.(scope), ...own.models };
+          return { ...own.client(), ...own.models };
         })
       )
     );

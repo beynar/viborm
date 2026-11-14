@@ -622,10 +622,7 @@ describe("public request-transform integration", () => {
     const extended = base.$extends(
       extension(
         "client-only",
-        methods((scope) => {
-          const own = { client: () => ({ $ready: () => true }) };
-          return { ...own.client?.(scope), ...own.models };
-        })
+        methods((_scope) => ({ $ready: () => true }))
       )
     );
 

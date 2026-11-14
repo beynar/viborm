@@ -24,7 +24,6 @@ import {
   key,
   methods,
   oneOf,
-  type Run,
   reads,
   rule,
   s,
@@ -54,9 +53,10 @@ class CountingDriver extends SqlOnlyDriver {
     super(new PostgresAdapter(), "postgresql");
   }
 
+  // Optional: the fixture's own `execute` declares no parameter.
   protected override async execute<T>(
-    _client: null,
-    sql: string
+    _client?: null,
+    sql = ""
   ): Promise<{ rows: T[]; rowCount: number }> {
     this.sent.push(sql);
     return { rows: this.rows as T[], rowCount: this.rows.length };
@@ -81,7 +81,7 @@ function keyRecorder(keys: (string | undefined)[]) {
   return extension(
     "keys",
     around(
-      () => (run: Run<unknown, unknown>) => {
+      () => (run) => {
         keys.push(key(run));
         return run();
       },
@@ -136,7 +136,7 @@ describe("key(run)", () => {
       extension(
         "late",
         around(
-          () => async (run: Run<unknown, unknown>) => {
+          () => async (run) => {
             keys.push(key(run));
             where.name = "changed";
             return run();
@@ -178,7 +178,7 @@ describe("key(run)", () => {
     const everything = client.$extends(
       extension(
         "all",
-        around(() => (run: Run<unknown, unknown>) => {
+        around(() => (run) => {
           keys.push(key(run));
           return run();
         })
@@ -216,7 +216,7 @@ describe("codec(run)", () => {
       extension(
         "detach",
         around(
-          () => async (run: Run<unknown, unknown>) => {
+          () => async (run) => {
             const { snapshot, materialize } = codec(run);
             const stored = JSON.parse(JSON.stringify(snapshot(await run())));
             const first = materialize(stored);
@@ -240,7 +240,7 @@ describe("codec(run)", () => {
     const db = client.$extends(
       extension(
         "detach",
-        around(() => (run: Run<unknown, unknown>) => {
+        around(() => (run) => {
           try {
             codec(run);
           } catch (error) {
@@ -267,7 +267,7 @@ describe("database(x)", () => {
         "where",
         around((c) => {
           seen.push(database(c));
-          return (run: Run<unknown, unknown>) => {
+          return (run) => {
             seen.push(database(run));
             return run();
           };
@@ -357,7 +357,7 @@ describe("a direct read's run after its handler returned", () => {
         extension(
           "outer",
           around(
-            () => async (run: Run<unknown, unknown>) => {
+            () => async (run) => {
               outer.push("outer");
               return run();
             },
@@ -369,11 +369,12 @@ describe("a direct read's run after its handler returned", () => {
         extension(
           "answers",
           around(
-            () => (run: Run<unknown, unknown>) => {
+            () => (run) => {
               later.push(() => run());
               return Promise.resolve([]);
             },
-            target(reads)
+            // One operation: an answer in place of the core is typed by it.
+            target("item", "findMany")
           )
         )
       );
@@ -394,7 +395,7 @@ describe("a direct read's run after its handler returned", () => {
       extension(
         "late",
         around(
-          () => async (run: Run<unknown, unknown>) => {
+          () => async (run) => {
             late = () => run();
             return run();
           },
@@ -414,7 +415,7 @@ describe("around(fn, target, { inner: true })", () => {
       extension(
         name,
         around(
-          () => async (run: Run<unknown, unknown>) => {
+          () => async (run) => {
             order.push(`${name} in`);
             const value = await run();
             order.push(`${name} out`);
@@ -468,7 +469,7 @@ describe("settled and a handler's post-work", () => {
           settled(c, () => {
             timeline.push("outcome");
           });
-          return async (run: Run<unknown, unknown>) => {
+          return async (run) => {
             const value = await run();
             timeline.push("post-work");
             return value;
