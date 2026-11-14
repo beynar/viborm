@@ -909,9 +909,7 @@ brief keeps available, and `@client/client` reaches `commands/index.ts`.)
 `query-engine/bind-budget.ts` (`shared/operation-context.ts`) is a pure `Sql`
 chunker over the driver's normalized verified bind capacity, shared by the
 deleted engines and the candidate alike — a neutral boundary, not the shipped
-engine. `result/cache-value-codecs.ts` is the official
-cache value-codec owner and imports no compiler, lowerer, executor or result
-parser. The schema-to-`ValidationError` admission owner `shared/schema.ts` reads
+engine. The schema-to-`ValidationError` admission owner `shared/schema.ts` reads
 was the third until follow-up F-2 moved it INTO this tree: it is
 `shared/parse-boundary.ts`, the candidate's own source, and no longer a
 retention. The candidate may import the two unchanged; charge the complete
@@ -1265,22 +1263,16 @@ so no consumer re-admits, and nothing publishes a re-rawed payload. Admission
 itself stays lazy inside the handle, because the client's own `PendingOperation`
 is lazy.
 
-A cached read's value codec is composed from the official owners in
-`result/cache-value-codecs.ts` (`compileScalarCodec`, `compileWidenedSumCodec`,
-`recordCodec`, `arrayCodec`, `nullableCodec`, `taggedRelationCodec`,
-`recursiveRelationCodec`) through the
-leaf's own declaring `Scalar`, carried as `Leaf.scalar` by the read owner. It is
-never re-dispatched from a leaf's `type` name, which would be a second
-scalar-meaning authority. The leaves with no declaring scalar are the read
-owner's OWN values — `_count`, `exist`, a non-decimal `_avg` and `_distance` —
-and naming those three is the same classification the shipped compiler makes. A
-recursive slot composes `recursiveRelationCodec` from the node's own row codec and the
-prepared slot's cardinality, optionality and normalized depth: one iterative
-enter/leave walker on both snapshot and materialization, the repeated key
-exactly ABSENT at a numeric cutoff and PRESENT at an exhaustive natural end, a
-cyclic value refused as a malformed snapshot, fresh objects and leaves on every
-hit (RQ-05, `recursive-query/rq-cache.md`). The cache never
-re-derives physical identity or the cycle policy — the decoder answered those.
+A cached read stores the rows the driver returned for its one statement, and
+a hit hands them to the prepared read's own parser (`prepareSingle(…)
+.parseResult`), exactly as a driver's answer: there is no second walker over
+the decoded answer. The seam is `PreparedOperation.seen`, a function `publish`
+tells the driver's rows before decoding them; a run it is set on reads object
+rows (never the positional transport) and is never folded into a shared
+`findUnique` batch, whose rows are not its own. A recursive slot's facts — the
+repeated key ABSENT at a numeric cutoff and PRESENT at an exhaustive natural
+end, the cycle policy, fresh occurrences — are the decoder's, decided again on
+every hit (RQ-05, `recursive-query/cache-codec.test.ts`).
 
 The private `prepareBatch(modelName, operation, rawArgs)` boundary enters the
 same schema admission and command dispatch with a preparation-owned

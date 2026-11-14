@@ -123,6 +123,14 @@ export interface PreparedOperation {
   readonly read: PreparedRead | undefined;
   /** The model and the verb the caller asked for, `…OrThrow` included. */
   readonly requested: { readonly model: string; readonly operation: string };
+  /**
+   * Told the rows the driver returned for a read's one statement, before
+   * they are decoded, on every run while it is set: what stores an answer as
+   * those rows (`codec`) sets it, and decodes them later with
+   * {@link PreparedOperation.prepareSingle}'s parser. A run it is set on is
+   * sent alone and reads object rows.
+   */
+  seen?: (rows: readonly unknown[]) => void;
   execute(
     binding?: ExecutionBinding,
     attribution?: QueryExecutionContext
@@ -162,6 +170,7 @@ export interface PreparedOperation {
 
 /** A class, not a closure: one is made per call, and its methods are made once. */
 class PreparedCommand implements PreparedOperation {
+  declare seen?: (rows: readonly unknown[]) => void;
   readonly #config: EngineConfig;
   readonly #queries: Queries;
   readonly #modelName: string;
@@ -275,7 +284,7 @@ class PreparedCommand implements PreparedOperation {
       const context = this.#context(false, attribution, binding);
       const value = this.#read();
       return value
-        ? context.run(() => context.publish(value, this.#missing))
+        ? context.run(() => context.publish(value, this.#missing, this.seen))
         : writeCall(
             context,
             this.#config.driver,

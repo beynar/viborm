@@ -16,6 +16,7 @@ import {
   arg,
   args,
   around,
+  type Codec,
   call,
   codec,
   createClient,
@@ -43,7 +44,17 @@ const item = s.model({
   name: s.string(),
   tenant: s.string(),
 });
-const schema = { item };
+/** A model of every family a driver's raw values decode into. */
+const sample = s.model({
+  id: s.string().id(),
+  big: s.bigInt(),
+  bytes: s.blob(),
+  raw: s.blob(),
+  n: s.number(),
+  doc: s.json(),
+  list: s.int().array(),
+});
+const schema = { item, sample };
 
 /** Answers every read with the rows it holds, and counts what it sends. */
 class CountingDriver extends SqlOnlyDriver {
@@ -65,9 +76,9 @@ class CountingDriver extends SqlOnlyDriver {
 
 const clients: { $disconnect(): Promise<void> }[] = [];
 
-function base() {
+function base(findUniqueBatching?: true) {
   const driver = new CountingDriver();
-  const client = createClient({ schema, driver });
+  const client = createClient({ schema, driver, findUniqueBatching });
   clients.push(client);
   return { client, driver };
 }
@@ -209,29 +220,199 @@ describe("key(run)", () => {
 });
 
 describe("codec(run)", () => {
-  test("detaches the core's answer and restores a fresh graph each time", async () => {
-    const restored: unknown[] = [];
-    const { client } = base();
+  /** A read's codec, run once: what the driver returned, stored. */
+  function detaching(seen: (c: Codec<unknown>) => unknown) {
+    return extension(
+      "detach",
+      around(
+        () =>
+          async <R>(run: Run<unknown, R>): Promise<R> => {
+            const c = codec(run);
+            const value = await c.run();
+            seen(c);
+            return value;
+          },
+        target(reads)
+      )
+    );
+  }
+
+  test("stores the driver's rows and restores the answer the decoder makes of them, fresh each time", async () => {
+    const { client, driver } = base();
+    driver.rows = [
+      {
+        id: "s1",
+        big: 9_007_199_254_740_993n,
+        bytes: new Uint8Array([0, 1, 255]),
+        raw: new Uint8Array([7, 8]).buffer,
+        n: -0,
+        doc: { a: ["a", "x"], n: ["n", "5"], deep: [{ k: null }, 1.5, true] },
+        list: [1, -2],
+      },
+    ];
+    let stored: unknown;
+    let restore: ((entry: unknown) => unknown) | undefined;
+    const db = client.$extends(
+      detaching((c) => {
+        stored = JSON.parse(JSON.stringify(c.snapshot()));
+        restore = c.materialize;
+      })
+    );
+    const answer = await db.sample.findMany();
+    const first = restore?.(stored);
+    const second = restore?.(stored);
+    expect(first).toEqual(answer);
+    expect(second).toEqual(answer);
+    expect(first).not.toBe(second);
+    expect(Object.is((first as { n: number }[])[0]?.n, -0)).toBe(true);
+    expect((first as { bytes: Uint8Array }[])[0]?.bytes).not.toBe(
+      (second as { bytes: Uint8Array }[])[0]?.bytes
+    );
+  });
+
+  test("writes each value JSON cannot carry as a tagged array, and every array tagged", async () => {
+    const { client, driver } = base();
+    const document = JSON.parse('{"__proto__": {"x": 1}, "k": "v"}');
+    driver.rows = [
+      {
+        id: "i1",
+        name: "one",
+        tenant: "a",
+        big: -12n,
+        at: new Date(5),
+        never: new Date(Number.NaN),
+        bytes: new Uint8Array([104, 105]),
+        raw: new Uint8Array([33]).buffer,
+        nan: Number.NaN,
+        up: Number.POSITIVE_INFINITY,
+        down: Number.NEGATIVE_INFINITY,
+        zero: -0,
+        list: [1, "a", null, [false]],
+        document,
+        bare: Object.assign(Object.create(null), { k: 1 }),
+        absent: undefined,
+      },
+    ];
+    let stored: unknown;
+    let restored: unknown;
+    const db = client.$extends(
+      detaching((c) => {
+        stored = c.snapshot();
+        restored = c.materialize(JSON.parse(JSON.stringify(stored)));
+      })
+    );
+    const answer = await db.item.findMany();
+    expect(JSON.stringify(stored)).toBe(
+      JSON.stringify([
+        {
+          id: "i1",
+          name: "one",
+          tenant: "a",
+          big: ["n", "-12"],
+          at: ["d", 5],
+          never: ["d", null],
+          bytes: ["b", "aGk="],
+          raw: ["B", "IQ=="],
+          nan: ["f", "NaN"],
+          up: ["f", "Infinity"],
+          down: ["f", "-Infinity"],
+          zero: ["f", "-0"],
+          list: ["a", 1, "a", null, ["a", false]],
+          document: JSON.parse('{"__proto__": {"x": 1}, "k": "v"}'),
+          bare: { k: 1 },
+        },
+      ])
+    );
+    expect(
+      Object.getPrototypeOf(
+        Reflect.get(Reflect.get(stored as object, 0), "document")
+      )
+    ).toBe(Object.prototype);
+    expect(restored).toEqual(answer);
+  });
+
+  test("cannot store a value of another kind, nor rows a run did not keep", async () => {
+    const failures: unknown[] = [];
+    const { client, driver } = base();
     const db = client.$extends(
       extension(
         "detach",
         around(
-          () => async (run: Run<unknown, unknown>) => {
-            const { snapshot, materialize } = codec(run);
-            const stored = JSON.parse(JSON.stringify(snapshot(await run())));
-            const first = materialize(stored);
-            restored.push(first, materialize(stored));
-            return first;
-          },
+          () =>
+            async <R>(run: Run<unknown, R>): Promise<R> => {
+              const c = codec(run);
+              try {
+                c.snapshot();
+              } catch (error) {
+                failures.push(error);
+              }
+              const value = await c.run();
+              try {
+                c.snapshot();
+              } catch (error) {
+                failures.push(error);
+              }
+              return value;
+            },
           target(reads)
         )
       )
     );
-    const rows = await db.item.findMany();
-    expect(rows).toEqual([{ id: "i1", name: "one", tenant: "a" }]);
-    expect(restored[0]).toEqual(restored[1]);
-    expect(restored[0]).not.toBe(restored[1]);
-    expect(codec).toBeTypeOf("function");
+    const row = { id: "i1", name: "one", tenant: "a" };
+    for (const extra of [new Map(), [1, undefined], new Array(2), () => 1]) {
+      driver.rows = [{ ...row, extra }];
+      await db.item.findMany();
+    }
+    expect(failures).toHaveLength(8);
+    for (const failure of failures) expect(failure).toBeInstanceOf(TypeError);
+  });
+
+  test("refuses stored rows it never writes, and rows the decoder refuses", async () => {
+    const { client } = base();
+    let restore: ((entry: unknown) => unknown) | undefined;
+    const db = client.$extends(
+      detaching((c) => {
+        restore = c.materialize;
+      })
+    );
+    await db.item.findMany();
+    const row = { id: "i1", name: "one", tenant: "a" };
+    for (const entry of [
+      {},
+      [null],
+      [[]],
+      [new Map()],
+      [{ ...row, extra: Number.NaN }],
+      [{ ...row, extra: ["z", 1] }],
+      [{ ...row, extra: ["d", "1"] }],
+      [{ ...row, extra: ["d", 1, 2] }],
+      [{ ...row, extra: ["f", "1"] }],
+      [{ ...row, extra: ["n", "01"] }],
+      [{ ...row, extra: ["n", 1] }],
+      [{ ...row, extra: ["b", 1] }],
+      [{ ...row, extra: ["a", undefined] }],
+      [{ ...row, extra: () => 1 }],
+      [{ ...row, extra: new Map() }],
+    ])
+      expect(() => restore?.(entry)).toThrow(TypeError);
+    expect(() => restore?.([{ ...row, name: 1 }])).toThrow(QueryError);
+    expect(restore?.([row])).toEqual([row]);
+  });
+
+  test("keeps the rows of each concurrent findUnique, which a shared read would not hold", async () => {
+    const { client, driver } = base(true);
+    const stored: unknown[] = [];
+    const db = client.$extends(
+      detaching((c) => {
+        stored.push(c.snapshot());
+      })
+    );
+    await Promise.all([
+      db.item.findUnique({ where: { id: "i1" } }),
+      db.item.findUnique({ where: { id: "i2" } }),
+    ]);
+    expect(stored).toHaveLength(2);
+    expect(driver.sent).toHaveLength(2);
   });
 
   test("refuses a call that is not one read", async () => {
@@ -240,7 +421,7 @@ describe("codec(run)", () => {
     const db = client.$extends(
       extension(
         "detach",
-        around(() => (run: Run<unknown, unknown>) => {
+        around(() => <R>(run: Run<unknown, R>): Promise<R> => {
           try {
             codec(run);
           } catch (error) {

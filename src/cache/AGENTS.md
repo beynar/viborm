@@ -5,8 +5,8 @@
 
 ## Purpose
 
-The cache layer owns deterministic read identity, portable detached result
-snapshots, TTL/SWR orchestration, invalidation, and cache-backend storage. It
+The cache layer owns deterministic read identity, portable stored driver
+rows, TTL/SWR orchestration, invalidation, and cache-backend storage. It
 does not own SQL construction, provider execution, core result parsing,
 transaction commit, or query-interceptor application.
 
@@ -33,7 +33,7 @@ Never restore `cache`, `cacheVersion`, or `waitUntil` to `createClient()`.
 | `driver.ts` | Get/set/SWR/invalidation orchestration, the authenticated official scope friend, and the neutral cache facts (outcome list per execution, set-failure placement) the official instrumentation presents |
 | `key.ts` | Canonical keys, official namespace encoding, legacy key helpers |
 | `schema.ts` | Per-read cache options and mutation invalidation options |
-| `query-engine/cache-flow.ts` | Official inner-core read attachment and detached snapshot execution, and the `CacheResultCodec` contract it hands the driver; the codec is composed by `cacheCodec`/`shapeCodec` (`cache/result-codec.ts`) from `query-engine/result/cache-value-codecs.ts`, including `recursiveRelationCodec` for a recursive relation slot |
+| `src/extensions/codec.ts` | `codec(run)`: runs the read keeping the driver's rows for its one statement, stores them as JSON data, and restores the answer through the read's own parser; `cache/result-codec.ts` makes its failures the cache's |
 | `drivers/*` | Backend-only get/set/delete/clear primitives |
 | `client/client.ts` | Authenticated capability lookup and the irreducible client-view/cache trigger points |
 | `src/extensions/query.ts` | The single ordered write-outcome rail used for durability-bound invalidation |
@@ -97,26 +97,28 @@ keys or `*` suffix prefixes. Validate the complete target list before starting
 any delete or clear. By default, `autoInvalidate` clears the entire bound
 official namespace, including cached relation reads; `false` opts out.
 
-## Result snapshots
+## Stored rows
 
-Cache storage never owns provider rows. The official wrapper receives the
-normally parsed core result, snapshots it synchronously before outer query
-post-work, and materializes a fresh graph on every hit. The compiled codec is
-shape-directed and shares raw-column and aggregate-leaf classification with the
-normal result parser. Do not add a generic serializer or route hits back through
-`ResultParser`.
+An entry holds what the DRIVER returned for the read's one statement, its rows,
+as JSON data (`codec(run)`, `src/extensions/codec.ts`). A hit hands those rows
+to the prepared read's own parser, the decoder a driver's answer goes through,
+so a hit is a fresh graph that every scalar, list, relation, recursive and
+gated-field rule decides again, and decimal, date, bytes and JSON leaves are
+built by their one owner. Do not add a walker over the decoded answer.
 
-Snapshots are hostile input on materialization. Exact node kinds, keys,
-cardinality, dimensions, prototypes, and dense-array structure are validated at
-that boundary. Errors expose no cached values. Custom JSON validation runs on
-the provider result only, not again on a hit.
+The encoding is shape-blind: JSON values as they are, and a tagged array for
+what JSON cannot carry — `["n", text]` a bigint, `["d", epoch]` a `Date`,
+`["b", base64]` a `Uint8Array` (a `Buffer` included), `["B", base64]` an
+`ArrayBuffer`, `["f", text]` a non-finite number or `-0` — with every array
+tagged `["a", …]`, so no JSON document can spell a tag. A row value of any
+other kind (a class instance a driver did not normalize) cannot be stored: the
+read answers and the set is recorded as `cache-set-failed`.
 
-Decimal snapshot leaves use the scalar's canonical private logical string. A
-cache entry never stores a `Decimal` instance, its constructor state, or a
-JavaScript number. Materialization validates that text against the compiled
-descriptor and creates a fresh public `Decimal` for each result leaf. Decimal
-lists apply the same rule member by member. Keep this logic in the shape-compiled
-cache result codec; do not add a general-purpose Decimal serializer.
+Stored rows are hostile input on materialization. A value outside that grammar
+is refused before decoding; the decoder then refuses a value outside its
+column's declared domain as it would a driver's. Either refusal is a
+`CacheConfigurationError` (`method: "materialize"`) that exposes no value.
+Columns the read does not decode are ignored, as they are in a driver's answer.
 
 ## SWR
 
@@ -151,7 +153,8 @@ Official caching is bypassed for callback/nested transactions, public array
 transactions, statement-transform chains, safe and unsafe raw operations, and
 the existing no-cache execution context. Query interceptors stay outside the
 cache wrapper, independent of extension declaration order. Cache-managed reads
-are always borrowed and never claim consumable provider rows.
+read object rows, never the positional transport, and are never folded into a
+shared `findUnique` batch: the rows they keep are their own statement's.
 
 ## Instrumentation and privacy
 
@@ -175,7 +178,7 @@ Cache keys and suffixes never reach units, spans, logs, errors, or correlation.
 - KV clamps physical expiry to 60 seconds. CacheDriver enforces logical fresh
   and stale deadlines and the revalidation marker's own age.
 - Official entries verify full canonical identity before materialization; the
-  private snapshot revision is r4. Durable mutations invalidate the complete
+  private snapshot revision is r6 (r6 entries hold driver rows). Durable mutations invalidate the complete
   bound scope by default; `autoInvalidate: false` opts out.
 - Invalidation suppresses earlier fills on the same CacheDriver instance,
   including fills whose backend set finishes late. Generic KV is eventual:

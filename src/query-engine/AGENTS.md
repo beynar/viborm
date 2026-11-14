@@ -149,10 +149,7 @@ unexpected columns and invalid counts raise typed errors; result code never
 substitutes a plausible empty object, array, count or null for malformed
 provider output. Middleware caches stay isolated per driver.
 
-What survives in `result/` outside the route is the CACHE boundary's value
-codecs — `cache-value-codecs.ts`, `cache-json-codec.ts`,
-`cache-snapshot-structure.ts`, which the route's `cacheCodec` composes into the
-`CacheResultCodec` that `cache-flow.ts` declares — plus the result-shape vocabulary
+What survives in `result/` outside the route is the result-shape vocabulary
 (`result-shape.ts`, `result-column.ts`, `result-aggregate-leaf.ts`) that
 `client/typescript-type-renderer.ts` reads. `ExpectedResultShape` remains the
 one runtime source for public TypeScript result rendering: a selected computed
@@ -189,7 +186,6 @@ code on disk.
 | `batch-error-attribution.ts` | attribution of a native-batch assertion failure to the guard that raised it, and the ONE guard-failure-to-error construction |
 | `raptor3/shared/parse-boundary.ts` | the typed parse boundary: the one place a user payload becomes a validated, typed value |
 | `result/groupby-fields.ts` | the groupBy field vocabulary `result/result-shape.ts` reads |
-| `result/cache-*.ts` | the cache boundary's codecs and snapshot structure |
 | `result/result-shape.ts`, `result-column.ts`, `result-aggregate-leaf.ts` | the result-shape vocabulary the client's TypeScript renderer reads; `result-shape.ts` also owns the selection rules the prepared projection shares with it (`selectedArm`, the distance sentences) |
 | `bind-budget.ts`, `execution-context.ts`, `cache-flow.ts`, `query-inspection.ts`, `result-aliases.ts` | retained boundaries outside either engine |
 
@@ -237,8 +233,9 @@ symbol property, public token, or structural protocol grants execution
 authority.
 
 Official cache execution attaches at the prepared operation's inner-core seam,
-inside ordinary query interceptors. It snapshots the parsed core result before
-outer post-work and remains a borrowed-row path. Callback/array transactions,
+inside ordinary query interceptors. It keeps the rows the driver returned for
+the read's one statement (`PreparedOperation.seen`) and answers a hit by
+decoding them again with the read's own parser. Callback/array transactions,
 raw operations, and statement-transform chains bypass cached reads.
 
 ## Core rules

@@ -7,9 +7,10 @@ import { CacheConfigurationError, type Codec } from "../index";
  */
 export function cacheCodec<R>(codec: Codec<R>, operation: string): Codec<R> {
   return {
-    snapshot(input: R): unknown {
+    run: () => codec.run(),
+    snapshot(): unknown {
       try {
-        return codec.snapshot(input);
+        return codec.snapshot();
       } catch (cause) {
         throw new CacheConfigurationError(
           "The operation result cannot be represented by the cache result codec.",

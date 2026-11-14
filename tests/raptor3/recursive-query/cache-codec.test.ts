@@ -1,63 +1,46 @@
-import type { PreparedOperation } from "@query-engine/raptor3/commands";
-
 /**
- * RQ-05 — the live recursive cache codec, entered through the real route.
+ * RQ-05 — a recursive read through the cache, entered through the real client.
  *
- * The live cache path is `routedCodec()` of a routed operation
- * (`raptor3/commands/index.ts`): `cacheCodec` composes one value codec per
- * published shape through `shapeCodec`, from the official owners in
- * `result/cache-value-codecs.ts`. Every route cell below asks THAT codec for a
- * prepared read of an admitted recursive projection, and feeds it values the
- * real decoder published — an executed SQLite read, or synthetic provider rows
- * parsed by the same prepared read (`prepareSingle(…).parseResult`).
+ * The cache stores the rows the driver returned for the read's one statement
+ * and answers a hit with what the engine's own decoder makes of them, exactly
+ * as for a miss (`extensions/codec.ts`). A recursive relation travels in one
+ * column, the carrier the decoder reads (a JSON text on SQLite), so the stored
+ * form holds no occurrence: every fact below is the decoder's, asked again on
+ * each hit.
  *
  * What the cells pin (features-docs/recursive-query.md §3.4 and RQ-05):
  *  - a hit is deep-equal to the miss and shares no object with it, nor with
  *    another hit, at any level — a second recursive slot inside the repeated
  *    node and a junction diamond whose shared row is two objects included —
- *    and the stored snapshot is detached plain data (it survives JSON);
+ *    and a backend that keeps only JSON text serves the same answer;
  *  - a caller mutating a hit's scalar, Date, bytes or JSON leaf, or the miss
  *    after it was stored, does not reach the next hit;
- *  - the numeric cutoff occurrence round-trips with the repeated key ABSENT, a
- *    natural end before it with the key PRESENT (`[]`, or `null` for a singular
- *    slot), and an exhaustive read with the key present on every occurrence;
- *  - a malformed value or snapshot is refused at its boundary: a wrong tuple
- *    width, a missing repeated key, a repeated key where it must be absent;
- *  - a cyclic value or snapshot is refused promptly by the codec's own rule
- *    (the owner cell shows the failure class: never a stack overflow);
- *  - one object reached at two places that do not nest is an alias, not a
- *    cycle: accepted and restored as separate objects (owner cell);
- *  - parsing, snapshot and materialization each hold a chain at the public
- *    depth ceiling (1,000) and an exhaustive chain up to the occurrence budget (10,000)
- *    without depending on the JavaScript call stack.
+ *  - the numeric cutoff occurrence comes back with the repeated key ABSENT, a
+ *    natural end before it with the key PRESENT (`[]`, or `null` for a
+ *    singular slot), and an exhaustive read with the key present on every
+ *    occurrence;
+ *  - a stored carrier the decoder refuses, or a stored value that holds
+ *    itself, is refused at the cache boundary;
+ *  - a chain at the public depth ceiling (1,000) and an exhaustive chain up to
+ *    the occurrence budget (10,000) are stored and served whole.
  *
  * Deep values are compared by iterative walks: `assert.deepStrictEqual` is
- * itself recursive and would measure the assertion, not the codec.
+ * itself recursive and would measure the assertion, not the cache.
  */
 
 import assert from "node:assert/strict";
-import { cacheCodec } from "@cache/result-codec";
+import { CacheDriver, type CacheEntry } from "@cache/driver";
+import { MemoryCache } from "@cache/drivers/memory";
+import { cache } from "@cache/extension";
 import { createClient } from "@client/client";
+import type { QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { CacheConfigurationError } from "@errors";
-import { codecOf } from "@extensions/codec";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
-import { CacheSnapshotFailure } from "@query-engine/result/cache-snapshot-structure";
-import {
-  compileScalarCodec,
-  recordCodec,
-  recursiveRelationCodec,
-  type ValueCodec,
-} from "@query-engine/result/cache-value-codecs";
 import { hydrateSchemaNames, s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import Database from "better-sqlite3";
 import { afterEach, describe, it } from "vitest";
 import { seedCacheWorld } from "./cache-world";
-
-/** The cache's codec of one prepared operation: the codec word, its failures the cache's. */
-const routedCodec = (operation: PreparedOperation) =>
-  cacheCodec(codecOf(operation), operation.requested.operation);
 
 const node = s
   .model({
@@ -103,42 +86,6 @@ afterEach(async () => {
 });
 
 const day = (value: number) => new Date(Date.UTC(2026, 0, value, 8, 30));
-
-/**
- * r → a → a1 → a1x and r → b by foreign key; r → a, r → b, a → d, b → d and
- * d → r by junction — a diamond at d and a cycle back to the root.
- */
-async function world() {
-  const database = new Database(":memory:");
-  const driver = new SQLite3Driver({ client: database });
-  const client = createClient({ schema, driver });
-  closers.push(async () => {
-    await client.$disconnect();
-    database.close();
-  });
-  const migration = await syncLiveSchema(client);
-  if (!migration.applied)
-    throw new Error("the recursive cache schema did not apply");
-  await seedCacheWorld(client, (id, index) => ({
-    bornAt: day(index + 1),
-    meta: { index, nested: { id } },
-    bytes: new Uint8Array([index, 255 - index]),
-  }));
-  const route = createCommandEngine({ schema, driver });
-  return {
-    /** The executed read, through the shipped client: the decoder's own value. */
-    read: (
-      args: Record<string, unknown>,
-      operation: "findMany" | "findUnique" = "findMany"
-    ): Promise<unknown> =>
-      Reflect.apply(client.node[operation], client.node, [args]),
-    /** The live cache codec the route composes for the same read. */
-    codec: (
-      args: Record<string, unknown>,
-      operation: "findMany" | "findUnique" = "findMany"
-    ) => routedCodec(route.prepare("node", operation, args)),
-  };
-}
 
 const LEAVES = {
   id: true,
@@ -230,35 +177,107 @@ function list(value: unknown): unknown[] {
   return value;
 }
 
-/** The value one key holds in a stored record snapshot (`[key, value][]`). */
-const field = (record: unknown, key: string): unknown =>
-  list(
-    list(record).find(
-      (entry: unknown) => Array.isArray(entry) && entry[0] === key
-    )
-  )[1];
-
-/** The stored slot of the first root row's `key` (a findMany snapshot). */
-const storedSlot = (stored: unknown, key: string): unknown[] =>
-  list(field(list(stored)[0], key));
-
-/** A tuple of one stored slot, by position. */
-const tuple = (slot: unknown, index: number): unknown[] =>
-  list(list(slot)[index]);
-
-const SNAPSHOT_REFUSAL = "refused by snapshot of findMany";
-const MATERIALIZE_REFUSAL = "refused by materialize of findMany";
-
-/** Where one codec call ends: accepted, or refused by the named direction. */
-function outcome(run: () => unknown): string {
-  try {
-    run();
-    return "accepted";
-  } catch (error) {
-    return error instanceof CacheConfigurationError
-      ? `refused by ${String(error.meta.method)} of ${String(error.meta.operation)}`
-      : `failed with ${String(error)}`;
+/** Answers the next read with `rows` in place of the database's. */
+class ScriptedSQLiteDriver extends SQLite3Driver {
+  next: Record<string, unknown>[] | undefined;
+  protected override async execute<T>(
+    client: Database.Database,
+    statement: string,
+    parameters: unknown[]
+  ): Promise<QueryResult<T>> {
+    const rows = this.next;
+    this.next = undefined;
+    return rows === undefined
+      ? super.execute<T>(client, statement, parameters)
+      : { rows: rows as T[], rowCount: rows.length };
   }
+}
+
+/** A backend that keeps only JSON text, and lets a cell rewrite what it reads. */
+class JsonCache extends CacheDriver {
+  readonly store = new Map<string, string>();
+  rewrite: ((value: unknown) => unknown) | undefined;
+  constructor() {
+    super("json");
+  }
+  protected async get<T>(key: string): Promise<CacheEntry<T> | null> {
+    const text = this.store.get(key);
+    if (text === undefined) return null;
+    const entry = JSON.parse(text);
+    const rewrite = this.rewrite;
+    this.rewrite = undefined;
+    return rewrite ? { ...entry, value: rewrite(entry.value) } : entry;
+  }
+  protected async set<T>(
+    key: string,
+    _ttl: number,
+    entry: CacheEntry<T>
+  ): Promise<void> {
+    this.store.set(key, JSON.stringify(entry));
+  }
+  protected async delete(keys: string[]): Promise<void> {
+    for (const key of keys) this.store.delete(key);
+  }
+  protected async clear(prefix: string): Promise<void> {
+    for (const key of [...this.store.keys()])
+      if (key.startsWith(prefix)) this.store.delete(key);
+  }
+}
+
+/** Lets the background set of a miss land before the next read. */
+const settle = () => new Promise((resolve) => setTimeout(resolve, 5));
+
+type Operation = "findMany" | "findUnique";
+
+/**
+ * r → a → a1 → a1x and r → b by foreign key; r → a, r → b, a → d, b → d and
+ * d → r by junction — a diamond at d and a cycle back to the root. `read`
+ * reads without the cache; `cached` reads through a memory backend, `json`
+ * through a backend that keeps JSON text only.
+ */
+async function world() {
+  const database = new Database(":memory:");
+  const driver = new ScriptedSQLiteDriver({ client: database });
+  const client = createClient({ schema, driver });
+  closers.push(async () => {
+    await client.$disconnect();
+    database.close();
+  });
+  const migration = await syncLiveSchema(client);
+  if (!migration.applied)
+    throw new Error("the recursive cache schema did not apply");
+  await seedCacheWorld(client, (id, index) => ({
+    bornAt: day(index + 1),
+    meta: { index, nested: { id } },
+    bytes: new Uint8Array([index, 255 - index]),
+  }));
+  const backend = new JsonCache();
+  const through = (driverOf: CacheDriver) => {
+    const reader = client.$extends(cache({ driver: driverOf })).$withCache();
+    return async (
+      args: Record<string, unknown>,
+      operation: Operation = "findMany"
+    ): Promise<unknown> => {
+      const value: unknown = await Reflect.apply(
+        reader.node[operation],
+        reader.node,
+        [args]
+      );
+      await settle();
+      return value;
+    };
+  };
+  return {
+    driver,
+    backend,
+    read: (
+      args: Record<string, unknown>,
+      operation: Operation = "findMany"
+    ): Promise<unknown> =>
+      Reflect.apply(client.node[operation], client.node, [args]),
+    cached: through(new MemoryCache()),
+    json: through(backend),
+  };
 }
 
 /**
@@ -313,61 +332,63 @@ function chainSummary(rows: unknown): {
   return { levels, end: occurrences.length === 0 ? "empty" : "malformed" };
 }
 
+/** Where a read ends: answered, or refused by the cache at `method`. */
+async function outcome(read: Promise<unknown>): Promise<string> {
+  try {
+    await read;
+    return "answered";
+  } catch (error) {
+    return error instanceof CacheConfigurationError
+      ? `refused by ${String(error.meta.method)} of ${String(error.meta.operation)}`
+      : `failed with ${String(error)}`;
+  }
+}
+
 /**
- * Parse, snapshot and materialize one deep chain, each phase on its own, and
- * answer what each phase published and its wall time (read back through the
- * JSON reporter's `meta`). Parsing never reaches the database, so the route
- * needs no seeded world.
+ * A deep chain through the cache: the driver answers the miss with the
+ * synthetic carrier row, the hit is the stored rows decoded again. What each
+ * published, and the wall time of each read (read back through the JSON
+ * reporter's `meta`).
  */
-function deepChain(levels: number, depth: number | false) {
+async function deepChain(levels: number, depth: number | false) {
   const database = new Database(":memory:");
+  const driver = new ScriptedSQLiteDriver({ client: database });
+  const client = createClient({ schema, driver });
   closers.push(async () => {
+    await client.$disconnect();
     database.close();
   });
-  const route = createCommandEngine({
-    schema,
-    driver: new SQLite3Driver({ client: database }),
-  });
-  const operation = route.prepare("node", "findMany", {
-    where: { id: "root" },
-    select: {
-      id: true,
-      children: { recurse: { depth }, select: { id: true } },
-    },
-  });
-  const codec = routedCodec(operation);
-  const prepared = operation.prepareSingle({
-    model: "node",
-    operation: "findMany",
-  });
-  if (!prepared) throw new Error("a recursive read prepares one statement");
-  const row = chainRow(levels, depth !== false);
-  // Parsing: the prepared read's own decoder over the provider rows.
+  const reader = client.$extends(cache({ driver: new MemoryCache() }));
+  const read = () =>
+    reader.$withCache().node.findMany({
+      where: { id: "root" },
+      select: {
+        id: true,
+        children: { recurse: { depth }, select: { id: true } },
+      },
+    });
+  driver.next = [chainRow(levels, depth !== false)];
   let started = performance.now();
-  const parsed = prepared.parseResult([{ rows: [row], rowCount: 1 }]);
-  const parse = performance.now() - started;
-  // Snapshot, then materialization, each through the live route codec.
+  const miss = await read();
+  const missMs = performance.now() - started;
+  await settle();
   started = performance.now();
-  const stored = codec.snapshot(parsed);
-  const snapshot = performance.now() - started;
-  started = performance.now();
-  const hit = codec.materialize(stored);
-  const materialize = performance.now() - started;
+  const hit = await read();
+  const hitMs = performance.now() - started;
   return {
-    parsed: chainSummary(parsed),
+    miss: chainSummary(miss),
     hit: chainSummary(hit),
-    shared: sharedObject(parsed, hit),
-    phaseMs: { parse, snapshot, materialize },
+    shared: sharedObject(miss, hit),
+    phaseMs: { miss: missMs, hit: hitMs },
   };
 }
 
-describe("RQ-05 live recursive cache codec", () => {
+describe("RQ-05 a recursive read through the cache", () => {
   it("answers a hit deep-equal to the miss with no shared object at any level", async () => {
-    const { read, codec: codecFor } = await world();
-    const codec = codecFor(RICH);
-    const miss = (await read(RICH)) as Occurrence[];
+    const { cached, json } = await world();
+    const miss = (await cached(RICH)) as Occurrence[];
 
-    // The miss is the decoder's own value: the facts the codec must keep.
+    // The miss is the decoder's own value: the facts a hit must keep.
     const [root] = miss;
     assert(root?.children && root.links);
     const [a, b] = root.children;
@@ -381,9 +402,8 @@ describe("RQ-05 live recursive cache codec", () => {
     assert.equal(viaB?.id, "d");
     assert.notEqual(viaA, viaB);
 
-    const stored = codec.snapshot(miss);
-    const first = codec.materialize(stored);
-    const second = codec.materialize(stored);
+    const first = await cached(RICH);
+    const second = await cached(RICH);
     assert.deepStrictEqual(first, miss);
     assert.deepStrictEqual(second, miss);
     assert.equal(sharedObject(miss, first), undefined);
@@ -395,20 +415,16 @@ describe("RQ-05 live recursive cache codec", () => {
       hit[0]?.links?.[1]?.links?.[0]
     );
     // The stored form is plain detached data: a JSON backend round-trips it.
-    assert.deepStrictEqual(
-      codec.materialize(JSON.parse(JSON.stringify(stored))),
-      miss
-    );
+    assert.deepStrictEqual(await json(RICH), miss);
+    assert.deepStrictEqual(await json(RICH), miss);
   });
 
   it("keeps a caller's mutation of a hit or of the miss out of the next hit", async () => {
-    const { read, codec: codecFor } = await world();
-    const codec = codecFor(RICH);
-    const miss = (await read(RICH)) as Occurrence[];
+    const { cached } = await world();
+    const miss = (await cached(RICH)) as Occurrence[];
     const pristine = structuredClone(miss);
-    const stored = codec.snapshot(miss);
 
-    const hit = codec.materialize(stored) as Occurrence[];
+    const hit = (await cached(RICH)) as Occurrence[];
     const root = hit[0];
     const child = root?.children?.[0];
     const grandchild = child?.children?.[0];
@@ -432,14 +448,11 @@ describe("RQ-05 live recursive cache codec", () => {
     missChild.meta.nested.id = "miss-caller";
     missChild.bornAt.setTime(0);
 
-    const next = codec.materialize(stored);
-    assert.deepStrictEqual(next, pristine);
+    assert.deepStrictEqual(await cached(RICH), pristine);
   });
 
-  it("round-trips the cutoff key's absence and the natural end's presence", async () => {
-    const { read, codec: codecFor } = await world();
-
-    const bounded = await read(BOUNDED);
+  it("serves the cutoff key's absence and the natural end's presence", async () => {
+    const { cached } = await world();
     const boundedExpected = [
       {
         id: "r",
@@ -449,11 +462,8 @@ describe("RQ-05 live recursive cache codec", () => {
         ],
       },
     ];
-    assert.deepStrictEqual(bounded, boundedExpected);
-    const boundedCodec = codecFor(BOUNDED);
-    const boundedHit = boundedCodec.materialize(
-      boundedCodec.snapshot(bounded)
-    ) as Occurrence[];
+    assert.deepStrictEqual(await cached(BOUNDED), boundedExpected);
+    const boundedHit = (await cached(BOUNDED)) as Occurrence[];
     assert.deepStrictEqual(boundedHit, boundedExpected);
     const [a, b] = boundedHit[0]?.children ?? [];
     assert(a?.children && b);
@@ -462,7 +472,6 @@ describe("RQ-05 live recursive cache codec", () => {
     // Level 1 is before it: a node with no child states the empty end.
     assert.equal(Object.hasOwn(b, "children"), true);
 
-    const exhaustive = await read(EXHAUSTIVE);
     const exhaustiveExpected = [
       {
         id: "r",
@@ -475,16 +484,12 @@ describe("RQ-05 live recursive cache codec", () => {
         ],
       },
     ];
-    assert.deepStrictEqual(exhaustive, exhaustiveExpected);
-    const exhaustiveCodec = codecFor(EXHAUSTIVE);
-    assert.deepStrictEqual(
-      exhaustiveCodec.materialize(exhaustiveCodec.snapshot(exhaustive)),
-      exhaustiveExpected
-    );
+    assert.deepStrictEqual(await cached(EXHAUSTIVE), exhaustiveExpected);
+    assert.deepStrictEqual(await cached(EXHAUSTIVE), exhaustiveExpected);
   });
 
-  it("round-trips a singular slot's null at the outer slot and at a natural end", async () => {
-    const { read, codec: codecFor } = await world();
+  it("serves a singular slot's null at the outer slot and at a natural end", async () => {
+    const { read, cached } = await world();
     const upward = (id: string, recurse: unknown) => ({
       where: { id },
       select: { id: true, parent: { recurse, select: { id: true } } },
@@ -502,300 +507,105 @@ describe("RQ-05 live recursive cache codec", () => {
       [upward("a1x", { depth: 1 }), [{ id: "a1x", parent: { id: "a1" } }]],
     ];
     for (const [args, expected] of cases) {
-      const value = await read(args);
-      assert.deepStrictEqual(value, expected);
-      const codec = codecFor(args);
-      assert.deepStrictEqual(
-        codec.materialize(codec.snapshot(value)),
-        expected
-      );
+      assert.deepStrictEqual(await read(args), expected);
+      assert.deepStrictEqual(await cached(args), expected);
+      assert.deepStrictEqual(await cached(args), expected);
     }
 
     // The same slot under a single-row verb, whose own absence is `null` too.
     const unique = upward("a1x", true);
-    const one = await read(unique, "findUnique");
-    assert.deepStrictEqual(one, fromLeaf);
-    const uniqueCodec = codecFor(unique, "findUnique");
-    assert.deepStrictEqual(
-      uniqueCodec.materialize(uniqueCodec.snapshot(one)),
-      one
-    );
-    assert.equal(uniqueCodec.materialize(uniqueCodec.snapshot(null)), null);
+    assert.deepStrictEqual(await cached(unique, "findUnique"), fromLeaf);
+    assert.deepStrictEqual(await cached(unique, "findUnique"), fromLeaf);
+    const missing = upward("zz", true);
+    assert.equal(await cached(missing, "findUnique"), null);
+    assert.equal(await cached(missing, "findUnique"), null);
   });
 
-  it("refuses a malformed value or snapshot at its own boundary", async () => {
-    const { read, codec: codecFor } = await world();
-    const bounded = (await read(BOUNDED)) as Occurrence[];
-    const boundedCodec = codecFor(BOUNDED);
-    const stored = boundedCodec.snapshot(bounded);
-
-    // Value → snapshot: the repeated key is exact at every level.
-    const missingKey = structuredClone(bounded);
-    Reflect.deleteProperty(missingKey[0]?.children?.[0] ?? {}, "children");
-    assert.equal(
-      outcome(() => boundedCodec.snapshot(missingKey)),
-      SNAPSHOT_REFUSAL
-    );
-    const keyPastCutoff = structuredClone(bounded);
-    const cutoffNode = keyPastCutoff[0]?.children?.[0]?.children?.[0];
-    assert(cutoffNode);
-    cutoffNode.children = [];
-    assert.equal(
-      outcome(() => boundedCodec.snapshot(keyPastCutoff)),
-      SNAPSHOT_REFUSAL
-    );
-    const unknownKey = structuredClone(bounded);
-    Reflect.set(unknownKey[0]?.children?.[1] ?? {}, "extra", "x");
-    assert.equal(
-      outcome(() => boundedCodec.snapshot(unknownKey)),
-      SNAPSHOT_REFUSAL
-    );
-
-    const exhaustive = (await read(EXHAUSTIVE)) as Occurrence[];
-    const exhaustiveCodec = codecFor(EXHAUSTIVE);
-    const openEnd = structuredClone(exhaustive);
-    Reflect.deleteProperty(openEnd[0]?.children?.[1] ?? {}, "children");
-    assert.equal(
-      outcome(() => exhaustiveCodec.snapshot(openEnd)),
-      SNAPSHOT_REFUSAL
-    );
-
-    // Snapshot → value: the tuple width states the level's own fact.
-    const narrowed = structuredClone(stored);
-    tuple(storedSlot(narrowed, "children"), 0).splice(1);
-    assert.equal(
-      outcome(() => boundedCodec.materialize(narrowed)),
-      MATERIALIZE_REFUSAL
-    );
-    const widened = structuredClone(stored);
-    tuple(tuple(storedSlot(widened, "children"), 0)[1], 0).push([]);
-    assert.equal(
-      outcome(() => boundedCodec.materialize(widened)),
-      MATERIALIZE_REFUSAL
-    );
-    const emptied = structuredClone(stored);
-    storedSlot(emptied, "children")[1] = [];
-    assert.equal(
-      outcome(() => boundedCodec.materialize(emptied)),
-      MATERIALIZE_REFUSAL
-    );
-    // The repeated key cannot hide in the node's own record either.
-    const smuggled = structuredClone(stored);
-    const cutoffRow = tuple(
-      tuple(storedSlot(smuggled, "children"), 0)[1],
-      0
-    )[0];
-    assert(Array.isArray(cutoffRow));
-    cutoffRow.push(["children", []]);
-    assert.equal(
-      outcome(() => boundedCodec.materialize(smuggled)),
-      MATERIALIZE_REFUSAL
-    );
-    const notASlot = structuredClone(stored);
-    tuple(storedSlot(notASlot, "children"), 1)[1] = "[]";
-    assert.equal(
-      outcome(() => boundedCodec.materialize(notASlot)),
-      MATERIALIZE_REFUSAL
-    );
-
-    // A singular slot is one node or its permitted null, never a list.
-    const upward = {
-      where: { id: "a1" },
-      select: { id: true, parent: { recurse: true, select: { id: true } } },
-    };
-    const singular = (await read(upward)) as Occurrence[];
-    const singularCodec = codecFor(upward);
-    const listed = structuredClone(singular);
-    Reflect.set(listed[0] ?? {}, "parent", [singular[0]?.parent]);
-    assert.equal(
-      outcome(() => singularCodec.snapshot(listed)),
-      SNAPSHOT_REFUSAL
-    );
-    const singularStored = singularCodec.snapshot(singular);
-    const emptyNode = structuredClone(singularStored);
-    assert(Array.isArray(emptyNode));
-    const rootRow = emptyNode[0];
-    assert(Array.isArray(rootRow));
-    const parentEntry = rootRow.find(
-      (entry: unknown) => Array.isArray(entry) && entry[0] === "parent"
-    );
-    assert(Array.isArray(parentEntry));
-    parentEntry[1] = [];
-    assert.equal(
-      outcome(() => singularCodec.materialize(emptyNode)),
-      MATERIALIZE_REFUSAL
-    );
-  });
-
-  it("refuses a cyclic value or a cyclic snapshot promptly", async () => {
-    const { read, codec: codecFor } = await world();
-    const codec = codecFor(EXHAUSTIVE);
-
-    // A published occurrence that contains its own ancestor.
-    const cyclic = (await read(EXHAUSTIVE)) as Occurrence[];
-    const ancestor = cyclic[0]?.children?.[0];
-    const leaf = ancestor?.children?.[0]?.children?.[0];
-    assert(ancestor && leaf);
-    leaf.children = [ancestor];
-    assert.equal(
-      outcome(() => codec.snapshot(cyclic)),
-      SNAPSHOT_REFUSAL
-    );
-
-    // A JSON leaf that holds the occurrence carrying it.
-    const richCodec = codecFor(RICH);
-    const rich = (await read(RICH)) as Occurrence[];
-    const holder = rich[0]?.children?.[0];
-    assert(holder);
-    Reflect.set(holder.meta, "self", holder);
-    assert.equal(
-      outcome(() => richCodec.snapshot(rich)),
-      SNAPSHOT_REFUSAL
-    );
-
-    // A stored tuple whose slot re-enters its own ancestor tuple.
-    const stored = codec.snapshot(await read(EXHAUSTIVE));
-    const loop = structuredClone(stored);
-    const top = tuple(storedSlot(loop, "children"), 0);
-    const bottom = tuple(tuple(top[1], 0)[1], 0);
-    bottom[1] = [top];
-    assert.equal(
-      outcome(() => codec.materialize(loop)),
-      MATERIALIZE_REFUSAL
-    );
-  });
-
-  it("refuses with its own failure class, never a stack overflow (owner)", () => {
-    // The route boundary redacts a refusal's cause, so the class is read at
-    // the structural owner, composed exactly as `shapeCodec` composes it.
-    const text = compileScalarCodec(s.string(), false);
-    const row = recordCodec(new Map<string, ValueCodec>([["id", text]]));
-    const many = recursiveRelationCodec(
-      { relation: "children", many: true, optional: false, depth: false },
-      row
-    );
-    const cyclic: { id: string; children: unknown[] }[] = [
-      { id: "n1", children: [] },
-    ];
-    const first = cyclic[0];
-    assert(first);
-    first.children.push({ id: "n2", children: [first] });
-    assert.throws(
-      () => many.snapshot(cyclic, new WeakSet<object>()),
-      CacheSnapshotFailure
-    );
-    const storedTop: unknown[] = [[["id", "n1"]]];
-    storedTop.push([[[["id", "n2"]], [storedTop]]]);
-    assert.throws(
-      () => many.materialize([storedTop], new WeakSet<object>()),
-      CacheSnapshotFailure
-    );
-
-    // A required singular slot has no null end: unreachable through an
-    // admitted schema today (CM002 refuses a non-nullable self foreign key),
-    // so the prepared `optional` fact is pinned here, at its consumer.
-    const required = recursiveRelationCodec(
-      { relation: "next", many: false, optional: false, depth: false },
-      row
-    );
-    assert.throws(
-      () => required.snapshot(null, new WeakSet<object>()),
-      CacheSnapshotFailure
-    );
-    assert.throws(
-      () => required.materialize(null, new WeakSet<object>()),
-      CacheSnapshotFailure
-    );
-    const optional = recursiveRelationCodec(
-      { relation: "next", many: false, optional: true, depth: false },
-      row
-    );
-    assert.equal(optional.snapshot(null, new WeakSet<object>()), null);
-    assert.equal(optional.materialize(null, new WeakSet<object>()), null);
-
-    // A primitive where a slot or an occurrence belongs is the owner's own
-    // refusal too — never the active set's TypeError.
-    for (const input of ["x", ["x"], [null]]) {
-      assert.throws(
-        () => many.snapshot(input, new WeakSet<object>()),
-        CacheSnapshotFailure
-      );
-      assert.throws(
-        () => many.materialize(input, new WeakSet<object>()),
-        CacheSnapshotFailure
-      );
+  it("refuses a stored carrier the decoder refuses, at the cache boundary", async () => {
+    const { json, backend } = await world();
+    await json(BOUNDED);
+    /** The stored root row's carrier, rewritten by `edit`. */
+    const corrupt =
+      (edit: (carrier: Record<string, unknown[]>) => void) =>
+      (value: unknown): unknown => {
+        const [row] = list(value);
+        const carrier = JSON.parse(
+          String(Reflect.get(new Object(row), "children"))
+        );
+        edit(carrier);
+        return [{ ...new Object(row), children: JSON.stringify(carrier) }];
+      };
+    const refused = "refused by materialize of findMany";
+    for (const edit of [
+      // A key tuple of the wrong width.
+      (carrier: Record<string, unknown[]>) => {
+        carrier.__rq_root = ["r", "extra"];
+      },
+      // An edge deeper than the cutoff.
+      (carrier: Record<string, unknown[]>) => {
+        for (const edge of carrier.__rq_edges ?? [])
+          Reflect.set(edge as object, "__rq_depth", 9);
+      },
+      // A node that is no document.
+      (carrier: Record<string, unknown[]>) => {
+        carrier.__rq_nodes = ["x"];
+      },
+    ]) {
+      backend.rewrite = corrupt(edit);
+      assert.equal(await outcome(json(BOUNDED)), refused);
     }
-    assert.throws(
-      () => optional.snapshot("x", new WeakSet<object>()),
-      CacheSnapshotFailure
-    );
+    // The rows themselves: a carrier that is not text, and no rows' list.
+    backend.rewrite = () => [{ id: "r", children: 1 }];
+    assert.equal(await outcome(json(BOUNDED)), refused);
+    backend.rewrite = () => ({ id: "r" });
+    assert.equal(await outcome(json(BOUNDED)), refused);
+    // Left alone, the entry is served again.
+    assert.equal(await outcome(json(BOUNDED)), "answered");
   });
 
-  it("restores one object reached at two places as two occurrences (owner)", () => {
-    // The walker leaves an occurrence once it is written — at the cutoff, or
-    // when its own slot completes — as `withSnapshotObject` leaves an object:
-    // one object at two places that do not nest is an alias, not a cycle.
-    const text = compileScalarCodec(s.string(), false);
-    const tree = recursiveRelationCodec(
-      { relation: "children", many: true, optional: false, depth: 2 },
-      recordCodec(new Map<string, ValueCodec>([["id", text]]))
-    );
-    const restore = (value: unknown): unknown =>
-      tree.materialize(
-        tree.snapshot(value, new WeakSet<object>()),
-        new WeakSet<object>()
-      );
-    const x = { id: "x" };
-    const y = { id: "y", children: [] };
-    const t = [[["id", "x"]]];
-    const aliases = [
-      // One cutoff occurrence at both places of its slot.
-      () => restore([{ id: "a", children: [x, x] }]),
-      // One continued occurrence, twice: its slot completed in between.
-      () => restore([y, y]),
-      // One stored cutoff tuple at both places of its slot.
-      () => tree.materialize([[[["id", "a"]], [t, t]]], new WeakSet<object>()),
-    ];
-    // Every alias is accepted: one outcome per alias, recorded together.
-    assert.deepEqual(
-      aliases.map((run) => outcome(run)),
-      ["accepted", "accepted", "accepted"]
-    );
-    const [cutoff, continued, stored] = aliases.map((run) => run()) as {
-      id: string;
-      children?: object[];
-    }[][];
-    const twoX = [{ id: "a", children: [{ id: "x" }, { id: "x" }] }];
-    assert.deepStrictEqual(cutoff, twoX);
-    assert.notEqual(cutoff?.[0]?.children?.[0], cutoff?.[0]?.children?.[1]);
-    assert.deepStrictEqual(continued, [
-      { id: "y", children: [] },
-      { id: "y", children: [] },
-    ]);
-    assert.notEqual(continued?.[0], continued?.[1]);
-    assert.notEqual(continued?.[0]?.children, continued?.[1]?.children);
-    assert.deepStrictEqual(stored, twoX);
-    assert.notEqual(stored?.[0]?.children?.[0], stored?.[0]?.children?.[1]);
+  it("refuses a stored value that holds itself, promptly", async () => {
+    const memory = new MemoryCache();
+    const { driver } = await world();
+    const client = createClient({ schema, driver });
+    closers.push(() => client.$disconnect());
+    const reader = client.$extends(cache({ driver: memory })).$withCache();
+    const read = (): Promise<unknown> =>
+      Reflect.apply(reader.node.findMany, reader.node, [BOUNDED]);
+    await read();
+    await settle();
+    // A backend that hands back an object containing itself: no JSON text
+    // can, an in-memory one can.
+    const original = Reflect.get(memory, "get");
+    Reflect.set(memory, "get", async (key: string) => {
+      const entry = await Reflect.apply(original, memory, [key]);
+      if (entry === null) return entry;
+      const row: Record<string, unknown> = { id: "r" };
+      row.children = row;
+      return { ...entry, value: [row] };
+    });
+    const started = performance.now();
+    assert.equal(await outcome(read()), "refused by materialize of findMany");
+    assert.ok(performance.now() - started < 1000);
   });
 
-  it("parses, stores and restores a chain at the 1,000-level depth ceiling", ({
+  it("stores and serves a chain at the 1,000-level depth ceiling", async ({
     task,
   }) => {
-    const chain = deepChain(1000, 1000);
+    const chain = await deepChain(1000, 1000);
     Object.assign(task.meta, { phaseMs: chain.phaseMs });
-    // Level 1,000 is the cutoff: its repeated key is absent after each phase.
-    assert.deepEqual(chain.parsed, { levels: 1000, end: "cutoff" });
+    // Level 1,000 is the cutoff: its repeated key is absent on both reads.
+    assert.deepEqual(chain.miss, { levels: 1000, end: "cutoff" });
     assert.deepEqual(chain.hit, { levels: 1000, end: "cutoff" });
     assert.equal(chain.shared, undefined);
   });
 
-  it("parses, stores and restores an exhaustive chain of 10,000 levels", ({
+  it("stores and serves an exhaustive chain of 10,000 levels", async ({
     task,
   }) => {
-    const chain = deepChain(10_000, false);
+    const chain = await deepChain(10_000, false);
     Object.assign(task.meta, { phaseMs: chain.phaseMs });
     // Exhaustive: the key is present to the natural end, which is empty.
-    assert.deepEqual(chain.parsed, { levels: 10_000, end: "empty" });
+    assert.deepEqual(chain.miss, { levels: 10_000, end: "empty" });
     assert.deepEqual(chain.hit, { levels: 10_000, end: "empty" });
     assert.equal(chain.shared, undefined);
   });

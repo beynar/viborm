@@ -210,7 +210,6 @@ export function cache(config: CacheExtensionConfig): unknown {
           const id = key(run);
           if (id === undefined) return run();
           return serveOfficialRead(driver, {
-            run,
             id,
             codec: cacheCodec(codec(run), c.operation),
             read,
