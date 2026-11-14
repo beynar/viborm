@@ -20,10 +20,8 @@ import type {
 import type { RawSurface } from "@client/raw";
 import type { ClientSchema, LinkedClientConfig } from "@client/schema-links";
 import type {
-  CacheableOperations,
   ClientRowsContext,
   ContextualOperationResult,
-  MutationOperations,
   OperationPayload,
   Operations,
 } from "@client/types";
@@ -1381,8 +1379,9 @@ export type TargetOf<Of> =
         >
       : never;
 
-/** The operation sets `on`, `.on(...)` and `.required(...)` take. */
-export type ReadOperations = CacheableOperations;
-export type WriteOperations = MutationOperations;
+/**
+ * The operation sets `target`, `.on(...)` and `.required(...)` take, beside
+ * the client's `CacheableOperations` (reads) and `MutationOperations` (writes).
+ */
 export type DeleteOperations = "delete" | "deleteMany";
 export type SelectingOperations = Exclude<Operations, "create" | "createMany">;

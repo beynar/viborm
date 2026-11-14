@@ -5,7 +5,11 @@
  * data; the part that reads it resolves it against the schema it is joined
  * to. The types refuse an operation or a model a client does not have.
  */
-import type { Operations } from "@client/types";
+import type {
+  CacheableOperations,
+  MutationOperations,
+  Operations,
+} from "@client/types";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import type { ExtensionPart } from "./chain";
 import type {
@@ -13,10 +17,8 @@ import type {
   DeleteOperations,
   ModelName,
   OperationSet,
-  ReadOperations,
   SelectingOperations,
   Selection,
-  WriteOperations,
 } from "./contract";
 import { watchPart } from "./watch-part";
 
@@ -45,7 +47,7 @@ function set(
 export const MODEL_OPERATIONS: ReadonlySet<string> = ROUTED_OPERATIONS;
 
 /** Every read. */
-export const reads = /* @__PURE__ */ set<ReadOperations>([
+export const reads = /* @__PURE__ */ set<CacheableOperations>([
   "findMany",
   "findUnique",
   "findFirst",
@@ -57,7 +59,7 @@ export const reads = /* @__PURE__ */ set<ReadOperations>([
   "exist",
 ]);
 /** Every write: a `call` on them may `watch` its rows and be `settled`. */
-export const writes = /* @__PURE__ */ set<WriteOperations>(
+export const writes = /* @__PURE__ */ set<MutationOperations>(
   [
     "create",
     "update",
