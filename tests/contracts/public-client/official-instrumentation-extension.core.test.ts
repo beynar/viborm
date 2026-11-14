@@ -20,7 +20,7 @@ import {
   unit,
 } from "@src/index";
 import { instrumentation } from "@src/instrumentation/exports";
-import { appendResolvedExtension } from "@tests/fixtures/host-definition";
+import { appendExtension } from "@tests/fixtures/extension-chain";
 import {
   captureLogs,
   withOtelRecorder,
@@ -210,7 +210,7 @@ describe("official instrumentation extension construction", () => {
     const diagnostics = instrumentation({
       diagnostics: { includeSql: true },
     });
-    const chain = appendResolvedExtension(undefined, diagnostics, schema);
+    const chain = appendExtension(undefined, diagnostics, schema);
     // Its disclosure part alone: no unit handler, so no unit is ever built.
     expect(chain.observation).toBeUndefined();
     expect(chain.disclosure).toMatchObject({ includeSql: true });

@@ -39,7 +39,7 @@ import {
   type InstrumentationConfig,
   instrumentation,
 } from "@src/instrumentation/exports";
-import { appendResolvedExtension } from "@tests/fixtures/host-definition";
+import { appendExtension } from "@tests/fixtures/extension-chain";
 import {
   captureLogs,
   type OtelRecorder,
@@ -70,8 +70,8 @@ function observedContext(
   values: QueryExecutionContext,
   companion?: unknown
 ): QueryExecutionContext {
-  let chain = appendResolvedExtension(undefined, instrumentation(config), {});
-  if (companion) chain = appendResolvedExtension(chain, companion, {});
+  let chain = appendExtension(undefined, instrumentation(config), {});
+  if (companion) chain = appendExtension(chain, companion, {});
   return createExecutionContext(values, undefined, chain);
 }
 

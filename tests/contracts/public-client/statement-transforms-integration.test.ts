@@ -20,7 +20,7 @@ import {
   BatchOnlyPGliteDriver,
   usePGliteSchemaFamily,
 } from "@tests/fixtures/drivers/pglite";
-import { appendResolvedExtension } from "@tests/fixtures/host-definition";
+import { appendExtension } from "@tests/fixtures/extension-chain";
 import { readTestTransactionOperation } from "@tests/fixtures/transaction-operation";
 import { afterEach, describe, expect, onTestFinished, test, vi } from "vitest";
 
@@ -449,7 +449,7 @@ describe("integrated statement transforms", () => {
     const driver = new DispatchRecordingDriver({ client: database, namespace });
     onTestFinished(() => driver.disconnect());
     const calls: StatementCall[] = [];
-    const chain = appendResolvedExtension(
+    const chain = appendExtension(
       undefined,
       recordingExtension("trusted", raw("/* trusted */ "), calls),
       schema

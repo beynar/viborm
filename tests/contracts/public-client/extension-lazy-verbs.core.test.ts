@@ -27,7 +27,6 @@ import {
   parts,
   when,
 } from "@src/index";
-import { appendResolvedExtension } from "@tests/fixtures/host-definition";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { v } from "@validation";
 import { afterEach, beforeEach, expect, test } from "vitest";
@@ -304,26 +303,20 @@ test("an entry that resolves to anything but an object is refused on first use",
   );
 });
 
-test("reading a model's verbs resolves its entry alone", () => {
+test("a call reads its own model's entry alone, written lazily in the rule itself", async () => {
   const resolved: string[] = [];
   const entry = (model: string) => () => {
     resolved.push(model);
     return readOnly({});
   };
-  const chain = appendResolvedExtension(
-    undefined,
+  const db = base.$extends(
     extension(
       "lazy",
       typed.rule({ node: lazy(entry("node")), note: lazy(entry("note")) })
-    ),
-    schema
+    )
   );
-  const { domain } = chain.callRows!.call("node", undefined);
-  const verbs = domain.verbs!;
-  expect(verbs.has("node")).toBe(true);
-  expect(verbs.has("missing")).toBe(false);
   expect(resolved).toEqual([]);
-  expect(verbs.get("note")?.[0]?.read).toEqual({});
+  expect(ids(await db.note!.findMany())).toEqual(["n1", "n2"]);
   expect(resolved).toEqual(["note"]);
 });
 
@@ -387,30 +380,44 @@ test("a cached read keys an eager entry's function acyclic, and lazy rows by the
   expect(resolved).toBe(1);
 });
 
-test("a mode and a lazy entry that read only the call's instant name no argument but the mode, and their calls carry their scope", () => {
+test("a mode and a lazy entry that read only the call's instant name no argument but the mode, and their calls carry their scope", async () => {
   const event = s.model({ id: s.string().id(), at: s.dateTime() });
   const past = { at: { lte: now } };
   const instantSchema = { event };
   const instant = parts<typeof instantSchema>();
-  const chain = appendResolvedExtension(
-    undefined,
-    instant.extension(
-      "instant",
-      instant.args({ when: oneOf("past").default("past") }),
-      instant.rule({ event: { root: when(arg("when"), "past", past) } }),
-      instant.rule({
-        event: lazy(() => ({
-          read: { where: past },
-          update: { where: only(nothing) },
-          delete: { where: only(nothing) },
-        })),
-      })
-    ),
-    instantSchema
-  );
-  const called = chain.callRows!.call("event", undefined);
-  expect(called.values).toBeDefined();
-  expect(called.domain.verbs!.get("event")).toHaveLength(1);
+  const plain = createClient({ schema: instantSchema, dataDir: ":memory:" });
+  try {
+    await syncLiveSchema(plain);
+    await plain.event.createMany({
+      data: [
+        { id: "past", at: new Date(Date.now() - 86_400_000) },
+        { id: "future", at: new Date(Date.now() + 86_400_000) },
+      ],
+    });
+    const db = plain.$extends(
+      instant.extension(
+        "instant",
+        instant.args({ when: oneOf("past").default("past") }),
+        instant.rule({ event: { root: when(arg("when"), "past", past) } }),
+        instant.rule({
+          event: lazy(() => ({
+            read: { where: past },
+            update: { where: only(nothing) },
+            delete: { where: only(nothing) },
+          })),
+        })
+      )
+    );
+    // Neither the mode's filter nor the lazy entry is handed an argument:
+    // each reads the call's instant, which the call carries all the same.
+    expect(ids(await db.event.findMany())).toEqual(["past"]);
+    // The lazy entry is the one that refuses the update.
+    await expect(
+      db.event.update({ where: { id: "past" }, data: { at: new Date() } })
+    ).rejects.toThrow();
+  } finally {
+    await plain.$disconnect();
+  }
 });
 
 test("an entry given lazily applied after an eager rule that judges is still read and judged", async () => {

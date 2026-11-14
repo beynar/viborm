@@ -5,7 +5,7 @@ import type { QueryResult } from "@drivers/types";
 import { SPAN_EXECUTE, SPAN_OPERATION } from "@instrumentation/spans";
 import { hydrateSchemaNames, s } from "@schema";
 import { instrumentation } from "@src/instrumentation/exports";
-import { appendResolvedExtension } from "@tests/fixtures/host-definition";
+import { appendExtension } from "@tests/fixtures/extension-chain";
 import {
   createModelRegistry,
   TestQueryEngine,
@@ -94,7 +94,7 @@ describe("read result and lifecycle contracts", () => {
   it("wraps execution in the operation span and fails validation before execution", async () => {
     const recorder = withOtelRecorder();
     const driver = new ReadContractDriver(new SQLiteAdapter(), "sqlite");
-    const extensionChain = appendResolvedExtension(
+    const extensionChain = appendExtension(
       undefined,
       instrumentation({ tracing: true }),
       schema

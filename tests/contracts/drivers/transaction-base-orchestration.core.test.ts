@@ -37,7 +37,7 @@ import {
   unit,
 } from "@src/index";
 import { instrumentation } from "@src/instrumentation/exports";
-import { appendResolvedExtension } from "@tests/fixtures/host-definition";
+import { appendExtension } from "@tests/fixtures/extension-chain";
 import { createOfficialTestExecutionContext } from "@tests/unit/instrumentation/_official-context";
 import { describe, expect, test, vi } from "vitest";
 
@@ -464,7 +464,7 @@ describe("_prepare typed provenance", () => {
   }) => {
     const driver = new RecordingDriver({ supportsBatch: native });
     const calls: string[] = [];
-    const chain = appendResolvedExtension(
+    const chain = appendExtension(
       undefined,
       observed
         ? extension(
@@ -536,7 +536,7 @@ describe("_prepare typed provenance", () => {
       }
     }
     const driver = new FailingDriver();
-    const official = appendResolvedExtension(
+    const official = appendExtension(
       undefined,
       instrumentation({
         logging: {
@@ -551,7 +551,7 @@ describe("_prepare typed provenance", () => {
       }),
       {}
     );
-    const chain = appendResolvedExtension(
+    const chain = appendExtension(
       official,
       extension(
         "prepared-sequential-completion",
@@ -650,7 +650,7 @@ describe("_prepare typed provenance", () => {
     const driver = new LimitedDriver();
     const completions: string[] = [];
     const transformed: string[] = [];
-    const chain = appendResolvedExtension(
+    const chain = appendExtension(
       undefined,
       extension(
         "preparation-failure",
@@ -703,7 +703,7 @@ describe("_prepare typed provenance", () => {
     }
     const driver = new LimitedDriver({ supportsBatch: native });
     let calls = 0;
-    const chain = appendResolvedExtension(
+    const chain = appendExtension(
       undefined,
       extension(
         "bind-growth",
