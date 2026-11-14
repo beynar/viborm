@@ -1042,9 +1042,12 @@ export function permissions<const Config extends PermissionsConfig>(
     );
   // The steps are typed by `Policy`: for a client generic over its state,
   // the client-method guard stays deferred and refuses every client method.
-  return Object.freeze(
-    Object.assign(apply, { config, compile, rows, methods })
-  ) as unknown as Policy<Config>;
+  return Object.assign(apply, {
+    config,
+    compile,
+    rows,
+    methods,
+  }) as unknown as Policy<Config>;
 }
 
 function extend(

@@ -450,7 +450,7 @@ function actionsOf(
       for (const next of implies.get(name)!) visit(next);
     };
     visit(action);
-    closure.set(action, Object.freeze([...reached]));
+    closure.set(action, [...reached]);
   }
   return {
     rules,
@@ -544,15 +544,15 @@ export interface PolicyCompiler {
 }
 
 /** R9: nothing is read, written or created on a model the policy does not list. */
-const UNLISTED: CompiledModel = Object.freeze({
-  predicates: Object.freeze({ [PLACE]: FALSE }),
-  writes: Object.freeze({}),
-  reads: Object.freeze({}),
-  modes: Object.freeze({}),
+const UNLISTED: CompiledModel = {
+  predicates: { [PLACE]: FALSE },
+  writes: {},
+  reads: {},
+  modes: {},
   place: PLACE,
-  moves: Object.freeze({}),
-});
-const NO_RELATIONS: readonly string[] = Object.freeze([]);
+  moves: {},
+};
+const NO_RELATIONS: readonly string[] = [];
 
 export function policyCompiler(
   config: PermissionsConfig,
@@ -560,7 +560,7 @@ export function policyCompiler(
   actor: ActorContract = actorContract(config.actor)
 ): PolicyCompiler {
   const { keyOf, same, distinct, or } = structuralKeys();
-  const noActions: readonly string[] = Object.freeze([]);
+  const noActions: readonly string[] = [];
   const levels = config.levels ?? noActions;
   if (new Set(levels).size !== levels.length)
     refuse("levels must list each action only once");
@@ -787,9 +787,9 @@ export function policyCompiler(
         refuse(
           `tenant.except names ${name}, which is not a model of the schema with a scalar field "${tenant.field}"`
         );
-    const bound: Where = Object.freeze({
-      [tenant.field]: Object.freeze({ control: "actor", path: tenant.actor }),
-    });
+    const bound: Where = {
+      [tenant.field]: { control: "actor", path: tenant.actor },
+    };
     return (name) =>
       holds(name) && !except.includes(name) ? bound : undefined;
   };
@@ -1962,7 +1962,7 @@ export function policyCompiler(
       );
     declarations.set(name, {
       ...verbs,
-      modes: Object.freeze(Object.fromEntries(modes)),
+      modes: Object.fromEntries(modes),
       writes,
       protectedWrites,
       reads,
@@ -2059,22 +2059,22 @@ export function policyCompiler(
       const at = `models.${name}.domains.${domain}`;
       claim(domain, at, lower(name, "read", rule, at) || FALSE);
     }
-    return Object.freeze({
-      predicates: Object.freeze(Object.fromEntries(named)),
+    return {
+      predicates: Object.fromEntries(named),
       ...verbs,
-      writes: Object.freeze(writes),
-      reads: Object.freeze(reads),
+      writes,
+      reads,
       modes: declared.modes,
       place: PLACE,
-      moves: Object.freeze(moves),
+      moves,
       // Per row, always one boolean for each admitted action.
       ...(evidence.names.length > 0 && {
-        evidence: Object.freeze({
+        evidence: {
           as: EVIDENCE_KEY,
-          names: Object.freeze(evidence.names),
-        }),
+          names: evidence.names,
+        },
       }),
-    });
+    };
   };
 
   // A Map: a model may be named `constructor`.
@@ -2105,53 +2105,41 @@ export function policyCompiler(
           if (!(error instanceof ClientInitializationError)) throw error;
         }
       recursed = new Map(
-        [...recursion(compiled)].map(([model, relations]) => [
-          model,
-          Object.freeze(relations),
-        ])
+        [...recursion(compiled)].map(([model, relations]) => [model, relations])
       );
     }
     return recursed.get(name) ?? NO_RELATIONS;
   };
-  const scopes = Object.freeze(
-    Object.fromEntries(
-      [...actions].flatMap(([name, declared]) =>
-        [...declared.closure].map(([action, implied]) => [
-          `${name}.${action}`,
-          Object.freeze(implied.map((next) => `${name}.${next}`)),
-        ])
-      )
+  const scopes = Object.fromEntries(
+    [...actions].flatMap(([name, declared]) =>
+      [...declared.closure].map(([action, implied]) => [
+        `${name}.${action}`,
+        implied.map((next) => `${name}.${next}`),
+      ])
     )
   );
   const related = tenantOf(config.tenant);
-  const declared = Object.freeze(
-    Object.fromEntries(
-      Object.keys(schema).map((name) => {
-        const known = declarations.get(name);
-        const bound = related(name);
-        if (known === undefined)
-          return [
-            name,
-            bound === undefined
-              ? UNLISTED
-              : Object.freeze({ ...UNLISTED, bound }),
-          ];
-        const { read, update, delete: remove, modes } = known;
-        return [
-          name,
-          Object.freeze({
-            ...(read !== undefined && { read }),
-            ...(update !== undefined && { update }),
-            ...(remove !== undefined && { delete: remove }),
-            modes,
-            ...(bound !== undefined && { bound }),
-          }),
-        ];
-      })
-    )
+  const declared = Object.fromEntries(
+    Object.keys(schema).map((name) => {
+      const known = declarations.get(name);
+      const bound = related(name);
+      if (known === undefined)
+        return [name, bound === undefined ? UNLISTED : { ...UNLISTED, bound }];
+      const { read, update, delete: remove, modes } = known;
+      return [
+        name,
+        {
+          ...(read !== undefined && { read }),
+          ...(update !== undefined && { update }),
+          ...(remove !== undefined && { delete: remove }),
+          modes,
+          ...(bound !== undefined && { bound }),
+        },
+      ];
+    })
   );
   let whole: CompiledPolicy | undefined;
-  return Object.freeze({
+  return {
     scopes,
     declared,
     model: modelAt,
@@ -2163,18 +2151,16 @@ export function policyCompiler(
         const entry = modelAt(name);
         const relations = acyclicAt(name);
         models[name] =
-          relations.length === 0
-            ? entry
-            : Object.freeze({ ...entry, acyclic: relations });
+          relations.length === 0 ? entry : { ...entry, acyclic: relations };
       }
-      whole = Object.freeze({
+      whole = {
         control: "actor",
         scopes,
-        models: Object.freeze(models),
-      });
+        models,
+      };
       return whole;
     },
-  });
+  };
 
   /**
    * Per model, the self relations holding a key that some compiled
