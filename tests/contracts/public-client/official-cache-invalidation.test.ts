@@ -271,7 +271,7 @@ describe("official cache mutation ownership", () => {
         extension(
           "request-refusal",
           call(
-            (c) => {
+            (_c) => {
               throw new Error("request refused");
             },
             target("user", "create")

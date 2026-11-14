@@ -1014,7 +1014,7 @@ describe("official statement instrumentation", () => {
               extExtension(
                 "throwing-transform",
                 unit(
-                  (u, next) => {
+                  (_u, _next) => {
                     throw new Error("transform failed");
                   },
                   ["statement"],
@@ -1039,7 +1039,7 @@ describe("official statement instrumentation", () => {
               extExtension(
                 "throwing-render",
                 unit(
-                  (u, next) => {
+                  (_u, next) => {
                     return next(new ThrowingRenderSql(["SELECT 1"], []));
                   },
                   ["statement"],

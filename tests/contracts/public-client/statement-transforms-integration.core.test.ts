@@ -95,7 +95,7 @@ describe("deterministic statement-transform integration", () => {
       extExtension(
         "invalid-return",
         unit(
-          (u, next) => {
+          (_u, next) => {
             return next("SELECT 1");
           },
           ["statement"],

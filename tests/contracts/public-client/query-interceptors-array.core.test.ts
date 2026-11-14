@@ -258,16 +258,6 @@ function requireTransactionOperation(
   return capability;
 }
 
-function collectFailures(failure: unknown): unknown[] {
-  const failures = [failure];
-  if (failure instanceof AggregateError) {
-    for (const nested of failure.errors) {
-      failures.push(...collectFailures(nested));
-    }
-  }
-  return failures;
-}
-
 /**
  * The failure a caller is meant to read. The aggregate query coordination
  * wraps it in is not promised any more; its primary failure is.
@@ -444,7 +434,7 @@ describe("array query admission", () => {
       .$extends(
         extension(
           "request-observer",
-          extUnit((u, next) => undefined)
+          extUnit((_u, _next) => undefined)
         )
       );
 
@@ -461,7 +451,7 @@ describe("array query admission", () => {
       extension(
         "read-no-proceed",
         around(
-          () => async (run) => {
+          () => async (_run) => {
             return [];
           },
           extTarget("record", "findMany")
@@ -634,7 +624,7 @@ describe("fallback array query execution", () => {
     const client = base.$extends(
       extension(
         "fallback-queued-raw-date",
-        extUnit((u, next) => {
+        extUnit((_u, next) => {
           return next();
         })
       )
@@ -1120,7 +1110,7 @@ describe("native array query execution", () => {
               ["statement"],
               { rewrites: true }
             ),
-            extUnit((u, next) => {
+            extUnit((_u, next) => {
               return next();
             })
           )

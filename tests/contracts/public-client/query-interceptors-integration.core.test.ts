@@ -769,7 +769,7 @@ describe("public query-interceptor integration", () => {
     const transform = extension(
       `raw-invalid-date-statement-${observed}`,
       extUnit(
-        (u, next) => {
+        (_u, next) => {
           return next(sql`SELECT ${new Date(Number.NaN)}`);
         },
         ["statement"],
@@ -781,13 +781,13 @@ describe("public query-interceptor integration", () => {
           extension(
             `raw-invalid-date-statement-${observed}`,
             extUnit(
-              (u, next) => {
+              (_u, next) => {
                 return next(sql`SELECT ${new Date(Number.NaN)}`);
               },
               ["statement"],
               { rewrites: true }
             ),
-            extUnit((u, next) => {
+            extUnit((_u, next) => {
               return next();
             })
           )
@@ -816,7 +816,7 @@ describe("public query-interceptor integration", () => {
       extension(
         "raw-custom-array-statement",
         extUnit(
-          (u, next) => {
+          (_u, next) => {
             return next(sql`SELECT ${parameter}`);
           },
           ["statement"],
@@ -841,7 +841,7 @@ describe("public query-interceptor integration", () => {
       extension(
         "raw-valid-date-statement",
         extUnit(
-          (u, next) => {
+          (_u, next) => {
             queueMicrotask(() => replacement.setTime(Number.NaN));
             return next(sql`SELECT ${replacement}`);
           },
@@ -1685,7 +1685,7 @@ describe("public protected operation and statement observers", () => {
       extension(
         "failing-statement",
         extUnit(
-          (u, next) => {
+          (_u, _next) => {
             timeline.push("transform");
             throw new Error("transform failed");
           },

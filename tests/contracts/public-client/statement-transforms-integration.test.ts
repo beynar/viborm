@@ -329,7 +329,7 @@ describe("integrated statement transforms", () => {
       extExtension(
         "invalid-return",
         unit(
-          (u, next) => {
+          (_u, next) => {
             return next("SELECT 1");
           },
           ["statement"],
@@ -383,7 +383,7 @@ describe("integrated statement transforms", () => {
         extExtension(
           name,
           unit(
-            (u, next) => {
+            (_u, next) => {
               return next(fakeSql);
             },
             ["statement"],
