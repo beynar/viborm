@@ -2,7 +2,7 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import type { AnyDriver } from "@drivers";
 import { getExecutionExtensionChain } from "@drivers/execution-context";
 import { QueryError, UnsupportedOperationError } from "@errors";
-import { appendResolvedExtension } from "@extensions/chain";
+import { appendResolvedExtension } from "@tests/fixtures/host-definition";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { s } from "@schema";
 import { raw, type Sql, sql } from "@sql";

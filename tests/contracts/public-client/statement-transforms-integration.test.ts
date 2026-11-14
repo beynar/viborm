@@ -8,7 +8,7 @@ import type {
 import { PGliteDriver } from "@drivers/pglite";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { QueryError, UnsupportedOperationError } from "@errors";
-import { appendResolvedExtension } from "@extensions/chain";
+import { appendResolvedExtension } from "@tests/fixtures/host-definition";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { s } from "@schema";
 import { raw, type Sql, sql } from "@sql";

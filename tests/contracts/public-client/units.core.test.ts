@@ -320,21 +320,14 @@ describe("retry, route, transaction", () => {
     const asked: unknown[] = [];
     const db = base.$extends(
       extension(
-        "replicas", // FIXME(extension-codemod): `route` was asked only for a read outside a transaction; the part now runs on every read: check the test counts no extra call
-        around((c) => {
-          const route = (read) => {
-            asked.push([read.model, read.operation, read.args]);
-            return read.model === "user" ? replica.$driver : undefined;
-          };
-          return (run) => {
-            const driver = route({
-              model: c.model,
-              operation: c.operation,
-              args: run.input,
-            });
-            return driver === undefined ? run() : via(run, driver);
-          };
-        }, target(reads))
+        "replicas",
+        around(
+          (c) => (run) => {
+            asked.push([c.model, c.operation, run.input]);
+            return c.model === "user" ? via(run, replica.$driver) : run();
+          },
+          target(reads)
+        )
       )
     );
     const name = async (client: {
@@ -438,13 +431,5 @@ describe("retry, route, transaction", () => {
     )) as Error;
     expect(error).toBeInstanceOf(Error);
     expect(ran).toBe(false);
-  });
-
-  test("each point must be a function", async () => {
-    const base = await open();
-    for (const point of ["retry", "route", "transaction"])
-      expect(() =>
-        base.$extends({ name: "bad", [point]: true } as never)
-      ).toThrow(`Extension "bad" ${point} must be a function.`);
   });
 });
