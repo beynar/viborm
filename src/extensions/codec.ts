@@ -34,9 +34,9 @@ import type { Run } from "./contract";
 import { callOf } from "./origin";
 
 /** What detaches one prepared call's answer and restores it. */
-export interface Codec {
-  snapshot(value: unknown): unknown;
-  materialize(stored: unknown): unknown;
+export interface Codec<R = unknown> {
+  snapshot(value: R): unknown;
+  materialize(stored: unknown): R;
 }
 
 /** One codec per prepared call: its shape does not change. */
@@ -46,13 +46,15 @@ const codecs = new WeakMap<PreparedOperation, Codec>();
  * The codec of the answer `run` prepares. A call that is not one read (a
  * raw statement, a write) has none, and is refused.
  */
-export function codec(run: Run<unknown, unknown>): Codec {
+export function codec<R>(run: Run<unknown, R>): Codec<R> {
   const of = callOf(run)?.of;
   if (of === undefined)
     throw new UnsupportedOperationError(
       "codec() takes the run of a model's read: a raw statement has no codec."
     );
-  return codecOf(of.prepared());
+  // The codec is compiled from the shape the read itself publishes: what it
+  // restores is that read's answer, which is what `run` resolves to.
+  return codecOf(of.prepared()) as Codec<R>;
 }
 
 /** The codec of one prepared operation, made once. */

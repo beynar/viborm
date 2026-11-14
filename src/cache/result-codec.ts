@@ -1,20 +1,14 @@
 import { CacheConfigurationError } from "@errors";
-import { type Codec, codecOf } from "@extensions/codec";
-import type { PreparedOperation } from "@query-engine/raptor3/commands";
-
-/** Each codec as the cache speaks it, made once. */
-const translated = new WeakMap<Codec, Codec>();
+import type { Codec } from "@extensions/codec";
 
 /**
  * A call's codec whose failures are the cache's: a value the codec cannot
  * represent, and a stored entry that does not follow the shape, are each a
  * `CacheConfigurationError` that names the step and exposes no value.
  */
-export function cacheCodec(codec: Codec, operation: string): Codec {
-  const known = translated.get(codec);
-  if (known !== undefined) return known;
-  const made: Codec = Object.freeze({
-    snapshot(input: unknown): unknown {
+export function cacheCodec<R>(codec: Codec<R>, operation: string): Codec<R> {
+  return {
+    snapshot(input: R): unknown {
       try {
         return codec.snapshot(input);
       } catch (cause) {
@@ -27,7 +21,7 @@ export function cacheCodec(codec: Codec, operation: string): Codec {
         );
       }
     },
-    materialize(snapshot: unknown): unknown {
+    materialize(snapshot: unknown): R {
       try {
         return codec.materialize(snapshot);
       } catch (cause) {
@@ -40,12 +34,5 @@ export function cacheCodec(codec: Codec, operation: string): Codec {
         );
       }
     },
-  });
-  translated.set(codec, made);
-  return made;
-}
-
-/** The cache's codec of one prepared operation. */
-export function routedCodec(routed: PreparedOperation): Codec {
-  return cacheCodec(codecOf(routed), routed.requested.operation);
+  };
 }

@@ -734,31 +734,6 @@ function isVibORMFailure(value: unknown): value is VibORMError {
   }
 }
 
-/**
- * The refusal of a cached read that holds a value of an `uncacheable`
- * control, or `undefined` when it holds none: such a read is an observation
- * the control's owner does not accept (the cache would serve it after the
- * facts it was judged on changed).
- */
-export function uncacheableRead(
-  controls: readonly ResolvedControl[],
-  admitted: AdmittedControls | undefined,
-  model: string,
-  operation: Operation
-): ValidationError | undefined {
-  const held = controls.find(
-    (control) =>
-      control.declaration.volatile === true &&
-      admitted?.[control.name] !== undefined
-  );
-  return (
-    held &&
-    invalidControl(held, model, operation, [
-      "is not cacheable: a read that holds it is not served from the cache",
-    ])
-  );
-}
-
 function invalidControl(
   control: ResolvedControl,
   model: string | undefined,
@@ -874,11 +849,6 @@ function appendControls(
       values: Readonly<Record<string, unknown>>,
       previous: AdmittedControls | undefined
     ) => bindControls(all, extension, values, previous),
-    uncacheable: (
-      admitted: AdmittedControls | undefined,
-      model: string,
-      operation: Operation
-    ) => uncacheableRead(all, admitted, model, operation),
   });
 }
 

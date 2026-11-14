@@ -4,7 +4,7 @@ import { CacheDriver, type CacheEntry } from "@cache/driver";
 import { cache as cacheExtension } from "@cache/extension";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { Driver } from "@drivers";
-import { createClient, s } from "@src/index";
+import { createClient, extension, unit as extUnit, s } from "@src/index";
 import { createTestClock } from "@tests/fixtures/test-clock";
 import { readTestTransactionOperation } from "@tests/fixtures/transaction-operation";
 import { afterEach, describe, expect, test } from "vitest";
@@ -161,24 +161,26 @@ function createObservedCacheClient(options?: { hostile?: boolean }) {
       },
     })
   );
-  const client = base.$extends({
-    name: "protected-cache-observer",
-    observe(unit, proceed) {
-      if (unit.kind !== "cache") return;
-      timeline.push(`observer:${unit.operation}:in`);
-      const completion = proceed();
-      const observation: CacheObservation = { unit, completion };
-      observations.push(observation);
-      completion.then((summary) => {
-        observation.summary = summary;
-        timeline.push(`observer:${unit.operation}:out:${summary.status}`);
-      });
-      if (options?.hostile) {
-        Reflect.set(unit, "key", "stolen");
-        return Promise.reject(new Error("hostile observer failure"));
-      }
-    },
-  });
+  const client = base.$extends(
+    extension(
+      "protected-cache-observer",
+      extUnit((u, next) => {
+        if (u.kind !== "cache") return;
+        timeline.push(`observer:${u.operation}:in`);
+        const completion = next();
+        const observation: CacheObservation = { unit: u, completion };
+        observations.push(observation);
+        completion.then((summary) => {
+          observation.summary = summary;
+          timeline.push(`observer:${u.operation}:out:${summary.status}`);
+        });
+        if (options?.hostile) {
+          Reflect.set(u, "key", "stolen");
+          return Promise.reject(new Error("hostile observer failure"));
+        }
+      })
+    )
+  );
   clients.push(client);
 
   return {

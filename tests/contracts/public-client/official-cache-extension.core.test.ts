@@ -9,7 +9,7 @@ import {
   appendResolvedExtension,
   type ResolvedExtensionChain,
 } from "@extensions/chain";
-import { createClient, s } from "@src/index";
+import { createClient, extension as extExtension, s } from "@src/index";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -113,7 +113,7 @@ describe("official cache extension foundation", () => {
 
   it("exposes cache methods only on an authentic official derived client", () => {
     const base = baseClient();
-    const ordinary = base.$extends({ name: "ordinary" });
+    const ordinary = base.$extends(extExtension("ordinary"));
     const official = base.$extends(cache({ driver: new MemoryCache() }));
 
     expect(Reflect.get(base, "$withCache")).toBeUndefined();
@@ -156,7 +156,7 @@ describe("official cache extension foundation", () => {
     const official = cache({ driver: new MemoryCache() });
     const cloned = { ...official };
     const cached = base.$extends(cloned);
-    const ordinary = cached.$extends({ name: "after-cache" });
+    const ordinary = cached.$extends(extExtension("after-cache"));
 
     expect(ordinary.$schema).toBe(schema);
     expect(typeof ordinary.$withCache).toBe("function");
@@ -188,7 +188,9 @@ describe("official cache extension foundation", () => {
       ClientInitializationError
     );
 
-    expect(derived.$extends({ name: "after-refusals" }).$schema).toBe(schema);
+    expect(derived.$extends(extExtension("after-refusals")).$schema).toBe(
+      schema
+    );
   });
 
   it("reports hostile factory configuration without leaking raw throws", () => {

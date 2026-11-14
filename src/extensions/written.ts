@@ -69,8 +69,8 @@ export type WrittenHandler = (call: WrittenCall) => WrittenWatch | undefined;
 
 /**
  * One write call under a chain's `written` declarations: the engine is told
- * what they want to see, and the call's one outcome registration tells them,
- * after `cached`'s, that it settled. A unit handed over whole answers after
+ * what they want to see, and the call's one outcome registration tells them
+ * that it settled. A unit handed over whole answers after
  * it commits: what watches is then told it settled once its rows are, by
  * what `late` receives, which the call's value runs and waits for.
  */
@@ -79,7 +79,6 @@ export function watchWrite(
   call: Omit<WrittenCall, "controls">,
   controls: AdmittedControls | undefined,
   context: QueryExecutionContext,
-  cached: WriteOutcomeRegistration | undefined,
   late: (settle: () => Promise<void>) => void
 ): WriteOutcomeRegistration | undefined {
   const watches: WrittenWatch[] = [];
@@ -97,7 +96,7 @@ export function watchWrite(
       listener: (outcome) => watch.settled(outcome),
     });
   }
-  if (watches.length === 0) return cached;
+  if (watches.length === 0) return undefined;
   let told = false;
   let heard: WriteOutcome | undefined;
   const wants = (model: string, kind: WriteKind) =>
@@ -179,13 +178,10 @@ export function watchWrite(
     // Each listener's failure is already said as its own.
     failurePolicy: "boundary-owned",
     listener(outcome: WriteOutcome) {
-      if (told)
-        return publishWriteOutcomes(
-          cached ? [cached, ...settled] : settled,
-          outcome
-        );
+      // A write that may have committed failed: no rows will be told.
+      if (told || outcome.certainty === "may-have-committed")
+        return publishWriteOutcomes(settled, outcome);
       heard = outcome;
-      return cached?.listener(outcome);
     },
   });
 }
@@ -197,7 +193,6 @@ export interface WrittenHandlers {
     call: Omit<WrittenCall, "controls">,
     controls: AdmittedControls | undefined,
     context: QueryExecutionContext,
-    cached: WriteOutcomeRegistration | undefined,
     late: (settle: () => Promise<void>) => void
   ) => WriteOutcomeRegistration | undefined;
 }

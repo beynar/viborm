@@ -1,11 +1,8 @@
 /**
- * Cache Key Generation
- *
- * Generates deterministic cache keys from operation parameters.
+ * Cache key spaces: the official namespace one cache scope partitions on,
+ * and the hash that names an entry inside it. What a read is keyed on is the
+ * prepared call itself (`key(run)`).
  */
-
-import { stableStringify } from "@extensions/key";
-import { isPlainRecord } from "@schema/relation/terminal";
 
 /**
  * Prefix for all VibORM cache keys
@@ -30,7 +27,10 @@ export const OFFICIAL_CACHE_NAMESPACE_ROOT = `${CACHE_PREFIX}:cache`;
  * before: the bump is the invalidation.
  */
 // r4 entries carry their full canonical identity, checked before materialization.
-const OFFICIAL_CACHE_SNAPSHOT_REVISION = "r4";
+// r5 entries are keyed by the prepared call (`key(run)`): the statement the
+// engine sends, so a rule's filter, order and projection key an entry by
+// what they do to that statement.
+const OFFICIAL_CACHE_SNAPSHOT_REVISION = "r5";
 
 /**
  * The facts one official cache scope partitions on.
@@ -107,70 +107,11 @@ export function createOfficialCacheNamespace(
   ].join(":");
 }
 
-/** Hash for storage lookup, exact identity for collision verification. */
-export function cacheLookupOf(
-  model: string,
-  operation: string,
-  args: unknown
-): {
-  readonly key: string;
-  readonly identity: string;
-} {
-  const serialized = stableStringify(args);
-  return {
-    key: `${model}:${operation}:${fastHash(serialized)}`,
-    identity: JSON.stringify([model, operation, serialized]),
-  };
-}
-
-/**
- * Whether {@link stableStringify} keys this value by its content: plain
- * records and arrays of JSON scalars, bigints, valid `Date`s and
- * `Uint8Array`s. A class instance would key as its own enumerable fields (a
- * `Map` as `{}`), a function or symbol throws, and a cycle throws; the caller
- * bypasses the cache for any of those rather than alias or fail. A value it
- * cannot inspect is not canonical either.
- */
-export function isCanonicalKeyData(value: unknown): boolean {
-  try {
-    return hasCanonicalForm(value, new Set());
-  } catch {
-    return false;
-  }
-}
-
-function hasCanonicalForm(value: unknown, seen: Set<object>): boolean {
-  if (value === null) return true;
-  switch (typeof value) {
-    case "string":
-    case "boolean":
-    case "bigint":
-      return true;
-    case "number":
-      return Number.isFinite(value);
-    case "object":
-      break;
-    default:
-      return false;
-  }
-  // The two instance kinds `stableStringify` brands, tested as it tests them.
-  if (value instanceof Date) return !Number.isNaN(value.getTime());
-  if (value instanceof Uint8Array) return true;
-  if (seen.has(value)) return false;
-  if (!(Array.isArray(value) || isPlainRecord(value))) return false;
-  seen.add(value);
-  const canonical = Object.values(value).every((entry) =>
-    hasCanonicalForm(entry, seen)
-  );
-  seen.delete(value);
-  return canonical;
-}
-
 /**
  * Fast non-cryptographic hash (djb2 variant)
  * Produces a 16-character hex string
  */
-function fastHash(str: string): string {
+export function fastHash(str: string): string {
   let h1 = 0xde_ad_be_ef;
   let h2 = 0x41_c6_ce_57;
 

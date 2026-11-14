@@ -21,7 +21,7 @@ import {
   getOfficialCacheQueryCapability,
   registerOfficialCacheChain,
 } from "@cache/extension";
-import { CACHE_PREFIX, cacheLookupOf } from "@cache/key";
+import { CACHE_PREFIX } from "@cache/key";
 import { hasCacheInvalidationWork } from "@cache/schema";
 import { parseTTL } from "@cache/ttl";
 import type { KVNamespace } from "@cloudflare/workers-types";
@@ -35,12 +35,13 @@ import {
   appendResolvedExtension,
   type ResolvedExtensionChain,
 } from "@extensions/chain";
+import { stableStringify } from "@extensions/key";
 import { instrumentation } from "@instrumentation/extension";
 import { createTestClock } from "@tests/fixtures/test-clock";
 import { describe, expect, test, vi } from "vitest";
 
 const cacheKeyOf = (model: string, operation: string, args: unknown) =>
-  cacheLookupOf(model, operation, args).key;
+  stableStringify([model, operation, args]);
 
 class RecordingCache extends CacheDriver {
   readonly entries = new Map<string, CacheEntry>();

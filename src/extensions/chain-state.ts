@@ -5,7 +5,7 @@
  * client asks the chain and imports nothing that runs extensions.
  */
 
-import type { DiagnosticDisclosure, ValidationError } from "@errors";
+import type { DiagnosticDisclosure } from "@errors";
 import type {
   CallRows,
   ModelStamps,
@@ -97,12 +97,6 @@ export interface ResolvedControls {
     values: Readonly<Record<string, unknown>>,
     previous: AdmittedControls | undefined
   ) => AdmittedControls;
-  /** Why a read holding a value of an `uncacheable` control is not cached. */
-  readonly uncacheable: (
-    admitted: AdmittedControls | undefined,
-    model: string,
-    operation: Operation
-  ) => ValidationError | undefined;
 }
 
 /**
@@ -135,7 +129,7 @@ export interface ResolvedExtensionChain {
   /**
    * How a call whose execution an extension wraps is run, and how a
    * transaction collects its write outcomes: present on a chain with query
-   * handlers, `written`, `retry`, `route`, a lifecycle observer or the cache.
+   * handlers, `written`, `retry`, `route` or a lifecycle observer.
    */
   readonly coordination?: Coordination;
   readonly controls?: ResolvedControls;
@@ -188,8 +182,6 @@ export interface ResolvedExtensionChain {
   readonly result?: ResultFields;
   /** Every extension's client and model methods, and what binds a view's. */
   readonly methods?: ExtensionMethodsState;
-  /** Whether the chain carries the official cache. */
-  readonly hasCache?: boolean;
   /** What an error of a call may carry, as the last `disclosure` part says. */
   readonly disclosure?: DiagnosticDisclosure;
 }

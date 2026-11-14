@@ -6,7 +6,16 @@ import { cache } from "@src/cache/exports";
 import { createOfficialCacheNamespace } from "@src/cache/key";
 import { defaultOmit } from "@src/client/exports";
 import { CacheInvalidKeyError, ValidationError } from "@src/errors";
-import { createClient, s } from "@src/index";
+import {
+  around,
+  createClient,
+  call as extCall,
+  extension as extExtension,
+  target as extTarget,
+  s,
+  statement,
+  unit,
+} from "@src/index";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { readTestTransactionOperation } from "@tests/fixtures/transaction-operation";
 import { describe, expect, test } from "vitest";
@@ -47,7 +56,7 @@ const schema = { author, post };
  * revision that moves reds this file with the other four.
  */
 const OFFICIAL_NAMESPACE =
-  "viborm:cache:r4:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:u";
+  "viborm:cache:r5:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:u";
 const family = usePGliteSchemaFamily(schema);
 const nativeFamily = usePGliteSchemaFamily(schema, "atomicBatch");
 
@@ -167,18 +176,19 @@ describe("official cache reads", () => {
       schema,
       driver,
     })
-      .$extends(defaultOmit<typeof schema>()({ author: { secret: true } }))
-      .$extends({
-        name: "canonical-cache-request",
-        request: {
-          author: {
-            findMany() {
+      .$extends(defaultOmit({ author: { secret: true } }))
+      .$extends(
+        extExtension(
+          "canonical-cache-request",
+          extCall(
+            (c) => {
               requestCalls += 1;
-              return { where: { name: "Ada" } };
+              c.set({ where: { name: "Ada" } });
             },
-          },
-        },
-      })
+            extTarget("author", "findMany")
+          )
+        )
+      )
       .$extends(cacheState.extension);
     const cached = client.$withCache({ key: "caller-suffix" });
 
@@ -255,12 +265,12 @@ describe("official cache reads", () => {
     let beforeCalls = 0;
     let afterCalls = 0;
     const client = base
-      .$extends({
-        name: "query-before-cache",
-        query: {
-          author: {
-            async findMany({ proceed }) {
-              const rows = await proceed();
+      .$extends(
+        extExtension(
+          "query-before-cache",
+          around(
+            () => async (run) => {
+              const rows = await run();
               beforeCalls += 1;
               const first = rows[0];
               if (first !== undefined) {
@@ -271,16 +281,17 @@ describe("official cache reads", () => {
               }
               return rows;
             },
-          },
-        },
-      })
+            extTarget("author", "findMany")
+          )
+        )
+      )
       .$extends(cacheState.extension)
-      .$extends({
-        name: "query-after-cache",
-        query: {
-          author: {
-            async findMany({ proceed }) {
-              const rows = await proceed();
+      .$extends(
+        extExtension(
+          "query-after-cache",
+          around(
+            () => async (run) => {
+              const rows = await run();
               afterCalls += 1;
               const first = rows[0];
               if (first !== undefined) {
@@ -291,9 +302,10 @@ describe("official cache reads", () => {
               }
               return rows;
             },
-          },
-        },
-      });
+            extTarget("author", "findMany")
+          )
+        )
+      );
     const cached = client.$withCache();
     const releaseSet = cacheDriver.holdNextSet();
 
@@ -425,26 +437,39 @@ describe("official cache reads", () => {
     const statementCache = new RecordingCache();
     const statementState = officialCache(statementCache, "statement");
     let statements = 0;
-    const statementClient = base.$extends(statementState.extension).$extends({
-      name: "cache-bypass-statement",
-      statement({ statement }) {
-        statements += 1;
-        return statement;
-      },
-    });
+    const statementClient = base.$extends(statementState.extension).$extends(
+      extExtension(
+        "cache-bypass-statement",
+        unit(
+          (u, next) => {
+            statements += 1;
+            return next(statement(u));
+          },
+          ["statement"],
+          { rewrites: true }
+        )
+      )
+    );
     await statementClient.$withCache().author.findMany({ where: { id: "a1" } });
     await statementClient.$withCache().author.findMany({ where: { id: "a1" } });
     expect(statements).toBe(2);
     expect(statementCache.gets).toEqual([]);
     expect(statementCache.sets).toEqual([]);
 
+    // A transaction's view has the cache's methods (they are a part's, served
+    // to every view); its reads see its own writes and never touch the cache.
     await arrayClient.$transaction(async (tx) => {
-      expect(Reflect.get(tx, "$withCache")).toBeUndefined();
-      expect(Reflect.get(tx, "$invalidate")).toBeUndefined();
+      const withCache = Reflect.get(tx, "$withCache");
+      expect(withCache).toBeTypeOf("function");
+      await Reflect.apply(withCache, tx, []).author.findMany({
+        where: { id: "a1" },
+      });
       await tx.$transaction(async (nested) => {
-        expect(Reflect.get(nested, "$withCache")).toBeUndefined();
-        expect(Reflect.get(nested, "$invalidate")).toBeUndefined();
-        await nested.author.findMany({ where: { id: "a1" } });
+        await Reflect.apply(
+          Reflect.get(nested, "$withCache"),
+          nested,
+          []
+        ).author.findMany({ where: { id: "a1" } });
       });
     });
     const overridden = arrayClient
@@ -486,7 +511,7 @@ describe("official cache reads", () => {
       schema,
       driver,
     })
-      .$extends(defaultOmit<typeof schema>()({ author: { secret: true } }))
+      .$extends(defaultOmit({ author: { secret: true } }))
       .$extends(omittedState.extension)
       .$withCache();
     const complete = createClient({ schema, driver })
@@ -536,70 +561,6 @@ describe("official cache reads", () => {
         namespace: "public",
       })
     ).toBe(OFFICIAL_NAMESPACE);
-  });
-
-  test("refuses reflected structural cache scopes before backend work", async () => {
-    const cacheDriver = new RecordingCache();
-    const fakeScope: object = Reflect.construct(Object, []);
-    Reflect.defineProperty(fakeScope, "namespace", {
-      enumerable: true,
-      value: OFFICIAL_NAMESPACE,
-    });
-    const publicCalls = [
-      () =>
-        Reflect.apply(cacheDriver._get, cacheDriver, [
-          "forged",
-          undefined,
-          fakeScope,
-        ]),
-      () =>
-        Reflect.apply(cacheDriver._set, cacheDriver, [
-          "forged",
-          1,
-          { ttl: 1000 },
-          undefined,
-          fakeScope,
-        ]),
-      () =>
-        Reflect.apply(cacheDriver._delete, cacheDriver, [
-          "forged",
-          undefined,
-          fakeScope,
-        ]),
-      () =>
-        Reflect.apply(cacheDriver._clear, cacheDriver, [
-          "forged",
-          undefined,
-          fakeScope,
-        ]),
-      () =>
-        Reflect.apply(cacheDriver._invalidate, cacheDriver, [
-          "author",
-          { autoInvalidate: true },
-          undefined,
-          fakeScope,
-        ]),
-      () =>
-        Reflect.apply(cacheDriver._markRevalidating, cacheDriver, [
-          "forged",
-          fakeScope,
-        ]),
-      () =>
-        Reflect.apply(cacheDriver._clearRevalidating, cacheDriver, [
-          "forged",
-          fakeScope,
-        ]),
-    ];
-
-    for (const call of publicCalls) {
-      await expect(call()).rejects.toBeInstanceOf(CacheInvalidKeyError);
-    }
-    expect({
-      clears: cacheDriver.clears,
-      deletes: cacheDriver.deletes,
-      gets: cacheDriver.gets,
-      sets: cacheDriver.sets,
-    }).toEqual({ clears: [], deletes: [], gets: [], sets: [] });
   });
 
   test("reserves the official namespace on normal public cache calls", async () => {

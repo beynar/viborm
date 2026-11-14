@@ -1,11 +1,11 @@
 import {
   type CacheEntry,
-  createOfficialCacheScope,
-  executeCachedWithResultCodec,
   invalidateOfficialCache,
+  serveOfficialRead,
 } from "@cache/driver";
 import { MemoryCache } from "@cache/drivers/memory";
 import { parseTTL } from "@cache/ttl";
+import { stableStringify } from "@extensions/key";
 import type { Clock } from "@src/clock";
 import { createTestClock } from "@tests/fixtures/test-clock";
 import { describe, expect, it } from "vitest";
@@ -43,20 +43,21 @@ function reader(
   pending: Promise<unknown>[],
   swr: number | false = false
 ) {
-  const scope = createOfficialCacheScope("viborm:cache:adversarial");
+  const scope = "viborm:cache:adversarial";
   return {
     scope,
     read: (args: unknown, execute: () => Promise<number>) =>
-      executeCachedWithResultCodec(
-        cache,
-        "post",
-        "count",
-        args,
-        execute,
-        { ttlMs: 10, swr, bypass: false, waitUntil: (p) => pending.push(p) },
+      serveOfficialRead(cache, {
+        run: execute,
+        id: stableStringify(["post", "count", args]),
         codec,
-        scope
-      ),
+        read: { ttlMs: 10, swr, bypass: false },
+        namespace: scope,
+        waitUntil: (p) => pending.push(p),
+        model: "post",
+        operation: "count",
+        origin: { context: undefined },
+      }),
   };
 }
 
@@ -126,7 +127,7 @@ describe("adversarial cache boundaries", () => {
         })
     );
     await begun;
-    await invalidateOfficialCache(cache, "other", undefined, undefined, scope);
+    await invalidateOfficialCache(cache, undefined, undefined, scope);
     resolve(1);
     expect(await old).toBe(1);
     await Promise.all(pending.splice(0));
@@ -164,7 +165,7 @@ describe("adversarial cache boundaries", () => {
     const { scope, read } = reader(cache, pending);
     expect(await read({}, async () => 1)).toBe(1);
     await started;
-    await invalidateOfficialCache(cache, "post", undefined, undefined, scope);
+    await invalidateOfficialCache(cache, undefined, undefined, scope);
     release();
     await Promise.all(pending.splice(0));
     expect(await read({}, async () => 2)).toBe(2);
@@ -195,13 +196,7 @@ describe("adversarial cache boundaries", () => {
     const { scope, read } = reader(cache, pending);
     await read({}, async () => 1);
     await Promise.all(pending.splice(0));
-    await invalidateOfficialCache(
-      cache,
-      "relatedModel",
-      undefined,
-      undefined,
-      scope
-    );
+    await invalidateOfficialCache(cache, undefined, undefined, scope);
     expect(await read({}, async () => 2)).toBe(2);
     await Promise.all(pending.splice(0));
     await cache.disconnect();

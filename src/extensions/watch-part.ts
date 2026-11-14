@@ -64,8 +64,8 @@ export const watchPart: ExtensionPart = {
     ]);
     next.written = Object.freeze({
       handlers,
-      watch: (call, controls, context, cached, late) =>
-        watchWrite(handlers, call, controls, context, cached, late),
+      watch: (call, controls, context, late) =>
+        watchWrite(handlers, call, controls, context, late),
     });
     coordinate(next, ARRAYS);
   },
