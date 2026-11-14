@@ -38,13 +38,16 @@ export interface PredicateAdmission {
   /**
    * `predicate`, one of model `name`'s, at `place` in `rows`, admitted
    * through the model's `where` schema; what it reads of its call is added
-   * to `references` as its parameters are made.
+   * to `references` as its parameters are made. A sub-predicate parsed
+   * before under the same `of` is reused and adds nothing: predicates whose
+   * references are told apart take their own `of`.
    */
   readonly admit: (
     name: string,
     place: string,
     predicate: unknown,
-    references: References
+    references: References,
+    of?: string
   ) => Input;
   readonly refuse: (
     name: string,
@@ -267,8 +270,8 @@ export function admitRows(
   /**
    * Shared sub-predicates are walked and parsed once per set of predicates
    * whose references are told apart: a reused parse makes no parameter, so
-   * it records nothing. A mode's, and the verbs and confinements' (a lazy
-   * entry's included).
+   * it records nothing. A mode's, the eager verbs and confinements', and
+   * each lazy entry's, checked on its own when it is resolved.
    */
   const filtersOf = new Map<string, AdmittedFilters>();
   const admit = (

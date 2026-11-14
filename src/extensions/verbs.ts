@@ -75,11 +75,16 @@ const entryReferences = new WeakMap<
   readonly (string | undefined)[]
 >();
 
-/** One model's `verbs` entry, every predicate admitted and every name checked. */
+/**
+ * One model's `verbs` entry, every predicate admitted and every name
+ * checked; a lazy one's parsed apart (`of`), so it records every control it
+ * names.
+ */
 function admitEntry(
   { schema, admit, refuse }: PredicateAdmission,
   name: string,
-  entry: RowsVerbs
+  entry: RowsVerbs,
+  of?: string
 ): RowsVerbs {
   const place = `verbs.${name}`;
   if (!isPlainRecord(entry))
@@ -101,7 +106,7 @@ function admitEntry(
   const predicates = Object.fromEntries(
     Object.entries(entry.predicates).map(([key, predicate]) => [
       key,
-      admit(name, `${place}.predicates.${key}`, predicate, references),
+      admit(name, `${place}.predicates.${key}`, predicate, references, of),
     ])
   );
   const known = (at: string, predicate: string | undefined) => {
@@ -201,7 +206,8 @@ function admitVerbs(
       admission.refuse(name, `verbs.${name}`, "root", "names an unknown model");
     if (typeof entry === "function") {
       let resolved: RowsVerbs | undefined;
-      const lazily = () => (resolved ??= admitEntry(admission, name, entry()));
+      const lazily = () =>
+        (resolved ??= admitEntry(admission, name, entry(), `lazy ${name}`));
       admitted[name] = lazily;
       continue;
     }
