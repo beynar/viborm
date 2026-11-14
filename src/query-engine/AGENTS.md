@@ -198,7 +198,7 @@ compiler, lowerer, executor, query builder or result engine beside `raptor3/`.
 The query engine consumes the client chain; it does not own a second middleware
 registry, and it names no extension (root Rule 6). The chain's arguments are
 admitted once by the pending operation, before any first moment
-(`src/extensions/controls.ts`); the call's row facts are looked up from them
+(`src/extensions/arguments.ts`); the call's row facts are looked up from them
 (`src/extensions/rows.ts`) and reach Raptor 3 as neutral domains, tombstones
 and one instant (`raptor3/shared/row-scope.ts`), never as an argument, mode
 or extension name. First moments run before core validation. An `around`'s
@@ -219,8 +219,8 @@ imports nothing from `src/instrumentation/` at runtime.
 A write shows the rows it wrote to `write-sinks.ts` where a part watches it
 (`watch` on a `writes` or `deletes` target); a write nothing watches sends
 exactly the statements it sends unwatched. The engine consumes the state the
-parts wrote on the chain (`chain.request`, `chain.query`, `chain.statement`,
-`chain.observation`, `chain.written`); the one array executor
+parts wrote on the chain (`chain.call`, `chain.around`, `chain.rewrites`,
+`chain.observation`, `chain.watch`); the one array executor
 (`src/client/array-transaction.ts`) asks the chain only for its `admit` hook
 (`src/extensions/array-admission.ts`), which starts the members' handlers. The
 query engine retains only irreducible lifecycle triggers and the facts it can

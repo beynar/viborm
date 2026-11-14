@@ -48,7 +48,7 @@ its own `CacheClock` (`driver.ts`), which a test hands a virtual one.
 | `cache-background.ts` | The stale hit's one background promise |
 | `schema.ts`, `ttl.ts` | Per-read options and mutation invalidation options; TTL parsing |
 | `drivers/*` | Backend-only get/set/delete/clear primitives |
-| `src/extensions/query.ts` | The single ordered write-outcome rail `settled` registers on |
+| `src/extensions/query.ts` | The collector of a transaction scope (`collect`, `TransactionWriteOutcomes`), which `settled` and the part that watches writes install by value |
 
 There is no second cache manager, mutable cache-driver version, client-config
 fallback, mutation-wrapper registry, or native-batch invalidation owner.

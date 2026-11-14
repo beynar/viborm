@@ -338,13 +338,14 @@ promise methods that the client does not have.
 `src/extensions/` owns the chain (`chain.ts`, the one mechanism, which names
 no part and no official extension) and every part's code; each part writes
 its own state on the chain and that state carries the code that runs it.
-This client layer asks the chain (`chain.controls.admit`,
-`chain.written.watch`, `chain.observation.run`, …) and imports no builder,
-so a client that applies no extension carries none of their code (112 bytes
-of `src/extensions` in the PostgreSQL application, the origin symbols and
-`isAppliedExtension`). A part is trusted code made by the builders: there
+This client layer asks the chain (`chain.args.admit`,
+`chain.watch.watch`, `chain.observation.run`, …) and imports no builder,
+so a client that applies no extension carries none of their code (594 bytes
+of `src/extensions` in the PostgreSQL application: `transact`, how every
+transaction scope runs, which replaced the rail branches the client and the
+array executor held; `isAppliedExtension`; the origin symbols). A part is trusted code made by the builders: there
 is no hostile-part read. Call-time admission of an
-argument's value stays, as user input (`controls.ts`): a value its
+argument's value stays, as user input (`arguments.ts`): a value its
 declaration refuses, a `required` argument the call left out, a `bound` one
 a call passes. This client layer still owns candidate authority, request
 triggering, substrate selection, provider dispatch, parsing, result order,
@@ -353,9 +354,9 @@ and commit publication.
 | Owner | Responsibility |
 |---|---|
 | `src/extensions/extension.ts` | `extension(name, ...parts)` (each part an `ExtensionPart` that joins the chain with its own state), `isAppliedExtension` |
-| `src/extensions/chain.ts`, `chain-state.ts` | The one mechanism: each part's phases (`admit`, `declare`, `join`, `seal`, `carry`) and the resolved chain every part writes on |
+| `src/extensions/chain.ts`, `chain-state.ts` | The one mechanism: each part's phases (`declare`, `join`, `seal`), what two parts of one extension meet through (`Application`: `owner`, `bring`, `shared`), and the resolved chain every part writes on |
 | `src/extensions/call.ts`, `call-words.ts`, `watch-part.ts`, `written.ts` | `call` and `around`, their first and second moments, `inner`; `watch`, `settled`, `again`, `via`; what tells a watch of the rows a write wrote |
-| `src/extensions/controls.ts`, `args.ts` | `args`, `oneOf`, `accepts`, `bound` and the modifiers; placement per (model, operation) and the one admission of a call's arguments; the `rows` and `data` slots of the extension state (`RowsModels`, `DefinitionData`) |
+| `src/extensions/arguments.ts`, `args.ts` | `args`, `oneOf`, `accepts`, `bound` and the modifiers; placement per (model, operation) and the one admission of a call's arguments |
 | `src/extensions/rule.ts`, `rule-words.ts`, `judge-words.ts`, `admission.ts`, `rows.ts`, `row-domain.ts`, `layers.ts`, `verbs.ts`, `judge.ts`, `produced.ts`, `projection.ts`, `gates.ts`, `kept.ts`, `reads.ts` | `rule` and its words; each entry admitted once per schema, bound once per application; what `only`, `check`, `gate`, `facts`, `keep` and `lazy` bring |
 | `src/extensions/defaults.ts`, `order.ts`, `stamps.ts`, `plain-domain.ts` | `defaults` and `omitted`: default order, default data, default omission, without the filter domain |
 | `src/query-engine/raptor3/commands/commands.ts` (`Commands.stamp`) | The engine side of default data: one owner admits a model's stamp per occurrence and attempt and puts it under the occurrence: a field the caller writes, by name or through the relation holding it, stays the caller's; every create and update site calls it (see `src/query-engine/raptor3/AGENTS.md`) |
@@ -373,7 +374,7 @@ chain whose rules can hide a model's rows (`read.where`, `root`, `related`
 or a `lazy` entry: `RuleFacts` in `contract.ts`), the shallow surfaces of
 those models (`ClientRowsContext`, `types.ts`, from the extension state's
 `rows` slot,
-filled by `RowsModels` in `controls.ts`). `result-types.ts` alone turns that
+filled by `RuleFacts` in `contract.ts`). `result-types.ts` alone turns that
 into `| null` on a singular slot whose target a relation read can find hidden
 (`HiddenTargetNull`): the model delegates, `$withCache()`, the transaction
 client, `ExtendedOperationResult` and a typed `around`'s `run()`
@@ -383,7 +384,7 @@ context through `ContextualOperationResult`. `OperationResult`,
 
 The payloads have one owner for what an extension's `data` writes on
 create: the extension state's `data` slot (`StampedFields` per model, filled
-by `DefinitionData` in `controls.ts` from each entry's `create` fields; an
+by `DefaultsFacts` in `contract.ts` from each entry's `create` fields; an
 update's fields are optional already, so `update` adds nothing). On a chain
 whose slot is not empty, `ExtensionModelDelegate` (`src/extensions/methods.ts`)
 swaps a model's five write operations for `StampedOperations` (`types.ts`),

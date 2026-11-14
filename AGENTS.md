@@ -244,60 +244,73 @@ execution token, an operation program, or a member that a part does not own.
 does not import is not in its bundle. esbuild drops unused top-level
 declarations but never code inside a function or a class's methods, so a
 shared function that names an optional feature puts it in every caller's
-bundle. Hence: each builder lives in its own module and brings only its
-part (`builtPart` in `extension.ts`: the host parts it needs and what it
-writes on the definition); a builder's join never names a word, it calls
-what the value carries (`CarriedValue.join(site)` and `PredicateWord` in
-`rule-words.ts`; `only`, `check`, `gate`, `facts`, `keep`, `lazy` and
-`omitted` are classes whose `join` writes their own state and brings their
-own code: `verbs.ts`, `judge.ts`, `produced.ts`, `projection.ts`,
-`kept.ts`); `around` is a separate export, never a property of `call`
-(a property assigned to an exported function is a module side effect
-esbuild keeps); the code that watches writes comes with the sets that name
-writes (`writes` and `deletes` carry `watchPart`, `watch-part.ts`), so a
-`call` that only patches carries none of it; a key with no word cannot
-bring code, so a feature with a cost is a word (`only` is why
-`update.where` is written `only(where)`: 5.3 kB that a rule of filters
-alone no longer carries). Measure with `node scripts/extension-bytes.mjs`
-(the `pg-one-*` fixtures of `scripts/bundle-fixtures/`, one part each, and
-one fixture per official extension); `docs/content/docs/extensions/create.mdx`
-carries the figures of the release.
+bundle. Hence: a word brings its code, a plain key cannot. Each builder lives
+in its own module and returns its part, which carries its state and its
+code; a builder never names a word, it calls what the value carries
+(`CarriedValue.join(site)` and `PredicateWord` in `rule-words.ts`; `only`,
+`check`, `gate`, `facts`, `keep`, `lazy` and `omitted` are classes whose
+`join` writes their own state and brings their own part: `verbs.ts`,
+`judge.ts`, `produced.ts`, `projection.ts`, `kept.ts`,
+`default-omit-identity.ts`); `around` is a separate export, never a
+property of `call` (a property assigned to an exported function is a module
+side effect esbuild keeps); the code that watches writes comes with the sets
+that name writes (`writes` and `deletes` carry `watchPart`), so a `call` that
+only patches carries none of it; `settled` brings the collector of a
+transaction scope by value where it registers (`collect`), so a part that
+never imports it pays nothing for it; a feature with a cost is a word (`only`
+is why `update.where` is written `only(where)`: what a rule of filters alone
+does not carry). An official extension's entry imports the values it uses
+from the modules that define them, never from an index. Measure with
+`node scripts/extension-bytes.mjs` (the `pg-one-*` fixtures of
+`scripts/bundle-fixtures/`, one part each, and one fixture per official
+extension); `docs/content/docs/extensions/create.mdx` carries the figures of
+the release.
 
-**What an application that applies no extension carries:** 112 bytes of
-`src/extensions` (`isAppliedExtension` of `extension.ts`, the symbols of
-`origin.ts`), measured on `pg-representative`, which weighs 508,794 bytes
-minified, 10,528 under the host it replaced. It must not grow by one byte:
-the client asks the chain, and a part's state on the chain carries the code
-that runs it (`chain.written.watch`, `chain.controls.admit`,
-`chain.observation.run`), so the client, the engine, the executor and the
-drivers import no builder. What core imports of `src/extensions` at runtime
-is how a transaction scope runs (`transact`, `coordination.ts`: what its
-calls register waits in the scope, whose collector the first registration
-installs by value), the unit records (`unit-source.ts`, `unit-words.ts`,
-`observation.ts`), the call's row scope (`row-domain.ts`) and the origin
-symbols (`origin.ts`), each reached only through state a part wrote.
+**What an application that applies no extension carries:** the client asks
+the chain, and a part's state on the chain carries the code that runs it
+(`chain.watch.watch`, `chain.args.admit`, `chain.observation.run`), so the
+client, the engine, the executor and the drivers import no builder. What
+core imports of `src/extensions` at runtime is how a transaction scope runs
+(`transact`, `coordination.ts`: what its calls register waits in the scope,
+whose collector the first registration installs), `isAppliedExtension`,
+the unit records (`unit-source.ts`, `unit-words.ts`, `observation.ts`), the
+call's row scope (`row-domain.ts`) and the origin symbols (`origin.ts`),
+each reached only through state a part wrote. It must not grow by one byte
+(`pg-representative`, measured by `extension-bytes.mjs`): a chain member a
+core path reads is named short, since minified property names are kept.
 
-**The chain.** `src/extensions/chain.ts` is the one mechanism: it applies a
-definition part by part, each `ExtensionPart` running its phases (`admit`,
-`declare`, `join`, `seal`; `carry` for state that follows the chain, not a
-definition) for every part of the definition before the next phase starts,
-so a part never depends on the order the parts were named in. `chain.ts`
-imports only `chain-state.ts` and `definition.ts`, and neither names an
-official extension or a capability (`tests/contracts/architecture/extension-system-census.core.test.ts`);
-every member of `ResolvedExtensionChain` (`chain-state.ts`) is written by a
-part. `definition.ts` is what the builders write, never an author: a
-definition is trusted code, not hostile data (no proxies, throwing
-accessors, symbol keys or frozen copies are read defensively). No module
-holds a registry of extensions or parts; what `src/extensions` keeps at
-module level is per-object caches keyed by a schema, a call or a prepared
-operation (`WeakMap`s: admitted predicates, prepared domains, codecs, a
-call's second moments and watches, unit sources), listed in the census's
-`MODULE_STATE_LEFT`, which may only shrink.
+**The chain.** `src/extensions/chain.ts` is the one mechanism. An extension
+value (`extension.ts`) is a name and its parts; `$extends` hands them to
+`appendParts`, which runs each part's phases, `declare`, `join` and `seal`,
+for every part before the next phase starts, so a part never depends on the
+order the parts were named in. A part (`ExtensionPart`) is what a builder
+returns: its own state, the parts it `uses` beside it, and the phases it
+needs. Two parts of one extension meet only through the `Application`:
+what one writes in `declare` the others read in `join` (`args` declares the
+extension's arguments on `next.args` and `owner`, which `call`, `around`,
+`rule`, `defaults` and `keep` read); a word brings the part it needs with
+`bring` (`keep` its kept rows, `omitted` its omission); and `shared(key,
+make)` keeps what the parts make of one schema, once per extension and
+schema (the one rule layer an extension's `rule` parts write, a `defaults`
+part's reading), which is also what keeps an admitted layer admitted for
+every client of the schema. `chain.ts` imports only `chain-state.ts` and
+names no member, no part, no capability and no official extension
+(`tests/contracts/architecture/extension-system-census.core.test.ts`);
+every member of `ResolvedExtensionChain` is written by a part and named
+after the word that brings it (`call`, `around`, `rewrites`, `watch`,
+`rules`, `defaultData`, `defaultOrder`, `fields`, `args`, …). A part is
+trusted code made by a builder, not hostile data: nothing is read
+defensively and nothing internal is frozen; what is frozen is what a
+promise pins (an extension value, `c.args`). No module holds a registry of
+extensions or parts; what `src/extensions` keeps at module level is per-
+object caches keyed by a schema, a call or a prepared operation, listed in
+the census's `MODULE_STATE_LEFT`, which may only shrink, and the census
+refuses a module-level assignment (an import that brings code).
 
 **The life of a call.** The pending operation owns the admission record.
 Unit `operation` begins (`observation.ts`, the one generation of unit
 handlers); the chain's arguments are taken out of the call's arguments and
-validated once (`controls.ts`: shown only to the declaring extension's parts
+validated once (`arguments.ts`: shown only to the declaring extension's parts
 as `c.values` and to the chain's rules as `arg(name)`; a `bound` argument
 only from a view's `scope.$bind`; one name space per chain, a name declared
 twice refused, in one extension too); first moments run in chain order,
@@ -334,7 +347,8 @@ one instant, the values its predicates read by argument name) and never a
 mode or an extension name (see `src/query-engine/raptor3/AGENTS.md`).
 `rule.ts` and `admission.ts` check each entry once per schema at
 `$extends()` (an unknown model, field or key, a `target` naming an unknown
-model or operation, an argument no extension of the chain declares: D7);
+model or operation, an argument no extension of the chain declares: D7),
+the layer admitted once per extension and schema by its own part;
 `rows.ts` binds one domain per application, and a call only looks its
 facts up: there is no mode. `when` and `unless` fold per call (`layers.ts`),
 a layer whose `when`s and `unless`es all apply nothing states nothing, and
