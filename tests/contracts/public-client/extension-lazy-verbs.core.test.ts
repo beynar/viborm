@@ -410,3 +410,21 @@ test("a mode and a lazy entry that read only the call's instant name no argument
   expect(called.values).toBeDefined();
   expect(called.domain.verbs!.get("event")).toHaveLength(1);
 });
+
+test("an entry given lazily applied after an eager rule that judges is still read and judged", async () => {
+  const eager = typed.extension(
+    "eager",
+    typed.rule({ note: { update: { check: check({ ownerId: "alice" }) } } })
+  );
+  const db = base.$extends(eager).$extends(governed({ note: own }));
+  expect(ids(await db.note!.findMany({ user: "alice" } as object))).toEqual([
+    "n1",
+  ]);
+  await expect(
+    db.note!.update({
+      where: { id: "n1" },
+      data: { ownerId: "bob" },
+      user: "alice",
+    } as object)
+  ).rejects.toThrow("not permitted");
+});
