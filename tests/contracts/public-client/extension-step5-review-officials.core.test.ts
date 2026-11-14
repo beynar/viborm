@@ -48,6 +48,8 @@ interface Loose {
   $disconnect(): Promise<void>;
 }
 
+const ERROR_NAME = /Error$/;
+
 const opened: Loose[] = [];
 afterEach(async () => {
   for (const client of opened.splice(0)) await client.$disconnect();
@@ -180,13 +182,13 @@ describe("softDelete and permissions, in either order", () => {
     );
     expect(policyFirst).toEqual(softFirst);
     // What the answers are, on the order the docs show.
-    expect(softFirst[1]).toEqual({ error: expect.stringMatching(/Error$/) });
+    expect(softFirst[1]).toEqual({ error: expect.stringMatching(ERROR_NAME) });
     expect(softFirst[3]).toEqual([
       { id: "a", deletedAt: "set" },
       { id: "b", deletedAt: null },
       { id: "c", deletedAt: null },
     ]);
-    expect(softFirst[softFirst.length - 1]).toEqual({
+    expect(softFirst.at(-1)).toEqual({
       error: "ForbiddenError",
     });
   });
@@ -275,5 +277,3 @@ describe("defaultOmit", () => {
     expect(Object.keys(row).sort()).toEqual(["authorId", "id"]);
   });
 });
-
-export type { Row };
