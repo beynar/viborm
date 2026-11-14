@@ -15,6 +15,7 @@ import {
   arg,
   args,
   check,
+  defaults,
   driver,
   extension,
   fields,
@@ -277,6 +278,31 @@ describe("a computed field reads the row as it was fetched", () => {
     data.meta.size = 9;
     (row!.blob as Uint8Array)[0] = 7;
     expect(row!.summary).toBe("a/1/1,2,3");
+  });
+});
+
+describe("default data", () => {
+  test("an argument's value beside a constant, a model of constants only, and a call that passes no argument", async () => {
+    const db = (await seeded()).$extends(
+      extension(
+        "stamps",
+        args({ owner: oneOf("u1", "u2") }),
+        defaults({
+          post: { create: { ownerId: arg("owner"), title: "untitled" } },
+          user: { create: { name: "anon" } },
+        })
+      )
+    );
+    expect(
+      await db.post.create({ data: { id: "p5" }, owner: "u2" })
+    ).toMatchObject({ title: "untitled", ownerId: "u2" });
+    // No argument: the field naming it is not written; the caller writes it.
+    expect(
+      await db.post.create({ data: { id: "p6", ownerId: "u1" } })
+    ).toMatchObject({ title: "untitled", ownerId: "u1" });
+    expect(await db.user.create({ data: { id: "u5" } })).toMatchObject({
+      name: "anon",
+    });
   });
 });
 
