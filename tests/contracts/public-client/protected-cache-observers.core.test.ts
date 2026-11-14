@@ -277,8 +277,13 @@ describe("public protected cache observers", () => {
 
     const invalidateFailure = new Error("cache delete refused");
     state.cache.failDelete = invalidateFailure;
-    await expect(state.client.$invalidate("get-failure")).rejects.toBe(
-      invalidateFailure
+    // A backend failure of `$invalidate` is the cache's configuration error,
+    // as a write's invalidation failure is; the backend's error is its cause.
+    await expect(state.client.$invalidate("get-failure")).rejects.toMatchObject(
+      {
+        name: "CacheConfigurationError",
+        meta: { method: "invalidate" },
+      }
     );
     await settleObservations(state.observations);
     expect(

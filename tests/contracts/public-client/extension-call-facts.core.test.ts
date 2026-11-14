@@ -456,3 +456,46 @@ describe("accepts(schema)", () => {
     await expect(db.item.findMany({ checked: 1 })).rejects.toBe(refusal);
   });
 });
+
+describe("settled and a handler's post-work", () => {
+  test("a direct write is settled before its handler's post-work; in a transaction, after the outermost commit", async () => {
+    const timeline: string[] = [];
+    const { client } = base();
+    const db = client.$extends(
+      extension(
+        "order",
+        around((c) => {
+          settled(c, () => {
+            timeline.push("outcome");
+          });
+          return async (run: Run<unknown, unknown>) => {
+            const value = await run();
+            timeline.push("post-work");
+            return value;
+          };
+        }, target(writes))
+      )
+    );
+    await db.item.deleteMany();
+    await db.item.create({ data: { id: "i9", name: "n", tenant: "a" } });
+    await db.$transaction(async (tx) => {
+      await tx.item.deleteMany();
+      timeline.push("tx-body");
+    });
+    timeline.push("|");
+    await db.$transaction([db.item.deleteMany()]);
+    expect(timeline).toEqual([
+      "outcome",
+      "post-work",
+      "outcome",
+      "post-work",
+      "post-work",
+      "tx-body",
+      "outcome",
+      "|",
+      // An array is a transaction: its commit comes after its members ran.
+      "post-work",
+      "outcome",
+    ]);
+  });
+});

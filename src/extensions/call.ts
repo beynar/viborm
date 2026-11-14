@@ -22,6 +22,7 @@ import type {
   AroundHandler,
   EmptyFacts,
   MomentOne,
+  Outcome,
   Part,
   Selection,
 } from "./contract";
@@ -155,7 +156,8 @@ function firstContext(
   operation: string,
   state: { args: Readonly<Record<string, unknown>> },
   controls: RequestControls | undefined,
-  call: object | undefined
+  call: object | undefined,
+  told?: (listener: (outcome: Outcome) => unknown) => void
 ): FirstContext {
   const { extension } = handler;
   return {
@@ -191,6 +193,11 @@ function firstContext(
       state.args = Object.freeze({ ...state.args, ...patch });
     },
     [REGISTER]: (watching: Watching) => {
+      // A raw statement has no rows to show: only its outcome is told.
+      if (told !== undefined) {
+        if (watching.settled !== undefined) told(watching.settled);
+        return true;
+      }
       if (call === undefined || !WATCHING.has(handler.handler)) return false;
       let byExtension = watched.get(call);
       if (byExtension === undefined)
@@ -257,7 +264,9 @@ function secondMoment(first: FirstMoment, extension: string) {
               context.operation,
               { args: context.input },
               undefined,
-              undefined
+              undefined,
+              // The host tells a raw execute family's outcome.
+              context.onWriteOutcome
             ),
             undefined
           );
