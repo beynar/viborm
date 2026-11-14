@@ -82,9 +82,9 @@ separate [migration workflow](docs/content/docs/migration/index.mdx).
 - PostgreSQL, MySQL and SQLite adapters with eleven transport drivers.
 - Callback transactions where the provider supports them, and atomic array
   transactions on the supported batch transports.
-- Ten extension capabilities: `request`, `query`, `statement`, `observe`, `client`,
-  `model`, `controls`, `rows`, `deletion` and `data`; official cache,
-  instrumentation, omit, soft-delete and permissions tools.
+- Extensions built from parts that each pay only for themselves: `call`, `unit`,
+  `args`, `rule`, `defaults`, `methods` and `fields`; official cache,
+  instrumentation, omit, soft-delete, permissions, write-hook and ordering tools.
 - Fixed-decimal values, millisecond DateTime values, GeoPoint and PostgreSQL vector
   operations with explicit provider requirements.
 - [VibORM Studio](docs/content/docs/studio.mdx) (`npx @viborm/studio`): the schema
@@ -109,7 +109,7 @@ VibORM has a Prisma-inspired API, with differences documented in the
 - [`viborm/permissions`](docs/content/docs/extensions/permissions.mdx) is the authorization
   boundary: one predicate per model and action, judged inside the statement
   that reads or writes, for the actor a request binds with `db.$as(actor)`.
-  Raw SQL and statement transforms are not filtered, and the client below it
+  Raw SQL and statement rewrites are not filtered, and the client below it
   sees every row.
 - Safe raw SQL parameterizes values; it does not apply model codecs. Compact IDs,
   SQLite decimals and temporal columns have physical representations described in

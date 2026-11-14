@@ -30,14 +30,14 @@ documentation.
 
 ## Connection to Other Layers
 
-- **L9 (Client)**: Authenticates the official capability and creates cached views
+- **L9 (Client)**: Applies the cache extension, whose methods create cached views
 - **L11 (Instrumentation)**: Observes cache hits, misses, writes, and refreshes
 - **L6-L8 (Execution)**: Run only when the cache path requires a database read
 
 Read caching deliberately bypasses callback and array transactions, raw calls,
-and statement-transform chains. Mutation invalidation uses the existing ordered
-write-outcome rail in `src/extensions/query.ts`, so savepoint rollback discards
-it and outer commit publishes it once. The official factory and authenticated
-capability stay in `src/cache/extension.ts`; the inner-core read trigger remains
-in the query engine. A custom read key is a suffix of canonical identity, never
+and chains that rewrite statements. Mutation invalidation runs through
+`settled`, so savepoint rollback discards it and outer commit publishes it
+once. The official factory stays in `src/cache/extension.ts`: an ordinary
+extension of `args`, an inner `call.around` reading `key` and `codec`, and
+`methods`. A custom read key is a suffix of canonical identity, never
 a replacement.
