@@ -318,9 +318,8 @@ export function arg(name: string, path?: string): unknown {
  * A filter no row holds: what a rule writes for a write it never allows
  * (`update: { where: nothing }`).
  */
-export const nothing: { readonly OR: readonly never[] } = Object.freeze({
-  OR: Object.freeze([]),
-});
+export const nothing: { readonly OR: readonly never[] } =
+  /* @__PURE__ */ Object.freeze({ OR: /* @__PURE__ */ Object.freeze([]) });
 
 /** The call's one instant: the same for every row it writes. */
 export const now: NowWord = /* @__PURE__ */ nowValue();
