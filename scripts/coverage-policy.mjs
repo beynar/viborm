@@ -1,7 +1,10 @@
 import { readdirSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { CLIENT_COVERAGE_TESTS } from "./client-test-manifest.mjs";
+import {
+  CLIENT_COVERAGE_TEST_GROUPS,
+  CLIENT_COVERAGE_TESTS,
+} from "./client-test-manifest.mjs";
 import {
   DRIVER_COVERAGE_TEST_GROUPS,
   DRIVER_COVERAGE_TESTS,
@@ -227,6 +230,7 @@ const definitions = [
     root: "src/client/",
     projects: ["coverage-client"],
     tests: CLIENT_COVERAGE_TESTS,
+    testGroups: CLIENT_COVERAGE_TEST_GROUPS,
   },
   {
     id: "cache",

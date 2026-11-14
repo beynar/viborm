@@ -377,6 +377,9 @@ test("client coverage admits the core and audited deterministic contracts", () =
     ...coreTests("tests/contracts/public-client"),
     "tests/contracts/public-client/geopoint-provider-limit.test.ts",
     "tests/contracts/public-client/omit-builder-types.test.ts",
+    // In-memory SQLite suites, each in a process of its own.
+    "tests/providers/local/sqlite3-raw-rows.test.ts",
+    "tests/providers/local/sqlite3-through-model-governed.test.ts",
   ];
 
   assert.equal(
