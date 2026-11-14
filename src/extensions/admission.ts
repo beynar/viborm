@@ -10,7 +10,7 @@ import type { Schema } from "@client/types";
 import { ClientInitializationError } from "@errors";
 import type {
   CallRows,
-  LazyRelations,
+  ModelVerbs,
   RowDomain,
 } from "@query-engine/raptor3/shared/row-scope";
 import type { Input } from "@query-engine/raptor3/shared/schema";
@@ -24,7 +24,6 @@ import {
 } from "@validation/primitives/parameter";
 import type { SchemaRegistryLookup } from "@validation/types";
 import type { ResolvedExtensionChain } from "./chain-state";
-import type { Judge } from "./judge";
 import type { Projection } from "./projection";
 import type { PreparedDomain } from "./row-domain";
 import { type Admitting, PredicateWord } from "./rule-words";
@@ -37,14 +36,17 @@ export type References = Set<string | undefined>;
 
 /**
  * One model's keys of one rule layer beyond its filters, as written (the
- * words' predicates raw) or as admitted: which rows a write may take
- * (`update`, `delete`, `writes`), what the rows it produces must hold
- * (`place`, `moves`, `acyclic`, with what judges them), and what a read
- * carries or hides (`evidence`, `reads`, with what projects them). `read`
- * is an entry given as a function's `read.where`: its filters are read
- * there, since what filters is bound before any entry is resolved.
+ * words' predicates raw): which rows a write may take (`update`, `delete`,
+ * `writes`), what the rows it produces must hold (`place`, `check`,
+ * `moves`, `acyclic`, with what judges them), and what a read carries or
+ * hides (`as` and `facts`, `reads`, with what projects them). `read` is an entry
+ * given as a function's `read.where`: its filters are read there, since what
+ * filters is bound before any entry is resolved. Admitted, it is the
+ * layer's `ModelVerbs`.
  */
 export interface VerbsDraft {
+  /** A check was written on the entry: the rows its writes produce are judged. */
+  judge?: ModelVerbs["judge"];
   read?: unknown;
   /**
    * An eager entry's `read.where`, where it carries or hides fields: what a
@@ -52,38 +54,29 @@ export interface VerbsDraft {
    * Its filters are the layer's own, so it is never read as one again.
    */
   shown?: unknown;
-  /**
-   * An entry given as a function, once admitted: the arguments its
-   * predicates name, checked against the chain it is bound to.
-   */
-  references?: readonly (string | undefined)[];
   update?: unknown;
   delete?: unknown;
-  writes?: Record<string, unknown>;
+  writes?: Map<string, unknown>;
   place?: unknown;
-  /** What the row an update leaves holds, where it writes a field this reads. */
   check?: unknown;
-  moves?: Record<string, unknown>;
-  reads?: Record<string, unknown>;
-  evidence?: {
-    readonly as: string;
-    readonly names: readonly (readonly [string, unknown])[];
-  };
+  moves?: Map<string, unknown>;
+  reads?: Map<string, unknown>;
+  as?: string;
+  facts?: Map<string, unknown>;
   acyclic?: readonly string[] | (() => readonly string[]);
-  /**
-   * An entry given as a function's filters, as written, then as admitted
-   * per value of the layer's mode argument (`""` without one): bound before
-   * any entry is resolved, they are read with its other keys.
-   */
+  /** An entry given as a function's filters, as written. */
   root?: readonly unknown[];
   related?: readonly unknown[];
-  filters?: ModeFilters;
-  /** `acyclic` as admission checked it against the model's self relations. */
-  cycles?: readonly string[] | LazyRelations;
-  /** What judges the rows a write produces: brought by the word that asks it. */
-  judge?: (domain: PreparedDomain) => Judge;
-  /** What projects and hides fields: brought by the word that asks it. */
-  project?: (domain: PreparedDomain) => Projection;
+}
+
+/**
+ * One model's admitted verbs, with an entry given lazily's filters per mode
+ * and the arguments its predicates name, checked against the chain it is
+ * bound to.
+ */
+export interface AdmittedVerbs extends ModelVerbs {
+  readonly filters?: ModeFilters;
+  readonly references?: readonly (string | undefined)[];
 }
 
 /** The argument a layer's filters are decided by, one domain per value. */
@@ -112,8 +105,15 @@ export interface RuleLayer {
   host?: VerbsHost;
   /** What lowers its layer, set where an entry read later may read its call. */
   layered?: Layered;
-  /** What judges and projects, set where an entry read later may ask either. */
-  lazily?: Pick<VerbsDraft, "judge" | "project">;
+  /** What judges and projects, brought by the words that ask either. */
+  brings?: {
+    judge?: ModelVerbs["judge"];
+    project?: (domain: PreparedDomain) => Projection;
+    /** What prepares a call's domains where a layer takes rows by verb. */
+    prepare?: CallRows["prepare"];
+    /** What refuses one model's projection keys across the chain's layers. */
+    keys?: (model: string, layers: readonly (ModelVerbs | undefined)[]) => void;
+  };
 }
 
 /** What makes a layer's node of a predicate: `RowDomain.layered`. */
@@ -144,9 +144,9 @@ export interface VerbsBound {
   readonly judge?: RowDomain["judge"];
   readonly project?: RowDomain["project"];
   /** An entry given lazily is read: its calls carry their values. */
-  readonly lazy: boolean;
+  readonly lazy?: boolean;
   /** A model's filters at one layer, held by an entry given lazily. */
-  readonly filters: (model: string, layer: number) => ModeFilters | undefined;
+  readonly filters?: (model: string, layer: number) => ModeFilters | undefined;
   /** What prepares the call facts, with what the verbs judge. */
   readonly prepare: CallRows["prepare"];
 }
@@ -156,6 +156,8 @@ export interface VerbsBound {
  * verbs once per schema, and what binds a chain's for its calls.
  */
 export interface VerbsHost {
+  /** It admits and binds entries given lazily, beside eager ones. */
+  readonly lazy?: true;
   admit(
     admission: Admission,
     layer: RuleLayer,
@@ -176,14 +178,14 @@ export interface AdmittedLayer {
   readonly mode?: LayerMode;
   readonly models: { readonly [model: string]: ModeFilters };
   readonly verbs: {
-    readonly [model: string]: VerbsDraft | (() => VerbsDraft);
+    readonly [model: string]: AdmittedVerbs | (() => AdmittedVerbs);
   };
   /** What admitted `verbs`, and binds them. */
   readonly host?: VerbsHost;
   /** What lowers the layer, where some predicate of it reads its call. */
   readonly layered?: Layered;
-  /** What judges and projects, where an entry read later may ask either. */
-  readonly lazily?: RuleLayer["lazily"];
+  /** What judges and projects, brought by the words that ask either. */
+  readonly brings?: RuleLayer["brings"];
   readonly confine: { readonly [model: string]: Input };
   /** What its eager predicates read of their call (`References`). */
   readonly references: readonly (string | undefined)[];
@@ -391,7 +393,7 @@ export function admitLayer(
     verbs,
     ...(host && { host }),
     ...(layered && { layered }),
-    ...(layer.lazily && { lazily: layer.lazily }),
+    ...(layer.brings && { brings: layer.brings }),
     confine: Object.freeze(confine),
     references: Object.freeze([...references]),
   });

@@ -122,11 +122,12 @@ const foldKnownNulls = (
     false
   );
 /**
- * `judged` over the produced row `from` reads (and, for each `acyclic`
- * relation, the row outside its own subtree), as the adapter's assertion:
- * 1, or the statement that carries it fails before it writes. `undefined`
- * where nothing is left to judge: the call drops every layer `judged` is
- * made of (R6).
+ * The SELECT `select` makes of the guard `judged` puts on the produced row
+ * `from` reads (and, for each `acyclic` relation, the row outside its own
+ * subtree), read with the statement's shared bodies: the adapter's
+ * assertion, 1 or the statement that carries it fails before it writes.
+ * `undefined` where nothing is left to judge: the call drops every layer
+ * `judged` is made of (R6).
  */
 function holds(
   q: SqlQueries,
@@ -135,26 +136,37 @@ function holds(
   judged: Pick<PreparedSelector, "model" | "predicate"> | undefined,
   alias: string,
   nulls: ReadonlyMap<string, boolean>,
+  select: (guard: Sql) => Parameters<typeof assembleAdapterSelect>[1],
   from?: Sql,
   acyclic: readonly string[] = NO_RELATIONS
 ): Sql | undefined {
   const a = q.adapter;
-  const outer = q.known;
-  q.known = { alias, nulls, fold: foldKnownNulls };
-  let lowered: Sql | undefined;
-  try {
-    lowered = judged && q.lowerSelector(judged, alias);
-  } finally {
-    q.known = outer;
-  }
-  const conditions = [
-    ...(lowered === undefined ? [] : [lowered]),
-    ...acyclic.map((relation) => outsideOwnSubtree(q, model, relation, alias)),
-  ];
-  if (conditions.length === 0) return undefined;
-  return a.subqueries.scalar(
-    judgedHolds(a, spelling, a.operators.and(...conditions), from)
-  );
+  return q.sharing(() => {
+    const outer = q.known;
+    q.known = { alias, nulls, fold: foldKnownNulls };
+    let lowered: Sql | undefined;
+    try {
+      lowered = judged && q.lowerSelector(judged, alias);
+    } finally {
+      q.known = outer;
+    }
+    const conditions = [
+      ...(lowered === undefined ? [] : [lowered]),
+      ...acyclic.map((relation) =>
+        outsideOwnSubtree(q, model, relation, alias)
+      ),
+    ];
+    return conditions.length === 0
+      ? undefined
+      : assembleAdapterSelect(
+          a,
+          select(
+            a.subqueries.scalar(
+              judgedHolds(a, spelling, a.operators.and(...conditions), from)
+            )
+          )
+        );
+  });
 }
 /**
  * The SELECT an INSERT of `rows` reads its values from when the rows it
@@ -171,7 +183,6 @@ export function producedSource(
   rows: readonly Input[],
   judged: PreparedSelector
 ): Sql | undefined {
-  const a = q.adapter;
   const alias = q.alias();
   const written = new Set(columns);
   const from = producedRows(
@@ -199,18 +210,14 @@ export function producedSource(
     const [state] = states;
     if (states.size === 1 && state !== undefined) nulls.set(field, state);
   }
-  return q.sharing(() => {
-    const guard = holds(q, spelling, model, judged, alias, nulls);
-    if (guard === undefined) return undefined;
-    return assembleAdapterSelect(a, {
-      columns: sql.join(
-        columns.map((field) => q.column(model, field, alias)),
-        ", "
-      ),
-      from,
-      where: sql`${guard} = 1`,
-    });
-  });
+  return holds(q, spelling, model, judged, alias, nulls, (guard) => ({
+    columns: sql.join(
+      columns.map((field) => q.column(model, field, alias)),
+      ", "
+    ),
+    from,
+    where: sql`${guard} = 1`,
+  }));
 }
 /**
  * The WHERE of an UPDATE of `model` assigning `values` that judges the
@@ -286,20 +293,15 @@ export function producedWhere(
     if (whole && !(whole.value instanceof Sql))
       nulls.set(field, whole.value === null);
   }
-  const judgedSet = (): Sql | undefined => {
-    const guard = holds(
-      q,
-      spelling,
-      model,
-      judged,
-      produced,
-      nulls,
-      from,
-      acyclic
-    );
-    if (guard === undefined) return undefined;
-    const keys = q.keyOrder(model).map(current);
-    return assembleAdapterSelect(a, {
+  const keys = q.keyOrder(model).map(current);
+  const set = holds(
+    q,
+    spelling,
+    model,
+    judged,
+    produced,
+    nulls,
+    (guard) => ({
       columns: sql.join(keys, ", "),
       from: q.table(model, row),
       where: candidates(row),
@@ -309,9 +311,10 @@ export function producedWhere(
         orderBy: q.ascendingKeys(model, row),
         limit: q.value(limit),
       }),
-    });
-  };
-  const set = q.sharing(judgedSet);
+    }),
+    from,
+    acyclic
+  );
   if (set === undefined) return undefined;
   const table = model["~"].names.sql!;
   return a.operators.in(
