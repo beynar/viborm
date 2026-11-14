@@ -9,7 +9,7 @@ import type {
 } from "./contract";
 import { controlsPart } from "./controls";
 import { extensionError } from "./definition";
-import { type ArgSpec, builtPart, type DefinitionDraft } from "./extension";
+import { type ArgSpec, builtPart } from "./extension";
 import { operationsOf } from "./on";
 
 /** A declaration `oneOf`, `accepts` or `bound` made: what it reads as. */
@@ -76,11 +76,6 @@ function specOf(name: string, value: unknown): ArgSpec {
   );
 }
 
-/** The extension's arguments, placed as each is declared. */
-function placeArgs(draft: DefinitionDraft): void {
-  draft.controls = { ...draft.args };
-}
-
 /** Arguments an extension adds to the calls they are placed on. */
 export function args<
   T extends AnyTarget,
@@ -96,14 +91,13 @@ export function args(declarations: Readonly<Record<string, unknown>>): unknown {
     ])
   );
   return builtPart([controlsPart], (draft) => {
-    if (draft.args === undefined) draft.finish.push(() => placeArgs(draft));
     // One name, one declaration: as two extensions declaring it would be.
     for (const name of Object.keys(specs))
-      if (draft.args !== undefined && Object.hasOwn(draft.args, name))
+      if (draft.controls !== undefined && Object.hasOwn(draft.controls, name))
         extensionError(
           `Extension "${draft.name}" declares control "${name}", which extension "${draft.name}" already declares.`,
           draft.name
         );
-    draft.args = { ...draft.args, ...specs };
+    draft.controls = { ...draft.controls, ...specs };
   });
 }

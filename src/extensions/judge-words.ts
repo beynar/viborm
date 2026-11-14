@@ -193,7 +193,7 @@ class Kept extends CarriedValue {
     const tested = data instanceof PredicateWord ? data.tested?.() : undefined;
     if (tested !== undefined) {
       const { arg, test } = tested;
-      const spec = draft.args?.[arg.name];
+      const spec = draft.controls?.[arg.name];
       const values =
         spec !== undefined && "oneOf" in spec ? spec.oneOf : undefined;
       const removes =
@@ -282,7 +282,7 @@ class Lazy extends CarriedValue {
     // a mode.
     draft.finish.push(() => {
       if (layer.mode !== undefined) return;
-      for (const [name, spec] of Object.entries(draft.args ?? {}))
+      for (const [name, spec] of Object.entries(draft.controls ?? {}))
         if ("oneOf" in spec && spec.default !== undefined) {
           layer.mode = {
             name,

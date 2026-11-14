@@ -257,7 +257,7 @@ export class ArgTestFilter extends PredicateWord {
           item.arg.path !== undefined
         )
           continue;
-        const spec = draft.args?.[item.arg.name];
+        const spec = draft.controls?.[item.arg.name];
         if (
           spec === undefined ||
           !("oneOf" in spec) ||
