@@ -116,6 +116,99 @@ describeIf("SQL Server transactions the server rolls back", () => {
     );
   });
 
+  test("a transaction the server or a raw statement ends leaves no foreign isolation level on the pooled session", async () => {
+    const LEVEL = sql`SELECT transaction_isolation_level AS level FROM sys.dm_exec_sessions WHERE session_id = @@SPID`;
+    const levelOf = (rows: { level: number }[]) => rows[0]!.level;
+    const counters = `"${NAMESPACE}"."counters"`;
+    const trigger = `"${NAMESPACE}"."counters_refuse_level"`;
+    await clients[0]!.$executeRaw(
+      sql.raw(
+        `CREATE TRIGGER ${trigger} ON ${counters} AFTER INSERT AS IF EXISTS (SELECT 1 FROM inserted WHERE "key" = 'refused-level') ROLLBACK TRANSACTION`
+      )
+    );
+    onTestFinished(async () => {
+      await clients[0]!.$executeRaw(sql.raw(`${"DR"}OP TRIGGER ${trigger}`));
+    });
+    const endings: Record<string, (tx: Client) => Promise<unknown>> = {
+      XACT_ABORT: (tx) => tx.$queryRaw(sql`SELECT 1 / 0 AS "x"`),
+      "raw COMMIT": (tx) => tx.$executeRaw(sql.raw("COMMIT")),
+      "raw ROLLBACK": (tx) => tx.$executeRaw(sql.raw("ROLLBACK")),
+      "trigger ROLLBACK": (tx) =>
+        tx.counter.create({ data: { key: "refused-level", value: 1 } }),
+    };
+    const seen: Record<string, number> = {};
+    const expected: Record<string, number> = {};
+    for (const isolationLevel of [
+      "ReadUncommitted",
+      "RepeatableRead",
+      "Serializable",
+    ] as const)
+      for (const [name, end] of Object.entries(endings)) {
+        // One pooled connection, under XACT_ABORT ON.
+        const single = client({
+          pool: { max: 1, min: 0 },
+          options: { abortTransactionOnError: true },
+        });
+        await single
+          .$transaction(
+            async (tx) => {
+              await end(tx as unknown as Client);
+            },
+            { isolationLevel }
+          )
+          .catch(() => undefined);
+        const key = `${isolationLevel} ${name}`;
+        seen[key] = levelOf(await single.$queryRaw<{ level: number }>(LEVEL));
+        expected[key] = 2;
+        await single.counter.count();
+      }
+    // A deadlock victim at Serializable, each side on its own one-connection pool.
+    await clients[0]!.counter.createMany({
+      data: [
+        { key: "left", value: 0 },
+        { key: "right", value: 0 },
+      ],
+    });
+    const sides = [
+      client({ pool: { max: 1, min: 0 } }),
+      client({ pool: { max: 1, min: 0 } }),
+    ];
+    let arrived = 0;
+    let release!: () => void;
+    const bothLocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await Promise.allSettled(
+      sides.map((side, index) =>
+        side.$transaction(
+          async (tx) => {
+            const [mine, theirs] =
+              index === 0 ? ["left", "right"] : ["right", "left"];
+            await tx.counter.update({
+              where: { key: mine },
+              data: { value: 1 },
+            });
+            arrived += 1;
+            if (arrived === 2) release();
+            await bothLocked;
+            await tx.counter.update({
+              where: { key: theirs },
+              data: { value: 2 },
+            });
+          },
+          { isolationLevel: "Serializable" }
+        )
+      )
+    );
+    for (const [index, side] of sides.entries()) {
+      seen[`deadlock side ${index}`] = levelOf(
+        await side.$queryRaw<{ level: number }>(LEVEL)
+      );
+      expected[`deadlock side ${index}`] = 2;
+    }
+    expect(seen).toEqual(expected);
+  });
+
   test("a raw COMMIT inside $transaction ends it, typed, and the client stays usable", async () => {
     const single = client({ pool: { max: 1, min: 0 } });
     const failure = await single

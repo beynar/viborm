@@ -192,6 +192,13 @@ const ended = (transaction: Transaction) => {
   return committed === undefined ? rolledBack() : endedByStatement(committed);
 };
 
+/**
+ * Per transaction run at a level other than its pool's: marks its session
+ * so the pool discards it (`_poolValidate` refuses a connection with
+ * `hasError`).
+ */
+const RETIRE = new WeakMap<Transaction, () => void>();
+
 /** A statement that rolls back, as opposed to one that commits. */
 const ROLLBACK_STATEMENT = /\bROLLBACK\b/i;
 
@@ -657,6 +664,7 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
       ) {
         const committed = !ROLLBACK_STATEMENT.test(sql);
         ENDED_BY_STATEMENT.set(client, committed);
+        RETIRE.get(client)?.();
         ABORTED_BY_SERVER.add(client);
         throw endedByStatement(committed, error);
       }
@@ -690,7 +698,9 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
     const mssql = await this.#provider();
     const transaction = new mssql.Transaction(client);
     transaction.on("rollback", (aborted: boolean) => {
-      if (aborted) ABORTED_BY_SERVER.add(transaction);
+      if (!aborted) return;
+      ABORTED_BY_SERVER.add(transaction);
+      RETIRE.get(transaction)?.();
     });
     const level = options?.isolationLevel;
     // A session keeps the level a transaction set past its end, and `mssql`
@@ -715,6 +725,20 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
                 ISOLATION_LEVELS[level] as keyof typeof mssql.ISOLATION_LEVEL
               ]
         );
+        // A transaction the server, or a raw COMMIT or ROLLBACK, ends keeps
+        // its level on a session no restore reaches: the session is marked
+        // so the pool discards it instead of lending it at that level.
+        // `mssql` lets go of it on the next tick; the request in flight on
+        // it finishes undisturbed.
+        const session = (
+          transaction as unknown as {
+            _acquiredConnection?: { hasError?: boolean };
+          }
+        )._acquiredConnection;
+        if (restore && session)
+          RETIRE.set(transaction, () => {
+            session.hasError = true;
+          });
       },
       callback: () => fn(transaction),
       commit: async () => {
