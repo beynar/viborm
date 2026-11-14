@@ -99,11 +99,14 @@ describe("what is presented", () => {
     expect(JSON.stringify(span?.events ?? [])).not.toContain("secret");
   });
 
-  test("a cache unit another extension makes has no cache span", async () => {
+  test("a cache unit another extension makes has no cache span and no cache log", async () => {
     recorder = withOtelRecorder();
+    const logs = captureLogs();
     let origin: object | undefined;
     const client = createClient({ schema, driver: new StatementDriver() })
-      .$extends(instrumentation({ tracing: true }))
+      .$extends(
+        instrumentation({ tracing: true, logging: { cache: logs.callback } })
+      )
       .$extends(
         extension(
           "remember",
@@ -126,5 +129,39 @@ describe("what is presented", () => {
     expect(names().filter((name) => name.startsWith("viborm.cache"))).toEqual(
       []
     );
+    expect(logs.events).toEqual([]);
+  });
+
+  test("a raw statement sent without parameters discloses an empty list", async () => {
+    recorder = withOtelRecorder();
+    const logs = captureLogs();
+    const client = createClient({
+      schema,
+      driver: new StatementDriver(),
+    }).$extends(
+      instrumentation({
+        tracing: { includeParams: true },
+        logging: { includeParams: true, query: logs.callback },
+      })
+    );
+    await client.$queryRawUnsafe("SELECT 1");
+    expect(logs.events.map((event) => event.params)).toEqual([[]]);
+  });
+
+  test("a statement another unit handler fails with a plain Error is logged with no batch member", async () => {
+    const logs = captureLogs();
+    const client = createClient({ schema, driver: new StatementDriver() })
+      .$extends(instrumentation({ logging: { error: logs.callback } }))
+      .$extends(
+        extension(
+          "refuse",
+          unit(() => {
+            throw new Error("refused by a handler");
+          }, ["statement"])
+        )
+      );
+    await expect(client.record.findMany()).rejects.toThrow();
+    expect(logs.events.length).toBeGreaterThan(0);
+    expect(logs.events[0]?.model).toBe("record");
   });
 });
