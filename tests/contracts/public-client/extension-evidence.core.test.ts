@@ -217,7 +217,15 @@ describe("K5: declared projection keys and read-gated fields", () => {
       db.user!.findMany!({ who: OWNER, select: { id: true, $own: true } })
     );
     expect(undeclared).toBeInstanceOf(ValidationError);
-    expect((undeclared as ValidationError).issues[0]!.path).toContain("$own");
+    expect((undeclared as ValidationError).issues[0]!.path).toContain("$own"); // The key is added to a projection, never to the data a create writes.
+    const written = await failure(
+      db.document!.create!({
+        who: OWNER,
+        data: { ...seed.document[0], id: "doc-written", $own: true },
+      })
+    );
+    expect(written).toBeInstanceOf(ValidationError);
+    expect((written as ValidationError).issues[0]!.path).toContain("$own");
   });
 
   test("a value the call supplies is read per call: two callers, one statement each, two answers", async () => {

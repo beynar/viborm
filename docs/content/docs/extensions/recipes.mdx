@@ -11,34 +11,51 @@ They use only what `viborm` and `viborm/validation` export, `args`, `rule`
 and `defaults` (see [Create an extension](/docs/extensions/create#values-a-rule-reads)),
 and each takes the names of the models it applies to.
 
-Written apart from the client, a recipe binds its vocabulary to your schema
-with [`parts<typeof schema>()`](/docs/extensions/create#extensions-written-apart-partsof):
+A recipe is written apart from any client, with plain `extension(...)`, so it
+applies to any schema. What it names is checked where it is applied:
+`$extends()` refuses a model the schema does not have, a field a model does
+not have, and an argument no extension of the chain declares. Each recipe
+file starts with the same imports, a helper that gives every model named the
+same entry, and the words the rules read, held apart from the rules:
 
 ```ts
-import { parts } from "viborm";
-import type { schema } from "./schema";
-
-export const forSchema = parts<typeof schema>();
-export type ModelName = keyof typeof schema & string;
+import {
+  accepts,
+  arg,
+  args,
+  defaults,
+  extension,
+  oneOf,
+  rule,
+  when,
+  writes,
+} from "viborm";
+import { v } from "viborm/validation";
 
 /**
  * The same entry for each model named. `Object.fromEntries` forgets the
  * names, so the cast gives them back: the types then know which models a
  * recipe writes.
  */
-export const perModel = <const Names extends readonly ModelName[], T>(
-  names: Names,
+export const perModel = <Models extends readonly string[], T>(
+  models: Models,
   build: () => T
 ) =>
-  Object.fromEntries(names.map((name) => [name, build()])) as {
-    readonly [Name in Names[number]]: T;
-  };
+  Object.fromEntries(models.map((model) => [model, build()])) as Readonly<
+    Record<string, T>
+  >;
+
+// Each argument is read through a word written apart from the rule: the
+// recipe applies to any client, so its names are checked where it is applied.
+const tenant = arg("tenant");
+const scope = arg("scope");
+const actor = arg("actor");
+const expectedVersion = arg("expectedVersion");
+const versionCheck = arg("versionCheck");
 ```
 
 A field these recipes write may be required in your schema: a create
-leaves it out and the recipe writes it, in your editor as when the call
-runs. Each recipe remembers the model names you pass it, so the types know
-which models it writes.
+leaves it out and the recipe writes it when the call runs.
 
 ```ts
 const post = s.model({
@@ -50,6 +67,16 @@ const post = s.model({
   version: s.int().default(0), // moved on by the lock
   comments: s.toMany(() => comment),
 });
+
+const comment = s.model({
+  id: s.string().id().ulid(),
+  body: s.string(),
+  tenantId: s.string(), // written by tenancy
+  createdBy: s.string().nullable(), // written by audit
+  updatedBy: s.string().nullable(), // written by audit
+  postId: s.string(),
+  post: s.toOne(() => post).fields("postId").references("id"),
+});
 ```
 
 ## Tenancy
@@ -60,24 +87,22 @@ unless the call writes `tenantId` or the tenant relation itself (see the last
 point below).
 
 ```ts
-import { accepts, arg, args, defaults, oneOf, rule, selecting, when } from "viborm";
-import { v } from "viborm/validation";
-
-export const tenancy = <const Names extends readonly ModelName[]>(names: Names) =>
-  forSchema.extension(
+export const tenancy = <const Models extends readonly string[]>(
+  models: Models
+) =>
+  extension(
     "tenancy",
     args({
-      tenant: accepts(v.string()).required(names),
-      // An operator's view: the tenant is still asked for, the filter is off.
-      scope: oneOf("tenant", "all").default("tenant").on(selecting),
+      tenant: accepts(v.string()).required(models),
+      scope: oneOf("tenant", "all").default("tenant"),
     }),
     rule(
-      perModel(names, () => ({
-        root: when(arg("scope"), "tenant", { tenantId: arg("tenant") }),
-        related: when(arg("scope"), "tenant", { tenantId: arg("tenant") }),
+      perModel(models, () => ({
+        root: when(scope, "tenant", { tenantId: tenant }),
+        related: when(scope, "tenant", { tenantId: tenant }),
       }))
     ),
-    defaults(perModel(names, () => ({ create: { tenantId: arg("tenant") } })))
+    defaults(perModel(models, () => ({ create: { tenantId: tenant } })))
   );
 ```
 
@@ -98,6 +123,7 @@ await db.post.findMany(); // ValidationError: "tenant" is required
   relations, a call that passes `tenant` reaches only that tenant's rows of
   the models you name, and a call that does not reaches none of them: a
   required argument left out never means "every tenant".
+- `scope: "all"` lifts the filter, and the tenant is still asked for.
 - A row of another tenant is hidden, so updating or deleting it is a
   `NotFoundError`, and reaching it through a relation (`connect`, a nested
   `update`, `delete` or `set`) is a `NestedWriteError`, as for any row a rule
@@ -108,8 +134,7 @@ await db.post.findMany(); // ValidationError: "tenant" is required
   writes into that tenant, and so does an update that changes it (the recipe
   writes `tenantId` on create only). The call's tenant then no longer reads
   that row. If callers must not choose a tenant, do not let them pass
-  `tenantId` or the tenant relation to your write calls, or add
-  `create: { check: check({ tenantId: arg("tenant") }) }` to the rule.
+  `tenantId` or the tenant relation to your write calls.
 
 ## Audit stamping
 
@@ -117,17 +142,14 @@ Every create records who created the row, and every update who last changed
 it.
 
 ```ts
-import { accepts, arg, args, defaults, writes } from "viborm";
-import { v } from "viborm/validation";
-
-export const audit = <const Names extends readonly ModelName[]>(names: Names) =>
-  forSchema.extension(
+export const audit = <const Models extends readonly string[]>(models: Models) =>
+  extension(
     "audit",
-    args({ actor: accepts(v.string()).on(writes).required(names) }),
+    args({ actor: accepts(v.string()).on(writes).required(models) }),
     defaults(
-      perModel(names, () => ({
-        create: { createdBy: arg("actor") },
-        update: { updatedBy: arg("actor") },
+      perModel(models, () => ({
+        create: { createdBy: actor },
+        update: { updatedBy: actor },
       }))
     )
   );
@@ -155,17 +177,25 @@ has moved on since, the call finds nothing and changes nothing. Every update
 moves the version on.
 
 ```ts
-import { accepts, arg, args, defaults, rule } from "viborm";
-import { v } from "viborm/validation";
-
-export const optimisticLock = <const Names extends readonly ModelName[]>(
-  names: Names
+export const optimisticLock = <const Models extends readonly string[]>(
+  models: Models
 ) =>
-  forSchema.extension(
+  extension(
     "optimisticLock",
-    args({ expectedVersion: accepts(v.number()).on(["update", "delete"]) }),
-    rule(perModel(names, () => ({ root: { version: arg("expectedVersion") } }))),
-    defaults(perModel(names, () => ({ update: { version: { increment: 1 } } })))
+    args({
+      expectedVersion: accepts(v.number()).on(["update", "delete"]),
+      versionCheck: oneOf("checked", "unchecked").default("checked"),
+    }),
+    rule(
+      perModel(models, () => ({
+        root: when(versionCheck, "checked", {
+          version: expectedVersion,
+        }),
+      }))
+    ),
+    defaults(
+      perModel(models, () => ({ update: { version: { increment: 1 } } }))
+    )
   );
 ```
 
@@ -175,8 +205,10 @@ await db.post.update({ where: { id }, data, expectedVersion: 3 }); // NotFoundEr
 ```
 
 - A call without `expectedVersion` checks nothing, and the version still
-  moves on. Make the argument `.required(names)` when every update and delete
-  of the models you name must check.
+  moves on. Make the argument `.required(models)` when every update and
+  delete of the models you name must check.
+- `versionCheck: "unchecked"` turns the check off for one call that passes a
+  version: an operator's override.
 - `updateMany`, `upsert` and `deleteMany` do not take `expectedVersion`:
   they check nothing, and `updateMany` and `upsert` move the version on.
 - A create or an update that writes `version` itself keeps that value: on
@@ -194,29 +226,22 @@ await db.post.update({ where: { id }, data, expectedVersion: 3 }); // NotFoundEr
   (or `create`, `connectOrCreate`, or a nested `update` of the tenant)
   decides the key itself. When two recipes write the same field, the one
   applied later wins, and the caller wins over both.
-- **Your editor knows what they write.** Each recipe keeps the model names
-  you pass it, so on the models it names a field it writes on create may be
-  left out of a create, at the top level and in a create nested through a
-  relation; written by hand, it keeps its own type. A model it does not name
-  keeps its fields as the schema has them, and a misspelt model name is an
-  editor error where the recipe is applied. Two cases the types do not see.
-  A list built at runtime (a plain `string[]`) tells them no names, so a
-  required field cannot be left out in your editor: pass the names as a
-  written list. A create nested through a relation with variants is not
-  rebuilt: there the field is asked for as the schema has it, although the
-  call accepts it left out. And the types find a nested create's model by
-  its fields, not its name: a model the recipe does not name, but whose
-  fields and relations are the same as a named model's, is treated like it
-  in a nested create. There the editor lets you leave the field out, and
-  the call is refused as missing when it runs.
+- **Names are checked where the recipe is applied.** A recipe written apart
+  from any client cannot know your schema, so its rules and defaults are not
+  typed against your models: `$extends()` checks them when it runs. A model
+  name the schema does not have, a field a model does not have, and an
+  argument no extension of the chain declares are refused there, with a
+  `ClientInitializationError` naming the model and the path. The arguments
+  the recipe declares are typed on your client's calls: a misplaced or
+  mistyped `tenant`, `actor` or `expectedVersion` is an editor error.
 - **Every tenant shares one prepared filter.** A filter's values are read
   when each statement is built, so tenants, the lock's versions and audit's
   actors take no room and never push one another out.
 - **Cached reads are keyed on the statement and its values**, so two tenants
   never share a cache entry.
 - **Combine them freely.** Apply them in any order, before any part typed
-  against the client it extends (a `methods` factory that takes `scope`, a
-  `call.around` naming one model and one operation: TypeScript refuses a rule
+  against the client it extends (a `methods` factory that takes `scope`, an
+  `around` naming one model and one operation: TypeScript refuses a rule
   that hides rows after those; see
   [Compose extensions](/docs/extensions/create#compose-extensions)). When two
   extensions write the same field, the one applied later wins. Their argument

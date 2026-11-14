@@ -372,10 +372,23 @@ export const getThroughSelectSchema = <M extends AnyModel>(
   ]) as never;
 };
 
+/**
+ * What a written `select` or `include` is provided under: `$` and the
+ * model's name, which no create of the model shares, so a key a chain
+ * projects (`parseProviding`) is added to a projection and never to data.
+ */
+const projection = (model: AnyModel) => `$${model["~"].names.ts}`;
+
+/** A written `select` refuses a key it does not declare, unless the parse adds it. */
+const selectOptions = (model: AnyModel) => ({
+  refuse: requireSelectedField,
+  provides: projection(model),
+});
+
 export const getScalarSelectSchema = <M extends AnyModel>(
   model: M
 ): ScalarSelectSchema<M> =>
-  v.object(getScalarSelectEntries(model), { refuse: requireSelectedField });
+  v.object(getScalarSelectEntries(model), selectOptions(model));
 
 export const getSelectSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
   model: M,
@@ -402,7 +415,7 @@ export const getSelectSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
       // { select: { <relation>: true | { where } } } object.
       _count: getCountSchema(model, fieldSchemas),
     },
-    { refuse: requireSelectedField }
+    selectOptions(model)
   );
 };
 
@@ -417,7 +430,8 @@ export const getSelectSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
 export type IncludeSchema<F extends RelationSchemaBundle> = V.Object<
   V.FromObject<F["relations"], "include", { optional: true }>["entries"] & {
     _count: CountSchema<F>;
-  } & V.FromObject<F["polymorphic"], "include", { optional: true }>["entries"]
+  } & V.FromObject<F["polymorphic"], "include", { optional: true }>["entries"],
+  { readonly provides: string | undefined }
 >;
 
 export const getIncludeSchema = <F extends RelationSchemaBundle>(
@@ -440,12 +454,16 @@ export const getIncludeSchema = <F extends RelationSchemaBundle>(
     optional: true,
   });
 
-  return v.object({
-    ...relationEntries.entries,
-    ...polymorphicEntries.entries,
-    // Prisma supports `_count` under include as well as select — both the
-    // `true` shorthand and the explicit object; mirror the select-schema entry
-    // (the query engine already builds _count in include position).
-    _count: getCountSchema(model, schemas),
-  });
+  const options = { provides: projection(model) };
+  return v.object(
+    {
+      ...relationEntries.entries,
+      ...polymorphicEntries.entries,
+      // Prisma supports `_count` under include as well as select — both the
+      // `true` shorthand and the explicit object; mirror the select-schema
+      // entry (the query engine already builds _count in include position).
+      _count: getCountSchema(model, schemas),
+    },
+    options
+  );
 };

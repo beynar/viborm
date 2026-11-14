@@ -1,6 +1,8 @@
+import type { CacheEntry } from "@cache/driver";
 import { CacheDriver } from "@cache/driver";
 import { MemoryCache } from "@cache/drivers/memory";
 import { cache } from "@cache/extension";
+import type { QueryResult } from "@drivers";
 import { CacheConfigurationError, ClientInitializationError } from "@errors";
 import { createClient, extension as extExtension, s } from "@src/index";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
@@ -31,6 +33,33 @@ class ClearRecordingCache extends MemoryCache {
 afterEach(async () => {
   for (const client of clients.splice(0)) await client.$disconnect();
 });
+
+/** Answers every statement with `rows`, and counts what it sends. */
+class RowsDriver extends PlanningDriver {
+  sent = 0;
+  rows: Record<string, unknown>[] = [{ id: "i1", name: "one" }];
+  constructor() {
+    super("postgresql");
+  }
+  protected override async execute<T>(): Promise<QueryResult<T>> {
+    this.sent += 1;
+    return { rows: this.rows as T[], rowCount: this.rows.length };
+  }
+}
+
+/** Hands back `value` in place of the next entry it reads. */
+class RewritingCache extends MemoryCache {
+  next: { value: unknown } | undefined;
+  protected override async get<T>(key: string): Promise<CacheEntry<T> | null> {
+    const entry = await super.get<T>(key);
+    const next = this.next;
+    this.next = undefined;
+    return entry && next ? { ...entry, value: next.value as T } : entry;
+  }
+}
+
+/** Lets the background set of a miss land before the next read. */
+const settle = () => new Promise((resolve) => setTimeout(resolve, 5));
 
 describe("official cache extension foundation", () => {
   it("reads its configuration once, as given", () => {
@@ -149,5 +178,41 @@ describe("official cache extension foundation", () => {
         { ttl: "forever" },
       ])
     ).toThrow(CacheConfigurationError);
+  });
+
+  it("stores nothing a driver row cannot carry, and still answers", async () => {
+    const driver = new RowsDriver();
+    const client = createClient({ schema, driver });
+    clients.push(client);
+    // A column the read does not decode, holding a value no stored form has.
+    driver.rows = [{ id: "i1", name: "one", extra: new Map() }];
+    const reader = client
+      .$extends(cache({ driver: new MemoryCache() }))
+      .$withCache();
+    await expect(reader.item.findMany()).resolves.toEqual([
+      { id: "i1", name: "one" },
+    ]);
+    await settle();
+    await reader.item.findMany();
+    expect(driver.sent).toBe(2);
+  });
+
+  it("refuses a stored entry that is not the rows it stores", async () => {
+    const driver = new RowsDriver();
+    const client = createClient({ schema, driver });
+    clients.push(client);
+    const backend = new RewritingCache();
+    const reader = client.$extends(cache({ driver: backend })).$withCache();
+    await reader.item.findMany();
+    await settle();
+    await expect(reader.item.findMany()).resolves.toEqual(driver.rows);
+    for (const value of [{ not: "rows" }, [{ id: "i1", name: 1 }]]) {
+      backend.next = { value };
+      await expect(reader.item.findMany()).rejects.toMatchObject({
+        name: "CacheConfigurationError",
+        meta: { method: "materialize", operation: "findMany" },
+      });
+    }
+    expect(driver.sent).toBe(1);
   });
 });

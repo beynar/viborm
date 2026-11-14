@@ -31,12 +31,17 @@ class AliasedMemory extends ClockedMemory {
     return super.get<T>(this.alias ?? key);
   }
 }
-const codec = {
-  snapshot: (value: number) => value,
-  materialize(value: unknown): number {
-    if (typeof value !== "number") throw new Error("bad snapshot");
-    return value;
-  },
+/** A serve codec whose stored form is the answer: the number `execute` gave. */
+const codec = (execute: () => Promise<number>) => {
+  let last = 0;
+  return {
+    run: async () => (last = await execute()),
+    snapshot: () => last,
+    materialize(value: unknown): number {
+      if (typeof value !== "number") throw new Error("bad snapshot");
+      return value;
+    },
+  };
 };
 function reader(
   cache: MemoryCache,
@@ -48,9 +53,8 @@ function reader(
     scope,
     read: (args: unknown, execute: () => Promise<number>) =>
       serveOfficialRead(cache, {
-        run: execute,
         id: stableStringify(["post", "count", args]),
-        codec,
+        codec: codec(execute),
         read: { ttlMs: 10, swr, bypass: false },
         namespace: scope,
         waitUntil: (p) => pending.push(p),

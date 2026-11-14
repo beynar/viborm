@@ -28,14 +28,17 @@ const users = await orm.user.findMany({
 ### Immutable extensions
 
 `$extends()` takes one extension value and returns a new client view with one
-frozen ordered chain. An extension is a name and up to eight parts (`call`,
-`unit`, `args`, `rule`, `defaults`, `methods`, `fields`); each part writes its
-own state on the chain and carries the code that runs it, so the client names
-no optional capability. No extension code runs on a model-method property
-read. See [Client Extensions](/docs/extensions) for lifecycle and authority.
+ordered chain. An extension is a name and up to eight parts (`call`,
+`around`, `unit`, `args`, `rule`, `defaults`, `methods`, `fields`,
+`disclosure`); each part writes its own state on the chain and carries the
+code that runs it, so the client names no optional capability. No extension
+code runs on a model-method property read. See
+[Client Extensions](/docs/extensions) for lifecycle and authority.
 
 The official `defaultOmit()`, `cache()`, and `instrumentation()` are built from
 the same public parts. They are not `createClient()` configuration keys.
+`cache()` and `instrumentation()` still read a few private helpers, listed by
+`tests/contracts/public-client/extension-imports.core.test.ts`.
 
 Client code keeps the model-operation trigger, transaction substrate,
 dispatch, result order, and commit facts, and calls the state a part placed on
@@ -128,7 +131,7 @@ prisma generate  # Must run after schema changes
 
 VibORM infers types directly from your schema definition:
 
-```typescript
+```typescript no-check
 const schema = {
   user: s.model({ ... }),
   post: s.model({ ... }),

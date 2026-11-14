@@ -53,15 +53,18 @@ export interface CacheSetOptions {
   swrTtl?: number;
 }
 
+/**
+ * One read's codec: `run` runs the prepared read (during the serve, or once
+ * after it as a refresh), `snapshot` stores what that run returned.
+ */
 export interface DetachedCacheResultCodec<T> {
-  snapshot(value: T): unknown;
+  run(): Promise<T>;
+  snapshot(): unknown;
   materialize(snapshot: unknown): T;
 }
 
 /** One read the official cache serves, as its extension hands it over. */
 export interface CacheServe<T> {
-  /** Runs the prepared read: during the serve, or once after it as a refresh. */
-  readonly run: () => Promise<T>;
   /** The prepared call's key: equal for two reads that send one statement. */
   readonly id: string;
   readonly codec: DetachedCacheResultCodec<T>;
@@ -165,14 +168,8 @@ export abstract class CacheDriver {
 
     // Bypass cache read if requested
     if (read.bypass) {
-      const result = await request.run();
-      this.#setResultInBackground(
-        cacheKey,
-        result,
-        request,
-        identity,
-        revision
-      );
+      const result = await codec.run();
+      this.#setResultInBackground(cacheKey, request, identity, revision);
       recordOutcome(context, "bypass");
       return result;
     }
@@ -221,8 +218,8 @@ export abstract class CacheDriver {
     }
 
     // Cache miss or stale without SWR - execute query
-    const result = await request.run();
-    this.#setResultInBackground(cacheKey, result, request, identity, revision);
+    const result = await codec.run();
+    this.#setResultInBackground(cacheKey, request, identity, revision);
     recordOutcome(context, "miss");
     return result;
   }
@@ -254,7 +251,6 @@ export abstract class CacheDriver {
 
   #setResultInBackground<T>(
     key: string,
-    value: T,
     request: CacheServe<T>,
     identity: string,
     revision: number
@@ -263,7 +259,7 @@ export abstract class CacheDriver {
     const { read, origin } = request;
     let stored: unknown;
     try {
-      stored = request.codec.snapshot(value);
+      stored = request.codec.snapshot();
     } catch (error) {
       recordOutcome(origin.context, "miss", "cache-set-failed", error);
       return;
@@ -319,8 +315,8 @@ export abstract class CacheDriver {
       async (observed) => {
         let terminal: ReturnType<typeof cacheOutcome>;
         try {
-          const result = await request.run();
-          const stored = codec.snapshot(result);
+          await codec.run();
+          const stored = codec.snapshot();
           await this.#setScoped(
             cacheKey,
             stored,

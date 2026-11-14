@@ -51,7 +51,7 @@ that join as a hash join that scans the **whole table**, and does it again
 
 ### What you write
 
-```ts
+```ts no-check
 parent: { recurse: { depth: false, fewRows: true }, select: { name: true } },
 ```
 
@@ -145,7 +145,7 @@ const myTeams = {
       },
     },
   },
-};
+} as const; // keeps "userId" a literal, which the actor's paths are checked against
 
 const policy = permissions({
   actor: v.object({ userId: v.string() }),
@@ -177,7 +177,7 @@ same set by visiting a handful of rows.
 
 ### What you write
 
-```ts
+```ts no-check
 recurse: { depth: false, selective: true },
 ```
 
@@ -286,15 +286,16 @@ Both options promise the same rows, so the only question is speed on your
 data. Capture the statement a read sends with a `unit` part:
 
 ```ts
-import { extension, statement, unit } from "viborm";
+import { extension, parameters, text, unit } from "viborm";
 
 const statements: { text: string; values: unknown[] }[] = [];
 const traced = db.$extends(
   extension(
     "trace",
     unit((u, next) => {
-      const sent = statement(u);
-      statements.push({ text: sent.toStatement("$n"), values: sent.values });
+      // The statement as the driver receives it: the dialect's text and its parameters.
+      const sent = text(u);
+      if (sent !== undefined) statements.push({ text: sent, values: [...(parameters(u) ?? [])] });
       return next();
     }, ["statement"])
   )

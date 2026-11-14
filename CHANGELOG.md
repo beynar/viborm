@@ -5,19 +5,82 @@ Versioning.
 
 ## Unreleased
 
-The write half of the engine is rewritten, for SQL and for SurrealDB. An
-application without extensions is smaller, a nested write sends fewer
-statements, and a many-row write on a batch-only driver is all-or-nothing when
-it fits one batch.
+The write half of the engine is rewritten, for SQL and for SurrealDB, and
+extensions have a new contract: one function, `extension(name, ...parts)`,
+whose parts and words each bring only their own code. An application without
+extensions is smaller, an application with one is much smaller, a nested
+write sends fewer statements, and a many-row write on a batch-only driver is
+all-or-nothing when it fits one batch.
+
+### The extension contract (breaking)
+
+- **An extension is `extension(name, ...parts)`, applied with
+  `client.$extends(extension(…))`.** The parts are built by functions
+  exported from `viborm`: `call` (a function on each call, before
+  validation), `around` (the same, wrapping the prepared call), `unit`
+  (around each unit of real work), `args` (arguments a call may pass),
+  `rule` (what binds every caller: rows read, rows a write may take, the
+  row a write leaves, gated fields, kept rows), `defaults` (default order,
+  default data, default omission), `methods`, `fields` (computed fields) and
+  `disclosure` (what a thrown error may carry). Words carry the rest:
+  `target(…)` with `reads`, `writes`, `deletes`, `selecting`, `models`;
+  `watch`, `settled`, `again`, `via`, `key`, `codec`, `database`; `arg`,
+  `now`, `row`, `exists`, `when`, `unless`, `provided`, `nothing`, `only`,
+  `check`, `gate`, `facts`, `keep`, `lazy`, `omitted`; `oneOf`, `accepts`,
+  `bound` with `.on`, `.models`, `.required`, `.default`, `.volatile`; and
+  `text`, `parameters`, `driver`, `failure`, `statement`, `statements`,
+  `run`, `work`, `note`, `notes` and the other unit words. See
+  [Create an extension](https://viborm.dev/docs/extensions/create).
+- **For extension authors, everything changes.** `defineExtension`,
+  `defineHooks`, `enableExtensions`, an object literal passed to
+  `$extends()` and a function of the client passed to it are gone. Each
+  earlier member has its part: `request` → `call`, `query` → `around`,
+  `onWriteOutcome` and `written` → `settled` and `watch` on
+  `target(writes)`, `retry` → `again`, `route` → `via`, `transaction` → a
+  `unit` with `run`, `statement` → a `unit` declared `{ rewrites: true }`,
+  `observe` and `observes` → `unit` and its words, `controls` → `args`,
+  `rows` → `args` and `rule`, `deletion` → `keep`, `data` and `order` →
+  `defaults`, `result` → `fields`, `client` and `model` → `methods`. Meanings
+  that change: a key a `rule` entry leaves out restricts nothing (an omitted
+  verb used to take no row); an updated row is judged again only where
+  `update.check` says so; a unit handler is awaited and what it throws fails
+  the call; a child's failure stands and no error is aggregated; `settled`
+  is also told of a write that may have committed. The full mapping is in
+  [Migrating an extension](https://viborm.dev/docs/extensions/migrating).
+- **For users of official extensions, one step.** Every official extension is
+  applied as `client.$extends(official(config))`. `softDelete(config).rows`
+  and `.methods` are gone, and so is applying an official extension as a
+  function of the client (`softDelete(config)(base)`, `ordering(config)(base)`):
+  write successive `$extends()` calls. `defaultOmit<typeof schema>()(config)`
+  is `defaultOmit(config)`, applied once per chain; other extensions' omissions
+  add up per model.
+- **`viborm/permissions` loses five forms of its policy language**: the
+  automatic guards for optional actor values (write `$if`), a key taken from
+  the parent, `can` and `assert` (read `$access`), a custom action outside a
+  model's `actions` graph, and the global `levels`. `levels` and an action
+  without a graph are refused when the policy is applied, with a message that
+  says what to write. See
+  [Permissions](https://viborm.dev/docs/extensions/permissions#removed-in-this-version).
+- **The cache keys a read by the statement it sends**, inside a namespace of
+  the database and `version`. A read that carries a `.volatile()` argument
+  runs uncached instead of being refused. `tx.$withCache()` and
+  `tx.$invalidate()` exist in an interactive transaction; a backend that fails
+  during `$invalidate()` is a `CacheConfigurationError`.
+- **`instrumentation()` no longer takes a `logging.warning` level**: nothing
+  produced warnings.
+- **Error texts changed throughout the extension host.** Match errors on their
+  class and code.
+- **What each extension adds to a PostgreSQL application, minified**
+  (measured with `node scripts/extension-bytes.mjs`; before → now):
+  default omission 45,233 → 6,854 bytes; `on` 47,016 → 17,897;
+  instrumentation 56,422 → 20,075; soft delete 80,013 → 26,662; ordering
+  100,547 → 30,608; cache 71,844 → 50,980; permissions 114,651 → 75,803; `on`,
+  ordering, permissions and soft delete together 142,213 → 120,625. An
+  application that applies no extension: 519,322 → 508,589 bytes, of which
+  112 bytes are extension code.
 
 ### Added
 
-- **`written`, a new extension capability.** A definition is asked once per
-  write call and can return a watch: which rows it wants (`wants`), the whole
-  rows the call wrote, nested writes included (`rows`), then the commit
-  (`settled`). `viborm/on` is now built on it and has no private channel into
-  the client. See "Receive the rows a write wrote with `written`" in the
-  extension guide.
 - **`computed()`, `stored()` and `joined()`: values a write computes.** A value
   computed when the statement is written, a field kept as stored, and an
   `updateMany` value each row reads from a joined table. `viborm/ordering` used
@@ -28,46 +91,18 @@ it fits one batch.
 - **`getRowKey(model)`.** A model's primary key fields in constraint order,
   and the compound key's name. `viborm/client` also exports the type
   `NoExtraOperationKeys`.
-- **`defineFilters()`.** `defineExtension()` without what reads
-  `rows.verbs` and `rows.confine`: an extension whose rows only filter, like
-  `viborm/soft-delete` and `viborm/ordering`, no longer carries what judges
-  the rows a write produces and what projects evidence and gated fields
-  (about 20 kB minified less in a PostgreSQL application using soft delete).
-- **`observes`, beside `observe`.** One extension per client declares the facts
-  its observer needs (statement text, parameters, driver identity, cache
-  outcomes) and receives them as a third argument. `viborm/instrumentation` is
-  built on it and no longer registers a private identity.
-- **`retry`, `route` and `transaction`: three points where an extension decides
-  how a call is sent.** Make a failed call again when nothing of it was
-  written, send a read outside a transaction to another driver (a read
-  replica), and run statements first in every transaction (`SET LOCAL` for row
-  level security).
-- **Several `on()` on one client.** Each runs its own hooks, in the order they
-  were applied. A second `on()` was refused before.
+- **Several `on()` on one client.** Each `on()` is an extension of its own
+  name and runs its own hooks, in the order they were applied. A second
+  `on()` was refused before.
 
 ### Changed
 
-- **A `rows` declaration is admitted once per schema and declaration object.**
-  A client created per request that applies the same declaration object does
-  not read its predicates again, whether or not they are frozen; a
-  declaration changed after it was applied is not read again. A `verbs` entry
-  given as a function is called once per declaration.
-- **An application that applies no extension no longer carries the code that
-  runs extensions**: about 12 kB gzip less in a PostgreSQL application.
-  `defineExtension()`, the new `defineHooks()` (the same without the code that
-  reads `rows`, `data`, `deletion` and `order`), every official extension and
-  the new `enableExtensions()` bring it. **Breaking for one case**: a bare
-  object literal passed to `$extends` in a program that calls none of them is
-  refused with a `ClientInitializationError` that says so. Build it with
-  `defineHooks()` or `defineExtension()`, or call `enableExtensions()` once.
 - **`viborm/ordering` on SurrealDB brings its own SurrealQL.** The driver no
   longer holds code for it: it writes a `joined()` value from the list the
   extension gives it.
-- **The name `viborm.instrumentation` is no longer reserved.** A copy of the
-  extension under another name is refused only where the client already
-  carries one that declares `observes`.
-- **The name `viborm.on` is no longer reserved.** `on()` is an extension like
-  any other.
+- **No official extension's name is reserved.** `on()`, `cache()`,
+  `instrumentation()` and the others are ordinary extensions built from the
+  public parts; a name is only unique in a chain.
 - **Nested writes send fewer statements.** A write reads what it needs
   together, then sends its writes as one unit. No call that succeeds sends more
   statements or more round trips than before. The SQL of a write may differ.
@@ -111,13 +146,10 @@ it fits one batch.
 
 ### Upgrade notes
 
-- **Extension authors: build every definition with `defineExtension()`.** A
-  plain object that declares `rows`, `data`, `deletion` or `order` and was not
-  passed to `defineExtension()` is refused by `$extends()` with
-  `ClientInitializationError`. The code that reads these declarations is now
-  brought by `defineExtension()` and by the official extensions, so a client
-  without them does not carry it. See
-  [Create an extension](https://viborm.dev/docs/extensions/create).
+- **Extension authors: rewrite each definition as `extension(name, ...parts)`**,
+  member by member, with
+  [Migrating an extension](https://viborm.dev/docs/extensions/migrating).
+  Users of official extensions: apply each in one `$extends()`.
 - **Tests that count statements or assert exact SQL of a write** need new
   expectations. Assert the rows a call returns and the rows it leaves.
 - **Code that caught `NestedWriteError` for a concurrent change** now sees the

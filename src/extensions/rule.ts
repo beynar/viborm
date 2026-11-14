@@ -118,7 +118,7 @@ export function draftOf(
   if (
     !lazy &&
     read.where !== undefined &&
-    (verbs?.evidence !== undefined || verbs?.reads !== undefined)
+    (verbs?.as !== undefined || verbs?.reads !== undefined)
   )
     verbs.shown = read.where;
   const { acyclic } = entry;

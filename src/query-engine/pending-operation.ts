@@ -665,7 +665,13 @@ export class PendingOperation<T>
       }) as Promise<T>;
     // Below every per-call lifecycle step, outside any borrowed scope: a
     // `findUnique` may share one read with the calls of the same tick.
-    if (this.#operation === "findUnique" && driverOverride === undefined) {
+    // A read whose rows are kept (`codec`) is sent alone: a shared read's
+    // rows are not its own.
+    if (
+      this.#operation === "findUnique" &&
+      driverOverride === undefined &&
+      routed.seen === undefined
+    ) {
       const batched = batchFindUnique({
         engine: this.#engine,
         model: this.#model,

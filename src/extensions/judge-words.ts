@@ -23,11 +23,14 @@ import type {
 import { judgeOf } from "./judge";
 import { keptRowsPart } from "./kept";
 import { layerOf } from "./layers";
-import { projectionOf } from "./projection";
+import { projectionOf, refuseSharedKeys } from "./projection";
 import { draftOf, listOf } from "./rule";
 import { CarriedValue, PredicateWord, type Site } from "./rule-words";
 import { NOW } from "./stamps";
-import { VERBS, verbsOf } from "./verbs";
+import { LAZY_VERBS, prepareJudged, verbsOf } from "./verbs";
+
+/** What the layer of a word's site brings beside its filters. */
+const brings = (site: Site) => (site.draft.rule!.brings ??= {});
 
 const UPDATE_FIELD = /^update\.fields\.[^.]+\.check$/;
 const FIELD_WHERE = /^update\.fields\.[^.]+\.where$/;
@@ -42,11 +45,12 @@ class Only extends CarriedValue {
   join(site: Site): void {
     const { key, field, refuse } = site;
     const own = verbsOf(site);
+    brings(site).prepare = prepareJudged;
     if (key === "update.where") own.update = this.where;
     else if (key === "delete.where") own.delete = this.where;
     // An update writing the field takes this instead of `update.where`.
     else if (FIELD_WHERE.test(key))
-      own.writes = { ...own.writes, [field!]: this.where };
+      (own.writes ??= new Map()).set(field!, this.where);
     else refuse(`${key} does not take only()`);
   }
 }
@@ -74,12 +78,13 @@ class Checked extends CarriedValue {
     const { key, field, refuse } = site;
     const own = verbsOf(site);
     own.judge = judgeOf;
+    brings(site).judge = judgeOf;
     if (key === "create.check") own.place = this.where;
     // The row an update leaves is judged again where the update writes a
     // field the predicate reads (`update.check`), or the field named.
     else if (key === "update.check") own.check = this.where;
     else if (UPDATE_FIELD.test(key)) {
-      own.moves = { ...own.moves, [field!]: this.where };
+      (own.moves ??= new Map()).set(field!, this.where);
     } else refuse(`${key} does not take check()`);
   }
 }
@@ -137,8 +142,8 @@ class Gated extends CarriedValue {
     if (keyFields(state).has(field!))
       refuse(`${key} names a key, a unique or a foreign key field`);
     const own = verbsOf(site);
-    own.project = projectionOf;
-    own.reads = { ...own.reads, [field!]: this.where };
+    brings(site).project = projectionOf;
+    (own.reads ??= new Map()).set(field!, this.where);
   }
 }
 
@@ -173,10 +178,13 @@ class Facts extends CarriedValue {
     if (!PROJECTION_KEY.test(field!))
       refuse(`${key} is not \`$\` and an identifier`);
     const own = verbsOf(site);
-    if (own.evidence !== undefined)
-      refuse("read.select holds one projection key");
-    own.project = projectionOf;
-    own.evidence = { as: field!, names: Object.entries(this.predicates) };
+    if (own.as !== undefined) refuse("read.select holds one projection key");
+    Object.assign(brings(site), {
+      project: projectionOf,
+      keys: refuseSharedKeys,
+    });
+    own.as = field;
+    own.facts = new Map(Object.entries(this.predicates));
   }
 }
 
@@ -274,11 +282,16 @@ class Lazy extends CarriedValue {
     const layer = draft.rule!;
     if (Object.hasOwn(layer.verbs, model))
       refuse("two rule parts of one extension judge the model");
-    layer.host = VERBS;
+    layer.host = LAZY_VERBS;
     // What the entry reads of its call, and whether its words judge or
     // project, are known once it is read.
     layer.layered = layerOf;
-    layer.lazily = { judge: judgeOf, project: projectionOf };
+    layer.brings = {
+      judge: judgeOf,
+      project: projectionOf,
+      prepare: prepareJudged,
+      keys: refuseSharedKeys,
+    };
     const read = (): VerbsDraft => {
       const given: unknown = Reflect.apply(this.read, undefined, []);
       const written: Readonly<Record<string, unknown>> = isPlainRecord(given)

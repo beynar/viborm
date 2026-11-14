@@ -59,7 +59,6 @@ const MODULE_STATE_LEFT = Object.freeze([
   "src/extensions/admission.ts admitted",
   "src/extensions/admission.ts registries",
   "src/extensions/call.ts seconds",
-  "src/extensions/codec.ts codecs",
   "src/extensions/gates.ts namedGatedFields",
   "src/extensions/plain-domain.ts NONE",
   "src/extensions/plain-domain.ts prepared",

@@ -10,7 +10,7 @@
  * model first.
  */
 import { ClientInitializationError } from "@errors";
-import { NO_RELATIONS, type Queries } from "@query-engine/raptor3/shared/query";
+import type { Queries } from "@query-engine/raptor3/shared/query";
 import type {
   LazyRelations,
   ModelVerbs,
@@ -20,8 +20,7 @@ import { type Input, memo } from "@query-engine/raptor3/shared/schema";
 import type { AnyModel } from "@schema/model";
 import type {
   Admission,
-  AdmittedLayer,
-  FiltersOf,
+  AdmittedVerbs,
   References,
   RuleLayer,
   VerbsBound,
@@ -44,58 +43,38 @@ export function verbInputs(
   verbs: ModelVerbs,
   judgement: RowJudgement
 ): Input[] {
-  if (judgement.verb === "delete") return [verbs.delete];
-  if (judgement.writes.length === 0) return [verbs.update];
+  const { update = ALL, delete: removal = ALL } = verbs;
+  if (judgement.verb === "delete") return [removal];
+  if (judgement.writes.length === 0) return [update];
   return [
     ...new Set([
-      ...judgement.writes.map(
-        (field) => verbs.writes.get(field) ?? verbs.update
-      ),
-      ...(judgement.marks ? [verbs.delete] : []),
+      ...judgement.writes.map((field) => verbs.writes?.get(field) ?? update),
+      ...(judgement.marks ? [removal] : []),
     ]),
   ];
 }
-const fields = (
-  map: Readonly<Record<string, unknown>> | undefined
-): ReadonlyMap<string, Input> =>
-  // Admission left every value an admitted predicate.
-  new Map(Object.entries(map ?? {}) as [string, Input][]);
-
-/** One layer's admitted draft for `model` as the engine reads it. */
-function layerVerbs(draft: VerbsDraft): ModelVerbs {
-  // Admission left every predicate of the draft admitted.
-  const of = (where: unknown): Input => (where as Input | undefined) ?? ALL;
-  return Object.freeze({
-    read: of(draft.read),
-    ...(draft.shown !== undefined && { shown: of(draft.shown) }),
-    update: of(draft.update),
-    delete: of(draft.delete),
-    writes: fields(draft.writes),
-    ...(draft.place !== undefined && { place: of(draft.place) }),
-    ...(draft.check !== undefined && { check: of(draft.check) }),
-    moves: fields(draft.moves),
-    acyclic: draft.cycles ?? NO_RELATIONS,
-    ...(draft.evidence && {
-      evidence: Object.freeze({
-        as: draft.evidence.as,
-        names: Object.freeze(
-          draft.evidence.names.map(([fact, where]) =>
-            Object.freeze([fact, of(where)] as const)
-          )
-        ),
-      }),
-    }),
-    reads: fields(draft.reads),
-    ...(draft.judge && { judged: true }),
-  });
+/**
+ * A domain some of whose layers hold verbs: a model some layer holds verbs
+ * on is judged, so a link to it is not written unjudged.
+ */
+class VerbsDomain extends FilterDomain {
+  override restrictsLinkWrite(queries: Queries, model: AnyModel): boolean {
+    return (
+      super.restrictsLinkWrite(queries, model) ||
+      this.rows.verbs
+        ?.get(model["~"].names.ts!)
+        ?.some((verbs) => verbs !== undefined) === true
+    );
+  }
 }
 
 /**
- * A domain whose layers hold verbs: under a `judgement`, a model's predicate
- * takes each layer's predicates of its verb beside its filters (R2, R3), and
- * an entry given lazily brings its `read.where` here.
+ * A domain whose layers say which rows a write may take (`only`) or hold an
+ * entry given lazily: under a `judgement`, a model's predicate takes each
+ * layer's predicates of its verb beside its filters (R2, R3), and an entry
+ * given lazily brings its `read.where` here.
  */
-class JudgedDomain extends FilterDomain {
+class JudgedDomain extends VerbsDomain {
   protected override key(
     name: string,
     excluded: readonly number[],
@@ -123,7 +102,7 @@ class JudgedDomain extends FilterDomain {
       layers.push([
         layer,
         [
-          ...(own && own.read !== ALL ? [own.read] : []),
+          ...(own?.read === undefined ? [] : [own.read]),
           ...(where === undefined ? [] : [where]),
           ...(own && judgement ? verbInputs(own, judgement) : []),
         ],
@@ -131,24 +110,24 @@ class JudgedDomain extends FilterDomain {
     }
     return layers;
   }
-  /** A model some layer holds verbs on is judged. */
-  override restrictsLinkWrite(queries: Queries, model: AnyModel): boolean {
-    return (
-      super.restrictsLinkWrite(queries, model) ||
-      this.rows.verbs
-        ?.get(model["~"].names.ts!)
-        ?.some((verbs) => verbs !== undefined) === true
-    );
-  }
 }
 
 /** What prepares the call facts of a chain whose layers hold verbs. */
-const prepareJudged = /* @__PURE__ */ preparer(JudgedDomain);
+const prepareVerbs = /* @__PURE__ */ preparer(VerbsDomain);
+/** What prepares them where a layer takes rows by verb: brought by `only` and `lazy`. */
+export const prepareJudged = /* @__PURE__ */ preparer(JudgedDomain);
+
+type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 /** The keys of a draft that hold one predicate, each admitted as one. */
 const SINGLE = ["read", "shown", "update", "delete", "place", "check"] as const;
-/** The keys of a draft that hold one predicate per field. */
-const PER_FIELD = ["writes", "moves", "reads"] as const;
+/** The keys of a draft that hold one predicate per field, and where each is written. */
+const PER_FIELD = [
+  ["writes", "writes"],
+  ["moves", "moves"],
+  ["reads", "reads"],
+  ["facts", "read.select"],
+] as const;
 
 /**
  * The self relations `acyclic` names, each checked to be one of `model`'s
@@ -174,200 +153,173 @@ function cyclesOf(
           `${name}.acyclic.${relation}`,
           "names no to-one relation of the model to itself holding its key"
         );
-    return Object.freeze([...listed]);
+    return listed;
   };
   if (typeof declared !== "function") return checked(declared);
   let resolved: readonly string[] | undefined;
-  return Object.freeze({
-    candidates: Object.freeze(keyed),
+  return {
+    candidates: keyed,
     resolve: () => (resolved ??= checked(declared())),
-  });
+  };
 }
 
-/** One model's draft with every predicate admitted. */
+/** One model's draft with every predicate admitted: the layer's verbs. */
 function admitDraft(
   admission: Admission,
   name: string,
   draft: VerbsDraft,
   references: References,
   of?: string
-): VerbsDraft {
-  const { admit } = admission;
-  const out: VerbsDraft = { ...draft };
+): Mutable<AdmittedVerbs> {
+  const admit = (place: string, where: unknown) =>
+    admission.admit(name, `${name}.${place}`, where, references, of);
+  const out: Mutable<AdmittedVerbs> = { judge: draft.judge, as: draft.as };
   if (draft.acyclic !== undefined)
     out.cycles = cyclesOf(admission, name, draft.acyclic);
   for (const key of SINGLE)
-    if (draft[key] !== undefined)
-      out[key] = admit(name, `${name}.${key}`, draft[key], references, of);
-  for (const key of PER_FIELD)
-    if (draft[key] !== undefined)
-      out[key] = Object.fromEntries(
-        Object.entries(draft[key]).map(([field, where]) => [
+    if (draft[key] !== undefined) out[key] = admit(key, draft[key]);
+  for (const [key, place] of PER_FIELD) {
+    const given = draft[key];
+    if (given !== undefined)
+      out[key] = new Map(
+        [...given].map(([field, where]) => [
           field,
-          admit(name, `${name}.${key}.${field}`, where, references, of),
+          admit(`${place}.${field}`, where),
         ])
       );
-  if (draft.evidence !== undefined)
-    out.evidence = {
-      as: draft.evidence.as,
-      names: draft.evidence.names.map(([fact, where]) => [
-        fact,
-        admit(name, `${name}.read.select.${fact}`, where, references, of),
-      ]),
-    };
-  return Object.freeze(out);
-}
-
-/**
- * One layer's verbs with every predicate admitted: an eager entry's now, an
- * entry given lazily's once, the first time its model is read; its own
- * references are checked then, against the chain it is bound to.
- */
-function admitVerbs(
-  admitting: Admission,
-  layer: RuleLayer,
-  filtersOf: FiltersOf,
-  references: References
-): AdmittedLayer["verbs"] {
-  const verbs: Record<string, VerbsDraft | (() => VerbsDraft)> = {};
-  for (const [name, draft] of Object.entries(layer.verbs)) {
-    if (typeof draft !== "function") {
-      verbs[name] = admitDraft(admitting, name, draft, references);
-      continue;
-    }
-    let resolved: VerbsDraft | undefined;
-    const resolve = (): VerbsDraft => {
-      if (resolved !== undefined) return resolved;
-      const own: References = new Set();
-      const { root, related, ...given } = draft();
-      const admitted = admitDraft(admitting, name, given, own, `lazy ${name}`);
-      resolved = Object.freeze({
-        ...admitted,
-        ...((root !== undefined || related !== undefined) && {
-          filters: filtersOf(name, { root, related }, own, `lazy ${name}`),
-        }),
-        // Read after the filters: what they name is the entry's too.
-        references: [...own],
-      });
-      return resolved;
-    };
-    verbs[name] = resolve;
   }
-  return Object.freeze(verbs);
+  return out;
 }
 
 /**
- * Every layer's verbs bound to `chain`. A model's verbs, each at its layer,
- * are built the first time the model is read: an entry given lazily is read
- * then, and the arguments it names checked against what the chain
- * declared up to its extension, as `$extends` checks an eager entry's.
+ * Every layer's verbs bound to `chain`, each model's taken the first time
+ * it is read; `read` reads an entry given lazily, where some layer holds
+ * one (`LAZY_VERBS`). A model no layer gives as a function is taken now:
+ * its refusals are the application's, as they would be at admission.
  */
-function bindVerbs(chain: ResolvedExtensionChain): VerbsBound {
+function bindVerbs(
+  chain: ResolvedExtensionChain,
+  read?: (entry: () => AdmittedVerbs, extension: string) => AdmittedVerbs
+) {
   const layers = chain.rows ?? [];
-  const declaredUpTo = (extension: string): ReadonlySet<string> => {
-    const at = chain.extensions.findIndex((own) => own.name === extension);
-    const names = new Set(
-      chain.extensions.slice(0, at + 1).map((own) => own.name)
-    );
-    return new Set(
-      (chain.controls?.all ?? [])
-        .filter((control) => names.has(control.extension))
-        .map((control) => control.name)
-    );
-  };
-  const drafts = (model: string): (VerbsDraft | undefined)[] =>
-    layers.map(({ verbs, extension }) => {
-      const entry = verbs[model];
-      if (typeof entry !== "function") return entry;
+  const brought = <K extends keyof NonNullable<RuleLayer["brings"]>>(kind: K) =>
+    layers.find((layer) => layer.brings?.[kind])?.brings?.[kind];
+  const keys = brought("keys");
+  const declares = (model: string) =>
+    layers.some((layer) => Object.hasOwn(layer.verbs, model));
+  const built = new Map<string, readonly (AdmittedVerbs | undefined)[]>();
+  const get = (
+    model: string
+  ): readonly (AdmittedVerbs | undefined)[] | undefined =>
+    declares(model)
+      ? memo(built, model, () => {
+          const out = layers.map(({ verbs, extension }) => {
+            const entry = verbs[model];
+            return typeof entry === "function"
+              ? read!(entry, extension)
+              : entry;
+          });
+          keys?.(model, out);
+          return out;
+        })
+      : undefined;
+  for (const layer of layers)
+    for (const model of Object.keys(layer.verbs))
+      if (layers.every((other) => typeof other.verbs[model] !== "function"))
+        get(model);
+  const judge = brought("judge");
+  const project = brought("project");
+  return {
+    verbs: { has: declares, get },
+    ...(judge && { judge }),
+    ...(project && { project }),
+    prepare: brought("prepare") ?? prepareVerbs,
+  } satisfies VerbsBound;
+}
+
+/** What the words that write verbs bring: their admission and their binding. */
+export const VERBS: VerbsHost = {
+  admit: (admitting, layer, _filtersOf, references) =>
+    Object.fromEntries(
+      Object.entries(layer.verbs).map(([name, draft]) => [
+        name,
+        // Only `lazy` writes an entry as a function, and it brings LAZY_VERBS.
+        admitDraft(admitting, name, draft as VerbsDraft, references),
+      ])
+    ),
+  // The chain's first host binds every layer's: where a later layer holds
+  // an entry given lazily, its host does.
+  bind: (chain) =>
+    chain.rows?.find((layer) => layer.host?.lazy)?.host?.bind(chain) ??
+    bindVerbs(chain),
+};
+
+/**
+ * What `lazy` brings: an entry given as a function admitted once, the first
+ * time its model is read, with its own references, checked then against
+ * what the chain declared up to its extension, as `$extends` checks an
+ * eager entry's.
+ */
+export const LAZY_VERBS: VerbsHost = {
+  lazy: true,
+  admit(admitting, layer, filtersOf, references) {
+    const verbs: Record<string, AdmittedVerbs | (() => AdmittedVerbs)> = {};
+    for (const [name, draft] of Object.entries(layer.verbs)) {
+      if (typeof draft !== "function") {
+        verbs[name] = admitDraft(admitting, name, draft, references);
+        continue;
+      }
+      let resolved: AdmittedVerbs | undefined;
+      const resolve = (): AdmittedVerbs => {
+        if (resolved !== undefined) return resolved;
+        const own: References = new Set();
+        const { root, related, ...given } = draft();
+        const at = `lazy ${name}`;
+        const admitted = admitDraft(admitting, name, given, own, at);
+        if (root !== undefined || related !== undefined)
+          admitted.filters = filtersOf(name, { root, related }, own, at);
+        // Read after the filters: what they name is the entry's too.
+        admitted.references = [...own];
+        resolved = admitted;
+        return admitted;
+      };
+      verbs[name] = resolve;
+    }
+    return verbs;
+  },
+  bind(chain) {
+    const bound = bindVerbs(chain, (entry, extension) => {
       const draft = entry();
-      const declared = declaredUpTo(extension);
+      const at = chain.extensions.findIndex((own) => own.name === extension);
+      const names = new Set(
+        chain.extensions.slice(0, at + 1).map((own) => own.name)
+      );
       for (const name of draft.references!)
-        if (name !== undefined && !declared.has(name))
+        if (
+          name !== undefined &&
+          !chain.controls?.all.some(
+            (control) => control.name === name && names.has(control.extension)
+          )
+        )
           throw new ClientInitializationError(
             `Extension "${extension}" references undeclared control "${name}".`,
             { meta: { extension } }
           );
       return draft;
     });
-  const declares = (model: string) =>
-    layers.some((layer) => Object.hasOwn(layer.verbs, model));
-  const built = new Map<string, readonly (ModelVerbs | undefined)[]>();
-  const carried = new Map<string, readonly (VerbsDraft | undefined)[]>();
-  const draftsOf = (model: string) => memo(carried, model, () => drafts(model));
-  const verbs = layers.some((layer) => Object.keys(layer.verbs).length > 0)
-    ? {
-        has: declares,
-        get: (model: string) =>
-          declares(model)
-            ? memo(built, model, () => {
-                const keys = new Set<string>();
-                const out: (ModelVerbs | undefined)[] = [];
-                for (const [layer, draft] of draftsOf(model).entries()) {
-                  if (draft === undefined) continue;
-                  // One projection key, one layer: a second would hide the first.
-                  const key = draft.evidence?.as;
-                  if (key === "$through")
-                    throw new ClientInitializationError(
-                      `rule.${model}.read.select "$through" is reserved for a relation's link row.`,
-                      { meta: { model } }
-                    );
-                  if (key !== undefined && keys.has(key))
-                    throw new ClientInitializationError(
-                      `rule.${model}.read.select "${key}" is declared by two extensions of the chain.`,
-                      { meta: { model } }
-                    );
-                  if (key !== undefined) keys.add(key);
-                  out[layer] = layerVerbs(draft);
-                }
-                return out;
-              })
-            : undefined,
-      }
-    : undefined;
-  const lazy = layers.some((layer) =>
-    Object.values(layer.verbs).some((entry) => typeof entry === "function")
-  );
-  // A model no layer gives as a function is built now: its refusals are the
-  // application's, as they would be at admission.
-  for (const layer of layers)
-    for (const model of Object.keys(layer.verbs))
-      if (layers.every((other) => typeof other.verbs[model] !== "function"))
-        verbs!.get(model);
-  /**
-   * What the words brought, of one kind: an eager entry's, else what an
-   * entry given lazily brings, since its words are known only once read.
-   */
-  const brought = <K extends "judge" | "project">(kind: K) => {
-    for (const layer of layers) {
-      for (const entry of Object.values(layer.verbs))
-        if (typeof entry !== "function" && entry[kind] !== undefined)
-          return entry[kind];
-    }
-    return layers.find((layer) => layer.lazily)?.lazily?.[kind];
-  };
-  const judge = brought("judge");
-  const project = brought("project");
-  return {
-    ...(verbs && { verbs }),
-    ...(judge && { judge }),
-    ...(project && { project }),
-    lazy,
-    filters: (model, layer) =>
-      typeof layers[layer]!.verbs[model] === "function"
-        ? draftsOf(model)[layer]?.filters
-        : undefined,
-    prepare: prepareJudged,
-  };
-}
-
-/** What the words that write verbs bring: their admission and their binding. */
-export const VERBS: VerbsHost = { admit: admitVerbs, bind: bindVerbs };
+    return {
+      ...bound,
+      lazy: true,
+      filters: (model, layer) => bound.verbs?.get(model)?.[layer]?.filters,
+    };
+  },
+};
 
 /**
  * The verbs of the model a word is written on, made at the first word that
  * writes one, with what admits and binds them.
  */
 export function verbsOf(site: Site): VerbsDraft {
-  site.draft.rule!.host = VERBS;
+  site.draft.rule!.host ??= VERBS;
   return site.verbs();
 }
