@@ -10,13 +10,17 @@ import { scopeOf } from "./origin";
 import { publishWriteOutcomes } from "./query";
 import { REGISTER } from "./watch-part";
 
+/**
+ * A registration nothing would tell is refused, never dropped: only the
+ * first moment of `around`, or of a `call` on a set that brings what tells
+ * the watches, registers one.
+ */
 function registerOn(c: object, watching: object): void {
   const register = REGISTER in c ? c[REGISTER] : undefined;
-  if (typeof register !== "function")
+  if (typeof register !== "function" || register(watching) !== true)
     throw new TypeError(
-      "watch() and settled() take the context of a call's first moment"
+      "watch() and settled() take the first moment of around(), or of a call on target(writes) or target(deletes), of a model call"
     );
-  register(watching);
 }
 
 /**

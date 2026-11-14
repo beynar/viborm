@@ -205,7 +205,6 @@ export type QueryInterceptorContext<
 >;
 
 const queryCoordinationFailures = new WeakMap<AggregateError, unknown>();
-const publicationFailures = new WeakMap<AggregateError, readonly Error[]>();
 
 type ReadCommitCertainty = () => WriteOutcome["certainty"] | undefined;
 
@@ -871,58 +870,53 @@ export class TransactionWriteOutcomes {
   }
 }
 
-/** Deliver every registered listener in registration order. */
+/**
+ * Deliver every registered listener in registration order, all of them. The
+ * first fault rejects: an error of viborm's own as it is, any other value as
+ * the cause of a `QueryError`; later faults are lost.
+ */
 export async function publishWriteOutcomes(
   registrations: readonly WriteOutcomeRegistration[],
   outcome: WriteOutcome
 ): Promise<void> {
-  let failures: Error[] | undefined;
+  let first: { readonly failure: Error } | undefined;
   for (const registration of registrations) {
     try {
       await registration.listener(outcome);
     } catch (reason) {
+      if (first !== undefined) continue;
       const cause = isError(reason) ? reason : undefined;
-      // An error of viborm's own is already said as the listener means it.
-      const failure =
-        cause !== undefined &&
-        (registration.failurePolicy === "boundary-owned" ||
-          cause instanceof VibORMError)
-          ? cause
-          : new QueryError(
-              `Extension "${registration.extension}" write-outcome listener failed after ${outcome.certainty}.`,
-              {
-                cause:
-                  cause ??
-                  new Error(
-                    "Write-outcome listener rejected with a non-Error value"
-                  ),
-                meta: {
-                  method: "onWriteOutcome",
-                  commitCertainty: outcome.certainty,
-                },
-              }
-            );
-      (failures ??= []).push(failure);
+      first = {
+        failure:
+          cause !== undefined &&
+          (registration.failurePolicy === "boundary-owned" ||
+            cause instanceof VibORMError)
+            ? cause
+            : new QueryError(
+                `Extension "${registration.extension}" write-outcome listener failed after ${outcome.certainty}.`,
+                {
+                  cause:
+                    cause ??
+                    new Error(
+                      "Write-outcome listener rejected with a non-Error value"
+                    ),
+                  meta: {
+                    method: "onWriteOutcome",
+                    commitCertainty: outcome.certainty,
+                  },
+                }
+              ),
+      };
     }
   }
-  if (failures === undefined) return;
-  const [primary] = failures;
-  if (failures.length === 1) throw primary;
-  const aggregate = new AggregateError(
-    failures,
-    "Multiple extension write-outcome listeners failed.",
-    { cause: primary }
-  );
-  publicationFailures.set(aggregate, failures);
-  throw aggregate;
+  if (first !== undefined) throw first.failure;
 }
 
-/** Decompose only the aggregate created by this publication owner. */
+/** The failures one publication rejected with: one, since the first fault wins. */
 export function decomposeWriteOutcomePublicationFailure(
   failure: unknown
 ): readonly unknown[] {
-  if (!(failure instanceof AggregateError)) return [failure];
-  return publicationFailures.get(failure) ?? [failure];
+  return [failure];
 }
 
 import type { VibORMConfig } from "@client/client";

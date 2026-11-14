@@ -53,8 +53,11 @@ interface FirstContext {
   readonly args: Readonly<Record<string, unknown>>;
   readonly values: AdmittedControls;
   set(patch: unknown): void;
-  /** What `watch` and `settled` register through. */
-  readonly [REGISTER]: (watching: Watching) => void;
+  /**
+   * What `watch` and `settled` register through: false where nothing would
+   * tell the watch, which `call-words.ts` refuses.
+   */
+  readonly [REGISTER]: (watching: Watching) => boolean;
   /** The call itself, for the words that read it (`database`). */
   readonly [CALL]: object | undefined;
 }
@@ -188,7 +191,7 @@ function firstContext(
       state.args = Object.freeze({ ...state.args, ...patch });
     },
     [REGISTER]: (watching: Watching) => {
-      if (call === undefined) return;
+      if (call === undefined || !WATCHING.has(handler.handler)) return false;
       let byExtension = watched.get(call);
       if (byExtension === undefined)
         watched.set(call, (byExtension = new Map()));
@@ -196,6 +199,7 @@ function firstContext(
         ...(byExtension.get(extension) ?? []),
         watching,
       ]);
+      return true;
     },
     [CALL]: call,
   };
@@ -279,7 +283,13 @@ function secondMoment(first: FirstMoment, extension: string) {
         },
       }
     );
-    const value = await second(run);
+    let value: unknown;
+    try {
+      value = await second(run);
+    } catch (error) {
+      // Once the child failed, its error is the call's.
+      throw failed === undefined ? error : failed.error;
+    }
     returned = true;
     if (failed !== undefined) throw failed.error;
     return value;
@@ -358,6 +368,8 @@ function contributionOf(
 
 /** Each part's first moment, made once per entry (an entry is one schema's). */
 const firsts = new WeakMap<CallEntry, FirstMoment>();
+/** The first moments whose part brings what tells `watch` and `settled`. */
+const WATCHING = new WeakSet<CallableFunction>();
 
 function firstOf(entry: CallEntry, schema: Schema): FirstMoment {
   let first = firsts.get(entry);
@@ -367,6 +379,7 @@ function firstOf(entry: CallEntry, schema: Schema): FirstMoment {
       : momentOneOnly(entry.handler);
     firsts.set(entry, first);
     schemas.set(first, schema);
+    if (entry.around || entry.on?.watch !== undefined) WATCHING.add(first);
   }
   return first;
 }
@@ -405,8 +418,8 @@ const aroundPart: ExtensionPart = {
       );
     }
     if (query === chain?.query) return;
-    // Every application orders again: a later extension's second moments
-    // stay outside an earlier one's that sits nearest the core.
+    // Reordered at every join: a later extension's handler lands after an
+    // earlier one placed nearest the core.
     next.query = Object.freeze(innerLast(query!));
     next.hasQueryHandlers = true;
     coordinate(next, QUERIES);
