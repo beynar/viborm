@@ -9,9 +9,10 @@ import {
 import { PGliteDriver } from "@src/drivers/pglite";
 import {
   createClient,
-  defineExtension,
   type ExtendedClient,
   s,
+  extension,
+  methods as extMethods,
 } from "@src/index";
 import { instrumentation } from "@src/instrumentation/exports";
 import { expectTypeOf } from "vitest";
@@ -35,13 +36,18 @@ type BaseClient = ReturnType<typeof baseClient>;
 
 const cached = cache({ driver: new MemoryCache() });
 const observed = instrumentation({ logging: { query: true } });
-const methods = {
-  name: "application-methods",
-  client: () => ({ $ping: () => "pong" as const }),
-  model: {
-    user: () => ({ $label: (name: string) => `user:${name}` }),
-  },
-} as const;
+const methods = extension(
+  "application-methods",
+  extMethods((scope) => {
+    const own = {
+      client: () => ({ $ping: () => "pong" as const }),
+      models: {
+        user: () => ({ $label: (name: string) => `user:${name}` }),
+      },
+    };
+    return { ...own.client(scope), ...own.models };
+  })
+);
 const applicationExtensions = [cached, observed, methods] as const;
 
 type ApplicationClient = ExtendedClient<
@@ -70,16 +76,19 @@ const _applicationSurface = (applicationClient: ApplicationClient) => {
   expectTypeOf(applicationClient.user.$label("Ada")).toEqualTypeOf<string>();
 };
 
-const moreMethods = {
-  name: "more-methods",
-  client: () => ({ $answer: () => 42 as const }),
-} as const;
+const moreMethods = extension(
+  "more-methods",
+  extMethods((scope) => {
+    const own = { client: () => ({ $answer: () => 42 as const }) };
+    return { ...own.client(scope) };
+  })
+);
 type FurtherExtendedClient = ExtendedClient<
   ApplicationClient,
   readonly [typeof moreMethods]
 >;
 
-const hidden = defaultOmit<typeof schema>()({
+const hidden = defaultOmit({
   user: { passwordHash: true },
 });
 type OmittedClient = ExtendedClient<
@@ -95,12 +104,17 @@ const _omittedResult = async (client: OmittedClient) => {
   } | null>();
 };
 
-const schemaBound = defineExtension<typeof schema>()({
-  name: "schema-bound",
-  model: {
-    user: () => ({ $schemaLabel: () => "schema" as const }),
-  },
-});
+const schemaBound = extension(
+  "schema-bound",
+  extMethods(() => {
+    const own = {
+      models: {
+        user: () => ({ $schemaLabel: () => "schema" as const }),
+      },
+    };
+    return { ...own.models };
+  })
+);
 type SchemaBoundClient = ExtendedClient<
   BaseClient,
   readonly [typeof schemaBound]
