@@ -33,7 +33,7 @@ const archivist = { archivistId: arg("user") };
 const db = client.$extends(
   extension(
     "sharing",
-    args({ user: accepts(v.string()).required() }),
+    args({ user: accepts(v.string()).required(["document"]) }),
     rule({
       document: {
         read: {
