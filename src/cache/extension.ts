@@ -13,7 +13,7 @@
  *   call works against (`database`), so two clients of one database share
  *   entries and two databases never do.
  */
-import { CacheConfigurationError } from "@errors";
+import { CacheConfigurationError, VibORMError } from "@errors";
 import { accepts, args, bound } from "@extensions/args";
 import { around, call } from "@extensions/call";
 import { settled } from "@extensions/call-words";
@@ -216,7 +216,19 @@ export function cache(config: CacheExtensionConfig): unknown {
         $withCache: (options?: WithCacheOptions) =>
           scope.$bind({ cacheRead: options }),
         $invalidate: (...keys: string[]) =>
-          settled(scope, () => invalidate(scope, { invalidate: keys })),
+          settled(scope, async () => {
+            try {
+              await invalidate(scope, { invalidate: keys });
+            } catch (cause) {
+              // A refused key is said as it is; a backend failure is the
+              // cache's, as a write's invalidation failure is.
+              if (cause instanceof VibORMError) throw cause;
+              throw new CacheConfigurationError("Cache invalidation failed.", {
+                cause: cause instanceof Error ? cause : undefined,
+                meta: { method: "invalidate" },
+              });
+            }
+          }),
       })
     )
   );

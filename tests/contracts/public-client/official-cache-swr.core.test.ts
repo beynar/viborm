@@ -9,6 +9,7 @@ import {
   createClient,
   extension,
   statement as extStatement,
+  failure,
   s,
   target,
   unit,
@@ -583,7 +584,9 @@ describe("official cache stale-while-revalidate", () => {
               if (u.kind !== "cache" || u.operation !== "revalidate") {
                 return;
               }
-              completions.push(next());
+              completions.push(
+                next().then((outcome) => ({ ...outcome, error: failure(u) }))
+              );
             })
           )
         )

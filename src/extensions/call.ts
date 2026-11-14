@@ -220,7 +220,13 @@ export function runFirstMoments(
   call?: object
 ): Record<string, unknown> | undefined {
   if (handlers === undefined || handlers.length === 0) return input;
-  const state = { args: Object.freeze({ ...input }) };
+  // An argument that is no object is validation's to refuse, as it is.
+  const state = {
+    args:
+      input !== undefined && !isRecord(input)
+        ? input
+        : Object.freeze({ ...input }),
+  };
   for (const handler of handlers)
     runFirst(
       handler,

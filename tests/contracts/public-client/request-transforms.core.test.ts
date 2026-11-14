@@ -221,7 +221,6 @@ describe("public request-transform integration", () => {
 
     transactionOperation(operation).prepare();
     operation.buildStatement();
-    operation.cacheKeyArgs();
     transactionOperation(operation).prepare();
     expect(calls).toEqual(["A", "B", "C"]);
 

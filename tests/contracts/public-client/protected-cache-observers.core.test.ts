@@ -4,7 +4,13 @@ import { CacheDriver, type CacheEntry } from "@cache/driver";
 import { cache as cacheExtension } from "@cache/extension";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { Driver } from "@drivers";
-import { createClient, extension, unit as extUnit, s } from "@src/index";
+import {
+  createClient,
+  extension,
+  unit as extUnit,
+  failure,
+  s,
+} from "@src/index";
 import { createTestClock } from "@tests/fixtures/test-clock";
 import { readTestTransactionOperation } from "@tests/fixtures/transaction-operation";
 import { afterEach, describe, expect, test } from "vitest";
@@ -146,7 +152,7 @@ class ObservableCache extends CacheDriver {
 
 const clients: Array<{ $disconnect(): Promise<void> }> = [];
 
-function createObservedCacheClient(options?: { hostile?: boolean }) {
+function createObservedCacheClient() {
   const clock = createTestClock();
   const timeline: string[] = [];
   const cache = new ObservableCache(timeline, clock);
@@ -170,14 +176,12 @@ function createObservedCacheClient(options?: { hostile?: boolean }) {
         const completion = next();
         const observation: CacheObservation = { unit: u, completion };
         observations.push(observation);
-        completion.then((summary) => {
+        completion.then((outcome) => {
+          const error = failure(u);
+          const summary = error === undefined ? outcome : { ...outcome, error };
           observation.summary = summary;
           timeline.push(`observer:${u.operation}:out:${summary.status}`);
         });
-        if (options?.hostile) {
-          Reflect.set(u, "key", "stolen");
-          return Promise.reject(new Error("hostile observer failure"));
-        }
       })
     )
   );
@@ -229,7 +233,9 @@ afterEach(async () => {
 
 describe("public protected cache observers", () => {
   test("observes only get, set, and outer invalidate without disclosing cache state", async () => {
-    const state = createObservedCacheClient({ hostile: true });
+    // The core no longer guards a unit against its observers (D5): the
+    // observer here is an ordinary one.
+    const state = createObservedCacheClient();
 
     await expect(
       state.client.$withCache({ key: "records" }).record.findMany()
@@ -248,11 +254,10 @@ describe("public protected cache observers", () => {
       "invalidate",
     ]);
     for (const observation of state.observations) {
-      expect(observation.unit).toEqual({
+      expect(observation.unit).toMatchObject({
         kind: "cache",
         operation: observation.unit.operation,
       });
-      expect(Object.isFrozen(observation.unit)).toBe(true);
       expect(observation.summary).toMatchObject({ status: "success" });
       expect(observation.summary).not.toHaveProperty("commitCertainty");
       expect(observation.unit).not.toHaveProperty("key");
@@ -288,8 +293,13 @@ describe("public protected cache observers", () => {
 
     const invalidateFailure = new Error("cache delete refused");
     state.cache.failDelete = invalidateFailure;
-    await expect(state.client.$invalidate("get-failure")).rejects.toBe(
-      invalidateFailure
+    // A backend failure of `$invalidate` is the cache's configuration error,
+    // as a write's invalidation failure is; the backend's error is its cause.
+    await expect(state.client.$invalidate("get-failure")).rejects.toMatchObject(
+      {
+        name: "CacheConfigurationError",
+        meta: { method: "invalidate" },
+      }
     );
     await settleObservations(state.observations);
     expect(
