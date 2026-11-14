@@ -1545,7 +1545,6 @@ reads and polymorphic arms.
 | a new row refused at the root (create, move, written key, cycle) | `ForbiddenError` (`V13001`) | in the statement, before the write |
 | a hidden nested target, or a nested create refused | `NestedWriteError` | in the operation |
 | an explicit `select` of a field the row withholds | `ValidationError` at `select.<field>` | after the read |
-| `$withCache` on a governed view, unless `cache: "allow"` | `ValidationError` at `actor` | before any statement |
 | a create, upsert or update writing a unique value a hidden row holds | `UniqueConstraintError` | the database's |
 
 Authorization refusals do not distinguish a hidden target from a missing one,
@@ -1555,15 +1554,18 @@ errors are a separate boundary; see [Boundaries](#boundaries).
 ### Caching
 
 **A cached read suspends "judged now".** A grant revoked by another request
-is served until the entry expires. So a governed view refuses `$withCache`
-with a `ValidationError`, unless the policy accepts the staleness:
+is served until the entry expires. So a read of a governed view through
+`$withCache` runs as an ordinary read: it is neither served from the cache
+nor stored. A policy that accepts the staleness says so:
 
 ```ts no-check
 const policy = permissions({ actor: Actor, cache: "allow", models: { … } });
 ```
 
-Different actors or scope bindings then never share an entry, but an entry answers until its TTL
-whatever was revoked since.
+An entry is then keyed by the statement the read sends, its parameters
+included: two actors or scope bindings share an entry only where their reads
+send the same statement with the same values, so receive the same rows. An
+entry answers until its TTL whatever was revoked since.
 
 ### Providers
 
