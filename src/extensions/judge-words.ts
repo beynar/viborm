@@ -21,7 +21,7 @@ import type {
 import { judgeOf } from "./judge";
 import { keptRowsPart } from "./kept";
 import { layerOf } from "./layers";
-import { projectionOf } from "./projection";
+import { projectionOf, refuseSharedKeys } from "./projection";
 import { draftOf, listOf } from "./rule";
 import { CarriedValue, PredicateWord, type Site } from "./rule-words";
 import { NOW } from "./stamps";
@@ -163,7 +163,10 @@ class Facts extends CarriedValue {
       refuse(`${key} is not \`$\` and an identifier`);
     const own = verbsOf(site);
     if (own.as !== undefined) refuse("read.select holds one projection key");
-    brings(site).project = projectionOf;
+    Object.assign(brings(site), {
+      project: projectionOf,
+      keys: refuseSharedKeys,
+    });
     own.as = field;
     own.facts = new Map(Object.entries(this.predicates));
   }
@@ -271,6 +274,7 @@ class Lazy extends CarriedValue {
       judge: judgeOf,
       project: projectionOf,
       prepare: prepareJudged,
+      keys: refuseSharedKeys,
     };
     const read = (): VerbsDraft => {
       const given: unknown = Reflect.apply(this.read, undefined, []);

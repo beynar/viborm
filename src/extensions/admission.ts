@@ -100,6 +100,8 @@ export interface RuleLayer {
     project?: (domain: PreparedDomain) => Projection;
     /** What prepares a call's domains where a layer takes rows by verb. */
     prepare?: CallRows["prepare"];
+    /** What refuses one model's projection keys across the chain's layers. */
+    keys?: (model: string, layers: readonly (ModelVerbs | undefined)[]) => void;
   };
 }
 

@@ -5,7 +5,7 @@
  * neither gate nor report holds none of it.
  */
 import { assembleAdapterSelect } from "@adapters/adapter-internals";
-import { UnsupportedOperationError } from "@errors";
+import { ClientInitializationError, UnsupportedOperationError } from "@errors";
 import {
   BOOLEAN_LEAF,
   type DeclaredEvidence,
@@ -21,6 +21,7 @@ import {
   type Reader,
   type Shape,
 } from "@query-engine/raptor3/shared/query";
+import type { ModelVerbs } from "@query-engine/raptor3/shared/row-scope";
 import type { Operation as Admitted } from "@query-engine/raptor3/shared/schema";
 import {
   type Arguments,
@@ -58,6 +59,30 @@ function sharedGate(gate: FieldGate, known: FieldGate[]): FieldGate {
   if (same) return same;
   known.push(gate);
   return gate;
+}
+
+/**
+ * One model's projection keys across a chain's layers, brought by `facts`:
+ * one key, one layer, since a second would hide the first, and never a
+ * relation's link row's name.
+ */
+export function refuseSharedKeys(
+  model: string,
+  layers: readonly (ModelVerbs | undefined)[]
+): void {
+  const keys = new Set<string>();
+  for (const layer of layers) {
+    const key = layer?.as;
+    if (key === undefined) continue;
+    if (key === "$through" || keys.has(key))
+      throw new ClientInitializationError(
+        key === "$through"
+          ? `rule.${model}.read.select "$through" is reserved for a relation's link row.`
+          : `rule.${model}.read.select "${key}" is declared by two extensions of the chain.`,
+        { meta: { model } }
+      );
+    keys.add(key);
+  }
 }
 
 /** What the engine asks of what projects and hides a domain's fields. */

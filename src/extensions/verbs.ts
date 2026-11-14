@@ -22,6 +22,7 @@ import type {
   Admission,
   AdmittedVerbs,
   References,
+  RuleLayer,
   VerbsBound,
   VerbsDraft,
   VerbsHost,
@@ -201,6 +202,9 @@ function bindVerbs(
   read?: (entry: () => AdmittedVerbs, extension: string) => AdmittedVerbs
 ) {
   const layers = chain.rows ?? [];
+  const brought = <K extends keyof NonNullable<RuleLayer["brings"]>>(kind: K) =>
+    layers.find((layer) => layer.brings?.[kind])?.brings?.[kind];
+  const keys = brought("keys");
   const declares = (model: string) =>
     layers.some((layer) => Object.hasOwn(layer.verbs, model));
   const built = new Map<string, readonly (AdmittedVerbs | undefined)[]>();
@@ -209,39 +213,27 @@ function bindVerbs(
   ): readonly (AdmittedVerbs | undefined)[] | undefined =>
     declares(model)
       ? memo(built, model, () => {
-          const keys = new Set<string>();
-          return layers.map(({ verbs, extension }) => {
+          const out = layers.map(({ verbs, extension }) => {
             const entry = verbs[model];
-            const draft =
-              typeof entry === "function" ? read!(entry, extension) : entry;
-            // One projection key, one layer: a second would hide the first.
-            const key = draft?.as;
-            if (key === "$through" || (key && keys.has(key)))
-              throw new ClientInitializationError(
-                key === "$through"
-                  ? `rule.${model}.read.select "$through" is reserved for a relation's link row.`
-                  : `rule.${model}.read.select "${key}" is declared by two extensions of the chain.`,
-                { meta: { model } }
-              );
-            if (key) keys.add(key);
-            return draft;
+            return typeof entry === "function"
+              ? read!(entry, extension)
+              : entry;
           });
+          keys?.(model, out);
+          return out;
         })
       : undefined;
   for (const layer of layers)
     for (const model of Object.keys(layer.verbs))
       if (layers.every((other) => typeof other.verbs[model] !== "function"))
         get(model);
-  const judge = layers.find((layer) => layer.brings?.judge)?.brings?.judge;
-  const project = layers.find((layer) => layer.brings?.project)?.brings
-    ?.project;
+  const judge = brought("judge");
+  const project = brought("project");
   return {
     verbs: { has: declares, get },
     ...(judge && { judge }),
     ...(project && { project }),
-    prepare:
-      layers.find((layer) => layer.brings?.prepare)?.brings?.prepare ??
-      prepareVerbs,
+    prepare: brought("prepare") ?? prepareVerbs,
   } satisfies VerbsBound;
 }
 
