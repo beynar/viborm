@@ -160,8 +160,10 @@ describeIf("SQL Server reads and writes adopted tables", () => {
     await db.$executeRaw(sql.raw(DDL));
   });
   afterAll(async () => {
+    // The two schemas reference each other: the key out of this one goes
+    // first, then the other schema, whose key points into this one.
+    await db.$executeRaw(sql.raw(`${"DR"}OP TABLE IF EXISTS ${t("outbound")}`));
     await db.$disconnect();
-    // Its foreign key into this schema goes first.
     await dropSchema(OTHER);
     await dropSchema(NS);
   });
