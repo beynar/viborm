@@ -1,58 +1,60 @@
 /**
- * The keys of a call's arguments that decide its result's shape, per
- * operation, and the types of what a first moment reads and patches: a
- * `call`'s `c.set` refuses those keys (`call.ts`).
+ * The keys of a call's arguments that decide its result's shape, and the
+ * types of what a first moment reads and patches.
  */
 import type { Operations } from "@client/types";
 import type { AdmittedControls } from "./controls";
 
-type RuntimeRequestFunction = (...args: never[]) => unknown;
-/** A first moment as a chain keeps it: one function for every call, or per model and operation. */
-export type RuntimeRequestContribution =
-  | RuntimeRequestFunction
-  | Readonly<Record<string, Readonly<Record<string, RuntimeRequestFunction>>>>;
+/**
+ * The keys of a call's arguments that decide its result's shape: the one
+ * list of them. A first moment's `c.set` refuses each (`call.ts`), and the
+ * types of what it reads and patches leave out those its operation has.
+ */
+export const RESULT_SHAPE_KEYS = [
+  "select",
+  "include",
+  "omit",
+  "_count",
+  "_avg",
+  "_sum",
+  "_min",
+  "_max",
+  "by",
+] as const;
 
-type ResultShapeKey =
-  | "select"
-  | "include"
-  | "omit"
-  | "_count"
-  | "_avg"
-  | "_sum"
-  | "_min"
-  | "_max"
-  | "by";
+/** What `c.set` tests a patch's keys against. */
+export const SHAPE_KEYS: ReadonlySet<string> = /* @__PURE__ */ new Set(
+  RESULT_SHAPE_KEYS
+);
 
-const resultShapeKeys = <const Keys extends readonly ResultShapeKey[]>(
-  ...keys: Keys
-): Readonly<Keys> => Object.freeze(keys);
+type ResultShapeKey = (typeof RESULT_SHAPE_KEYS)[number];
 
 /**
- * The single operation-specific owner of request properties that determine the
- * public result type. A future projection spelling extends this table; runtime
- * detachment and the handler input/patch types then change together.
+ * Which of those keys each operation has: a future projection spelling
+ * extends the list and this table, and the patch types follow.
  */
-export const RESULT_SHAPE_KEYS_BY_OPERATION = Object.freeze({
-  findFirst: resultShapeKeys("select", "include", "omit"),
-  findMany: resultShapeKeys("select", "include", "omit"),
-  findUnique: resultShapeKeys("select", "include", "omit"),
-  findUniqueOrThrow: resultShapeKeys("select", "include", "omit"),
-  findFirstOrThrow: resultShapeKeys("select", "include", "omit"),
-  create: resultShapeKeys("select", "include", "omit"),
-  update: resultShapeKeys("select", "include", "omit"),
-  delete: resultShapeKeys("select", "include", "omit"),
-  upsert: resultShapeKeys("select", "include", "omit"),
-  createMany: resultShapeKeys("select", "omit"),
-  updateMany: resultShapeKeys("select", "omit"),
-  deleteMany: resultShapeKeys("select", "omit"),
-  count: resultShapeKeys("select"),
-  aggregate: resultShapeKeys("_count", "_avg", "_sum", "_min", "_max"),
-  groupBy: resultShapeKeys("by", "_count", "_avg", "_sum", "_min", "_max"),
-  exist: resultShapeKeys(),
-} satisfies Readonly<Record<Operations, readonly ResultShapeKey[]>>);
+interface ResultShapeKeysByOperation
+  extends Record<Operations, ResultShapeKey> {
+  findFirst: "select" | "include" | "omit";
+  findMany: "select" | "include" | "omit";
+  findUnique: "select" | "include" | "omit";
+  findUniqueOrThrow: "select" | "include" | "omit";
+  findFirstOrThrow: "select" | "include" | "omit";
+  create: "select" | "include" | "omit";
+  update: "select" | "include" | "omit";
+  delete: "select" | "include" | "omit";
+  upsert: "select" | "include" | "omit";
+  createMany: "select" | "omit";
+  updateMany: "select" | "omit";
+  deleteMany: "select" | "omit";
+  count: "select";
+  aggregate: "_count" | "_avg" | "_sum" | "_min" | "_max";
+  groupBy: "by" | "_count" | "_avg" | "_sum" | "_min" | "_max";
+  exist: never;
+}
 
 type ResultShapeKeyFor<Operation extends Operations> =
-  (typeof RESULT_SHAPE_KEYS_BY_OPERATION)[Operation][number];
+  ResultShapeKeysByOperation[Operation];
 
 /** The operation input visible to an ordinary request transform. */
 export type RequestTransformInput<

@@ -49,12 +49,14 @@ export interface ResolvedOperationHandler<
 }
 
 /** One precompiled handler array for each exact execution target. */
-export interface ResolvedExtensionOperationLookup {
-  readonly global: readonly ResolvedOperationHandler[];
+export interface ResolvedExtensionOperationLookup<
+  Handler extends CallableFunction = CallableFunction,
+> {
+  readonly global: readonly ResolvedOperationHandler<Handler>[];
   readonly models: Readonly<
     Record<
       string,
-      Readonly<Record<string, readonly ResolvedOperationHandler[]>>
+      Readonly<Record<string, readonly ResolvedOperationHandler<Handler>[]>>
     >
   >;
 }

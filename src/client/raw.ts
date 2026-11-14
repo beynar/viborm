@@ -297,13 +297,29 @@ type CapturedRawQuery =
       readonly values: readonly unknown[];
     };
 
-type ResolvedRawQuery =
+type ResolvedRawQuery = (
   | { readonly kind: "fragment"; readonly query: Sql }
   | {
       readonly kind: "verbatim";
       readonly sql: string;
       readonly params: readonly unknown[];
-    };
+    }
+) & {
+  /** Its input, once snapshotted (`inputOf`). */
+  input?: Readonly<Record<string, unknown>>;
+};
+
+/**
+ * A resolved statement's input, snapshotted once: what its first moments and
+ * its query handlers read, and the one object an `around` part's two moments
+ * of it are handed.
+ */
+const inputOf = (query: ResolvedRawQuery): Readonly<Record<string, unknown>> =>
+  (query.input ??= snapshotQueryInput(
+    query.kind === "fragment"
+      ? { query: query.query }
+      : { sql: query.sql, params: [...query.params] }
+  ));
 
 type RawRow<T> = T extends (infer Row)[] ? Row : unknown;
 
@@ -524,6 +540,16 @@ class DeferredRawOperation<T>
       this.#method,
       resolved.kind === "fragment" ? resolved.query.values : resolved.params
     );
+    // The first moments of the parts without a target (the lookup's
+    // `global`) see the statement once it is known, before anything sends
+    // it: what they throw refuses it.
+    const request = this.#engine.extensionChain?.request;
+    request?.apply(
+      this.#method,
+      inputOf(resolved),
+      request.global,
+      inputOf(resolved)
+    );
     this.#resolved = resolved;
     return resolved;
   }
@@ -588,11 +614,7 @@ class DeferredRawOperation<T>
       kind: this.#method.slice(1) as RawQueryKind,
       model: undefined,
       operation: this.#method,
-      input: snapshotQueryInput(
-        query.kind === "fragment"
-          ? { query: query.query }
-          : { sql: query.sql, params: [...query.params] }
-      ),
+      input: inputOf(query),
     });
   }
 

@@ -22,16 +22,14 @@ import type {
 } from "./methods";
 import type { OfficialObservationCapability } from "./official-facts";
 import type { RuntimeQueryContribution } from "./query";
-import type { RuntimeRequestContribution } from "./request";
 import type { RuntimeResultContribution } from "./result";
 
 type RuntimeExtensionFunction = (...args: never[]) => unknown;
 
 export interface RuntimeExtensionDefinition {
   readonly name: string;
-  /** Each `call` and `call.around` part, in the order the extension names them. */
+  /** Each `call` and `around` part, in the order the extension names them. */
   readonly calls?: readonly CallEntry[];
-  readonly request?: RuntimeRequestContribution;
   readonly query?: RuntimeQueryContribution;
   readonly statement?: RuntimeExtensionFunction;
   readonly observe?: RuntimeExtensionFunction;
