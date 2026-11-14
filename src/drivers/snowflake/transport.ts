@@ -136,6 +136,32 @@ const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
     signal?.addEventListener("abort", onAbort, { once: true });
   });
 
+/** `promise`, or `signal`'s reason as soon as it aborts. */
+function untilAborted<T>(
+  promise: Promise<T>,
+  signal?: AbortSignal
+): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) {
+    promise.catch(() => undefined);
+    return Promise.reject(signal.reason);
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      }
+    );
+  });
+}
+
 async function readBody(response: Response): Promise<Body | undefined> {
   const answered = await response.text();
   if (answered.length === 0) return undefined;
@@ -380,7 +406,25 @@ export class SnowflakeTransport {
           }
         );
       }
-      return { status: response.status, body: await readBody(response) };
+      // The headers came; the body can still be cut off on its way, which is
+      // a failed send like any other.
+      let body: Body | undefined;
+      try {
+        body = await readBody(response);
+      } catch (error) {
+        if (signal.aborted) throw signal.reason;
+        if (attempt + 1 >= attempts)
+          throw new ConnectionError(
+            `Snowflake's answer was cut off ${attempts} times before it ended.`,
+            {
+              cause: error instanceof Error ? error : undefined,
+              meta: { driver: "snowflake" },
+            }
+          );
+        await pause(attempt);
+        continue;
+      }
+      return { status: response.status, body };
     }
   }
 
@@ -389,7 +433,12 @@ export class SnowflakeTransport {
     init: { method: string; body?: string },
     signal?: AbortSignal
   ): Promise<Response> {
-    const { token, type } = await this.#options.authenticator.authorization();
+    // A token function may be slow to refresh: the request's deadline bounds
+    // that wait too.
+    const { token, type } = await untilAborted(
+      this.#options.authenticator.authorization(),
+      signal
+    );
     try {
       return await this.#options.fetch(`${this.#options.baseUrl}${path}`, {
         method: init.method,

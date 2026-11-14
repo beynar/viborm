@@ -201,6 +201,75 @@ describe("Snowflake SQL API transport", () => {
     ).toBe(true);
   }, 15_000);
 
+  it("sends a request again when its answer is cut off after the headers", async () => {
+    let cut = 0;
+    const answer = () => ({ rowType: [column], partitions: [[["1"]]] });
+    const cutOff =
+      (times: number) => async (input: string, init: RequestInit) => {
+        const response = await fetch(input, init);
+        if (cut >= times) return response;
+        cut++;
+        await response.body?.cancel();
+        // The headers arrive; the socket resets inside the body.
+        return new Response(
+          new ReadableStream({
+            start: (controller) =>
+              controller.error(new TypeError("terminated")),
+          }),
+          { status: response.status, headers: response.headers }
+        );
+      };
+    const client = await transport(answer, { fetch: cutOff(1) });
+    expect((await client.run("SELECT 1", undefined)).rows).toEqual([["1"]]);
+    const posts = server!.requests.filter(
+      (request) => request.method === "POST"
+    );
+    expect(posts.map((request) => request.path.includes("retry=true"))).toEqual(
+      [false, true]
+    );
+    await server!.close();
+    cut = 0;
+    const failing = await transport(answer, { fetch: cutOff(10) });
+    await expect(failing.run("SELECT 1", undefined)).rejects.toBeInstanceOf(
+      ConnectionError
+    );
+  });
+
+  it("bounds a slow token refresh by the statement's deadline and the cancel's", async () => {
+    const slow = () =>
+      new Promise<string>((resolve) => setTimeout(() => resolve("t"), 8000));
+    server = await startFakeSnowflake(() => ({
+      rowType: [column],
+      partitions: [[["1"]]],
+      pending: 10_000,
+    }));
+    const started = Date.now();
+    const client = (token: () => Promise<string> | string) =>
+      new SnowflakeTransport({
+        baseUrl: server!.url,
+        authenticator: new SnowflakeAuthenticator({ account: "a", token }),
+        context: { warehouse: "WH" },
+        parameters: { TIMEZONE: "UTC" },
+        fetch: (input, init) => fetch(input, init),
+        pollIntervalMs: 5,
+        timeout: 1,
+      });
+    // The submission's token never comes in time.
+    await expect(client(slow).run("SELECT 1", undefined)).rejects.toMatchObject(
+      { code: VibORMErrorCode.QUERY_TIMEOUT }
+    );
+    expect(Date.now() - started).toBeLessThan(2500);
+    // The submission goes; the cancel's token is slow: 1 s, then 2 s at most.
+    const second = Date.now();
+    await expect(
+      client(() => (Date.now() - second > 900 ? slow() : "t")).run(
+        "SELECT 1",
+        undefined
+      )
+    ).rejects.toMatchObject({ code: VibORMErrorCode.QUERY_TIMEOUT });
+    expect(Date.now() - second).toBeLessThan(4500);
+  }, 20_000);
+
   it("refuses a 200 that does not state its rows, rather than answering none", async () => {
     const meta = {
       numRows: 1,
