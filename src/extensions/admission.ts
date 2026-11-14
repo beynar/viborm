@@ -52,6 +52,11 @@ export interface VerbsDraft {
    * Its filters are the layer's own, so it is never read as one again.
    */
   shown?: unknown;
+  /**
+   * An entry given as a function, once admitted: the arguments its
+   * predicates name, checked against the chain it is bound to.
+   */
+  references?: readonly (string | undefined)[];
   update?: unknown;
   delete?: unknown;
   writes?: Record<string, unknown>;

@@ -86,22 +86,33 @@ export interface UnitSource {
   settledAt?: number;
 }
 
-const sources = new WeakMap<object, UnitSource>();
+/** The unit a handler receives: its producer's record is its own field. */
+class ProducedUnit implements Unit {
+  readonly kind: UnitKind;
+  readonly model: string | undefined;
+  readonly operation: string | undefined;
+  readonly #source: UnitSource;
+  constructor(source: UnitSource) {
+    this.kind = source.kind;
+    this.model = source.model;
+    this.operation = source.operation;
+    this.#source = source;
+  }
+  static sourceOf(unit: object): UnitSource | undefined {
+    return #source in unit ? unit.#source : undefined;
+  }
+}
+
 /** A running operation unit, by its call and by its execution context. */
 const operations = new WeakMap<object, UnitSource>();
 
 /** The producer's record of `unit`, or `undefined` for a unit it did not make. */
 export const sourceOf = (unit: object): UnitSource | undefined =>
-  sources.get(unit);
+  ProducedUnit.sourceOf(unit);
 
-/** The unit a handler receives for `source`, kept beside it. */
+/** The unit a handler receives for `source`. */
 export function unitOf(source: UnitSource): Unit {
-  const unit: Unit = {
-    kind: source.kind,
-    model: source.model,
-    operation: source.operation,
-  };
-  sources.set(unit, source);
+  const unit = new ProducedUnit(source);
   source.notes ??= [];
   if (source.kind === "operation") {
     if (source.call !== undefined) operations.set(source.call, source);
@@ -117,7 +128,7 @@ export function unitOf(source: UnitSource): Unit {
 export function originOf(origin: object): UnitSource | undefined {
   const call: unknown = CALL in origin ? Reflect.get(origin, CALL) : undefined;
   return (
-    sources.get(origin) ??
+    sourceOf(origin) ??
     (typeof call === "object" && call !== null
       ? operations.get(call)
       : operations.get(origin))

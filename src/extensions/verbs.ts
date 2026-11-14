@@ -218,12 +218,6 @@ function admitDraft(
   return Object.freeze(out);
 }
 
-/** What an entry given lazily's predicates read, recorded when it was first read. */
-const lazyReferences = new WeakMap<
-  VerbsDraft,
-  readonly (string | undefined)[]
->();
-
 /**
  * One layer's verbs with every predicate admitted: an eager entry's now, an
  * entry given lazily's once, the first time its model is read; its own
@@ -247,14 +241,14 @@ function admitVerbs(
       const own: References = new Set();
       const { root, related, ...given } = draft();
       const admitted = admitDraft(admitting, name, given, own, `lazy ${name}`);
-      resolved =
-        root === undefined && related === undefined
-          ? admitted
-          : Object.freeze({
-              ...admitted,
-              filters: filtersOf(name, { root, related }, own, `lazy ${name}`),
-            });
-      lazyReferences.set(resolved, [...own]);
+      resolved = Object.freeze({
+        ...admitted,
+        ...((root !== undefined || related !== undefined) && {
+          filters: filtersOf(name, { root, related }, own, `lazy ${name}`),
+        }),
+        // Read after the filters: what they name is the entry's too.
+        references: [...own],
+      });
       return resolved;
     };
     verbs[name] = resolve;
@@ -287,7 +281,7 @@ function bindVerbs(chain: ResolvedExtensionChain): VerbsBound {
       if (typeof entry !== "function") return entry;
       const draft = entry();
       const declared = declaredUpTo(extension);
-      for (const name of lazyReferences.get(draft)!)
+      for (const name of draft.references!)
         if (name !== undefined && !declared.has(name))
           throw new ClientInitializationError(
             `Extension "${extension}" references undeclared control "${name}".`,
