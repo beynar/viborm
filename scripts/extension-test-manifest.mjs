@@ -14,6 +14,7 @@ const contracts = [
   "tests/contracts/public-client/adversarial-v1-extension.core.test.ts",
   "tests/contracts/public-client/default-omit-extension.core.test.ts",
   "tests/contracts/public-client/extension-admission-reuse.core.test.ts",
+  "tests/contracts/public-client/extension-authoring-refusals.core.test.ts",
   "tests/contracts/public-client/extension-batch-atomicity.core.test.ts",
   "tests/contracts/public-client/extension-bound-views.core.test.ts",
   "tests/contracts/public-client/extension-call-facts.core.test.ts",
@@ -46,8 +47,10 @@ const contracts = [
   "tests/contracts/public-client/ordering-composition.core.test.ts",
   "tests/contracts/public-client/ordering-identity.core.test.ts",
   "tests/contracts/public-client/ordering-keys.core.test.ts",
+  "tests/contracts/public-client/ordering-refusals.core.test.ts",
   "tests/contracts/public-client/ordering.core.test.ts",
   "tests/contracts/public-client/permissions-field-write-nested.core.test.ts",
+  "tests/contracts/public-client/permissions-reach.core.test.ts",
   "tests/contracts/public-client/query-interceptors-array.core.test.ts",
   "tests/contracts/public-client/query-interceptors-integration.core.test.ts",
   "tests/contracts/public-client/query-interceptors.core.test.ts",
@@ -68,7 +71,8 @@ const contracts = [
 
 /**
  * Local SQLite suites, each in its own bounded process: the complete
- * Permissions oracle sweeps, and computed fields. (A PGlite suite does not
+ * Permissions oracle sweeps, computed fields, and the read-gated fields
+ * `$rows()` and a `$through` link refuse. (A PGlite suite does not
  * fit: instrumented, one peaked at 1,636 MiB against the 1,536 MiB ceiling.)
  */
 const providerSweeps = [
@@ -79,7 +83,9 @@ const providerSweeps = [
   "tests/providers/local/sqlite3-permissions-quantifiers.test.ts",
   "tests/providers/local/sqlite3-permissions-reuse-review.test.ts",
   "tests/providers/local/sqlite3-permissions-reuse.test.ts",
+  "tests/providers/local/sqlite3-raw-rows.test.ts",
   "tests/providers/local/sqlite3-result-fields.test.ts",
+  "tests/providers/local/sqlite3-through-model-governed.test.ts",
 ];
 
 export const EXTENSION_COVERAGE_TESTS = Object.freeze([

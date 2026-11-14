@@ -16,24 +16,12 @@ export class MemoryCache<
 
   constructor(
     options?: Options &
-      Record<Exclude<keyof Options, keyof MemoryCacheOptions>, never>,
-    ...extra: never[]
+      Record<Exclude<keyof Options, keyof MemoryCacheOptions>, never>
   ) {
     super("memory");
-    if (extra.length)
-      throw new CacheConfigurationError(
-        "MemoryCache received extra construction arguments."
-      );
     let maxEntries = 1024;
     if (options !== undefined) {
-      let descriptors: PropertyDescriptorMap;
-      try {
-        descriptors = Object.getOwnPropertyDescriptors(options);
-      } catch {
-        throw new CacheConfigurationError(
-          "MemoryCache options could not be inspected."
-        );
-      }
+      const descriptors = Object.getOwnPropertyDescriptors(options);
       const limit = descriptors.maxEntries;
       const supplied: unknown =
         limit && "value" in limit ? limit.value : undefined;
@@ -72,10 +60,9 @@ export class MemoryCache<
   ): Promise<void> {
     this.#store.delete(key);
     this.#store.set(key, { entry, expiresAt: this.clock.now() + storageTtl });
-    while (this.#store.size > this.#maxEntries) {
-      const oldest = this.#store.keys().next().value;
-      if (oldest !== undefined) this.#store.delete(oldest);
-    }
+    // Past the bound the store holds an entry: the oldest is the first key.
+    while (this.#store.size > this.#maxEntries)
+      this.#store.delete(this.#store.keys().next().value!);
     this.#schedule(storageTtl);
   }
 

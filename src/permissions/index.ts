@@ -777,8 +777,9 @@ export function permissions<const Config extends PermissionsConfig>(
     // R9, D3: a call the policy cannot reach is refused before its
     // arguments are validated.
     call((c) => {
-      if (c.kind !== "model") return;
-      const at = applied.get(c.schema)?.reach.get(c.model);
+      // target(models) selects model calls only: each names its model.
+      const model = c.model!;
+      const at = applied.get(c.schema)?.reach.get(model);
       const mode: unknown = c.values[MODE];
       if (
         !(
@@ -787,7 +788,7 @@ export function permissions<const Config extends PermissionsConfig>(
         ) ||
         (typeof mode === "string" && !at.modes.has(mode))
       )
-        throw new ForbiddenError(c.model, c.operation);
+        throw new ForbiddenError(model, c.operation);
     }, target(everyOperation)),
     methods(
       (scope: {
