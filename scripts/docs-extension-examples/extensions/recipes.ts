@@ -8,7 +8,6 @@ import {
   perModel,
   tenancy,
 } from "@tests/fixtures/extension-recipes";
-import { base } from "./recipes-schema";
 import {
   accepts,
   arg,
@@ -22,6 +21,7 @@ import {
 } from "viborm";
 import { s } from "viborm/schema";
 import { v } from "viborm/validation";
+import { base } from "./recipes-schema";
 
 const tenant = arg("tenant");
 const scope = arg("scope");

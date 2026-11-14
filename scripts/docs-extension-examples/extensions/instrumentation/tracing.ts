@@ -3,7 +3,7 @@
 import { schema } from "docs-examples/shared";
 import { createClient } from "viborm";
 import { instrumentation } from "viborm/instrumentation";
-import { PGliteDriver } from "viborm/pglite";
+import type { PGliteDriver } from "viborm/pglite";
 
 declare const driver: PGliteDriver;
 declare const errorTracker: { capture(event: unknown): void };

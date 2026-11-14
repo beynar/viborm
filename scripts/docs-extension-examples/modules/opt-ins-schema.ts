@@ -6,13 +6,19 @@ export const folder = s.model({
   id: s.string().id(),
   name: s.string(),
   parentId: s.string().nullable(),
-  parent: s.toOne(() => folder).fields("parentId").references("id"),
+  parent: s
+    .toOne(() => folder)
+    .fields("parentId")
+    .references("id"),
   children: s.toMany(() => folder),
 });
 export const team = s.model({
   id: s.string().id(),
   parentId: s.string().nullable(),
-  parent: s.toOne(() => team).fields("parentId").references("id"),
+  parent: s
+    .toOne(() => team)
+    .fields("parentId")
+    .references("id"),
   children: s.toMany(() => team),
   members: s.toMany(() => teamMember),
   grants: s.toMany(() => grant),
@@ -20,7 +26,10 @@ export const team = s.model({
 export const teamMember = s
   .model({
     teamId: s.string(),
-    team: s.toOne(() => team).fields("teamId").references("id"),
+    team: s
+      .toOne(() => team)
+      .fields("teamId")
+      .references("id"),
     userId: s.string(),
   })
   .id(["teamId", "userId"]);
@@ -33,9 +42,15 @@ export const grant = s.model({
   id: s.string().id(),
   level: s.enum(["read", "full"]),
   pageId: s.string(),
-  page: s.toOne(() => page).fields("pageId").references("id"),
+  page: s
+    .toOne(() => page)
+    .fields("pageId")
+    .references("id"),
   teamId: s.string(),
-  team: s.toOne(() => team).fields("teamId").references("id"),
+  team: s
+    .toOne(() => team)
+    .fields("teamId")
+    .references("id"),
 });
 export const client = createClient({
   schema: { folder, team, teamMember, page, grant },

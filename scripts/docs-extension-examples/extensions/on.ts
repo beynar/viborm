@@ -20,7 +20,10 @@ declare const ctx: { waitUntil(promise: Promise<unknown>): void };
 declare function syncToMyOtherDatabase(rows: readonly object[]): Promise<void>;
 declare function removeFromSearchIndex(ids: readonly string[]): Promise<void>;
 declare function sendWelcomeEmails(rows: readonly object[]): Promise<void>;
-declare function reportToMyErrorTracker(error: Error, args: unknown): Promise<void>;
+declare function reportToMyErrorTracker(
+  error: Error,
+  args: unknown
+): Promise<void>;
 interface Env {
   readonly DB: D1Database;
   readonly SYNC_QUEUE: Queue;

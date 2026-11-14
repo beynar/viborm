@@ -42,7 +42,10 @@ export const comment = s.model({
   body: s.string(),
   tenantId: s.string(),
   postId: s.string(),
-  post: s.toOne(() => post).fields("postId").references("id"),
+  post: s
+    .toOne(() => post)
+    .fields("postId")
+    .references("id"),
 });
 
 export const document = s.model({

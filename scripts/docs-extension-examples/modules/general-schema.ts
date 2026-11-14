@@ -17,7 +17,10 @@ export const post = s.model({
   id: s.string().id(),
   title: s.string(),
   authorId: s.string(),
-  author: s.toOne(() => user).fields("authorId").references("id"),
+  author: s
+    .toOne(() => user)
+    .fields("authorId")
+    .references("id"),
 });
 export const page = s.model({
   id: s.string().id(),
@@ -27,14 +30,20 @@ export const page = s.model({
 export const account = s.model({
   id: s.int().id(),
   managerId: s.string(),
-  manager: s.toOne(() => user).fields("managerId").references("id"),
+  manager: s
+    .toOne(() => user)
+    .fields("managerId")
+    .references("id"),
   logins: s.toMany(() => login),
 });
 export const login = s.model({
   id: s.int().id(),
   status: s.string(),
   accountId: s.int(),
-  account: s.toOne(() => account).fields("accountId").references("id"),
+  account: s
+    .toOne(() => account)
+    .fields("accountId")
+    .references("id"),
 });
 export const author = s.model({
   id: s.string().id(),
@@ -45,13 +54,28 @@ export const book = s.model({
   title: s.string(),
   status: s.string(),
   authorId: s.string(),
-  author: s.toOne(() => author).fields("authorId").references("id"),
+  author: s
+    .toOne(() => author)
+    .fields("authorId")
+    .references("id"),
   printings: s.toMany(() => printing),
 });
 export const printing = s.model({
   id: s.int().id(),
   bookIsbn: s.string(),
-  book: s.toOne(() => book).fields("bookIsbn").references("isbn"),
+  book: s
+    .toOne(() => book)
+    .fields("bookIsbn")
+    .references("isbn"),
 });
-export const schema = { user, post, page, account, login, author, book, printing };
+export const schema = {
+  user,
+  post,
+  page,
+  account,
+  login,
+  author,
+  book,
+  printing,
+};
 export const client = createClient({ schema });

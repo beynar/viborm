@@ -1,5 +1,7 @@
 // biome-ignore-all lint/correctness/noUnusedImports: a preamble's imports serve the page's blocks.
 // biome-ignore-all lint/correctness/noUnusedVariables: a preamble's names serve the page's blocks.
+// biome-ignore-all lint/suspicious/noRedeclare: a section replaces the common preamble's names for its blocks.
+// biome-ignore-all lint/correctness/noInvalidUseBeforeDeclaration: a section is read after the common preamble it replaces.
 import { permissions } from "viborm/permissions";
 import { s } from "viborm/schema";
 import { v } from "viborm/validation";

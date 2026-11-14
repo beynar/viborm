@@ -15,7 +15,10 @@ export const card = s
     rank: s.string().schema(orderingKey),
     title: s.string(),
     createdAt: s.dateTime().nullable(),
-    column: s.toOne(() => column).fields("columnId").references("id"),
+    column: s
+      .toOne(() => column)
+      .fields("columnId")
+      .references("id"),
   })
   .index(["columnId", "rank", "id"]);
 export const base = createClient({ schema: { card, column } });

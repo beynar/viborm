@@ -15,7 +15,10 @@ const post = s.model({
   secret: s.string(),
   createdAt: s.dateTime(),
   authorId: s.string(),
-  author: s.toOne(() => user).fields("authorId").references("id"),
+  author: s
+    .toOne(() => user)
+    .fields("authorId")
+    .references("id"),
   deletedAt: s.dateTime().nullable(),
   deletedById: s.string().nullable(),
   comments: s.toMany(() => comment),
@@ -23,7 +26,10 @@ const post = s.model({
 const comment = s.model({
   id: s.string().id(),
   postId: s.string(),
-  post: s.toOne(() => post).fields("postId").references("id"),
+  post: s
+    .toOne(() => post)
+    .fields("postId")
+    .references("id"),
 });
 export const base = createClient({ schema: { user, post, comment } });
 export const db = base.$extends(

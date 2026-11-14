@@ -1,9 +1,10 @@
 // biome-ignore-all lint/correctness/noUnusedImports: a preamble's imports serve the page's blocks.
 // biome-ignore-all lint/correctness/noUnusedVariables: a preamble's names serve the page's blocks.
-import { client } from "./general-schema";
+
 import { sql } from "viborm";
 import { permissions } from "viborm/permissions";
 import { v } from "viborm/validation";
+import { client } from "./general-schema";
 
 const db = client.$extends(
   permissions({

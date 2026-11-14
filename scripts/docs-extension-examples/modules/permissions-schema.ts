@@ -14,7 +14,10 @@ export const post = s.model({
   published: s.boolean().default(false),
   organizationId: s.string().nullable(),
   authorId: s.string(),
-  author: s.toOne(() => user).fields("authorId").references("id"),
+  author: s
+    .toOne(() => user)
+    .fields("authorId")
+    .references("id"),
 });
 export const organization = s.model({
   id: s.string().id(),
@@ -48,11 +51,20 @@ export const project = s.model({
 export const accessGrant = s.model({
   id: s.string().id(),
   projectId: s.string().nullable(),
-  project: s.toOne(() => project).fields("projectId").references("id"),
+  project: s
+    .toOne(() => project)
+    .fields("projectId")
+    .references("id"),
   documentId: s.string().nullable(),
-  document: s.toOne(() => document).fields("documentId").references("id"),
+  document: s
+    .toOne(() => document)
+    .fields("documentId")
+    .references("id"),
   teamId: s.string().nullable(),
-  team: s.toOne(() => team).fields("teamId").references("id"),
+  team: s
+    .toOne(() => team)
+    .fields("teamId")
+    .references("id"),
   userId: s.string().nullable(),
   everyone: s.boolean().default(false),
   level: s.enum(["read", "update", "full"]),
@@ -66,7 +78,10 @@ export const document = s.model({
     .fields("organizationId")
     .references("id"),
   parentId: s.string().nullable(),
-  parent: s.toOne(() => document).fields("parentId").references("id"),
+  parent: s
+    .toOne(() => document)
+    .fields("parentId")
+    .references("id"),
   children: s.toMany(() => document),
   ownerId: s.string(),
   deletedAt: s.dateTime().nullable(),
@@ -75,7 +90,10 @@ export const document = s.model({
 export const team = s.model({
   id: s.string().id(),
   parentId: s.string().nullable(),
-  parent: s.toOne(() => team).fields("parentId").references("id"),
+  parent: s
+    .toOne(() => team)
+    .fields("parentId")
+    .references("id"),
   children: s.toMany(() => team),
   members: s.toMany(() => teamMember),
   grants: s.toMany(() => accessGrant),
@@ -83,7 +101,10 @@ export const team = s.model({
 export const teamMember = s
   .model({
     teamId: s.string(),
-    team: s.toOne(() => team).fields("teamId").references("id"),
+    team: s
+      .toOne(() => team)
+      .fields("teamId")
+      .references("id"),
     userId: s.string(),
   })
   .id(["teamId", "userId"]);

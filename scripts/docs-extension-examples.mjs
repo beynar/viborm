@@ -59,6 +59,10 @@ const ANY_FENCE_OPEN = /^(\s*)```/;
 const DIAGNOSTIC = /^(.+?)\((\d+),(\d+)\): error (TS\d+): (.*)$/;
 const ENTRY = /^\s*"?([\w/-]+)"?:\s*"\.\/(src\/[^"]+)"/gm;
 const SECTION = /^\/\/ @section (\S+)\s*$/;
+const WHITESPACE = /\s+/;
+const LEADING_NEWLINES = /^\n+/;
+const MDX = /\.mdx$/;
+const NOT_A_NAME = /[^\w-]+/g;
 
 /** The flags an info string may carry after the language. */
 export const FLAGS = new Set(["no-check", "expect-error"]);
@@ -84,7 +88,7 @@ export function extractBlocks(source) {
       continue;
     }
     const indent = open[1].length;
-    const tokens = open[3].trim().split(/\s+/);
+    const tokens = open[3].trim().split(WHITESPACE);
     const flags = new Set(tokens.filter((token) => FLAGS.has(token)));
     const sections = tokens
       .filter((token) => token.startsWith("with="))
@@ -261,7 +265,7 @@ export function assemble(preamble, code, sections = "") {
     preambleFor(sections, code),
   ]
     .join("\n")
-    .replace(/^\n+/, "");
+    .replace(LEADING_NEWLINES, "");
   const prefix = head === "" ? "" : `${head}\n`;
   const offset = prefix === "" ? 0 : prefix.split("\n").length - 1;
   return { text: `${prefix}${code}\nexport {};\n`, offset };
@@ -347,7 +351,10 @@ export function locate(diagnostic, modules) {
 export function placeOf(module, line) {
   const at = line - module.offset;
   return at >= 1
-    ? { where: `docs/content/docs/${module.page}`, line: module.block.line + at - 1 }
+    ? {
+        where: `docs/content/docs/${module.page}`,
+        line: module.block.line + at - 1,
+      }
     : {
         where: `scripts/docs-extension-examples/${module.preamble} (preamble, module line)`,
         line,
@@ -411,7 +418,7 @@ function main() {
     for (const name of readdirSync(relatives))
       copyFileSync(join(relatives, name), join(OUT, name));
   for (const page of pages(filter)) {
-    const preamblePath = page.replace(/\.mdx$/, ".ts");
+    const preamblePath = page.replace(MDX, ".ts");
     const preambleFile = join(PREAMBLES, preamblePath);
     const { common, sections } = splitPreamble(
       existsSync(preambleFile) ? readFileSync(preambleFile, "utf8") : ""
@@ -446,7 +453,7 @@ function main() {
       }
       const file = join(
         OUT,
-        `${page.replace(/\.mdx$/, "").replace(/[^\w-]+/g, "_")}__${index + 1}.ts`
+        `${page.replace(MDX, "").replace(NOT_A_NAME, "_")}__${index + 1}.ts`
       );
       writeFileSync(file, text);
       modules.set(file, { page, block, offset, preamble: preamblePath });
@@ -501,7 +508,9 @@ function main() {
   if (library.length > 0) {
     console.log("Library diagnostics the examples reach (not counted):");
     for (const entry of library)
-      console.log(`  ${relative(ROOT, resolve(OUT, entry.where))}:${entry.line} ${entry.code} ${entry.message}`);
+      console.log(
+        `  ${relative(ROOT, resolve(OUT, entry.where))}:${entry.line} ${entry.code} ${entry.message}`
+      );
     console.log("");
   }
   for (const error of errors)

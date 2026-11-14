@@ -9,7 +9,10 @@ const comment = s.model({
   createdBy: s.string().nullable(),
   updatedBy: s.string().nullable(),
   postId: s.string(),
-  post: s.toOne(() => post).fields("postId").references("id"),
+  post: s
+    .toOne(() => post)
+    .fields("postId")
+    .references("id"),
 });
 const post = s.model({
   id: s.string().id().ulid(),

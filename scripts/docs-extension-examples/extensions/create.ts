@@ -1,5 +1,6 @@
 // biome-ignore-all lint/correctness/noUnusedImports: a preamble's imports serve the page's blocks.
 // biome-ignore-all lint/correctness/noUnusedVariables: a preamble's names serve the page's blocks.
+// biome-ignore-all lint/suspicious/noRedeclare: a section replaces the common preamble's names for its blocks.
 //
 // Two blocks of the page are marked `ts expect-error`: "Judge writes" and
 // "Judge the rows a write produces". Each writes an `update.fields[f]` entry
@@ -51,9 +52,12 @@ import { around, call, extension, methods, target } from "viborm";
 
 const boundedReads = extension(
   "bounded-reads",
-  call((c) => {
-    c.set({ take: 100 });
-  }, target("post", "findMany"))
+  call(
+    (c) => {
+      c.set({ take: 100 });
+    },
+    target("post", "findMany")
+  )
 );
 const timing = extension(
   "timing",

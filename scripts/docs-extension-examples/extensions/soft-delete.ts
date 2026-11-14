@@ -3,9 +3,9 @@
 import { defaultOmit } from "viborm/client";
 import { permissions } from "viborm/permissions";
 import { s } from "viborm/schema";
+import { softDelete } from "viborm/soft-delete";
 import { v } from "viborm/validation";
 import { base, db, user } from "./soft-delete-schema";
-import { softDelete } from "viborm/soft-delete";
 
 const models = { post: { deletedAt: "deletedAt" } } as const;
 declare const session: { userId: string };

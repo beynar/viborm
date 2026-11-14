@@ -13,7 +13,10 @@ export const post = s.model({
   id: s.string().id().ulid(),
   title: s.string(),
   authorId: s.string(),
-  author: s.toOne(() => user).fields("authorId").references("id"),
+  author: s
+    .toOne(() => user)
+    .fields("authorId")
+    .references("id"),
 });
 export const schema = { user, post };
 export const base = createClient({ schema });
