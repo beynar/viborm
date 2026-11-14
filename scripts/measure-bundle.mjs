@@ -256,6 +256,10 @@ const PACKAGE_FIXTURES = [
   ["on-entry", "on-entry.mjs"],
   ["pg-ordering", "pg-ordering.mjs"],
   ["ordering-entry", "ordering-entry.mjs"],
+  ["pg-all-extensions", "pg-all-extensions.mjs"],
+  ["pg-cache", "pg-cache.mjs"],
+  ["pg-instrumentation", "pg-instrumentation.mjs"],
+  ["pg-default-omit", "pg-default-omit.mjs"],
   ["d1-worker", "d1-worker.mjs", WORKER_OPTIONS],
   ["pg-migrations-worker", "pg-migrations-worker.mjs", WORKER_OPTIONS],
 ];
