@@ -422,13 +422,14 @@ export interface Policy<Config extends PermissionsConfig> {
 }
 
 const READS = /^(find|count|aggregate|groupBy|exist)/;
-const CREATES = /^(create|upsert)/;
+const CREATES = /^create/;
 const UPDATES = /^update/;
 
 /**
  * The action a root operation needs its model to grant (R9, K4), named by
- * its family: an upsert's update is judged where it locates its row, and an
- * operation of no other family deletes.
+ * its family; an operation of no other family deletes. An upsert is not asked
+ * here: each of its arms is judged where it runs, the update where it locates
+ * its row and the create in its statement.
  */
 const actionOf = (operation: string): string =>
   READS.test(operation)
@@ -780,7 +781,10 @@ export function permissions<const Config extends PermissionsConfig>(
       const at = applied.get(c.schema)?.reach.get(c.model);
       const mode: unknown = c.values[MODE];
       if (
-        !(at?.listed && at.verbs.has(actionOf(c.operation))) ||
+        !(
+          at?.listed &&
+          (c.operation === "upsert" || at.verbs.has(actionOf(c.operation)))
+        ) ||
         (typeof mode === "string" && !at.modes.has(mode))
       )
         throw new ForbiddenError(c.model, c.operation);
