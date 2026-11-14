@@ -162,12 +162,7 @@ export class RowsBinding implements CallRowsBinding {
     // An entry given lazily's predicates are not known yet: its calls
     // carry their values.
     this.#parametric =
-      lazy ||
-      layers.some(
-        ({ references }) =>
-          references.verbs.length > 0 ||
-          Object.values(references.modes).some((names) => names.length)
-      );
+      lazy || layers.some(({ references }) => references.length > 0);
     this.#order = chain.order && new Map(Object.entries(chain.order));
     this.#required = requiredOn(chain.controls);
     this.#fallback = this.#key(undefined);
@@ -264,8 +259,7 @@ export const rulePart: ExtensionPart = {
     const { rule } = definition;
     if (rule === undefined) return;
     const layer = admitLayer(rule, schema, definition.name, registry);
-    const { modes, verbs } = layer.references;
-    refuseUndeclared(application, [...Object.values(modes).flat(), ...verbs]);
+    refuseUndeclared(application, layer.references);
     next.rows = Object.freeze([...(chain?.rows ?? []), layer]);
     next.bindRows = bindRows;
   },

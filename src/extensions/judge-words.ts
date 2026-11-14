@@ -253,9 +253,11 @@ class Lazy extends CarriedValue {
     super();
     this.read = read;
   }
-  join({ key, model, schema, draft, refuse }: Site): void {
-    if (key !== "the entry") refuse(`${key} does not take lazy()`);
+  join({ key, model, schema, draft, lazy, refuse }: Site): void {
+    if (key !== "the entry" || lazy) refuse(`${key} does not take lazy()`);
     const layer = draft.rule!;
+    if (Object.hasOwn(layer.verbs, model))
+      refuse("two rule parts of one extension judge the model");
     layer.host = VERBS;
     // What the entry reads of its call is known once it is read.
     layer.layered = layerOf;

@@ -121,7 +121,7 @@ export type FiltersOf = (
     readonly root?: readonly unknown[];
     readonly related?: readonly unknown[];
   },
-  referencesOf: (mode: string) => References,
+  references: References,
   of: string
 ) => ModeFilters;
 
@@ -170,13 +170,8 @@ export interface AdmittedLayer {
   /** What lowers the layer, where some predicate of it reads its call. */
   readonly layered?: Layered;
   readonly confine: { readonly [model: string]: Input };
-  /** Per mode, its filters'; then its eager keys' and confinements'. */
-  readonly references: {
-    readonly modes: {
-      readonly [mode: string]: readonly (string | undefined)[];
-    };
-    readonly verbs: readonly (string | undefined)[];
-  };
+  /** What its eager predicates read of their call (`References`). */
+  readonly references: readonly (string | undefined)[];
 }
 
 /** What admits the predicates of one layer, for what reads a word's keys. */
@@ -362,23 +357,17 @@ export function admitLayer(
   const admitting = admission(schema, extension, registry);
   const { admit } = admitting;
   const modes = layer.mode?.values ?? [""];
-  const modeReferences: Record<string, References> = {};
+  const references: References = new Set();
   const models: Record<string, ModeFilters> = {};
   /** One model's filters, per mode, each purpose's admitted. */
-  const filtersOf: FiltersOf = (name, lists, referencesOf, of) => {
+  const filtersOf: FiltersOf = (name, lists, read, of) => {
     const byMode: Record<string, { root?: Input; related?: Input }> = {};
     for (const mode of modes) {
       const out: { root?: Input; related?: Input } = {};
       for (const purpose of ["root", "related"] as const) {
         const predicate = filterIn(lists[purpose] ?? [], layer, mode);
         if (predicate !== undefined)
-          out[purpose] = admit(
-            name,
-            `${name}.${purpose}`,
-            predicate,
-            referencesOf(mode),
-            `${of} ${mode}`
-          );
+          out[purpose] = admit(name, `${name}.${purpose}`, predicate, read, of);
       }
       byMode[mode] = Object.freeze(out);
     }
@@ -391,17 +380,16 @@ export function admitLayer(
     models[name] = filtersOf(
       name,
       { root: layer.root[name], related: layer.related[name] },
-      (mode) => (modeReferences[mode] ??= new Set()),
-      "mode"
+      references,
+      ""
     );
-  const verbsReferences: References = new Set();
   const { host } = layer;
   const verbs = host
-    ? host.admit(admitting, layer, filtersOf, verbsReferences)
+    ? host.admit(admitting, layer, filtersOf, references)
     : NO_VERBS;
   const confine: Record<string, Input> = {};
   for (const [name, predicate] of Object.entries(layer.confine))
-    confine[name] = admit(name, `${name}.confine`, predicate, verbsReferences);
+    confine[name] = admit(name, `${name}.confine`, predicate, references);
   const layered = layer.layered ?? admitting.layered;
   const out: AdmittedLayer = Object.freeze({
     extension,
@@ -411,15 +399,7 @@ export function admitLayer(
     ...(host && { host }),
     ...(layered && { layered }),
     confine: Object.freeze(confine),
-    references: Object.freeze({
-      modes: Object.fromEntries(
-        Object.entries(modeReferences).map(([mode, names]) => [
-          mode,
-          [...names],
-        ])
-      ),
-      verbs: [...verbsReferences],
-    }),
+    references: Object.freeze([...references]),
   });
   if (native) {
     if (byLayer === undefined)

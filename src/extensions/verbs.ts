@@ -341,12 +341,7 @@ function admitVerbs(
           ? admitted
           : Object.freeze({
               ...admitted,
-              filters: filtersOf(
-                name,
-                { root, related },
-                () => own,
-                `lazy ${name}`
-              ),
+              filters: filtersOf(name, { root, related }, own, `lazy ${name}`),
             });
       lazyReferences.set(resolved, [...own]);
       return resolved;

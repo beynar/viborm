@@ -10,7 +10,7 @@
  */
 import type { Schema } from "@client/types";
 import { isPlainRecord } from "@schema/relation/terminal";
-import type { RuleLayer, VerbsDraft } from "./admission";
+import type { VerbsDraft } from "./admission";
 import type { AnyTarget, Exact, Part, RuleFacts, RuleInput } from "./contract";
 import { extensionError } from "./definition";
 import { builtPart, type DefinitionDraft } from "./extension";
@@ -32,8 +32,16 @@ const RULE_KEYS = new Set([
 
 const isPlain = isPlainRecord;
 const own = (value: unknown): Entry => (isPlain(value) ? value : {});
+/** A filter list as written, copied: one filter or several. */
 export const listOf = (value: unknown): unknown[] =>
-  value === undefined ? [] : Array.isArray(value) ? value : [value];
+  value === undefined ? [] : Array.isArray(value) ? [...value] : [value];
+
+/** The keys of an entry that hold a word, by the key holding them. */
+const WORD_SLOTS = [
+  ["create", ["check"]],
+  ["update", ["where", "check"]],
+  ["delete", ["where", "instead"]],
+] as const;
 
 /**
  * One entry's keys beyond its filters as a draft, each word called where it
@@ -48,11 +56,8 @@ export function draftOf(
   refuse: (problem: string) => never,
   lazy: boolean
 ): VerbsDraft | undefined {
-  if (!isPlain(entry)) return refuse("an entry is an object");
-  for (const key of Object.keys(entry))
-    if (!RULE_KEYS.has(key)) refuse(`"${key}" is not a rule key`);
   let verbs: VerbsDraft | undefined;
-  const join = (value: unknown, key: string, field?: string) => {
+  const join = (value: unknown, key: string, field?: string): void => {
     if (value === undefined) return;
     if (!(value instanceof CarriedValue))
       refuse(
@@ -61,7 +66,7 @@ export function draftOf(
     value.join({
       model,
       key,
-      ...(field !== undefined && { field }),
+      field,
       schema,
       draft,
       lazy,
@@ -69,18 +74,28 @@ export function draftOf(
       refuse,
     });
   };
-  const { state } = schema[model]!["~"];
+  // `lazy(() => entry)`: it brings what reads the entry later.
+  if (entry instanceof CarriedValue) {
+    join(entry, "the entry");
+    return;
+  }
+  if (!isPlain(entry))
+    return refuse(
+      typeof entry === "function"
+        ? "an entry given as a function is written lazy(() => entry)"
+        : "an entry is an object"
+    );
+  for (const key of Object.keys(entry))
+    if (!RULE_KEYS.has(key)) refuse(`"${key}" is not a rule key`);
   const read = own(entry.read);
   if (lazy && read.where !== undefined) (verbs ??= {}).read = read.where;
-  for (const [field, word] of Object.entries(own(read.fields)))
-    join(word, `read.fields.${field}`, field);
-  for (const [key, word] of Object.entries(own(read.select)))
-    join(word, `read.select.${key}`, key);
-  join(own(entry.create).check, "create.check");
-  const update = own(entry.update);
-  join(update.where, "update.where");
-  join(update.check, "update.check");
-  for (const [field, slot] of Object.entries(own(update.fields))) {
+  for (const map of ["fields", "select"] as const)
+    for (const [key, word] of Object.entries(own(read[map])))
+      join(word, `read.${map}.${key}`, key);
+  for (const [slot, keys] of WORD_SLOTS)
+    for (const key of keys) join(own(entry[slot])[key], `${slot}.${key}`);
+  const { state } = schema[model]!["~"];
+  for (const [field, slot] of Object.entries(own(own(entry.update).fields))) {
     if (
       !(
         Object.hasOwn(state.scalars, field) ||
@@ -92,9 +107,6 @@ export function draftOf(
     join(slot.where, `update.fields.${field}.where`, field);
     join(slot.check, `update.fields.${field}.check`, field);
   }
-  const remove = own(entry.delete);
-  join(remove.where, "delete.where");
-  join(remove.instead, "delete.instead");
   const { acyclic } = entry;
   if (acyclic !== undefined) {
     if (!(Array.isArray(acyclic) || typeof acyclic === "function"))
@@ -109,12 +121,6 @@ export function draftOf(
   return verbs;
 }
 
-/** The layer every rule part of one extension writes, made at its first. */
-function layerOf(draft: DefinitionDraft): RuleLayer {
-  draft.rule ??= { root: {}, related: {}, verbs: {}, confine: {} };
-  return draft.rule;
-}
-
 /** One rule part's entries, written on its extension's layer. */
 function writeRule(
   draft: DefinitionDraft,
@@ -122,54 +128,36 @@ function writeRule(
   schema: Schema
 ): void {
   const { name } = draft;
-  const layer = layerOf(draft);
+  // Every rule part of one extension writes one layer, made at its first.
+  const layer = (draft.rule ??= {
+    root: {},
+    related: {},
+    verbs: {},
+    confine: {},
+  });
   for (const [model, entry] of Object.entries(entries)) {
-    const refuse: (problem: string) => never = (problem) =>
-      extensionError(`Extension "${name}" rule.${model}: ${problem}.`, name);
     if (!Object.hasOwn(schema, model))
       extensionError(
         `Extension "${name}" rule names unknown model "${model}".`,
         name
       );
-    const judged = (): void => {
-      if (Object.hasOwn(layer.verbs, model))
-        refuse("two rule parts of one extension judge the model");
-    };
-    // `lazy(() => entry)`: it brings what reads the entry later.
-    if (entry instanceof CarriedValue) {
-      judged();
-      entry.join({
-        model,
-        key: "the entry",
-        schema,
-        draft,
-        lazy: false,
-        verbs: () => refuse("the entry is written lazy(() => entry)"),
-        refuse,
-      });
-      continue;
-    }
-    if (typeof entry === "function")
-      refuse("an entry given as a function is written lazy(() => entry)");
+    const refuse = (problem: string): never =>
+      extensionError(`Extension "${name}" rule.${model}: ${problem}.`, name);
     const verbs = draftOf(entry, model, schema, draft, refuse, false);
-    // `draftOf` refused an entry that is no object.
     const written = own(entry);
     const { where } = own(written.read);
-    const root = [...listOf(written.root)];
-    const related = [...listOf(written.related)];
-    if (where !== undefined) {
-      root.unshift(where);
-      related.unshift(where);
+    for (const purpose of ["root", "related"] as const) {
+      const items = listOf(written[purpose]);
+      if (where !== undefined) items.unshift(where);
+      // A test heading a list may decide the layer's mode.
+      for (const item of items)
+        if (item instanceof PredicateWord) item.place?.(layer, draft);
+      if (items.length > 0)
+        layer[purpose][model] = [...(layer[purpose][model] ?? []), ...items];
     }
-    // A test heading a list may decide the layer's mode.
-    for (const item of [...root, ...related])
-      if (item instanceof PredicateWord) item.place?.(layer, draft);
-    if (root.length > 0)
-      layer.root[model] = [...(layer.root[model] ?? []), ...root];
-    if (related.length > 0)
-      layer.related[model] = [...(layer.related[model] ?? []), ...related];
     if (verbs !== undefined) {
-      judged();
+      if (Object.hasOwn(layer.verbs, model))
+        refuse("two rule parts of one extension judge the model");
       layer.verbs[model] = verbs;
     }
     if (written.confine !== undefined) layer.confine[model] = written.confine;
