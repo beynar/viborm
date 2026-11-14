@@ -1314,7 +1314,12 @@ export type FieldsFunction<Bound extends AnyTarget | undefined> = <
     NoControls,
     never,
     never,
-    DefinitionResultFields<{ readonly result: Declared }>
+    DefinitionResultFields<{
+      readonly result: Pick<
+        Declared,
+        Extract<keyof Declared, ModelName<T> | "$allModels">
+      >;
+    }>
   >
 >;
 

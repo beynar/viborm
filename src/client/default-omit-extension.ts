@@ -5,7 +5,12 @@
  * Written with the public words: `defaults` and `omitted`.
  */
 import { ClientInitializationError } from "@errors";
-import type { AnyTarget, Extension, Facts } from "@extensions/contract";
+import type {
+  AnyTarget,
+  Extension,
+  Facts,
+  ModelName,
+} from "@extensions/contract";
 import { buildDefaults, omitted } from "@extensions/defaults";
 import { extension } from "@extensions/extension";
 import { omitPart } from "./default-omit-identity";
@@ -16,15 +21,18 @@ const NAME = "viborm.defaultOmit";
 
 type NoMethods = Record<never, never>;
 
-/** What `defaultOmit(config)` adds: the fields it omits, per model. */
-type DefaultOmitFacts<Config> = Facts<
+/**
+ * What `defaultOmit(config)` adds: the fields it omits, per model of the
+ * target (`Names`; a model it does not have is refused at its key already).
+ */
+type DefaultOmitFacts<Config, Names extends string = string> = Facts<
   NoMethods,
   NoMethods,
   NoMethods,
   never,
   never,
   NoMethods,
-  Config & object
+  { readonly [M in keyof Config & Names]: Config[M] }
 >;
 
 /** Leave fields out of every result by default. */
@@ -32,7 +40,7 @@ export function defaultOmit<T extends AnyTarget, const Config>(
   config: Config &
     ClientOmitConfig<ClientSchema<T["config"]>> &
     NoInfer<ExactClientOmitConfig<Config, ClientSchema<T["config"]>>>
-): Extension<T, DefaultOmitFacts<Config>>;
+): Extension<T, DefaultOmitFacts<Config, ModelName<T>>>;
 export function defaultOmit(
   config: Readonly<Record<string, Readonly<Record<string, unknown>>>>
 ): unknown {

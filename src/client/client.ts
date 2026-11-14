@@ -357,7 +357,8 @@ type NamedModels<F extends AnyFacts> =
   | DataModels<F["data"]>
   | keyof F["omit"]
   | keyof F["models"]
-  | keyof F["verbs"];
+  | keyof F["verbs"]
+  | Exclude<keyof F["result"], "$allModels">;
 
 /**
  * The models the extension names that this client does not have. A part

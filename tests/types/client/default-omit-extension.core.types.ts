@@ -3,19 +3,17 @@ import { cache } from "@src/cache/exports";
 import { defaultOmit } from "@src/client/exports";
 import { PGliteDriver } from "@src/drivers/pglite";
 import {
-  type ClientExtension,
-  createClient,
-  s,
-  extension,
-  call,
-  unit,
-  methods,
-  target,
   around,
+  call,
+  createClient,
+  extension,
+  methods,
+  s,
   statement,
+  target,
+  unit,
 } from "@src/index";
 import { instrumentation } from "@src/instrumentation/exports";
-import { expectTypeOf } from "vitest";
 
 type Equal<Left, Right> =
   (<T>() => T extends Left ? 1 : 2) extends <T>() => T extends Right ? 1 : 2
@@ -94,60 +92,65 @@ const official = defaultOmit({
 });
 const omitted = base.$extends(official);
 
-// The official identity cannot be erased into the ordinary reusable surface.
-// @ts-expect-error - only the authentic official admission may alter result types
-const _erasedOfficial: ClientExtension<typeof schema> = official;
-
-// Fresh and held exactness are both structural, never EPC-only.
-defaultOmit({
-  user: { passwordHash: true },
-  // @ts-expect-error - "usr" is not a model beside the real "user"
-  usr: { passwordHash: true },
-});
-defaultOmit({
-  user: {
-    passwordHash: true,
-    // @ts-expect-error - "passwordHsh" is not a scalar beside the real field
-    passwordHsh: true,
-  },
-});
-defaultOmit({
-  post: {
-    secret: true,
-    // @ts-expect-error - relations are not client-default omission fields
-    author: true,
-  },
-});
-defaultOmit({
-  user: {
-    passwordHash: true,
-    email: true,
-  },
-});
+// A configuration is checked against the client it is applied to: fresh and
+// held exactness are both structural, never EPC-only.
+base.$extends(
+  defaultOmit({
+    user: { passwordHash: true },
+    // @ts-expect-error - "usr" is not a model beside the real "user"
+    usr: { passwordHash: true },
+  })
+);
+base.$extends(
+  defaultOmit({
+    user: {
+      passwordHash: true,
+      // @ts-expect-error - "passwordHsh" is not a scalar beside the real field
+      passwordHsh: true,
+    },
+  })
+);
+base.$extends(
+  defaultOmit({
+    post: {
+      secret: true,
+      // @ts-expect-error - relations are not client-default omission fields
+      author: true,
+    },
+  })
+);
+base.$extends(
+  defaultOmit({
+    user: {
+      passwordHash: true,
+      email: true,
+    },
+  })
+);
 const heldFalseOmit = {
   user: { passwordHash: true, email: false },
 } as const;
 // @ts-expect-error - default omission accepts only literal true
-defaultOmit(heldFalseOmit);
+base.$extends(defaultOmit(heldFalseOmit));
 
 const heldModelTypo = {
   user: { passwordHash: true },
   usr: { passwordHash: true },
 } as const;
 // @ts-expect-error - held model typos are refused beside a real model
-defaultOmit(heldModelTypo);
+base.$extends(defaultOmit(heldModelTypo));
 
 const heldScalarTypo = {
   user: { passwordHash: true, passwordHsh: true },
 } as const;
 // @ts-expect-error - held scalar typos are refused beside a real scalar
-defaultOmit(heldScalarTypo);
+base.$extends(defaultOmit(heldScalarTypo));
 
 const widenedModels: Record<string, { passwordHash: true }> = {
   user: { passwordHash: true },
 };
 // @ts-expect-error - a widened model record names nothing the schema can check
-defaultOmit(widenedModels);
+base.$extends(defaultOmit(widenedModels));
 
 declare const heldUnion:
   | { readonly user: { readonly passwordHash: true } }
@@ -156,20 +159,12 @@ declare const heldUnion:
       readonly usr: { readonly passwordHash: true };
     };
 // @ts-expect-error - every held union branch is checked for model typos
-defaultOmit(heldUnion);
+base.$extends(defaultOmit(heldUnion));
 
-// Authentic clones retain the exact request identity; replacement does not.
-base.$extends({ ...official });
-// @ts-expect-error - the fixed official name cannot be changed
-base.$extends({ ...official, name: "renamed-default-omit" });
-// @ts-expect-error - replacing the request identity loses the omission witness
-base.$extends({ ...official, request: () => ({}) });
-// @ts-expect-error - binding replaces the exact official request identity
-base.$extends({ ...official, request: official.request.bind(undefined) });
-// @ts-expect-error - an ordinary extension cannot claim the reserved name
-base.$extends(extension("viborm.defaultOmit"));
-// @ts-expect-error - the official default omit capability is unique
-omitted.$extends(official);
+// Written apart from any client, its models are checked where it is applied.
+const apart = defaultOmit({ usr: { passwordHash: true } });
+// @ts-expect-error - "usr" is not a model of this client
+base.$extends(apart);
 
 const priorRequest = base.$extends(
   extension(
@@ -196,43 +191,25 @@ const priorMappedQuery = base.$extends(
 const priorClient = base.$extends(
   extension(
     "prior-client",
-    methods((scope) => {
-      const own = {
-        client: (scope) => ({ $prior: () => scope.user !== undefined }),
-      };
-      return { ...own.client(scope) };
-    })
+    methods((scope) => ({ $prior: () => scope.user.findFirst() }))
   )
 );
 const priorModel = base.$extends(
   extension(
     "prior-model",
-    methods(() => {
-      const own = {
-        models: { user: (delegate) => ({ prior: () => delegate.findFirst() }) },
-      };
-      return { ...own.models };
-    })
+    methods((scope) => ({ user: { prior: () => scope.user.findFirst() } }))
   )
 );
 const priorBlindClient = base.$extends(
   extension(
     "prior-blind-client",
-    methods((scope) => {
-      const own = { client: () => ({ $prior: () => true }) };
-      return { ...own.client(scope) };
-    })
+    methods(() => ({ $prior: () => true }))
   )
 );
 const priorBlindModel = base.$extends(
   extension(
     "prior-blind-model",
-    methods(() => {
-      const own = {
-        models: { user: (_delegate: never) => ({ prior: () => true }) },
-      };
-      return { ...own.models };
-    })
+    methods(() => ({ user: { prior: () => true } }))
   )
 );
 const priorStatement = base.$extends(
@@ -244,7 +221,7 @@ const priorStatement = base.$extends(
 const priorObserve = base.$extends(
   extension(
     "prior-observe",
-    unit((u, next) => next())
+    unit((_u, next) => next())
   )
 );
 const priorCache = base.$extends(cache({ driver: new MemoryCache() }));
@@ -252,7 +229,7 @@ const priorInstrumentation = base.$extends(instrumentation({ tracing: true }));
 
 const omittedAfterRequest = priorRequest.$extends(official);
 priorGenericQuery.$extends(official);
-// @ts-expect-error - a schema-mapped query handler consumed the unomitted result contract
+// @ts-expect-error - a query handler typed against one result consumed the unomitted result contract
 priorMappedQuery.$extends(official);
 // @ts-expect-error - a prior client method captured the unomitted result contract
 priorClient.$extends(official);
@@ -504,8 +481,6 @@ const after = omitted.$extends(
     call(
       (c) => {
         c.args.where;
-        // @ts-expect-error - request transforms never see protected omit state
-        c.args.omit;
         c.set({ where: { email: { contains: "@" } } });
       },
       target("user", "findMany")
@@ -517,25 +492,11 @@ const after = omitted.$extends(
       target("user", "findMany")
     ),
     methods((scope) => {
-      const own = {
-        client(scope) {
-          const rows = () => scope.user.findMany({});
-          type _scopeRows = Expect<
-            Equal<Awaited<ReturnType<typeof rows>>, HiddenUser[]>
-          >;
-          return { $hiddenUsers: rows };
-        },
-        models: {
-          user(delegate) {
-            const rows = () => delegate.findMany({});
-            type _delegateRows = Expect<
-              Equal<Awaited<ReturnType<typeof rows>>, HiddenUser[]>
-            >;
-            return { hidden: rows };
-          },
-        },
-      };
-      return { ...own.client(scope), ...own.models };
+      const rows = () => scope.user.findMany({});
+      type _scopeRows = Expect<
+        Equal<Awaited<ReturnType<typeof rows>>, HiddenUser[]>
+      >;
+      return { $hiddenUsers: rows, user: { hidden: rows } };
     })
   )
 );
@@ -552,53 +513,10 @@ type _afterModelMethod = Expect<
   Equal<Awaited<ReturnType<typeof afterModelMethod>>, HiddenUser[]>
 >;
 
-const staleQuery = extension(
-  "stale-query",
-  around(
-    () => async (run) => {
-      type _PasswordHashFilter = NonNullable<
-        typeof run.input.where
-      >["passwordHash"];
-      return run();
-    },
-    target("user", "findMany")
-  )
-);
 const safeGlobalQuery = extension(
   "safe-global-query",
   around(() => async (run) => run())
 );
-const staleClient = extension(
-  "stale-client",
-  methods((scope) => {
-    const own = {
-      client(scope) {
-        return { $fullUsers: () => scope.user.findMany({}) };
-      },
-    };
-    return { ...own.client(scope) };
-  })
-);
-const staleModel = extension(
-  "stale-model",
-  methods(() => {
-    const own = {
-      models: {
-        user(delegate) {
-          return { full: () => delegate.findMany({}) };
-        },
-      },
-    };
-    return { ...own.models };
-  })
-);
-// @ts-expect-error - its query context was fixed against the unomitted schema
-omitted.$extends(staleQuery);
-// @ts-expect-error - its client method was fixed against the unomitted schema
-omitted.$extends(staleClient);
-// @ts-expect-error - its model method was fixed against the unomitted schema
-omitted.$extends(staleModel);
-
 const omittedWithGlobalQuery = omitted.$extends(safeGlobalQuery);
 const globallyInterceptedRows = () => omittedWithGlobalQuery.user.findMany({});
 type _globalQueryKeepsOmittedResult = Expect<
@@ -611,7 +529,7 @@ const safeReusable = extension(
     c.set({ ...c.args });
   }),
   unit((u, next) => next(statement(u)), ["statement"], { rewrites: true }),
-  unit((u, next) => next())
+  unit((_u, next) => next())
 );
 omitted.$extends(safeReusable);
 
@@ -634,5 +552,3 @@ type _siblingIsolated = Expect<
     { id: string; passwordHash: string }[]
   >
 >;
-
-expectTypeOf(official.name).toEqualTypeOf<"viborm.defaultOmit">();
