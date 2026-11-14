@@ -1,6 +1,8 @@
 import { ForbiddenError, NestedWriteError, NotFoundError } from "@errors";
+import { defaults, extension } from "@src/index";
 import { permissions } from "@src/permissions";
 import { softDelete } from "@src/soft-delete/index";
+import { hostExtension } from "@tests/fixtures/host-definition";
 import {
   actionsOf,
   createOracle,
@@ -33,7 +35,10 @@ import {
  * that take them, and every write is judged by the statement it emits. The
  * declaration is plain data, the hand-written policy of `rules.ts` with the
  * actor's facts inlined, one predicate per (model, action): `viborm/permissions`
- * does not compile it yet. Every expectation is the independent oracle's
+ * does not compile it yet. It reaches the verbs host as raw members
+ * (`hostExtension`), the way the policy's compiled verbs do: `rule` has no
+ * spelling for a field whose write takes its own action instead of the
+ * update verb's. Every expectation is the independent oracle's
  * (`oracle.ts`): a write succeeds, and touches exactly the rows, the oracle
  * holds at the action the write takes. Writes run in a transaction rolled
  * back after each probe, or are undone by the substrate's `restore`, so the
@@ -155,14 +160,14 @@ const tombstones = softDelete({
     TOMBSTONED_MODELS.map((model) => [model, { deletedAt: "deletedAt" }])
   ),
 });
-/** An audit stamp on every document update (W-W5′), between the steps. */
-const AUDIT = {
-  name: "audit",
-  data: { models: { document: { update: { searchKey: "audited" } } } },
-};
+/** An audit stamp on every document update (W-W5′), after the policy. */
+const AUDIT = extension(
+  "audit",
+  defaults({ document: { update: { searchKey: "audited" } } })
+);
 function throughEntry(base: PermissionsAppClient, stamped: boolean) {
-  const rows = entryPolicy.rows(tombstones.rows(base));
-  return tombstones.methods(stamped ? rows.$extends(AUDIT as never) : rows);
+  const governed = base.$extends(tombstones).$extends(entryPolicy);
+  return stamped ? governed.$extends(AUDIT) : governed;
 }
 
 export interface VerbsRun {
@@ -243,7 +248,7 @@ export function runPermissionsAppVerbs(
       if (!entry)
         return loose(
           Reflect.apply(Reflect.get(base, "$extends"), base, [
-            declaration(actor, now, stamped),
+            hostExtension(declaration(actor, now, stamped)),
           ])
         );
       let client = entries.get(stamped);

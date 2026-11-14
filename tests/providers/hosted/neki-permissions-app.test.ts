@@ -30,6 +30,7 @@ import type { AnyDriver } from "@drivers/driver";
 import { PgDriver } from "@drivers/pg";
 import { PGliteDriver } from "@drivers/pglite";
 import { PostgresDriver } from "@drivers/postgres";
+import { extension, text, unit } from "@src/index";
 import { softDelete } from "@src/soft-delete/index";
 import { runDomainPredicateBehavior } from "@tests/contracts/engine/query/domain-predicate-behavior";
 import {
@@ -131,16 +132,22 @@ type Governed = { $as(actor: unknown): View };
 /** The acceptance policy over `driver`, recording each statement it sends. */
 function governed(driver: AnyDriver, statements: string[] = []) {
   const base = createPermissionsAppClient(driver);
-  const recorded = base.$extends({
-    name: "statements",
-    statement(context) {
-      statements.push(context.statement.toStatement());
-      return context.statement;
-    },
-  });
-  const db = tombstones.methods(
-    policy.rows(tombstones.rows(recorded))
-  ) as unknown as Governed;
+  const recorded = base.$extends(
+    extension(
+      "statements",
+      unit(
+        (u, next) => {
+          statements.push(text(u) ?? "");
+          return next();
+        },
+        ["statement"],
+        { rewrites: true }
+      )
+    )
+  );
+  const db = recorded
+    .$extends(tombstones)
+    .$extends(policy) as unknown as Governed;
   return { base, db };
 }
 // Neki's count: every `FROM` item, aliased `q<n>` or a bare shared member.

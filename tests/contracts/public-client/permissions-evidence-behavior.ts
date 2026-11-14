@@ -1,4 +1,5 @@
 import { ValidationError } from "@errors";
+import { extension, statement, unit } from "@src/index";
 import type { CompiledPolicy } from "@src/permissions";
 import { verbsOf } from "@src/permissions/compile";
 import { v } from "@src/validation";
@@ -8,6 +9,7 @@ import {
   type PermissionsAppClient,
   type PermissionsAppSubstrate,
 } from "@tests/contracts/public-client/permissions-app-behavior";
+import { hostExtension } from "@tests/fixtures/host-definition";
 import {
   actionsOf,
   createOracle,
@@ -67,7 +69,10 @@ const KEY = "$access";
 const MODE = "as";
 const ROLLBACK = new Error("rolled back");
 
-/** The plain extension carrying the compiled policy and K5's declarations. */
+/**
+ * The raw members carrying the compiled policy and K5's declarations, read
+ * by the host parts as `viborm/permissions` hands them its compiled verbs.
+ */
 export const evidenceExtension = (compiled: CompiledPolicy) => ({
   name: "evidence",
   controls: {
@@ -208,15 +213,21 @@ export function runPermissionsEvidenceBehavior(
       await substrate.prepare(base);
       await loadPermissionsSeed(base);
       db = (base as unknown as Client)
-        .$extends(evidenceExtension(policy.compile(schema)))
+        .$extends(hostExtension(evidenceExtension(policy.compile(schema))))
         .$unrestricted()
-        .$extends({
-          name: "meter",
-          statement: (context: { statement: unknown }) => {
-            statements.push("statement");
-            return context.statement;
-          },
-        });
+        .$extends(
+          extension(
+            "meter",
+            unit(
+              (u, next) => {
+                statements.push("statement");
+                return next(statement(u));
+              },
+              ["statement"],
+              { rewrites: true }
+            )
+          )
+        );
     }, timeout);
 
     afterAll(async () => {

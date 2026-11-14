@@ -18,7 +18,7 @@ import {
 } from "@instrumentation/spans";
 import { trace } from "@opentelemetry/api";
 import type { ReadableSpan } from "@opentelemetry/sdk-trace-node";
-import { createClient, defineExtension, s } from "@src/index";
+import { createClient, extension, s, unit } from "@src/index";
 import { instrumentation } from "@src/instrumentation/exports";
 import { withOtelRecorder } from "@tests/unit/instrumentation/_capture";
 import { afterEach, describe, expect, test } from "vitest";
@@ -27,7 +27,7 @@ const record = s.model({ id: s.string().id(), name: s.string() });
 const schema = { record };
 
 interface LifecycleSummary {
-  readonly commitCertainty?: "committed" | "may-have-committed";
+  readonly certainty?: "committed" | "may-have-committed";
   readonly status: "failure" | "success";
 }
 
@@ -187,32 +187,33 @@ function lifecycleObserver(
   timeline: string[],
   captures: CapturedLifecycle[]
 ) {
-  return defineExtension<typeof schema>()({
-    name: `official-lifecycle-${label}`,
-    observe(unit, proceed) {
+  return extension(
+    `official-lifecycle-${label}`,
+    unit((u, next) => {
       if (
-        unit.kind !== "connection" &&
-        unit.kind !== "savepoint" &&
-        unit.kind !== "transaction"
+        u.kind !== "connection" &&
+        u.kind !== "savepoint" &&
+        u.kind !== "transaction"
       ) {
-        return;
+        return next();
       }
-      timeline.push(`${label}:${unit.kind}:in:${activeSpanName()}`);
-      const completion = proceed();
+      timeline.push(`${label}:${u.kind}:in:${activeSpanName()}`);
+      const completion = next();
       const capture: CapturedLifecycle = {
         completion,
-        kind: unit.kind,
-        operation: unit.operation,
+        kind: u.kind,
+        operation: u.operation,
       };
       captures.push(capture);
       completion.then((summary) => {
         capture.summary = summary;
         timeline.push(
-          `${label}:${unit.kind}:out:${summary.status}:${summary.commitCertainty ?? "none"}`
+          `${label}:${u.kind}:out:${summary.status}:${summary.certainty ?? "none"}`
         );
       });
-    },
-  });
+      return completion;
+    })
+  );
 }
 
 async function settle(captures: readonly CapturedLifecycle[]): Promise<void> {
@@ -365,8 +366,7 @@ describe("official driver lifecycle instrumentation", () => {
           .filter(({ kind }) => kind === "savepoint")
           .every(
             ({ summary }) =>
-              summary?.status === "success" &&
-              summary.commitCertainty === undefined
+              summary?.status === "success" && summary.certainty === undefined
           )
       ).toBe(true);
       expect(
@@ -395,7 +395,7 @@ describe("official driver lifecycle instrumentation", () => {
       const cases: Array<{
         readonly bodyFailure?: Error;
         readonly configure: (driver: OfficialLifecycleDriver) => void;
-        readonly expected: LifecycleSummary["commitCertainty"];
+        readonly expected: LifecycleSummary["certainty"];
         readonly name: string;
       }> = [
         {
@@ -447,9 +447,7 @@ describe("official driver lifecycle instrumentation", () => {
 
         const transaction = captures.find(({ kind }) => kind === "transaction");
         expect(transaction?.summary).toMatchObject({ status: "failure" });
-        expect(transaction?.summary?.commitCertainty).toBe(
-          lifecycleCase.expected
-        );
+        expect(transaction?.summary?.certainty).toBe(lifecycleCase.expected);
         const span = driverSpans(recorder.spans(), lifecycleCase.name).find(
           ({ name }) => name === SPAN_TRANSACTION
         );
@@ -494,7 +492,7 @@ describe("official driver lifecycle instrumentation", () => {
       );
       expect(transactions).toHaveLength(2);
       expect(transactions[1]?.summary).toMatchObject({ status: "failure" });
-      expect(transactions[1]?.summary?.commitCertainty).toBeUndefined();
+      expect(transactions[1]?.summary?.certainty).toBeUndefined();
       expect(
         driverSpans(recorder.spans(), "max-wait-lifecycle").filter(
           ({ name }) => name === SPAN_TRANSACTION
@@ -551,12 +549,12 @@ describe("official driver lifecycle instrumentation", () => {
       const driver = new OfficialLifecycleDriver("shared-lifecycle");
       const base = track(createClient({ schema, driver }));
       const ordinary = track(
-        base.$extends({
-          name: "ordinary-only-lifecycle",
-          observe(_unit, proceed) {
-            proceed();
-          },
-        })
+        base.$extends(
+          extension(
+            "ordinary-only-lifecycle",
+            unit((_u, next) => next())
+          )
+        )
       );
       const official = track(base.$extends(instrumentation({ tracing: true })));
       const ignored = track(
