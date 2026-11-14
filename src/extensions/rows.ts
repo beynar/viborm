@@ -33,25 +33,18 @@ interface Combination {
   readonly physical: CallRows;
 }
 
-type RequiredOn = CallValues["required"];
-
-const NEVER_REQUIRED: RequiredOn = () => false;
-
 const NO_CONTROLS: AdmittedControls = Object.freeze({});
 
-/** The chain's `required` declarations as one test, by argument and model. */
-function requiredOn(controls: ResolvedControls | undefined): RequiredOn {
-  const required = new Map<string, true | ReadonlySet<string>>();
-  for (const control of controls?.all ?? []) {
-    if (control.required !== undefined)
-      required.set(control.name, control.required);
-  }
-  if (required.size === 0) return NEVER_REQUIRED;
-  return (control, model) => {
-    const on = required.get(control);
+/**
+ * The chain's `required` declarations as one test, by argument and model:
+ * asked only where a value a predicate reads is absent.
+ */
+const requiredOn =
+  (controls: ResolvedControls | undefined): CallValues["required"] =>
+  (control, model) => {
+    const on = controls?.all.find(({ name }) => name === control)?.required;
     return on === true || on?.has(model) === true;
   };
-}
 
 /**
  * One purpose's predicates per model, for one mode of every layer, each at
@@ -129,7 +122,7 @@ export class RowsBinding implements CallRowsBinding {
   /** Some predicate reads a call value: every call carries its values. */
   readonly #parametric: boolean;
   readonly #order: ReadonlyMap<string, readonly Input[]> | undefined;
-  readonly #required: RequiredOn;
+  readonly #required: CallValues["required"];
   /** Per combination of the layers' modes, its key: each value, then NUL. */
   readonly #domains = new Map<string, RowDomain>();
   readonly #combinations = new Map<string, Combination>();

@@ -217,34 +217,6 @@ const admitted = new WeakMap<
 const NO_VERBS: AdmittedLayer["verbs"] = Object.freeze({});
 
 /**
- * The path at which `value` contains itself, `undefined` where it does not.
- * Only an object inside its own descendants is refused: a predicate may share
- * sub-objects freely.
- */
-function cyclePath(
-  value: unknown,
-  acyclic: WeakSet<object>,
-  ancestors = new Set<object>(),
-  path: string[] = []
-): string | undefined {
-  if (typeof value !== "object" || value === null || acyclic.has(value))
-    return undefined;
-  // The root has no ancestor: a path is never empty here.
-  if (ancestors.has(value)) return path.join(".");
-  ancestors.add(value);
-  for (const [key, item] of Object.entries(value)) {
-    path.push(key);
-    const found = cyclePath(item, acyclic, ancestors, path);
-    if (found !== undefined) return found;
-    path.pop();
-  }
-  ancestors.delete(value);
-  // Every descendant was walked: no cycle passes through this object.
-  acyclic.add(value);
-  return undefined;
-}
-
-/**
  * What admits one schema's predicates: refusals are
  * `ClientInitializationError`s naming the extension, the model, the
  * predicate's place in the rule and the path inside it.
@@ -260,7 +232,6 @@ export function admission(
       { meta: { extension, model: name } }
     );
   };
-  const acyclic = new WeakSet<object>();
   /**
    * Shared sub-predicates are walked and parsed once per set of predicates
    * whose references are told apart: a reused parse makes no parameter, so
@@ -274,9 +245,6 @@ export function admission(
     references: References,
     of = ""
   ): Input => {
-    const cycle = cyclePath(predicate, acyclic);
-    if (cycle !== undefined)
-      refuse(name, place, `at "${cycle}" contains itself`);
     const where = registry.getModelSchemas(schema[name]!).core.where;
     const at: Admitting = { references, schema, registry };
     const value = (word: unknown): object | undefined =>
