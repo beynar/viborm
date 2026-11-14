@@ -276,7 +276,7 @@ export const LAZY_VERBS: VerbsHost = {
         continue;
       }
       let resolved: AdmittedVerbs | undefined;
-      verbs[name] = () => {
+      const resolve = (): AdmittedVerbs => {
         if (resolved !== undefined) return resolved;
         const own: References = new Set();
         const { root, related, ...given } = draft();
@@ -288,6 +288,7 @@ export const LAZY_VERBS: VerbsHost = {
         resolved = admitted;
         return admitted;
       };
+      verbs[name] = resolve;
     }
     return verbs;
   },

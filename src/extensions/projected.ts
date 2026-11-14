@@ -1,27 +1,26 @@
-import { ValidationError } from "@errors";
 import type {
   Operation as Admitted,
   Arguments,
   EngineSchema,
-  Input,
 } from "@query-engine/raptor3/shared/schema";
 import type { Operation } from "@query-engine/types";
 import type { AnyModel } from "@schema/model";
 import { isPlainRecord } from "@schema/relation/terminal";
+import { parseProviding } from "@validation/primitives/object";
 import { namedGatedFields } from "./gates";
 import type { Projection } from "./projection";
 
 /**
- * Projection keys a domain declares, admitted beside the shared schema (K5).
+ * Projection keys a domain declares, admitted by the shared schema (K5).
  *
  * The `select` and `include` schemas are the schema's, shared by every chain
- * over it, and refuse a key they do not declare. So a call whose domain
- * declares a projection key has that key taken out of every node of its
- * projection before admission and put back, by path, into the node admission
- * returned; the node's read-gated fields the caller named are marked on the
- * `select` admission returned, which names every scalar of a node an
- * `include` or an `omit` spelled. Nothing else changes: a call that names no
- * key and no gated field is admitted as it was written.
+ * over it, and refuse a key they do not declare unless the parse adds it
+ * under the model's name (`parseProviding`). So a call whose domain declares
+ * a projection key is admitted inside a parse that adds that key, with its
+ * own validator. What admission cannot say is which read-gated fields the
+ * caller named, since the `select` it returns names every scalar of a node
+ * an `include` or an `omit` spelled: those are read from the caller's
+ * arguments and marked on the `select` admission returned.
  */
 
 /** The verbs whose results are rows: the only ones a projection reaches. */
@@ -38,216 +37,96 @@ const ROW_RESULTS: ReadonlySet<Operation> = new Set<Operation>([
   "deleteMany",
 ]);
 
-type Container = "select" | "include";
-
-/** What one node of a call's projection said that admission does not keep. */
-interface Plan {
-  /** The declared key the node named, in which container, with its value. */
-  readonly key?: {
-    readonly name: string;
-    readonly container: Container;
-    readonly value: unknown;
-  };
-  /** Its `select` named the key alone: a key field stood in for admission. */
-  readonly bare: boolean;
-  /** Its read-gated fields the caller named. */
-  readonly named: ReadonlySet<string>;
-  readonly children: readonly {
-    readonly path: readonly string[];
-    readonly model: AnyModel;
-    readonly plan: Plan;
-  }[];
-}
+/** A key's admitted value: `true`, nothing for `false`, or a list of the names it declares. */
+const keyValidator =
+  (names: readonly (readonly [string, unknown])[]) => (value: unknown) =>
+    typeof value === "boolean"
+      ? { value: value || undefined }
+      : Array.isArray(value) &&
+          value.length > 0 &&
+          value.every(
+            (name) =>
+              typeof name === "string" &&
+              names.some(([declared]) => declared === name)
+          )
+        ? { value: [...value] }
+        : {
+            issues: [
+              {
+                message: `expected true, false or a list of ${names.map(([name]) => name).join(", ")}`,
+              },
+            ],
+          };
 
 /**
- * One node, its declared key taken out: `undefined` where neither it nor a
- * node below says anything admission would not keep. Each container is read
- * once and every container on the path is copied, so admission reads the
- * values this walk read.
+ * Mark, on each node admission returned, the read-gated fields the caller
+ * named on that node: walked beside the caller's arguments, container by
+ * container, as admission keeps them.
  */
-function strip(
+function markNamed(
   domain: Projection,
   schema: EngineSchema,
   model: AnyModel,
-  node: unknown
-): readonly [Input, Plan] | undefined {
-  if (!isPlainRecord(node)) return undefined;
-  const facts = domain.projected(model);
-  const read = {
-    select: node.select,
-    include: node.include,
-  };
-  const omit = isPlainRecord(node.omit) ? node.omit : undefined;
-  const copies: Partial<Record<Container, Record<string, unknown>>> = {};
-  const children: { path: readonly string[]; model: AnyModel; plan: Plan }[] =
-    [];
-  let key: Plan["key"];
+  raw: unknown,
+  admitted: unknown
+): void {
+  if (!(isPlainRecord(raw) && isPlainRecord(admitted))) return;
+  const select = isPlainRecord(raw.select) ? raw.select : undefined;
+  const omit = isPlainRecord(raw.omit) ? raw.omit : undefined;
+  const named = new Set<string>();
+  for (const field of domain.projected(model)?.gates.keys() ?? [])
+    if (
+      select
+        ? select[field] === true && omit?.[field] !== true
+        : omit?.[field] === false
+    )
+      named.add(field);
+  if (named.size > 0 && isPlainRecord(admitted.select))
+    namedGatedFields.set(admitted.select, named);
   for (const container of ["select", "include"] as const) {
-    const given = read[container];
-    if (!isPlainRecord(given)) continue;
-    let copy: Record<string, unknown> | undefined;
+    const given = raw[container];
+    const kept = admitted[container];
+    if (!(isPlainRecord(given) && isPlainRecord(kept))) continue;
     for (const name of Object.keys(given)) {
-      const value = given[name];
-      if (facts?.keys.has(name)) {
-        key = { name, container, value };
-        copy ??= { ...given };
-        delete copy[name];
-        continue;
-      }
       const resolved = model["~"].state.relations[name]
         ? schema.index.get(model)?.get(name)
         : undefined;
       if (resolved === undefined) continue;
-      const variant =
-        !resolved.member &&
-        (resolved.edge.kind === "variantRowCarrier" ||
-          resolved.edge.kind === "variantJunctionCarrier");
-      if (variant) {
-        if (!isPlainRecord(value)) continue;
-        const many = resolved.edge.kind === "variantJunctionCarrier";
-        const arms = many ? value.variants : value;
-        if (!isPlainRecord(arms)) continue;
-        let nextArms: Record<string, unknown> | undefined;
-        for (const member of resolved.edge.members) {
-          const target = schema.membership(model, name, member.variant).target;
-          const child = strip(domain, schema, target, arms[member.variant]);
-          if (child === undefined) continue;
-          (nextArms ??= { ...arms })[member.variant] = child[0];
-          children.push({
-            path: [
-              container,
-              name,
-              ...(many ? ["variants"] : []),
-              member.variant,
-            ],
-            model: target,
-            plan: child[1],
-          });
-        }
-        if (nextArms)
-          (copy ??= { ...given })[name] = many
-            ? { ...value, variants: nextArms }
-            : nextArms;
+      const many = resolved.edge.kind === "variantJunctionCarrier";
+      if (
+        resolved.member ||
+        !(many || resolved.edge.kind === "variantRowCarrier")
+      ) {
+        markNamed(
+          domain,
+          schema,
+          schema.membership(model, name).target,
+          given[name],
+          kept[name]
+        );
         continue;
       }
-      const target = schema.membership(model, name).target;
-      const child = strip(domain, schema, target, value);
-      if (child === undefined) continue;
-      (copy ??= { ...given })[name] = child[0];
-      children.push({ path: [container, name], model: target, plan: child[1] });
-    }
-    if (copy) copies[container] = copy;
-  }
-  const select = isPlainRecord(read.select) ? read.select : undefined;
-  const named = new Set<string>();
-  for (const field of facts?.gates.keys() ?? []) {
-    const given = select
-      ? select[field] === true && omit?.[field] !== true
-      : omit?.[field] === false;
-    if (given) named.add(field);
-  }
-  if (key === undefined && children.length === 0 && named.size === 0)
-    return undefined;
-  // An `include` that named the key alone is no `include`.
-  const emptied =
-    copies.include !== undefined && Object.keys(copies.include).length === 0;
-  const { include: _included, ...rest } = node;
-  const next: Input = emptied ? rest : { ...node };
-  let bare = false;
-  if (copies.select) {
-    bare = Object.keys(copies.select).length === 0;
-    next.select = bare ? { [schema.keys(model)[0]!]: true } : copies.select;
-  }
-  if (copies.include && !emptied) next.include = copies.include;
-  return [next, { key, bare, named, children }];
-}
-
-/** A key's admitted value: `true`, `false` or a list of the names it declares. */
-function admitKey(
-  domain: Projection,
-  model: AnyModel,
-  key: NonNullable<Plan["key"]>,
-  path: string,
-  operation: Operation
-): unknown {
-  const { value } = key;
-  if (typeof value === "boolean") return value;
-  const names = domain.projected(model)!.keys.get(key.name)!.names;
-  if (
-    Array.isArray(value) &&
-    value.length > 0 &&
-    value.every(
-      (name) =>
-        typeof name === "string" &&
-        names.some(([declared]) => declared === name)
-    )
-  )
-    return Object.freeze([...value]);
-  throw new ValidationError(
-    operation,
-    [
-      {
-        path: `${path}${key.container}.${key.name}`,
-        message: `expected true, false or a list of ${names.map(([name]) => name).join(", ")}`,
-      },
-    ],
-    { meta: { model: model["~"].names.ts! } }
-  );
-}
-
-/** `admitted`, one node admission returned, with what its plan kept aside. */
-function attach(
-  domain: Projection,
-  schema: EngineSchema,
-  model: AnyModel,
-  admitted: Input,
-  plan: Plan,
-  path: string,
-  operation: Operation
-): Input {
-  const next: Input = { ...admitted };
-  for (const child of plan.children) {
-    let holder = next;
-    for (const [index, name] of child.path.entries()) {
-      const value = holder[name];
-      if (!isPlainRecord(value)) break;
-      const nextValue =
-        index === child.path.length - 1
-          ? attach(
-              domain,
-              schema,
-              child.model,
-              value,
-              child.plan,
-              `${path}${child.path.join(".")}.`,
-              operation
-            )
-          : { ...value };
-      holder[name] = nextValue;
-      holder = nextValue;
+      const arms = (node: unknown) =>
+        isPlainRecord(node) && many ? node.variants : node;
+      const givenArms = arms(given[name]);
+      const keptArms = arms(kept[name]);
+      if (!(isPlainRecord(givenArms) && isPlainRecord(keptArms))) continue;
+      for (const member of resolved.edge.members)
+        markNamed(
+          domain,
+          schema,
+          schema.membership(model, name, member.variant).target,
+          givenArms[member.variant],
+          keptArms[member.variant]
+        );
     }
   }
-  if (plan.key) {
-    const value = admitKey(domain, model, plan.key, path, operation);
-    const { container } = plan.key;
-    if (plan.bare) next.select = {};
-    if (value !== false) {
-      const holder = next[container];
-      next[container] = {
-        ...(isPlainRecord(holder) ? holder : {}),
-        [plan.key.name]: value,
-      };
-    }
-  }
-  if (plan.named.size > 0 && isPlainRecord(next.select))
-    namedGatedFields.set(next.select, plan.named);
-  return next;
 }
 
 /**
- * `raw` admitted by the schema with the projection keys and named gated
- * fields of `domain` kept: as the schema admits it where the call names
- * neither.
+ * `raw` admitted by the schema with the projection keys of `domain` added
+ * to the schema's, and the read-gated fields it names marked: as the schema
+ * admits it where the call reads no rows.
  */
 export function admitProjected(
   domain: Projection,
@@ -256,19 +135,17 @@ export function admitProjected(
   operation: Admitted,
   raw: unknown
 ): Arguments {
-  const admit = (node: unknown) => schema.admit(model, operation, node);
-  const stripped = ROW_RESULTS.has(operation)
-    ? strip(domain, schema, model, raw)
-    : undefined;
-  if (stripped === undefined) return admit(raw);
-  const [node, plan] = stripped;
-  return attach(
-    domain,
-    schema,
-    model,
-    admit(node) as Input,
-    plan,
-    "",
-    operation
-  ) as Arguments;
+  const admit = () => schema.admit(model, operation, raw);
+  // The model's entries are read before its arguments: an entry given
+  // lazily refuses the call first.
+  domain.projected(model);
+  if (!ROW_RESULTS.has(operation)) return admit();
+  // A projection is provided under `$` and its model's name.
+  const admitted = parseProviding((name, key) => {
+    const target = name[0] === "$" ? schema.schema[name.slice(1)] : undefined;
+    const declared = target && domain.projected(target)?.keys.get(key);
+    return declared && keyValidator(declared.names);
+  }, admit);
+  markNamed(domain, schema, model, raw, admitted);
+  return admitted;
 }

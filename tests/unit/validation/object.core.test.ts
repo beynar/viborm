@@ -1256,14 +1256,45 @@ describe("object wrapper combinations", () => {
       ).toBeDefined();
     });
 
-    test("a nested parseProviding sees its own fields, and the enclosing ones come back after it", () => {
+    test("a nested parseProviding adds its fields to the enclosing ones, which alone come back after it", () => {
+      const titled = (name: string, field: string) =>
+        name === "post" && field === "title";
       const seen = parseProviding(tenantOfPost, () => {
         const inner = parseProviding(nothing, () => parse(row, { title: "a" }));
-        return { inner, outer: parse(row, { title: "a" }) };
+        const both = parseProviding(titled, () => parse(row, {}));
+        return { inner, both, outer: parse(row, {}) };
       });
-      expect(seen.inner.issues).toBeDefined();
-      expect(seen.outer.issues).toBeUndefined();
+      expect(seen.inner.issues).toBeUndefined();
+      expect(seen.both).toEqual({
+        value: { title: undefined, tenantId: undefined },
+      });
+      expect(seen.outer.issues).toEqual([
+        { message: "Missing required field: title", path: ["title"] },
+      ]);
       expect(parse(row, { title: "a" }).issues).toBeDefined();
+    });
+
+    test("a key the context adds to a strict object is admitted by its validator, and refused outside", () => {
+      const select = v.object({ title: v.boolean() }, { provides: "post" });
+      const access = (name: string, key: string) =>
+        name === "post" && key === "$access"
+          ? (value: unknown) =>
+              value === true
+                ? { value: "seen" }
+                : { issues: [{ message: "expected true" }] }
+          : undefined;
+      expect(
+        parseProviding(access, () => parse(select, { $access: true }))
+      ).toEqual({ value: { $access: "seen" } });
+      expect(
+        parseProviding(access, () => parse(select, { $access: 1 })).issues
+      ).toEqual([{ message: "expected true", path: ["$access"] }]);
+      expect(parse(select, { $access: true }).issues).toEqual([
+        { message: "Unknown key: $access", path: ["$access"] },
+      ]);
+      expect(
+        parseProviding(access, () => parse(unnamed, { $access: true })).issues
+      ).toEqual([{ message: "Unknown key: $access", path: ["$access"] }]);
     });
 
     test("a parse that throws leaves no provided field behind", () => {
