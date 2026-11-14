@@ -1,9 +1,7 @@
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { ClientInitializationError, PendingOperationError } from "@errors";
-import {
-  appendResolvedExtension,
-  lookupResolvedExtensionHandlers,
-} from "@extensions/chain";
+import { appendResolvedExtension } from "@extensions/chain";
+import { lookupResolvedExtensionHandlers } from "@extensions/handlers";
 import { createClient, defineExtension, s } from "@src/index";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
@@ -165,11 +163,11 @@ describe("client extension foundation", () => {
       schema
     );
     expect(genericOnly.hasQueryHandlers).toBe(true);
-    expect(genericOnly.query.global).toHaveLength(1);
-    expect(Object.keys(genericOnly.query.models)).toEqual([]);
+    expect(genericOnly.query!.global).toHaveLength(1);
+    expect(Object.keys(genericOnly.query!.models)).toEqual([]);
     expect(
       lookupResolvedExtensionHandlers(genericOnly, "query", "item", "findMany")
-    ).toBe(genericOnly.query.global);
+    ).toBe(genericOnly.query!.global);
     expect(
       lookupResolvedExtensionHandlers(
         genericOnly,
@@ -177,7 +175,7 @@ describe("client extension foundation", () => {
         undefined,
         "$queryRaw"
       )
-    ).toBe(genericOnly.query.global);
+    ).toBe(genericOnly.query!.global);
 
     const emptyQuery = appendResolvedExtension(
       undefined,

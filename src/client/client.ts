@@ -24,12 +24,7 @@ import type {
   HasNamedClientOmit,
   SchemaBoundExtensionAdmission,
 } from "@extensions/definition";
-import {
-  extensionHost,
-  getOfficialInstrumentationChainCapability,
-  lookupPlacedControls,
-  lookupResolvedExtensionHandlers,
-} from "@extensions/host-slot";
+import { extensionParts } from "@extensions/host-slot";
 import type {
   AccumulatedExtensionState,
   DelegateState,
@@ -858,15 +853,11 @@ export class VibORM<C extends VibORMConfig> {
     const isWrite = isWriteOperation(operation);
     const chain = engine.extensionChain;
 
-    const requestHandlers = lookupResolvedExtensionHandlers(
-      chain,
-      "request",
-      modelNameStr,
-      operation
-    );
-    const hasOperationObservers = (chain?.observe.length ?? 0) > 0;
+    const request = chain?.request;
+    const requestHandlers = request?.handlers(modelNameStr, operation);
+    const hasOperationObservers = chain?.observation !== undefined;
     const hasPlacedControls =
-      lookupPlacedControls(chain, modelNameStr, operation).length > 0;
+      (chain?.controls?.placed(modelNameStr, operation).length ?? 0) > 0;
     let operationArgs: Record<string, unknown> = rawArgs;
     let prepareInput: PrepareOperationInput | undefined;
     const resultFields = chain?.result;
@@ -885,8 +876,7 @@ export class VibORM<C extends VibORMConfig> {
       assertNonEmptyUniqueWhere(modelNameStr, operation, omittedArgs);
       callArgs = omittedArgs;
       if (resultFields === undefined) return omittedArgs;
-      const fields = extensionHost().planResultFields(
-        resultFields,
+      const fields = resultFields.plan(
         this.#relations,
         model,
         operation,
@@ -909,9 +899,9 @@ export class VibORM<C extends VibORMConfig> {
       // operation, and hands it the arguments with their controls removed.
       prepareInput = (controlFreeArgs, controls) => {
         const transformed =
-          requestHandlers === undefined
+          request === undefined || requestHandlers === undefined
             ? controlFreeArgs
-            : extensionHost().applyRequestTransforms(
+            : request.apply(
                 modelNameStr,
                 operation,
                 controlFreeArgs,
@@ -941,8 +931,7 @@ export class VibORM<C extends VibORMConfig> {
                 officialCache.scope
               );
             return written
-              ? extensionHost().watchWrite(
-                  written,
+              ? written.watch(
                   { model: modelNameStr, operation, args: callArgs! },
                   controls,
                   context,
@@ -1051,8 +1040,7 @@ export class VibORM<C extends VibORMConfig> {
       pendingOperation,
       async (execute, driverOverride) => {
         const cacheResult = readPendingCacheResult(pendingOperation);
-        const refused = extensionHost().uncacheableRead(
-          engine.extensionChain?.controls?.all ?? [],
+        const refused = engine.extensionChain?.controls?.uncacheable(
           cacheResult.controls,
           modelName,
           baseOperation(operation)
@@ -1061,7 +1049,7 @@ export class VibORM<C extends VibORMConfig> {
         if (
           driverOverride !== undefined ||
           engine.transactionWriteOutcomes !== undefined ||
-          (engine.extensionChain?.statement.length ?? 0) > 0
+          engine.extensionChain?.statement !== undefined
         ) {
           return execute();
         }
@@ -1152,30 +1140,31 @@ export class VibORM<C extends VibORMConfig> {
       options?: TransactionOptions | BatchTransactionOptions
     ) => this.#transact(engine, clientOmit, input, options);
     const chain = engine.extensionChain;
+    const declared = chain?.methods;
     const methods =
-      chain &&
-      extensionHost().bindExtensionMethods(chain, (prior, extension) =>
-        this.#createViewProxy<object>(
-          engine,
-          clientOmit,
-          transaction,
-          prior,
-          (prop) =>
-            prop === "$bind"
-              ? (values: Readonly<Record<string, unknown>>) =>
-                  rebuild!(
-                    engine.withBound(
-                      extensionHost().bindControls(
-                        chain.controls?.all ?? [],
-                        extension,
-                        values,
-                        engine.bound
+      declared === undefined
+        ? undefined
+        : declared.bind((prior, extension) =>
+            this.#createViewProxy<object>(
+              engine,
+              clientOmit,
+              transaction,
+              prior,
+              (prop) =>
+                prop === "$bind"
+                  ? (values: Readonly<Record<string, unknown>>) =>
+                      rebuild!(
+                        engine.withBound(
+                          (chain?.controls?.bind ?? declared.bindNone)(
+                            extension,
+                            values,
+                            engine.bound
+                          )
+                        )
                       )
-                    )
-                  )
-              : undefined
-        )
-      );
+                  : undefined
+            )
+          );
     if (eager) methods?.force();
     return this.#createViewProxy<V>(
       engine,
@@ -1217,23 +1206,16 @@ export class VibORM<C extends VibORMConfig> {
       }
       // A coordinated chain collects write outcomes per scope: the root
       // publishes them, a savepoint promotes them into its parent's collector.
-      const outcomes =
-        chain?.hasQueryHandlers ||
-        chain?.hasCache ||
-        chain?.written ||
-        chain?.retry ||
-        chain?.route ||
-        (chain?.observe.length ?? 0) > 0
-          ? new (extensionHost().TransactionWriteOutcomes)()
-          : undefined;
+      const coordination = chain?.coordination;
+      const outcomes = coordination?.outcomes();
       const view = (
         bound: QueryEngine
       ): TransactionClient<C, ExtensionStateConstraint> =>
         this.#createView(bound, clientOmit, view, false);
       const body = async (txDriver: AnyDriver) =>
         input(view(engine.bind(txDriver, chain, outcomes)));
-      return outcomes
-        ? extensionHost().runOutcomeTransaction(
+      return coordination && outcomes
+        ? coordination.runTransaction(
             engine.driver,
             outcomes,
             engine.transactionWriteOutcomes,
@@ -1279,7 +1261,7 @@ export class VibORM<C extends VibORMConfig> {
       (prop) => {
         if (prop === "$driver") return engine.driver;
         if (prop === CLIENT_DIAGNOSTICS)
-          return getOfficialInstrumentationChainCapability(chain)?.diagnostics;
+          return chain?.observes?.capability(chain)?.diagnostics;
         if (prop === "$extends") {
           return (
             extension:
@@ -1287,7 +1269,7 @@ export class VibORM<C extends VibORMConfig> {
               | ((client: VibORMClient<ViewConfig, X>) => unknown)
           ) => {
             if (typeof extension === "function") return extension(view);
-            const extensionChain = extensionHost().appendResolvedExtension(
+            const extensionChain = extensionParts(extension).append(
               chain,
               extension,
               this.#schema,

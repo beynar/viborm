@@ -4,9 +4,9 @@
  * program may do once something brought the code that runs extensions and
  * reads those declarations.
  */
-import { withHost } from "@extensions/host";
+import { enableExtensions } from "@extensions/define";
 import { withRows, withVerbs } from "@extensions/rows-runtime";
 
-withHost();
+enableExtensions();
 withRows();
 withVerbs();

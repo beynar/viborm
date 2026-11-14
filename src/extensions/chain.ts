@@ -1,681 +1,171 @@
-import {
-  getOfficialCacheChainDefinition,
-  getOfficialCacheQueryCapability,
-  OFFICIAL_CACHE_NAME,
-  officialCacheControls,
-  registerOfficialCacheChain,
-} from "@cache/capability";
-import {
-  getOfficialDefaultOmitChainCapability,
-  getOfficialDefaultOmitRequestCapability,
-  OFFICIAL_DEFAULT_OMIT_NAME,
-  registerOfficialDefaultOmitChain,
-} from "@client/default-omit-extension";
+/**
+ * The one mechanism that hosts extensions. A chain is the ordered list of the
+ * extensions applied to a client, with what the parts each was built from
+ * wrote on it. The chain knows no member: a definition carries its parts
+ * (`withParts`), each part reads its members and writes its own state, and
+ * a program that builds no part of a kind holds no code of that kind.
+ */
 import type { Schema } from "@client/types";
-import type { ModelStamps } from "@query-engine/raptor3/shared/row-scope";
-import type { Input } from "@query-engine/raptor3/shared/schema";
 import type { SchemaRegistryLookup } from "@validation/types";
-import { isFunction } from "@validation/value-guards";
-import type { AdmittedRows } from "./admission";
+import type { ResolvedExtensionChain } from "./chain-state";
 import {
-  type DataContribution,
-  type DeletionContribution,
-  placeControls,
-  type ResolvedControl,
-} from "./controls";
-import {
-  type ControlLiteral,
   type ExtensionDefinitionInput,
   extensionError,
   normalizeExtensionDefinition,
   type RuntimeExtensionDefinition,
 } from "./definition";
-import type {
-  RuntimeClientMethodContribution,
-  RuntimeModelMethodContribution,
-} from "./methods";
-import {
-  getOfficialInstrumentationChainCapability,
-  getTrustedProtectedObserverCapability,
-  type ObserveHandler,
-  registerFactsObserver,
-  registerOfficialInstrumentationChain,
-} from "./observation";
-import { appendResultFields, type ResolvedResultFields } from "./result";
-import type { RowsBinding } from "./rows";
-import { rowsRuntime } from "./rows-slot";
+import { extensionParts, PartCarrier } from "./host-slot";
 
-export interface ResolvedExtensionHandler<
-  Handler extends CallableFunction = CallableFunction,
-> {
-  readonly extension: string;
-  readonly handler: Handler;
+export type * from "./chain-state";
+
+type Draft = {
+  -readonly [K in keyof ResolvedExtensionChain]: ResolvedExtensionChain[K];
+};
+
+/** One application of one definition: what a part reads and writes. */
+export interface Application {
+  /** The definition as written, once read: what an `admit` recognizes. */
+  readonly declared: RuntimeExtensionDefinition;
+  /** The definition as the parts read it: a part's `admit` may replace it. */
+  definition: RuntimeExtensionDefinition;
+  /** The chain the definition is applied to. */
+  readonly chain: ResolvedExtensionChain | undefined;
+  /** The chain being built: each part writes its own state on it. */
+  readonly next: Draft;
+  /** Who owns the handlers appended: the extension and its own controls. */
+  owner: { readonly name: string; readonly controls?: readonly string[] };
+  readonly schema: Schema;
+  readonly registry?: SchemaRegistryLookup<Schema>;
 }
 
 /**
- * A request or query handler. The controls its extension declares travel
- * with it: the only ones its `context.controls` shows.
+ * One part an extension is built from. Its phases run for every part of the
+ * definition before the next phase starts, so a part never depends on the
+ * order the parts were named in.
  */
-export interface ResolvedOperationHandler<
-  Handler extends CallableFunction = CallableFunction,
-> extends ResolvedExtensionHandler<Handler> {
-  readonly controls?: readonly string[];
-}
-
-/** One precompiled handler array for each exact execution target. */
-export interface ResolvedExtensionOperationLookup {
-  readonly global: readonly ResolvedOperationHandler[];
-  readonly models: Readonly<
-    Record<
-      string,
-      Readonly<Record<string, readonly ResolvedOperationHandler[]>>
-    >
-  >;
-}
-
-export interface ResolvedExtension {
-  readonly name: string;
-  readonly client?: RuntimeClientMethodContribution;
-  readonly model?: RuntimeModelMethodContribution;
-}
-
-/** Who owns a request or query handler: its extension and that one's controls. */
-interface OperationHandlerOwner {
-  readonly name: string;
-  readonly controls?: readonly string[];
-}
-
-/** A chain's controls, and the list one (model, operation) accepts. */
-export interface ResolvedControls {
-  /** Every control name on the chain: one name space. */
-  readonly names: ReadonlySet<string>;
-  /** Every control on the chain, in application order: the lists' one source. */
-  readonly all: readonly ResolvedControl[];
+export interface ExtensionPart {
+  /** The members of a definition this part reads. */
+  readonly members?: readonly string[];
+  /** The parts this one needs beside it, brought with it. */
+  readonly uses?: readonly ExtensionPart[];
   /**
-   * The controls placed on one model's operation, in application order. Each
-   * list is built the first time it is asked for and kept for the chain: a
-   * client created per request asks for the one its call needs, never for
-   * every operation of every model.
+   * Run again at every later application to the chain, whatever the later
+   * definition was built with: what must follow the chain, not a definition.
    */
-  readonly placed: (
-    model: string,
-    operation: string
-  ) => readonly ResolvedControl[];
+  readonly carry?: boolean;
+  /** Brought into the program when a definition is built with this part. */
+  readonly bring?: () => void;
+  /** Refuse the definition, or replace it, before its name is checked. */
+  readonly admit?: (application: Application) => void;
+  /** Write what the other parts of the same definition read. */
+  readonly declare?: (application: Application) => void;
+  readonly join?: (application: Application) => void;
+  /** Once every part has joined. */
+  readonly seal?: (application: Application) => void;
 }
 
-/** What a delete of one managed model writes, and who declared it. */
-export interface ResolvedDeletion {
-  readonly extension: string;
-  readonly at?: string;
-  readonly assign: Readonly<Record<string, unknown>>;
-  readonly removeWhen?: Readonly<Record<string, ControlLiteral>>;
+/** The parts a definition was built with, and what applies it to a chain. */
+export interface PartSet {
+  readonly parts: readonly ExtensionPart[];
+  readonly append: (
+    chain: ResolvedExtensionChain | undefined,
+    value: ExtensionDefinitionInput,
+    schema: Schema,
+    registry?: SchemaRegistryLookup<Schema>
+  ) => ResolvedExtensionChain;
 }
 
-/**
- * Absent on an unextended client; frozen whenever it exists, except the
- * `controls`, `rows`, `deletion` and `data` values a definition wrote, held
- * as written.
- */
-export interface ResolvedExtensionChain {
-  readonly controls?: ResolvedControls;
-  /**
-   * Every `rows` member, as admitted: also a cached read's key, so two
-   * chains whose `rows` differ never share an entry and two that declare
-   * the same always do.
-   */
-  readonly rows?: readonly AdmittedRows[];
-  readonly deletion?: Readonly<Record<string, ResolvedDeletion>>;
-  /** Per model, every extension's `data` fields: a later one wins a field. */
-  readonly data?: Readonly<Record<string, ModelStamps>>;
-  /**
-   * Per model, the order its reads take when the caller gives none: a later
-   * extension's entry replaces an earlier one's. Also a cached read's key.
-   */
-  readonly order?: Readonly<Record<string, readonly Input[]>>;
-  /**
-   * Derived from `rows`, `deletion` and `data`: what each call's controls
-   * resolve to.
-   */
-  readonly callRows?: RowsBinding;
-  /** Per model, every extension's computed fields, in chain order. */
-  readonly result?: ResolvedResultFields;
-  /** Every `written` declaration, in chain order: what watches a write call. */
-  readonly written?: readonly ResolvedOperationHandler[];
-  /** Every `retry`, `route` and `transaction` declaration, in chain order. */
-  readonly retry?: readonly ResolvedExtensionHandler[];
-  readonly route?: readonly ResolvedExtensionHandler[];
-  readonly transaction?: readonly ResolvedExtensionHandler[];
-  readonly extensions: readonly ResolvedExtension[];
-  readonly hasCache: boolean;
-  readonly hasRequestHandlers: boolean;
-  readonly hasQueryHandlers: boolean;
-  readonly request: ResolvedExtensionOperationLookup;
-  readonly query: ResolvedExtensionOperationLookup;
-  readonly statement: readonly ResolvedExtensionHandler[];
-  readonly observe: readonly ResolvedExtensionHandler[];
-}
-
-import { NO_CONTROLS } from "./host-slot";
-
-export {
-  lookupPlacedControls,
-  lookupResolvedExtensionHandlers,
-} from "./host-slot";
-
-function resolvedHandler(
-  extension: Pick<ResolvedExtension, "name">,
-  handler: CallableFunction
-): ResolvedExtensionHandler {
-  return Object.freeze({ extension: extension.name, handler });
-}
-
-function resolvedOperationHandler(
-  extension: OperationHandlerOwner,
-  handler: CallableFunction
-): ResolvedOperationHandler {
-  return Object.freeze(
-    extension.controls === undefined
-      ? { extension: extension.name, handler }
-      : { extension: extension.name, handler, controls: extension.controls }
-  );
-}
-
-function appendModelHandler(
-  models: Record<string, Record<string, ResolvedOperationHandler[]>>,
-  model: string,
-  operation: string,
-  handler: ResolvedOperationHandler,
-  global: readonly ResolvedOperationHandler[]
-): void {
-  const operations = (models[model] ??= Object.create(null));
-  const handlers = (operations[operation] ??= [...global]);
-  handlers.push(handler);
-}
-
-function appendGlobalHandler(
-  models: Record<string, Record<string, ResolvedOperationHandler[]>>,
-  handler: ResolvedOperationHandler
-): void {
-  for (const operations of Object.values(models)) {
-    for (const handlers of Object.values(operations)) handlers.push(handler);
-  }
-}
-
-function appendOperationHandlers(
-  previous: ResolvedExtensionOperationLookup | undefined,
-  extension: OperationHandlerOwner,
-  contribution: RuntimeExtensionDefinition["request"]
-): ResolvedExtensionOperationLookup {
-  if (contribution === undefined && previous !== undefined) return previous;
-
-  const models: Record<
-    string,
-    Record<string, ResolvedOperationHandler[]>
-  > = Object.create(null);
-  const global: ResolvedOperationHandler[] = previous
-    ? [...previous.global]
-    : [];
-
-  if (previous) {
-    for (const [modelName, operationMap] of Object.entries(previous.models)) {
-      const operations: Record<string, ResolvedOperationHandler[]> =
-        Object.create(null);
-      for (const [operation, handlers] of Object.entries(operationMap)) {
-        operations[operation] = [...handlers];
-      }
-      models[modelName] = operations;
-    }
-  }
-
-  if (contribution) {
-    if (isFunction(contribution)) {
-      const handler = resolvedOperationHandler(extension, contribution);
-      global.push(handler);
-      appendGlobalHandler(models, handler);
-    } else {
-      for (const [modelName, operationMap] of Object.entries(contribution)) {
-        for (const [operation, handler] of Object.entries(operationMap)) {
-          appendModelHandler(
-            models,
-            modelName,
-            operation,
-            resolvedOperationHandler(extension, handler),
-            global
-          );
-        }
-      }
-    }
-  }
-
-  const frozenModels: Record<
-    string,
-    Readonly<Record<string, readonly ResolvedOperationHandler[]>>
-  > = Object.create(null);
-  for (const [modelName, operationMap] of Object.entries(models)) {
-    const frozenOperations: Record<
-      string,
-      readonly ResolvedOperationHandler[]
-    > = Object.create(null);
-    for (const [operation, handlers] of Object.entries(operationMap)) {
-      frozenOperations[operation] = Object.freeze(handlers);
-    }
-    frozenModels[modelName] = Object.freeze(frozenOperations);
-  }
-  return Object.freeze({
-    global: Object.freeze(global),
-    models: Object.freeze(frozenModels),
-  });
-}
-
-function hasCompiledHandlers(
-  lookup: ResolvedExtensionOperationLookup
-): boolean {
-  if (lookup.global.length > 0) return true;
-  for (const operations of Object.values(lookup.models)) {
-    if (Object.keys(operations).length > 0) return true;
-  }
-  return false;
-}
-
-function appendFlatHandler(
-  previous: readonly ResolvedExtensionHandler[] | undefined,
-  extension: Pick<ResolvedExtension, "name">,
-  handler: CallableFunction | undefined
-): readonly ResolvedExtensionHandler[] {
-  if (handler === undefined) return previous ?? Object.freeze([]);
-  const handlers = previous ? [...previous] : [];
-  handlers.push(resolvedHandler(extension, handler));
-  return Object.freeze(handlers);
-}
-
-/** The chain's `retry`, `route` and `transaction` lists with a definition's own appended: a point nobody declares is absent. */
-function unitHandlers(
-  chain: ResolvedExtensionChain | undefined,
-  extension: Pick<ResolvedExtension, "name">,
-  definition: RuntimeExtensionDefinition
-): Pick<ResolvedExtensionChain, "retry" | "route" | "transaction"> {
-  const lists: Record<string, readonly ResolvedExtensionHandler[]> = {};
-  for (const point of ["retry", "route", "transaction"] as const) {
-    const handler = definition[point];
-    const list = handler
-      ? appendFlatHandler(chain?.[point], extension, handler)
-      : chain?.[point];
-    if (list) lists[point] = list;
-  }
-  return lists;
-}
-
-function appendObserver(
-  previous: readonly ResolvedExtensionHandler[] | undefined,
-  extension: Pick<ResolvedExtension, "name">,
-  handler: CallableFunction | undefined
-): readonly ResolvedExtensionHandler[] {
-  if (handler === undefined) return previous ?? Object.freeze([]);
-  const official = getTrustedProtectedObserverCapability(handler);
-  if (official !== undefined && !official.observesLifecycle) {
-    return previous ?? Object.freeze([]);
-  }
-  return appendFlatHandler(previous, extension, handler);
-}
-
-/**
- * Add one definition's controls to the chain's name space, then index every
- * control of the chain by operation, for every model and for each model some
- * control names. One name, one control: a call's argument is read once and
- * admitted against one declaration, so a second declaration of a name
- * (another extension's, or this one's `rows` control beside its own
- * `controls`) would refuse every call that passes either value, and a
- * binding would answer for both.
- */
-function appendControls(
-  previous: ResolvedControls | undefined,
-  declarations: readonly ResolvedControl[]
-): ResolvedControls {
-  const names = new Set(previous?.names);
-  for (const { name, extension } of declarations) {
-    if (names.has(name)) {
-      const owner = [...(previous?.all ?? []), ...declarations].find(
-        (control) => control.name === name
-      )!.extension;
-      extensionError(
-        `Extension "${extension}" declares control "${name}", which extension "${owner}" already declares.`,
-        extension
-      );
-    }
-    names.add(name);
-  }
-  const all = Object.freeze([
-    ...(previous?.all ?? []),
-    ...declarations.map((control) => Object.freeze(control)),
-  ]);
-  const lists = new Map<string, readonly ResolvedControl[]>();
-  const placed = (
-    model: string,
-    operation: string
-  ): readonly ResolvedControl[] => {
-    const key = `${model}\u0000${operation}`;
-    let list = lists.get(key);
-    if (list === undefined) {
-      const found = all.filter(
-        (control) =>
-          control.operations.has(operation) &&
-          (control.models === undefined || control.models.has(model))
-      );
-      list = found.length === 0 ? NO_CONTROLS : Object.freeze(found);
-      lists.set(key, list);
-    }
-    return list;
+/** The parts named, with the ones they use, each once. */
+export function partSet(parts: readonly ExtensionPart[]): PartSet {
+  const all = new Set<ExtensionPart>();
+  const add = (part: ExtensionPart): void => {
+    if (all.has(part)) return;
+    all.add(part);
+    for (const used of part.uses ?? []) add(used);
   };
-  return Object.freeze({ names, all, placed });
-}
-
-const NO_ASSIGN: Readonly<Record<string, unknown>> = Object.freeze({});
-
-/** One entry per managed model on the chain: a later entry replaces one. */
-function appendDeletion(
-  previous: Readonly<Record<string, ResolvedDeletion>> | undefined,
-  extension: string,
-  deletion: DeletionContribution
-): Readonly<Record<string, ResolvedDeletion>> {
-  const entries: Record<string, ResolvedDeletion> = Object.create(null);
-  Object.assign(entries, previous);
-  for (const [model, entry] of Object.entries(deletion.models)) {
-    entries[model] = Object.freeze({
-      extension,
-      ...entry,
-      assign: entry.assign ?? NO_ASSIGN,
-      ...(deletion.removeWhen === undefined
-        ? {}
-        : { removeWhen: deletion.removeWhen }),
-    });
-  }
-  return Object.freeze(entries);
-}
-
-/** One kind's fields with an extension's own merged in: it wins a field. */
-function withStamp(
-  previous: Input | undefined,
-  fields: Readonly<Record<string, unknown>> | undefined
-): Input | undefined {
-  return fields === undefined
-    ? previous
-    : Object.freeze({ ...previous, ...fields });
-}
-
-function appendData(
-  previous: Readonly<Record<string, ModelStamps>> | undefined,
-  data: DataContribution
-): Readonly<Record<string, ModelStamps>> {
-  const entries: Record<string, ModelStamps> = Object.create(null);
-  Object.assign(entries, previous);
-  for (const [model, entry] of Object.entries(data.models)) {
-    const known = entries[model];
-    entries[model] = Object.freeze({
-      create: withStamp(known?.create, entry.create),
-      update: withStamp(known?.update, entry.update),
-    });
-  }
-  return Object.freeze(entries);
-}
-
-/** The cache's query leaves the chain's handlers; its control is its own. */
-function asOfficialCacheDefinition(
-  definition: RuntimeExtensionDefinition
-): RuntimeExtensionDefinition {
-  const { query: _officialCacheQuery, ...ordinaryDefinition } = definition;
-  return Object.freeze({
-    ...ordinaryDefinition,
-    controls: officialCacheControls,
+  for (const part of parts) add(part);
+  const set: PartSet = Object.freeze({
+    parts: Object.freeze([...all]),
+    append: (chain, value, schema, registry) =>
+      appendWith(set, chain, value, schema, registry),
   });
+  return set;
 }
 
 /**
- * An official extension's member that is its identity rather than a handler
- * (default omit's `request`, `on`'s `query`) leaves the chain's handlers.
+ * `definition` built with `parts`: a copy that inherits them, so its own
+ * members are exactly the definition's and a spread of it is a plain object
+ * again. Each part brings what it needs into the program.
  */
-function withoutIdentity(
-  definition: RuntimeExtensionDefinition,
-  member: "request" | "query"
-): RuntimeExtensionDefinition {
-  const { [member]: _identity, ...ordinaryDefinition } = definition;
-  return Object.freeze(ordinaryDefinition);
+export function withParts<Definition extends object>(
+  definition: Definition,
+  parts: readonly ExtensionPart[]
+): Definition {
+  const set = partSet(parts);
+  for (const part of set.parts) part.bring?.();
+  const built = { ...definition };
+  Object.setPrototypeOf(built, Object.freeze(new PartCarrier(set)));
+  Object.freeze(built);
+  return built;
 }
 
-function assertOfficialExtensionAdmission(options: {
-  readonly definitionName: string;
-  readonly officialName: string;
-  readonly label: string;
-  readonly hasIdentity: boolean;
-  readonly isAlreadyPresent: boolean;
-  readonly duplicateMessage: string;
-}): void {
-  if (options.hasIdentity && options.isAlreadyPresent) {
-    extensionError(options.duplicateMessage, options.definitionName);
-  }
-  if (options.hasIdentity && options.definitionName !== options.officialName) {
-    extensionError(
-      `The official ${options.label} extension name must be "${options.officialName}".`,
-      options.definitionName
-    );
-  }
-  if (!options.hasIdentity && options.definitionName === options.officialName) {
-    extensionError(
-      `Extension name "${options.officialName}" is reserved for the official ${options.label} extension.`,
-      options.definitionName
-    );
-  }
-}
-
+/** `chain` with one more definition, applied by the parts it carries. */
 export function appendResolvedExtension(
   chain: ResolvedExtensionChain | undefined,
   value: ExtensionDefinitionInput,
   schema: Schema,
   registry?: SchemaRegistryLookup<Schema>
 ): ResolvedExtensionChain {
+  return extensionParts(value).append(chain, value, schema, registry);
+}
+
+function appendWith(
+  set: PartSet,
+  chain: ResolvedExtensionChain | undefined,
+  value: ExtensionDefinitionInput,
+  schema: Schema,
+  registry: SchemaRegistryLookup<Schema> | undefined
+): ResolvedExtensionChain {
+  const parts = chain?.carried
+    ? [...new Set([...chain.carried, ...set.parts])]
+    : set.parts;
   const definition = normalizeExtensionDefinition(value, schema, registry);
-  const incomingCache = getOfficialCacheQueryCapability(definition.query);
-  const existingOfficialCache = getOfficialCacheChainDefinition(chain);
-  const incomingDefaultOmit = getOfficialDefaultOmitRequestCapability(
-    definition.request
-  );
-  const existingDefaultOmit = getOfficialDefaultOmitChainCapability(chain);
-  assertOfficialExtensionAdmission({
-    definitionName: definition.name,
-    officialName: OFFICIAL_CACHE_NAME,
-    label: "cache",
-    hasIdentity: incomingCache !== undefined,
-    isAlreadyPresent: existingOfficialCache !== undefined,
-    duplicateMessage:
-      "The official cache extension is already present on this client.",
-  });
-  assertOfficialExtensionAdmission({
-    definitionName: definition.name,
-    officialName: OFFICIAL_DEFAULT_OMIT_NAME,
-    label: "default omit",
-    hasIdentity: incomingDefaultOmit !== undefined,
-    // The generic duplicate-name check owns default-omit duplication after
-    // instrumentation admission, preserving hostile hybrid error precedence.
-    isAlreadyPresent: false,
-    duplicateMessage: `Extension "${OFFICIAL_DEFAULT_OMIT_NAME}" is already present on this client.`,
-  });
-  // The one definition whose observer is handed facts: core asks its
-  // declaration what to produce.
-  const incomingOfficial = definition.observes;
-  const existingOfficial = getOfficialInstrumentationChainCapability(chain);
-  if (incomingOfficial !== undefined) {
-    if (existingOfficial !== undefined)
-      extensionError(
-        `Extension "${definition.name}" declares observes, which another extension on this client already declares: one observer is handed facts.`,
-        definition.name
-      );
-    registerFactsObserver(
-      definition.observe as ObserveHandler,
-      incomingOfficial
-    );
-  }
-  if (
-    chain?.extensions.some((extension) => extension.name === definition.name)
-  ) {
+  const { name } = definition;
+  const next: Draft = { ...chain, extensions: chain?.extensions ?? [] };
+  const application: Application = {
+    declared: definition,
+    definition,
+    chain,
+    next,
+    owner: { name },
+    schema,
+    ...(registry === undefined ? {} : { registry }),
+  };
+  for (const part of parts) part.admit?.(application);
+  if (chain?.extensions.some((extension) => extension.name === name)) {
     extensionError(
-      `Extension "${definition.name}" is already present on this client.`,
-      definition.name
+      `Extension "${name}" is already present on this client.`,
+      name
     );
   }
-  const effectiveDefinition =
-    incomingCache === undefined
-      ? incomingDefaultOmit === undefined
-        ? definition
-        : withoutIdentity(definition, "request")
-      : asOfficialCacheDefinition(definition);
-  const declaredControls =
-    effectiveDefinition.controls === undefined &&
-    effectiveDefinition.rows === undefined
-      ? undefined
-      : placeControls(effectiveDefinition);
-  // A definition may name its own controls and those an earlier extension
-  // declares: order owns a reference, so one value serves every extension.
-  // Only a declaration of rows, data or deletion names a control it does not declare.
-  const declares =
-    effectiveDefinition.rows ??
-    effectiveDefinition.data ??
-    effectiveDefinition.deletion;
-  for (const control of declares
-    ? rowsRuntime().undeclaredControlReferencesOf(effectiveDefinition)
-    : []) {
-    if (chain?.controls?.names.has(control) !== true) {
+  for (const member of Object.keys(application.definition)) {
+    if (
+      member !== "name" &&
+      !set.parts.some((part) => part.members?.includes(member))
+    )
       extensionError(
-        `Extension "${definition.name}" references undeclared control "${control}".`,
-        definition.name
+        `Extension "${name}" declares ${member}, which none of the parts it was built with reads: build it with defineExtension().`,
+        name
       );
-    }
   }
-  const resolved: ResolvedExtension = Object.freeze({
-    name: definition.name,
-    ...(effectiveDefinition.client === undefined
-      ? {}
-      : { client: effectiveDefinition.client }),
-    ...(effectiveDefinition.model === undefined
-      ? {}
-      : { model: effectiveDefinition.model }),
-  });
-  const handlerOwner: OperationHandlerOwner =
-    declaredControls === undefined
-      ? resolved
-      : {
-          name: definition.name,
-          controls: Object.freeze(
-            declaredControls.map((control) => control.name)
-          ),
-        };
-  const extensions = Object.freeze(
-    chain ? [...chain.extensions, resolved] : [resolved]
-  );
-  const request = appendOperationHandlers(
-    chain?.request,
-    handlerOwner,
-    effectiveDefinition.request
-  );
-  const query = appendOperationHandlers(
-    chain?.query,
-    handlerOwner,
-    effectiveDefinition.query
-  );
-  const controls =
-    declaredControls === undefined
-      ? chain?.controls
-      : appendControls(chain?.controls, declaredControls);
-  // A lazy `verbs` entry's references are checked when it is resolved, by
-  // the binding, against what the chain declared where it was applied.
-  const rows =
-    effectiveDefinition.rows === undefined
-      ? chain?.rows
-      : Object.freeze([...(chain?.rows ?? []), effectiveDefinition.rows]);
-  const deletion =
-    effectiveDefinition.deletion === undefined
-      ? chain?.deletion
-      : appendDeletion(
-          chain?.deletion,
-          definition.name,
-          effectiveDefinition.deletion
-        );
-  const data =
-    effectiveDefinition.data === undefined
-      ? chain?.data
-      : appendData(chain?.data, effectiveDefinition.data);
-  // The binding reads `required` from the controls, already appended: a
-  // filter names only controls its own or an earlier extension declares, so
-  // a later definition that declares only controls changes nothing it binds.
-  const order =
-    effectiveDefinition.order === undefined
-      ? chain?.order
-      : Object.freeze({
-          ...chain?.order,
-          // Admission left each entry a frozen array of terms.
-          ...(effectiveDefinition.order.models as Readonly<
-            Record<string, readonly Input[]>
-          >),
-        });
-  const callRows =
-    rows === chain?.rows &&
-    deletion === chain?.deletion &&
-    data === chain?.data &&
-    order === chain?.order
-      ? chain?.callRows
-      : rowsRuntime().bindRows(rows, deletion, data, controls, order);
-  const result =
-    effectiveDefinition.result === undefined
-      ? chain?.result
-      : appendResultFields(
-          chain?.result,
-          definition.name,
-          effectiveDefinition.result,
-          schema
-        );
-  const written =
-    effectiveDefinition.written === undefined
-      ? chain?.written
-      : Object.freeze([
-          ...(chain?.written ?? []),
-          resolvedOperationHandler(handlerOwner, effectiveDefinition.written),
-        ]);
-  const resolvedChain = Object.freeze({
-    ...(controls === undefined ? {} : { controls }),
-    ...(rows === undefined ? {} : { rows }),
-    ...(deletion === undefined ? {} : { deletion }),
-    ...(data === undefined ? {} : { data }),
-    ...(order === undefined ? {} : { order }),
-    ...(callRows === undefined ? {} : { callRows }),
-    ...(result === undefined ? {} : { result }),
-    ...(written === undefined ? {} : { written }),
-    ...unitHandlers(chain, resolved, effectiveDefinition),
-    extensions,
-    hasCache: incomingCache !== undefined || chain?.hasCache === true,
-    hasRequestHandlers: hasCompiledHandlers(request),
-    hasQueryHandlers: hasCompiledHandlers(query),
-    request,
-    query,
-    statement: appendFlatHandler(
-      chain?.statement,
-      resolved,
-      effectiveDefinition.statement
-    ),
-    observe: appendObserver(
-      chain?.observe,
-      resolved,
-      effectiveDefinition.observe
-    ),
-  });
-  const official = incomingOfficial ?? existingOfficial;
-  if (official !== undefined) {
-    registerOfficialInstrumentationChain(resolvedChain, official);
-  }
-  const officialCache = incomingCache ?? existingOfficialCache;
-  if (officialCache !== undefined) {
-    registerOfficialCacheChain(resolvedChain, officialCache);
-  }
-  const officialDefaultOmit = incomingDefaultOmit ?? existingDefaultOmit;
-  if (officialDefaultOmit !== undefined) {
-    registerOfficialDefaultOmitChain(resolvedChain, officialDefaultOmit);
-  }
-  return resolvedChain;
+  next.extensions = Object.freeze([
+    ...next.extensions,
+    Object.freeze({ name }),
+  ]);
+  const carried = parts.filter((part) => part.carry === true);
+  if (carried.length > 0) next.carried = Object.freeze(carried);
+  for (const part of parts) part.declare?.(application);
+  for (const part of parts) part.join?.(application);
+  for (const part of parts) part.seal?.(application);
+  return Object.freeze(next);
 }

@@ -1,8 +1,8 @@
 /**
  * An array transaction whose members are intercepted (a query handler, a
  * write-outcome registration, an observer), and a callback transaction that
- * collects write outcomes. Only a client with extensions runs either, so this
- * comes with what admits and runs extensions (`@extensions/host`).
+ * collects write outcomes. Only a chain whose parts wrap a call's execution
+ * runs either, so this comes with those parts (`@extensions/coordination`).
  */
 import { attachCommitCertainty } from "@drivers/driver-error-context";
 import { bindExecutionTransactionPhases } from "@drivers/execution-context";
@@ -17,11 +17,15 @@ import {
   retainWriteOutcomeFailure,
 } from "@errors";
 import {
+  admitArrayQueries,
+  createArrayDeferred,
+  readArrayQuery,
+} from "@extensions/array-admission";
+import {
   decomposeQueryCoordinationFailure,
-  extensionHost,
-  prewarmProtectedObservers,
-} from "@extensions/host-slot";
-import type { TransactionWriteOutcomes, WriteOutcome } from "@extensions/query";
+  TransactionWriteOutcomes,
+  type WriteOutcome,
+} from "@extensions/query";
 import type { QueryEngine } from "@query-engine/query-engine";
 import {
   type TransactionOperationCapability,
@@ -50,11 +54,9 @@ export async function executeInterceptedArray(
   const driver = engine.driver;
   assertAtomicArraySupport(driver);
 
-  const observerReadiness = prewarmProtectedObservers(
-    engine.extensionChain?.observe
-  );
+  const observerReadiness = engine.extensionChain?.observation?.prewarm();
   if (observerReadiness !== undefined) await observerReadiness;
-  const outcomes = new (extensionHost().TransactionWriteOutcomes)();
+  const outcomes = new TransactionWriteOutcomes();
   const slots = operations.map(createArraySlot);
   startArrayOperationObservers(slots, engine);
   try {
@@ -78,7 +80,7 @@ export async function executeInterceptedArray(
   for (const slot of slots) {
     slot.owner.stagePackageWriteOutcomes(slot.operation, outcomes);
   }
-  const admissionFailures = await extensionHost().admitArrayQueries(
+  const admissionFailures = await admitArrayQueries(
     slots,
     outcomes,
     (slot, child, control) =>
@@ -118,7 +120,7 @@ function createArraySlot(operation: TransactionOperationCapability): ArraySlot {
     operation,
     owner: transactionOperationOwner(operation),
     admitted: false,
-    child: extensionHost().createArrayDeferred<unknown>(),
+    child: createArrayDeferred<unknown>(),
   };
 }
 
@@ -126,10 +128,9 @@ function startArrayOperationObservers(
   slots: readonly ArraySlot[],
   engine: QueryEngine
 ): void {
-  const observers = engine.extensionChain?.observe;
-  if (observers === undefined || observers.length === 0) return;
+  if (engine.extensionChain?.observation === undefined) return;
   for (const slot of slots) {
-    const observation = extensionHost().createArrayDeferred<unknown>();
+    const observation = createArrayDeferred<unknown>();
     slot.observation = observation;
     if (!slot.owner.hasObservation(slot.operation))
       throw new InvalidTransactionInputError();
@@ -233,7 +234,7 @@ function executeInterceptedFallback(
         const slot = slots[index]!;
         startFallbackCore(slot, transactionDriver);
         try {
-          values.push(await extensionHost().readArrayQuery(slot));
+          values.push(await readArrayQuery(slot));
         } catch (error) {
           const firstFailure = decomposeQueryCoordinationFailure(error);
           const childFailure =
@@ -247,7 +248,7 @@ function executeInterceptedFallback(
             slots[later]!.child.reject(childFailure);
           }
           const laterOutcomes = await Promise.allSettled(
-            slots.slice(index + 1).map(extensionHost().readArrayQuery)
+            slots.slice(index + 1).map(readArrayQuery)
           );
           for (const outcome of laterOutcomes) {
             if (outcome.status !== "rejected") continue;

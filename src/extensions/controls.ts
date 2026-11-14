@@ -19,7 +19,13 @@ import type { Operation } from "@query-engine/types";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { isFunction, isRecord } from "@validation/value-guards";
 import { errorCause } from "../errors/diagnostic-safety";
-import type { ControlLiteral, RuntimeExtensionDefinition } from "./definition";
+import type { ExtensionPart } from "./chain";
+import type { ResolvedControls } from "./chain-state";
+import {
+  type ControlLiteral,
+  extensionError,
+  type RuntimeExtensionDefinition,
+} from "./definition";
 
 // =============================================================================
 // DEFINITION MEMBERS: plain data, checked by TypeScript only
@@ -699,15 +705,18 @@ export function bindControls(
       (candidate) =>
         candidate.name === name && candidate.extension === extension
     );
-    if (control === undefined) {
-      throw new ClientInitializationError(
-        `Extension "${extension}" binds control "${name}", which it does not declare.`,
-        { meta: { extension } }
-      );
-    }
+    if (control === undefined) undeclaredBinding(extension, name);
     next[name] = snapshotControlValue(admitControl(control, raw));
   }
   return Object.freeze(next);
+}
+
+/** The refusal of a `$bind` naming a control its extension does not declare. */
+export function undeclaredBinding(extension: string, name: string): never {
+  throw new ClientInitializationError(
+    `Extension "${extension}" binds control "${name}", which it does not declare.`,
+    { meta: { extension } }
+  );
 }
 
 /** One extension's own admitted controls, as its handlers see them. */
@@ -939,3 +948,101 @@ function controlFailure(
     meta: { model, operation },
   });
 }
+
+const NO_CONTROLS: readonly ResolvedControl[] = Object.freeze([]);
+
+/**
+ * The chain's controls with one definition's added, indexed by operation for
+ * every model and for each model some control names. One name, one control:
+ * a call's argument is read once and admitted against one declaration, so a
+ * second declaration of a name (another extension's, or this one's `rows`
+ * control beside its own `controls`) would refuse every call that passes
+ * either value, and a binding would answer for both.
+ */
+function appendControls(
+  previous: ResolvedControls | undefined,
+  declarations: readonly ResolvedControl[]
+): ResolvedControls {
+  const names = new Set(previous?.names);
+  for (const { name, extension } of declarations) {
+    if (names.has(name)) {
+      const owner = [...(previous?.all ?? []), ...declarations].find(
+        (control) => control.name === name
+      )!.extension;
+      extensionError(
+        `Extension "${extension}" declares control "${name}", which extension "${owner}" already declares.`,
+        extension
+      );
+    }
+    names.add(name);
+  }
+  const all = Object.freeze([
+    ...(previous?.all ?? []),
+    ...declarations.map((control) => Object.freeze(control)),
+  ]);
+  const lists = new Map<string, readonly ResolvedControl[]>();
+  const placed = (
+    model: string,
+    operation: string
+  ): readonly ResolvedControl[] => {
+    const key = `${model}\u0000${operation}`;
+    let list = lists.get(key);
+    if (list === undefined) {
+      const found = all.filter(
+        (control) =>
+          control.operations.has(operation) &&
+          (control.models === undefined || control.models.has(model))
+      );
+      list = found.length === 0 ? NO_CONTROLS : Object.freeze(found);
+      lists.set(key, list);
+    }
+    return list;
+  };
+  return Object.freeze({
+    names,
+    all,
+    placed,
+    admit: (
+      model: string,
+      placement: string,
+      operation: Operation,
+      args: Record<string, unknown>,
+      bound: AdmittedControls | undefined
+    ) => {
+      const list = placed(model, placement);
+      return list.length === 0
+        ? undefined
+        : admitControls(model, operation, args, list, bound);
+    },
+    bind: (
+      extension: string,
+      values: Readonly<Record<string, unknown>>,
+      previous: AdmittedControls | undefined
+    ) => bindControls(all, extension, values, previous),
+    uncacheable: (
+      admitted: AdmittedControls | undefined,
+      model: string,
+      operation: Operation
+    ) => uncacheableRead(all, admitted, model, operation),
+  });
+}
+
+/**
+ * `controls`: arguments an extension adds to calls. Declared before any
+ * other part joins: a definition's handlers see its own controls, and its
+ * `rows` control is one of them.
+ */
+export const controlsPart: ExtensionPart = {
+  members: ["controls"],
+  declare(application) {
+    const { definition, chain, next } = application;
+    if (definition.controls === undefined && definition.rows === undefined)
+      return;
+    const declared = placeControls(definition);
+    next.controls = appendControls(chain?.controls, declared);
+    application.owner = {
+      name: definition.name,
+      controls: Object.freeze(declared.map((control) => control.name)),
+    };
+  },
+};

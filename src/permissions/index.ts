@@ -11,7 +11,11 @@
 
 import type { OperationPayload, RowsVerbs } from "../client/exports";
 import { ForbiddenError } from "../errors";
-import { defineExtension } from "../extensions/define";
+import { controlsPart } from "../extensions/controls";
+import { defineWith } from "../extensions/define";
+import { methodsPart } from "../extensions/methods";
+import { queryPart } from "../extensions/query";
+import { rowsPart, verbsPart } from "../extensions/rows-part";
 import type {
   ClientSchema,
   ClientTypeState,
@@ -880,8 +884,15 @@ export function permissions<
 export function permissions<const Config extends PermissionsConfig>(
   config: Config & DeclarationCheck<Config>
 ): Policy<Config> {
-  // `defineExtension` brings what reads the declarations made here.
-  defineExtension();
+  // The parts that read the declarations made here, and only those,
+  // brought as the policy is made: compiling it reads its rows.
+  const define = defineWith(
+    controlsPart,
+    rowsPart,
+    verbsPart,
+    queryPart,
+    methodsPart
+  );
   const actor = actorContract(config.actor);
   const compile = (schema: Schema) => compilePolicy(config, schema, actor);
   // Public compile() remains an independent inspection result. An application
@@ -997,7 +1008,7 @@ export function permissions<const Config extends PermissionsConfig>(
     return actions;
   };
   const rows = (base: VibORMClient<VibORMConfig, ExtensionState>) =>
-    extend(base, preparedFor(base.$schema as Schema));
+    extend(base, define(preparedFor(base.$schema as Schema)));
   const withMethods = (
     client: VibORMClient<VibORMConfig, ExtensionState>,
     actions: ReadonlyMap<string, readonly string[]>
@@ -1045,18 +1056,21 @@ export function permissions<const Config extends PermissionsConfig>(
         };
       };
     };
-    return extend(client, {
-      name: `${NAME}.methods`,
-      model: Object.fromEntries(
-        [...actions.keys()].map((model) => [model, answers(model)])
-      ),
-    });
+    return extend(
+      client,
+      define({
+        name: `${NAME}.methods`,
+        model: Object.fromEntries(
+          [...actions.keys()].map((model) => [model, answers(model)])
+        ),
+      })
+    );
   };
   const methods = (client: VibORMClient<VibORMConfig, ExtensionState>) =>
     withMethods(client, declaredActions());
   const apply = (base: VibORMClient<VibORMConfig, ExtensionState>) =>
     withMethods(
-      extend(base, preparedFor(base.$schema as Schema)),
+      extend(base, define(preparedFor(base.$schema as Schema))),
       declaredActions()
     );
   // The steps are typed by `Policy`: for a client generic over its state,

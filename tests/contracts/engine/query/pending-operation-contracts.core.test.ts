@@ -9,6 +9,7 @@ import {
   ValidationError,
 } from "@errors";
 import { appendResolvedExtension } from "@extensions/chain";
+import { ARRAYS } from "@extensions/coordination";
 import {
   executePreparedQuery,
   TransactionWriteOutcomes,
@@ -80,10 +81,16 @@ function createOperation<T>(
   const user = s.model({ id: s.string().id(), name: s.string() });
   const schema = { user };
   hydrateSchemaNames(schema);
-  const engine = new TestQueryEngine(
+  const root = new TestQueryEngine(
     new PlanningDriver("postgresql"),
     createModelRegistry(schema, createSchemaRegistry(schema))
   );
+  // A write outcome is registered only on a chain whose parts coordinate
+  // outcomes (the cache's, `written`): that chain runs it.
+  const engine =
+    prepareWriteOutcome === undefined
+      ? root
+      : root.bind(root.driver, { extensions: [], coordination: ARRAYS });
   return engine.prepare<T>(
     user,
     operation,

@@ -186,6 +186,7 @@ export const projects: TestProjectConfiguration[] = [
         "tests/contracts/public-client/extension-controls.core.test.ts",
         "tests/contracts/public-client/extension-deletion.core.test.ts",
         "tests/contracts/public-client/extensions-foundation.core.test.ts",
+        "tests/contracts/public-client/extension-parts.core.test.ts",
         "tests/contracts/public-client/official-cache-extension.core.test.ts",
         "tests/contracts/public-client/official-instrumentation-extension.core.test.ts",
         "tests/contracts/public-client/soft-delete.core.test.ts",

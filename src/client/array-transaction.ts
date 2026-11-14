@@ -4,7 +4,6 @@ import type {
   TransactionOptions,
 } from "@drivers/shared/transaction-options";
 import { InvalidTransactionInputError, PendingOperationError } from "@errors";
-import { extensionHost, runProtectedObservers } from "@extensions/host-slot";
 import type { QueryEngine } from "@query-engine/query-engine";
 import {
   readTransactionOperation,
@@ -48,51 +47,40 @@ export function executeArrayTransaction(
     snapshotFailure = error;
   }
 
-  const observers = engine.extensionChain?.observe;
+  const observers = engine.extensionChain?.observation;
+  // Present on a chain whose parts may intercept an array member.
+  const executeArray = engine.extensionChain?.coordination?.executeArray;
   if (operations === undefined) {
-    if (observers === undefined || observers.length === 0) {
+    if (observers === undefined) {
       throw snapshotFailure;
     }
-    return runProtectedObservers(
+    return observers.run(
       { kind: "batch", operation: "$transaction([...])" },
-      observers,
       () => {
         throw snapshotFailure;
       }
     );
   }
-  if (observers === undefined || observers.length === 0) {
+  if (observers === undefined) {
     assertOwnedOperations(operations, engine);
     if (operations.length === 0) return Promise.resolve(operations);
     prepareRequestAdmissions(operations, engine);
     return finishArrayResults(operations, engine, () =>
-      canRequireInterceptedArray(engine) && requiresInterceptedArray(operations)
-        ? extensionHost().executeInterceptedArray(
-            operations,
-            engine,
-            options,
-            context
-          )
+      executeArray !== undefined && requiresInterceptedArray(operations)
+        ? executeArray(operations, engine, options, context)
         : executeLegacyArrayTransaction(operations, engine, options, context)
     );
   }
   const observation: ArrayObservationState = {};
   return finishArrayResults(operations, engine, () =>
-    runProtectedObservers(
+    observers.run(
       { kind: "batch", operation: "$transaction([...])" },
-      observers,
       () => {
         assertOwnedOperations(operations, engine);
         if (operations.length === 0) return Promise.resolve(operations);
-        return canRequireInterceptedArray(engine) &&
+        return executeArray !== undefined &&
           requiresInterceptedArray(operations)
-          ? extensionHost().executeInterceptedArray(
-              operations,
-              engine,
-              options,
-              context,
-              observation
-            )
+          ? executeArray(operations, engine, options, context, observation)
           : executeLegacyArrayTransaction(
               operations,
               engine,
@@ -176,17 +164,6 @@ function requiresInterceptedArray(
     if (owner.requiresInterception(operation)) return true;
   }
   return false;
-}
-
-function canRequireInterceptedArray(engine: QueryEngine): boolean {
-  const chain = engine.extensionChain;
-  return (
-    chain !== undefined &&
-    (chain.hasRequestHandlers ||
-      chain.hasQueryHandlers ||
-      chain.hasCache ||
-      chain.written !== undefined)
-  );
 }
 
 function assertOwnedOperations(

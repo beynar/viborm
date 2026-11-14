@@ -12,7 +12,8 @@ import type { OperationResult } from "../client/exports"; // public today
 // The classes are imported where viborm defines them, so the built entry
 // shares the root's chunk.
 import { ClientInitializationError, QueryError } from "../errors";
-import { defineHooks } from "../extensions/define";
+import { defineWith } from "../extensions/define";
+import { writtenPart } from "../extensions/written";
 import type {
   AnyModel,
   AnyRelation,
@@ -214,7 +215,7 @@ export function on(hooks: RuntimeHooks, options?: OnOptions) {
           );
     }
     return base.$extends(
-      defineHooks({
+      defineWith(writtenPart)({
         name,
         written: (call: WrittenCall) =>
           watch(own, report, base.$schema[call.model]!, call),

@@ -20,12 +20,14 @@ import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { isFunction, isRecord } from "@validation/value-guards";
 import type { OfficialCacheControls } from "../cache/capability";
 import { errorCause } from "../errors/diagnostic-safety";
-import type { ResolvedExtensionChain } from "./chain";
-import type {
-  DefinitionControls,
-  DefinitionData,
-  NoControls,
-  RowsModels,
+import type { ExtensionPart } from "./chain";
+import {
+  type AdmittedControls,
+  type DefinitionControls,
+  type DefinitionData,
+  type NoControls,
+  type RowsModels,
+  undeclaredBinding,
 } from "./controls";
 import { extensionError } from "./definition";
 import type { DefinitionResultFields, MergeResultFields } from "./result-types";
@@ -646,15 +648,15 @@ function addMethods(
  * in chain order, where a root view surfaces an extension's faults.
  */
 export function bindExtensionMethods(
-  chain: ResolvedExtensionChain,
+  entries: readonly MethodEntry[],
   createScope: (prior: ExtensionMethods, extension: string) => object
-): ExtensionMethods & { readonly force: () => void } {
+): BoundExtensionMethods {
   const layers: ExtensionMethods[] = [NO_LAYER];
   for (const {
     name,
     client: clientFactory,
     model: modelFactories,
-  } of chain.extensions) {
+  } of entries) {
     const prior = layers.at(-1)!;
     let scope: object | undefined;
     const scopeOf = () => (scope ??= createScope(prior, name));
@@ -739,7 +741,7 @@ export function bindExtensionMethods(
     client: view.client,
     model: view.model,
     force: () => {
-      for (const [index, { model }] of chain.extensions.entries()) {
+      for (const [index, { model }] of entries.entries()) {
         const layer = layers[index + 1]!;
         layer.client();
         for (const name of Object.keys(model ?? {})) layer.model(name);
@@ -747,3 +749,63 @@ export function bindExtensionMethods(
     },
   };
 }
+
+/** One extension's method factories, as the chain keeps them. */
+export interface MethodEntry {
+  readonly name: string;
+  readonly client?: RuntimeClientMethodContribution;
+  readonly model?: RuntimeModelMethodContribution;
+}
+
+export type BoundExtensionMethods = ExtensionMethods & {
+  readonly force: () => void;
+};
+
+/** A chain's method factories, and what binds one view's methods. */
+export interface ExtensionMethodsState {
+  readonly entries: readonly MethodEntry[];
+  readonly bind: (
+    createScope: (prior: ExtensionMethods, extension: string) => object
+  ) => BoundExtensionMethods;
+  /**
+   * A factory scope's `$bind` on a chain that declares no control: it binds
+   * nothing, and refuses any control it is asked to.
+   */
+  readonly bindNone: (
+    extension: string,
+    values: Readonly<Record<string, unknown>>,
+    previous: AdmittedControls | undefined
+  ) => AdmittedControls;
+}
+
+/** `client` and `model`: methods a view answers, in chain order. */
+export const methodsPart: ExtensionPart = {
+  members: ["client", "model"],
+  join({ next, chain, definition }) {
+    const { name, client, model } = definition;
+    if (client === undefined && model === undefined) return;
+    const entries = Object.freeze([
+      ...(chain?.methods?.entries ?? []),
+      Object.freeze({
+        name,
+        ...(client === undefined ? {} : { client }),
+        ...(model === undefined ? {} : { model }),
+      }),
+    ]);
+    next.methods = Object.freeze({
+      entries,
+      bind: (
+        createScope: (prior: ExtensionMethods, extension: string) => object
+      ) => bindExtensionMethods(entries, createScope),
+      bindNone: (
+        extension: string,
+        values: Readonly<Record<string, unknown>>,
+        previous: AdmittedControls | undefined
+      ) => {
+        for (const control of Object.keys(values))
+          undeclaredBinding(extension, control);
+        return Object.freeze({ ...previous });
+      },
+    });
+  },
+};

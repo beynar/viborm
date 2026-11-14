@@ -5,7 +5,8 @@
 
 import type { AnyDriver } from "@drivers/exports";
 import type { Sql } from "@sql";
-import type { ResolvedExtensionChain } from "./chain";
+import type { ExtensionPart, ResolvedExtensionHandler } from "./chain";
+import { coordinate, OUTCOMES } from "./coordination";
 
 /** One model operation, as `retry` and `route` are asked about it. */
 export interface UnitCall {
@@ -54,7 +55,7 @@ type Notification = (() => Promise<void>) | undefined;
  * nothing written, each `retry` is asked in turn.
  */
 export async function sendUnit<T>(
-  chain: ResolvedExtensionChain,
+  chain: Pick<UnitHandlers, "retry" | "route">,
   call: UnitCall,
   args: () => Readonly<Record<string, unknown>>,
   isWrite: boolean,
@@ -98,3 +99,55 @@ export async function sendUnit<T>(
     }
   }
 }
+
+/** A chain's `retry` and `route` declarations, and what sends a call under them. */
+export interface UnitHandlers {
+  readonly retry?: readonly ResolvedExtensionHandler[];
+  readonly route?: readonly ResolvedExtensionHandler[];
+  readonly send: <T>(
+    call: UnitCall,
+    args: () => Readonly<Record<string, unknown>>,
+    isWrite: boolean,
+    run: (
+      driver: AnyDriver | undefined,
+      committed: Notification,
+      mayBeVisible: Notification
+    ) => Promise<T>,
+    committed: Notification,
+    mayBeVisible: Notification
+  ) => Promise<T>;
+}
+
+/** `retry`, `route` and `transaction`: how a call and a transaction are sent. */
+export const unitPart: ExtensionPart = {
+  members: ["retry", "route", "transaction"],
+  join({ next, chain, definition, owner }) {
+    const { retry, route, transaction } = definition;
+    const own = (handler: CallableFunction): ResolvedExtensionHandler =>
+      Object.freeze({ extension: owner.name, handler });
+    if (transaction !== undefined)
+      next.transaction = Object.freeze([
+        ...(chain?.transaction ?? []),
+        own(transaction),
+      ]);
+    if (retry === undefined && route === undefined) return;
+    const lists = {
+      retry:
+        retry === undefined
+          ? chain?.units?.retry
+          : Object.freeze([...(chain?.units?.retry ?? []), own(retry)]),
+      route:
+        route === undefined
+          ? chain?.units?.route
+          : Object.freeze([...(chain?.units?.route ?? []), own(route)]),
+    };
+    const units: UnitHandlers = {
+      ...(lists.retry === undefined ? {} : { retry: lists.retry }),
+      ...(lists.route === undefined ? {} : { route: lists.route }),
+      send: (call, args, isWrite, run, committed, mayBeVisible) =>
+        sendUnit(lists, call, args, isWrite, run, committed, mayBeVisible),
+    };
+    next.units = Object.freeze(units);
+    coordinate(next, OUTCOMES);
+  },
+};

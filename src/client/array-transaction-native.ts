@@ -7,13 +7,16 @@ import type {
   BatchTransactionOptions,
   TransactionOptions,
 } from "@drivers/shared/transaction-options";
-import type { ArrayAdmissionSlot } from "@extensions/array-admission";
+import {
+  type ArrayAdmissionSlot,
+  readArrayQuery,
+} from "@extensions/array-admission";
 import {
   decomposeQueryCoordinationFailure,
   decomposeWriteOutcomePublicationFailure,
-  extensionHost,
-} from "@extensions/host-slot";
-import type { TransactionWriteOutcomes, WriteOutcome } from "@extensions/query";
+  type TransactionWriteOutcomes,
+  type WriteOutcome,
+} from "@extensions/query";
 import type {
   TransactionOperationCapability,
   TransactionOperationOwner,
@@ -96,9 +99,7 @@ export async function executeInterceptedNativeArray(
       slot.child.reject(markArrayCommitCertainty(error, "committed"));
     }
   }
-  const queryOutcomes = await Promise.allSettled(
-    slots.map(extensionHost().readArrayQuery)
-  );
+  const queryOutcomes = await Promise.allSettled(slots.map(readArrayQuery));
   const queryFailures: unknown[] = [];
   for (let index = 0; index < queryOutcomes.length; index += 1) {
     const outcome = queryOutcomes[index]!;
@@ -157,9 +158,7 @@ async function rejectAndCombine(
 ): Promise<unknown> {
   for (const slot of slots) slot.child.reject(primary);
   const suppressed: unknown[] = [];
-  for (const outcome of await Promise.allSettled(
-    slots.map(extensionHost().readArrayQuery)
-  )) {
+  for (const outcome of await Promise.allSettled(slots.map(readArrayQuery))) {
     if (outcome.status === "rejected") {
       suppressed.push(...queryFailureParts(outcome.reason));
     }

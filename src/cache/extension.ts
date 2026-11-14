@@ -1,5 +1,5 @@
 import { CacheConfigurationError } from "@errors";
-import { withHost } from "@extensions/host";
+import { withParts } from "@extensions/chain";
 import type { GenericQueryHandler } from "@extensions/query";
 import {
   isFunction,
@@ -16,6 +16,7 @@ import {
   registerOfficialCacheQuery,
 } from "./capability";
 import { CacheDriver, type WaitUntilFn } from "./driver";
+import { cacheIdentity } from "./identity";
 import { OFFICIAL_CACHE_RUNTIME } from "./runtime";
 
 // The capability helpers moved to `./capability` so the core client can read
@@ -128,13 +129,11 @@ export function cache<const Config>(
     NoInfer<CacheExtensionConfig & ExactCacheExtensionConfig<Config>>
 ): OfficialCacheExtension;
 export function cache(config: CacheExtensionConfig): unknown {
-  withHost();
   const capability = snapshotConfig(config);
   const query: GenericQueryHandler = ({ proceed }) => proceed();
   registerOfficialCacheQuery(query, capability, OFFICIAL_CACHE_RUNTIME);
-  return Object.freeze({
-    name: OFFICIAL_CACHE_NAME,
-    query,
-    controls: officialCacheControls,
-  });
+  return withParts(
+    { name: OFFICIAL_CACHE_NAME, query, controls: officialCacheControls },
+    [cacheIdentity]
+  );
 }

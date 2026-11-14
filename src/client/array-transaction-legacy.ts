@@ -9,7 +9,6 @@ import type {
   TransactionOptions,
 } from "@drivers/shared/transaction-options";
 import { InvalidTransactionInputError } from "@errors";
-import { prewarmProtectedObservers } from "@extensions/host-slot";
 import type { QueryEngine } from "@query-engine/query-engine";
 import {
   type TransactionOperationCapability,
@@ -37,9 +36,7 @@ export async function executeLegacyArrayTransaction(
   const results: unknown[] = operations;
   if (!driver.supportsTransactions && driver.supportsBatch) {
     if (observeArrayLifecycle) {
-      const observerReadiness = prewarmProtectedObservers(
-        engine.extensionChain?.observe
-      );
+      const observerReadiness = engine.extensionChain?.observation?.prewarm();
       if (observerReadiness !== undefined) await observerReadiness;
       return executeObservedNativeArray(
         operations,

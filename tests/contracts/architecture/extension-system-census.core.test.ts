@@ -327,7 +327,7 @@ function duplicateHandlerCarriers(): string[] {
 }
 
 function resolvedExtensionProperties(): string[] {
-  const path = join(SOURCE_ROOT, "extensions/chain.ts");
+  const path = join(SOURCE_ROOT, "extensions/chain-state.ts");
   const parsed = sourceFile(path, readFileSync(path, "utf8"));
   for (const statement of parsed.statements) {
     if (
@@ -455,7 +455,8 @@ describe("extension-system source census", () => {
   });
 
   test("retains no normalized definition beside compiled execution handlers", () => {
-    expect(resolvedExtensionProperties()).toEqual(["client", "model", "name"]);
+    // Its method factories are the methods part's (`MethodEntry`).
+    expect(resolvedExtensionProperties()).toEqual(["name"]);
   });
 
   test("exports no operation program, token, or capability", () => {
