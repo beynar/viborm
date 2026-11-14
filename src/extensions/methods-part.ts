@@ -10,10 +10,11 @@ import { isFunction } from "@validation/value-guards";
 import type {
   AnyTarget,
   EmptyFacts,
+  MethodsCheck,
   MethodsFacts,
   MethodsScope,
+  ModelName,
   Part,
-  UnknownMethodKeys,
 } from "./contract";
 import { extensionError } from "./definition";
 import { builtPart } from "./extension";
@@ -27,14 +28,18 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 /** Functions added to the client and to the models of the extension's chain. */
 export function methods<
   T extends AnyTarget,
-  F extends (scope: MethodsScope<T>) => UnknownMethodKeys<ReturnType<F>, T> = (
+  F extends (scope: MethodsScope<T>) => MethodsCheck<ReturnType<F>, T> = (
     scope: MethodsScope<T>
   ) => object,
 >(
   factory: F
 ): Part<
   T,
-  MethodsFacts<ReturnType<F>, Parameters<F> extends readonly [] ? false : true>
+  MethodsFacts<
+    ReturnType<F>,
+    Parameters<F> extends readonly [] ? false : true,
+    ModelName<T>
+  >
 >;
 export function methods(factory: (scope: never) => unknown): unknown {
   return buildMethods(factory);

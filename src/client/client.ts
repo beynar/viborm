@@ -20,6 +20,7 @@ import type {
   ConfiguredBy,
   EmptyFacts,
   Extension,
+  Facts,
   Target,
 } from "@extensions/contract";
 import type { StampedFields } from "@extensions/controls";
@@ -323,17 +324,27 @@ export type AppliedExtensionState<
 
 /**
  * The order rule: after a part typed against a result, a rule that hides
- * rows or a default that omits a field would make that type lie.
+ * rows or a default that omits a field would make that type lie. A
+ * constraint on the facts, not a conditional beside the extension: a
+ * parameter type that depends on the facts being inferred gives the parts
+ * no client to be typed against.
  */
-type AfterConsumer<X extends ExtensionStateConstraint, F extends AnyFacts> = [
+type AdmittedFacts<X extends ExtensionStateConstraint> = [
   X["resultConsumer"],
 ] extends [undefined]
-  ? unknown
-  : [F["rows"]] extends [never]
-    ? [keyof F["omit"]] extends [never]
-      ? unknown
-      : never
-    : never;
+  ? AnyFacts
+  : Facts<
+      object,
+      object,
+      object,
+      never,
+      unknown,
+      object,
+      { readonly [model: string]: never },
+      boolean,
+      boolean,
+      object
+    >;
 
 type DataModels<D> = D extends StampedFields<infer M, PropertyKey> ? M : never;
 
@@ -563,10 +574,8 @@ export interface VibORMClientMembers<
    * extension is typed against this client. The extension is appended to an
    * immutable chain; this client is unchanged.
    */
-  $extends<F extends AnyFacts>(
-    extension: Extension<Target<C, X, EmptyFacts>, F> &
-      AfterConsumer<X, F> &
-      KnownModels<C, F>
+  $extends<F extends AdmittedFacts<X>>(
+    extension: Extension<Target<C, X, EmptyFacts>, F> & KnownModels<C, F>
   ): VibORMClient<AppliedClientConfig<C, F>, AppliedExtensionState<C, X, F>>;
 }
 

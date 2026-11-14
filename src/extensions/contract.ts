@@ -11,7 +11,12 @@
  * extension written apart from any client.
  */
 
-import type { ClientTypeState, VibORMConfig } from "@client/client";
+import type {
+  ClientTypeState,
+  VibORMClientMembers,
+  VibORMConfig,
+} from "@client/client";
+import type { RawSurface } from "@client/raw";
 import type { ClientSchema, LinkedClientConfig } from "@client/schema-links";
 import type {
   CacheableOperations,
@@ -416,18 +421,13 @@ export type Around<T extends AnyTarget, M, O extends Operations> = <
   run: Run<A, CallResult<T, M, O, A>>
 ) => Promise<CallResult<T, M, O, A>>;
 
-/** Moment 1 of a call over several operations, models, or raw statements. */
-export interface GenericCallContext<T extends AnyTarget, M, O> {
-  readonly kind: "model" | "raw";
+/** Moment 1 of a model call over several operations or models. */
+export interface ModelCallContext<T extends AnyTarget, M, O> {
+  readonly kind: "model";
   /** The schema the extension is applied to. */
   readonly schema: SchemaOf<T>;
-  readonly model: M | undefined;
-  readonly operation:
-    | O
-    | "$queryRaw"
-    | "$executeRaw"
-    | "$queryRawUnsafe"
-    | "$executeRawUnsafe";
+  readonly model: M;
+  readonly operation: O;
   readonly args: Readonly<Record<string, unknown>>;
   readonly values: OwnValues<T>;
   set(
@@ -435,25 +435,49 @@ export interface GenericCallContext<T extends AnyTarget, M, O> {
   ): void;
 }
 
+/**
+ * Moment 1 of a raw statement, which only an `around` without a target
+ * sees. It has no model and no arguments to set.
+ */
+export interface RawCallContext<T extends AnyTarget> {
+  readonly kind: "raw";
+  readonly schema: SchemaOf<T>;
+  readonly model: undefined;
+  readonly operation:
+    | "$queryRaw"
+    | "$executeRaw"
+    | "$queryRawUnsafe"
+    | "$executeRawUnsafe";
+  readonly args: Readonly<Record<string, unknown>>;
+  readonly values: OwnValues<T>;
+}
+
+/** Moment 1 of a call over several operations, models, or raw statements: `kind` tells them apart. */
+export type GenericCallContext<T extends AnyTarget, M, O> =
+  | ModelCallContext<T, M, O>
+  | RawCallContext<T>;
+
 /** Moment 2 of a generic call: the result is opaque, so only `run()`'s is returned. */
 export type GenericAround = <R>(run: Run<unknown, R>) => Promise<R>;
 
 type Single<M, O> =
   IsUnion<M> extends true ? false : IsUnion<O> extends true ? false : true;
 
+/** A plain `call` sees model calls only: a raw statement is reached by `around`. */
 export type MomentOne<T extends AnyTarget, M, O> = [M] extends [never]
-  ? GenericCallContext<T, ModelName<T>, Operations>
+  ? ModelCallContext<T, ModelName<T>, Operations>
   : Single<M, O> extends true
     ? O extends Operations
       ? CallContext<T, M, O>
       : never
-    : GenericCallContext<T, M, O>;
+    : ModelCallContext<T, M, O>;
 
 /**
  * Typed by one result only when `target` names one model and one operation;
  * otherwise the second moment's result is opaque (a union of contexts would
  * give the second moment no contextual signature at all, and with
- * `noImplicitAny` off, `run` would silently be `any`).
+ * `noImplicitAny` off, `run` would silently be `any`). Without a target, it
+ * also sees raw statements.
  */
 export type AroundHandler<T extends AnyTarget, M, O> = [M] extends [never]
   ? (
@@ -463,7 +487,7 @@ export type AroundHandler<T extends AnyTarget, M, O> = [M] extends [never]
     ? O extends Operations
       ? (c: CallContext<T, M, O>) => Around<T, M, O> | undefined | void
       : never
-    : (c: GenericCallContext<T, M, O>) => GenericAround | undefined | void;
+    : (c: ModelCallContext<T, M, O>) => GenericAround | undefined | void;
 
 /** A call typed against one result consumes it (the order rule). */
 export type AroundFacts<M, O> = [M] extends [never]
@@ -1179,10 +1203,14 @@ type ClientKeys<R> = Extract<keyof R, `$${string}`>;
  * and types its methods' results from their delegate through a `this`
  * parameter.
  */
-export type MethodsFacts<R, Consumer extends boolean> = Facts<
+export type MethodsFacts<
+  R,
+  Consumer extends boolean,
+  Names extends string = string,
+> = Facts<
   { readonly [Key in ClientKeys<R>]: R[Key] },
   {
-    readonly [M in Exclude<keyof R, ClientKeys<R>>]: R[M] extends (
+    readonly [M in Exclude<keyof R, ClientKeys<R>> & Names]: R[M] extends (
       ...args: never[]
     ) => infer Methods
       ? Methods
@@ -1201,9 +1229,46 @@ export type MethodsScope<T extends AnyTarget> = ExtensionClientScope<
   T["state"]
 >;
 
-/** A returned key that is neither a `$` client method nor a model. */
-export type UnknownMethodKeys<R, T extends AnyTarget> = {
-  readonly [Key in Exclude<keyof R, ModelName<T> | `$${string}`>]: never;
+/**
+ * What a client method cannot be named: a core member, a model (a schema key
+ * may begin with `$`), a method an earlier extension or an earlier part
+ * added. A later model method of an earlier one's name is refused where it
+ * is applied only: a plugin generic over the chain cannot see that name.
+ */
+type TakenClientKey<T extends AnyTarget> =
+  | keyof VibORMClientMembers<VibORMConfig, ExtensionStateConstraint>
+  | keyof RawSurface
+  | "$withCache"
+  | "$invalidate"
+  | (string extends ModelName<T> ? never : ModelName<T>)
+  | keyof T["state"]["client"]
+  | keyof T["own"]["client"];
+
+type IsMethod<V> = V extends (...args: never[]) => unknown ? unknown : never;
+
+/** A model's methods: functions, never a core operation nor `then` (the delegate would be a thenable). */
+type ModelMethodsCheck<E> = E extends (...args: never[]) => unknown
+  ? unknown
+  : {
+      readonly [Name in keyof E]: Name extends Operations | "then"
+        ? never
+        : IsMethod<E[Name]>;
+    };
+
+/**
+ * What the factory may return, key by key: a `$` client method under a
+ * free name, or a model's methods. A refused key reads `never`, so the
+ * error is at the key. A valid one reads `unknown`, never a signature (see
+ * `MethodsFunction`).
+ */
+export type MethodsCheck<R, T extends AnyTarget> = {
+  readonly [Key in keyof R]: Key extends `$${string}`
+    ? Key extends TakenClientKey<T>
+      ? never
+      : IsMethod<R[Key]>
+    : Key extends ModelName<T>
+      ? ModelMethodsCheck<R[Key]>
+      : never;
 };
 
 /**
@@ -1214,14 +1279,18 @@ export type UnknownMethodKeys<R, T extends AnyTarget> = {
  */
 export type MethodsFunction<Bound extends AnyTarget | undefined> = <
   T extends Within<Bound>,
-  F extends (scope: MethodsScope<T>) => UnknownMethodKeys<ReturnType<F>, T> = (
+  F extends (scope: MethodsScope<T>) => MethodsCheck<ReturnType<F>, T> = (
     scope: MethodsScope<T>
   ) => object,
 >(
   factory: F
 ) => Part<
   T,
-  MethodsFacts<ReturnType<F>, Parameters<F> extends readonly [] ? false : true>
+  MethodsFacts<
+    ReturnType<F>,
+    Parameters<F> extends readonly [] ? false : true,
+    ModelName<T>
+  >
 >;
 
 // =============================================================================
