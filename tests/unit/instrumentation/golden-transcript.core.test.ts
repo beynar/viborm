@@ -47,10 +47,9 @@ import {
   around,
   createClient,
   extension,
-  statement as extStatement,
-  failure,
   s,
   sql,
+  statement,
   unit,
 } from "@src/index";
 import {
@@ -380,19 +379,15 @@ function recordingObserver(
 ) {
   return extension(
     name,
-    unit((u, next) => {
-      const entry: ObservedUnit = { observer: name, unit: { ...u } };
+    unit((observedUnit, next) => {
+      const entry: ObservedUnit = {
+        observer: name,
+        unit: { ...observedUnit },
+      };
       observed.push(entry);
       const completion = next();
-      // The transcript keeps the summary's words: how long, how sure, why.
-      completion.then(({ status, duration, certainty }) => {
-        const error = failure(u);
-        entry.completion = {
-          status,
-          durationMs: duration,
-          ...(certainty === undefined ? {} : { commitCertainty: certainty }),
-          ...(error === undefined ? {} : { error }),
-        };
+      completion.then((summary) => {
+        entry.completion = { ...summary };
       });
       return after === undefined ? completion : after();
     })
@@ -522,7 +517,6 @@ function logAll(logs: ReturnType<typeof captureLogs>) {
     cache: logs.callback,
     error: logs.callback,
     query: logs.callback,
-    warning: logs.callback,
   };
 }
 
@@ -611,10 +605,11 @@ const SCENARIOS: ReadonlyArray<
           extension(
             "native-statement-transform",
             unit(
-              (u, next) => {
+              (_unit, next) => {
                 transforms += 1;
+                const sent = statement(_unit);
                 return next(
-                  sql`${sql.raw(`/* ${transforms} */ `)}${extStatement(u)}`
+                  sent && sql`${sql.raw(`/* ${transforms} */ `)}${sent}`
                 );
               },
               ["statement"],
@@ -663,9 +658,7 @@ const SCENARIOS: ReadonlyArray<
         .$extends(
           extension(
             "intercepted-native-error-dedup",
-            around(() => async (run) => {
-              return run();
-            })
+            around(() => (run) => run())
           )
         );
       await settle(
@@ -692,9 +685,7 @@ const SCENARIOS: ReadonlyArray<
         .$extends(
           extension(
             "successor-error-dedup",
-            around(() => async (run) => {
-              return run();
-            })
+            around(() => (run) => run())
           )
         );
       await settle(
@@ -965,17 +956,9 @@ const SCENARIOS: ReadonlyArray<
               version: "invalidate",
             })
           )
-          .$extends(
-            observer("cache-observer-before", () => {
-              throw new Error("contained observer failure");
-            })
-          )
+          .$extends(observer("cache-observer-before"))
           .$extends(instrumentation({ tracing: true }))
-          .$extends(
-            observer("cache-observer-after", () =>
-              Promise.reject(new Error("contained observer rejection"))
-            )
-          )
+          .$extends(observer("cache-observer-after"))
       );
       await settle(client.$invalidate("record:*", "one"));
       await settle(
@@ -1069,7 +1052,7 @@ describe("instrumentation golden transcript", () => {
         extension(
           "real-clock-operation",
           unit(
-            (_u, next) =>
+            (_unit, next) =>
               next().then(({ duration }) => {
                 completions.push(duration);
               }),

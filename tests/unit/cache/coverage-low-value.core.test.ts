@@ -16,6 +16,7 @@ import { cache } from "@cache/extension";
 import { CACHE_PREFIX } from "@cache/key";
 import { hasCacheInvalidationWork } from "@cache/schema";
 import { parseTTL } from "@cache/ttl";
+import { cacheOutcomes } from "@cache/unit-facts";
 import type { KVNamespace } from "@cloudflare/workers-types";
 import { createExecutionContext } from "@drivers/execution-context";
 import type { QueryExecutionContext } from "@drivers/types";
@@ -27,11 +28,12 @@ import {
 
 import { stableStringify } from "@extensions/key";
 import { instrumentation } from "@instrumentation/extension";
-import { readNotedOutcomes } from "@query-engine/execution-context";
 import {
   extension as extExtension,
   unit as extUnit,
   failure,
+  type UnitContext,
+  work,
 } from "@src/index";
 import { appendResolvedExtension } from "@tests/fixtures/host-definition";
 import { createTestClock } from "@tests/fixtures/test-clock";
@@ -92,6 +94,8 @@ class RecordingCache extends CacheDriver {
   failDataSet: unknown;
   failDelete: unknown;
   failGet: unknown;
+  /** Holds every data set until it settles. */
+  holdSet: Promise<void> | undefined;
 
   constructor(clock = createTestClock()) {
     super("recording", clock);
@@ -116,6 +120,7 @@ class RecordingCache extends CacheDriver {
     storageTtl: number,
     entry: CacheEntry<T>
   ): Promise<void> {
+    if (!key.endsWith(":reval")) await this.holdSet;
     if (!key.endsWith(":reval") && this.failDataSet !== undefined) {
       const failure = this.failDataSet;
       this.failDataSet = undefined;
@@ -141,6 +146,27 @@ class RecordingCache extends CacheDriver {
       if (key.startsWith(prefix)) this.entries.delete(key);
     }
   }
+}
+
+/**
+ * The `operation` unit `run` runs in, on `context`: what a cached read notes
+ * its decisions on while it runs, and only then.
+ */
+async function inOperation(
+  context: QueryExecutionContext,
+  run: () => Promise<unknown>
+): Promise<UnitContext> {
+  let operation: UnitContext | undefined;
+  await work(
+    context,
+    { kind: "operation", operation: "findMany", model: "record" },
+    async (unit) => {
+      operation = unit;
+      await run();
+    }
+  );
+  if (operation === undefined) throw new Error("the operation did not run");
+  return operation;
 }
 
 function officialInstrumentationContext(options?: {
@@ -481,23 +507,29 @@ describe("cache outcome facts", () => {
     ) => outcomes.map(({ event, status }) => ({ event, status }));
 
     driver.failDataSet = new Error("set refused");
-    await expect(execute()).resolves.toBe("fresh");
-    await Promise.all(background.splice(0));
-    const read = readNotedOutcomes(context);
-    expect(statuses(read?.() ?? [])).toEqual([
+    const first = await inOperation(context, async () => {
+      await expect(execute()).resolves.toBe("fresh");
+      await Promise.all(background.splice(0));
+    });
+    expect(statuses(cacheOutcomes(first))).toEqual([
       { event: "bypass", status: undefined },
       { event: "miss", status: "cache-set-failed" },
     ]);
 
     driver.failDataSet = new Error("late refusal");
-    await expect(execute()).resolves.toBe("fresh");
+    let release: () => void = () => undefined;
+    driver.holdSet = new Promise((resolve) => {
+      release = resolve;
+    });
+    const second = await inOperation(context, () =>
+      expect(execute()).resolves.toBe("fresh")
+    );
+    release();
     await Promise.all(background.splice(0));
-    expect(statuses(read?.() ?? [])).toEqual([
-      { event: "bypass", status: undefined },
-      { event: "miss", status: "cache-set-failed" },
+    // A set failure after its read ended is the set unit's, not the read's.
+    expect(statuses(cacheOutcomes(second))).toEqual([
       { event: "bypass", status: undefined },
     ]);
-    expect(readNotedOutcomes({})).toBeUndefined();
   });
 });
 
@@ -633,9 +665,10 @@ describe("background cache failure integrity", () => {
     await expect(Promise.all(background.splice(0))).resolves.toEqual([
       undefined,
     ]);
+    // One generation of handlers: `failure(u)` is the unit's own error.
     expect(revalidationCompletion).toMatchObject({
       status: "failure",
-      error: { message: "Error details redacted" },
+      error: { message: "cleanup refused" },
     });
   });
 
@@ -646,35 +679,34 @@ describe("background cache failure integrity", () => {
     const context = officialInstrumentationContext({ logging: true });
     driver.failDataSet = new Error("late set refused");
 
-    await expect(
-      executeCachedWithResultCodec(
-        driver,
-        "record",
-        "findMany",
-        {},
-        async () => "fresh",
-        {
-          ttlMs: 10,
-          swr: false,
-          bypass: false,
-          executionContext: context,
-          waitUntil: (promise) => background.push(promise),
-        },
-        {
-          snapshot: (value: string) => value,
-          materialize: (value: unknown) => String(value),
-        },
-        scope
-      )
-    ).resolves.toBe("fresh");
-    await expect(Promise.all(background.splice(0))).resolves.toEqual([
-      undefined,
-    ]);
+    const read = await inOperation(context, async () => {
+      await expect(
+        executeCachedWithResultCodec(
+          driver,
+          "record",
+          "findMany",
+          {},
+          async () => "fresh",
+          {
+            ttlMs: 10,
+            swr: false,
+            bypass: false,
+            executionContext: context,
+            waitUntil: (promise) => background.push(promise),
+          },
+          {
+            snapshot: (value: string) => value,
+            materialize: (value: unknown) => String(value),
+          },
+          scope
+        )
+      ).resolves.toBe("fresh");
+      await expect(Promise.all(background.splice(0))).resolves.toEqual([
+        undefined,
+      ]);
+    });
     expect(
-      readNotedOutcomes(context)?.().map(({ event, status }) => ({
-        event,
-        status,
-      }))
+      cacheOutcomes(read).map(({ event, status }) => ({ event, status }))
     ).toContainEqual({ event: "miss", status: "cache-set-failed" });
   });
 
@@ -713,7 +745,6 @@ describe("background cache failure integrity", () => {
     await expect(execute()).resolves.toBe("first");
     await Promise.all(background.splice(0));
     await expect(execute()).resolves.toBe("second");
-    expect(readNotedOutcomes(context)).toBeUndefined();
   });
 
   test("contains ordinary background writes and stale revalidation failures", async () => {

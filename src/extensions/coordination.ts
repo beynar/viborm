@@ -28,12 +28,16 @@ export interface Coordination {
   readonly executeArray?: typeof executeInterceptedArray;
 }
 
-/** For `retry` and `route`: they wrap a call, never an array member. */
-export const OUTCOMES: Coordination = {
-  rank: 0,
+/**
+ * For `unit` parts: a transaction collects its write outcomes, so a unit
+ * inside one never reports a write as committed before its commit. Nothing
+ * of the chain wraps a call: the prepared call runs as it is.
+ */
+export const UNITS: Coordination = {
+  rank: -1,
   outcomes: () => new TransactionWriteOutcomes(),
   runTransaction: runOutcomeTransaction,
-  executePreparedQuery: executeRegisteredQuery,
+  executePreparedQuery: (_context, _handlers, child) => child(),
 };
 
 /** For `written`, observers and the cache: an array member is intercepted. */

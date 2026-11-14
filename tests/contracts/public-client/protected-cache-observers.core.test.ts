@@ -224,7 +224,7 @@ afterEach(async () => {
 });
 
 describe("public protected cache observers", () => {
-  test("observes only get, set, and outer invalidate", async () => {
+  test("observes get, set, an invalidation and the backend delete it runs", async () => {
     const state = createObservedCacheClient();
 
     await expect(
@@ -237,10 +237,12 @@ describe("public protected cache observers", () => {
     await state.client.$invalidate("records");
     await settleObservations(state.observations);
 
+    // The backend delete an invalidation runs is a public cache unit too.
     expect(cacheOperations(state.observations)).toEqual([
       "get",
       "set",
       "get",
+      "delete",
       "invalidate",
     ]);
     for (const observation of state.observations) {
@@ -290,7 +292,7 @@ describe("public protected cache observers", () => {
       state.observations
         .filter(({ summary }) => summary?.status === "failure")
         .map(({ unit }) => unit.operation)
-    ).toEqual(["set", "get", "invalidate"]);
+    ).toEqual(["set", "get", "delete", "invalidate"]);
     expect(
       state.observations
         .filter(({ summary }) => summary?.status === "failure")

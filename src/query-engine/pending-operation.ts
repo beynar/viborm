@@ -17,11 +17,11 @@ import type {
   QueryInterceptionMode,
   WriteOutcomeRegistration,
 } from "@extensions/query";
+import type { UnitSource } from "@extensions/unit-source";
 import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
 import {
   createPendingOperationContext,
-  createPendingOperationInstrumentationFacts,
   type OperationExecutionContext,
   observeTransactionBatchPhase,
   withOperationErrorContext,
@@ -270,19 +270,7 @@ export class PendingOperation<T>
         ),
       isWrite: (operation) =>
         !isReadOperation(String(operation.#options.originalOperation)),
-      hasObservation: (operation) =>
-        operation.#engine.extensionChain?.observation !== undefined,
-      observe: (operation, child, readCompletionFacts) => {
-        const observation = operation.#engine.extensionChain?.observation;
-        if (observation === undefined) return child();
-        return observation.operation(
-          String(operation.#options.originalOperation),
-          operation.#modelName,
-          child,
-          readCompletionFacts,
-          operation.#readInstrumentationFacts()
-        );
-      },
+      unit: (operation) => operation.#unit(),
       reserveWith: (operation, driver) => {
         operation.#execution.reserveWith(driver);
       },
@@ -294,17 +282,8 @@ export class PendingOperation<T>
           );
         }
         return operation.#execution.executeWith(driver, () =>
-          observation.operation(
-            String(operation.#options.originalOperation),
-            operation.#modelName,
-            () => operation.#runCoreExecution(driver),
-            () =>
-              operation.#observationCommitCertainty === undefined
-                ? undefined
-                : {
-                    commitCertainty: operation.#observationCommitCertainty,
-                  },
-            operation.#readInstrumentationFacts()
+          observation.run(operation.#unit(true), () =>
+            operation.#runCoreExecution(driver)
           )
         );
       },
@@ -538,15 +517,8 @@ export class PendingOperation<T>
       if (observation === undefined) {
         return this.#finished(this.#runExecution());
       }
-      return observation.operation(
-        String(this.#options.originalOperation),
-        this.#modelName,
-        () => this.#finished(this.#runExecution()),
-        () =>
-          this.#observationCommitCertainty === undefined
-            ? undefined
-            : { commitCertainty: this.#observationCommitCertainty },
-        this.#readInstrumentationFacts()
+      return observation.run(this.#unit(true), () =>
+        this.#finished(this.#runExecution())
       );
     });
   }
@@ -557,15 +529,21 @@ export class PendingOperation<T>
     return finish ? value.then((result) => finish(result) as T) : value;
   }
 
-  #readInstrumentationFacts() {
-    return createPendingOperationInstrumentationFacts(
-      this.#engine.driver,
-      this.#context.attribution,
-      this.#modelName,
-      String(this.#options.originalOperation),
-      String(this.#operation),
-      this.#model["~"].names.sql ?? this.#modelName
-    );
+  /**
+   * This operation's `operation` unit. Its certainty is the operation's own,
+   * except for an array member, whose array reports it.
+   */
+  #unit(certain?: true): UnitSource {
+    return {
+      kind: "operation",
+      operation: String(this.#options.originalOperation),
+      model: this.#modelName,
+      context: this.#context.attribution,
+      call: this.#inputPreparation,
+      driver: this.#engine.driver,
+      table: this.#model["~"].names.sql ?? this.#modelName,
+      ...(certain ? { certainty: () => this.#observationCommitCertainty } : {}),
+    };
   }
 
   #runExecution(
@@ -704,28 +682,7 @@ export class PendingOperation<T>
     committedWriteSegment?: CommittedWriteSegmentNotification,
     writeMayBeVisible?: WriteMayBeVisibleNotification
   ): Promise<T> {
-    const run = (
-      driver: AnyDriver | undefined,
-      committed?: CommittedWriteSegmentNotification,
-      mayBeVisible?: WriteMayBeVisibleNotification
-    ) => this.#run(driver, committed, mayBeVisible);
-    const units = this.#engine.extensionChain?.units;
-    // A call inside a transaction, or a member of an array, is its owner's.
-    if (
-      units === undefined ||
-      driverOverride !== undefined ||
-      this.#engine.transactionWriteOutcomes !== undefined
-    )
-      return run(driverOverride, committedWriteSegment, writeMayBeVisible);
-    const operation = String(this.#options.originalOperation);
-    return units.send(
-      { model: this.#modelName, operation },
-      () => this.#resolveArgs(),
-      !isReadOperation(operation),
-      run,
-      committedWriteSegment,
-      writeMayBeVisible
-    );
+    return this.#run(driverOverride, committedWriteSegment, writeMayBeVisible);
   }
 
   /**

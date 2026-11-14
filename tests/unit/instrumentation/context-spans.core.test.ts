@@ -233,7 +233,7 @@ describe("createInstrumentationContext — logger", () => {
   it("logging: true maps to { all: true } — every level enabled", () => {
     const ctx = createInstrumentationContext({ logging: true });
     expect(ctx.logger).toBeDefined();
-    for (const level of ["query", "cache", "warning", "error"] as const) {
+    for (const level of ["query", "cache", "error"] as const) {
       expect(ctx.logger?.isLevelEnabled(level)).toBe(true);
     }
   });

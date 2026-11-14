@@ -43,7 +43,7 @@ import {
   safeOwnPropertyDescriptor,
   sanitizeSqlState,
 } from "../errors/diagnostic-safety";
-import { transferLoggedErrorEvidence } from "../errors/logged-errors";
+import { recordErrorSuccessor } from "../errors/logged-errors";
 import {
   readSuppressedFailures,
   withSuppressedFailure,
@@ -199,7 +199,7 @@ function cloneVibORMError(
   if (error instanceof ValidationError) {
     const validationClone = cloneValidationError(error, meta, diagnostics);
     if (validationClone) {
-      transferLoggedErrorEvidence(error, validationClone);
+      recordErrorSuccessor(error, validationClone);
       return transferSuppressedFailureEvidence(error, validationClone);
     }
   } else {
@@ -234,7 +234,7 @@ function cloneVibORMError(
     candidate instanceof VibORMError
       ? candidate
       : new VibORMError(message, code, options);
-  transferLoggedErrorEvidence(error, clonedError);
+  recordErrorSuccessor(error, clonedError);
   return transferSuppressedFailureEvidence(error, clonedError);
 }
 

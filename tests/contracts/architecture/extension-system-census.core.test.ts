@@ -56,26 +56,18 @@ const OFFICIAL_EXTENSION_WORD =
  * this list when its module stops holding it, and nothing joins it.
  */
 const MODULE_STATE_LEFT = Object.freeze([
-  "src/extensions/admission.ts admittedRows",
-  "src/extensions/admission.ts outputs",
+  "src/extensions/admission.ts admitted",
+  "src/extensions/admission.ts lazyReferences",
   "src/extensions/admission.ts registries",
-  "src/extensions/args.ts specs",
-  "src/extensions/call.ts INNER",
-  "src/extensions/call.ts firsts",
-  "src/extensions/call.ts schemas",
   "src/extensions/call.ts seconds",
-  "src/extensions/extension.ts built",
+  "src/extensions/codec.ts codecs",
   "src/extensions/gates.ts namedGatedFields",
-  "src/extensions/observation.ts lifecycleFacts",
-  "src/extensions/observation.ts officialCapabilitiesByChain",
-  "src/extensions/observation.ts trustedObservers",
   "src/extensions/plain-domain.ts NONE",
   "src/extensions/plain-domain.ts prepared",
-  "src/extensions/query.ts publicationFailures",
   "src/extensions/query.ts queryCoordinationFailures",
   "src/extensions/row-domain.ts preparedDomains",
-  "src/extensions/rows-translation.ts states",
-  "src/extensions/verbs.ts entryReferences",
+  "src/extensions/unit-source.ts operations",
+  "src/extensions/unit-source.ts sources",
   "src/extensions/watch-part.ts watched",
 ]);
 

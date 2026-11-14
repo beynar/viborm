@@ -1,22 +1,21 @@
 import type { AnyDriver } from "@drivers";
 import { ClientInitializationError, NotFoundError, QueryError } from "@errors";
-import type { Sql } from "@sql";
 import { MemoryCache } from "@src/cache/drivers/memory";
 import { cache } from "@src/cache/exports";
 import { defaultOmit } from "@src/client/default-omit-extension";
 import {
+  around,
   createClient,
   Decimal,
-  s,
-  extension,
-  unit,
-  rule,
   defaults,
+  extension,
   fields,
-  around,
-  now,
   keep,
+  now,
+  rule,
+  s,
   statement,
+  unit,
 } from "@src/index";
 import { type OnEvent, on } from "@src/on";
 import { permissions } from "@src/permissions";
@@ -724,8 +723,9 @@ export function runOnBehavior(provider: OnProvider): void {
           .$extends(
             extension(
               "observer",
-              unit((u, next) => {
+              unit((_u, next) => {
                 units += 1;
+                return next();
               })
             )
           )

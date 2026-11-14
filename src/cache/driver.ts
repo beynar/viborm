@@ -7,6 +7,7 @@
  */
 
 import { CacheInvalidKeyError } from "@errors";
+import { note } from "@extensions/unit-words";
 import { type Clock, systemClock } from "../clock";
 import {
   REVALIDATING_SUFFIX,
@@ -19,14 +20,15 @@ import {
   type CacheReadOptions,
   hasCacheInvalidationWork,
 } from "./schema";
+import type { CacheNote } from "./unit-facts";
 import {
   type CacheContext,
   type CacheOrigin,
   cacheOutcome,
   cacheStep,
+  placeSetFailure,
   recordOutcome,
   revalidation,
-  setCompletion,
 } from "./units";
 
 /** Extend a request lifetime until background cache work settles. */
@@ -386,27 +388,20 @@ export abstract class CacheDriver {
     namespace?: string
   ): Promise<CacheEntry<T> | null> {
     const prefixedKey = this.#prefixKey(key, namespace);
-    let cacheResult: "hit" | "miss" | "stale" | undefined;
-
-    return cacheStep(
-      "get",
-      context,
-      this.driverName,
-      async () => {
-        const entry = await this.get<T>(prefixedKey);
-        if (entry) {
-          const isStale = this.clock.now() - entry.createdAt > entry.ttl;
-          cacheResult = isStale ? "stale" : "hit";
-        } else {
-          cacheResult = "miss";
-        }
-        return entry;
-      },
-      () =>
-        cacheResult === undefined
-          ? undefined
-          : Object.freeze({ kind: "cache", result: cacheResult })
-    );
+    return cacheStep("get", context, this.driverName, async (unit) => {
+      const entry = await this.get<T>(prefixedKey);
+      if (unit !== undefined) {
+        const fact: CacheNote = {
+          cacheResult: entry
+            ? this.clock.now() - entry.createdAt > entry.ttl
+              ? "stale"
+              : "hit"
+            : "miss",
+        };
+        note(unit, fact);
+      }
+      return entry;
+    });
   }
 
   /**
@@ -456,14 +451,19 @@ export abstract class CacheDriver {
       "set",
       context,
       this.driverName,
-      async () => {
-        await this.set(prefixedKey, storageTtl, entry);
-        // A durable invalidation may finish while a backend set is pending.
-        // Suppress this obsolete fill locally; generic KV remains eventual.
-        if (revision !== undefined && revision !== this.#fillRevision)
-          await this.delete([prefixedKey]);
+      async (unit) => {
+        try {
+          await this.set(prefixedKey, storageTtl, entry);
+          // A durable invalidation may finish while a backend set is pending.
+          // Suppress this obsolete fill locally; generic KV remains eventual.
+          if (revision !== undefined && revision !== this.#fillRevision)
+            await this.delete([prefixedKey]);
+        } catch (failure) {
+          if (backgroundOf !== undefined && unit !== undefined)
+            placeSetFailure(backgroundOf, failure, unit);
+          throw failure;
+        }
       },
-      setCompletion(backgroundOf),
       options.ttl
     );
   }

@@ -1,5 +1,4 @@
 import { attachExecutionContext } from "@drivers/driver-error-context";
-import { readDriverIdentity } from "@drivers/driver-identity";
 import { normalizeDriverError } from "@drivers/error-mapping";
 import {
   createExecutionContext,
@@ -9,11 +8,6 @@ import {
 import type { AnyDriver, QueryExecutionContext } from "@drivers/exports";
 import { VibORMError } from "@errors";
 import type { ResolvedExtensionChain } from "@extensions/chain";
-import type {
-  CacheOutcome,
-  OfficialLifecycleFactsReader,
-} from "@extensions/official-facts";
-import { isErrorLogged } from "../errors/logged-errors";
 import type { Operation } from "./types";
 
 /** Immutable ownership and attribution captured when an operation is created. */
@@ -23,23 +17,14 @@ export interface OperationExecutionContext {
   readonly attribution: QueryExecutionContext;
 }
 
-/** The declaration of the one observer of `chain` handed facts, if any. */
-const officialCapability = (chain: ResolvedExtensionChain | undefined) =>
-  chain?.observes?.capability(chain);
-
-/** What an error of a call on `chain` may carry: its `disclosure`, else the observer's. */
-const disclosureOf = (chain: ResolvedExtensionChain | undefined) =>
-  chain?.disclosure ?? officialCapability(chain)?.diagnostics;
-
 export function createOperationExecutionContext(
   model: string,
   operation: Operation | string,
   extensionChain?: ResolvedExtensionChain
 ): QueryExecutionContext {
-  const disclosure = disclosureOf(extensionChain);
   // Capture before asynchronous request/plan/provider work, and allocate no stack by default.
   const origin =
-    disclosure?.includeCallsite === true
+    extensionChain?.disclosure?.includeCallsite === true
       ? new Error("VibORM operation created here").stack
       : undefined;
   return createExecutionContext(
@@ -75,7 +60,7 @@ export function withOperationErrorContext<T>(
 ): Promise<T> {
   const callsite = getExecutionCallsite(context);
   if (callsite === undefined) return execute();
-  const diagnostics = disclosureOf(getExecutionExtensionChain(context));
+  const diagnostics = getExecutionExtensionChain(context)?.disclosure;
   const annotate = (error: unknown): never => {
     throw error instanceof VibORMError
       ? attachExecutionContext(error, {
@@ -99,127 +84,13 @@ export function withOperationErrorContext<T>(
   }
 }
 
-/**
- * The outcomes an extension noted on an operation while it ran, read once
- * when the operation completes: set by the one that noted them.
- */
-const notedOutcomes = new WeakMap<
-  QueryExecutionContext,
-  () => readonly CacheOutcome[]
->();
-
-/** Hand the operation of `context` what reads the outcomes noted on it. */
-export function noteOperationOutcomes(
-  context: QueryExecutionContext,
-  read: () => readonly CacheOutcome[]
-): void {
-  notedOutcomes.set(context, read);
-}
-
-/** What reads the outcomes noted on the operation of `context`, if any. */
-export const readNotedOutcomes = (context: QueryExecutionContext) =>
-  notedOutcomes.get(context);
-
-/** Build the private official-operation facts only for an official chain. */
-export function createPendingOperationInstrumentationFacts(
-  driver: AnyDriver,
-  context: QueryExecutionContext,
-  model: string,
-  requestedOperation: string,
-  operation: string,
-  collection: string
-): OfficialLifecycleFactsReader | undefined {
-  return createOperationInstrumentationFacts(
-    driver,
-    context,
-    model,
-    requestedOperation,
-    operation,
-    collection
-  );
-}
-
-/** Build the corresponding private facts for a raw logical operation. */
-export function createRawOperationInstrumentationFacts(
-  driver: AnyDriver,
-  context: QueryExecutionContext,
-  operation: string
-): OfficialLifecycleFactsReader | undefined {
-  return createOperationInstrumentationFacts(
-    driver,
-    context,
-    undefined,
-    operation,
-    operation,
-    undefined
-  );
-}
-
-function createOperationInstrumentationFacts(
-  driver: AnyDriver,
-  context: QueryExecutionContext,
-  model: string | undefined,
-  requestedOperation: string,
-  operation: string,
-  collection: string | undefined
-): OfficialLifecycleFactsReader | undefined {
-  const official = officialCapability(getExecutionExtensionChain(context));
-  if (official?.observesLifecycle !== true) return undefined;
-
-  return () =>
-    Object.freeze({
-      kind: "operation" as const,
-      context,
-      identity: readDriverIdentity(driver),
-      model,
-      requestedOperation,
-      operation,
-      collection,
-      complete(outcome) {
-        const readCacheOutcomes = readNotedOutcomes(context);
-        // Core selects the failure: one error, one error log.
-        const { failure } = outcome;
-        const logged =
-          outcome.status === "failure" &&
-          official.wants("error-log") &&
-          isUnloggedError(failure)
-            ? failure
-            : undefined;
-        const failureForTrace =
-          outcome.status === "failure" &&
-          failure instanceof Error &&
-          official.wants("operation")
-            ? failure
-            : undefined;
-        if (
-          readCacheOutcomes === undefined &&
-          logged === undefined &&
-          failureForTrace === undefined
-        ) {
-          return undefined;
-        }
-        return Object.freeze({
-          kind: "operation" as const,
-          endedAt: Date.now(),
-          ...(readCacheOutcomes === undefined ? {} : { readCacheOutcomes }),
-          ...((logged ?? failureForTrace) === undefined
-            ? {}
-            : { failure: logged ?? failureForTrace }),
-          ...(logged === undefined ? { skipLog: true as const } : {}),
-        });
-      },
-    });
-}
-
 /** Observe native-batch preparation and parsing as one logical operation. */
 export async function observeTransactionBatchPhase<R>(
   executionContext: QueryExecutionContext,
   driver: AnyDriver,
   execute: () => R | Promise<R>
 ): Promise<R> {
-  const diagnostics = disclosureOf(
-    getExecutionExtensionChain(executionContext)
-  );
+  const diagnostics = getExecutionExtensionChain(executionContext)?.disclosure;
   try {
     return await execute();
   } catch (error) {
@@ -241,9 +112,4 @@ export function createCorrelationId(): string {
     return globalThis.crypto.randomUUID();
   }
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-}
-
-/** Whether the exact failure has not already been presented downstream. */
-function isUnloggedError(error: unknown): error is Error {
-  return error instanceof Error && !isErrorLogged(error);
 }

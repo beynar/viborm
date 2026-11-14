@@ -1,167 +1,88 @@
-import type { RawSurface } from "@client/raw";
-import type { Operations } from "@client/types";
-import { QueryError } from "@errors";
-import { isSql, type Sql } from "@sql";
-import { isFunction, isRecord } from "@validation/value-guards";
-import { isError } from "../errors/diagnostic-safety";
-import type { ExtensionPart, ResolvedExtensionHandler } from "./chain";
-
-/** The trusted identity exposed to one low-level statement transform. */
-export interface StatementContext {
-  readonly statement: Sql;
-  readonly model: string | undefined;
-  readonly operation: Operations | keyof RawSurface;
-}
-
-export type StatementHandler = (context: StatementContext) => Sql;
-
 /**
- * Applies resolved statement transforms before placeholder rendering.
- *
- * The empty path is deliberately an identity path: it does not inspect the
- * statement and does not allocate a context.
+ * The rewriting units of a chain (`unit(fn, kinds, { rewrites: true })`).
+ * Each is a unit around one logical statement: `statement(unit)` reads the
+ * statement as the earlier rewrites left it, `next(sql)` hands on what is
+ * sent (unchanged without an argument), and resolves with how the statement
+ * ended. Inside the innermost `next()` the statement is rendered and sent,
+ * as its own `statement` unit around the provider call. A chain with one is
+ * never served by the cache, and verbatim unsafe raw queries are never
+ * rewritten.
  */
-export function applyStatementTransforms(
-  statement: Sql,
-  model: string | undefined,
-  operation: string,
-  transforms: readonly ResolvedExtensionHandler[] | undefined
-): Sql {
-  if (transforms === undefined || transforms.length === 0) return statement;
+import type { Sql } from "@sql";
+import type { ExtensionPart } from "./chain";
+import { type Observation, observationOf } from "./observation";
+import type { UnitHandler, UnitSource } from "./unit-source";
 
-  let transformedStatement = statement;
-  for (const transform of transforms) {
-    const context = Object.freeze({
-      statement: transformedStatement,
-      model,
-      operation,
-    });
+/** A chain's rewriting units, and what runs a logical statement under them. */
+export interface StatementHandlers extends Observation {
+  /**
+   * The members of one batch, each its own logical statement: every member
+   * is rewritten before `send` sends any (it receives each member's final
+   * statement, `undefined` for a member with no unit), and each member's
+   * unit then ends as the batch does. A member whose unit fails before its
+   * `next()` refuses the batch: `refuse(index, failure)` is thrown.
+   */
+  readonly together: <Result>(
+    members: readonly (UnitSource | undefined)[],
+    send: (statements: readonly (Sql | undefined)[]) => Promise<Result>,
+    refuse: (index: number, failure: unknown) => unknown
+  ) => Promise<Result>;
+}
 
-    let transformed: unknown;
-    try {
-      transformed = Reflect.apply(transform.handler, undefined, [context]);
-    } catch (reason) {
-      throw statementTransformFailure(
-        transform.extension,
-        model,
-        operation,
-        "threw",
-        normalizeThrown(reason)
-      );
-    }
-
-    try {
-      if (isSql(transformed)) {
-        const toStatement = Reflect.get(transformed, "toStatement");
-        if (!isFunction(toStatement)) {
-          throw new TypeError(
-            "Statement transform returned a Sql value without a callable toStatement method"
+/** The host part of `unit(handler, kinds, { rewrites: true })`. */
+export function rewritePart(handler: UnitHandler): ExtensionPart {
+  return {
+    join({ next, chain, owner }) {
+      const observation = observationOf([
+        ...(chain?.statement?.handlers ?? []),
+        { extension: owner.name, handler },
+      ]);
+      next.statement = {
+        ...observation,
+        together: async (members, send, refuse) => {
+          const statements: (Sql | undefined)[] = [];
+          const reached = new Set<number>();
+          let settle: (outcome: Promise<unknown>) => void = () => undefined;
+          const outcome = new Promise<unknown>((resolve) => {
+            settle = resolve;
+          });
+          const units = members.map((source, index) => {
+            if (source === undefined) return undefined;
+            return observation.enter(source, (statement) => {
+              statements[index] = statement;
+              reached.add(index);
+              return outcome;
+            });
+          });
+          await Promise.all(units.map((unit) => unit?.reached));
+          const done = Promise.all(units.map((unit) => unit?.done));
+          const refused = units.findIndex(
+            (unit, index) => unit !== undefined && !reached.has(index)
           );
-        }
-        const rendered = Reflect.apply(toStatement, transformed, ["?"]);
-        if (typeof rendered !== "string") {
-          throw new TypeError(
-            "Statement transform returned a Sql value whose toStatement method did not return a string"
-          );
-        }
-        transformedStatement = transformed;
-        continue;
-      }
-    } catch (reason) {
-      throw statementTransformFailure(
-        transform.extension,
-        model,
-        operation,
-        "returned an unreadable value",
-        normalizeUnreadableReturn(reason)
-      );
-    }
-
-    let thenable: boolean;
-    try {
-      thenable = isThenable(transformed);
-    } catch (reason) {
-      throw statementTransformFailure(
-        transform.extension,
-        model,
-        operation,
-        "returned an unreadable value",
-        normalizeUnreadableReturn(reason)
-      );
-    }
-
-    const failure = thenable
-      ? "returned a promise or thenable"
-      : "returned a non-Sql value";
-    throw statementTransformFailure(
-      transform.extension,
-      model,
-      operation,
-      failure,
-      new TypeError(`Statement transform ${failure}`)
-    );
-  }
-
-  return transformedStatement;
+          if (refused >= 0) {
+            const failure = await units[refused]?.done.then(
+              () => undefined,
+              (error: unknown) => error
+            );
+            settle(Promise.reject(failure));
+            await done.catch(() => undefined);
+            throw refuse(refused, failure);
+          }
+          const sent = send(statements);
+          settle(sent);
+          // The send's failure is the call's, through `sent`; the units that
+          // wait on `outcome` see it too, and where none started, nothing
+          // else does.
+          outcome.catch(() => undefined);
+          try {
+            const value = await sent;
+            await done;
+            return value;
+          } finally {
+            await done.catch(() => undefined);
+          }
+        },
+      };
+    },
+  };
 }
-
-function isThenable(value: unknown): boolean {
-  if (!(isRecord(value) || isFunction(value))) return false;
-  return isFunction(Reflect.get(value, "then"));
-}
-
-function normalizeThrown(reason: unknown): Error {
-  return isError(reason)
-    ? reason
-    : new Error("Statement transform threw a non-Error value");
-}
-
-function normalizeUnreadableReturn(reason: unknown): Error {
-  return isError(reason)
-    ? reason
-    : new Error("Statement transform returned an unreadable value");
-}
-
-function statementTransformFailure(
-  extension: string,
-  model: string | undefined,
-  operation: string,
-  failure: string,
-  cause: Error
-): QueryError {
-  const identity = model === undefined ? operation : `${model}.${operation}`;
-  return new QueryError(
-    `Extension "${extension}" statement handler for ${identity} ${failure}.`,
-    {
-      cause,
-      meta: { method: "statement", model, operation },
-    }
-  );
-}
-
-/** A chain's statement transforms, and what applies them to one statement. */
-export interface StatementHandlers {
-  readonly handlers: readonly ResolvedExtensionHandler[];
-  readonly apply: (
-    statement: Sql,
-    model: string | undefined,
-    operation: string
-  ) => Sql;
-}
-
-/** `statement`: a rewrite of each statement before it is sent. */
-export const statementPart: ExtensionPart = {
-  members: ["statement"],
-  join({ next, chain, definition, owner }) {
-    if (definition.statement === undefined) return;
-    const handlers = Object.freeze([
-      ...(chain?.statement?.handlers ?? []),
-      Object.freeze({ extension: owner.name, handler: definition.statement }),
-    ]);
-    next.statement = Object.freeze({
-      handlers,
-      apply: (statement: Sql, model: string | undefined, operation: string) =>
-        applyStatementTransforms(statement, model, operation, handlers),
-    });
-  },
-};

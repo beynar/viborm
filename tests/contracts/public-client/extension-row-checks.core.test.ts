@@ -27,7 +27,7 @@ import {
   parts,
   provided,
   row,
-  text,
+  statement,
   unit,
   when,
 } from "@src/index";
@@ -164,7 +164,7 @@ async function open(root: object, shared = false, extra?: object) {
         "statements",
         unit(
           (u, next) => {
-            statements.push(text(u) ?? "");
+            statements.push(statement(u)?.toStatement() ?? "");
             return next();
           },
           ["statement"],

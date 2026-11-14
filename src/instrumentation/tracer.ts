@@ -52,7 +52,6 @@ const API_CONTRACT_CODES: StatusCodes = {
 const TRACER_NAME = "viborm";
 const TRACER_VERSION = VIBORM_VERSION;
 const SHOULD_TRACE_SPAN = Symbol("viborm.shouldTraceSpan");
-const tracerReadiness = new WeakMap<TracerWrapper, Promise<void>>();
 /**
  * Every span VibORM has settled, whichever operation settled it: a span a
  * tracer hands to two operations, or to a callback re-entered from another
@@ -301,9 +300,6 @@ export function createTracerWrapper(
         return otel !== null;
       },
     };
-    const readiness = otelReady.then(() => undefined);
-    tracerReadiness.set(wrapper, readiness);
-    readiness.then(() => tracerReadiness.delete(wrapper));
     return wrapper;
   }
 
@@ -429,11 +425,6 @@ export function setSpanAttributes(
   for (const [key, value] of Object.entries(attributes)) {
     safely(() => span?.setAttribute(key, value));
   }
-}
-
-/** Return this wrapper's outstanding one-shot OTel readiness, if any. */
-export function prewarmTracer(tracer: TracerWrapper): void | Promise<void> {
-  return tracerReadiness.get(tracer);
 }
 
 export function shouldTraceSpan(

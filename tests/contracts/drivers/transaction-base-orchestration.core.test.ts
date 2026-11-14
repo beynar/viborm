@@ -27,12 +27,39 @@ import type {
   QueryResult,
 } from "@drivers/types";
 import { UnsupportedOperationError } from "@errors";
+import type { Sql } from "@sql";
 import { sql } from "@sql";
-import { extension, statement as extStatement, unit } from "@src/index";
+import {
+  extension,
+  type UnitContext as LifecycleUnit,
+  type UnitOutcome as ObservationCompletion,
+  statement as statementOf,
+  unit,
+} from "@src/index";
 import { instrumentation } from "@src/instrumentation/exports";
 import { appendResolvedExtension } from "@tests/fixtures/host-definition";
 import { createOfficialTestExecutionContext } from "@tests/unit/instrumentation/_official-context";
 import { describe, expect, test, vi } from "vitest";
+
+interface StatementContext {
+  readonly statement: Sql;
+  readonly model: string | undefined;
+  readonly operation: string | undefined;
+}
+
+/** A rewriting unit written as the transform it applies. */
+const rewriting = (transform: (context: StatementContext) => Sql) =>
+  unit(
+    (u, next) => {
+      const statement = statementOf(u);
+      if (statement === undefined) return next();
+      return next(
+        transform({ statement, model: u.model, operation: u.operation })
+      );
+    },
+    ["statement"],
+    { rewrites: true }
+  );
 
 interface FakeSession {
   readonly id: string;
@@ -442,32 +469,21 @@ describe("_prepare typed provenance", () => {
       observed
         ? extension(
             "dispatch-only",
-            unit(
-              (u, next) => {
-                calls.push("transform");
-                return next(sql`${extStatement(u)} /* transformed */`);
-              },
-              ["statement"],
-              { rewrites: true }
-            ),
-            unit(
-              (_u, next) => {
-                calls.push("observe");
-                return next();
-              },
-              ["statement"]
-            )
+            rewriting(({ statement }) => {
+              calls.push("transform");
+              return sql`${statement} /* transformed */`;
+            }),
+            unit((observedUnit, next) => {
+              if (observedUnit.kind === "statement") calls.push("observe");
+              return next();
+            })
           )
         : extension(
             "dispatch-only",
-            unit(
-              (u, next) => {
-                calls.push("transform");
-                return next(sql`${extStatement(u)} /* transformed */`);
-              },
-              ["statement"],
-              { rewrites: true }
-            )
+            rewriting(({ statement }) => {
+              calls.push("transform");
+              return sql`${statement} /* transformed */`;
+            })
           ),
       {}
     );
@@ -484,9 +500,13 @@ describe("_prepare typed provenance", () => {
 
     await driver._executeBatch([first, second], undefined, context);
 
+    // Every statement is transformed before the first is sent, and a unit
+    // starts at each physical send: one for a native batch.
     expect(calls).toEqual(
       observed
-        ? ["observe", "transform", "observe", "transform"]
+        ? native
+          ? ["transform", "transform", "observe"]
+          : ["transform", "transform", "observe", "observe"]
         : ["transform", "transform"]
     );
     const executed = native
@@ -535,23 +555,23 @@ describe("_prepare typed provenance", () => {
       official,
       extension(
         "prepared-sequential-completion",
+        rewriting(({ statement, operation }) => {
+          events.push(`transform:${operation}`);
+          return sql`${statement} /* ${sql.raw(operation ?? "unknown")} */`;
+        }),
         unit(
-          (u, next) => {
-            events.push(`transform:${u.operation}`);
-            return next(
-              sql`${extStatement(u)} /* ${sql.raw(u.operation ?? "unknown")} */`
-            );
-          },
-          ["statement"],
-          { rewrites: true }
-        ),
-        unit(
-          async (u, next) => {
-            events.push(`observe:${u.operation}`);
-            const outcome = await next();
-            events.push(`complete:${u.operation}:${outcome.status}`);
-          },
-          ["statement"]
+          (
+            observed: LifecycleUnit,
+            proceed: () => Promise<ObservationCompletion>
+          ) => {
+            if (observed.kind !== "statement") return proceed();
+            events.push(`observe:${observed.operation}`);
+            return proceed().then((completion) => {
+              events.push(
+                `complete:${observed.operation}:${completion.status}`
+              );
+            });
+          }
         )
       ),
       {}
@@ -576,18 +596,16 @@ describe("_prepare typed provenance", () => {
     } else await expect(execution).resolves.toHaveLength(3);
     const executedCount = failAt || 3;
     await vi.waitFor(() => expect(logs).toHaveLength(executedCount));
-    expect(events.slice(0, 6)).toEqual([
-      "observe:statement1",
+    // Every statement is transformed first; each one sent is then its own
+    // unit, and a statement after the failing one is never sent.
+    expect(events.filter((event) => !event.startsWith("provider:"))).toEqual([
       "transform:statement1",
-      "observe:statement2",
       "transform:statement2",
-      "observe:statement3",
       "transform:statement3",
-    ]);
-    expect(events.filter((event) => event.startsWith("complete:"))).toEqual([
-      `complete:statement1:${failAt === 1 ? "failure" : "success"}`,
-      `complete:statement2:${failAt === 0 ? "success" : "failure"}`,
-      `complete:statement3:${failAt === 0 ? "success" : "failure"}`,
+      ...Array.from({ length: executedCount }, (_, index) => [
+        `observe:statement${index + 1}`,
+        `complete:statement${index + 1}:${failAt === index + 1 ? "failure" : "success"}`,
+      ]).flat(),
     ]);
     expect(
       logs.map(({ level, operation, sql: statement }) => ({
@@ -632,31 +650,26 @@ describe("_prepare typed provenance", () => {
     const driver = new LimitedDriver();
     const completions: string[] = [];
     const transformed: string[] = [];
-    const transform = unit(
-      (u, next) => {
-        transformed.push(u.model ?? "unknown");
-        if (u.model === "second") {
-          if (failure === "throw")
-            throw new UnsupportedOperationError("transform refused");
-          return next(sql`${extStatement(u)}, ${2}`);
-        }
-        return next();
-      },
-      ["statement"],
-      { rewrites: true }
-    );
-    const complete = unit(
-      async (u, next) => {
-        const outcome = await next();
-        completions.push(`${u.model}:${outcome.status}`);
-      },
-      ["statement"]
-    );
     const chain = appendResolvedExtension(
       undefined,
-      observing
-        ? extension("preparation-failure", transform, complete)
-        : extension("preparation-failure", transform),
+      extension(
+        "preparation-failure",
+        rewriting(({ statement, model }) => {
+          transformed.push(model ?? "unknown");
+          if (model === "second") {
+            if (failure === "throw")
+              throw new UnsupportedOperationError("transform refused");
+            return sql`${statement}, ${2}`;
+          }
+          return statement;
+        }),
+        unit((observed, proceed) => {
+          if (!observing || observed.kind !== "statement") return proceed();
+          return proceed().then((completion) => {
+            completions.push(`${observed.model}:${completion.status}`);
+          });
+        })
+      ),
       {}
     );
     const contexts = ["first", "second", "third"].map((model) =>
@@ -670,14 +683,15 @@ describe("_prepare typed provenance", () => {
     await expect(
       driver._executeBatch(batch, undefined, contexts[0])
     ).rejects.toMatchObject({
-      name: failure === "throw" ? "QueryError" : "UnsupportedOperationError",
+      // What a rewriting unit throws fails the call as it is (D5).
+      name: "UnsupportedOperationError",
       meta: { statementIndex: 1 },
     });
-    expect(transformed).toEqual(["first", "second"]);
+    // Every member is rewritten before any is sent.
+    expect(transformed).toEqual(["first", "second", "third"]);
     expect(driver.sqlOf()).toEqual(["BEGIN", "ROLLBACK"]);
-    expect(completions).toEqual(
-      observing ? ["second:failure", "first:failure"] : []
-    );
+    // The refusal comes before any statement is sent: no statement unit.
+    expect(completions).toEqual([]);
   });
 
   test.each([
@@ -693,14 +707,10 @@ describe("_prepare typed provenance", () => {
       undefined,
       extension(
         "bind-growth",
-        unit(
-          (u, next) => {
-            calls++;
-            return next(sql`${extStatement(u)}, ${1}, ${2}`);
-          },
-          ["statement"],
-          { rewrites: true }
-        )
+        rewriting(({ statement }) => {
+          calls++;
+          return sql`${statement}, ${1}, ${2}`;
+        })
       ),
       {}
     );

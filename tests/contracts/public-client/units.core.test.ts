@@ -90,17 +90,10 @@ describe("retry, route, transaction", () => {
     );
     const users = await db.user.findMany({ where: { id: "u1" } });
     expect(users.map((user) => user.id)).toEqual(["u1"]);
+    // What a rewriting unit throws fails the call as it is (D5).
     expect(asked).toEqual([
-      [
-        expect.stringContaining("statement handler"),
-        1,
-        { model: "user", operation: "findMany" },
-      ],
-      [
-        expect.stringContaining("statement handler"),
-        2,
-        { model: "user", operation: "findMany" },
-      ],
+      ["connection lost", 1, { model: "user", operation: "findMany" }],
+      ["connection lost", 2, { model: "user", operation: "findMany" }],
     ]);
   });
 
@@ -133,7 +126,7 @@ describe("retry, route, transaction", () => {
       )
     );
     const error = (await failure(db.user.findMany())) as Error;
-    expect(error.message).toContain("statement handler");
+    expect(error.message).toBe("connection lost");
   });
 
   test("retry: a write whose own transaction was undone is made again, and written once", async () => {

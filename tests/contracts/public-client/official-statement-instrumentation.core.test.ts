@@ -619,17 +619,19 @@ describe("official statement instrumentation", () => {
       const executeSpans = recorder
         .spans()
         .filter(({ name }) => name === SPAN_EXECUTE);
+      // The rewrite runs first; the statement unit starts at its physical
+      // send, and a handler applied after the instrumentation runs inside the
+      // execute span it opened.
       expect(timeline.slice(0, 4)).toEqual([
-        "A.in:viborm.operation",
-        "B.in:viborm.operation",
         "transform:viborm.operation",
+        "A.in:viborm.operation",
+        "B.in:viborm.execute",
         "provider",
       ]);
-      // Today's order: a `unit` handler hears its completion one turn after
-      // the official logger. It moves with the observation rebuild (1.14
-      // had B.out before the query log).
-      expect(timeline.indexOf("query-log")).toBeLessThan(
-        timeline.indexOf("B.out")
+      // Handlers nest in chain order: the inner one hears its completion
+      // before the official query log, as in 1.14.
+      expect(timeline.indexOf("B.out")).toBeLessThan(
+        timeline.indexOf("query-log")
       );
       expect(timeline.indexOf("query-log")).toBeLessThan(
         timeline.indexOf("A.out")
@@ -805,7 +807,8 @@ describe("official statement instrumentation", () => {
       ]);
       await waitFor(() => logs.events.length === 1);
 
-      expect(statementUnits).toBe(2);
+      // One statement unit per physical send: the native batch is one.
+      expect(statementUnits).toBe(1);
       expect(transforms).toBe(2);
       expect(driver.providerCalls).toHaveLength(1);
       expect(driver.providerCalls[0]).toMatchObject({
@@ -1065,14 +1068,15 @@ describe("official statement instrumentation", () => {
       },
     ];
 
-    for (let index = 0; index < cases.length; index += 1) {
-      const testCase = cases[index]!;
+    for (const testCase of cases) {
       const recorder = withOtelRecorder();
       try {
         await expect(
           testCase.client(testCase.driver).record.findMany()
         ).rejects.toBeInstanceOf(Error);
-        await waitFor(() => completions === index + 1);
+        // A statement unit starts once its statement is rewritten, rendered
+        // and its connection taken: none of these failures reaches one.
+        expect(completions).toBe(0);
         expect(testCase.driver.providerCalls).toHaveLength(0);
         expect(logs.events).toHaveLength(0);
         expect(
@@ -1131,7 +1135,8 @@ describe("official statement instrumentation", () => {
           client.$queryRaw(sql`SELECT 2`),
         ])
       ).rejects.toBeInstanceOf(Error);
-      await waitFor(() => completed);
+      // The one native send never comes: no statement unit starts.
+      expect(completed).toBe(false);
 
       expect(transforms).toBe(2);
       expect(driver.providerCalls).toHaveLength(0);

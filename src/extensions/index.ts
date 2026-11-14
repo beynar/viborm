@@ -43,6 +43,7 @@ export { fields } from "./fields";
 export { check, facts, gate, keep } from "./judge-words";
 export { key } from "./key";
 export { methods } from "./methods-part";
+export { work } from "./observation";
 export { deletes, models, reads, selecting, target, writes } from "./on";
 export { parts } from "./parts";
 export type { WriteOutcome } from "./query";
@@ -59,11 +60,18 @@ export {
 } from "./rule-words";
 export { unit } from "./unit";
 export {
+  type BatchMember,
+  correlation,
   driver,
   failure,
+  note,
+  notes,
+  origin,
   parameters,
   run,
   statement,
+  statements,
+  table,
   text,
 } from "./unit-words";
 export type { WriteKind } from "./written";

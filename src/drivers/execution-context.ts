@@ -210,6 +210,13 @@ export function getExecutionExtensionChain(
   return trusted(context)?.extensionChain;
 }
 
+/** `value` as a trusted execution context, if it is one. */
+export function trustedExecutionContext(
+  value: object
+): QueryExecutionContext | undefined {
+  return trusted(value) === undefined ? undefined : value;
+}
+
 /** The origin belongs to the exact deferred operation, never caller-spoofed metadata. */
 export function getExecutionCallsite(
   context: QueryExecutionContext | undefined

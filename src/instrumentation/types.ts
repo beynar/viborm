@@ -10,7 +10,7 @@ import type { Operation } from "../query-engine/types";
 /**
  * Log levels for the logging callback
  */
-export type LogLevel = "query" | "cache" | "warning" | "error";
+export type LogLevel = "query" | "cache" | "error";
 
 /**
  * Log event payload passed to the logging callback
@@ -126,7 +126,7 @@ export type LogLevelHandler = true | LogCallback;
  *     errorTracker.capture(event.error);
  *     log();                            // Also use default logger
  *   },
- *   // warning: omitted = disabled
+ *   // cache: omitted = disabled
  * }
  * ```
  */
@@ -148,12 +148,6 @@ export interface LoggingConfig {
    * Emitted for cache operations (hit, miss, revalidate).
    */
   cache?: LogLevelHandler | undefined;
-
-  /**
-   * Warning log handler.
-   * Emitted for non-fatal issues.
-   */
-  warning?: LogLevelHandler | undefined;
 
   /**
    * Error log handler.

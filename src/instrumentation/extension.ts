@@ -1,20 +1,21 @@
-import { sanitizeErrorForLogging } from "@errors";
-import type { AnyTarget, EmptyFacts, Extension } from "@extensions/contract";
-import { builtPart, extension } from "@extensions/extension";
-import {
-  type LifecycleUnit,
-  type ObservationCompletion,
-  type ObservedFacts,
-  type ObserveHandler,
-  observePart,
-} from "@extensions/observation";
+import { cacheFacts, cacheOutcomes } from "@cache/unit-facts";
 import type {
-  CacheBackendFacts,
-  CacheUnitFacts,
-  ObservationNeed,
-  OfficialObservationCapability,
-  WarningNotice,
-} from "@extensions/official-facts";
+  AnyTarget,
+  EmptyFacts,
+  Extension,
+  UnitContext as Unit,
+  UnitOutcome as UnitEnd,
+} from "@extensions/contract";
+import { disclosure } from "@extensions/disclosure";
+import { extension } from "@extensions/extension";
+import { unit as unitPart } from "@extensions/unit";
+import {
+  failure,
+  origin,
+  parameters,
+  statements,
+  text,
+} from "@extensions/unit-words";
 import {
   createInstrumentationContext,
   type InstrumentationContext,
@@ -27,6 +28,8 @@ import {
   createStatementLogEvent,
   createStatementSpanOptions,
   presentCacheOutcome,
+  presentTraceFailure,
+  statementIndexOf,
 } from "./presentation";
 import {
   ATTR_CACHE_RESULT,
@@ -38,7 +41,6 @@ import {
   type VibORMSpanName,
 } from "./spans";
 import {
-  prewarmTracer,
   setSpanAttributes,
   shouldTraceSpan,
   type VibORMSpanOptions,
@@ -52,97 +54,61 @@ import type {
 
 const NAME = "viborm.instrumentation";
 
-/** The contribution accepted by every concrete client schema. */
-export type OfficialInstrumentationExtension = {
-  readonly name: typeof NAME;
-  readonly observe: ObserveHandler;
-  readonly observes: OfficialObservationCapability;
-};
-
-/** The facts of each unit being observed, as its observer was handed them. */
-const observed = new WeakMap<LifecycleUnit, ObservedFacts>();
-const readProtectedLifecycleFacts = (unit: LifecycleUnit) =>
-  observed.get(unit)?.read();
-const readProtectedLifecycleCompletionFacts = (unit: LifecycleUnit) =>
-  observed.get(unit)?.completion();
+const ignore = (): undefined => undefined;
 
 /**
- * Each registered capability's context. Core holds only the neutral
- * capability; the extension recovers its own context here, never through it.
- */
-const instrumentationContexts = new WeakMap<
-  OfficialObservationCapability,
-  InstrumentationContext
->();
-
-/**
- * VibORM's instrumentation extension: `client.$extends(instrumentation({ … }))`.
- * Until it is written with the public words, it observes as the one
- * observer handed facts (`observePart`).
+ * Create VibORM's instrumentation extension: one handler around every unit
+ * of real work, presenting spans and logs from the facts it reads, and the
+ * `disclosure` of its `diagnostics`.
  */
 export function instrumentation<T extends AnyTarget, const Config>(
   config: Config & InstrumentationConfig & ExactInstrumentationConfig<Config>
 ): Extension<T, EmptyFacts>;
 export function instrumentation(config: InstrumentationConfig): unknown {
   const context = createInstrumentationContext(config);
-  const capability: OfficialObservationCapability = Object.freeze({
-    observesLifecycle:
-      context.config.tracing !== undefined ||
-      context.config.logging !== undefined,
-    ...(context.config.tracing === undefined
-      ? {}
-      : { prewarm: () => prewarmTracer(context.tracer) }),
-    diagnostics: context.config.diagnostics,
-    wants: (need: ObservationNeed) => wants(context, need),
-    warn: (notice: WarningNotice) => warn(context, notice),
+  const { diagnostics, logging, tracing } = context.config;
+  const disclosed = disclosure({
+    sql: diagnostics.includeSql,
+    parameters: diagnostics.includeParams,
+    providerDetails: diagnostics.includeProviderDetails,
+    callsite: diagnostics.includeCallsite,
   });
-  instrumentationContexts.set(capability, context);
-  const observe: ObserveHandler = (unit, proceed, facts) => {
-    // Handed no facts, it is not the observer core asks: it does nothing.
-    if (!facts) return undefined;
-    observed.set(unit, facts);
-    return observeOfficialInstrumentation(context, unit, proceed);
-  };
+  if (tracing === undefined && logging === undefined)
+    return extension(NAME, disclosed);
+  // The origins already logged: one failure, one error log.
+  const logged = new WeakSet<object>();
   return extension(
     NAME,
-    builtPart([observePart], (draft) => {
-      draft.observe = observe;
-      draft.observes = capability;
-    })
+    unitPart((unit, next) => observe(context, logged, unit, next)),
+    disclosed
   );
 }
 
-/** Answer one core enablement question from this chain's live context. */
-function wants(
+/**
+ * The containment the core no longer provides: `next()` runs exactly once,
+ * whatever the presentation does, and nothing the presentation throws
+ * reaches the call. The returned promise never rejects.
+ */
+function observe(
   context: InstrumentationContext,
-  need: ObservationNeed
-): boolean {
-  switch (need) {
-    case "operation":
-      return traces(context, SPAN_OPERATION);
-    case "statement":
-      return traces(context, SPAN_EXECUTE);
-    // Savepoints present under the transaction span name; there is no other.
-    case "transaction":
-    case "savepoint":
-      return traces(context, SPAN_TRANSACTION);
-    case "connect":
-      return traces(context, SPAN_CONNECT);
-    case "disconnect":
-      return traces(context, SPAN_DISCONNECT);
-    case "cache":
-      return context.config.tracing !== undefined;
-    case "cache-outcomes":
-      return logs(context, "cache");
-    case "query-log":
-      return logs(context, "query");
-    case "error-log":
-      return logs(context, "error");
-    // The last need of the closed union; another need fails to compile here.
-    default:
-      need satisfies "parameters";
-      return disclosesParameters(context);
+  logged: WeakSet<object>,
+  unit: Unit,
+  next: () => Promise<UnitEnd>
+): Promise<undefined> {
+  let end: Promise<UnitEnd> | undefined;
+  const once = (): Promise<UnitEnd> => {
+    end ??= next();
+    return end;
+  };
+  let presented: unknown;
+  try {
+    presented = present(context, logged, unit, once);
+  } catch {
+    presented = undefined;
   }
+  return Promise.resolve(presented)
+    .then(ignore, ignore)
+    .then(() => (end === undefined ? once().then(ignore) : undefined));
 }
 
 function traces(
@@ -178,244 +144,199 @@ function disclosesParameters(context: InstrumentationContext): boolean {
   );
 }
 
-function warn(context: InstrumentationContext, notice: WarningNotice): boolean {
-  const logger = context.logger;
-  if (logger?.isLevelEnabled("warning") !== true) return false;
-  logger.warn({
-    timestamp: new Date(),
-    model: notice.model,
-    operation: notice.operation,
-    correlationId: notice.correlationId,
-    meta: { notice: notice.message },
-  });
-  return true;
+function present(
+  context: InstrumentationContext,
+  logged: WeakSet<object>,
+  unit: Unit,
+  next: () => Promise<UnitEnd>
+): Promise<unknown> | undefined {
+  switch (unit.kind) {
+    case "operation":
+      return presentOperation(context, logged, unit, next);
+    case "statement":
+      return presentStatement(context, logged, unit, next);
+    case "transaction":
+    case "savepoint":
+    case "connection":
+      return presentLifecycle(context, unit, next);
+    case "cache":
+      return presentCache(context, unit, next);
+    // A batch has no span of its own: its members and statements do.
+    default:
+      return undefined;
+  }
 }
 
-function observeOfficialInstrumentation(
-  context: InstrumentationContext,
-  unit: LifecycleUnit,
-  proceed: () => Promise<ObservationCompletion>
-): unknown {
-  const facts = readProtectedLifecycleFacts(unit);
-  if (
-    unit.kind === "cache" &&
-    (facts?.kind === "cache" || facts?.kind === "cache-backend")
-  ) {
-    return observeCacheInstrumentation(
-      context,
-      unit.operation,
-      unit,
-      facts,
-      proceed
-    );
-  }
-  if (facts?.kind === "statement") {
-    const completion = proceed();
-    return facts.dispatch.then((dispatch) =>
-      dispatch === undefined
-        ? observeLifecycleCompletion(completion)
-        : presentDispatch(
-            context,
-            dispatch.start,
-            wants(context, "statement")
-              ? createStatementSpanOptions(context.config.tracing, dispatch)
-              : undefined,
-            () =>
-              observeStatementCompletion(unit, completion, dispatch.startedAt)
-          )
-    );
-  }
-  if (facts?.kind === "driver-lifecycle") {
-    const completion = proceed();
-    return facts.dispatch.then((dispatch) =>
-      dispatch === undefined
-        ? observeLifecycleCompletion(completion)
-        : presentDispatch(
-            context,
-            dispatch.start,
-            createLifecycleSpanOptions(dispatch),
-            () => observeLifecycleCompletion(completion, unit)
-          )
-    );
-  }
-  if (facts?.kind !== "operation") return proceed();
+/**
+ * Settle a span the way the work settled: a failure the owner did not
+ * recover marks it failed, by the error's class and code only.
+ */
+async function endWith(end: Promise<UnitEnd>, unit: Unit): Promise<void> {
+  const settled = await end;
+  if (settled.status === "failure" && settled.recovered !== true)
+    throw presentTraceFailure(failure(unit));
+}
 
-  // The correlation id is created as the operation starts, never later.
-  const correlationId = facts.context.correlationId;
-  const observeCompletion = (): Promise<void> => {
-    const completion = proceed();
-    return completion.then((outcome) => {
-      const completionFacts = readProtectedLifecycleCompletionFacts(unit);
-      if (completionFacts?.kind === "operation") {
-        const { failure, readCacheOutcomes } = completionFacts;
-        if (readCacheOutcomes !== undefined) {
-          for (const cacheOutcome of readCacheOutcomes()) {
-            context.logger?.cache(
-              presentCacheOutcome(facts.context, cacheOutcome)
-            );
-          }
-        }
-        if (failure !== undefined && completionFacts.skipLog !== true) {
+function presentOperation(
+  context: InstrumentationContext,
+  logged: WeakSet<object>,
+  unit: Unit,
+  next: () => Promise<UnitEnd>
+): Promise<unknown> {
+  const settle = async (): Promise<void> => {
+    const end = next();
+    const settled = await end;
+    if (logs(context, "cache"))
+      for (const outcome of cacheOutcomes(unit))
+        context.logger?.cache(presentCacheOutcome(unit, outcome));
+    const error = failure(unit);
+    if (
+      settled.status === "failure" &&
+      error instanceof Error &&
+      logs(context, "error")
+    ) {
+      // A failure a statement log presented is not presented again; every
+      // operation whose own failure it is presents it, as before.
+      const first = origin(error);
+      if (!(typeof first === "object" && first !== null && logged.has(first)))
+        context.logger?.error(
+          createOperationErrorLogEvent(unit, error, settled.duration)
+        );
+    }
+    return endWith(end, unit);
+  };
+  return traces(context, SPAN_OPERATION)
+    ? context.tracer.startActiveSpan(createOperationSpanOptions(unit), settle)
+    : settle();
+}
+
+function presentStatement(
+  context: InstrumentationContext,
+  logged: WeakSet<object>,
+  unit: Unit,
+  next: () => Promise<UnitEnd>
+): Promise<unknown> | undefined {
+  const traced = traces(context, SPAN_EXECUTE);
+  const queried = logs(context, "query");
+  const erred = logs(context, "error");
+  if (!(traced || queried || erred)) return undefined;
+  // Read before the provider is reached: it may change what it was handed.
+  const shown = disclosesParameters(context) ? parameters(unit) : undefined;
+  const startedAt = Date.now();
+  const settle = async (): Promise<void> => {
+    const end = next();
+    const settled = await end;
+    if (settled.recovered !== true) {
+      const error = failure(unit);
+      if (settled.status === "failure" && error instanceof Error) {
+        if (erred) {
+          const first = origin(error);
+          if (typeof first === "object" && first !== null) logged.add(first);
+          // A failure that names a native batch member is presented as it.
+          const index = statementIndexOf(error);
+          const member =
+            index === undefined ? undefined : statements(unit)?.[index];
           context.logger?.error(
-            createOperationErrorLogEvent(
-              facts,
-              correlationId,
-              failure,
-              completionFacts.endedAt,
-              outcome.durationMs
+            createStatementLogEvent(
+              context.config.logging,
+              unit,
+              startedAt,
+              member?.sql ?? text(unit),
+              // A batch's snapshot holds one list per member.
+              member === undefined || index === undefined
+                ? shown
+                : batchMemberParameters(shown, index),
+              member,
+              error
             )
           );
         }
-      }
-      if (outcome.status === "failure")
-        throw createObservedFailure(
-          completionFacts?.kind === "operation"
-            ? completionFacts.failure
-            : undefined
+      } else if (settled.status === "success" && queried) {
+        context.logger?.query(
+          createStatementLogEvent(
+            context.config.logging,
+            unit,
+            startedAt,
+            text(unit),
+            shown
+          )
         );
-    });
-  };
-
-  return context.config.tracing === undefined
-    ? observeCompletion()
-    : context.tracer.startActiveSpan(
-        createOperationSpanOptions(facts),
-        observeCompletion
-      );
-}
-
-function observeCacheInstrumentation(
-  instrumentationContext: InstrumentationContext,
-  operation: Extract<LifecycleUnit, { kind: "cache" }>["operation"],
-  unit: LifecycleUnit,
-  facts: CacheBackendFacts | CacheUnitFacts,
-  proceed: () => Promise<ObservationCompletion>
-): Promise<void> {
-  const { logger, tracer } = instrumentationContext;
-  const traced = wants(instrumentationContext, "cache");
-  const context = facts.kind === "cache" ? facts.context : undefined;
-  const logged =
-    facts.kind === "cache" && wants(instrumentationContext, "cache-outcomes");
-  // A revalidation presents its start at the instant it is observed.
-  const startedAt = Date.now();
-  const observeCompletion = async (span?: TracingSpan): Promise<void> => {
-    if (logged && operation === "revalidate") {
-      logger?.cache(
-        presentCacheOutcome(context, {
-          event: "revalidate",
-          status: "start",
-          at: startedAt,
-        })
-      );
-    }
-    const outcome = await proceed();
-    const completionFacts = readProtectedLifecycleCompletionFacts(unit);
-    if (completionFacts?.kind === "cache") {
-      if (traced && completionFacts.result !== undefined) {
-        setSpanAttributes(span, {
-          [ATTR_CACHE_RESULT]: completionFacts.result,
-        });
-      }
-      if (logged && completionFacts.outcomes !== undefined) {
-        for (const cacheOutcome of completionFacts.outcomes) {
-          logger?.cache(presentCacheOutcome(context, cacheOutcome));
-        }
       }
     }
-    if (outcome.status === "failure") throw createObservedFailure();
+    return endWith(end, unit);
   };
-
   return traced
-    ? tracer.startActiveSpan(
-        createCacheSpanOptions(operation, facts),
-        observeCompletion
+    ? context.tracer.startActiveSpan(
+        createStatementSpanOptions(
+          context.config.tracing,
+          unit,
+          text(unit),
+          shown
+        ),
+        settle
       )
-    : observeCompletion();
+    : settle();
 }
 
-/**
- * Start the gated provider call exactly once, inside the span when one is
- * presented. The span options cannot throw: the one read of the driver's own
- * metadata, `readDriverIdentity`, contains a throwing custom-adapter getter.
- */
-async function presentDispatch(
+function batchMemberParameters(
+  shown: readonly unknown[] | undefined,
+  index: number
+): readonly unknown[] | undefined {
+  const member = shown?.[index];
+  return Array.isArray(member) ? member : undefined;
+}
+
+function presentLifecycle(
   context: InstrumentationContext,
-  start: () => void,
-  spanOptions: VibORMSpanOptions | undefined,
-  observeCompletion: () => Promise<void>
-): Promise<void> {
-  if (spanOptions === undefined) {
-    start();
-    return observeCompletion();
-  }
-  try {
-    return await context.tracer.startActiveSpan(spanOptions, () => {
-      start();
-      return observeCompletion();
-    });
-  } finally {
-    // A hostile OTel provider cannot leave the authoritative child gated.
-    start();
-  }
+  unit: Unit,
+  next: () => Promise<UnitEnd>
+): Promise<unknown> | undefined {
+  const name =
+    unit.kind !== "connection"
+      ? SPAN_TRANSACTION
+      : unit.operation === "$disconnect" || unit.operation === "disconnect"
+        ? SPAN_DISCONNECT
+        : SPAN_CONNECT;
+  if (!traces(context, name)) return undefined;
+  return context.tracer.startActiveSpan(
+    createLifecycleSpanOptions(name, unit),
+    () => endWith(next(), unit)
+  );
 }
 
-/**
- * The statement log is emitted by the chain its facts attribute it to: a
- * native-batch member's failure reaches that member's client, with its
- * disclosure, even when another client's chain observes the batch. A settled
- * batch pins no member and is the batch context's own.
- */
-async function observeStatementCompletion(
-  unit: LifecycleUnit,
-  completion: Promise<ObservationCompletion>,
-  startedAt: number
-): Promise<void> {
-  const outcome = await completion;
-  const completionFacts = readProtectedLifecycleCompletionFacts(unit);
-  if (
-    completionFacts?.kind === "statement" &&
-    completionFacts.skipLog !== true
-  ) {
-    // instrumentation() registers every capability it creates; one registered
-    // any other way (a test-only observer) presents no statement log.
-    const attributed = instrumentationContexts.get(completionFacts.capability);
-    const event = createStatementLogEvent(
-      completionFacts,
-      startedAt,
-      attributed?.config.logging
+function presentCache(
+  context: InstrumentationContext,
+  unit: Unit,
+  next: () => Promise<UnitEnd>
+): Promise<unknown> {
+  const traced = context.config.tracing !== undefined;
+  const logged = logs(context, "cache");
+  const facts = cacheFacts(unit);
+  // A revalidation presents its start at the instant it is observed.
+  if (logged && unit.operation === "revalidate")
+    context.logger?.cache(
+      presentCacheOutcome(unit, {
+        event: "revalidate",
+        status: "start",
+        at: Date.now(),
+      })
     );
-    if (completionFacts.failure === undefined) {
-      attributed?.logger?.query(event);
-    } else {
-      attributed?.logger?.error(event);
-    }
-  }
-  if (
-    outcome.status === "failure" &&
-    !(completionFacts?.kind === "statement" && completionFacts.recovered)
-  )
-    throw createObservedFailure(
-      completionFacts?.kind === "statement"
-        ? completionFacts.failure
-        : undefined
-    );
-}
-
-async function observeLifecycleCompletion(
-  completion: Promise<ObservationCompletion>,
-  unit?: LifecycleUnit
-): Promise<void> {
-  const outcome = await completion;
-  const facts = unit && readProtectedLifecycleCompletionFacts(unit);
-  if (outcome.status === "failure")
-    throw createObservedFailure(
-      facts?.kind === "driver-lifecycle" ? facts.failure : undefined
-    );
-}
-
-function createObservedFailure(source?: Error): Error {
-  if (source) return sanitizeErrorForLogging(source);
-  const failure = new Error("Operation failed");
-  failure.stack = undefined;
-  return failure;
+  const settle = async (span?: TracingSpan): Promise<void> => {
+    const end = next();
+    await end;
+    const settled = cacheFacts(unit);
+    if (traced && settled?.result !== undefined)
+      setSpanAttributes(span, { [ATTR_CACHE_RESULT]: settled.result });
+    if (logged)
+      for (const outcome of settled?.outcomes ?? [])
+        context.logger?.cache(presentCacheOutcome(unit, outcome));
+    return endWith(end, unit);
+  };
+  const options: VibORMSpanOptions | undefined =
+    traced && facts !== undefined
+      ? createCacheSpanOptions(unit, facts)
+      : undefined;
+  return options === undefined
+    ? settle()
+    : context.tracer.startActiveSpan(options, settle);
 }

@@ -1669,8 +1669,9 @@ describe("public protected operation and statement observers", () => {
       "operation:in",
       "request",
       "query:in",
-      "statement:in",
+      // A statement unit starts at its physical boundary, past the rewrite.
       "transform",
+      "statement:in",
       "provider",
       "statement:out:success:none",
       "query:out",
@@ -1702,14 +1703,12 @@ describe("public protected operation and statement observers", () => {
       )
     );
 
-    await expect(client.record.findMany()).rejects.toBeInstanceOf(QueryError);
+    // What a rewriting unit throws fails the call as it is (D5), before
+    // anything is sent: no statement unit starts.
+    await expect(client.record.findMany()).rejects.toThrow("transform failed");
     await Promise.resolve();
     expect(driver.submissions).toEqual([]);
-    expect(timeline).toEqual([
-      "statement:in",
-      "transform",
-      "statement:out:failure",
-    ]);
+    expect(timeline).toEqual(["transform"]);
   });
 
   test("observes safe and unsafe raw statements", async () => {

@@ -27,7 +27,7 @@ import {
   extension,
   oneOf,
   parts,
-  text,
+  statement,
   unit,
   when,
 } from "@src/index";
@@ -127,7 +127,7 @@ async function open(shared: boolean) {
       "statements",
       unit(
         (u, next) => {
-          statements.push(text(u) ?? "");
+          statements.push(statement(u)?.toStatement() ?? "");
           return next();
         },
         ["statement"],
@@ -271,7 +271,7 @@ describe("relation bodies a statement repeats, stated once", () => {
             "statements",
             unit(
               (u, next) => {
-                statements.push(text(u) ?? "");
+                statements.push(statement(u)?.toStatement() ?? "");
                 return next();
               },
               ["statement"],
@@ -340,7 +340,7 @@ describe("relation bodies a statement repeats, stated once", () => {
         "statements",
         unit(
           (u, next) => {
-            statements.push(text(u) ?? "");
+            statements.push(statement(u)?.toStatement() ?? "");
             return next();
           },
           ["statement"],

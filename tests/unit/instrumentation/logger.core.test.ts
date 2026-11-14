@@ -52,7 +52,6 @@ describe("createLogger — dispatch & level isolation", () => {
 
     logger.query({ timestamp: ts, model: "user", operation: "findMany" });
     logger.cache({ timestamp: ts });
-    logger.warn({ timestamp: ts });
     logger.error({ timestamp: ts });
 
     expect(q.events).toHaveLength(1);
@@ -60,21 +59,15 @@ describe("createLogger — dispatch & level isolation", () => {
     expect(q.events[0]?.model).toBe("user");
   });
 
-  it("stamps the correct level per method (warn → 'warning')", () => {
+  it("stamps the correct level per method", () => {
     const all = captureLogs();
     const logger = createLogger({ all: all.callback });
 
     logger.query({ timestamp: ts });
     logger.cache({ timestamp: ts });
-    logger.warn({ timestamp: ts });
     logger.error({ timestamp: ts });
 
-    expect(all.events.map((e) => e.level)).toEqual([
-      "query",
-      "cache",
-      "warning",
-      "error",
-    ]);
+    expect(all.events.map((e) => e.level)).toEqual(["query", "cache", "error"]);
   });
 
   it("logger.log emits with the event's already-set level (no re-stamping)", () => {
@@ -136,7 +129,7 @@ describe("createLogger — isLevelEnabled", () => {
 
     const empty = createLogger({});
     expect(empty.isLevelEnabled("query")).toBe(false);
-    expect(empty.isLevelEnabled("warning")).toBe(false);
+    expect(empty.isLevelEnabled("error")).toBe(false);
   });
 });
 
@@ -151,17 +144,14 @@ describe("createLogger — handler === true invokes prettyLog", () => {
     expect(spy.mock.calls[0]?.join(" ")).toContain("user");
   });
 
-  it("warn true → console.warn; error true → console.error", () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  it("error true → console.error", () => {
     const error = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
-    const logger = createLogger({ warning: true, error: true });
+    const logger = createLogger({ error: true });
 
-    logger.warn({ timestamp: ts });
     logger.error({ timestamp: ts, error: new Error("boom") });
 
-    expect(warn).toHaveBeenCalledTimes(1);
     expect(error).toHaveBeenCalled();
   });
 });
@@ -523,24 +513,6 @@ describe("prettyLog — cache branch", () => {
   });
 });
 
-describe("prettyLog — warning branch", () => {
-  it("uses console.warn", () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const logger = createLogger({ warning: true });
-
-    logger.warn({
-      timestamp: ts,
-      model: "user",
-      meta: { reason: "disk slow" },
-    });
-
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(log).not.toHaveBeenCalled();
-    expect(warn.mock.calls[0]?.join(" ")).toContain("user");
-  });
-});
-
 describe("prettyLog — error branch", () => {
   it("uses console.error; redacts raw error messages and logs opted-in SQL", () => {
     const error = vi
@@ -587,7 +559,6 @@ it("adds no ANSI codes and preserves fractional durations in captured logs", () 
     duration: 0.125,
   });
   logger.cache({ timestamp: ts, meta: { event: "hit" } });
-  logger.warn({ timestamp: ts });
   logger.error({ timestamp: ts });
   const output = [...log.mock.calls, ...warn.mock.calls, ...error.mock.calls]
     .flat()

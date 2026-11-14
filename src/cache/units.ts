@@ -1,33 +1,21 @@
 /**
  * The cache's units (`get`, `set`, `invalidate`, `revalidate`, and the
  * `delete` and `clear` an invalidation runs) and the outcomes of a read
- * (`hit`, a stale `hit`, `miss`, `bypass`, `cache-set-failed`) that the
- * instrumentation presents on the operation.
- *
- * This is the one module of the cache that reaches past the public
- * contract: until extensions can emit a unit kind of their own and note facts
- * on an operation (`work`, `note`), it runs each step through the chain's
- * observers and hands the operation its outcome list. Rewiring the cache to
- * those words is a change of this module only.
+ * (`hit`, a stale `hit`, `miss`, `bypass`, `cache-set-failed`), written with
+ * the words any extension has: each step is a `cache` unit it emits
+ * (`work`), its facts are noted on it, and each decision of a read is noted
+ * on the call's `operation` unit (`note`). The instrumentation reads them
+ * through `unit-facts.ts`.
  */
 import { readDriverIdentity } from "@drivers/driver-identity";
 import { getExecutionExtensionChain } from "@drivers/execution-context";
 import type { QueryExecutionContext } from "@drivers/types";
-import {
-  getOfficialInstrumentationChainCapability,
-  runProtectedObservers,
-  selectTrustedObservers,
-} from "@extensions/observation";
-import type {
-  CacheCompletionFacts,
-  CacheOutcome,
-  CacheUnitFacts,
-} from "@extensions/official-facts";
+import type { UnitContext } from "@extensions/contract";
+import { work } from "@extensions/observation";
 import { callOf, scopeOf } from "@extensions/origin";
-import {
-  createOperationExecutionContext,
-  noteOperationOutcomes,
-} from "@query-engine/execution-context";
+import { note } from "@extensions/unit-words";
+import { createOperationExecutionContext } from "@query-engine/execution-context";
+import type { CacheNote, CacheOutcome, CacheStep } from "./unit-facts";
 
 /** The execution a cache step belongs to: what correlates and observes it. */
 export type CacheContext = QueryExecutionContext;
@@ -59,17 +47,6 @@ export function originOf(x: object): CacheOrigin {
   };
 }
 
-interface CacheOutcomeList {
-  readonly outcomes: CacheOutcome[];
-  /** Set once the operation completion has read the list. */
-  completed: boolean;
-}
-
-/** One outcome list per logical cache execution, keyed by its context. */
-const executionOutcomes = new WeakMap<CacheContext, CacheOutcomeList>();
-
-const completeWithoutFacts = (): undefined => undefined;
-
 /** One logical outcome of a cache step. */
 export function cacheOutcome(
   event: CacheOutcome["event"],
@@ -79,100 +56,66 @@ export function cacheOutcome(
   return { event, status, at: Date.now(), error };
 }
 
-/** Record one decision of a read when the instrumentation wants outcomes. */
+/**
+ * Note one decision of a read on its call's `operation` unit; where no
+ * handler runs around the call, nothing is kept.
+ */
 export function recordOutcome(
   context: CacheContext | undefined,
   event: CacheOutcome["event"],
   status?: string,
   error?: unknown
 ): void {
-  if (
-    context === undefined ||
-    getOfficialInstrumentationChainCapability(
-      getExecutionExtensionChain(context)
-    )?.wants("cache-outcomes") !== true
-  ) {
-    return;
-  }
-  let list = executionOutcomes.get(context);
-  if (list === undefined) {
-    const opened: CacheOutcomeList = { outcomes: [], completed: false };
-    list = opened;
-    executionOutcomes.set(context, opened);
-    noteOperationOutcomes(context, () => {
-      opened.completed = true;
-      return Object.freeze([...opened.outcomes]);
-    });
-  }
-  list.outcomes.push(cacheOutcome(event, status, error));
+  if (context === undefined) return;
+  const fact: CacheNote = { cacheOutcome: cacheOutcome(event, status, error) };
+  note(context, fact);
 }
 
 /**
- * A background set failure joins its read's list while that list is still
- * open, so it presents after the logical miss; otherwise it completes the set
- * unit itself.
+ * A background set failure joins its read's outcomes while that read's
+ * operation still runs, so it presents after the logical miss; otherwise the
+ * set unit presents it itself.
  */
-function placeSetFailure(
-  context: CacheContext,
-  failure: unknown
-): CacheCompletionFacts | undefined {
-  const outcome = cacheOutcome("miss", "cache-set-failed", failure);
-  const list = executionOutcomes.get(context);
-  if (list !== undefined && !list.completed) {
-    list.outcomes.push(outcome);
-    return undefined;
-  }
-  return Object.freeze({ kind: "cache", outcomes: [outcome] });
+export function placeSetFailure(
+  backgroundOf: CacheContext,
+  failure: unknown,
+  unit: UnitContext
+): void {
+  const fact: CacheNote = {
+    cacheOutcome: cacheOutcome("miss", "cache-set-failed", failure),
+  };
+  if (!note(backgroundOf, fact)) note(unit, fact);
 }
 
-/** What completes a background set's unit: its failure, placed. */
-export const setCompletion =
-  (backgroundOf: CacheContext | undefined): CacheUnitFacts["complete"] =>
-  (outcome) =>
-    backgroundOf !== undefined && outcome.status === "failure"
-      ? placeSetFailure(backgroundOf, outcome.failure)
-      : undefined;
+/** Whether a handler runs around the units of `context`'s chain. */
+const observed = (context: CacheContext | undefined): context is CacheContext =>
+  context !== undefined &&
+  getExecutionExtensionChain(context)?.observation !== undefined;
 
 /**
- * Run one cache step inside its execution's observers. A backend delete or
- * clear has no public unit and reaches only the trusted observer.
+ * Run one cache step as a `cache` unit of its execution's chain; `execute`
+ * is handed the unit, to note what the step learns.
  */
 export function cacheStep<T>(
   step: "clear" | "delete" | "get" | "invalidate" | "set",
   context: CacheContext | undefined,
   driverName: string,
-  execute: () => Promise<T>,
-  complete: CacheUnitFacts["complete"] = completeWithoutFacts,
+  execute: (unit?: UnitContext) => Promise<T>,
   ttl?: number
 ): Promise<T> {
-  const observers = getExecutionExtensionChain(context)?.observe;
-  // An unobserved step builds no unit and no facts closure. Measured on a
-  // no-op backend: without this, a get allocates about 330 B more and takes
-  // about 16 ns longer.
-  if (observers === undefined || observers.length === 0) return execute();
-  const backend = step === "clear" || step === "delete";
-  return runProtectedObservers(
-    { kind: "cache", operation: backend ? "invalidate" : step },
-    backend ? selectTrustedObservers(observers) : observers,
-    execute,
-    undefined,
-    () =>
-      Object.freeze(
-        backend
-          ? {
-              kind: "cache-backend",
-              boundary: step,
-              driverName,
-              complete: completeWithoutFacts,
-            }
-          : {
-              kind: "cache",
-              context,
-              driverName,
-              ...(ttl === undefined ? {} : { ttl }),
-              complete,
-            }
-      )
+  // An unobserved step builds no unit. Measured on a no-op backend: without
+  // this, a get allocates about 330 B more and takes about 16 ns longer.
+  if (!observed(context)) return execute();
+  const facts: CacheStep = {
+    driver: driverName,
+    ...(ttl === undefined ? {} : { ttl }),
+    model: context.model,
+    operation: context.operation,
+  };
+  return work(
+    context,
+    { kind: "cache", operation: step, note: { cache: facts } },
+    execute
   );
 }
 
@@ -183,46 +126,34 @@ export interface RevalidationFailure {
 }
 
 /**
- * Run one actual revalidation as its own root unit when the chain has
- * observers: `work` is handed the record of its failure to fill.
+ * Run one actual revalidation as its own `cache` unit when the chain has
+ * handlers: `run` is handed the record of its failure to fill, and its
+ * terminal outcome is noted on that unit.
  */
 export async function revalidation(
   origin: CacheOrigin,
   model: string,
   operation: string,
-  work: (failure: RevalidationFailure | undefined) => Promise<CacheOutcome>
+  run: (failure: RevalidationFailure | undefined) => Promise<CacheOutcome>
 ): Promise<void> {
   const { context, driver } = origin;
-  const observers = getExecutionExtensionChain(context)?.observe;
-  if (observers === undefined || observers.length === 0) {
-    await work(undefined);
+  if (!observed(context)) {
+    await run(undefined);
     return;
   }
   const failure: RevalidationFailure = { failed: false, error: undefined };
-  // The observed child stores its terminal outcome before it settles, and
-  // the rail reads completion facts only after that.
-  let completion: CacheCompletionFacts | undefined;
-  await runProtectedObservers(
-    { kind: "cache", operation: "revalidate" },
-    observers,
-    async () => {
-      completion = Object.freeze({
-        kind: "cache",
-        outcomes: [await work(failure)],
-      });
+  const step: CacheStep = {
+    read: { model, operation, driver: driver && readDriverIdentity(driver) },
+    model: context.model,
+    operation: context.operation,
+  };
+  await work(
+    context,
+    { kind: "cache", operation: "revalidate", note: { cache: step } },
+    async (unit) => {
+      const fact: CacheNote = { cacheOutcome: await run(failure) };
+      note(unit, fact);
       if (failure.failed) throw failure.error;
-    },
-    undefined,
-    (): CacheUnitFacts =>
-      Object.freeze({
-        kind: "cache",
-        context,
-        read: Object.freeze({
-          model,
-          operation,
-          identity: driver && readDriverIdentity(driver),
-        }),
-        complete: () => completion,
-      })
+    }
   );
 }

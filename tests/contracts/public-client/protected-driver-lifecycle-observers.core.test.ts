@@ -429,7 +429,7 @@ describe("public protected driver lifecycle observers", () => {
     ).toHaveLength(2);
   });
 
-  test("observes queued savepoint wait while provider savepoints stay serialized", async () => {
+  test("starts a queued savepoint's unit at its own SAVEPOINT while provider savepoints stay serialized", async () => {
     const driver = new LifecycleDriver();
     const { client, observed } = observedClient(driver);
     const firstBodyStarted = createDeferred<void>();
@@ -446,11 +446,13 @@ describe("public protected driver lifecycle observers", () => {
       });
 
       await firstBodyStarted.promise;
+      // A unit starts at its physical boundary: the queued savepoint's once
+      // its own SAVEPOINT is sent, after the first releases.
       expect(
         driver.timeline.filter((event) =>
           event.startsWith("observer:savepoint:in")
         )
-      ).toHaveLength(2);
+      ).toHaveLength(1);
       expect(
         driver.timeline.filter((event) =>
           event.startsWith("provider:SAVEPOINT")
@@ -604,14 +606,13 @@ describe("public protected driver lifecycle observers", () => {
         summary: expect.objectContaining({ status: "success" }),
       },
     ]);
-    // Today's order: `$connect()` resolves before a `unit` handler hears its
-    // completion. It moves with the observation rebuild (1.14 heard it
-    // before `$disconnect` began).
+    // The host awaits a unit's handler: `$connect()` resolves once the
+    // handler heard its completion, before `$disconnect` begins (as in 1.14).
     expect(driver.timeline).toEqual([
       "observer:connection:in:$connect",
       "provider:connect",
-      "observer:connection:in:$disconnect",
       "observer:connection:out:success:none",
+      "observer:connection:in:$disconnect",
       "provider:disconnect",
       "observer:connection:out:success:none",
     ]);

@@ -450,10 +450,12 @@ describe("pending operation transaction coordination", () => {
     expect(readOwner.isWrite(read)).toBe(false);
     expect(writeOwner.isWrite(write)).toBe(true);
     expect(readOwner.requiresInterception(read)).toBe(false);
-    expect(readOwner.hasObservation(read)).toBe(false);
-    await expect(
-      readOwner.observe(read, () => Promise.resolve("child"))
-    ).resolves.toBe("child");
+    // The member's operation unit, as its array observes it.
+    expect(readOwner.unit(read)).toMatchObject({
+      kind: "operation",
+      model: "user",
+      operation: "findMany",
+    });
   });
 
   it("resolves request preparation once and rethrows the same preparation failure", () => {
@@ -554,7 +556,6 @@ describe("pending operation transaction coordination", () => {
     const owner = ownerOf(operation);
 
     expect(owner.requiresInterception(operation)).toBe(true);
-    expect(owner.hasObservation(operation)).toBe(true);
     await expect(
       owner.startInterception(
         operation,
@@ -564,9 +565,6 @@ describe("pending operation transaction coordination", () => {
       )
     ).resolves.toBe("intercepted");
     expect(queryHandler).toHaveBeenCalledOnce();
-    await expect(
-      owner.observe(operation, () => Promise.resolve("observed"))
-    ).resolves.toBe("observed");
     // Run on the driver handed over, through the observation: the planning
     // driver refuses the statement it is sent, inside its operation unit.
     await expect(
@@ -574,7 +572,7 @@ describe("pending operation transaction coordination", () => {
     ).rejects.toThrow(QueryError);
     expect(
       observer.mock.calls.map(([unit]) => (unit as { kind: string }).kind)
-    ).toEqual(["operation", "operation", "statement"]);
+    ).toEqual(["operation", "statement"]);
   });
 
   it("requires observed coordination for request-only array transforms", () => {
