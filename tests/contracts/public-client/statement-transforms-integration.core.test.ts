@@ -13,7 +13,7 @@ import {
 } from "@src/index";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
-import { appendResolvedExtension } from "@tests/fixtures/host-definition";
+import { appendExtension } from "@tests/fixtures/extension-chain";
 import { afterEach, describe, expect, test } from "vitest";
 
 const author = s.model({ id: s.string().id(), name: s.string() });
@@ -140,7 +140,7 @@ describe("deterministic statement-transform integration", () => {
   test("ignores caller-spoofed provenance and honors the trusted execution context at dispatch", async () => {
     const { driver } = baseClient();
     const calls: StatementCall[] = [];
-    const chain = appendResolvedExtension(
+    const chain = appendExtension(
       undefined,
       recordingExtension("trusted", raw("/* trusted */ "), calls),
       schema

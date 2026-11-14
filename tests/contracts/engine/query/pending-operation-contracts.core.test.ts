@@ -22,12 +22,13 @@ import {
 } from "@query-engine/transaction-operation";
 import { hydrateSchemaNames, s } from "@schema";
 import {
+  around,
   extension,
   PendingOperation as RootPendingOperation,
   unit,
 } from "@src/index";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
-import { appendResolvedExtension } from "@tests/fixtures/host-definition";
+import { appendExtension } from "@tests/fixtures/extension-chain";
 import {
   createModelRegistry,
   TestQueryEngine,
@@ -520,16 +521,20 @@ describe("pending operation transaction coordination", () => {
     const user = s.model({ id: s.string().id(), name: s.string() });
     const schema = { user };
     hydrateSchemaNames(schema);
-    const queryHandler = vi.fn(
-      async (context: { proceed(): Promise<unknown> }) => context.proceed()
-    );
+    const aroundCalls = vi.fn();
     const observer = vi.fn((_unit: unknown, next: () => Promise<unknown>) =>
       next()
     );
-    const chain = appendResolvedExtension(
-      appendResolvedExtension(
+    const chain = appendExtension(
+      appendExtension(
         undefined,
-        { name: "query-owner", query: queryHandler },
+        extension(
+          "query-owner",
+          around(() => (run) => {
+            aroundCalls();
+            return run();
+          })
+        ),
         schema
       ),
       extension("observer-owner", unit(observer)),
@@ -542,7 +547,28 @@ describe("pending operation transaction coordination", () => {
       undefined,
       chain
     );
-    const source = engine.prepare<unknown>(user, "findMany", {});
+    // The first moments run where the client runs them, at the operation's
+    // preparation, over the one call object both moments are handed.
+    const request = chain.request;
+    const firstMoments = request?.handlers("user", "findMany");
+    if (request === undefined || firstMoments === undefined)
+      throw new Error("an around part places a first moment");
+    const source = engine.prepare<unknown>(
+      user,
+      "findMany",
+      {},
+      undefined,
+      (args, controls, call) =>
+        request.apply(
+          "findMany",
+          args,
+          firstMoments,
+          call,
+          "user",
+          chain.controls,
+          controls
+        )
+    );
     const operation = source;
     const owner = ownerOf(operation);
 
@@ -562,7 +588,7 @@ describe("pending operation transaction coordination", () => {
         false
       )
     ).resolves.toBe("intercepted");
-    expect(queryHandler).toHaveBeenCalledOnce();
+    expect(aroundCalls).toHaveBeenCalledOnce();
     // Run on the driver handed over, through the observation: the planning
     // driver refuses the statement it is sent, inside its operation unit.
     await expect(
