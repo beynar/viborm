@@ -727,11 +727,15 @@ describe("controls: a defined extension", () => {
 });
 
 describe("controls: placement", () => {
-  // Plan §2.3: each removeWhen control is placed only on its own managed
-  // model's deletes, whichever extension declares it and in either order.
+  const DELETES = ["delete", "deleteMany"] as const;
+  // Each kept-rows argument is placed where its own declaration says, on its
+  // own managed model's deletes, whichever extension declares it and in
+  // either order: what a `keep` reads does not move it.
   const managing = {
     name: "managing",
-    controls: { mode: { oneOf: ["soft", "hard"] } },
+    controls: {
+      mode: { oneOf: ["soft", "hard"], on: DELETES, models: ["post"] },
+    },
     deletion: {
       removeWhen: { mode: "hard" },
       models: { post: { at: "deletedAt" } },
@@ -739,7 +743,9 @@ describe("controls: placement", () => {
   } as const;
   const purging = {
     name: "purging",
-    controls: { purge: { oneOf: ["no", "yes"] } },
+    controls: {
+      purge: { oneOf: ["no", "yes"], on: DELETES, models: ["user"] },
+    },
     deletion: {
       removeWhen: { purge: "yes" },
       models: { user: { at: "removedAt" } },
@@ -796,7 +802,7 @@ describe("controls: required", () => {
     { path: "tenant", message: 'Control "tenant" is required' },
   ];
 
-  test("an extension that names no model asks for a required control on every model: a call that does not pass it is refused at its path on every operation it is placed on, before it writes; passed, it is admitted", async () => {
+  test("a required control is asked for on every model that accepts it: a call that does not pass it is refused at its path on every operation it is placed on, before it writes; passed, it is admitted", async () => {
     const base = await seededBase();
     const db = base.$extends(
       extension("tenant", extArgs({ tenant: oneOf("acme").required() }))

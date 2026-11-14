@@ -36,10 +36,10 @@ export type ControlPlacement =
 /**
  * One argument an extension declares. Its values are a closed list or a
  * Standard Schema; `on` names the operations that accept it (every operation
- * when absent). With `required`, a call on one of those operations that does
- * not pass it is refused, on the models the extension names in `rows`,
- * `data` or `deletion` only; an extension that names no model asks for it on
- * every model. With `bound`, it is accepted only from a binding (the client
+ * when absent), `models` the models (every model when absent). With
+ * `required`, a call on one of those operations that does not pass it is
+ * refused: on every model that accepts it, or on the models it lists. With
+ * `bound`, it is accepted only from a binding (the client
  * scope's `$bind`), never from a call's arguments: its placement reads no
  * argument, so a call that passes it is refused as passing an unknown key.
  * With `volatile`, a call that holds a value of it has no key (`key(run)`):
@@ -54,8 +54,8 @@ export type ControlDeclaration = (
   readonly on?: ControlPlacement;
   /** The models that accept it; every model when absent. */
   readonly models?: readonly string[];
-  /** Refused when absent: on the models named, or as the doc above says. */
-  readonly required?: boolean | readonly string[];
+  /** Refused when absent: everywhere it is accepted, or on these models. */
+  readonly required?: true | readonly string[];
   /** The value a call that passes none reads. */
   readonly default?: ControlLiteral;
   readonly bound?: boolean;
@@ -305,12 +305,6 @@ export type StampedFieldNames<Data, ModelName> =
 // PLACEMENT: where each declared control is accepted
 // =============================================================================
 
-/** Where a `deletion.removeWhen` control goes, on the models it manages. */
-const DELETE_OPERATIONS: ReadonlySet<string> = new Set([
-  "delete",
-  "deleteMany",
-]);
-
 /** One control of a chain: its owner, its placement and how a value is admitted. */
 export interface ResolvedControl {
   readonly name: string;
@@ -332,51 +326,32 @@ export interface ResolvedControl {
 }
 
 /**
- * Give every control of one definition its placement. A control a `keep`
- * removes on goes on the deletes of the models it keeps; every other control
- * where its own `on` says (every operation without one), on every model. A
- * `required` control is asked for only on the models the definition's rule,
- * defaults or kept rows name, and on every model when they name none.
+ * Give every control of one definition its placement: where its own
+ * declaration says, and nowhere else. No other part of the definition moves
+ * it: an argument a `keep` or a rule reads is placed by its `.on(…)`,
+ * `.models([…])` and `.required([…])`.
  */
 export function placeControls(
   definition: RuntimeExtensionDefinition
 ): readonly ResolvedControl[] {
-  const placed: ResolvedControl[] = [];
-  const { name: extension, controls, rule, deletion, data } = definition;
-  const removeWhen = deletion?.removeWhen ?? {};
-  const managed = new Set(Object.keys(deletion?.models ?? {}));
-  const named = new Set([
-    ...managed,
-    ...(rule
-      ? [rule.root, rule.related, rule.verbs, rule.confine].flatMap(Object.keys)
-      : []),
-    ...Object.keys(data ?? {}),
-  ]);
-  const requiredOn = named.size === 0 ? true : named;
-  for (const [name, declaration] of Object.entries(controls ?? {})) {
-    const removes = Object.hasOwn(removeWhen, name);
+  const { name: extension, controls } = definition;
+  return Object.entries(controls ?? {}).map(([name, declaration]) => {
     const { required } = declaration;
-    placed.push({
+    return {
       name,
       extension,
       declaration,
-      operations: removes ? DELETE_OPERATIONS : placementOf(declaration.on),
-      models: removes
-        ? managed
-        : declaration.models && new Set(declaration.models),
-      required:
-        required === true
-          ? requiredOn
-          : Array.isArray(required)
-            ? new Set(required)
-            : undefined,
+      operations: placementOf(declaration.on),
+      ...(declaration.models && { models: new Set(declaration.models) }),
+      ...(required !== undefined && {
+        required: required === true ? true : new Set(required),
+      }),
       ...(declaration.default !== undefined && {
         fallback: declaration.default,
       }),
       ...(declaration.bound === true && { bound: true }),
-    });
-  }
-  return placed;
+    };
+  });
 }
 
 /** Where a control goes: every operation, or those `.on(…)` names. */
