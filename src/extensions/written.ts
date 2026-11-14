@@ -10,6 +10,7 @@ import { type WriteKind, writeSinks } from "@query-engine/write-sinks";
 export type { WriteKind } from "@query-engine/write-sinks";
 
 import type { AdmittedControls } from "./controls";
+import type { CallOrigin } from "./origin";
 import {
   publishWriteOutcomes,
   type WriteOutcome,
@@ -27,7 +28,7 @@ export interface WrittenCall {
    */
   readonly args: Readonly<Record<string, unknown>>;
   /** One object per call: what its first moments registered watches under. */
-  readonly call?: object;
+  readonly call?: CallOrigin;
 }
 
 /** Rows one write showed: model, kind, rows, and whether through a relation. */

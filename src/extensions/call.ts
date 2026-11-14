@@ -35,7 +35,7 @@ import { extensionError } from "./definition";
 import { builtPart, type DefinitionDraft } from "./extension";
 import { handlersOf, type PlacedHandler } from "./handlers";
 import { MODEL_OPERATIONS, type SelectionValue, selectionOf } from "./on";
-import { CALL } from "./origin";
+import { CALL, type CallOrigin } from "./origin";
 import type { AroundRunner } from "./query";
 import { SHAPE_KEYS } from "./request";
 import { REGISTER, type Registering, type WatchPart } from "./watch-part";
@@ -66,7 +66,7 @@ interface CallSpec {
   readonly on: SelectionValue | undefined;
   /** `around` only: keeps the second moment a first returned, for the call. */
   readonly keep?: (
-    call: object,
+    call: CallOrigin,
     first: FirstMoment,
     second: SecondMoment
   ) => void;
@@ -74,7 +74,7 @@ interface CallSpec {
    * `around` only: what a raw statement's first moment registers `settled`
    * through, kept for its second moment, which the host tells the outcome.
    */
-  readonly told?: (call: object, first: FirstMoment) => Registering;
+  readonly told?: (call: CallOrigin, first: FirstMoment) => Registering;
   /** What registers `watch` and `settled`, where the part brings what tells them. */
   readonly watch?: WatchPart | undefined;
   /** `around` only: placed nearest the core. */
@@ -99,7 +99,7 @@ export type FirstMoment = (
   model: string | undefined,
   operation: string,
   state: { args: Readonly<Record<string, unknown>> },
-  call: object,
+  call: CallOrigin,
   controls: ResolvedControls | undefined,
   admitted: AdmittedControls | undefined
 ) => void;
@@ -194,7 +194,7 @@ export function runFirstMoments(
   operation: string,
   input: Readonly<Record<string, unknown>>,
   handlers: readonly ResolvedOperationHandler<FirstMoment>[],
-  call: object,
+  call: CallOrigin,
   model?: string,
   controls?: ResolvedControls,
   admitted?: AdmittedControls
@@ -215,16 +215,11 @@ interface Kept {
   settled?: ((outcome: Outcome) => unknown)[];
 }
 
-/**
- * Per call, what each `around` part's first moment left for its second:
- * kept beside the call, never on a chain or a part (both outlive the call),
- * and gone with the call.
- */
-const seconds = new WeakMap<object, Map<FirstMoment, Kept>>();
+/** A call's `seconds`: by the first moment of each `around` part. */
+export type Seconds = Map<FirstMoment, Kept>;
 
-function keptFor(call: object, first: FirstMoment): Kept {
-  let byFirst = seconds.get(call);
-  if (byFirst === undefined) seconds.set(call, (byFirst = new Map()));
+function keptFor(call: CallOrigin, first: FirstMoment): Kept {
+  const byFirst = (call.seconds ??= new Map());
   let kept = byFirst.get(first);
   if (kept === undefined) byFirst.set(first, (kept = {}));
   return kept;
@@ -232,7 +227,7 @@ function keptFor(call: object, first: FirstMoment): Kept {
 
 /** What `around` hands its first moments: the call's second moments kept. */
 function keepSecond(
-  call: object,
+  call: CallOrigin,
   first: FirstMoment,
   second: SecondMoment
 ): void {
@@ -244,7 +239,7 @@ function keepSecond(
  * functions, kept for the second moment. A raw statement shows no rows: a
  * `watch` would never be told, and is refused.
  */
-const rawTold = (call: object, first: FirstMoment): Registering => ({
+const rawTold = (call: CallOrigin, first: FirstMoment): Registering => ({
   [REGISTER](watching) {
     if (watching.settled === undefined) return false;
     (keptFor(call, first).settled ??= []).push(watching.settled);
@@ -260,10 +255,7 @@ const rawTold = (call: object, first: FirstMoment): Registering => ({
 const secondMoment =
   (first: FirstMoment): AroundRunner =>
   (prepared, run, register) => {
-    // The object both moments of the call were handed: a model call's
-    // own, and for a raw statement its input, which `raw.ts` hands both.
-    const call = prepared.kind === "model" ? prepared.call : prepared.input;
-    const kept = call && seconds.get(call)?.get(first);
+    const kept = prepared.call?.seconds?.get(first);
     // The host tells a raw execute family's outcome to what its first
     // moment registered; a raw read's outcome is no write and is dropped.
     for (const listener of kept?.settled ?? []) register(listener);

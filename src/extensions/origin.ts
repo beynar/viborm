@@ -7,7 +7,9 @@
 import type { QueryExecutionContext } from "@drivers/types";
 import type { QueryEngine } from "@query-engine/query-engine";
 import type { PreparedOperation } from "@query-engine/raptor3/commands";
+import type { Seconds } from "./call";
 import type { AdmittedControls } from "./controls";
+import type { Watched } from "./watch-part";
 
 /** The key of the call a first moment's context and a `run` belong to. */
 export const CALL = Symbol("viborm.call");
@@ -17,7 +19,12 @@ export const SCOPE = Symbol("viborm.scope");
 export const AGAIN = Symbol("viborm.again");
 export const VIA = Symbol("viborm.via");
 
-/** One model call, as its words read it. */
+/**
+ * One call, as its words and its parts read it: a model call's own object, a
+ * raw statement's resolved query. Each part that keeps something for the
+ * call writes its own field, and only it reads that field: what it keeps
+ * lives as long as the call, never on a chain or a part, which outlive it.
+ */
 export interface CallOrigin {
   /** The arguments of the extensions the call admitted. */
   readonly controls?: AdmittedControls;
@@ -28,6 +35,10 @@ export interface CallOrigin {
     /** The call prepared once: what runs is this preparation. */
     readonly prepared: () => PreparedOperation;
   };
+  /** `around` (`call.ts`): what each part's first moment left its second. */
+  seconds?: Seconds;
+  /** `watch` and `settled` on a model call (`watch-part.ts`): per extension. */
+  watched?: Watched;
 }
 
 /** The view one extension's method scope serves. */

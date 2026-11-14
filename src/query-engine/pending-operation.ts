@@ -488,7 +488,6 @@ export class PendingOperation<T>
       operation: String(this.#options.originalOperation),
       model: this.#modelName,
       context: this.#context.attribution,
-      call: this.#inputPreparation,
       driver: this.#engine.driver,
       table: this.#model["~"].names.sql ?? this.#modelName,
       ...(certain ? { certainty: () => this.#observationCommitCertainty } : {}),

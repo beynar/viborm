@@ -12,7 +12,7 @@ import { isReadOperation } from "@query-engine/routed-operations";
 import { isError } from "../errors/diagnostic-safety";
 import type { ResolvedOperationHandler } from "./chain";
 import type { AdmittedControls } from "./controls";
-import { AGAIN, CALL, VIA } from "./origin";
+import { AGAIN, CALL, type CallOrigin, VIA } from "./origin";
 
 export type QueryInterceptionMode = "direct" | "transaction" | "array";
 
@@ -27,6 +27,11 @@ export type RawQueryOperation = `$${RawQueryKind}`;
 interface PreparedQueryContextBase<Input extends object> {
   readonly mode: QueryInterceptionMode;
   readonly input: Readonly<Input>;
+  /**
+   * One object per call, the same one its first moments were handed: what
+   * links an `around` part's two moments.
+   */
+  readonly call?: CallOrigin;
 }
 
 export interface PreparedModelQueryContext<Input extends object>
@@ -39,11 +44,6 @@ export interface PreparedModelQueryContext<Input extends object>
    * and only when that extension declares any.
    */
   readonly controls?: AdmittedControls;
-  /**
-   * One object per call, the same one its first moments were handed: what
-   * links a `call.around` part's two moments.
-   */
-  readonly call?: object;
 }
 
 export interface PreparedRawQueryContext<Input extends object>

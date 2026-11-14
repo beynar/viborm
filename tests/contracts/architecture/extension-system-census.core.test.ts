@@ -58,13 +58,11 @@ const OFFICIAL_EXTENSION_WORD =
 const MODULE_STATE_LEFT = Object.freeze([
   "src/extensions/admission.ts admitted",
   "src/extensions/admission.ts registries",
-  "src/extensions/call.ts seconds",
   "src/extensions/gates.ts namedGatedFields",
   "src/extensions/plain-domain.ts NONE",
   "src/extensions/plain-domain.ts prepared",
   "src/extensions/row-domain.ts preparedDomains",
   "src/extensions/unit-source.ts operations",
-  "src/extensions/watch-part.ts watched",
 ]);
 
 /**
