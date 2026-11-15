@@ -376,9 +376,9 @@ describe("keep(): what a delete writes instead", () => {
           })
         )
       )
-    ).toContain("keep() writes constants and now");
+    ).toContain("keep() writes constants, and now in one field");
     expect(refusal(kept({ deletedAt: now, title: now }))).toContain(
-      "keep() writes now in one field"
+      "keep() writes constants, and now in one field"
     );
   });
 
@@ -462,7 +462,7 @@ describe("an entry given lazily is checked where it is first read", () => {
           delete: { instead: keep({ deletedAt: now }) },
         }))
       )
-    ).toContain("keep() is written in an entry, not one given as a function");
+    ).toContain("a lazy entry does not take keep()");
     expect(refusal(await firstRead(() => lazy(() => ({}))))).toContain(
       "the entry does not take lazy()"
     );

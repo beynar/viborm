@@ -220,9 +220,9 @@ class Kept extends CarriedValue {
   join({ key, model, schema, lazy, bring, refuse: given }: Site): void {
     // Typed where it is declared, so a refusal narrows what follows it.
     const refuse: (problem: string) => never = given;
-    if (key !== "delete.instead") refuse(`${key} does not take keep()`);
-    if (lazy)
-      refuse("keep() is written in an entry, not one given as a function");
+    // What a delete keeps is bound with the chain, before a lazy entry is read.
+    if (key !== "delete.instead" || lazy)
+      refuse(`${lazy ? "a lazy entry" : key} does not take keep()`);
     let data = this.data;
     // `keep(when(…))`, `keep(unless(…))`: kept where its test says, per call.
     const chosen =
@@ -245,9 +245,8 @@ class Kept extends CarriedValue {
       if (!Object.hasOwn(state.scalars, field))
         refuse(`keep() names unknown field "${field}"`);
       if (!(value instanceof PredicateWord)) assign[field] = value;
-      else if (value.stamp?.() !== NOW)
-        refuse("keep() writes constants and now");
-      else if (at !== undefined) refuse("keep() writes now in one field");
+      else if (value.stamp?.() !== NOW || at !== undefined)
+        refuse("keep() writes constants, and now in one field");
       else at = field;
     }
     bring(
