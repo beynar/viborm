@@ -42,7 +42,7 @@ import {
   SPAN_TRANSACTION,
   type VibORMSpanName,
 } from "./spans";
-import { setSpanAttributes, shouldTraceSpan } from "./tracer";
+import { setSpanAttributes, type TracerWrapper } from "./tracer";
 import type {
   ExactInstrumentationConfig,
   InstrumentationConfig,
@@ -110,11 +110,8 @@ function observe(
 function traces(
   context: InstrumentationContext,
   name: VibORMSpanName
-): boolean {
-  return (
-    context.config.tracing !== undefined &&
-    shouldTraceSpan(context.tracer, name)
-  );
+): context is InstrumentationContext & { readonly tracer: TracerWrapper } {
+  return context.tracer?.traces(name) === true;
 }
 
 function logs(context: InstrumentationContext, level: LogLevel): boolean {
@@ -136,7 +133,7 @@ function disclosesParameters(context: InstrumentationContext): boolean {
     tracing !== undefined &&
     tracing !== true &&
     tracing.includeParams === true &&
-    shouldTraceSpan(context.tracer, SPAN_EXECUTE)
+    traces(context, SPAN_EXECUTE)
   );
 }
 
@@ -342,9 +339,7 @@ function presentNoted(
     }
     return endWith(end, unit);
   };
-  return span !== undefined &&
-    context.config.tracing !== undefined &&
-    tracesAs(span)
+  return span !== undefined && context.tracer !== undefined && tracesAs(span)
     ? context.tracer.startActiveSpan(createNotedSpanOptions(unit, span), settle)
     : settle();
 }

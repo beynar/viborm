@@ -44,10 +44,7 @@ import {
   SPAN_OPERATION,
   SPAN_TRANSACTION,
 } from "@src/instrumentation/spans";
-import {
-  createTracerWrapper,
-  shouldTraceSpan,
-} from "@src/instrumentation/tracer";
+import { createTracerWrapper } from "@src/instrumentation/tracer";
 import type {
   LogEvent,
   SpanTracer,
@@ -273,8 +270,8 @@ describe("tracing.tracer: spans start through the handed tracer", () => {
     await expect(
       ignoring.startActiveSpan({ name: SPAN_EXECUTE }, () => "ignored")
     ).resolves.toBe("ignored");
-    expect(shouldTraceSpan(ignoring, SPAN_EXECUTE)).toBe(false);
-    expect(shouldTraceSpan(ignoring, SPAN_OPERATION)).toBe(true);
+    expect(ignoring.traces(SPAN_EXECUTE)).toBe(false);
+    expect(ignoring.traces(SPAN_OPERATION)).toBe(true);
     expect(spans).toEqual([]);
 
     await disclosing.startActiveSpan(
@@ -296,13 +293,17 @@ describe("tracing.tracer: spans start through the handed tracer", () => {
     ]);
   });
 
-  it("is enabled at once", () => {
-    const { tracer } = fakeTracer();
+  it("is enabled at once: the first span starts in the call that asks for it", async () => {
+    const { spans, tracer } = fakeTracer();
     const wrapper = createTracerWrapper({ tracer });
     const context = createInstrumentationContext({ tracing: { tracer } });
 
-    expect(wrapper.isEnabled()).toBe(true);
-    expect(context.tracer.isEnabled()).toBe(true);
+    const first = context.tracer?.startActiveSpan(
+      { name: SPAN_OPERATION },
+      () => undefined
+    );
+    expect(spans.map(({ name }) => name)).toEqual([SPAN_OPERATION]);
+    await first;
     expect(Object.isFrozen(wrapper)).toBe(true);
   });
 });

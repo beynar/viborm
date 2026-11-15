@@ -23,10 +23,9 @@
  * more test files share.
  *
  * IMPORTANT (OTel load timing): `createTracerWrapper()` loads `@opentelemetry/api`
- * lazily. `isEnabled()` returns false until the first `startActiveSpan` has
- * awaited the internal load. Use `await primeTracer(tracer)` when a test needs
- * `isEnabled()` to be true without first running a real span, or just call a
- * span first.
+ * lazily: the first `startActiveSpan` awaits the internal load. Use
+ * `await primeTracer(tracer)` when a test needs the load done without first
+ * running a real span, or just call a span first.
  */
 
 import { trace } from "@opentelemetry/api";
@@ -111,9 +110,8 @@ export function withOtelRecorder(): OtelRecorder {
 }
 
 /**
- * Force a real tracer wrapper to finish its lazy OTel load so `isEnabled()`
- * reflects the loaded state. Runs a throwaway span through an ignored name so
- * no span is recorded.
+ * Force a real tracer wrapper to finish its lazy OTel load. Runs a throwaway
+ * span.
  */
 export async function primeTracer(tracer: TracerWrapper): Promise<void> {
   await tracer.startActiveSpan({ name: "viborm.operation" }, () => undefined);

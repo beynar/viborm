@@ -5,14 +5,9 @@ import {
   SPAN_EXECUTE,
   SPAN_OPERATION,
 } from "@src/instrumentation/spans";
-import {
-  createTracerWrapper,
-  getNoopTracer,
-  shouldTraceSpan,
-} from "@src/instrumentation/tracer";
+import { createTracerWrapper } from "@src/instrumentation/tracer";
 import {
   type OtelRecorder,
-  primeTracer,
   withOtelRecorder,
 } from "@tests/unit/instrumentation/_capture";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -60,17 +55,6 @@ describe("createTracerWrapper (OTel present)", () => {
     const span = findLast(SPAN_OPERATION);
     expect(span).toBeDefined();
     expect(span?.name).toBe(SPAN_OPERATION);
-  });
-
-  it("isEnabled becomes true after the lazy load; primeTracer forces it", async () => {
-    const tracer = createTracerWrapper();
-
-    // Before any span awaits the load, otel is not yet cached.
-    expect(tracer.isEnabled()).toBe(false);
-
-    await primeTracer(tracer);
-
-    expect(tracer.isEnabled()).toBe(true);
   });
 
   it("applies caller attributes to the recorded span", async () => {
@@ -289,8 +273,8 @@ describe("createTracerWrapper (OTel present)", () => {
 
     expect(result).toBe("ran");
     expect(countOf(SPAN_CONNECT)).toBe(before);
-    expect(shouldTraceSpan(tracer, SPAN_CONNECT)).toBe(false);
-    expect(shouldTraceSpan(tracer, SPAN_EXECUTE)).toBe(true);
+    expect(tracer.traces(SPAN_CONNECT)).toBe(false);
+    expect(tracer.traces(SPAN_EXECUTE)).toBe(true);
   });
 
   it("snapshots ignore patterns when the tracer is created", async () => {
@@ -341,40 +325,5 @@ describe("createTracerWrapper (OTel present)", () => {
     await tracer.startActiveSpan({ name: SPAN_OPERATION }, () => undefined);
 
     expect(findLast(SPAN_OPERATION)?.parentSpanContext).toBeUndefined();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// NOOP path — getNoopTracer, no spans, always inert
-// ---------------------------------------------------------------------------
-
-describe("getNoopTracer", () => {
-  it("startActiveSpan runs the callback and returns its value; isEnabled false", async () => {
-    const tracer = getNoopTracer();
-
-    const result = await tracer.startActiveSpan(
-      { name: SPAN_OPERATION },
-      () => "value"
-    );
-
-    expect(result).toBe("value");
-    expect(tracer.isEnabled()).toBe(false);
-    expect(shouldTraceSpan(tracer, SPAN_OPERATION)).toBe(false);
-  });
-
-  it("returns the shared singleton instance across calls", () => {
-    expect(getNoopTracer()).toBe(getNoopTracer());
-  });
-
-  it("treats unknown and hostile span decisions conservatively", () => {
-    const undecidedTracer = { ...getNoopTracer() };
-    const hostileTracer = new Proxy(getNoopTracer(), {
-      get() {
-        throw new Error("hostile tracer");
-      },
-    });
-
-    expect(shouldTraceSpan(undecidedTracer, SPAN_OPERATION)).toBe(true);
-    expect(shouldTraceSpan(hostileTracer, SPAN_OPERATION)).toBe(true);
   });
 });

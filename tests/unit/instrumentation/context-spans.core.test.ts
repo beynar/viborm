@@ -35,7 +35,6 @@ import {
   SPAN_OPERATION,
   SPAN_TRANSACTION,
 } from "@src/instrumentation/spans";
-import { getNoopTracer } from "@src/instrumentation/tracer";
 import type { InstrumentationConfig } from "@src/instrumentation/types";
 import {
   captureLogs,
@@ -60,11 +59,10 @@ afterAll(async () => {
 // ---------------------------------------------------------------------------
 
 describe("createInstrumentationContext — tracer", () => {
-  it("nothing configured: tracer is the noop singleton and config is resolved", () => {
+  it("nothing configured: no tracer and config is resolved", () => {
     const config = {};
     const ctx = createInstrumentationContext(config);
-    expect(ctx.tracer).toBe(getNoopTracer());
-    expect(ctx.tracer.isEnabled()).toBe(false);
+    expect(ctx.tracer).toBeUndefined();
     expect(ctx.logger).toBeUndefined();
     expect(ctx.config).not.toBe(config);
     expect(ctx.config.diagnostics).toEqual({
@@ -95,7 +93,7 @@ describe("createInstrumentationContext — tracer", () => {
     pattern.lastIndex = 4;
 
     ctx.logger?.query({ timestamp: new Date() });
-    await ctx.tracer.startActiveSpan({ name: SPAN_CONNECT }, () => undefined);
+    await ctx.tracer?.startActiveSpan({ name: SPAN_CONNECT }, () => undefined);
 
     expect(ctx.config.diagnostics).toEqual({
       includeProviderDetails: false,
@@ -113,20 +111,20 @@ describe("createInstrumentationContext — tracer", () => {
     expect(tracing.includeParams).toBe(true);
   });
 
-  it("tracing: true creates a real tracer (not the noop singleton), enabled once primed", async () => {
+  it("tracing: true creates a real tracer that records once primed", async () => {
     const ctx = createInstrumentationContext({ tracing: true });
-    expect(ctx.tracer).not.toBe(getNoopTracer());
-    // Real tracer loads OTel lazily: disabled until a span primes it.
-    expect(ctx.tracer.isEnabled()).toBe(false);
-    await primeTracer(ctx.tracer);
-    expect(ctx.tracer.isEnabled()).toBe(true);
+    const tracer = ctx.tracer;
+    if (tracer === undefined) throw new Error("expected a tracer");
+    await primeTracer(tracer);
+    await tracer.startActiveSpan({ name: SPAN_TRANSACTION }, () => undefined);
+    expect(recorder.find(SPAN_TRANSACTION)).toBeDefined();
   });
 
   it("tracing object forwards includeSql/includeParams to the tracer (visible on span attrs)", async () => {
     const ctx = createInstrumentationContext({
       tracing: { includeSql: false, includeParams: true },
     });
-    await ctx.tracer.startActiveSpan(
+    await ctx.tracer?.startActiveSpan(
       { name: SPAN_EXECUTE, sql: { query: "SELECT 1", params: ["a", 2] } },
       () => undefined
     );
@@ -143,7 +141,7 @@ describe("createInstrumentationContext — tracer", () => {
     const ctx = createInstrumentationContext({
       tracing: { ignoreSpanTypes: [SPAN_CONNECT] },
     });
-    const value = await ctx.tracer.startActiveSpan(
+    const value = await ctx.tracer?.startActiveSpan(
       { name: SPAN_CONNECT },
       () => "ran"
     );
@@ -153,7 +151,7 @@ describe("createInstrumentationContext — tracer", () => {
     expect(recorder.find(SPAN_CONNECT)).toBeUndefined();
     // A non-ignored span from the SAME wrapper IS recorded, proving the wrapper
     // is otherwise live (SPAN_DISCONNECT is used by no other test here).
-    await ctx.tracer.startActiveSpan(
+    await ctx.tracer?.startActiveSpan(
       { name: SPAN_DISCONNECT },
       () => undefined
     );

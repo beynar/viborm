@@ -2,34 +2,23 @@
  * Instrumentation Context
  *
  * Combines tracer and logger into a single context passed through layers.
- * The tracer is ALWAYS present (using no-op when tracing is not configured),
- * eliminating the need for conditional `if (tracer)` checks.
  */
 
 import type { DiagnosticDisclosure } from "@errors";
 import { createLogger, type Logger } from "./logger";
-import {
-  createTracerWrapper,
-  getNoopTracer,
-  type TracerWrapper,
-} from "./tracer";
+import { createTracerWrapper, type TracerWrapper } from "./tracer";
 import type {
   InstrumentationConfig,
   LoggingConfig,
   TracingConfig,
 } from "./types";
 
-/**
- * Combined instrumentation context
- *
- * Note: `tracer` is always defined - it's either a real tracer or a no-op tracer.
- * This allows code to unconditionally call tracer methods without null checks.
- */
+/** Combined instrumentation context */
 export interface InstrumentationContext {
   /** Immutable configuration snapshot resolved at the public boundary. */
   config: ResolvedInstrumentationConfig;
-  /** Tracer wrapper - always present (no-op if tracing not configured) */
-  tracer: TracerWrapper;
+  /** Tracer wrapper (if tracing enabled) */
+  tracer?: TracerWrapper | undefined;
   /** Logger (if logging enabled) */
   logger?: Logger | undefined;
 }
@@ -44,27 +33,24 @@ interface ResolvedInstrumentationConfig {
  * Create instrumentation context from config
  *
  * @param config - Instrumentation configuration
- * @returns Combined context with tracer (always present) and logger
+ * @returns Combined context with tracer and logger
  */
 export function createInstrumentationContext(
   config: InstrumentationConfig
 ): InstrumentationContext {
   const snapshot = snapshotInstrumentationConfig(config);
-  // Create tracer - either real (if tracing configured) or no-op
-  let tracer: TracerWrapper;
+  const context: InstrumentationContext = { config: snapshot };
+
+  // Create tracer if tracing is configured
   if (snapshot.tracing) {
     const tracingConfig = snapshot.tracing === true ? {} : snapshot.tracing;
-    tracer = createTracerWrapper({
+    context.tracer = createTracerWrapper({
       includeSql: tracingConfig.includeSql,
       includeParams: tracingConfig.includeParams,
       ignoreSpanTypes: tracingConfig.ignoreSpanTypes,
       tracer: tracingConfig.tracer,
     });
-  } else {
-    tracer = getNoopTracer();
   }
-
-  const context: InstrumentationContext = { config: snapshot, tracer };
 
   // Create logger if logging is configured
   if (snapshot.logging) {

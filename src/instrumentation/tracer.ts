@@ -4,11 +4,8 @@
  * Presents spans through a tracer the application hands over (a platform such
  * as Cloudflare Workers supplies its own), or else through an auto-detected
  * OpenTelemetry API with graceful fallback when it is not available.
- * Follows Drizzle's pattern: optional dependency, no-op when unavailable.
- *
- * Key design: createTracerWrapper() ALWAYS returns a tracer - either a real
- * one (when OTel is available) or a no-op tracer. This eliminates the need
- * for conditional `if (tracer)` checks throughout the codebase.
+ * Follows Drizzle's pattern: optional dependency, the callback run alone when
+ * unavailable. Without tracing configured there is no wrapper at all.
  */
 
 import { VIBORM_VERSION } from "../version";
@@ -48,7 +45,6 @@ const API_CONTRACT_CODES: StatusCodes = {
 // Package version for tracer identification
 const TRACER_NAME = "viborm";
 const TRACER_VERSION = VIBORM_VERSION;
-const SHOULD_TRACE_SPAN = Symbol("viborm.shouldTraceSpan");
 /**
  * Every span VibORM has settled, whichever operation settled it: a span a
  * tracer hands to two operations, or to a callback re-entered from another
@@ -95,8 +91,8 @@ export interface TracerWrapperConfig {
 /**
  * Tracer wrapper interface
  *
- * All methods are safe to call regardless of whether OTel is loaded.
- * When OTel is not available, methods execute callbacks directly without tracing.
+ * Safe to call whether OTel is loaded or not: when it is not available, the
+ * callback runs directly, without a span.
  */
 export interface TracerWrapper {
   /**
@@ -108,38 +104,14 @@ export interface TracerWrapper {
     fn: (span?: TracingSpan) => T | Promise<T>
   ): Promise<T>;
 
-  /**
-   * Check if tracing is enabled (OTel loaded and configured)
-   */
-  isEnabled(): boolean;
+  /** Whether a span of this name is presented (`ignoreSpanTypes` names it not). */
+  traces(name: VibORMSpanName): boolean;
 }
-
-/**
- * No-op tracer that passes through callbacks without creating spans.
- * Used when OpenTelemetry is not available.
- */
-const noopTracer: TracerWrapper = {
-  async startActiveSpan<T>(
-    _options: VibORMSpanOptions,
-    fn: (span?: TracingSpan) => T | Promise<T>
-  ): Promise<T> {
-    return fn();
-  },
-
-  isEnabled(): boolean {
-    return false;
-  },
-};
-Object.defineProperty(noopTracer, SHOULD_TRACE_SPAN, {
-  value: () => false,
-});
-Object.freeze(noopTracer);
 
 /**
  * Create a tracer wrapper instance
  *
  * All mutable state is scoped to this instance to support serverless environments.
- * Always returns a valid TracerWrapper - either a real tracer or the no-op tracer.
  * With `config.tracer` the wrapper presents spans through that tracer and never
  * imports `@opentelemetry/api`; without it, the api is auto-detected.
  */
@@ -190,6 +162,7 @@ export function createTracerWrapper(
    */
   function presentThrough(platformTracer: SpanTracer): TracerWrapper {
     return {
+      traces: (name) => !shouldIgnoreSpan(name),
       async startActiveSpan<T>(
         options: VibORMSpanOptions,
         fn: (span?: TracingSpan) => T | Promise<T>
@@ -209,10 +182,6 @@ export function createTracerWrapper(
         }
         // Without a callback from the tracer, the operation runs unspanned.
         return executeOnce();
-      },
-
-      isEnabled(): boolean {
-        return true;
       },
     };
   }
@@ -247,6 +216,7 @@ export function createTracerWrapper(
     });
 
     const wrapper: TracerWrapper = {
+      traces: (name) => !shouldIgnoreSpan(name),
       async startActiveSpan<T>(
         options: VibORMSpanOptions,
         fn: (span?: TracingSpan) => T | Promise<T>
@@ -285,23 +255,14 @@ export function createTracerWrapper(
         }
         return executeOnce(span);
       },
-
-      isEnabled(): boolean {
-        return otel !== null;
-      },
     };
     return wrapper;
   }
 
   const platformTracer = config?.tracer;
-  const wrapper =
-    platformTracer === undefined
-      ? autoDetect()
-      : presentThrough(platformTracer);
-  Object.defineProperty(wrapper, SHOULD_TRACE_SPAN, {
-    value: (name: VibORMSpanName) => !shouldIgnoreSpan(name),
-  });
-  return Object.freeze(wrapper);
+  return Object.freeze(
+    platformTracer === undefined ? autoDetect() : presentThrough(platformTracer)
+  );
 }
 
 /**
@@ -416,18 +377,6 @@ export function setSpanAttributes(
   }
 }
 
-export function shouldTraceSpan(
-  tracer: TracerWrapper,
-  name: VibORMSpanName
-): boolean {
-  try {
-    const shouldTrace = Reflect.get(tracer, SHOULD_TRACE_SPAN);
-    return typeof shouldTrace !== "function" || shouldTrace(name) !== false;
-  } catch {
-    return true;
-  }
-}
-
 /**
  * Run one span call; neither its throw nor a rejection of the thenable it
  * returns reaches the operation, which never waits for it. Only a thenable
@@ -464,13 +413,4 @@ function createTraceError(): Error {
 function formatSpanParameter(value: unknown): string {
   if (typeof value === "string") return value;
   return String(JSON.stringify(value));
-}
-
-/**
- * Get the no-op tracer instance.
- * Use this when you need a tracer that does nothing but still
- * implements the TracerWrapper interface.
- */
-export function getNoopTracer(): TracerWrapper {
-  return noopTracer;
 }
