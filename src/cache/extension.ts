@@ -127,10 +127,7 @@ export function cache(config: CacheExtensionConfig): unknown {
     );
   if (
     version !== undefined &&
-    !(
-      typeof version === "string" ||
-      (typeof version === "number" && Number.isFinite(version))
-    )
+    !(typeof version === "string" || Number.isFinite(version))
   )
     configurationError(
       'Cache extension configuration "version" must be a string or finite number.'
@@ -141,16 +138,8 @@ export function cache(config: CacheExtensionConfig): unknown {
     );
 
   // Pure in its facts: the same version and database always give one scope.
-  const namespaces = new Map<string, string>();
-  const namespaceOf = ({ dialect, namespace }: Database): string => {
-    const id = JSON.stringify([dialect, namespace ?? null]);
-    let scope = namespaces.get(id);
-    if (scope === undefined) {
-      scope = createOfficialCacheNamespace({ version, dialect, namespace });
-      namespaces.set(id, scope);
-    }
-    return scope;
-  };
+  const namespaceOf = ({ dialect, namespace }: Database): string =>
+    createOfficialCacheNamespace({ version, dialect, namespace });
   /**
    * Invalidate the scope of `origin`'s database. A backend failure is the
    * cache's; after a write (`meta`), whatever failed is, and a key

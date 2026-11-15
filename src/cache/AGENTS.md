@@ -82,8 +82,8 @@ The official scope is a PURE function of four facts: the private storage
 revision (`r6`), the cache `version`, the database's dialect and its SQL
 namespace (`database(x)`: `adapter.namespace`). `cache(config)` makes one
 extension value that may be applied to several clients; each read derives
-its scope from the database of the call, memoized by those facts inside the
-extension. Never introduce a registry keyed on chain or client identity to
+its scope from the database of the call, computed again from those facts
+(a memo's key would cost what the encoding does). Never introduce a registry keyed on chain or client identity to
 hand an old scope back, and never let a transaction view mint its own.
 
 Every component of the namespace is fixed-width-hex encoded behind a
