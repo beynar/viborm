@@ -1,7 +1,4 @@
-import {
-  CacheConfigurationError,
-  CacheOperationNotCacheableError,
-} from "@errors";
+import { CacheConfigurationError } from "@errors";
 import { parse } from "@validation";
 import v, { type V } from "@validation/primitives/v";
 import { parseTTL } from "./ttl";
@@ -49,7 +46,7 @@ export function hasCacheInvalidationWork(
   return (
     options === undefined ||
     options.autoInvalidate === true ||
-    (options?.invalidate !== undefined && options.invalidate.length > 0)
+    (options.invalidate !== undefined && options.invalidate.length > 0)
   );
 }
 
@@ -83,9 +80,7 @@ export const withCacheSchema = v.object(
      */
     ttl: v.coerce(
       v.optional(v.union([v.string(), v.number()]), DEFAULT_CACHE_TTL),
-      (value: string | number) => {
-        return parseTTL(value);
-      }
+      parseTTL
     ),
     /**
      * Enable stale-while-revalidate pattern
@@ -102,12 +97,10 @@ export const withCacheSchema = v.object(
      */
     swr: v.coerce(
       v.optional(v.union([v.boolean(), v.string(), v.number()])),
-      (value: boolean | string | number | undefined) => {
-        if (value === undefined || typeof value === "boolean") {
-          return value;
-        }
-        return parseTTL(value);
-      }
+      (value: boolean | string | number | undefined) =>
+        value === undefined || typeof value === "boolean"
+          ? value
+          : parseTTL(value)
     ),
     /**
      * The official cache extension retains the canonical model/operation/args
@@ -140,7 +133,10 @@ export type WithCacheOptions = WithCacheSchema[" vibInferred"]["0"];
 // THE CACHE'S TWO ARGUMENTS, AND THE READS IT SERVES
 // =============================================================================
 
-/** The reads a cached view serves; anything else through it is refused. */
+/**
+ * The reads a cached view serves, as its refusal of anything else lists
+ * them.
+ */
 export const CACHEABLE: readonly string[] = Object.freeze([
   "findFirst",
   "findMany",
@@ -153,28 +149,12 @@ export const CACHEABLE: readonly string[] = Object.freeze([
   "exist",
 ]);
 
-/** Refuse an operation a cached view does not serve. */
-export function validateCacheableOperation(operation: string): void {
-  if (CACHEABLE.includes(operation)) return;
-  throw new CacheOperationNotCacheableError(operation, [...CACHEABLE]);
-}
-
 /** One read's options, as the cache applies them. */
 export interface CacheReadOptions {
   readonly ttlMs: number;
   readonly swr: number | false;
   readonly bypass: boolean;
   readonly key?: string;
-}
-
-/** The SWR window an option gives: its stale window added to the TTL. */
-function resolveSwr(
-  swr: boolean | number | undefined,
-  ttlMs: number
-): number | false {
-  if (swr === undefined || swr === false) return false;
-  if (swr === true) return ttlMs * 2;
-  return ttlMs + swr;
 }
 
 function refused(what: string, issues: readonly { message: string }[]): never {
@@ -204,7 +184,11 @@ export function admitReadOptions(value: unknown): CacheReadOptions {
   const { bypass, key, ttl, swr } = parsed.value;
   return Object.freeze({
     ttlMs: ttl,
-    swr: resolveSwr(swr, ttl),
+    // The SWR window: the stale window added to the TTL, `true` the TTL again.
+    swr:
+      swr === undefined || swr === false
+        ? false
+        : ttl + (swr === true ? ttl : swr),
     bypass,
     ...(key === undefined ? {} : { key }),
   });

@@ -76,7 +76,7 @@ The mutation `cache` argument is the cache's own declared argument on writes:
 taken out of the arguments before any first moment, admitted once, shown
 only to the cache's parts. `$withCache(options)` is `scope.$bind({
 cacheRead })`: a bound client every read of which the `around` serves; a
-write through it is refused (`validateCacheableOperation`).
+write through it is refused, listing `CACHEABLE` (`schema.ts`).
 
 The official scope is a PURE function of four facts: the private storage
 revision (`r6`), the cache `version`, the database's dialect and its SQL

@@ -18,16 +18,15 @@
  * only by a verb the cache layer never offers it — before anything is
  * dispatched. A future divergence between the two vocabularies fails here
  * instead of at a user's cached read, in BOTH directions: the nine names below
- * are a hand copy of a module-private set, so cell 1 checks them against
- * `validateCacheableOperation` — the exported gate that owns
- * `CACHEABLE_OPERATIONS` and publishes its whole list when it refuses. A tenth
- * cacheable verb with no prepared read therefore fails here.
+ * are a hand copy of a module-private set, so cell 1 checks them against the
+ * refusal of a write through the cached view, which publishes the whole of
+ * `CACHEABLE` (`cache/schema.ts`). A tenth cacheable verb with no prepared
+ * read therefore fails here.
  */
 
 import assert from "node:assert/strict";
 import { MemoryCache } from "@cache/drivers/memory";
 import { cache } from "@cache/extension";
-import { validateCacheableOperation } from "@cache/schema";
 import { createClient } from "@client/client";
 import type { QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
@@ -139,11 +138,6 @@ describe("FC-04 — the cached-result vocabulary boundary", () => {
       author: Record<string, CallableFunction>;
     };
     for (const [operation, args] of CACHEABLE) {
-      // The cache layer really offers this name: its own gate admits it.
-      assert.doesNotThrow(
-        () => validateCacheableOperation(operation),
-        `${operation}: the cache layer no longer offers this verb`
-      );
       const value = await model[operation]!({ ...args });
       assert.notEqual(
         value,
@@ -163,12 +157,15 @@ describe("FC-04 — the cached-result vocabulary boundary", () => {
     // The payloads above are not vacuous: each verb answered its own shape.
     assert.equal(await client.author.count({}), 3);
     assert.equal(await client.author.exist({}), true);
-    // And the nine are the gate's list, not this file's: the refusal publishes
-    // the whole of `CACHEABLE_OPERATIONS`, so a TENTH cacheable name — the
-    // direction that would crash a user's cached read — fails here too.
+    // And the nine are the gate's list, not this file's: a write through the
+    // cached view is refused with the whole of `CACHEABLE`, so a TENTH
+    // cacheable name — the direction that would crash a user's cached read —
+    // fails here too.
     let published: string[] = [];
-    assert.throws(
-      () => validateCacheableOperation("create"),
+    await assert.rejects(
+      reader.author.create!({
+        data: { id: 4, name: "Di", age: 20, joinedAt: new Date(0) },
+      }),
       (error: unknown) => {
         if (!(error instanceof CacheOperationNotCacheableError)) {
           return false;
