@@ -27,9 +27,9 @@ import {
   TEST_CONNECTION_STRING,
 } from "./mssql-fixtures";
 
-/** What a refused create under an INSTEAD OF INSERT trigger says to do. */
-const INSTEAD_OF_INSERT_ADVICE =
-  /INSTEAD OF INSERT trigger: use createMany without select/;
+/** What a create refused under an INSTEAD OF INSERT trigger says is missing. */
+const MISSING_ROW =
+  /did not hand back a row or key this write needs/;
 
 const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
 const NAMESPACE = "viborm_write_results";
@@ -166,12 +166,12 @@ END`)
 END`)
     );
     try {
-      // The refusal names the trigger and what works under it.
+      // The refusal says what is missing; the SQL Server page says why.
       const refusal = await client.counter
         .create({ data: { key: "a", value: 1 } })
         .catch((error: unknown) => error);
       expect(refusal).toBeInstanceOf(QueryEngineError);
-      expect((refusal as Error).message).toMatch(INSTEAD_OF_INSERT_ADVICE);
+      expect((refusal as Error).message).toMatch(MISSING_ROW);
       expect(
         await client.counter.createMany({
           data: [

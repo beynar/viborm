@@ -255,8 +255,9 @@ not give it.
   `INSTEAD OF` trigger it is the number of rows handed to the trigger, whatever
   the trigger did with them. An `INSTEAD OF INSERT` trigger that inserts the
   row itself hides its generated key: `create`, `upsert` and
-  `createMany({ select })` then fail with a `QueryEngineError` that names the
-  trigger, and nothing is written; a plain `createMany` works. `$executeRaw`
+  `createMany({ select })` then fail with a `QueryEngineError` ("did not hand
+  back a row or key this write needs"), and nothing is written; a plain
+  `createMany` works. `$executeRaw`
   returns the server's own count, trigger statements included.
 - **An explicit value for an `.increment()` key** (`create({ data: { id: 50 } })`)
   is written: the INSERT is refused (Msg 544), then sent again under `SET

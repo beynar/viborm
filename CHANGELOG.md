@@ -391,8 +391,8 @@ VibORM reads Snowflake, and reads and writes Microsoft SQL Server.
   a date or time carried through JSON as the root read gives it. Absent
   elsewhere, whose SQL is unchanged.
 - **An INSERT whose row the database does not hand back** (an `INSTEAD OF
-  INSERT` trigger on SQL Server) fails with a `QueryEngineError` that names
-  the cause and what works there.
+  INSERT` trigger on SQL Server) fails with a `QueryEngineError` saying the
+  row or key it needs was not handed back.
 
 ### Changed
 

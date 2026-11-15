@@ -132,7 +132,7 @@ class Pending {
 const UNHEARD = Symbol("a value the database has not said yet");
 /** A statement was heard, and the value it was to say still is not. */
 const UNSAID =
-  "The database did not hand back a row or key this write needs (on SQL Server, an INSTEAD OF INSERT trigger: use createMany without select)";
+  "The database did not hand back a row or key this write needs.";
 /** The first row of a part undone alone was passed by: another row holds what it alone may hold. */
 const PASSED = Symbol("a row the database passed by");
 /** A value as text, whatever numbers it holds. */
