@@ -59,6 +59,12 @@ export async function openDriver(url: string): Promise<OpenedDriver> {
     const { MySQL2Driver } = await import("../../drivers/mysql2");
     return { driver: new MySQL2Driver({ databaseUrl: url }), dialect: "mysql" };
   }
+  if (scheme === "snowflake")
+    throw new MigrationError(
+      'A snowflake:// URL carries no key or token. Pass the driver instead: introspectSchema({ driver: new SnowflakeDriver({ databaseUrl, privateKey }) }) with SnowflakeDriver from "viborm/snowflake".',
+      VibORMErrorCode.INVALID_INPUT,
+      { meta: { feature: "introspect-url" } }
+    );
   if (scheme === "surrealdb" || scheme === "surreal")
     throw new MigrationError(
       "introspectSchema does not translate SurrealDB yet; PostgreSQL, SQLite and MySQL are supported.",
