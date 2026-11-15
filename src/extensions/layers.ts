@@ -86,7 +86,7 @@ export function fold(
       const merged = deep ? mergeQuantifiers(predicate.kind, kept) : undefined;
       return merged?.length === 1 && !conjunction
         ? merged[0]!
-        : freeze({ kind: predicate.kind, predicates: freeze(merged ?? kept) });
+        : { kind: predicate.kind, predicates: merged ?? kept };
     }
     case "not": {
       const folded = fold(predicate.predicate, known, deep);
@@ -94,7 +94,7 @@ export function fold(
         return folded.value ? VACUOUS_FALSE : ALWAYS_TRUE;
       return folded === predicate.predicate
         ? predicate
-        : freeze({ kind: "not", predicate: folded });
+        : { kind: "not", predicate: folded };
     }
     case "relation":
     case "exists": {
@@ -109,12 +109,12 @@ export function fold(
         return VACUOUS_FALSE;
       if (folded === predicate.predicate) return predicate;
       if (predicate.kind === "relation")
-        return freeze({ ...predicate, predicate: folded });
-      return freeze({
+        return { ...predicate, predicate: folded };
+      return {
         kind: "exists",
         model: predicate.model,
         ...(folded.kind !== "always" && { predicate: folded }),
-      });
+      };
     }
     default:
       return predicate;
@@ -190,7 +190,7 @@ export function layerOf(
     callReads(folded, parameters, new Set());
     return { predicate: folded, parameters: [...parameters] };
   };
-  return freeze({
+  return {
     kind: "layer",
     layer,
     model,
@@ -208,7 +208,7 @@ export function layerOf(
       // produces: what judges brings what folds them (`produced.ts`).
       return outcome && overKnown(queries, alias, outcome);
     },
-  });
+  };
   /** What the layer states for `values`, `undefined` where it states nothing. */
   function stated(
     values: CallValues | undefined,

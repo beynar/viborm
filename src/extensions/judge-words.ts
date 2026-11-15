@@ -289,6 +289,8 @@ class Lazy extends Held<() => unknown> {
     const { key, model, schema, lazy, refuse } = site;
     if (key !== "the entry" || lazy) refuse(`${key} does not take lazy()`);
     const layer = site.layer!;
+    // Called as a plain function, as written.
+    const { held } = this;
     if (Object.hasOwn(layer.rules, model))
       refuse("two rule parts of one extension judge the model");
     layer.host = ENTRIES;
@@ -309,7 +311,7 @@ class Lazy extends Held<() => unknown> {
       let admitted: AdmittedEntry | undefined;
       return (chain, extension) => {
         if (admitted === undefined) {
-          const given: unknown = Reflect.apply(this.held, undefined, []);
+          const given: unknown = held();
           const written: Readonly<Record<string, unknown>> = isPlainRecord(
             given
           )

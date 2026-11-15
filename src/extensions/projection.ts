@@ -12,7 +12,6 @@ import {
   BOOLEAN_LEAF,
   type DeclaredEvidence,
   type FieldGate,
-  freeze,
   type GatedMember,
   type Leaf,
   type PreparedProjection,
@@ -267,11 +266,11 @@ export const projectionOf = (domain: PreparedDomain) => {
           const { as, facts } = entry;
           const read = entry.shown ?? entry.read ?? ALL;
           if (as !== undefined)
-            keys.set(as, freeze({ layer, read, names: [...facts!] }));
+            keys.set(as, { layer, read, names: [...facts!] });
           for (const [field, input] of entry.reads ?? [])
             gates.set(field, [
               ...(gates.get(field) ?? []),
-              freeze([layer, read, input] as const),
+              [layer, read, input] as const,
             ]);
         }
         const known: FieldGate[] = [];
@@ -284,12 +283,10 @@ export const projectionOf = (domain: PreparedDomain) => {
                   layer === gate[index]![0] && input === gate[index]![2]
               )
           );
-          if (same === undefined) known.push(freeze(gate));
+          if (same === undefined) known.push(gate);
           gates.set(field, same ?? gate);
         }
-        return keys.size === 0 && gates.size === 0
-          ? null
-          : freeze({ keys, gates });
+        return keys.size === 0 && gates.size === 0 ? null : { keys, gates };
       });
       return projected ?? undefined;
     },
@@ -328,14 +325,14 @@ export const projectionOf = (domain: PreparedDomain) => {
                   // Admission left `true` or a list of the declared names.
                   (selection as readonly string[]).includes(held)
                 );
-          fields[name] = freeze({
+          fields[name] = {
             kind: "object",
             nullable: false,
-            fields: freeze(
-              Object.fromEntries(names.map(([held]) => [held, BOOLEAN_LEAF]))
+            fields: Object.fromEntries(
+              names.map(([held]) => [held, BOOLEAN_LEAF])
             ),
-          });
-          prepared.push(freeze({ kind: "evidence", name, evidence, names }));
+          };
+          prepared.push({ kind: "evidence", name, evidence, names });
           return true;
         },
         field(name: string, prepared: PreparedProjectionField[]): void {
@@ -345,16 +342,14 @@ export const projectionOf = (domain: PreparedDomain) => {
           if (member === undefined) {
             member = gateResultKey(gates.size);
             gates.set(gate, member);
-            prepared.push(freeze({ kind: "gate", name: member, gate }));
+            prepared.push({ kind: "gate", name: member, gate });
           }
           gated[name] = named?.has(name)
-            ? freeze({ gate: member, refused: `${path}select.${name}` })
-            : freeze({ gate: member });
+            ? { gate: member, refused: `${path}select.${name}` }
+            : { gate: member };
         },
         shape: () =>
-          gates.size > 0
-            ? { gated: freeze(gated), gates: freeze([...gates.values()]) }
-            : undefined,
+          gates.size > 0 ? { gated, gates: [...gates.values()] } : undefined,
       };
     },
   };
