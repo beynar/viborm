@@ -712,18 +712,15 @@ function methods(ordered: Ordered) {
       // engine does, so a hidden anchor is a missing one and a hidden member
       // is no neighbour. The moved row is the UPDATE's own target, which the
       // UPDATE reads under that domain already.
-      const of = (alias: string, fields: Row, field: string) =>
-        sql`(SELECT ${column(field, alias)} FROM ${table} AS ${sql.raw(alias)} WHERE ${matches(alias, fields)}${
-          alias === "a" ? sql` AND ${q.visible("a")}` : sql.empty
+      // The list's fields: `to`'s, else read, the anchor's or the row's own.
+      // A NULL in `to` is never read here: `inList` tests it with IS NULL.
+      const listed = (field: string) => {
+        if (list !== undefined) return q.value(field, list[field]);
+        const alias = anchored ? "a" : "m";
+        return sql`(SELECT ${column(field, alias)} FROM ${table} AS ${sql.raw(alias)} WHERE ${matches(alias, anchored ?? recognised)}${
+          anchored ? sql` AND ${q.visible("a")}` : sql.empty
         })`;
-      // The list's fields: the anchor's, `to`'s, else the row's own. A NULL
-      // in `to` is never read here: `inList` tests it with IS NULL.
-      const listed = (field: string) =>
-        anchored !== undefined
-          ? of("a", anchored, field)
-          : list !== undefined
-            ? q.value(field, list[field])
-            : of("m", recognised, field);
+      };
       // A required list field compares with `=`; a nullable one NULL-safely.
       const inList = (alias?: string) =>
         within.length === 0
@@ -731,9 +728,7 @@ function methods(ordered: Ordered) {
           : sql.join(
               within.map((field) =>
                 // `to` names the list by value: no NULL to compare safely.
-                list !== undefined &&
-                anchored === undefined &&
-                list[field] === null
+                list?.[field] === null
                   ? sql`${column(field, alias)} IS NULL`
                   : scalars[field]!["~"].state.nullable && list === undefined
                     ? s.same(column(field, alias), listed(field))
