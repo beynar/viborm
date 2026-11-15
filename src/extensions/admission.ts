@@ -50,7 +50,8 @@ export type VerbsDraft = Mutable<Omit<ModelVerbs<unknown>, "cycles">> & {
   moves?: Map<string, unknown>;
   reads?: Map<string, unknown>;
   facts?: Map<string, unknown>;
-  acyclic?: readonly string[] | (() => readonly string[]);
+  /** As written: a list or a function returning one, checked where it is admitted. */
+  acyclic?: unknown;
   root?: readonly unknown[];
   related?: readonly unknown[];
 };

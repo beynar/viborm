@@ -138,7 +138,7 @@ const PER_FIELD = [
 function cyclesOf(
   { schema, refuse }: Admission,
   name: string,
-  declared: NonNullable<VerbsDraft["acyclic"]>
+  declared: unknown
 ): readonly string[] | LazyRelations {
   const model = schema[name]!;
   const { relations } = model["~"].state;
@@ -146,7 +146,13 @@ function cyclesOf(
     const held = relations[relation]!["~"];
     return held.state.foreignKey !== undefined && held.settleTarget() === model;
   });
-  const checked = (listed: readonly string[]): readonly string[] => {
+  const checked = (listed: unknown): readonly string[] => {
+    if (!Array.isArray(listed))
+      return refuse(
+        name,
+        `${name}.acyclic`,
+        "lists relations, or is a function returning them"
+      );
     for (const relation of listed)
       if (!keyed.includes(relation))
         refuse(

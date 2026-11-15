@@ -91,7 +91,7 @@ export function draftOf(
     if (!(container && isPlain(value)))
       refuse(
         container
-          ? `${key} is ${field === undefined ? "an object" : "{ where?, check? }"}`
+          ? `${key} is an object`
           : `${key} is written ${key.endsWith("where") ? "only(where)" : "with a word"}`
       );
     // `fields` and `select` name a field, which every word below them reads.
@@ -125,16 +125,10 @@ export function draftOf(
     join(entry[key], key, undefined, true);
   const { acyclic } = entry;
   if (acyclic !== undefined) {
-    if (!(Array.isArray(acyclic) || typeof acyclic === "function"))
-      refuse("acyclic lists relations, or is a function returning them");
-    // A loop is refused where the row an update produces is judged.
-    if (verbs?.judge === undefined)
-      refuse(
-        "acyclic is judged with the rows a write produces: write a check() on the model beside it"
-      );
-    // Each relation it names is checked where it is admitted (`cyclesOf`).
-    // A list or a function, as checked above; its names are checked at admission.
-    verbs.acyclic = acyclic as VerbsDraft["acyclic"];
+    // A loop is refused where the row an update produces is judged; what
+    // the list names is checked where it is admitted (`cyclesOf`).
+    if (verbs?.judge === undefined) refuse("acyclic needs a check() beside it");
+    verbs.acyclic = acyclic;
   }
   return verbs;
 }

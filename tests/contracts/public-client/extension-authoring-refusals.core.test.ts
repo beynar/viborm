@@ -264,12 +264,12 @@ describe("rule: an entry's keys and the words they take", () => {
     ).toContain("read.select holds one projection key");
   });
 
-  test("a field's write slot is { where?, check? }", () => {
+  test("a field's write slot is an object", () => {
     expect(
       refusal(
         applying(loose(rule, { post: { update: { fields: { title: true } } } }))
       )
-    ).toContain("update.fields.title is { where?, check? }");
+    ).toContain("update.fields.title is an object");
   });
 
   test("acyclic lists relations, and is judged with a check beside it", () => {
@@ -281,10 +281,12 @@ describe("rule: an entry's keys and the words they take", () => {
           })
         )
       )
-    ).toContain("acyclic lists relations, or is a function returning them");
+    ).toContain(
+      "rule.post.acyclic: lists relations, or is a function returning them"
+    );
     expect(
       refusal(applying(loose(rule, { post: { acyclic: ["author"] } })))
-    ).toContain("acyclic is judged with the rows a write produces");
+    ).toContain("acyclic needs a check() beside it");
   });
 
   test("a confinement states the model's own columns", () => {
