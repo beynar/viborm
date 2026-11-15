@@ -370,6 +370,12 @@ VibORM reads Snowflake.
   run** (`delete` then `connect`, with or without `update`, where the child
   holds the key). `delete` then `connect` where the parent holds the key is
   still refused.
+- **A call costs less processor time and less memory.** Measured on in-memory
+  SQLite against 1.14.0: `create`, `update`, `upsert` and `delete` take 3 % to
+  7 % less time, `findUnique` 8 % less, and a `create` allocates 13 % fewer
+  bytes. `createMany` of ten rows takes 5 % more time and allocates 14 % fewer
+  bytes. A call sent to a database over a network spends its time there: the
+  gain shows on SQLite, Durable Objects and other in-process databases.
 - **A `default()` function is called once per written row, before any read.**
   A nested `updateMany` called it once more than it wrote rows.
 - **Every statement of a call is attributed to the operation the caller

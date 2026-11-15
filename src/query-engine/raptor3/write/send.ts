@@ -65,8 +65,8 @@ export interface Transport {
   loose?: boolean;
   /** Sends statements that go together and answers for each; `last` where the call has no more to say. */
   send(statements: readonly Statement[], last: boolean): Promise<Sent[]>;
-  /** Ends the unit: undone where the call `failed`. */
-  end(failed?: unknown): Promise<void>;
+  /** Ends the unit: undone where the call `failed`. Nothing to wait for where no unit was opened. */
+  end(failed?: unknown): Promise<void> | undefined;
   /**
    * Sends what `body` sends as a part of the unit that is undone alone where
    * it fails. None where the unit has no such part.
@@ -177,9 +177,12 @@ export function dialogue(
     }
     return answers;
   };
+  /** Sends statements inside the unit, opened where it is not yet. */
+  const within = async (statements: readonly Statement[]) =>
+    run(await enter(), statements, own);
   const transport: Transport = {
     holds: true,
-    async send(statements, last) {
+    send(statements, last) {
       const whole = last && !entered;
       const alone = !open || (whole && statements.length === 1);
       transport.loose = alone;
@@ -192,8 +195,9 @@ export function dialogue(
         transport.loose = true;
         return one.catch(loose);
       }
-      const sent = run(alone ? driver : await enter(), statements, own);
-      return alone ? sent.catch(loose) : sent;
+      return alone
+        ? run(driver, statements, own).catch(loose)
+        : within(statements);
     },
     ...((open || rollback) && {
       async attempt(body) {
@@ -208,16 +212,19 @@ export function dialogue(
           : rollback!(within, operation.attribution);
       },
     }),
-    async end(failed) {
+    end(failed) {
       if (!entered) return;
       // A unit that could not be opened has nothing to leave: what refused it is what failed.
       leave?.(failed);
       // What the unit says of its own undoing is said with what undid it.
-      const said = await unit!.then(
-        () => failed,
-        (error) => error
-      );
-      if (said !== failed) throw said;
+      return unit!
+        .then(
+          () => failed,
+          (error) => error
+        )
+        .then((said) => {
+          if (said !== failed) throw said;
+        });
     },
   };
   return transport;
@@ -330,5 +337,5 @@ export function batches(
           });
     }
   };
-  return { holds: false, loose: true, send, end: async () => undefined };
+  return { holds: false, loose: true, send, end: () => undefined };
 }
