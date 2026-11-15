@@ -201,7 +201,7 @@ export function on(hooks: RuntimeHooks, options?: OnOptions): unknown {
       const model = c.model!;
       const { operation, schema } = c;
       const mine = own[model] ?? {};
-      // The call's own rows, where a hook wants what its verb may do to them;
+      // The call's own rows, where a hook wants what its operation may do to them;
       // and the rows its nested writes reach, where its payload names a
       // relation. Any other write is not watched.
       if (

@@ -121,8 +121,9 @@ export interface PermissionsConfig {
  * narrow a call's own rows (`root`), the placement every created row
  * satisfies (R4), and the predicate each write takes: an update writing a
  * protected field its own (R3), one writing a field the placement reads the
- * placement again (a move). A verb whose action the model does not declare
- * takes no row. Predicates are shared by identity wherever they are read.
+ * placement again (a move). An entry part (`read`, `update`, `delete`) whose
+ * action the model does not declare takes no row. Predicates are shared by
+ * identity wherever they are read.
  */
 export interface CompiledModel {
   readonly read: {
@@ -163,7 +164,7 @@ export const DEFAULT_MODE = "default";
 export const MODE = "as";
 /** The projection key the entry declares on every listed model (D6, OD-2). */
 export const EVIDENCE_KEY = "$access";
-/** The placement's name: the predicate of the create verb (R4). */
+/** The placement's name: the predicate of `create` (R4). */
 const PLACE = "$create";
 
 const RESERVED = new Set([
@@ -443,7 +444,10 @@ export function compilePolicy(
   };
 }
 
-/** A model's verbs and `as` modes: what applying a policy needs before any query. */
+/**
+ * A model's action per entry part and its `as` modes: what applying a policy
+ * needs before any query.
+ */
 interface DeclaredModel {
   readonly read?: string;
   readonly update?: string;
@@ -457,8 +461,8 @@ interface DeclaredModel {
 /** What a model declares, read without lowering a rule. */
 interface Declared extends DeclaredModel {
   /**
-   * Field → the predicate an update writing it takes (by name): the update
-   * verb's, or `$write:<field>` where its write action is another.
+   * Field → the predicate an update writing it takes (by name): `update`'s,
+   * or `$write:<field>` where its write action is another.
    */
   readonly writes: { readonly [field: string]: string };
   readonly reads: { readonly [field: string]: string };
@@ -483,7 +487,7 @@ const UNLISTED: Declared = {
  * is the same as compiling every model at once.
  */
 export interface PolicyCompiler {
-  /** Every model of the schema: its verbs and modes. */
+  /** Every model of the schema: its parts' actions and modes. */
   readonly declared: { readonly [model: string]: DeclaredModel };
   /** One model compiled: one the policy does not list holds nothing (R9). */
   model(name: string): Compiled;
@@ -1670,13 +1674,13 @@ export function policyCompiler(
           `models.${name}.operations.${operation}: not a configurable operation; use read, update or delete (create always uses its own grant)`,
           name
         );
-    // The action each verb takes (K3, OD-3): `operations`, else read,
-    // update and delete; a verb whose action the model does not declare
+    // The action each entry part takes (K3, OD-3): `operations`, else read,
+    // update and delete; a part whose action the model does not declare
     // takes none. Adding actions never changes an operation mapping.
-    const verbs: { read?: string; update?: string; delete?: string } = {};
-    for (const verb of ["read", "update", "delete"] as const) {
-      const action = declared(`operations.${verb}`, operations[verb]) ?? verb;
-      if (model.actions.includes(action)) verbs[verb] = action;
+    const byPart: { read?: string; update?: string; delete?: string } = {};
+    for (const part of ["read", "update", "delete"] as const) {
+      const action = declared(`operations.${part}`, operations[part]) ?? part;
+      if (model.actions.includes(action)) byPart[part] = action;
     }
     const writes: Record<string, string> = {};
     const reads: Record<string, string> = {};
@@ -1703,7 +1707,7 @@ export function policyCompiler(
         );
       if (write !== undefined) {
         declared(`fields.${field}.write`, write);
-        if (write === verbs.update) writes[field] = write;
+        if (write === byPart.update) writes[field] = write;
         else {
           const protectedWrite = `$write:${field}`;
           claimName(protectedWrite, `models.${name}.fields.${field}.write`);
@@ -1726,7 +1730,7 @@ export function policyCompiler(
         name
       );
     declarations.set(name, {
-      ...verbs,
+      ...byPart,
       modes,
       writes,
       reads,
@@ -1738,7 +1742,7 @@ export function policyCompiler(
     const policy = config.models[name]!;
     const model = modelOf(name);
     const declared = declarations.get(name)!;
-    const { writes, ...verbs } = declared;
+    const { writes, ...byPart } = declared;
     const named = new Map<string, Where>();
     // The declaration's names were claimed when the policy was applied; a
     // move's name is new here, and a domain may take one.
@@ -1756,7 +1760,7 @@ export function policyCompiler(
         named.set(
           writes[field],
           and([
-            verbs.update === undefined ? false : named.get(verbs.update)!,
+            byPart.update === undefined ? false : named.get(byPart.update)!,
             named.get(write!)!,
           ]) || FALSE
         );
@@ -1788,15 +1792,15 @@ export function policyCompiler(
       const move = `move:${field}`;
       const holding = keys.filter(({ fields }) => fields.includes(field));
       // The new row is also judged at what judged the old one (R4), which a
-      // move need not say: the read verb, and the field's write action when
+      // move need not say: the read action, and the field's write action when
       // every spelling of the write (the field, a relation holding it) takes
       // the same one (R3).
       const spelled = new Set(
         [field, ...holding.map(({ relation }) => relation)].map(
-          (written) => writes[written] ?? verbs.update
+          (written) => writes[written] ?? byPart.update
         )
       );
-      const judged = [verbs.read, ...(spelled.size === 1 ? spelled : [])]
+      const judged = [byPart.read, ...(spelled.size === 1 ? spelled : [])]
         .filter((action) => action !== undefined)
         .map((action) => named.get(action)!);
       claim(
@@ -1821,7 +1825,7 @@ export function policyCompiler(
   };
   /**
    * A model's rule entry from its predicates by name: its read action, each
-   * field it gates and its `$access`, each write verb at its action (an
+   * field it gates and its `$access`, each write part at its action (an
    * action it does not grant takes no row), the fields whose write takes
    * its own action, the placement of a created row and the moves of an
    * updated one, and the modes that narrow its call's own rows (the
@@ -1831,19 +1835,19 @@ export function policyCompiler(
   const entryOf = (
     name: string,
     named: ReadonlyMap<string, Where>,
-    { writes, reads, moves = {}, modes, ...verbs }: Declared
+    { writes, reads, moves = {}, modes, ...byPart }: Declared
   ): Compiled => {
     const P = (key: string | undefined): object =>
       key === undefined ? nothing : named.get(key)!;
     const names = modelOf(name).actions;
     const root = modes
-      .filter((mode) => mode !== verbs.read)
+      .filter((mode) => mode !== byPart.read)
       .map((mode) => when(arg(MODE), mode, P(mode)));
     return {
       predicates: named,
       entry: {
         read: {
-          where: P(verbs.read),
+          where: P(byPart.read),
           fields: Object.fromEntries(
             Object.entries(reads).map(([field, key]) => [field, gate(P(key))])
           ),
@@ -1859,7 +1863,7 @@ export function policyCompiler(
         ...(root.length > 0 && { root }),
         create: { check: check(P(PLACE)) },
         update: {
-          where: only(P(verbs.update)),
+          where: only(P(byPart.update)),
           fields: Object.fromEntries(
             [...new Set([...Object.keys(writes), ...Object.keys(moves)])].map(
               (field) => [
@@ -1876,7 +1880,7 @@ export function policyCompiler(
             )
           ),
         },
-        delete: { where: only(P(verbs.delete)) },
+        delete: { where: only(P(byPart.delete)) },
         acyclic: () => acyclicAt(name),
       },
     };

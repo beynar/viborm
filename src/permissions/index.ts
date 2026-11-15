@@ -697,16 +697,16 @@ export function permissions<const Config extends PermissionsConfig>(
       // target(models) selects model calls only: each names its model.
       const model = c.model!;
       const at = applied.get(c.schema)?.declared[model];
-      const verb = actionOf(c.operation);
+      const kind = actionOf(c.operation);
       const mode: unknown = c.values[MODE];
       if (
         !(
           at &&
           Object.hasOwn(config.models, model) &&
           (c.operation === "upsert" ||
-            (verb === "create"
-              ? at.modes.includes(verb)
-              : at[verb] !== undefined))
+            (kind === "create"
+              ? at.modes.includes(kind)
+              : at[kind] !== undefined))
         ) ||
         (typeof mode === "string" &&
           mode !== DEFAULT_MODE &&
