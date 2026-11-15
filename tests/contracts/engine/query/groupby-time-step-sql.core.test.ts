@@ -24,7 +24,6 @@ import {
   createModelRegistry,
   TestQueryEngine,
 } from "@tests/fixtures/query-engine";
-import { rows, startFakeSnowflake } from "@tests/fixtures/snowflake-server";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 
@@ -203,28 +202,35 @@ describe("every other engine refuses before any statement", () => {
     expect(asked).toEqual([]);
   });
 
-  test("Snowflake: the same typed refusal, the server never asked", async () => {
-    const server = await startFakeSnowflake(() => rows([], []));
-    try {
-      const client = createSnowflakeClient({
-        schema,
-        account: "myorg-acct",
-        token: "oauth-token",
-        warehouse: "WH",
-        database: "DB",
-        namespace: "PUBLIC",
-        host: server.host,
-        fetch: server.fetch,
+  test("Snowflake: the same typed refusal, nothing sent", async () => {
+    // An in-memory transport: every request recorded, each answered as the
+    // SQL API answers a statement with no rows.
+    const sent: string[] = [];
+    const fetch = async (input: string) => {
+      sent.push(input);
+      return Response.json({
+        resultSetMetaData: { numRows: 0, format: "jsonv2", rowType: [] },
+        data: [],
+        code: "090001",
+        statementHandle: "01b0-1",
+        message: "Statement executed successfully.",
       });
-      await expect(
-        client.facture.groupBy({ by: [{ date: "month" }], _count: true })
-      ).rejects.toBeInstanceOf(FeatureNotSupportedError);
-      expect(server.requests).toEqual([]);
-      // The same grouping without a step is sent: the refusal is the step's.
-      await client.facture.groupBy({ by: ["date"], _count: true });
-      expect(server.requests.length).toBeGreaterThan(0);
-    } finally {
-      await server.close();
-    }
+    };
+    const client = createSnowflakeClient({
+      schema,
+      account: "myorg-acct",
+      token: "oauth-token",
+      warehouse: "WH",
+      database: "DB",
+      namespace: "PUBLIC",
+      fetch,
+    });
+    await expect(
+      client.facture.groupBy({ by: [{ date: "month" }], _count: true })
+    ).rejects.toBeInstanceOf(FeatureNotSupportedError);
+    expect(sent).toEqual([]);
+    // The same grouping without a step is sent: the refusal is the step's.
+    await client.facture.groupBy({ by: ["date"], _count: true });
+    expect(sent.length).toBeGreaterThan(0);
   });
 });
