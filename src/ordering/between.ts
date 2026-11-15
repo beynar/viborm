@@ -14,11 +14,28 @@
 // each time a row is placed into the same gap; past MAX_KEY_LENGTH, or
 // between tied keys, the expression is NULL, and the move respaces the list.
 
+import type { ModelSql } from "../index";
 import { type Sql, sql } from "../sql/sql";
 import { MAX_KEY_LENGTH } from "./keys";
 
 const ZEROS = sql.raw(`'${"0".repeat(MAX_KEY_LENGTH)}'`);
 const POWERS = sql.raw("'1000000000'");
+
+/**
+ * Each field of `values` equal to its value, under `alias` where given; a
+ * NULL one is `nothing` (`IS NULL`, SurrealDB's `= NONE`).
+ */
+export const equal = (
+  q: ModelSql,
+  values: Readonly<Record<string, unknown>>,
+  nothing: string,
+  alias?: string
+): Sql[] =>
+  Object.entries(values).map(([field, value]) =>
+    value === null
+      ? sql`${q.column(field, alias)} ${sql.raw(nothing)}`
+      : sql`${q.column(field, alias)} = ${q.value(field, value)}`
+  );
 
 /** The dialect's spellings the key expression needs. */
 export interface Spelling {

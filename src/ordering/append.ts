@@ -18,14 +18,14 @@
 import { computed } from "../extensions/values";
 import type { ComputedContext, ModelSql } from "../index";
 import { type Sql, sql } from "../sql/sql";
-import { type Spelling, spellings } from "./between";
+import { equal, type Spelling, spellings } from "./between";
 import { keysAfter } from "./keys";
 
 type Input = Readonly<Record<string, unknown>>;
 
 /** One group: the indexes of its rows, and its fields' values. */
 interface Group {
-  readonly values: readonly unknown[];
+  readonly list: Input;
   readonly at: number[];
 }
 
@@ -45,13 +45,15 @@ function groupsOf(
     return `#${identities.get(value)}`;
   };
   for (const index of indexes) {
-    const values = within.map((field) => rows[index]![field] ?? null);
+    const list = Object.fromEntries(
+      within.map((field) => [field, rows[index]![field] ?? null])
+    );
     const key = JSON.stringify(
-      values.map((value) =>
+      Object.values(list).map((value) =>
         typeof value === "bigint" ? `${value}n` : identity(value)
       )
     );
-    const group = groups.get(key) ?? { values, at: [] };
+    const group = groups.get(key) ?? { list, at: [] };
     group.at.push(index);
     groups.set(key, group);
   }
@@ -68,20 +70,9 @@ export const appendKey = (within: readonly string[]): string =>
  * backfilled constant) is never the list's last, so an append is placed
  * after the list's keys on every dialect and never casts a non-digit.
  */
-function lastOf(
-  within: readonly string[],
-  q: ModelSql,
-  s: Spelling,
-  field: string,
-  values: readonly unknown[]
-): Sql {
+function lastOf(q: ModelSql, s: Spelling, field: string, list: Input): Sql {
   const key = q.column(field);
-  const where = within.map((name, position) => {
-    const value = values[position];
-    return value === null
-      ? sql`${q.column(name)} IS NULL`
-      : sql`${q.column(name)} = ${q.value(name, value)}`;
-  });
+  const where = equal(q, list, "IS NULL");
   where.push(s.digits(key));
   return sql`SELECT MAX(${key}) AS k FROM ${q.table()} WHERE ${sql.join(where, " AND ")}`;
 }
@@ -121,12 +112,7 @@ async function appended(
   // call in a transaction, where each answer is heard: `read` is there.
   if (dialect === "surrealql")
     for (const group of groups) {
-      const held = within.map((name, position) => {
-        const value = group.values[position];
-        return value === null
-          ? sql`${q.column(name)} = NONE`
-          : sql`${q.column(name)} = ${q.value(name, value)}`;
-      });
+      const held = equal(q, group.list, "= NONE");
       held.push(sql`string::matches(${key}, ${"^[0-9]{2,}$"})`);
       const [last] = await read!(
         sql`SELECT ${key} AS key, id FROM ${q.table()} WHERE ${sql.join(held, " AND ")} ORDER BY key DESC LIMIT 1`
@@ -140,7 +126,7 @@ async function appended(
   else if (dialect === "mysql" && read !== undefined) {
     const reads = groups.map(
       (group, position) =>
-        sql`(${lastOf(within, q, spellings.mysql, field, group.values)}) AS ${sql.raw(`g${position}`)}`
+        sql`(${lastOf(q, spellings.mysql, field, group.list)}) AS ${sql.raw(`g${position}`)}`
     );
     const [answer] = await read(sql`SELECT ${sql.join(reads, ", ")}`);
     for (const [position, group] of groups.entries()) {
@@ -152,7 +138,7 @@ async function appended(
     }
   } else
     for (const group of groups) {
-      const last = lastOf(within, q, spellings[dialect], field, group.values);
+      const last = lastOf(q, spellings[dialect], field, group.list);
       assign(group, (step) => expression(dialect, last, step + 1));
     }
   return indexes.map((index) => keys.get(index));

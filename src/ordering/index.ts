@@ -42,7 +42,7 @@ import type {
 import { getRowKey } from "../schema/model/keys";
 import { type Sql, sql } from "../sql/sql";
 import { appendKey } from "./append";
-import { between, jitter, spellings } from "./between";
+import { between, equal, jitter, spellings } from "./between";
 import { isKeyFormat, keyBetween } from "./keys";
 import { placed } from "./placed";
 
@@ -284,15 +284,10 @@ async function respaceRows(
   const movable = sql`(IF ${q.visible("", { update: [key] })} { true } ELSE { false })`;
   const entries: { where: Row; value: unknown }[] = [];
   for (const list of lists) {
-    const held = fieldsOf(
-      within,
-      Object.fromEntries(within.map((field, at) => [field, list[`w${at}`]]))
+    const held = Object.fromEntries(
+      within.map((field, at) => [field, list[`w${at}`] ?? null])
     );
-    const conditions = within.map((field) =>
-      held[field] === null
-        ? sql`${q.column(field)} = NONE`
-        : sql`${q.column(field)} = ${q.value(field, held[field])}`
-    );
+    const conditions = equal(q, held, "= NONE");
     const rows = await read(
       sql`SELECT ${sql.join(
         [
@@ -706,14 +701,7 @@ function methods(ordered: Ordered) {
       const table = q.table();
       const column = (field: string, alias?: string) => q.column(field, alias);
       const matches = (alias: string, fields: Row) =>
-        sql.join(
-          Object.entries(fields).map(([field, value]) =>
-            value === null
-              ? sql`${column(field, alias)} IS NULL`
-              : sql`${column(field, alias)} = ${q.value(field, value)}`
-          ),
-          " AND "
-        );
+        sql.join(equal(q, fields, "IS NULL", alias), " AND ");
       // Not that row: where a field it names is NULL in another row, the
       // match is unknown there, and that row is still another one.
       const other = (alias: string, fields: Row) =>
