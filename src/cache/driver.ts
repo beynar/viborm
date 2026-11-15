@@ -423,7 +423,10 @@ export abstract class CacheDriver {
    */
   disconnect?(): Promise<void>;
 
-  async [DELETE](prefixedKey: string, origin?: object): Promise<void> {
+  // Not `async`: a step that fails is rejected by the promise the caller
+  // holds, with no promise between them left a tick without a handler
+  // (workerd reports one).
+  [DELETE](prefixedKey: string, origin?: object): Promise<void> {
     this.#fillRevision += 1;
     const keys = [prefixedKey, `${prefixedKey}${REVALIDATING_SUFFIX}`];
     return cacheStep("delete", origin, this.driverName, () =>
@@ -431,7 +434,7 @@ export abstract class CacheDriver {
     );
   }
 
-  async [CLEAR](prefixedKey: string, origin?: object): Promise<void> {
+  [CLEAR](prefixedKey: string, origin?: object): Promise<void> {
     this.#fillRevision += 1;
     return cacheStep("clear", origin, this.driverName, () =>
       this.clear(prefixedKey)

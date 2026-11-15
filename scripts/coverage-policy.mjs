@@ -91,6 +91,12 @@ const definitions = [
     id: "extensions",
     label: "extensions",
     target: 100,
+    // One arm is left to the SurrealDB lane (Arnaud, 2026-11-15, the waiver
+    // `surrealdb-judged-key` below): measured 2026-11-15 on the tree of the
+    // extension rewrite, statements 100, branches 99.96, functions 100,
+    // lines 100. The branch floor is that number rounded down to 0.05: any
+    // second uncovered arm fails the lane.
+    metricTargets: { branches: 99.95 },
     // The official soft-delete, permissions, `on` and ordering extensions: definitions
     // over the capabilities this subsystem owns, measured by the same lane.
     // They own their directories, so a file an entry gains is measured at 100%
@@ -290,6 +296,12 @@ export const coverageWaivers = Object.freeze([
       "src/drivers/planetscale/response-contract.ts",
     ],
     reason: "Hosted provider transport branches require service credentials.",
+  },
+  {
+    id: "surrealdb-judged-key",
+    sources: ["src/extensions/judge.ts"],
+    reason:
+      "The arm that keys a judged update whose driver does not say which fields it assigns is reached only by SurrealDB (an update that changes a record's id under a judged rule); the SurrealDB provider lane of the CI runs it.",
   },
   {
     id: "docker-provider",
