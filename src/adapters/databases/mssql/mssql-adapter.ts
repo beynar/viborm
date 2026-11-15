@@ -92,15 +92,20 @@ const MSSQL_EXACT_DIGITS = 38;
  */
 const LIKE_PATTERN_LIMIT = 4000;
 
-/** `value`, where it is one bound string. */
-const boundText = (value: Sql): string | undefined => {
+/** A compared ASCII string in a non-Unicode column's family (`literals.string`). */
+const varchar = (text: string): Sql => sql`CAST(${text} AS VARCHAR(MAX))`;
+const VARCHAR_STRINGS = Sql.peek(varchar("")).strings;
+
+/** `value`'s one bound string, and whether it is {@link varchar}. */
+const boundText = (
+  value: Sql
+): { readonly text: string; readonly cast: boolean } | undefined => {
   const { strings, values } = Sql.peek(value);
   const [text] = values;
-  return values.length === 1 &&
-    strings[0] === "" &&
-    strings[1] === "" &&
-    typeof text === "string"
-    ? text
+  if (values.length !== 1 || typeof text !== "string") return undefined;
+  if (strings[0] === "" && strings[1] === "") return { text, cast: false };
+  return strings[0] === VARCHAR_STRINGS[0] && strings[1] === VARCHAR_STRINGS[1]
+    ? { text, cast: true }
     : undefined;
 };
 
@@ -114,15 +119,16 @@ const likeLiteral = (text: string): string =>
  * anything is sent; any other operand is escaped by the server.
  */
 const likePattern = (value: Sql, before: string, after: string): Sql => {
-  const text = boundText(value);
-  if (text === undefined)
+  const bound = boundText(value);
+  if (bound === undefined)
     return sql`${sql.raw(before ? "N'%' + " : "")}REPLACE(REPLACE(REPLACE(REPLACE(CAST(${value} AS NVARCHAR(MAX)), N'\\', N'\\\\'), N'%', N'\\%'), N'_', N'\\_'), N'[', N'\\[')${sql.raw(after ? " + N'%'" : "")}`;
-  const pattern = `${before}${likeLiteral(text)}${after}`;
+  const pattern = `${before}${likeLiteral(bound.text)}${after}`;
   if (pattern.length > LIKE_PATTERN_LIMIT)
     throw new UnsupportedOperationError(
       `SQL Server matches text against a pattern of at most ${LIKE_PATTERN_LIMIT} characters; this one needs ${pattern.length}.`
     );
-  return sql`${pattern}`;
+  // The pattern stays in the operand's family: ASCII, as its text is.
+  return bound.cast ? varchar(pattern) : sql`${pattern}`;
 };
 
 /** Two `OPENJSON` members `m` and `v` equal, as the database compares them. */
@@ -470,7 +476,7 @@ export class MssqlAdapter implements DatabaseAdapter {
         )
       )
         return undefined;
-      return sql`CAST(${value} AS VARCHAR(MAX))`;
+      return varchar(value);
     },
     decimal: (canonical: string, descriptor: DecimalDescriptor): Sql =>
       sql`CAST(${encodePhysicalDecimal(canonical, descriptor, "text")} AS ${decimalType(descriptor)})`,

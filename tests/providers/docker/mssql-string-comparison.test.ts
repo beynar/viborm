@@ -584,4 +584,25 @@ describeIf("SQL Server compares text as the column does", () => {
       code: "Ab",
     });
   });
+
+  test("a VARCHAR native type's patterns match in its family and are refused past 4,000 characters", async () => {
+    expect(
+      await db.latin.findMany({ where: { code: { contains: "b" } } })
+    ).toEqual([{ code: "Ab" }]);
+    expect(
+      await db.latin.findMany({
+        where: { code: { startsWith: "a", mode: "insensitive" } },
+      })
+    ).toEqual([{ code: "Ab" }]);
+    const long = "x".repeat(3999);
+    for (const where of [
+      { contains: long },
+      { endsWith: `${long}x` },
+      { contains: long, mode: "insensitive" },
+      { startsWith: `${long}x`, mode: "insensitive" },
+    ] as const)
+      await expect(
+        db.latin.findMany({ where: { code: where } })
+      ).rejects.toBeInstanceOf(UnsupportedOperationError);
+  });
 });

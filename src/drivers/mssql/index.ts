@@ -339,8 +339,11 @@ function toQueryResult<T>(
   const context = { provider: "mssql", operation };
   const sets = result.recordsets as unknown as unknown[][];
   if (shape !== "rows") {
-    const last = sets.at(-1)?.[0] as Record<string, unknown> | undefined;
-    const read = (column: string): unknown => last?.[column];
+    const last: unknown = sets.at(-1)?.[0];
+    const read = (column: string): unknown =>
+      typeof last === "object" && last !== null
+        ? Reflect.get(last, column)
+        : undefined;
     // NULL where the table has no identity column; any other value is the
     // key, 0 and negative seeds included (`CAST(… AS BIGINT)`, read as text).
     const id = shape === "identity" ? read(INSERT_ID_COLUMN) : undefined;
