@@ -8,10 +8,11 @@ import { type DiagnosticDisclosure, isVibORMError } from "@errors";
 import type { UnitContext as Unit } from "@extensions/contract";
 import { disclosed } from "@extensions/disclosed";
 import {
-  type BatchMember,
   correlation,
   driver,
+  statements,
   table,
+  text,
 } from "@extensions/unit-words";
 import { presentLogMetadata } from "./logger";
 import {
@@ -238,26 +239,33 @@ export function createLifecycleSpanOptions(
 }
 
 /** The native batch member a failure names, if it names one. */
-export function statementIndexOf(error: Error): number | undefined {
+function statementIndexOf(error: Error): number | undefined {
   const index = isVibORMError(error) ? error.meta.statementIndex : undefined;
   return typeof index === "number" ? index : undefined;
 }
 
 /**
- * The query or error log of one statement, disclosed per `logging`; a
- * native batch member's failure is attributed to that member.
+ * The query log of one statement, or with `failure` its error log, disclosed
+ * per `logging`: a failure that names a native batch member is presented as
+ * that member.
  */
 export function createStatementLogEvent(
   logging: true | Readonly<DiagnosticDisclosure> | undefined,
   unit: Unit,
   startedAt: number,
   duration: number,
-  sql: string | undefined,
-  params: readonly unknown[] | undefined,
-  member?: BatchMember,
+  shown: readonly unknown[] | undefined,
   failure?: Error
 ): PresentedLog {
   const disclosure = readChannelDisclosure(logging);
+  const index = failure === undefined ? undefined : statementIndexOf(failure);
+  const member = index === undefined ? undefined : statements(unit)?.[index];
+  const sql = member?.sql ?? text(unit);
+  // A batch's snapshot holds one list per member.
+  const params =
+    member === undefined || index === undefined
+      ? shown
+      : batchMemberParameters(shown, index);
   return Object.freeze({
     // The instant the statement settled, not when this log is made.
     timestamp: new Date(startedAt + duration),
@@ -278,9 +286,10 @@ export function createStatementLogEvent(
   });
 }
 
-/**
- * What a failed span is settled with: the failure as it may be shown, of
- * which the span reads the class and code only.
- */
-export const presentTraceFailure = (failure: unknown): Error =>
-  disclosed(failure);
+function batchMemberParameters(
+  shown: readonly unknown[] | undefined,
+  index: number
+): readonly unknown[] | undefined {
+  const member = shown?.[index];
+  return Array.isArray(member) ? member : undefined;
+}
