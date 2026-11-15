@@ -158,10 +158,14 @@ export function check(where: object): unknown {
  * what identity and every join read, and what a unique constraint answers
  * for on a write, so none of them is ever read-gated. A write of a guessed
  * value fails on the constraint exactly when some row holds it: a gate on a
- * unique field would be confirmed by it.
+ * unique field would be confirmed by it, and a unique index, whole or
+ * partial, is such a constraint.
  */
 const isKeyField = (model: AnyModel, field: string): boolean =>
   getModelKeyCatalog(model).uniqueOverlapFields.includes(field) ||
+  model["~"].state.indexes.some(
+    (index) => index.options.unique && index.fields.includes(field)
+  ) ||
   Object.values<AnyRelation>(model["~"].state.relations).some(
     (relation) =>
       relation["~"].state.foreignKey?.fields.includes(field) === true

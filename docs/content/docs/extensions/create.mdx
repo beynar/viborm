@@ -1192,7 +1192,8 @@ await db.document.findMany({ user: "ada", select: { id: true, notes: true } }); 
   predicate. Every operand a call writes over it (`where`, `orderBy`,
   `distinct`, aggregates and `groupBy`, unique lookups, `connect`, relation
   filters and relation order) reads it as absent (`NULL`) on those rows.
-- A key or foreign key cannot be gated, and two extensions of one chain cannot
+- A key, a field of a unique constraint or of a unique index, or a foreign
+  key cannot be gated, and two extensions of one chain cannot
   declare the same key on a model: both are refused when the extension is
   applied. One entry holds one `facts` key.
 

@@ -623,6 +623,75 @@ describe("a gate never hides a field a key, a unique constraint or a foreign key
   });
 });
 
+describe("a gate never hides a field a unique index holds (found on 8edb90997, fixed here)", () => {
+  /** One account model whose `code` is indexed as `index` says. */
+  const indexed = (options?: object, fields: string[] = ["code"]) => ({
+    account: s
+      .model({
+        id: s.string().id(),
+        code: s.string(),
+        ownerId: s.string(),
+      })
+      .index(fields as never, options as never),
+  });
+  const gatedCode = () =>
+    extension(
+      "gates",
+      rules({
+        account: {
+          read: { where: {}, fields: { code: gate({ id: "mine" }) } },
+          create: { check: check({}) },
+          update: { where: only({ id: "mine" }), check: check({}) },
+        },
+      })
+    );
+  const UNIQUE: Record<string, object> = {
+    "a unique index": indexed({ unique: true }),
+    "a partial unique index": indexed({
+      unique: true,
+      where: "ownerId <> 'nobody'",
+    }),
+    "a compound unique index": indexed({ unique: true }, ["ownerId", "code"]),
+  };
+
+  for (const [name, schema] of Object.entries(UNIQUE))
+    test(`${name}: its constraint would confirm a guessed value, so the gate is refused`, async () => {
+      const base = await open(schema);
+      const refused = refusal(() => base.$extends(gatedCode()));
+      expect(refused).toBeInstanceOf(ClientInitializationError);
+      expect(refused.message).toBe(
+        'Extension "gates" rule.account: read.fields.code names a key, a unique or a foreign key field.'
+      );
+    });
+
+  test("an index that is not unique confirms nothing: the field is gated, and a write of a hidden row's value is taken", async () => {
+    for (const schema of [
+      indexed(),
+      indexed({ unique: false }),
+      indexed({ unique: true }, ["ownerId"]),
+    ]) {
+      const base = await open(schema);
+      await base.account.createMany({
+        data: [
+          { id: "hidden", code: "secret", ownerId: "alice" },
+          { id: "mine", code: "mine", ownerId: "bob" },
+        ],
+      });
+      const db = base.$extends(gatedCode());
+      expect(await db.account.findMany({ orderBy: { id: "asc" } })).toEqual([
+        { id: "hidden", ownerId: "alice" },
+        { id: "mine", code: "mine", ownerId: "bob" },
+      ]);
+      expect(
+        await db.account.update({
+          where: { id: "mine" },
+          data: { code: "secret" },
+        })
+      ).toEqual({ id: "mine", code: "secret", ownerId: "bob" });
+    }
+  });
+});
+
 describe("what a rule prepares is read-only by its type: nothing a caller or an author holds reaches it", () => {
   const doc = s.model({
     id: s.string().id(),

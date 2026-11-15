@@ -257,6 +257,16 @@ all-or-nothing when it fits one batch.
   `userId`), an actor without the value saw every row: the automatic guard
   folded the negated rule false, and its negation held everywhere. The guard
   is gone; the rule now keeps such an actor out.
+- **A `gate` no longer hides a field a unique index holds.** A field of an
+  index declared `unique` (`.index(["code"], { unique: true })`, whole,
+  partial or compound) could be gated, in a `rule` or by
+  `viborm/permissions`' `fields: { code: { read } }`: a caller who writes a
+  guessed value to a row it may update is answered by the constraint exactly
+  when a hidden row holds that value. It is now refused as a `.unique()`
+  field always was, with the same `ClientInitializationError`
+  (`read.fields.code names a key, a unique or a foreign key field`): where
+  the extension is applied, or, for `viborm/permissions`, at the first call
+  that needs the model. An index that is not unique changes nothing.
 
 ### Extensions: what they weigh
 
