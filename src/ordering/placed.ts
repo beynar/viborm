@@ -64,8 +64,11 @@ export function placed(
   };
   for (const entry of current) {
     if (bound(entry)) {
+      // `bound` held: the key is a string (a predicate on a destructured
+      // member cannot say so).
       close(entry.member.key as string);
       count = 0;
+      // The same key.
       lower = entry.member.key as string;
     } else if (entry.member.movable) {
       count += 1;

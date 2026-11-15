@@ -24,7 +24,7 @@ import type { NoArguments } from "./contract";
 import type { MergeResultFields } from "./result-types";
 
 type NoMethods = Record<never, never>;
-export type RuntimeExtensionMethodFunction = (...args: never[]) => unknown;
+type RuntimeExtensionMethodFunction = (...args: never[]) => unknown;
 
 declare const extensionResultConsumerState: unique symbol;
 export interface ExtensionResultConsumerState {
@@ -70,7 +70,7 @@ export type ExtensionStateConstraint = ClientExtensionState<
 >;
 
 /** Whether an earlier extension was typed against result-bearing delegates. */
-export type HasResultConsumingExtension<X extends ExtensionStateConstraint> = [
+type HasResultConsumingExtension<X extends ExtensionStateConstraint> = [
   X["resultConsumer"],
 ] extends [undefined]
   ? false
@@ -288,7 +288,7 @@ export interface ExtensionMethods {
 }
 
 /** A view's methods, and what invokes every factory of its chain in order. */
-export type BoundExtensionMethods = ExtensionMethods & {
+type BoundExtensionMethods = ExtensionMethods & {
   readonly force: () => void;
 };
 
@@ -343,7 +343,7 @@ function addMethods(
  * its model methods), so an extension carries only the half it writes. Its
  * `force` forces the view before it first.
  */
-export type MethodsLayer = (made: {
+type MethodsLayer = (made: {
   readonly prior: BoundExtensionMethods;
   /** The factory's answer, once per view, each key checked by `owns`. */
   readonly answer: () => Readonly<Record<string, unknown>>;
@@ -422,7 +422,7 @@ export const modelLayer: MethodsLayer = ({ prior, answer, scope, refuse }) => {
 };
 
 /** A `methods` factory as its part keeps it. */
-export type RuntimeMethodsFactory = (scope: never) => unknown;
+type RuntimeMethodsFactory = (scope: never) => unknown;
 
 /** A chain's methods, and what binds one view's methods. */
 export interface ExtensionMethodsState {

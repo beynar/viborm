@@ -1,7 +1,7 @@
 import type { CacheEntry, WaitUntilFn } from "./driver";
 
 export const REVALIDATING_SUFFIX = ":reval";
-export const REVALIDATING_TTL_MS = 30_000;
+const REVALIDATING_TTL_MS = 30_000;
 
 export function scheduleBackground(
   promise: Promise<unknown>,

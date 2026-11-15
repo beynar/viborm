@@ -25,9 +25,7 @@ import type { Stamps } from "./stamps";
 import type { CallHandlers, TargetedHandlers } from "./targeted";
 import type { Watching } from "./written";
 
-export interface OwnedHandler<
-  Handler extends CallableFunction = CallableFunction,
-> {
+interface OwnedHandler<Handler extends CallableFunction = CallableFunction> {
   readonly extension: string;
   readonly handler: Handler;
 }

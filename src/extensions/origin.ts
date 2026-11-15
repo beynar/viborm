@@ -44,7 +44,7 @@ export interface CallOrigin {
 }
 
 /** The view one extension's method scope serves. */
-export interface ScopeOrigin {
+interface ScopeOrigin {
   readonly engine: QueryEngine;
   readonly extension: string;
 }

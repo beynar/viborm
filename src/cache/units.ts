@@ -21,11 +21,12 @@ import {
   ATTR_DB_OPERATION_NAME,
   ATTR_VIBORM_CORRELATION_ID,
   SPAN_OPERATION,
+  type VibORMSpanName,
 } from "../instrumentation/spans";
 import type { InstrumentationNote } from "../instrumentation/types";
 
 /** The call a step's logs name: its model and the operation it asked. */
-export interface CacheCall {
+interface CacheCall {
   readonly model: string;
   readonly operation: string;
 }
@@ -85,11 +86,15 @@ export function cacheStep<T>(
   };
   return work(
     origin,
-    // Its span is `viborm.cache.<step>` (`SPAN_CACHE_GET`, …).
+    // Its span is the public `SPAN_CACHE_<STEP>`: spelled from the step,
+    // which costs no bytes, and checked against those constants.
     {
       kind: "cache",
       operation: step,
-      note: { span: `viborm.cache.${step}`, attributes },
+      note: {
+        span: `viborm.cache.${step}` satisfies VibORMSpanName,
+        attributes,
+      },
     },
     execute
   );

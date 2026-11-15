@@ -32,7 +32,7 @@ import {
 export type Child<Result> = (statement?: Sql) => Promise<Result>;
 
 /** One `unit` part of a chain: its extension, its handler, its kinds. */
-export interface UnitLayer {
+interface UnitLayer {
   readonly extension: string;
   readonly handler: UnitHandler;
   /** The kinds it runs around; every kind when absent. */

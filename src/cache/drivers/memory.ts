@@ -40,6 +40,7 @@ export class MemoryCache<
       return null;
     }
     this.#store.set(key, stored);
+    // The entry `set` stored under this key, for the type the caller reads it as.
     return stored.entry as CacheEntry<T>;
   }
 

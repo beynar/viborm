@@ -180,8 +180,10 @@ export function stableStringify(
 
   // `seen` holds the objects on the current PATH only: one object reached
   // twice through different keys (`{ a: ids, b: ids }`) is data, not a cycle.
+  // `value` is a non-null object here: every other type returned or threw.
   if (seen.has(value as object))
     throw new CacheInvalidKeyError("Circular reference in cache key args");
+  // The same object, as above.
   seen.add(value as object);
   let serialized: string;
   if (Array.isArray(value)) {
@@ -195,6 +197,7 @@ export function stableStringify(
       .map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k], seen)}`);
     serialized = `{${pairs.join(",")}}`;
   }
+  // The same object, as above.
   seen.delete(value as object);
   return serialized;
 }

@@ -233,6 +233,7 @@ export function on(hooks: RuntimeHooks, options?: OnOptions): unknown {
                   each.nested && each.model === name && each.kind === kind
               )) ||
             written[written.push({ model: name, kind, rows: [], nested }) - 1]!;
+          // A copy of a row is a row.
           for (const row of rows) group.rows.push(detached(row) as Row);
         },
       });
@@ -240,6 +241,7 @@ export function on(hooks: RuntimeHooks, options?: OnOptions): unknown {
       settled(c, async ({ certainty }) => {
         const event: OnEvent = Object.freeze({
           model,
+          // The part's target is the writes: the operation is one of them.
           operation: operation as OnOperation,
           args,
           certainty,
@@ -289,17 +291,20 @@ function reachable(model: AnyModel, reached: Reached): ReadonlySet<string> {
   if (known !== undefined) return known;
   // A set's walk visits what is added to it while it is walked.
   const seen = new Set<AnyModel>([model]);
+  // A model's relations, each typed by the schema as a relation.
   for (const next of seen)
     for (const relation of Object.values(
       next["~"].state.relations
     ) as AnyRelation[]) {
       const internal = relation["~"];
       const { target, junction } = internal.state;
+      // A relation settles to a model of the schema.
       for (const variant of target.kind === "variants"
         ? Object.keys(target.entries)
         : [undefined])
         seen.add(internal.settleTarget(variant) as AnyModel);
       if (junction?.model)
+        // A junction is a model of the schema too.
         seen.add(internal.settleJunctionModel!() as AnyModel);
     }
   const names = new Set([...seen].map((each) => each["~"].names.ts!));
@@ -319,6 +324,7 @@ function detached(value: unknown): unknown {
   if (value instanceof Uint8Array) return value.slice();
   if (Object.getPrototypeOf(value) !== Object.prototype) return value;
   const copy: Row = {};
+  // A plain object: its prototype was checked above.
   for (const key of Object.keys(value))
     copy[key] = detached((value as Row)[key]);
   return copy;

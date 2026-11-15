@@ -23,7 +23,7 @@ import type {
 } from "./contract";
 
 /** What `client.$extends` reads of an extension value. */
-export interface AppliedExtension {
+interface AppliedExtension {
   readonly name: string;
   readonly append: (
     chain: ResolvedExtensionChain | undefined,

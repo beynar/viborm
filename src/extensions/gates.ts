@@ -108,8 +108,9 @@ export function gating(
   select: unknown,
   path: string
 ) {
-  const named =
-    select === undefined ? undefined : namedGatedFields.get(select as object);
+  // The engine hands an admitted `select`, an object, or none, which no
+  // entry is keyed by.
+  const named = namedGatedFields.get(select as object);
   const gated: Record<string, GatedMember> = {};
   const gates = new Map<FieldGate, string>();
   return {

@@ -47,7 +47,7 @@ interface ResolvedComputedField {
  * Per model name, every computed field the chain declares, in chain order: a
  * field's needs point only at columns and at fields before it.
  */
-export type ResolvedResultFields = Readonly<
+type ResolvedResultFields = Readonly<
   Record<string, readonly ResolvedComputedField[]>
 >;
 

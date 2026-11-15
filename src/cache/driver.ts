@@ -82,7 +82,7 @@ export interface DetachedCacheResultCodec<T> {
 }
 
 /** One read the official cache serves, as its extension hands it over. */
-export interface CacheServe<T> {
+interface CacheServe<T> {
   /** The prepared call's key: equal for two reads that send one statement. */
   readonly id: string;
   readonly codec: DetachedCacheResultCodec<T>;

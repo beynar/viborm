@@ -192,7 +192,7 @@ function junctionHolder(schema: Schema, model: AnyModel) {
 }
 
 /** What a delete of one model writes instead of removing the row, as `keep` writes it. */
-export interface KeptModel {
+interface KeptModel {
   /** The DateTime field that receives the call's one instant. */
   readonly at?: string;
   readonly assign: Readonly<Record<string, unknown>>;

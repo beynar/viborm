@@ -20,7 +20,7 @@ export type RawQueryKind =
   | "queryRawUnsafe"
   | "executeRawUnsafe";
 
-export type RawQueryOperation = `$${RawQueryKind}`;
+type RawQueryOperation = `$${RawQueryKind}`;
 
 interface PreparedQueryContextBase<Input extends object> {
   readonly mode: CallMode;

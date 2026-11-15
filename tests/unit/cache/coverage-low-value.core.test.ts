@@ -351,6 +351,9 @@ describe("public cache-driver storage contract", () => {
     await expect(getEntry(driver, "viborm:cache:r3:forged")).rejects.toThrow(
       CacheInvalidKeyError
     );
+    await expect(getEntry(driver, "viborm:cache:r3:forged")).rejects.toThrow(
+      "The official cache namespace is the cache extension's own: the public storage functions cannot address a key under it."
+    );
   });
 
   test("keeps ordinary cache observers on the public storage boundary", async () => {

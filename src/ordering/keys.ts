@@ -209,6 +209,7 @@ export function keysBetween(
  * SQL append reads it.
  */
 export function keysAfter(last: string | null, count: number): string[] {
+  // Read as `unknown`, so the guard leaves `last` a string where it fails.
   if (last === null || isKeyFormat(last as unknown))
     return keysBetween(last, null, count);
   const length = Number(last[0]);
@@ -222,5 +223,6 @@ export function keysAfter(last: string | null, count: number): string[] {
 
 /** One key strictly between `lower` and `upper` (`null`: an open end). */
 export function keyBetween(lower: string | null, upper: string | null): string {
-  return keysBetween(lower, upper, 1)[0] as string;
+  // One key asked, one answered.
+  return keysBetween(lower, upper, 1)[0]!;
 }

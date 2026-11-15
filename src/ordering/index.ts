@@ -72,6 +72,7 @@ export const orderingKey = Object.freeze({
             ],
           },
   }),
+  // Its `validate` answers the string it was given, or issues.
 }) as StandardSchemaV1<string>;
 
 /** One ordered model: its key field, and the fields that name its list. */
@@ -152,7 +153,8 @@ function admit(schema: Schema, config: OrderingConfig): readonly Ordered[] {
     if (!Object.hasOwn(schema, name)) refuse(`unknown model "${name}".`);
     // A refusal about one of the model's fields.
     const field = (text: string) => refuse(`${name}.${text}`);
-    const model = schema[name] as AnyModel;
+    // Checked to be a model of the schema above.
+    const model = schema[name]!;
     const scalars = model["~"].state.scalars;
     const identity: readonly string[] | undefined = getRowKey(model)?.fields;
     if (identity === undefined)
@@ -219,7 +221,9 @@ const fieldsOf = (fields: readonly string[], row: Row): Row =>
 
 /** A delegate's write, as respacing calls it. */
 interface Writes {
-  readonly updateMany: (args: object) => PromiseLike<unknown>;
+  readonly updateMany: (
+    args: object
+  ) => PromiseLike<{ readonly count: number }>;
 }
 
 type Order = readonly Readonly<Record<string, "asc" | "desc">>[];
@@ -498,13 +502,13 @@ async function respace(
   where: unknown,
   order: Order = []
 ): Promise<number> {
-  const written = (await writes.updateMany({
+  const written = await writes.updateMany({
     ...passed,
     data: {
       ...ordered.stored,
       [ordered.key]: respacing(ordered, where, order),
     },
-  })) as { count: number };
+  });
   return written.count;
 }
 
@@ -582,6 +586,8 @@ function methods(ordered: Ordered) {
     delegate: Delegate,
     args: Readonly<Record<string, unknown>>
   ) {
+    // `move`'s overload typed `where`, the row's unique filter, which the
+    // reads below validate.
     const {
       where,
       after,
@@ -608,6 +614,7 @@ function methods(ordered: Ordered) {
       (last !== undefined && last !== true)
     )
       invalid("first and last take true.");
+    // `to` names the list's fields: the update that moves the row validates it.
     const list = to as Row | undefined;
     if (list !== undefined) {
       const fields = Object.keys(list);
@@ -629,6 +636,7 @@ function methods(ordered: Ordered) {
       invalid(
         `data writes the model's own fields beside the key: not ${placing.join(", ")}${within.length === 0 ? "" : " (to moves the row between lists)"}, nor a relation.`
       );
+    // The anchor's unique filter, validated by the read of the anchor.
     const anchor = (after ?? before) as Row | undefined;
     // The side the row's neighbour is read on: below it (before an anchor,
     // last of a list), else above.
@@ -670,9 +678,11 @@ function methods(ordered: Ordered) {
     };
     // The caller's reads of the model, with the call's own arguments.
     const one = async (args: object) =>
+      // A read of the model answers one of its rows, or none.
       (await delegate.findUnique!({ ...passed, ...args })) as Row | null;
     // Rows read around the row's place, from it outward.
     const many = async (args: object) => {
+      // A read of the model answers its rows.
       const rows = (await delegate.findMany!({ ...passed, ...args })) as Row[];
       return back ? [...rows].reverse() : rows;
     };
@@ -846,6 +856,7 @@ function methods(ordered: Ordered) {
           continue;
         if (isMoved(found)) invalid("a row cannot be placed next to itself.");
         group = fieldsOf(within, found);
+        // The key field is a string: `ordering` admitted it as one.
         edge = found[key] as string;
         rows = rows
           .slice(1)
@@ -870,6 +881,7 @@ function methods(ordered: Ordered) {
       // Already the neighbour on that side: nothing to write.
       if (rows[0] !== undefined && isMoved(rows[0])) return inPlace();
       const neighbour =
+        // The key field is a string: `ordering` admitted it as one.
         (rows.find((row) => !isMoved(row))?.[key] as string | undefined) ??
         null;
       const [low, high] = back ? [neighbour, edge] : [edge, neighbour];
@@ -889,6 +901,7 @@ function methods(ordered: Ordered) {
         // list is respaced, then read again.
         await respace(
           ordered,
+          // A delegate has `updateMany`; its index signature names no member.
           delegate as unknown as Writes,
           passed,
           within.length === 0 ? undefined : group
@@ -926,6 +939,7 @@ function methods(ordered: Ordered) {
     rekey: (args: Readonly<Record<string, unknown>> = {}) =>
       lazily(async () => {
         const { where, orderBy, ...passed } = args;
+        // `rekey`'s overload typed `orderBy`; each term is checked below.
         const order = (
           orderBy === undefined
             ? []
@@ -950,6 +964,7 @@ function methods(ordered: Ordered) {
         return {
           count: await respace(
             ordered,
+            // A delegate has `updateMany`; its index signature names no member.
             delegate as unknown as Writes,
             passed,
             where,

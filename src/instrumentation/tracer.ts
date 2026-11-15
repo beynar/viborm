@@ -65,7 +65,7 @@ export interface VibORMSpanOptions {
 /**
  * Configuration for tracer wrapper
  */
-export interface TracerWrapperConfig {
+interface TracerWrapperConfig {
   /** Span names to ignore */
   ignoreSpanTypes?: ReadonlyArray<string | RegExp> | undefined;
   /**

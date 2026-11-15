@@ -723,5 +723,5 @@ export function permissions<const Config extends PermissionsConfig>(
       })
     )
   );
-  return Object.freeze({ ...(governed as object), config, compile });
+  return Object.freeze({ ...governed, config, compile });
 }

@@ -113,6 +113,7 @@ export const projectionOf = (domain: PreparedDomain) => {
       selection === true
         ? evidence.names
         : evidence.names.filter(([held]) =>
+            // Admission left `true` or a list of the declared names.
             (selection as readonly string[]).includes(held)
           );
     fields[name] = freeze({

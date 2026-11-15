@@ -9,7 +9,7 @@ import type { Operations } from "@client/types";
  * list of them. A first moment's `c.set` refuses each (`call.ts`), and the
  * types of what it reads and patches leave out those its operation has.
  */
-export const RESULT_SHAPE_KEYS = [
+const RESULT_SHAPE_KEYS = [
   "select",
   "include",
   "omit",

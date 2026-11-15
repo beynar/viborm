@@ -162,7 +162,7 @@ type MergeObjects<Left extends object, Right extends object> = [
       };
 
 /** Two parts' facts as one: the later part wins a computed field's name. */
-export type MergeFacts<Left extends AnyFacts, Right extends AnyFacts> = Facts<
+type MergeFacts<Left extends AnyFacts, Right extends AnyFacts> = Facts<
   Left["client"] & Right["client"],
   MergeModelMethods<Left["models"], Right["models"]>,
   Left["args"] & Right["args"],
@@ -238,12 +238,12 @@ export interface Extension<in T extends AnyTarget, out F extends AnyFacts> {
   readonly [extensionFacts]: (target: T) => F;
 }
 
-export type SchemaOf<T extends AnyTarget> = ClientSchema<T["config"]>;
+type SchemaOf<T extends AnyTarget> = ClientSchema<T["config"]>;
 type ModelOf<T extends AnyTarget, M> = SchemaOf<T>[M & keyof SchemaOf<T>];
 export type ModelName<T extends AnyTarget> = keyof SchemaOf<T> & string;
 
 /** Every argument name a rule or a call of this part may read. */
-export type KnownArgs<T extends AnyTarget> = Extract<
+type KnownArgs<T extends AnyTarget> = Extract<
   keyof T["state"]["args"] | keyof T["own"]["args"],
   string
 >;
@@ -282,7 +282,7 @@ export type MergeAll<
  * The same with the target fixed (`parts<Of>()`): not generic in it, so its
  * parts are checked against the bound client, never an inferred wider one.
  */
-export type BoundExtension<T extends AnyTarget> = <
+type BoundExtension<T extends AnyTarget> = <
   F1 extends AnyFacts = EmptyFacts,
   F2 extends AnyFacts = EmptyFacts,
   F3 extends AnyFacts = EmptyFacts,
@@ -327,7 +327,7 @@ export interface Selection<in T extends AnyTarget, out M, out O> {
   readonly [selection]: (target: T) => readonly [M, O];
 }
 
-export interface TargetFunction<T extends AnyTarget> {
+interface TargetFunction<T extends AnyTarget> {
   /** Every model, these operations. */
   <O extends Operations>(
     operations: OperationSet<O>
@@ -440,7 +440,7 @@ export type Around<T extends AnyTarget, M, O extends Operations> = <
 ) => Promise<CallResult<T, M, O, A> | CallResult<T, M, O, NoArguments>>;
 
 /** Moment 1 of a model call over several operations or models. */
-export interface ModelCallContext<T extends AnyTarget, M, O> {
+interface ModelCallContext<T extends AnyTarget, M, O> {
   readonly kind: "model";
   /** The schema the extension is applied to. */
   readonly schema: SchemaOf<T>;
@@ -457,7 +457,7 @@ export interface ModelCallContext<T extends AnyTarget, M, O> {
  * Moment 1 of a raw statement, which a call or an `around` without a target
  * sees. It has no model and no arguments to set.
  */
-export interface RawCallContext<T extends AnyTarget> {
+interface RawCallContext<T extends AnyTarget> {
   readonly kind: "raw";
   readonly schema: SchemaOf<T>;
   readonly model: undefined;
@@ -476,7 +476,7 @@ export type AnyCallContext<T extends AnyTarget, M, O> =
   | RawCallContext<T>;
 
 /** Moment 2 of a generic call: the result is opaque, so only `run()`'s is returned. */
-export type AnyAround = <R>(run: Run<unknown, R>) => Promise<R>;
+type AnyAround = <R>(run: Run<unknown, R>) => Promise<R>;
 
 type Single<M, O> =
   IsUnion<M> extends true ? false : IsUnion<O> extends true ? false : true;
@@ -535,13 +535,13 @@ export type AroundFacts<M, O> = [M] extends [never]
  * second around the prepared call; `inner` places it nearest the core
  * whatever the chain's order.
  */
-export type CallFunction<T extends AnyTarget> = <M = never, O = never>(
+type CallFunction<T extends AnyTarget> = <M = never, O = never>(
   handler: (c: MomentOne<T, M, O>) => void,
   target?: Selection<T, M, O>
 ) => Part<T, EmptyFacts>;
 
 /** `around(fn, target?, options?)`: both moments of a call. */
-export type AroundFunction<T extends AnyTarget> = <M = never, O = never>(
+type AroundFunction<T extends AnyTarget> = <M = never, O = never>(
   handler: AroundHandler<T, M, O>,
   target?: Selection<T, M, O>,
   options?: { readonly inner?: true }
@@ -620,7 +620,7 @@ export interface UnitOutcome {
   readonly recovered?: true;
 }
 
-export type UnitFunction<T extends AnyTarget> = <
+type UnitFunction<T extends AnyTarget> = <
   Rewrites extends true | undefined = undefined,
 >(
   around: (
@@ -632,7 +632,7 @@ export type UnitFunction<T extends AnyTarget> = <
 ) => Part<T, EmptyFacts>;
 
 /** What an error may carry. */
-export type DisclosureFunction<T extends AnyTarget> = (policy: {
+type DisclosureFunction<T extends AnyTarget> = (policy: {
   readonly sql?: boolean;
   readonly parameters?: boolean;
 }) => Part<T, EmptyFacts>;
@@ -869,7 +869,7 @@ type Connective<M, K extends string> =
   | RuleCondition<M, K>
   | WhenWord<K, RuleCondition<M, K>>;
 
-export type RuleWhere<in out M, in out K extends string> = {
+type RuleWhere<in out M, in out K extends string> = {
   readonly [F in keyof WhereOf<M> & string]?: IsOpenModel<M> extends true
     ? unknown
     : F extends "AND" | "OR" | "NOT"
@@ -891,14 +891,14 @@ type CreateData<M> =
  * TypeScript does not try to infer the client back from the literal (that
  * attempt overflowed: TS2589 on a typo). A relation key reads `never`.
  */
-export type ScalarSlots<in out M, in out Value> = {
+type ScalarSlots<in out M, in out Value> = {
   readonly [F in keyof CreateData<M> & string]?: F extends ScalarKeysOf<M>
     ? Value
     : never;
 };
 
 /** A row's values: constants or words, per scalar field. */
-export type DataValues<in out M, in out K extends string> = {
+type DataValues<in out M, in out K extends string> = {
   readonly [F in keyof CreateData<M> & string]?: IsOpenModel<M> extends true
     ? unknown
     : F extends ScalarKeysOf<M>
@@ -1010,7 +1010,7 @@ export interface RuleEntry<M, K extends string> {
  * checks every rule. Without it, a rule written in a function of model names
  * (a recipe) types every leaf against `Model<any>` and overflows (TS2589).
  */
-export interface WideRuleEntry {
+interface WideRuleEntry {
   readonly read?: {
     readonly where?: object;
     readonly fields?: Readonly<Record<string, GateWord<unknown>>>;
@@ -1149,7 +1149,7 @@ export type FromSchema<T extends AnyTarget, Input> = (
 // =============================================================================
 
 /** What holds when the caller says nothing, and the caller may override. */
-export interface DefaultsEntry<M, K extends string> {
+interface DefaultsEntry<M, K extends string> {
   readonly orderBy?:
     | ScalarSlots<M, "asc" | "desc">
     | readonly ScalarSlots<M, "asc" | "desc">[];
@@ -1159,7 +1159,7 @@ export interface DefaultsEntry<M, K extends string> {
 }
 
 /** `defaults` written apart from any client: see `WideRuleEntry`. */
-export interface WideDefaultsEntry {
+interface WideDefaultsEntry {
   readonly orderBy?:
     | Readonly<Record<string, "asc" | "desc">>
     | readonly Readonly<Record<string, "asc" | "desc">>[];
@@ -1323,9 +1323,7 @@ export type RuleFunction<T extends AnyTarget> = <const R = RuleInput<T>>(
 ) => Part<T, RuleFacts<R, ModelName<T>>>;
 
 /** Same shape as `rule`: `D` unconstrained, typed by `DefaultsInput<T>` beside it. */
-export type DefaultsFunction<T extends AnyTarget> = <
-  const D = DefaultsInput<T>,
->(
+type DefaultsFunction<T extends AnyTarget> = <const D = DefaultsInput<T>>(
   defaults: D &
     (DefaultsInput<T> | FromSchema<T, DefaultsInput<T>>) &
     NoInfer<ExactEntries<D, DefaultsInput<T>>>
@@ -1395,7 +1393,7 @@ export type ArgsFacts<D> = Facts<
   }
 >;
 
-export type ArgsFunction<T extends AnyTarget> = <
+type ArgsFunction<T extends AnyTarget> = <
   const D extends Readonly<Record<string, ArgSource>> = Readonly<
     Record<string, ArgSource>
   >,
@@ -1515,7 +1513,7 @@ export type MethodsCheck<
  * type: TypeScript would instantiate a generic method such as
  * `restore<Self>(this: Self, …)` at once, and `Self` would be lost.
  */
-export type MethodsFunction<T extends AnyTarget> = <
+type MethodsFunction<T extends AnyTarget> = <
   F extends (
     scope: MethodsScope<T>
   ) => MethodsCheck<ReturnType<F>, T, "client"> = (
@@ -1526,7 +1524,7 @@ export type MethodsFunction<T extends AnyTarget> = <
 ) => Part<T, MethodsFacts<ReturnType<F>, ConsumesResults<F>, never>>;
 
 /** `modelMethods`, typed as `methods` is: a model's methods under its name. */
-export type ModelMethodsFunction<T extends AnyTarget> = <
+type ModelMethodsFunction<T extends AnyTarget> = <
   F extends (
     scope: MethodsScope<T>
   ) => MethodsCheck<ReturnType<F>, T, "model"> = (
@@ -1540,7 +1538,7 @@ export type ModelMethodsFunction<T extends AnyTarget> = <
 // fields({ model: { name: { needs, compute } } })
 // =============================================================================
 
-export type FieldsFunction<T extends AnyTarget> = <
+type FieldsFunction<T extends AnyTarget> = <
   const Declared extends object = object,
   Needs = unknown,
 >(

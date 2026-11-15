@@ -14,7 +14,7 @@ import { callOf } from "./origin";
 export type { UnitKind } from "./contract";
 export type Unit = UnitContext;
 export type UnitEnd = UnitOutcome;
-export type CommitCertainty = "committed" | "may-have-committed";
+type CommitCertainty = "committed" | "may-have-committed";
 
 /**
  * One handler around a unit. `next()` lets the unit run; the child starts

@@ -95,7 +95,7 @@ export interface CacheMethods {
 }
 
 /** What the cache adds to a client: its `cache` argument on writes, `$withCache`, `$invalidate`. */
-export type CacheFacts = Facts<
+type CacheFacts = Facts<
   CacheMethods,
   Record<never, never>,
   {

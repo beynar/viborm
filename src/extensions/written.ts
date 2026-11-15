@@ -41,7 +41,7 @@ type Shown = readonly [string, WriteKind, readonly object[], boolean];
  * `watch` brings, so a call watched by `settled` alone carries none of it.
  * `told` receives the rows once every write of the call is made.
  */
-export type ShowRows = (
+type ShowRows = (
   context: QueryExecutionContext,
   wants: (model: string, kind: WriteKind) => boolean,
   told: (shown: readonly Shown[]) => void
@@ -52,7 +52,7 @@ export type ShowRows = (
  * asked for rows: what `watch` brings (`watchShown`), so a call watched by
  * `settled` alone is told its outcome and carries none of it.
  */
-export type WatchShown = (
+type WatchShown = (
   watched: Watched,
   settled: readonly WriteOutcomeRegistration[],
   context: QueryExecutionContext,
@@ -158,7 +158,7 @@ export const watchShown: WatchShown = (watched, settled, context, late) => {
 };
 
 /** The engine shows the rows of one call's writes that `wants` wants. */
-export const showRows: ShowRows = (context, wants, told) => {
+const showRows: ShowRows = (context, wants, told) => {
   writeSinks.set(context, {
     wants,
     attempt() {

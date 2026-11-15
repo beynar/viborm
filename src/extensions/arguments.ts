@@ -13,7 +13,7 @@ import { errorCause } from "../errors/diagnostic-safety";
 import { extensionError } from "./chain";
 import type { ResolvedArgs } from "./chain-state";
 
-export type ArgLiteral = string | number | boolean;
+type ArgLiteral = string | number | boolean;
 
 /**
  * One argument an extension declares. Its values are a closed list or a
@@ -106,7 +106,7 @@ export function notBound(extension: string, name: string): never {
 }
 
 /** One extension's own admitted arguments, as its parts see them (`c.values`). */
-export function argsOwnedBy(
+function argsOwnedBy(
   admitted: AdmittedArgs | undefined,
   names: readonly string[]
 ): AdmittedArgs {

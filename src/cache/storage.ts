@@ -38,7 +38,7 @@ function unscoped(key: string): string {
     prefixedKey.startsWith(`${OFFICIAL_CACHE_NAMESPACE_ROOT}:`)
   ) {
     throw new CacheInvalidKeyError(
-      "The official cache namespace requires an authenticated cache extension."
+      "The official cache namespace is the cache extension's own: the public storage functions cannot address a key under it."
     );
   }
   return prefixedKey;

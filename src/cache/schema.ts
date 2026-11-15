@@ -7,7 +7,7 @@ import { parseTTL } from "./ttl";
 // CACHE INVALIDATION SCHEMA (for mutations)
 // =============================================================================
 
-export type CacheInvalidationSchemaEntries = {
+type CacheInvalidationSchemaEntries = {
   invalidate: V.String<{ array: true; optional: true }>;
   autoInvalidate: V.Boolean<{ optional: true }>;
 };
@@ -59,7 +59,7 @@ export function hasCacheInvalidationWork(
  */
 const DEFAULT_CACHE_TTL = 5 * 60 * 1000;
 
-export type WithCacheSchemaEntries = {
+type WithCacheSchemaEntries = {
   ttl: V.Optional<V.Union<[V.String, V.Number]>>;
   swr: V.Optional<V.Union<[V.Boolean, V.String, V.Number]>>;
   key: V.String<{ optional: true }>;

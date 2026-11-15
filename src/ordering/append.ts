@@ -118,6 +118,7 @@ async function appended(
         sql`SELECT ${key} AS key, id FROM ${q.table()} WHERE ${sql.join(held, " AND ")} ORDER BY key DESC LIMIT 1`
       );
       const made = keysAfter(
+        // The key column, read as the text it holds.
         (last?.key as string | undefined) ?? null,
         group.at.length
       );
@@ -131,6 +132,7 @@ async function appended(
     const [answer] = await read(sql`SELECT ${sql.join(reads, ", ")}`);
     for (const [position, group] of groups.entries()) {
       const made = keysAfter(
+        // Each list's last key, read as the text it holds.
         (answer?.[`g${position}`] ?? null) as string | null,
         group.at.length
       );

@@ -49,10 +49,12 @@ export function refuse(
 function walk(input: unknown, at: string): Paths {
   let schema = input;
   for (;;) {
+    // A viborm/validation schema, read for its kind and what it wraps.
     const { type, wrapped } = schema as Walked;
     if (type === undefined || !WRAPPERS.has(type)) break;
     schema = wrapped;
   }
+  // The same schema, unwrapped, read for its children.
   const { type, entries, options, value, item } = schema as Walked;
   if (type !== "object" && type !== "record" && type !== "array") return {};
   let paths: Paths;
@@ -85,6 +87,7 @@ export interface ActorContract {
 
 /** Whether a normalized schema takes `undefined`: published, or the literal itself. */
 const acceptsUndefined = (value: VibSchema): boolean => {
+  // A schema that takes `undefined` publishes it; any other has neither key.
   const shape = value as VibSchema & {
     acceptsUndefined?: boolean;
     value?: unknown;
@@ -102,6 +105,8 @@ function bindingSchema(
   open = new Set<object>(),
   at = "actor"
 ): VibSchema {
+  // A viborm/validation schema, or a thunk of one, read structurally: what
+  // is not one is refused below by its kind.
   const schema = (typeof input === "function" ? input() : input) as VibSchema &
     Walked & {
       readonly key?: VibSchema<string, string>;
@@ -198,6 +203,7 @@ function bindingSchema(
  * and array/record traversal with their existing native validators.
  */
 export function actorContract(schema: unknown): ActorContract {
+  // Any value: an object schema is told apart by its `type`.
   if ((schema as Walked | undefined)?.type !== "object")
     refuse("the actor must be a viborm/validation object schema (v.object)");
   const normalized = bindingSchema(schema);

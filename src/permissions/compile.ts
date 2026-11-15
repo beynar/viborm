@@ -203,6 +203,7 @@ const isEnclosingRow = (
 ): value is { readonly $row: string; readonly up: number } =>
   typeof value.$row === "string" &&
   Number.isSafeInteger(value.up) &&
+  // A safe integer, which `isSafeInteger` does not tell the types.
   (value.up as number) >= 0;
 const QUANTIFIERS = new Set(["is", "isNot", "some", "every", "none"]);
 /**
@@ -229,7 +230,8 @@ type Clause = Where | false;
 const isTrue = (clause: Where) => Object.keys(clause).length === 0;
 const membersOf = (clause: Where, key: "AND" | "OR"): Where[] =>
   Object.keys(clause).length === 1 && Array.isArray(clause[key])
-    ? (clause[key] as Where[])
+    ? // A list, checked just above: `and` and `or` write lists of clauses.
+      (clause[key] as Where[])
     : [clause];
 /**
  * A rule's record that writes `$if` or `$exists` beside its filters: the one
@@ -240,6 +242,7 @@ export const written = new WeakMap<Where, readonly Where[]>();
 
 function and(clauses: readonly Clause[]): Clause {
   if (clauses.includes(false)) return false;
+  // No clause is `false`: that returned above.
   const kept = (clauses as Where[])
     .filter((clause) => !isTrue(clause))
     .flatMap((clause) =>
@@ -441,7 +444,7 @@ export function compilePolicy(
 }
 
 /** A model's verbs and `as` modes: what applying a policy needs before any query. */
-export interface DeclaredModel {
+interface DeclaredModel {
   readonly read?: string;
   readonly update?: string;
   readonly delete?: string;
@@ -608,6 +611,7 @@ export function policyCompiler(
     Object.entries(schema).map(([name, model]) => [model, name])
   );
   const stateOf = (name: string) =>
+    // What compiling reads of a model's state: a narrower view of it.
     schema[name]!["~"].state as unknown as ModelFacts;
   const relationOf = (name: string, relation: string) =>
     Object.hasOwn(stateOf(name).relations, relation)
@@ -615,6 +619,7 @@ export function policyCompiler(
       : undefined;
   const targetOf = (name: string, relation: string) => {
     const settled = relationOf(name, relation)?.settleTarget();
+    // A relation settles to a model of the schema, or none, which has no name.
     return names.get(settled as AnyModel);
   };
 
@@ -799,6 +804,7 @@ export function policyCompiler(
           `${at}: { $row, up } takes a column and a whole number, 0 or more`
         );
       enclosing(input);
+      // `up` was checked to be a whole number above.
       return wrote(row(input.$row, input.up as number), {
         row: [input.$row, input.up],
       });
@@ -916,6 +922,7 @@ export function policyCompiler(
             name
           );
         if (control === "actor") path(at, read);
+        // `$if` names exactly one control: checked above.
         tested = condition(control as string, read, test);
       } else if (key === EXISTS) {
         // Another model's rows, read at their own model: action names are
@@ -1082,10 +1089,12 @@ export function policyCompiler(
     const left = conjuncts(a);
     const [key, given] = headOf(left[0] ?? { AND: [] });
     const [wanted, value] = headOf(right[0]!);
+    // `or` writes every alternative as a list.
     if (left.length === 1 && key === "OR")
       return (given as Where[]).every((member) => implies(name, member, b));
     if (
       wanted === "OR" &&
+      // The same: a list of alternatives.
       (value as Where[]).some((member) => implies(name, a, member))
     )
       return true;
@@ -1169,7 +1178,9 @@ export function policyCompiler(
     Array.isArray(given[op]) &&
     Array.isArray(value[op]) &&
     same(without(given, op), without(value, op)) &&
+    // Both lists, checked above.
     (given[op] as unknown[]).every((item) =>
+      // The same list.
       (value[op] as unknown[]).some((other) => same(item, other))
     );
   /**
@@ -1242,7 +1253,8 @@ export function policyCompiler(
         key,
         (guard = shared(
           conjunction && all && Array.isArray(all.AND)
-            ? and(distinct(all.AND as Where[]))
+            ? // A list, checked just above.
+              and(distinct(all.AND as Where[]))
             : all
         ))
       );
@@ -1604,6 +1616,7 @@ export function policyCompiler(
               const foreign = declared["~"].state.foreignKey;
               if (
                 foreign !== undefined &&
+                // A relation settles to a model of the schema.
                 names.get(declared["~"].settleTarget() as AnyModel) === name
               )
                 for (const field of foreign.references) into.add(field);

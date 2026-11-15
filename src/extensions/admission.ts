@@ -148,7 +148,7 @@ export interface Filters {
 }
 
 /** What admits one model's filters, for what admits an entry read later. */
-export type FiltersOf = (
+type FiltersOf = (
   name: string,
   lists: {
     readonly root?: readonly unknown[];
