@@ -846,8 +846,8 @@ describe("write-outcome publication", () => {
     const discarded = registered("discarded");
     collect(child);
     await tell([confirmed], child)("committed");
+    // Staged, and never reached its outcome.
     tell([discarded], child);
-    discarded.ok = false;
 
     await expect(collect(child).end(child, "child")).resolves.toBe("child");
     expect(published).toEqual([]);

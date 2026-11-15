@@ -7,7 +7,7 @@ import {
   VibORMError,
 } from "@errors";
 import { isReadOperation } from "@query-engine/routed-operations";
-import { isError } from "../errors/diagnostic-safety";
+import { errorCause, isError } from "../errors/diagnostic-safety";
 import type { AdmittedArgs } from "./arguments";
 import type { ResolvedOperationHandler } from "./chain";
 import { ATTEMPT, CALL, type CallOrigin } from "./origin";
@@ -79,8 +79,8 @@ export interface WriteOutcomeRegistration {
    * nothing registers carries none of it.
    */
   readonly tell?: typeof tell;
-  /** In a transaction: whether the call reached its outcome, told at the scope's end. */
-  ok?: boolean;
+  /** In a transaction: the call reached its outcome, so it is told at the scope's end. */
+  ok?: true;
 }
 
 export interface WriteOutcomeNotifications {
@@ -119,9 +119,7 @@ type PreparedChild<Result> = (
 
 /**
  * Execute one prepared operation through its `around` parts and under what
- * its write registered: the registration a model write's watches made, or
- * the `settled` functions a raw statement's first moments kept on it (a
- * read's are never told).
+ * its write registered.
  */
 export function executePreparedQuery<Result, Input extends object>(
   context: PreparedQueryContext<Input> | undefined,
@@ -132,23 +130,18 @@ export function executePreparedQuery<Result, Input extends object>(
   hooks?: AdmissionHooks,
   registration?: WriteOutcomeRegistration
 ): Promise<Result> {
-  const registrations = registration
-    ? [registration]
-    : isWrite
-      ? context?.call?.told
-      : undefined;
   const intercepted = context !== undefined && (arounds?.length ?? 0) > 0;
-  if (!(registrations || intercepted)) return child();
-  return isWrite || registrations
-    ? executeWith(
-        runArounds,
+  if (!(intercepted || registration)) return child();
+  return isWrite || registration
+    ? executeRegisteredQuery(
         context,
         arounds,
         child,
         isWrite,
         scope,
         hooks,
-        registrations
+        registration,
+        runArounds
       )
     : runArounds(
         context!,
@@ -160,46 +153,25 @@ export function executePreparedQuery<Result, Input extends object>(
 }
 
 /**
- * {@link executePreparedQuery} on a chain without `around` parts: what
- * wraps the call is its write's registration, so the code that runs
- * handlers is not carried.
- */
-export const executeRegisteredQuery = <Result, Input extends object>(
-  context: PreparedQueryContext<Input> | undefined,
-  _arounds: AroundHandlers | undefined,
-  child: PreparedChild<Result>,
-  isWrite: boolean,
-  scope?: TransactionScope,
-  hooks?: AdmissionHooks,
-  registration?: WriteOutcomeRegistration
-): Promise<Result> =>
-  executeWith(
-    undefined,
-    context,
-    undefined,
-    child,
-    isWrite,
-    scope,
-    hooks,
-    registration && [registration]
-  );
-
-/**
- * One write, or one call `intercept` runs around its parts, under its
- * registrations: each commit the child reports is told (outside a
+ * One write under what it registered (the registration a model write's
+ * watches made, or the `settled` functions a raw statement's first moments
+ * kept on it), around its `around` parts when `intercept` runs them, which
+ * {@link executePreparedQuery} passes: a chain without `around` parts does
+ * not carry their runner. Each commit the child reports is told (outside a
  * transaction, the certainty it reached is what `again` reads), and a write
  * that succeeded without reporting one is told it committed.
  */
-async function executeWith<Result, Input extends object>(
-  intercept: typeof runArounds | undefined,
+export function executeRegisteredQuery<Result, Input extends object>(
   context: PreparedQueryContext<Input> | undefined,
   arounds: AroundHandlers | undefined,
   child: PreparedChild<Result>,
   isWrite: boolean,
-  scope: TransactionScope | undefined,
-  hooks: AdmissionHooks | undefined,
-  registrations: readonly WriteOutcomeRegistration[] | undefined
+  scope?: TransactionScope,
+  hooks?: AdmissionHooks,
+  registration?: WriteOutcomeRegistration,
+  intercept?: typeof runArounds
 ): Promise<Result> {
+  const registrations = registration ? [registration] : context?.call?.told;
   const told = registrations?.[0]?.tell?.(registrations, scope);
   let reported = false;
   let certainty: Certainty | undefined;
@@ -212,33 +184,21 @@ async function executeWith<Result, Input extends object>(
     committed: notified("committed"),
     mayHaveCommitted: notified("may-have-committed"),
   };
-  // What failed before its outcome was reached is never told.
-  const failed = (error: unknown): never => {
-    for (const registration of registrations ?? []) registration.ok ??= false;
-    throw error;
-  };
+  // What fails before its outcome is reached is never marked, so never told.
   const executeChild = async (driver?: AnyDriver): Promise<Result> => {
-    try {
-      const value = await child(notifications, driver);
-      if (isWrite && !reported) await notifications.committed();
-      return value;
-    } catch (error) {
-      return failed(error);
-    }
+    const value = await child(notifications, driver);
+    if (isWrite && !reported) await notifications.committed();
+    return value;
   };
-  try {
-    return await (intercept && context && arounds?.length
-      ? intercept(
-          context,
-          arounds,
-          executeChild,
-          () => certainty ?? hooks?.readCommitCertainty?.(),
-          hooks?.reportAdmissionFailure
-        )
-      : executeChild());
-  } catch (error) {
-    return failed(error);
-  }
+  return intercept && context && arounds?.length
+    ? intercept(
+        context,
+        arounds,
+        executeChild,
+        () => certainty ?? hooks?.readCommitCertainty?.(),
+        hooks?.reportAdmissionFailure
+      )
+    : executeChild();
 }
 
 /**
@@ -406,7 +366,7 @@ function aroundFailure<Input extends object>(
     extension,
     context,
     "failed",
-    new Error("around() rejected with a non-Error value"),
+    errorCause(reason),
     commitCertainty
   );
 }
@@ -523,7 +483,7 @@ export function tell(
       registration
     );
   return async () => {
-    for (const registration of registrations) registration.ok ??= true;
+    for (const registration of registrations) registration.ok = true;
   };
 }
 
@@ -547,10 +507,7 @@ export async function publishWriteOutcomes(
           : new QueryError(
               `Extension "${extension}" settled() failed (${outcome.certainty}).`,
               {
-                cause:
-                  reason instanceof Error
-                    ? reason
-                    : new Error("settled() rejected with a non-Error value"),
+                cause: errorCause(reason),
                 meta: {
                   method: "settled",
                   commitCertainty: outcome.certainty,
