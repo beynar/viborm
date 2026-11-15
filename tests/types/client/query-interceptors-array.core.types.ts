@@ -19,7 +19,7 @@ type PrivateArrayOperationKey =
   | "executeCore"
   | "executeWith"
   | "hasObservation"
-  | "interception"
+  | "around"
   | "isArrayWrite"
   | "isBatchOperation"
   | "isWrite"

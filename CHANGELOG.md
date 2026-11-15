@@ -159,7 +159,17 @@ all-or-nothing when it fits one batch.
   longer wrapped in a `ClientInitializationError` naming the extension.
 - **Public types renamed**: `PlacedControl` is `PlacedArgument` (what an
   exported extended client's declaration names for each argument) and
-  `NoControls` is `NoArguments` (`viborm`, `viborm/client`).
+  `NoControls` is `NoArguments` (`viborm`, `viborm/client`). The types
+  that carry an extended client's state speak the parts' names: the members
+  of `ClientExtensionState` and of `Facts` that were `rows`, `data` and
+  `result` are `filtered` (the models a rule filters), `defaults` (the
+  fields a `defaults` part writes on a create) and `fields` (the computed
+  fields), and `Facts`'s `verbs` is `projected` (what a rule's `facts` and
+  `gate` add). `ExtensionContributionState` is `AddedExtensionState`,
+  `AccumulatedExtensionState` is `ChainedExtensionState`,
+  `ProjectedContribution` is `AddedProjectedState` and `GenericCallContext`
+  is `AnyCallContext`. Only code that names these types or their members
+  changes.
 - **Public types removed**, with the definition they typed: from `viborm`,
   `ClientExtension`, `MergeExtensionState`, `ObservationCompletion`,
   `ObservationFacts`, `ObservationNeed`, `ObservationUnit`, `ObservedFacts`,

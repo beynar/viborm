@@ -23,7 +23,7 @@ import type { Projection } from "./projection";
  * arguments and marked on the `select` admission returned.
  */
 
-/** The verbs whose results are rows: the only ones a projection reaches. */
+/** The operations whose results are rows: the only ones a projection reaches. */
 const ROW_RESULTS: ReadonlySet<Operation> = new Set<Operation>([
   "findMany",
   "findFirst",

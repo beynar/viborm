@@ -222,7 +222,7 @@ export const showRows: ShowRows = (context, wants, told) => {
 };
 
 /** What watches one write call under the chain's watching parts. */
-export interface WrittenHandlers {
+export interface Watching {
   readonly watch: (
     call: WrittenCall,
     values: AdmittedArgs | undefined,

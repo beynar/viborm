@@ -160,7 +160,7 @@ describe("coverage low value", () => {
       operation: {},
       // A member whose owner only answers what admission reads of it.
       owner: {
-        interception: () => ({
+        around: () => ({
           context: undefined,
           handlers: undefined,
           write: true,

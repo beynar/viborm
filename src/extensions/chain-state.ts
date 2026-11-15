@@ -16,16 +16,16 @@ import type { Operation } from "@query-engine/types";
 import type { AdmittedLayer } from "./admission";
 import type { AdmittedArgs, ArgAdmission, ResolvedArg } from "./arguments";
 import type { Coordination } from "./coordination";
-import type { OperationHandlers, RequestHandlers } from "./handlers";
 import type { Kept } from "./kept";
 import type { ExtensionMethodsState } from "./methods";
 import type { Observation } from "./observation";
 import type { AroundRunner, collect } from "./query";
 import type { ResultFields } from "./result";
 import type { Stamps } from "./stamps";
-import type { WrittenHandlers } from "./written";
+import type { CallHandlers, TargetedHandlers } from "./targeted";
+import type { Watching } from "./written";
 
-export interface ResolvedExtensionHandler<
+export interface OwnedHandler<
   Handler extends CallableFunction = CallableFunction,
 > {
   readonly extension: string;
@@ -36,9 +36,9 @@ export interface ResolvedExtensionHandler<
  * A `call` or `around` handler. The arguments its extension declares travel
  * with it: the only ones its context's `values` shows.
  */
-export interface ResolvedOperationHandler<
+export interface CallHandler<
   Handler extends CallableFunction = CallableFunction,
-> extends ResolvedExtensionHandler<Handler> {
+> extends OwnedHandler<Handler> {
   readonly args?: readonly string[];
 }
 
@@ -147,9 +147,9 @@ export interface ResolvedExtensionChain {
    * arguments resolve to.
    */
   readonly callRows?: CallRowsBinding;
-  readonly call?: RequestHandlers;
+  readonly call?: CallHandlers;
   /** The second moments of `around` parts, as the runner calls them. */
-  readonly around?: OperationHandlers<AroundRunner>;
+  readonly around?: TargetedHandlers<AroundRunner>;
   /** The rewriting units, around each logical statement. */
   readonly rewrites?: Observation;
   /**
@@ -159,7 +159,7 @@ export interface ResolvedExtensionChain {
    */
   readonly observation?: Observation;
   /** Every watch, in chain order: what watches a write call. */
-  readonly watch?: WrittenHandlers;
+  readonly watch?: Watching;
   /** Per model, every extension's computed fields, and what plans a call's. */
   readonly fields?: ResultFields;
   /** Every extension's client and model methods, and what binds a view's. */

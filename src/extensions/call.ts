@@ -21,7 +21,7 @@ import { errorCause } from "../errors/diagnostic-safety";
 import type { AdmittedArgs } from "./arguments";
 import type { Application, ExtensionPart } from "./chain";
 import { extensionError } from "./chain";
-import type { ResolvedArgs, ResolvedOperationHandler } from "./chain-state";
+import type { CallHandler, ResolvedArgs } from "./chain-state";
 import type {
   AnyTarget,
   AroundFacts,
@@ -32,11 +32,11 @@ import type {
   Selection,
 } from "./contract";
 import { coordinate, QUERIES } from "./coordination";
-import { handlersOf, type PlacedHandler } from "./handlers";
 import { MODEL_OPERATIONS, type SelectionValue, selectionOf } from "./on";
 import { CALL, type CallOrigin } from "./origin";
 import type { AroundRunner } from "./query";
 import { SHAPE_KEYS } from "./request";
+import { type TargetedHandler, targetedHandlers } from "./targeted";
 import { REGISTER, type Registering, type WatchPart } from "./watch-part";
 
 /**
@@ -85,7 +85,7 @@ interface CallSpec {
  * `runFirstMoments`, it keeps the second moment its handler returned.
  */
 export type FirstMoment = (
-  owner: Pick<ResolvedOperationHandler, "extension" | "args">,
+  owner: Pick<CallHandler, "extension" | "args">,
   model: string | undefined,
   operation: string,
   state: { args: Readonly<Record<string, unknown>> },
@@ -183,7 +183,7 @@ function firstOf(
 export function runFirstMoments(
   operation: string,
   input: Readonly<Record<string, unknown>>,
-  handlers: readonly ResolvedOperationHandler<FirstMoment>[],
+  handlers: readonly CallHandler<FirstMoment>[],
   call: CallOrigin,
   model?: string,
   declared?: ResolvedArgs,
@@ -242,7 +242,7 @@ function placed<H extends CallableFunction>(
   { on, inner }: CallSpec,
   handler: H,
   { schema, owner: { name, args } }: Application
-): PlacedHandler<H> {
+): TargetedHandler<H> {
   const known = (names: readonly string[], holds: (name: string) => boolean) =>
     new Set(
       names.map((each) =>
@@ -278,7 +278,7 @@ function appendFirst(
 ): void {
   const { next } = application;
   next.call = {
-    ...handlersOf([
+    ...targetedHandlers([
       ...(next.call?.placed ?? []),
       placed(spec, first, application),
     ]),
@@ -314,7 +314,7 @@ function aroundPart(spec: CallSpec): ExtensionPart {
       const list = next.around?.placed ?? [];
       // A stable sort: the parts without `inner` first, each group in
       // chain order.
-      next.around = handlersOf(
+      next.around = targetedHandlers(
         [...list, handler].sort((a, b) => Number(!!a.inner) - Number(!!b.inner))
       );
       coordinate(next, QUERIES);

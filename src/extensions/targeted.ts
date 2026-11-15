@@ -5,12 +5,12 @@
  */
 import { memo } from "@query-engine/raptor3/shared/schema";
 import type { FirstMoment, runFirstMoments } from "./call";
-import type { ResolvedOperationHandler } from "./chain-state";
+import type { CallHandler } from "./chain-state";
 
 /** One handler of a chain, and the calls it concerns. */
-export interface PlacedHandler<
+export interface TargetedHandler<
   Handler extends CallableFunction = CallableFunction,
-> extends ResolvedOperationHandler<Handler> {
+> extends CallHandler<Handler> {
   /** The models and operations a target selects; every call without one. */
   readonly on?: {
     readonly models: ReadonlySet<string>;
@@ -21,29 +21,29 @@ export interface PlacedHandler<
 }
 
 /** A chain's handlers of one moment, and the handlers one call runs. */
-export interface OperationHandlers<
+export interface TargetedHandlers<
   Handler extends CallableFunction = CallableFunction,
 > {
-  readonly placed: readonly PlacedHandler<Handler>[];
+  readonly placed: readonly TargetedHandler<Handler>[];
   /** The handlers without a target: the only ones a raw statement runs. */
-  readonly global: readonly ResolvedOperationHandler<Handler>[];
+  readonly global: readonly CallHandler<Handler>[];
   readonly handlers: (
     model: string | undefined,
     operation: string
-  ) => readonly ResolvedOperationHandler<Handler>[] | undefined;
+  ) => readonly CallHandler<Handler>[] | undefined;
 }
 
 /** The first moments of `call` and `around`, and what runs them for one call. */
-export interface RequestHandlers extends OperationHandlers<FirstMoment> {
+export interface CallHandlers extends TargetedHandlers<FirstMoment> {
   readonly apply: typeof runFirstMoments;
 }
 
 /** The lookup of `placed`, in its order. */
-export function handlersOf<Handler extends CallableFunction>(
-  placed: readonly PlacedHandler<Handler>[]
-): OperationHandlers<Handler> {
+export function targetedHandlers<Handler extends CallableFunction>(
+  placed: readonly TargetedHandler<Handler>[]
+): TargetedHandlers<Handler> {
   const global = placed.filter((entry) => !entry.on);
-  const found = new Map<string, readonly PlacedHandler<Handler>[]>();
+  const found = new Map<string, readonly TargetedHandler<Handler>[]>();
   return {
     placed,
     global,

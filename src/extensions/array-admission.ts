@@ -34,7 +34,7 @@ export function interceptsArray(
 ): boolean {
   return operations.some((operation) => {
     const { handlers, registration } =
-      transactionOperationOwner(operation).interception(operation);
+      transactionOperationOwner(operation).around(operation);
     return handlers?.length || registration;
   });
 }
@@ -50,7 +50,7 @@ export async function stageArray(
   scope: TransactionScope
 ): Promise<undefined> {
   for (const slot of slots) {
-    const { write, registration } = slot.owner.interception(slot.operation);
+    const { write, registration } = slot.owner.around(slot.operation);
     if (registration === undefined) continue;
     const child = (notifications?: WriteOutcomeNotifications) => {
       slot.notifications = notifications;
@@ -85,7 +85,7 @@ export function admitArray(
   scope: TransactionScope,
   execute: typeof executePreparedQuery
 ): Promise<readonly unknown[] | undefined> {
-  const facts = slots.map((slot) => slot.owner.interception(slot.operation));
+  const facts = slots.map((slot) => slot.owner.around(slot.operation));
   return admitArrayQueries(slots, (slot, child, hooks) => {
     const { context, handlers, write, registration } =
       facts[slots.indexOf(slot)]!;

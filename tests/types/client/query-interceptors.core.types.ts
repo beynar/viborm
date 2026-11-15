@@ -5,7 +5,7 @@
  * `around` itself (`extensions.core.types.ts`).
  */
 
-import type { ResolvedOperationHandler } from "@extensions/chain";
+import type { CallHandler } from "@extensions/chain";
 import {
   type AroundRunner,
   type PreparedModelQueryContext,
@@ -42,7 +42,7 @@ type _executionModeIsTruthful = Expect<
   Equal<(typeof context)["mode"], "direct" | "transaction" | "array">
 >;
 
-const exact: ResolvedOperationHandler<AroundRunner> = {
+const exact: CallHandler<AroundRunner> = {
   extension: "exact-result",
   handler(prepared, run) {
     if (prepared.kind === "model") {

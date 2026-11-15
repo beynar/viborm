@@ -1498,7 +1498,7 @@ describe("array ownership and zero-handler path", () => {
       "parseResult",
       "observeBatchPhase",
       "requiresInterception",
-      "interception",
+      "around",
       "prepareAdmission",
       "stagePackageWriteOutcomes",
       "startInterception",

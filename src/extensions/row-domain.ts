@@ -21,8 +21,8 @@ import type {
   CallRows,
   CallScope,
   RowDomain,
-  RowJudgement,
   RowPurpose,
+  WriteJudgement,
 } from "@query-engine/raptor3/shared/row-scope";
 import { type Input, memo } from "@query-engine/raptor3/shared/schema";
 import type { Membership } from "@query-engine/raptor3/shared/storage";
@@ -79,9 +79,9 @@ export interface PreparedDomain {
   readonly defaults: PreparedDomain;
   /** The view that prepares this domain's predicates. */
   readonly queries: Queries;
-  /** What judges the rows a write produces: where some model's verbs judge them. */
+  /** What judges the rows a write produces: where some model's entry judges them. */
   readonly judge: Judge | undefined;
-  /** What a read carries and hides beside the rows: where some model's verbs say. */
+  /** What a read carries and hides beside the rows: where some model's entry says. */
   readonly project: Projection | undefined;
   prepare(model: AnyModel, input: Input): PreparedSelector;
   conjunction(
@@ -93,7 +93,7 @@ export interface PreparedDomain {
     model: AnyModel,
     purpose: RowPurpose,
     excluded?: readonly number[],
-    judgement?: RowJudgement
+    judgement?: WriteJudgement
   ): PreparedSelector | undefined;
   bound(
     model: AnyModel,
@@ -113,8 +113,8 @@ export interface PreparedDomain {
  * of the model's inputs, each a {@link PreparedPredicate} `layer` node,
  * prepared at most once for every `Queries` of one engine view (its reads and
  * its write contexts share it) and for every call: a value a call supplies is
- * a parameter. A layer's node holds its verb predicates beside its purpose's
- * (R2), each input prepared once whatever purposes and verbs reuse it.
+ * a parameter. A layer's node holds its entry's predicates beside its purpose's
+ * (R2), each input prepared once whatever purposes and entries reuse it.
  * Prepared meaning holds no alias, adapter or driver, so the view's own
  * `Queries` prepares it.
  */
@@ -127,7 +127,7 @@ export class FilterDomain implements PreparedDomain {
     related: new Map<string, PreparedSelector | null>(),
   };
   readonly #inputs = new Map<Input, PreparedSelector>();
-  /** What judges the rows a write produces: where some model's verbs judge them. */
+  /** What judges the rows a write produces: where some model's entry judges them. */
   readonly judge: Judge | undefined;
   readonly project: Projection | undefined;
   /**
@@ -195,14 +195,14 @@ export class FilterDomain implements PreparedDomain {
   }
   /**
    * `model`'s predicate for `purpose` without the `excluded` layers, and,
-   * under a `judgement`, what the layers' verbs add for it (`verbs.ts`).
+   * under a `judgement`, what the layers' entries add for it (`entries.ts`).
    * `undefined` where it states none.
    */
   selector(
     model: AnyModel,
     purpose: RowPurpose,
     excluded = NO_LAYERS,
-    judgement?: RowJudgement
+    judgement?: WriteJudgement
   ): PreparedSelector | undefined {
     const name = model["~"].names.ts!;
     const key = this.key(name, excluded, judgement);
@@ -219,7 +219,7 @@ export class FilterDomain implements PreparedDomain {
   protected key(
     name: string,
     excluded: readonly number[],
-    _judgement?: RowJudgement
+    _judgement?: WriteJudgement
   ): string {
     return excluded.length === 0 ? name : `${name} ${excluded}`;
   }
@@ -228,7 +228,7 @@ export class FilterDomain implements PreparedDomain {
     _name: string,
     inputs: readonly Input[] | undefined,
     excluded: readonly number[],
-    _judgement?: RowJudgement
+    _judgement?: WriteJudgement
   ): (readonly [number, readonly Input[]])[] {
     const layers: (readonly [number, readonly Input[]])[] = [];
     for (const [layer, where] of (inputs ?? []).entries())
@@ -253,7 +253,7 @@ export class FilterDomain implements PreparedDomain {
   }
   /**
    * Whether a call's extensions judge writes to a junction model: its rows,
-   * and its verbs where some word brought them (`verbs.ts`). A link is
+   * and its entries where some word brought them (`entries.ts`). A link is
    * written with neither read nor judged, so a `$through` write through it
    * is refused where a direct write would have been judged.
    */

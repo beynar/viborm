@@ -10,6 +10,7 @@ export { type Codec, codec } from "./codec";
 export { within } from "./confine";
 export type {
   Accepted,
+  AnyCallContext,
   AnyFacts,
   AnyTarget,
   ArgTest,
@@ -21,7 +22,6 @@ export type {
   Exact,
   Extension,
   Facts,
-  GenericCallContext,
   OperationSet,
   Outcome,
   Part,

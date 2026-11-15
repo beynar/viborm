@@ -10,7 +10,7 @@
  */
 import type { Schema } from "@client/types";
 import { isPlainRecord } from "@schema/relation/terminal";
-import type { RuleLayer, VerbsDraft } from "./admission";
+import type { EntryDraft, RuleLayer } from "./admission";
 import { type ExtensionPart, extensionError, shared } from "./chain";
 import type {
   AnyTarget,
@@ -55,8 +55,8 @@ export function draftOf(
   { layer, bring }: Pick<Site, "layer" | "bring">,
   refuse: (problem: string) => never,
   lazy: boolean
-): VerbsDraft | undefined {
-  let verbs: VerbsDraft | undefined;
+): EntryDraft | undefined {
+  let draft: EntryDraft | undefined;
   const read = own(own(entry).read);
   /**
    * Each word of `value`, at `key`, joined where it stands; anything else in
@@ -82,7 +82,7 @@ export function draftOf(
         lazy,
         // What a row a write returns holds for what a read carries to show.
         ...(!lazy && { shows: read.where }),
-        verbs: () => (verbs ??= {}),
+        entry: () => (draft ??= {}),
         refuse,
       });
       return;
@@ -116,7 +116,7 @@ export function draftOf(
     );
   for (const key of Object.keys(entry))
     if (!RULE_KEYS.has(key)) refuse(`"${key}" is not a rule key`);
-  if (lazy && read.where !== undefined) (verbs ??= {}).read = read.where;
+  if (lazy && read.where !== undefined) (draft ??= {}).read = read.where;
   join(entry.confine, "confine");
   join(read.fields, "read.fields", undefined, true);
   join(read.select, "read.select", undefined, true);
@@ -126,10 +126,10 @@ export function draftOf(
   if (acyclic !== undefined) {
     // A loop is refused where the row an update produces is judged; what
     // the list names is checked where it is admitted (`cyclesOf`).
-    if (verbs?.judge === undefined) refuse("acyclic needs a check() beside it");
-    verbs.acyclic = acyclic;
+    if (draft?.judge === undefined) refuse("acyclic needs a check() beside it");
+    draft.acyclic = acyclic;
   }
-  return verbs;
+  return draft;
 }
 
 /** One extension's rule layer as its `rule` parts write it, and the parts its words bring. */
@@ -159,7 +159,7 @@ function writeRule(
       );
     const refuse = (problem: string): never =>
       extensionError(`Extension "${name}" rule.${model}: ${problem}.`, name);
-    const verbs = draftOf(
+    const draft = draftOf(
       entry,
       model,
       schema,
@@ -175,10 +175,10 @@ function writeRule(
       if (items.length > 0)
         layer[purpose][model] = [...(layer[purpose][model] ?? []), ...items];
     }
-    if (verbs !== undefined) {
-      if (Object.hasOwn(layer.verbs, model))
+    if (draft !== undefined) {
+      if (Object.hasOwn(layer.rules, model))
         refuse("two rule parts of one extension judge the model");
-      layer.verbs[model] = verbs;
+      layer.rules[model] = draft;
     }
   }
 }
@@ -205,7 +205,7 @@ export function rule(rules: Entry | ((schema: Schema) => Entry)): unknown {
         const layer: RuleLayer = {
           root: {},
           related: {},
-          verbs: {},
+          rules: {},
         };
         return { layer, brought: new Set([layerPart(layer)]) };
       });

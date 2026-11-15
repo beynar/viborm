@@ -13,8 +13,8 @@ import type {
 import type { UnitSource } from "@extensions/unit-source";
 import type { PreparedBatchOperation, PreparedQuery } from "./types";
 
-/** What may intercept one array member (see `interception`). */
-export interface MemberInterception {
+/** The `around` handlers of one array member and what they see (see `around`). */
+export interface MemberAround {
   readonly context: PreparedQueryContext | undefined;
   readonly handlers: AroundHandlers | undefined;
   readonly write: boolean;
@@ -34,7 +34,7 @@ export interface TransactionOperationOwner<Owner extends object = object> {
    * the handlers around it and the context they see, whether it writes, and
    * its package's write-outcome listener.
    */
-  interception(owner: Owner): MemberInterception;
+  around(owner: Owner): MemberAround;
   executeCore(
     owner: Owner,
     driver: AnyDriver,

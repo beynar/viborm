@@ -48,9 +48,9 @@ export interface ClientExtensionState<
     | ExtensionResultConsumerState
     | undefined = undefined,
   Arguments extends object = NoArguments,
-  RowModels extends string = never,
-  Data = never,
-  Result extends object = Record<never, never>,
+  Filtered extends string = never,
+  Defaults = never,
+  Fields extends object = Record<never, never>,
 > {
   readonly client: ClientMethods;
   readonly models: ModelMethods;
@@ -58,12 +58,12 @@ export interface ClientExtensionState<
   readonly resultConsumer: ResultConsumerState;
   /** The arguments the chain declares: each one's values and placement. */
   readonly args: Arguments;
-  /** The models the chain's `rows` can hide from a relation read. */
-  readonly rows: RowModels;
-  /** The fields the chain's `data` writes, which a caller no longer writes. */
-  readonly data: Data;
-  /** The fields the chain's `result` computes, per model key, and their types. */
-  readonly result: Result;
+  /** The models whose rows the chain's rules filter: a relation read can find none. */
+  readonly filtered: Filtered;
+  /** The fields the chain's `defaults` write on a create, which a caller no longer writes. */
+  readonly defaults: Defaults;
+  /** The fields the chain's `fields` compute, per model key, and their types. */
+  readonly fields: Fields;
 }
 
 export type EmptyClientExtensionState = ClientExtensionState;
@@ -100,7 +100,7 @@ declare const delegateState: unique symbol;
 /**
  * Declaration-only: what a result read on a delegate of a chain that adds
  * model methods depends on (its client's config, the models the chain's
- * `rows` can hide, its computed fields, the model), so a method typed with a
+ * rules filter, its computed fields, the model), so a method typed with a
  * `this` parameter reads its result from the client it is called on
  * (`DelegateOperationResult`), whatever the chain added after it. Nothing
  * else of the extension state: a later step that changes none of these (the
@@ -127,28 +127,28 @@ type DelegateLink<
   ModelName extends PropertyKey,
 > = [keyof X["models"]] extends [never]
   ? unknown
-  : DelegateState<C, X["rows"], X["result"], ModelName>;
+  : DelegateState<C, X["filtered"], X["fields"], ModelName>;
 
 /**
  * One model's delegate after the chain's methods and arguments. On a chain
- * that declares create `data`, its writes may leave out the fields the chain
+ * that writes `defaults` on a create, its writes may leave out the fields the chain
  * writes on a create.
  */
 export type ExtensionModelDelegate<
   C extends VibORMConfig,
   X extends ExtensionStateConstraint,
   ModelName extends keyof ClientSchema<C>,
-> = ([X["data"]] extends [never]
-  ? Client<C, ClientRowsContext<C, X["rows"]>, X["args"]>[ModelName]
+> = ([X["defaults"]] extends [never]
+  ? Client<C, ClientRowsContext<C, X["filtered"]>, X["args"]>[ModelName]
   : Omit<
-      Client<C, ClientRowsContext<C, X["rows"]>, X["args"]>[ModelName],
+      Client<C, ClientRowsContext<C, X["filtered"]>, X["args"]>[ModelName],
       StampedOperation
     > &
       StampedOperations<
         C,
-        ClientRowsContext<C, X["rows"]>,
+        ClientRowsContext<C, X["filtered"]>,
         X["args"],
-        X["data"],
+        X["defaults"],
         ModelName
       >) &
   MethodsForModel<X, ModelName> &
@@ -181,9 +181,9 @@ interface ModelRows {
 }
 
 /**
- * One model's delegate on a chain that declares `result`: its projecting
+ * One model's delegate on a chain that declares `fields`: its projecting
  * operations rebuilt so `select` and `omit` name the computed fields and the
- * rows carry them. A chain without `result` never reaches this type.
+ * rows carry them. A chain without `fields` never reaches this type.
  */
 type ComputedModelDelegate<
   C extends VibORMConfig,
@@ -192,11 +192,11 @@ type ComputedModelDelegate<
 > = Omit<ExtensionModelDelegate<C, X, ModelName>, ComputedOperation> &
   ComputedOperations<
     C,
-    ClientRowsContext<C, X["rows"]>,
+    ClientRowsContext<C, X["filtered"]>,
     X["args"],
-    X["data"],
+    X["defaults"],
     ModelName,
-    X["result"]
+    X["fields"]
   >;
 
 /**
@@ -204,13 +204,13 @@ type ComputedModelDelegate<
  * always-true test is deliberate: for a client generic over its config it
  * stays deferred, so the model map adds no index signature to that client and
  * its `$` members stay reachable inside a body generic over `C`. A chain
- * that declares `result` is told apart here, once per client.
+ * that declares `fields` is told apart here, once per client.
  */
 export type ExtensionModelClient<
   C extends VibORMConfig,
   X extends ExtensionStateConstraint,
 > = [keyof C["schema"]] extends [PropertyKey]
-  ? [keyof X["result"]] extends [never]
+  ? [keyof X["fields"]] extends [never]
     ? {
         [ModelName in keyof ClientSchema<C>]: ExtensionModelDelegate<
           C,
@@ -257,15 +257,15 @@ export type MergeModelMethods<Left extends object, Right extends object> = {
 };
 
 /** Incoming facts keep their nominal bit derivation inside this named state. */
-export interface ExtensionContributionState<
+export interface AddedExtensionState<
   ClientMethods extends object,
   ModelMethods extends object,
   Arguments extends object,
-  RowModels extends string,
-  Data,
+  Filtered extends string,
+  Defaults,
   ConsumerContext extends string,
   // Defaulted: 1.3.3 exported this state with six parameters.
-  Result extends object = Record<never, never>,
+  Fields extends object = Record<never, never>,
   // Without the cache, either: a client the cache extends stays assignable
   // to the type of the client before it (the cache reads, it hides nothing).
   CacheState extends ExtensionCacheState | undefined =
@@ -279,28 +279,28 @@ export interface ExtensionContributionState<
     ? ExtensionResultConsumerState
     : undefined;
   readonly args: Arguments;
-  readonly rows: RowModels;
-  readonly data: Data;
-  readonly result: Result;
+  readonly filtered: Filtered;
+  readonly defaults: Defaults;
+  readonly fields: Fields;
 }
 
 /** Accumulate the same seven facts lazily, without retaining callback definitions. */
-export interface AccumulatedExtensionState<
+export interface ChainedExtensionState<
   X extends ExtensionStateConstraint,
-  Contribution extends ExtensionStateConstraint,
+  Added extends ExtensionStateConstraint,
 > extends ExtensionStateConstraint {
-  readonly client: X["client"] & Contribution["client"];
-  readonly models: MergeModelMethods<X["models"], Contribution["models"]>;
-  readonly cache: [Contribution["cache"]] extends [ExtensionCacheState]
+  readonly client: X["client"] & Added["client"];
+  readonly models: MergeModelMethods<X["models"], Added["models"]>;
+  readonly cache: [Added["cache"]] extends [ExtensionCacheState]
     ? ExtensionCacheState
     : X["cache"];
-  readonly resultConsumer: HasResultConsumingExtension<Contribution> extends true
+  readonly resultConsumer: HasResultConsumingExtension<Added> extends true
     ? ExtensionResultConsumerState
     : X["resultConsumer"];
-  readonly args: X["args"] & Contribution["args"];
-  readonly rows: X["rows"] | Contribution["rows"];
-  readonly data: X["data"] | Contribution["data"];
-  readonly result: MergeResultFields<X["result"], Contribution["result"]>;
+  readonly args: X["args"] & Added["args"];
+  readonly filtered: X["filtered"] | Added["filtered"];
+  readonly defaults: X["defaults"] | Added["defaults"];
+  readonly fields: MergeResultFields<X["fields"], Added["fields"]>;
 }
 
 type MethodRecord = Readonly<Record<string, RuntimeExtensionMethodFunction>>;

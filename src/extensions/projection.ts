@@ -1,6 +1,6 @@
 /**
  * What a read carries beside its rows and what it hides of them, for one
- * prepared domain: the verbs' projection keys (`evidence`) and read-gated
+ * prepared domain: the entries' projection keys (`evidence`) and read-gated
  * fields (`reads`). Brought by `gate` and `facts`: a program whose rules
  * neither gate nor report holds none of it.
  */
@@ -21,7 +21,7 @@ import {
   type Reader,
   type Shape,
 } from "@query-engine/raptor3/shared/query";
-import type { ModelVerbs } from "@query-engine/raptor3/shared/row-scope";
+import type { RuleEntry } from "@query-engine/raptor3/shared/row-scope";
 import type { Operation as Admitted } from "@query-engine/raptor3/shared/schema";
 import {
   type Arguments,
@@ -34,6 +34,7 @@ import type { Membership } from "@query-engine/raptor3/shared/storage";
 import { listed } from "@query-engine/raptor3/shared/terms";
 import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
+import { ALL } from "./entries";
 import {
   evidence,
   gatedDocument,
@@ -44,7 +45,6 @@ import {
 } from "./gates";
 import { admitProjected } from "./projected";
 import type { PreparedDomain } from "./row-domain";
-import { ALL } from "./verbs";
 
 /** Equal gates shared, so a projection carries one member per distinct gate. */
 function sharedGate(gate: FieldGate, known: FieldGate[]): FieldGate {
@@ -68,7 +68,7 @@ function sharedGate(gate: FieldGate, known: FieldGate[]): FieldGate {
  */
 export function refuseSharedKeys(
   model: string,
-  layers: readonly (ModelVerbs | undefined)[]
+  layers: readonly (RuleEntry | undefined)[]
 ): void {
   const keys = new Set<string>();
   for (const layer of layers) {
@@ -238,15 +238,15 @@ export const projectionOf = (domain: PreparedDomain) => {
       const projected = memo(projectedBy, name, () => {
         const keys = new Map<string, DeclaredEvidence>();
         const gates = new Map<string, FieldGate>();
-        for (const [layer, verbs] of (
-          domain.rows.verbs?.get(name) ?? []
+        for (const [layer, entry] of (
+          domain.rows.rules?.get(name) ?? []
         ).entries()) {
-          if (verbs === undefined) continue;
-          const { as, facts } = verbs;
-          const read = verbs.shown ?? verbs.read ?? ALL;
+          if (entry === undefined) continue;
+          const { as, facts } = entry;
+          const read = entry.shown ?? entry.read ?? ALL;
           if (as !== undefined)
             keys.set(as, freeze({ layer, read, names: [...facts!] }));
-          for (const [field, input] of verbs.reads ?? [])
+          for (const [field, input] of entry.reads ?? [])
             gates.set(field, [
               ...(gates.get(field) ?? []),
               freeze([layer, read, input] as const),

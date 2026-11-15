@@ -37,9 +37,9 @@ import type {
 import type { WriteOutcome } from "./query";
 import type { RequestTransformPatch } from "./request";
 import type {
-  DefinitionResultFields,
+  ComputedFieldTypes,
+  FieldsInference,
   MergeResultFields,
-  ResultInference,
 } from "./result-types";
 import type { WriteKind } from "./written";
 
@@ -110,31 +110,31 @@ export type StampedFieldNames<Data, ModelName> =
  * chain accumulates, `omit` (the fields a default leaves out, which joins the
  * client's own omission), `consumer` (the part was typed against a result,
  * so a later rule that hides rows would make its type lie), `cache` (the
- * official cache) and `verbs` (what a rule's `gate` and `facts` add to the
- * delegates, in the form the projected types read).
+ * official cache) and `projected` (what a rule's `gate` and `facts` add to
+ * the delegates, in the form the projected types read).
  */
 export interface Facts<
   Client extends object = NoMethods,
   Models extends object = NoMethods,
   Arguments extends object = NoArguments,
-  Rows extends string = never,
-  Data = never,
-  Result extends object = NoFields,
+  Filtered extends string = never,
+  Defaults = never,
+  Fields extends object = NoFields,
   Omit extends object = NoFields,
   Consumer extends boolean = false,
   Cache extends boolean = false,
-  Verbs extends object = NoFields,
+  Projected extends object = NoFields,
 > {
   readonly client: Client;
   readonly models: Models;
   readonly args: Arguments;
-  readonly rows: Rows;
-  readonly data: Data;
-  readonly result: Result;
+  readonly filtered: Filtered;
+  readonly defaults: Defaults;
+  readonly fields: Fields;
   readonly omit: Omit;
   readonly consumer: Consumer;
   readonly cache: Cache;
-  readonly verbs: Verbs;
+  readonly projected: Projected;
 }
 
 export type EmptyFacts = Facts;
@@ -170,9 +170,9 @@ export type MergeFacts<Left extends AnyFacts, Right extends AnyFacts> = Facts<
   Left["client"] & Right["client"],
   MergeModelMethods<Left["models"], Right["models"]>,
   Left["args"] & Right["args"],
-  Left["rows"] | Right["rows"],
-  Left["data"] | Right["data"],
-  MergeResultFields<Left["result"], Right["result"]>,
+  Left["filtered"] | Right["filtered"],
+  Left["defaults"] | Right["defaults"],
+  MergeResultFields<Left["fields"], Right["fields"]>,
   MergeObjects<Left["omit"], Right["omit"]>,
   Left["consumer"] extends true
     ? true
@@ -180,7 +180,7 @@ export type MergeFacts<Left extends AnyFacts, Right extends AnyFacts> = Facts<
       ? true
       : false,
   Left["cache"] extends true ? true : Right["cache"],
-  MergeObjects<Left["verbs"], Right["verbs"]>
+  MergeObjects<Left["projected"], Right["projected"]>
 >;
 
 // =============================================================================
@@ -383,7 +383,7 @@ export type ConfiguredBy<C extends VibORMConfig, F extends AnyFacts> = [
 
 type ClientRowsOf<T extends AnyTarget> = ClientRowsContext<
   ConfiguredBy<T["config"], T["own"]>,
-  T["state"]["rows"] | T["own"]["rows"]
+  T["state"]["filtered"] | T["own"]["filtered"]
 >;
 
 /**
@@ -476,12 +476,12 @@ export interface RawCallContext<T extends AnyTarget> {
 }
 
 /** Moment 1 of a call over several operations, models, or raw statements: `kind` tells them apart. */
-export type GenericCallContext<T extends AnyTarget, M, O> =
+export type AnyCallContext<T extends AnyTarget, M, O> =
   | ModelCallContext<T, M, O>
   | RawCallContext<T>;
 
 /** Moment 2 of a generic call: the result is opaque, so only `run()`'s is returned. */
-export type GenericAround = <R>(run: Run<unknown, R>) => Promise<R>;
+export type AnyAround = <R>(run: Run<unknown, R>) => Promise<R>;
 
 type Single<M, O> =
   IsUnion<M> extends true ? false : IsUnion<O> extends true ? false : true;
@@ -491,7 +491,7 @@ type Single<M, O> =
  * `kind`; a target names model operations only.
  */
 export type MomentOne<T extends AnyTarget, M, O> = [M] extends [never]
-  ? GenericCallContext<T, ModelName<T>, Operations>
+  ? AnyCallContext<T, ModelName<T>, Operations>
   : Single<M, O> extends true
     ? O extends Operations
       ? CallContext<T, M, O>
@@ -507,13 +507,13 @@ export type MomentOne<T extends AnyTarget, M, O> = [M] extends [never]
  */
 export type AroundHandler<T extends AnyTarget, M, O> = [M] extends [never]
   ? (
-      c: GenericCallContext<T, ModelName<T>, Operations>
-    ) => GenericAround | undefined | void
+      c: AnyCallContext<T, ModelName<T>, Operations>
+    ) => AnyAround | undefined | void
   : Single<M, O> extends true
     ? O extends Operations
       ? (c: CallContext<T, M, O>) => Around<T, M, O> | undefined | void
       : never
-    : (c: ModelCallContext<T, M, O>) => GenericAround | undefined | void;
+    : (c: ModelCallContext<T, M, O>) => AnyAround | undefined | void;
 
 /** A call typed against one result consumes it (the order rule). */
 export type AroundFacts<M, O> = [M] extends [never]
@@ -1069,7 +1069,7 @@ type HidesRows =
   | LazyWord<unknown>;
 
 /** The projection facts of one entry, in the form the projected types read. */
-type EntryVerbs<E> = (E extends {
+type EntryProjection<E> = (E extends {
   readonly read: {
     readonly select: {
       readonly [K in infer Key extends string]: FactsWord<
@@ -1094,7 +1094,7 @@ type EntryVerbs<E> = (E extends {
 /** An entry as written, or as the function of a lazy entry returns it. */
 type EntryOf<E> = E extends () => infer Returned ? Returned : E;
 
-type RuleVerbs<R, Names extends string> = {
+type RuleProjections<R, Names extends string> = {
   readonly [M in keyof R as M extends Names
     ? EntryOf<R[M]> extends {
         readonly read:
@@ -1103,7 +1103,7 @@ type RuleVerbs<R, Names extends string> = {
       }
       ? M
       : never
-    : never]: EntryVerbs<EntryOf<R[M]>>;
+    : never]: EntryProjection<EntryOf<R[M]>>;
 };
 
 /**
@@ -1138,7 +1138,7 @@ type EntryFacts<R, Names extends string> = Facts<
   NoFields,
   false,
   false,
-  RuleVerbs<R, Names>
+  RuleProjections<R, Names>
 >;
 
 /**
@@ -1555,10 +1555,7 @@ export type FieldsFunction<T extends AnyTarget> = <
   const Declared extends object = object,
   Needs = unknown,
 >(
-  fields: Declared &
-    NonNullable<
-      ResultInference<T["config"], T["state"]["result"], Needs>["result"]
-    >
+  fields: Declared & FieldsInference<T["config"], T["state"]["fields"], Needs>
 ) => Part<
   T,
   Facts<
@@ -1567,12 +1564,9 @@ export type FieldsFunction<T extends AnyTarget> = <
     NoArguments,
     never,
     never,
-    DefinitionResultFields<{
-      readonly result: Pick<
-        Declared,
-        Extract<keyof Declared, ModelName<T> | "$allModels">
-      >;
-    }>
+    ComputedFieldTypes<
+      Pick<Declared, Extract<keyof Declared, ModelName<T> | "$allModels">>
+    >
   >
 >;
 

@@ -27,7 +27,7 @@ export interface ByModel<T> {
  * `where` inputs per model (its TS name), as admission left them: a value the
  * call supplies is a {@link Parameter}, a test of one a {@link Condition}. They
  * AND with each other; a model with none is not narrowed. Each list is
- * indexed by layer, the declaring `rows` member's place in the chain, so a
+ * indexed by layer, the declaring `rule` part's place in the chain, so a
  * layer stating nothing for the model leaves a hole.
  */
 export type ModelDomain = ByModel<readonly Input[]>;
@@ -65,27 +65,27 @@ export interface RowDomain {
   readonly confine?: ModelDomain;
   /**
    * Per model (its TS name), indexed by layer as {@link ModelDomain} is, the
-   * predicates of the model's verbs. A model absent here judges a write by
+   * rule entries of the model. A model absent here judges a write by
    * its purpose's predicates alone.
    */
-  readonly verbs?: ByModel<readonly (ModelVerbs | undefined)[]> & {
+  readonly rules?: ByModel<readonly (RuleEntry | undefined)[]> & {
     has(model: string): boolean;
   };
   /**
    * What judges the rows a write produces, made once per prepared domain:
-   * stated where some model's verbs judge them, by what reads the verbs.
+   * stated where some model's entry judges them, by what reads the entries.
    */
   readonly judge?: (domain: PreparedDomain) => Judge;
   /**
    * What a read may carry beside the rows (projection keys) and what it
    * hides of them (read-gated fields), made once per prepared domain: stated
-   * where some model's verbs may declare either, by what reads the verbs.
+   * where some model's entry may declare either, by what reads the entries.
    */
   readonly project?: (domain: PreparedDomain) => Projection;
   /**
    * What an `excluded` layer states its own whole-table sets of a model hold
    * (`confine`), made once per prepared domain: stated where some member
-   * confines one, by what reads the verbs.
+   * confines one, by what reads the entries.
    */
   readonly bound?: (
     domain: PreparedDomain
@@ -105,14 +105,14 @@ export interface RowDomain {
  * One layer's entry for one model beyond its filters, its predicates `P`:
  * as written (`unknown`), then as admission left them (`Input`). `read`
  * (an entry given lazily's `read.where`) ANDs with the layer's predicate at
- * every purpose, a write's verb with its candidates beside them (R2); a verb
- * left out restricts nothing. An update takes, per field its data writes,
+ * every purpose, a write's own key (`update`, `delete`) with its candidates
+ * beside them (R2); a key left out restricts nothing. An update takes, per field its data writes,
  * that field's predicate, else `update`'s. The row a write produces is
  * judged as a value (R4) where a check said so: a created row at `place`;
  * an updated row at the predicates that judged its old row, `check`, and per
  * field it writes, that field's `moves` predicate.
  */
-export interface ModelVerbs<P = Input> {
+export interface RuleEntry<P = Input> {
   readonly read?: P;
   /**
    * What a row a write returns holds for the layer's projection key and
@@ -148,12 +148,12 @@ export interface ModelVerbs<P = Input> {
 }
 
 /**
- * The verb a write lookup takes beside its purpose (R3): `delete`, or `update`
+ * What a write lookup is judged at beside its purpose (R3): `delete`, or `update`
  * with the fields the occurrence's data writes, none when it writes only
  * stamps and generated values.
  */
-export interface RowJudgement {
-  readonly verb: "update" | "delete";
+export interface WriteJudgement {
+  readonly kind: "update" | "delete";
   readonly writes: readonly string[];
   /**
    * The caller writes a field the model's tombstone manages (sets or clears

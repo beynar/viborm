@@ -11,7 +11,7 @@ import type {
   Part,
 } from "./contract";
 import { type ComputedFieldDeclaration, fieldsPart } from "./result";
-import type { DefinitionResultFields, ResultInference } from "./result-types";
+import type { ComputedFieldTypes, FieldsInference } from "./result-types";
 
 type NoMethods = Record<never, never>;
 
@@ -21,10 +21,7 @@ export function fields<
   const Declared extends object = object,
   Needs = unknown,
 >(
-  fields: Declared &
-    NonNullable<
-      ResultInference<T["config"], T["state"]["result"], Needs>["result"]
-    >
+  fields: Declared & FieldsInference<T["config"], T["state"]["fields"], Needs>
 ): Part<
   T,
   Facts<
@@ -33,12 +30,9 @@ export function fields<
     NoArguments,
     never,
     never,
-    DefinitionResultFields<{
-      readonly result: Pick<
-        Declared,
-        Extract<keyof Declared, ModelName<T> | "$allModels">
-      >;
-    }>
+    ComputedFieldTypes<
+      Pick<Declared, Extract<keyof Declared, ModelName<T> | "$allModels">>
+    >
   >
 >;
 export function fields(

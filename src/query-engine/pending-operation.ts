@@ -13,8 +13,8 @@ import type { AdmittedArgs } from "@extensions/arguments";
 import type { CallOrigin } from "@extensions/origin";
 import type {
   AroundHandlers,
+  CallMode,
   PreparedModelQueryContext,
-  QueryInterceptionMode,
   WriteOutcomeRegistration,
 } from "@extensions/query";
 import type { UnitSource } from "@extensions/unit-source";
@@ -196,7 +196,7 @@ export class PendingOperation<T>
         operation.#preparedInput();
         if (phase === "plan") operation.#resolveSinglePackage();
       },
-      interception: (operation) => {
+      around: (operation) => {
         const requestedOperation = String(operation.#options.originalOperation);
         const handlers = operation.#engine.extensionChain?.around?.handlers(
           operation.#modelName,
@@ -442,7 +442,7 @@ export class PendingOperation<T>
    * reads it never copies it.
    */
   #queryContext(
-    mode: QueryInterceptionMode,
+    mode: CallMode,
     preparedInput: Record<string, unknown>
   ): PreparedModelQueryContext<Record<string, unknown>> {
     const values = this.#inputPreparation?.values;

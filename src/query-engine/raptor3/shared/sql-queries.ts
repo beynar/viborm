@@ -986,7 +986,7 @@ export class SqlQueries extends Queries {
         new RowsOf(
           model,
           alias,
-          options?.update && { verb: "update", writes: options.update },
+          options?.update && { kind: "update", writes: options.update },
           options?.where
         ),
     };

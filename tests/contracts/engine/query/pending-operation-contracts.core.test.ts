@@ -447,13 +447,13 @@ describe("pending operation transaction coordination", () => {
     expect(readOwner.model(read)).toBe("user");
     expect(readOwner.operation(read)).toBe("findMany");
     expect(readOwner.context(read)).toBe(capability(read).context);
-    expect(readOwner.interception(read)).toEqual({
+    expect(readOwner.around(read)).toEqual({
       context: undefined,
       handlers: undefined,
       write: false,
       registration: undefined,
     });
-    expect(writeOwner.interception(write).write).toBe(true);
+    expect(writeOwner.around(write).write).toBe(true);
     // The member's operation unit, as its array observes it.
     expect(readOwner.unit(read)).toMatchObject({
       kind: "operation",
@@ -510,8 +510,8 @@ describe("pending operation transaction coordination", () => {
     const owner = ownerOf(operation);
 
     owner.prepareAdmission(operation);
-    expect(owner.interception(operation).registration).toBe(registration);
-    expect(owner.interception(operation)).toMatchObject({
+    expect(owner.around(operation).registration).toBe(registration);
+    expect(owner.around(operation)).toMatchObject({
       write: true,
       registration,
     });
@@ -574,7 +574,7 @@ describe("pending operation transaction coordination", () => {
     const owner = ownerOf(operation);
 
     owner.prepareAdmission(operation);
-    const { context, handlers } = owner.interception(operation);
+    const { context, handlers } = owner.around(operation);
     expect(context).toMatchObject({
       mode: "array",
       kind: "model",

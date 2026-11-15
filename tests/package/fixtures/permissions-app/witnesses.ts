@@ -63,7 +63,7 @@ const COMPILED_POLICY =
  * The verbs witnesses' runner (SQLite3; PGlite, pg, MySQL2 and D1 beside, in
  * tests/providers/{local,docker,workers}/*-permissions-verbs.test.ts), oracle-bound.
  */
-const VERBS = "tests/providers/local/sqlite3-permissions-verbs.test.ts";
+const ENTRIES = "tests/providers/local/sqlite3-permissions-verbs.test.ts";
 
 /**
  * The entry's witnesses' runner (SQLite3, raw SQL included; PGlite, pg,
@@ -113,19 +113,19 @@ const LANDED: Readonly<Record<string, string>> = {
   "W-AS7": BOUND_VIEWS,
   "W-C5": COMPOSITION,
   "W-C8": COMPOSITION,
-  "W-W1": VERBS,
-  "W-W2": VERBS,
-  "W-W3": VERBS,
-  "W-W4": VERBS,
-  "W-W5": VERBS,
-  "W-W6": VERBS,
-  "W-W7": VERBS,
-  "W-W8": VERBS,
-  "W-W9": VERBS,
-  "W-W10": VERBS,
-  "W-W11": VERBS,
-  "W-W12": VERBS,
-  "W-N4": VERBS,
+  "W-W1": ENTRIES,
+  "W-W2": ENTRIES,
+  "W-W3": ENTRIES,
+  "W-W4": ENTRIES,
+  "W-W5": ENTRIES,
+  "W-W6": ENTRIES,
+  "W-W7": ENTRIES,
+  "W-W8": ENTRIES,
+  "W-W9": ENTRIES,
+  "W-W10": ENTRIES,
+  "W-W11": ENTRIES,
+  "W-W12": ENTRIES,
+  "W-N4": ENTRIES,
   "W-R1": ENTRY,
   "W-R2": ENTRY,
   "W-R3": ENTRY,

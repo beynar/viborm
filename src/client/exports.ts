@@ -21,9 +21,9 @@ export {
 export type { IndexDefinition, IndexOptions } from "../schema/model";
 export type { ObjectSchema, VibSchema } from "../validation";
 export type {
+  AddedProjectedState,
   ClientTypeState,
   ExtendedClient,
-  ProjectedContribution,
 } from "./client";
 export { defaultOmit } from "./default-omit-extension";
 // The fields a client may leave out, per model, and that map held exactly

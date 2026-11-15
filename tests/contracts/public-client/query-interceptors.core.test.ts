@@ -12,15 +12,15 @@
  */
 import { createClient } from "@client/client";
 import { QueryError, retainWriteOutcomeFailure } from "@errors";
-import type { ResolvedOperationHandler } from "@extensions/chain";
+import type { CallHandler } from "@extensions/chain";
 import {
   type AroundRunner,
+  type CallMode,
   collect,
   executePreparedQuery,
   type PreparedModelQueryContext,
   type PreparedRawQueryContext,
   publishWriteOutcomes,
-  type QueryInterceptionMode,
   type RawQueryKind,
   runArounds,
   type TransactionScope,
@@ -52,20 +52,20 @@ type Run = () => Promise<unknown>;
 function second(
   extension: string,
   moment: (run: Run) => unknown
-): ResolvedOperationHandler<AroundRunner> {
+): CallHandler<AroundRunner> {
   return { extension, handler: (_prepared, run) => moment(run) };
 }
 
 /** The runner over `parts`, around `child`. */
 const runSeconds = <Result>(
   context: PreparedModelQueryContext<object> | PreparedRawQueryContext<object>,
-  parts: readonly ResolvedOperationHandler<AroundRunner>[] | undefined,
+  parts: readonly CallHandler<AroundRunner>[] | undefined,
   child: () => Promise<Result>
 ): Promise<Result> => runArounds(context, parts, child);
 
 function modelContext(
   operation: string,
-  mode: QueryInterceptionMode = "direct"
+  mode: CallMode = "direct"
 ): PreparedModelQueryContext<Record<string, unknown>> {
   return Object.freeze({
     mode,
@@ -78,7 +78,7 @@ function modelContext(
 
 function rawContext(
   kind: RawQueryKind,
-  mode: QueryInterceptionMode = "direct"
+  mode: CallMode = "direct"
 ): PreparedRawQueryContext<Record<string, unknown>> {
   return Object.freeze({
     mode,

@@ -27,6 +27,7 @@
 // Named so an exported extended client's declaration can write them from
 // the entry every application imports.
 export type {
+  AddedProjectedState,
   ClientTypeState,
   DelegateConfig,
   DelegateOperationArgs,
@@ -35,7 +36,6 @@ export type {
   ExtendedClient,
   ExtendedOperationResult,
   ExtensionState,
-  ProjectedContribution,
   TransactionClient,
   TransactionClientOf,
   VibORMClient,
@@ -59,11 +59,11 @@ export type {
 } from "./extensions/contract.js";
 export * from "./extensions/index.js";
 export type {
-  AccumulatedExtensionState,
+  AddedExtensionState,
+  ChainedExtensionState,
   ClientExtensionState,
   EmptyClientExtensionState,
   ExtensionCacheState,
-  ExtensionContributionState,
   ExtensionResultConsumerState,
 } from "./extensions/methods";
 // Values a write computes, and the names a hand-written fragment spells them with.

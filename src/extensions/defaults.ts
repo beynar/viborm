@@ -135,7 +135,7 @@ function writeDefaults(name: string, entries: Entry, schema: Schema): Written {
         schema,
         bring: (part) => brought.push(part),
         lazy: false,
-        verbs: () => refuse(`${key} is written omitted`),
+        entry: () => refuse(`${key} is written omitted`),
         refuse,
       });
     }

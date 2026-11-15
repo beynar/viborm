@@ -11,8 +11,8 @@ import type { Schema } from "@client/types";
 import { ClientInitializationError } from "@errors";
 import type {
   CallRows,
-  ModelVerbs,
   RowDomain,
+  RuleEntry,
 } from "@query-engine/raptor3/shared/row-scope";
 import type { Input } from "@query-engine/raptor3/shared/schema";
 import { memo } from "@query-engine/raptor3/shared/schema";
@@ -41,11 +41,11 @@ type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 /**
  * One model's entry of one rule layer beyond its filters, as its words
- * wrote it (`ModelVerbs` with its predicates raw): admitted, it is the
- * layer's `ModelVerbs`. An entry given lazily holds its filters here too,
+ * wrote it (`RuleEntry` with its predicates raw): admitted, it is the
+ * layer's `RuleEntry`. An entry given lazily holds its filters here too,
  * since what filters is bound before any entry is resolved.
  */
-export type VerbsDraft = Mutable<Omit<ModelVerbs<unknown>, "cycles">> & {
+export type EntryDraft = Mutable<Omit<RuleEntry<unknown>, "cycles">> & {
   writes?: Map<string, unknown>;
   moves?: Map<string, unknown>;
   reads?: Map<string, unknown>;
@@ -57,10 +57,10 @@ export type VerbsDraft = Mutable<Omit<ModelVerbs<unknown>, "cycles">> & {
 };
 
 /**
- * One model's admitted verbs, with an entry given lazily's filters and the
+ * One model's admitted entry, with an entry given lazily's filters and the
  * arguments its predicates name, checked against the chain it is bound to.
  */
-export interface AdmittedVerbs extends ModelVerbs {
+export interface AdmittedEntry extends RuleEntry {
   readonly filters?: Filters;
   readonly references?: readonly (string | undefined)[];
 }
@@ -74,24 +74,24 @@ export interface AdmittedVerbs extends ModelVerbs {
 export interface RuleLayer {
   readonly root: Record<string, unknown[]>;
   readonly related: Record<string, unknown[]>;
-  readonly verbs: Record<string, VerbsDraft | (() => VerbsDraft)>;
+  readonly rules: Record<string, EntryDraft | (() => EntryDraft)>;
   /** Per model, what its whole-table sets hold: written by `within`. */
   confine?: Record<string, unknown>;
   /**
-   * What admits and binds `verbs`: set by the words that write them
-   * (`verbs.ts`), so a rule that only filters holds none of that code.
+   * What admits and binds `rules`: set by the words that write them
+   * (`entries.ts`), so a rule that only filters holds none of that code.
    */
-  host?: VerbsHost;
+  host?: EntryHost;
   /** What reads the call, set where an entry read later may read its call. */
   reads?: CallReads;
   /** What judges and projects, brought by the words that ask either. */
   brings?: {
-    judge?: ModelVerbs["judge"];
+    judge?: RuleEntry["judge"];
     project?: (domain: PreparedDomain) => Projection;
-    /** What prepares a call's domains where a layer takes rows by verb. */
+    /** What prepares a call's domains where a layer takes rows by `only`. */
     prepare?: CallRows["prepare"];
     /** What refuses one model's projection keys across the chain's layers. */
-    keys?: (model: string, layers: readonly (ModelVerbs | undefined)[]) => void;
+    keys?: (model: string, layers: readonly (RuleEntry | undefined)[]) => void;
     /** What admits and reads an entry given lazily, brought by `lazy`. */
     lazy?: LazyEntries;
     /** What admits and binds the confinements, brought by `within`. */
@@ -115,15 +115,15 @@ export interface LazyEntries {
   admit(
     admission: Admission,
     name: string,
-    entry: () => VerbsDraft,
+    entry: () => EntryDraft,
     filtersOf: FiltersOf
-  ): () => AdmittedVerbs;
+  ): () => AdmittedEntry;
   /** The entry as `chain` reads it: the arguments it names checked against it. */
   read(
     chain: ResolvedExtensionChain,
-    entry: () => AdmittedVerbs,
+    entry: () => AdmittedEntry,
     extension: string
-  ): AdmittedVerbs;
+  ): AdmittedEntry;
 }
 
 /**
@@ -158,31 +158,31 @@ export type FiltersOf = (
   of: string
 ) => Filters;
 
-/** What a layer's verbs bind to, for a chain. */
-export interface VerbsBound {
-  readonly verbs?: RowDomain["verbs"];
+/** What a layer's entries bind to, for a chain. */
+export interface BoundEntries {
+  readonly rules?: RowDomain["rules"];
   readonly judge?: RowDomain["judge"];
   readonly project?: RowDomain["project"];
   /** An entry given lazily is read: its calls carry their values. */
   readonly lazy?: boolean;
   /** A model's filters at one layer, held by an entry given lazily. */
   readonly filters?: (model: string, layer: number) => Filters | undefined;
-  /** What prepares the call facts, with what the verbs judge. */
+  /** What prepares the call facts, with what the entries judge. */
   readonly prepare: CallRows["prepare"];
 }
 
 /**
- * What the words that write verbs bring (`verbs.ts`): what admits a layer's
- * verbs once per schema, and what binds a chain's for its calls.
+ * What the words that write entries bring (`entries.ts`): what admits a layer's
+ * entries once per schema, and what binds a chain's for its calls.
  */
-export interface VerbsHost {
+export interface EntryHost {
   admit(
     admission: Admission,
     layer: RuleLayer,
     filtersOf: FiltersOf,
     references: References
-  ): AdmittedLayer["verbs"];
-  bind(chain: ResolvedExtensionChain): VerbsBound;
+  ): AdmittedLayer["rules"];
+  bind(chain: ResolvedExtensionChain): BoundEntries;
 }
 
 /**
@@ -193,11 +193,11 @@ export interface VerbsHost {
 export interface AdmittedLayer {
   readonly extension: string;
   readonly models: { readonly [model: string]: Filters };
-  readonly verbs: {
-    readonly [model: string]: AdmittedVerbs | (() => AdmittedVerbs);
+  readonly rules: {
+    readonly [model: string]: AdmittedEntry | (() => AdmittedEntry);
   };
-  /** What admitted `verbs`, and binds them. */
-  readonly host?: VerbsHost;
+  /** What admitted `rules`, and binds them. */
+  readonly host?: EntryHost;
   /** What reads the call, where some predicate of it reads one. */
   readonly reads?: CallReads;
   /** What judges and projects, brought by the words that ask either. */
@@ -321,7 +321,7 @@ export function admitLayer(
       ""
     );
   const { host } = layer;
-  const verbs = host?.admit(admitting, layer, filtersOf, references) ?? {};
+  const rules = host?.admit(admitting, layer, filtersOf, references) ?? {};
   const confine = layer.confine
     ? layer.brings!.confines!.admit(admitting, layer.confine, references)
     : undefined;
@@ -329,7 +329,7 @@ export function admitLayer(
   const out: AdmittedLayer = {
     extension,
     models,
-    verbs,
+    rules,
     ...(host && { host }),
     ...(reads && { reads }),
     ...(layer.brings && { brings: layer.brings }),

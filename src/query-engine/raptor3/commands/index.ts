@@ -444,7 +444,7 @@ export function createCommandEngine(config: EngineConfig) {
   ): PreparedOperation =>
     new PreparedCommand(config, queries, modelName, requested, rawArgs, rows);
   /**
-   * `$rows`: `model`'s rows a root read under `rows` takes, as a raw read's
+   * `$rows`: `model`'s rows a root read under the chain's rules takes, as a raw read's
    * `FROM` item named `alias`. A model whose layers gate a field's reads is
    * refused: `SELECT *` would disclose it to every row.
    */

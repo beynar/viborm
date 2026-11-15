@@ -9,10 +9,10 @@ import {
 import { isReadOperation } from "@query-engine/routed-operations";
 import { errorCause, isError } from "../errors/diagnostic-safety";
 import type { AdmittedArgs } from "./arguments";
-import type { ResolvedOperationHandler } from "./chain";
+import type { CallHandler } from "./chain";
 import { ATTEMPT, CALL, type CallOrigin } from "./origin";
 
-export type QueryInterceptionMode = "direct" | "transaction" | "array";
+export type CallMode = "direct" | "transaction" | "array";
 
 export type RawQueryKind =
   | "queryRaw"
@@ -23,7 +23,7 @@ export type RawQueryKind =
 export type RawQueryOperation = `$${RawQueryKind}`;
 
 interface PreparedQueryContextBase<Input extends object> {
-  readonly mode: QueryInterceptionMode;
+  readonly mode: CallMode;
   readonly input: Readonly<Input>;
   /**
    * One object per call, the same one its first moments were handed: what
@@ -101,7 +101,7 @@ export type AroundRunner = (
 ) => unknown;
 
 /** The `around` parts one call runs, the first applied outermost. */
-export type AroundHandlers = readonly ResolvedOperationHandler<AroundRunner>[];
+export type AroundHandlers = readonly CallHandler<AroundRunner>[];
 
 type Certainty = WriteOutcome["certainty"];
 
@@ -259,7 +259,7 @@ export interface Attempt {
  */
 async function runAround<Result, Input extends object>(
   prepared: PreparedQueryContext<Input>,
-  part: ResolvedOperationHandler<AroundRunner>,
+  part: CallHandler<AroundRunner>,
   child: Child<Result>,
   readCommitCertainty: (() => Certainty | undefined) | undefined,
   reportAdmissionFailure: ((failure: unknown) => void) | undefined,

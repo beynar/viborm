@@ -34,7 +34,7 @@ import {
  * OD-14 recommended; §7 W-P1..W-P16): the row a write produces is judged as
  * a value, against the rows before the write, inside the statement that
  * writes it. The declaration is the compiled §1.1 policy exactly as
- * `viborm/permissions` hands it to its `rows.verbs` (`verbsOf`): per model,
+ * `viborm/permissions` hands it to its `rows.verbs` (`entryOf`): per model,
  *
  * - `place`: mandatory ∧ the named `create` rule AND every key's target visible,
  *   `P(T, read)` inlined; nothing (`OR: []`) on a model that declares no

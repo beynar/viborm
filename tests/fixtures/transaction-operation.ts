@@ -1,7 +1,7 @@
 import type { AnyDriver, QueryResult } from "@drivers";
 import type { UnitSource } from "@extensions/unit-source";
 import {
-  type MemberInterception,
+  type MemberAround,
   readTransactionOperation,
   registerTransactionOperationOwner,
   type TransactionOperationCapability,
@@ -52,8 +52,8 @@ export class TestTransactionOperationView {
     return this.#owner.context(this.#capability);
   }
 
-  interception(): MemberInterception {
-    return this.#owner.interception(this.#capability);
+  around(): MemberAround {
+    return this.#owner.around(this.#capability);
   }
 
   unit(): UnitSource {
@@ -108,8 +108,7 @@ export class TestTransactionOperation<T> implements PromiseLike<T> {
       context: (operation) => operation.#owner.context(operation.#capability),
       prepareAdmission: (operation, phase) =>
         operation.#owner.prepareAdmission(operation.#capability, phase),
-      interception: (operation) =>
-        operation.#owner.interception(operation.#capability),
+      around: (operation) => operation.#owner.around(operation.#capability),
       executeCore: (operation, driver, notifications) =>
         operation.#owner.executeCore(
           operation.#capability,

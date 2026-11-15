@@ -68,7 +68,7 @@ export type Schema = Record<string, Model<any>>;
  * Schema-only application types, keyed by the schema's model names.
  * Row uses the default scalar projection and respects schema-level omission;
  * client extensions and defaultOmit are not part of this schema-only view.
- * On a client whose extensions declare `rows`, a to-one relation can read
+ * On a client whose extensions' rules filter rows, a to-one relation can read
  * `null` where these types say it cannot: use `ExtendedOperationResult`.
  */
 export type InferDatabase<S extends Schema> = {
@@ -379,9 +379,9 @@ type ClientRelationOmitContext<C extends VibORMConfig> = [
   : ClientResultOmitContext<ClientRelationOmitEntries<C>>;
 
 /**
- * The result context of a client whose chain declares `rows` over `Models`:
+ * The result context of a client whose chain's rules filter `Models`:
  * its relation omission defaults, and the shallow surfaces of the models a
- * relation read can find hidden. Without `rows`, exactly the omission context.
+ * relation read can find hidden. Without rules, exactly the omission context.
  * The schema's names are filtered BY `Models`, so a definition typed over
  * every string hides every model rather than none.
  */
@@ -476,7 +476,7 @@ type OperationResultWithClientDefaults<
 
 /**
  * Public operation result helper for one operation and its declared args.
- * Schema-only: on a client whose extensions declare `rows`, a to-one relation
+ * Schema-only: on a client whose extensions' rules filter rows, a to-one relation
  * can read `null` where this type says it cannot. `ExtendedOperationResult`
  * types a derived client's results.
  */
@@ -489,7 +489,7 @@ export type OperationResult<
 
 /**
  * One concrete client's result under the result context it computed: its
- * top-level and relation defaults, and the surfaces its `rows` can hide
+ * top-level and relation defaults, and the surfaces its rules can hide
  * (`ClientRowsContext`). The one owner every client-bound result reads.
  */
 export type ContextualOperationResult<
@@ -993,7 +993,7 @@ type StampedArms<
 
 /**
  * The fields the chain writes on a create of a relation's target. A target
- * is found by its shallow surface, as `rows` finds a hidden one: a model
+ * is found by its shallow surface, as a rule finds a hidden one: a model
  * that shares its surface with a stamped model is narrowed with it.
  */
 type TargetStampedFields<

@@ -74,8 +74,8 @@ import {
   Existence,
   OuterColumn,
   Parameter,
-  type RowJudgement,
   type RowPurpose,
+  type WriteJudgement,
 } from "./row-scope";
 import {
   type Arguments,
@@ -1664,7 +1664,7 @@ export abstract class Queries {
   /**
    * The row domain this `Queries` reads under: every to-many relation it
    * correlates, and every root read or lookup that names a purpose. Absent on
-   * every path of a client without `rows`.
+   * every path of a client without rules.
    */
   readonly domain: PreparedDomain | undefined;
   /**
@@ -1718,7 +1718,7 @@ export abstract class Queries {
   protected scope(
     model: AnyModel,
     purpose: RowPurpose,
-    judgement?: RowJudgement
+    judgement?: WriteJudgement
   ): PreparedSelector | undefined {
     const excluded = this.excluded;
     return excluded === undefined || excluded.length === 0
@@ -1733,7 +1733,7 @@ export abstract class Queries {
   domainOf(
     model: AnyModel,
     purpose: RowPurpose,
-    judgement?: RowJudgement
+    judgement?: WriteJudgement
   ): PreparedSelector | undefined {
     const scope = this.scope(model, purpose, judgement);
     return scope && !this.#drops(scope.predicate) ? scope : undefined;
@@ -2149,7 +2149,7 @@ export abstract class Queries {
     selector: PreparedSelector,
     purpose: RowPurpose,
     domain: PreparedDomain | undefined = this.domain,
-    judgement?: RowJudgement
+    judgement?: WriteJudgement
   ): PreparedSelector {
     const scope = domain?.selector(
       selector.model,
@@ -3294,7 +3294,7 @@ export abstract class Queries {
    *
    * It RETURNS the junction model's columns, so it is a read of that model,
    * unlike the hop beside it. Whatever a direct read of them would hide on
-   * this client refuses the key, before any statement: a row its `rows` hide
+   * this client refuses the key, before any statement: a row its rules hide
    * or a field a gate masks has no faithful answer in a value the hop already
    * reached (the target row is there; the link it came through is not to be
    * told). `defaultOmit` is presentation, and is settled at the client.

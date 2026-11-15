@@ -45,7 +45,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 /**
  * The compiled policy against the oracle (plan §3.3 D2, D3, D9; §7 W-H1,
  * W-A1..W-A6): `permissions(§1.1).compile(schema)` is plain data, its K3 part
- * (`verbsOf`) handed to a plain extension's `rows.verbs`, whose modes name each
+ * (`entryOf`) handed to a plain extension's `rows.verbs`, whose modes name each
  * `(model, action)` predicate, conjoined by K3 with the model's read
  * predicate (R2). Its `actor` control is a call argument (K1 admission, K2
  * parameters and conditions), on the seeded permissions-app fixture with no other

@@ -108,8 +108,8 @@ operation into two batches and commit the first alone.
 
 *Verbs (permissions plan K3; written by a `rule`'s `only`, `check`, `gate`,
 `facts` and `lazy`, `src/extensions/verbs.ts`).* A domain may hold, per model
-and layer, `verbs` (`ModelVerbs`): `read` ANDs with that layer's predicate at every purpose, and
-a write lookup names a `RowJudgement` beside its purpose: `DELETE_JUDGEMENT`
+and layer, `verbs` (`RuleEntry`): `read` ANDs with that layer's predicate at every purpose, and
+a write lookup names a `WriteJudgement` beside its purpose: `DELETE_JUDGEMENT`
 for every delete and tombstone candidate set, `Commands.judge` for an update
 occurrence (the fields the caller's data writes, a held key's relation with
 its key fields, a join by every verb but `update`/`updateMany`; none when only
@@ -127,7 +127,7 @@ strict form's "not found" sentence. A key the parent holds addresses its
 member seen or not; a key the member holds addresses only members the call
 sees, so a hidden one is an empty slot.
 
-*Produced rows (permissions plan K4, OD-13: one statement).* A layer's `ModelVerbs`
+*Produced rows (permissions plan K4, OD-13: one statement).* A layer's `RuleEntry`
 may name `place` (every created row: `create.check`), `check` (`update.check`,
 judged only where the update writes a field the predicate reads), `moves`
 (per field, the new row of an update writing it: `update.fields[f].check`)
@@ -325,7 +325,7 @@ level and refused at 9 before, 5 per level and 94 at admission's 15 after).
 It costs D1's acceptance `$access` reads about 7% more VDBE instructions
 (`accessGrant` `$access` 21,737 → 23,333); every one D1 ran still runs.
 
-*Evidence and read-gated fields (permissions plan K5).* A layer's `ModelVerbs` may
+*Evidence and read-gated fields (permissions plan K5).* A layer's `RuleEntry` may
 carry `evidence` (a projection key and the predicates it reports) and `reads`
 (per field, the predicate its row holds where it carries the field);
 `PreparedDomain.projected(model)` gathers them per model, and `layered`

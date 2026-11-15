@@ -18,7 +18,7 @@ import { isPlainRecord } from "@schema/relation/terminal";
 import { validateSchema } from "@validation/primitives/helpers";
 import type { FilterWord } from "@validation/primitives/parameter";
 import type { SchemaRegistryLookup } from "@validation/types";
-import type { CallReads, References, RuleLayer, VerbsDraft } from "./admission";
+import type { CallReads, EntryDraft, References, RuleLayer } from "./admission";
 import { CALL_READS } from "./call-values";
 import type { ExtensionPart } from "./chain";
 import type {
@@ -58,7 +58,7 @@ export interface Site {
    */
   readonly shows?: unknown;
   /** The model's keys beyond its filters, made at the first word that writes one. */
-  verbs(): VerbsDraft;
+  entry(): EntryDraft;
   refuse(problem: string): never;
 }
 

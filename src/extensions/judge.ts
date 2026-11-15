@@ -1,5 +1,5 @@
 /**
- * What judges the rows a write produces, for one prepared domain: the verbs'
+ * What judges the rows a write produces, for one prepared domain: the entries'
  * `place`, `moves` and `acyclic` rules, the refusal a judged write fails
  * with, and what an upsert says of a row it located. Brought by `check`:
  * a program whose rules judge no produced row does not hold it.
@@ -12,7 +12,7 @@ import {
 } from "@query-engine/raptor3/shared/query";
 import type {
   LazyRelations,
-  RowJudgement,
+  WriteJudgement,
 } from "@query-engine/raptor3/shared/row-scope";
 import { type Input, memo } from "@query-engine/raptor3/shared/schema";
 import type { SqlOperationContext } from "@query-engine/raptor3/shared/sql-operation-context";
@@ -22,10 +22,10 @@ import type { Question } from "@query-engine/raptor3/write/statements";
 import type { PreparedGuardFailure } from "@query-engine/types";
 import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
+import { ALL, judgedInputs } from "./entries";
 import { producedSource, producedWhere } from "./produced";
 import { readsAny } from "./reads";
 import type { PreparedDomain } from "./row-domain";
-import { ALL, verbInputs } from "./verbs";
 
 /** What the engine and the drivers ask of what judges a domain's writes. */
 export type Judge = ReturnType<typeof judgeOf>;
@@ -34,7 +34,7 @@ export type Judge = ReturnType<typeof judgeOf>;
 export const judgeOf = (domain: PreparedDomain) => {
   const cache = new Map<string, PreparedSelector | null>();
   const layersOf = (model: AnyModel) =>
-    domain.rows.verbs?.get(model["~"].names.ts!);
+    domain.rows.rules?.get(model["~"].names.ts!);
   const judge = {
     /**
      * The values the judgement of a created row of `model` binds, beside the
@@ -100,7 +100,7 @@ export const judgeOf = (domain: PreparedDomain) => {
       question: Question,
       candidates: (alias: string) => Sql | undefined,
       values: Input,
-      judgement: RowJudgement,
+      judgement: WriteJudgement,
       limit?: number
     ):
       | { readonly where: Sql; readonly stops: PreparedGuardFailure }
@@ -138,7 +138,7 @@ export const judgeOf = (domain: PreparedDomain) => {
     refusal(
       operation: string,
       model: AnyModel,
-      judgement?: RowJudgement,
+      judgement?: WriteJudgement,
       verb?: string,
       relation?: string
     ): PreparedGuardFailure {
@@ -188,21 +188,22 @@ export const judgeOf = (domain: PreparedDomain) => {
      * What the row a write of `model` produces is judged at, as a value,
      * against the rows as they stand before the write (R4): a created row
      * (no `judgement`) at each layer's `place`; an updated one at the
-     * predicates that judged its old row, `read` and its verb's (WITH
+     * predicates that judged its old row, `read` and its `update.where`'s (WITH
      * CHECK), and its written fields' `moves`. A write that states its
      * candidates' judgement in its own statement names the fields it
      * `assigned`: where it assigns none of what judged its old row, that
      * judgement is the old row's and is not stated twice. `undefined` where
-     * no layer judges it: no verbs, no `place` for a create, a delete, an
+     * no layer judges it: no entry, no `place` for a create, a delete, an
      * update nothing judges.
      */
     produced(
       model: AnyModel,
-      judgement?: RowJudgement,
+      judgement?: WriteJudgement,
       assigned?: readonly string[]
     ): PreparedSelector | undefined {
-      const verbs = layersOf(model);
-      if (judgement?.verb === "delete" || verbs === undefined) return undefined;
+      const entries = layersOf(model);
+      if (judgement?.kind === "delete" || entries === undefined)
+        return undefined;
       const changed = assigned && new Set(assigned);
       const keys = domain.queries.schema.keys(model);
       return (
@@ -213,7 +214,7 @@ export const judgeOf = (domain: PreparedDomain) => {
             : `create ${model["~"].names.ts}`,
           () => {
             const layers: (readonly [number, Input[]])[] = [];
-            for (const [layer, own] of verbs.entries()) {
+            for (const [layer, own] of entries.entries()) {
               // A layer judges the rows its writes produce where a check said so.
               if (own?.judge === undefined) continue;
               // What judged the old row judges the new one, unless the write
@@ -222,7 +223,7 @@ export const judgeOf = (domain: PreparedDomain) => {
               const checked = judgement
                 ? [
                     own.read ?? ALL,
-                    ...verbInputs(own, judgement),
+                    ...judgedInputs(own, judgement),
                     ...(own.check === undefined ? [] : [own.check]),
                   ]
                 : [];
@@ -258,9 +259,9 @@ export const judgeOf = (domain: PreparedDomain) => {
      * keep acyclic (R4): each layer's `acyclic` relations of `model` whose
      * key fields it writes.
      */
-    cycles(model: AnyModel, judgement: RowJudgement): readonly string[] {
-      const verbs = layersOf(model);
-      if (judgement.verb === "delete" || verbs === undefined)
+    cycles(model: AnyModel, judgement: WriteJudgement): readonly string[] {
+      const entries = layersOf(model);
+      if (judgement.kind === "delete" || entries === undefined)
         return NO_RELATIONS;
       const relations = new Set<string>();
       const written = (relation: string) => {
@@ -271,7 +272,7 @@ export const judgeOf = (domain: PreparedDomain) => {
             edge.pairs.some((pair) => judgement.writes.includes(pair.source)))
         );
       };
-      for (const own of verbs) {
+      for (const own of entries) {
         const acyclic = own?.cycles;
         if (acyclic === undefined) continue;
         // Not a list, the cycles are the lazy relations `cyclesOf` made.

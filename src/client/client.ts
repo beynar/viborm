@@ -20,11 +20,11 @@ import type {
 import { transact } from "@extensions/coordination";
 import { isAppliedExtension } from "@extensions/extension";
 import type {
-  AccumulatedExtensionState,
+  AddedExtensionState,
+  ChainedExtensionState,
   DelegateState,
   EmptyClientExtensionState,
   ExtensionCacheState,
-  ExtensionContributionState,
   ExtensionMethods,
   ExtensionModelClient,
   ExtensionStateConstraint,
@@ -240,37 +240,39 @@ export interface DriverConfig<S extends Schema = Schema>
  * A contribution whose model slot also carries the projected overloads of a
  * declared key (K5), typed against the client as this step leaves it.
  */
-export interface ProjectedContribution<
-  Contribution extends ExtensionStateConstraint,
+export interface AddedProjectedState<
+  Added extends ExtensionStateConstraint,
   Projected extends object,
 > extends ExtensionStateConstraint {
-  readonly client: Contribution["client"];
-  readonly models: MergeModelMethods<Contribution["models"], Projected>;
-  readonly cache: Contribution["cache"];
-  readonly resultConsumer: Contribution["resultConsumer"];
-  readonly args: Contribution["args"];
-  readonly rows: Contribution["rows"];
-  readonly data: Contribution["data"];
-  readonly result: Contribution["result"];
+  readonly client: Added["client"];
+  readonly models: MergeModelMethods<Added["models"], Projected>;
+  readonly cache: Added["cache"];
+  readonly resultConsumer: Added["resultConsumer"];
+  readonly args: Added["args"];
+  readonly filtered: Added["filtered"];
+  readonly defaults: Added["defaults"];
+  readonly fields: Added["fields"];
 }
 
 /**
  * What a rule's `gate` and `facts` add, in the form the projected types read
  * a definition: nothing when it adds neither.
  */
-type VerbsDefinition<F extends AnyFacts> = [keyof F["verbs"]] extends [never]
+type ProjectedDefinition<F extends AnyFacts> = [keyof F["projected"]] extends [
+  never,
+]
   ? unknown
-  : { readonly rows: { readonly verbs: F["verbs"] } };
+  : { readonly projected: F["projected"] };
 
 /** An extension's facts as the chain's state accumulates them. */
-type ContributionOf<F extends AnyFacts> = ExtensionContributionState<
+type AddedStateOf<F extends AnyFacts> = AddedExtensionState<
   F["client"],
   F["models"],
   F["args"],
-  F["rows"],
-  F["data"],
+  F["filtered"],
+  F["defaults"],
   F["consumer"] extends true ? "result-consuming" : "result-independent",
-  F["result"],
+  F["fields"],
   F["cache"] extends true ? ExtensionCacheState : undefined
 >;
 
@@ -278,25 +280,25 @@ type ContributionOf<F extends AnyFacts> = ExtensionContributionState<
 export type AppliedClientConfig<
   C extends VibORMConfig,
   F extends AnyFacts,
-> = GatedConfig<ConfiguredBy<C, F>, VerbsDefinition<F>>;
+> = GatedConfig<ConfiguredBy<C, F>, ProjectedDefinition<F>>;
 
 type ProjectedStateOf<
   C extends VibORMConfig,
   X extends ExtensionStateConstraint,
   F extends AnyFacts,
-  Contribution extends ExtensionStateConstraint = ContributionOf<F>,
-> = DeclaresEvidence<C, VerbsDefinition<F>> extends false
-  ? Contribution
-  : ProjectedContribution<
-      Contribution,
+  Added extends ExtensionStateConstraint = AddedStateOf<F>,
+> = DeclaresEvidence<C, ProjectedDefinition<F>> extends false
+  ? Added
+  : AddedProjectedState<
+      Added,
       ProjectedModelOperations<
         AppliedClientConfig<C, F>,
         ClientRowsContext<
           AppliedClientConfig<C, F>,
-          X["rows"] | Contribution["rows"]
+          X["filtered"] | Added["filtered"]
         >,
-        X["args"] & Contribution["args"],
-        VerbsDefinition<F>
+        X["args"] & Added["args"],
+        ProjectedDefinition<F>
       >
     >;
 
@@ -309,7 +311,7 @@ export type AppliedExtensionState<
   ? // Nothing contributed (hooks, units, a plain call): the client's own
     // state, so the client keeps its very type.
     X
-  : AccumulatedExtensionState<X, ProjectedStateOf<C, X, F>>;
+  : ChainedExtensionState<X, ProjectedStateOf<C, X, F>>;
 
 /**
  * The order rule: after a part typed against a result, a rule that hides
@@ -348,13 +350,13 @@ type Literal<K> = K extends string ? (string extends K ? never : K) : never;
  */
 type NamedModels<F extends AnyFacts> =
   | Literal<
-      | F["rows"]
+      | F["filtered"]
       | keyof F["omit"]
       | keyof F["models"]
-      | keyof F["verbs"]
-      | Exclude<keyof F["result"], "$allModels">
+      | keyof F["projected"]
+      | Exclude<keyof F["fields"], "$allModels">
     >
-  | DataModels<F["data"]>;
+  | DataModels<F["defaults"]>;
 
 /**
  * The models the extension names that this client does not have. A part
@@ -504,7 +506,7 @@ export type VibORMClient<
         config?: WithCacheOptions
       ) => CachedClient<
         C,
-        ClientRowsContext<C, X["rows"]>,
+        ClientRowsContext<C, X["filtered"]>,
         X["args"],
         X["models"]
       >;
@@ -675,7 +677,7 @@ export type ExtendedOperationResult<
           ModelName & keyof ClientSchema<C>,
           O,
           Args,
-          ClientRowsContext<C, X["rows"]>
+          ClientRowsContext<C, X["filtered"]>
         >
       : never
     : never

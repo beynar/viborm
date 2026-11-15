@@ -20,7 +20,7 @@ import type {
   PreparedSelector,
   Query,
 } from "../shared/query";
-import { Parameter, type RowJudgement } from "../shared/row-scope";
+import { Parameter, type WriteJudgement } from "../shared/row-scope";
 import type { Input } from "../shared/schema";
 import type { SqlOperationContext } from "../shared/sql-operation-context";
 import type { SqlQueries } from "../shared/sql-queries";
@@ -107,10 +107,10 @@ export class Writer {
     this.hears = hears;
   }
   /** What a write of the rows a question names is judged at. */
-  protected judged(question: Question): RowJudgement | undefined {
+  protected judged(question: Question): WriteJudgement | undefined {
     const edge = question.through ?? question.member?.edge;
     if (question.intent === "join" && edge) return linkJudgement(edge);
-    if (question.intent === "delete") return { verb: "delete", writes: [] };
+    if (question.intent === "delete") return { kind: "delete", writes: [] };
     const { writes } = question;
     if (!writes) return undefined;
     const tombstone = this.operation.scope?.rows.tombstones?.get(
@@ -122,8 +122,8 @@ export class Writer {
         (field) =>
           field === tombstone.at || Object.hasOwn(tombstone.assign, field)
       )
-      ? { verb: "update", writes, marks: true }
-      : { verb: "update", writes };
+      ? { kind: "update", writes, marks: true }
+      : { kind: "update", writes };
   }
   #related(question: Question): "root" | "related" {
     return question.member || question.through ? "related" : "root";
@@ -725,7 +725,7 @@ export class Writer {
   judges(question: Question): boolean {
     return Boolean(
       this.judged(question) &&
-        this.operation.scope?.rows.domain.verbs?.has(nameOf(question.model))
+        this.operation.scope?.rows.domain.rules?.has(nameOf(question.model))
     );
   }
   /**

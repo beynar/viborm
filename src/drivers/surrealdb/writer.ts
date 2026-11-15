@@ -20,7 +20,7 @@ import {
   type PreparedSelector,
   wholeValue,
 } from "@query-engine/raptor3/shared/query";
-import type { RowJudgement } from "@query-engine/raptor3/shared/row-scope";
+import type { WriteJudgement } from "@query-engine/raptor3/shared/row-scope";
 import type { Input } from "@query-engine/raptor3/shared/schema";
 import { SqlOperationContext } from "@query-engine/raptor3/shared/sql-operation-context";
 import {
@@ -552,7 +552,7 @@ export class SurrealWriter extends Writer {
     model: AnyModel,
     next: () => Sql,
     assigned: readonly string[],
-    judgement: RowJudgement | undefined,
+    judgement: WriteJudgement | undefined,
     candidatesJudged = true
   ): Ahead {
     const judges = this.#q.domain?.judge;
@@ -579,7 +579,7 @@ export class SurrealWriter extends Writer {
     model: AnyModel,
     source: Sql,
     values: Input,
-    judgement: RowJudgement | undefined,
+    judgement: WriteJudgement | undefined,
     candidatesJudged = true
   ): Ahead {
     return this.#judgedNext(
@@ -621,7 +621,7 @@ export class SurrealWriter extends Writer {
   /** What a judged write of the rows a question names refuses with. */
   #refusal(
     question: Question,
-    judgement: RowJudgement | undefined
+    judgement: WriteJudgement | undefined
   ): PreparedGuardFailure | undefined {
     const judge = this.#q.domain?.judge;
     if (!(judgement && judge)) return undefined;

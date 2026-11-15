@@ -336,11 +336,14 @@ type GatedOf<M> = M extends { readonly fields: infer F }
   : never;
 
 /**
- * What the types read of a listed model's `rows.verbs` entry: its
+ * What the types read of a listed model's rule entry (its `projected` fact): its
  * projection key and its actions (K5's projected overloads), and its
  * read-gated fields (the gated default omit). The predicates stay opaque.
  */
-type ModelVerbs<Config extends PermissionsConfig, K extends Listed<Config>> = {
+type ModelProjection<
+  Config extends PermissionsConfig,
+  K extends Listed<Config>,
+> = {
   readonly predicates: {
     readonly [name: string]: { readonly [field: string]: unknown };
   };
@@ -391,7 +394,7 @@ type PermissionsFacts<
   Record<never, never>,
   false,
   false,
-  { readonly [K in Listed<Config>]: ModelVerbs<Config, K> }
+  { readonly [K in Listed<Config>]: ModelProjection<Config, K> }
 >;
 
 export interface Policy<Config extends PermissionsConfig> {

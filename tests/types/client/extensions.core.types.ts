@@ -15,12 +15,12 @@ import {
   PGliteDriver,
 } from "@drivers/pglite";
 import {
+  type AddedExtensionState,
   args,
   around,
   call,
   createClient,
   type ExtendedClient,
-  type ExtensionContributionState,
   extension,
   methods,
   modelMethods,
@@ -956,18 +956,18 @@ baseClient().$extends(
   )
 );
 
-// 1.3.3 exported the contribution state with six parameters; the seventh
-// (`Result`) is defaulted so a state spelled with six still names one.
-type _sixParameterContributionState = Expect<
+// The added state's seventh parameter (`Fields`) is defaulted, so a state
+// spelled with six still names one.
+type _sixParameterAddedState = Expect<
   Equal<
-    ExtensionContributionState<
+    AddedExtensionState<
       Record<never, never>,
       Record<never, never>,
       Record<never, never>,
       never,
       never,
       "result-independent"
-    >["result"],
+    >["fields"],
     Record<never, never>
   >
 >;

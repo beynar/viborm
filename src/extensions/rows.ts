@@ -7,9 +7,9 @@ import { type Input, memo } from "@query-engine/raptor3/shared/schema";
 import {
   type AdmittedLayer,
   admitLayer,
+  type BoundEntries,
   nativeSchema,
   type RuleLayer,
-  type VerbsBound,
 } from "./admission";
 import { rebind, refuseUndeclared } from "./call-rows";
 import type {
@@ -26,7 +26,7 @@ import { prepareCall } from "./row-domain";
 function modelDomain(
   layers: readonly AdmittedLayer[],
   purpose: "root" | "related",
-  lazy: VerbsBound["filters"] | undefined
+  lazy: BoundEntries["filters"] | undefined
 ): ModelDomain {
   const built = new Map<string, readonly Input[] | null>();
   return {
@@ -55,19 +55,19 @@ function modelDomain(
 export function bindRows(chain: ResolvedExtensionChain): CallRowsBinding {
   // Only a rule's layer binds rows (`keep` comes with one).
   const layers = chain.rules!;
-  // The verbs, where some word brought what binds them.
+  // The entries beyond the filters, where some word brought what binds them.
   const host = layers.find((layer) => layer.host)?.host;
   const {
     lazy = false,
     filters,
     prepare = prepareCall,
-    ...verbs
+    ...entries
   } = host?.bind(chain) ?? {};
   const { kept, stamps, defaultOrder: order } = chain;
   let domain: RowDomain = {
     root: modelDomain(layers, "root", filters),
     related: modelDomain(layers, "related", filters),
-    ...verbs,
+    ...entries,
     // Where some layer confines its sets, what `within` brought binds them.
     ...layers.find((layer) => layer.confine)?.brings?.confines?.bind(layers),
     ...(order && { order: new Map(Object.entries(order)) }),

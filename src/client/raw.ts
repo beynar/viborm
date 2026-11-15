@@ -32,7 +32,7 @@ import {
 import type { CallOrigin } from "@extensions/origin";
 import type {
   AroundHandlers,
-  QueryInterceptionMode,
+  CallMode,
   RawQueryKind,
   WriteOutcomeNotifications,
 } from "@extensions/query";
@@ -265,7 +265,7 @@ function createOperationSql(query: Sql): Sql {
   );
 }
 
-function validateRawParametersBeforeInterception(
+function validateRawParametersFirst(
   method: RawMethodName,
   params: readonly unknown[]
 ): void {
@@ -409,7 +409,7 @@ class DeferredRawOperation<T>
       prepareAdmission: (operation) => {
         operation.#resolve();
       },
-      interception: (operation) => ({
+      around: (operation) => ({
         context: operation.#queryContext("array", operation.#resolve()),
         handlers: operation.#queryHandlers,
         write: isRawWrite(operation.#method),
@@ -495,7 +495,7 @@ class DeferredRawOperation<T>
     // Refusing before memoizing keeps a rejected statement rejected however
     // many times admission, interception, and execution ask for it.
     const resolved = this.#resolveQuery();
-    validateRawParametersBeforeInterception(
+    validateRawParametersFirst(
       this.#method,
       resolved.kind === "fragment" ? resolved.query.values : resolved.params
     );
@@ -562,7 +562,7 @@ class DeferredRawOperation<T>
     return settled ?? values;
   }
 
-  #queryContext(mode: QueryInterceptionMode, query: ResolvedRawQuery) {
+  #queryContext(mode: CallMode, query: ResolvedRawQuery) {
     return Object.freeze({
       mode,
       kind: this.#method.slice(1) as RawQueryKind,

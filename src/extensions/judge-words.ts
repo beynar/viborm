@@ -10,7 +10,7 @@
 import { Condition } from "@query-engine/raptor3/shared/row-scope";
 import type { ModelState } from "@schema/model";
 import { isPlainRecord } from "@schema/relation/terminal";
-import type { VerbsDraft } from "./admission";
+import type { EntryDraft } from "./admission";
 import { CALL_READS } from "./call-values";
 import type {
   CheckWord,
@@ -22,13 +22,13 @@ import type {
   LazyWord,
   OnlyWord,
 } from "./contract";
+import { ENTRIES, entryOf, LAZY_ENTRIES, prepareJudged } from "./entries";
 import { judgeOf } from "./judge";
 import { keptPart } from "./kept";
 import { projectionOf, refuseSharedKeys } from "./projection";
 import { draftOf, listOf } from "./rule";
 import { CarriedValue, PredicateWord, type Site, testOf } from "./rule-words";
 import { NOW } from "./stamps";
-import { LAZY_ENTRIES, prepareJudged, VERBS, verbsOf } from "./verbs";
 
 /** A word written with one value, which its `join` reads. */
 export abstract class Held<T> extends CarriedValue {
@@ -57,7 +57,7 @@ function fieldOf({ schema, model, field, refuse }: Site): string {
 
 /** What a word that carries or hides fields of a read writes beside itself. */
 function shown(site: Site) {
-  const own = verbsOf(site);
+  const own = entryOf(site);
   if (site.shows !== undefined) own.shown = site.shows;
   return own;
 }
@@ -69,7 +69,7 @@ const FIELD_WHERE = /^update\.fields\.[^.]+\.where$/;
 class Only extends Held<object> {
   join(site: Site): void {
     const { key, refuse } = site;
-    const own = verbsOf(site);
+    const own = entryOf(site);
     brings(site).prepare = prepareJudged;
     if (key === "update.where") own.update = this.held;
     else if (key === "delete.where") own.delete = this.held;
@@ -96,7 +96,7 @@ export function only(where: object): unknown {
 class Checked extends Held<object> {
   join(site: Site): void {
     const { key, refuse } = site;
-    const own = verbsOf(site);
+    const own = entryOf(site);
     own.judge = judgeOf;
     brings(site).judge = judgeOf;
     if (key === "create.check") own.place = this.held;
@@ -271,9 +271,9 @@ class Lazy extends Held<() => unknown> {
     const { key, model, schema, lazy, refuse } = site;
     if (key !== "the entry" || lazy) refuse(`${key} does not take lazy()`);
     const layer = site.layer!;
-    if (Object.hasOwn(layer.verbs, model))
+    if (Object.hasOwn(layer.rules, model))
       refuse("two rule parts of one extension judge the model");
-    layer.host = VERBS;
+    layer.host = ENTRIES;
     // What the entry reads of its call, and whether its words judge or
     // project, are known once it is read.
     layer.reads = CALL_READS;
@@ -284,19 +284,19 @@ class Lazy extends Held<() => unknown> {
       keys: refuseSharedKeys,
       lazy: LAZY_ENTRIES,
     };
-    const read = (): VerbsDraft => {
+    const read = (): EntryDraft => {
       const given: unknown = Reflect.apply(this.held, undefined, []);
       const written: Readonly<Record<string, unknown>> = isPlainRecord(given)
         ? given
         : {};
-      const verbs = draftOf(given, model, schema, site, refuse, true) ?? {};
+      const draft = draftOf(given, model, schema, site, refuse, true) ?? {};
       const root = listOf(written.root);
       const related = listOf(written.related);
       return root.length + related.length === 0
-        ? verbs
-        : { ...verbs, root, related };
+        ? draft
+        : { ...draft, root, related };
     };
-    layer.verbs[model] = read;
+    layer.rules[model] = read;
   }
 }
 
