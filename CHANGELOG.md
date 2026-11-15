@@ -72,7 +72,12 @@ all-or-nothing when it fits one batch.
     by an earlier version are ignored and expire on their own;
   - `tx.$withCache()` and `tx.$invalidate()` exist in an interactive
     transaction; a backend that fails during `$invalidate()` is a
-    `CacheConfigurationError`.
+    `CacheConfigurationError`;
+  - stale-while-revalidate is a value the cache is configured with:
+    `cache({ driver, swr: staleWhileRevalidate })`, imported from
+    `viborm/cache`. A view's `swr` option on a cache configured without it is
+    a `CacheConfigurationError`, so an application that never serves stale
+    entries carries none of the revalidation code.
 - **`instrumentation()` no longer takes a `logging.warning` level**: nothing
   produced warnings.
 - **Error texts changed throughout the extension host.** Match errors on their

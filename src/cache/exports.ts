@@ -20,4 +20,5 @@ export {
   type WaitUntilFn,
 } from "./driver";
 export { type CacheExtensionConfig, cache } from "./extension";
+export { staleWhileRevalidate } from "./revalidate";
 export type { CacheInvalidationOptions, WithCacheOptions } from "./schema";

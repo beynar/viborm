@@ -1,5 +1,6 @@
 import { type CacheEntry, INVALIDATE, SERVE } from "@cache/driver";
 import { MemoryCache } from "@cache/drivers/memory";
+import { staleWhileRevalidate } from "@cache/revalidate";
 import { parseTTL } from "@cache/ttl";
 import { stableStringify } from "@extensions/key";
 import type { Clock } from "@src/clock";
@@ -49,6 +50,7 @@ function reader(
     scope,
     read: (args: unknown, execute: () => Promise<number>) =>
       cache[SERVE]({
+        revalidate: staleWhileRevalidate,
         id: stableStringify(["post", "count", args]),
         codec: codec(execute),
         read: { ttlMs: 10, swr, bypass: false },

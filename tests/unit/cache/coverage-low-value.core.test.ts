@@ -14,6 +14,7 @@ import {
 } from "@cache/exports";
 import { cache } from "@cache/extension";
 import { CACHE_PREFIX } from "@cache/key";
+import { staleWhileRevalidate } from "@cache/revalidate";
 import { hasCacheInvalidationWork } from "@cache/schema";
 import { parseTTL } from "@cache/ttl";
 import type { KVNamespace } from "@cloudflare/workers-types";
@@ -83,6 +84,7 @@ function executeCachedWithResultCodec<T>(
   namespace: string
 ): Promise<T> {
   return driver[SERVE]({
+    revalidate: staleWhileRevalidate,
     id: cacheKeyOf(model, operation, args),
     codec: served(run, codec),
     read: {

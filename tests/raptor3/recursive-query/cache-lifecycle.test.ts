@@ -34,6 +34,7 @@ import assert from "node:assert/strict";
 import type { CacheEntry } from "@cache/driver";
 import { MemoryCache } from "@cache/drivers/memory";
 import { cache } from "@cache/extension";
+import { staleWhileRevalidate } from "@cache/revalidate";
 import { createClient } from "@client/client";
 import { defaultOmit } from "@client/default-omit-extension";
 import { UnsupportedOperationError, ValidationError } from "@errors";
@@ -150,6 +151,7 @@ async function world() {
 function officialCache(cacheDriver: MemoryCache | ClockedMemoryCache) {
   const background: Promise<unknown>[] = [];
   const extension = cache({
+    swr: staleWhileRevalidate,
     driver: cacheDriver,
     version: "rq05",
     waitUntil(promise) {

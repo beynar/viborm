@@ -8,6 +8,7 @@
 import type { CacheDriver, CacheEntry } from "@cache/driver";
 import { MemoryCache } from "@cache/drivers/memory";
 import { cache } from "@cache/extension";
+import { staleWhileRevalidate } from "@cache/revalidate";
 import type { QueryResult } from "@drivers";
 import {
   CacheConfigurationError,
@@ -88,7 +89,7 @@ function cached(
   store: CacheDriver = new MemoryCache()
 ): Cached {
   const client = createClient({ schema, driver }).$extends(
-    cache({ driver: store })
+    cache({ swr: staleWhileRevalidate, driver: store })
   ) as never as Cached;
   opened.push(client);
   return client;

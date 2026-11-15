@@ -21,12 +21,7 @@ import {
   type CacheReadOptions,
   hasCacheInvalidationWork,
 } from "./schema";
-import {
-  cacheOutcome,
-  cacheStep,
-  placeSetFailure,
-  revalidation,
-} from "./units";
+import { cacheOutcome, cacheStep, placeSetFailure } from "./units";
 
 /** A timer a `CacheClock` armed, cancelled through its handle. */
 export interface CacheTimer {
@@ -100,7 +95,24 @@ export interface CacheServe<T> {
   readonly origin: object;
   /** The database the read works against, which a revalidation presents. */
   readonly database: Database;
+  /** What refreshes a stale entry: `staleWhileRevalidate`, when the cache was given it. */
+  readonly revalidate?: Revalidate | undefined;
 }
+
+/**
+ * One stale entry to refresh, as the driver hands it over: its read, and
+ * the steps on its key the driver owns (the marker that claims the refresh,
+ * the store of the new rows, the marker's removal).
+ */
+export interface Refresh {
+  readonly request: CacheServe<unknown>;
+  mark(): Promise<boolean>;
+  store(stored: unknown): Promise<void>;
+  clear(): Promise<void>;
+}
+
+/** What refreshes a stale entry in the background. */
+export type Revalidate = (refresh: Refresh) => Promise<void>;
 
 /**
  * The keys of the two methods a driver serves its extension with: one read
@@ -181,63 +193,60 @@ export abstract class CacheDriver {
     const cacheKey = `${model}:${operation}:${fastHash(id)}${read.key === undefined ? "" : `:${read.key}`}`;
     const identity = JSON.stringify([id, read.key]);
     const revision = this.#fillRevision;
-
-    // Bypass cache read if requested
-    if (read.bypass) {
-      const result = await codec.run();
-      this.#setResultInBackground(cacheKey, request, identity, revision);
-      note(origin, cacheOutcome("bypass"));
-      return result;
-    }
-
-    // Try to get from cache
-    const cached = await this.#getCachedResult<T>(
-      cacheKey,
-      origin,
-      namespace,
-      codec,
-      identity
-    );
-
-    if (cached) {
-      const now = this.clock.now();
-      const age = now - cached.createdAt;
-      if (age < cached.ttl) {
-        // Fresh cache hit
-        note(origin, cacheOutcome("hit"));
-        return cached.value;
+    let outcome = "bypass";
+    if (!read.bypass) {
+      const cached = await this.#getCachedResult<T>(
+        cacheKey,
+        origin,
+        namespace,
+        codec,
+        identity
+      );
+      if (cached) {
+        const now = this.clock.now();
+        const age = now - cached.createdAt;
+        if (age < cached.ttl) {
+          note(origin, cacheOutcome("hit"));
+          return cached.value;
+        }
+        const swrTtl = read.swr;
+        const { revalidate } = request;
+        if (
+          revalidate &&
+          swrTtl !== false &&
+          age < swrTtl &&
+          now < cached.expiresAt!
+        ) {
+          // Stale, served; refreshed in the background, where the read runs
+          // once more after this serve returned: the core alone.
+          scheduleBackground(
+            revalidate({
+              request,
+              mark: () => this.#markRevalidatingScoped(cacheKey, namespace),
+              store: (stored) =>
+                this.#setScoped(
+                  cacheKey,
+                  stored,
+                  { ttl: read.ttlMs, swrTtl },
+                  origin,
+                  namespace,
+                  undefined,
+                  identity,
+                  revision
+                ),
+              clear: () => this.#clearRevalidatingScoped(cacheKey, namespace),
+            }),
+            request.waitUntil
+          );
+          note(origin, cacheOutcome("hit", "stale"));
+          return cached.value;
+        }
       }
-
-      const swrTtl = read.swr;
-      if (
-        swrTtl !== false &&
-        age < swrTtl &&
-        (cached.expiresAt === undefined || now < cached.expiresAt)
-      ) {
-        // Stale but SWR enabled - return stale and revalidate in background.
-        // The refresh runs the read once more after this serve returned: the
-        // core alone.
-        scheduleBackground(
-          this.#revalidateInBackground(
-            cacheKey,
-            request,
-            swrTtl,
-            identity,
-            revision
-          ),
-          request.waitUntil
-        );
-        note(origin, cacheOutcome("hit", "stale"));
-        return cached.value;
-      }
-
-      // Stale and no SWR - fall through to fetch fresh
+      outcome = "miss";
     }
-
-    // Cache miss or stale without SWR - execute query
     const result = await codec.run();
     this.#setResultInBackground(cacheKey, request, identity, revision);
-    note(origin, cacheOutcome("miss"));
+    note(origin, cacheOutcome(outcome));
     return result;
   }
 
@@ -291,74 +300,6 @@ export abstract class CacheDriver {
       revision
     ).catch(() => undefined);
     scheduleBackground(cachePromise, request.waitUntil);
-  }
-
-  /**
-   * Revalidate cache entry in background (for SWR)
-   * Uses the backing cache marker for best-effort duplicate suppression.
-   */
-  async #revalidateInBackground<T>(
-    cacheKey: string,
-    request: CacheServe<T>,
-    swrTtl: number,
-    identity: string,
-    revision: number
-  ): Promise<void> {
-    const { namespace, codec, read, origin } = request;
-    // Check whether another request has already published this marker.
-    let shouldRevalidate: boolean;
-    try {
-      shouldRevalidate = await this.#markRevalidatingScoped(
-        cacheKey,
-        namespace
-      );
-    } catch {
-      // If marking fails, skip revalidation to avoid request failure
-      return;
-    }
-    // Another request is handling revalidation, skip
-    if (!shouldRevalidate) return;
-
-    await revalidation(origin, request, request.database, async (failure) => {
-      let terminal: ReturnType<typeof cacheOutcome>;
-      try {
-        await codec.run();
-        const stored = codec.snapshot();
-        await this.#setScoped(
-          cacheKey,
-          stored,
-          { ttl: read.ttlMs, swrTtl },
-          origin,
-          namespace,
-          undefined,
-          identity,
-          revision
-        );
-        terminal = cacheOutcome("revalidate", "success", undefined, request);
-      } catch (error) {
-        // Background work never rejects; its unit presents the failure.
-        failure.failed = true;
-        failure.error = error;
-        terminal = cacheOutcome("revalidate", "error", error, request);
-      } finally {
-        try {
-          await this.#clearRevalidatingScoped(cacheKey, namespace);
-        } catch (cleanupFailure) {
-          if (failure.failed) {
-            const workerFailure = failure.error;
-            failure.error = new AggregateError(
-              [workerFailure, cleanupFailure],
-              "Cache revalidation work and cleanup both failed.",
-              { cause: workerFailure }
-            );
-          } else {
-            failure.failed = true;
-            failure.error = cleanupFailure;
-          }
-        }
-      }
-      return terminal;
-    });
   }
 
   // ============================================================

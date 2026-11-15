@@ -35,6 +35,7 @@
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { CacheDriver, type CacheEntry } from "@cache/driver";
+import { staleWhileRevalidate } from "@cache/revalidate";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { Driver } from "@drivers";
 import { getExecutionTransactionPhases } from "@drivers/execution-context";
@@ -906,6 +907,7 @@ const SCENARIOS: ReadonlyArray<
         createClient({ schema, driver: new CacheDatabaseDriver() })
           .$extends(
             cache({
+              swr: staleWhileRevalidate,
               driver: cacheDriver,
               version: "official-parity",
               waitUntil: background.waitUntil,
@@ -952,6 +954,7 @@ const SCENARIOS: ReadonlyArray<
         createClient({ schema, driver: new CacheDatabaseDriver() })
           .$extends(
             cache({
+              swr: staleWhileRevalidate,
               driver: new GoldenCache(createTestClock()),
               version: "invalidate",
             })
@@ -980,6 +983,7 @@ const SCENARIOS: ReadonlyArray<
         createClient({ schema, driver: databaseDriver })
           .$extends(
             cache({
+              swr: staleWhileRevalidate,
               driver: cacheDriver,
               version: "swr-instrumentation",
               waitUntil: background.waitUntil,

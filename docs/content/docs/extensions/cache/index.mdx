@@ -51,7 +51,7 @@ const fresh = await client
 | Option | Type | Default | Meaning |
 |---|---|---|---|
 | `ttl` | `string \| number` | 5 minutes | Freshness duration |
-| `swr` | `boolean \| string \| number` | `false` | Stale-while-revalidate window |
+| `swr` | `boolean \| string \| number` | `false` | Stale-while-revalidate window; needs `cache({ swr: staleWhileRevalidate })` |
 | `key` | `string` | absent | Suffix contributed to the canonical key |
 | `bypass` | `boolean` | `false` | Skip lookup, execute core, then store |
 
@@ -112,9 +112,20 @@ back live objects) is read as the plain data it shows, not refused.
 
 ## Stale-while-revalidate
 
+Stale-while-revalidate is a value the cache is configured with, so an
+application that never serves stale entries carries none of its code:
+
 ```ts
+import { cache, staleWhileRevalidate } from "viborm/cache";
+
+const client = createClient({ schema, driver }).$extends(
+  cache({ driver: new MemoryCache(), swr: staleWhileRevalidate })
+);
 const cached = client.$withCache({ ttl: "5 minutes", swr: "1 hour" });
 ```
+
+A view's `swr` option on a cache configured without it is refused with a
+`CacheConfigurationError` when the view is made.
 
 - A fresh hit returns immediately.
 - A stale hit returns a fresh decoding of the old entry and schedules one

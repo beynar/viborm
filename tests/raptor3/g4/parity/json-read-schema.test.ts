@@ -12,6 +12,7 @@
 
 import assert from "node:assert/strict";
 import { cache as cacheExtension } from "@cache/extension";
+import { staleWhileRevalidate } from "@cache/revalidate";
 import { createClient } from "@client/client";
 import { QueryError, ValidationError } from "@errors";
 import { s } from "@schema";
@@ -343,6 +344,7 @@ describe("custom JSON schema admission and physical read parity", () => {
     const base = buildClient(driver);
     const client = base.$extends(
       cacheExtension({
+        swr: staleWhileRevalidate,
         driver: backend,
         waitUntil: (promise) => {
           background.push(promise);

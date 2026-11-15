@@ -36,7 +36,13 @@ import type {
   PlacedArgument,
   Run,
 } from "../index";
-import { CacheDriver, INVALIDATE, SERVE, type WaitUntilFn } from "./driver";
+import {
+  CacheDriver,
+  INVALIDATE,
+  type Revalidate,
+  SERVE,
+  type WaitUntilFn,
+} from "./driver";
 import { createOfficialCacheNamespace } from "./key";
 import { cacheCodec } from "./result-codec";
 import {
@@ -53,6 +59,11 @@ export interface CacheExtensionConfig {
   readonly driver: CacheDriver;
   readonly version?: string | number;
   readonly waitUntil?: WaitUntilFn;
+  /**
+   * `staleWhileRevalidate`, imported from `viborm/cache`: what lets a view's
+   * `swr` option serve a stale entry and refresh it in the background.
+   */
+  readonly swr?: Revalidate;
 }
 
 type ConfigKeys<Config> = Config extends unknown ? keyof Config : never;
@@ -108,7 +119,7 @@ export function cache<T extends AnyTarget, const Config>(
     NoInfer<CacheExtensionConfig & ExactCacheExtensionConfig<Config>>
 ): Extension<T, CacheFacts>;
 export function cache(config: CacheExtensionConfig): unknown {
-  const { driver, version, waitUntil } = config;
+  const { driver, version, waitUntil, swr } = config;
   if (!(driver instanceof CacheDriver))
     configurationError(
       "Cache extension configuration requires a CacheDriver instance."
@@ -180,7 +191,16 @@ export function cache(config: CacheExtensionConfig): unknown {
       // A write's own invalidation options.
       cache: accepts(validator(admitMutationOptions)).on(writes),
       // Only `$withCache` binds it: the mark of a read the cache serves.
-      cacheRead: bound(validator(admitReadOptions)),
+      cacheRead: bound(
+        validator((value) => {
+          const read = admitReadOptions(value);
+          if (read.swr !== false && swr === undefined)
+            configurationError(
+              'A view\'s "swr" option needs the cache configured with it: cache({ driver, swr: staleWhileRevalidate }).'
+            );
+          return read;
+        })
+      ),
     }),
 
     // Writes: none through the read view; the scope is invalidated once the
@@ -225,6 +245,7 @@ export function cache(config: CacheExtensionConfig): unknown {
             operation: c.operation,
             origin: run,
             database: db,
+            revalidate: swr,
           });
         };
       },

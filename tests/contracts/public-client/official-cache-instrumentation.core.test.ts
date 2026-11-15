@@ -1,5 +1,6 @@
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { CacheDriver, type CacheEntry } from "@cache/driver";
+import { staleWhileRevalidate } from "@cache/revalidate";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { Driver } from "@drivers";
 import {
@@ -233,7 +234,11 @@ describe("official cache instrumentation", () => {
       const client = trackClient(
         createClient({ schema, driver: new CacheInstrumentationDriver() })
           .$extends(
-            cache({ driver: cacheDriver, waitUntil: background.waitUntil })
+            cache({
+              swr: staleWhileRevalidate,
+              driver: cacheDriver,
+              waitUntil: background.waitUntil,
+            })
           )
           .$extends(
             instrumentation({
@@ -317,6 +322,7 @@ describe("official cache instrumentation", () => {
         createClient({ schema, driver: databaseDriver })
           .$extends(
             cache({
+              swr: staleWhileRevalidate,
               driver: cacheDriver,
               waitUntil() {
                 scheduleCalls += 1;
@@ -361,6 +367,7 @@ describe("official cache instrumentation", () => {
       const databaseDriver = new CacheInstrumentationDriver();
       const background = createBackgroundQueue();
       const sharedCache = cache({
+        swr: staleWhileRevalidate,
         driver: cacheDriver,
         version: "shared-capability",
         waitUntil: background.waitUntil,
@@ -494,6 +501,7 @@ describe("official cache instrumentation", () => {
         createClient({ schema, driver: officialDriver })
           .$extends(
             cache({
+              swr: staleWhileRevalidate,
               driver: officialCache,
               version: "official-parity",
               waitUntil: officialBackground.waitUntil,
@@ -603,7 +611,11 @@ describe("official cache instrumentation", () => {
     const client = trackClient(
       createClient({ schema, driver: new CacheInstrumentationDriver() })
         .$extends(
-          cache({ driver: cacheDriver, waitUntil: background.waitUntil })
+          cache({
+            swr: staleWhileRevalidate,
+            driver: cacheDriver,
+            waitUntil: background.waitUntil,
+          })
         )
         .$extends(instrumentation({ logging: { cache: logs.callback } }))
     );
@@ -643,7 +655,11 @@ describe("official cache instrumentation", () => {
       const client = trackClient(
         createClient({ schema, driver: new CacheInstrumentationDriver() })
           .$extends(
-            cache({ driver: cacheDriver, waitUntil: background.waitUntil })
+            cache({
+              swr: staleWhileRevalidate,
+              driver: cacheDriver,
+              waitUntil: background.waitUntil,
+            })
           )
           .$extends(
             instrumentation({
@@ -693,7 +709,13 @@ describe("official cache instrumentation", () => {
       const second: CacheObservation[] = [];
       const client = trackClient(
         createClient({ schema, driver: databaseDriver })
-          .$extends(cache({ driver: cacheDriver, version: "invalidate" }))
+          .$extends(
+            cache({
+              swr: staleWhileRevalidate,
+              driver: cacheDriver,
+              version: "invalidate",
+            })
+          )
           .$extends(
             extension(
               "cache-observer-before",
@@ -786,6 +808,7 @@ describe("official cache instrumentation", () => {
         createClient({ schema, driver: databaseDriver })
           .$extends(
             cache({
+              swr: staleWhileRevalidate,
               driver: cacheDriver,
               version: "swr-instrumentation",
               waitUntil: background.waitUntil,
@@ -952,6 +975,7 @@ describe("official cache instrumentation", () => {
       base
         .$extends(
           cache({
+            swr: staleWhileRevalidate,
             driver: cacheDriver,
             version: "first",
             waitUntil: firstBackground.waitUntil,
@@ -963,6 +987,7 @@ describe("official cache instrumentation", () => {
       base
         .$extends(
           cache({
+            swr: staleWhileRevalidate,
             driver: cacheDriver,
             version: "second",
             waitUntil: secondBackground.waitUntil,

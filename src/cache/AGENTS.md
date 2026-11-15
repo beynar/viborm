@@ -45,6 +45,7 @@ its own `CacheClock` (`driver.ts`), which a test hands a virtual one.
 | `src/extensions/codec.ts` | `codec(run)`: `run()` keeps the driver's rows for the read's one statement, `snapshot()` gives them as JSON data, `materialize(stored)` decodes them again through the read's own parser |
 | `result-codec.ts` | `cacheCodec`: the call's `codec(run)` with its failures made the cache's (`CacheConfigurationError`, naming the step, exposing no value) |
 | `units.ts` | The cache's own `cache` units (`get`, `set`, `invalidate`, `revalidate`, and an invalidation's `delete` and `clear`), emitted with `work`; what a presenter shows of each (its span, its attributes, its outcomes as logs) noted with `note`, as an `InstrumentationNote` |
+| `revalidate.ts` | `staleWhileRevalidate`: the refresh of a stale entry (marker claim, core replay, store, marker cleanup), a value the cache is configured with (`cache({ driver, swr: staleWhileRevalidate })`); a cache without it carries none of it and refuses a view's `swr` option |
 | `cache-background.ts` | The stale hit's one background promise |
 | `schema.ts`, `ttl.ts` | Per-read options and mutation invalidation options; TTL parsing |
 | `drivers/*` | Backend-only get/set/delete/clear primitives |
@@ -157,6 +158,12 @@ answer, which read as rows would be refused at best, so the bump is the
 invalidation, as every earlier one.
 
 ## SWR
+
+Stale-while-revalidate comes with its value: `cache({ driver, swr:
+staleWhileRevalidate })`. Without it, a view's `swr` option is a
+`CacheConfigurationError` when the view is bound, and the driver carries no
+revalidation code (the stale branch of `[SERVE]` asks the request's
+`revalidate`, handing it the steps on the entry's key the driver owns).
 
 A stale hit synchronously gives one complete background promise to the exact
 chain's `waitUntil`. That promise owns marker acquisition, inner core replay

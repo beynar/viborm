@@ -1,10 +1,12 @@
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { CacheDriver, type CacheEntry } from "@cache/driver";
+import { staleWhileRevalidate } from "@cache/revalidate";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { Driver } from "@drivers";
 import { cache as cacheExtension } from "@src/cache/exports";
 import {
   around,
+  CacheConfigurationError,
   call,
   createClient,
   extension,
@@ -272,6 +274,7 @@ function createOfficialState(
   let calls = 0;
   return {
     extension: cacheExtension({
+      swr: staleWhileRevalidate,
       driver,
       version,
       waitUntil(promise) {
@@ -310,6 +313,18 @@ afterEach(async () => {
 });
 
 describe("official cache stale-while-revalidate", () => {
+  test("a view's swr option is refused by a cache configured without staleWhileRevalidate", () => {
+    const client = trackClient(
+      createClient({ schema, driver: new SwrDriver() }).$extends(
+        cacheExtension({ driver: new SwrCache(createTestClock()) })
+      )
+    );
+    expect(() => client.$withCache({ ttl: 10, swr: true })).toThrow(
+      CacheConfigurationError
+    );
+    expect(() => client.$withCache({ ttl: 10, swr: false })).not.toThrow();
+  });
+
   test("returns a detached stale value and replays only the inner core executor", async () => {
     const clock = createTestClock();
     const cache = new SwrCache(clock);

@@ -20,6 +20,7 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import type { CacheEntry } from "@cache/driver";
 import { cache as cacheExtension } from "@cache/extension";
 import { createOfficialCacheNamespace } from "@cache/key";
+import { staleWhileRevalidate } from "@cache/revalidate";
 import { createClient } from "@client/client";
 import { Driver, type QueryExecutionContext, type QueryResult } from "@drivers";
 import { instrumentation } from "@instrumentation/extension";
@@ -185,6 +186,7 @@ function tenants(version?: string | number) {
   const waiting: Array<{ target: number; resolve: () => void }> = [];
   // ONE definition instance appended to both clients: sharing it is the point.
   const definition = cacheExtension({
+    swr: staleWhileRevalidate,
     driver: backend,
     version,
     waitUntil: (promise) => {
@@ -442,6 +444,7 @@ function siblingVersions(shortVersion: string, longVersion: string) {
       driver: new NamespaceRowsDriver("alpha", rows),
     }).$extends(
       cacheExtension({
+        swr: staleWhileRevalidate,
         driver: backend,
         version,
         waitUntil: (promise) => {
@@ -587,6 +590,7 @@ describe("a forged dialect cannot address another dialect's scope", () => {
     // ONE definition, ONE backend, the SAME version and namespace spelling:
     // the dialect is the only fact left that separates the two scopes.
     const definition = cacheExtension({
+      swr: staleWhileRevalidate,
       driver: backend,
       version: 7,
       waitUntil: (promise) => {

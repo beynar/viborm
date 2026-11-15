@@ -646,7 +646,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
     ["BunSQLiteDriver"]
   ),
   "./cache": surface(
-    ["CacheDriver", "cache"],
+    ["CacheDriver", "cache", "staleWhileRevalidate"],
     [
       "CacheEntry",
       "CacheExtensionConfig",

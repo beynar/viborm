@@ -2,6 +2,7 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { CacheDriver, type CacheEntry } from "@cache/driver";
 import { cache as cacheExtension } from "@cache/extension";
+import { staleWhileRevalidate } from "@cache/revalidate";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { Driver } from "@drivers";
 import { createClient, extension, unit as extUnit, s } from "@src/index";
@@ -154,6 +155,7 @@ function createObservedCacheClient() {
   const observations: CacheObservation[] = [];
   const base = createClient({ schema, driver }).$extends(
     cacheExtension({
+      swr: staleWhileRevalidate,
       driver: cache,
       waitUntil: (promise) => {
         background.push(promise);
@@ -427,7 +429,7 @@ describe("public protected cache observers", () => {
     const cache = new ObservableCache(timeline, clock);
     const driver = new CacheTestDriver();
     const base = createClient({ schema, driver }).$extends(
-      cacheExtension({ driver: cache })
+      cacheExtension({ swr: staleWhileRevalidate, driver: cache })
     );
     clients.push(base);
 

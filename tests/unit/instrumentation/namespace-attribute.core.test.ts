@@ -24,6 +24,7 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { MemoryCache } from "@cache/drivers/memory";
 import { cache as cacheExtension } from "@cache/extension";
+import { staleWhileRevalidate } from "@cache/revalidate";
 import { createClient } from "@client/client";
 import { Driver } from "@drivers/driver";
 import { readDriverIdentity } from "@drivers/driver-identity";
@@ -224,6 +225,7 @@ describe.each(CASES)("$title", ({ driver: makeDriver, namespace }) => {
     const client = createClient({ schema, driver })
       .$extends(
         cacheExtension({
+          swr: staleWhileRevalidate,
           driver: new ClockedMemoryCache(clock),
           waitUntil: (promise) => {
             background.push(promise);
@@ -277,7 +279,9 @@ describe("the kinds that carry no db.* attributes", () => {
       new PostgresAdapter("billing")
     );
     const client = createClient({ schema, driver })
-      .$extends(cacheExtension({ driver: new MemoryCache() }))
+      .$extends(
+        cacheExtension({ swr: staleWhileRevalidate, driver: new MemoryCache() })
+      )
       .$extends(instrumentation({ tracing: true }));
     const from = mark();
     await client.$withCache({ ttl: 60_000 }).account.findMany({});
