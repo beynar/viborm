@@ -219,7 +219,7 @@ export function createStatementSpanOptions(
 }
 
 /** One channel's SQL/parameter disclosure; `true` and absence disclose nothing. */
-function channelOf(
+export function channelOf(
   channel: true | Readonly<DiagnosticDisclosure> | undefined
 ): DiagnosticDisclosure {
   return channel && channel !== true ? channel : {};

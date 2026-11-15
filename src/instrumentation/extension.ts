@@ -21,6 +21,7 @@ import {
   type InstrumentationContext,
 } from "./context";
 import {
+  channelOf,
   createLifecycleSpanOptions,
   createNotedSpanOptions,
   createOperationErrorLogEvent,
@@ -118,25 +119,6 @@ function logs(context: InstrumentationContext, level: LogLevel): boolean {
   return context.logger?.isLevelEnabled(level) === true;
 }
 
-/** Whether a logging or tracing channel discloses statement parameters. */
-function disclosesParameters(context: InstrumentationContext): boolean {
-  const { logging, tracing } = context.config;
-  if (
-    logging !== undefined &&
-    logging !== true &&
-    logging.includeParams === true &&
-    (logs(context, "query") || logs(context, "error"))
-  ) {
-    return true;
-  }
-  return (
-    tracing !== undefined &&
-    tracing !== true &&
-    tracing.includeParams === true &&
-    traces(context, SPAN_EXECUTE)
-  );
-}
-
 function present(
   context: InstrumentationContext,
   unit: Unit,
@@ -232,18 +214,19 @@ function presentStatement(
   const queried = logs(context, "query");
   const erred = logs(context, "error");
   if (!(traced || queried || erred)) return undefined;
-  // Read before the provider is reached: it may change what it was handed.
-  const shown = disclosesParameters(context) ? parameters(unit) : undefined;
+  const { logging, tracing } = context.config;
+  // Read only for a channel that shows them, before the provider is reached:
+  // it may change what it was handed.
+  const shown =
+    ((queried || erred) && channelOf(logging).includeParams) ||
+    (traced && channelOf(tracing).includeParams)
+      ? parameters(unit)
+      : undefined;
   const startedAt = Date.now();
   return spanned(
     context,
     traced
-      ? createStatementSpanOptions(
-          context.config.tracing,
-          unit,
-          text(unit),
-          shown
-        )
+      ? createStatementSpanOptions(tracing, unit, text(unit), shown)
       : undefined,
     unit,
     next,
@@ -258,7 +241,7 @@ function presentStatement(
       if (failed) context.logged.add(origin(error));
       context.logger?.log(
         createStatementLogEvent(
-          context.config.logging,
+          logging,
           unit,
           startedAt,
           duration,
