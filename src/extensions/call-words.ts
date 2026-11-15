@@ -6,7 +6,7 @@
  */
 import type { AnyDriver } from "@drivers/exports";
 import type { Run, Watcher } from "./contract";
-import { AGAIN, VIA } from "./origin";
+import { attemptOf } from "./origin";
 import { REGISTER } from "./watch-part";
 import { showRows } from "./written";
 
@@ -40,8 +40,16 @@ export function watch(c: object, watcher: Watcher): void {
  * then may `run()` be called once more.
  */
 export function again(run: Run<unknown, unknown>): boolean {
-  const asked = AGAIN in run ? run[AGAIN] : undefined;
-  return typeof asked === "function" && asked() === true;
+  const attempt = attemptOf(run);
+  if (
+    !(attempt?.direct && attempt.failed) ||
+    attempt.done ||
+    attempt.certainty?.() !== undefined
+  )
+    return false;
+  attempt.failed = false;
+  attempt.open = true;
+  return true;
 }
 
 /**
@@ -50,8 +58,8 @@ export function again(run: Run<unknown, unknown>): boolean {
  * and schema.
  */
 export function via<R>(run: Run<unknown, R>, driver: AnyDriver): Promise<R> {
-  const routed = VIA in run ? run[VIA] : undefined;
-  if (typeof routed !== "function") return run();
+  const attempt = attemptOf(run);
+  if (attempt === undefined) return run();
   // The routed run resolves to what `run()` would: the call's own result.
-  return routed(driver) as Promise<R>;
+  return attempt.start(attempt.routable ? driver : undefined) as Promise<R>;
 }

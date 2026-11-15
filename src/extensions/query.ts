@@ -10,7 +10,7 @@ import { isReadOperation } from "@query-engine/routed-operations";
 import { isError } from "../errors/diagnostic-safety";
 import type { AdmittedArgs } from "./arguments";
 import type { ResolvedOperationHandler } from "./chain";
-import { AGAIN, CALL, type CallOrigin, VIA } from "./origin";
+import { ATTEMPT, CALL, type CallOrigin } from "./origin";
 
 export type QueryInterceptionMode = "direct" | "transaction" | "array";
 
@@ -272,6 +272,25 @@ export function runArounds<Result, Input extends object>(
 }
 
 /**
+ * One `run` of one `around` part, as the words that read it find it
+ * (`again`, `via`): what may start the child, and what happened to it.
+ */
+export interface Attempt {
+  /** `run()` may start the child. */
+  open: boolean;
+  /** The child's last start failed. */
+  failed: boolean;
+  /** The second moment returned. */
+  done: boolean;
+  /** A direct call outside a transaction and an array. */
+  readonly direct: boolean;
+  /** A direct read: what `via` may run on another driver. */
+  readonly routable: boolean;
+  readonly certainty: (() => Certainty | undefined) | undefined;
+  readonly start: (driver?: AnyDriver) => Promise<unknown>;
+}
+
+/**
  * One handler around its child. Once the child ran, its failure is the
  * call's, whatever the handler returns or throws after it; a handler that
  * breaks the protocol fails the call with that refusal once the child
@@ -286,16 +305,12 @@ async function runAround<Result, Input extends object>(
   core: () => Promise<Result>
 ): Promise<Result> {
   const { extension } = part;
-  const directRead =
-    prepared.mode === "direct" &&
-    prepared.kind === "model" &&
-    isReadOperation(prepared.operation);
+  const direct = prepared.mode === "direct";
+  const routable =
+    direct && prepared.kind === "model" && isReadOperation(prepared.operation);
   // A direct read may run once more after its handler returned (a value
   // served now and refreshed later): that run is the core's alone.
-  let replayable = directRead;
-  let open = true;
-  let settled = false;
-  let childFailed = false;
+  let replayable = routable;
   let running: Promise<Result> | undefined;
   let protocolFailure: QueryError | undefined;
   const refuse = (failure: string): QueryError => {
@@ -305,49 +320,40 @@ async function runAround<Result, Input extends object>(
     }
     return protocolFailure;
   };
-  const start = (driver?: AnyDriver): Promise<Result> => {
-    if (!open) throw refuse("called run() more than once");
-    if (settled) throw refuse(AFTER_RETURN);
-    open = false;
-    childFailed = false;
-    const promise = startChild(() => child(driver));
-    // Attached first, so a handler's own `catch` already reads it.
-    promise.then(undefined, () => {
-      childFailed = true;
-    });
-    running = promise;
-    return promise;
+  const attempt: Attempt = {
+    open: true,
+    failed: false,
+    done: false,
+    direct,
+    routable,
+    certainty: readCommitCertainty,
+    start(driver) {
+      if (!attempt.open) throw refuse("called run() more than once");
+      if (attempt.done) throw refuse(AFTER_RETURN);
+      attempt.open = false;
+      attempt.failed = false;
+      // What the child throws, even at once, is its promise's rejection.
+      running = (async () => child(driver))();
+      // Attached first, so a handler's own `catch` already reads it.
+      running.then(undefined, () => {
+        attempt.failed = true;
+      });
+      return running;
+    },
   };
   const run = Object.defineProperties(
-    (): Promise<Result> => {
-      if (!settled) return start();
+    (): Promise<unknown> => {
+      if (!attempt.done) return attempt.start();
       if (!replayable) throw refuse(AFTER_RETURN);
       replayable = false;
-      return startChild(core);
+      return (async () => core())();
     },
     {
+      // Read when asked: the context snapshots the input the first time.
       input: { get: () => prepared.input },
       mode: { value: prepared.mode },
       [CALL]: { value: prepared.kind === "model" ? prepared.call : undefined },
-      // A direct call whose child failed with nothing written, or maybe
-      // written, may be made again: once per failure.
-      [AGAIN]: {
-        value: () => {
-          if (
-            prepared.mode !== "direct" ||
-            !childFailed ||
-            settled ||
-            readCommitCertainty?.() !== undefined
-          )
-            return false;
-          childFailed = false;
-          open = true;
-          return true;
-        },
-      },
-      [VIA]: {
-        value: (driver: AnyDriver) => (directRead ? start(driver) : start()),
-      },
+      [ATTEMPT]: { value: attempt },
     }
   );
   let outcome: { readonly value: Result } | { readonly reason: unknown };
@@ -360,7 +366,7 @@ async function runAround<Result, Input extends object>(
   } catch (reason) {
     outcome = { reason };
   }
-  settled = true;
+  attempt.done = true;
   const failure =
     "reason" in outcome &&
     (protocolFailure === undefined || outcome.reason !== protocolFailure)
@@ -374,31 +380,19 @@ async function runAround<Result, Input extends object>(
   if (running === undefined) {
     if (protocolFailure !== undefined) throw protocolFailure;
     if (failure !== undefined) throw failure;
-    if (requiresRun(prepared))
+    if (
+      prepared.mode === "array" ||
+      prepared.kind !== "model" ||
+      !isReadOperation(prepared.operation)
+    )
       throw aroundError(extension, prepared, "returned without run()");
   } else {
-    if (failure !== undefined && !childFailed)
+    if (failure !== undefined && !attempt.failed)
       reportAdmissionFailure?.(failure);
     await running;
   }
   if ("value" in outcome && protocolFailure === undefined) return outcome.value;
   throw protocolFailure ?? failure;
-}
-
-function startChild<Result>(child: () => Promise<Result>): Promise<Result> {
-  try {
-    return Promise.resolve(child());
-  } catch (reason) {
-    return Promise.reject(reason);
-  }
-}
-
-function requiresRun(context: PreparedQueryContext<object>): boolean {
-  return (
-    context.mode === "array" ||
-    context.kind !== "model" ||
-    !isReadOperation(context.operation)
-  );
 }
 
 function aroundFailure<Input extends object>(

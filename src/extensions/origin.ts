@@ -9,16 +9,15 @@ import type { QueryEngine } from "@query-engine/query-engine";
 import type { PreparedOperation } from "@query-engine/raptor3/commands";
 import type { AdmittedArgs } from "./arguments";
 import type { Seconds } from "./call";
-import type { WriteOutcomeRegistration } from "./query";
+import type { Attempt, WriteOutcomeRegistration } from "./query";
 import type { Watched } from "./watch-part";
 
 /** The key of the call a first moment's context and a `run` belong to. */
 export const CALL = Symbol("viborm.call");
 /** The key of the view a method's scope serves. */
 export const SCOPE = Symbol("viborm.scope");
-/** The keys a second moment's `run` carries for `again` and `via`. */
-export const AGAIN = Symbol("viborm.again");
-export const VIA = Symbol("viborm.via");
+/** The key of what a second moment's `run` started, which `again` and `via` read. */
+export const ATTEMPT = Symbol("viborm.attempt");
 
 /**
  * One call, as its words and its parts read it: a model call's own object, a
@@ -52,7 +51,7 @@ export interface ScopeOrigin {
 
 // Only this module and the core write these keys: what they hold is what
 // the core put there.
-const isCall = (value: unknown): value is CallOrigin =>
+const isCall = <T = CallOrigin>(value: unknown): value is T =>
   typeof value === "object" && value !== null;
 const isScope = (value: unknown): value is ScopeOrigin =>
   typeof value === "object" && value !== null && "engine" in value;
@@ -61,6 +60,12 @@ const isScope = (value: unknown): value is ScopeOrigin =>
 export function callOf(x: object): CallOrigin | undefined {
   const call: unknown = Reflect.get(x, CALL);
   return isCall(call) ? call : undefined;
+}
+
+/** What a second moment's `run` started, if `x` is one. */
+export function attemptOf(x: object): Attempt | undefined {
+  const attempt: unknown = Reflect.get(x, ATTEMPT);
+  return isCall<Attempt>(attempt) ? attempt : undefined;
 }
 
 /** The view a method's scope serves, if `x` is one. */
