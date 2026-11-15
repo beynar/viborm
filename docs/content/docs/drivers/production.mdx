@@ -62,9 +62,12 @@ users of a supplied handle.
 
 A PostgreSQL pooler endpoint is still a PostgreSQL URL for application queries.
 Its session/transaction pooling mode and prepared-statement policy belong to the
-pooler. The postgres.js driver sends unprepared statements by default; opt in
-with `options: { prepare: true }` only when the endpoint supports prepared
-statements (see [postgres.js prepared statements](/docs/drivers/postgresql/postgres#prepared-statements)).
+pooler. The pg and postgres.js drivers send unprepared statements by default;
+opt in with `namedStatements` only when the endpoint keeps prepared statements:
+PgBouncer in transaction mode with `max_prepared_statements` set to at least
+the option's `max` (see [pg named statements](/docs/drivers/postgresql/pg#named-statements)
+and [postgres.js prepared statements](/docs/drivers/postgresql/postgres#prepared-statements)).
+Bun SQL prepares by default (see [Bun SQL prepared statements](/docs/drivers/postgresql/bun-sql#prepared-statements)).
 Namespace qualification does not depend on session search_path.
 
 Use [Neon HTTP](/docs/drivers/postgresql/neon-http) for stateless HTTP requests.

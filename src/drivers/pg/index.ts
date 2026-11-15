@@ -58,6 +58,12 @@ import {
   refuseUnknownDriverConfigKeys,
   systemRootAsVerifyFull,
 } from "../shared/driver-options";
+import {
+  isStaleStatement,
+  type NamedStatements,
+  type NamedStatementsOption,
+  namedStatements,
+} from "../shared/named-statements";
 import { installPostgresAdapter } from "../shared/postgres-adapter";
 import { boundByServer, learnRelationLimit } from "../shared/relation-bound";
 import type { QueryResult } from "../types";
@@ -267,6 +273,14 @@ export interface PgDriverOptions {
    * need it.
    */
   migrationSessionAttestation?: MigrationSessionAttestation;
+  /**
+   * Send each statement VibORM repeats as a named, server-side prepared
+   * statement: each connection parses and plans it once, then only binds it.
+   * A statement is named the second time it is sent, and a connection holds
+   * at most `max` of them (100 with `true`). Off by default: behind PgBouncer
+   * in transaction mode, set `max_prepared_statements` first.
+   */
+  namedStatements?: NamedStatementsOption;
 }
 
 export type PgClientConfig<C extends DriverConfig> = PgDriverOptions & C;
@@ -281,6 +295,7 @@ const PG_CONFIG_KEYS: Record<keyof PgDriverOptions, true> = {
   sharedRelationBodies: true,
   relationsPerStatement: true,
   migrationSessionAttestation: true,
+  namedStatements: true,
 };
 
 // ============================================================
@@ -324,6 +339,8 @@ export class PgDriver extends Driver<PgPool, PgPoolClient> {
    */
   private serverVersion: string | undefined;
   private readonly readsServer: boolean;
+  /** The statements sent named, when `namedStatements` asks for them. */
+  private readonly named: NamedStatements | undefined;
 
   constructor(options: PgDriverOptions = {}) {
     super("postgresql", "pg");
@@ -338,6 +355,7 @@ export class PgDriver extends Driver<PgPool, PgPoolClient> {
       )
     );
     this.connectionOptions = connectionRecord(connection, options.databaseUrl);
+    this.named = namedStatements("pg", options.namedStatements);
 
     if (this.suppliedPool) {
       this.client = this.suppliedPool;
@@ -608,18 +626,35 @@ export class PgDriver extends Driver<PgPool, PgPoolClient> {
   ): Promise<QueryResult<T>> {
     const operation = context?.operation ?? fallbackOperation;
     const observed = this.readBackgroundPoolFailure(client);
+    const fail = (error: unknown): never => {
+      learnRelationLimit(this.adapter, error);
+      return this.throwPoolQueryFailure(
+        client,
+        observed,
+        error,
+        sql,
+        params,
+        context
+      );
+    };
+    // Only a generated statement with values: naming moves node-postgres to
+    // the extended protocol, which a statement without values (several
+    // commands in one text, as raw SQL may be) does not use today.
+    const name =
+      fallbackOperation === "execute" && params?.length
+        ? this.named?.name(sql)
+        : undefined;
+    const query = { text: sql, values: params, types: utcSafeTypes };
     const result = await client
-      .query({ text: sql, values: params, types: utcSafeTypes })
+      .query(name === undefined ? query : { ...query, name })
       .catch((error: unknown) => {
-        learnRelationLimit(this.adapter, error);
-        return this.throwPoolQueryFailure(
-          client,
-          observed,
-          error,
-          sql,
-          params,
-          context
-        );
+        if (name === undefined || !isStaleStatement(error)) return fail(error);
+        this.named?.retire(sql);
+        // Alone on the pool, the statement failed before it did anything: it
+        // is sent once more, unnamed, and answers as it would have without
+        // names. In a transaction, the failure aborted it and stays the answer.
+        if ("release" in client) return fail(error);
+        return client.query(query).catch(fail);
       });
     // `Pool.query` includes an acquisition. Its success proves transport
     // recovery, but only for evidence that predates this exact operation.
@@ -797,6 +832,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     postgis,
     sharedRelationBodies: config.sharedRelationBodies,
     relationsPerStatement: config.relationsPerStatement,
+    namedStatements: config.namedStatements,
   });
 
   return createClientFromDriverConfig<S, C, PgDriver>(config, driver);

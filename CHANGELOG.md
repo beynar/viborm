@@ -5,6 +5,28 @@ Versioning.
 
 ## Unreleased
 
+### Added
+
+- **`namedStatements`, an opt-in on `viborm/pg` and `viborm/postgres`.** The
+  statements VibORM repeats are sent as named, server-side prepared statements:
+  each connection parses and plans one once, then only binds it. Measured on a
+  local PostgreSQL 18 against the same release without the option, two passes:
+  a `findUnique` takes 21 % to 22 % less time on pg and 42 % to 44 % less on
+  postgres.js, 50 `findUnique` at once 24 % to 27 % and 25 % to 37 % less, a
+  `create` or an `update` 10 % to 14 % and 14 % to 22 % less; a read of 1,000
+  rows gains 0 % to 13 %. On postgres.js a statement also stops paying a second
+  round trip to describe its parameters: a transaction of eight inserts takes
+  10 round trips instead of 18. A statement with values is named the second
+  time it is sent, under a name derived from its text, and a connection holds
+  at most `max` of them (`namedStatements: { max }`, 100 with `true`): each
+  holds 11 kB to 42 kB of server memory. Raw SQL is never named. On pg, a name
+  the server lost (`DEALLOCATE`, `DISCARD ALL`), a plan whose result type
+  changed and a parameter type a migration replaced are sent again once
+  unnamed outside a transaction. Off by default, and without it every
+  statement is sent exactly as before. Behind PgBouncer in transaction mode,
+  set `max_prepared_statements` to at least `max` first. Bun SQL prepares every
+  statement with values by default, and the docs now say so.
+
 ## 1.14.0 — 2026-11-15
 
 VibORM now runs on a Durable Object's own SQLite storage, takes over tables it

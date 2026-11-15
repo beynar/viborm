@@ -112,6 +112,16 @@ enters the full tier only after a real Bun/PostGIS provider contract proves the
 functions, rows, and migrations. The Node test estate cannot qualify Bun's
 runtime. See [GeoPoint provider tiers](/docs/schema/scalars/point#provider-tiers).
 
+## Prepared statements
+
+Bun SQL prepares every statement that has values by default (its own `prepare`
+option, `true` unless you set it), the ones VibORM writes included: each
+connection parses a statement once and keeps it while it lives, with no bound
+on how many. Verified with Bun 1.4.4. VibORM's `namedStatements` option does not
+apply here; Bun decides. Behind PgBouncer in transaction mode, set PgBouncer's
+`max_prepared_statements`, or pass `options: { prepare: false }` to send every
+statement unprepared.
+
 ## Transactions
 
 Bun SQL supports full transactions with savepoints for nested transactions — see [Transactions](/docs/client/transactions).

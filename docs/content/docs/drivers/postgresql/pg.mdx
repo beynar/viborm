@@ -33,6 +33,7 @@ const client = createClient({
 | `sharedRelationBodies` | `boolean` | State each relation-filter body a statement repeats once, in a `WITH` (default `true`; `false` keeps the bodies inline) |
 | `relationsPerStatement` | `number` | The most relations (`FROM` items) one statement may reference (PlanetScale Neki: `256`); a statement over it is rewritten to fit. See [Neki](/docs/extensions/permissions#providers) |
 | `migrationSessionAttestation` | `"dedicated-session"` | Your claim, at your risk, that every connection of the pool is one server session for its whole life; lifts the migration refusal of Hyperdrive and Neon `-pooler` hosts (see [Migrations through a pooler](/docs/drivers/production#migrations-through-a-pooler)) |
+| `namedStatements` | `boolean \| { max: number }` | Send the statements VibORM repeats as named prepared statements, at most `max` per connection (100 with `true`); off by default. See [Named statements](#named-statements) |
 
 `createClient` refuses any other key with a `ClientInitializationError` that
 names it.
@@ -220,6 +221,52 @@ const globex = createClient({ pool, namespace: "tenant_globex", schema: globexMo
 `pg` can pin one session, so it supports the full migration verb set against the
 selected schema. Raw SQL is never rewritten and keeps ordinary `search_path`
 semantics — see [Namespaces](/docs/drivers/namespaces).
+
+## Named statements
+
+By default every statement is sent unnamed: the server parses and plans it each
+time, and keeps nothing once it has run. `namedStatements` sends the statements
+VibORM repeats under a name instead, so each connection parses and plans one
+once and then only binds it:
+
+```typescript
+import { createClient } from "viborm/pg";
+
+const client = createClient({
+  databaseUrl: process.env.DATABASE_URL,
+  schema,
+  namedStatements: true, // or { max: 50 }
+});
+```
+
+Measured on a local PostgreSQL 18, a `findUnique` takes about 20 % less time
+and 50 of them at once about 25 % less; a read of 1,000 rows gains less, as the
+plan is a smaller part of it. node-postgres sends a statement in one round trip
+named or not, so the number of round trips does not change.
+
+What it does:
+
+- A statement is named the second time VibORM sends it, under a name derived
+  from its text, so a shape sent once never takes a place. Two clients sharing
+  one pool give the same statement the same name.
+- Only statements VibORM writes, with values, are named. Raw SQL and
+  statements without values are sent as before.
+- A connection holds at most `max` named statements (100 with `true`). Each
+  costs the server memory for the connection's life: 11 kB for a `findUnique`
+  to 42 kB for a `findMany` with a relation as JSON, measured on PostgreSQL 18.
+- When the server no longer has a statement's name (after `DEALLOCATE` or
+  `DISCARD ALL`), or the table under it changed (a column type, an enum a
+  migration replaced), the statement is sent again once, unnamed, and answers
+  as it would have without the option; it is named anew next time. Inside a
+  transaction the server's failure aborts the transaction, so that failure is
+  what the transaction answers; the next transaction parses again.
+
+**Behind PgBouncer in transaction mode**, named statements need
+`max_prepared_statements` set (PgBouncer 1.21 or later; its default is 200
+since 1.24). Set it to at least `max`. Without it, a transaction that lands on
+another server connection does not find the name: each such statement fails
+once, then runs unnamed. Hyperdrive and other poolers have their own policy;
+leave the option off unless yours keeps prepared statements.
 
 ## Transactions
 
