@@ -1,26 +1,36 @@
 /**
- * A `rows.verbs` entry declared as a function (permissions 1.3.2: a policy
+ * A `rule` entry declared as a function (permissions 1.3.2: a policy
  * compiled a model at a time): resolved and admitted when a call first needs
- * its model, once per schema when it returns frozen data; its refusals,
- * control references and projection keys judged then, as `$extends` judges
- * an eager entry; a lazy `acyclic` resolved only for an update writing a
- * self key. The produced row's behaviour with every entry lazy is
- * extension-produced.core.test.ts's "verbs declared lazily" run.
+ * its model, once per schema and declaration; its refusals, argument
+ * references and projection keys judged then, as `$extends` judges an eager
+ * entry; a lazy `acyclic` resolved only for an update writing a self key.
+ * The produced row's behaviour with every entry lazy is
+ * extension-produced.core.test.ts's "rules declared lazily" run.
  */
 
 import { MemoryCache } from "@cache/drivers/memory";
 import { cache } from "@cache/extension";
 import { createClient } from "@drivers/sqlite3";
 import { ClientInitializationError } from "@errors";
-import { bindRows } from "@extensions/rows";
-import { withRows } from "@extensions/rows-runtime";
 import { s } from "@schema";
+import {
+  accepts,
+  arg,
+  check,
+  args as extArgs,
+  extension,
+  facts,
+  lazy,
+  nothing,
+  now,
+  oneOf,
+  only,
+  parts,
+  when,
+} from "@src/index";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { v } from "@validation";
 import { afterEach, beforeEach, expect, test } from "vitest";
-
-// These definitions are stated as plain objects: what reads their rows is brought here.
-withRows();
 
 const node = s.model({
   id: s.string().id(),
@@ -46,32 +56,45 @@ type Loose = Record<string, Delegate> & {
   $disconnect(): Promise<void>;
 };
 
-const me = { control: "user" };
-const frozen = <T>(value: T): T => {
-  if (value && typeof value === "object") {
-    for (const member of Object.values(value)) frozen(member);
-    Object.freeze(value);
-  }
-  return value;
-};
-/** A governed definition whose `verbs` entries are the given functions. */
+const me = arg("user");
+const typed = parts<typeof schema>();
+/** A rule entry, untyped: some are refused, which is what is tested. */
+type Entry = Readonly<Record<string, unknown>>;
+/**
+ * A governed extension whose rule entries are the given functions, each
+ * given lazily. The entries are handed through a rule read from the schema,
+ * the one form that takes them untyped; it applies them as the same entries
+ * written directly.
+ */
+/** `lazy` of an untyped entry, written apart from the rule: held. */
+const held = (read: () => unknown) => lazy(read);
 const governed = (
-  verbs: Record<string, () => object>,
-  extra: { name?: string; models?: object; control?: string } = {}
-) => ({
-  name: extra.name ?? "lazy",
-  controls: { [extra.control ?? "user"]: { schema: v.string() } },
-  rows: {
-    control: extra.control === undefined ? "as" : `${extra.control}As`,
-    default: "all",
-    models: extra.models ?? {},
-    verbs,
-  },
+  entries: Record<string, (() => unknown) | ReturnType<typeof lazy>>,
+  extra: { name?: string; control?: string } = {}
+) =>
+  typed.extension(
+    extra.name ?? "lazy",
+    extArgs({ [extra.control ?? "user"]: accepts(v.string()) }),
+    typed.rule(() =>
+      Object.fromEntries(
+        Object.entries(entries).map(([model, entry]) => [
+          model,
+          typeof entry === "function" ? held(entry) : entry,
+        ])
+      )
+    )
+  );
+/** Rows read where `where` holds: no row is updated or deleted. */
+const readOnly = (where: object): Entry => ({
+  read: { where },
+  update: { where: only(nothing) },
+  delete: { where: only(nothing) },
 });
-const own = () => ({
-  predicates: { own: { ownerId: me } },
-  read: "own",
-  update: "own",
+/** Rows the caller owns: read and updated, never deleted. */
+const own = (): Entry => ({
+  read: { where: { ownerId: me } },
+  update: { where: only({ ownerId: me }), check: check({ ownerId: me }) },
+  delete: { where: only(nothing) },
 });
 
 let base: Loose;
@@ -127,34 +150,38 @@ test("an entry is resolved when a call first needs its model, never when the ext
   expect(calls).toEqual(["note"]);
 });
 
-test("an entry returning frozen data is admitted once per schema; another, at each admission", async () => {
-  let frozenCalls = 0;
-  let plainCalls = 0;
-  const once = frozen(own());
+test("an entry is admitted once per schema and declaration; a fresh declaration, at its own admission", async () => {
+  let nodeCalls = 0;
+  let noteCalls = 0;
   const verbs = {
     node: () => {
-      frozenCalls++;
-      return once;
+      nodeCalls++;
+      return own();
     },
     note: () => {
-      plainCalls++;
+      noteCalls++;
       return own();
     },
   };
-  // A fresh (mutable) definition is admitted at every `$extends`.
+  // One declaration, applied three times over one schema: admitted once.
+  const definition = governed(verbs);
   for (let client = 0; client < 3; client++) {
-    const db = base.$extends(governed(verbs));
+    const db = base.$extends(definition);
     await db.node!.findMany({ user: "alice" } as object);
     await db.note!.findMany({ user: "alice" } as object);
   }
-  expect(frozenCalls).toBe(1);
-  expect(plainCalls).toBe(3);
+  expect([nodeCalls, noteCalls]).toEqual([1, 1]);
+  // A fresh declaration is another one, read at its own admission.
+  await base.$extends(governed(verbs)).node!.findMany({
+    user: "alice",
+  } as object);
+  expect([nodeCalls, noteCalls]).toEqual([2, 1]);
 });
 
 test("a refused entry fails every call on its model, and only on its model", async () => {
   const db = base.$extends(
     governed({
-      node: () => ({ ...own(), read: "missing" }),
+      node: lazy(() => ({ ...own(), read: { where: { missing: "x" } } })),
       note: own,
     })
   );
@@ -164,7 +191,7 @@ test("a refused entry fails every call on its model, and only on its model", asy
     await expect(
       db.node!.findMany({ user: "alice" } as object)
     ).rejects.toThrow(
-      'Extension "lazy" rows.verbs.node at "read": names unknown predicate "missing".'
+      'Extension "lazy" rule.node.read: at "missing": Unknown key: missing.'
     );
   }
   expect(ids(await db.note!.findMany({ user: "alice" } as object))).toEqual([
@@ -172,58 +199,21 @@ test("a refused entry fails every call on its model, and only on its model", asy
   ]);
 });
 
-test("a mode naming a lazy entry's predicate narrows by it; an unknown one is refused on first use", async () => {
-  const db = base.$extends(
-    governed(
-      {
-        node: () => ({
-          predicates: { all: {}, roots: { parentId: null } },
-          read: "all",
-        }),
-      },
-      { models: { node: { all: {}, roots: { root: "roots" } } } }
-    )
-  );
-  expect(
-    ids(await db.node!.findMany({ user: "alice", as: "roots" } as object))
-  ).toEqual(["a", "x"]);
-  const unknown = base.$extends(
-    governed(
-      { node: () => ({ predicates: { all: {} }, read: "all" }) },
-      { models: { node: { all: {}, roots: { root: "nope" } } } }
-    )
-  );
-  await expect(
-    unknown.node!.findMany({ user: "alice", as: "roots" } as object)
-  ).rejects.toThrow(
-    'Extension "lazy" rows.node.roots.root at "root": names unknown predicate "nope".'
-  );
-});
-
 test("a lazy entry's control references are checked against the chain where it was applied", async () => {
   const db = base.$extends(
     governed({
-      note: () => ({
-        predicates: { own: { ownerId: { control: "tenant" } } },
-        read: "own",
-      }),
+      note: () => readOnly({ ownerId: arg("tenant") }),
     })
   );
   await expect(db.note!.findMany({ user: "alice" } as object)).rejects.toThrow(
-    'Extension "lazy" references undeclared control "tenant".'
+    'Extension "lazy" references undeclared argument "tenant".'
   );
   // Declared earlier in the chain: admitted.
   const tenant = base
-    .$extends({
-      name: "tenant",
-      controls: { tenant: { schema: v.string() } },
-    })
+    .$extends(extension("tenant", extArgs({ tenant: accepts(v.string()) })))
     .$extends(
       governed({
-        note: () => ({
-          predicates: { own: { ownerId: { control: "tenant" } } },
-          read: "own",
-        }),
+        note: () => readOnly({ ownerId: arg("tenant") }),
       })
     );
   expect(
@@ -234,11 +224,17 @@ test("a lazy entry's control references are checked against the chain where it w
 test("a projection key may not take a link row's name", async () => {
   const db = base.$extends(
     governed({
-      note: () => ({ ...own(), evidence: { as: "$through", names: ["own"] } }),
+      note: lazy(() => ({
+        ...own(),
+        read: {
+          where: { ownerId: me },
+          select: { $through: facts({ own: { ownerId: me } }) },
+        },
+      })),
     })
   );
   await expect(db.note!.findMany({ user: "alice" } as object)).rejects.toThrow(
-    'rows.verbs.note.evidence.as "$through" is reserved'
+    'rule.note.read.select "$through" is reserved'
   );
 });
 
@@ -246,10 +242,13 @@ test("two extensions declaring one projection key on a model are refused when th
   const evidence = (name: string, control?: string) =>
     governed(
       {
-        note: () => ({
+        note: lazy(() => ({
           ...own(),
-          evidence: { as: "$access", names: ["own"] },
-        }),
+          read: {
+            where: { ownerId: me },
+            select: { $access: facts({ own: { ownerId: me } }) },
+          },
+        })),
       },
       { name, ...(control && { control }) }
     );
@@ -257,7 +256,7 @@ test("two extensions declaring one projection key on a model are refused when th
     .$extends(evidence("first"))
     .$extends(evidence("second", "other"));
   await expect(db.note!.findMany({ user: "alice" } as object)).rejects.toThrow(
-    'rows.verbs.note.evidence.as "$access" is declared by two extensions of the chain.'
+    'rule.note.read.select "$access" is declared by two extensions of the chain.'
   );
 });
 
@@ -265,15 +264,15 @@ test("a lazy acyclic list is resolved only for an update writing a self key, and
   let resolved = 0;
   const db = base.$extends(
     governed({
-      node: () => ({
-        predicates: { all: {} },
-        read: "all",
-        update: "all",
+      node: lazy(() => ({
+        read: { where: {} },
+        update: { where: only({}), check: check({}) },
+        delete: { where: only(nothing) },
         acyclic: () => {
           resolved++;
           return ["parent"];
         },
-      }),
+      })),
     })
   );
   await db.node!.update({
@@ -301,142 +300,67 @@ test("a lazy acyclic list is resolved only for an update writing a self key, and
 test("an entry that resolves to anything but an object is refused on first use", async () => {
   const db = base.$extends(governed({ note: () => null as never }));
   await expect(db.note!.findMany({ user: "alice" } as object)).rejects.toThrow(
-    'Extension "lazy" rows.verbs.note at "root": is not an object or a function.'
+    'Extension "lazy" rule.note: an entry is an object.'
   );
 });
 
-test("walking a bound domain resolves every lazy entry; reading one resolves only it", () => {
+test("a call reads its own model's entry alone, written lazily in the rule itself", async () => {
   const resolved: string[] = [];
   const entry = (model: string) => () => {
     resolved.push(model);
-    return { predicates: { all: {} }, read: "all" };
+    return readOnly({});
   };
-  const binding = bindRows(
-    [
-      {
-        control: "as",
-        default: "all",
-        models: {
-          node: { all: { root: () => ({ id: "a" }) } },
-          note: { all: {} },
-        },
-        verbs: { node: entry("node"), note: entry("note") },
-      } as never,
-    ],
-    undefined
+  const db = base.$extends(
+    extension(
+      "lazy",
+      typed.rule({ node: lazy(entry("node")), note: lazy(entry("note")) })
+    )
   );
-  const { domain } = binding.physical[0]!;
-  const verbs = domain.verbs!;
-  expect(verbs.has("node")).toBe(true);
-  expect(verbs.has("missing")).toBe(false);
   expect(resolved).toEqual([]);
-  expect(verbs.get("note")?.[0]?.read).toEqual({});
+  expect(ids(await db.note!.findMany())).toEqual(["n1", "n2"]);
   expect(resolved).toEqual(["note"]);
-  expect(domain.projects).toBe(true);
-  // Every way of walking a map settles what is still pending.
-  const walks: ((map: ReadonlyMap<string, unknown>) => unknown)[] = [
-    (map) => map.size,
-    (map) => [...map.keys()],
-    (map) => [...map.values()],
-    (map) => [...map.entries()],
-    (map) => [...map],
-    (map) => {
-      // biome-ignore lint/complexity/noForEach: forEach is one of the walks under test
-      map.forEach(() => {
-        // Visiting is enough.
-      });
-    },
-  ];
-  for (const walk of walks) {
-    const fresh = bindRows(
-      [
-        {
-          control: "as",
-          default: "all",
-          models: { node: { all: { root: () => ({ id: "a" }) } } },
-          verbs: { node: entry("node") },
-        } as never,
-      ],
-      undefined
-    ).physical[0]!.domain;
-    resolved.length = 0;
-    walk(fresh.verbs!);
-    walk(fresh.root);
-    expect(resolved).toEqual(["node"]);
-    expect(fresh.root.get("node")).toEqual([{ id: "a" }]);
-  }
-});
-
-test("with a custom scalar validator in the schema, a frozen entry is admitted at each application", async () => {
-  const custom = s.model({
-    id: s.string().id(),
-    ownerId: s.string().schema(v.string()),
-  });
-  const client = createClient({
-    schema: { custom },
-    dataDir: ":memory:",
-  }) as unknown as Loose;
-  try {
-    await syncLiveSchema(client as never);
-    let calls = 0;
-    const once = frozen(own());
-    const verbs = {
-      custom: () => {
-        calls++;
-        return once;
-      },
-    };
-    for (let application = 0; application < 2; application++)
-      await client
-        .$extends(governed(verbs))
-        .custom!.findMany({ user: "alice" } as object);
-    expect(calls).toBe(2);
-  } finally {
-    await client.$disconnect();
-  }
 });
 
 test("one function serving two models is admitted for each against its own model", async () => {
-  const roots = frozen({
-    predicates: { roots: { parentId: null } },
-    read: "roots",
-  });
+  const roots = readOnly({ parentId: null });
   const shared = () => roots;
-  const db = base.$extends(frozen(governed({ node: shared, note: shared })));
+  const db = base.$extends(governed({ node: shared, note: shared }));
   expect(ids(await db.node!.findMany({ user: "alice" } as object))).toEqual([
     "a",
     "x",
   ]);
   // `note` has no `parentId`: its admission refuses what `node`'s accepted.
   await expect(db.note!.findMany({ user: "alice" } as object)).rejects.toThrow(
-    'rows.verbs.note.predicates.roots at "parentId"'
+    'rule.note.read: at "parentId"'
   );
 });
 
 test("a cached read keys an eager entry's function acyclic, and lazy rows by their digest once", async () => {
   let resolved = 0;
   const cached = base.$extends(cache({ driver: new MemoryCache() })).$extends(
-    frozen(
-      governed({
-        note: () => {
-          resolved++;
-          return own();
+    governed({
+      note: () => {
+        resolved++;
+        return own();
+      },
+    })
+  ) as unknown as Loose & { $withCache(options: object): Loose };
+  const eager = base.$extends(cache({ driver: new MemoryCache() })).$extends(
+    typed.extension(
+      "lazy",
+      extArgs({ user: accepts(v.string()) }),
+      typed.rule({
+        node: {
+          read: { where: { ownerId: me } },
+          update: {
+            where: only({ ownerId: me }),
+            check: check({ ownerId: me }),
+          },
+          delete: { where: only(nothing) },
+          acyclic: () => ["parent"],
         },
       })
     )
-  ) as unknown as Loose & { $withCache(options: object): Loose };
-  const eager = base.$extends(cache({ driver: new MemoryCache() })).$extends(
-    frozen({
-      ...governed({}),
-      rows: {
-        control: "as",
-        default: "all",
-        models: {},
-        verbs: {
-          node: { ...own(), acyclic: () => ["parent"] },
-        },
-      },
-    })
   ) as unknown as Loose & { $withCache(options: object): Loose };
   for (let read = 0; read < 2; read++) {
     expect(
@@ -455,4 +379,62 @@ test("a cached read keys an eager entry's function acyclic, and lazy rows by the
     ).toEqual(["a", "b"]);
   }
   expect(resolved).toBe(1);
+});
+
+test("a mode and a lazy entry that read only the call's instant name no argument but the mode, and their calls carry their scope", async () => {
+  const event = s.model({ id: s.string().id(), at: s.dateTime() });
+  const past = { at: { lte: now } };
+  const instantSchema = { event };
+  const instant = parts<typeof instantSchema>();
+  const plain = createClient({ schema: instantSchema, dataDir: ":memory:" });
+  try {
+    await syncLiveSchema(plain);
+    await plain.event.createMany({
+      data: [
+        { id: "past", at: new Date(Date.now() - 86_400_000) },
+        { id: "future", at: new Date(Date.now() + 86_400_000) },
+      ],
+    });
+    const db = plain.$extends(
+      instant.extension(
+        "instant",
+        instant.args({ when: oneOf("past").default("past") }),
+        instant.rule({ event: { root: when(arg("when"), "past", past) } }),
+        instant.rule({
+          event: lazy(() => ({
+            read: { where: past },
+            update: { where: only(nothing) },
+            delete: { where: only(nothing) },
+          })),
+        })
+      )
+    );
+    // Neither the mode's filter nor the lazy entry is handed an argument:
+    // each reads the call's instant, which the call carries all the same.
+    expect(ids(await db.event.findMany())).toEqual(["past"]);
+    // The lazy entry is the one that refuses the update.
+    await expect(
+      db.event.update({ where: { id: "past" }, data: { at: new Date() } })
+    ).rejects.toThrow();
+  } finally {
+    await plain.$disconnect();
+  }
+});
+
+test("an entry given lazily applied after an eager rule that judges is still read and judged", async () => {
+  const eager = typed.extension(
+    "eager",
+    typed.rule({ note: { update: { check: check({ ownerId: "alice" }) } } })
+  );
+  const db = base.$extends(eager).$extends(governed({ note: own }));
+  expect(ids(await db.note!.findMany({ user: "alice" } as object))).toEqual([
+    "n1",
+  ]);
+  await expect(
+    db.note!.update({
+      where: { id: "n1" },
+      data: { ownerId: "bob" },
+      user: "alice",
+    } as object)
+  ).rejects.toThrow("not permitted");
 });

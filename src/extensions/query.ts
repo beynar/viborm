@@ -1,18 +1,18 @@
-import type { ClientSchema } from "@client/schema-links";
-import { QueryError } from "@errors";
+import { attachCommitCertainty } from "@drivers/driver-error-context";
+import type { AnyDriver } from "@drivers/exports";
+import {
+  isVibORMError,
+  QueryError,
+  retainWriteOutcomeFailure,
+  VibORMError,
+} from "@errors";
 import { isReadOperation } from "@query-engine/routed-operations";
-import { isFunction } from "@validation/value-guards";
-import { isError } from "../errors/diagnostic-safety";
-import type { ResolvedOperationHandler } from "./chain";
-import { type AdmittedControls, controlsOwnedBy } from "./controls";
+import { errorCause, isError } from "../errors/diagnostic-safety";
+import type { AdmittedArgs } from "./arguments";
+import type { CallHandler } from "./chain";
+import { ATTEMPT, CALL, type CallOrigin } from "./origin";
 
-/** Frozen runtime contribution after hostile definition normalization. */
-type RuntimeQueryFunction = (...args: never[]) => unknown;
-export type RuntimeQueryContribution =
-  | RuntimeQueryFunction
-  | Readonly<Record<string, Readonly<Record<string, RuntimeQueryFunction>>>>;
-
-export type QueryInterceptionMode = "direct" | "transaction" | "array";
+export type CallMode = "direct" | "transaction" | "array";
 
 export type RawQueryKind =
   | "queryRaw"
@@ -20,11 +20,16 @@ export type RawQueryKind =
   | "queryRawUnsafe"
   | "executeRawUnsafe";
 
-export type RawQueryOperation = `$${RawQueryKind}`;
+type RawQueryOperation = `$${RawQueryKind}`;
 
 interface PreparedQueryContextBase<Input extends object> {
-  readonly mode: QueryInterceptionMode;
+  readonly mode: CallMode;
   readonly input: Readonly<Input>;
+  /**
+   * One object per call, the same one its first moments were handed: what
+   * links an `around` part's two moments.
+   */
+  readonly call?: CallOrigin;
 }
 
 export interface PreparedModelQueryContext<Input extends object>
@@ -33,10 +38,10 @@ export interface PreparedModelQueryContext<Input extends object>
   readonly model: string;
   readonly operation: string;
   /**
-   * The call's admitted controls. A handler sees only its own extension's,
+   * The call's admitted arguments. A handler sees only its own extension's,
    * and only when that extension declares any.
    */
-  readonly controls?: AdmittedControls;
+  readonly values?: AdmittedArgs;
 }
 
 export interface PreparedRawQueryContext<Input extends object>
@@ -46,7 +51,7 @@ export interface PreparedRawQueryContext<Input extends object>
   readonly operation: RawQueryOperation;
 }
 
-/** The prepared logical-operation facts safe for query interceptors to inspect. */
+/** The prepared logical-operation facts safe for `around` parts to inspect. */
 export type PreparedQueryContext<
   Input extends object = Record<string, unknown>,
 > = PreparedModelQueryContext<Input> | PreparedRawQueryContext<Input>;
@@ -59,765 +64,457 @@ export type WriteOutcomeListener = (
   outcome: WriteOutcome
 ) => unknown | Promise<unknown>;
 
-export type GenericQueryKind = "model" | RawQueryKind;
-
-type GenericQueryContextBase<Result> = {
-  readonly mode: QueryInterceptionMode;
-  readonly input: Readonly<Record<string, unknown>>;
-  readonly proceed: () => Promise<Result>;
-  readonly onWriteOutcome: (listener: WriteOutcomeListener) => void;
-};
-
-type GenericModelQueryContext<Result> = GenericQueryContextBase<Result> & {
-  readonly kind: "model";
-  readonly model: string;
-  readonly operation: Operations;
-  /** The call's controls this handler's extension declares, and only those. */
-  readonly controls?: AdmittedControls;
-};
-
-type GenericRawQueryContext<Result> = GenericQueryContextBase<Result> &
-  {
-    [Kind in RawQueryKind]: {
-      readonly kind: Kind;
-      readonly model: undefined;
-      readonly operation: `$${Kind}`;
-    };
-  }[RawQueryKind];
-
-export type GenericQueryContext<Result> =
-  | GenericModelQueryContext<Result>
-  | GenericRawQueryContext<Result>;
-
-type GenericQueryHandlerCall = <Result>(
-  context: GenericQueryContext<Result>
-) => Promise<Result>;
-
-declare const officialQueryHandlerIdentity: unique symbol;
-
-/** Public ordinary query handler; official identities cannot be erased into it. */
-export type GenericQueryHandler = GenericQueryHandlerCall & {
-  readonly [officialQueryHandlerIdentity]?: never;
-};
-
-/** Internal nominal call shape used by official query-based capabilities. */
-export type OfficialGenericQueryHandler = GenericQueryHandlerCall & {
-  readonly [officialQueryHandlerIdentity]: true;
-};
-
-/**
- * Per-model query handlers. Their results read the result context of the
- * chain they are applied to: `Hidden` names the models its `rows` can hide
- * (`rows` cannot follow a model-mapped handler, so a later extension adds
- * none). A `rows` entry in the handler's OWN definition is not seen, as no
- * definition types against its own contributions: declare it one step
- * earlier.
- */
-export type QueryHandlerMap<
-  C extends VibORMConfig,
-  Hidden extends string = never,
-> = {
-  readonly [ModelName in keyof ClientSchema<C>]?: {
-    readonly [OperationName in Operations]?: <
-      Arg extends Exclude<
-        OperationPayload<OperationName, ClientSchema<C>[ModelName]>,
-        undefined
-      >,
-    >(context: {
-      readonly mode: QueryInterceptionMode;
-      readonly kind: "model";
-      readonly model: ModelName;
-      readonly operation: OperationName;
-      readonly input: Readonly<Arg>;
-      /** The call's controls this handler's extension declares, and only those. */
-      readonly controls?: AdmittedControls;
-      readonly proceed: () => Promise<
-        ContextualOperationResult<
-          C,
-          ModelName,
-          OperationName,
-          Arg,
-          ClientRowsContext<C, Hidden>
-        >
-      >;
-      readonly onWriteOutcome: (listener: WriteOutcomeListener) => void;
-    }) => Promise<
-      ContextualOperationResult<
-        C,
-        ModelName,
-        OperationName,
-        Arg,
-        ClientRowsContext<C, Hidden>
-      >
-    >;
-  };
-};
-
 export interface WriteOutcomeRegistration {
   readonly extension: string;
   readonly listener: WriteOutcomeListener;
-  /** Package-owned listeners may already translate failures at their boundary. */
-  readonly failurePolicy?: "boundary-owned";
+  /**
+   * What installs a transaction scope's collector, brought by the word that
+   * registered (`settled`); absent, the scope's own, installed at its start
+   * by a chain whose parts hear writes.
+   */
+  readonly collect?: typeof collect;
+  /**
+   * What tells a call's registrations of its outcome, brought by what
+   * registered (`settled`, the part that watches writes): a chain where
+   * nothing registers carries none of it.
+   */
+  readonly tell?: typeof tell;
+  /** In a transaction: the call reached its outcome, so it is told at the scope's end. */
+  ok?: true;
 }
-
-export type WriteOutcomeRegistrationCapture = (
-  registration: WriteOutcomeRegistration
-) => void;
 
 export interface WriteOutcomeNotifications {
   readonly committed: () => Promise<void>;
   readonly mayHaveCommitted: () => Promise<void>;
 }
 
-interface QueryInterceptorCapabilities<Result> {
-  readonly proceed: () => Promise<Result>;
-  readonly onWriteOutcome: (listener: WriteOutcomeListener) => void;
-}
+/** A `run()` no second moment may make once it returned. */
+const AFTER_RETURN = "called run() after its second moment returned";
 
-export type QueryInterceptorContext<
-  Result,
-  Input extends object = Record<string, unknown>,
-> = Readonly<
-  PreparedQueryContext<Input> & QueryInterceptorCapabilities<Result>
->;
+/** The child a handler chain runs: on the driver a handler chose, if any. */
+type Child<Result> = (driver?: AnyDriver) => Promise<Result>;
 
-const queryCoordinationFailures = new WeakMap<AggregateError, unknown>();
-const publicationFailures = new WeakMap<AggregateError, readonly Error[]>();
+/** What one `around` part runs for a call: its second moment, handed `run` by the runner. */
+export type AroundRunner = (
+  prepared: PreparedQueryContext<object>,
+  run: () => Promise<unknown>
+) => unknown;
 
-type ReadCommitCertainty = () => WriteOutcome["certainty"] | undefined;
+/** The `around` parts one call runs, the first applied outermost. */
+export type AroundHandlers = readonly CallHandler<AroundRunner>[];
+
+type Certainty = WriteOutcome["certainty"];
 
 /** Private coordination hooks used only while array members await admission. */
-export interface QueryInterceptorExecutionControl {
+export interface AdmissionHooks {
   readonly reportAdmissionFailure?: (failure: unknown) => void;
-  readonly readCommitCertainty?: ReadCommitCertainty;
+  readonly readCommitCertainty?: () => Certainty | undefined;
 }
 
+/** The child of a prepared call, told of the commits it reaches. */
+type PreparedChild<Result> = (
+  notifications?: WriteOutcomeNotifications,
+  driver?: AnyDriver
+) => Promise<Result>;
+
 /**
- * Execute one prepared operation through its exact precompiled query chain.
- *
- * The absent-chain arm calls the child directly and allocates no context,
- * registration list, notification callback, or runner promise.
+ * Execute one prepared operation through its `around` parts and under what
+ * its write registered.
  */
 export function executePreparedQuery<Result, Input extends object>(
   context: PreparedQueryContext<Input> | undefined,
-  interceptors: readonly ResolvedOperationHandler[] | undefined,
-  child: (notifications?: WriteOutcomeNotifications) => Promise<Result>,
+  arounds: AroundHandlers | undefined,
+  child: PreparedChild<Result>,
   isWrite: boolean,
-  transactionWriteOutcomes?: TransactionWriteOutcomes,
-  control?: QueryInterceptorExecutionControl,
-  preRegisteredWriteOutcome?: WriteOutcomeRegistration
+  scope?: TransactionScope,
+  hooks?: AdmissionHooks,
+  registration?: WriteOutcomeRegistration
 ): Promise<Result> {
-  if (
-    (context === undefined ||
-      interceptors === undefined ||
-      interceptors.length === 0) &&
-    preRegisteredWriteOutcome === undefined
-  ) {
-    return child();
-  }
-  if (
-    !isWrite &&
-    preRegisteredWriteOutcome === undefined &&
-    context !== undefined &&
-    interceptors !== undefined &&
-    interceptors.length > 0
-  ) {
-    return runCompiledQueryInterceptors(
-      context,
-      interceptors,
-      child,
-      discardReadWriteOutcomeRegistration,
-      control?.readCommitCertainty,
-      control?.reportAdmissionFailure
-    );
-  }
-  return executeInterceptedQuery(
-    context,
-    interceptors,
-    child,
-    isWrite,
-    transactionWriteOutcomes,
-    control,
-    preRegisteredWriteOutcome
-  );
+  // A context is prepared only for a call some `around` part wraps.
+  const intercepted = context !== undefined;
+  if (!(intercepted || registration)) return child();
+  return isWrite || registration
+    ? executeRegisteredQuery(
+        context,
+        arounds,
+        child,
+        isWrite,
+        scope,
+        hooks,
+        registration,
+        runArounds
+      )
+    : runArounds(
+        context!,
+        arounds,
+        (driver) => child(undefined, driver),
+        hooks?.readCommitCertainty,
+        hooks?.reportAdmissionFailure
+      );
 }
-
-function discardReadWriteOutcomeRegistration(): void {
-  return;
-}
-
-async function executeInterceptedQuery<Result, Input extends object>(
-  context: PreparedQueryContext<Input> | undefined,
-  interceptors: readonly ResolvedOperationHandler[] | undefined,
-  child: (notifications?: WriteOutcomeNotifications) => Promise<Result>,
-  isWrite: boolean,
-  transactionWriteOutcomes: TransactionWriteOutcomes | undefined,
-  control: QueryInterceptorExecutionControl | undefined,
-  preRegisteredWriteOutcome: WriteOutcomeRegistration | undefined
-): Promise<Result> {
-  const registrations: WriteOutcomeRegistration[] =
-    preRegisteredWriteOutcome === undefined ? [] : [preRegisteredWriteOutcome];
-  if (preRegisteredWriteOutcome !== undefined) {
-    transactionWriteOutcomes?.stage(preRegisteredWriteOutcome);
-  }
-  const captureWriteOutcome = (
-    registration: WriteOutcomeRegistration
-  ): void => {
-    registrations.push(registration);
-    transactionWriteOutcomes?.stage(registration);
-  };
-  let publishedDirectUnits = 0;
-  let directCommitCertainty: WriteOutcome["certainty"] | undefined;
-  let transactionConfirmed = false;
-  const publish = async (
-    certainty: WriteOutcome["certainty"]
-  ): Promise<void> => {
-    if (transactionWriteOutcomes) {
-      if (registrations.length === 0) return;
-      if (transactionConfirmed) return;
-      transactionConfirmed = true;
-      transactionWriteOutcomes.confirm(registrations);
-      return;
-    }
-    publishedDirectUnits += 1;
-    directCommitCertainty = certainty;
-    if (registrations.length === 0) return;
-    await publishWriteOutcomes(registrations, { certainty });
-  };
-  const notifications: WriteOutcomeNotifications = Object.freeze({
-    committed: () => publish("committed"),
-    mayHaveCommitted: () => publish("may-have-committed"),
-  });
-  const executeChild = async (): Promise<Result> => {
-    try {
-      const value = await child(notifications);
-      if (
-        isWrite &&
-        (transactionWriteOutcomes !== undefined || publishedDirectUnits === 0)
-      ) {
-        await publish("committed");
-      }
-      return value;
-    } catch (error) {
-      if (transactionWriteOutcomes && !transactionConfirmed) {
-        transactionWriteOutcomes.discard(registrations);
-      }
-      throw error;
-    }
-  };
-
-  try {
-    const value =
-      context === undefined ||
-      interceptors === undefined ||
-      interceptors.length === 0
-        ? await executeChild()
-        : await runCompiledQueryInterceptors(
-            context,
-            interceptors,
-            executeChild,
-            captureWriteOutcome,
-            () => directCommitCertainty ?? control?.readCommitCertainty?.(),
-            control?.reportAdmissionFailure
-          );
-    return value;
-  } catch (error) {
-    if (transactionWriteOutcomes && !transactionConfirmed) {
-      transactionWriteOutcomes.discard(registrations);
-    }
-    throw error;
-  }
-}
-
-type Settled<Value> =
-  | { readonly status: "fulfilled"; readonly value: Value }
-  | { readonly status: "rejected"; readonly reason: unknown };
-
-type HandlerOutcome<Value> =
-  | { readonly status: "fulfilled"; readonly value: Value }
-  | {
-      readonly status: "rejected";
-      readonly reason: unknown;
-      readonly failure: Error;
-    };
-
-type ExtensionFailures = readonly [Error] | readonly [Error, Error] | undefined;
 
 /**
- * Run one already-compiled interceptor chain around one prepared child.
+ * One write under what it registered (the registration a model write's
+ * watches made, or the `settled` functions a raw statement's first moments
+ * kept on it), around its `around` parts when `intercept` runs them, which
+ * {@link executePreparedQuery} passes: a chain without `around` parts does
+ * not carry their runner. Each commit the child reports is told (outside a
+ * transaction, the certainty it reached is what `again` reads), and a write
+ * that succeeded without reporting one is told it committed.
+ */
+export function executeRegisteredQuery<Result, Input extends object>(
+  context: PreparedQueryContext<Input> | undefined,
+  arounds: AroundHandlers | undefined,
+  child: PreparedChild<Result>,
+  isWrite: boolean,
+  scope?: TransactionScope,
+  hooks?: AdmissionHooks,
+  registration?: WriteOutcomeRegistration,
+  intercept?: typeof runArounds
+): Promise<Result> {
+  const registrations = registration ? [registration] : context?.call?.told;
+  const told = registrations?.[0]?.tell?.(registrations, scope);
+  let reported = false;
+  let certainty: Certainty | undefined;
+  const notified = (reached: Certainty) => async (): Promise<void> => {
+    reported = true;
+    if (!scope) certainty = reached;
+    await told?.(reached);
+  };
+  const notifications: WriteOutcomeNotifications = {
+    committed: notified("committed"),
+    mayHaveCommitted: notified("may-have-committed"),
+  };
+  // What fails before its outcome is reached is never marked, so never told.
+  const executeChild = async (driver?: AnyDriver): Promise<Result> => {
+    const value = await child(notifications, driver);
+    if (isWrite && !reported) await notifications.committed();
+    return value;
+  };
+  return intercept && context && arounds?.length
+    ? intercept(
+        context,
+        arounds,
+        executeChild,
+        () => certainty ?? hooks?.readCommitCertainty?.(),
+        hooks?.reportAdmissionFailure
+      )
+    : executeChild();
+}
+
+/**
+ * Run one already-compiled part chain around one prepared child, the
+ * first handler outermost.
  *
  * The undefined/empty branch deliberately returns the child's promise directly:
  * unextended operations allocate no runner promise, context, closure, or list.
  */
-export function runCompiledQueryInterceptors<Result, Input extends object>(
+export function runArounds<Result, Input extends object>(
   context: PreparedQueryContext<Input>,
-  interceptors: readonly ResolvedOperationHandler[] | undefined,
-  child: () => Promise<Result>,
-  captureWriteOutcome: WriteOutcomeRegistrationCapture,
-  readCommitCertainty?: ReadCommitCertainty,
+  arounds: AroundHandlers | undefined,
+  child: Child<Result>,
+  readCommitCertainty?: () => Certainty | undefined,
   reportAdmissionFailure?: (failure: unknown) => void
 ): Promise<Result> {
-  if (interceptors === undefined || interceptors.length === 0) return child();
-  return runInterceptorAt(
-    context,
-    interceptors,
-    0,
-    child,
-    captureWriteOutcome,
-    readCommitCertainty,
-    reportAdmissionFailure
-  );
+  const at = (index: number, driver?: AnyDriver): Promise<Result> => {
+    const part = arounds?.[index];
+    return part === undefined
+      ? child(driver)
+      : runAround(
+          context,
+          part,
+          (chosen) => at(index + 1, chosen ?? driver),
+          readCommitCertainty,
+          reportAdmissionFailure,
+          () => child(driver)
+        );
+  };
+  return at(0);
 }
 
-function runInterceptorAt<Result, Input extends object>(
-  context: PreparedQueryContext<Input>,
-  interceptors: readonly ResolvedOperationHandler[],
-  index: number,
-  child: () => Promise<Result>,
-  captureWriteOutcome: WriteOutcomeRegistrationCapture,
-  readCommitCertainty: ReadCommitCertainty | undefined,
-  reportAdmissionFailure: ((failure: unknown) => void) | undefined
-): Promise<Result> {
-  const interceptor = interceptors[index];
-  if (interceptor === undefined) return child();
-
-  return runOneInterceptor(
-    context,
-    interceptor,
-    () =>
-      runInterceptorAt(
-        context,
-        interceptors,
-        index + 1,
-        child,
-        captureWriteOutcome,
-        readCommitCertainty,
-        reportAdmissionFailure
-      ),
-    captureWriteOutcome,
-    readCommitCertainty,
-    reportAdmissionFailure
-  );
+/**
+ * One `run` of one `around` part, as the words that read it find it
+ * (`again`, `via`): what may start the child, and what happened to it.
+ */
+export interface Attempt {
+  /** `run()` may start the child. */
+  open: boolean;
+  /** The child's last start failed. */
+  failed: boolean;
+  /** The second moment returned. */
+  done: boolean;
+  /** A direct call outside a transaction and an array. */
+  readonly direct: boolean;
+  /** A direct read: what `via` may run on another driver. */
+  readonly routable: boolean;
+  readonly certainty: (() => Certainty | undefined) | undefined;
+  readonly start: (driver?: AnyDriver) => Promise<unknown>;
 }
 
-async function runOneInterceptor<Result, Input extends object>(
+/**
+ * One handler around its child. Once the child ran, its failure is the
+ * call's, whatever the handler returns or throws after it; a handler that
+ * breaks the protocol fails the call with that refusal once the child
+ * succeeded.
+ */
+async function runAround<Result, Input extends object>(
   prepared: PreparedQueryContext<Input>,
-  interceptor: ResolvedOperationHandler,
-  child: () => Promise<Result>,
-  captureWriteOutcome: WriteOutcomeRegistrationCapture,
-  readCommitCertainty: ReadCommitCertainty | undefined,
-  reportAdmissionFailure: ((failure: unknown) => void) | undefined
+  part: CallHandler<AroundRunner>,
+  child: Child<Result>,
+  readCommitCertainty: (() => Certainty | undefined) | undefined,
+  reportAdmissionFailure: ((failure: unknown) => void) | undefined,
+  core: () => Promise<Result>
 ): Promise<Result> {
-  let continuationOpen = true;
-  let childOutcomePromise: Promise<Settled<Result>> | undefined;
-  let handlerSettled = false;
-  let registrationOpen = true;
+  const { extension } = part;
+  const direct = prepared.mode === "direct";
+  const routable =
+    direct && prepared.kind === "model" && isReadOperation(prepared.operation);
+  // A direct read may run once more after its handler returned (a value
+  // served now and refreshed later): that run is the core's alone.
+  let replayable = routable;
+  let running: Promise<Result> | undefined;
   let protocolFailure: QueryError | undefined;
-
-  const recordProtocolFailure = (failure: string): QueryError => {
-    if (protocolFailure) return protocolFailure;
-    const error = interceptorError(interceptor.extension, prepared, failure);
-    protocolFailure = error;
-    reportAdmissionFailure?.(error);
-    return error;
+  const refuse = (failure: string): QueryError => {
+    if (protocolFailure === undefined) {
+      protocolFailure = aroundError(extension, prepared, failure);
+      reportAdmissionFailure?.(protocolFailure);
+    }
+    return protocolFailure;
   };
-
-  const proceed = (): Promise<Result> => {
-    if (!continuationOpen) {
-      throw recordProtocolFailure("called proceed more than once");
-    }
-    if (handlerSettled) {
-      throw recordProtocolFailure("called proceed after its handler settled");
-    }
-
-    registrationOpen = false;
-    continuationOpen = false;
-    const promise = startChild(child);
-    childOutcomePromise = settle(promise);
-    return promise;
-  };
-
-  const onWriteOutcome = (listener: WriteOutcomeListener): void => {
-    if (!isFunction(listener)) {
-      throw recordProtocolFailure(
-        "registered a non-function write-outcome listener"
-      );
-    }
-    if (!registrationOpen || handlerSettled) {
-      throw recordProtocolFailure(
-        "registered a write-outcome listener after proceed"
-      );
-    }
-    captureWriteOutcome(
-      Object.freeze({ extension: interceptor.extension, listener })
-    );
-  };
-
-  const handlerContext = exposeHandlerContext(
-    prepared,
-    proceed,
-    onWriteOutcome,
-    interceptor.controls
-  );
-  let handlerValue: Promise<Result>;
-  try {
-    handlerValue = Promise.resolve<Result>(
-      Reflect.apply(interceptor.handler, undefined, [handlerContext])
-    );
-  } catch (reason) {
-    handlerValue = Promise.reject(reason);
-  }
-
-  const settledHandler = await settle(handlerValue);
-  handlerSettled = true;
-  registrationOpen = false;
-  const handlerOutcome: HandlerOutcome<Result> =
-    settledHandler.status === "fulfilled"
-      ? settledHandler
-      : {
-          ...settledHandler,
-          failure:
-            protocolFailure !== undefined &&
-            settledHandler.reason === protocolFailure
-              ? protocolFailure
-              : interceptorFailure(
-                  interceptor.extension,
-                  prepared,
-                  settledHandler.reason,
-                  readCommitCertainty?.()
-                ),
-        };
-
-  if (
-    childOutcomePromise !== undefined &&
-    handlerOutcome.status === "rejected" &&
-    handlerOutcome.reason !== protocolFailure
-  ) {
-    reportAdmissionFailure?.(handlerOutcome.failure);
-  }
-
-  if (childOutcomePromise === undefined) {
-    if (protocolFailure) throw protocolFailure;
-    if (handlerOutcome.status === "rejected") {
-      throw handlerOutcome.failure;
-    }
-    if (requiresProceed(prepared)) {
-      throw interceptorError(
-        interceptor.extension,
-        prepared,
-        "completed without proceed"
-      );
-    }
-    return handlerOutcome.value;
-  }
-
-  const childOutcome = await childOutcomePromise;
-  if (childOutcome.status === "rejected") {
-    const extensionFailures = selectExtensionFailures(
-      protocolFailure,
-      handlerOutcome,
-      childOutcome
-    );
-    if (extensionFailures) {
-      throw retainSuppressedFailures(childOutcome.reason, extensionFailures);
-    }
-    throw childOutcome.reason;
-  }
-  const extensionFailures = selectExtensionFailures(
-    protocolFailure,
-    handlerOutcome,
-    childOutcome
-  );
-  if (extensionFailures) throwExtensionFailures(extensionFailures);
-  // With the child fulfilled, a rejected handler always selects a failure.
-  return (handlerOutcome as Extract<HandlerOutcome<Result>, { value: Result }>)
-    .value;
-}
-
-function selectExtensionFailures(
-  protocolFailure: QueryError | undefined,
-  handlerOutcome: HandlerOutcome<unknown>,
-  childOutcome: Settled<unknown>
-): ExtensionFailures {
-  if (
-    protocolFailure &&
-    childOutcome.status === "rejected" &&
-    childOutcome.reason === protocolFailure
-  ) {
-    return undefined;
-  }
-  if (handlerOutcome.status !== "rejected") {
-    return protocolFailure ? [protocolFailure] : undefined;
-  }
-  if (
-    (protocolFailure !== undefined &&
-      handlerOutcome.reason === protocolFailure) ||
-    (childOutcome.status === "rejected" &&
-      handlerOutcome.reason === childOutcome.reason)
-  ) {
-    return protocolFailure ? [protocolFailure] : undefined;
-  }
-  const handlerFailure = handlerOutcome.failure;
-  return protocolFailure ? [protocolFailure, handlerFailure] : [handlerFailure];
-}
-
-function exposeHandlerContext<Result, Input extends object>(
-  context: PreparedQueryContext<Input>,
-  proceed: () => Promise<Result>,
-  onWriteOutcome: (listener: WriteOutcomeListener) => void,
-  ownControls: readonly string[] | undefined
-): QueryInterceptorContext<Result, Input> {
-  // `kind`, `model` and `operation` are copied from one prepared context, so
-  // they stay one of its arms; TypeScript cannot correlate the copies.
-  // `input` is read through: the prepared context snapshots it at the first
-  // read, which a handler that never inspects it does not pay for.
-  return Object.freeze({
-    mode: context.mode,
-    kind: context.kind,
-    model: context.model,
-    operation: context.operation,
-    get input() {
-      return context.input;
+  const attempt: Attempt = {
+    open: true,
+    failed: false,
+    done: false,
+    direct,
+    routable,
+    certainty: readCommitCertainty,
+    start(driver) {
+      if (!attempt.open) throw refuse("called run() more than once");
+      if (attempt.done) throw refuse(AFTER_RETURN);
+      attempt.open = false;
+      attempt.failed = false;
+      // What the child throws, even at once, is its promise's rejection.
+      running = (async () => child(driver))();
+      // Attached first, so a handler's own `catch` already reads it.
+      running.then(undefined, () => {
+        attempt.failed = true;
+      });
+      return running;
     },
-    ...(context.kind === "model" && ownControls !== undefined
-      ? { controls: controlsOwnedBy(context.controls, ownControls) }
-      : {}),
-    proceed,
-    onWriteOutcome,
-  }) as QueryInterceptorContext<Result, Input>;
-}
-
-function startChild<Result>(child: () => Promise<Result>): Promise<Result> {
-  try {
-    return Promise.resolve(child());
-  } catch (reason) {
-    return Promise.reject(reason);
-  }
-}
-
-async function settle<Value>(promise: Promise<Value>): Promise<Settled<Value>> {
-  try {
-    return { status: "fulfilled", value: await promise };
-  } catch (reason) {
-    return { status: "rejected", reason };
-  }
-}
-
-function requiresProceed(context: PreparedQueryContext<object>): boolean {
-  return (
-    context.mode === "array" ||
-    context.kind !== "model" ||
-    !isReadOperation(context.operation)
+  };
+  const run = Object.defineProperties(
+    (): Promise<unknown> => {
+      if (!attempt.done) return attempt.start();
+      if (!replayable) throw refuse(AFTER_RETURN);
+      replayable = false;
+      return (async () => core())();
+    },
+    {
+      // Read when asked: the context snapshots the input the first time.
+      input: { get: () => prepared.input },
+      mode: { value: prepared.mode },
+      [CALL]: { value: prepared.kind === "model" ? prepared.call : undefined },
+      [ATTEMPT]: { value: attempt },
+    }
   );
+  let outcome: { readonly value: Result } | { readonly reason: unknown };
+  try {
+    outcome = {
+      // A second moment answers the call: `around`'s types hold its value
+      // to the call's result.
+      value: (await part.handler(prepared, run)) as Result,
+    };
+  } catch (reason) {
+    outcome = { reason };
+  }
+  attempt.done = true;
+  const failure =
+    "reason" in outcome &&
+    (protocolFailure === undefined || outcome.reason !== protocolFailure)
+      ? aroundFailure(
+          extension,
+          prepared,
+          outcome.reason,
+          readCommitCertainty?.()
+        )
+      : undefined;
+  if (running === undefined) {
+    if (failure !== undefined) throw failure;
+    if (
+      prepared.mode === "array" ||
+      prepared.kind !== "model" ||
+      !isReadOperation(prepared.operation)
+    )
+      throw aroundError(extension, prepared, "returned without run()");
+  } else {
+    if (failure !== undefined && !attempt.failed)
+      reportAdmissionFailure?.(failure);
+    await running;
+  }
+  if ("value" in outcome && protocolFailure === undefined) return outcome.value;
+  throw protocolFailure ?? failure;
 }
 
-function interceptorFailure<Input extends object>(
+function aroundFailure<Input extends object>(
   extension: string,
   context: PreparedQueryContext<Input>,
   reason: unknown,
   commitCertainty?: WriteOutcome["certainty"]
 ): Error {
   if (isError(reason)) return reason;
-  return interceptorError(
+  return aroundError(
     extension,
     context,
     "failed",
-    new Error("Query interceptor rejected with a non-Error value"),
+    errorCause(reason),
     commitCertainty
   );
 }
 
-function interceptorError<Input extends object>(
+function aroundError<Input extends object>(
   extension: string,
   context: PreparedQueryContext<Input>,
   failure: string,
   cause?: Error,
   commitCertainty?: WriteOutcome["certainty"]
 ): QueryError {
-  const message = `Extension "${extension}" query handler for ${describeOperation(context)} ${failure}.`;
-  const meta = {
-    method: "query",
-    model: context.model,
-    operation: String(context.operation),
-    ...(commitCertainty === undefined ? {} : { commitCertainty }),
-  };
-  return cause
-    ? new QueryError(message, { cause, meta })
-    : new QueryError(message, { meta });
-}
-
-function describeOperation(context: PreparedQueryContext<object>): string {
-  return context.kind === "model"
-    ? `${context.model}.${context.operation}`
-    : context.operation;
-}
-
-function throwExtensionFailures(
-  failures: NonNullable<ExtensionFailures>
-): never {
-  const primary = failures[0];
-  if (failures.length === 1) throw primary;
-  throw new AggregateError(
-    failures,
-    "Query interceptor protocol and handler both failed.",
-    { cause: primary }
+  return new QueryError(
+    `Extension "${extension}" around() for ${context.kind === "model" ? `${context.model}.${context.operation}` : context.operation} ${failure}.`,
+    {
+      ...(cause && { cause }),
+      meta: {
+        method: "around",
+        model: context.model,
+        operation: context.operation,
+        ...(commitCertainty === undefined ? {} : { commitCertainty }),
+      },
+    }
   );
 }
 
-function retainSuppressedFailures(
-  childFailure: unknown,
-  extensionFailures: NonNullable<ExtensionFailures>
-): AggregateError {
-  const failure = new AggregateError(
-    [childFailure, ...extensionFailures],
-    "Query execution and extension post-work both failed.",
-    { cause: childFailure }
-  );
-  queryCoordinationFailures.set(failure, childFailure);
-  return failure;
-}
-
-/** Decompose only this runner's own child-plus-post-work coordination error. */
-export function decomposeQueryCoordinationFailure(failure: unknown):
-  | Readonly<{
-      child: unknown;
-      postWork: readonly unknown[];
-    }>
-  | undefined {
-  if (!(failure instanceof AggregateError)) return undefined;
-  if (!queryCoordinationFailures.has(failure)) return undefined;
-  const child = queryCoordinationFailures.get(failure);
-  if (failure.cause !== child || failure.errors[0] !== child) {
-    return undefined;
-  }
-  return Object.freeze({
-    child,
-    postWork: Object.freeze(failure.errors.slice(1)),
-  });
-}
-
-type StagedWriteOutcome = {
-  readonly registration: WriteOutcomeRegistration;
-  state: "pending" | "confirmed" | "discarded";
-};
-
-/** Transaction-local staging for extension write-outcome registrations. */
+/**
+ * The collector of one transaction scope: the registrations its calls
+ * staged, each told at the scope's end if its call reached its outcome.
+ */
 export class TransactionWriteOutcomes {
-  readonly #staged: StagedWriteOutcome[] = [];
+  readonly staged: WriteOutcomeRegistration[] = [];
 
-  stage(registration: WriteOutcomeRegistration): void {
-    for (const staged of this.#staged) {
-      if (staged.registration === registration) return;
+  /** Tell what reached its outcome; a native batch's scope ends so. */
+  publish(certainty: Certainty): Promise<void> {
+    return publishWriteOutcomes(
+      this.staged.filter((registration) => registration.ok),
+      { certainty }
+    );
+  }
+
+  /**
+   * End the scope this collects for, with what its transaction settled
+   * with. A savepoint that commits hands what it collected to its parent's
+   * collector, which owns the decision; the outermost publishes it after
+   * its commit, or, when its commit failed after COMMIT was sent, with the
+   * certainty reached, which the failure then carries.
+   */
+  async end<T>(
+    { parent, root }: TransactionScope,
+    settled: T,
+    failed?: true
+  ): Promise<T> {
+    if (!failed) {
+      if (parent)
+        collect(parent).staged.push(
+          ...this.staged.filter((registration) => registration.ok)
+        );
+      else await this.publish("committed");
+      return settled;
     }
-    this.#staged.push({ registration, state: "pending" });
-  }
-
-  confirm(registrations: readonly WriteOutcomeRegistration[]): void {
-    this.#setState(registrations, "confirmed");
-  }
-
-  discard(registrations: readonly WriteOutcomeRegistration[]): void {
-    this.#setState(registrations, "discarded");
-  }
-
-  discardAll(): void {
-    for (const staged of this.#staged) staged.state = "discarded";
-  }
-
-  promoteTo(parent: TransactionWriteOutcomes): void {
-    for (const staged of this.#staged) {
-      if (staged.state === "confirmed") {
-        parent.#staged.push({ ...staged });
-      }
-      staged.state = "discarded";
+    const { certainty } = root;
+    if (parent || certainty === undefined) throw settled;
+    const primary = isVibORMError(settled)
+      ? attachCommitCertainty(settled, certainty)
+      : settled;
+    try {
+      await this.publish(certainty);
+    } catch (outcomeFailure) {
+      throw retainWriteOutcomeFailure(primary, outcomeFailure);
     }
-  }
-
-  publishCommitted(): Promise<void> {
-    return this.publish("committed");
-  }
-
-  async publish(certainty: WriteOutcome["certainty"]): Promise<void> {
-    const registrations: WriteOutcomeRegistration[] = [];
-    for (const staged of this.#staged) {
-      if (staged.state === "confirmed") {
-        registrations.push(staged.registration);
-      }
-      staged.state = "discarded";
-    }
-    await publishWriteOutcomes(registrations, { certainty });
-  }
-
-  #setState(
-    registrations: readonly WriteOutcomeRegistration[],
-    state: "confirmed" | "discarded"
-  ): void {
-    for (const staged of this.#staged) {
-      if (
-        staged.state === "pending" &&
-        registrations.includes(staged.registration)
-      ) {
-        staged.state = state;
-      }
-    }
+    throw primary;
   }
 }
 
-/** Deliver every registered listener in registration order. */
+/**
+ * One transaction scope, as `transact` (`coordination.ts`) runs it: what its
+ * calls register waits in it until it ends. The scope holds no code: the
+ * first registration installs the collector (`collect`), which brings the
+ * code that ends the scope, so a transaction where nothing registers runs
+ * none of it.
+ */
+export interface TransactionScope {
+  /** The scope this one is a savepoint of. */
+  readonly parent: TransactionScope | undefined;
+  /** The outermost scope's commit phase, as its driver reports it. */
+  readonly root: CommitPhase;
+  outcomes?: TransactionWriteOutcomes;
+}
+
+/** How far a transaction's commit went; nothing before COMMIT was sent. */
+export interface CommitPhase {
+  certainty?: Certainty;
+}
+
+/** The collector of a transaction scope, installed by its first registration. */
+export function collect(scope: TransactionScope): TransactionWriteOutcomes {
+  scope.outcomes ??= new TransactionWriteOutcomes();
+  return scope.outcomes;
+}
+
+/**
+ * What tells one call's registrations of the commits it reaches: inside a
+ * transaction, each is staged in the scope and marked once the call reached
+ * its outcome, told when the scope ends; outside one, each commit is told.
+ */
+export function tell(
+  registrations: readonly WriteOutcomeRegistration[],
+  scope: TransactionScope | undefined
+): (certainty: Certainty) => Promise<void> {
+  if (scope === undefined)
+    return (certainty) => publishWriteOutcomes(registrations, { certainty });
+  for (const registration of registrations)
+    (registration.collect?.(scope) ?? scope.outcomes)?.staged.push(
+      registration
+    );
+  return async () => {
+    for (const registration of registrations) registration.ok = true;
+  };
+}
+
+/**
+ * Deliver every registered listener in registration order, all of them. The
+ * first fault rejects: an error of viborm's own as it is, any other value as
+ * the cause of a `QueryError`; later faults are lost.
+ */
 export async function publishWriteOutcomes(
   registrations: readonly WriteOutcomeRegistration[],
   outcome: WriteOutcome
 ): Promise<void> {
-  let failures: Error[] | undefined;
-  for (const registration of registrations) {
+  let first: unknown;
+  for (const { extension, listener } of registrations) {
     try {
-      await registration.listener(outcome);
+      await listener(outcome);
     } catch (reason) {
-      const cause = isError(reason) ? reason : undefined;
-      const failure =
-        registration.failurePolicy === "boundary-owned" && cause !== undefined
-          ? cause
+      first ??=
+        reason instanceof VibORMError
+          ? reason
           : new QueryError(
-              `Extension "${registration.extension}" write-outcome listener failed after ${outcome.certainty}.`,
+              `Extension "${extension}" settled() failed (${outcome.certainty}).`,
               {
-                cause:
-                  cause ??
-                  new Error(
-                    "Write-outcome listener rejected with a non-Error value"
-                  ),
+                cause: errorCause(reason),
                 meta: {
-                  method: "onWriteOutcome",
+                  method: "settled",
                   commitCertainty: outcome.certainty,
                 },
               }
             );
-      (failures ??= []).push(failure);
     }
   }
-  if (failures === undefined) return;
-  const [primary] = failures;
-  if (failures.length === 1) throw primary;
-  const aggregate = new AggregateError(
-    failures,
-    "Multiple extension write-outcome listeners failed.",
-    { cause: primary }
-  );
-  publicationFailures.set(aggregate, failures);
-  throw aggregate;
+  if (first) throw first;
 }
-
-/** Decompose only the aggregate created by this publication owner. */
-export function decomposeWriteOutcomePublicationFailure(
-  failure: unknown
-): readonly unknown[] {
-  if (!(failure instanceof AggregateError)) return [failure];
-  return publicationFailures.get(failure) ?? [failure];
-}
-
-import type { VibORMConfig } from "@client/client";
-import type {
-  ClientRowsContext,
-  ContextualOperationResult,
-  OperationPayload,
-  Operations,
-} from "@client/types";

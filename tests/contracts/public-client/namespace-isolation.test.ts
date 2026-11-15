@@ -15,7 +15,7 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
-import { defineExtension } from "@extensions";
+import { extension, statement, unit } from "@extensions";
 import { s } from "@schema";
 import type { Sql } from "@sql";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
@@ -330,13 +330,19 @@ describe("a native atomic batch keeps the adapter's target", () => {
 
 describe("statement transforms observe already-qualified SQL", () => {
   const capture = (statements: Sql[]) =>
-    defineExtension<typeof isolationSchema>()({
-      name: "namespace-observer",
-      statement(context) {
-        statements.push(context.statement);
-        return context.statement;
-      },
-    });
+    extension(
+      "namespace-observer",
+      unit(
+        (u, next) => {
+          // A statement unit always holds its statement.
+          const sent = statement(u);
+          if (sent !== undefined) statements.push(sent);
+          return next();
+        },
+        ["statement"],
+        { rewrites: true }
+      )
+    );
 
   test("the transform sees the qualified statement exactly once", async () => {
     const statements: Sql[] = [];

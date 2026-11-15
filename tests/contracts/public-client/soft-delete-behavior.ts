@@ -134,7 +134,7 @@ export async function openSoftDeleteClients(
   partialUnique = true
 ) {
   const base = await openSoftDeleteFixture(driver, partialUnique);
-  return { base, db: softDelete(USE_CONFIG)(base) };
+  return { base, db: base.$extends(softDelete(USE_CONFIG)) };
 }
 
 export interface SoftDeleteProvider {
@@ -438,7 +438,7 @@ export function runSoftDeleteBehavior(provider: SoftDeleteProvider): void {
 
     test("defaultOmit after soft delete: reads, restore and purge omit what it omits", async () => {
       const omitted = db.$extends(
-        defaultOmit<ReturnType<typeof softDeleteSchema>>()({
+        defaultOmit({
           post: { slug: true },
         })
       );
@@ -544,8 +544,8 @@ export function runSoftDeleteBehavior(provider: SoftDeleteProvider): void {
     test("the cache is keyed per mode and invalidated by a soft delete, in both extension orders", async () => {
       const official = () => cache({ driver: new MemoryCache(), version: "v" });
       for (const cached of [
-        softDelete(USE_CONFIG)(base.$extends(official())),
-        softDelete(USE_CONFIG)(base).$extends(official()),
+        base.$extends(official()).$extends(softDelete(USE_CONFIG)),
+        base.$extends(softDelete(USE_CONFIG)).$extends(official()),
       ]) {
         const reader = cached.$withCache({ ttl: 60_000 });
         const live = () =>
@@ -585,15 +585,15 @@ export function runSoftDeleteBehavior(provider: SoftDeleteProvider): void {
 
     test("the actor is bound per derived client", async () => {
       // `actor`, its name before 1.9.1, still works.
-      const other = softDelete({ models: USE_CONFIG.models, actor: "admin-2" })(
-        base
+      const other = base.$extends(
+        softDelete({ models: USE_CONFIG.models, actor: "admin-2" })
       );
       await db.post.delete({ where: { id: "p1" } });
       await other.post.delete({ where: { id: "p2" } });
       expect(await physical("p1")).toMatchObject({ deletedById: ACTOR });
       expect(await physical("p2")).toMatchObject({ deletedById: "admin-2" });
       expect(() =>
-        softDelete({ ...USE_CONFIG, actor: "admin-2" })(base)
+        base.$extends(softDelete({ ...USE_CONFIG, actor: "admin-2" }))
       ).toThrow("not both actorId and actor");
     });
   });

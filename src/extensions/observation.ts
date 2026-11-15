@@ -1,501 +1,412 @@
-import { sanitizeErrorForLogging } from "@errors";
-import { isFunction } from "@validation/value-guards";
-import { isError } from "../errors/diagnostic-safety";
-import type { ResolvedExtensionChain, ResolvedExtensionHandler } from "./chain";
-import type {
-  OfficialLifecycleCompletionFacts,
-  OfficialLifecycleFacts,
-  OfficialLifecycleFactsReader,
-  OfficialObservationCapability,
-} from "./official-facts";
-
-/** The exact public facts carried by each protected lifecycle boundary. */
-export type LifecycleUnit =
-  | Readonly<{
-      kind: "operation";
-      operation: string;
-      model?: string;
-    }>
-  | Readonly<{
-      kind: "statement";
-      operation?: string;
-      model?: string;
-    }>
-  | Readonly<{
-      kind: "batch";
-      operation: string;
-    }>
-  | Readonly<{
-      kind: "transaction";
-      operation?: string;
-    }>
-  | Readonly<{
-      kind: "savepoint";
-      operation?: string;
-    }>
-  | Readonly<{
-      kind: "connection";
-      operation?: string;
-    }>
-  | Readonly<{
-      kind: "cache";
-      operation: "get" | "set" | "revalidate" | "invalidate";
-    }>;
-
-export type LifecycleUnitKind = LifecycleUnit["kind"];
-
-export type CommitCertainty = "committed" | "may-have-committed";
-
-export interface ObservationErrorSummary {
-  readonly name: string;
-  readonly message: string;
-  readonly code?: string;
-}
-
-export interface ObservationCompletion {
-  readonly status: "success" | "failure";
-  readonly durationMs: number;
-  readonly error?: ObservationErrorSummary;
-  readonly commitCertainty?: CommitCertainty;
-}
-
-export interface ObservationCompletionFacts {
-  readonly commitCertainty?: CommitCertainty;
-}
-
-export type ObservationCompletionFactsReader = () =>
-  | ObservationCompletionFacts
-  | undefined;
-
-export type ObservationUnit = LifecycleUnit;
+/**
+ * The one generation of unit handlers: what runs a unit under a chain's
+ * `unit` parts, and `work`, by which an extension emits a unit of its own.
+ */
+import {
+  getExecutionExtensionChain,
+  isRecoverableExecution,
+  trustedExecutionContext,
+} from "@drivers/execution-context";
+import { QueryError } from "@errors";
+import { createOperationExecutionContext } from "@query-engine/execution-context";
+import { Sql } from "@sql";
+import type { ExtensionPart } from "./chain";
+import { coordinate, UNITS } from "./coordination";
+import { scopeOf } from "./origin";
+import { collect } from "./query";
+import {
+  originOf,
+  type TransactionStatementRunner,
+  type Unit,
+  type UnitEnd,
+  type UnitHandler,
+  type UnitKind,
+  type UnitSource,
+  unitOf,
+} from "./unit-source";
 
 /**
- * What the observer of a definition that declares `observes` reads of the
- * unit it is called for: the facts core produced for what it said it wants,
- * and, once the unit settled, the facts of its completion.
+ * What a unit runs at its core, once every handler called `next()`: given
+ * the statement a logical statement's rewriting units handed on.
  */
-export interface ObservedFacts {
-  read(): OfficialLifecycleFacts | undefined;
-  completion(): OfficialLifecycleCompletionFacts | undefined;
+export type Child<Result> = (statement?: Sql) => Promise<Result>;
+
+/** One `unit` part of a chain: its extension, its handler, its kinds. */
+interface UnitLayer {
+  readonly extension: string;
+  readonly handler: UnitHandler;
+  /** The kinds it runs around; every kind when absent. */
+  readonly kinds?: readonly UnitKind[] | undefined;
 }
 
-export type ObserveHandler = (
-  unit: ObservationUnit,
-  proceed: () => Promise<ObservationCompletion>,
-  /** Present only where the definition declares `observes`. */
-  facts?: ObservedFacts
-) => unknown;
-
-type TrustedProtectedObserver = (
-  unit: LifecycleUnit,
-  proceed: () => Promise<ObservationCompletion>
-) => unknown;
-
-interface TrustedProtectedObserverRegistration {
-  readonly capability: OfficialObservationCapability;
-  readonly observer: TrustedProtectedObserver;
-}
-
-interface ProtectedLifecycleFactsState {
-  readonly facts: OfficialLifecycleFacts;
-  completion?: OfficialLifecycleCompletionFacts;
-}
-
-const trustedObservers = new WeakMap<
-  CallableFunction,
-  TrustedProtectedObserverRegistration
->();
-const lifecycleFacts = new WeakMap<
-  LifecycleUnit,
-  ProtectedLifecycleFactsState
->();
-const officialCapabilitiesByChain = new WeakMap<
-  ResolvedExtensionChain,
-  OfficialObservationCapability
->();
-const settleObserverReturn = (): undefined => undefined;
-
-/** The one official capability registered for this exact chain, if any. */
-export function getOfficialInstrumentationChainCapability(
-  chain: ResolvedExtensionChain | undefined
-): OfficialObservationCapability | undefined {
-  return chain === undefined
-    ? undefined
-    : officialCapabilitiesByChain.get(chain);
-}
-
-/** Bind the admitted official capability to one exact resolved chain. */
-export function registerOfficialInstrumentationChain(
-  chain: ResolvedExtensionChain,
-  capability: OfficialObservationCapability
-): void {
-  officialCapabilitiesByChain.set(chain, capability);
-}
-
-/** One observer that is handed facts, and what core asks of its declaration. */
-export function registerTrustedProtectedObserver(
-  handler: CallableFunction,
-  capability: OfficialObservationCapability,
-  observer: TrustedProtectedObserver
-): void {
-  trustedObservers.set(handler, { capability, observer });
-}
+const nothing = (): undefined => undefined;
 
 /**
- * The observer of a definition that declares `observes`: it is handed the
- * facts of each unit, and core asks its declaration what to produce.
+ * Runs one unit under `handlers`, the first one outermost. Each handler is a
+ * plain wrapper: the next one, and at the end the child, starts only when it
+ * calls `next()`, and the host waits for the promise it returns. The child's
+ * failure fails the unit; once the child succeeded, what a handler throws
+ * does. `next()` is called once: never calling it, or calling it again,
+ * fails the unit. The host contains nothing a handler does.
  */
-export function registerFactsObserver(
-  handler: ObserveHandler,
-  capability: OfficialObservationCapability
-): void {
-  registerTrustedProtectedObserver(handler, capability, (unit, proceed) =>
-    handler(unit, proceed, {
-      read: () => readProtectedLifecycleFacts(unit),
-      completion: () => readProtectedLifecycleCompletionFacts(unit),
-    })
-  );
-}
-
-/** Read facts only for the exact frozen unit created by this runner. */
-export function readProtectedLifecycleFacts(
-  unit: LifecycleUnit
-): OfficialLifecycleFacts | undefined {
-  return lifecycleFacts.get(unit)?.facts;
-}
-
-/** Read completion facts projected by core after the child settled. */
-export function readProtectedLifecycleCompletionFacts(
-  unit: LifecycleUnit
-): OfficialLifecycleCompletionFacts | undefined {
-  return lifecycleFacts.get(unit)?.completion;
-}
-
-/** Recognize the exact package-owned handler identity and nothing else. */
-export function getTrustedProtectedObserverCapability(
-  handler: unknown
-): OfficialObservationCapability | undefined {
-  return isFunction(handler)
-    ? trustedObservers.get(handler)?.capability
-    : undefined;
-}
-
-/**
- * The exact chain's one trusted observer, alone, or `undefined`. Dispatch
- * through it reaches no ordinary observer: cache backend delete/clear, which
- * have no public unit, run through the one runner this way.
- */
-export function selectTrustedObservers(
-  observers: readonly ResolvedExtensionHandler[] | undefined
-): readonly ResolvedExtensionHandler[] | undefined {
-  const trusted = observers?.find(({ handler }) =>
-    trustedObservers.has(handler)
-  );
-  return trusted === undefined ? undefined : [trusted];
-}
-
-/** Resolve the one trusted readiness once before a coordinated array starts. */
-export function prewarmProtectedObservers(
-  observers: readonly ResolvedExtensionHandler[] | undefined
-): void | Promise<void> {
-  if (observers === undefined || observers.length === 0) return;
-  for (const observer of observers) {
-    const registration = trustedObservers.get(observer.handler);
-    if (registration === undefined) continue;
-    const readiness = prewarmTrustedObserver(registration.capability);
-    if (readiness !== undefined) return readiness;
-  }
-}
-
-/**
- * Runs completion-only observers without giving their onion authority over the
- * application promise.
- */
-export function runProtectedObservers<Result>(
-  unit: LifecycleUnit,
-  observers: readonly ResolvedExtensionHandler[] | undefined,
-  child: () => Promise<Result>,
-  readCompletionFacts?: ObservationCompletionFactsReader,
-  readInstrumentationFacts?: OfficialLifecycleFactsReader
+export function runUnit<Result>(
+  handlers: readonly UnitLayer[],
+  source: UnitSource,
+  child: Child<Result>,
+  reached?: () => void
 ): Promise<Result> {
-  if (observers === undefined || observers.length === 0) return child();
-
-  const startedAt = Date.now();
-  const immutableUnit = freezeLifecycleUnit(unit);
-  let trustedIndex = -1;
-  let trustedRegistration: TrustedProtectedObserverRegistration | undefined;
-  for (const [index, observer] of observers.entries()) {
-    const registration = trustedObservers.get(observer.handler);
-    if (registration !== undefined) {
-      trustedIndex = index;
-      trustedRegistration = registration;
-      break;
-    }
-  }
-  let resolveCompletion:
-    | ((completion: ObservationCompletion) => void)
-    | undefined;
-  let completionPromise: Promise<ObservationCompletion> | undefined;
-  let resolveOuterCompletion:
-    | ((completion: ObservationCompletion) => void)
-    | undefined;
-  const outerCompletionPromise =
-    trustedRegistration === undefined
-      ? undefined
-      : new Promise<ObservationCompletion>((resolve) => {
-          resolveOuterCompletion = resolve;
-        });
-  let settledCompletion: ObservationCompletion | undefined;
-  let trustedSetupSettled = trustedRegistration === undefined;
-  let applicationPromise: Promise<Result> | undefined;
-  let observesApplicationCompletion = false;
-
-  const resolveOuterWhenReady = (): void => {
-    if (trustedSetupSettled && settledCompletion !== undefined) {
-      resolveOuterCompletion?.(settledCompletion);
-    }
+  const unit = unitOf(source);
+  let core: Promise<Result> | undefined;
+  const startCore = (): Promise<Result> => {
+    core ??= attempt(() => child(source.statement));
+    return core;
   };
-
-  const settleCompletion = (
-    status: ObservationCompletion["status"],
-    failure?: unknown
-  ): void => {
-    const durationMs = Math.max(0, Date.now() - startedAt);
-    let commitCertainty: CommitCertainty | undefined;
-    try {
-      commitCertainty = readCompletionFacts?.()?.commitCertainty;
-    } catch {
-      commitCertainty = undefined;
+  const transaction =
+    source.kind === "transaction"
+      ? openTransaction(source, startCore)
+      : undefined;
+  const enter = (index: number): Promise<Result> => {
+    const resolved = handlers[index];
+    // A layer that names other kinds is not around this unit at all.
+    if (resolved?.kinds?.includes(source.kind) === false)
+      return enter(index + 1);
+    if (resolved === undefined) {
+      reached?.();
+      transaction?.enter();
+      return startCore();
     }
-    const completion = createCompletion(
-      status,
-      durationMs,
-      commitCertainty,
-      failure
-    );
-    settledCompletion = completion;
-    const factsState = lifecycleFacts.get(immutableUnit);
-    if (factsState !== undefined) {
-      try {
-        factsState.completion = factsState.facts.complete({
-          status,
-          durationMs,
-          ...(status === "failure" ? { failure } : {}),
-        });
-      } catch {
-        factsState.completion = undefined;
-      }
-    }
-    resolveCompletion?.(completion);
-    resolveOuterWhenReady();
+    return around(resolved, unit, source, () => enter(index + 1));
   };
-
-  const observeApplicationCompletion = (): void => {
-    if (
-      observesApplicationCompletion ||
-      completionPromise === undefined ||
-      applicationPromise === undefined
-    ) {
-      return;
-    }
-    observesApplicationCompletion = true;
-    applicationPromise.then(
-      () => settleCompletion("success"),
-      (failure: unknown) => settleCompletion("failure", failure)
-    );
-  };
-
-  const readCompletionPromise = (): Promise<ObservationCompletion> => {
-    if (completionPromise === undefined) {
-      completionPromise = new Promise<ObservationCompletion>((resolve) => {
-        resolveCompletion = resolve;
-      });
-    }
-    observeApplicationCompletion();
-    return completionPromise;
-  };
-
-  const startChild = (): Promise<Result> => {
-    let started: Promise<Result>;
-    try {
-      started = child();
-    } catch (failure) {
-      started = Promise.reject(failure);
-    }
-    applicationPromise = started;
-    observeApplicationCompletion();
-    return started;
-  };
-
-  const startObserver = (index: number): Promise<Result> => {
-    const observer = observers[index];
-    if (observer === undefined) return startChild();
-
-    const trustedObserver = trustedObservers.get(observer.handler);
-    if (trustedObserver !== undefined) {
-      if (readInstrumentationFacts !== undefined) {
-        try {
-          const facts = readInstrumentationFacts();
-          if (facts !== undefined) lifecycleFacts.set(immutableUnit, { facts });
-        } catch {
-          // Instrumentation fact production cannot stop the application.
-        }
-      }
-      // Promise executors run synchronously; TypeScript does not model that guarantee.
-      let resolveApplication!: (value: Result | PromiseLike<Result>) => void;
-      let rejectApplication!: (reason?: unknown) => void;
-      const applicationBridge = new Promise<Result>((resolve, reject) => {
-        resolveApplication = resolve;
-        rejectApplication = reject;
-      });
-      let proceeded = false;
-      const startNext = (): Promise<ObservationCompletion> => {
-        if (!proceeded) {
-          proceeded = true;
-          startObserver(index + 1).then(
-            (value) => resolveApplication(value),
-            (failure: unknown) => rejectApplication(failure)
-          );
-        }
-        return readCompletionPromise();
-      };
-      let setup: unknown;
-      try {
-        setup = trustedObserver.observer(immutableUnit, startNext);
-      } catch {
-        startNext();
-        trustedSetupSettled = true;
-        resolveOuterWhenReady();
-        return applicationBridge;
-      }
-      Promise.resolve(setup).then(
-        () => {
-          if (!proceeded) startNext();
-          trustedSetupSettled = true;
-          resolveOuterWhenReady();
-        },
-        () => {
-          if (!proceeded) startNext();
-          trustedSetupSettled = true;
-          resolveOuterWhenReady();
-        }
-      );
-      return applicationBridge;
-    }
-
-    let nextApplicationPromise: Promise<Result> | undefined;
-    const startNextApplication = (): Promise<Result> => {
-      if (nextApplicationPromise === undefined) {
-        nextApplicationPromise = startObserver(index + 1);
-      }
-      return nextApplicationPromise;
-    };
-    const proceed = (): Promise<ObservationCompletion> => {
-      startNextApplication();
-      return outerCompletionPromise !== undefined && index < trustedIndex
-        ? outerCompletionPromise
-        : readCompletionPromise();
-    };
-
-    let returned: unknown;
-    try {
-      returned = Reflect.apply(observer.handler, undefined, [
-        immutableUnit,
-        proceed,
-      ]);
-    } catch {
-      returned = undefined;
-    }
-    const nextApplication = startNextApplication();
-    consumeObserverReturn(returned);
-    return nextApplication;
-  };
-
-  const readiness =
-    readInstrumentationFacts === undefined || trustedRegistration === undefined
-      ? undefined
-      : prewarmTrustedObserver(trustedRegistration.capability);
-  if (readiness === undefined) return startObserver(0);
-
-  // Promise executors run synchronously; TypeScript does not model that guarantee.
-  let resolveApplication!: (value: Result | PromiseLike<Result>) => void;
-  let rejectApplication!: (reason?: unknown) => void;
-  const applicationBridge = new Promise<Result>((resolve, reject) => {
-    resolveApplication = resolve;
-    rejectApplication = reject;
-  });
-  const startAfterPrewarm = (): void => {
-    startObserver(0).then(
-      (value) => resolveApplication(value),
-      (failure: unknown) => rejectApplication(failure)
-    );
-  };
-  readiness.then(startAfterPrewarm);
-  return applicationBridge;
+  const result = enter(0);
+  return transaction === undefined ? result : result.catch(transaction.fail);
 }
 
-function prewarmTrustedObserver(
-  capability: OfficialObservationCapability
-): void | Promise<void> {
-  const prewarm = capability.prewarm;
-  if (prewarm === undefined) return;
-  let readiness: void | Promise<void>;
+function attempt<Result>(child: () => Promise<Result>): Promise<Result> {
   try {
-    readiness = prewarm();
-  } catch {
-    return;
+    return child();
+  } catch (failure) {
+    return Promise.reject(failure);
   }
-  if (readiness === undefined) return;
-  return Promise.resolve(readiness).then(
-    () => undefined,
-    () => undefined
+}
+
+/** One handler around the rest of the unit. */
+async function around<Result>(
+  resolved: UnitLayer,
+  unit: Unit,
+  source: UnitSource,
+  rest: () => Promise<Result>
+): Promise<Result> {
+  let started: Promise<Result> | undefined;
+  let misuse: QueryError | undefined;
+  // `next(sql)` hands on another statement to a logical statement's rest.
+  const next = (statement?: Sql): Promise<UnitEnd> => {
+    if (started !== undefined) {
+      misuse ??= unitError(resolved, unit, "called next() more than once");
+      return Promise.reject(misuse);
+    }
+    const at = Date.now();
+    const handed = statement !== undefined && source.statement !== undefined;
+    // The statement is rendered after every rewrite: refused here, it is
+    // refused in the extension's name, not as the renderer's TypeError.
+    if (handed && !(statement instanceof Sql))
+      started = Promise.reject(
+        unitError(resolved, unit, "handed next() something not a statement")
+      );
+    else {
+      if (handed) source.statement = statement;
+      started = rest();
+    }
+    return started.then(
+      () => settle(source, at, false, undefined),
+      (failure: unknown) => settle(source, at, true, failure)
+    );
+  };
+  let handlerFailure: { readonly failure: unknown } | undefined;
+  try {
+    await resolved.handler(unit, next);
+  } catch (failure) {
+    handlerFailure = { failure };
+  }
+  if (started === undefined)
+    throw (
+      handlerFailure?.failure ??
+      unitError(resolved, unit, "settled without calling next()")
+    );
+  const value = await started;
+  if (handlerFailure !== undefined) throw handlerFailure.failure;
+  if (misuse !== undefined) throw misuse;
+  return value;
+}
+
+function settle(
+  source: UnitSource,
+  at: number,
+  failed: boolean,
+  failure: unknown
+): UnitEnd {
+  source.failed = failed;
+  source.failure = failure;
+  source.settledAt ??= Date.now();
+  const certainty = source.certainty?.();
+  return {
+    status: failed ? "failure" : "success",
+    duration: Math.max(0, source.settledAt - at),
+    ...(certainty === undefined ? {} : { certainty }),
+    ...(failed && isRecoverableExecution(source.context)
+      ? { recovered: true as const }
+      : {}),
+  };
+}
+
+function unitError(
+  resolved: UnitLayer,
+  unit: Unit,
+  failure: string
+): QueryError {
+  return new QueryError(
+    `Extension "${resolved.extension}" unit() for ${unit.kind} ${failure}.`,
+    { meta: { method: "unit", operation: unit.operation, model: unit.model } }
   );
 }
 
-function freezeLifecycleUnit(unit: LifecycleUnit): LifecycleUnit {
-  return Object.freeze(unit);
-}
-
-function consumeObserverReturn(returned: unknown): void {
-  if (
-    returned === null ||
-    (typeof returned !== "object" && typeof returned !== "function")
-  ) {
-    return;
-  }
-  try {
-    const then = Reflect.get(returned, "then");
-    if (!isFunction(then)) return;
-    Reflect.apply(then, returned, [settleObserverReturn, settleObserverReturn]);
-  } catch {
-    // Observer returns cannot affect the application.
-  }
-}
-
-function createCompletion(
-  status: ObservationCompletion["status"],
-  durationMs: number,
-  commitCertainty: CommitCertainty | undefined,
-  failure: unknown
-): ObservationCompletion {
-  const error = status === "failure" ? summarizeFailure(failure) : undefined;
-  return Object.freeze({
-    status,
-    durationMs,
-    ...(error === undefined ? {} : { error }),
-    ...(commitCertainty === undefined ? {} : { commitCertainty }),
+/**
+ * A transaction unit's `run(unit, sql)`: it opens the transaction if no
+ * `next()` has yet, and runs the statement there before the body. The body
+ * then waits for the innermost `next()`; a unit that fails before it rolls
+ * back the transaction `run` opened (`fail`).
+ */
+function openTransaction<Result>(
+  source: UnitSource,
+  startCore: () => Promise<Result>
+) {
+  let runner: TransactionStatementRunner | undefined;
+  let ready: (() => void) | undefined;
+  let refuse: ((failure: unknown) => void) | undefined;
+  let aborted: { readonly failure: unknown } | undefined;
+  let bodyEntered = false;
+  // The transaction `run` opened before the body was let run.
+  let opening: Promise<Result> | undefined;
+  let announce: ((run: TransactionStatementRunner) => void) | undefined;
+  const opened = new Promise<TransactionStatementRunner>((resolve) => {
+    announce = resolve;
   });
+  const openedWith = (run: TransactionStatementRunner) => {
+    runner = run;
+    announce?.(run);
+    if (aborted !== undefined) return Promise.reject(aborted.failure);
+    if (bodyEntered) return undefined;
+    return new Promise<void>((resolve, reject) => {
+      ready = resolve;
+      refuse = reject;
+    });
+  };
+  // Named first, then stored: a function literal assigned to a property is
+  // allocated outside the young generation and keeps the unit alive.
+  source.opened = openedWith;
+  const runIn = (statement: Sql) => {
+    if (runner !== undefined) return runner(statement);
+    opening ??= startCore();
+    return Promise.race([
+      opened,
+      opening.then(() => {
+        throw new QueryError("run() was called on a transaction that ended.");
+      }),
+    ]).then((run) => run(statement));
+  };
+  source.run = runIn;
+  return {
+    enter: () => {
+      bodyEntered = true;
+      ready?.();
+    },
+    fail: (failure: unknown): Promise<never> => {
+      // Thrown, not returned rejected: workerd reports a rejection that the
+      // promise taking it holds only a microtask later.
+      if (opening === undefined || bodyEntered) throw failure;
+      aborted = { failure };
+      refuse?.(failure);
+      return opening.catch(nothing).then(() => {
+        throw failure;
+      });
+    },
+  };
 }
 
-function summarizeFailure(failure: unknown): ObservationErrorSummary {
-  const normalized = isError(failure)
-    ? failure
-    : new Error("Application rejected with a non-Error value");
-  const sanitized = sanitizeErrorForLogging(normalized);
-  const code = Object.getOwnPropertyDescriptor(sanitized, "code")?.value;
-  return Object.freeze({
-    name: sanitized.name,
-    message: sanitized.message,
-    ...(typeof code === "string" ? { code } : {}),
-  });
+/** What runs a unit under a chain's handlers. */
+export interface Observation {
+  readonly handlers: readonly UnitLayer[];
+  readonly run: <Result>(
+    source: UnitSource,
+    child: Child<Result>
+  ) => Promise<Result>;
+  /**
+   * The members of `$transaction([...])`, or of a batch of logical
+   * statements: every member's unit is entered (a member without one is
+   * skipped), and this resolves once each reached its child, with the units
+   * and what settles once every unit did (and fails as the first that
+   * failed). The array waits for it before it prepares any member: a handler
+   * that waits (for a tracer to load) does so before the array's work, and
+   * each member's work runs inside its unit.
+   */
+  readonly members: (
+    members: readonly (readonly [UnitSource, Child<unknown>] | undefined)[]
+  ) => Promise<{
+    readonly done: Promise<unknown>;
+    readonly units: readonly (
+      | { readonly done: Promise<unknown> }
+      | undefined
+    )[];
+  }>;
+  /**
+   * For a chain's rewriting units (`unit(fn, kinds, { rewrites: true })`):
+   * the members of one batch, each its own logical statement: every member
+   * is rewritten before `send` sends any (it receives each member's final
+   * statement, `undefined` for a member with no unit), and each member's
+   * unit then ends as the batch does. A member whose unit fails before its
+   * `next()` refuses the batch: `refuse(index, failure)` is thrown.
+   */
+  readonly together: <Result>(
+    sources: readonly (UnitSource | undefined)[],
+    send: (statements: readonly (Sql | undefined)[]) => Promise<Result>,
+    refuse: (index: number, failure: unknown) => unknown
+  ) => Promise<Result>;
+}
+
+export function observationOf(handlers: readonly UnitLayer[]): Observation {
+  const enter = <Result>(source: UnitSource, child: Child<Result>) => {
+    let reach: (() => void) | undefined;
+    const reached = new Promise<void>((resolve) => {
+      reach = resolve;
+    });
+    const done = runUnit(handlers, source, child, reach);
+    done.then(reach, reach);
+    return { done, reached };
+  };
+  const members: Observation["members"] = async (members) => {
+    const units = members.map((member) =>
+      member === undefined ? undefined : enter(member[0], member[1])
+    );
+    await Promise.all(units.map((unit) => unit?.reached));
+    const done = Promise.all(units.map((unit) => unit?.done));
+    done.catch(() => undefined);
+    return { done, units };
+  };
+  return {
+    handlers,
+    run: (source, child) => runUnit(handlers, source, child),
+    members,
+    together: async (sources, send, refuse) => {
+      const statements: (Sql | undefined)[] = [];
+      let settle!: (outcome: Promise<unknown>) => void;
+      const outcome = new Promise<unknown>((resolve) => {
+        settle = resolve;
+      });
+      const { done, units } = await members(
+        sources.map((source, index) =>
+          source === undefined
+            ? undefined
+            : [
+                source,
+                (statement) => {
+                  statements[index] = statement;
+                  return outcome;
+                },
+              ]
+        )
+      );
+      // A member's unit reached its child where the child kept its
+      // statement.
+      const refused = units.findIndex(
+        (unit, index) => unit !== undefined && !(index in statements)
+      );
+      if (refused >= 0) {
+        // An unreached unit's end is its failure.
+        const failure = await units[refused]?.done.catch(
+          (error: unknown) => error
+        );
+        settle(Promise.reject(failure));
+        await done.catch(() => undefined);
+        throw refuse(refused, failure);
+      }
+      const sent = send(statements);
+      settle(sent);
+      // The send's failure is the call's, through `sent`; the units that
+      // wait on `outcome` see it too, and where none started, nothing
+      // else does.
+      outcome.catch(() => undefined);
+      try {
+        const value = await sent;
+        await done;
+        return value;
+      } finally {
+        await done.catch(() => undefined);
+      }
+    },
+  };
+}
+
+/**
+ * The part one `unit(handler, kinds)` builds: it adds a layer to the
+ * chain's units, the first extension outermost. It brings nothing of the
+ * array barrier of `$transaction([...])`: the array starts every member's
+ * unit, and waits until each reached its child, before it prepares any
+ * member.
+ */
+export function unitLayerPart(
+  handler: UnitHandler,
+  kinds: readonly UnitKind[] | undefined
+): ExtensionPart {
+  return {
+    join({ next, owner }) {
+      next.observation = observationOf([
+        ...(next.observation?.handlers ?? []),
+        { extension: owner.name, handler, kinds },
+      ]);
+      coordinate(next, UNITS, collect);
+    },
+  };
+}
+
+/**
+ * Run `fn` as a unit of the extension's own (`kind` is any string), under
+ * every `unit` part of the chain `origin` belongs to: `origin` is a call's
+ * context or `run`, a unit a handler received, one `work` made, or a
+ * method's scope. Without a chain that observes units, `fn` runs alone.
+ * `fn` receives the unit, to `note` on it.
+ */
+export function work<Result>(
+  origin: object,
+  unit: {
+    readonly kind: UnitKind;
+    readonly operation: string;
+    readonly model?: string;
+    /** A first fact, noted before any handler sees the unit. */
+    readonly note?: unknown;
+  },
+  fn: (unit: Unit) => Promise<Result>
+): Promise<Result> {
+  const scope = scopeOf(origin);
+  const context =
+    originOf(origin)?.context ??
+    trustedExecutionContext(origin) ??
+    // A method works outside any call: its unit is an execution of its own,
+    // with its own correlation.
+    (scope &&
+      createOperationExecutionContext(
+        unit.model ?? scope.extension,
+        unit.operation,
+        scope.engine.extensionChain
+      ));
+  const observation = getExecutionExtensionChain(context)?.observation;
+  const source: UnitSource = {
+    kind: unit.kind,
+    operation: unit.operation,
+    model: unit.model,
+    context,
+    notes: unit.note === undefined ? [] : [unit.note],
+  };
+  // `fn` gets a unit of the same record: what it notes, handlers read.
+  return observation === undefined
+    ? fn(unitOf(source))
+    : observation.run(source, () => fn(unitOf(source)));
 }

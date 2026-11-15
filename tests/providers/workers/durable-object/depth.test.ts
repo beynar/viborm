@@ -1,10 +1,10 @@
 /**
  * workerd compiles SQLite with an expression depth of 100. A policy shaped
- * like a real page tree's (`depth-fixture.ts`) moves a page and asks `can`
- * for its four levels: with the driver's default adapter
+ * like a real page tree's (`depth-fixture.ts`) moves a page and reads its
+ * `$access` for its four levels: with the driver's default adapter
  * (`deepExpressions: false`) every statement fits. With deep expressions,
  * the move of the per-kind policy is past the limit ("Expression tree is too
- * large"); `can` for four levels fits either way on this workerd
+ * large"); `$access` for four levels fits either way on this workerd
  * (1.20261104, the test pool's, as on 1.20260310 where it was first measured;
  * viborm-evidence/flarion-2026-11).
  */
@@ -81,18 +81,21 @@ function governed(
   policy: Policy,
   client: Awaited<ReturnType<typeof workspace>>
 ) {
-  return policy(client).$as(owner);
+  return client.$extends(policy).$as(owner);
 }
 
 describe("Durable Object driver: expression depth", () => {
   test.each([
     ["per-kind", sketchPolicy],
     ["compact", compactPolicy],
-  ] as const)("the default adapter moves a page and asks can for four levels (%s policy)", async (_name, policy) => {
+  ] as const)("the default adapter moves a page and reads $access for four levels (%s policy)", async (_name, policy) => {
     await inObject(async (state) => {
       const bob = governed(policy, await workspace(state.storage, undefined));
       await expect(
-        bob.page.can([...LEVELS], { id: "P2" })
+        bob.page.findUnique({
+          where: { id: "P2" },
+          select: { $access: [...LEVELS] },
+        })
       ).resolves.toBeTruthy();
       await bob.page.update({ where: { id: "P2" }, data: { parentId: "R" } });
       expect(
@@ -112,7 +115,10 @@ describe("Durable Object driver: expression depth", () => {
         await workspace(recording(state.storage, refusals), deep)
       );
       await expect(
-        bob.page.can([...LEVELS], { id: "P2" })
+        bob.page.findUnique({
+          where: { id: "P2" },
+          select: { $access: [...LEVELS] },
+        })
       ).resolves.toBeTruthy();
       await expect(
         bob.page.update({ where: { id: "P2" }, data: { parentId: "R" } })

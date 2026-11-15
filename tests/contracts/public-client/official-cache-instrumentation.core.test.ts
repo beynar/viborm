@@ -1,5 +1,6 @@
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { CacheDriver, type CacheEntry } from "@cache/driver";
+import { staleWhileRevalidate } from "@cache/revalidate";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { Driver } from "@drivers";
 import {
@@ -15,7 +16,7 @@ import {
 } from "@instrumentation/spans";
 import { SpanStatusCode, trace } from "@opentelemetry/api";
 import { cache } from "@src/cache/exports";
-import { createClient, s } from "@src/index";
+import { createClient, extension, s, unit } from "@src/index";
 import { instrumentation } from "@src/instrumentation/exports";
 import { createTestClock } from "@tests/fixtures/test-clock";
 import {
@@ -233,7 +234,11 @@ describe("official cache instrumentation", () => {
       const client = trackClient(
         createClient({ schema, driver: new CacheInstrumentationDriver() })
           .$extends(
-            cache({ driver: cacheDriver, waitUntil: background.waitUntil })
+            cache({
+              swr: staleWhileRevalidate,
+              driver: cacheDriver,
+              waitUntil: background.waitUntil,
+            })
           )
           .$extends(
             instrumentation({
@@ -241,14 +246,16 @@ describe("official cache instrumentation", () => {
               tracing: true,
             })
           )
-          .$extends({
-            name: "cache-disclosure-observer",
-            observe(unit, proceed) {
-              if (unit.kind !== "cache") return;
-              publicUnits.push({ ...unit });
-              return proceed();
-            },
-          })
+          .$extends(
+            extension(
+              "cache-disclosure-observer",
+              unit((u, next) => {
+                if (u.kind !== "cache") return next();
+                publicUnits.push({ ...u });
+                return next();
+              })
+            )
+          )
       );
 
       await client.$withCache({ key: secretKey, ttl: 10 }).record.findMany();
@@ -315,6 +322,7 @@ describe("official cache instrumentation", () => {
         createClient({ schema, driver: databaseDriver })
           .$extends(
             cache({
+              swr: staleWhileRevalidate,
               driver: cacheDriver,
               waitUntil() {
                 scheduleCalls += 1;
@@ -359,6 +367,7 @@ describe("official cache instrumentation", () => {
       const databaseDriver = new CacheInstrumentationDriver();
       const background = createBackgroundQueue();
       const sharedCache = cache({
+        swr: staleWhileRevalidate,
         driver: cacheDriver,
         version: "shared-capability",
         waitUntil: background.waitUntil,
@@ -492,6 +501,7 @@ describe("official cache instrumentation", () => {
         createClient({ schema, driver: officialDriver })
           .$extends(
             cache({
+              swr: staleWhileRevalidate,
               driver: officialCache,
               version: "official-parity",
               waitUntil: officialBackground.waitUntil,
@@ -601,7 +611,11 @@ describe("official cache instrumentation", () => {
     const client = trackClient(
       createClient({ schema, driver: new CacheInstrumentationDriver() })
         .$extends(
-          cache({ driver: cacheDriver, waitUntil: background.waitUntil })
+          cache({
+            swr: staleWhileRevalidate,
+            driver: cacheDriver,
+            waitUntil: background.waitUntil,
+          })
         )
         .$extends(instrumentation({ logging: { cache: logs.callback } }))
     );
@@ -641,7 +655,11 @@ describe("official cache instrumentation", () => {
       const client = trackClient(
         createClient({ schema, driver: new CacheInstrumentationDriver() })
           .$extends(
-            cache({ driver: cacheDriver, waitUntil: background.waitUntil })
+            cache({
+              swr: staleWhileRevalidate,
+              driver: cacheDriver,
+              waitUntil: background.waitUntil,
+            })
           )
           .$extends(
             instrumentation({
@@ -682,7 +700,7 @@ describe("official cache instrumentation", () => {
     }
   });
 
-  test("keeps invalidation children nested and contains independent ordinary observers", async () => {
+  test("keeps invalidation children nested under ordinary observers on either side of instrumentation", async () => {
     const recorder = withOtelRecorder();
     try {
       const cacheDriver = new ObservableInstrumentationCache(createTestClock());
@@ -691,24 +709,36 @@ describe("official cache instrumentation", () => {
       const second: CacheObservation[] = [];
       const client = trackClient(
         createClient({ schema, driver: databaseDriver })
-          .$extends(cache({ driver: cacheDriver, version: "invalidate" }))
-          .$extends({
-            name: "cache-observer-before",
-            observe(unit, proceed) {
-              if (unit.kind !== "cache") return;
-              first.push({ operation: unit.operation, completion: proceed() });
-              throw new Error("contained observer failure");
-            },
-          })
+          .$extends(
+            cache({
+              swr: staleWhileRevalidate,
+              driver: cacheDriver,
+              version: "invalidate",
+            })
+          )
+          .$extends(
+            extension(
+              "cache-observer-before",
+              unit((u, next) => {
+                if (u.kind !== "cache") return next();
+                const completion = next();
+                first.push({ operation: u.operation, completion });
+                return completion;
+              })
+            )
+          )
           .$extends(instrumentation({ tracing: true }))
-          .$extends({
-            name: "cache-observer-after",
-            observe(unit, proceed) {
-              if (unit.kind !== "cache") return;
-              second.push({ operation: unit.operation, completion: proceed() });
-              return Promise.reject(new Error("contained observer rejection"));
-            },
-          })
+          .$extends(
+            extension(
+              "cache-observer-after",
+              unit((u, next) => {
+                if (u.kind !== "cache") return next();
+                const completion = next();
+                second.push({ operation: u.operation, completion });
+                return completion;
+              })
+            )
+          )
       );
 
       await expect(
@@ -725,14 +755,20 @@ describe("official cache instrumentation", () => {
         ...second.map(({ completion }) => completion),
       ]);
 
-      expect(first.map(({ operation }) => operation)).toEqual([
+      // The backend steps an invalidation runs are public cache units too,
+      // each nested in its invalidation (the spans below say where). Each
+      // observer records a unit once its `next()` returned, after the
+      // children it started: the set of units is what is compared.
+      const steps = [
+        "clear",
+        "clear",
+        "delete",
+        "delete",
         "invalidate",
         "invalidate",
-      ]);
-      expect(second.map(({ operation }) => operation)).toEqual([
-        "invalidate",
-        "invalidate",
-      ]);
+      ];
+      expect(first.map(({ operation }) => operation).sort()).toEqual(steps);
+      expect(second.map(({ operation }) => operation).sort()).toEqual(steps);
       const spans = recorder.spans();
       const invalidations = spans.filter(
         ({ name }) => name === SPAN_CACHE_INVALIDATE
@@ -772,6 +808,7 @@ describe("official cache instrumentation", () => {
         createClient({ schema, driver: databaseDriver })
           .$extends(
             cache({
+              swr: staleWhileRevalidate,
               driver: cacheDriver,
               version: "swr-instrumentation",
               waitUntil: background.waitUntil,
@@ -783,18 +820,20 @@ describe("official cache instrumentation", () => {
               tracing: true,
             })
           )
-          .$extends({
-            name: "swr-completion-observer",
-            observe(unit, proceed) {
-              if (unit.kind !== "cache" || unit.operation !== "revalidate") {
-                return;
-              }
-              revalidations.push({
-                operation: unit.operation,
-                completion: proceed(),
-              });
-            },
-          })
+          .$extends(
+            extension(
+              "swr-completion-observer",
+              unit((u, next) => {
+                if (u.kind !== "cache" || u.operation !== "revalidate") {
+                  return next();
+                }
+                revalidations.push({
+                  operation: u.operation,
+                  completion: next(),
+                });
+              })
+            )
+          )
       );
       const cached = client.$withCache({ ttl: 10, swr: 100 });
 
@@ -936,6 +975,7 @@ describe("official cache instrumentation", () => {
       base
         .$extends(
           cache({
+            swr: staleWhileRevalidate,
             driver: cacheDriver,
             version: "first",
             waitUntil: firstBackground.waitUntil,
@@ -947,6 +987,7 @@ describe("official cache instrumentation", () => {
       base
         .$extends(
           cache({
+            swr: staleWhileRevalidate,
             driver: cacheDriver,
             version: "second",
             waitUntil: secondBackground.waitUntil,

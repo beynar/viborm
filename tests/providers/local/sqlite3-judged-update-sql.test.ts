@@ -1,14 +1,14 @@
 /**
  * The SQL of a judged update on SQLite, pinned. A judged update lowers its
- * candidates and its guard, each minting aliases in turn; a dialect with
- * `assertions.keptWhere` (SQL Server) needs its candidates first, every
- * other dialect keeps the order it always had. This text is main's,
- * byte for byte.
+ * candidates and its guard, each minting aliases in turn; a dialect whose
+ * judged-write spelling has `keptWhere` (SQL Server) lowers its candidates
+ * inside the guard, every other dialect keeps the order it always had. This
+ * text is main's, byte for byte.
  */
 
 import { createClient } from "@client/client";
 import { s } from "@schema";
-import { Sql } from "@sql";
+import { extension, text, unit } from "@src/index";
 import { permissions } from "@src/permissions";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -53,20 +53,30 @@ test("a judged update whose filter walks a relation keeps main's aliases", async
       { id: 2, title: "two", authorId: "bob" },
     ],
   });
-  const captured = base.$extends({
-    name: "capture",
-    statement: ({ statement }: { statement: Sql }) => {
-      statements.push(Sql.peek(statement).strings.join("?"));
-      return statement;
-    },
-  });
-  const db = permissions({
-    actor: v.object({ userId: v.string() }),
-    models: {
-      user: { read: true },
-      post: { read: true, update: { authorId: { actor: "userId" } } },
-    },
-  })(captured).$as({ userId: "ada" });
+  const db = base
+    .$extends(
+      extension(
+        "capture",
+        unit(
+          (u, next) => {
+            const sent = text(u);
+            if (sent !== undefined) statements.push(sent);
+            return next();
+          },
+          ["statement"]
+        )
+      )
+    )
+    .$extends(
+      permissions({
+        actor: v.object({ userId: v.string() }),
+        models: {
+          user: { read: true },
+          post: { read: true, update: { authorId: { actor: "userId" } } },
+        },
+      })
+    )
+    .$as({ userId: "ada" });
   expect(
     await db.post.updateMany({
       where: { author: { is: { name: "Ada" } } },

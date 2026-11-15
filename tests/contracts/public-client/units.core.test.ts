@@ -4,7 +4,22 @@
  */
 
 import type { Sql } from "@sql";
-import { sql, type WrittenWatch } from "@src/index";
+import {
+  again,
+  around,
+  call as extCall,
+  extension,
+  run as extRun,
+  reads,
+  settled,
+  sql,
+  statement,
+  target,
+  unit,
+  via,
+  watch,
+  writes,
+} from "@src/index";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { failure } from "@tests/fixtures/failure";
 import { afterEach, describe, expect, test } from "vitest";
@@ -15,16 +30,20 @@ type Base = Awaited<ReturnType<typeof openOnFixture>>;
 /** A statement transform that fails the first `times` statements matching `text`. */
 function failing(text: string, times = 1) {
   let left = times;
-  return {
-    name: "failing",
-    statement({ statement }: { statement: Sql }) {
-      if (left > 0 && statement.toStatement().includes(text)) {
-        left -= 1;
-        throw new Error("connection lost");
-      }
-      return statement;
-    },
-  };
+  return extension(
+    "failing",
+    unit(
+      (u, next) => {
+        if (left > 0 && statement(u).toStatement().includes(text)) {
+          left -= 1;
+          throw new Error("connection lost");
+        }
+        return next(statement(u));
+      },
+      ["statement"],
+      { rewrites: true }
+    )
+  );
 }
 
 describe("retry, route, transaction", () => {
@@ -41,45 +60,106 @@ describe("retry, route, transaction", () => {
   test("retry: a read that failed is made again where a handler says so, told the error, the attempt and the call", async () => {
     const base = await open();
     const asked: unknown[] = [];
-    const db = base.$extends(failing("SELECT", 2)).$extends({
-      name: "resilient",
-      retry(error, attempt, call) {
-        asked.push([(error as Error).message, attempt, call]);
-        return attempt < 3;
-      },
-    });
+    const db = base.$extends(failing("SELECT", 2)).$extends(
+      extension(
+        "resilient",
+        around((c) => {
+          const retry = (error, attempt, call) => {
+            asked.push([(error as Error).message, attempt, call]);
+            return attempt < 3;
+          };
+          return async (run) => {
+            for (let attempt = 1; ; attempt++) {
+              try {
+                return await run();
+              } catch (error) {
+                if (
+                  !(
+                    again(run) &&
+                    (await retry(error, attempt, {
+                      model: c.model,
+                      operation: c.operation,
+                    }))
+                  )
+                )
+                  throw error;
+              }
+            }
+          };
+        })
+      )
+    );
     const users = await db.user.findMany({ where: { id: "u1" } });
     expect(users.map((user) => user.id)).toEqual(["u1"]);
+    // What a rewriting unit throws fails the call as it is (D5).
     expect(asked).toEqual([
-      [
-        expect.stringContaining("statement handler"),
-        1,
-        { model: "user", operation: "findMany" },
-      ],
-      [
-        expect.stringContaining("statement handler"),
-        2,
-        { model: "user", operation: "findMany" },
-      ],
+      ["connection lost", 1, { model: "user", operation: "findMany" }],
+      ["connection lost", 2, { model: "user", operation: "findMany" }],
     ]);
   });
 
   test("retry: a handler that says no leaves the failure as it is", async () => {
     const base = await open();
-    const db = base.$extends(failing("SELECT")).$extends({
-      name: "resilient",
-      retry: () => false,
-    });
+    const db = base.$extends(failing("SELECT")).$extends(
+      extension(
+        "resilient",
+        around((c) => {
+          const retry = (_error: unknown, _attempt: number, _call: object) =>
+            false;
+          return async (run) => {
+            for (let attempt = 1; ; attempt++) {
+              try {
+                return await run();
+              } catch (error) {
+                if (
+                  !(
+                    again(run) &&
+                    (await retry(error, attempt, {
+                      model: c.model,
+                      operation: c.operation,
+                    }))
+                  )
+                )
+                  throw error;
+              }
+            }
+          };
+        })
+      )
+    );
     const error = (await failure(db.user.findMany())) as Error;
-    expect(error.message).toContain("statement handler");
+    expect(error.message).toBe("connection lost");
   });
 
   test("retry: a write whose own transaction was undone is made again, and written once", async () => {
     const base = await open();
-    const db = base.$extends(failing("INSERT")).$extends({
-      name: "resilient",
-      retry: (_error, attempt) => attempt < 2,
-    });
+    const db = base.$extends(failing("INSERT")).$extends(
+      extension(
+        "resilient",
+        around((c) => {
+          const retry = (_error: unknown, attempt: number, _call: object) =>
+            attempt < 2;
+          return async (run) => {
+            for (let attempt = 1; ; attempt++) {
+              try {
+                return await run();
+              } catch (error) {
+                if (
+                  !(
+                    again(run) &&
+                    (await retry(error, attempt, {
+                      model: c.model,
+                      operation: c.operation,
+                    }))
+                  )
+                )
+                  throw error;
+              }
+            }
+          };
+        })
+      )
+    );
     // A nested write is sent in a transaction of its own.
     await db.user.update({
       where: { id: "u1" },
@@ -99,13 +179,35 @@ describe("retry, route, transaction", () => {
   test("retry: a write sent as one statement outside a transaction is not asked, since nothing proves it undone", async () => {
     const base = await open();
     let asked = 0;
-    const db = base.$extends(failing("UPDATE")).$extends({
-      name: "resilient",
-      retry() {
-        asked += 1;
-        return true;
-      },
-    });
+    const db = base.$extends(failing("UPDATE")).$extends(
+      extension(
+        "resilient",
+        around((c) => {
+          const retry = (_error: unknown, _attempt: number, _call: object) => {
+            asked += 1;
+            return true;
+          };
+          return async (run) => {
+            for (let attempt = 1; ; attempt++) {
+              try {
+                return await run();
+              } catch (error) {
+                if (
+                  !(
+                    again(run) &&
+                    (await retry(error, attempt, {
+                      model: c.model,
+                      operation: c.operation,
+                    }))
+                  )
+                )
+                  throw error;
+              }
+            }
+          };
+        })
+      )
+    );
     await failure(
       db.post.update({ where: { id: "p1" }, data: { views: { increment: 1 } } })
     );
@@ -115,13 +217,35 @@ describe("retry, route, transaction", () => {
   test("retry: a call inside a transaction is never asked", async () => {
     const base = await open();
     let asked = 0;
-    const db = base.$extends(failing("SELECT")).$extends({
-      name: "resilient",
-      retry() {
-        asked += 1;
-        return true;
-      },
-    });
+    const db = base.$extends(failing("SELECT")).$extends(
+      extension(
+        "resilient",
+        around((c) => {
+          const retry = (_error: unknown, _attempt: number, _call: object) => {
+            asked += 1;
+            return true;
+          };
+          return async (run) => {
+            for (let attempt = 1; ; attempt++) {
+              try {
+                return await run();
+              } catch (error) {
+                if (
+                  !(
+                    again(run) &&
+                    (await retry(error, attempt, {
+                      model: c.model,
+                      operation: c.operation,
+                    }))
+                  )
+                )
+                  throw error;
+              }
+            }
+          };
+        })
+      )
+    );
     await failure(db.$transaction((tx) => tx.user.findMany()));
     expect(asked).toBe(0);
   });
@@ -130,23 +254,50 @@ describe("retry, route, transaction", () => {
     const base = await open();
     let asked = 0;
     const db = base
-      .$extends({
-        name: "broken",
-        written: (): WrittenWatch => ({
-          wants: () => false,
-          rows: () => undefined,
-          settled() {
-            throw new Error("after commit");
-          },
-        }),
-      })
-      .$extends({
-        name: "resilient",
-        retry() {
-          asked += 1;
-          return true;
-        },
-      });
+      .$extends(
+        extension(
+          "broken",
+          extCall((c) => {
+            watch(c, { wants: () => false, rows: () => undefined });
+            settled(c, () => {
+              throw new Error("after commit");
+            });
+          }, target(writes))
+        )
+      )
+      .$extends(
+        extension(
+          "resilient",
+          around((c) => {
+            const retry = (
+              _error: unknown,
+              _attempt: number,
+              _call: object
+            ) => {
+              asked += 1;
+              return true;
+            };
+            return async (run) => {
+              for (let attempt = 1; ; attempt++) {
+                try {
+                  return await run();
+                } catch (error) {
+                  if (
+                    !(
+                      again(run) &&
+                      (await retry(error, attempt, {
+                        model: c.model,
+                        operation: c.operation,
+                      }))
+                    )
+                  )
+                    throw error;
+                }
+              }
+            };
+          })
+        )
+      );
     await failure(
       db.post.update({ where: { id: "p1" }, data: { views: { increment: 1 } } })
     );
@@ -165,13 +316,18 @@ describe("retry, route, transaction", () => {
       data: { name: "On the replica" },
     });
     const asked: unknown[] = [];
-    const db = base.$extends({
-      name: "replicas",
-      route(read) {
-        asked.push([read.model, read.operation, read.args]);
-        return read.model === "user" ? replica.$driver : undefined;
-      },
-    });
+    const db = base.$extends(
+      extension(
+        "replicas",
+        around(
+          (c) => (run) => {
+            asked.push([c.model, c.operation, run.input]);
+            return c.model === "user" ? via(run, replica.$driver) : run();
+          },
+          target(reads)
+        )
+      )
+    );
     const name = async (client: {
       user: Pick<typeof db.user, "findUniqueOrThrow">;
     }) => (await client.user.findUniqueOrThrow({ where: { id: "u1" } })).name;
@@ -194,20 +350,35 @@ describe("retry, route, transaction", () => {
     const base = await open();
     const texts: string[] = [];
     const db = base
-      .$extends({
-        name: "session",
-        async transaction(run) {
-          const rows = await run(sql`SELECT 41 + 1 AS opened`);
-          texts.push(`opened ${rows[0]!.opened}`);
-        },
-      })
-      .$extends({
-        name: "log",
-        statement({ statement }: { statement: Sql }) {
-          texts.push(statement.toStatement().split(" ")[0]!);
-          return statement;
-        },
-      });
+      .$extends(
+        extension(
+          "session",
+          unit(
+            async (u, next) => {
+              const open = async (run) => {
+                const rows = await run(sql`SELECT 41 + 1 AS opened`);
+                texts.push(`opened ${rows[0]!.opened}`);
+              };
+              await open((query) => extRun(u, query));
+              return next();
+            },
+            ["transaction"]
+          )
+        )
+      )
+      .$extends(
+        extension(
+          "log",
+          unit(
+            (u, next) => {
+              texts.push(statement(u).toStatement().split(" ")[0]!);
+              return next(statement(u));
+            },
+            ["statement"],
+            { rewrites: true }
+          )
+        )
+      );
 
     await db.$transaction(async (tx) => {
       await tx.user.findMany();
@@ -235,12 +406,21 @@ describe("retry, route, transaction", () => {
   test("transaction: what it throws fails the transaction before its body runs", async () => {
     const base = await open();
     let ran = false;
-    const db = base.$extends({
-      name: "session",
-      transaction() {
-        throw new Error("no session");
-      },
-    });
+    const db = base.$extends(
+      extension(
+        "session",
+        unit(
+          async (u, next) => {
+            const open = (_connect: (query: Sql) => Promise<unknown>) => {
+              throw new Error("no session");
+            };
+            await open((query) => extRun(u, query));
+            return next();
+          },
+          ["transaction"]
+        )
+      )
+    );
     const error = (await failure(
       db.$transaction(async (tx) => {
         ran = true;
@@ -249,13 +429,5 @@ describe("retry, route, transaction", () => {
     )) as Error;
     expect(error).toBeInstanceOf(Error);
     expect(ran).toBe(false);
-  });
-
-  test("each point must be a function", async () => {
-    const base = await open();
-    for (const point of ["retry", "route", "transaction"])
-      expect(() =>
-        base.$extends({ name: "bad", [point]: true } as never)
-      ).toThrow(`Extension "bad" ${point} must be a function.`);
   });
 });

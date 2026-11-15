@@ -24,25 +24,14 @@ import {
   PROJECTING_OPERATIONS,
   slotTarget,
 } from "@client/omit";
-import type { Schema } from "@client/types";
 import type { AnyModel } from "@schema/model";
 import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
 import { projectableScalarNames } from "@validation/model/core/projection";
-import { isFunction, isRecord } from "@validation/value-guards";
-import { extensionError } from "./definition";
+import { isRecord } from "@validation/value-guards";
+import type { ExtensionPart } from "./chain";
+import { extensionError } from "./chain";
 
 type Row = Record<string, unknown>;
-
-/** One computed field as a definition declares it, read once. */
-export interface RuntimeComputedField {
-  readonly needs: readonly string[];
-  readonly compute: (row: Row) => unknown;
-}
-
-/** A definition's `result`: per model key (or `$allModels`), its fields. */
-export type RuntimeResultContribution = Readonly<
-  Record<string, Readonly<Record<string, RuntimeComputedField>>>
->;
 
 /**
  * One model's computed field on the chain. Each need is a column's name, or
@@ -58,107 +47,16 @@ interface ResolvedComputedField {
  * Per model name, every computed field the chain declares, in chain order: a
  * field's needs point only at columns and at fields before it.
  */
-export type ResolvedResultFields = Readonly<
+type ResolvedResultFields = Readonly<
   Record<string, readonly ResolvedComputedField[]>
 >;
 
 const ALL_MODELS = "$allModels";
 
-/** Read a definition's `result` once into a frozen snapshot. */
-export function snapshotResult(
-  component: unknown,
-  extension: string,
-  schema?: Schema
-): RuntimeResultContribution {
-  function refuse(path: string, problem: string): never {
-    return extensionError(
-      `Extension "${extension}" result${path} ${problem}.`,
-      extension
-    );
-  }
-  if (!isRecord(component)) refuse("", "must be a model map");
-  const models: Record<
-    string,
-    Record<string, RuntimeComputedField>
-  > = Object.create(null);
-  for (const modelKey of Object.keys(component)) {
-    if (modelKey !== ALL_MODELS && schema && !Object.hasOwn(schema, modelKey))
-      refuse("", `names unknown model "${modelKey}"`);
-    const entries = component[modelKey];
-    if (!isRecord(entries)) refuse(`.${modelKey}`, "must be an object");
-    const fields: Record<string, RuntimeComputedField> = Object.create(null);
-    for (const name of Object.keys(entries)) {
-      const entry = entries[name];
-      const compute = isRecord(entry) ? entry.compute : undefined;
-      const needs = isRecord(entry) ? (entry.needs ?? {}) : undefined;
-      if (!(isRecord(needs) && isFunction(compute)))
-        refuse(
-          `.${modelKey}.${name}`,
-          "must be an object with a compute function and a needs object"
-        );
-      const read: string[] = [];
-      for (const need of Object.keys(needs)) {
-        if (typeof needs[need] !== "boolean")
-          refuse(`.${modelKey}.${name}.needs.${need}`, "must be a boolean");
-        if (needs[need]) read.push(need);
-      }
-      fields[name] = Object.freeze({
-        needs: Object.freeze(read),
-        compute: compute as RuntimeComputedField["compute"],
-      });
-    }
-    models[modelKey] = Object.freeze(fields);
-  }
-  return Object.freeze(models);
-}
-
-/**
- * The chain's computed fields with one extension's appended: `$allModels`
- * first, then the model's own, so a model's field can replace or need an
- * `$allModels` one. Every need is resolved here, against the model's
- * readable scalars and the fields before it.
- */
-export function appendResultFields(
-  previous: ResolvedResultFields | undefined,
-  extension: string,
-  contribution: RuntimeResultContribution,
-  schema: Schema
-): ResolvedResultFields {
-  const next: Record<string, readonly ResolvedComputedField[]> = {
-    ...previous,
-  };
-  for (const modelName of Object.keys(schema)) {
-    const model = schema[modelName]!;
-    const fields = [...(next[modelName] ?? [])];
-    const readable = new Set(projectableScalarNames(model));
-    for (const key of [ALL_MODELS, modelName]) {
-      const declared = contribution[key] ?? {};
-      for (const name of Object.keys(declared)) {
-        const at = `Extension "${extension}" result.${key}.${name}`;
-        if (
-          name === "_count" ||
-          Object.hasOwn(model["~"].state.relations, name)
-        )
-          extensionError(
-            `${at} cannot be computed: "${name}" is a relation of model "${modelName}".`,
-            extension
-          );
-        const needs = declared[name]!.needs.map((need) => {
-          for (let earlier = fields.length - 1; earlier >= 0; earlier--) {
-            if (fields[earlier]!.name === need) return earlier;
-          }
-          if (readable.has(need)) return need;
-          return extensionError(
-            `${at} needs "${need}", which is not a readable scalar or an earlier computed field of model "${modelName}".`,
-            extension
-          );
-        });
-        fields.push({ name, compute: declared[name]!.compute, needs });
-      }
-    }
-    if (fields.length > 0) next[modelName] = fields;
-  }
-  return Object.freeze(next);
+/** A computed field as `fields(…)` is written: what it needs, and how. */
+export interface ComputedFieldDeclaration {
+  readonly needs?: Readonly<Record<string, boolean>>;
+  readonly compute: (row: Row) => unknown;
 }
 
 /**
@@ -179,41 +77,14 @@ interface ResultNode {
 /** A bulk write returns rows only when it carries a projection. */
 const BULK_OPERATIONS = new Set(["createMany", "updateMany", "deleteMany"]);
 
-/**
- * Plan one operation: the payload the engine runs, and the function that
- * finishes its value. `undefined` when nothing this operation returns has a
- * computed field.
- */
-export function planResultFields(
-  fields: ResolvedResultFields,
-  relations: ResolvedRelationIndex,
-  model: AnyModel,
-  operation: string,
-  args: Row
-):
-  | { readonly args: Row; readonly finish: (value: unknown) => unknown }
-  | undefined {
-  const returnsRows =
-    PROJECTING_OPERATIONS.has(operation) ||
-    (BULK_OPERATIONS.has(operation) &&
-      (args.select !== undefined || args.omit !== undefined));
-  if (!returnsRows) return undefined;
-  const planned = planNode(fields, relations, model, args);
-  if (planned === undefined) return undefined;
-  const { node } = planned;
-  return {
-    args: planned.args ?? args,
-    finish: (value) => finishValue(value, node),
-  };
-}
-
 function planNode(
   fields: ResolvedResultFields,
   relations: ResolvedRelationIndex,
   model: AnyModel,
   args: Row | undefined
 ): { readonly args: Row | undefined; readonly node: ResultNode } | undefined {
-  const declared = fields[model["~"].names.ts ?? ""];
+  // A hydrated model always has its name.
+  const declared = fields[model["~"].names.ts!] ?? [];
   const select = isRecord(args?.select) ? args.select : undefined;
   const include = isRecord(args?.include) ? args.include : undefined;
   const omit = isRecord(args?.omit) ? args.omit : undefined;
@@ -228,34 +99,37 @@ function planNode(
     for (const key of Object.keys(projection)) {
       const resolved = slots?.get(key);
       const value = projection[key];
-      if (!resolved || directVariantCarrier(resolved)) continue;
-      if (value !== true && !isRecord(value)) continue;
+      if (
+        !resolved ||
+        directVariantCarrier(resolved) ||
+        (value !== true && !isRecord(value))
+      )
+        continue;
       const target = slotTarget(resolved, model);
-      if (!target) continue;
       const childArgs = value === true ? undefined : value;
       const child = planNode(fields, relations, target, childArgs);
       if (child === undefined) continue;
       nested.push([key, child.node]);
       if (childArgs?.recurse !== undefined)
         child.node.relations.push([key, child.node]);
-      if (child.args !== childArgs) {
-        if (nextProjection === projection) nextProjection = { ...projection };
-        nextProjection![key] = child.args;
-      }
+      if (child.args !== childArgs)
+        nextProjection = { ...nextProjection, [key]: child.args };
     }
   }
 
   // The latest declaration of each name is the visible field.
   const visible = new Map<string, number>();
-  for (const [index, field] of (declared ?? []).entries())
+  for (const [index, field] of declared.entries())
     visible.set(field.name, index);
+  // A name the payload keeps: a column it returns, or a field it computes.
+  const kept = (name: string) =>
+    (select ? select[name] === true : true) && omit?.[name] !== true;
   const wanted: number[] = [];
   // A payload that names a field it does not want still loses that key.
   let named = false;
   for (const [name, index] of visible) {
     named ||= (select ?? omit)?.[name] !== undefined;
-    if ((!select || select[name] === true) && omit?.[name] !== true)
-      wanted.push(index);
+    if (kept(name)) wanted.push(index);
   }
   if (wanted.length === 0 && nested.length === 0 && !named) return undefined;
 
@@ -265,60 +139,54 @@ function planNode(
   const close = (index: number) => {
     if (computing.has(index)) return;
     computing.add(index);
-    for (const need of declared![index]!.needs) {
+    for (const need of declared[index]!.needs) {
       if (typeof need === "number") close(need);
       else reads.add(need);
     }
   };
   for (const index of wanted) close(index);
-  const outputs = new Set(wanted.map((index) => declared![index]!.name));
-  // The columns read only for a field: removed from the rows again.
+  // The columns read only for a field: removed from the rows again (a kept
+  // name that is a field is computed over its column).
   const strip = new Set<string>();
+  for (const field of reads) if (!kept(field)) strip.add(field);
 
+  // Each key the plan changes is replaced in a copy, in its place.
   let next = args;
-  const rewrite = (key: string, value: Row) => {
-    if (next === args) next = { ...args };
-    next![key] = value;
-  };
   // `omit` subtracts from either projection: a computed name leaves it (a
   // column it shadows stays omitted), and a column a field reads is read
   // anyway, then removed again.
-  let nextOmit: Row | undefined;
-  for (const name of visible.keys()) {
-    if (omit?.[name] === undefined || readsColumn(model, name)) continue;
-    nextOmit ??= { ...omit };
-    delete nextOmit[name];
+  if (omit !== undefined) {
+    const nextOmit = { ...omit };
+    for (const name of visible.keys())
+      if (
+        omit[name] !== undefined &&
+        !Object.hasOwn(model["~"].state.scalars, name)
+      )
+        delete nextOmit[name];
+    for (const field of reads)
+      if (omit[field] === true) nextOmit[field] = false;
+    next = { ...next, omit: nextOmit };
   }
-  const kept = (field: string) =>
-    (select ? select[field] === true : true) && omit?.[field] !== true;
-  for (const field of reads) {
-    if (!(kept(field) || outputs.has(field))) strip.add(field);
-    if (omit?.[field] === true) {
-      nextOmit ??= { ...omit };
-      nextOmit[field] = false;
-    }
-  }
-  if (nextOmit !== undefined) rewrite("omit", nextOmit);
   if (select !== undefined) {
-    const nextSelect: Row = { ...(nextProjection ?? select) };
+    const nextSelect: Row = { ...nextProjection };
     for (const name of visible.keys()) delete nextSelect[name];
     for (const field of reads) nextSelect[field] = true;
     if (!Object.values(nextSelect).some((value) => value !== false)) {
       const [first] = projectableScalarNames(model);
       if (first !== undefined) {
         nextSelect[first] = true;
-        if (!outputs.has(first)) strip.add(first);
+        if (!kept(first)) strip.add(first);
       }
     }
-    rewrite("select", nextSelect);
+    next = { ...next, select: nextSelect };
   } else if (nextProjection !== projection) {
-    rewrite("include", nextProjection!);
+    next = { ...next, include: nextProjection };
   }
 
   return {
     args: next,
     node: {
-      fields: declared ?? [],
+      fields: declared,
       outputs: wanted,
       reads: [...reads],
       strip: [...strip],
@@ -326,9 +194,6 @@ function planNode(
     },
   };
 }
-
-const readsColumn = (model: AnyModel, name: string): boolean =>
-  Object.hasOwn(model["~"].state.scalars, name);
 
 function finishValue(value: unknown, node: ResultNode): unknown {
   if (Array.isArray(value)) return value.map((row) => finishRow(row, node));
@@ -395,10 +260,6 @@ function finishRow(value: unknown, node: ResultNode): unknown {
   return row;
 }
 
-const typedArraySlice = Object.getPrototypeOf(Uint8Array.prototype).slice as (
-  this: ArrayBufferView
-) => ArrayBufferView;
-
 /**
  * A copy of a value the caller could edit: JSON objects and lists, dates and
  * binary or numeric arrays. A class instance (a `Decimal`) is immutable and
@@ -408,11 +269,116 @@ function detached(held: unknown): unknown {
   if (held === null || typeof held !== "object") return held;
   if (Array.isArray(held)) return held.map(detached);
   if (held instanceof Date) return new Date(held.getTime());
+  // The typed arrays' own `slice`, read here and not at module scope: a
+  // top-level read is a side effect every bundle importing viborm would keep.
+  // No provider row holds a `DataView`: a view is a typed array.
   if (ArrayBuffer.isView(held))
-    return held instanceof DataView ? held : typedArraySlice.call(held);
+    return (
+      Object.getPrototypeOf(Uint8Array.prototype).slice as (
+        this: ArrayBufferView
+      ) => ArrayBufferView
+    ).call(held);
   const prototype = Object.getPrototypeOf(held);
   if (prototype !== Object.prototype && prototype !== null) return held;
   const copy: Row = {};
+  // A plain object past the checks above: a record of values.
   for (const key in held) copy[key] = detached((held as Row)[key]);
   return copy;
+}
+
+/**
+ * A chain's computed fields, and what plans one call: the payload the engine
+ * runs, and the function that finishes its value; `undefined` when nothing
+ * the operation returns has a computed field.
+ */
+export interface ResultFields {
+  readonly fields: ResolvedResultFields;
+  readonly plan: (
+    relations: ResolvedRelationIndex,
+    model: AnyModel,
+    operation: string,
+    args: Row
+  ) =>
+    | { readonly args: Row; readonly finish: (value: unknown) => unknown }
+    | undefined;
+}
+
+/**
+ * `fields`: fields computed from each row a call returns. Joined, the
+ * chain's computed fields with this extension's appended: per model,
+ * `$allModels` first, then the model's own, so a model's field can replace
+ * or need an `$allModels` one. Every need is resolved here, against the
+ * model's readable scalars and the fields before it; a model the schema
+ * does not hold is refused, as a field computed on no row would otherwise
+ * be.
+ */
+export function fieldsPart(
+  declared: Readonly<
+    Record<string, Readonly<Record<string, ComputedFieldDeclaration>>>
+  >
+): ExtensionPart {
+  return {
+    join({ next, name: extension, schema }) {
+      for (const key of Object.keys(declared))
+        if (key !== ALL_MODELS && !Object.hasOwn(schema, key))
+          extensionError(
+            `Extension "${extension}" result names unknown model "${key}".`,
+            extension
+          );
+      const fields: Record<string, readonly ResolvedComputedField[]> = {
+        ...next.fields?.fields,
+      };
+      for (const modelName of Object.keys(schema)) {
+        const model = schema[modelName]!;
+        const resolved = [...(fields[modelName] ?? [])];
+        const readable = new Set(projectableScalarNames(model));
+        for (const key of [ALL_MODELS, modelName]) {
+          for (const [name, { needs = {}, compute }] of Object.entries(
+            declared[key] ?? {}
+          )) {
+            const at = `Extension "${extension}" result.${key}.${name}`;
+            if (
+              name === "_count" ||
+              Object.hasOwn(model["~"].state.relations, name)
+            )
+              extensionError(
+                `${at} cannot be computed: "${name}" is a relation of model "${modelName}".`,
+                extension
+              );
+            const needed = Object.keys(needs)
+              .filter((need) => needs[need])
+              .map((need) => {
+                for (let earlier = resolved.length - 1; earlier >= 0; earlier--)
+                  if (resolved[earlier]!.name === need) return earlier;
+                if (readable.has(need)) return need;
+                return extensionError(
+                  `${at} needs "${need}", which is not a readable scalar or an earlier computed field of model "${modelName}".`,
+                  extension
+                );
+              });
+            resolved.push({ name, compute, needs: needed });
+          }
+        }
+        if (resolved.length > 0) fields[modelName] = resolved;
+      }
+      next.fields = {
+        fields,
+        plan: (relations, model, operation, args) => {
+          const returnsRows =
+            PROJECTING_OPERATIONS.has(operation) ||
+            (BULK_OPERATIONS.has(operation) &&
+              (args.select !== undefined || args.omit !== undefined));
+          if (!returnsRows) return undefined;
+          const planned = planNode(fields, relations, model, args);
+          if (planned === undefined) return undefined;
+          const { node } = planned;
+          return {
+            // Planned from `args`, never absent: only a relation's may be.
+            args: planned.args!,
+            finish: (value) => finishValue(value, node),
+          };
+        },
+      };
+    },
+  };
 }

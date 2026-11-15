@@ -1,34 +1,42 @@
 // viborm/on: per-model write hooks that run after commit.
 //
-// An extension like any other: it declares `written`, the point where a
-// definition is told the rows a write call wrote, and nothing of it is known
-// to core. It watches only a write a hook concerns; of that write it keeps
-// its own copy of the rows the engine shows it (the call's own and those its
-// nested writes reach), and runs the hooks once the write is durable: after
-// the write committed, after the outermost commit inside a transaction, never
-// after a rollback.
+// An extension like any other, written with the public words: a `call` on
+// every write watches the rows it writes (`watch`) and runs the hooks once
+// the write is durable (`settled`): after the write committed, after the
+// outermost commit inside a transaction, never after a rollback. It watches
+// only a write a hook concerns; of that write it keeps its own copy of the
+// rows the engine shows it (the call's own and those its nested writes
+// reach).
 
 import type { OperationResult } from "../client/exports"; // public today
-// The classes are imported where viborm defines them, so the built entry
-// shares the root's chunk.
+// The classes and the words are imported where viborm defines them.
 import { ClientInitializationError, QueryError } from "../errors";
-import { defineHooks } from "../extensions/define";
+import { call } from "../extensions/call";
+import { watch } from "../extensions/call-words";
+import { extension } from "../extensions/extension";
+import { target, writes } from "../extensions/on";
+import { settled } from "../extensions/settled";
+// Types only from the root: a value imported from it would make this entry
+// reach every module the root reaches, and the build would put them all in
+// the chunk this entry shares with the root.
 import type {
   AnyModel,
   AnyRelation,
+  AnyTarget,
   ClientSchema,
-  ClientTypeState,
-  ExtensionState,
-  VibORMClient,
+  EmptyFacts,
+  Extension,
+  Model,
   VibORMConfig,
   WriteKind,
   WriteOutcome,
-  WrittenCall,
-  WrittenWatch,
 } from "../index";
 
 const NAME = "viborm.on";
-/** How many declarations were made: each is an extension of its own name. */
+/**
+ * How many declarations were made: each is an extension of its own name, so
+ * two `on()` that hook the same kinds of the same models live on one client.
+ */
 let declared = 0;
 
 /** What a hook is named after: what happened to the rows it receives. */
@@ -37,13 +45,16 @@ export type OnKind = "create" | "update" | "delete";
 /**
  * A row as a hook receives it: every scalar field a plain `findMany` returns
  * from the schema alone. `defaultOmit()` does not hide a field from a hook,
- * and computed `result` fields are not attached.
+ * and the fields `fields(...)` computes are not attached.
  */
-export type OnRow<M extends AnyModel> = OperationResult<
-  "findMany",
-  M,
-  Record<never, never>
->[number];
+export type OnRow<M extends AnyModel> =
+  M extends Model<infer State>
+    ? 0 extends 1 & State
+      ? // Declared apart from any client, a hook's model is unknown: its rows
+        // are plain records.
+        Record<string, unknown>
+      : OperationResult<"findMany", M, Record<never, never>>[number]
+    : never;
 
 /** The write whose rows a hook receives. */
 export interface OnEvent<Model extends string = string> {
@@ -84,24 +95,19 @@ export type OnHook<
  * hook names and rows are its schema's; unbound (declared apart from any
  * client), any model name and plain records.
  */
-export type OnHooks<C extends VibORMConfig = VibORMConfig> =
-  string extends keyof ClientSchema<C>
-    ? {
-        readonly [model: string]:
-          | { readonly [K in OnKind]?: OnHook }
-          | undefined;
-      }
+export type OnHooks<C extends VibORMConfig = VibORMConfig> = {
+  readonly [M in keyof ClientSchema<C> & string]?: string extends M
+    ? { readonly [K in OnKind]?: OnHook }
     : {
-        readonly [M in keyof ClientSchema<C>]?: {
-          readonly [K in OnKind]?: OnHook<
-            HookRow<OnRow<ClientSchema<C>[M]>, GatedFields<C, M>>,
-            keyof ClientSchema<C> & string
-          >;
-        };
+        readonly [K in OnKind]?: OnHook<
+          HookRow<OnRow<ClientSchema<C>[M]>, GatedFields<C, M>>,
+          keyof ClientSchema<C> & string
+        >;
       };
+};
 
 /**
- * The fields a `rows` extension's `reads` gates on a model: the client omits
+ * The fields a rule's `gate` hides on a model (`read.fields`): the client omits
  * them as `boolean` (a `defaultOmit()` field is `true`), and a row carries one
  * only where the call may read it.
  */
@@ -129,13 +135,6 @@ type HookRow<Row, Gated> = [Gated] extends [never]
 export interface OnOptions<Model extends string = string> {
   readonly onError?: (error: QueryError, event: OnEvent<Model>) => unknown;
 }
-
-/** An unbound declaration: applies to any client, which it returns. */
-export type OnExtension = <
-  Base extends { $extends(...args: never[]): unknown },
->(
-  base: Base
-) => Base;
 
 type RuntimeHook = (rows: readonly Row[], event: OnEvent) => unknown;
 type RuntimeHooks = Readonly<
@@ -168,138 +167,118 @@ const KINDS: Readonly<Record<string, readonly OnKind[]>> = {
  * Applied inside `$extends(...)`, the receiving client's schema types the
  * model names, the kinds and each hook's rows.
  */
-export function on<
-  C extends VibORMConfig = VibORMConfig,
-  X extends ExtensionState = ExtensionState,
->(
-  hooks: OnHooks<NoInfer<C>>,
-  options?: OnOptions<keyof ClientSchema<NoInfer<C>> & string>
-): string extends keyof ClientSchema<C>
-  ? OnExtension
-  : (
-      base: ClientTypeState<C, X> & NoInfer<VibORMClient<C, X>>
-    ) => VibORMClient<C, X>;
-export function on(hooks: RuntimeHooks, options?: OnOptions) {
+export function on<T extends AnyTarget>(
+  hooks: OnHooks<NoInfer<T["config"]>>,
+  options?: OnOptions<keyof ClientSchema<NoInfer<T["config"]>> & string>
+): Extension<T, EmptyFacts>;
+export function on(hooks: RuntimeHooks, options?: OnOptions): unknown {
   const own: RuntimeHooks = Object.freeze({ ...hooks });
   const onError = options?.onError;
   if (onError !== undefined && typeof onError !== "function")
     refuse("onError must be a function");
-  /** A failing hook's report: never a failure of the write itself. */
-  const report = async (error: QueryError, event: OnEvent) => {
-    try {
-      if (onError) await onError(error, event);
-      else console.error(error);
-    } catch (thrown) {
-      console.error(error, thrown);
-    }
-  };
+  // Refused when made, never after a write commits: a hook name or a hook
+  // that is no function would otherwise run nothing.
+  for (const [model, modelHooks] of Object.entries(own))
+    for (const [kind, hook] of Object.entries(modelHooks ?? {}))
+      if (
+        !HOOK_KINDS.has(kind) ||
+        (hook !== undefined && typeof hook !== "function")
+      )
+        refuse(`${model}.${kind} must be a create, update or delete function`);
+  const hooked = Object.keys(own);
+  /** Per model, the models a nested write from it can write. */
+  const reached: Reached = new WeakMap();
   declared += 1;
-  const name = declared === 1 ? NAME : `${NAME}.${declared}`;
-  return (base: {
-    $schema: Record<string, AnyModel>;
-    $extends(definition: object): unknown;
-  }) => {
-    // Refused when applied, never after a write commits: an unknown model or
-    // hook name, or a hook that is no function, would otherwise run nothing.
-    for (const [model, modelHooks] of Object.entries(own)) {
-      if (!Object.hasOwn(base.$schema, model))
-        refuse(`names unknown model "${model}"`);
-      for (const [kind, hook] of Object.entries(modelHooks ?? {}))
-        if (
-          !HOOK_KINDS.has(kind) ||
-          (hook !== undefined && typeof hook !== "function")
+  return extension(
+    declared === 1 ? NAME : `${NAME}.${declared}`,
+    // The hooked models are checked against the schema where the extension
+    // is applied: an unknown one is refused there.
+    ...(hooked.length === 0
+      ? []
+      : [call(() => undefined, target(hooked, "create"))]),
+    call((c) => {
+      // target(writes) selects model calls only: each names its model.
+      const model = c.model!;
+      const { operation, schema } = c;
+      const mine = own[model] ?? {};
+      // The call's own rows, where a hook wants what its operation may do to them;
+      // and the rows its nested writes reach, where its payload names a
+      // relation. Any other write is not watched.
+      if (
+        !(
+          KINDS[operation]!.some((kind) => mine[kind] !== undefined) ||
+          (writesRelation(c.args, schema[model]!["~"].state.relations) &&
+            [...reachable(schema[model]!, reached)].some(
+              (other) => own[other] !== undefined
+            ))
         )
-          refuse(
-            `${model}.${kind} must be a create, update or delete function`
-          );
-    }
-    return base.$extends(
-      defineHooks({
-        name,
-        written: (call: WrittenCall) =>
-          watch(own, report, base.$schema[call.model]!, call),
-      })
-    );
-  };
-}
-
-/** What watches one write a hook concerns; nothing for any other write. */
-function watch(
-  hooks: RuntimeHooks,
-  report: (error: QueryError, event: OnEvent) => Promise<void>,
-  model: AnyModel,
-  call: WrittenCall
-): WrittenWatch | undefined {
-  const mine = hooks[call.model] ?? {};
-  // The call's own rows, where a hook wants what its verb may do to them;
-  // and the rows its nested writes reach, where its payload names a relation.
-  if (
-    !(
-      KINDS[call.operation]!.some((kind) => mine[kind] !== undefined) ||
-      (writesRelation(call.args, model["~"].state.relations) &&
-        [...reachable(model)].some((other) => hooks[other] !== undefined))
-    )
-  )
-    return undefined;
-  // The event's own copy: neither the caller nor a hook changes the other's.
-  const args = detached(call.args) as Row;
-  /** The rows the call wrote, per model and kind, the call's own first. */
-  const written: {
-    model: string;
-    kind: WriteKind;
-    rows: Row[];
-    nested: boolean;
-  }[] = [];
-  let certainty: WriteOutcome["certainty"] | undefined;
-  let delivered = false;
-  return {
-    wants: (name, kind) => hooks[name]?.[kind] !== undefined,
-    rows(name, kind, rows, nested) {
-      const group =
-        (nested &&
-          written.find(
-            (each) => each.nested && each.model === name && each.kind === kind
-          )) ||
-        written[written.push({ model: name, kind, rows: [], nested }) - 1]!;
-      for (const row of rows) group.rows.push(detached(row) as Row);
-    },
-    async settled(outcome) {
-      if (certainty !== "committed") certainty = outcome.certainty;
-      if (delivered) return;
-      delivered = true;
-      const event: OnEvent = Object.freeze({
-        model: call.model,
-        operation: call.operation as OnOperation,
-        args,
-        certainty,
+      )
+        return;
+      // The event's own copy: neither the caller nor a hook changes the other's.
+      const args = detached(c.args) as Row;
+      /** The rows the call wrote, per model and kind, the call's own first. */
+      const written: {
+        model: string;
+        kind: WriteKind;
+        rows: Row[];
+        nested: boolean;
+      }[] = [];
+      watch(c, {
+        wants: (name, kind) => own[name]?.[kind] !== undefined,
+        rows(name, kind, rows, nested) {
+          const group =
+            (nested &&
+              written.find(
+                (each) =>
+                  each.nested && each.model === name && each.kind === kind
+              )) ||
+            written[written.push({ model: name, kind, rows: [], nested }) - 1]!;
+          // A copy of a row is a row.
+          for (const row of rows) group.rows.push(detached(row) as Row);
+        },
       });
-      for (const { model: name, kind, rows } of written) {
-        const failure = await runHook(
-          hooks[name]![kind]!,
-          rows,
-          event,
-          `${name}.${kind}`
-        );
-        if (failure) await report(failure, event);
-      }
-    },
-  };
+      // Told once: a call's registration hears the one outcome it reached.
+      settled(c, async ({ certainty }) => {
+        const event: OnEvent = Object.freeze({
+          model,
+          // The part's target is the writes: the operation is one of them.
+          operation: operation as OnOperation,
+          args,
+          certainty,
+        });
+        for (const { model: name, kind, rows } of written)
+          try {
+            await own[name]![kind]!(Object.freeze(rows), event);
+          } catch (thrown) {
+            // Reported, never a failure of the write itself.
+            const error = failure(thrown, event, `${name}.${kind}`);
+            try {
+              if (onError) await onError(error, event);
+              else console.error(error);
+            } catch (reporting) {
+              console.error(error, reporting);
+            }
+          }
+      });
+    }, target(writes))
+  );
 }
 
 /** Does a write's payload name a relation of its model: a nested write? */
 function writesRelation(args: Row, relations: object): boolean {
-  for (const payload of [args.data, args.create, args.update])
-    for (const row of Array.isArray(payload) ? payload : [payload])
-      if (
+  // `flat` reads a list of rows as its rows.
+  return [args.data, args.create, args.update]
+    .flat()
+    .some(
+      (row) =>
         row !== null &&
         typeof row === "object" &&
         Object.keys(row).some((key) => Object.hasOwn(relations, key))
-      )
-        return true;
-  return false;
+    );
 }
 
-const reached = new WeakMap<AnyModel, ReadonlySet<string>>();
+/** What `reachable` found, kept by each `on()` for its own calls. */
+type Reached = WeakMap<AnyModel, ReadonlySet<string>>;
 
 /**
  * The models a nested write from `model` can write, itself included: every
@@ -307,33 +286,28 @@ const reached = new WeakMap<AnyModel, ReadonlySet<string>>();
  * one, and a declared junction. A payload that names a relation concerns no
  * hook unless one of them has one.
  */
-function reachable(model: AnyModel): ReadonlySet<string> {
+function reachable(model: AnyModel, reached: Reached): ReadonlySet<string> {
   const known = reached.get(model);
   if (known !== undefined) return known;
-  const names = new Set<string>();
+  // A set's walk visits what is added to it while it is walked.
   const seen = new Set<AnyModel>([model]);
-  const pending = [model];
-  for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
-    names.add(next["~"].names.ts!);
+  // A model's relations, each typed by the schema as a relation.
+  for (const next of seen)
     for (const relation of Object.values(
       next["~"].state.relations
     ) as AnyRelation[]) {
       const internal = relation["~"];
-      const { target } = internal.state;
-      const variants =
-        target.kind === "variants" ? Object.keys(target.entries) : [undefined];
-      const found = variants.map(
-        (variant) => internal.settleTarget(variant) as AnyModel
-      );
-      if (internal.state.junction?.model)
-        found.push(internal.settleJunctionModel!() as AnyModel);
-      for (const other of found) {
-        if (seen.has(other)) continue;
-        seen.add(other);
-        pending.push(other);
-      }
+      const { target, junction } = internal.state;
+      // A relation settles to a model of the schema.
+      for (const variant of target.kind === "variants"
+        ? Object.keys(target.entries)
+        : [undefined])
+        seen.add(internal.settleTarget(variant) as AnyModel);
+      if (junction?.model)
+        // A junction is a model of the schema too.
+        seen.add(internal.settleJunctionModel!() as AnyModel);
     }
-  }
+  const names = new Set([...seen].map((each) => each["~"].names.ts!));
   reached.set(model, names);
   return names;
 }
@@ -350,6 +324,7 @@ function detached(value: unknown): unknown {
   if (value instanceof Uint8Array) return value.slice();
   if (Object.getPrototypeOf(value) !== Object.prototype) return value;
   const copy: Row = {};
+  // A plain object: its prototype was checked above.
   for (const key of Object.keys(value))
     copy[key] = detached((value as Row)[key]);
   return copy;
@@ -366,37 +341,27 @@ const AFTER = {
   "may-have-committed": "may have committed",
 } as const;
 
-/** Run one hook; its failure, if any, as the error reported for it. */
-async function runHook(
-  hook: RuntimeHook,
-  rows: Row[],
-  event: OnEvent,
-  label: string
-): Promise<QueryError | undefined> {
-  try {
-    await hook(Object.freeze(rows), event);
-    return undefined;
-  } catch (thrown) {
-    const cause = thrown instanceof Error ? thrown : new Error(String(thrown));
-    const error = new QueryError(
-      `Extension "${NAME}" hook ${label} failed after the write ${AFTER[event.certainty]}; the write is not undone.`,
-      {
-        cause,
-        meta: {
-          method: "on",
-          model: event.model,
-          operation: event.operation,
-          commitCertainty: event.certainty,
-        },
-      }
-    );
-    // The hook is the application's own code: its error is handed back as
-    // it threw it (serialized diagnostics keep the redacted copy).
-    Object.defineProperty(error, "cause", {
-      value: cause,
-      configurable: true,
-      writable: true,
-    });
-    return error;
-  }
+/** A hook's failure, as the error reported for it. */
+function failure(thrown: unknown, event: OnEvent, label: string): QueryError {
+  const cause = thrown instanceof Error ? thrown : new Error(String(thrown));
+  const error = new QueryError(
+    `Extension "${NAME}" hook ${label} failed after the write ${AFTER[event.certainty]}; the write is not undone.`,
+    {
+      cause,
+      meta: {
+        method: "on",
+        model: event.model,
+        operation: event.operation,
+        commitCertainty: event.certainty,
+      },
+    }
+  );
+  // The hook is the application's own code: its error is handed back as
+  // it threw it (serialized diagnostics keep the redacted copy).
+  Object.defineProperty(error, "cause", {
+    value: cause,
+    configurable: true,
+    writable: true,
+  });
+  return error;
 }

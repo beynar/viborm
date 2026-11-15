@@ -961,22 +961,6 @@ export interface DatabaseAdapter {
     exists: (query: Sql) => Sql;
     /** Abort unless the provided SELECT returns no rows. */
     notExists: (query: Sql) => Sql;
-    /**
-     * A one-column SELECT answering 1 where `condition` holds (over `from`'s
-     * row when given), aborting the statement it is part of otherwise, NULL
-     * included: the guard a write carries for the row it produces, read as a
-     * scalar inside that write.
-     */
-    holds: (condition: Sql, from?: Sql) => Sql;
-    /**
-     * Where the dialect aggregates no subquery (SQL Server): the condition
-     * a judged update's `holds` judges over a candidate row, `condition` for
-     * a row `kept` keeps and true for any other. The update then keeps
-     * `kept AND guard = 1`, and a row it does not write is never refused,
-     * however the plan orders the two. Absent, it groups its candidates by
-     * key and keeps `MIN(guard) = 1`.
-     */
-    keptWhere?: (kept: Sql, condition: Sql) => Sql;
   };
 
   capabilities: DatabaseAdapterCapabilities;
@@ -1037,32 +1021,6 @@ export interface DatabaseAdapter {
     intersect: (...queries: Sql[]) => Sql;
     /** EXCEPT / MINUS */
     except: (left: Sql, right: Sql) => Sql;
-    /**
-     * `rows` as ONE FROM item `alias` whose columns are `typed.columns`,
-     * each typed as that column of the table `typed.from` reads under
-     * `typed.alias`: the rows a judged write produces, read before it writes
-     * them. `typed.head` is the empty read of those columns (`… WHERE
-     * FALSE`); a row lists its values in `columns`' order and may refer to
-     * the enclosing query. The form is the dialect's, because every one
-     * spends a different limit on the row count first: one `UNION ALL
-     * SELECT` arm per row (the default, MySQL: 65,535 arms measured) is a
-     * compound term each, refused past `SQLITE_MAX_COMPOUND_SELECT` (500) on
-     * SQLite, and one parser recursion each on PostgreSQL (`54001` at 8,000
-     * rows), where a `VALUES` list is neither. The bind budget stays the
-     * only bound on a chunk (ENG-3, review 2).
-     */
-    typedRows: (
-      typed: {
-        readonly head: Sql;
-        readonly from: Sql;
-        /** The table itself, unaliased: its row type names the columns' types. */
-        readonly table: Sql;
-        readonly alias: string;
-        readonly columns: readonly string[];
-      },
-      rows: readonly (readonly Sql[])[],
-      alias: string
-    ) => Sql;
   };
 
   /**

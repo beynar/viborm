@@ -18,12 +18,25 @@ import { ASSERTION_MARKER } from "@drivers/error-mapping";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import { NotFoundError, UniqueConstraintError } from "@errors";
-import { defineExtension } from "@extensions/define";
-import { PreparedDomain } from "@extensions/row-domain";
+import { FilterDomain } from "@extensions/row-domain";
 import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
 import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import { s } from "@schema";
+import {
+  accepts,
+  arg,
+  defaults,
+  deletes,
+  args as extArgs,
+  extension,
+  keep,
+  now,
+  oneOf,
+  rule,
+  unless,
+  when,
+} from "@src/index";
 import { v } from "@src/validation";
 import {
   type BoundRowsFixture,
@@ -310,7 +323,7 @@ describe("the key-preserving conjunction", () => {
   const engine = new EngineSchema(schema);
   const adapter = new SQLiteAdapter();
   const plain = new SqlQueries(engine, adapter);
-  const domain = new PreparedDomain(
+  const domain = new FilterDomain(
     {
       root: new Map([["post", [{ deletedAt: null }]]]),
       related: new Map(),
@@ -381,8 +394,11 @@ describe("one engine view", () => {
           [10, 14]
         )
       );
-      // As admission left it: the shorthand `{ deletedAt: null }` is `equals`.
-      expect([...first]).toContainEqual({ deletedAt: { equals: null } });
+      // As admission left it, its `when` folded per call: the shorthand
+      // `{ deletedAt: null }` is `equals`.
+      expect(JSON.stringify([...first])).toContain(
+        '{"deletedAt":{"equals":null}}'
+      );
       const second = await preparedIn(async () =>
         expect(await db.post.count({ where: { authorId: 2 } })).toBe(1)
       );
@@ -396,11 +412,12 @@ describe("one engine view", () => {
       const [only] = await readers(() => db.post.findMany({ deleted: "only" }));
       // Compared by identity alone: a `Queries` holds the client's schema,
       // which no assertion should print.
+      // Calls passing the same closed values share one view; others do not.
       expect({
         reused: scoped === again,
         plain: scoped === plain,
-        perMode: only === scoped,
-      }).toEqual({ reused: true, plain: false, perMode: false });
+        perValues: only === scoped,
+      }).toEqual({ reused: true, plain: false, perValues: false });
     } finally {
       await base.$disconnect();
     }
@@ -427,35 +444,27 @@ describe("one prepared predicate for every call value (W-K2a)", () => {
         ],
       });
       const db = base.$extends(
-        defineExtension({
-          name: "actor",
-          controls: {
-            actor: {
-              schema: v.object({ userId: v.string() }),
-              required: true,
-            },
-          },
-          rows: {
-            control: "actorMode",
-            default: "on",
-            models: {
-              doc: {
-                on: {
-                  root: {
-                    OR: [
-                      { ownerId: { control: "actor", path: "userId" } },
-                      {
-                        parent: {
-                          is: { ownerId: { control: "actor", path: "userId" } },
-                        },
-                      },
-                    ],
+        extension(
+          "actor",
+          extArgs({
+            actor: accepts(v.object({ userId: v.string() })).required(["doc"]),
+            actorMode: oneOf("on").default("on"),
+          }),
+          rule({
+            doc: {
+              root: when(arg("actorMode"), "on", {
+                OR: [
+                  { ownerId: arg("actor", "userId") },
+                  {
+                    parent: {
+                      is: { ownerId: arg("actor", "userId") },
+                    },
                   },
-                },
-              },
+                ],
+              }),
             },
-          },
-        })
+          })
+        )
       );
       const prepare = vi.spyOn(Queries.prototype, "prepareSelector");
       expect(
@@ -552,58 +561,56 @@ describe("tenancy, soft delete and an optional control: SQL unchanged (W-K1e)", 
       (typeof MODELS)[number],
       T
     >;
-  const tenancy = defineExtension({
-    name: "tenancy",
-    controls: { tenant: { schema: v.string(), required: true } },
-    rows: {
-      control: "scope",
-      default: "tenant",
-      models: each(() => ({
-        tenant: {
-          root: { tenantId: { control: "tenant" } },
-          related: { tenantId: { control: "tenant" } },
+  const tenancy = extension(
+    "tenancy",
+    extArgs({
+      tenant: accepts(v.string()).required(),
+      scope: oneOf("tenant", "all").default("tenant"),
+    }),
+    rule(
+      each(() => ({
+        root: when(arg("scope"), "tenant", { tenantId: arg("tenant") }),
+        related: when(arg("scope"), "tenant", { tenantId: arg("tenant") }),
+      }))
+    ),
+    defaults(each(() => ({ create: { tenantId: arg("tenant") } })))
+  );
+  const soft = extension(
+    "soft",
+    extArgs({
+      mode: oneOf("soft", "hard").on(deletes),
+      deleted: oneOf("without", "with", "only").default("without"),
+    }),
+    rule(
+      each(() => ({
+        root: [
+          when(arg("deleted"), "without", { deletedAt: null }),
+          when(arg("deleted"), "only", { deletedAt: { not: null } }),
+        ],
+        related: [
+          when(arg("deleted"), "without", { deletedAt: null }),
+          when(arg("deleted"), "only", { deletedAt: null }),
+        ],
+        delete: {
+          instead: keep(unless(arg("mode"), "hard", { deletedAt: now })),
         },
-        all: {},
-      })),
-    },
-    data: {
-      models: each(() => ({ create: { tenantId: { control: "tenant" } } })),
-    },
-  });
-  const soft = defineExtension({
-    name: "soft",
-    controls: { mode: { oneOf: ["soft", "hard"] } },
-    rows: {
-      control: "deleted",
-      default: "without",
-      models: each(() => ({
-        without: { root: { deletedAt: null }, related: { deletedAt: null } },
-        with: {},
-        only: {
-          root: { deletedAt: { not: null } },
-          related: { deletedAt: null },
-        },
-      })),
-    },
-    deletion: {
-      removeWhen: { mode: "hard" },
-      models: each(() => ({ at: "deletedAt", assign: {} })),
-    },
-  });
-  const lock = defineExtension({
-    name: "lock",
-    controls: {
-      expectedVersion: { schema: v.number(), on: ["update", "delete"] },
-    },
-    rows: {
-      control: "versionCheck",
-      default: "checked",
-      models: each(() => ({
-        checked: { root: { version: { control: "expectedVersion" } } },
-        unchecked: {},
-      })),
-    },
-  });
+      }))
+    )
+  );
+  const lock = extension(
+    "lock",
+    extArgs({
+      expectedVersion: accepts(v.number()).on(["update", "delete"]),
+      versionCheck: oneOf("checked", "unchecked").default("checked"),
+    }),
+    rule(
+      each(() => ({
+        root: when(arg("versionCheck"), "checked", {
+          version: arg("expectedVersion"),
+        }),
+      }))
+    )
+  );
 
   test("every statement of 27 calls matches the golden recorded before K1/K2", async () => {
     const driver = new RecordingSQLite3Driver();

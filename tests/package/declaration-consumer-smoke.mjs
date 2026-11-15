@@ -28,14 +28,14 @@ import { assertChain5ClientIntegrity } from "./emitted-client-integrity.mjs";
 import { repositoryRoot, withPackedConsumer } from "./packed-consumer.mjs";
 import { runPackageStage } from "./stage-progress.mjs";
 
-const db = `import { createClient, defineExtension, s } from "viborm";
+const db = `import { createClient, extension, methods, s } from "viborm";
 import { SQLite3Driver } from "viborm/sqlite3";
 export const user = s.model({ id: s.string().id(), name: s.string(), active: s.boolean(), posts: s.toMany(() => post) });
 export const post = s.model({ id: s.string().id(), title: s.string(), authorId: s.string(), author: s.toOne(() => user).fields("authorId").references("id") });
 export const sale = s.model({ id: s.string().id(), region: s.string(), channel: s.string(), amount: s.decimal({ precision: 10, scale: 2 }) });
 export const schema = { user, post, sale };
 export const db = createClient({ schema, driver: new SQLite3Driver() });
-export const extended = db.$extends(defineExtension({ name: "ready", client: () => ({ $ready: () => true }) }));
+export const extended = db.$extends(extension("ready", methods(() => ({ $ready: () => true }))));
 export const loadPosts = () => db.post.findMany({ include: { author: true } });
 export const grouped = () => db.sale.groupBy({ by: ["region", "channel"], _sum: { amount: true } });
 `;
@@ -85,22 +85,21 @@ export async function consumer() {
 }
 `;
 
-const extensionSource = `import { createClient, enableExtensions, s } from "viborm";
+const extensionSource = `import { createClient, extension, methods, s } from "viborm";
 import { SQLite3Driver } from "viborm/sqlite3";
-// The literals below are written in place, typed from the client they extend.
-enableExtensions();
+// The extensions below are written in place, typed from the client they extend.
 const model = s.model({ id: s.string().id(), name: s.string() });
 const zero = createClient({ schema: { model }, driver: new SQLite3Driver() });
-const one = zero.$extends({ name: "chain-1", client() { return { $one: () => 1 }; } });
-const two = one.$extends({ name: "chain-2", client(scope) { scope.$one(); return { $two: () => "two" }; } });
-const three = two.$extends({ name: "chain-3", client() { return { $three: () => true }; } });
-const four = three.$extends({ name: "chain-4", client() { return { $four: () => 4 }; } });
-const five = four.$extends({ name: "chain-5", client(scope) { scope.$one(); scope.$four(); return { $five: () => "five" }; } });
-const six = five.$extends({ name: "chain-6", client: () => ({ $six: () => 6 }) });
-const seven = six.$extends({ name: "chain-7", client: () => ({ $seven: () => 7 }) });
-const eight = seven.$extends({ name: "chain-8", client: () => ({ $eight: () => 8 }) });
-const nine = eight.$extends({ name: "chain-9", client: () => ({ $nine: () => 9 }) });
-export const ten = nine.$extends({ name: "chain-10", client(scope) { scope.$one(); scope.$five(); scope.$nine(); return { $ten: () => 10 }; } });
+const one = zero.$extends(extension("chain-1", methods(() => ({ $one: () => 1 }))));
+const two = one.$extends(extension("chain-2", methods((scope) => { scope.$one(); return { $two: () => "two" }; })));
+const three = two.$extends(extension("chain-3", methods(() => ({ $three: () => true }))));
+const four = three.$extends(extension("chain-4", methods(() => ({ $four: () => 4 }))));
+const five = four.$extends(extension("chain-5", methods((scope) => { scope.$one(); scope.$four(); return { $five: () => "five" }; })));
+const six = five.$extends(extension("chain-6", methods(() => ({ $six: () => 6 }))));
+const seven = six.$extends(extension("chain-7", methods(() => ({ $seven: () => 7 }))));
+const eight = seven.$extends(extension("chain-8", methods(() => ({ $eight: () => 8 }))));
+const nine = eight.$extends(extension("chain-9", methods(() => ({ $nine: () => 9 }))));
+export const ten = nine.$extends(extension("chain-10", methods((scope) => { scope.$one(); scope.$five(); scope.$nine(); return { $ten: () => 10 }; })));
 `;
 const extensionConsumer = `import { ten } from "./extends10.js";
 const one: number = ten.$one();

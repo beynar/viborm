@@ -11,6 +11,18 @@ import {
 } from "@errors";
 import { s } from "@schema";
 import { sql } from "@sql";
+import {
+  arg,
+  args,
+  deletes,
+  extension,
+  keep,
+  now,
+  oneOf,
+  rule,
+  unless,
+  when,
+} from "@src/index";
 import { expectChangeWalkingItsModel } from "@tests/contracts/engine/query/recursive-relation-filter-behavior";
 import {
   type RecursionSupport,
@@ -157,57 +169,129 @@ export function rowScopeSchema() {
   };
 }
 
-const modes = {
-  without: { root: { deletedAt: null }, related: { deletedAt: null } },
-  with: {},
-  only: { root: { deletedAt: { not: null } }, related: { deletedAt: null } },
-} as const;
-
 /** §1.1's step A over the four managed models. */
-const softDelete = {
-  name: "test.rows",
-  controls: { mode: { oneOf: ["soft", "hard"] } },
-  rows: {
-    control: "deleted",
-    default: "without",
-    models: {
-      author: modes,
-      post: modes,
-      comment: modes,
-      node: modes,
-      album: modes,
-      cover: modes,
+const softDelete = extension(
+  "test.rows",
+  args({
+    mode: oneOf("soft", "hard")
+      .on(deletes)
+      .models(["author", "post", "comment", "node"]),
+    deleted: oneOf("without", "with", "only").default("without"),
+  }),
+  rule({
+    author: {
+      root: [
+        when(arg("deleted"), "without", { deletedAt: null }),
+        when(arg("deleted"), "only", { deletedAt: { not: null } }),
+      ],
+      related: [
+        when(arg("deleted"), "without", { deletedAt: null }),
+        when(arg("deleted"), "only", { deletedAt: null }),
+      ],
+      delete: {
+        instead: keep(unless(arg("mode"), "hard", { deletedAt: now })),
+      },
     },
-  },
-  deletion: {
-    removeWhen: { mode: "hard" },
-    models: {
-      author: { at: "deletedAt" },
-      post: { at: "deletedAt" },
-      comment: { at: "deletedAt" },
-      node: { at: "deletedAt" },
+    post: {
+      root: [
+        when(arg("deleted"), "without", { deletedAt: null }),
+        when(arg("deleted"), "only", { deletedAt: { not: null } }),
+      ],
+      related: [
+        when(arg("deleted"), "without", { deletedAt: null }),
+        when(arg("deleted"), "only", { deletedAt: null }),
+      ],
+      delete: {
+        instead: keep(unless(arg("mode"), "hard", { deletedAt: now })),
+      },
     },
-  },
-} as const;
+    comment: {
+      root: [
+        when(arg("deleted"), "without", { deletedAt: null }),
+        when(arg("deleted"), "only", { deletedAt: { not: null } }),
+      ],
+      related: [
+        when(arg("deleted"), "without", { deletedAt: null }),
+        when(arg("deleted"), "only", { deletedAt: null }),
+      ],
+      delete: {
+        instead: keep(unless(arg("mode"), "hard", { deletedAt: now })),
+      },
+    },
+    node: {
+      root: [
+        when(arg("deleted"), "without", { deletedAt: null }),
+        when(arg("deleted"), "only", { deletedAt: { not: null } }),
+      ],
+      related: [
+        when(arg("deleted"), "without", { deletedAt: null }),
+        when(arg("deleted"), "only", { deletedAt: null }),
+      ],
+      delete: {
+        instead: keep(unless(arg("mode"), "hard", { deletedAt: now })),
+      },
+    },
+    album: {
+      root: [
+        when(arg("deleted"), "without", { deletedAt: null }),
+        when(arg("deleted"), "only", { deletedAt: { not: null } }),
+      ],
+      related: [
+        when(arg("deleted"), "without", { deletedAt: null }),
+        when(arg("deleted"), "only", { deletedAt: null }),
+      ],
+    },
+    cover: {
+      root: [
+        when(arg("deleted"), "without", { deletedAt: null }),
+        when(arg("deleted"), "only", { deletedAt: { not: null } }),
+      ],
+      related: [
+        when(arg("deleted"), "without", { deletedAt: null }),
+        when(arg("deleted"), "only", { deletedAt: null }),
+      ],
+    },
+  })
+);
 
 /**
  * A mode whose related domain is narrower than the default's: it hides every
  * comment. A delete under it still meets the restrict of the comments the
  * DEFAULT domain shows.
  */
-const narrowModes = {
-  ...modes,
-  narrow: { root: { deletedAt: null }, related: { deletedAt: null, id: -1 } },
-} as const;
-const narrowDelete = {
-  name: "test.narrow",
-  rows: {
-    control: "deleted",
-    default: "without",
-    models: { post: narrowModes, comment: narrowModes },
-  },
-  deletion: { models: { post: { at: "deletedAt" } } },
-} as const;
+const narrowDelete = extension(
+  "test.narrow",
+  args({
+    deleted: oneOf("without", "with", "only", "narrow").default("without"),
+  }),
+  rule({
+    post: {
+      root: [
+        when(arg("deleted"), "without", { deletedAt: null }),
+        when(arg("deleted"), "only", { deletedAt: { not: null } }),
+        when(arg("deleted"), "narrow", { deletedAt: null }),
+      ],
+      related: [
+        when(arg("deleted"), "without", { deletedAt: null }),
+        when(arg("deleted"), "only", { deletedAt: null }),
+        when(arg("deleted"), "narrow", { deletedAt: null, id: -1 }),
+      ],
+      delete: { instead: keep({ deletedAt: now }) },
+    },
+    comment: {
+      root: [
+        when(arg("deleted"), "without", { deletedAt: null }),
+        when(arg("deleted"), "only", { deletedAt: { not: null } }),
+        when(arg("deleted"), "narrow", { deletedAt: null }),
+      ],
+      related: [
+        when(arg("deleted"), "without", { deletedAt: null }),
+        when(arg("deleted"), "only", { deletedAt: null }),
+        when(arg("deleted"), "narrow", { deletedAt: null, id: -1 }),
+      ],
+    },
+  })
+);
 
 /** The seeded database, the base client and its rows client. */
 export async function openRowScopeFixture(driver: AnyDriver) {

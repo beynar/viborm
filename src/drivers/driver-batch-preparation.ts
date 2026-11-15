@@ -1,4 +1,3 @@
-import type { StatementMember } from "@extensions/official-facts";
 import {
   isVerbatimBatchQuery,
   markVerbatimBatchQuery,
@@ -15,8 +14,6 @@ import type { BatchQuery, QueryExecutionContext } from "./types";
 export interface PreparedAtomicBatch {
   readonly queries: BatchQuery[];
   readonly diagnosticParams: unknown[];
-  /** Each member's context, SQL and parameters, for statement log attribution. */
-  readonly members: StatementMember[];
 }
 
 export function prepareAtomicBatch(
@@ -59,14 +56,9 @@ export function prepareAtomicBatch(
     });
     return Object.freeze(snapshot);
   });
-  const members = preparedQueries.map((query, index) => ({
-    context: query.context ?? executionContext,
-    params: statementDiagnosticSnapshots[index] ?? EMPTY_DIAGNOSTIC_PARAMS,
-    sql: query.sql,
-  }));
   const diagnosticParams = discloseBatchParameters
     ? statementDiagnosticSnapshots
     : EMPTY_DIAGNOSTIC_PARAMS;
   if (discloseBatchParameters) Object.freeze(diagnosticParams);
-  return { queries: preparedQueries, diagnosticParams, members };
+  return { queries: preparedQueries, diagnosticParams };
 }

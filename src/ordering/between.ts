@@ -14,12 +14,28 @@
 // each time a row is placed into the same gap; past MAX_KEY_LENGTH, or
 // between tied keys, the expression is NULL, and the move respaces the list.
 
-import type { ComputedContext } from "../index";
+import type { ModelSql } from "../index";
 import { type Sql, sql } from "../sql/sql";
 import { MAX_KEY_LENGTH } from "./keys";
 
 const ZEROS = sql.raw(`'${"0".repeat(MAX_KEY_LENGTH)}'`);
 const POWERS = sql.raw("'1000000000'");
+
+/**
+ * Each field of `values` equal to its value, under `alias` where given; a
+ * NULL one is `nothing` (`IS NULL`, SurrealDB's `= NONE`).
+ */
+export const equal = (
+  q: ModelSql,
+  values: Readonly<Record<string, unknown>>,
+  nothing: string,
+  alias?: string
+): Sql[] =>
+  Object.entries(values).map(([field, value]) =>
+    value === null
+      ? sql`${q.column(field, alias)} ${sql.raw(nothing)}`
+      : sql`${q.column(field, alias)} = ${q.value(field, value)}`
+  );
 
 /** The dialect's spellings the key expression needs. */
 export interface Spelling {
@@ -49,27 +65,30 @@ export interface Spelling {
    * where a derived table may hold a WITH, spelled twice where not (T-SQL).
    */
   readonly selfJoin: (body: Sql, columns: Sql, on: Sql) => Sql;
-  /**
-   * An append's key, after `last` (one row, the list's last key `k`): the
-   * integer after it plus `next - 1`, or `first` on an empty list, with a
-   * random fraction of up to six digits; NULL past 10^9.
-   */
-  readonly appended: (last: Sql, first: Sql, next: Sql) => Sql;
 }
 
-const piped = (...parts: Sql[]) => sql`(${sql.join(parts, " || ")})`;
-const asText = (value: Sql) => sql`CAST(${value} AS TEXT)`;
+/** PostgreSQL's and SQLite's spellings of text. */
+const piped = {
+  concat: (...parts: Sql[]) => sql`(${sql.join(parts, " || ")})`,
+  text: (value: Sql) => sql`CAST(${value} AS TEXT)`,
+  trimZeros: (text: Sql) => sql`ltrim(${text}, '0')`,
+};
+const integer = (value: Sql) => sql`CAST(${value} AS INTEGER)`;
+const signed = (value: Sql) => sql`CAST(${value} AS SIGNED)`;
+/** What every dialect but SQL Server spells alike. */
+const standard = {
+  substr: (text: Sql, start: Sql, count?: Sql) =>
+    count === undefined
+      ? sql`substr(${text}, ${start})`
+      : sql`substr(${text}, ${start}, ${count})`,
+  length: (text: Sql) => sql`length(${text})`,
+  never: sql`FALSE`,
+  selfJoin: (body: Sql, columns: Sql, on: Sql) =>
+    sql`WITH g AS (${body}) SELECT ${columns} FROM g AS t JOIN g AS m ON ${on}`,
+};
 
-const plainSubstr = (text: Sql, start: Sql, count?: Sql) =>
-  count === undefined
-    ? sql`substr(${text}, ${start})`
-    : sql`substr(${text}, ${start}, ${count})`;
-const plainLength = (text: Sql) => sql`length(${text})`;
-const namedOnce = (body: Sql, columns: Sql, on: Sql) =>
-  sql`WITH g AS (${body}) SELECT ${columns} FROM g AS t JOIN g AS m ON ${on}`;
-
-/** A dialect a statement spells a key in: every one but SurrealDB, which computes keys itself. */
-export type KeyDialect = Exclude<ComputedContext["dialect"], "surrealql">;
+/** A dialect a statement spells a key in: every one but SurrealDB. */
+export type KeyDialect = Exclude<ModelSql["dialect"], "surrealql">;
 
 /** Every SQL dialect spells a key: a new one is a compile error here. */
 export const spellings: Readonly<Record<KeyDialect, Spelling>> = {
@@ -80,55 +99,34 @@ export const spellings: Readonly<Record<KeyDialect, Spelling>> = {
     small: (value) => sql`CAST(${value} AS integer)`,
     big: (value) => sql`CAST(${value} AS bigint)`,
     pad: (text, length) => sql`lpad(${text}, ${length}, '0')`,
-    concat: piped,
-    text: asText,
-    trimZeros: (text) => sql`ltrim(${text}, '0')`,
+    ...piped,
+    ...standard,
     fence: sql` OFFSET 0`,
-    substr: plainSubstr,
-    length: plainLength,
-    never: sql`FALSE`,
-    selfJoin: namedOnce,
-    appended: (last, first, next) =>
-      sql`(SELECT CASE WHEN n > 999999999 THEN NULL ELSE length(n::text)::text || n::text || rtrim(lpad(floor(random() * 1000000)::bigint::text, 6, '0'), '0') END FROM (SELECT CASE WHEN k IS NULL OR left(k, 1) = '0' THEN ${first} ELSE substr(k, 2, substr(k, 1, 1)::int)::bigint + ${next} END AS n FROM (${last}) AS m) AS x)`,
   },
   sqlite: {
     same: (a, b) => sql`${a} IS ${b}`,
     digits: (key) => sql`length(${key}) >= 2 AND ${key} NOT GLOB '*[^0-9]*'`,
-    small: (value) => sql`CAST(${value} AS INTEGER)`,
-    big: (value) => sql`CAST(${value} AS INTEGER)`,
+    small: integer,
+    big: integer,
     pad: (text, length) => sql`substr('000000000' || ${text}, -(${length}))`,
-    concat: piped,
-    text: asText,
-    trimZeros: (text) => sql`ltrim(${text}, '0')`,
+    ...piped,
+    ...standard,
     fence: sql.empty,
-    substr: plainSubstr,
-    length: plainLength,
-    never: sql`FALSE`,
-    selfJoin: namedOnce,
-    appended: (last, first, next) =>
-      sql`(SELECT CASE WHEN n > 999999999 THEN NULL ELSE length(n) || n || rtrim(printf('%06d', abs(random()) % 1000000), '0') END FROM (SELECT CASE WHEN k IS NULL OR substr(k, 1, 1) = '0' THEN ${first} ELSE CAST(substr(k, 2, CAST(substr(k, 1, 1) AS INTEGER)) AS INTEGER) + ${next} END AS n FROM (${last}) AS m) AS x)`,
   },
   mysql: {
     same: (a, b) => sql`${a} <=> ${b}`,
     digits: (key) => sql`${key} REGEXP '^[0-9]{2,}$'`,
-    small: (value) => sql`CAST(${value} AS SIGNED)`,
-    big: (value) => sql`CAST(${value} AS SIGNED)`,
+    small: signed,
+    big: signed,
     pad: (text, length) => sql`LPAD(${text}, ${length}, '0')`,
     concat: (...parts) => sql`CONCAT(${sql.join(parts, ", ")})`,
     text: (value) => sql`CAST(${value} AS CHAR)`,
     trimZeros: (text) => sql`TRIM(LEADING '0' FROM ${text})`,
+    ...standard,
     fence: sql.empty,
-    substr: plainSubstr,
-    length: plainLength,
-    never: sql`FALSE`,
-    selfJoin: namedOnce,
-    appended: (last, first, next) =>
-      sql`(SELECT CASE WHEN n > 999999999 THEN NULL ELSE CONCAT(CHAR_LENGTH(n), n, TRIM(TRAILING '0' FROM LPAD(FLOOR(RAND() * 1000000), 6, '0'))) END FROM (SELECT CASE WHEN k IS NULL OR LEFT(k, 1) = '0' THEN ${first} ELSE CAST(SUBSTRING(k, 2, CAST(LEFT(k, 1) AS UNSIGNED)) AS UNSIGNED) + ${next} END AS n FROM (${last}) AS m) AS x)`,
   },
   // T-SQL: SUBSTRING and LEN, no boolean literal, no WITH inside a derived
-  // table, and RAND() drawn once per statement (NEWID() is per row; its
-  // CHECKSUM taken modulo first, since ABS of the least INT overflows). LTRIM
-  // and RTRIM take the characters to trim from SQL Server 2022.
+  // table. LTRIM takes the characters to trim from SQL Server 2022.
   mssql: {
     same: (a, b) => sql`(${a} = ${b} OR (${a} IS NULL AND ${b} IS NULL))`,
     digits: (key) => sql`LEN(${key}) >= 2 AND ${key} NOT LIKE '%[^0-9]%'`,
@@ -146,8 +144,6 @@ export const spellings: Readonly<Record<KeyDialect, Spelling>> = {
     never: sql`1 = 0`,
     selfJoin: (body, columns, on) =>
       sql`SELECT ${columns} FROM (${body}) AS t JOIN (${body}) AS m ON ${on}`,
-    appended: (last, first, next) =>
-      sql`(SELECT CASE WHEN n > 999999999 THEN NULL ELSE CONCAT(LEN(CAST(n AS VARCHAR(10))), n, RTRIM(RIGHT(CONCAT('00000', ABS(CHECKSUM(NEWID()) % 1000000)), 6), '0')) END FROM (SELECT CASE WHEN k IS NULL OR LEFT(k, 1) = '0' THEN ${first} ELSE CAST(SUBSTRING(k, 2, CAST(LEFT(k, 1) AS INT)) AS BIGINT) + ${next} END AS n FROM (${last}) AS m) AS x)`,
   },
 };
 
@@ -202,12 +198,9 @@ export function between(
   const r = typeof jitter === "string" ? sql`${jitter}` : jitter;
   const rest = s.substr(hi, sql`${s.length(lo)} + 1`);
   const zeros = sql`${s.length(rest)} - ${s.length(s.trimZeros(rest))} + 1`;
-  const missing =
-    required === undefined
-      ? s.never
-      : required === "lower"
-        ? sql`${lo} IS NULL`
-        : sql`${hi} IS NULL`;
+  const missing = required
+    ? sql`${required === "lower" ? lo : hi} IS NULL`
+    : s.never;
   const key = sql`CASE
     WHEN ${missing} THEN NULL
     WHEN ${lo} IS NULL AND ${hi} IS NULL THEN ${s.concat(sql`'10'`, r)}

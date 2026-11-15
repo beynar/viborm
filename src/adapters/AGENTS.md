@@ -64,7 +64,7 @@ Without adapters, we'd have `if (postgres) ... else if (mysql) ...` scattered ev
 | `orderBy` | asc, desc, nullsFirst, nullsLast | Sorting |
 | `clauses` | select, where, orderBy, limit | Query structure |
 | `subqueries` | scalar, correlate, existsCheck, isolated | Relation filters (SQLite: a derived table where the driver declares `deepExpressions: false`, which also nests a conjunction of many members as a balanced tree and isolates a nesting level's row domain; `isolated` is the identity elsewhere) |
-| `setOperations` | union, unionAll, intersect, except, typedRows | `typedRows`: the rows a judged write produces, typed by the table. One `UNION ALL SELECT` arm per row by default (MySQL); a `VALUES` list after the typed head on SQLite (`SQLITE_MAX_COMPOUND_SELECT`, 500, does not count it); a `VALUES` list typed by its first row on PostgreSQL (each `UNION ALL` arm is one parser recursion: `54001` at 8,000 rows). The bind budget is a chunk's only bound |
+| `setOperations` | union, unionAll, intersect, except | Compound queries |
 | `mutations` | insert, update, delete, returning | Write operations |
 
 ---
@@ -232,8 +232,8 @@ as an `EXISTS` over the query as a derived table with named columns, and
 `(k1, k2) <= (v1, v2)` column by column; where it is present the engine also
 takes its general cursor window instead of the row-value seek. T-SQL
 aggregates no subquery (Msg 130), so a judged update cannot keep
-`HAVING MIN(guard) = 1` per key: `assertions.keptWhere` (this adapter alone)
-folds the update's filter into the guard's own `CASE`, which then judges
+`HAVING MIN(guard) = 1` per key: `keptWhere`, in SQL Server's judged-write
+spelling alone (`databases/mssql/judged.ts`), folds the update's filter into the guard's own `CASE`, which then judges
 only the rows the filter keeps, and the engine keeps `kept AND guard = 1`.
 Recursive CTEs are refused (no `WITH` in a subquery, no `UNION` in a
 recursive member).
@@ -324,10 +324,20 @@ slower with it (the 10× page read three depths: 385 ms without, 260 ms
 with), and the largest reads stay well inside 100 KB. Absent, nothing
 escalates.
 
-`assertions.holds` (a write's judgement of the row it produces) fails with its
-own sentinel, under the `__viborm_judged__` alias: PostgreSQL a text sublink
+A judged write's spellings are not adapter members: an application whose
+extensions judge no written row would carry them. `judged.ts` holds them by
+the dialect a driver declares, each dialect's in `databases/<dialect>/judged.ts`,
+and only what judges written rows (`src/extensions/judge.ts`) imports it; the
+call's adapter quotes. `typedRows` is the rows a judged write produces, typed
+by the table: one `UNION ALL SELECT` arm per row on MySQL and SQL Server; a `VALUES` list
+after the typed head on SQLite (`SQLITE_MAX_COMPOUND_SELECT`, 500, does not
+count it); a `VALUES` list typed by its first row on PostgreSQL (each `UNION
+ALL` arm is one parser recursion: `54001` at 8,000 rows). The bind budget is
+a chunk's only bound. `holds` (a write's judgement of the row it produces)
+fails with its own sentinel, under the `__viborm_judged__` alias: PostgreSQL a text sublink
 cast to `integer` (22P02 naming `__viborm_refused__`), SQLite a JSON path
-naming it, MySQL an invalid JSON path (3143). `exists`/`notExists` (a batch's
+naming it, MySQL an invalid JSON path (3143), SQL Server a conversion error
+naming it (Msg 245). `exists`/`notExists` (a batch's
 premises) keep `__viborm_assert__` and their division by zero or invalid JSON
 text; `src/drivers/error-mapping.ts` tells the two apart.
 

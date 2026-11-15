@@ -1,6 +1,6 @@
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
-import { executeNativeBatch } from "@client/array-transaction-native-batch";
+import { executeNativeBatch } from "@client/array-transaction";
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { Driver } from "@drivers";

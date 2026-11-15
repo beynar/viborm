@@ -191,7 +191,7 @@ The package root and `viborm/client` expose four schema-bound utilities:
 - `renderSchemaType(schema)` renders the complete model graph as one recursive
   `VibORMSchema` declaration.
 
-These are schema-only views. They do not apply request extensions, client-level
+These are schema-only views. They do not apply extensions, client-level
 `defaultOmit()`, cache options, driver capability checks, or deferred upsert-arm
 execution. A custom JSON scalar renders as `unknown`: Standard Schema carries
 its output only in a TypeScript generic, which does not exist at runtime. Do not
@@ -317,71 +317,76 @@ We need to intercept: (1) model name, (2) operation name, (3) the actual call. E
 
 ## Extension ownership
 
-`$extends()` creates an immutable derived client carrying a frozen compiled
-chain. The public extension language has exactly ten capabilities: `request`,
-`query`, `statement`, `observe`, `client`, `model`, `controls`, `rows`,
-`deletion`, and `data`. Do not add another hook registry, priority system,
-public operation token, or deferred-operation type.
+`$extends()` takes one extension value, `extension(name, ...parts)`
+(`src/extensions/extension.ts`), and returns an immutable derived client
+carrying the resolved chain. Root Rule 6 is the contract: the parts `call`,
+`around`, `unit`, `args`, `rule`, `defaults`, `methods`, `fields` and
+`disclosure`, and the words that carry the rest. `$extends()` has no other
+signature: no object literal, no client factory, no two-step official form.
+Do not add another hook registry, priority system, public operation token,
+or deferred-operation type.
 
-`$extends(factory)` supplies the exact receiving root view to a synchronous
-client factory. The factory applies ordinary definitions through that view's
-`$extends`; it is composition at the client boundary, not a chain capability.
-Its contextual argument carries the receiving schema and extension state into
-schema-dependent factories such as `permissions`. Core must not name those extensions.
 `ClientTypeState<C, X>` carries inference metadata under a private optional
-symbol, so factories can recover the existing config and extension state without
-reverse-inferencing the entire client surface. Its opaque object alternative
-preserves structural client assignability; it is not runtime provenance or an
-authorization boundary. The public result helpers require the symbol key and
-check the complete client surface before publishing results, so metadata alone
-cannot promise methods that the client does not have.
+symbol, so a part can be typed against the client `$extends` is called on
+(and `parts<Of>()` can bind a client type) without reverse-inferencing the
+entire client surface. Its opaque object alternative preserves structural
+client assignability; it is not runtime provenance or an authorization
+boundary. The public result helpers require the symbol key and check the
+complete client surface before publishing results, so metadata alone cannot
+promise methods that the client does not have.
 
-`src/extensions/` owns the one normalized definition boundary, immutable chain,
-method binding, and one runner per execution capability. A definition's
-`controls`, `rows`, `deletion` and `data` are trusted (owner decision,
-2026-09-30): TypeScript is their only check, and nothing refuses a wrong declaration at
-runtime; do not add a declaration check or a hostile-read guard for them.
-Call-time admission of a control value stays, as user input, with the two
-guards plan v4 names: a `required` control the call left out, and a caller
-writing a field an extension's `data` writes. A resolved chain keeps
-only compiled execution handlers plus the client/model factories that must run
-for each concrete view; it never retains a second full extension definition.
-`array-admission.ts` owns only the extension query-admission latch. This client
-layer still owns candidate authority, request triggering, substrate selection,
-provider dispatch, parsing, result order, and commit publication.
+`src/extensions/` owns the chain (`chain.ts`, the one mechanism, which names
+no part and no official extension) and every part's code; each part writes
+its own state on the chain and that state carries the code that runs it.
+This client layer asks the chain (`chain.args.admit`,
+`chain.watch.watch`, `chain.observation.run`, …) and imports no builder,
+so a client that applies no extension carries none of their code (646 bytes
+of `src/extensions` in the PostgreSQL application, measured with
+`node scripts/extension-bytes.mjs` on `f8ed6cbe1`:
+`transact` and `scopeOf`, how every transaction scope runs, which replaced
+the rail branches the client and the array executor held;
+`isAppliedExtension`; the `SCOPE` symbol). A part is trusted code made by the builders: there
+is no hostile-part read. Call-time admission of an
+argument's value stays, as user input (`arguments.ts`): a value its
+declaration refuses, a `required` argument the call left out, a `bound` one
+a call passes. This client layer still owns candidate authority, request
+triggering, substrate selection, provider dispatch, parsing, result order,
+and commit publication.
 
-| Generic owner | Responsibility |
+| Owner | Responsibility |
 |---|---|
-| `src/extensions/definition.ts` | Public envelope, `defineExtension()`, exact top-level guard, hostile-definition normalization of the six handler members; `controls`, `rows`, `deletion` and `data` bound as written (trusted, owner decision 2026-09-30) |
-| `src/extensions/chain.ts` | The single frozen resolved chain, composition, official capability attachment, compiled handler lookup; every extension's `data` merged per model, kind and field, a later extension owning a field it names |
-| `src/extensions/controls.ts` | Declared-control types, placement per (model, operation), and the one admission of a call's controls, which refuses a `required` control the call left out; the `rows` and `data` slots of the extension state (`RowsModels`, `DefinitionData`) |
-| `src/extensions/rows.ts` | Row domains, tombstones, stamps and row identity bound once per application; a call's facts looked up from its admitted controls, the one walker that puts a control's value where a filter or a stamp names it, and the per-value memo (256 entries, oldest evicted) of bound domains |
-| `src/query-engine/raptor3/commands/commands.ts` (`Commands.stamp`) | The engine side of `data`: one owner admits a model's stamp per occurrence and attempt and puts it under the occurrence: a field the caller writes, by name or through the relation holding it, stays the caller's; every create and update site calls it (see `src/query-engine/raptor3/AGENTS.md`) |
-| `src/extensions/methods.ts` | Client/model factory types, collisions, state merging, and concrete-view binding; on a chain that declares `data`, the model delegate's five narrowed writes (`ExtensionModelDelegate`) |
-| `src/extensions/result.ts` | `result` (computed fields): the definition's snapshot, the chain's fields per model with each need resolved, the per-call plan (needs read, computed names removed from `select`/`omit`) made after default omit, and the finish that copies each row, strips the injected needs and attaches each field as a lazy memoized getter over the fetched values; applied once per operation by `PendingOperation` and once per member by `executeArrayTransaction` |
-| `src/extensions/result-types.ts` | The `result` slot of the extension state, the definition's `ResultInference` (its own `$extends` type parameter, so `compute` is typed by its `needs`); the computed delegate (`ComputedOperations`, `types.ts`) is reached only by a chain whose slot is not empty (`ExtensionModelClient`) |
-| `src/extensions/request.ts` | Synchronous request-transform contract and runner |
-| `src/extensions/query.ts` | Query interception, authoritative continuation, and write-outcome rail |
-| `src/extensions/statement.ts` | Trusted `Sql` transformation contract and runner |
-| `src/extensions/observation.ts` | Public/protected lifecycle units, completion onion, and contained observer runner |
-| `src/extensions/array-admission.ts` | Extension-only native/fallback admission latch; never core array dispatch |
-| `src/extensions/index.ts` | Intentional public/internal extension exports |
+| `src/extensions/extension.ts` | `extension(name, ...parts)` (each part an `ExtensionPart` that joins the chain with its own state), `isAppliedExtension` |
+| `src/extensions/chain.ts`, `chain-state.ts` | The one mechanism: each part's phases (`declare`, `join`, `seal`), what two parts of one extension meet through (`Application`: `owner`, `bring`, `shared`), and the resolved chain every part writes on |
+| `src/extensions/call.ts`, `call-words.ts`, `targeted.ts`, `request.ts`, `watch-part.ts`, `written.ts` | `call` and `around`, their first and second moments, `inner`; `watch`, `settled`, `again`, `via`; what tells a watch of the rows a write wrote |
+| `src/extensions/arguments.ts`, `args.ts` | `args`, `oneOf`, `accepts`, `bound` and the modifiers; placement per (model, operation) and the one admission of a call's arguments |
+| `src/extensions/rule.ts`, `rule-words.ts`, `judge-words.ts`, `confine.ts`, `admission.ts`, `call-rows.ts`, `call-values.ts`, `rows.ts`, `row-domain.ts`, `layers.ts`, `entries.ts`, `judge.ts`, `produced.ts`, `projection.ts`, `projected.ts`, `gates.ts`, `kept.ts`, `reads.ts` | `rule` and its words; each entry admitted once per schema, bound once per application; what a call's values are to the rules that read them, brought by the words that read a call (`call-values.ts`); what `only`, `check`, `gate`, `facts`, `keep`, `lazy` and `within` bring |
+| `src/extensions/defaults.ts`, `order.ts`, `stamps.ts`, `plain-domain.ts` | `defaults` and `omitted`: default order, default data, default omission, without the filter domain |
+| `src/query-engine/raptor3/commands/commands.ts` (`Commands.stamp`) | The engine side of default data: one owner admits a model's stamp per occurrence and attempt and puts it under the occurrence: a field the caller writes, by name or through the relation holding it, stays the caller's; every create and update site calls it (see `src/query-engine/raptor3/AGENTS.md`) |
+| `src/extensions/methods-part.ts`, `methods.ts` | `methods(factory)` (client methods) and `modelMethods(factory)` (model methods): one factory per view (eager on the client `$extends` returns, lazy elsewhere), collisions, `scope.$bind`; on a chain that declares create data, the model delegate's five narrowed writes (`ExtensionModelDelegate`) |
+| `src/extensions/fields.ts`, `result.ts`, `result-types.ts` | `fields` (computed fields): the per-call plan (needs read, computed names removed from `select`/`omit`) made after default omit, and the finish that copies each row and attaches each field as a lazy memoized getter; applied once per operation by `PendingOperation` and once per member by `executeArrayTransaction` |
+| `src/extensions/unit.ts`, `unit-words.ts`, `unit-source.ts`, `observation.ts`, `statement.ts` | `unit`, its words and `work`; the one generation of unit handlers; rewriting units |
+| `src/extensions/query.ts`, `coordination.ts`, `array-admission.ts`, `settled.ts` | The authoritative continuation; `transact`, how every transaction scope runs: what a call registers waits in its scope, whose collector the first registration installs by value (`collect`: `settled`, the part that watches writes, `unit` parts), so a transaction where nothing registers runs none of it; the `admit` hook that starts array members' handlers before anything is sent, never core array dispatch |
+| `src/extensions/key.ts`, `codec.ts`, `database.ts`, `origin.ts` | `key`, `codec`, `database`; the symbols by which a word finds its call, run or scope |
+| `src/extensions/disclosure.ts`, `disclosed.ts` | `disclosure`: what an error thrown by a call of the chain may carry; `disclosed`: the copy of a failure a log or a span may show |
+| `src/extensions/on.ts`, `parts.ts`, `contract.ts`, `index.ts` | `target` and the operation sets; `parts<Of>()`; the vocabulary's types; the intentional surface |
 
 The result context a delegate reads (`ClientDefaults`) has one owner per
 fact: the config's relation omission (`ClientRelationOmitContext`) and, on a
-chain with `rows`, the shallow surfaces of the models those `rows` name
-(`ClientRowsContext`, `types.ts`, from the extension state's `rows` slot,
-filled by `RowsModels` in `controls.ts`). `result-types.ts` alone turns that
+chain whose rules can hide a model's rows (`read.where`, `root`, `related`
+or a `lazy` entry: `RuleFacts` in `contract.ts`), the shallow surfaces of
+those models (`ClientRowsContext`, `types.ts`, from the extension state's
+`rows` slot,
+filled by `RuleFacts` in `contract.ts`). `result-types.ts` alone turns that
 into `| null` on a singular slot whose target a relation read can find hidden
 (`HiddenTargetNull`): the model delegates, `$withCache()`, the transaction
-client, `ExtendedOperationResult` and model-mapped query handlers
-(`QueryHandlerMap<C, X["rows"]>`, `src/extensions/query.ts`) read the same
+client, `ExtendedOperationResult` and a typed `around`'s `run()`
+(`CallResult`, `contract.ts`) read the same
 context through `ContextualOperationResult`. `OperationResult`,
 `InferDatabase` and `renderOperationResultType` are schema-only and say so.
 
 The payloads have one owner for what an extension's `data` writes on
 create: the extension state's `data` slot (`StampedFields` per model, filled
-by `DefinitionData` in `controls.ts` from each entry's `create` fields; an
+by `DefaultsFacts` in `contract.ts` from each entry's `create` fields; an
 update's fields are optional already, so `update` adds nothing). On a chain
 whose slot is not empty, `ExtensionModelDelegate` (`src/extensions/methods.ts`)
 swaps a model's five write operations for `StampedOperations` (`types.ts`),
@@ -405,31 +410,36 @@ type parameter). A chain without create `data` the types can name keeps
 `Client` exactly; `Client` itself takes no `data` parameter (as one, it cost
 the instrumentation type program +14% types and +26% instantiations,
 measured at U3). `OperationPayload` stays the schema-only payload, so what
-reads it (a query handler's argument, for one) is not narrowed: a required
+reads it (a typed `around`'s `run.input`, for one) is not narrowed: a required
 stamped field is asked for there, and the runtime accepts it left out.
 
 Official implementations stay at `src/cache/extension.ts`,
-`src/instrumentation/extension.ts`, and
-`src/client/default-omit-extension.ts`; `src/soft-delete/index.ts` is an
-ordinary definition over public exports only. Do not recreate a generic extension
-representation or runner in `src/client/`, `src/query-engine/`, or
-`src/drivers/`.
+`src/instrumentation/extension.ts`, `src/client/default-omit-extension.ts`,
+`src/soft-delete/index.ts`, `src/permissions/`, `src/on/index.ts` and
+`src/ordering/`, each an ordinary `extension(…)` of public parts, importing
+public names only, all seven (root Rule 6). Do not
+recreate a generic extension representation or runner in `src/client/`,
+`src/query-engine/`, or `src/drivers/`.
 
-- Request transforms run lazily before default omit and core validation.
-- Query interceptors run around one prepared logical operation. Once
-  `proceed()` starts, its result/error is authoritative.
-- Statement transforms run once per materialized typed `Sql`, after statement
-  observation and before rendering. Verbatim unsafe raw is excluded.
-- Observers see only frozen public lifecycle/completion facts; their returned
-  promise never controls the application.
-- Client/model factories add typed methods to the derived scope.
+- First moments (`call`, `around`) run lazily, in chain order, before
+  default omit and core validation, after the chain's arguments are taken
+  out of the call's.
+- An `around`'s second moment runs around one prepared logical operation.
+  Once `run()` starts, its result or error is authoritative.
+- Rewriting units run once per logical `Sql`, before rendering. Verbatim
+  unsafe raw is excluded.
+- Unit handlers run around real units; core awaits them, and what they throw
+  fails the call.
+- `methods` and `modelMethods` add typed client and model methods to the
+  derived scope.
 
-The default-omit extension (and `rows`) may follow any extension at runtime: a
-method runs through the whole chain it is called on. TypeScript refuses it
-after a schema-mapped query or a client/model factory typed against the client
-it extends (one of its signatures takes a typed argument), whose result types
-were fixed before omission; a factory taking `never`, `unknown` or nothing types
-its methods' results from their delegate (`DelegateOperationResult`).
+`defaultOmit()` (and a `rule` that hides rows) may follow any extension at
+runtime: a method runs through the whole chain it is called on. TypeScript
+refuses it after a part that declares the `consumer` fact (an `around` that
+names one model and one operation, a `methods` or `modelMethods` factory
+that takes `scope`),
+whose result types were fixed before omission; a factory taking nothing
+types its methods' results from their delegate (`DelegateOperationResult`).
 
 ## Caching integration
 
@@ -580,12 +590,15 @@ and cardinality once against its full query list; a multi-statement member then
 trusts and consumes its exact result slice. Pass every original `QueryResult`,
 including `insertId`, to its consumer; never rewrap it or strip its fields.
 
-`array-transaction-native-batch.ts` is the single owner of provider dispatch
-attribution, normalized batch cardinality, and native-batch transaction errors.
-The legacy, observe-only, and intercepted shells keep their preparation and
-result-window loops local: extracting those measured hot loops adds per-member
-CPU and per-array allocation. Keep the unextended legacy shell monomorphic and
-free of extension slots, outcome collectors, and async helper frames.
+`array-transaction.ts` is the one executor of `$transaction([...])` and the
+single owner of provider dispatch attribution, normalized batch cardinality,
+and native-batch transaction errors. A member gets a slot (its child, its
+handlers' promise) only where the chain may intercept it (`coordination.admit`)
+or observes a native batch's units; then its unit is entered, its arguments
+admitted and its handlers started before anything is sent. The plain path
+allocates no slot, deferred result, outcome collector or admission callback,
+and the chain's hooks are optional calls on its state, so an application
+without extension carries the executor and nothing of the `around` parts.
 
 ## Coverage Gate
 

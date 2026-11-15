@@ -84,6 +84,7 @@ import {
   firstRow,
   isAggregate,
   isParameterOperand,
+  type KnownRow,
   type Leaf,
   type LoweringFrame,
   memberRead,
@@ -208,12 +209,10 @@ export class SqlQueries extends Queries {
   readonly #rows = new Map<string, AnyModel>();
   /**
    * The produced row a judgement is lowering over ({@link holds}): the alias
-   * it is read under, and per field whether the value the write sets is
-   * null, where the write states it.
+   * it is read under, per field whether the value the write sets is null,
+   * where the write states it, and what folds that into a predicate over it.
    */
-  known:
-    | { readonly alias: string; readonly nulls: ReadonlyMap<string, boolean> }
-    | undefined;
+  declare known: KnownRow | undefined;
   /**
    * The statement part lowering here reads a masked window (K5): its read-
    * gated columns are already NULL where their rows do not carry them.
@@ -862,21 +861,15 @@ export class SqlQueries extends Queries {
     return excluded === undefined ||
       excluded.length === 0 ||
       this.#negative ||
-      this.#unbounded > 0
+      this.unbounded > 0
       ? undefined
       : this.domain?.bound(model, excluded);
   }
-  /** How many read gates are lowering here: none of their sets is bounded. */
-  #unbounded = 0;
-  /** `fn` lowered where no set it reads is bounded: what masks a value tests nothing. */
-  unbounded<T>(fn: () => T): T {
-    this.#unbounded++;
-    try {
-      return fn();
-    } finally {
-      this.#unbounded--;
-    }
-  }
+  /**
+   * How many read gates are lowering here: none of their sets is bounded,
+   * since what masks a value tests nothing.
+   */
+  unbounded = 0;
   /** The relation bodies lowering here, innermost last ({@link Enclosing}). */
   readonly #enclosing: Enclosing[] = [];
   /** `lower`, read inside `enclosing`'s body ({@link Enclosing}). */
@@ -994,7 +987,7 @@ export class SqlQueries extends Queries {
         new RowsOf(
           model,
           alias,
-          options?.update && { verb: "update", writes: options.update },
+          options?.update && { kind: "update", writes: options.update },
           options?.where
         ),
     };
@@ -1782,31 +1775,22 @@ export class SqlQueries extends Queries {
    * itself: they lower inside the layer.
    */
   #guarded(model: AnyModel, field: string, column: Sql, alias?: string): Sql {
-    return this.#lowersLayer || this.#masked || !this.domain
+    return this.#lowersLayer || this.#masked
       ? column
-      : this.domain.guarded(this, model, field, column, alias);
+      : (this.domain?.project?.guarded(this, model, field, column, alias) ??
+          column);
   }
   /** `model`'s `field` at `alias` as an operand the caller wrote ({@link guarded}). */
   #operand(model: AnyModel, field: string, alias?: string): Sql {
     return this.#guarded(model, field, this.column(model, field, alias), alias);
   }
+  /** `model`'s read-gated fields, where the call's domain gates some (K5). */
+  #gates(model: AnyModel) {
+    return this.domain?.project?.projected(model)?.gates;
+  }
   /** Whether a caller's operand over `model`'s `field` may read NULL (K5). */
   #gatedHere(model: AnyModel, field: string): boolean {
-    return (
-      !this.#lowersLayer &&
-      this.domain?.projected(model)?.gates.has(field) === true
-    );
-  }
-  /**
-   * Whether `model`'s rows lower through a masked window: a read-gated field
-   * the call reads under aggregation, where a gate repeated per expression
-   * would bind its values again in every copy.
-   */
-  #masks(model: AnyModel): boolean {
-    return (
-      !(this.#lowersLayer || this.#masked) &&
-      (this.domain?.projected(model)?.gates.size ?? 0) > 0
-    );
+    return !this.#lowersLayer && this.#gates(model)?.has(field) === true;
   }
   /** `fn` lowered over a masked window ({@link masked}). */
   #overMasked<T>(fn: () => T): T {
@@ -4078,7 +4062,9 @@ export class SqlQueries extends Queries {
     });
     // A read-gated model aggregates a masked window (K5): its gate lowered
     // once per row, not once per aggregate over the field.
-    if (!((page.limit ?? page.offset ?? page.cursor) || this.#masks(model)))
+    if (
+      !((page.limit ?? page.offset ?? page.cursor) || this.#gates(model)?.size)
+    )
       return aggregate(inner, this.table(model, inner), filter);
     const window = assembleAdapterSelect(this.adapter, {
       columns: fields.length
@@ -4421,23 +4407,13 @@ export class SqlQueries extends Queries {
       expression = this.projectedColumn(projection.model, field.name, alias);
     } else if (field.kind === "sentinel") {
       expression = this.#cast(this.#literal(1), "integer");
-    } else if (field.kind === "evidence") {
-      expression = this.domain!.evidence(
+    } else if (field.kind === "evidence" || field.kind === "gate") {
+      expression = this.domain!.project!.lower(
         this,
         projection.model,
         field,
         alias,
         visible
-      );
-    } else if (field.kind === "gate") {
-      expression = this.truth(
-        this.domain!.gateHolds(
-          this,
-          projection.model,
-          field.gate,
-          alias,
-          visible
-        )
       );
     } else if (field.kind === "relation") {
       expression = this.#duplicateMembershipGuard(
@@ -5214,28 +5190,13 @@ export class SqlQueries extends Queries {
     // A read-gated model groups a masked window of its filtered rows (K5): a
     // gate lowered once per row, where a gate repeated in the grouping, the
     // projection and the order would be three expressions to the provider.
-    if (this.#masks(model)) {
-      const inner = this.alias();
-      const window = assembleAdapterSelect(this.adapter, {
-        columns: listed(
-          this.schema
-            .storedFields(model)
-            .map((field) =>
-              this.#named(
-                this.#operand(model, field, inner),
-                this.columnName(model, field)
-              )
-            )
-        ),
-        from: this.table(model, inner),
-        where: this.lowerWhere(model, args.where, inner),
-      });
+    const window = this.domain?.project?.window(this, model, args.where);
+    if (window)
       return this.#overMasked(() =>
         this.#grouped(model, args, alias, by, grouped, {
           from: this.#aside(window, alias),
         })
       );
-    }
     return this.#grouped(model, args, alias, by, grouped, {
       from: this.table(model, alias),
       where: this.lowerWhere(model, args.where, alias),
@@ -5251,13 +5212,12 @@ export class SqlQueries extends Queries {
   ): Query {
     const aggregates = this.#prepareAggregates(model, args);
     const fields: Record<string, Shape | Leaf> = {};
-    const gates = this.#masked
-      ? this.domain?.projected(model)?.gates
-      : undefined;
     const columns: Sql[] = by.map((field) => {
       const leaf = this.scalarShape(model, field);
       // A masked group reads a gated key as absent: the NULL group.
-      fields[field] = gates?.has(field) ? { ...leaf, nullable: true } : leaf;
+      fields[field] = this.#gatedHere(model, field)
+        ? { ...leaf, nullable: true }
+        : leaf;
       return this.#named(this.projectedColumn(model, field, alias), field);
     });
     for (const [name, expression] of aggregates.columns(alias)) {

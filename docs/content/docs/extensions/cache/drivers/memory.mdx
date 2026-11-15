@@ -19,7 +19,11 @@ const client = createClient({ schema: { user, post }, driver }).$extends(
 );
 ```
 
-The `MemoryCache` constructor takes no arguments.
+`new MemoryCache({ maxEntries })` keeps at most `maxEntries` entries (1024
+by default) and drops the least recently used past it. `maxEntries` is a
+positive safe integer and the only option: anything else is refused with a
+`CacheConfigurationError` (`MemoryCache options must contain a positive
+safe-integer maxEntries only.`).
 
 ## Characteristics
 
@@ -27,7 +31,7 @@ The `MemoryCache` constructor takes no arguments.
 |----------|-------|
 | Persistence | None - data lost on restart |
 | Distribution | Single instance only |
-| TTL Handling | Timer eviction at storage TTL; staleness checked at read time |
+| TTL Handling | Expired entries deleted on read and by a sweep, at least once a minute; staleness checked at read time |
 | Dependencies | None |
 | Performance | Fastest (in-process) |
 
@@ -35,7 +39,7 @@ The `MemoryCache` constructor takes no arguments.
 
 ### Automatic Eviction
 
-Each entry is stored with a per-key timer that deletes it once the storage TTL elapses (the TTL alone, or TTL plus the stale window when SWR is enabled). This keeps memory bounded. The timers are `unref`'d, so they never keep a Node.js process alive.
+Each entry is stored until its storage TTL elapses (the TTL alone, or TTL plus the stale window when SWR is enabled). A read of an expired entry deletes it, and one timer deletes every expired entry, at least once a minute while the store holds entries. With `maxEntries`, this keeps memory bounded. The timer is `unref`'d, so it never keeps a Node.js process alive.
 
 Within the storage window, staleness is checked at read time:
 

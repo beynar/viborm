@@ -178,7 +178,7 @@ assert.equal(created.tenantId, "acme");
 assert.deepEqual(sorted(await db.post.findMany({ tenant: "acme" })), sorted([seeded, created]));
 assert.equal((await db.post.findMany({ tenant: "acme", scope: "all" })).length, 3);
 assert.deepEqual(issues(await failure(db.post.findMany())), [
-  { path: "tenant", message: 'Control "tenant" is required' },
+  { path: "tenant", message: 'Argument "tenant" is required' },
 ]);
 // A tenantId written by hand is the caller's: the row goes to that tenant,
 // and the call's tenant still reads only its own rows.
@@ -208,7 +208,7 @@ assert.deepEqual(
   [["acme", "ann"]]
 );
 assert.deepEqual(issues(await failure(stamped.post.create({ data: { title }, tenant: "acme" }))), [
-  { path: "actor", message: 'Control "actor" is required' },
+  { path: "actor", message: 'Argument "actor" is required' },
 ]);
 const moved = await stamped.post.update({
   where: { id: written.id },
@@ -246,7 +246,7 @@ const session = { userId: "ann" };
     (async () => {
 ${tenancyUse}    })()
   );
-  assert.deepEqual(issues(refused), [{ path: "tenant", message: 'Control "tenant" is required' }]);
+  assert.deepEqual(issues(refused), [{ path: "tenant", message: 'Argument "tenant" is required' }]);
   const rows = await base.post.findMany({ where: { title } });
   assert.deepEqual(
     rows.map((row) => row.tenantId),

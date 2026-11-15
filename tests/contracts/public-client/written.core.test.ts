@@ -7,9 +7,14 @@
 
 import { QueryError } from "@errors";
 import {
-  defineExtension,
-  type WrittenCall,
-  type WrittenWatch,
+  args,
+  call as extCall,
+  extension,
+  watch as extWatch,
+  oneOf,
+  settled,
+  target,
+  writes,
 } from "@src/index";
 import { softDelete } from "@src/soft-delete";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
@@ -20,21 +25,28 @@ import { openOnFixture } from "./on-behavior";
 
 type Base = Awaited<ReturnType<typeof openOnFixture>>;
 
-/** A watch that wants everything and records what it is told, in order. */
+/**
+ * A first moment that watches everything and records, in order, the call it
+ * is asked for and what it is told.
+ */
 function recording(log: unknown[], label = "") {
-  return (call: WrittenCall): WrittenWatch => {
-    log.push(`${label}asked ${call.model}.${call.operation}`);
-    return {
+  return (c: {
+    readonly kind: "model" | "raw";
+    readonly model: unknown;
+    readonly operation: unknown;
+  }) => {
+    log.push(`${label}asked ${String(c.model)}.${String(c.operation)}`);
+    extWatch(c, {
       wants: () => true,
       rows(model, kind, rows, nested) {
         log.push(
           `${label}${nested ? "nested " : ""}${model}.${kind} ${rows.map((row) => row.id).join(",")}`
         );
       },
-      settled({ certainty }) {
-        log.push(`${label}settled ${certainty}`);
-      },
-    };
+    });
+    settled(c, ({ certainty }) => {
+      log.push(`${label}settled ${certainty}`);
+    });
   };
 }
 
@@ -56,7 +68,9 @@ for (const [name, createDriver] of [
     test("a watch is asked before the write, told the call's rows, then its nested rows, then the commit", async () => {
       const base = await open();
       const log: unknown[] = [];
-      const db = base.$extends({ name: "watch", written: recording(log) });
+      const db = base.$extends(
+        extension("watch", extCall(recording(log), target(writes)))
+      );
       const value = await db.user.update({
         where: { id: "u1" },
         data: {
@@ -83,14 +97,18 @@ for (const [name, createDriver] of [
     test("rows are whole whatever the caller selects, and only the rows a watch wants are told", async () => {
       const base = await open();
       const told: unknown[] = [];
-      const db = base.$extends({
-        name: "watch",
-        written: (): WrittenWatch => ({
-          wants: (model, kind) => model === "post" && kind === "update",
-          rows: (model, kind, rows) => told.push([model, kind, rows]),
-          settled: () => undefined,
-        }),
-      });
+      const db = base.$extends(
+        extension(
+          "watch",
+          extCall((c) => {
+            extWatch(c, {
+              wants: (model, kind) => model === "post" && kind === "update",
+              rows: (model, kind, rows) => told.push([model, kind, rows]),
+            });
+            settled(c, () => undefined);
+          }, target(writes))
+        )
+      );
       await db.user.update({
         where: { id: "u1" },
         data: { name: "A" },
@@ -125,9 +143,9 @@ for (const [name, createDriver] of [
     test("the kind is what happened: an upsert's arm, and the update a soft delete makes of a delete", async () => {
       const base = await open();
       const log: unknown[] = [];
-      const db = softDelete({ models: { post: { deletedAt: "deletedAt" } } })(
-        base
-      ).$extends({ name: "watch", written: recording(log) });
+      const db = base
+        .$extends(softDelete({ models: { post: { deletedAt: "deletedAt" } } }))
+        .$extends(extension("watch", extCall(recording(log), target(writes))));
       const upsert = (id: string) =>
         db.user.upsert({
           where: { id },
@@ -154,10 +172,14 @@ for (const [name, createDriver] of [
       const base = await open();
       const log: unknown[] = [];
       const watch = recording(log);
-      const db = base.$extends({
-        name: "watch",
-        written: (call) => (call.model === "user" ? watch(call) : undefined),
-      });
+      const db = base.$extends(
+        extension(
+          "watch",
+          extCall((c) => {
+            if (c.model === "user") watch(c);
+          }, target(writes))
+        )
+      );
       await db.post.update({ where: { id: "p1" }, data: { views: 1 } });
       expect(log).toEqual([]);
       await failure(
@@ -170,7 +192,9 @@ for (const [name, createDriver] of [
       const base = await open();
       if (!base.$driver.supportsTransactions) return;
       const log: unknown[] = [];
-      const db = base.$extends({ name: "watch", written: recording(log) });
+      const db = base.$extends(
+        extension("watch", extCall(recording(log), target(writes)))
+      );
       await db.$transaction(async (tx) => {
         await tx.user.update({ where: { id: "u1" }, data: { name: "T" } });
         log.push("body");
@@ -194,7 +218,9 @@ for (const [name, createDriver] of [
     test("$transaction([...]): each member's rows before its commit, one member after another", async () => {
       const base = await open();
       const log: unknown[] = [];
-      const db = base.$extends({ name: "watch", written: recording(log) });
+      const db = base.$extends(
+        extension("watch", extCall(recording(log), target(writes)))
+      );
       await db.$transaction([
         db.user.update({ where: { id: "u1" }, data: { name: "One" } }),
         db.user.update({ where: { id: "u2" }, data: { name: "Two" } }),
@@ -216,8 +242,12 @@ for (const [name, createDriver] of [
       const base = await open();
       const log: unknown[] = [];
       const db = base
-        .$extends({ name: "first", written: recording(log, "1 ") })
-        .$extends({ name: "second", written: recording(log, "2 ") });
+        .$extends(
+          extension("first", extCall(recording(log, "1 "), target(writes)))
+        )
+        .$extends(
+          extension("second", extCall(recording(log, "2 "), target(writes)))
+        );
       await db.user.update({ where: { id: "u1" }, data: { name: "Both" } });
       expect(log).toEqual([
         "1 asked user.update",
@@ -231,16 +261,17 @@ for (const [name, createDriver] of [
 
     test("what settled throws rejects the call as a QueryError naming the extension; the write stays made", async () => {
       const base = await open();
-      const db = base.$extends({
-        name: "broken",
-        written: (): WrittenWatch => ({
-          wants: () => true,
-          rows: () => undefined,
-          settled() {
-            throw new Error("sink down");
-          },
-        }),
-      });
+      const db = base.$extends(
+        extension(
+          "broken",
+          extCall((c) => {
+            extWatch(c, { wants: () => true, rows: () => undefined });
+            settled(c, () => {
+              throw new Error("sink down");
+            });
+          }, target(writes))
+        )
+      );
       const error = (await failure(
         db.user.update({ where: { id: "u1" }, data: { name: "Kept" } })
       )) as QueryError;
@@ -251,25 +282,46 @@ for (const [name, createDriver] of [
       );
     });
 
+    test("every settled of one extension runs after one of them fails; the first fault rejects", async () => {
+      const base = await open();
+      const told: string[] = [];
+      const db = base.$extends(
+        extension(
+          "twice",
+          extCall((c) => {
+            extWatch(c, { wants: () => true, rows: () => undefined });
+            settled(c, () => {
+              told.push("first");
+              throw new Error("first down");
+            });
+            settled(c, () => {
+              told.push("second");
+            });
+          }, target(writes))
+        )
+      );
+      const error = (await failure(
+        db.user.update({ where: { id: "u1" }, data: { name: "Twice" } })
+      )) as QueryError;
+      expect(error.message).toContain('Extension "twice"');
+      expect(told).toEqual(["first", "second"]);
+    });
+
     test("a watch sees only the controls its own extension declares", async () => {
       const base = await open();
       const seen: unknown[] = [];
       const db = base
         .$extends(
-          defineExtension({
-            name: "other",
-            controls: { reason: { oneOf: ["test"], on: "writes" } },
-          })
+          extension("other", args({ reason: oneOf("test").on(writes) }))
         )
         .$extends(
-          defineExtension({
-            name: "watch",
-            controls: { actor: { oneOf: ["ada"], on: "writes" } },
-            written(call) {
-              seen.push(call.controls);
-              return undefined;
-            },
-          })
+          extension(
+            "watch",
+            args({ actor: oneOf("ada").on(writes) }),
+            extCall((c) => {
+              seen.push(c.values);
+            }, target(writes))
+          )
         );
       await db.user.update({
         where: { id: "u1" },
@@ -278,12 +330,5 @@ for (const [name, createDriver] of [
         reason: "test",
       } as never);
       expect(seen).toEqual([{ actor: "ada" }]);
-    });
-
-    test("written must be a function", async () => {
-      const base = await open();
-      expect(() =>
-        base.$extends({ name: "bad", written: {} } as never)
-      ).toThrow('Extension "bad" written must be a function.');
     });
   });

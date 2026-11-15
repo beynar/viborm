@@ -1019,23 +1019,15 @@ export class MssqlAdapter implements DatabaseAdapter {
   }
 
   /**
-   * A refused premise or judgement raises a conversion error naming its
-   * sentinel; `CASE` evaluates the arm only for a refused row, and T-SQL
-   * defers a constant's conversion error to execution.
+   * A refused premise raises a conversion error naming its sentinel; `CASE`
+   * evaluates the arm only for a refused row, and T-SQL defers a constant's
+   * conversion error to execution.
    */
   assertions = {
     exists: (query: Sql): Sql =>
       sql`SELECT CASE WHEN EXISTS (${query}) THEN 1 ELSE CAST('__viborm_assert__' AS INT) END AS "__viborm_assert__"`,
     notExists: (query: Sql): Sql =>
       sql`SELECT CASE WHEN NOT EXISTS (${query}) THEN 1 ELSE CAST('__viborm_assert__' AS INT) END AS "__viborm_assert__"`,
-    holds: (inner: Sql, from?: Sql): Sql =>
-      sql`SELECT CASE WHEN ${condition(inner)} THEN 1 ELSE CAST('__viborm_refused__' AS INT) END AS "__viborm_judged__"${from ? sql` FROM ${from}` : sql.empty}`,
-    // T-SQL aggregates no subquery (Msg 130), so a judged update cannot keep
-    // `MIN(guard) = 1` per key. One scalar `CASE` judges a row its filter
-    // keeps and answers true for any other: a plan that reads the guard
-    // before the filter still refuses no row the update does not write.
-    keptWhere: (kept: Sql, inner: Sql): Sql =>
-      sql`CASE WHEN ${condition(kept)} THEN CASE WHEN ${condition(inner)} THEN 1 ELSE 0 END ELSE 1 END = 1`,
   };
 
   joins = {
@@ -1054,7 +1046,7 @@ export class MssqlAdapter implements DatabaseAdapter {
       sql`OUTER APPLY (${subquery}) AS ${sql.raw(quoteIdent(alias))}`,
   };
 
-  setOperations = createSetOperations(quoteIdent);
+  setOperations = createSetOperations();
 
   capabilities = {
     supportsReturning: false,

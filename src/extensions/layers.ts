@@ -1,8 +1,10 @@
 /**
- * A layer of a row domain as the engine lowers it: what its predicate is for
- * one call. Its conditions fold per call, a value it still reads that is
- * absent makes it false where its control is required and drops it otherwise
- * (R6), and over a produced row the nullness the write states folds into it.
+ * A layer of a row domain as the engine lowers it, where its predicate reads
+ * its call (brought by `arg`, `now`, `when`, `unless`, `provided`): what its
+ * predicate is for one call. Its conditions fold per call, a value it still reads that is
+ * absent makes it false where its argument is required and drops it otherwise
+ * (R6), and over a produced row what judges it folds the nullness the write
+ * states into it.
  * The engine asks a layer what it resolves to; this module, loaded with the
  * extensions that declare row domains, answers.
  */
@@ -14,9 +16,30 @@ import {
   VACUOUS_FALSE,
 } from "@query-engine/raptor3/shared/query";
 import {
-  type Condition,
+  type CallValues,
+  Condition,
   Parameter,
 } from "@query-engine/raptor3/shared/row-scope";
+import { memo } from "@query-engine/raptor3/shared/schema";
+import { overKnown } from "./row-domain";
+
+/**
+ * The test of a `when` or an `unless`: where it applies nothing, its item
+ * of a filter list goes, as if it were not written.
+ */
+export class Choice extends Condition {}
+
+/** A predicate without the conjunctions of one member preparation wraps it in. */
+const only = (predicate: PreparedPredicate): PreparedPredicate =>
+  predicate.kind === "and" && predicate.predicates.length === 1
+    ? only(predicate.predicates[0]!)
+    : predicate;
+
+/** The items a conjunction is made of, however it nests. */
+const itemsOf = (predicate: PreparedPredicate): PreparedPredicate[] =>
+  predicate.kind === "and"
+    ? predicate.predicates.flatMap(itemsOf)
+    : [predicate];
 
 /** A layer's predicate under one outcome of its conditions. */
 interface Folded {
@@ -28,10 +51,11 @@ const ALWAYS_TRUE: PreparedPredicate = freeze({ kind: "always", value: true });
 /**
  * `predicate` with the leaves `known` answers for replaced by their outcome
  * and the logical combinators simplified, so a false arm goes with every
- * parameter inside it. `deep` folds the body of a relation too, which keeps
- * its quantifier: for an outcome that holds whatever row is read.
+ * parameter inside it. `deep` folds the body of a
+ * relation too, which keeps its quantifier: for an outcome that holds
+ * whatever row is read.
  */
-function fold(
+export function fold(
   predicate: PreparedPredicate,
   known: (leaf: PreparedPredicate) => boolean | undefined,
   deep: boolean
@@ -96,44 +120,6 @@ function fold(
       return predicate;
   }
 }
-/** `predicate` with every condition replaced by its outcome. */
-const foldConditions = (
-  predicate: PreparedPredicate,
-  holds: (condition: Condition) => boolean
-): PreparedPredicate =>
-  fold(
-    predicate,
-    (leaf) => (leaf.kind === "condition" ? holds(leaf.condition) : undefined),
-    true
-  );
-/**
- * `predicate` over a produced row whose fields' nullness the write states
- * (`nulls`: field to whether its value is null), each null test of such a
- * field replaced by its outcome: the values a write sets fold into its
- * judgement, so an arm on a key it leaves null does not reach the statement.
- * Only the row's own columns: a relation reads other rows, and is kept as it
- * is.
- */
-const foldKnownNulls = (
-  predicate: PreparedPredicate,
-  nulls: ReadonlyMap<string, boolean>
-): PreparedPredicate =>
-  fold(
-    predicate,
-    (leaf) => {
-      if (leaf.kind !== "operation") return;
-      const { target, operand } = leaf;
-      return leaf.operator === "equals" &&
-        target.kind === "column" &&
-        target.path === undefined &&
-        operand?.kind === "value" &&
-        operand.value === null &&
-        target.scalar.physical.scalar["~"].state.type !== "json"
-        ? nulls.get(target.scalar.field)
-        : undefined;
-    },
-    false
-  );
 /** Every parameter and condition a layer's predicate reads. */
 function callReads(
   predicate: PreparedPredicate,
@@ -176,30 +162,48 @@ function callReads(
   }
 }
 
-/** `predicate` as `model`'s domain predicate of `layer`. */
+/**
+ * `predicate` as `model`'s domain predicate of `layer`, read with each
+ * call's values, or, `atDefaults`, where every argument with a default
+ * takes it: inside another layer's relation reads, and for the rows a kept
+ * delete takes.
+ */
 export function layerOf(
   layer: number,
   model: string,
-  predicate: PreparedPredicate
+  predicate: PreparedPredicate,
+  atDefaults?: boolean
 ): PreparedPredicate {
+  // A list of `when`s and `unless`es only states nothing where none of them
+  // applies anything.
+  const chosen = itemsOf(predicate).every((item) => {
+    let test = item.kind === "or" ? only(item.predicates[0]!) : item;
+    if (test.kind === "not") test = only(test.predicate);
+    return test.kind === "condition" && test.condition instanceof Choice;
+  });
   const found = new Set<Condition>();
   callReads(predicate, new Map(), found);
   const conditions = [...found];
-  /** Its predicate under each outcome of its conditions, one digit per condition. */
+  /** Its predicate under each outcome of its conditions, one digit each. */
   const outcomes = new Map<string, Folded>();
+  /** The values it was last resolved with, and what it stated for them. */
+  let last: CallValues | undefined | null = null;
+  let outcome: PreparedPredicate | undefined;
   const under = (key: string): Folded => {
     const folded =
       conditions.length === 0
         ? predicate
-        : foldConditions(
+        : fold(
             predicate,
-            (condition) => key[conditions.indexOf(condition)] === "1"
+            (leaf) =>
+              leaf.kind === "condition"
+                ? key[conditions.indexOf(leaf.condition)] === "1"
+                : undefined,
+            true
           );
     const parameters = new Map<Parameter, boolean>();
     callReads(folded, parameters, new Set());
-    const outcome = { predicate: folded, parameters: [...parameters] };
-    outcomes.set(key, outcome);
-    return outcome;
+    return { predicate: folded, parameters: [...parameters] };
   };
   return freeze({
     kind: "layer",
@@ -207,30 +211,42 @@ export function layerOf(
     model,
     predicate,
     resolve(queries: Queries, alias?: string) {
-      const { values, instant } = queries;
-      let key = "";
-      // biome-ignore lint/style/useForOf: no iterator on a per-statement path (E5.1, measured).
-      for (let index = 0; index < conditions.length; index++)
-        key += conditions[index]!.holds(values, instant) ? "1" : "0";
-      const { predicate: resolved, parameters } =
-        outcomes.get(key) ?? under(key);
-      let dropped = false;
-      // biome-ignore lint/style/useForOf: no iterator on a per-statement path (E5.1, measured).
-      for (let index = 0; index < parameters.length; index++) {
-        const [parameter, spread] = parameters[index]!;
-        const value = parameter.read(values, instant);
-        if (value !== undefined && (!spread || Array.isArray(value))) continue;
-        if (values?.required(parameter.control!, model)) return VACUOUS_FALSE;
-        dropped = true;
+      const { instant } = queries;
+      const values = (atDefaults && queries.values?.defaults) || queries.values;
+      // A call resolves each layer several times with one values object, and
+      // values shared by calls read no instant: the last outcome is theirs.
+      if (values !== last) {
+        last = values;
+        outcome = stated(values, instant);
       }
-      if (dropped) return undefined;
-      // The values a write sets fold into its judgement of the row it produces.
-      const { known } = queries as Queries & {
-        known?: { alias: string; nulls: ReadonlyMap<string, boolean> };
-      };
-      return known !== undefined && alias === known.alias
-        ? foldKnownNulls(resolved, known.nulls)
-        : resolved;
+      // The values a write sets fold into its judgement of the row it
+      // produces: what judges brings what folds them (`produced.ts`).
+      return outcome && overKnown(queries, alias, outcome);
     },
   });
+  /** What the layer states for `values`, `undefined` where it states nothing. */
+  function stated(
+    values: CallValues | undefined,
+    instant: () => Date
+  ): PreparedPredicate | undefined {
+    let key = "";
+    // biome-ignore lint/style/useForOf: no iterator on a per-statement path (E5.1, measured).
+    for (let index = 0; index < conditions.length; index++)
+      key += conditions[index]!.holds(values, instant) ? 1 : 0;
+    const { predicate: resolved, parameters } = memo(outcomes, key, () =>
+      under(key)
+    );
+    if (chosen && resolved === ALWAYS_TRUE) return undefined;
+    let dropped = false;
+    // biome-ignore lint/style/useForOf: no iterator on a per-statement path (E5.1, measured).
+    for (let index = 0; index < parameters.length; index++) {
+      const [parameter, spread] = parameters[index]!;
+      const value = parameter.read(values, instant);
+      if (value !== undefined && (!spread || Array.isArray(value))) continue;
+      if (values?.required(parameter.arg!, model)) return VACUOUS_FALSE;
+      dropped = true;
+    }
+    if (dropped) return undefined;
+    return resolved;
+  }
 }

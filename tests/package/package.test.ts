@@ -105,7 +105,7 @@ const scripts = [
     "../../scripts/consumer-type-floor.mjs",
   ],
   ...(["50", "100"] as const).flatMap((models) =>
-    (["base", "deep", "filter", "create"] as const).map(
+    (["base", "deep", "filter", "create", "extended"] as const).map(
       (entry) =>
         [
           `type-checks the ${models}-model ${entry} entry within its TypeScript 5.9 budget`,

@@ -3,6 +3,7 @@ import { createClient } from "@client/client";
 import { defaultOmit } from "@client/default-omit-extension";
 import type { AnyDriver } from "@drivers";
 import { s } from "@schema";
+import { defaults, extension, rule } from "@src/index";
 import { on } from "@src/on";
 import { permissions } from "@src/permissions";
 import { softDelete } from "@src/soft-delete";
@@ -23,7 +24,7 @@ import {
 
 const FIELD_GATED = /gates that field/;
 const IS_A_JUNCTION = /junction of 'team\.parents'/;
-const THIS_CLIENT = /this client/;
+const THIS_CLIENT = /rows are restricted here|this client/;
 
 /**
  * A hop is storage; `$through` is a read or a write of the junction model. So
@@ -187,26 +188,20 @@ export function runThroughModelGovernedBehavior(
       expect(() => loose.$extends(softDelete(config as never))).toThrow(
         IS_A_JUNCTION
       );
-      expect(() =>
-        loose.$extends((softDelete(config as never) as any).rows)
-      ).toThrow(IS_A_JUNCTION);
     });
 
     test("rows apply to the delegate, leave hops alone, and refuse $through", async () => {
-      const scoped = loose.$extends({
-        name: "hide",
-        rows: {
-          models: {
+      const scoped = loose.$extends(
+        extension(
+          "hide",
+          rule({
             teamParent: {
-              on: {
-                root: { note: "visible" },
-                related: { note: "visible" },
-              },
+              root: { note: "visible" },
+              related: { note: "visible" },
             },
-          },
-          default: "on",
-        },
-      });
+          })
+        )
+      );
       expect(await scoped.teamParent.findMany({})).toEqual([]);
       const hop = await scoped.team.findUnique({
         where: { id: "a" },
@@ -297,7 +292,7 @@ export function runThroughModelGovernedBehavior(
     test("defaultOmit shapes $through: true; a stated select stands", async () => {
       await base.teamParent.updateMany({ data: { secret: "s" } });
       const omitted = loose.$extends(
-        (defaultOmit as any)()({ teamParent: { secret: true } })
+        defaultOmit({ teamParent: { secret: true } })
       );
       const row = await omitted.team.findUnique({
         where: { id: "a" },
@@ -333,10 +328,12 @@ export function runThroughModelGovernedBehavior(
     });
 
     test("a stamp on the junction: a hop takes none, and $through is refused", async () => {
-      const stamped = loose.$extends({
-        name: "stamp",
-        data: { models: { teamParent: { create: { stamp: "stamped" } } } },
-      });
+      const stamped = loose.$extends(
+        extension(
+          "stamp",
+          defaults({ teamParent: { create: { stamp: "stamped" } } })
+        )
+      );
       await stamped.team.update({
         where: { id: "b" },
         data: { parents: { connect: { id: "a" } } },

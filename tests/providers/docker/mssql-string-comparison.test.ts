@@ -10,7 +10,8 @@
 import { createClient } from "@client/client";
 import { UnsupportedOperationError } from "@errors";
 import { MSSQL, s } from "@schema";
-import { Sql, sql } from "@sql";
+import { sql } from "@sql";
+import { extension, text, unit } from "@src/index";
 import { ordering, orderingKey } from "@src/ordering";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import {
@@ -344,9 +345,11 @@ describeIf("SQL Server compares text as the column does", () => {
   });
 
   test("viborm/ordering keeps lists the database holds as one as one", async () => {
-    const ordered = ordering({
-      models: { card: { key: "rank", within: ["columnId"] } },
-    })(db);
+    const ordered = db.$extends(
+      ordering({
+        models: { card: { key: "rank", within: ["columnId"] } },
+      })
+    );
     for (const [id, columnId] of [
       [1, "k"],
       [2, "k "],
@@ -542,13 +545,19 @@ describeIf("SQL Server compares text as the column does", () => {
 
   test("a VARCHAR native type converts no written value, ASCII included; a compared ASCII one only", async () => {
     const statements: string[] = [];
-    const captured = db.$extends({
-      name: "capture",
-      statement: ({ statement }: { statement: Sql }) => {
-        statements.push(Sql.peek(statement).strings.join("?"));
-        return statement;
-      },
-    });
+    const captured = db.$extends(
+      extension(
+        "capture",
+        unit(
+          (u, next) => {
+            const sent = text(u);
+            if (sent !== undefined) statements.push(sent);
+            return next();
+          },
+          ["statement"]
+        )
+      )
+    );
     await captured.cyr.create({ data: { code: "ascii", label: "plain" } });
     await captured.cyr.update({
       where: { code: "ascii" },

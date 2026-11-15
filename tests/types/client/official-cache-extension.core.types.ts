@@ -1,15 +1,19 @@
 import { MemoryCache } from "@src/cache/drivers/memory";
 import { cache } from "@src/cache/exports";
 import {
+  clearEntries,
+  clearRevalidating,
+  deleteEntry,
+  getEntry,
+  invalidateEntries,
+  markRevalidating,
+  setEntry,
+} from "@src/cache/storage";
+import {
   createClient as createPGliteClient,
   PGliteDriver,
 } from "@src/drivers/pglite";
-import {
-  type ClientExtension,
-  createClient,
-  defineExtension,
-  s,
-} from "@src/index";
+import { call, createClient, extension, methods, s, target } from "@src/index";
 import { expectTypeOf } from "vitest";
 
 const user = s.model({ id: s.string().id(), name: s.string() });
@@ -22,19 +26,19 @@ const _forgedScope = {
     "viborm:cache:r3:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:u",
 };
 // @ts-expect-error - public cache reads accept no external scope
-cacheDriver._get("key", undefined, _forgedScope);
+getEntry(cacheDriver, "key", undefined, _forgedScope);
 // @ts-expect-error - public cache writes accept no external scope
-cacheDriver._set("key", 1, { ttl: 1000 }, undefined, _forgedScope);
+setEntry(cacheDriver, "key", 1, { ttl: 1000 }, undefined, _forgedScope);
 // @ts-expect-error - public cache deletes accept no external scope
-cacheDriver._delete("key", undefined, _forgedScope);
+deleteEntry(cacheDriver, "key", undefined, _forgedScope);
 // @ts-expect-error - public cache clears accept no external scope
-cacheDriver._clear("key", undefined, _forgedScope);
+clearEntries(cacheDriver, "key", undefined, _forgedScope);
 // @ts-expect-error - public invalidation accepts no external scope
-cacheDriver._invalidate("user", undefined, undefined, _forgedScope);
+invalidateEntries(cacheDriver, "user", undefined, undefined, _forgedScope);
 // @ts-expect-error - public SWR admission accepts no external scope
-cacheDriver._markRevalidating("key", _forgedScope);
+markRevalidating(cacheDriver, "key", _forgedScope);
 // @ts-expect-error - public SWR cleanup accepts no external scope
-cacheDriver._clearRevalidating("key", _forgedScope);
+clearRevalidating(cacheDriver, "key", _forgedScope);
 
 // @ts-expect-error - an unextended client has no cache-read surface
 base.$withCache();
@@ -51,10 +55,8 @@ const official = cache({
   version: "v1",
   waitUntil: (_promise) => undefined,
 });
-// @ts-expect-error - official provenance cannot be erased into an ordinary extension
-const _erasedOfficial: ClientExtension = official;
 const cached = base.$extends(official);
-// @ts-expect-error - the official cache capability is unique in one chain
+// @ts-expect-error - one cache per chain: a second one's $withCache would replace the first's
 cached.$extends(official);
 cached.$withCache({ ttl: 1000 });
 cached.$invalidate("user:*");
@@ -70,18 +72,19 @@ cached.user.create({
   data: { id: "cached", name: "Cached" },
   cache: { autoInvalidate: true, invalidate: ["user:*"] },
 });
-cached.$extends({
-  name: "request-core-stays-cache-free",
-  request: {
-    user: {
-      create({ input }) {
+cached.$extends(
+  extension(
+    "request-core-stays-cache-free",
+    call(
+      (c) => {
         // @ts-expect-error - mutation cache is client-owned, not a core request key
-        input.cache;
-        return {};
+        c.args.cache;
+        c.set({});
       },
-    },
-  },
-});
+      target("user", "create")
+    )
+  )
+);
 cached.user.findMany({
   // @ts-expect-error - cache options are mutation-only
   cache: { autoInvalidate: true },
@@ -121,36 +124,34 @@ cached.$transaction(async (tx) => {
   });
 });
 
-const ordinary = defineExtension({ name: "ordinary" });
+const ordinary = extension("ordinary");
 const chain2 = cached.$extends(ordinary);
-const chain3 = chain2.$extends({ name: "three" });
-const chain4 = chain3.$extends({ name: "four" });
-const chain5 = chain4.$extends({ name: "five" });
-const chain6 = chain5.$extends({ name: "six" });
-const chain7 = chain6.$extends({ name: "seven" });
-const chain8 = chain7.$extends({ name: "eight" });
-const chain9 = chain8.$extends({ name: "nine" });
-const chain10 = chain9.$extends({ name: "ten" });
+const chain3 = chain2.$extends(extension("three"));
+const chain4 = chain3.$extends(extension("four"));
+const chain5 = chain4.$extends(extension("five"));
+const chain6 = chain5.$extends(extension("six"));
+const chain7 = chain6.$extends(extension("seven"));
+const chain8 = chain7.$extends(extension("eight"));
+const chain9 = chain8.$extends(extension("nine"));
+const chain10 = chain9.$extends(extension("ten"));
 chain2.$withCache();
 chain5.$withCache();
 chain10.$withCache();
 
-const cloned = { ...official };
-base.$extends(cloned).$withCache();
-// @ts-expect-error - genuine provenance cannot be renamed
-base.$extends({ ...official, name: "renamed-cache" });
-const replacedContribution = {
-  ...official,
-  query: async ({ proceed }) => proceed(),
-};
-// @ts-expect-error - replacing the genuine query identity loses authenticity
-base.$extends(replacedContribution);
-// @ts-expect-error - binding replaces the exact contribution identity
-base.$extends({ ...official, query: official.query.bind(undefined) });
-
-const fakeReserved = defineExtension({ name: "viborm.cache" });
-// @ts-expect-error - the reserved name is never accepted from an ordinary value
-base.$extends(fakeReserved);
+// The view carries the chain's client methods, typed: the cache types its
+// methods through `this`, from the client they are called on.
+const tooled = cached.$extends(
+  extension(
+    "tools",
+    methods(() => ({ $ping: () => "pong" as const }))
+  )
+);
+expectTypeOf(tooled.$withCache().$ping()).toEqualTypeOf<"pong">();
+expectTypeOf(
+  tooled.$withCache().user.findMany({ select: { id: true } })
+).toEqualTypeOf<Promise<{ id: string }[]>>();
+// @ts-expect-error - a view is not a client: it takes no second view
+tooled.$withCache().$withCache();
 
 cache({
   driver: cacheDriver,

@@ -59,7 +59,7 @@ describeIf("SQL Server: the Permissions acceptance estate", () => {
   });
 
   test("its viborm/permissions policy is refused for its recursion", async () => {
-    const governed = permissions(policy.config)(client).$as(READER);
+    const governed = client.$extends(permissions(policy.config)).$as(READER);
     await expectRecursionRefused(() =>
       governed.document.findMany({ select: { id: true } })
     );
@@ -72,10 +72,14 @@ describeIf("SQL Server: the Permissions acceptance estate", () => {
     const owner = Object.values(actors).find((actor) =>
       seed.document.some((document) => document.ownerId === actor.userId)
     )!;
-    const own = permissions({
-      actor: policy.config.actor,
-      models: { document: { read: { ownerId: { actor: "userId" } } } },
-    })(client).$as(owner);
+    const own = client
+      .$extends(
+        permissions({
+          actor: policy.config.actor,
+          models: { document: { read: { ownerId: { actor: "userId" } } } },
+        })
+      )
+      .$as(owner);
     const mine = await own.document.findMany({ select: { ownerId: true } });
     expect(mine.length).toBe(
       seed.document.filter((document) => document.ownerId === owner.userId)

@@ -5,11 +5,9 @@ import { TransactionError } from "@errors";
 import type { Sql } from "@sql";
 import { ASYNC_DISPOSE, type AsyncDisposeMember } from "./async-dispose";
 import { transferSuppressedFailureEvidence } from "./driver-error-context";
-import {
-  type DriverResultParser,
-  type NestedTransactionObservation,
-  type OfficialDriverLifecycleExecutionGate,
-  ungatedLifecycleExecution,
+import type {
+  DriverResultParser,
+  NestedTransactionObservation,
 } from "./driver-instrumentation";
 import { DriverTransactionBase } from "./driver-transaction-base";
 import { normalizeDriverConnectionError } from "./error-mapping";
@@ -156,8 +154,8 @@ export abstract class Driver<
    * Connect to the database with instrumentation.
    */
   _connect(context?: QueryExecutionContext): Promise<void> {
-    return this.runConnectionLifecycle("connect", context, (ctx, gate) =>
-      gate.execute(async () => {
+    return this.runConnectionLifecycle("connect", context, (ctx) =>
+      this.inUnit("connection", ctx, async () => {
         await this.getClient(ctx);
       })
     );
@@ -170,7 +168,7 @@ export abstract class Driver<
     return this.runConnectionLifecycle(
       "disconnect",
       context,
-      async (executionContext, gate) => {
+      async (executionContext) => {
         if (this.isDisconnecting) {
           throw this.connectionClosedError(
             "Database connection is closing",
@@ -215,7 +213,11 @@ export abstract class Driver<
           }
         };
 
-        const disconnectPromise = gate.execute(doDisconnect);
+        const disconnectPromise = this.inUnit(
+          "connection",
+          executionContext,
+          doDisconnect
+        );
         try {
           await disconnectPromise;
           this.client = null;
@@ -230,33 +232,21 @@ export abstract class Driver<
   }
 
   /**
-   * The one connect/disconnect dispatch: queued on a single-connection
-   * driver, observed when a trusted observer wants the lifecycle.
+   * The one connect/disconnect dispatch, queued on a single-connection
+   * driver. Its `connection` unit starts in `body`, past the queue.
    */
   private async runConnectionLifecycle(
     boundary: "connect" | "disconnect",
     context: QueryExecutionContext | undefined,
-    body: (
-      context: QueryExecutionContext,
-      gate: OfficialDriverLifecycleExecutionGate
-    ) => Promise<void>
+    body: (context: QueryExecutionContext) => Promise<void>
   ): Promise<void> {
     const executionContext = this.resolveExecutionContext(context, boundary);
-    const run = (gate = ungatedLifecycleExecution) =>
-      body(executionContext, gate);
+    const run = () => body(executionContext);
     const queued = this.serializeTransactions && !this.inTransaction;
     if (queued) {
       this.assertBaseOperationAllowedDuringTransaction(executionContext);
     }
-    if (!this.hasTrustedObservers(executionContext)) {
-      return queued ? this.connectionQueue.enqueue(run) : run();
-    }
-    return this.observeTrustedDriverLifecycle(
-      "connection",
-      executionContext,
-      boundary,
-      queued ? (gate) => this.connectionQueue.enqueue(() => run(gate)) : run
-    );
+    return queued ? this.connectionQueue.enqueue(run) : run();
   }
 
   // ===========================================================================
@@ -702,8 +692,7 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
       context,
       "transaction"
     );
-    const hasLifecycleObservers = this.hasTrustedObservers(executionContext);
-    const executeTransaction = (gate = ungatedLifecycleExecution) =>
+    const executeTransaction = () =>
       this.scopeQueue.enqueue(async () => {
         this.assertRollbackOnlyUsable();
         this.isSavepointActive = true;
@@ -712,29 +701,14 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
             fn,
             plan,
             executionContext,
-            gate
+            "savepoint"
           );
         } finally {
           this.isSavepointActive = false;
         }
       });
-    const executeObservedTransaction = hasLifecycleObservers
-      ? () =>
-          this.observeTransactionLifecycle(
-            "savepoint",
-            executionContext,
-            (_transactionContext, gate) => executeTransaction(gate)
-          )
-      : undefined;
-    if (isAdmittedWithTransactionDispatch) {
-      return executeObservedTransaction
-        ? executeObservedTransaction()
-        : executeTransaction();
-    }
-    return this.trackTransactionOperation(
-      executeObservedTransaction ?? executeTransaction,
-      false
-    );
+    if (isAdmittedWithTransactionDispatch) return executeTransaction();
+    return this.trackTransactionOperation(executeTransaction, false);
   }
 
   override withTransaction<T>(

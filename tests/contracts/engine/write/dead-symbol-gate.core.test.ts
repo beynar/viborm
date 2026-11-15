@@ -103,6 +103,13 @@ const DELETED_V1_SYMBOLS = [
   // Engine consolidation — the shape-compiled cache codec the route's
   // `cacheCodec` superseded; `CacheResultCodec` lives in `cache-flow.ts`.
   "compileCacheResultCodec",
+  // The cache stores a read's driver rows: the walker over the decoded answer
+  // (`result/cache-*.ts`) that stored it in their place went with it.
+  "codecOf",
+  "recursiveRelationCodec",
+  "readSnapshotArray",
+  "CacheSnapshotFailure",
+  "snapshotJsonValue",
 ] as const;
 
 /** Deleted by the instrumentation encapsulation (D1, D2, D3, U2, U5, U1 repair,

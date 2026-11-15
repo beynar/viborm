@@ -482,7 +482,7 @@ Official cache entries and invalidations are isolated by dialect **and**
 namespace. A `cache()` value is a *definition* — a backend, a `version`, a
 `waitUntil` — and it knows no namespace, because one definition may be attached
 to several clients. The scope is derived when the definition meets a concrete
-client, from the official snapshot revision, the cache `version`, the dialect,
+client, from the official storage revision, the cache `version`, the dialect,
 and the adapter namespace, so:
 
 - two schema-scoped PostgreSQL clients sharing one `cache()` extension and one
@@ -662,7 +662,7 @@ owner refuses first.
 
 ### The official cache storage revision moved
 
-The private official-cache snapshot revision advanced because the storage
+The private official-cache storage revision advanced because the storage
 namespace now encodes dialect and SQL namespace. Existing official cache entries
 are unreachable after upgrade and expire on their own; this is a cold cache, not
 a data change. Public cache keys, `cache({ version })`, and the manual

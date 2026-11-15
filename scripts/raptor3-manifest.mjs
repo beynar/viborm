@@ -248,7 +248,7 @@ export const POST_G3_DELETION_SITE_TESTS = Object.freeze(
 // SQLite substrates, and one prepared predicate for 10,000 actors (+49);
 // the composed chain's SQL against its pre-K1 golden (W-K1e, +1).
 export const POST_G3_ROW_SCOPE_COUNTS = Object.freeze({
-  "tests/raptor3/post-prep/row-scopes.test.ts": 183,
+  "tests/raptor3/post-prep/row-scopes.test.ts": 180,
 });
 export const POST_G3_ROW_SCOPE_TESTS = Object.freeze(
   Object.keys(POST_G3_ROW_SCOPE_COUNTS)
@@ -565,7 +565,7 @@ export const RQ01_SQLITE_COUNTS = Object.freeze({
 });
 export const RQ01_SQLITE_TESTS = Object.freeze(Object.keys(RQ01_SQLITE_COUNTS));
 export const RQ05_CACHE_COUNTS = Object.freeze({
-  "tests/raptor3/recursive-query/cache-codec.test.ts": 10,
+  "tests/raptor3/recursive-query/cache-codec.test.ts": 8,
   "tests/raptor3/recursive-query/cache-lifecycle.test.ts": 7,
 });
 export const RQ05_CACHE_TESTS = Object.freeze(Object.keys(RQ05_CACHE_COUNTS));

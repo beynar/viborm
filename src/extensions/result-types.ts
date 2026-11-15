@@ -1,5 +1,5 @@
 /**
- * The types of `result` (computed fields): what a definition may declare,
+ * The types of `result` (computed fields): what `fields` may declare,
  * what it contributes to the chain's type state, and the fields one model
  * gains. Type-only; the runtime is `./result.ts`.
  */
@@ -30,26 +30,22 @@ export type ModelResultFields<Result, ModelName> = Override<
 >;
 
 /**
- * Each declared field's type: what its `compute` returns. A definition
- * without `result` contributes `Record<never, never>`, spelled out rather
- * than through a local alias: a consumer's declaration emit prints this type
- * inside every extended client's state, and a name no public entry exports
- * would make that client unnameable there (TS2742).
+ * Each declared field's type: what its `compute` returns. A `fields` part
+ * that declares nothing contributes `Record<never, never>`, spelled out
+ * rather than through a local alias: a consumer's declaration emit prints
+ * this type inside every extended client's state, and a name no public entry
+ * exports would make that client unnameable there (TS2742).
  */
-export type DefinitionResultFields<Definition> = Definition extends {
-  readonly result: infer Declared;
-}
-  ? Declared extends object
-    ? {
-        readonly [ModelName in keyof Declared]: {
-          -readonly [Field in keyof Declared[ModelName]]: Declared[ModelName][Field] extends {
-            compute(...args: never[]): infer Value;
-          }
-            ? Value
-            : never;
-        };
-      }
-    : Record<never, never>
+export type ComputedFieldTypes<Declared> = Declared extends object
+  ? {
+      readonly [ModelName in keyof Declared]: {
+        -readonly [Field in keyof Declared[ModelName]]: Declared[ModelName][Field] extends {
+          compute(...args: never[]): infer Value;
+        }
+          ? Value
+          : never;
+      };
+    }
   : Record<never, never>;
 
 /** The chain's fields with a later extension's: it wins a name. */
@@ -66,10 +62,16 @@ export type MergeResultFields<Previous extends object, Next extends object> = [
         >;
       };
 
-/** The row a model's `compute` reads from: its scalars and earlier fields. */
+/**
+ * The row a model's `compute` reads from: its scalars and earlier fields.
+ * A model whose state is unknown (a part written apart from any client, or
+ * applied to a loosely typed one) reads any field, unknown.
+ */
 type ComputeRow<M, Earlier> =
   M extends Model<infer State>
-    ? Override<InferModelOutput<State>, Earlier>
+    ? 0 extends 1 & State
+      ? Readonly<Record<string, unknown>>
+      : Override<InferModelOutput<State>, Earlier>
     : never;
 
 /** The keys a `needs` map asks for. */
@@ -92,77 +94,60 @@ type ComputeRowOf<
   : never;
 
 /**
- * The `result` member as `$extends` and `defineExtension` type it. `Fields`
- * is its own type parameter, inferred from each field's `needs`, so that
- * each `compute` is given exactly the fields its `needs` names, typed from
- * the model: reading one it does not name is a compile error, as it would be
- * `undefined` at runtime, and a need the model lacks is refused. The
- * definition's own type parameter cannot carry this: a definition holding a
- * `compute` not yet typed is not inferred from at all. The shapes are
- * written inline, not through an interface, which TypeScript does not infer
- * through.
+ * The declaration `fields(...)` types. `Fields` is its
+ * own type parameter, inferred from each field's `needs`, so that each
+ * `compute` is given exactly the fields its `needs` names, typed from the
+ * model: reading one it does not name is a compile error, as it would be
+ * `undefined` at runtime, and a need the model lacks is refused. The shapes
+ * are written inline, not through an interface, which TypeScript does not
+ * infer through.
  */
-export type ResultInference<
+export type FieldsInference<
   C extends VibORMConfig,
   Earlier extends object,
   Fields,
 > = {
-  readonly result?: {
-    readonly [ModelName in keyof Fields]: ModelName extends "$allModels"
-      ? {
-          readonly [Field in keyof Fields[ModelName]]: {
-            readonly needs?: Fields[ModelName][Field] &
-              Readonly<Record<string, boolean>>;
-            compute(
-              row: {
-                readonly [Key in NeededKeys<Fields[ModelName][Field]>]: unknown;
-              }
-            ): unknown;
-          };
-        }
-      : {
-          readonly [Field in keyof Fields[ModelName]]: {
-            readonly needs?: Fields[ModelName][Field] &
-              Readonly<
-                Record<
-                  Exclude<
-                    keyof Fields[ModelName][Field],
-                    keyof ComputeRowOf<C, Earlier, ModelName>
-                  >,
-                  never
-                >
-              > & {
-                readonly [Key in keyof ComputeRowOf<
-                  C,
-                  Earlier,
-                  ModelName
-                >]?: boolean;
-              };
-            compute(
-              row: Pick<
-                ComputeRowOf<C, Earlier, ModelName>,
-                Extract<
-                  NeededKeys<Fields[ModelName][Field]>,
-                  keyof ComputeRowOf<C, Earlier, ModelName>
-                >
-              >
-            ): unknown;
-          };
+  readonly [ModelName in keyof Fields]: ModelName extends "$allModels"
+    ? {
+        readonly [Field in keyof Fields[ModelName]]: {
+          readonly needs?: Fields[ModelName][Field] &
+            Readonly<Record<string, boolean>>;
+          compute(
+            row: {
+              readonly [Key in NeededKeys<Fields[ModelName][Field]>]: unknown;
+            }
+          ): unknown;
         };
-  } & Readonly<
-    Record<Exclude<keyof Fields, keyof ClientSchema<C> | "$allModels">, never>
-  >;
-};
-
-/**
- * The `result` member of the definition envelope: which keys it holds. The
- * types of `needs` and `compute` are {@link ResultInference}'s.
- */
-export type ResultDefinition<C extends VibORMConfig> = {
-  readonly [ModelName in keyof ClientSchema<C> | "$allModels"]?: {
-    readonly [field: string]: {
-      readonly needs?: object;
-      readonly compute: unknown;
-    };
-  };
-};
+      }
+    : {
+        readonly [Field in keyof Fields[ModelName]]: {
+          readonly needs?: Fields[ModelName][Field] &
+            Readonly<
+              Record<
+                Exclude<
+                  keyof Fields[ModelName][Field],
+                  keyof ComputeRowOf<C, Earlier, ModelName>
+                >,
+                never
+              >
+            > & {
+              readonly [Key in keyof ComputeRowOf<
+                C,
+                Earlier,
+                ModelName
+              >]?: boolean;
+            };
+          compute(
+            row: Pick<
+              ComputeRowOf<C, Earlier, ModelName>,
+              Extract<
+                NeededKeys<Fields[ModelName][Field]>,
+                keyof ComputeRowOf<C, Earlier, ModelName>
+              >
+            >
+          ): unknown;
+        };
+      };
+} & Readonly<
+  Record<Exclude<keyof Fields, keyof ClientSchema<C> | "$allModels">, never>
+>;

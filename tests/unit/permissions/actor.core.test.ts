@@ -59,7 +59,7 @@ describe("actor binding completeness", () => {
   });
 });
 
-test("optional union and pipe members keep optional binding and dependency metadata", () => {
+test("optional union and pipe members keep optional binding", () => {
   const schema = actorContract(
     v.object({
       union: v.union([v.string(), v.optional(v.string())]),
@@ -71,8 +71,6 @@ test("optional union and pipe members keep optional binding and dependency metad
     })
   );
   expect(schema.schema["~standard"].validate({})).toHaveProperty("value");
-  for (const path of ["union", "pipe", "wrapped"])
-    expect(schema.availabilityPath(path)).toBe(path);
 });
 
 test("omitted actor keys are not policy paths and hidden recursion is refused", () => {
@@ -84,17 +82,6 @@ test("omitted actor keys are not policy paths and hidden recursion is refused", 
     child: v.union([v.string(), v.optional(() => recursive)]),
   });
   expect(() => actorContract(recursive)).toThrow("actor schema is recursive");
-});
-
-test("nested nullable unions and transformed objects publish uncertain actor paths", () => {
-  const schema = actorContract(
-    v.object({
-      nested: v.union([v.string(), v.union([v.literal(null), v.number()])]),
-      profile: v.object({ id: v.string() }, { transform: (value) => value }),
-    })
-  );
-  expect(schema.availabilityPath("nested")).toBe("nested");
-  expect(schema.availabilityPath("profile.id")).toBe("profile.id");
 });
 
 test("required actor parsing preserves sparse callback inputs and outputs", () => {
@@ -114,26 +101,9 @@ test("required actor parsing preserves sparse callback inputs and outputs", () =
   const plain = actorContract(
     v.object({ id: v.string(), optional: v.optional(v.string()) })
   );
-  expect(plain.availabilityPath("id")).toBeUndefined();
   expect(plain.schema["~standard"].validate({ id: "u" })).toEqual({
     value: { id: "u" },
   });
-});
-
-test("JSON and custom scalar schemas expose possibly absent outputs", () => {
-  const actor = actorContract(
-    v.object({
-      json: v.json(),
-      custom: v.string({ schema: v.coerce(v.string(), () => null) }),
-      union: v.union([
-        v.number(),
-        v.string({ schema: v.coerce(v.string(), () => null) }),
-      ]),
-    })
-  );
-  expect(actor.availabilityPath("json")).toBe("json");
-  expect(actor.availabilityPath("custom")).toBe("custom");
-  expect(actor.availabilityPath("union")).toBe("union");
 });
 
 test("actor callbacks share the owned parsed object and retain their mutations", async () => {

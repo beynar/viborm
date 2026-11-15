@@ -15,17 +15,17 @@
 // interactively, so this read always happens there; the MySQL expression
 // below serves a driver that could not read first.
 
-import { UnsupportedOperationError } from "../errors";
-import { type ComputedContext, computed } from "../index";
+import { computed } from "../extensions/values";
+import type { ComputedContext, ModelSql } from "../index";
 import { type Sql, sql } from "../sql/sql";
-import { type Spelling, spellings } from "./between";
+import { equal, type Spelling, spellings } from "./between";
 import { keysAfter } from "./keys";
 
 type Input = Readonly<Record<string, unknown>>;
 
 /** One group: the indexes of its rows, and its fields' values. */
 interface Group {
-  readonly values: readonly unknown[];
+  readonly list: Input;
   readonly at: number[];
 }
 
@@ -45,13 +45,15 @@ function groupsOf(
     return `#${identities.get(value)}`;
   };
   for (const index of indexes) {
-    const values = within.map((field) => rows[index]![field] ?? null);
+    const list = Object.fromEntries(
+      within.map((field) => [field, rows[index]![field] ?? null])
+    );
     const key = JSON.stringify(
-      values.map((value) =>
+      Object.values(list).map((value) =>
         typeof value === "bigint" ? `${value}n` : identity(value)
       )
     );
-    const group = groups.get(key) ?? { values, at: [] };
+    const group = groups.get(key) ?? { list, at: [] };
     group.at.push(index);
     groups.set(key, group);
   }
@@ -68,24 +70,11 @@ export const appendKey = (within: readonly string[]): string =>
  * backfilled constant) is never the list's last, so an append is placed
  * after the list's keys on every dialect and never casts a non-digit.
  */
-function lastOf(
-  within: readonly string[],
-  context: ComputedContext,
-  spelling: Spelling,
-  values: readonly unknown[]
-): Sql {
-  {
-    const q = context.sql;
-    const key = q.column(context.field);
-    const where = within.map((name, position) => {
-      const value = values[position];
-      return value === null
-        ? sql`${q.column(name)} IS NULL`
-        : sql`${q.column(name)} = ${q.value(name, value)}`;
-    });
-    where.push(spelling.digits(key));
-    return sql`SELECT MAX(${key}) AS k FROM ${q.table()} WHERE ${sql.join(where, " AND ")}`;
-  }
+function lastOf(q: ModelSql, s: Spelling, field: string, list: Input): Sql {
+  const key = q.column(field);
+  const where = equal(q, list, "IS NULL");
+  where.push(s.digits(key));
+  return sql`SELECT MAX(${key}) AS k FROM ${q.table()} WHERE ${sql.join(where, " AND ")}`;
 }
 
 /**
@@ -93,72 +82,70 @@ function lastOf(
  * (1-based): integer max(last, -1) + step with a random fraction, as
  * `keysBetween(last, null, …)` computes it.
  */
-function expression(spelling: Spelling, last: Sql, step: number): Sql {
-  return spelling.appended(
-    last,
-    sql.raw(String(step - 1)),
-    sql.raw(String(step))
-  );
+function expression(dialect: string, last: Sql, step: number): Sql {
+  const first = sql.raw(String(step - 1));
+  const next = sql.raw(String(step));
+  switch (dialect) {
+    case "postgresql":
+      return sql`(SELECT CASE WHEN n > 999999999 THEN NULL ELSE length(n::text)::text || n::text || rtrim(lpad(floor(random() * 1000000)::bigint::text, 6, '0'), '0') END FROM (SELECT CASE WHEN k IS NULL OR left(k, 1) = '0' THEN ${first} ELSE substr(k, 2, substr(k, 1, 1)::int)::bigint + ${next} END AS n FROM (${last}) AS m) AS x)`;
+    case "mysql":
+      return sql`(SELECT CASE WHEN n > 999999999 THEN NULL ELSE CONCAT(CHAR_LENGTH(n), n, TRIM(TRAILING '0' FROM LPAD(FLOOR(RAND() * 1000000), 6, '0'))) END FROM (SELECT CASE WHEN k IS NULL OR LEFT(k, 1) = '0' THEN ${first} ELSE CAST(SUBSTRING(k, 2, CAST(LEFT(k, 1) AS UNSIGNED)) AS UNSIGNED) + ${next} END AS n FROM (${last}) AS m) AS x)`;
+    // RAND() is drawn once per statement; NEWID() per row, its CHECKSUM
+    // taken modulo first, since ABS of the least INT overflows.
+    case "mssql":
+      return sql`(SELECT CASE WHEN n > 999999999 THEN NULL ELSE CONCAT(LEN(CAST(n AS VARCHAR(10))), n, RTRIM(RIGHT(CONCAT('00000', ABS(CHECKSUM(NEWID()) % 1000000)), 6), '0')) END FROM (SELECT CASE WHEN k IS NULL OR LEFT(k, 1) = '0' THEN ${first} ELSE CAST(SUBSTRING(k, 2, CAST(LEFT(k, 1) AS INT)) AS BIGINT) + ${next} END AS n FROM (${last}) AS m) AS x)`;
+    default:
+      return sql`(SELECT CASE WHEN n > 999999999 THEN NULL ELSE length(n) || n || rtrim(printf('%06d', abs(random()) % 1000000), '0') END FROM (SELECT CASE WHEN k IS NULL OR substr(k, 1, 1) = '0' THEN ${first} ELSE CAST(substr(k, 2, CAST(substr(k, 1, 1) AS INTEGER)) AS INTEGER) + ${next} END AS n FROM (${last}) AS m) AS x)`;
+  }
 }
 
 async function appended(
   within: readonly string[],
-  context: ComputedContext,
+  { rows, field, sql: q, dialect, read }: ComputedContext,
   indexes: readonly number[]
 ): Promise<readonly unknown[]> {
-  {
-    const groups = groupsOf(within, context.rows, indexes);
-    const keys = new Map<number, unknown>();
-    // SurrealDB computes no key in the statement: the last key is read, in
-    // the call's unit, and the keys are computed here.
-    if (context.dialect === "surrealql") {
-      const { read } = context;
-      if (!read)
-        throw new UnsupportedOperationError(
-          "viborm/ordering on SurrealDB reads a list's last key before it appends: not in a batch."
-        );
-      const q = context.sql;
-      const key = q.column(context.field);
-      for (const group of groups) {
-        const held = within.map((name, position) => {
-          const value = group.values[position];
-          return value === null
-            ? sql`${q.column(name)} = NONE`
-            : sql`${q.column(name)} = ${q.value(name, value)}`;
-        });
-        held.push(sql`string::matches(${key}, ${"^[0-9]{2,}$"})`);
-        const [last] = await read(
-          sql`SELECT ${key} AS key, id FROM ${q.table()} WHERE ${sql.join(held, " AND ")} ORDER BY key DESC LIMIT 1`
-        );
-        const made = keysAfter(
-          (last?.key as string | undefined) ?? null,
-          group.at.length
-        );
-        for (const [step, index] of group.at.entries())
-          keys.set(index, made[step]);
-      }
-      return indexes.map((index) => keys.get(index));
-    }
-    const spelling = spellings[context.dialect];
-    if (context.dialect === "mysql" && context.read !== undefined) {
-      const reads = groups.map(
-        (group, position) =>
-          sql`(${lastOf(within, context, spelling, group.values)}) AS ${sql.raw(`g${position}`)}`
+  const groups = groupsOf(within, rows, indexes);
+  const key = q.column(field);
+  const keys = new Map<number, unknown>();
+  const assign = (group: Group, keyOf: (step: number) => unknown) => {
+    for (const [step, index] of group.at.entries())
+      keys.set(index, keyOf(step));
+  };
+  // SurrealDB computes no key in the statement: the last key is read, in
+  // the call's unit, and the keys are computed here. Its driver sends every
+  // call in a transaction, where each answer is heard: `read` is there.
+  if (dialect === "surrealql")
+    for (const group of groups) {
+      const held = equal(q, group.list, "= NONE");
+      held.push(sql`string::matches(${key}, ${"^[0-9]{2,}$"})`);
+      const [last] = await read!(
+        sql`SELECT ${key} AS key, id FROM ${q.table()} WHERE ${sql.join(held, " AND ")} ORDER BY key DESC LIMIT 1`
       );
-      const [answer] = await context.read(sql`SELECT ${sql.join(reads, ", ")}`);
-      for (const [position, group] of groups.entries()) {
-        const last = (answer?.[`g${position}`] ?? null) as string | null;
-        const made = keysAfter(last, group.at.length);
-        for (const [step, index] of group.at.entries())
-          keys.set(index, made[step]);
-      }
-    } else {
-      for (const group of groups) {
-        const last = lastOf(within, context, spelling, group.values);
-        for (const [step, index] of group.at.entries())
-          keys.set(index, expression(spelling, last, step + 1));
-      }
+      const made = keysAfter(
+        // The key column, read as the text it holds.
+        (last?.key as string | undefined) ?? null,
+        group.at.length
+      );
+      assign(group, (step) => made[step]);
     }
-    return indexes.map((index) => keys.get(index));
-  }
+  else if (dialect === "mysql" && read !== undefined) {
+    const reads = groups.map(
+      (group, position) =>
+        sql`(${lastOf(q, spellings.mysql, field, group.list)}) AS ${sql.raw(`g${position}`)}`
+    );
+    const [answer] = await read(sql`SELECT ${sql.join(reads, ", ")}`);
+    for (const [position, group] of groups.entries()) {
+      const made = keysAfter(
+        // Each list's last key, read as the text it holds.
+        (answer?.[`g${position}`] ?? null) as string | null,
+        group.at.length
+      );
+      assign(group, (step) => made[step]);
+    }
+  } else
+    for (const group of groups) {
+      const last = lastOf(q, spellings[dialect], field, group.list);
+      assign(group, (step) => expression(dialect, last, step + 1));
+    }
+  return indexes.map((index) => keys.get(index));
 }

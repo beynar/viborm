@@ -1,3 +1,5 @@
+import { CacheConfigurationError } from "@errors";
+import { parse } from "@validation";
 import v, { type V } from "@validation/primitives/v";
 import { parseTTL } from "./ttl";
 
@@ -5,7 +7,7 @@ import { parseTTL } from "./ttl";
 // CACHE INVALIDATION SCHEMA (for mutations)
 // =============================================================================
 
-export type CacheInvalidationSchemaEntries = {
+type CacheInvalidationSchemaEntries = {
   invalidate: V.String<{ array: true; optional: true }>;
   autoInvalidate: V.Boolean<{ optional: true }>;
 };
@@ -15,7 +17,7 @@ export type CacheInvalidationSchema = V.Object<
   { optional: true }
 >;
 
-export const cacheInvalidationSchema = v.object(
+const cacheInvalidationSchema = v.object(
   {
     /**
      * Specific keys to clear from cache
@@ -44,7 +46,7 @@ export function hasCacheInvalidationWork(
   return (
     options === undefined ||
     options.autoInvalidate === true ||
-    (options?.invalidate !== undefined && options.invalidate.length > 0)
+    (options.invalidate !== undefined && options.invalidate.length > 0)
   );
 }
 
@@ -55,9 +57,9 @@ export function hasCacheInvalidationWork(
 /**
  * Default TTL: 5 minutes (in milliseconds)
  */
-export const DEFAULT_CACHE_TTL = 5 * 60 * 1000;
+const DEFAULT_CACHE_TTL = 5 * 60 * 1000;
 
-export type WithCacheSchemaEntries = {
+type WithCacheSchemaEntries = {
   ttl: V.Optional<V.Union<[V.String, V.Number]>>;
   swr: V.Optional<V.Union<[V.Boolean, V.String, V.Number]>>;
   key: V.String<{ optional: true }>;
@@ -69,7 +71,7 @@ export type WithCacheSchema = V.Object<
   { optional: true }
 >;
 
-export const withCacheSchema = v.object(
+const withCacheSchema = v.object(
   {
     /**
      * Time to live for cache entries
@@ -78,9 +80,7 @@ export const withCacheSchema = v.object(
      */
     ttl: v.coerce(
       v.optional(v.union([v.string(), v.number()]), DEFAULT_CACHE_TTL),
-      (value: string | number) => {
-        return parseTTL(value);
-      }
+      parseTTL
     ),
     /**
      * Enable stale-while-revalidate pattern
@@ -97,12 +97,10 @@ export const withCacheSchema = v.object(
      */
     swr: v.coerce(
       v.optional(v.union([v.boolean(), v.string(), v.number()])),
-      (value: boolean | string | number | undefined) => {
-        if (value === undefined || typeof value === "boolean") {
-          return value;
-        }
-        return parseTTL(value);
-      }
+      (value: boolean | string | number | undefined) =>
+        value === undefined || typeof value === "boolean"
+          ? value
+          : parseTTL(value)
     ),
     /**
      * The official cache extension retains the canonical model/operation/args
@@ -130,3 +128,68 @@ export const withCacheSchema = v.object(
  * Input type for $withCache options (inferred from schema)
  */
 export type WithCacheOptions = WithCacheSchema[" vibInferred"]["0"];
+
+// =============================================================================
+// THE CACHE'S TWO ARGUMENTS, AND THE READS IT SERVES
+// =============================================================================
+
+/**
+ * The reads a cached view serves, as its refusal of anything else lists
+ * them.
+ */
+export const CACHEABLE: readonly string[] = Object.freeze([
+  "findFirst",
+  "findMany",
+  "findUnique",
+  "findUniqueOrThrow",
+  "findFirstOrThrow",
+  "count",
+  "aggregate",
+  "groupBy",
+  "exist",
+]);
+
+/** One read's options, as the cache applies them. */
+export interface CacheReadOptions {
+  readonly ttlMs: number;
+  readonly swr: number | false;
+  readonly bypass: boolean;
+  readonly key?: string;
+}
+
+function refused(what: string, issues: readonly { message: string }[]): never {
+  throw new CacheConfigurationError(
+    `Invalid ${what}: ${issues.map((issue) => issue.message).join(", ")}`
+  );
+}
+
+/**
+ * A write's `cache` argument: what it invalidates once durable. Frozen, as
+ * the argument a call admitted and nothing else holds.
+ */
+export function admitMutationOptions(value: unknown): CacheInvalidationOptions {
+  const parsed = parse(cacheInvalidationSchema, value);
+  if (parsed.issues) refused("mutation cache options", parsed.issues);
+  const { autoInvalidate, invalidate } = parsed.value;
+  if (invalidate === undefined) return Object.freeze({ autoInvalidate });
+  const keys = [...invalidate];
+  Object.freeze(keys);
+  return Object.freeze({ autoInvalidate, invalidate: keys });
+}
+
+/** `$withCache(options)`: the options of every read through the view. */
+export function admitReadOptions(value: unknown): CacheReadOptions {
+  const parsed = parse(withCacheSchema, value);
+  if (parsed.issues) refused("cache options", parsed.issues);
+  const { bypass, key, ttl, swr } = parsed.value;
+  return Object.freeze({
+    ttlMs: ttl,
+    // The SWR window: the stale window added to the TTL, `true` the TTL again.
+    swr:
+      swr === undefined || swr === false
+        ? false
+        : ttl + (swr === true ? ttl : swr),
+    bypass,
+    ...(key === undefined ? {} : { key }),
+  });
+}

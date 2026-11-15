@@ -2,8 +2,9 @@
  * SQL Server: a judged update judges the rows it writes and no other. T-SQL
  * aggregates no subquery, so the guard is not `HAVING MIN(guard) = 1` per
  * key as elsewhere but `CASE WHEN kept THEN guard END = 1`
- * (`assertions.keptWhere`): the rows a filter does not keep must never
- * reach the guard, whose refusal is an error, however the plan reads them.
+ * (`keptWhere`, in `src/adapters/databases/mssql/judged.ts`): the rows a
+ * filter does not keep must never reach the guard, whose refusal is an
+ * error, however the plan reads them.
  * Set MSSQL_TEST_CONNECTION_STRING to run.
  */
 
@@ -37,16 +38,18 @@ const base = createClient({
   schema: { post },
   driver: createMssqlDriverIn(NAMESPACE),
 });
-const db = permissions({
-  actor: v.object({ userId: v.string() }),
-  models: {
-    post: {
-      read: true,
-      // The new row too: an update may not hand the row to someone else.
-      update: { authorId: { actor: "userId" } },
+const db = base.$extends(
+  permissions({
+    actor: v.object({ userId: v.string() }),
+    models: {
+      post: {
+        read: true,
+        // The new row too: an update may not hand the row to someone else.
+        update: { authorId: { actor: "userId" } },
+      },
     },
-  },
-})(base);
+  })
+);
 const ada = db.$as({ userId: "ada" });
 
 describeIf("SQL Server judges the rows an update writes", () => {

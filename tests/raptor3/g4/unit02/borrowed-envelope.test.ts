@@ -186,14 +186,6 @@ describe("G4-02 execution context threading", () => {
     const driver = world.driver;
     const chain = {
       extensions: [],
-      hasCache: false,
-      hasRequestHandlers: false,
-      hasQueryHandlers: false,
-      hasResultConsumers: false,
-      request: {},
-      query: {},
-      statement: [],
-      observe: [],
     } as unknown as ResolvedExtensionChain;
     const caller: QueryExecutionContext = createExecutionContext(
       { model: "author", operation: "update", correlationId: "g4u2-caller" },

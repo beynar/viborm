@@ -6,13 +6,13 @@
  * relation per other model; every other model owned by a user and
  * soft-deletable), then:
  *
- *   soft   `softDelete(config)(base)` and `base.$extends(softDelete(config))`
+ *   soft      `base.$extends(softDelete(config))`
  *   chain     `base.$extends(tombstones).$extends(policy)`, the guide's
  *             composition (each official extension one step, any order)
  *   reversed  `base.$extends(policy).$extends(tombstones)`
  *
  * and reads through the result: a relation the rows can hide reads `| null`,
- * `restore` narrows to its `select`, `$as`, `can` and `$access` keep each
+ * `restore` narrows to its `select`, `$as` and `$access` keep each
  * model's actions, and each `@ts-expect-error` must bite (a client that
  * collapsed to `any` leaves them unused, an error).
  *
@@ -115,8 +115,7 @@ const softSource = (
   models
 ) => `import { base, tombstones } from "./schema-${models}";
 
-export const db = tombstones(base);
-export const viaExtends: typeof db = base.$extends(tombstones);
+export const db = base.$extends(tombstones);
 
 export async function reads() {
   const [row] = await db.m0.findMany({ include: { owner: true } });
@@ -158,9 +157,10 @@ export const db = ${order === "soft-first" ? "base.$extends(tombstones).$extends
 export async function reads() {
   const call = db.$as({ userId: "u" });
   const same: typeof db = call;
-  const may: Promise<boolean> = call.m0.can("delete", { id: "x" });
+  const [access] = await call.m0.findMany({ select: { $access: ["delete"] } });
+  const may: boolean | undefined = access?.$access.delete;
   // @ts-expect-error - "publish" is not an action of m0
-  call.m0.can("publish", { id: "x" });
+  call.m0.findMany({ select: { $access: ["delete", "publish"] } });
   // @ts-expect-error - the actor schema is checked
   db.$as({ user: "u" });
   const [row] = await call.m0.findMany({ include: { owner: true }, deleted: "with" });
