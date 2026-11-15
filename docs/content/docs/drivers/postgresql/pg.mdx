@@ -260,6 +260,11 @@ What it does:
   as it would have without the option; it is named anew next time. Inside a
   transaction the server's failure aborts the transaction, so that failure is
   what the transaction answers; the next transaction parses again.
+- The bound counts every name the client gave, stale ones included, since the
+  connections that did not lose a name still hold it. Once `max` names were
+  given, a statement whose name goes stale is sent unnamed for the client's
+  life. After migrations that change many tables, a new client (or a larger
+  `max`) names them again.
 
 **Behind PgBouncer in transaction mode**, named statements need
 `max_prepared_statements` set (PgBouncer 1.21 or later; its default is 200

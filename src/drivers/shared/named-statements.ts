@@ -74,7 +74,9 @@ export class NamedStatements {
    * The server no longer answers this text's name (a `DEALLOCATE`, a
    * `DISCARD ALL`, a pooler that moved the session) or its plan no longer
    * fits the table: the text takes a new name, which every connection parses
-   * again, or none once `max` names were given.
+   * again, or none once `max` names were given. A retired name still counts:
+   * the connections that did not lose it keep it, so at the bound the text is
+   * sent unnamed for the client's life.
    */
   retire(text: string): void {
     if (this.#names.delete(text) && this.#given < this.#max)

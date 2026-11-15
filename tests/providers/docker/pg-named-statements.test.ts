@@ -200,6 +200,38 @@ describeIf("pg namedStatements", () => {
     await pool.end();
   });
 
+  test("at the bound, a statement whose name went stale stays unnamed", async () => {
+    const { pool, wrapped, sent } = recordingPool();
+    const db = createClient({
+      schema: { person },
+      pool: wrapped as never,
+      namedStatements: { max: 1 },
+    });
+    await db.person.findUnique({ where: { id: "a" } });
+    await db.person.findUnique({ where: { id: "a" } });
+    expect(sent.at(-1)?.name).toBeDefined();
+    await pool.query("DEALLOCATE ALL");
+    sent.length = 0;
+    for (let i = 0; i < 3; i++) {
+      expect(await db.person.findUnique({ where: { id: "b" } })).toEqual({
+        id: "b",
+        email: "b@x.io",
+        name: "B",
+      });
+    }
+    // The failed named attempt, its unnamed replay, then unnamed: the one
+    // name the bound allows was given, and a connection that kept it may
+    // still hold it.
+    expect(sent.map((query) => query.name === undefined)).toEqual([
+      false,
+      true,
+      true,
+      true,
+    ]);
+    expect(await preparedNames(pool)).toEqual([]);
+    await pool.end();
+  });
+
   test("a plan whose result type changed under it is sent again unnamed", async () => {
     const { pool, wrapped, sent } = recordingPool();
     const db = createClient({
