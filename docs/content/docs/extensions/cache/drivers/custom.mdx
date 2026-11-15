@@ -242,36 +242,40 @@ protected async clear(prefix: string): Promise<void> {
 
 ```typescript no-check
 import { describe, it, expect } from "vitest";
+import { getEntry, invalidateEntries, setEntry } from "viborm/cache";
 import { MyCache } from "./my-cache";
+
+// The driver's unscoped storage is reached through functions of the
+// driver, which an application that never calls them does not carry.
 
 describe("MyCache", () => {
   it("stores and retrieves entries", async () => {
     const cache = new MyCache(/* config */);
 
-    await cache._set("test-key", { id: 1 }, { ttl: 60000 });
-    const entry = await cache._get("test-key");
+    await setEntry(cache, "test-key", { id: 1 }, { ttl: 60000 });
+    const entry = await getEntry(cache, "test-key");
 
     expect(entry?.value).toEqual({ id: 1 });
   });
 
   it("returns null for missing keys", async () => {
     const cache = new MyCache(/* config */);
-    const entry = await cache._get("nonexistent");
+    const entry = await getEntry(cache, "nonexistent");
     expect(entry).toBeNull();
   });
 
   it("clears by prefix", async () => {
     const cache = new MyCache(/* config */);
 
-    await cache._set("viborm:user:a", {}, { ttl: 60000 });
-    await cache._set("viborm:user:b", {}, { ttl: 60000 });
-    await cache._set("viborm:post:c", {}, { ttl: 60000 });
+    await setEntry(cache, "viborm:user:a", {}, { ttl: 60000 });
+    await setEntry(cache, "viborm:user:b", {}, { ttl: 60000 });
+    await setEntry(cache, "viborm:post:c", {}, { ttl: 60000 });
 
-    await cache._invalidate("user", {});
+    await invalidateEntries(cache, "user", {});
 
-    expect(await cache._get("viborm:user:a")).toBeNull();
-    expect(await cache._get("viborm:user:b")).toBeNull();
-    expect(await cache._get("viborm:post:c")).not.toBeNull();
+    expect(await getEntry(cache, "viborm:user:a")).toBeNull();
+    expect(await getEntry(cache, "viborm:user:b")).toBeNull();
+    expect(await getEntry(cache, "viborm:post:c")).not.toBeNull();
   });
 });
 ```

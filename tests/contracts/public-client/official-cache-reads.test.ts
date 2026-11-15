@@ -1,9 +1,17 @@
 // Provider-backed cache read integration.
+
 import { raw } from "@sql";
 import { MemoryCache } from "@src/cache/drivers/memory";
 import type { CacheEntry } from "@src/cache/exports";
 import { cache } from "@src/cache/exports";
 import { createOfficialCacheNamespace } from "@src/cache/key";
+import {
+  clearEntries,
+  deleteEntry,
+  getEntry,
+  invalidateEntries,
+  setEntry,
+} from "@src/cache/storage";
 import { defaultOmit } from "@src/client/exports";
 import { CacheInvalidKeyError, ValidationError } from "@src/errors";
 import {
@@ -576,12 +584,12 @@ describe("official cache reads", () => {
     const cacheDriver = new RecordingCache();
     const reservedKey = `${OFFICIAL_NAMESPACE}:author:findMany:forged`;
     const publicCalls = [
-      () => cacheDriver._get(reservedKey),
-      () => cacheDriver._set(reservedKey, 1, { ttl: 1000 }),
-      () => cacheDriver._delete(reservedKey),
-      () => cacheDriver._clear("viborm:cache"),
+      () => getEntry(cacheDriver, reservedKey),
+      () => setEntry(cacheDriver, reservedKey, 1, { ttl: 1000 }),
+      () => deleteEntry(cacheDriver, reservedKey),
+      () => clearEntries(cacheDriver, "viborm:cache"),
       () =>
-        cacheDriver._invalidate("author", {
+        invalidateEntries(cacheDriver, "author", {
           invalidate: [reservedKey],
         }),
     ];

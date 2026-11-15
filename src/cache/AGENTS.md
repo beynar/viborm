@@ -40,13 +40,14 @@ its own `CacheClock` (`driver.ts`), which a test hands a virtual one.
 | Owner | Responsibility |
 |---|---|
 | `src/cache/extension.ts` | `cache(config)`: the configuration read once (a `CacheDriver`, a string or finite `version`, a function `waitUntil`, else `CacheConfigurationError`), and the extension `viborm.cache`: `args` (`cache` on `writes`; `cacheRead`, `bound`, which `$withCache()` binds), a `call` on `target(writes)` whose `settled` invalidates, an `around` on `target(reads)` with `{ inner: true }`, and `methods` (`$withCache`, `$invalidate`) |
-| `driver.ts` | `CacheDriver`: get/set/SWR/invalidation orchestration; `[SERVE]` (one read through the store) and `[INVALIDATE]` (a write's or `$invalidate`'s targets, validated whole before any backend effect), methods keyed by symbols no package entry exports, so only the extension calls them and no module holds a friend |
+| `driver.ts` | `CacheDriver`: get/set/invalidation orchestration; `[SERVE]` (one read through the store) and `[INVALIDATE]` (a write's or `$invalidate`'s targets, validated whole before any backend effect), and the observed steps on a prefixed key (`[GET]`, `[SET]`, `[DELETE]`, `[CLEAR]`, `[BACKEND]`), methods keyed by symbols no package entry exports, so no module outside `src/cache` holds a friend. A class's methods are all in every bundle that constructs it: what a MemoryCache application never calls is not a method |
+| `storage.ts` | The unscoped storage (`getEntry`, `setEntry`, `deleteEntry`, `clearEntries`, `invalidateEntries`, `markRevalidating`, `clearRevalidating`): functions of a driver under the bare `viborm` root, refusing the official namespace, carried only where called |
 | `key.ts` | The official namespace (`createOfficialCacheNamespace`), its injective encoding, and the hash that names an entry inside it |
 | `src/extensions/codec.ts` | `codec(run)`: `run()` keeps the driver's rows for the read's one statement, `snapshot()` gives them as JSON data, `materialize(stored)` decodes them again through the read's own parser |
 | `result-codec.ts` | `cacheCodec`: the call's `codec(run)` with its failures made the cache's (`CacheConfigurationError`, naming the step, exposing no value) |
 | `units.ts` | The cache's own `cache` units (`get`, `set`, `invalidate`, `revalidate`, and an invalidation's `delete` and `clear`), emitted with `work`; what a presenter shows of each (its span, its attributes, its outcomes as logs) noted with `note`, as an `InstrumentationNote` |
-| `revalidate.ts` | `staleWhileRevalidate`: the refresh of a stale entry (marker claim, core replay, store, marker cleanup), a value the cache is configured with (`cache({ driver, swr: staleWhileRevalidate })`); a cache without it carries none of it and refuses a view's `swr` option |
-| `cache-background.ts` | The stale hit's one background promise |
+| `revalidate.ts` | `staleWhileRevalidate`: whether a stale entry is served (its window), and its refresh (marker claim, core replay, store, marker cleanup), a value the cache is configured with (`cache({ driver, swr: staleWhileRevalidate })`); a cache without it carries none of it and refuses a view's `swr` option |
+| `cache-background.ts` | The stale hit's one background promise, and the revalidation marker over a driver's backend (`marker`) |
 | `schema.ts`, `ttl.ts` | Per-read options and mutation invalidation options; TTL parsing |
 | `drivers/*` | Backend-only get/set/delete/clear primitives |
 | `src/extensions/query.ts` | The collector of a transaction scope (`collect`, `TransactionWriteOutcomes`), which `settled` and the part that watches writes install by value |
@@ -96,7 +97,7 @@ stored form changes meaning, and re-pin the exact-byte tests deliberately in the
 
 No connection string, host, username, or credential enters cache identity, and
 the SQL namespace never appears in a public cache key or an operation argument.
-Public/unscoped driver methods refuse keys beginning with `viborm:` before
+The unscoped storage functions (`storage.ts`) refuse the official namespace before
 backend or executor effects.
 
 Official `$invalidate` and mutation `cache.invalidate` accept relative exact
@@ -163,7 +164,8 @@ Stale-while-revalidate comes with its value: `cache({ driver, swr:
 staleWhileRevalidate })`. Without it, a view's `swr` option is a
 `CacheConfigurationError` when the view is bound, and the driver carries no
 revalidation code (the stale branch of `[SERVE]` asks the request's
-`revalidate`, handing it the steps on the entry's key the driver owns).
+`revalidate`, handing it the entry, its key, the driver's backend and the
+store of the new rows).
 
 A stale hit synchronously gives one complete background promise to the exact
 chain's `waitUntil`. That promise owns marker acquisition, inner core replay

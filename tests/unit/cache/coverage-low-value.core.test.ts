@@ -16,6 +16,15 @@ import { cache } from "@cache/extension";
 import { CACHE_PREFIX } from "@cache/key";
 import { staleWhileRevalidate } from "@cache/revalidate";
 import { hasCacheInvalidationWork } from "@cache/schema";
+import {
+  clearEntries,
+  clearRevalidating,
+  deleteEntry,
+  getEntry,
+  invalidateEntries,
+  markRevalidating,
+  setEntry,
+} from "@cache/storage";
 import { parseTTL } from "@cache/ttl";
 import type { KVNamespace } from "@cloudflare/workers-types";
 import { createExecutionContext } from "@drivers/execution-context";
@@ -294,52 +303,52 @@ describe("public cache-driver storage contract", () => {
     const clock = createTestClock();
     const driver = new RecordingCache(clock);
 
-    await driver._set("entry", { value: 1 }, { ttl: 100, swrTtl: 250 });
+    await setEntry(driver, "entry", { value: 1 }, { ttl: 100, swrTtl: 250 });
     expect(driver.sets[0]).toMatchObject({
       key: "viborm:entry",
       storageTtl: 250,
       entry: { value: { value: 1 }, ttl: 100 },
     });
-    await expect(driver._get("entry")).resolves.toMatchObject({
+    await expect(getEntry(driver, "entry")).resolves.toMatchObject({
       value: { value: 1 },
       ttl: 100,
     });
-    await expect(driver._get("missing")).resolves.toBeNull();
+    await expect(getEntry(driver, "missing")).resolves.toBeNull();
 
     clock.advance(101);
-    await expect(driver._get("entry")).resolves.toMatchObject({
+    await expect(getEntry(driver, "entry")).resolves.toMatchObject({
       value: { value: 1 },
     });
 
-    expect(await driver._markRevalidating("entry")).toBe(true);
-    expect(await driver._markRevalidating("entry")).toBe(false);
-    await driver._clearRevalidating("entry");
-    expect(await driver._markRevalidating("entry")).toBe(true);
+    expect(await markRevalidating(driver, "entry")).toBe(true);
+    expect(await markRevalidating(driver, "entry")).toBe(false);
+    await clearRevalidating(driver, "entry");
+    expect(await markRevalidating(driver, "entry")).toBe(true);
 
-    await driver._delete("entry");
+    await deleteEntry(driver, "entry");
     expect(driver.deletes.at(-1)).toEqual([
       "viborm:entry",
       "viborm:entry:reval",
     ]);
 
-    await driver._set("tenant:a", 1, { ttl: 100 });
-    await driver._set("other:a", 2, { ttl: 100 });
-    await driver._clear("tenant:");
+    await setEntry(driver, "tenant:a", 1, { ttl: 100 });
+    await setEntry(driver, "other:a", 2, { ttl: 100 });
+    await clearEntries(driver, "tenant:");
     expect(driver.clears.at(-1)).toBe("viborm:tenant:");
     expect(driver.entries.has("viborm:other:a")).toBe(true);
-    await driver._clear();
+    await clearEntries(driver);
     expect(driver.clears.at(-1)).toBe("viborm");
   });
 
   test("accepts legacy prefixed keys but reserves the official scope", async () => {
     const driver = new RecordingCache();
-    await driver._set("viborm:v2:user:key", 1, { ttl: 10 });
+    await setEntry(driver, "viborm:v2:user:key", 1, { ttl: 10 });
     expect(driver.sets[0]?.key).toBe("viborm:v2:user:key");
 
-    await expect(driver._get("viborm:cache")).rejects.toThrow(
+    await expect(getEntry(driver, "viborm:cache")).rejects.toThrow(
       CacheInvalidKeyError
     );
-    await expect(driver._get("viborm:cache:r3:forged")).rejects.toThrow(
+    await expect(getEntry(driver, "viborm:cache:r3:forged")).rejects.toThrow(
       CacheInvalidKeyError
     );
   });
@@ -364,7 +373,7 @@ describe("public cache-driver storage contract", () => {
     );
     const driver = new RecordingCache();
 
-    await expect(driver._get("missing", context)).resolves.toBeNull();
+    await expect(getEntry(driver, "missing", context)).resolves.toBeNull();
     expect(units).toHaveLength(1);
     expect(units[0]).toMatchObject({ kind: "cache", operation: "get" });
   });
@@ -377,10 +386,10 @@ describe("public cache-driver storage contract", () => {
     expect(hasCacheInvalidationWork({ autoInvalidate: true })).toBe(true);
     expect(hasCacheInvalidationWork({ invalidate: ["one"] })).toBe(true);
 
-    await driver._invalidate("user");
+    await invalidateEntries(driver, "user");
     expect(driver.clears).toEqual(["viborm:user:"]);
     driver.clears.length = 0;
-    await driver._invalidate("user", {
+    await invalidateEntries(driver, "user", {
       autoInvalidate: true,
       invalidate: ["exact", "prefix:*"],
     });
@@ -392,7 +401,7 @@ describe("public cache-driver storage contract", () => {
 
     driver.failDelete = new Error("delete refused");
     await expect(
-      driver._invalidate("user", { invalidate: ["exact"] })
+      invalidateEntries(driver, "user", { invalidate: ["exact"] })
     ).rejects.toThrow("delete refused");
   });
 });
@@ -402,27 +411,27 @@ describe("memory cache storage lifecycle", () => {
     vi.useFakeTimers({ now: 1_700_000_000_000 });
     try {
       const driver = new MemoryCache();
-      await driver._set("expiring", "first", { ttl: 10 });
-      await driver._set("expiring", "replacement", { ttl: 20 });
-      await expect(driver._get("expiring")).resolves.toMatchObject({
+      await setEntry(driver, "expiring", "first", { ttl: 10 });
+      await setEntry(driver, "expiring", "replacement", { ttl: 20 });
+      await expect(getEntry(driver, "expiring")).resolves.toMatchObject({
         value: "replacement",
       });
 
       vi.advanceTimersByTime(10);
-      await expect(driver._get("expiring")).resolves.toMatchObject({
+      await expect(getEntry(driver, "expiring")).resolves.toMatchObject({
         value: "replacement",
       });
       vi.advanceTimersByTime(10);
-      await expect(driver._get("expiring")).resolves.toBeNull();
+      await expect(getEntry(driver, "expiring")).resolves.toBeNull();
 
-      await driver._set("tenant:one", 1, { ttl: 100 });
-      await driver._set("tenant:two", 2, { ttl: 100 });
-      await driver._set("other:one", 3, { ttl: 100 });
-      await driver._delete("tenant:one");
-      await expect(driver._get("tenant:one")).resolves.toBeNull();
-      await driver._clear("tenant:");
-      await expect(driver._get("tenant:two")).resolves.toBeNull();
-      await expect(driver._get("other:one")).resolves.toMatchObject({
+      await setEntry(driver, "tenant:one", 1, { ttl: 100 });
+      await setEntry(driver, "tenant:two", 2, { ttl: 100 });
+      await setEntry(driver, "other:one", 3, { ttl: 100 });
+      await deleteEntry(driver, "tenant:one");
+      await expect(getEntry(driver, "tenant:one")).resolves.toBeNull();
+      await clearEntries(driver, "tenant:");
+      await expect(getEntry(driver, "tenant:two")).resolves.toBeNull();
+      await expect(getEntry(driver, "other:one")).resolves.toMatchObject({
         value: 3,
       });
     } finally {
@@ -475,21 +484,21 @@ describe("Cloudflare KV backend contract", () => {
     } as unknown as KVNamespace;
     const driver = new CloudflareKVCache(kv);
 
-    await expect(driver._get("missing")).resolves.toBeNull();
-    await driver._set("tenant:a", { answer: 42 }, { ttl: 1501 });
+    await expect(getEntry(driver, "missing")).resolves.toBeNull();
+    await setEntry(driver, "tenant:a", { answer: 42 }, { ttl: 1501 });
     expect(putCalls[0]).toMatchObject({
       key: "viborm:tenant:a",
       expirationTtl: 60,
     });
-    await expect(driver._get("tenant:a")).resolves.toMatchObject({
+    await expect(getEntry(driver, "tenant:a")).resolves.toMatchObject({
       value: { answer: 42 },
       ttl: 1501,
     });
 
-    await driver._delete("tenant:a");
+    await deleteEntry(driver, "tenant:a");
     expect(deleted).toEqual(["viborm:tenant:a", "viborm:tenant:a:reval"]);
     deleted.length = 0;
-    await driver._clear("tenant:");
+    await clearEntries(driver, "tenant:");
     expect(listCalls).toEqual([
       { prefix: "viborm:tenant:", cursor: undefined },
       { prefix: "viborm:tenant:", cursor: "next" },

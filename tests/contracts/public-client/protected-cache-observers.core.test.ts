@@ -3,6 +3,7 @@ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { CacheDriver, type CacheEntry } from "@cache/driver";
 import { cache as cacheExtension } from "@cache/extension";
 import { staleWhileRevalidate } from "@cache/revalidate";
+import { getEntry } from "@cache/storage";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { Driver } from "@drivers";
 import { createClient, extension, unit as extUnit, s } from "@src/index";
@@ -416,8 +417,8 @@ describe("public protected cache observers", () => {
     const state = createObservedCacheClient();
     const trusted = transactionContext(state.client.record.findMany());
 
-    await state.cache._get("trusted", trusted);
-    await state.cache._get("copied", { ...trusted });
+    await getEntry(state.cache, "trusted", trusted);
+    await getEntry(state.cache, "copied", { ...trusted });
     await settleObservations(state.observations);
 
     expect(cacheOperations(state.observations)).toEqual(["get"]);

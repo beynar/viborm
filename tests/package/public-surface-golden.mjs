@@ -649,7 +649,18 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
     ["BunSQLiteDriver"]
   ),
   "./cache": surface(
-    ["CacheDriver", "cache", "staleWhileRevalidate"],
+    [
+      "CacheDriver",
+      "cache",
+      "clearEntries",
+      "clearRevalidating",
+      "deleteEntry",
+      "getEntry",
+      "invalidateEntries",
+      "markRevalidating",
+      "setEntry",
+      "staleWhileRevalidate",
+    ],
     [
       "CacheEntry",
       "CacheExtensionConfig",

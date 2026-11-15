@@ -1,6 +1,7 @@
-import { type CacheEntry, INVALIDATE, SERVE } from "@cache/driver";
+import { type CacheEntry, INVALIDATE, SERVE, scopedKey } from "@cache/driver";
 import { MemoryCache } from "@cache/drivers/memory";
 import { staleWhileRevalidate } from "@cache/revalidate";
+import { getEntry, markRevalidating, setEntry } from "@cache/storage";
 import { parseTTL } from "@cache/ttl";
 import { stableStringify } from "@extensions/key";
 import type { Clock } from "@src/clock";
@@ -68,13 +69,13 @@ describe("adversarial cache boundaries", () => {
   it("bounds memory by LRU entries and owns only one sweep timer", async () => {
     const clock = createTestClock();
     const cache = new ClockedMemory(clock, 2);
-    await cache._set("a", 1, { ttl: 3_000_000_000 });
-    await cache._set("b", 2, { ttl: 3_000_000_000 });
+    await setEntry(cache, "a", 1, { ttl: 3_000_000_000 });
+    await setEntry(cache, "b", 2, { ttl: 3_000_000_000 });
     expect(clock.pendingCount()).toBe(1);
-    expect((await cache._get("a"))?.value).toBe(1);
-    await cache._set("c", 3, { ttl: 3_000_000_000 });
-    expect(await cache._get("b")).toBeNull();
-    expect((await cache._get("c"))?.value).toBe(3);
+    expect((await getEntry(cache, "a"))?.value).toBe(1);
+    await setEntry(cache, "c", 3, { ttl: 3_000_000_000 });
+    expect(await getEntry(cache, "b")).toBeNull();
+    expect((await getEntry(cache, "c"))?.value).toBe(3);
     clock.advance(60_000);
     expect(clock.pendingCount()).toBe(1);
     await cache.disconnect();
@@ -130,7 +131,9 @@ describe("adversarial cache boundaries", () => {
         })
     );
     await begun;
-    await cache[INVALIDATE]("", undefined, undefined, scope);
+    await cache[INVALIDATE]("", undefined, undefined, (key) =>
+      scopedKey(scope, key)
+    );
     resolve(1);
     expect(await old).toBe(1);
     await Promise.all(pending.splice(0));
@@ -168,7 +171,9 @@ describe("adversarial cache boundaries", () => {
     const { scope, read } = reader(cache, pending);
     expect(await read({}, async () => 1)).toBe(1);
     await started;
-    await cache[INVALIDATE]("", undefined, undefined, scope);
+    await cache[INVALIDATE]("", undefined, undefined, (key) =>
+      scopedKey(scope, key)
+    );
     release();
     await Promise.all(pending.splice(0));
     expect(await read({}, async () => 2)).toBe(2);
@@ -187,10 +192,10 @@ describe("adversarial cache boundaries", () => {
       }
     }
     const cache = new RetainedMemory(clock);
-    expect(await cache._markRevalidating("row")).toBe(true);
-    expect(await cache._markRevalidating("row")).toBe(false);
+    expect(await markRevalidating(cache, "row")).toBe(true);
+    expect(await markRevalidating(cache, "row")).toBe(false);
     clock.advance(30_001);
-    expect(await cache._markRevalidating("row")).toBe(true);
+    expect(await markRevalidating(cache, "row")).toBe(true);
     await cache.disconnect();
   });
   it("defaults durable invalidation to the complete bound scope", async () => {
@@ -199,7 +204,9 @@ describe("adversarial cache boundaries", () => {
     const { scope, read } = reader(cache, pending);
     await read({}, async () => 1);
     await Promise.all(pending.splice(0));
-    await cache[INVALIDATE]("", undefined, undefined, scope);
+    await cache[INVALIDATE]("", undefined, undefined, (key) =>
+      scopedKey(scope, key)
+    );
     expect(await read({}, async () => 2)).toBe(2);
     await Promise.all(pending.splice(0));
     await cache.disconnect();

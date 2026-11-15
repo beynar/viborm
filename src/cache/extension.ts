@@ -41,6 +41,7 @@ import {
   INVALIDATE,
   type Revalidate,
   SERVE,
+  scopedKey,
   type WaitUntilFn,
 } from "./driver";
 import { createOfficialCacheNamespace } from "./key";
@@ -165,11 +166,9 @@ export function cache(config: CacheExtensionConfig): unknown {
     }
   ): Promise<void> => {
     try {
-      await driver[INVALIDATE](
-        "",
-        options,
-        origin,
-        namespaceOf(database(origin))
+      const namespace = namespaceOf(database(origin));
+      await driver[INVALIDATE]("", options, origin, (key) =>
+        scopedKey(namespace, key)
       );
     } catch (cause) {
       if (meta === undefined && cause instanceof VibORMError) throw cause;

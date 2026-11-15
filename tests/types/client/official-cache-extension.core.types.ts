@@ -1,6 +1,15 @@
 import { MemoryCache } from "@src/cache/drivers/memory";
 import { cache } from "@src/cache/exports";
 import {
+  clearEntries,
+  clearRevalidating,
+  deleteEntry,
+  getEntry,
+  invalidateEntries,
+  markRevalidating,
+  setEntry,
+} from "@src/cache/storage";
+import {
   createClient as createPGliteClient,
   PGliteDriver,
 } from "@src/drivers/pglite";
@@ -17,19 +26,19 @@ const _forgedScope = {
     "viborm:cache:r3:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:u",
 };
 // @ts-expect-error - public cache reads accept no external scope
-cacheDriver._get("key", undefined, _forgedScope);
+getEntry(cacheDriver, "key", undefined, _forgedScope);
 // @ts-expect-error - public cache writes accept no external scope
-cacheDriver._set("key", 1, { ttl: 1000 }, undefined, _forgedScope);
+setEntry(cacheDriver, "key", 1, { ttl: 1000 }, undefined, _forgedScope);
 // @ts-expect-error - public cache deletes accept no external scope
-cacheDriver._delete("key", undefined, _forgedScope);
+deleteEntry(cacheDriver, "key", undefined, _forgedScope);
 // @ts-expect-error - public cache clears accept no external scope
-cacheDriver._clear("key", undefined, _forgedScope);
+clearEntries(cacheDriver, "key", undefined, _forgedScope);
 // @ts-expect-error - public invalidation accepts no external scope
-cacheDriver._invalidate("user", undefined, undefined, _forgedScope);
+invalidateEntries(cacheDriver, "user", undefined, undefined, _forgedScope);
 // @ts-expect-error - public SWR admission accepts no external scope
-cacheDriver._markRevalidating("key", _forgedScope);
+markRevalidating(cacheDriver, "key", _forgedScope);
 // @ts-expect-error - public SWR cleanup accepts no external scope
-cacheDriver._clearRevalidating("key", _forgedScope);
+clearRevalidating(cacheDriver, "key", _forgedScope);
 
 // @ts-expect-error - an unextended client has no cache-read surface
 base.$withCache();

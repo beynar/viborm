@@ -22,3 +22,12 @@ export {
 export { type CacheExtensionConfig, cache } from "./extension";
 export { staleWhileRevalidate } from "./revalidate";
 export type { CacheInvalidationOptions, WithCacheOptions } from "./schema";
+export {
+  clearEntries,
+  clearRevalidating,
+  deleteEntry,
+  getEntry,
+  invalidateEntries,
+  markRevalidating,
+  setEntry,
+} from "./storage";

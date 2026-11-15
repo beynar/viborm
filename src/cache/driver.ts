@@ -11,11 +11,11 @@ import type { Database } from "@extensions/database";
 import { note } from "@extensions/unit-words";
 import { ATTR_CACHE_RESULT } from "../instrumentation/spans";
 import {
+  type Backend,
   REVALIDATING_SUFFIX,
-  REVALIDATING_TTL_MS,
   scheduleBackground,
 } from "./cache-background";
-import { CACHE_PREFIX, fastHash, OFFICIAL_CACHE_NAMESPACE_ROOT } from "./key";
+import { CACHE_PREFIX, fastHash } from "./key";
 import {
   type CacheInvalidationOptions,
   type CacheReadOptions,
@@ -100,19 +100,24 @@ export interface CacheServe<T> {
 }
 
 /**
- * One stale entry to refresh, as the driver hands it over: its read, and
- * the steps on its key the driver owns (the marker that claims the refresh,
- * the store of the new rows, the marker's removal).
+ * One stale entry, as the driver hands it over: its read, its entry and
+ * age, its prefixed key and the driver's backend (what the marker that
+ * claims a refresh uses), and the store of the new rows.
  */
 export interface Refresh {
   readonly request: CacheServe<unknown>;
-  mark(): Promise<boolean>;
+  readonly entry: CacheEntry<unknown>;
+  readonly now: number;
+  readonly key: string;
+  readonly backend: Backend;
   store(stored: unknown): Promise<void>;
-  clear(): Promise<void>;
 }
 
-/** What refreshes a stale entry in the background. */
-export type Revalidate = (refresh: Refresh) => Promise<void>;
+/**
+ * Whether a stale entry is served while it is refreshed in the background:
+ * what `swr` brings, so a cache without it carries none of it.
+ */
+export type Revalidate = (refresh: Refresh) => boolean;
 
 /**
  * The keys of the two methods a driver serves its extension with: one read
@@ -122,9 +127,45 @@ export type Revalidate = (refresh: Refresh) => Promise<void>;
 export const SERVE = Symbol("serve");
 export const INVALIDATE = Symbol("invalidate");
 
+/**
+ * The keys of the steps on a prefixed key the driver owns, observed as
+ * `cache` units: what its extension and the unscoped storage functions
+ * (`storage.ts`, which an application that never calls them does not carry)
+ * reach. No package entry exports them either.
+ */
+export const GET = Symbol("get");
+export const SET = Symbol("set");
+export const DELETE = Symbol("delete");
+export const CLEAR = Symbol("clear");
+export const BACKEND = Symbol("backend");
+
 interface PreparedInvalidationTarget {
   readonly kind: "clear" | "delete";
   readonly prefixedKey: string;
+}
+
+/**
+ * A relative key rebased into an official scope. An EMPTY relative key is
+ * the whole scope — `$invalidate("*")` — and it rebases to `<scope>:`, WITH
+ * the separator, because the storage backends clear by `startsWith`. A bare
+ * `<scope>` would also match every sibling scope whose namespace string
+ * merely extends this one, and one axis of the scope grammar can do that:
+ * the cache `version` is the last component and its `s:` body is
+ * variable-length, so `version: "a"` is a strict prefix of `version: "ab"`
+ * at the same dialect and namespace. That axis is exactly what §7.1 leaves
+ * users to partition SQLite and unbound MySQL databases with, so a
+ * clear-all crossing it would empty a physically different database's
+ * entries. Adding the separator loses nothing: every key this scope can hold
+ * is `<model>:<operation>:<hash>`, so no stored key is ever equal to the
+ * bare scope.
+ */
+export function scopedKey(namespace: string, key: string): string {
+  if (key.startsWith(`${CACHE_PREFIX}:`)) {
+    throw new CacheInvalidKeyError(
+      "Official cache keys and prefixes must be relative and cannot begin with 'viborm:'."
+    );
+  }
+  return `${namespace}:${key}`;
 }
 
 /**
@@ -132,8 +173,7 @@ interface PreparedInvalidationTarget {
  *
  * Follows the same pattern as the database Driver class:
  * - Protected abstract methods for concrete implementations (non-underscored)
- * - Public underscored methods handle key prefixing, instrumentation, and delegation
- * - Instrumentation support
+ * - Symbol-keyed steps handle prefixed keys, instrumentation, and delegation
  * - Cache orchestration (hit/miss/stale/SWR logic)
  */
 export abstract class CacheDriver {
@@ -190,136 +230,80 @@ export abstract class CacheDriver {
 
   async [SERVE]<T>(request: CacheServe<T>): Promise<T> {
     const { id, read, namespace, codec, model, operation, origin } = request;
-    const cacheKey = `${model}:${operation}:${fastHash(id)}${read.key === undefined ? "" : `:${read.key}`}`;
+    const cacheKey = scopedKey(
+      namespace,
+      `${model}:${operation}:${fastHash(id)}${read.key === undefined ? "" : `:${read.key}`}`
+    );
     const identity = JSON.stringify([id, read.key]);
     const revision = this.#fillRevision;
+    const store = (stored: unknown, background?: CacheServe<unknown>) =>
+      this[SET](
+        cacheKey,
+        stored,
+        { ttl: read.ttlMs, swrTtl: read.swr || undefined },
+        origin,
+        background,
+        identity,
+        revision
+      );
     let outcome = "bypass";
     if (!read.bypass) {
-      const cached = await this.#getCachedResult<T>(
-        cacheKey,
-        origin,
-        namespace,
-        codec,
-        identity
-      );
-      if (cached) {
-        const now = this.clock.now();
-        const age = now - cached.createdAt;
-        if (age < cached.ttl) {
-          note(origin, cacheOutcome("hit"));
-          return cached.value;
-        }
-        const swrTtl = read.swr;
-        const { revalidate } = request;
+      const cached = await this[GET]<unknown>(cacheKey, origin);
+      // Read as the backend gives it: an entry of another identity, or whose
+      // times are not a finite span, is a miss.
+      if (cached?.identity === identity) {
+        const { createdAt, ttl, expiresAt } = cached;
         if (
-          revalidate &&
-          swrTtl !== false &&
-          age < swrTtl &&
-          now < cached.expiresAt!
+          [createdAt, ttl, expiresAt].every(Number.isFinite) &&
+          ttl > 0 &&
+          expiresAt! >= createdAt
         ) {
-          // Stale, served; refreshed in the background, where the read runs
-          // once more after this serve returned: the core alone.
-          scheduleBackground(
-            revalidate({
+          const entry = { ...cached, value: codec.materialize(cached.value) };
+          const now = this.clock.now();
+          if (now - createdAt < ttl) {
+            note(origin, cacheOutcome("hit"));
+            return entry.value;
+          }
+          if (
+            request.revalidate?.({
               request,
-              mark: () => this.#markRevalidatingScoped(cacheKey, namespace),
-              store: (stored) =>
-                this.#setScoped(
-                  cacheKey,
-                  stored,
-                  { ttl: read.ttlMs, swrTtl },
-                  origin,
-                  namespace,
-                  undefined,
-                  identity,
-                  revision
-                ),
-              clear: () => this.#clearRevalidatingScoped(cacheKey, namespace),
-            }),
-            request.waitUntil
-          );
-          note(origin, cacheOutcome("hit", "stale"));
-          return cached.value;
+              entry,
+              now,
+              key: cacheKey,
+              backend: this[BACKEND](),
+              store,
+            })
+          )
+            return entry.value;
         }
       }
       outcome = "miss";
     }
     const result = await codec.run();
-    this.#setResultInBackground(cacheKey, request, identity, revision);
+    if (revision === this.#fillRevision) {
+      try {
+        // The observed set unit presents a failure; without the catch it
+        // would become an unhandled rejection.
+        scheduleBackground(
+          store(codec.snapshot(), request).catch(() => undefined),
+          request.waitUntil
+        );
+      } catch (error) {
+        note(origin, cacheOutcome("miss", "cache-set-failed", error));
+      }
+    }
     note(origin, cacheOutcome(outcome));
     return result;
   }
 
-  async #getCachedResult<T>(
-    key: string,
-    origin: object,
-    namespace: string,
-    codec: DetachedCacheResultCodec<T>,
-    identity: string
-  ): Promise<CacheEntry<T> | null> {
-    const cached = await this.#getScoped<unknown>(key, origin, namespace);
-    // Read as the backend gives it: an entry of another identity, or whose
-    // times are not a finite span, is a miss.
-    if (cached?.identity !== identity) return null;
-    const { createdAt, ttl, expiresAt } = cached;
-    return [createdAt, ttl, expiresAt].every(Number.isFinite) &&
-      ttl > 0 &&
-      expiresAt! >= createdAt
-      ? { createdAt, ttl, expiresAt, value: codec.materialize(cached.value) }
-      : null;
-  }
-
-  #setResultInBackground<T>(
-    key: string,
-    request: CacheServe<T>,
-    identity: string,
-    revision: number
-  ): void {
-    if (revision !== this.#fillRevision) return;
-    const { read, origin } = request;
-    let stored: unknown;
-    try {
-      stored = request.codec.snapshot();
-    } catch (error) {
-      note(origin, cacheOutcome("miss", "cache-set-failed", error));
-      return;
-    }
-    // The observed set unit presents a failure; without the catch it would
-    // become an unhandled rejection.
-    const cachePromise = this.#setScoped(
-      key,
-      stored,
-      {
-        ttl: read.ttlMs,
-        swrTtl: read.swr !== false ? read.swr : undefined,
-      },
-      origin,
-      request.namespace,
-      request,
-      identity,
-      revision
-    ).catch(() => undefined);
-    scheduleBackground(cachePromise, request.waitUntil);
-  }
-
   // ============================================================
-  // PUBLIC API - Storage operations
+  // STEPS - on prefixed keys, observed as `cache` units
   // ============================================================
 
-  /**
-   * Get a value from cache
-   * @param key - Cache key (will be prefixed automatically)
-   */
-  async _get<T>(key: string, origin?: object): Promise<CacheEntry<T> | null> {
-    return this.#getScoped<T>(key, origin);
-  }
-
-  async #getScoped<T>(
-    key: string,
-    origin?: object,
-    namespace?: string
+  async [GET]<T>(
+    prefixedKey: string,
+    origin?: object
   ): Promise<CacheEntry<T> | null> {
-    const prefixedKey = this.#prefixKey(key, namespace);
     return cacheStep("get", origin, this.driverName, async (unit) => {
       const entry = await this.get<T>(prefixedKey);
       if (unit !== undefined)
@@ -336,34 +320,17 @@ export abstract class CacheDriver {
     });
   }
 
-  /**
-   * Set a value in cache
-   * @param key - Cache key (will be prefixed automatically)
-   * @param value - Value to cache
-   * @param options - Cache options including TTL
-   */
-  async _set<T>(
-    key: string,
-    value: T,
-    options: CacheSetOptions,
-    origin?: object
-  ): Promise<void> {
-    return this.#setScoped(key, value, options, origin);
-  }
-
-  async #setScoped<T>(
-    key: string,
+  async [SET]<T>(
+    prefixedKey: string,
     value: T,
     options: CacheSetOptions,
     origin?: object,
-    namespace?: string,
     /** The read a background set belongs to, whose outcomes a failure joins. */
     background?: CacheServe<unknown>,
     identity?: string,
     revision?: number
   ): Promise<void> {
     if (revision !== undefined && revision !== this.#fillRevision) return;
-    const prefixedKey = this.#prefixKey(key, namespace);
     // Use SWR TTL if provided, otherwise just use regular TTL
     const storageTtl = options.swrTtl ?? options.ttl;
     const createdAt = this.clock.now();
@@ -397,105 +364,31 @@ export abstract class CacheDriver {
     );
   }
 
-  /**
-   * Delete a specific key (and its revalidating key)
-   * @param key - Cache key (will be prefixed automatically)
-   */
-  async _delete(key: string, origin?: object): Promise<void> {
-    const prefixedKey = this.#prefixKey(key);
-    return this.#deletePrefixed(prefixedKey, origin);
-  }
-
-  /**
-   * Clear cache by prefix or all within the public unscoped namespace.
-   * @param prefix - Optional prefix to clear (will be prefixed automatically)
-   */
-  async _clear(prefix?: string, origin?: object): Promise<void> {
-    const prefixedPrefix = this.#prefixKey(prefix ?? "");
-    return this.#clearPrefixed(prefixedPrefix, origin);
-  }
-
-  /**
-   * Mark entry as revalidating (for SWR coordination)
-   * Returns true if this caller should perform revalidation
-   * @param key - Cache key (will be prefixed automatically)
-   */
-  async _markRevalidating(key: string): Promise<boolean> {
-    return this.#markRevalidatingScoped(key);
-  }
-
-  async #markRevalidatingScoped(
-    key: string,
-    namespace?: string
-  ): Promise<boolean> {
-    const revalidatingKey = `${this.#prefixKey(key, namespace)}${REVALIDATING_SUFFIX}`;
-
-    // Check if already revalidating
-    const existing = await this.get(revalidatingKey);
-    if (existing && this.clock.now() - existing.createdAt < existing.ttl)
-      return false;
-
-    // Set revalidating flag with short TTL
-    const entry: CacheEntry<boolean> = {
-      value: true,
-      createdAt: this.clock.now(),
-      ttl: REVALIDATING_TTL_MS,
+  /** The backend's own primitives, unobserved, and the clock. */
+  [BACKEND](): Backend {
+    return {
+      get: (key) => this.get(key),
+      set: (key, ttl, entry) => this.set(key, ttl, entry),
+      delete: (keys) => this.delete(keys),
+      now: () => this.clock.now(),
     };
-    await this.set(revalidatingKey, REVALIDATING_TTL_MS, entry);
-
-    return true;
   }
 
   /**
-   * Clear revalidating flag
-   * @param key - Cache key (will be prefixed automatically)
-   */
-  async _clearRevalidating(key: string): Promise<void> {
-    return this.#clearRevalidatingScoped(key);
-  }
-
-  async #clearRevalidatingScoped(
-    key: string,
-    namespace?: string
-  ): Promise<void> {
-    const revalidatingKey = `${this.#prefixKey(key, namespace)}${REVALIDATING_SUFFIX}`;
-    await this.delete([revalidatingKey]);
-  }
-
-  /**
-   * Invalidate cache entries after a mutation
-   * @param modelName - The model name for auto-invalidation
-   * @param options - Cache invalidation options
-   */
-  async _invalidate(
-    modelName: string,
-    options?: CacheInvalidationOptions,
-    origin?: object
-  ): Promise<void> {
-    return this[INVALIDATE](modelName, options, origin);
-  }
-
-  /**
-   * Invalidate after a mutation: `modelName`'s entries, or, inside an
-   * extension's `namespace`, the whole of it (`modelName` empty).
+   * Invalidate after a mutation: the entries under `prefix` (relative keys
+   * rebased by `prefixed`), and the targets `options` names.
    */
   async [INVALIDATE](
-    modelName: string,
-    options?: CacheInvalidationOptions,
-    origin?: object,
-    namespace?: string
+    prefix: string,
+    options: CacheInvalidationOptions | undefined,
+    origin: object | undefined,
+    prefixed: (key: string) => string
   ): Promise<void> {
     if (!hasCacheInvalidationWork(options)) return;
     this.#fillRevision += 1;
     const targets: PreparedInvalidationTarget[] = [];
     if (options === undefined || options.autoInvalidate === true) {
-      targets.push({
-        kind: "clear",
-        prefixedKey: this.#prefixKey(
-          namespace === undefined ? `${modelName}:` : "",
-          namespace
-        ),
-      });
+      targets.push({ kind: "clear", prefixedKey: prefixed(prefix) });
     }
     if (options?.invalidate) {
       for (const entry of options.invalidate) {
@@ -503,7 +396,7 @@ export abstract class CacheDriver {
         const key = isPrefix ? entry.slice(0, -1) : entry;
         targets.push({
           kind: isPrefix ? "clear" : "delete",
-          prefixedKey: this.#prefixKey(key, namespace),
+          prefixedKey: prefixed(key),
         });
       }
     }
@@ -512,8 +405,8 @@ export abstract class CacheDriver {
       for (const target of targets) {
         promises.push(
           target.kind === "clear"
-            ? this.#clearPrefixed(target.prefixedKey, unit)
-            : this.#deletePrefixed(target.prefixedKey, unit)
+            ? this[CLEAR](target.prefixedKey, unit)
+            : this[DELETE](target.prefixedKey, unit)
         );
       }
       await Promise.all(promises);
@@ -530,11 +423,7 @@ export abstract class CacheDriver {
    */
   disconnect?(): Promise<void>;
 
-  // ============================================================
-  // INTERNAL HELPERS
-  // ============================================================
-
-  #deletePrefixed(prefixedKey: string, origin?: object): Promise<void> {
+  async [DELETE](prefixedKey: string, origin?: object): Promise<void> {
     this.#fillRevision += 1;
     const keys = [prefixedKey, `${prefixedKey}${REVALIDATING_SUFFIX}`];
     return cacheStep("delete", origin, this.driverName, () =>
@@ -542,57 +431,10 @@ export abstract class CacheDriver {
     );
   }
 
-  #clearPrefixed(prefixedKey: string, origin?: object): Promise<void> {
+  async [CLEAR](prefixedKey: string, origin?: object): Promise<void> {
     this.#fillRevision += 1;
     return cacheStep("clear", origin, this.driverName, () =>
       this.clear(prefixedKey)
     );
-  }
-
-  /**
-   * Prefix a public storage key, or rebase an official relative key into its
-   * authenticated extension namespace.
-   *
-   * An EMPTY relative key is the whole scope — `$invalidate("*")` — and it
-   * rebases to `<scope>:`, WITH the separator, because the storage backends
-   * clear by `startsWith`. A bare `<scope>` would also match every sibling scope
-   * whose namespace string merely extends this one, and one axis of the scope
-   * grammar can do that: the cache `version` is the last component and its `s:`
-   * body is variable-length, so `version: "a"` is a strict prefix of
-   * `version: "ab"` at the same dialect and namespace. That axis is exactly what
-   * §7.1 leaves users to partition SQLite and unbound MySQL databases with, so a
-   * clear-all crossing it would empty a physically different database's entries.
-   *
-   * Adding the separator loses nothing: every key this scope can hold is written
-   * through `#executeCached`, whose relative key is always
-   * `<model>:<operation>:<hash>`, so no stored key is ever equal to the bare
-   * scope. The unscoped arm below deliberately keeps its bare `viborm` root — a
-   * public caller CAN store at exactly that key, there is only one such root,
-   * and no sibling exists for a clear to cross into.
-   */
-  #prefixKey(key: string, namespace?: string): string {
-    if (namespace !== undefined) {
-      if (key.startsWith(`${CACHE_PREFIX}:`)) {
-        throw new CacheInvalidKeyError(
-          "Official cache keys and prefixes must be relative and cannot begin with 'viborm:'."
-        );
-      }
-      return `${namespace}:${key}`;
-    }
-
-    const prefixedKey = key.startsWith(`${CACHE_PREFIX}:`)
-      ? key
-      : key
-        ? `${CACHE_PREFIX}:${key}`
-        : CACHE_PREFIX;
-    if (
-      prefixedKey === OFFICIAL_CACHE_NAMESPACE_ROOT ||
-      prefixedKey.startsWith(`${OFFICIAL_CACHE_NAMESPACE_ROOT}:`)
-    ) {
-      throw new CacheInvalidKeyError(
-        "The official cache namespace requires an authenticated cache extension."
-      );
-    }
-    return prefixedKey;
   }
 }

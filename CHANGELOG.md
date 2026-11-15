@@ -85,6 +85,16 @@ all-or-nothing when it fits one batch.
   (`Argument "tenant" is required`, `references undeclared argument "x"`)
   where they said `Control`.
 
+- **A cache driver's unscoped storage is reached through functions**:
+  `driver._get(key)`, `_set`, `_delete`, `_clear`, `_invalidate`,
+  `_markRevalidating` and `_clearRevalidating` are `getEntry(driver, key)`,
+  `setEntry(driver, key, value, options)`, `deleteEntry`, `clearEntries`,
+  `invalidateEntries(driver, model, options?)`, `markRevalidating` and
+  `clearRevalidating`, from `viborm/cache`, with the same refusals. A
+  method is in every application's bundle whether it calls it or not; a
+  function only where it is called. Writing a backend (`get`, `set`,
+  `delete`, `clear`) is unchanged.
+
 ### Extensions: what changes for extension authors (breaking)
 
 - **The earlier contract is gone**: `defineExtension`, `defineHooks`,
