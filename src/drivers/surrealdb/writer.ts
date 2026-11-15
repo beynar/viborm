@@ -20,7 +20,7 @@ import {
   type PreparedSelector,
   wholeValue,
 } from "@query-engine/raptor3/shared/query";
-import type { RowJudgement } from "@query-engine/raptor3/shared/row-scope";
+import type { WriteJudgement } from "@query-engine/raptor3/shared/row-scope";
 import type { Input } from "@query-engine/raptor3/shared/schema";
 import { SqlOperationContext } from "@query-engine/raptor3/shared/sql-operation-context";
 import {
@@ -552,17 +552,17 @@ export class SurrealWriter extends Writer {
     model: AnyModel,
     next: () => Sql,
     assigned: readonly string[],
-    judgement: RowJudgement | undefined,
+    judgement: WriteJudgement | undefined,
     candidatesJudged = true
   ): Ahead {
-    const domain = this.#q.domain;
-    if (judgement === undefined || domain === undefined) return NOTHING_AHEAD;
-    const judge = domain.produced(
+    const judges = this.#q.domain?.judge;
+    if (judgement === undefined || judges === undefined) return NOTHING_AHEAD;
+    const judge = judges.produced(
       model,
       judgement,
       candidatesJudged ? assigned : undefined
     );
-    const cycles = domain.cycles(model, judgement);
+    const cycles = judges.cycles(model, judgement);
     if (!judge?.predicate && cycles.length === 0) return NOTHING_AHEAD;
     const { lets, checks } = this.#judges("$next", judge);
     return {
@@ -579,7 +579,7 @@ export class SurrealWriter extends Writer {
     model: AnyModel,
     source: Sql,
     values: Input,
-    judgement: RowJudgement | undefined,
+    judgement: WriteJudgement | undefined,
     candidatesJudged = true
   ): Ahead {
     return this.#judgedNext(
@@ -621,15 +621,16 @@ export class SurrealWriter extends Writer {
   /** What a judged write of the rows a question names refuses with. */
   #refusal(
     question: Question,
-    judgement: RowJudgement | undefined
+    judgement: WriteJudgement | undefined
   ): PreparedGuardFailure | undefined {
-    if (!(judgement && this.#q.domain)) return undefined;
-    const edge = question.member?.edge ?? question.through;
-    return this.#q.domain.refusal(
+    const judge = this.#q.domain?.judge;
+    if (!(judgement && judge)) return undefined;
+    return judge.refusal(
       this.operation.operation,
       question.model,
       judgement,
-      edge && question.verb ? [question.verb, edge.name] : undefined
+      question.verb,
+      (question.member?.edge ?? question.through)?.name
     );
   }
 
@@ -644,7 +645,8 @@ export class SurrealWriter extends Writer {
     const low = this.#low;
     const rows = await this.computed(model, values);
     const table = fieldName(model["~"].names.sql!);
-    const judge = this.#q.domain?.produced(model);
+    const judges = this.#q.domain?.judge;
+    const judge = judges?.produced(model);
     const judged = judge?.predicate !== undefined;
     const verb = sql.raw(skips ? "INSERT IGNORE" : "INSERT");
     const statement = low.hoisted(() => {
@@ -679,11 +681,12 @@ export class SurrealWriter extends Writer {
       model,
       sql: statement,
       ...(judged && {
-        stops: this.#q.domain!.refusal(
+        stops: judges!.refusal(
           this.operation.operation,
           model,
           undefined,
-          relation === undefined ? undefined : ["create", relation]
+          "create",
+          relation
         ),
       }),
     };

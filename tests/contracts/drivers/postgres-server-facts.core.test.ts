@@ -18,6 +18,7 @@ import { PgDriver } from "@drivers/pg";
 import { PostgresDriver } from "@drivers/postgres";
 import { learnRelationLimit } from "@drivers/shared/relation-bound";
 import { s } from "@schema";
+import { extension, statement, unit } from "@src/index";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
@@ -197,13 +198,19 @@ const schema = { item: s.model({ id: s.string().id() }) };
 /** A client over `driver` recording the bound each statement was built under. */
 const recording = (driver: AnyDriver) => {
   const bounds: (number | undefined)[] = [];
-  const db = createClient({ schema, driver }).$extends({
-    name: "bounds",
-    statement(context) {
-      bounds.push(driver.adapter.capabilities.relationsPerStatement);
-      return context.statement;
-    },
-  });
+  const db = createClient({ schema, driver }).$extends(
+    extension(
+      "bounds",
+      unit(
+        (u, next) => {
+          bounds.push(driver.adapter.capabilities.relationsPerStatement);
+          return next(statement(u));
+        },
+        ["statement"],
+        { rewrites: true }
+      )
+    )
+  );
   return { db, bounds };
 };
 

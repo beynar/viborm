@@ -8,41 +8,59 @@ import { hopFieldsOf } from "@query-engine/raptor3/shared/storage";
 /**
  * Whether `predicate`, judged over a row of `model`, may read one of
  * `fields` of that row: an operation's column or field operand, a
- * relation's own side of its link (a junction's: the row's keys). Anything
- * it cannot answer for (an aggregate, a window) reads them all. A row that
- * differs from another only outside what a predicate reads gets the same
- * answer from it, against the same rows.
+ * relation's own side of its link (a junction's: the row's keys), and in a
+ * relation body `depth` bodies below the row, an operand that compares one
+ * of them (`row(field, depth)`); an `exists` body is a root of its own and
+ * reads only those. Anything it cannot answer for (an aggregate, a window)
+ * reads them all. A row that differs from another only outside what a
+ * predicate reads gets the same answer from it, against the same rows.
  */
 export function readsAny(
   predicate: PreparedPredicate,
   fields: ReadonlySet<string>,
-  keys: readonly string[]
+  keys: readonly string[],
+  depth = 0
 ): boolean {
   switch (predicate.kind) {
     case "and":
     case "or":
       return predicate.predicates.some((member) =>
-        readsAny(member, fields, keys)
+        readsAny(member, fields, keys, depth)
       );
     case "not":
     case "layer":
-      return readsAny(predicate.predicate, fields, keys);
+      return readsAny(predicate.predicate, fields, keys, depth);
     case "always":
     case "condition":
       return false;
+    case "relation":
+      return (
+        (depth === 0 &&
+          (predicate.edge.kind === "reference"
+            ? hopFieldsOf(predicate.edge)
+            : keys
+          ).some((field) => fields.has(field))) ||
+        (predicate.predicate !== undefined &&
+          readsAny(predicate.predicate, fields, keys, depth + 1))
+      );
     case "exists":
       return (
         predicate.predicate !== undefined &&
-        readsAbove(predicate.predicate, fields, 1)
+        readsAny(predicate.predicate, fields, keys, depth + 1)
       );
     case "operation": {
-      if (predicate.target.kind !== "column") return true;
       const operands = [predicate.operand, ...(predicate.operands ?? [])];
+      const field = (operand: (typeof operands)[number]) =>
+        operand?.kind === "field" &&
+        (depth === 0 || operand.up === depth) &&
+        fields.has(operand.scalar.field);
+      if (depth > 0) return operands.some(field);
       return (
+        predicate.target.kind !== "column" ||
         fields.has(predicate.target.scalar.field) ||
         operands.some(
           (operand) =>
-            (operand?.kind === "field" && fields.has(operand.scalar.field)) ||
+            field(operand) ||
             (operand?.kind === "sql" &&
               operand.operands.some(
                 (member) =>
@@ -51,55 +69,6 @@ export function readsAny(
         )
       );
     }
-    case "relation": {
-      const { edge } = predicate;
-      const own = edge.kind === "reference" ? hopFieldsOf(edge) : keys;
-      return (
-        own.some((field) => fields.has(field)) ||
-        (predicate.predicate !== undefined &&
-          readsAbove(predicate.predicate, fields, 1))
-      );
-    }
-    default:
-      return true;
-  }
-}
-/**
- * Whether a relation body `depth` bodies below the judged row compares one of
- * `fields` of that row (`{ $row, up: depth }`): the row's new value changes
- * its answer as surely as a column of its own does. An `$exists` body is a
- * root of its own and reads no row outside it.
- */
-function readsAbove(
-  predicate: PreparedPredicate,
-  fields: ReadonlySet<string>,
-  depth: number
-): boolean {
-  switch (predicate.kind) {
-    case "and":
-    case "or":
-      return predicate.predicates.some((member) =>
-        readsAbove(member, fields, depth)
-      );
-    case "not":
-    case "layer":
-      return readsAbove(predicate.predicate, fields, depth);
-    case "relation":
-    case "exists":
-      return (
-        predicate.predicate !== undefined &&
-        readsAbove(predicate.predicate, fields, depth + 1)
-      );
-    case "operation":
-      return [predicate.operand, ...(predicate.operands ?? [])].some(
-        (operand) =>
-          operand?.kind === "field" &&
-          operand.up === depth &&
-          fields.has(operand.scalar.field)
-      );
-    case "always":
-    case "condition":
-      return false;
     default:
       return true;
   }

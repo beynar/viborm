@@ -2,198 +2,96 @@
  * Instrumentation Context
  *
  * Combines tracer and logger into a single context passed through layers.
- * The tracer is ALWAYS present (using no-op when tracing is not configured),
- * eliminating the need for conditional `if (tracer)` checks.
  */
 
-import type { ResolvedDiagnosticDisclosure } from "@errors";
-import { isFunction, isString } from "@validation/value-guards";
-import {
-  isArrayValue,
-  isRecord,
-  safeArrayLength,
-  safeOwnPropertyDescriptor,
-  safeRead,
-} from "../errors/diagnostic-safety";
 import { createLogger, type Logger } from "./logger";
-import {
-  createTracerWrapper,
-  getNoopTracer,
-  type TracerWrapper,
-} from "./tracer";
+import { createTracerWrapper, type TracerWrapper } from "./tracer";
 import type {
   InstrumentationConfig,
-  LogCallback,
   LoggingConfig,
-  LogLevelHandler,
-  SpanTracer,
   TracingConfig,
 } from "./types";
 
-/**
- * Combined instrumentation context
- *
- * Note: `tracer` is always defined - it's either a real tracer or a no-op tracer.
- * This allows code to unconditionally call tracer methods without null checks.
- */
+/** Combined instrumentation context */
 export interface InstrumentationContext {
   /** Immutable configuration snapshot resolved at the public boundary. */
-  config: ResolvedInstrumentationConfig;
-  /** Tracer wrapper - always present (no-op if tracing not configured) */
-  tracer: TracerWrapper;
+  readonly config: ResolvedInstrumentationConfig;
+  /** Tracer wrapper (if tracing enabled) */
+  readonly tracer: TracerWrapper | undefined;
   /** Logger (if logging enabled) */
-  logger?: Logger | undefined;
+  readonly logger: Logger | undefined;
+  /** The origins of the failures already logged: one failure, one error log. */
+  readonly logged: WeakSet<object>;
 }
 
 interface ResolvedInstrumentationConfig {
-  readonly diagnostics: ResolvedDiagnosticDisclosure;
   readonly logging?: true | Readonly<LoggingConfig> | undefined;
   readonly tracing?: true | Readonly<TracingConfig> | undefined;
 }
 
 /**
- * Create instrumentation context from config
- *
- * @param config - Instrumentation configuration
- * @returns Combined context with tracer (always present) and logger
+ * Create instrumentation context from config: the configuration as it is
+ * when the extension is built, so that what the caller changes in its object
+ * later changes nothing. Its type is its guard; the flags are read as
+ * booleans, `true` alone enabling one. `diagnostics` is not part of it: the
+ * extension hands it to `disclosure`, which reads it once.
  */
-export function createInstrumentationContext(
-  config: InstrumentationConfig
-): InstrumentationContext {
-  const snapshot = snapshotInstrumentationConfig(config);
-  // Create tracer - either real (if tracing configured) or no-op
-  let tracer: TracerWrapper;
-  if (snapshot.tracing) {
-    const tracingConfig = snapshot.tracing === true ? {} : snapshot.tracing;
-    tracer = createTracerWrapper({
-      includeSql: tracingConfig.includeSql,
-      includeParams: tracingConfig.includeParams,
-      ignoreSpanTypes: tracingConfig.ignoreSpanTypes,
-      tracer: tracingConfig.tracer,
-    });
-  } else {
-    tracer = getNoopTracer();
-  }
-
-  const context: InstrumentationContext = { config: snapshot, tracer };
-
-  // Create logger if logging is configured
-  if (snapshot.logging) {
-    const loggingConfig: LoggingConfig =
-      snapshot.logging === true ? { all: true } : snapshot.logging;
-    context.logger = createLogger(loggingConfig);
-  }
-
-  return Object.freeze(context);
-}
-
-function snapshotInstrumentationConfig(
-  config: InstrumentationConfig
-): ResolvedInstrumentationConfig {
-  const diagnostics = snapshotDisclosure(safeRead(config, "diagnostics"));
-  const tracingValue = safeRead(config, "tracing");
-  const loggingValue = safeRead(config, "logging");
-  const tracing =
-    tracingValue === true
-      ? true
-      : isRecord(tracingValue)
-        ? snapshotTracingConfig(tracingValue)
-        : undefined;
-  const logging =
-    loggingValue === true
-      ? true
-      : isRecord(loggingValue)
-        ? snapshotLoggingConfig(loggingValue)
-        : undefined;
-  return Object.freeze({ diagnostics, tracing, logging });
-}
-
-function snapshotDisclosure(value: unknown): ResolvedDiagnosticDisclosure {
+export function createInstrumentationContext({
+  tracing,
+  logging,
+}: InstrumentationConfig): InstrumentationContext {
+  const config: ResolvedInstrumentationConfig = Object.freeze({
+    tracing:
+      tracing === true || tracing === undefined
+        ? tracing
+        : snapshotTracingConfig(tracing),
+    logging:
+      logging === true || logging === undefined
+        ? logging
+        : snapshotLoggingConfig(logging),
+  });
   return Object.freeze({
-    includeParams: isRecord(value) && safeRead(value, "includeParams") === true,
-    includeSql: isRecord(value) && safeRead(value, "includeSql") === true,
-    includeProviderDetails:
-      isRecord(value) && safeRead(value, "includeProviderDetails") === true,
-    includeCallsite:
-      isRecord(value) && safeRead(value, "includeCallsite") === true,
+    config,
+    tracer:
+      config.tracing &&
+      createTracerWrapper(config.tracing === true ? {} : config.tracing),
+    logger:
+      config.logging &&
+      createLogger(config.logging === true ? { all: true } : config.logging),
+    logged: new WeakSet<object>(),
   });
 }
 
-function snapshotTracingConfig(value: Record<string, unknown>): TracingConfig {
-  const ignoreSpanTypes = snapshotIgnorePatterns(
-    safeRead(value, "ignoreSpanTypes")
-  );
-  const tracer = safeRead(value, "tracer");
+function snapshotTracingConfig({
+  includeParams,
+  includeSql,
+  ignoreSpanTypes,
+  tracer,
+}: TracingConfig): TracingConfig {
   return Object.freeze({
-    includeParams: safeRead(value, "includeParams") === true,
-    includeSql: safeRead(value, "includeSql") === true,
-    ...(ignoreSpanTypes.length > 0 ? { ignoreSpanTypes } : {}),
-    ...(isPlatformTracer(tracer) ? { tracer } : {}),
+    includeParams: includeParams === true,
+    includeSql: includeSql === true,
+    // The tracer copies the patterns as it is built, from this snapshot.
+    ignoreSpanTypes,
+    tracer,
   });
 }
 
-/**
- * The caller-owned tracer is kept by reference (its methods are its own). A
- * value without `startActiveSpan`, the one member spans start through, is not
- * a tracer: the api is auto-detected instead.
- */
-function isPlatformTracer(value: unknown): value is SpanTracer {
-  return isRecord(value) && isFunction(safeRead(value, "startActiveSpan"));
-}
-
-function snapshotIgnorePatterns(
-  value: unknown
-): ReadonlyArray<string | RegExp> {
-  if (!isArrayValue(value)) return Object.freeze([]);
-  const patterns: Array<string | RegExp> = [];
-  const length = Math.min(safeArrayLength(value), 128);
-  for (let index = 0; index < length; index += 1) {
-    const descriptor = safeOwnPropertyDescriptor(value, String(index));
-    if (!(descriptor && "value" in descriptor)) continue;
-    const pattern = descriptor.value;
-    if (isString(pattern)) {
-      patterns.push(pattern);
-      continue;
-    }
-    try {
-      if (pattern instanceof RegExp) {
-        patterns.push(Object.freeze(new RegExp(pattern.source, pattern.flags)));
-      }
-    } catch {
-      // Invalid caller-owned patterns are ignored at this boundary.
-    }
-  }
-  return Object.freeze(patterns);
-}
-
-function snapshotLoggingConfig(
-  value: Record<string, unknown>
-): LoggingConfig | undefined {
-  const all = readLogHandler(value, "all");
-  const cache = readLogHandler(value, "cache");
-  const error = readLogHandler(value, "error");
-  const query = readLogHandler(value, "query");
-  const warning = readLogHandler(value, "warning");
-  if ([all, cache, error, query, warning].every((handler) => !handler)) {
-    return undefined;
-  }
+function snapshotLoggingConfig({
+  all,
+  cache,
+  error,
+  query,
+  includeParams,
+  includeSql,
+}: LoggingConfig): LoggingConfig | undefined {
+  if (!(all || cache || error || query)) return undefined;
   return Object.freeze({
-    includeParams: safeRead(value, "includeParams") === true,
-    includeSql: safeRead(value, "includeSql") === true,
+    includeParams: includeParams === true,
+    includeSql: includeSql === true,
     all,
     cache,
     error,
     query,
-    warning,
   });
-}
-
-function readLogHandler(
-  value: Record<string, unknown>,
-  key: "all" | "cache" | "error" | "query" | "warning"
-): LogLevelHandler | undefined {
-  const handler = safeRead(value, key);
-  return handler === true || isFunction<LogCallback>(handler)
-    ? handler
-    : undefined;
 }

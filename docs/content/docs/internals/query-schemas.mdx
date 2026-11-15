@@ -93,6 +93,21 @@ registry.proxy.user.core.where; // Built through registry access, then cached
 
 This keeps schema definitions focused on structure while operation validation stays centralized.
 
+## Keys an Extension Adds
+
+Operation schemas belong to the schema and are shared by every client over
+it, so no extension rewrites them. A client's extensions still make a call
+accept what the schema alone would refuse, through the context of that one
+parse (`parseProviding`): a projection key a `facts` declares (`$access`) in
+`select` and `include`, and a required field a `defaults` part writes, which
+the caller's `data` may then leave out. An object built with the `provides`
+option admits, inside that synchronous parse only, the keys the context
+lists under its name, with the validator the context gives. A projection key
+is therefore validated where the caller wrote it and keeps that place in the
+result; `select: { $access: false }` alone is an empty `select` and refused
+like one; and since a `select` and a create's `data` are provided under
+different names, no `data` admits a projection key.
+
 ## Boundary With the Query Engine
 
 An operation schema is the trust boundary for public query input. Its output can

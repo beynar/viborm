@@ -228,5 +228,5 @@
       "params": [11, "acme"]
     }
   ],
-  "no tenant": "ERROR ValidationError: Validation failed for post.findMany: tenant: Control \"tenant\" is required"
+  "no tenant": "ERROR ValidationError: Validation failed for post.findMany: tenant: Argument \"tenant\" is required"
 }

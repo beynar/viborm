@@ -128,7 +128,8 @@ function requireRuntimeAbsence(exportName, member) {
   }
 }
 
-requireRuntimeFunction(".", "defineExtension");
+requireRuntimeFunction(".", "extension");
+requireRuntimeAbsence(".", "defineExtension");
 for (const member of [
   "getOperationPayloadSchema",
   "renderOperationResultType",
@@ -261,7 +262,7 @@ if (
   );
 }
 
-requireRuntimeFunction("./client", "defineExtension");
+requireRuntimeAbsence("./client", "defineExtension");
 requireRuntimeFunction("./client", "defaultOmit");
 // The migration context is internal. Its raw, lock, tracking and statement
 // methods would be a public route around the one estate gate and the one
@@ -397,14 +398,15 @@ let softDeleteRefusal;
 try {
   const { s } = runtimeExports.get(".");
   const model = s.model({ id: s.string().id(), deletedAt: s.string() });
+  // The marker is checked when the extension is applied, before any call.
   runtimeExports
-    .get("./soft-delete")
-    .softDelete({ models: { model: { deletedAt: "deletedAt" } } })({
-    $schema: { model },
-    $extends: () => {
-      throw new Error("the marker is checked before the definition applies");
-    },
-  });
+    .get("./sqlite3")
+    .createClient({ schema: { model }, dataDir: ":memory:" })
+    .$extends(
+      runtimeExports
+        .get("./soft-delete")
+        .softDelete({ models: { model: { deletedAt: "deletedAt" } } })
+    );
 } catch (error) {
   softDeleteRefusal = error;
 }
@@ -439,17 +441,14 @@ typeConsumerImports.push(
   `import type { DatabaseAdapter as PackagedDatabaseAdapter } from ${JSON.stringify(adaptersRuntimeFile)};`,
   `import { Decimal as PackagedDecimal } from ${JSON.stringify(rootRuntimeFile)};`,
   `import type { GeoPoint as SchemaGeoPoint } from ${JSON.stringify(schemaRuntimeFile)};`,
-  `import type { ClientExtension as RootClientExtension, ExtendedClient as RootExtendedClient, VibORMClient as RootVibORMClient } from ${JSON.stringify(rootRuntimeFile)};`,
-  `import type { ClientExtension as ClientSubpathExtension, ExtendedClient as ClientSubpathExtendedClient, OperationPayloadSchema as ClientOperationPayloadSchema, ValidatedOperationPayload as ClientValidatedOperationPayload } from ${JSON.stringify(clientRuntimeFile)};`,
-  `import type { ObservationCompletion as RootObservationCompletion, ObservationUnit as RootObservationUnit, ObserveHandler as RootObserveHandler, StatementContext as RootStatementContext, StatementHandler as RootStatementHandler } from ${JSON.stringify(rootRuntimeFile)};`,
-  `import type { ObservationCompletion as ClientObservationCompletion, ObservationUnit as ClientObservationUnit, ObserveHandler as ClientObserveHandler, StatementContext as ClientStatementContext, StatementHandler as ClientStatementHandler } from ${JSON.stringify(clientRuntimeFile)};`,
-  'const rootExtension: RootClientExtension = { name: "root-type-smoke" };',
-  'const clientExtension: ClientSubpathExtension = { name: "client-type-smoke" };',
+  `import { extension as rootExtension, methods as rootMethods, statement as rootStatement, unit as rootUnit, type AnyFacts as RootAnyFacts, type AnyTarget as RootAnyTarget, type Extension as RootExtension, type ExtendedClient as RootExtendedClient, type UnitContext as RootUnitContext, type UnitOutcome as RootUnitOutcome, type VibORMClient as RootVibORMClient } from ${JSON.stringify(rootRuntimeFile)};`,
+  `import type { ExtendedClient as ClientSubpathExtendedClient, OperationPayloadSchema as ClientOperationPayloadSchema, ValidatedOperationPayload as ClientValidatedOperationPayload } from ${JSON.stringify(clientRuntimeFile)};`,
   'const packagedDecimalValue: PackagedDecimal = new PackagedDecimal("1.2").plus("1");',
   "const packagedGeoPoint: SchemaGeoPoint = { longitude: 2, latitude: 48 };",
   "type ExtensionSmokeConfig = { schema: Record<never, never>; driver: never };",
   "declare const extensionSmokeBase: RootVibORMClient<ExtensionSmokeConfig>;",
-  'const extensionSmokeDefinition = { name: "package-type-smoke", client: () => ({ $packageTypeSmoke: () => 1 as const }) } as const;',
+  'const extensionSmokeDefinition = rootExtension("package-type-smoke", rootMethods(() => ({ $packageTypeSmoke: () => 1 as const })));',
+  "const extensionSmokeValue: RootExtension<RootAnyTarget, RootAnyFacts> = extensionSmokeDefinition;",
   "type RootExtendedClientSmoke = RootExtendedClient<typeof extensionSmokeBase, readonly [typeof extensionSmokeDefinition]>;",
   "type ClientSubpathExtendedClientSmoke = ClientSubpathExtendedClient<typeof extensionSmokeBase, readonly [typeof extensionSmokeDefinition]>;",
   'type ClientOperationPayloadSchemaSmoke = ClientOperationPayloadSchema<"findMany", never>;',
@@ -458,22 +457,17 @@ typeConsumerImports.push(
   "declare const clientSubpathExtendedClientSmoke: ClientSubpathExtendedClientSmoke;",
   "declare const clientOperationPayloadSchemaSmoke: ClientOperationPayloadSchemaSmoke;",
   "declare const clientValidatedPayloadSmoke: ClientValidatedPayloadSmoke;",
-  "const rootObserver: RootObserveHandler = (unit: RootObservationUnit, proceed: () => Promise<RootObservationCompletion>) => proceed();",
-  "const clientObserver: ClientObserveHandler = (unit: ClientObservationUnit, proceed: () => Promise<ClientObservationCompletion>) => proceed();",
-  "const rootStatement: RootStatementHandler = (context: RootStatementContext) => context.statement;",
-  "const clientStatement: ClientStatementHandler = (context: ClientStatementContext) => context.statement;",
-  "void rootExtension;",
-  "void clientExtension;",
+  'const rootObserver = rootExtension("observer", rootUnit((unit: RootUnitContext, next: () => Promise<RootUnitOutcome>) => next()));',
+  'const rootRewriter = rootExtension("rewriter", rootUnit((unit, next) => next(rootStatement(unit)), ["statement"], { rewrites: true }));',
+  "void extensionSmokeValue;",
   "void packagedDecimalValue;",
   "void packagedGeoPoint;",
   "rootExtendedClientSmoke.$packageTypeSmoke();",
   "clientSubpathExtendedClientSmoke.$packageTypeSmoke();",
+  "extensionSmokeBase.$extends(extensionSmokeDefinition).$packageTypeSmoke();",
   "void clientOperationPayloadSchemaSmoke;",
   "void clientValidatedPayloadSmoke;",
-  "void rootObserver;",
-  "void clientObserver;",
-  "void rootStatement;",
-  "void clientStatement;",
+  "void extensionSmokeBase.$extends(rootObserver).$extends(rootRewriter);",
   "declare const packagedAdapter: PackagedDatabaseAdapter;",
   "const packagedNamespace: string | undefined = packagedAdapter.namespace;",
   "const packagedTable: (tableName: string, alias?: string) => unknown = packagedAdapter.identifiers.table;",

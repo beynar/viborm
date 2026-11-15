@@ -20,7 +20,7 @@ import { BunSQLiteDriver } from "@drivers/bun-sqlite";
 import { ClientInitializationError, ForeignKeyError } from "@errors";
 import { s } from "@schema";
 import { sql } from "@sql";
-import { Decimal } from "@src/index";
+import { call, Decimal, extension, target } from "@src/index";
 import { qualifyRawDateCutoff } from "@tests/fixtures/raw-date-cutoff";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
@@ -510,17 +510,18 @@ assert(
   "GeoPoint cache returned a mutated logical value"
 );
 let pointRequestCalls = 0;
-const extendedPointClient = client.$extends({
-  name: "bun-geopoint",
-  request: {
-    geoPlace: {
-      findMany() {
+const extendedPointClient = client.$extends(
+  extension(
+    "bun-geopoint",
+    call(
+      (c) => {
         pointRequestCalls += 1;
-        return { where: { location: { equals: LONDON } } };
+        c.set({ where: { location: { equals: LONDON } } });
       },
-    },
-  },
-});
+      target("geoPlace", "findMany")
+    )
+  )
+);
 await extendedPointClient.geoPlace.findMany({ select: { id: true } });
 assert(pointRequestCalls === 1, "GeoPoint request extension did not run once");
 const taggedPoint = await client.$queryRaw<{ location: string }>(sql`

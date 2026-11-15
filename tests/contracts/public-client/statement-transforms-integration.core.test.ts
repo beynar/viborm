@@ -2,13 +2,18 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import type { AnyDriver } from "@drivers";
 import { getExecutionExtensionChain } from "@drivers/execution-context";
 import { QueryError, UnsupportedOperationError } from "@errors";
-import { appendResolvedExtension } from "@extensions/chain";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { s } from "@schema";
 import { raw, type Sql, sql } from "@sql";
-import { createClient, defineExtension } from "@src/index";
+import {
+  createClient,
+  extension as extExtension,
+  statement,
+  unit,
+} from "@src/index";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
+import { appendExtension } from "@tests/fixtures/extension-chain";
 import { afterEach, describe, expect, test } from "vitest";
 
 const author = s.model({ id: s.string().id(), name: s.string() });
@@ -18,7 +23,7 @@ const clients: Array<{ $disconnect(): Promise<void> }> = [];
 interface StatementCall {
   readonly extension: string;
   readonly model: string | undefined;
-  readonly operation: string;
+  readonly operation: string | undefined;
   readonly statement: Sql;
 }
 
@@ -31,18 +36,22 @@ function baseClient(
 }
 
 function recordingExtension(name: string, prefix: Sql, calls: StatementCall[]) {
-  return defineExtension<typeof schema>()({
+  return extExtension(
     name,
-    statement(context) {
-      calls.push({
-        extension: name,
-        model: context.model,
-        operation: context.operation,
-        statement: context.statement,
-      });
-      return sql`${prefix}${context.statement}`;
-    },
-  });
+    unit(
+      (u, next) => {
+        calls.push({
+          extension: name,
+          model: u.model,
+          operation: u.operation,
+          statement: statement(u),
+        });
+        return next(sql`${prefix}${statement(u)}`);
+      },
+      ["statement"],
+      { rewrites: true }
+    )
+  );
 }
 
 afterEach(async () => {
@@ -82,13 +91,19 @@ describe("deterministic statement-transform integration", () => {
 
   test("rejects an invalid transform before provider dispatch", async () => {
     const { client: base } = baseClient();
-    const client = base.$extends({
-      name: "invalid-return",
-      // @ts-expect-error - hostile JavaScript can violate the public Sql return
-      statement() {
-        return "SELECT 1";
-      },
-    });
+    const client = base.$extends(
+      extExtension(
+        "invalid-return",
+        unit(
+          (_u, next) => {
+            // @ts-expect-error - next() takes a statement: the runtime refusal is tested
+            return next("SELECT 1");
+          },
+          ["statement"],
+          { rewrites: true }
+        )
+      )
+    );
 
     await expect(client.author.findMany()).rejects.toMatchObject({
       name: QueryError.name,
@@ -101,12 +116,18 @@ describe("deterministic statement-transform integration", () => {
       maxBindParametersPerStatement: 1,
     });
     const { client: base } = baseClient(driver);
-    const client = base.$extends({
-      name: "bind-growth",
-      statement({ statement }) {
-        return sql`${statement}${"first"}${"second"}`;
-      },
-    });
+    const client = base.$extends(
+      extExtension(
+        "bind-growth",
+        unit(
+          (u, next) => {
+            return next(sql`${statement(u)}${"first"}${"second"}`);
+          },
+          ["statement"],
+          { rewrites: true }
+        )
+      )
+    );
 
     await expect(client.author.findMany()).rejects.toMatchObject({
       name: UnsupportedOperationError.name,
@@ -119,7 +140,7 @@ describe("deterministic statement-transform integration", () => {
   test("ignores caller-spoofed provenance and honors the trusted execution context at dispatch", async () => {
     const { driver } = baseClient();
     const calls: StatementCall[] = [];
-    const chain = appendResolvedExtension(
+    const chain = appendExtension(
       undefined,
       recordingExtension("trusted", raw("/* trusted */ "), calls),
       schema

@@ -2,9 +2,11 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { CacheDriver, type CacheEntry } from "@cache/driver";
 import { cache as cacheExtension } from "@cache/extension";
+import { staleWhileRevalidate } from "@cache/revalidate";
+import { getEntry } from "@cache/storage";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { Driver } from "@drivers";
-import { createClient, s } from "@src/index";
+import { createClient, extension, unit as extUnit, s } from "@src/index";
 import { createTestClock } from "@tests/fixtures/test-clock";
 import { readTestTransactionOperation } from "@tests/fixtures/transaction-operation";
 import { afterEach, describe, expect, test } from "vitest";
@@ -23,8 +25,7 @@ function transactionContext(operation: unknown) {
 
 type Completion = Readonly<{
   status: "success" | "failure";
-  commitCertainty?: "committed" | "may-have-committed";
-  error?: Readonly<{ name: string; message: string; code?: string }>;
+  certainty?: "committed" | "may-have-committed";
 }>;
 
 interface CacheObservation {
@@ -146,7 +147,7 @@ class ObservableCache extends CacheDriver {
 
 const clients: Array<{ $disconnect(): Promise<void> }> = [];
 
-function createObservedCacheClient(options?: { hostile?: boolean }) {
+function createObservedCacheClient() {
   const clock = createTestClock();
   const timeline: string[] = [];
   const cache = new ObservableCache(timeline, clock);
@@ -155,30 +156,30 @@ function createObservedCacheClient(options?: { hostile?: boolean }) {
   const observations: CacheObservation[] = [];
   const base = createClient({ schema, driver }).$extends(
     cacheExtension({
+      swr: staleWhileRevalidate,
       driver: cache,
       waitUntil: (promise) => {
         background.push(promise);
       },
     })
   );
-  const client = base.$extends({
-    name: "protected-cache-observer",
-    observe(unit, proceed) {
-      if (unit.kind !== "cache") return;
-      timeline.push(`observer:${unit.operation}:in`);
-      const completion = proceed();
-      const observation: CacheObservation = { unit, completion };
-      observations.push(observation);
-      completion.then((summary) => {
-        observation.summary = summary;
-        timeline.push(`observer:${unit.operation}:out:${summary.status}`);
-      });
-      if (options?.hostile) {
-        Reflect.set(unit, "key", "stolen");
-        return Promise.reject(new Error("hostile observer failure"));
-      }
-    },
-  });
+  const client = base.$extends(
+    extension(
+      "protected-cache-observer",
+      extUnit((u, next) => {
+        if (u.kind !== "cache") return next();
+        timeline.push(`observer:${u.operation}:in`);
+        const completion = next();
+        const observation: CacheObservation = { unit: u, completion };
+        observations.push(observation);
+        completion.then((summary) => {
+          observation.summary = summary;
+          timeline.push(`observer:${u.operation}:out:${summary.status}`);
+        });
+        return completion;
+      })
+    )
+  );
   clients.push(client);
 
   return {
@@ -226,8 +227,8 @@ afterEach(async () => {
 });
 
 describe("public protected cache observers", () => {
-  test("observes only get, set, and outer invalidate without disclosing cache state", async () => {
-    const state = createObservedCacheClient({ hostile: true });
+  test("observes get, set, an invalidation and the backend delete it runs", async () => {
+    const state = createObservedCacheClient();
 
     await expect(
       state.client.$withCache({ key: "records" }).record.findMany()
@@ -239,23 +240,18 @@ describe("public protected cache observers", () => {
     await state.client.$invalidate("records");
     await settleObservations(state.observations);
 
+    // The backend delete an invalidation runs is a public cache unit too.
     expect(cacheOperations(state.observations)).toEqual([
       "get",
       "set",
       "get",
+      "delete",
       "invalidate",
     ]);
     for (const observation of state.observations) {
-      expect(observation.unit).toEqual({
-        kind: "cache",
-        operation: observation.unit.operation,
-      });
-      expect(Object.isFrozen(observation.unit)).toBe(true);
+      expect(observation.unit.kind).toBe("cache");
       expect(observation.summary).toMatchObject({ status: "success" });
-      expect(observation.summary).not.toHaveProperty("commitCertainty");
-      expect(observation.unit).not.toHaveProperty("key");
-      expect(observation.unit).not.toHaveProperty("value");
-      expect(observation.unit).not.toHaveProperty("provider");
+      expect(observation.summary).not.toHaveProperty("certainty");
     }
     expect(
       state.timeline.filter((event) => event === "backend:delete")
@@ -286,19 +282,24 @@ describe("public protected cache observers", () => {
 
     const invalidateFailure = new Error("cache delete refused");
     state.cache.failDelete = invalidateFailure;
-    await expect(state.client.$invalidate("get-failure")).rejects.toBe(
-      invalidateFailure
+    // A backend failure of `$invalidate` is the cache's configuration error,
+    // as a write's invalidation failure is; the backend's error is its cause.
+    await expect(state.client.$invalidate("get-failure")).rejects.toMatchObject(
+      {
+        name: "CacheConfigurationError",
+        meta: { method: "invalidate" },
+      }
     );
     await settleObservations(state.observations);
     expect(
       state.observations
         .filter(({ summary }) => summary?.status === "failure")
         .map(({ unit }) => unit.operation)
-    ).toEqual(["set", "get", "invalidate"]);
+    ).toEqual(["set", "get", "delete", "invalidate"]);
     expect(
       state.observations
         .filter(({ summary }) => summary?.status === "failure")
-        .every(({ summary }) => summary?.commitCertainty === undefined)
+        .every(({ summary }) => summary?.certainty === undefined)
     ).toBe(true);
   });
 
@@ -382,7 +383,6 @@ describe("public protected cache observers", () => {
     ]);
     expect(state.observations[1]?.summary).toMatchObject({
       status: "failure",
-      error: { name: "Error" },
     });
     expect(state.observations[2]?.summary).toMatchObject({ status: "success" });
   });
@@ -410,7 +410,6 @@ describe("public protected cache observers", () => {
     expect(cacheOperations(state.observations)).toEqual(["get", "revalidate"]);
     expect(state.observations[1]?.summary).toMatchObject({
       status: "failure",
-      error: { name: "Error" },
     });
   });
 
@@ -418,8 +417,8 @@ describe("public protected cache observers", () => {
     const state = createObservedCacheClient();
     const trusted = transactionContext(state.client.record.findMany());
 
-    await state.cache._get("trusted", trusted);
-    await state.cache._get("copied", { ...trusted });
+    await getEntry(state.cache, "trusted", trusted);
+    await getEntry(state.cache, "copied", { ...trusted });
     await settleObservations(state.observations);
 
     expect(cacheOperations(state.observations)).toEqual(["get"]);
@@ -431,7 +430,7 @@ describe("public protected cache observers", () => {
     const cache = new ObservableCache(timeline, clock);
     const driver = new CacheTestDriver();
     const base = createClient({ schema, driver }).$extends(
-      cacheExtension({ driver: cache })
+      cacheExtension({ swr: staleWhileRevalidate, driver: cache })
     );
     clients.push(base);
 

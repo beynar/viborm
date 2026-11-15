@@ -5,12 +5,11 @@
  */
 
 import type { DiagnosticDisclosure, VibORMError } from "@errors";
-import type { Operation } from "../query-engine/types";
 
 /**
  * Log levels for the logging callback
  */
-export type LogLevel = "query" | "cache" | "warning" | "error";
+export type LogLevel = "query" | "cache" | "error";
 
 /**
  * Log event payload passed to the logging callback
@@ -25,7 +24,7 @@ export interface LogEvent {
   /** Model name */
   model?: string | undefined;
   /** Operation being performed */
-  operation?: Operation | string | undefined;
+  operation?: string | undefined;
   /** Correlation identifier supplied for this execution */
   correlationId?: string | undefined;
   /** Error if applicable */
@@ -36,6 +35,49 @@ export interface LogEvent {
   params?: unknown[] | undefined;
   /** Additional metadata */
   meta?: Record<string, unknown> | undefined;
+}
+
+/**
+ * A fact an extension notes on a unit (`note`) for the instrumentation to
+ * present. It presents what it finds, whoever noted it:
+ *
+ * - On a unit of an extension's own kind (`work`), a note that names a
+ *   `span` when the unit starts (`work`'s `note`) traces the unit as that
+ *   span, a root one if `root`, with the `db.*` attributes of `database`,
+ *   the call's correlation and `attributes`. `attributes` noted later are set
+ *   on it when the unit ends. An attribute given `undefined` is left out,
+ *   the correlation's included. The names of a call's own spans
+ *   (`viborm.operation`, `viborm.execute`, `viborm.transaction`,
+ *   `viborm.connect`, `viborm.disconnect`) are the library's: a note naming
+ *   one leaves its unit without a span, except `viborm.operation` as a root
+ *   span. An attribute under `db.query.` (statement text, summary,
+ *   parameters) is the library's too, and dropped.
+ * - On a unit of an extension's own kind, a note that names a `log` level is
+ *   logged at that level, when the unit starts if it is there by then, else
+ *   when it ends: at `at`, naming `model` and `operation` (the unit's own by
+ *   default), with `error` and `meta` presented as every log's are. On a
+ *   call's own `operation` unit, only a `cache` log is: its `query` and
+ *   `error` logs are the library's account of the call.
+ */
+export interface InstrumentationNote {
+  readonly span?: string | undefined;
+  readonly root?: boolean | undefined;
+  readonly database?:
+    | {
+        readonly dialect: string;
+        readonly driverName: string;
+        readonly namespace?: string | undefined;
+      }
+    | undefined;
+  readonly attributes?:
+    | Readonly<Record<string, string | number | boolean | undefined>>
+    | undefined;
+  readonly log?: LogLevel | undefined;
+  readonly at?: number | undefined;
+  readonly model?: string | undefined;
+  readonly operation?: string | undefined;
+  readonly error?: unknown;
+  readonly meta?: Readonly<Record<string, unknown>> | undefined;
 }
 
 /**
@@ -126,7 +168,7 @@ export type LogLevelHandler = true | LogCallback;
  *     errorTracker.capture(event.error);
  *     log();                            // Also use default logger
  *   },
- *   // warning: omitted = disabled
+ *   // cache: omitted = disabled
  * }
  * ```
  */
@@ -148,12 +190,6 @@ export interface LoggingConfig {
    * Emitted for cache operations (hit, miss, revalidate).
    */
   cache?: LogLevelHandler | undefined;
-
-  /**
-   * Warning log handler.
-   * Emitted for non-fatal issues.
-   */
-  warning?: LogLevelHandler | undefined;
 
   /**
    * Error log handler.
@@ -180,7 +216,7 @@ export interface LoggingConfig {
  */
 export interface InstrumentationConfig {
   /**
-   * Control SQL and parameter disclosure on thrown/serialized errors.
+   * Argument SQL and parameter disclosure on thrown/serialized errors.
    * This policy is independent from logging and tracing disclosure.
    * Both fields default to false.
    */

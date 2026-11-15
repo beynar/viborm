@@ -16,8 +16,22 @@
 
 import { createClient } from "@client/client";
 import { ForbiddenError, UnsupportedOperationError } from "@errors";
-import { defineExtension } from "@extensions/define";
 import { s } from "@schema";
+import {
+  accepts,
+  arg,
+  check,
+  exists,
+  extension,
+  oneOf,
+  only,
+  parts,
+  provided,
+  row,
+  statement,
+  unit,
+  when,
+} from "@src/index";
 import { v } from "@src/validation";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -60,27 +74,25 @@ const grant = s.model({
 });
 const schema = { org, member, grant };
 
-const user = { control: "user" };
+const user = arg("user");
 /** The caller is a member of the grant's organization, at the grant's role. */
-const holdsRole = {
-  $exists: {
-    member: {
-      userId: user,
-      orgId: { $row: "orgId", up: 1 },
-      role: { $row: "role", up: 1 },
-    },
+const holdsRole = exists({
+  member: {
+    userId: user,
+    orgId: row("orgId", 1),
+    role: row("role", 1),
   },
-};
+});
 /** The same through the grant's organization: the member row is 2 bodies down. */
 const holdsRoleThroughOrg = {
   org: {
     is: {
-      members: { some: { userId: user, role: { $row: "role", up: 2 } } },
+      members: { some: { userId: user, role: row("role", 2) } },
     },
   },
 };
 /** The caller is a member of anything: no row of the statement is read. */
-const isMember = { $exists: { member: { userId: user } } };
+const isMember = exists({ member: { userId: user } });
 
 type Row = Record<string, unknown>;
 interface Delegate {
@@ -97,6 +109,8 @@ const clients: { $disconnect(): Promise<void> }[] = [];
 afterEach(async () => {
   for (const client of clients.splice(0)) await client.$disconnect();
 });
+
+const typed = parts<typeof schema>();
 
 async function open(root: object, shared = false, extra?: object) {
   const driver = createInMemorySQLite3Driver();
@@ -127,31 +141,38 @@ async function open(root: object, shared = false, extra?: object) {
       : (base as unknown as Loose)
   )
     .$extends(
-      defineExtension({
-        name: "policy",
-        controls: { user: { schema: v.string(), required: true } },
-        rows: {
-          control: "scope",
-          default: "all",
-          models: { grant: { all: { root } } },
-          verbs: {
-            grant: {
-              predicates: { held: root },
-              read: "held",
-              update: "held",
-              delete: "held",
-            },
+      typed.extension(
+        "policy",
+        typed.args({
+          user: accepts(v.string()).required(["grant"]),
+          scope: oneOf("all").default("all"),
+        }),
+        // The filter is handed through a rule read from the schema, the one
+        // form that takes it untyped. It holds twice, as the mode's root and
+        // the read predicate; an updated row is judged again by it.
+        typed.rule(() => ({
+          grant: {
+            read: { where: root },
+            root: when(arg("scope"), "all", root),
+            update: { where: only(root), check: check(root) },
+            delete: { where: only(root) },
           },
-        },
-      } as never)
+        }))
+      )
     )
-    .$extends({
-      name: "statements",
-      statement(context: { statement: { toStatement(): string } }) {
-        statements.push(context.statement.toStatement());
-        return context.statement;
-      },
-    });
+    .$extends(
+      extension(
+        "statements",
+        unit(
+          (u, next) => {
+            statements.push(statement(u)?.toStatement() ?? "");
+            return next();
+          },
+          ["statement"],
+          { rewrites: true }
+        )
+      )
+    );
   return { base: base as unknown as Loose, db, statements };
 }
 
@@ -213,35 +234,31 @@ describe("$exists", () => {
 
   test("names one model of the schema, admitted with that model's where", async () => {
     for (const [root, message] of [
-      [{ $exists: {} }, "names exactly one model"],
-      [{ $exists: { member: {}, org: {} } }, "names exactly one model"],
-      [{ $exists: { nobody: {} } }, "names exactly one model"],
-      [{ $exists: { member: { nope: 1 } } }, '"$exists.member.nope"'],
+      [exists({}), "names exactly one model"],
+      [exists({ member: {}, org: {} }), "names exactly one model"],
+      [exists({ nobody: {} }), "names exactly one model"],
+      [exists({ member: { nope: 1 } }), 'member.nope"'],
     ] as const) {
       const driver = createInMemorySQLite3Driver();
       const base = createClient({ schema, driver });
       clients.push(base);
       expect(() =>
         (base as unknown as Loose).$extends(
-          defineExtension({
-            name: "policy",
-            rows: {
-              control: "scope",
-              default: "all",
-              models: { grant: { all: { root } } },
-            },
-          } as never)
+          typed.extension(
+            "policy",
+            typed.args({ scope: oneOf("all").default("all") }),
+            typed.rule(() => ({
+              grant: { root: when(arg("scope"), "all", root) },
+            }))
+          )
         )
       ).toThrow(message);
     }
   });
 
   test("a body its conditions fold false finds no row; one folding true still needs a row", async () => {
-    const folded = (equals: string) => ({
-      $exists: {
-        member: { $if: { control: "user", equals }, userId: user },
-      },
-    });
+    const folded = (equals: string) =>
+      exists({ member: provided(user, { equals }, { userId: user }) });
     const { db } = await open({ OR: [folded("nobody"), { rank: 4 }] });
     expect(ids(await db.grant!.findMany({ user: "ann" }))).toEqual(["g4"]);
     const held = await open(folded("ann"));
@@ -268,14 +285,13 @@ describe("{ $row, up }", () => {
   });
 
   test("a semijoin chain reading a row above its parent is one EXISTS over a join, each hop under its domain", async () => {
-    const live = defineExtension({
-      name: "live",
-      rows: {
-        control: "archive",
-        default: "live",
-        models: { member: { live: { related: { archived: false } } } },
-      },
-    } as never);
+    const live = typed.extension(
+      "live",
+      typed.args({ archive: oneOf("live").default("live") }),
+      typed.rule({
+        member: { related: when(arg("archive"), "live", { archived: false }) },
+      })
+    );
     const { db, base, statements } = await open(
       holdsRoleThroughOrg,
       false,
@@ -297,7 +313,7 @@ describe("{ $row, up }", () => {
     const none = await open({
       org: {
         is: {
-          members: { none: { userId: user, role: { $row: "role", up: 2 } } },
+          members: { none: { userId: user, role: row("role", 2) } },
         },
       },
     });
@@ -315,7 +331,7 @@ describe("{ $row, up }", () => {
             { id: "o2" },
             {
               members: {
-                some: { userId: user, role: { $row: "role", up: 2 } },
+                some: { userId: user, role: row("role", 2) },
               },
             },
           ],
@@ -332,7 +348,7 @@ describe("{ $row, up }", () => {
 
   test("up: 0 compares two columns of the same row", async () => {
     const { db } = await open({
-      id: { not: { $row: "orgId", up: 0 } },
+      id: { not: row("orgId", 0) },
       rank: { gt: 2 },
     });
     expect(ids(await db.grant!.findMany({ user: "ann" }))).toEqual([
@@ -381,15 +397,15 @@ describe("{ $row, up }", () => {
       );
     };
     await refused(
-      { role: { $row: "role", up: 1 } },
+      { role: row("role", 1) },
       "reaches past the predicate it is written in"
     );
     await refused(
-      { org: { is: { members: { some: { role: { $row: "rank", up: 2 } } } } } },
+      { org: { is: { members: { some: { role: row("rank", 2) } } } } },
       "cannot be compared with 'role'"
     );
     await refused(
-      { org: { is: { members: { some: { role: { $row: "nope", up: 2 } } } } } },
+      { org: { is: { members: { some: { role: row("nope", 2) } } } } },
       "does not name a scalar field of 'grant'"
     );
   });
@@ -404,8 +420,8 @@ describe("{ $row, up }", () => {
 
 describe("folding, judging and sharing", () => {
   test("a layer's conditions fold inside an $exists body, and around one without a body", async () => {
-    const asked = { $if: { control: "user", exists: true } };
-    const { db } = await open({ AND: [asked, { $exists: { member: {} } }] });
+    const asked = provided(user, { exists: true });
+    const { db } = await open({ AND: [asked, exists({ member: {} })] });
     expect(ids(await db.grant!.findMany({ user: "ann" }))).toHaveLength(4);
     const unchanged = await open({ AND: [asked, isMember] });
     expect(ids(await unchanged.db.grant!.findMany({ user: "carl" }))).toEqual(
@@ -418,11 +434,11 @@ describe("folding, judging and sharing", () => {
       org: {
         is: {
           members: {
-            some: {
-              $if: { control: "user", exists: true },
-              userId: user,
-              role: { $row: "role", up: 2 },
-            },
+            some: provided(
+              user,
+              { exists: true },
+              { userId: user, role: row("role", 2) }
+            ),
           },
         },
       },
@@ -452,16 +468,18 @@ describe("folding, judging and sharing", () => {
   });
 
   test("its rows are read under every other extension's related rows (R5)", async () => {
-    const live = defineExtension({
-      name: "live",
-      rows: {
-        control: "archive",
-        default: "live",
-        models: {
-          member: { live: { related: { archived: false, org: { is: {} } } } },
+    const live = typed.extension(
+      "live",
+      typed.args({ archive: oneOf("live").default("live") }),
+      typed.rule({
+        member: {
+          related: when(arg("archive"), "live", {
+            archived: false,
+            org: { is: {} },
+          }),
         },
-      },
-    } as never);
+      })
+    );
     const { db, base } = await open(isMember, false, live);
     expect(ids(await db.grant!.findMany({ user: "bob" }))).toHaveLength(4);
     await (
@@ -489,7 +507,7 @@ describe("folding, judging and sharing", () => {
           is: {
             parent: {
               recurse: { depth: false },
-              some: { id: { $row: "orgId", up: 2 } },
+              some: { id: row("orgId", 2) },
             },
           },
         },
@@ -497,7 +515,7 @@ describe("folding, judging and sharing", () => {
       "crosses a recursive relation"
     );
     await refused(
-      { $exists: { member: { budget: { $row: "budget", up: 1 } } } },
+      exists({ member: { budget: row("budget", 1) } }),
       "two decimals compare exactly only when they declare the same precision and scale"
     );
   });

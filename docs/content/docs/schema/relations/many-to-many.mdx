@@ -392,7 +392,7 @@ Two rows in different organizations share no link: when both sides supply a colu
 
 ### Extensions
 
-A hop is storage. `rows`, soft delete, write hooks and stamps on the junction model
+A hop is storage. Rules, soft delete, write hooks and default data on the junction model
 apply to direct calls on its delegate, not to a plain `connect` or to the walk from
 `team` to its parents. Applying `softDelete` to a junction model is refused when it
 is applied, because a tombstoned link would still be followed.
@@ -402,10 +402,10 @@ judge is never passed by:
 
 | On the junction model | `$through` read or filter | `$through` write |
 |---|---|---|
-| `rows` or a `permissions` rule that can leave a row out | refused | refused |
-| A rule that hides nothing (`read: true`) | admitted | refused if it declares verbs |
+| A `rule` or a `permissions` rule that can leave a row out | refused | refused |
+| A rule that hides nothing (`read: true`) | admitted | refused if it judges writes |
 | A read-gated field | refused where named | n/a |
-| A `data` stamp or an `on` write hook | n/a | refused; hooks do not fire on links |
+| A `defaults` value or an `on` write hook | n/a | refused; hooks do not fire on links |
 | `defaultOmit` | honoured on `$through: true`; a stated `select` stands | n/a |
 
 With [`permissions({ tenant })`](/docs/extensions/permissions#one-tenant-per-call-tenant),

@@ -24,59 +24,48 @@
 // CLIENT
 // =============================================================================
 
+// Named so an exported extended client's declaration can write them from
+// the entry every application imports.
 export type {
+  AddedProjectedState,
   ClientTypeState,
+  DelegateConfig,
   DelegateOperationArgs,
+  DelegateOperationPayload,
   DelegateOperationResult,
   ExtendedClient,
   ExtendedOperationResult,
-  ExtensionState,
   TransactionClient,
   TransactionClientOf,
   VibORMClient,
   VibORMConfig,
 } from "./client/client.js";
 export { createClient } from "./client/client.js";
+export type { ProjectedModelOperations } from "./client/projected-types.js";
 export type { RawOperation, RowsFragment } from "./client/raw.js";
+export type { ClientHiddenContext } from "./client/result-types.js";
 export {
   getOperationPayloadSchema,
   renderOperationResultType,
   renderSchemaType,
   validateOperationPayload,
 } from "./client/schema-introspection.js";
-export type { NoControls, PlacedControl } from "./extensions/controls.js";
-export {
-  type ClientExtension,
-  defineExtension,
-  defineHooks,
-  enableExtensions,
-  type ObservationCompletion,
-  type ObservationFacts,
-  type ObservationNeed,
-  type ObservationUnit,
-  type ObservedFacts,
-  type ObserveHandler,
-  type ObservesDeclaration,
-  type RetryHandler,
-  type RouteHandler,
-  type StatementContext,
-  type StatementHandler,
-  type TransactionHandler,
-  type UnitCall,
-  type WriteKind,
-  type WriteOutcome,
-  type WrittenCall,
-  type WrittenHandler,
-  type WrittenWatch,
-} from "./extensions/index.js";
+export type { Schema } from "./client/types.js";
 export type {
-  AccumulatedExtensionState,
+  NoArguments,
+  PlacedArgument,
+  StampedFields,
+} from "./extensions/contract.js";
+export * from "./extensions/index.js";
+export type {
+  AddedExtensionState,
+  ChainedExtensionState,
   ClientExtensionState,
   EmptyClientExtensionState,
-  ExtensionCacheState,
-  ExtensionContributionState,
   ExtensionResultConsumerState,
-  MergeExtensionState,
+  // The extension type-state a derived client carries, under its own
+  // symbol: an exported client's declaration names it (TS2742 otherwise).
+  ExtensionStateConstraint as ExtensionState,
 } from "./extensions/methods";
 // Values a write computes, and the names a hand-written fragment spells them with.
 export {
@@ -195,6 +184,10 @@ export type {
 // `toString()` never emits exponent notation. `div` takes its decimal places
 // and its rounding as arguments instead.
 export { Decimal } from "./validation/primitives/decimal-value.js";
+
+// The version of this package: what an extension's own telemetry names its
+// library with, or partitions stored data written by one release with.
+export { VIBORM_VERSION } from "./version.js";
 
 // =============================================================================
 // RAW SQL

@@ -11,6 +11,21 @@ import {
 } from "@errors";
 import { s } from "@schema";
 import { Sql } from "@sql";
+import {
+  around,
+  call,
+  check,
+  defaults,
+  args as extArgs,
+  extension,
+  target as extTarget,
+  nothing,
+  oneOf,
+  only,
+  rule,
+  statement,
+  unit,
+} from "@src/index";
 import { on } from "@src/on";
 import {
   isKey,
@@ -119,20 +134,28 @@ export function describeOrdering(
       )[name].deleteMany();
     const counted = (
       client as unknown as { $extends: (definition: object) => Base }
-    ).$extends({
-      name: "count-statements",
-      statement: ({ statement }: { statement: Sql }) => {
-        statements.push(Sql.peek(statement).strings.join("?"));
-        return statement;
-      },
-    });
-    const db = ordering({
-      models: {
-        card: { key: "rank", within: ["columnId"] },
-        legacy: { key: "rank" },
-        slot: { key: "rank", within: ["tenant"] },
-      },
-    })(counted as any) as any;
+    ).$extends(
+      extension(
+        "count-statements",
+        unit(
+          (u, next) => {
+            statements.push(Sql.peek(statement(u)).strings.join("?"));
+            return next(statement(u));
+          },
+          ["statement"],
+          { rewrites: true }
+        )
+      )
+    );
+    const db = (counted as any).$extends(
+      ordering({
+        models: {
+          card: { key: "rank", within: ["columnId"] },
+          legacy: { key: "rank" },
+          slot: { key: "rank", within: ["tenant"] },
+        },
+      })
+    ) as any;
     base_ = client as any;
     counted_ = counted;
     await db.column.createMany({ data: [{ id: "c1" }, { id: "c2" }] });
@@ -232,7 +255,9 @@ export function describeOrdering(
     test("one order for every grouping: a card changes column with its place, in one move", async () => {
       await setup();
       // No `within`: the order is the table's, whatever a view groups by.
-      const db = ordering({ card: { key: "rank" } })(counted_ as any) as any;
+      const db = (counted_ as any).$extends(
+        ordering({ card: { key: "rank" } })
+      ) as any;
       for (const [id, columnId] of [
         ["a", "c1"],
         ["b", "c1"],
@@ -456,10 +481,9 @@ export function describeOrdering(
     });
 
     test("an extension's update stamp writes its own fields only: updatedAt() stays as stored or as given", async () => {
-      const stamped = (await setup()).$extends({
-        name: "audit",
-        data: { models: { card: { update: { owner: "stamped" } } } },
-      });
+      const stamped = (await setup()).$extends(
+        extension("audit", defaults({ card: { update: { owner: "stamped" } } }))
+      );
       const at = new Date("2020-01-01T00:00:00.000Z");
       for (const title of ["a", "b"])
         await stamped.card.create({
@@ -636,9 +660,11 @@ export function describeOrdering(
         where: { id: "y" },
         data: { deletedAt: new Date("2026-01-01T00:00:00.000Z") },
       });
-      const governed = softDelete({
-        models: { legacy: { deletedAt: "deletedAt" } },
-      })(ordering({ legacy: { key: "rank" } })(counted_ as any) as any) as any;
+      const governed = (counted_ as any)
+        .$extends(ordering({ legacy: { key: "rank" } }))
+        .$extends(
+          softDelete({ models: { legacy: { deletedAt: "deletedAt" } } })
+        );
       expect(await governed.legacy.rekey()).toEqual({ count: 2 });
       const ranks = Object.fromEntries(
         (await base_.legacy.findMany({ select: { id: true, rank: true } })).map(
@@ -768,12 +794,12 @@ export function describeOrdering(
       // UPDATE; MySQL takes it ungoverned too.
       const governedMove = move;
       const viaPolicy = [
-        policy(order(counted_) as any),
-        order(policy(counted_) as any),
+        (counted_ as any).$extends(order).$extends(policy),
+        (counted_ as any).$extends(policy).$extends(order),
       ].map((chain: any) => chain.$as({ userId: "u1" }));
       const viaTombs = [
-        tombs(order(counted_) as any),
-        order(tombs(counted_) as any),
+        (counted_ as any).$extends(order).$extends(tombs),
+        (counted_ as any).$extends(tombs).$extends(order),
       ];
       for (const governed of [...viaPolicy, ...viaTombs] as any[]) {
         const before = await ranks();
@@ -810,9 +836,11 @@ export function describeOrdering(
         where: { id: "t" },
         data: { deletedAt: new Date("2026-01-01T00:00:00.000Z") },
       });
-      const governed = softDelete({
-        models: { card: { deletedAt: "deletedAt" } },
-      })(db as any) as any;
+      const governed = (db as any).$extends(
+        softDelete({
+          models: { card: { deletedAt: "deletedAt" } },
+        })
+      ) as any;
       const whole = async () =>
         titles(await governed.card.findMany({ deleted: "with" }));
       expect(await whole()).toEqual(["a", "t", "c", "d"]);
@@ -860,14 +888,20 @@ export function describeOrdering(
           },
         } as any);
         const ordered = (client: any) =>
-          ordering({ card: { key: "rank", within: ["columnId"] } })(client);
+          client.$extends(
+            ordering({ card: { key: "rank", within: ["columnId"] } })
+          );
         const deleted = softDelete({
           models: { card: { deletedAt: "deletedAt" } },
         });
         const db = (
           before
-            ? deleted(ordered((counted_ as any).$extends(hooks)) as any)
-            : (deleted(ordered(counted_) as any) as any).$extends(hooks)
+            ? (ordered((counted_ as any).$extends(hooks)) as any).$extends(
+                deleted
+              )
+            : ((ordered(counted_) as any).$extends(deleted) as any).$extends(
+                hooks
+              )
         ) as any;
         expect((await db.card.rekey({ where: { columnId: "c1" } })).count).toBe(
           2
@@ -893,24 +927,25 @@ export function describeOrdering(
         await db.card.create({
           data: { id, columnId: "c1", title: id, owner },
         });
+      const cardMine = { owner: "u1" };
       const governed = (
-        ordering({ card: { key: "rank", within: ["columnId"] } })(
-          (counted_ as any).$extends({
-            name: "test.owner",
-            rows: {
-              control: "owner",
-              default: "mine",
-              models: {},
-              verbs: {
+        (counted_ as any)
+          .$extends(
+            extension(
+              "test.owner",
+              extArgs({ owner: oneOf("mine").default("mine") }),
+              rule({
                 card: {
-                  predicates: { mine: { owner: "u1" } },
-                  read: "mine",
-                  update: "mine",
+                  read: { where: cardMine },
+                  update: { where: only(cardMine), check: check(cardMine) },
+                  delete: { where: only(nothing) },
                 },
-              },
-            },
-          })
-        ) as any
+              })
+            )
+          )
+          .$extends(
+            ordering({ card: { key: "rank", within: ["columnId"] } })
+          ) as any
       ).card;
       expect(
         (await governed.findMany()).map((row: { id: string }) => row.id)
@@ -1023,23 +1058,24 @@ export function describeOrdering(
         data: { rank: tied.rank },
       });
       let raced = false;
-      const racing = db.$extends({
-        name: "test.anchor-race",
-        query: {
-          card: {
-            findMany: async ({ input, proceed }: any) => {
-              if (!raced && input.cursor) {
+      const racing = db.$extends(
+        extension(
+          "test.anchor-race",
+          around(
+            () => async (run) => {
+              if (!raced && run.input.cursor) {
                 raced = true;
                 await base_.card.update({
                   where: { id: "a" },
                   data: { columnId: "c2" },
                 });
               }
-              return proceed();
+              return run();
             },
-          },
-        },
-      });
+            extTarget("card", "findMany")
+          )
+        )
+      );
       await racing.card.move({
         where: { id: "d" },
         after: { id: "a", title: "a" },
@@ -1054,16 +1090,19 @@ export function describeOrdering(
       for (const title of ["a", "b"])
         await db.card.create({ data: { id: title, columnId: "c1", title } });
       const before = await db.card.findUnique({ where: { id: "b" } });
-      const emptied = db.$extends({
-        name: "test.drop-title",
-        request: {
-          card: {
-            update: ({ input }: any) => ({
-              data: { ...input.data, title: undefined },
-            }),
-          },
-        },
-      });
+      const emptied = db.$extends(
+        extension(
+          "test.drop-title",
+          call(
+            (c) => {
+              c.set({
+                data: { ...c.args.data, title: undefined },
+              });
+            },
+            extTarget("card", "update")
+          )
+        )
+      );
       // Already after `a`: the move writes only its data, emptied here.
       expect(
         await emptied.card.move({
@@ -1093,26 +1132,36 @@ export function describeOrdering(
       const db = await setup();
       for (const id of ["a", "b"])
         await db.card.create({ data: { id, columnId: "c1", title: id } });
+      const cardAny = {};
+      const cardNone = { id: "-" };
       // Writing editedAt takes no row; every other write takes any.
       const governed = (
-        ordering({ card: { key: "rank", within: ["columnId"] } })(
-          (counted_ as any).$extends({
-            name: "test.edited",
-            rows: {
-              control: "edited",
-              default: "on",
-              models: {},
-              verbs: {
+        (counted_ as any)
+          .$extends(
+            extension(
+              "test.edited",
+              extArgs({ edited: oneOf("on").default("on") }),
+              rule({
                 card: {
-                  predicates: { any: {}, none: { id: "-" } },
-                  read: "any",
-                  update: "any",
-                  writes: { editedAt: "none" },
+                  read: { where: cardAny },
+                  update: {
+                    where: only(cardAny),
+                    check: check(cardAny),
+                    fields: {
+                      editedAt: {
+                        where: only(cardNone),
+                        check: check(cardNone),
+                      },
+                    },
+                  },
+                  delete: { where: only(nothing) },
                 },
-              },
-            },
-          })
-        ) as any
+              })
+            )
+          )
+          .$extends(
+            ordering({ card: { key: "rank", within: ["columnId"] } })
+          ) as any
       ).card;
       await governed.move({ where: { id: "a" }, after: { id: "b" } });
       await governed.move({
@@ -1143,13 +1192,11 @@ export function describeOrdering(
         where: { id: "t" },
         data: { deletedAt: new Date("2026-01-01T00:00:00.000Z") },
       });
-      const governed = (
-        softDelete({ models: { card: { deletedAt: "deletedAt" } } })(
-          ordering({ card: { key: "rank", within: ["columnId"] } })(
-            counted_ as any
-          ) as any
-        ) as any
-      ).card;
+      const governed = (counted_ as any)
+        .$extends(ordering({ card: { key: "rank", within: ["columnId"] } }))
+        .$extends(
+          softDelete({ models: { card: { deletedAt: "deletedAt" } } })
+        ).card;
       await base_.column.create({ data: { id: "c3" } });
       const into = async (id: string, columnId: string) =>
         (await governed.move({ where: { id }, first: true, to: { columnId } }))
@@ -1383,13 +1430,13 @@ export function describeOrderingAdmission(
       ],
     ])("refuses %s", async (_, config) => {
       const { client } = await open();
-      expect(() => ordering(config as any)(client as any)).toThrow(
+      expect(() => (client as any).$extends(ordering(config as any))).toThrow(
         ClientInitializationError
       );
       // The same models under `models`, the form since 1.9.1.
-      expect(() => ordering({ models: config } as any)(client as any)).toThrow(
-        ClientInitializationError
-      );
+      expect(() =>
+        (client as any).$extends(ordering({ models: config } as any))
+      ).toThrow(ClientInitializationError);
     });
 
     test("takes its models under `models`, or as the whole argument (before 1.9.1)", async () => {
@@ -1399,11 +1446,12 @@ export function describeOrderingAdmission(
         { card: { key: "rank", within: ["columnId"] } },
       ])
         expect(
-          typeof (ordering(config as any)(client as any) as any).card.move
+          typeof ((client as any).$extends(ordering(config as any)) as any).card
+            .move
         ).toBe("function");
       // A model named `models` is a model: its entry holds `key`.
       expect(() =>
-        ordering({ models: { key: "rank" } } as any)(client as any)
+        (client as any).$extends(ordering({ models: { key: "rank" } } as any))
       ).toThrow('"models"');
       expect(isKey).toBe(isKeyFormat);
     });

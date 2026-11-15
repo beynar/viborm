@@ -10,6 +10,22 @@ export function observePromiseRejection<T>(
   return new RejectionObservedPromise(promise, onRejectionObserved);
 }
 
+/**
+ * `promise.then(onfulfilled)` that is no handler of its rejection: what
+ * runs after a nested transaction committed, leaving the caller's own
+ * handlers to say whether its failure was observed. The promise it makes
+ * rejects with that failure, which the outer transaction reports unless the
+ * caller observes it, so it leaves no unhandled rejection of its own.
+ */
+export function afterFulfilled<T, R>(
+  promise: Promise<T>,
+  onfulfilled: (value: T) => R | PromiseLike<R>
+): Promise<R> {
+  return promise instanceof RejectionObservedPromise
+    ? promise.fulfilled(onfulfilled)
+    : promise.then(onfulfilled);
+}
+
 class RejectionObservedPromise<T> implements Promise<T> {
   readonly [Symbol.toStringTag] = "Promise";
   private readonly onRejectionObserved: () => void;
@@ -29,6 +45,12 @@ class RejectionObservedPromise<T> implements Promise<T> {
       this.promise.then(onfulfilled, onrejected),
       this.onRejectionObserved
     );
+  }
+
+  fulfilled<R>(onfulfilled: (value: T) => R | PromiseLike<R>): Promise<R> {
+    const next = this.promise.then(onfulfilled);
+    next.catch(() => undefined);
+    return new RejectionObservedPromise(next, this.onRejectionObserved);
   }
 
   catch<TResult = never>(

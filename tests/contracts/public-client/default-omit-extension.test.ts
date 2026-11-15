@@ -1,7 +1,15 @@
 import { MemoryCache } from "@cache/drivers/memory";
 import { cache } from "@cache/extension";
 import { defaultOmit } from "@src/client/exports";
-import { s } from "@src/index";
+import {
+  around,
+  call,
+  extension as extExtension,
+  methods,
+  modelMethods,
+  s,
+  target,
+} from "@src/index";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { isRecord } from "@validation/value-guards";
 import { describe, expect, test } from "vitest";
@@ -85,7 +93,7 @@ const omissionConfig = {
 } as const;
 
 function omission() {
-  return defaultOmit<typeof schema>()(omissionConfig);
+  return defaultOmit(omissionConfig);
 }
 
 function isPasswordHidden(value: unknown): boolean {
@@ -153,12 +161,10 @@ describe("official default omit public behavior", () => {
     const { client: base } = family();
     const mutableFields: { passwordHash?: true } = { passwordHash: true };
     const mutableConfig = { user: mutableFields };
-    const extension = defaultOmit<typeof schema>()(mutableConfig);
+    const extension = defaultOmit(mutableConfig);
     mutableFields.passwordHash = undefined;
     const derived = base.$extends(extension);
-    const sibling = base.$extends(
-      defaultOmit<typeof schema>()({ user: { email: true } })
-    );
+    const sibling = base.$extends(defaultOmit({ user: { email: true } }));
 
     expect(await base.user.findUniqueOrThrow({ where: { id: "u1" } })).toEqual({
       id: "u1",
@@ -422,25 +428,24 @@ describe("official default omit public behavior", () => {
     const events: string[] = [];
     const client = family()
       .client.$extends(omission())
-      .$extends({
-        name: "after-default-omit",
-        request: {
-          user: {
-            findMany({ input }) {
+      .$extends(
+        extExtension(
+          "after-default-omit",
+          call(
+            (c) => {
               events.push(
-                Object.hasOwn(input, "omit") ? "request:omit" : "request:plain"
+                Object.hasOwn(c.args, "omit") ? "request:omit" : "request:plain"
               );
-              return {
+              c.set({
                 take: 1,
                 where: { email: { equals: "ada@example.test" } },
-              };
+              });
             },
-          },
-        },
-        query: {
-          user: {
-            async findMany({ input, proceed }) {
-              const select = Reflect.get(input, "select");
+            target("user", "findMany")
+          ),
+          around(
+            () => async (run) => {
+              const select = Reflect.get(run.input, "select");
               events.push(
                 isRecord(select) &&
                   Object.hasOwn(select, "email") &&
@@ -448,19 +453,22 @@ describe("official default omit public behavior", () => {
                   ? "query:select"
                   : "query:unprepared"
               );
-              return proceed();
+              return run();
             },
-          },
-        },
-        client(scope) {
-          return { $hiddenUsers: () => scope.user.findMany({}) };
-        },
-        model: {
-          user(delegate) {
-            return { hidden: () => delegate.findMany({}) };
-          },
-        },
-      });
+            target("user", "findMany")
+          ),
+          methods((scope) => ({
+            $hiddenUsers: () => scope.user.findMany({}),
+          })),
+          modelMethods(() => ({
+            user: {
+              hidden(this: { findMany(args: object): Promise<unknown> }) {
+                return this.findMany({});
+              },
+            },
+          }))
+        )
+      );
 
     await expect(client.user.findMany({ take: -1 })).resolves.toEqual([
       { id: "u1", email: "ada@example.test" },

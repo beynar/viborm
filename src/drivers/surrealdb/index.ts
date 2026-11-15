@@ -40,7 +40,7 @@ import {
   Driver,
   TransactionBoundDriver,
 } from "../driver";
-import { getExecutionTransactionPhases } from "../execution-context";
+import { getExecutionExtensionChain } from "../execution-context";
 import type {
   DriverTransactionOptions,
   TransactionOptionSupport,
@@ -268,8 +268,8 @@ export class SurrealDriver
 
   /**
    * A caller's callback runs again only when asked. A conflict its statements can
-   * replay never reaches here, and a coordinated extension has already collected
-   * what the failed run wrote, so its callback does not run twice.
+   * replay never reaches here, and an extension that hears writes has already
+   * been told what the failed run wrote, so its callback does not run twice.
    */
   override async withTransaction<T>(
     fn: (txDriver: Driver<Surreal, ReplayedTransaction>) => Promise<T>,
@@ -277,7 +277,8 @@ export class SurrealDriver
     context?: QueryExecutionContext
   ): Promise<T> {
     let reruns =
-      context?.operation === CALLBACK && !getExecutionTransactionPhases(context)
+      context?.operation === CALLBACK &&
+      !getExecutionExtensionChain(context)?.collect
         ? this.#rerunsOnConflict
         : 0;
     for (let run = 1; ; run++) {

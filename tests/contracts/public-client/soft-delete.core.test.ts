@@ -48,8 +48,8 @@ describe("SQLite3: viborm/soft-delete configuration branches", () => {
 
   test("without `deletedBy`, a delete writes the marker only and restore clears the marker only", async () => {
     const base = await fixture();
-    const db = softDelete({ models: { post: { deletedAt: "deletedAt" } } })(
-      base
+    const db = base.$extends(
+      softDelete({ models: { post: { deletedAt: "deletedAt" } } })
     );
     await db.post.delete({ where: { id: "p1" } });
     const deleted = await marks(base);
@@ -66,9 +66,11 @@ describe("SQLite3: viborm/soft-delete configuration branches", () => {
 
   test("with `deletedBy` and no actor, a delete writes the actor field null", async () => {
     const base = await fixture();
-    const db = softDelete({
-      models: { post: { deletedAt: "deletedAt", deletedBy: "deletedById" } },
-    })(base);
+    const db = base.$extends(
+      softDelete({
+        models: { post: { deletedAt: "deletedAt", deletedBy: "deletedById" } },
+      })
+    );
     await db.post.delete({ where: { id: "p1" } });
     const deleted = await marks(base);
     expect(deleted.deletedAt).toBeInstanceOf(Date);
@@ -89,30 +91,33 @@ describe("SQLite3: viborm/soft-delete configuration branches", () => {
     });
     for (const field of ["required", "text", "dates"]) {
       const apply = () =>
-        softDelete({ models: { model: { deletedAt: field } } })(base);
+        base.$extends(
+          // @ts-expect-error - the types admit nullable DateTime fields only: the runtime refusal is tested
+          softDelete({ models: { model: { deletedAt: field } } })
+        );
       expect(apply).toThrow(ClientInitializationError);
       expect(apply).toThrow(
         `softDelete: model.${field} must be a nullable DateTime field`
       );
-      // The two steps of a chain written before 1.8 check it too.
-      expect(() =>
-        softDelete({ models: { model: { deletedAt: field } } }).rows(base)
-      ).toThrow(ClientInitializationError);
     }
     expect(() =>
-      softDelete({ models: { model: { deletedAt: "marker" } } })(base)
+      base.$extends(softDelete({ models: { model: { deletedAt: "marker" } } }))
     ).not.toThrow();
     // A model the schema lacks is core's refusal too.
     expect(() =>
-      softDelete({ models: { nope: { deletedAt: "deletedAt" } } })(
-        base as never
+      base.$extends(
+        // @ts-expect-error - "nope" is no model: the runtime refusal is tested
+        softDelete({ models: { nope: { deletedAt: "deletedAt" } } })
       )
     ).toThrow(ClientInitializationError);
     // A field the model lacks is core's refusal, as before.
     expect(() =>
-      softDelete({ models: { model: { deletedAt: "missing" } } })(base)
+      base.$extends(
+        // @ts-expect-error - "missing" is no field: the runtime refusal is tested
+        softDelete({ models: { model: { deletedAt: "missing" } } })
+      )
     ).toThrow(
-      'Extension "viborm.softDelete" deletion.model.at names unknown scalar.'
+      'Extension "viborm.softDelete" rule.model: keep() names unknown field "missing".'
     );
   });
 });

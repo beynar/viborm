@@ -5,6 +5,7 @@ import { QueryError } from "@errors";
 import { instrumentation } from "@instrumentation/extension";
 import { s } from "@schema";
 import { sql } from "@sql";
+import { extension, unit } from "@src/index";
 import { captureLogs } from "@tests/unit/instrumentation/_capture";
 import { describe, expect, test } from "vitest";
 
@@ -32,10 +33,16 @@ describe("SQLite positional transport shares the typed statement lifecycle", () 
       await driver._executeRaw('INSERT INTO "entries" VALUES (7)');
       expect(resolvePositionalResultDriver(driver)).toBeTypeOf("function");
       await expect(client.entry.findMany()).resolves.toEqual([{ id: 7 }]);
-      const failing = client.$extends({
-        name: "invalid-physical-projection",
-        statement: () => sql`SELECT missing_column FROM entries`,
-      });
+      const failing = client.$extends(
+        extension(
+          "invalid-physical-projection",
+          unit(
+            (_u, next) => next(sql`SELECT missing_column FROM entries`),
+            ["statement"],
+            { rewrites: true }
+          )
+        )
+      );
       await expect(failing.entry.findMany()).rejects.toBeInstanceOf(QueryError);
       expect(
         logs.events.filter((event) => event.level === "query")

@@ -10,6 +10,13 @@ import { s } from "@src/schema";
 import { v } from "@src/validation";
 
 export const LEVELS = ["read", "comment", "update", "full"] as const;
+/** The ordered levels as each model's graph: a level implies the one below. */
+const ladder = {
+  read: [],
+  comment: ["read"],
+  update: ["comment"],
+  full: ["update"],
+} as const;
 
 const page = s
   .model({
@@ -102,10 +109,21 @@ const actorSchema = v.object({
   }),
 });
 
+// `userId` and `shareToken` are optional: an alternative reading one is
+// guarded, or an actor without it would close the whole permission.
+const hasUser = { control: "actor", path: "userId", exists: true } as const;
+const hasToken = {
+  control: "actor",
+  path: "shareToken",
+  exists: true,
+} as const;
+
 const isMember = {
+  $if: hasUser,
   members: { some: { userId: { actor: "userId" } } },
 } as const;
 const isOwner = {
+  $if: hasUser,
   members: { some: { userId: { actor: "userId" }, role: "owner" } },
 } as const;
 
@@ -116,24 +134,28 @@ const sharedWith = (level: string) => ({
       level,
       deletedAt: null,
       OR: [
-        { subjectKind: "user", subjectId: { actor: "userId" } },
+        { $if: hasUser, subjectKind: "user", subjectId: { actor: "userId" } },
         { subjectKind: "workspace", actor: { guest: false } },
         { subjectKind: "teamspace", teamspace: { is: isMember } },
-        { subjectKind: "public", token: { actor: "shareToken" } },
+        {
+          $if: hasToken,
+          subjectKind: "public",
+          token: { actor: "shareToken" },
+        },
       ],
     },
   },
 });
 
 /**
- * One level's rule. `levels` ORs the rule of every level at or above the one
- * asked, so `read` carries four copies of it, each with its ancestor walk.
+ * One level's rule. The ladder ORs the rule of every level at or above the
+ * one asked, so `read` carries four copies of it, each with its ancestor walk.
  */
 const access = (level: string): Rule => ({
   OR: [
     { actor: { admin: true } },
     { teamspace: { is: { defaultLevel: level, ...isMember } } },
-    { teamspaceId: null, createdById: { actor: "userId" } },
+    { $if: hasUser, teamspaceId: null, createdById: { actor: "userId" } },
     {
       parent: {
         recurse: { depth: false },
@@ -168,6 +190,7 @@ const compactAccess = (level: string): Rule => ({
               },
             },
             {
+              $if: hasUser,
               parentId: null,
               teamspaceId: null,
               createdById: { actor: "userId" },
@@ -181,6 +204,7 @@ const compactAccess = (level: string): Rule => ({
 
 const pageRules = (rule: (level: string) => Rule) =>
   ({
+    actions: { ...ladder, create: [] },
     operations: { delete: "full" },
     "read, comment, update": rule,
     full: (level: string) => ({
@@ -192,6 +216,7 @@ const pageRules = (rule: (level: string) => Rule) =>
 
 const supportingRules = {
   teamspace: {
+    actions: { ...ladder, create: [] },
     read: {
       OR: [
         {
@@ -207,12 +232,14 @@ const supportingRules = {
     create: { actor: { guest: false } },
   },
   teamspaceMember: {
+    actions: { ...ladder, create: [], delete: [] },
     read: { teamspace: "read" },
     create: { teamspace: "update" },
     update: { teamspace: "update" },
     delete: { teamspace: "update" },
   },
   grant: {
+    actions: { ...ladder, create: [] },
     read: { page: "read" },
     "create, update": { page: "full" },
     operations: { delete: "update" },
@@ -222,14 +249,12 @@ const supportingRules = {
 /** Every share kind spelled out per level: the deeper of the two. */
 export const sketchPolicy = permissions({
   actor: actorSchema,
-  levels: LEVELS,
   models: { page: pageRules(access), ...supportingRules },
 });
 
 /** The level as data, shares matched by key. */
 export const compactPolicy = permissions({
   actor: actorSchema,
-  levels: LEVELS,
   models: { page: pageRules(compactAccess), ...supportingRules },
 });
 

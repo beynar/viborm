@@ -1,7 +1,7 @@
 /** Public E3b array transaction result and capability boundary. */
 
 import { PGliteDriver } from "@drivers/pglite";
-import { createClient, s, sql } from "@src/index";
+import { around, createClient, extension, s, settled, sql } from "@src/index";
 
 type Equal<Left, Right> =
   (<Value>() => Value extends Left ? 1 : 2) extends <
@@ -19,6 +19,7 @@ type PrivateArrayOperationKey =
   | "executeCore"
   | "executeWith"
   | "hasObservation"
+  | "around"
   | "isArrayWrite"
   | "isBatchOperation"
   | "isWrite"
@@ -47,16 +48,28 @@ const record = s.model({
 const schema = { record };
 const driver = new PGliteDriver();
 
-const client = createClient({ schema, driver }).$extends({
-  name: "array-types",
-  async query(context) {
-    // @ts-expect-error - array coordination stays private
-    context.coordinator;
-    // @ts-expect-error - no admission token crosses the public handler boundary
-    context.admission;
-    return context.proceed();
-  },
-});
+const client = createClient({ schema, driver }).$extends(
+  extension(
+    "array-types", // FIXME(extension-codemod): the context is read whole here: `onWriteOutcome` has no first-moment spelling inside it
+    around((c) => async (run) => {
+      const context = {
+        proceed: run,
+        input: run.input,
+        mode: run.mode,
+        kind: c.kind,
+        model: c.model,
+        operation: c.operation,
+        controls: c.values,
+        onWriteOutcome: (listener) => settled(c, listener),
+      };
+      // @ts-expect-error - array coordination stays private
+      context.coordinator;
+      // @ts-expect-error - no admission token crosses the public handler boundary
+      context.admission;
+      return context.proceed();
+    })
+  )
+);
 
 const tuple = client.$transaction([
   client.record.findMany({ select: { id: true } }),

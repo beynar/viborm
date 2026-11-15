@@ -1,7 +1,7 @@
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
-import { cacheLookupOf } from "@cache/key";
 import { createClient } from "@client/client";
 import { CacheInvalidKeyError } from "@errors";
+import { stableStringify } from "@extensions/key";
 import { sql } from "@sql";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
 import { fieldRefSchema } from "@tests/fixtures/field-ref-schema";
@@ -9,7 +9,7 @@ import type { OperandCtx } from "@validation/primitives/operand";
 import { describe, expect, test } from "vitest";
 
 const cacheKeyOf = (model: string, operation: string, args: unknown) =>
-  cacheLookupOf(model, operation, args).key;
+  stableStringify([model, operation, args]);
 
 /**
  * Cache keys and operand callbacks (W8-A Unit 3).
@@ -78,7 +78,7 @@ describe("keying a fragment operand", () => {
         },
       },
     });
-    expect(key).toContain("post:findMany:");
+    expect(key).toContain('"likes"');
   });
 });
 

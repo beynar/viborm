@@ -38,7 +38,10 @@ function layerHolds(
   input: Input,
   alias?: string
 ): Sql | undefined {
-  return q.lowerSelector(q.domain!.layered(model, layer, input), alias);
+  return q.lowerSelector(
+    q.domain!.project!.layered(model, layer, input),
+    alias
+  );
 }
 /** Where a read-gated field's row carries it: every gating layer's `read` and predicate. */
 export function gateHolds(
@@ -51,7 +54,8 @@ export function gateHolds(
   const held: Sql[] = [];
   // A gate masks a value: neither a positive nor a negative test, so no
   // set it reads is bounded ({@link setBound}) and it holds where it would.
-  q.unbounded(() => {
+  q.unbounded++;
+  try {
     for (const [layer, read, input] of gate) {
       const tested = input === read ? [read] : [read, input];
       for (const where of visible ? tested.slice(1) : tested) {
@@ -59,7 +63,9 @@ export function gateHolds(
         if (lowered !== undefined) held.push(lowered);
       }
     }
-  });
+  } finally {
+    q.unbounded--;
+  }
   return held.length === 0 ? undefined : q.adapter.operators.and(...held);
 }
 /**
@@ -75,7 +81,7 @@ export function guarded(
   column: Sql,
   alias?: string
 ): Sql {
-  const gate = q.domain!.projected(model)?.gates.get(field);
+  const gate = q.domain!.project!.projected(model)?.gates.get(field);
   const holds = gate && gateHolds(q, model, gate, alias, true);
   const a = q.adapter;
   return holds === undefined
@@ -102,8 +108,9 @@ export function gating(
   select: unknown,
   path: string
 ) {
-  const named =
-    select === undefined ? undefined : namedGatedFields.get(select as object);
+  // The engine hands an admitted `select`, an object, or none, which no
+  // entry is keyed by.
+  const named = namedGatedFields.get(select as object);
   const gated: Record<string, GatedMember> = {};
   const gates = new Map<FieldGate, string>();
   return {
@@ -157,8 +164,7 @@ export function refuseGatedRows(
 }
 /**
  * A declared projection key's value on the row at `alias` (K5): the
- * layer's `read` once, around one test per name. Ordered, the last name
- * that holds; else a document of one boolean per name.
+ * layer's `read` once, around a document of one boolean per name.
  */
 export function evidence(
   q: SqlQueries,
@@ -168,25 +174,10 @@ export function evidence(
   taken: boolean
 ): Sql {
   const a = q.adapter;
-  const { layer, read, ordered } = field.evidence;
+  const { layer, read } = field.evidence;
   const visible = taken ? undefined : layerHolds(q, model, layer, read, alias);
   const test = (input: Input) =>
     input === read ? undefined : layerHolds(q, model, layer, input, alias);
-  if (ordered) {
-    const highest = a.expressions.caseWhen(
-      [...field.names].reverse().map(([name, input]) => ({
-        when: test(input) ?? a.literals.true(),
-        then: a.expressions.cast(q.value(name), "text"),
-      })),
-      a.literals.null()
-    );
-    return visible === undefined
-      ? highest
-      : a.expressions.caseWhen(
-          [{ when: visible, then: highest }],
-          a.literals.null()
-        );
-  }
   const held = a.json.objectFromColumns(
     field.names.map(([name, input]) => [name, q.truth(test(input))])
   );
@@ -223,28 +214,18 @@ export function gatedDocument(
     ...gates.map((gate) => columns.lastIndexOf(gate)),
   ];
   const cell = (source: unknown, index: number, key: string): unknown => {
+    // Without columns a source row is a record, with them an array of cells.
     if (positions === undefined) return own(source as Input, key);
-    const position = positions[index]!;
-    return position < 0 ? undefined : (source as unknown[])[position];
+    // A column the statement does not carry is at -1, where no row has a cell.
+    return (source as unknown[])[positions[index]!];
   };
   return (value) => {
     let source: unknown = value;
-    if (positions) {
-      if (!Array.isArray(value))
-        throw new InvalidScalarResult(
-          "row",
-          "a positional row is not an array"
-        );
-    } else {
+    // A positional row is an array: its driver asserted it. Only the count
+    // carrier is never null, and it carries no gate.
+    if (!positions) {
       source = providerDocument(providerJson(value));
-      if (source === null) {
-        if (shape.nullable === false)
-          throw new InvalidScalarResult(
-            "row",
-            "a document the statement always builds is null"
-          );
-        return null;
-      }
+      if (source === null) return null;
       if (source === undefined)
         throw new InvalidScalarResult(
           "row",

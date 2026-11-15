@@ -9,8 +9,11 @@ import {
 import { PGliteDriver } from "@src/drivers/pglite";
 import {
   createClient,
-  defineExtension,
   type ExtendedClient,
+  extension,
+  methods as extMethods,
+  modelMethods,
+  parts,
   s,
 } from "@src/index";
 import { instrumentation } from "@src/instrumentation/exports";
@@ -35,13 +38,13 @@ type BaseClient = ReturnType<typeof baseClient>;
 
 const cached = cache({ driver: new MemoryCache() });
 const observed = instrumentation({ logging: { query: true } });
-const methods = {
-  name: "application-methods",
-  client: () => ({ $ping: () => "pong" as const }),
-  model: {
-    user: () => ({ $label: (name: string) => `user:${name}` }),
-  },
-} as const;
+const methods = extension(
+  "application-methods",
+  extMethods(() => ({ $ping: () => "pong" as const })),
+  modelMethods(() => ({
+    user: { $label: (name: string) => `user:${name}` },
+  }))
+);
 const applicationExtensions = [cached, observed, methods] as const;
 
 type ApplicationClient = ExtendedClient<
@@ -70,16 +73,16 @@ const _applicationSurface = (applicationClient: ApplicationClient) => {
   expectTypeOf(applicationClient.user.$label("Ada")).toEqualTypeOf<string>();
 };
 
-const moreMethods = {
-  name: "more-methods",
-  client: () => ({ $answer: () => 42 as const }),
-} as const;
+const moreMethods = extension(
+  "more-methods",
+  extMethods(() => ({ $answer: () => 42 as const }))
+);
 type FurtherExtendedClient = ExtendedClient<
   ApplicationClient,
   readonly [typeof moreMethods]
 >;
 
-const hidden = defaultOmit<typeof schema>()({
+const hidden = defaultOmit({
   user: { passwordHash: true },
 });
 type OmittedClient = ExtendedClient<
@@ -95,12 +98,10 @@ const _omittedResult = async (client: OmittedClient) => {
   } | null>();
 };
 
-const schemaBound = defineExtension<typeof schema>()({
-  name: "schema-bound",
-  model: {
-    user: () => ({ $schemaLabel: () => "schema" as const }),
-  },
-});
+const schemaBound = parts<typeof schema>().extension(
+  "schema-bound",
+  modelMethods(() => ({ user: { $schemaLabel: () => "schema" as const } }))
+);
 type SchemaBoundClient = ExtendedClient<
   BaseClient,
   readonly [typeof schemaBound]
@@ -109,15 +110,15 @@ const _schemaBoundSurface = (client: SchemaBoundClient) => {
   expectTypeOf(client.user.$schemaLabel()).toEqualTypeOf<"schema">();
 };
 
-const tail1 = { name: "tail-1" } as const;
-const tail2 = { name: "tail-2" } as const;
-const tail3 = { name: "tail-3" } as const;
-const tail4 = { name: "tail-4" } as const;
-const tail5 = { name: "tail-5" } as const;
-const tail6 = { name: "tail-6" } as const;
-const tail7 = { name: "tail-7" } as const;
-const tail8 = { name: "tail-8" } as const;
-const tail9 = { name: "tail-9" } as const;
+const tail1 = extension("tail-1");
+const tail2 = extension("tail-2");
+const tail3 = extension("tail-3");
+const tail4 = extension("tail-4");
+const tail5 = extension("tail-5");
+const tail6 = extension("tail-6");
+const tail7 = extension("tail-7");
+const tail8 = extension("tail-8");
+const tail9 = extension("tail-9");
 type FiveExtensionClient = ExtendedClient<
   BaseClient,
   readonly [
@@ -159,16 +160,14 @@ type _omitBeforeResultConsumerIsValid = Expect<
   Equal<OmitThenMethods extends never ? true : false, false>
 >;
 // A factory typed against the client it extends reads its results: omit
-// after it is refused. One that reads nothing typed (no argument, or one
-// taken as `never`) is no result consumer: omit may follow it.
-const reader = {
-  name: "reader",
-  model: {
-    user: (delegate: BaseClient["user"]) => ({
-      $first: () => delegate.findFirst(),
-    }),
-  },
-} as const;
+// after it is refused. One that takes no scope is no result consumer: omit
+// may follow it.
+const reader = parts<BaseClient>().extension(
+  "reader",
+  modelMethods((scope) => ({
+    user: { $first: () => scope.user.findFirst() },
+  }))
+);
 type _resultConsumerBeforeOmitIsRejected = Expect<
   Equal<
     ExtendedClient<BaseClient, readonly [typeof reader, typeof hidden]>,
@@ -192,9 +191,6 @@ type _dynamicArraysAreNotAProvableChain = Expect<
 >;
 type _duplicateOfficialCacheIsRejected = Expect<
   Equal<ExtendedClient<OmittedClient, readonly [typeof cached]>, never>
->;
-type _duplicateOfficialDefaultOmitIsRejected = Expect<
-  Equal<ExtendedClient<OmittedClient, readonly [typeof hidden]>, never>
 >;
 
 const _runtimeParity = () => {

@@ -4,38 +4,46 @@
   "fixtures": {
     "50": {
       "base": {
-        "instantiations": 79780,
-        "types": 18125
+        "instantiations": 79067,
+        "types": 18152
       },
       "deep": {
-        "instantiations": 188360,
-        "types": 28383
+        "instantiations": 191802,
+        "types": 28870
       },
       "filter": {
-        "instantiations": 188736,
-        "types": 30219
+        "instantiations": 191487,
+        "types": 30746
       },
       "create": {
-        "instantiations": 218576,
-        "types": 31379
+        "instantiations": 221171,
+        "types": 31963
+      },
+      "extended": {
+        "instantiations": 649244,
+        "types": 120607
       }
     },
     "100": {
       "base": {
-        "instantiations": 146424,
-        "types": 31131
+        "instantiations": 145656,
+        "types": 31128
       },
       "deep": {
-        "instantiations": 311161,
-        "types": 44285
+        "instantiations": 314841,
+        "types": 44746
       },
       "filter": {
-        "instantiations": 311550,
-        "types": 46220
+        "instantiations": 313876,
+        "types": 46622
       },
       "create": {
-        "instantiations": 346939,
-        "types": 47321
+        "instantiations": 349410,
+        "types": 47839
+      },
+      "extended": {
+        "instantiations": 899335,
+        "types": 143050
       }
     }
   }

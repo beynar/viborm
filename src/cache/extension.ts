@@ -1,41 +1,70 @@
-import { CacheConfigurationError } from "@errors";
-import { withHost } from "@extensions/host";
-import type { GenericQueryHandler } from "@extensions/query";
+/**
+ * VibORM's cache, written with the public extension contract:
+ * `client.$extends(cache({ driver }))`.
+ *
+ * - `$withCache(options)` binds the view's read options (`cacheRead`, a
+ *   bound argument): what marks a read the cache serves.
+ * - A read through that view is served closest to the core (`inner`), keyed
+ *   on the prepared call (`key(run)`), and run uncached when it has no key
+ *   or runs in a transaction or an array.
+ * - A write invalidates the scope once durable (`settled`), as its own
+ *   `cache` argument says; `$invalidate` once the view's work is durable.
+ * - The scope is a pure function of the cache `version` and the database the
+ *   call works against (`database`), so two clients of one database share
+ *   entries and two databases never do.
+ */
+import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type { CachedClientOf, MutationOperations } from "../client/exports";
+import { VibORMError } from "../errors/base";
 import {
-  isFunction,
-  isNumber,
-  isRecord,
-  isString,
-} from "@validation/value-guards";
-import { errorCause } from "../errors/diagnostic-safety";
+  CacheConfigurationError,
+  CacheOperationNotCacheableError,
+} from "../errors/cache";
+import { accepts, args, bound } from "../extensions/args";
+import { around, call } from "../extensions/call";
+import { codec } from "../extensions/codec";
+import { type Database, database } from "../extensions/database";
+import { extension } from "../extensions/extension";
+import { key } from "../extensions/key";
+import { methods } from "../extensions/methods-part";
+import { reads, target, writes } from "../extensions/on";
+import { settled } from "../extensions/settled";
+import type {
+  AnyTarget,
+  Extension,
+  Facts,
+  PlacedArgument,
+  Run,
+} from "../index";
 import {
-  OFFICIAL_CACHE_NAME,
-  type OfficialCacheDefinitionCapability,
-  type OfficialCacheExtension,
-  officialCacheControls,
-  registerOfficialCacheQuery,
-} from "./capability";
-import { CacheDriver, type WaitUntilFn } from "./driver";
-import { OFFICIAL_CACHE_RUNTIME } from "./runtime";
+  CacheDriver,
+  INVALIDATE,
+  type Revalidate,
+  SERVE,
+  scopedKey,
+  type WaitUntilFn,
+} from "./driver";
+import { createOfficialCacheNamespace } from "./key";
+import { cacheCodec } from "./result-codec";
+import {
+  admitMutationOptions,
+  admitReadOptions,
+  CACHEABLE,
+  type CacheInvalidationOptions,
+  type CacheReadOptions,
+  hasCacheInvalidationWork,
+  type WithCacheOptions,
+} from "./schema";
 
-// The capability helpers moved to `./capability` so the core client can read
-// them without loading the cache; they stay importable from here.
-export {
-  bindOfficialCacheChain,
-  getOfficialCacheChainCapability,
-  getOfficialCacheChainDefinition,
-  getOfficialCacheQueryCapability,
-  OFFICIAL_CACHE_NAME,
-  type OfficialCacheBindTarget,
-  type OfficialCacheControls,
-  type OfficialCacheExtension,
-  type OfficialCacheQueryContribution,
-  registerOfficialCacheChain,
-} from "./capability";
 export interface CacheExtensionConfig {
   readonly driver: CacheDriver;
   readonly version?: string | number;
   readonly waitUntil?: WaitUntilFn;
+  /**
+   * `staleWhileRevalidate`, imported from `viborm/cache`: what lets a view's
+   * `swr` option serve a stale entry and refresh it in the background.
+   */
+  readonly swr?: Revalidate;
 }
 
 type ConfigKeys<Config> = Config extends unknown ? keyof Config : never;
@@ -45,96 +74,198 @@ type ExactCacheExtensionConfig<Config> = Record<
   never
 >;
 
-function configurationError(message: string, cause?: unknown): never {
-  throw new CacheConfigurationError(message, {
-    cause: cause === undefined ? undefined : errorCause(cause),
-  });
+/** `Self` is a client, not a transaction nor a view: what the cache's methods are called on. */
+type OnClient<Self> = [CachedClientOf<Self>] extends [never] ? never : unknown;
+
+/**
+ * The client methods the cache adds, typed through `this` from the client
+ * they are called on, whatever the chain added after the cache.
+ */
+export interface CacheMethods {
+  /** A view whose reads the cache serves: read operations only. */
+  $withCache<Self>(
+    this: Self & OnClient<Self>,
+    options?: WithCacheOptions
+  ): CachedClientOf<Self>;
+  /** Invalidate entries by keys or patterns (a `*` suffix matches a prefix). */
+  $invalidate<Self>(
+    this: Self & OnClient<Self>,
+    ...keys: string[]
+  ): Promise<void>;
 }
 
-function isCacheDriver(value: unknown): value is CacheDriver {
-  try {
-    return value instanceof CacheDriver;
-  } catch (cause) {
-    configurationError(
-      "Cache extension driver capability could not be inspected.",
-      cause
-    );
-  }
+/** What the cache adds to a client: its `cache` argument on writes, `$withCache`, `$invalidate`. */
+type CacheFacts = Facts<
+  CacheMethods,
+  Record<never, never>,
+  {
+    readonly cache: PlacedArgument<
+      CacheInvalidationOptions,
+      PropertyKey,
+      MutationOperations
+    >;
+  },
+  never,
+  never,
+  Record<never, never>,
+  Record<never, never>,
+  false
+>;
+
+/** A validator as a Standard Schema: what an argument of the cache is checked by. */
+const validator = <T>(admit: (value: unknown) => T): StandardSchemaV1<T> => ({
+  "~standard": {
+    version: 1,
+    vendor: "viborm.cache",
+    validate: (value: unknown) => ({ value: admit(value) }),
+  },
+});
+
+function configurationError(message: string): never {
+  throw new CacheConfigurationError(message);
 }
 
-function snapshotConfig(value: unknown): OfficialCacheDefinitionCapability {
-  if (!isRecord(value)) {
-    configurationError("Cache extension configuration must be an object.");
-  }
-  let keys: PropertyKey[];
-  try {
-    keys = Reflect.ownKeys(value);
-  } catch (cause) {
+/** The cache's view of one read: what its moment one leaves its second. */
+interface Values {
+  readonly cache?: CacheInvalidationOptions;
+  readonly cacheRead?: CacheReadOptions;
+}
+
+/**
+ * VibORM's fixed-name cache extension: `client.$extends(cache({ driver }))`.
+ */
+export function cache<T extends AnyTarget, const Config>(
+  config: Config &
+    NoInfer<CacheExtensionConfig & ExactCacheExtensionConfig<Config>>
+): Extension<T, CacheFacts>;
+export function cache(config: CacheExtensionConfig): unknown {
+  const { driver, version, waitUntil, swr } = config;
+  if (!(driver instanceof CacheDriver))
     configurationError(
-      "Cache extension configuration could not be inspected.",
-      cause
+      "Cache extension configuration requires a CacheDriver instance."
     );
-  }
-  for (const key of keys) {
-    if (
-      typeof key !== "string" ||
-      (key !== "driver" && key !== "version" && key !== "waitUntil")
-    ) {
-      configurationError(
-        `Cache extension configuration has unknown member "${String(key)}".`
-      );
+  if (
+    version !== undefined &&
+    !(typeof version === "string" || Number.isFinite(version))
+  )
+    configurationError(
+      'Cache extension configuration "version" must be a string or finite number.'
+    );
+  if (waitUntil !== undefined && typeof waitUntil !== "function")
+    configurationError(
+      'Cache extension configuration "waitUntil" must be a function.'
+    );
+
+  // Pure in its facts: the same version and database always give one scope.
+  const namespaceOf = ({ dialect, namespace }: Database): string =>
+    createOfficialCacheNamespace({ version, dialect, namespace });
+  /**
+   * Invalidate the scope of `origin`'s database. A backend failure is the
+   * cache's; after a write (`meta`), whatever failed is, and a key
+   * `$invalidate` was handed that the scope refuses is said as it is.
+   */
+  const invalidate = async (
+    origin: object,
+    options: CacheInvalidationOptions | undefined,
+    meta?: {
+      model?: string;
+      operation: string;
+      commitCertainty: "committed" | "may-have-committed";
     }
-  }
-
-  const read = (key: "driver" | "version" | "waitUntil"): unknown => {
-    if (!keys.includes(key)) return undefined;
+  ): Promise<void> => {
     try {
-      return value[key];
+      const namespace = namespaceOf(database(origin));
+      await driver[INVALIDATE]("", options, origin, (key) =>
+        scopedKey(namespace, key)
+      );
     } catch (cause) {
-      configurationError(
-        `Cache extension configuration member "${key}" could not be read.`,
-        cause
+      if (meta === undefined && cause instanceof VibORMError) throw cause;
+      throw new CacheConfigurationError(
+        meta
+          ? `Cache invalidation failed after mutation '${meta.operation}' on model '${meta.model}'.`
+          : "Cache invalidation failed.",
+        {
+          cause: cause instanceof Error ? cause : undefined,
+          meta: { method: "invalidate", ...meta },
+        }
       );
     }
   };
 
-  const driver = read("driver");
-  const version = read("version");
-  const waitUntil = read("waitUntil");
-  if (!isCacheDriver(driver)) {
-    configurationError(
-      "Cache extension configuration requires a CacheDriver instance."
-    );
-  }
-  if (
-    version !== undefined &&
-    !(isString(version) || (isNumber(version) && Number.isFinite(version)))
-  ) {
-    configurationError(
-      'Cache extension configuration "version" must be a string or finite number.'
-    );
-  }
-  if (waitUntil !== undefined && !isFunction<WaitUntilFn>(waitUntil)) {
-    configurationError(
-      'Cache extension configuration "waitUntil" must be a function.'
-    );
-  }
-  return Object.freeze({ driver, version, waitUntil });
-}
+  return extension(
+    "viborm.cache",
+    args({
+      // A write's own invalidation options.
+      cache: accepts(validator(admitMutationOptions)).on(writes),
+      // Only `$withCache` binds it: the mark of a read the cache serves.
+      cacheRead: bound(
+        validator((value) => {
+          const read = admitReadOptions(value);
+          if (read.swr !== false && swr === undefined)
+            configurationError(
+              'A view\'s "swr" option needs the cache configured with it: cache({ driver, swr: staleWhileRevalidate }).'
+            );
+          return read;
+        })
+      ),
+    }),
 
-/** Create VibORM's fixed-name cache extension. */
-export function cache<const Config>(
-  config: Config &
-    NoInfer<CacheExtensionConfig & ExactCacheExtensionConfig<Config>>
-): OfficialCacheExtension;
-export function cache(config: CacheExtensionConfig): unknown {
-  withHost();
-  const capability = snapshotConfig(config);
-  const query: GenericQueryHandler = ({ proceed }) => proceed();
-  registerOfficialCacheQuery(query, capability, OFFICIAL_CACHE_RUNTIME);
-  return Object.freeze({
-    name: OFFICIAL_CACHE_NAME,
-    query,
-    controls: officialCacheControls,
-  });
+    // Writes: none through the read view; the scope is invalidated once the
+    // write is durable.
+    call((c) => {
+      const values: Values = c.values;
+      // Only reads are served through the view: this part sees writes alone.
+      if (values.cacheRead !== undefined)
+        throw new CacheOperationNotCacheableError(c.operation, [...CACHEABLE]);
+      const options = values.cache;
+      if (!hasCacheInvalidationWork(options)) return;
+      settled(c, ({ certainty }) =>
+        invalidate(c, options, {
+          model: c.model,
+          operation: c.operation,
+          commitCertainty: certainty,
+        })
+      );
+    }, target(writes)),
+
+    // Reads through the view: answered from the store, closest to the core,
+    // so every other part sees each call and the core's answer is stored.
+    around(
+      (c) => {
+        const values: Values = c.values;
+        const read = values.cacheRead;
+        if (read === undefined) return;
+        // target(reads) selects model calls only: each names its model.
+        const model = c.model!;
+        return <R>(run: Run<unknown, R>): Promise<R> => {
+          // A transaction's and an array's reads see their own writes.
+          if (run.mode !== "direct") return run();
+          const id = key(run);
+          if (id === undefined) return run();
+          const db = database(run);
+          return driver[SERVE]({
+            id,
+            codec: cacheCodec(codec(run), c.operation),
+            read,
+            namespace: namespaceOf(db),
+            waitUntil,
+            model,
+            operation: c.operation,
+            origin: run,
+            database: db,
+            revalidate: swr,
+          });
+        };
+      },
+      target(reads),
+      { inner: true }
+    ),
+
+    methods((scope) => ({
+      $withCache: (options?: WithCacheOptions) =>
+        scope.$bind({ cacheRead: options }),
+      $invalidate: (...keys: string[]) =>
+        settled(scope, () => invalidate(scope, { invalidate: keys })),
+    }))
+  );
 }

@@ -24,7 +24,7 @@ id = "your-namespace-id"
 
 ```typescript
 import { createClient } from "viborm/d1";
-import { cache } from "viborm/cache";
+import { cache, staleWhileRevalidate } from "viborm/cache";
 import { CloudflareKVCache } from "viborm/cache/cloudflare-kv";
 
 export default {
@@ -35,6 +35,7 @@ export default {
     }).$extends(cache({
       driver: new CloudflareKVCache(env.CACHE),
       waitUntil: ctx.waitUntil.bind(ctx),
+      swr: staleWhileRevalidate,
     }));
 
     // Use cached queries
@@ -49,7 +50,7 @@ export default {
 
 ### Constructor
 
-```typescript
+```typescript no-check
 new CloudflareKVCache(kv: KVNamespace)
 ```
 
@@ -121,7 +122,7 @@ Add to `tsconfig.json`:
 
 ```typescript
 import { createClient } from "viborm/d1";
-import { cache } from "viborm/cache";
+import { cache, staleWhileRevalidate } from "viborm/cache";
 import { CloudflareKVCache } from "viborm/cache/cloudflare-kv";
 
 export default {
@@ -132,6 +133,7 @@ export default {
     }).$extends(cache({
       driver: new CloudflareKVCache(env.CACHE),
       waitUntil: ctx.waitUntil.bind(ctx),
+      swr: staleWhileRevalidate,
     }));
 
     // SWR: return stale data immediately, refresh in background
@@ -163,11 +165,11 @@ export default {
 
     if (request.method === "POST") {
       // Create user and invalidate cache
-      const user = await client.user.create({
+      const created = await client.user.create({
         data: { name: "Alice", email: "alice@example.com" },
         cache: { autoInvalidate: true },
       });
-      return Response.json(user);
+      return Response.json(created);
     }
 
     // Read from cache

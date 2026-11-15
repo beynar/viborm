@@ -230,7 +230,7 @@ export type SameModelResultSurface<Left, Right> =
     : false;
 
 /**
- * The shallow surfaces of the models whose rows a client's `rows` can hide
+ * The shallow surfaces of the models whose rows a client's rules can hide
  * from a relation read (`ClientRowsContext`, ./types.ts). It rides the same
  * result context as the omission defaults, as one more member of the union.
  */
@@ -243,7 +243,7 @@ export interface ClientHiddenContext<Surfaces> {
  * otherwise. Models are compared by their shallow surface, as the omission
  * defaults are: a target that shares its surface with a hidden model widens
  * with it, and a surface too wide to compare widens too, both on the `| null`
- * side. It distributes over the context, so a client without `rows` never
+ * side. It distributes over the context, so a client whose rules filter nothing never
  * resolves a target, and TypeScript measures the context parameter of every
  * result type through it cheaply: the `[Hidden] extends [never]` form it
  * replaces cost the schema-only floor 33,535 types (measured, U7 repair).
@@ -595,7 +595,7 @@ type WrapRelationNode<S extends ModelState, K, R extends AnyRelation, T> = [
   : WrapRelation<S, K, R, T>;
 
 /**
- * A singular slot whose target the client's `rows` can hide reads `null` when
+ * A singular slot whose target the client's rules can hide reads `null` when
  * it is hidden, whatever the membership proves about the stored reference.
  * Applied beside {@link WrapRelation}, never inside it: a recursive slot is
  * always a self relation, which may be empty already (CM002), so only the

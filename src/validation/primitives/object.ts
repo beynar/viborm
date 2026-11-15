@@ -83,22 +83,26 @@ export interface ObjectOptions<T = unknown, TKeys extends string = string> {
   refuse?: (
     value: Record<string, unknown>
   ) => string | ValidationIssue | undefined;
+  /**
+   * The name this object's fields are provided under: inside
+   * {@link parseProviding}, a required field the caller's context provides
+   * under it may be absent (the required-field check and the
+   * `requiresOneOfKeySets` check count it as given), and a key it adds is
+   * admitted with its validator; outside, it changes nothing. It shapes no
+   * input type.
+   */
+  provides?: string | undefined;
 }
 
 /**
- * The options the validator reads besides the public ones. `provides` is the
- * name this object's fields are provided under: inside {@link parseProviding},
- * a required field the caller's context provides under it may be absent (the
- * required-field check and the `requiresOneOfKeySets` check count it as
- * given); outside, it changes nothing. A model's create schemas pass it with
- * their other options; it is not public, so it shapes no input type.
+ * What the caller's context says of one key of the object a `provides` name
+ * names: `true` when it writes that required field itself, a validator when
+ * it adds that key to the ones the object declares.
  */
-interface ValidatorOptions extends ObjectOptions {
-  provides?: string;
-}
-
-/** Which fields, of the object a `provides` name names, the caller's context provides. */
-type ProvidedFields = (name: string, field: string) => boolean;
+type ProvidedFields = (
+  name: string,
+  field: string
+) => boolean | ((value: unknown) => ValidationResult<unknown>) | undefined;
 
 /**
  * The provided fields of the parse in progress. Set by
@@ -112,6 +116,12 @@ let provided: ProvidedFields | undefined;
 const isProvided = (name: string | undefined, field: string): boolean =>
   name !== undefined && provided?.(name, field) === true;
 
+/** The validator of a key the parse in progress adds to the object named `name`. */
+const added = (name: string | undefined, key: string) => {
+  const answer = name === undefined ? undefined : provided?.(name, key);
+  return typeof answer === "function" ? answer : undefined;
+};
+
 /**
  * Run `parse` where `fields` are provided by the caller's context: an object
  * whose `provides` name they list takes such a required field as absent, not
@@ -122,7 +132,11 @@ const isProvided = (name: string | undefined, field: string): boolean =>
  */
 export function parseProviding<T>(fields: ProvidedFields, parse: () => T): T {
   const outer = provided;
-  provided = fields;
+  // An enclosing parse's fields stay provided: a stamped create may also
+  // name a projection key.
+  provided = outer
+    ? (name, field) => fields(name, field) || outer(name, field)
+    : fields;
   try {
     return parse();
   } finally {
@@ -476,7 +490,7 @@ function readObjectInputValue(
  */
 function createObjectValidator(
   entries: ObjectEntries,
-  options: ValidatorOptions = {}
+  options: ObjectOptions = {}
 ): (value: unknown) => ValidationResult<Record<string, unknown>> {
   const {
     partial = true,
@@ -678,7 +692,9 @@ function createObjectValidator(
     input: Record<string, unknown>,
     inputValueScratch: unknown[] | undefined
   ): ValidationIssue[] | undefined => {
-    const issues = strict ? unknownKeyIssues(input, keyIndex) : undefined;
+    const issues = strict
+      ? unknownKeyIssues(input, keyIndex, provides)
+      : undefined;
     if (issues && !collectingAllIssues()) return issues;
     const unmet = checkRequirements?.(input, inputValueScratch);
     return unmet ? gathered(issues, unmet) : issues;
@@ -712,10 +728,9 @@ function createObjectValidator(
     const output: Record<string, unknown> = {};
     for (const key in input) {
       const i = keyIndex.get(key);
-      if (i === undefined) {
-        // unknown key with strict: false — dropped, as before
-        continue;
-      }
+      // An unknown key is dropped (strict: false), unless the parse adds it.
+      const validate = i === undefined ? added(provides, key) : validates[i];
+      if (validate === undefined) continue;
 
       // Explicit undefined is treated as absent (Prisma parity): it is
       // neither validated nor materialized. Downstream consumers use key
@@ -732,7 +747,7 @@ function createObjectValidator(
         continue;
       }
 
-      const result = validates[i]!(inputValue);
+      const result = validate(inputValue);
       if (result.issues) {
         issues = gathered(issues, issuesUnder(key, result.issues));
         if (!collectingAllIssues()) return { issues };
@@ -875,11 +890,12 @@ function gathered(
 /** The unknown keys of a strict object: the first, or every one when collecting. */
 function unknownKeyIssues(
   input: Record<string, unknown>,
-  keyIndex: ReadonlyMap<string, number>
+  keyIndex: ReadonlyMap<string, number>,
+  provides: string | undefined
 ): ValidationIssue[] | undefined {
   let issues: ValidationIssue[] | undefined;
   for (const key in input) {
-    if (keyIndex.has(key)) continue;
+    if (keyIndex.has(key) || added(provides, key)) continue;
     (issues ??= []).push({ message: `Unknown key: ${key}`, path: [key] });
     if (!collectingAllIssues()) break;
   }

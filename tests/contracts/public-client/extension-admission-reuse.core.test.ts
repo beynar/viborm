@@ -1,130 +1,87 @@
+import type { Schema } from "@client/types";
 import { createClient } from "@drivers/sqlite3";
 import { ClientInitializationError } from "@errors";
-import { normalizeExtensionDefinition } from "@extensions/definition";
-import { withRows } from "@extensions/rows-runtime";
 import { s } from "@schema";
+import { arg, args, bound, extension, oneOf, rule, when } from "@src/index";
+import { appendExtension } from "@tests/fixtures/extension-chain";
 import { v } from "@validation";
-import { createSchemaRegistry } from "@validation/builder";
 import { expect, test } from "vitest";
 
-// These definitions are stated as plain objects: what reads their rows is brought here.
-withRows();
+/** The admitted rule layers `value` puts on a chain over `schema`. */
+const rulesOf = (value: unknown, schema: Schema) =>
+  appendExtension(undefined, value, schema).rules ?? [];
 
-function frozenRows(predicate: Readonly<Record<string, unknown>>) {
-  return Object.freeze({
-    control: "visibility",
-    default: "visible",
-    models: Object.freeze({
-      post: Object.freeze({ visible: Object.freeze({ root: predicate }) }),
-    }),
-  });
-}
-
-test("immutable row admission reuses facts within one registry only", () => {
+test("a rule is admitted once per schema: every application over it reuses the admitted layer", () => {
   const schema = { post: s.model({ id: s.string().id() }) };
-  const registry = createSchemaRegistry(schema);
-  const definition = {
-    name: "filter",
-    rows: frozenRows(Object.freeze({ id: "one" })),
-  };
-  const first = normalizeExtensionDefinition(definition, schema, registry);
-  expect(normalizeExtensionDefinition(definition, schema, registry).rows).toBe(
-    first.rows
-  );
-  expect(
-    normalizeExtensionDefinition(
-      definition,
-      schema,
-      createSchemaRegistry(schema)
-    ).rows
-  ).not.toBe(first.rows);
+  const value = extension("filter", rule({ post: { root: { id: "one" } } }));
+  const [first] = rulesOf(value, schema);
+  expect(first).toBeDefined();
+  expect(rulesOf(value, schema)[0]).toBe(first);
 });
 
-test("mutable predicates, frozen opaque leaves, and custom schemas are read afresh", () => {
-  const schema = { post: s.model({ id: s.string().id(), at: s.dateTime() }) };
-  const registry = createSchemaRegistry(schema);
+test("a declaration changed after it was applied is not read again; a field's own schema reads it at each application", () => {
+  const schema = { post: s.model({ id: s.string().id() }) };
   const predicate = { id: "one" };
-  const definition = { name: "filter", rows: frozenRows(predicate) };
-  const first = normalizeExtensionDefinition(definition, schema, registry);
+  const value = extension("filter", rule({ post: { root: predicate } }));
+  const [first] = rulesOf(value, schema);
   predicate.id = "two";
-  const second = normalizeExtensionDefinition(definition, schema, registry);
-  expect(second.rows).not.toBe(first.rows);
-  expect(second.rows?.models.post?.visible?.root).toEqual({
-    id: { equals: "two" },
-  });
-  const instant = Object.freeze(new Date("2025-01-01T00:00:00Z"));
-  const dated = {
-    name: "dated",
-    rows: frozenRows(Object.freeze({ at: instant })),
-  };
-  const earlier = normalizeExtensionDefinition(dated, schema, registry);
-  instant.setUTCFullYear(2026);
-  expect(normalizeExtensionDefinition(dated, schema, registry).rows).not.toBe(
-    earlier.rows
-  );
+  const [second] = rulesOf(value, schema);
+  expect(second).toBe(first);
+  expect(second?.models.post?.root).toEqual({ id: { equals: "one" } });
   const custom = {
     post: s.model({
       id: s.string().id(),
       value: s.string().schema(v.string()),
     }),
   };
-  const customRegistry = createSchemaRegistry(custom);
-  const immutable = {
-    name: "custom",
-    rows: frozenRows(Object.freeze({ id: "one" })),
-  };
-  const admitted = normalizeExtensionDefinition(
-    immutable,
-    custom,
-    customRegistry
-  );
-  expect(
-    normalizeExtensionDefinition(immutable, custom, customRegistry).rows
-  ).not.toBe(admitted.rows);
+  const own = extension("custom", rule({ post: { root: { id: "one" } } }));
+  const [once] = rulesOf(own, custom);
+  expect(rulesOf(own, custom)[0]).not.toBe(once);
 });
 
-test("schema edits and invalid predicates never inherit an earlier admission", () => {
-  const schema = { post: s.model({ id: s.string().id() }) };
-  const registry = createSchemaRegistry(schema);
-  const definition = {
-    name: "filter",
-    rows: frozenRows(Object.freeze({ id: "one" })),
-  };
-  const first = normalizeExtensionDefinition(definition, schema, registry);
+test("an edited schema, prepared again, and invalid predicates never inherit an earlier admission", () => {
+  const schema: Schema = { post: s.model({ id: s.string().id() }) };
+  const value = extension("filter", rule({ post: { root: { id: "one" } } }));
+  const [first] = rulesOf(value, schema);
   schema.post = s.model({ id: s.string().id() });
-  expect(
-    normalizeExtensionDefinition(definition, schema, registry).rows
-  ).not.toBe(first.rows);
-  const invalid = frozenRows(Object.freeze({ misspelled: true }));
+  expect(rulesOf(value, schema)[0]).not.toBe(first);
   for (const name of ["first", "second"]) {
-    expect(() =>
-      normalizeExtensionDefinition({ name, rows: invalid }, schema, registry)
-    ).toThrow(ClientInitializationError);
-    expect(() =>
-      normalizeExtensionDefinition({ name, rows: invalid }, schema, registry)
-    ).toThrow(name);
+    const invalid = extension(
+      name,
+      // A field the types refuse: applied anyway, as JavaScript would.
+      rule({ post: { root: { misspelled: true } } } as never)
+    );
+    expect(() => rulesOf(invalid, schema)).toThrow(ClientInitializationError);
+    expect(() => rulesOf(invalid, schema)).toThrow(name);
   }
 });
 
-test("a frozen sparse array with inherited values is not an immutable predicate", () => {
+test("a client created per request applies one declaration without reading its predicates again", async () => {
   const schema = { post: s.model({ id: s.string().id() }) };
-  const registry = createSchemaRegistry(schema);
-  const prototype = Object.create(Array.prototype);
-  prototype[0] = "one";
-  const values = new Array<string>(1);
-  Object.setPrototypeOf(values, prototype);
-  Object.freeze(values);
-  const definition = {
-    name: "filter",
-    rows: frozenRows(Object.freeze({ id: Object.freeze({ in: values }) })),
+  let reads = 0;
+  const predicate = {
+    get id() {
+      reads++;
+      return "one";
+    },
   };
-  const first = normalizeExtensionDefinition(definition, schema, registry);
-  prototype[0] = "two";
-  const next = normalizeExtensionDefinition(definition, schema, registry);
-  expect(next.rows).not.toBe(first.rows);
-  expect(next.rows?.models.post?.visible?.root).toEqual({
-    id: { in: ["two"] },
-  });
+  const definition = extension(
+    "filter",
+    args({ visibility: oneOf("visible").default("visible") }),
+    rule({ post: { root: when(arg("visibility"), "visible", predicate) } })
+  );
+  const counts: number[] = [];
+  for (let request = 0; request < 3; request++) {
+    const client = createClient({ schema, dataDir: ":memory:" });
+    try {
+      client.$extends(definition);
+    } finally {
+      await client.$disconnect();
+    }
+    counts.push(reads);
+  }
+  expect(counts[0]).toBeGreaterThan(0);
+  expect(counts).toEqual([counts[0], counts[0], counts[0]]);
 });
 
 test("cached row references are checked against each receiving chain", () => {
@@ -132,19 +89,17 @@ test("cached row references are checked against each receiving chain", () => {
     schema: { post: s.model({ id: s.string().id() }) },
     dataDir: ":memory:",
   });
-  const definition = {
-    name: "filter",
-    rows: frozenRows(
-      Object.freeze({ id: Object.freeze({ control: "tenant" }) })
-    ),
-  };
-  const scoped = base.$extends({
-    name: "tenant",
-    controls: { tenant: { schema: v.string(), bound: true } },
-  });
+  const tenant = arg("tenant");
+  const definition = extension(
+    "filter",
+    rule({ post: { root: { id: tenant } } })
+  );
+  const scoped = base.$extends(
+    extension("tenant", args({ tenant: bound(v.string()) }))
+  );
   expect(() => scoped.$extends(definition)).not.toThrow();
   expect(() => scoped.$extends(definition)).not.toThrow();
   expect(() => base.$extends(definition)).toThrow(
-    'references undeclared control "tenant"'
+    'references undeclared argument "tenant"'
   );
 });

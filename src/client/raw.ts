@@ -29,22 +29,16 @@ import {
   retainWriteOutcomeFailure,
   VibORMErrorCode,
 } from "@errors";
-import type { ResolvedExtensionHandler } from "@extensions/chain";
-import {
-  executePreparedQuery,
-  extensionHost,
-  lookupPlacedControls,
-  lookupResolvedExtensionHandlers,
-  observeOperation,
-} from "@extensions/host-slot";
+import type { CallOrigin } from "@extensions/origin";
 import type {
-  QueryInterceptionMode,
+  AroundHandlers,
+  CallMode,
   RawQueryKind,
   WriteOutcomeNotifications,
 } from "@extensions/query";
+import type { UnitSource } from "@extensions/unit-source";
 import {
   createOperationExecutionContext,
-  createRawOperationInstrumentationFacts,
   observeTransactionBatchPhase,
   withOperationErrorContext,
 } from "@query-engine/execution-context";
@@ -120,7 +114,7 @@ export function createRowsFragment(
 /**
  * The `FROM` item a `$rows` fragment stands for in a raw call of `engine`:
  * the domain a `findMany` of its model on that same view would take,
- * controls bound to it included, read at the raw call's one instant.
+ * arguments bound to it included, read at the raw call's one instant.
  */
 function settleRawRows(
   engine: QueryEngine,
@@ -129,7 +123,7 @@ function settleRawRows(
   instant: () => Date
 ): Sql {
   const { client, model, alias } = rows;
-  // The raw call's own view only: its chain and the controls it binds. A
+  // The raw call's own view only: its chain and the arguments it binds. A
   // fragment of the base client or another `$as` would read other rows.
   if (
     client.route !== engine.route ||
@@ -146,18 +140,9 @@ function settleRawRows(
   let facts: CallRows | undefined;
   if (binding !== undefined) {
     const name = model["~"].names.ts!;
-    const placed = lookupPlacedControls(chain, name, "findMany");
     facts = binding.call(
       name,
-      placed.length === 0
-        ? undefined
-        : extensionHost().admitControls(
-            name,
-            "findMany",
-            {},
-            placed,
-            client.bound
-          ).controls
+      chain?.args?.admit(name, "findMany", "findMany", {}, client.bound)?.values
     );
   }
   return engine.route.rowsOf(model, alias, facts, instant);
@@ -280,7 +265,7 @@ function createOperationSql(query: Sql): Sql {
   );
 }
 
-function validateRawParametersBeforeInterception(
+function validateRawParametersFirst(
   method: RawMethodName,
   params: readonly unknown[]
 ): void {
@@ -312,13 +297,33 @@ type CapturedRawQuery =
       readonly values: readonly unknown[];
     };
 
-type ResolvedRawQuery =
+/**
+ * A statement once resolved: also the one object an `around` part's two
+ * moments of it are handed.
+ */
+type ResolvedRawQuery = (
   | { readonly kind: "fragment"; readonly query: Sql }
   | {
       readonly kind: "verbatim";
       readonly sql: string;
       readonly params: readonly unknown[];
-    };
+    }
+) &
+  CallOrigin & {
+    /** Its input, once snapshotted (`inputOf`). */
+    input?: Readonly<Record<string, unknown>>;
+  };
+
+/**
+ * A resolved statement's input, snapshotted once: what its first moments and
+ * its query handlers read.
+ */
+const inputOf = (query: ResolvedRawQuery): Readonly<Record<string, unknown>> =>
+  (query.input ??= snapshotQueryInput(
+    query.kind === "fragment"
+      ? { query: query.query }
+      : { sql: query.sql, params: [...query.params] }
+  ));
 
 type RawRow<T> = T extends (infer Row)[] ? Row : unknown;
 
@@ -377,7 +382,7 @@ class DeferredRawOperation<T>
   readonly #method: RawMethodName;
   readonly #captured: CapturedRawQuery;
   readonly #parse: (raw: QueryResult<RawRow<T>>) => T;
-  readonly #queryHandlers: readonly ResolvedExtensionHandler[] | undefined;
+  readonly #queryHandlers: AroundHandlers | undefined;
   #resolved: ResolvedRawQuery | undefined;
   #observationCommitCertainty: "committed" | "may-have-committed" | undefined;
 
@@ -401,69 +406,31 @@ class DeferredRawOperation<T>
       model: () => "$raw",
       operation: (operation) => operation.#method,
       context: (operation) => operation.#context,
-      requiresInterception: (operation) =>
-        operation.#queryHandlers !== undefined &&
-        operation.#queryHandlers.length > 0,
       prepareAdmission: (operation) => {
         operation.#resolve();
       },
-      stagePackageWriteOutcomes: () => undefined,
-      startInterception: (operation, child, outcomes, control) => {
-        const handlers = operation.#queryHandlers;
-        if (handlers === undefined || handlers.length === 0) return child();
-        const query = operation.#resolve();
-        return executePreparedQuery<unknown, Record<string, unknown>>(
-          operation.#queryContext("array", query),
-          handlers,
-          child,
-          isRawWrite(operation.#method),
-          outcomes,
-          control
-        );
-      },
+      around: (operation) => ({
+        context: operation.#queryContext("array", operation.#resolve()),
+        handlers: operation.#queryHandlers,
+        write: isRawWrite(operation.#method),
+      }),
       executeCore: (operation, driver, notifications) =>
         operation.#execution.executeReserved(() =>
           operation.#runResolved(driver, operation.#resolve(), notifications)
         ),
-      isWrite: (operation) => isRawWrite(operation.#method),
-      hasObservation: (operation) =>
-        (operation.#engine.extensionChain?.observe.length ?? 0) > 0,
-      observe: (operation, child, readCompletionFacts) => {
-        const observers = operation.#engine.extensionChain?.observe;
-        if (observers === undefined || observers.length === 0) return child();
-        return observeOperation(
-          observers,
-          operation.#method,
-          undefined,
-          child,
-          readCompletionFacts,
-          operation.#readInstrumentationFacts()
-        );
-      },
+      unit: (operation) => operation.#unit(),
       reserveWith: (operation, driver) => {
         operation.#execution.reserveWith(driver);
       },
       executeWith: (operation, driver) => {
         const execute = () =>
           operation.#runResolved(driver, operation.#resolve());
-        const observers = operation.#engine.extensionChain?.observe;
-        if (observers === undefined || observers.length === 0) {
+        const observation = operation.#engine.extensionChain?.observation;
+        if (observation === undefined) {
           return operation.#execution.executeWith(driver, execute);
         }
         return operation.#execution.executeWith(driver, () =>
-          observeOperation(
-            observers,
-            operation.#method,
-            undefined,
-            execute,
-            () =>
-              operation.#observationCommitCertainty === undefined
-                ? undefined
-                : {
-                    commitCertainty: operation.#observationCommitCertainty,
-                  },
-            operation.#readInstrumentationFacts()
-          )
+          observation.run(operation.#unit(true), execute)
         );
       },
       prepare: (operation, driver = operation.#engine.driver) => {
@@ -509,9 +476,7 @@ class DeferredRawOperation<T>
     this.#method = method;
     this.#captured = captured;
     this.#parse = parse;
-    this.#queryHandlers = lookupResolvedExtensionHandlers(
-      engine.extensionChain,
-      "query",
+    this.#queryHandlers = engine.extensionChain?.around?.handlers(
       undefined,
       method
     );
@@ -528,12 +493,17 @@ class DeferredRawOperation<T>
     if (this.#resolved) return this.#resolved;
 
     // Refusing before memoizing keeps a rejected statement rejected however
-    // many times admission, interception, and execution ask for it.
+    // many times admission, the `around` parts and execution ask for it.
     const resolved = this.#resolveQuery();
-    validateRawParametersBeforeInterception(
+    validateRawParametersFirst(
       this.#method,
       resolved.kind === "fragment" ? resolved.query.values : resolved.params
     );
+    // The first moments of the parts without a target (the lookup's
+    // `global`) see the statement once it is known, before anything sends
+    // it: what they throw refuses it.
+    const request = this.#engine.extensionChain?.call;
+    request?.apply(this.#method, inputOf(resolved), request.global, resolved);
     this.#resolved = resolved;
     return resolved;
   }
@@ -592,17 +562,14 @@ class DeferredRawOperation<T>
     return settled ?? values;
   }
 
-  #queryContext(mode: QueryInterceptionMode, query: ResolvedRawQuery) {
+  #queryContext(mode: CallMode, query: ResolvedRawQuery) {
     return Object.freeze({
       mode,
       kind: this.#method.slice(1) as RawQueryKind,
       model: undefined,
       operation: this.#method,
-      input: snapshotQueryInput(
-        query.kind === "fragment"
-          ? { query: query.query }
-          : { sql: query.sql, params: [...query.params] }
-      ),
+      input: inputOf(query),
+      call: query,
     });
   }
 
@@ -614,7 +581,12 @@ class DeferredRawOperation<T>
 
   #runAttributed(driver: AnyDriver): Promise<T> {
     const handlers = this.#queryHandlers;
-    if (handlers === undefined || handlers.length === 0) {
+    const coordination = this.#engine.extensionChain?.coordination;
+    if (
+      coordination === undefined ||
+      handlers === undefined ||
+      handlers.length === 0
+    ) {
       return this.#runResolved(
         driver,
         this.#resolve(),
@@ -627,9 +599,10 @@ class DeferredRawOperation<T>
     } catch (error) {
       return Promise.reject(error);
     }
-    return executePreparedQuery<T, Record<string, unknown>>(
+    // Handlers come with `around`, which coordinates with what runs them.
+    return coordination.executePreparedQuery!<T, Record<string, unknown>>(
       this.#queryContext(
-        this.#engine.transactionWriteOutcomes ? "transaction" : "direct",
+        this.#engine.transaction ? "transaction" : "direct",
         query
       ),
       handlers,
@@ -640,7 +613,7 @@ class DeferredRawOperation<T>
           this.#withObservationNotifications(notifications)
         ),
       isRawWrite(this.#method),
-      this.#engine.transactionWriteOutcomes
+      this.#engine.transaction
     );
   }
 
@@ -693,38 +666,36 @@ class DeferredRawOperation<T>
 
   #getPromise(): Promise<T> {
     return this.#execution.executeDefault(() => {
-      const observers = this.#engine.extensionChain?.observe;
-      if (observers === undefined || observers.length === 0) {
+      const observation = this.#engine.extensionChain?.observation;
+      if (observation === undefined) {
         return this.#run(this.#engine.driver);
       }
-      return observeOperation(
-        observers,
-        this.#method,
-        undefined,
-        () => this.#run(this.#engine.driver),
-        () =>
-          this.#observationCommitCertainty === undefined
-            ? undefined
-            : { commitCertainty: this.#observationCommitCertainty },
-        this.#readInstrumentationFacts()
+      return observation.run(this.#unit(true), () =>
+        this.#run(this.#engine.driver)
       );
     });
   }
 
-  #readInstrumentationFacts() {
-    return createRawOperationInstrumentationFacts(
-      this.#engine.driver,
-      this.#context,
-      this.#method
-    );
+  /**
+   * This call's `operation` unit. Its certainty is the call's own, except
+   * for an array member, whose array reports it.
+   */
+  #unit(certain?: true): UnitSource {
+    return {
+      kind: "operation",
+      operation: this.#method,
+      context: this.#context,
+      driver: this.#engine.driver,
+      ...(certain ? { certainty: () => this.#observationCommitCertainty } : {}),
+    };
   }
 
   #withObservationNotifications(
     notifications?: WriteOutcomeNotifications
   ): WriteOutcomeNotifications | undefined {
     if (
-      this.#engine.transactionWriteOutcomes !== undefined ||
-      (this.#engine.extensionChain?.observe.length ?? 0) === 0
+      this.#engine.transaction !== undefined ||
+      this.#engine.extensionChain?.observation === undefined
     ) {
       return notifications;
     }

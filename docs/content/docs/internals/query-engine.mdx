@@ -12,10 +12,11 @@ compiler and its intermediate objects are private implementation details.
 
 A client operation returns a lazy `PendingOperation`. Awaiting it runs the
 operation lifecycle once; subsequent Promise consumers share that execution.
-Request extensions transform arguments before validation. The schema registry
-then admits the operation against the registered model graph. Query extensions
-surround execution, while statement extensions operate on individual physical
-statements. Observation has separate operation and statement boundaries.
+Extension `call` parts patch or refuse its arguments before validation. The
+schema registry then admits the operation against the registered model graph.
+`around` parts surround execution, and a `unit` part declared
+`{ rewrites: true }` rewrites each logical statement. Observation (`unit`
+parts) has separate operation and statement boundaries.
 
 The current implementation is under `raptor3/`:
 

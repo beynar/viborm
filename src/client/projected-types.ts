@@ -1,10 +1,10 @@
 /**
  * The types of a declared projection key and of read-gated fields (K5, plan
  * §11.2 F8): decided once per `$extends`, from what the definition's
- * `rows.verbs` declares, never by a branch on the extension state inside the
+ * `projected` fact declares (a rule's `facts` and `gate`), never by a branch on the extension state inside the
  * client or its delegates.
  *
- * - A model whose verbs declare `evidence` gains its row operations again as
+ * - A model whose entry declares `evidence` gains its row operations again as
  *   extra overloads (the model slot), whose arguments admit the key in every
  *   `select` and `include` the call spells and whose result carries it there.
  *   The ordinary overload is tried first: a call that names no key keeps its
@@ -13,7 +13,7 @@
  *   default omit as `boolean`, so the omit machinery makes it optional in a
  *   default row and present where a `select` names it, at every depth.
  *
- * The overloads see the chain as it is at this `$extends`: a control an
+ * The overloads see the chain as it is at this `$extends`: an argument an
  * extension applied later declares is not among their arguments.
  */
 
@@ -29,8 +29,8 @@ import type {
   ContextualOperationResult,
   NoExtraOperationKeys,
   OperationPayload,
-  PlacedOperationControls,
-  WithControlArgs,
+  PlacedOperationArguments,
+  WithArguments,
 } from "./types";
 
 /** The row operations a projection key reaches. */
@@ -46,16 +46,16 @@ type ProjectedOperation =
   | "delete";
 
 /** Each model's entry, a lazy one's (a function's) as it resolves. */
-type ResolvedVerbs<Verbs> = {
-  [M in keyof Verbs]: Verbs[M] extends (...args: never[]) => infer Entry
+type ResolvedProjected<Projected> = {
+  [M in keyof Projected]: Projected[M] extends (...args: never[]) => infer Entry
     ? Entry
-    : Verbs[M];
+    : Projected[M];
 };
 
-type VerbsOf<Definition> = Definition extends {
-  readonly rows: { readonly verbs: infer Verbs };
+type ProjectedOf<Definition> = Definition extends {
+  readonly projected: infer Projected;
 }
-  ? ResolvedVerbs<Verbs>
+  ? ResolvedProjected<Projected>
   : never;
 
 type DeclaredEvidence<Entry> = Entry extends {
@@ -64,38 +64,30 @@ type DeclaredEvidence<Entry> = Entry extends {
     readonly names: readonly (infer Names extends string)[];
   };
 }
-  ? {
-      readonly key: Key;
-      readonly names: Names;
-      readonly ordered: Entry extends {
-        readonly evidence: { readonly ordered: true };
-      }
-        ? true
-        : false;
-    }
+  ? { readonly key: Key; readonly names: Names }
   : never;
 
-type EvidenceModels<C extends VibORMConfig, Verbs> = {
-  [M in Extract<keyof Verbs, keyof ClientSchema<C>>]: [
-    DeclaredEvidence<Verbs[M]>,
+type EvidenceModels<C extends VibORMConfig, Projected> = {
+  [M in Extract<keyof Projected, keyof ClientSchema<C>>]: [
+    DeclaredEvidence<Projected[M]>,
   ] extends [never]
     ? never
     : M;
-}[Extract<keyof Verbs, keyof ClientSchema<C>>];
+}[Extract<keyof Projected, keyof ClientSchema<C>>];
 
 /** The key a definition declares (one spelling per chain step). */
-type KeyOf<Verbs> = {
-  [M in keyof Verbs]: DeclaredEvidence<Verbs[M]>["key"];
-}[keyof Verbs];
+type KeyOf<Projected> = {
+  [M in keyof Projected]: DeclaredEvidence<Projected[M]>["key"];
+}[keyof Projected];
 
 /** Projection facts stay keyed by the schema name, including at relation targets. */
-type ProjectionModels<C extends VibORMConfig, Verbs> = {
+type ProjectionModels<C extends VibORMConfig, Projected> = {
   [M in keyof ClientSchema<C>]: {
     readonly model: ClientSchema<C>[M];
-    readonly evidence: M extends keyof Verbs
-      ? [DeclaredEvidence<Verbs[M]>] extends [never]
+    readonly evidence: M extends keyof Projected
+      ? [DeclaredEvidence<Projected[M]>] extends [never]
         ? undefined
-        : DeclaredEvidence<Verbs[M]>
+        : DeclaredEvidence<Projected[M]>
       : undefined;
     readonly relations: M extends keyof ClientRelationLinks<C>
       ? ClientRelationLinks<C>[M]
@@ -239,15 +231,10 @@ type Spelled<Node> = (NodeSelect<Node> extends object
 /** What the key reads for `Entry` where the node asked for `Asked`. */
 type KeyResult<Entry, Asked> = Entry extends {
   readonly names: infer Names extends string;
-  readonly ordered: infer Ordered extends boolean;
 }
   ? Asked extends readonly (infer Some extends string)[]
-    ? Ordered extends true
-      ? Some | null
-      : { readonly [Name in Some]: boolean }
-    : Ordered extends true
-      ? Names | null
-      : { readonly [Name in Names]: boolean }
+    ? { readonly [Name in Some]: boolean }
+    : { readonly [Name in Names]: boolean }
   : never;
 
 type KeyMember<
@@ -361,13 +348,13 @@ type ProjectedMethod<
   C extends VibORMConfig,
   ModelName extends keyof ClientSchema<C>,
   ClientDefaults,
-  Controls,
+  Arguments,
   Models extends ProjectionModelsConstraint,
   Key extends string,
   Pending extends boolean = true,
   M extends Model<any> = ClientSchema<C>[ModelName],
   Payload = OperationPayload<O, M>,
-  Placed = PlacedOperationControls<Controls, ModelName, O>,
+  Placed = PlacedOperationArguments<Arguments, ModelName, O>,
 > = <
   Arg extends ProjectedArgs<
     Exclude<Payload, undefined>,
@@ -377,7 +364,7 @@ type ProjectedMethod<
   >,
 >(
   args: Arg &
-    WithControlArgs<
+    WithArguments<
       NoExtraOperationKeys<
         O,
         WithoutKey<Arg, Key>,
@@ -414,18 +401,18 @@ declare const projectedModelState: unique symbol;
 /**
  * The projected overloads a definition adds, per model declaring a key, for
  * a client whose config is `C`, whose results read under `ClientDefaults`
- * and whose calls take `Controls`.
+ * and whose calls take `Arguments`.
  */
 export type ProjectedModelOperations<
   C extends VibORMConfig,
   ClientDefaults,
-  Controls,
+  Arguments,
   Definition,
-  Verbs = VerbsOf<Definition>,
+  Projected = ProjectedOf<Definition>,
 > = {
-  readonly [ModelName in EvidenceModels<C, Verbs>]: {
+  readonly [ModelName in EvidenceModels<C, Projected>]: {
     readonly [projectedModelState]?: {
-      readonly [Key in KeyOf<Verbs>]: ProjectionModels<C, Verbs>;
+      readonly [Key in KeyOf<Projected>]: ProjectionModels<C, Projected>;
     };
   } & {
     readonly [O in ProjectedOperation]: ProjectedMethod<
@@ -433,9 +420,9 @@ export type ProjectedModelOperations<
       C,
       ModelName,
       ClientDefaults,
-      Controls,
-      ProjectionModels<C, Verbs>,
-      KeyOf<Verbs>
+      Arguments,
+      ProjectionModels<C, Projected>,
+      KeyOf<Projected>
     >;
   };
 };
@@ -445,7 +432,7 @@ export type CachedProjectedOperations<
   C extends VibORMConfig,
   ModelName extends keyof ClientSchema<C>,
   ClientDefaults,
-  Controls,
+  Arguments,
   ModelMethods,
 > = typeof projectedModelState extends keyof ModelMethods
   ? NonNullable<
@@ -465,7 +452,7 @@ export type CachedProjectedOperations<
               C,
               ModelName,
               ClientDefaults,
-              Controls,
+              Arguments,
               Projections[Key],
               Key,
               false
@@ -561,25 +548,25 @@ export type DelegateProjectedResult<Delegate, O, ModelName, Args, Row> =
     : Row;
 
 /**
- * Whether a definition's verbs declare a projection key. A definition with no
- * `rows.verbs` is answered by its shape alone, before any model is read.
+ * Whether a definition's entries declare a projection key. A definition with no
+ * `projected` is answered by its shape alone, before any model is read.
  */
 export type DeclaresEvidence<
   C extends VibORMConfig,
   Definition,
 > = Definition extends {
-  readonly rows: { readonly verbs: infer Verbs extends object };
+  readonly projected: infer Projected extends object;
 }
-  ? [EvidenceModels<C, ResolvedVerbs<Verbs>>] extends [never]
+  ? [EvidenceModels<C, ResolvedProjected<Projected>>] extends [never]
     ? false
     : true
   : false;
 
-/** Per model, the fields a definition's verbs read-gate, each `boolean`. */
-type GatedOmit<Verbs> = {
-  [M in keyof Verbs as Verbs[M] extends { readonly reads: object }
+/** Per model, the fields a definition's entries read-gate, each `boolean`. */
+type GatedOmit<Projected> = {
+  [M in keyof Projected as Projected[M] extends { readonly reads: object }
     ? M
-    : never]: Verbs[M] extends { readonly reads: infer Reads }
+    : never]: Projected[M] extends { readonly reads: infer Reads }
     ? { readonly [Field in keyof Reads]: boolean }
     : never;
 };
@@ -604,14 +591,14 @@ export type GatedConfig<
   C extends VibORMConfig,
   Definition,
 > = Definition extends {
-  readonly rows: { readonly verbs: infer Verbs extends object };
+  readonly projected: infer Projected extends object;
 }
-  ? [keyof GatedOmit<ResolvedVerbs<Verbs>>] extends [never]
+  ? [keyof GatedOmit<ResolvedProjected<Projected>>] extends [never]
     ? C
     : Omit<C, "omit"> & {
         readonly omit: MergedOmit<
           ConfigOmit<C>,
-          GatedOmit<ResolvedVerbs<Verbs>>
+          GatedOmit<ResolvedProjected<Projected>>
         >;
       }
   : C;

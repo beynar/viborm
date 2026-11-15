@@ -15,6 +15,7 @@ import { NotFoundError } from "@errors";
 import { s } from "@schema";
 import { attachFieldSchemas } from "@schema/json";
 import { Sql } from "@sql";
+import { extension, statement, unit } from "@src/index";
 import { on } from "@src/on";
 import { isKey, ordering, orderingKey } from "@src/ordering";
 import { permissions } from "@src/permissions";
@@ -78,8 +79,8 @@ describe("ordering review: ordering", () => {
   test("on() hook receives the created row's real key (not an Sql object)", async () => {
     const client = await open();
     const seen: unknown[] = [];
-    const db = ordering({ item: { key: "rank", within: ["boardId"] } })(
-      (client as any).$extends(
+    const db = (client as any)
+      .$extends(
         on({
           item: {
             create: (rows: unknown[]) => {
@@ -88,7 +89,9 @@ describe("ordering review: ordering", () => {
           },
         } as any)
       )
-    ) as any;
+      .$extends(
+        ordering({ item: { key: "rank", within: ["boardId"] } })
+      ) as any;
     await db.item.create({ data: { title: "a", boardId: null } });
     const stored = await db.item.findMany();
     expect(typeof (seen[0] as any).rank).toBe("string");
@@ -98,8 +101,8 @@ describe("ordering review: ordering", () => {
   test("on() hook receives a moved row's stored key (not its expression)", async () => {
     const client = await open();
     const seen: unknown[] = [];
-    const db = ordering({ item: { key: "rank", within: ["boardId"] } })(
-      (client as any).$extends(
+    const db = (client as any)
+      .$extends(
         on({
           item: {
             update: (rows: unknown[]) => {
@@ -108,7 +111,9 @@ describe("ordering review: ordering", () => {
           },
         } as any)
       )
-    ) as any;
+      .$extends(
+        ordering({ item: { key: "rank", within: ["boardId"] } })
+      ) as any;
     for (const title of ["a", "b"]) await db.item.create({ data: { title } });
     await db.item.move({ where: { id: 1 }, after: { id: 2 } });
     const stored = await db.item.findUnique({ where: { id: 1 } });
@@ -120,8 +125,8 @@ describe("ordering review: ordering", () => {
     const client = await open();
     const seen: unknown[] = [];
     const db = (
-      ordering({ item: { key: "rank", within: ["boardId"] } })(
-        client as any
+      (client as any).$extends(
+        ordering({ item: { key: "rank", within: ["boardId"] } })
       ) as any
     ).$extends(
       on({
@@ -140,8 +145,8 @@ describe("ordering review: ordering", () => {
 
   test("create result carries the key as a string", async () => {
     const client = await open();
-    const db = ordering({ item: { key: "rank", within: ["boardId"] } })(
-      client as any
+    const db = (client as any).$extends(
+      ordering({ item: { key: "rank", within: ["boardId"] } })
     ) as any;
     const created = await db.item.create({ data: { title: "a" } });
     expect(isKey(created.rank)).toBe(true);
@@ -149,8 +154,8 @@ describe("ordering review: ordering", () => {
 
   test("createMany keeps array order when the list field is a DateTime", async () => {
     const client = await open();
-    const db = ordering({ item: { key: "rank", within: ["day"] } })(
-      client as any
+    const db = (client as any).$extends(
+      ordering({ item: { key: "rank", within: ["day"] } })
     ) as any;
     const day = "2026-10-31T00:00:00.000Z";
     const data = Array.from({ length: 12 }, (_, i) => ({
@@ -164,8 +169,8 @@ describe("ordering review: ordering", () => {
 
   test("array transaction of creates keeps order", async () => {
     const client = await open();
-    const db = ordering({ item: { key: "rank", within: ["boardId"] } })(
-      client as any
+    const db = (client as any).$extends(
+      ordering({ item: { key: "rank", within: ["boardId"] } })
     ) as any;
     await db.$transaction([
       db.item.create({ data: { title: "a" } }),
@@ -180,8 +185,8 @@ describe("ordering review: ordering", () => {
     true,
   ])("nested creates under a produced parent id keep order (batchOnly=%s)", async (batchOnly) => {
     const client = await open(batchOnly);
-    const db = ordering({ item: { key: "rank", within: ["boardId"] } })(
-      client as any
+    const db = (client as any).$extends(
+      ordering({ item: { key: "rank", within: ["boardId"] } })
     ) as any;
     const b0 = await db.board.create({ data: { name: "x" } });
     await db.item.create({ data: { title: "pre", boardId: b0.id } });
@@ -206,8 +211,8 @@ describe("ordering review: ordering", () => {
 
   test("rekey with a where narrower than the list respaces the whole list", async () => {
     const client = await open();
-    const db = ordering({ item: { key: "rank", within: ["boardId"] } })(
-      client as any
+    const db = (client as any).$extends(
+      ordering({ item: { key: "rank", within: ["boardId"] } })
     ) as any;
     for (const t of ["a", "b", "c", "d", "e", "f"])
       await db.item.create({ data: { title: t } });
@@ -225,8 +230,8 @@ describe("ordering review: ordering", () => {
 
   test("distinct without orderBy", async () => {
     const client = await open();
-    const db = ordering({ item: { key: "rank", within: ["boardId"] } })(
-      client as any
+    const db = (client as any).$extends(
+      ordering({ item: { key: "rank", within: ["boardId"] } })
     ) as any;
     const b = await db.board.create({ data: { name: "x" } });
     for (const t of ["a", "b"])
@@ -242,8 +247,8 @@ describe("ordering review: ordering", () => {
 
   test("move with a NULL list after an anchor in a NULL list", async () => {
     const client = await open();
-    const db = ordering({ item: { key: "rank", within: ["boardId"] } })(
-      client as any
+    const db = (client as any).$extends(
+      ordering({ item: { key: "rank", within: ["boardId"] } })
     ) as any;
     for (const t of ["a", "b", "c"])
       await db.item.create({ data: { title: t } });
@@ -255,8 +260,8 @@ describe("ordering review: ordering", () => {
 
   test("move with an anchor given by a non-identity unique", async () => {
     const client = await open();
-    const db = ordering({ item: { key: "rank", within: ["boardId"] } })(
-      client as any
+    const db = (client as any).$extends(
+      ordering({ item: { key: "rank", within: ["boardId"] } })
     ) as any;
     for (const t of ["a", "b", "c"])
       await db.item.create({ data: { title: t } });
@@ -287,8 +292,8 @@ describe("ordering review: ordering 2", () => {
 
   test("a list field left to its default is appended to the right list", async () => {
     const client = await openTask();
-    const db = ordering({ task: { key: "rank", within: ["status"] } })(
-      client
+    const db = client.$extends(
+      ordering({ task: { key: "rank", within: ["status"] } })
     ) as any;
     for (const title of ["a", "b", "c"])
       await db.task.create({ data: { title } });
@@ -357,7 +362,7 @@ describe("ordering review: ordering adoption", () => {
     }) as any;
     await syncLiveSchema(client);
     await client.legacy.create({ data: { title: "old", rank: constant } });
-    const db = ordering({ legacy: { key: "rank" } })(client) as any;
+    const db = client.$extends(ordering({ legacy: { key: "rank" } })) as any;
     for (const title of ["a", "b", "c", "d", "e"])
       await db.legacy.create({ data: { title } });
     const rows = await db.legacy.findMany({ where: { title: { not: "old" } } });
@@ -385,8 +390,8 @@ describe("ordering review: ordering recursive", () => {
       driver: createInMemorySQLite3Driver(),
     }) as any;
     await syncLiveSchema(client);
-    const db = ordering({ node: { key: "rank", within: ["parentId"] } })(
-      client
+    const db = client.$extends(
+      ordering({ node: { key: "rank", within: ["parentId"] } })
     ) as any;
     const root = await db.node.create({ data: { title: "root" } });
     // children created z..a so id order differs from key order after moves
@@ -477,8 +482,8 @@ describe("ordering review: createMany key growth", () => {
     true,
   ])("integers stay linear in rows (batchOnly=%s)", async (batchOnly) => {
     const client = await open(batchOnly);
-    const db = ordering({ item: { key: "rank", within: ["boardId"] } })(
-      client as any
+    const db = (client as any).$extends(
+      ordering({ item: { key: "rank", within: ["boardId"] } })
     ) as any;
     const n = 3000;
     await db.item.createMany({
@@ -504,15 +509,21 @@ describe("ordering review: respace statement count", () => {
     }) as any;
     await syncLiveSchema(client);
     const seen: string[] = [];
-    const counted = client.$extends({
-      name: "count",
-      statement: ({ statement }: { statement: Sql }) => {
-        seen.push(Sql.peek(statement).strings.join("?"));
-        return statement;
-      },
-    });
-    const db = ordering({ item: { key: "rank", within: ["boardId"] } })(
-      counted
+    const counted = client.$extends(
+      extension(
+        "count",
+        unit(
+          (u, next) => {
+            seen.push(Sql.peek(statement(u)).strings.join("?"));
+            return next(statement(u));
+          },
+          ["statement"],
+          { rewrites: true }
+        )
+      )
+    );
+    const db = counted.$extends(
+      ordering({ item: { key: "rank", within: ["boardId"] } })
     ) as any;
     await db.item.createMany({
       data: Array.from({ length: 50 }, (_, i) => ({ title: `t${i}` })),
@@ -525,13 +536,19 @@ describe("ordering review: respace statement count", () => {
 
 describe("ordering review 2", () => {
   const counting = (client: any, seen: string[]) =>
-    client.$extends({
-      name: "count",
-      statement: ({ statement }: { statement: Sql }) => {
-        seen.push(Sql.peek(statement).strings.join("?"));
-        return statement;
-      },
-    });
+    client.$extends(
+      extension(
+        "count",
+        unit(
+          (u, next) => {
+            seen.push(Sql.peek(statement(u)).strings.join("?"));
+            return next(statement(u));
+          },
+          ["statement"],
+          { rewrites: true }
+        )
+      )
+    );
 
   test("rekey without where rewrites only the lists the caller can see", async () => {
     const client = createClient({
@@ -593,8 +610,8 @@ describe("ordering review 2", () => {
       ["u1", "D", "08990000002"],
     ])
       await client.shared.create({ data: { owner, title, rank } });
-    const governed = ordering({ shared: { key: "rank" } })(
-      client.$extends(
+    const governed = client
+      .$extends(
         permissions({
           actor: v.object({ userId: v.string() }),
           models: {
@@ -605,9 +622,11 @@ describe("ordering review 2", () => {
           },
         } as any)
       )
-    ) as any;
+      .$extends(ordering({ shared: { key: "rank" } })) as any;
     // Whoever sees every card: the list in its order.
-    const everyone = ordering({ shared: { key: "rank" } })(client) as any;
+    const everyone = client.$extends(
+      ordering({ shared: { key: "rank" } })
+    ) as any;
     const all = async () => titles(await everyone.shared.findMany());
     const u1 = governed.$as({ userId: "u1" });
     expect((await u1.shared.rekey()).count).toBe(3);
@@ -642,15 +661,17 @@ describe("ordering review 2", () => {
       ["C", false, "12"],
     ] as const)
       await client.shared.create({ data: { title, locked, rank } });
-    const governed = ordering({ shared: { key: "rank" } })(
-      client.$extends(
+    const governed = client
+      .$extends(
         permissions({
           actor: v.object({ userId: v.string() }),
           models: { shared: { read: true, update: { locked: false } } },
         } as any)
       )
+      .$extends(ordering({ shared: { key: "rank" } })) as any;
+    const everyone = client.$extends(
+      ordering({ shared: { key: "rank" } })
     ) as any;
-    const everyone = ordering({ shared: { key: "rank" } })(client) as any;
     await governed
       .$as({ userId: "u1" })
       .shared.rekey({ orderBy: { title: "desc" } });
@@ -670,8 +691,8 @@ describe("ordering review 2", () => {
     }) as any;
     await syncLiveSchema(client);
     const seen: string[] = [];
-    const db = ordering({ item: { key: "rank", within: ["boardId"] } })(
-      counting(client, seen)
+    const db = counting(client, seen).$extends(
+      ordering({ item: { key: "rank", within: ["boardId"] } })
     ) as any;
     await db.board.createMany({
       data: Array.from({ length: 7 }, (_, i) => ({ name: `b${i}` })),
@@ -710,7 +731,9 @@ describe("ordering review 2", () => {
         })
       );
     const db = (
-      place === "before" ? order(cached(client)) : cached(order(client))
+      place === "before"
+        ? cached(client).$extends(order)
+        : cached(client.$extends(order))
     ) as any;
     for (const title of ["a", "b", "c"])
       await db.item.create({ data: { title } });
@@ -738,7 +761,7 @@ describe("ordering review 2", () => {
     for (const title of ["y", "x"]) await old.row.create({ data: { title } });
     const client = createClient({ schema: { row: after }, driver }) as any;
     await syncLiveSchema(client);
-    const db = ordering({ row: { key: "rank" } })(client) as any;
+    const db = client.$extends(ordering({ row: { key: "rank" } })) as any;
     await db.row.create({ data: { title: "z" } });
     expect(titles(await db.row.findMany())).toEqual(["y", "x", "z"]);
     await db.row.rekey({ orderBy: { title: "asc" } });
@@ -749,15 +772,15 @@ describe("ordering review 2", () => {
       rank: s.string().default(() => "10"),
     });
     expect(() =>
-      ordering({ row: { key: "rank" } })(
-        createClient({ schema: { row: generated }, driver }) as any
+      (createClient({ schema: { row: generated }, driver }) as any).$extends(
+        ordering({ row: { key: "rank" } })
       )
     ).toThrow("literal string");
   });
 
   test("a DateTime list field compares to the millisecond", async () => {
-    const db = ordering({ item: { key: "rank", within: ["day"] } })(
-      (await open()) as any
+    const db = ((await open()) as any).$extends(
+      ordering({ item: { key: "rank", within: ["day"] } })
     ) as any;
     const early = new Date("2026-10-31T10:00:00.000Z");
     const late = new Date("2026-10-31T10:00:00.250Z");
@@ -797,15 +820,21 @@ describe("ordering: what a move sends", () => {
   test("one UPDATE computes the key; a change of list one UPDATE more", async () => {
     const seen: string[] = [];
     const client = await openTickets();
-    const db = ordering({ ticket: { key: "rank", within: ["lane"] } })(
-      client.$extends({
-        name: "count",
-        statement: ({ statement }: { statement: Sql }) => {
-          seen.push(Sql.peek(statement).strings.join("?"));
-          return statement;
-        },
-      })
-    ) as any;
+    const db = client
+      .$extends(
+        extension(
+          "count",
+          unit(
+            (u, next) => {
+              seen.push(Sql.peek(statement(u)).strings.join("?"));
+              return next(statement(u));
+            },
+            ["statement"],
+            { rewrites: true }
+          )
+        )
+      )
+      .$extends(ordering({ ticket: { key: "rank", within: ["lane"] } })) as any;
     for (const [lane, title] of [
       ["a", "1"],
       ["a", "2"],
@@ -856,12 +885,13 @@ describe("ordering: what a move sends", () => {
 
   test("a visible anchor whose list field the caller may not read still anchors a move: the field gates what a call returns, not what the engine reads", async () => {
     const client = await openTickets();
-    const db = ordering({ ticket: { key: "rank", within: ["lane"] } })(
-      client.$extends(
+    const db = client
+      .$extends(
         permissions({
           actor: v.object({ admin: v.boolean() }),
           models: {
             ticket: {
+              actions: { read: [], create: [], update: ["read"], audit: [] },
               read: true,
               create: true,
               update: true,
@@ -871,7 +901,7 @@ describe("ordering: what a move sends", () => {
           },
         } as any)
       )
-    ) as any;
+      .$extends(ordering({ ticket: { key: "rank", within: ["lane"] } })) as any;
     const user = db.$as({ admin: false });
     for (const title of ["1", "2", "3"])
       await user.ticket.create({ data: { lane: "a", title } });
@@ -898,6 +928,7 @@ describe("ordering: what a move sends", () => {
         actor: v.object({ admin: v.boolean() }),
         models: {
           ticket: {
+            actions: { read: [], create: [], update: ["read"], transfer: [] },
             read: true,
             create: true,
             update: true,

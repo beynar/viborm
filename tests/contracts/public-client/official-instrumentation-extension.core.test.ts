@@ -5,18 +5,22 @@ import { cache as cacheExtension } from "@cache/extension";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { Driver } from "@drivers";
 import type { CommittedBatchNotification } from "@drivers/types";
-import { ClientInitializationError, isVibORMError } from "@errors";
-import { appendResolvedExtension } from "@extensions/chain";
-import {
-  getOfficialInstrumentationChainCapability,
-  type LifecycleUnit,
-  readProtectedLifecycleFacts,
-} from "@extensions/observation";
+import { isVibORMError } from "@errors";
 import { ATTR_DB_OPERATION_NAME, SPAN_OPERATION } from "@instrumentation/spans";
 import { SpanStatusCode, trace } from "@opentelemetry/api";
-import { createClient, s, sql } from "@src/index";
+import {
+  around,
+  call,
+  createClient,
+  extension as extExtension,
+  models,
+  s,
+  sql,
+  target,
+  unit,
+} from "@src/index";
 import { instrumentation } from "@src/instrumentation/exports";
-import { readTestTransactionOperation } from "@tests/fixtures/transaction-operation";
+import { appendExtension } from "@tests/fixtures/extension-chain";
 import {
   captureLogs,
   withOtelRecorder,
@@ -135,15 +139,6 @@ function baseClient(driver: OperationDriver = new OperationDriver()) {
   return { client, driver };
 }
 
-function applyUnsafe<Client extends object>(
-  client: Client,
-  extension: unknown
-): Client {
-  const extend = Reflect.get(client, "$extends");
-  if (typeof extend !== "function") throw new Error("Expected $extends");
-  return Reflect.apply(extend, client, [extension]);
-}
-
 async function waitFor(check: () => boolean): Promise<void> {
   for (let turn = 0; turn < 50; turn += 1) {
     if (check()) return;
@@ -159,7 +154,7 @@ afterEach(async () => {
 });
 
 describe("official instrumentation extension construction", () => {
-  test("snapshots hostile config once and declares what it observes", () => {
+  test("reads its config once, when it is built", () => {
     const reads = { diagnostics: 0, includeSql: 0, logging: 0, tracing: 0 };
     const tracing = {
       get includeSql(): true {
@@ -182,52 +177,14 @@ describe("official instrumentation extension construction", () => {
       },
     };
 
-    const extension = instrumentation(config);
+    instrumentation(config);
 
-    expect(extension.name).toBe("viborm.instrumentation");
-    expect(Object.isFrozen(extension)).toBe(true);
-    expect(Reflect.ownKeys(extension)).toEqual(["name", "observe", "observes"]);
     expect(reads).toEqual({
       diagnostics: 1,
       includeSql: 1,
       logging: 1,
       tracing: 1,
     });
-  });
-
-  test("one extension on a client declares observes: a second is refused under any name, and an ordinary observer takes any name", () => {
-    const { client: base } = baseClient();
-    const official = instrumentation({ logging: { error: true } });
-    const derived = base.$extends(official);
-
-    // A second declaration, whatever it is called.
-    expect(() => applyUnsafe(derived, { ...official })).toThrow(
-      ClientInitializationError
-    );
-    expect(() =>
-      applyUnsafe(derived, { ...official, name: "renamed" })
-    ).toThrow("declares observes");
-    // The name is no longer reserved: an observer that declares nothing is
-    // an extension like any other.
-    expect(() =>
-      applyUnsafe(base, {
-        name: "viborm.instrumentation",
-        observe() {
-          return undefined;
-        },
-      })
-    ).not.toThrow();
-    // What it declares must be a declaration.
-    expect(() =>
-      applyUnsafe(base, {
-        name: "bad",
-        observe: () => undefined,
-        observes: {},
-      })
-    ).toThrow("observes must be an object with a wants function");
-    expect(() =>
-      applyUnsafe(base, { name: "bad", observes: official.observes })
-    ).toThrow("observes must be an object with a wants function");
   });
 
   test("does not read or activate a hostile removed core config key", async () => {
@@ -250,19 +207,14 @@ describe("official instrumentation extension construction", () => {
   });
 
   test("keeps diagnostics-only capability without a lifecycle handler or array friend", () => {
-    const diagnostics = instrumentation({
-      diagnostics: { includeSql: true },
-    });
-    const chain = appendResolvedExtension(undefined, diagnostics, schema);
-    expect(chain.observe).toHaveLength(0);
-    expect(getOfficialInstrumentationChainCapability(chain)).toBeDefined();
-
-    const { client: base } = baseClient();
-    const client = base.$extends(diagnostics);
-    const operation = client.record.findMany();
-    expect(readTestTransactionOperation(operation)?.hasObservation()).toBe(
-      false
-    );
+    const config = { diagnostics: { includeSql: true } };
+    const diagnostics = instrumentation(config);
+    // Read when the extension is built: a later change changes nothing.
+    config.diagnostics.includeSql = false;
+    const chain = appendExtension(undefined, diagnostics, schema);
+    // Its disclosure part alone: no unit handler, so no unit is ever built.
+    expect(chain.observation).toBeUndefined();
+    expect(chain.disclosure).toMatchObject({ includeSql: true });
   });
 });
 
@@ -280,32 +232,36 @@ describe("official logical operation presentation", () => {
       });
       const { client: base, driver } = baseClient();
       const client = base
-        .$extends({
-          name: "before-instrumentation",
-          observe(unit, proceed) {
-            if (unit.kind !== "operation") return;
-            timeline.push(`A.in:${trace.getActiveSpan() !== undefined}`);
-            return proceed().then(() => {
-              timeline.push(
-                `A.out:${recorder.find(SPAN_OPERATION) !== undefined}`
-              );
-              resolveOuter?.();
-            });
-          },
-        })
+        .$extends(
+          extExtension(
+            "before-instrumentation",
+            unit((u, next) => {
+              if (u.kind !== "operation") return next();
+              timeline.push(`A.in:${trace.getActiveSpan() !== undefined}`);
+              return next().then(() => {
+                timeline.push(
+                  `A.out:${recorder.find(SPAN_OPERATION) !== undefined}`
+                );
+                resolveOuter?.();
+              });
+            })
+          )
+        )
         .$extends(instrumentation({ tracing: true }))
-        .$extends({
-          name: "after-instrumentation",
-          observe(unit, proceed) {
-            if (unit.kind !== "operation") return;
-            timeline.push(`B.in:${trace.getActiveSpan() !== undefined}`);
-            return proceed().then(() => {
-              timeline.push(
-                `B.out:${recorder.find(SPAN_OPERATION) !== undefined}`
-              );
-            });
-          },
-        });
+        .$extends(
+          extExtension(
+            "after-instrumentation",
+            unit((u, next) => {
+              if (u.kind !== "operation") return next();
+              timeline.push(`B.in:${trace.getActiveSpan() !== undefined}`);
+              return next().then(() => {
+                timeline.push(
+                  `B.out:${recorder.find(SPAN_OPERATION) !== undefined}`
+                );
+              });
+            })
+          )
+        );
       driver.events.length = 0;
 
       await expect(
@@ -339,18 +295,20 @@ describe("official logical operation presentation", () => {
       driver.timeline = timeline;
       driver.readFailure = new Error("provider read failed");
       const client = base
-        .$extends({
-          name: "before-failed-read",
-          observe(unit, proceed) {
-            if (unit.kind !== "operation") return;
-            timeline.push(`A.in:${trace.getActiveSpan() !== undefined}`);
-            return proceed().then((completion) => {
-              timeline.push(
-                `A.out:${completion.status}:${recorder.find(SPAN_OPERATION) !== undefined}`
-              );
-            });
-          },
-        })
+        .$extends(
+          extExtension(
+            "before-failed-read",
+            unit((u, next) => {
+              if (u.kind !== "operation") return next();
+              timeline.push(`A.in:${trace.getActiveSpan() !== undefined}`);
+              return next().then((completion) => {
+                timeline.push(
+                  `A.out:${completion.status}:${recorder.find(SPAN_OPERATION) !== undefined}`
+                );
+              });
+            })
+          )
+        )
         .$extends(
           instrumentation({
             tracing: true,
@@ -362,18 +320,20 @@ describe("official logical operation presentation", () => {
             },
           })
         )
-        .$extends({
-          name: "after-failed-read",
-          observe(unit, proceed) {
-            if (unit.kind !== "operation") return;
-            timeline.push(`B.in:${trace.getActiveSpan() !== undefined}`);
-            return proceed().then((completion) => {
-              timeline.push(
-                `B.out:${completion.status}:${recorder.find(SPAN_OPERATION) !== undefined}`
-              );
-            });
-          },
-        });
+        .$extends(
+          extExtension(
+            "after-failed-read",
+            unit((u, next) => {
+              if (u.kind !== "operation") return next();
+              timeline.push(`B.in:${trace.getActiveSpan() !== undefined}`);
+              return next().then((completion) => {
+                timeline.push(
+                  `B.out:${completion.status}:${recorder.find(SPAN_OPERATION) !== undefined}`
+                );
+              });
+            })
+          )
+        );
 
       await expect(client.record.findMany()).rejects.toMatchObject({
         name: "QueryError",
@@ -412,14 +372,16 @@ describe("official logical operation presentation", () => {
     const timeline: string[] = [];
     const { client: officialBase } = baseClient();
     const officialClient = officialBase
-      .$extends({
-        name: "outer-error-observer",
-        observe(unit, proceed) {
-          if (unit.kind !== "operation") return;
-          timeline.push("A.in");
-          return proceed().then(() => timeline.push("A.out"));
-        },
-      })
+      .$extends(
+        extExtension(
+          "outer-error-observer",
+          unit((u, next) => {
+            if (u.kind !== "operation") return next();
+            timeline.push("A.in");
+            return next().then(() => timeline.push("A.out"));
+          })
+        )
+      )
       .$extends(
         instrumentation({
           logging: {
@@ -430,19 +392,23 @@ describe("official logical operation presentation", () => {
           },
         })
       )
-      .$extends({
-        name: "inner-error-observer",
-        observe(unit, proceed) {
-          if (unit.kind !== "operation") return;
-          timeline.push("B.in");
-          return proceed().then(() => timeline.push("B.out"));
-        },
-      });
+      .$extends(
+        extExtension(
+          "inner-error-observer",
+          unit((u, next) => {
+            if (u.kind !== "operation") return next();
+            timeline.push("B.in");
+            return next().then(() => timeline.push("B.out"));
+          })
+        )
+      );
     const officialFailure = await officialClient.record
       .findMany({ take: "invalid" as never })
       .catch((failure) => failure);
     await waitFor(() => timeline.includes("A.out"));
 
+    // Handlers nest in chain order: the inner one hears its completion
+    // before the official logger, as in 1.14.
     expect(timeline).toEqual(["A.in", "B.in", "B.out", "I.out", "A.out"]);
     expect(officialLogs.events).toHaveLength(1);
     expect(isVibORMError(officialFailure)).toBe(true);
@@ -461,16 +427,18 @@ describe("official logical operation presentation", () => {
     const { client: base } = baseClient();
     const client = base
       .$extends(instrumentation({ logging: { error: logs.callback } }))
-      .$extends({
-        name: "clock-after-settlement",
-        observe(unit, proceed) {
-          if (unit.kind !== "operation") return;
-          // The rail has read the start instant; the child settles at SETTLED_AT.
-          vi.setSystemTime(SETTLED_AT);
-          // Runs after core's complete() and before the extension continues.
-          return proceed().then(() => vi.setSystemTime(SETTLED_AT + 1000));
-        },
-      });
+      .$extends(
+        extExtension(
+          "clock-after-settlement",
+          unit((u, next) => {
+            if (u.kind !== "operation") return next();
+            // The rail has read the start instant; the child settles at SETTLED_AT.
+            vi.setSystemTime(SETTLED_AT);
+            // Runs after core's complete() and before the extension continues.
+            return next().then(() => vi.setSystemTime(SETTLED_AT + 1000));
+          })
+        )
+      );
 
     await expect(
       client.record.findMany({ take: "invalid" as never })
@@ -480,58 +448,6 @@ describe("official logical operation presentation", () => {
     expect(logs.events).toHaveLength(1);
     expect(logs.events[0]?.timestamp).toEqual(new Date(SETTLED_AT));
     expect(logs.events[0]?.duration).toBe(5);
-  });
-
-  test.each([
-    { logged: "error", wanted: true },
-    { logged: "query", wanted: false },
-  ] as const)("core publishes the operation failure with its settle instant only when an error log is wanted ($logged logging)", async ({
-    logged,
-    wanted,
-  }) => {
-    const logs = captureLogs();
-    let operationUnit: LifecycleUnit | undefined;
-    const { client: base } = baseClient();
-    const client = base
-      .$extends(
-        logged === "error"
-          ? instrumentation({ logging: { error: logs.callback } })
-          : instrumentation({ logging: { query: logs.callback } })
-      )
-      .$extends({
-        name: "operation-unit-capture",
-        observe(unit) {
-          if (unit.kind === "operation") operationUnit = unit;
-        },
-      });
-    await client.record
-      .findMany({ take: "invalid" as never })
-      .catch(() => undefined);
-
-    const facts =
-      operationUnit === undefined
-        ? undefined
-        : readProtectedLifecycleFacts(operationUnit);
-    // The trusted handler receives configuration facts, never the driver.
-    expect(facts).toMatchObject({
-      kind: "operation",
-      identity: {
-        dialect: "sqlite",
-        driverName: "official-instrumentation-test",
-      },
-    });
-    expect(facts).not.toHaveProperty("driver");
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(SETTLED_AT);
-    const failure = new Error("operation completion probe");
-    const completion =
-      facts?.kind === "operation"
-        ? facts.complete({ status: "failure", durationMs: 0, failure })
-        : undefined;
-
-    expect(completion).toEqual(
-      wanted ? { kind: "operation", endedAt: SETTLED_AT, failure } : undefined
-    );
   });
 
   test("keeps OrThrow display spans and base-operation error logs", async () => {
@@ -655,24 +571,26 @@ describe("official array observation readiness", () => {
       const { client: base, driver } = baseClient(new NativeOperationDriver());
       driver.timeline = timeline;
       const official = instrumentation({ tracing: true });
-      const client = base.$extends(official).$extends({
-        name: "native-readiness",
-        request({ operation }) {
-          timeline.push(`request:${operation}`);
-          return {};
-        },
-        async query({ operation, proceed }) {
-          timeline.push(`query:${operation}`);
-          return proceed();
-        },
-        observe(unit, proceed) {
-          if (unit.kind !== "operation") return;
-          timeline.push(
-            `observer:${unit.operation}:${trace.getActiveSpan() !== undefined}`
-          );
-          return proceed();
-        },
-      });
+      const client = base.$extends(official).$extends(
+        extExtension(
+          "native-readiness",
+          call((c) => {
+            timeline.push(`request:${c.operation}`);
+            c.set({});
+          }, target(models)),
+          around((c) => async (run) => {
+            timeline.push(`query:${c.operation}`);
+            return run();
+          }),
+          unit((u, next) => {
+            if (u.kind !== "operation") return next();
+            timeline.push(
+              `observer:${u.operation}:${trace.getActiveSpan() !== undefined}`
+            );
+            return next();
+          })
+        )
+      );
       const first = client.record.findMany();
       const second = client.record.findMany();
 
@@ -691,10 +609,11 @@ describe("official array observation readiness", () => {
         timeline.indexOf("provider")
       );
 
+      // No prewarm: the host awaits each handler, and a second array enters
+      // its member's unit first all the same.
       const warmedStart = timeline.length;
-      const warmed = client.$transaction([client.record.findMany()]);
+      await client.$transaction([client.record.findMany()]);
       expect(timeline[warmedStart]).toBe("observer:findMany:true");
-      await warmed;
     } finally {
       await recorder.dispose();
     }
@@ -706,18 +625,18 @@ describe("official array observation readiness", () => {
       const timeline: string[] = [];
       const { client: base, driver } = baseClient(new NativeOperationDriver());
       driver.timeline = timeline;
-      const client = base
-        .$extends(instrumentation({ tracing: true }))
-        .$extends({
-          name: "legacy-native-readiness",
-          observe(unit, proceed) {
-            if (unit.kind !== "operation") return;
+      const client = base.$extends(instrumentation({ tracing: true })).$extends(
+        extExtension(
+          "legacy-native-readiness",
+          unit((u, next) => {
+            if (u.kind !== "operation") return next();
             timeline.push(
-              `observer:${unit.operation}:${trace.getActiveSpan() !== undefined}`
+              `observer:${u.operation}:${trace.getActiveSpan() !== undefined}`
             );
-            return proceed();
-          },
-        });
+            return next();
+          })
+        )
+      );
       const first = client.record.findMany();
       const second = client.record.findMany();
 
@@ -739,26 +658,26 @@ describe("official array observation readiness", () => {
       const timeline: string[] = [];
       const { client: base, driver } = baseClient();
       driver.timeline = timeline;
-      const client = base
-        .$extends(instrumentation({ tracing: true }))
-        .$extends({
-          name: "fallback-readiness",
-          request({ operation }) {
-            timeline.push(`request:${operation}`);
-            return {};
-          },
-          async query({ operation, proceed }) {
-            timeline.push(`query:${operation}`);
-            return proceed();
-          },
-          observe(unit, proceed) {
-            if (unit.kind !== "operation") return;
+      const client = base.$extends(instrumentation({ tracing: true })).$extends(
+        extExtension(
+          "fallback-readiness",
+          call((c) => {
+            timeline.push(`request:${c.operation}`);
+            c.set({});
+          }, target(models)),
+          around((c) => async (run) => {
+            timeline.push(`query:${c.operation}`);
+            return run();
+          }),
+          unit((u, next) => {
+            if (u.kind !== "operation") return next();
             timeline.push(
-              `observer:${unit.operation}:${trace.getActiveSpan() !== undefined}`
+              `observer:${u.operation}:${trace.getActiveSpan() !== undefined}`
             );
-            return proceed();
-          },
-        });
+            return next();
+          })
+        )
+      );
       const first = client.record.findMany();
       const second = client.record.findMany();
 

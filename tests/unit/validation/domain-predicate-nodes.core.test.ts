@@ -48,7 +48,15 @@ describe("domain predicate nodes in the where schemas", () => {
       (value as { control?: unknown }).control === "actor"
         ? actor
         : undefined,
-    condition: (spec) => (spec === "ok" ? condition : "refused"),
+    // A filter word (`{ $if: … }` here) stands in a `where`'s place: alone,
+    // or with the filter written with it (`{ $if: "ranked" }`).
+    filter: (value) => {
+      if (!("$if" in value)) return undefined;
+      const spec = (value as { $if?: unknown }).$if;
+      if (spec === "ok") return { nodes: [condition] };
+      if (spec === "ranked") return { nodes: [condition], where: { rank: 1 } };
+      return { message: "refused", path: ["$if"] };
+    },
   };
   const admit = (value: unknown) =>
     admittingDomainPredicate(markers, () => parse(value));
@@ -83,14 +91,14 @@ describe("domain predicate nodes in the where schemas", () => {
     ).toBe(true);
   });
 
-  it("reads $if as a condition where a where stands, conjoined with the filter beside it, only while a domain predicate is admitted", () => {
+  it("reads a filter word where a where stands, alone or as the filter written with it, only while a domain predicate is admitted", () => {
     expect(admit({ OR: [{ $if: "ok" }] }).value).toEqual({ OR: [condition] });
     expect(
       (admit({ OR: [{ $if: "ok" }] }).value as { OR: unknown[] }).OR[0]
     ).toBe(condition);
-    const beside = admit({ rank: 1, $if: "ok" }).value as { AND: unknown[] };
-    expect(beside.AND[0]).toEqual({ rank: { equals: 1 } });
-    expect(beside.AND[1]).toBe(condition);
+    expect(admit({ OR: [{ $if: "ranked" }] }).value).toEqual({
+      OR: [{ rank: { equals: 1 } }],
+    });
     expect(parse({ OR: [condition] }).value).toEqual({ OR: [condition] });
     expect(admit({ OR: [{ $if: "no" }] }).issues).toEqual([
       { message: "refused", path: ["OR", 0, "$if"] },

@@ -9,6 +9,7 @@
 import type { VibORMClient, VibORMConfig } from "@client/client";
 import { s } from "@schema";
 import type { Sql } from "@sql";
+import { extension, statement as extStatement, unit } from "@src/index";
 
 export const AGGREGATE_PLAN_ROWS = 100_000;
 export const AGGREGATE_PLAN_AUTHORS = 1000;
@@ -55,13 +56,21 @@ export async function aggregatePlanReads(
   plan: (statement: Sql) => Promise<string[]>
 ): Promise<AggregatePlanRead[]> {
   const statements: Sql[] = [];
-  const observed = client.$extends({
-    name: "aggregate-plan-witness",
-    statement(context) {
-      statements.push(context.statement);
-      return context.statement;
-    },
-  });
+  const observed = client.$extends(
+    extension(
+      "aggregate-plan-witness",
+      unit(
+        (u, next) => {
+          const sent = extStatement(u);
+          if (sent === undefined) return next();
+          statements.push(sent);
+          return next(sent);
+        },
+        ["statement"],
+        { rewrites: true }
+      )
+    )
+  );
   const reads: [string, () => Promise<unknown>, unknown][] = [
     ["count()", () => observed.post.count(), AGGREGATE_PLAN_ROWS],
     [

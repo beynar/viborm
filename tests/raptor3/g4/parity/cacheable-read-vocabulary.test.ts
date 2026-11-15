@@ -1,44 +1,41 @@
 /**
- * FC-04 — the route's cached-result vocabulary boundary, executed (closure
- * inventory row J-13).
+ * FC-04 — the cached-result vocabulary boundary, executed (closure inventory
+ * row J-13).
  *
- * `routedCodec()` of a routed operation refuses a verb that publishes
- * no prepared read. WHICH verbs can reach it is decided in another layer: the
- * official cache admits `CACHEABLE_OPERATIONS` (`query-engine/cache-flow.ts`,
- * nine names, both `…OrThrow` variants among them) while the engine's own
- * `READ_OPERATIONS` (`raptor3/shared/schema.ts`) has seven. No type ties the
- * two lists together and no single upstream owner states the fact; the whole
- * reconciliation is `baseOperation`'s `…OrThrow` normalization
- * (`query-engine/routed-operations.ts`). That missing owner is why the refusal is KEPT rather
- * than asserted away (N4, plan §4) — and it is also why the boundary needs a
- * measurement rather than a source reading.
+ * `codec(run)` refuses a call that publishes no prepared read. WHICH verbs can
+ * reach it is decided in another layer: the official cache admits
+ * `CACHEABLE_OPERATIONS` (`cache/schema.ts`, nine names, both `…OrThrow`
+ * variants among them) while the engine's own `READ_OPERATIONS`
+ * (`raptor3/shared/schema.ts`) has seven. No type ties the two lists together;
+ * the whole reconciliation is `baseOperation`'s `…OrThrow` normalization
+ * (`query-engine/routed-operations.ts`). That missing owner is why the refusal
+ * is KEPT rather than asserted away (N4, plan §4) — and it is also why the
+ * boundary needs a measurement rather than a source reading.
  *
- * These cells state what it restricts today: every cacheable name publishes a
- * codec, that codec round-trips the operation's OWN executed result (`Date`
- * leaves included, so a structural snapshot that lost the leaf codecs would
- * fail here), and the refusal is reached only by a verb the cache layer never
- * offers it — reached before anything is admitted or dispatched. A future
- * divergence between the two vocabularies fails here instead of at a user's
- * cached read, in BOTH directions: the nine names below are a hand copy of a
- * module-private set, so cell 1 checks them against `validateCacheableOperation`
- * — the exported gate that owns `CACHEABLE_OPERATIONS` and publishes its whole
- * list when it refuses. A tenth cacheable verb with no prepared read therefore
- * fails here, not only a read this engine stopped publishing.
+ * These cells state what it restricts today: every cacheable name is stored
+ * and served from the driver rows it read, a hit equal to the executed result
+ * (`Date` leaves included) with no statement sent, and the refusal is reached
+ * only by a verb the cache layer never offers it — before anything is
+ * dispatched. A future divergence between the two vocabularies fails here
+ * instead of at a user's cached read, in BOTH directions: the nine names below
+ * are a hand copy of a module-private set, so cell 1 checks them against the
+ * refusal of a write through the cached view, which publishes the whole of
+ * `CACHEABLE` (`cache/schema.ts`). A tenth cacheable verb with no prepared
+ * read therefore fails here.
  */
 
-// The route's cache codec belongs to the cache runtime `viborm/cache` loads.
-import { routedCodec } from "@cache/result-codec";
-import "@cache/runtime";
 import assert from "node:assert/strict";
+import { MemoryCache } from "@cache/drivers/memory";
+import { cache } from "@cache/extension";
 import { createClient } from "@client/client";
 import type { QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import {
   CacheOperationNotCacheableError,
+  NotFoundError,
   UnsupportedOperationError,
 } from "@errors";
-import { validateCacheableOperation } from "@query-engine/cache-flow";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { around, codec, extension, type Run } from "@extensions/index";
 import { hydrateSchemaNames, s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import type Database from "better-sqlite3";
@@ -122,48 +119,53 @@ async function world() {
       },
     ],
   });
-  const route = createCommandEngine({ schema, driver });
+  const cached = client.$extends(cache({ driver: new MemoryCache() }));
   closers.push(async () => {
     await client.$disconnect();
     database.close();
   });
-  return { client, driver, route };
+  return { client, driver, cached };
 }
 
-describe("FC-04 — the route's cached-result vocabulary boundary", () => {
-  it("every cacheable verb publishes a codec that round-trips its own result", async () => {
-    const { client, route } = await world();
+/** Lets the background set of a miss land before the next read. */
+const settle = () => new Promise((resolve) => setTimeout(resolve, 5));
+
+describe("FC-04 — the cached-result vocabulary boundary", () => {
+  it("every cacheable verb is served from the rows it read, equal to its own result", async () => {
+    const { client, driver, cached } = await world();
     const model = client.author as unknown as Record<string, CallableFunction>;
+    const reader = cached.$withCache() as unknown as {
+      author: Record<string, CallableFunction>;
+    };
     for (const [operation, args] of CACHEABLE) {
-      // The cache layer really offers this name: its own gate admits it.
-      assert.doesNotThrow(
-        () => validateCacheableOperation(operation),
-        `${operation}: the cache layer no longer offers this verb`
-      );
-      const codec = routedCodec(
-        route.prepare("author", operation as never, { ...args })
-      );
       const value = await model[operation]!({ ...args });
       assert.notEqual(
         value,
         undefined,
         `${operation}: the verb answered nothing to round-trip`
       );
+      assert.deepEqual(await reader.author[operation]!({ ...args }), value);
+      await settle();
+      const sent = driver.sent.length;
       assert.deepEqual(
-        codec.materialize(codec.snapshot(value)),
+        await reader.author[operation]!({ ...args }),
         value,
         `${operation}: the cached representation is not the operation's result`
       );
+      assert.equal(driver.sent.length, sent, `${operation}: the hit was sent`);
     }
     // The payloads above are not vacuous: each verb answered its own shape.
     assert.equal(await client.author.count({}), 3);
     assert.equal(await client.author.exist({}), true);
-    // And the nine are the gate's list, not this file's: the refusal publishes
-    // the whole of `CACHEABLE_OPERATIONS`, so a TENTH cacheable name — the
-    // direction that would crash a user's cached read — fails here too.
+    // And the nine are the gate's list, not this file's: a write through the
+    // cached view is refused with the whole of `CACHEABLE`, so a TENTH
+    // cacheable name — the direction that would crash a user's cached read —
+    // fails here too.
     let published: string[] = [];
-    assert.throws(
-      () => validateCacheableOperation("create"),
+    await assert.rejects(
+      reader.author.create!({
+        data: { id: 4, name: "Di", age: 20, joinedAt: new Date(0) },
+      }),
       (error: unknown) => {
         if (!(error instanceof CacheOperationNotCacheableError)) {
           return false;
@@ -182,65 +184,77 @@ describe("FC-04 — the route's cached-result vocabulary boundary", () => {
     );
   });
 
-  it("both …OrThrow names are served by the read their base verb admits to", async () => {
-    const { client, route } = await world();
-    const codec = routedCodec(
-      route.prepare("author", "findUniqueOrThrow", {
-        where: { id: 1 },
-      })
-    );
-    const located = await client.author.findUniqueOrThrow({ where: { id: 1 } });
-    assert.deepEqual(located, {
+  it("both …OrThrow names store a found row and never a missing one", async () => {
+    const { driver, cached } = await world();
+    const reader = cached.$withCache();
+    const located = {
       id: 1,
       name: "Ada",
       age: 36,
       joinedAt: new Date("2020-03-01T10:00:00.000Z"),
-    });
-    assert.deepEqual(codec.materialize(codec.snapshot(located)), located);
-    // The base read is `findUnique`, whose own publication for zero rows is
-    // `null`; the `…OrThrow` name inherits that codec, absent arm included.
-    assert.equal(codec.materialize(codec.snapshot(null)), null);
-    const base = routedCodec(
-      route.prepare("author", "findUnique", { where: { id: 1 } })
-    );
-    assert.deepEqual(base.snapshot(located), codec.snapshot(located));
-
-    // The second place the two vocabularies differ, mirrored: `findFirstOrThrow`
-    // against the `findFirst` its base verb admits to, absent arm included.
+    };
     const firstOrder = { orderBy: { id: "asc" } } as const;
-    const firstCodec = routedCodec(
-      route.prepare("author", "findFirstOrThrow", { ...firstOrder })
-    );
-    const first = await client.author.findFirstOrThrow({ ...firstOrder });
-    assert.deepEqual(first, {
-      id: 1,
-      name: "Ada",
-      age: 36,
-      joinedAt: new Date("2020-03-01T10:00:00.000Z"),
-    });
-    assert.deepEqual(firstCodec.materialize(firstCodec.snapshot(first)), first);
-    assert.equal(firstCodec.materialize(firstCodec.snapshot(null)), null);
-    const firstBase = routedCodec(
-      route.prepare("author", "findFirst", { ...firstOrder })
-    );
-    assert.deepEqual(firstBase.snapshot(first), firstCodec.snapshot(first));
+    for (const read of [
+      () => reader.author.findUniqueOrThrow({ where: { id: 1 } }),
+      () => reader.author.findFirstOrThrow({ ...firstOrder }),
+    ]) {
+      assert.deepEqual(await read(), located);
+      await settle();
+      const sent = driver.sent.length;
+      assert.deepEqual(await read(), located);
+      assert.equal(driver.sent.length, sent);
+    }
+    // No row: the base verb's `null` is stored and served, the `…OrThrow`
+    // name's refusal is neither.
+    for (const read of [
+      () => reader.author.findUniqueOrThrow({ where: { id: 9 } }),
+      () => reader.author.findFirstOrThrow({ where: { id: 9 } }),
+    ]) {
+      await assert.rejects(read(), NotFoundError);
+      await settle();
+      const sent = driver.sent.length;
+      await assert.rejects(read(), NotFoundError);
+      assert.equal(driver.sent.length, sent + 1);
+    }
+    assert.equal(await reader.author.findUnique({ where: { id: 9 } }), null);
+    await settle();
+    const sent = driver.sent.length;
+    assert.equal(await reader.author.findUnique({ where: { id: 9 } }), null);
+    assert.equal(driver.sent.length, sent);
   });
 
   it("a verb the cache layer never offers reaches the retained boundary, before anything runs", async () => {
-    const { driver, route } = await world();
-    driver.sent.length = 0;
-    const operation = route.prepare("author", "create", {
-      data: { id: 9, name: "Dee", age: 20, joinedAt: new Date() },
-    });
-    assert.throws(
-      () => routedCodec(operation),
-      (error: unknown) =>
-        error instanceof UnsupportedOperationError &&
-        error.message ===
-          "Cannot cache 'create' on model 'author': the operation has no readable result."
+    const { client, driver } = await world();
+    const failures: unknown[] = [];
+    const detaching = client.$extends(
+      extension(
+        "detach",
+        around(() => <R>(run: Run<unknown, R>): Promise<R> => {
+          try {
+            codec(run);
+          } catch (error) {
+            failures.push(error);
+            throw error;
+          }
+          return run();
+        })
+      )
     );
-    // The boundary is reached at publication, not after a write: no statement
-    // was submitted and no row was created.
+    driver.sent.length = 0;
+    await assert.rejects(
+      detaching.author.create({
+        data: { id: 9, name: "Dee", age: 20, joinedAt: new Date() },
+      }),
+      UnsupportedOperationError
+    );
+    assert.equal(failures.length, 1);
+    assert.ok(
+      failures[0] instanceof UnsupportedOperationError &&
+        failures[0].message === "codec() takes the run of a model's read."
+    );
+    // The boundary is reached before the write runs: no statement was
+    // submitted and no row was created.
     assert.deepEqual(driver.sent, []);
+    assert.equal(await client.author.count({}), 3);
   });
 });
