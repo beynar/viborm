@@ -158,7 +158,6 @@ const META_KEY_VALUES: ReadonlyMap<string, MetaRule> = new Map<
   ["constraint", text],
   ["context", text],
   ["correlationId", text],
-  ["deprecation", text],
   ["dialect", text],
   ["dispatchId", text],
   ["driver", text],
@@ -182,7 +181,6 @@ const META_KEY_VALUES: ReadonlyMap<string, MetaRule> = new Map<
   ["migrationsDir", text],
   ["model", text],
   ["namespace", text],
-  ["notice", text],
   ["operation", text],
   ["operationId", text],
   ["parameterIndex", count],
@@ -212,13 +210,6 @@ const META_KEY_VALUES: ReadonlyMap<string, MetaRule> = new Map<
   ["toState", text],
   ["type", text],
 ]);
-// `deprecation` and `notice` are logger metadata (instrumentation/logger.ts);
-// an error's metadata keeps every other key.
-const ERROR_META_KEYS: ReadonlySet<string> = new Set(
-  [...META_KEY_VALUES.keys()].filter(
-    (key) => key !== "deprecation" && key !== "notice"
-  )
-);
 const REDACTED_CAUSE_MESSAGE = "Underlying error details redacted";
 const REDACTED_ERROR_MESSAGE = "Error details redacted";
 const CIRCULAR_VALUE = "[Circular]";
@@ -245,7 +236,7 @@ export function sanitizeErrorMetadata(
   value: Record<string, unknown>,
   disclosure?: DiagnosticDisclosure
 ): Record<string, unknown> {
-  return sanitizeAllowedRecord(value, ERROR_META_KEYS, disclosure, false);
+  return sanitizeAllowedRecord(value, disclosure);
 }
 
 export function sanitizeDiagnosticParameters(
@@ -775,62 +766,25 @@ function sanitizeError(
   return sanitized;
 }
 
-/**
- * Keep only the allowed keys of a metadata record, each sanitized. With
- * `validateLogMetadata`, `event` and `status` must also be known log values.
- */
-export function sanitizeAllowedRecord(
+/** Keep only the metadata keys the package knows, each by its rule, sanitized. */
+function sanitizeAllowedRecord(
   value: Record<string, unknown>,
-  allowedKeys: ReadonlySet<string>,
-  disclosure: DiagnosticDisclosure | undefined,
-  validateLogMetadata: boolean
+  disclosure: DiagnosticDisclosure | undefined
 ): Record<string, unknown> {
   const selected = createSafeRecord();
   const state = createState(disclosure);
-  for (const key of allowedKeys) {
+  for (const [key, rule] of META_KEY_VALUES) {
     const descriptor = safeOwnPropertyDescriptor(value, key);
     if (!(descriptor && "value" in descriptor)) continue;
     const raw =
       key === "callsite" && typeof descriptor.value === "string"
         ? sanitizeDiagnosticText(descriptor.value, state)
         : descriptor.value;
-    const filtered = filterAllowedDiagnosticValue(
-      key,
-      raw,
-      validateLogMetadata
-    );
+    const filtered = rule(raw);
     if (filtered === undefined) continue;
     defineSafe(selected, key, filtered);
   }
   return sanitizeObject(selected, state, 0, false, false);
-}
-
-function filterAllowedDiagnosticValue(
-  key: string,
-  value: unknown,
-  validateLogMetadata: boolean
-): unknown {
-  if (key === "event" && validateLogMetadata) {
-    return typeof value === "string" &&
-      ["bypass", "hit", "miss", "revalidate"].includes(value)
-      ? value
-      : undefined;
-  }
-  if (key === "status" && validateLogMetadata) {
-    return typeof value === "string" &&
-      [
-        "cache-set-failed",
-        "error",
-        "fresh",
-        "stale",
-        "start",
-        "success",
-      ].includes(value)
-      ? value
-      : undefined;
-  }
-  // An unclassified key is refused: it has no rule until it receives one.
-  return META_KEY_VALUES.get(key)?.(value);
 }
 
 function safeProgressInteger(value: unknown): number | undefined {

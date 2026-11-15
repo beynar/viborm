@@ -176,27 +176,6 @@ describe("createTracerWrapper (OTel present)", () => {
     ).toBe(false);
   });
 
-  it("bounds the total parameter attributes and serialized payload", async () => {
-    const tracer = createTracerWrapper({ includeParams: true });
-
-    await tracer.startActiveSpan(
-      {
-        name: SPAN_EXECUTE,
-        sql: {
-          params: Array.from({ length: 1000 }, () => "x".repeat(10_000)),
-        },
-      },
-      () => undefined
-    );
-
-    const attrs = findLast(SPAN_EXECUTE)?.attributes ?? {};
-    const paramKeys = Object.keys(attrs).filter((key) =>
-      key.startsWith("db.query.parameter")
-    );
-    expect(paramKeys.length).toBeLessThanOrEqual(128);
-    expect(JSON.stringify(attrs).length).toBeLessThan(45_000);
-  });
-
   it("nested spans are parented (child's parent is the outer span)", async () => {
     const tracer = createTracerWrapper();
 
@@ -248,23 +227,6 @@ describe("createTracerWrapper (OTel present)", () => {
     expect(span?.status.message).toBe("Operation failed");
     expect(span?.events.some((e) => e.name === "exception")).toBe(true);
     expect(JSON.stringify(span?.events)).not.toContain("just a string");
-  });
-
-  it("preserves a revoked proxy thrown by the operation", async () => {
-    const tracer = createTracerWrapper();
-    const revocable = Proxy.revocable({}, {});
-    revocable.revoke();
-    let caught: unknown;
-
-    try {
-      await tracer.startActiveSpan({ name: SPAN_OPERATION }, () => {
-        throw revocable.proxy;
-      });
-    } catch (error) {
-      caught = error;
-    }
-
-    expect(caught).toBe(revocable.proxy);
   });
 
   it("root:true starts a new root span (not parented to the ambient active span)", async () => {

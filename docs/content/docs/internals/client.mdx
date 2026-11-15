@@ -36,11 +36,10 @@ code runs on a model-method property read. See
 [Client Extensions](/docs/extensions) for lifecycle and authority.
 
 The official `defaultOmit()`, `cache()`, and `instrumentation()` are built from
-the same public parts. They are not `createClient()` configuration keys.
-`instrumentation()` still reads the package's private error, parameter and
-metadata sanitizers, listed by
-`tests/contracts/public-client/extension-imports.core.test.ts`; every other
-official extension imports only public names.
+the same public parts. They are not `createClient()` configuration keys. The
+seven official extensions import only public names, as a third party's would
+(`tests/contracts/public-client/extension-imports.core.test.ts`): the
+instrumentation presents failures through the public word `disclosed`.
 
 Client code keeps the model-operation trigger, transaction substrate,
 dispatch, result order, and commit facts, and calls the state a part placed on

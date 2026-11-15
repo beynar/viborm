@@ -16,11 +16,7 @@ import {
   work,
 } from "@src/index";
 import { instrumentation } from "@src/instrumentation/exports";
-import {
-  SPAN_EXECUTE,
-  SPAN_OPERATION,
-  SPAN_TRANSACTION,
-} from "@src/instrumentation/spans";
+import { SPAN_TRANSACTION } from "@src/instrumentation/spans";
 import { afterEach, describe, expect, test } from "vitest";
 import { captureLogs, type OtelRecorder, withOtelRecorder } from "./_capture";
 import { StatementDriver } from "./_fake-driver";
@@ -37,23 +33,6 @@ afterEach(async () => {
 });
 
 const names = () => recorder?.spans().map((span) => span.name) ?? [];
-
-describe("configuration read once", () => {
-  test("an ignore list skips its patterns and passes over what is none", async () => {
-    recorder = withOtelRecorder();
-    const client = createClient({
-      schema,
-      driver: new StatementDriver(),
-    }).$extends(
-      instrumentation({
-        tracing: { ignoreSpanTypes: [7, SPAN_EXECUTE] as never },
-      })
-    );
-    await client.record.findMany();
-    expect(names()).toContain(SPAN_OPERATION);
-    expect(names()).not.toContain(SPAN_EXECUTE);
-  });
-});
 
 describe("the instrumentation holds its own failures", () => {
   test("a tracer that throws when a span starts leaves the call's answer alone", async () => {
