@@ -67,17 +67,17 @@ share the chain's own code, so a second part costs less than its row.
 
 {/* Measured with `node scripts/extension-bytes.mjs` (the `pg-one-*`
 fixtures of scripts/bundle-fixtures, and the official extensions' fixtures),
-last on dd1fdcd42; rerun it and update these figures when the code of
+last on d26773ec0; rerun it and update these figures when the code of
 src/extensions changes. */}
 
 | You import | Your bundle carries | Adds (min) | Adds (gzip) |
 |---|---|---:|---:|
-| `methods` | Client method factories and their collision checks | 2.6 kB | 1.2 kB |
+| `methods` | Client method factories and their collision checks | 2.4 kB | 1.2 kB |
 | `args`, `oneOf` | Argument admission: taken out of the call, validated once | 3.2 kB | 1.4 kB |
 | `call`, `target(reads)` | The chain, the first moment: argument patches and refusals | 3.4 kB | 1.6 kB |
-| `fields` | Computed fields: planning their needs, attaching them to rows | 4.9 kB | 2.1 kB |
-| `unit` | The runner around physical units | 5.1 kB | 2.1 kB |
-| `unit` with `{ rewrites: true }`, `statement` | Statement rewriting | 5.2 kB | 2.2 kB |
+| `fields` | Computed fields: planning their needs, attaching them to rows | 4.5 kB | 1.9 kB |
+| `unit` | The runner around physical units | 4.9 kB | 2.1 kB |
+| `unit` with `{ rewrites: true }`, `statement` | Statement rewriting | 5.0 kB | 2.1 kB |
 | `defaults` with `create` or `orderBy` | Default data or default order, without filter code or argument admission | 5.2 kB | 2.3 kB |
 | `defaults` with `omitted` | Default omission | 5.5 kB | 2.4 kB |
 | `around` | The second moment around the prepared call, and the admission of `$transaction([...])` members | 6.6 kB | 2.8 kB |
@@ -95,13 +95,13 @@ The official extensions, measured the same way:
 | Extension | Adds (min) | Adds (gzip) |
 |---|---:|---:|
 | [`defaultOmit()`](/docs/extensions/omit) | 5.7 kB | 2.2 kB |
-| [`on()`](/docs/extensions/on) | 10.0 kB | 4.0 kB |
-| [`instrumentation()`](/docs/extensions/instrumentation) | 17.0 kB | 6.0 kB |
-| [`softDelete()`](/docs/extensions/soft-delete) | 21.2 kB | 8.2 kB |
-| [`cache()`](/docs/extensions/cache) | 27.7 kB | 10.3 kB |
-| [`ordering()`](/docs/extensions/ordering) | 29.2 kB | 11.5 kB |
-| [`permissions()`](/docs/extensions/permissions) | 66.5 kB | 25.7 kB |
-| `on`, `ordering`, `permissions` and `softDelete` together | 104.7 kB | 39.6 kB |
+| [`on()`](/docs/extensions/on) | 9.7 kB | 3.9 kB |
+| [`instrumentation()`](/docs/extensions/instrumentation) | 14.8 kB | 5.4 kB |
+| [`softDelete()`](/docs/extensions/soft-delete) | 21.0 kB | 8.2 kB |
+| [`cache()`](/docs/extensions/cache) | 26.9 kB | 10.1 kB |
+| [`ordering()`](/docs/extensions/ordering) | 29.0 kB | 11.4 kB |
+| [`permissions()`](/docs/extensions/permissions) | 66.3 kB | 25.6 kB |
+| `on`, `ordering`, `permissions` and `softDelete` together | 104.2 kB | 39.4 kB |
 
 The PostgreSQL application they are added to weighs 508.1 kB minified
 (168.0 kB gzip) and carries 646 bytes of this code, chiefly how a transaction

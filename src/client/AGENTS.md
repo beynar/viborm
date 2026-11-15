@@ -342,7 +342,7 @@ This client layer asks the chain (`chain.args.admit`,
 `chain.watch.watch`, `chain.observation.run`, …) and imports no builder,
 so a client that applies no extension carries none of their code (646 bytes
 of `src/extensions` in the PostgreSQL application, measured with
-`node scripts/extension-bytes.mjs` on `dd1fdcd42`:
+`node scripts/extension-bytes.mjs` on `d26773ec0`:
 `transact` and `scopeOf`, how every transaction scope runs, which replaced
 the rail branches the client and the array executor held;
 `isAppliedExtension`; the `SCOPE` symbol). A part is trusted code made by the builders: there
