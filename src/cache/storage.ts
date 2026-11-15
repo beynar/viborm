@@ -13,8 +13,7 @@ import {
   type CacheDriver,
   type CacheEntry,
   type CacheSetOptions,
-  CLEAR,
-  DELETE,
+  DROP,
   GET,
   INVALIDATE,
   SET,
@@ -71,7 +70,7 @@ export async function deleteEntry(
   key: string,
   origin?: object
 ): Promise<void> {
-  return driver[DELETE](unscoped(key), origin);
+  return driver[DROP]("delete", unscoped(key), origin);
 }
 
 /** Clear every entry under `prefix`; every unscoped entry without one. */
@@ -80,7 +79,7 @@ export async function clearEntries(
   prefix?: string,
   origin?: object
 ): Promise<void> {
-  return driver[CLEAR](unscoped(prefix ?? ""), origin);
+  return driver[DROP]("clear", unscoped(prefix ?? ""), origin);
 }
 
 /**

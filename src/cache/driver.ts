@@ -135,14 +135,11 @@ export const INVALIDATE = Symbol("invalidate");
  */
 export const GET = Symbol("get");
 export const SET = Symbol("set");
-export const DELETE = Symbol("delete");
-export const CLEAR = Symbol("clear");
+export const DROP = Symbol("drop");
 export const BACKEND = Symbol("backend");
 
-interface PreparedInvalidationTarget {
-  readonly kind: "clear" | "delete";
-  readonly prefixedKey: string;
-}
+/** How a key is dropped: the entries under it, or the one entry it names. */
+type Drop = "clear" | "delete";
 
 /**
  * A relative key rebased into an official scope. An EMPTY relative key is
@@ -258,23 +255,23 @@ export abstract class CacheDriver {
           ttl > 0 &&
           expiresAt! >= createdAt
         ) {
-          const entry = { ...cached, value: codec.materialize(cached.value) };
+          const value = codec.materialize(cached.value);
           const now = this.clock.now();
           if (now - createdAt < ttl) {
             note(origin, cacheOutcome("hit"));
-            return entry.value;
+            return value;
           }
           if (
             request.revalidate?.({
               request,
-              entry,
+              entry: cached,
               now,
               key: cacheKey,
               backend: this[BACKEND](),
               store,
             })
           )
-            return entry.value;
+            return value;
         }
       }
       outcome = "miss";
@@ -386,30 +383,21 @@ export abstract class CacheDriver {
   ): Promise<void> {
     if (!hasCacheInvalidationWork(options)) return;
     this.#fillRevision += 1;
-    const targets: PreparedInvalidationTarget[] = [];
-    if (options === undefined || options.autoInvalidate === true) {
-      targets.push({ kind: "clear", prefixedKey: prefixed(prefix) });
-    }
-    if (options?.invalidate) {
-      for (const entry of options.invalidate) {
-        const isPrefix = entry.endsWith("*");
-        const key = isPrefix ? entry.slice(0, -1) : entry;
-        targets.push({
-          kind: isPrefix ? "clear" : "delete",
-          prefixedKey: prefixed(key),
-        });
-      }
-    }
+    // Every target is rebased, and so validated, before any is dropped.
+    const targets: [Drop, string][] =
+      options === undefined || options.autoInvalidate === true
+        ? [["clear", prefixed(prefix)]]
+        : [];
+    for (const entry of options?.invalidate ?? [])
+      targets.push(
+        entry.endsWith("*")
+          ? ["clear", prefixed(entry.slice(0, -1))]
+          : ["delete", prefixed(entry)]
+      );
     return cacheStep("invalidate", origin, this.driverName, async (unit) => {
-      const promises: Promise<void>[] = [];
-      for (const target of targets) {
-        promises.push(
-          target.kind === "clear"
-            ? this[CLEAR](target.prefixedKey, unit)
-            : this[DELETE](target.prefixedKey, unit)
-        );
-      }
-      await Promise.all(promises);
+      await Promise.all(
+        targets.map(([drop, key]) => this[DROP](drop, key, unit))
+      );
     });
   }
 
@@ -423,21 +411,18 @@ export abstract class CacheDriver {
    */
   disconnect?(): Promise<void>;
 
-  // Not `async`: a step that fails is rejected by the promise the caller
-  // holds, with no promise between them left a tick without a handler
-  // (workerd reports one).
-  [DELETE](prefixedKey: string, origin?: object): Promise<void> {
+  /**
+   * Drop the entries under `prefixedKey` (`clear`), or that entry and its
+   * revalidation marker (`delete`). Not `async`: a step that fails is
+   * rejected by the promise the caller holds, with no promise between them
+   * left a tick without a handler (workerd reports one).
+   */
+  [DROP](drop: Drop, prefixedKey: string, origin?: object): Promise<void> {
     this.#fillRevision += 1;
-    const keys = [prefixedKey, `${prefixedKey}${REVALIDATING_SUFFIX}`];
-    return cacheStep("delete", origin, this.driverName, () =>
-      this.delete(keys)
-    );
-  }
-
-  [CLEAR](prefixedKey: string, origin?: object): Promise<void> {
-    this.#fillRevision += 1;
-    return cacheStep("clear", origin, this.driverName, () =>
-      this.clear(prefixedKey)
+    return cacheStep(drop, origin, this.driverName, () =>
+      drop === "clear"
+        ? this.clear(prefixedKey)
+        : this.delete([prefixedKey, `${prefixedKey}${REVALIDATING_SUFFIX}`])
     );
   }
 }
