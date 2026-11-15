@@ -229,61 +229,6 @@ export interface Admission {
   reads?: CallReads;
 }
 
-/**
- * What admits one schema's predicates: refusals are
- * `ClientInitializationError`s naming the extension, the model, the
- * predicate's place in the rule and the path inside it.
- */
-export function admission(
-  schema: Schema,
-  extension: string,
-  registry: SchemaRegistryLookup<Schema>
-): Admission {
-  const refuse = (name: string, place: string, reason: string): never => {
-    throw new ClientInitializationError(
-      `Extension "${extension}" rule.${place}: ${reason}.`,
-      { meta: { extension, model: name } }
-    );
-  };
-  /**
-   * Shared sub-predicates are walked and parsed once per set of predicates
-   * whose references are told apart: a reused parse makes no parameter, so
-   * it records nothing.
-   */
-  const filtersOf = new Map<string, AdmittedFilters>();
-  const admit = (
-    name: string,
-    place: string,
-    predicate: unknown,
-    references: References,
-    of = ""
-  ): Input => {
-    const where = registry.getModelSchemas(schema[name]!).core.where;
-    const at: Admitting = { references, schema, registry };
-    const value = (word: unknown): object | undefined =>
-      word instanceof PredicateWord ? word.value?.(at) : undefined;
-    const filter = (word: object): FilterWord | undefined =>
-      word instanceof PredicateWord ? word.filter?.(at) : undefined;
-    const filters = memo(filtersOf, of, () => new WeakMap());
-    const result = admittingDomainPredicate(
-      { value, filter },
-      () => validateSchema(where, predicate),
-      filters
-    );
-    admitting.reads ??= at.reads;
-    // The model's where schema admitted the predicate: an Input.
-    if (!result.issues) return result.value as Input;
-    const [issue] = result.issues;
-    return refuse(
-      name,
-      place,
-      `at "${issue!.path?.map(String).join(".") || "root"}": ${issue!.message}`
-    );
-  };
-  const admitting: Admission = { schema, admit, refuse };
-  return admitting;
-}
-
 /** Whether every scalar of the schema reads its value with the engine's own schema. */
 export function nativeSchema(schema: Schema): boolean {
   return Object.values(schema).every((model) => {
@@ -310,8 +255,49 @@ export function admitLayer(
   given?: SchemaRegistryLookup<Schema>
 ): AdmittedLayer {
   const registry = given ?? createSchemaRegistry(schema);
-  const admitting = admission(schema, extension, registry);
-  const { admit } = admitting;
+  // Refusals are `ClientInitializationError`s naming the extension, the
+  // model, the predicate's place in the rule and the path inside it.
+  const refuse = (name: string, place: string, reason: string): never => {
+    throw new ClientInitializationError(
+      `Extension "${extension}" rule.${place}: ${reason}.`,
+      { meta: { extension, model: name } }
+    );
+  };
+  /**
+   * Shared sub-predicates are walked and parsed once per set of predicates
+   * whose references are told apart: a reused parse makes no parameter, so
+   * it records nothing.
+   */
+  const parsed = new Map<string, AdmittedFilters>();
+  const admit = (
+    name: string,
+    place: string,
+    predicate: unknown,
+    references: References,
+    of = ""
+  ): Input => {
+    const where = registry.getModelSchemas(schema[name]!).core.where;
+    const at: Admitting = { references, schema, registry };
+    const value = (word: unknown): object | undefined =>
+      word instanceof PredicateWord ? word.value?.(at) : undefined;
+    const filter = (word: object): FilterWord | undefined =>
+      word instanceof PredicateWord ? word.filter?.(at) : undefined;
+    const result = admittingDomainPredicate(
+      { value, filter },
+      () => validateSchema(where, predicate),
+      memo(parsed, of, () => new WeakMap())
+    );
+    admitting.reads ??= at.reads;
+    // The model's where schema admitted the predicate: an Input.
+    if (!result.issues) return result.value as Input;
+    const [issue] = result.issues;
+    return refuse(
+      name,
+      place,
+      `at "${issue!.path?.map(String).join(".") || "root"}": ${issue!.message}`
+    );
+  };
+  const admitting: Admission = { schema, admit, refuse };
   const references: References = new Set();
   const models: Record<string, Filters> = {};
   /** One model's filters, each purpose's admitted. */
