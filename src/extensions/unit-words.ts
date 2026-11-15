@@ -99,11 +99,7 @@ export function statements(u: UnitContext): readonly BatchMember[] | undefined {
     sql: member.sql,
     // A snapshot only when read, as `parameters(u)` takes one.
     get parameters() {
-      return shownOf(
-        member,
-        Reflect.get(member, BATCH_DIAGNOSTIC_PARAMS),
-        member.params
-      );
+      return shownOf(member, BATCH_DIAGNOSTIC_PARAMS, member.params);
     },
     // Every member the package sends carries the context of its call.
     model: member.context?.model,

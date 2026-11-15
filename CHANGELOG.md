@@ -152,6 +152,9 @@ all-or-nothing when it fits one batch.
   extensions would be: two `unit` parts each see every unit, two `methods`
   parts each add their methods, filters conjoin and a default set later wins.
   One part value named twice in one extension is in it once.
+- **Every `settled` of an extension runs**, each after the commit, whatever
+  an earlier one did: the first failure is still the one the call rejects
+  with. A failing `settled` used to stop the extension's later ones.
 - **A `methods` factory that throws fails with its own error**: it is no
   longer wrapped in a `ClientInitializationError` naming the extension.
 - **Public types renamed**: `PlacedControl` is `PlacedArgument` (what an
