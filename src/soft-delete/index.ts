@@ -182,6 +182,12 @@ type Schema = VibORMConfig["schema"];
 /** A delegate as the methods call it: its own operations. */
 type Self = Readonly<Record<string, (args: object) => unknown>>;
 
+/** A method that calls the delegate's `operation` with `added` over what it is given. */
+const method = (operation: string, added: object) =>
+  function (this: Self, given: object = {}) {
+    return this[operation]!({ ...given, ...added });
+  };
+
 /**
  * Keep deleted rows as tombstones: `client.$extends(softDelete({ models: {
  * post: { deletedAt: "deletedAt" } } }))`. One step, applied in any order
@@ -249,27 +255,22 @@ export function softDelete(config: SoftDeleteConfig): unknown {
     modelMethods((): object =>
       Object.fromEntries(
         entries.map(([model, { deletedAt, deletedBy }]) => {
-          const data = {
-            [deletedAt]: null,
-            ...(deletedBy ? { [deletedBy]: null } : {}),
-          };
           // Tombstones only: `deleted: "only"` overrides a caller's value.
-          const tombstones = { deleted: "only", mode: "hard" };
+          const restore = {
+            data: {
+              [deletedAt]: null,
+              ...(deletedBy ? { [deletedBy]: null } : {}),
+            },
+            deleted: "only",
+          };
+          const purge = { deleted: "only", mode: "hard" };
           return [
             model,
             {
-              restore(this: Self, given: object) {
-                return this.update!({ ...given, data, deleted: "only" });
-              },
-              restoreMany(this: Self, given: object) {
-                return this.updateMany!({ ...given, data, deleted: "only" });
-              },
-              purge(this: Self, given: object) {
-                return this.delete!({ ...given, ...tombstones });
-              },
-              purgeMany(this: Self, given: object = {}) {
-                return this.deleteMany!({ ...given, ...tombstones });
-              },
+              restore: method("update", restore),
+              restoreMany: method("updateMany", restore),
+              purge: method("delete", purge),
+              purgeMany: method("deleteMany", purge),
             },
           ];
         })
