@@ -24,7 +24,6 @@ import {
   PROJECTING_OPERATIONS,
   slotTarget,
 } from "@client/omit";
-import type { Schema } from "@client/types";
 import type { AnyModel } from "@schema/model";
 import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
 import { projectableScalarNames } from "@validation/model/core/projection";
@@ -33,17 +32,6 @@ import type { ExtensionPart } from "./chain";
 import { extensionError } from "./chain";
 
 type Row = Record<string, unknown>;
-
-/** One computed field as a definition declares it, read once. */
-export interface RuntimeComputedField {
-  readonly needs: readonly string[];
-  readonly compute: (row: Row) => unknown;
-}
-
-/** A definition's `result`: per model key (or `$allModels`), its fields. */
-export type RuntimeResultContribution = Readonly<
-  Record<string, Readonly<Record<string, RuntimeComputedField>>>
->;
 
 /**
  * One model's computed field on the chain. Each need is a column's name, or
@@ -72,88 +60,6 @@ export interface ComputedFieldDeclaration {
 }
 
 /**
- * Read a `fields(…)` declaration once into a frozen snapshot. Its shape is
- * the types'; a model the schema does not hold is refused, as a field
- * computed on no row would otherwise be.
- */
-export function snapshotResult(
-  component: Readonly<
-    Record<string, Readonly<Record<string, ComputedFieldDeclaration>>>
-  >,
-  extension: string,
-  schema: Schema
-): RuntimeResultContribution {
-  const models: Record<
-    string,
-    Record<string, RuntimeComputedField>
-  > = Object.create(null);
-  for (const [modelKey, entries] of Object.entries(component)) {
-    if (modelKey !== ALL_MODELS && !Object.hasOwn(schema, modelKey))
-      extensionError(
-        `Extension "${extension}" result names unknown model "${modelKey}".`,
-        extension
-      );
-    const fields: Record<string, RuntimeComputedField> = Object.create(null);
-    for (const [name, { needs = {}, compute }] of Object.entries(entries))
-      fields[name] = {
-        needs: Object.keys(needs).filter((need) => needs[need]),
-        compute,
-      };
-    models[modelKey] = fields;
-  }
-  return models;
-}
-
-/**
- * The chain's computed fields with one extension's appended: `$allModels`
- * first, then the model's own, so a model's field can replace or need an
- * `$allModels` one. Every need is resolved here, against the model's
- * readable scalars and the fields before it.
- */
-export function appendResultFields(
-  previous: ResolvedResultFields | undefined,
-  extension: string,
-  contribution: RuntimeResultContribution,
-  schema: Schema
-): ResolvedResultFields {
-  const next: Record<string, readonly ResolvedComputedField[]> = {
-    ...previous,
-  };
-  for (const modelName of Object.keys(schema)) {
-    const model = schema[modelName]!;
-    const fields = [...(next[modelName] ?? [])];
-    const readable = new Set(projectableScalarNames(model));
-    for (const key of [ALL_MODELS, modelName]) {
-      const declared = contribution[key] ?? {};
-      for (const name of Object.keys(declared)) {
-        const at = `Extension "${extension}" result.${key}.${name}`;
-        if (
-          name === "_count" ||
-          Object.hasOwn(model["~"].state.relations, name)
-        )
-          extensionError(
-            `${at} cannot be computed: "${name}" is a relation of model "${modelName}".`,
-            extension
-          );
-        const needs = declared[name]!.needs.map((need) => {
-          for (let earlier = fields.length - 1; earlier >= 0; earlier--) {
-            if (fields[earlier]!.name === need) return earlier;
-          }
-          if (readable.has(need)) return need;
-          return extensionError(
-            `${at} needs "${need}", which is not a readable scalar or an earlier computed field of model "${modelName}".`,
-            extension
-          );
-        });
-        fields.push({ name, compute: declared[name]!.compute, needs });
-      }
-    }
-    if (fields.length > 0) next[modelName] = fields;
-  }
-  return next;
-}
-
-/**
  * One projection node's work on its rows, and its relations' nodes. A
  * recursive relation's node lists itself under the repeated key, so the
  * finish follows the tree the projection repeats.
@@ -170,35 +76,6 @@ interface ResultNode {
 
 /** A bulk write returns rows only when it carries a projection. */
 const BULK_OPERATIONS = new Set(["createMany", "updateMany", "deleteMany"]);
-
-/**
- * Plan one operation: the payload the engine runs, and the function that
- * finishes its value. `undefined` when nothing this operation returns has a
- * computed field.
- */
-export function planResultFields(
-  fields: ResolvedResultFields,
-  relations: ResolvedRelationIndex,
-  model: AnyModel,
-  operation: string,
-  args: Row
-):
-  | { readonly args: Row; readonly finish: (value: unknown) => unknown }
-  | undefined {
-  const returnsRows =
-    PROJECTING_OPERATIONS.has(operation) ||
-    (BULK_OPERATIONS.has(operation) &&
-      (args.select !== undefined || args.omit !== undefined));
-  if (!returnsRows) return undefined;
-  const planned = planNode(fields, relations, model, args);
-  if (planned === undefined) return undefined;
-  const { node } = planned;
-  return {
-    // Planned from `args`, never absent: only a relation's may be.
-    args: planned.args!,
-    finish: (value) => finishValue(value, node),
-  };
-}
 
 function planNode(
   fields: ResolvedResultFields,
@@ -414,7 +291,11 @@ function detached(held: unknown): unknown {
   return copy;
 }
 
-/** A chain's computed fields, and what plans one call's. */
+/**
+ * A chain's computed fields, and what plans one call: the payload the engine
+ * runs, and the function that finishes its value; `undefined` when nothing
+ * the operation returns has a computed field.
+ */
 export interface ResultFields {
   readonly fields: ResolvedResultFields;
   readonly plan: (
@@ -422,31 +303,86 @@ export interface ResultFields {
     model: AnyModel,
     operation: string,
     args: Row
-  ) => ReturnType<typeof planResultFields>;
+  ) =>
+    | { readonly args: Row; readonly finish: (value: unknown) => unknown }
+    | undefined;
 }
 
-/** `fields`: fields computed from each row a call returns. */
+/**
+ * `fields`: fields computed from each row a call returns. Joined, the
+ * chain's computed fields with this extension's appended: per model,
+ * `$allModels` first, then the model's own, so a model's field can replace
+ * or need an `$allModels` one. Every need is resolved here, against the
+ * model's readable scalars and the fields before it; a model the schema
+ * does not hold is refused, as a field computed on no row would otherwise
+ * be.
+ */
 export function fieldsPart(
   declared: Readonly<
     Record<string, Readonly<Record<string, ComputedFieldDeclaration>>>
   >
 ): ExtensionPart {
   return {
-    join({ next, name, schema }) {
-      const fields = appendResultFields(
-        next.fields?.fields,
-        name,
-        snapshotResult(declared, name, schema),
-        schema
-      );
+    join({ next, name: extension, schema }) {
+      for (const key of Object.keys(declared))
+        if (key !== ALL_MODELS && !Object.hasOwn(schema, key))
+          extensionError(
+            `Extension "${extension}" result names unknown model "${key}".`,
+            extension
+          );
+      const fields: Record<string, readonly ResolvedComputedField[]> = {
+        ...next.fields?.fields,
+      };
+      for (const modelName of Object.keys(schema)) {
+        const model = schema[modelName]!;
+        const resolved = [...(fields[modelName] ?? [])];
+        const readable = new Set(projectableScalarNames(model));
+        for (const key of [ALL_MODELS, modelName]) {
+          for (const [name, { needs = {}, compute }] of Object.entries(
+            declared[key] ?? {}
+          )) {
+            const at = `Extension "${extension}" result.${key}.${name}`;
+            if (
+              name === "_count" ||
+              Object.hasOwn(model["~"].state.relations, name)
+            )
+              extensionError(
+                `${at} cannot be computed: "${name}" is a relation of model "${modelName}".`,
+                extension
+              );
+            const needed = Object.keys(needs)
+              .filter((need) => needs[need])
+              .map((need) => {
+                for (let earlier = resolved.length - 1; earlier >= 0; earlier--)
+                  if (resolved[earlier]!.name === need) return earlier;
+                if (readable.has(need)) return need;
+                return extensionError(
+                  `${at} needs "${need}", which is not a readable scalar or an earlier computed field of model "${modelName}".`,
+                  extension
+                );
+              });
+            resolved.push({ name, compute, needs: needed });
+          }
+        }
+        if (resolved.length > 0) fields[modelName] = resolved;
+      }
       next.fields = {
         fields,
-        plan: (
-          relations: ResolvedRelationIndex,
-          model: AnyModel,
-          operation: string,
-          args: Row
-        ) => planResultFields(fields, relations, model, operation, args),
+        plan: (relations, model, operation, args) => {
+          const returnsRows =
+            PROJECTING_OPERATIONS.has(operation) ||
+            (BULK_OPERATIONS.has(operation) &&
+              (args.select !== undefined || args.omit !== undefined));
+          if (!returnsRows) return undefined;
+          const planned = planNode(fields, relations, model, args);
+          if (planned === undefined) return undefined;
+          const { node } = planned;
+          return {
+            // Planned from `args`, never absent: only a relation's may be.
+            args: planned.args!,
+            finish: (value) => finishValue(value, node),
+          };
+        },
       };
     },
   };
