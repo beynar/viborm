@@ -131,6 +131,10 @@ describe("a builder handed no function refuses at once", () => {
     expect(() => Reflect.apply(when, undefined, ["tenant", "a", {}])).toThrow(
       new TypeError("when() tests an argument written arg(name)")
     );
+    // `now` is the call's instant, not an argument.
+    expect(() => Reflect.apply(unless, undefined, [now, "a", {}])).toThrow(
+      new TypeError("unless() tests an argument written arg(name)")
+    );
   });
 });
 
@@ -301,6 +305,17 @@ describe("rule: an entry's keys and the words they take", () => {
     ).toContain(
       'rule.post: confine names "author", which is not a scalar field'
     );
+    // A confinement is written with its word, and the word only there.
+    expect(
+      refusal(applying(loose(rule, { post: { confine: { title: "a" } } })))
+    ).toContain("rule.post: confine is written with a word");
+    expect(
+      refusal(
+        applying(
+          loose(rule, { post: { update: { where: within({ title: "a" }) } } })
+        )
+      )
+    ).toContain("update.where does not take within()");
   });
 
   test("two rule parts of one extension do not both judge a model", () => {
