@@ -604,14 +604,13 @@ function methods(ordered: Ordered) {
       sql`(SELECT ${column(field, alias)} FROM ${table} AS ${sql.raw(alias)} WHERE ${matches(alias, fields)}${
         alias === "a" ? sql` AND ${seen("a")}` : sql.empty
       })`;
-    // The list's fields: the anchor's, `to`'s, else the row's own.
+    // The list's fields: the anchor's, `to`'s, else the row's own. A NULL
+    // in `to` is never read here: `inList` tests it with IS NULL.
     const listed = (field: string) =>
       anchored !== undefined
         ? of("a", anchored, field)
         : to !== undefined
-          ? to[field] === null
-            ? sql`NULL`
-            : q.value(field, to[field])
+          ? q.value(field, to[field])
           : of("m", recognised, field);
     // A required list field compares with `=`; a nullable one NULL-safely.
     const inList = (alias?: string) =>
@@ -658,12 +657,10 @@ function methods(ordered: Ordered) {
     // A row of the list already there: written by no statement here, so the
     // read path answers it unchanged.
     const away = sql`NOT ((${lower}) IS NULL OR ${column(key)} > (${lower})) OR NOT ((${upper}) IS NULL OR ${column(key)} < (${upper}))`;
-    const guard = (condition?: Sql) =>
-      sql`CASE WHEN ${placed} IS NOT NULL${
-        condition === undefined ? sql.empty : sql` AND (${condition})`
-      } THEN ${column(key)} END`;
+    const guard = (condition: Sql) =>
+      sql`CASE WHEN ${placed} IS NOT NULL AND (${condition}) THEN ${column(key)} END`;
     const keyed = { [key]: computed(() => [placed]) };
-    const attempt = async (condition: Sql | undefined, data: Row) => {
+    const attempt = async (condition: Sql, data: Row) => {
       try {
         return await write(guard(condition), data);
       } catch (error) {

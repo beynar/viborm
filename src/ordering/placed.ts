@@ -1,10 +1,9 @@
-const compareLists = (a: readonly unknown[], b: readonly unknown[]): number => {
-  for (const [index, value] of a.entries()) {
-    const compared = compareValues(value, b[index]);
-    if (compared !== 0) return compared;
-  }
-  return 0;
-};
+/** Two identities, field by field: the first field that differs decides. */
+const compareLists = (a: readonly unknown[], b: readonly unknown[]): number =>
+  a.reduce<number>(
+    (decided, value, index) => decided || compareValues(value, b[index]),
+    0
+  );
 
 /**
  * One list's new keys, as respacing's statement computes them on SQL, for a database

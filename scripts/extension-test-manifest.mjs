@@ -47,6 +47,7 @@ const contracts = [
   "tests/contracts/public-client/on.core.test.ts",
   "tests/contracts/public-client/ordering-append.core.test.ts",
   "tests/contracts/public-client/ordering-composition.core.test.ts",
+  "tests/contracts/public-client/ordering-dialects.core.test.ts",
   "tests/contracts/public-client/ordering-identity.core.test.ts",
   "tests/contracts/public-client/ordering-keys.core.test.ts",
   "tests/contracts/public-client/ordering-placed.core.test.ts",
