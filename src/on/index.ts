@@ -45,7 +45,7 @@ export type OnKind = "create" | "update" | "delete";
 /**
  * A row as a hook receives it: every scalar field a plain `findMany` returns
  * from the schema alone. `defaultOmit()` does not hide a field from a hook,
- * and computed `result` fields are not attached.
+ * and the fields `fields(...)` computes are not attached.
  */
 export type OnRow<M extends AnyModel> =
   M extends Model<infer State>
@@ -107,7 +107,7 @@ export type OnHooks<C extends VibORMConfig = VibORMConfig> = {
 };
 
 /**
- * The fields a `rows` extension's `reads` gates on a model: the client omits
+ * The fields a rule's `gate` hides on a model (`read.fields`): the client omits
  * them as `boolean` (a `defaultOmit()` field is `true`), and a row carries one
  * only where the call may read it.
  */

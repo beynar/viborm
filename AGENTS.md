@@ -293,8 +293,8 @@ value (`extension.ts`) is a name and its parts; `$extends` hands them to
 `appendParts`, which runs each part's phases, `declare`, `join` and `seal`,
 for every part before the next phase starts, so a part never depends on the
 order the parts were named in. A part (`ExtensionPart`) is what a builder
-returns: its own state, the parts it `uses` beside it, and the phases it
-needs. Two parts of one extension meet only through the `Application`:
+returns: its own state, and the phases it needs; a part another needs
+beside it is brought by `bring` (`Application`), each once. Two parts of one extension meet only through the `Application`:
 what one writes in `declare` the others read in `join` (`args` declares the
 extension's arguments on `next.args` and `owner`, which `call`, `around`,
 `rule`, `defaults` and `keep` read); a word brings the part it needs with

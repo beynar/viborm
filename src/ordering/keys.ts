@@ -36,22 +36,20 @@ const TEN = 10n;
 /** The integer part of a key, and its fraction; undefined if not a key. */
 function split(key: string): { integer: string; fraction: string } | undefined {
   if (key.length < 2 || !DIGITS.test(key)) return undefined;
-  let integer: string;
-  if (key[0] === "0") {
-    const length = 9 - Number(key[1]);
-    if (length < 1) return undefined;
-    integer = key.slice(0, 2 + length);
-    if (integer.length !== 2 + length) return undefined;
-    const body = BigInt(integer.slice(2));
-    if (body < 1n || body > 9n * TEN ** BigInt(length - 1)) return undefined;
-  } else {
-    const length = Number(key[0]);
-    integer = key.slice(0, 1 + length);
-    if (integer.length !== 1 + length) return undefined;
-    if (length > 1 && integer[1] === "0") return undefined;
-  }
+  const negative = key[0] === "0";
+  const length = negative ? 9 - Number(key[1]) : Number(key[0]);
+  const integer = key.slice(0, length + (negative ? 2 : 1));
+  const body = integer.slice(negative ? 2 : 1);
   const fraction = key.slice(integer.length);
-  if (fraction.endsWith("0")) return undefined;
+  if (
+    length < 1 ||
+    body.length !== length ||
+    fraction.endsWith("0") ||
+    (negative
+      ? BigInt(body) < 1n || BigInt(body) > 9n * TEN ** BigInt(length - 1)
+      : length > 1 && body[0] === "0")
+  )
+    return undefined;
   return { integer, fraction };
 }
 
@@ -84,19 +82,16 @@ function parse(key: string): { value: bigint; fraction: string } {
 
 /** The integer part encoding `value`. */
 function encode(value: bigint): string {
-  if (value >= 0n) {
-    const digits = value.toString();
-    if (digits.length > MAX_INTEGER_DIGITS) {
-      throw new RangeError("a list holds at most 10^9 appends");
-    }
-    return `${digits.length}${digits}`;
-  }
-  const digits = (-value).toString();
-  if (digits.length > MAX_INTEGER_DIGITS) {
-    throw new RangeError("a list holds at most 10^9 prepends");
-  }
-  const body = (TEN ** BigInt(digits.length) + value).toString();
-  return `0${9 - digits.length}${body.padStart(digits.length, "0")}`;
+  const negative = value < 0n;
+  const digits = (negative ? -value : value).toString();
+  const { length } = digits;
+  if (length > MAX_INTEGER_DIGITS)
+    throw new RangeError(
+      `a list holds at most 10^9 ${negative ? "prepends" : "appends"}`
+    );
+  return negative
+    ? `0${9 - length}${(TEN ** BigInt(length) + value).toString().padStart(length, "0")}`
+    : `${length}${digits}`;
 }
 
 /** A uniform random bigint in [0, span): one digit per byte below 250. */
@@ -185,35 +180,26 @@ export function keysBetween(
   if (lower !== null && upper !== null && !(lower < upper)) {
     throw new RangeError(`"${lower}" is not below "${upper}"`);
   }
-  const keys: string[] = [];
+  // The integers after `base`, each with a random fraction.
+  const integers = (base: bigint) =>
+    Array.from(
+      { length: count },
+      (_, step) => encode(base + BigInt(step + 1)) + randomFraction()
+    );
   if (upper === null) {
     const base = lower === null ? -1n : parse(lower).value;
-    const from = base < 0n ? -1n : base;
-    for (let step = 1n; step <= BigInt(count); step += 1n) {
-      keys.push(encode(from + step) + randomFraction());
-    }
-    return keys;
+    return integers(base < 0n ? -1n : base);
   }
   const high = parse(upper);
-  if (lower === null) {
-    for (let step = BigInt(count); step >= 1n; step -= 1n) {
-      keys.push(encode(high.value - step) + randomFraction());
-    }
-    return keys;
-  }
+  if (lower === null) return integers(high.value - BigInt(count + 1));
   const low = parse(lower);
-  if (high.value - low.value > BigInt(count)) {
-    for (let step = 1n; step <= BigInt(count); step += 1n) {
-      keys.push(encode(low.value + step) + randomFraction());
-    }
-    return keys;
-  }
+  if (high.value - low.value > BigInt(count)) return integers(low.value);
   const integer = encode(low.value);
-  const ceiling = high.value === low.value ? high.fraction : undefined;
-  for (const fraction of fractionsBetween(low.fraction, ceiling, count)) {
-    keys.push(integer + fraction);
-  }
-  return keys;
+  return fractionsBetween(
+    low.fraction,
+    high.value === low.value ? high.fraction : undefined,
+    count
+  ).map((fraction) => integer + fraction);
 }
 
 /**

@@ -12,7 +12,7 @@ import type { ExtensionPart } from "./chain";
 import { observationOf } from "./observation";
 import type { UnitHandler } from "./unit-source";
 
-/** The host part of `unit(handler, kinds, { rewrites: true })`. */
+/** The part `unit(handler, kinds, { rewrites: true })` builds. */
 export function rewritePart(handler: UnitHandler): ExtensionPart {
   return {
     join({ next, owner }) {

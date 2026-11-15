@@ -659,7 +659,7 @@ export type ExtensionState = ExtensionStateConstraint;
 /**
  * One operation's result on a derived client, as that client's own delegate
  * types it: its `defaultOmit` applied to `Args`, and a to-one relation whose
- * target the chain's `rows` can hide typed `| null`. Index the client with
+ * target a rule of the chain can hide typed `| null`. Index the client with
  * `M[K & keyof M]` in a plugin generic over it.
  */
 export type ExtendedOperationResult<
@@ -801,9 +801,9 @@ export class VibORM<C extends VibORMConfig> {
   readonly #schema: ClientSchema<C>;
   readonly #engine: QueryEngine;
   readonly #relations: ResolvedRelationIndex;
-  /** The schema's validation schemas, which also admit `rows` predicates. */
+  /** The schema's validation schemas, which also admit rule predicates. */
   readonly #registry: PreparedSchema["schemaRegistry"];
-  /** One resolved declarative omit per authenticated capability on this client. */
+  /** One resolved omission per chain's `omit` state on this client. */
   #extensionOmitResolvers:
     | WeakMap<object, Readonly<{ resolver: ClientOmitResolver | undefined }>>
     | undefined;
@@ -984,7 +984,7 @@ export class VibORM<C extends VibORMConfig> {
     );
   }
 
-  /** Resolve one authenticated declarative omit once for this client schema. */
+  /** Resolve a chain's omission once for this client's schema. */
   #resolveClientOmit(
     chain: ResolvedExtensionChain
   ): ClientOmitResolver | undefined {
