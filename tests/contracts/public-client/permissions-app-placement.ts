@@ -1,5 +1,5 @@
 import { ForbiddenError, NestedWriteError, NotFoundError } from "@errors";
-import { accepts, args, extension, methods, rule } from "@src/index";
+import { accepts, args, bound, extension, methods, rule } from "@src/index";
 import { v } from "@src/validation";
 import {
   CREATES,
@@ -96,7 +96,7 @@ export function runPermissionsAppPlacement(
     "placement",
     args({
       actor: accepts(ActorSchema).required(),
-      scopes: accepts(
+      scopes: bound(
         v.object({
           unrestricted: v.boolean(),
           allowed: v.array(v.string()),

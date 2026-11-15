@@ -2,6 +2,7 @@ import {
   accepts,
   arg,
   args,
+  bound,
   extension,
   methods,
   oneOf,
@@ -79,7 +80,7 @@ const extensionOf = (name: string, compiled: CompiledPolicy) =>
     name,
     args({
       actor: accepts(ActorSchema).required(),
-      scopes: accepts(
+      scopes: bound(
         v.object({
           unrestricted: v.boolean(),
           allowed: v.array(v.string()),
