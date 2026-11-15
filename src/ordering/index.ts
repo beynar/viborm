@@ -547,22 +547,26 @@ function methods(ordered: Ordered) {
    * the moved row is recognised among rows read, without reading it. */
   const named = (where: Row): Row => {
     const fields: Record<string, unknown> = {};
-    const take = (field: string, value: unknown) => {
-      if (
-        Object.hasOwn(scalars, field) &&
-        (value === null || value instanceof Date || typeof value !== "object")
-      )
-        fields[field] = value;
+    const take = (from: object, top: boolean) => {
+      for (const [field, value] of Object.entries(from))
+        if (Object.hasOwn(scalars, field)) {
+          if (
+            value === null ||
+            value instanceof Date ||
+            typeof value !== "object"
+          )
+            fields[field] = value;
+        }
+        // A compound selector's fields; never a logical operator's.
+        else if (
+          top &&
+          value !== null &&
+          typeof value === "object" &&
+          !["AND", "OR", "NOT"].includes(field)
+        )
+          take(value, false);
     };
-    for (const [field, value] of Object.entries(where))
-      if (Object.hasOwn(scalars, field)) take(field, value);
-      // A compound selector's fields; never a logical operator's.
-      else if (
-        value !== null &&
-        typeof value === "object" &&
-        !["AND", "OR", "NOT"].includes(field)
-      )
-        for (const [inner, part] of Object.entries(value)) take(inner, part);
+    take(where, true);
     return fields;
   };
   async function place(
