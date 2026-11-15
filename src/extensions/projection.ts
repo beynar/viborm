@@ -81,6 +81,8 @@ export const projectionOf = (domain: PreparedDomain) => {
     alias?: string
   ): Sql | undefined =>
     q.lowerSelector(projection.layered(model, layer, input), alias);
+  /** `model`'s read-gated fields, each with its gate. */
+  const gatesOf = (model: AnyModel) => projection.projected(model)?.gates;
   /** Where a read-gated field's row carries it: every gating layer's `read` and predicate. */
   function gateHolds(
     q: SqlQueries,
@@ -158,7 +160,7 @@ export const projectionOf = (domain: PreparedDomain) => {
       model: AnyModel,
       where: Input | undefined
     ): Sql | undefined {
-      if (!projection.projected(model)?.gates.size) return undefined;
+      if (!gatesOf(model)?.size) return undefined;
       const a = q.adapter;
       const inner = q.alias();
       return assembleAdapterSelect(a, {
@@ -196,7 +198,7 @@ export const projectionOf = (domain: PreparedDomain) => {
       column: Sql,
       alias?: string
     ): Sql {
-      const gate = projection.projected(model)?.gates.get(field);
+      const gate = gatesOf(model)?.get(field);
       const holds = gate && gateHolds(q, model, gate, alias, true);
       const a = q.adapter;
       return holds === undefined
@@ -222,7 +224,7 @@ export const projectionOf = (domain: PreparedDomain) => {
       fields: readonly string[],
       use: "read" | "filter"
     ): void {
-      const gates = projection.projected(model)?.gates;
+      const gates = gatesOf(model);
       const gated = gates && fields.find((field) => gates.has(field));
       const name = model["~"].names.ts;
       if (gated !== undefined)
@@ -232,7 +234,7 @@ export const projectionOf = (domain: PreparedDomain) => {
     },
     /** `$rows()` hands a caller the table's columns as they are: refused where a field of them is read-gated. */
     refuseGatedRows(model: AnyModel): void {
-      const gates = projection.projected(model)?.gates;
+      const gates = gatesOf(model);
       if (gates?.size)
         throw new UnsupportedOperationError(
           `${model["~"].names.ts}.$rows() refuses read-gated fields: ${[...gates.keys()]}`

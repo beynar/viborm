@@ -126,42 +126,27 @@ function callReads(
   parameters: Map<Parameter, boolean>,
   conditions: Set<Condition>
 ): void {
-  switch (predicate.kind) {
-    case "condition":
-      conditions.add(predicate.condition);
-      return;
-    case "and":
-    case "or":
-      for (const member of predicate.predicates)
-        callReads(member, parameters, conditions);
-      return;
-    case "not":
-      callReads(predicate.predicate, parameters, conditions);
-      return;
-    case "relation":
-      if (predicate.link) callReads(predicate.link, parameters, conditions);
-      if (predicate.predicate)
-        callReads(predicate.predicate, parameters, conditions);
-      return;
-    case "exists":
-      if (predicate.predicate)
-        callReads(predicate.predicate, parameters, conditions);
-      return;
-    case "operation":
-      for (const operand of [predicate.operand, ...(predicate.operands ?? [])])
-        if (operand?.kind === "parameter")
-          parameters.set(operand.parameter, operand.spread === true);
-      if (
-        predicate.value instanceof Parameter &&
-        !parameters.has(predicate.value)
-      )
-        parameters.set(predicate.value, false);
-      return;
-    default:
-      return;
-  }
+  if (predicate.kind === "condition") conditions.add(predicate.condition);
+  else if (predicate.kind === "operation") {
+    for (const operand of [predicate.operand, ...(predicate.operands ?? [])])
+      if (operand?.kind === "parameter")
+        parameters.set(operand.parameter, operand.spread === true);
+    if (
+      predicate.value instanceof Parameter &&
+      !parameters.has(predicate.value)
+    )
+      parameters.set(predicate.value, false);
+  } else if ("predicates" in predicate)
+    for (const member of predicate.predicates)
+      callReads(member, parameters, conditions);
+  else if ("predicate" in predicate && predicate.kind !== "layer")
+    // A negation's, an existence's or a relation's body, and a relation's link.
+    for (const member of [
+      predicate.kind === "relation" ? predicate.link : undefined,
+      predicate.predicate,
+    ])
+      if (member) callReads(member, parameters, conditions);
 }
-
 /**
  * `predicate` as `model`'s domain predicate of `layer`, read with each
  * call's values, or, `atDefaults`, where every argument with a default

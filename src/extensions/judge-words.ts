@@ -332,19 +332,16 @@ class Lazy extends Held<() => unknown> {
           entry.references = [...own];
           admitted = entry;
         }
-        const declared = chain.extensions
-          .slice(
-            0,
-            chain.extensions.findIndex((member) => member.name === extension) +
-              1
-          )
-          .map((member) => member.name);
+        // Declared by its own extension or one applied before it.
+        const at = (name: string) =>
+          chain.extensions.findIndex((member) => member.name === name);
         for (const name of admitted.references!)
           if (
             name !== undefined &&
             !chain.args?.all.some(
               (argument) =>
-                argument.name === name && declared.includes(argument.extension)
+                argument.name === name &&
+                at(argument.extension) <= at(extension)
             )
           )
             extensionError(
