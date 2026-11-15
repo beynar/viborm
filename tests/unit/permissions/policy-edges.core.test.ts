@@ -31,14 +31,16 @@ const post = s.model({
 async function readUnder(read: object, role = "r") {
   const driver = new ScriptedDriver("postgresql");
   const db = createClient({ schema: { user, post }, driver }).$extends(
+    // The rules below are written as an application writes them; their
+    // spellings are what is under test, not the policy's typing.
     permissions({
       actor: v.object({ userId: v.string(), role: v.string() }),
-      // The rules below are written as an application writes them; their
-      // spellings are what is under test, not the policy's typing.
-      models: { post: { actions: { read: [] }, read } } as never,
-    })
+      models: { post: { actions: { read: [] }, read } },
+    } as never)
   );
-  await db.$as({ userId: "u1", role }).post.findMany({ select: { id: true } });
+  await db
+    .$as({ userId: "u1", role } as never)
+    .post.findMany({ select: { id: true } });
   return driver.sent;
 }
 

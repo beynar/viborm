@@ -517,30 +517,34 @@ describe("computed fields", () => {
   const hidden = s
     .model({ id: s.string().id(), secret: s.string() })
     .omit({ id: true, secret: true });
-  const labelled = fields({
-    node: {
-      label: {
-        needs: { tenant: true },
-        compute: (row: { tenant: unknown }) => `L${String(row.tenant)}`,
-      },
-    },
-  });
 
   test("two relations whose rows compute a field each read the column it needs", async () => {
     const driver = new ScriptedDriver("postgresql", () => [
       { id: "n", parent: { tenant: "p" }, children: [{ tenant: "c" }] },
     ]);
     const db = createClient({ schema: { node }, driver }).$extends(
-      extension("labelled", labelled)
+      extension(
+        "labelled",
+        fields({
+          node: {
+            label: {
+              needs: { tenant: true },
+              compute: (row: { tenant: unknown }) => `L${String(row.tenant)}`,
+            },
+          },
+        })
+      )
     );
     await expect(
       db.node.findMany({
         select: {
           id: true,
+          // The client types a computed field where its model is read, not
+          // in a relation's selection: the call is written untyped.
           parent: { select: { label: true } },
           children: { select: { label: true } },
         },
-      })
+      } as never)
     ).resolves.toEqual([
       { id: "n", parent: { label: "Lp" }, children: [{ label: "Lc" }] },
     ]);
@@ -565,7 +569,19 @@ describe("computed fields", () => {
         { id: "c", tenant: "v", flag: false, parentId: "b" },
       ],
     });
-    const db = base.$extends(extension("labelled", labelled));
+    const db = base.$extends(
+      extension(
+        "labelled",
+        fields({
+          node: {
+            label: {
+              needs: { tenant: true },
+              compute: (row: { tenant: unknown }) => `L${String(row.tenant)}`,
+            },
+          },
+        })
+      )
+    );
     await expect(
       db.node.findMany({
         where: { id: "a" },
@@ -576,7 +592,7 @@ describe("computed fields", () => {
             select: { id: true, label: true },
           },
         },
-      })
+      } as never)
     ).resolves.toEqual([{ id: "a", children: [{ id: "b", label: "Lu" }] }]);
     await base.$disconnect();
   });
