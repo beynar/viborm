@@ -51,7 +51,7 @@ export interface PreparedRawQueryContext<Input extends object>
   readonly operation: RawQueryOperation;
 }
 
-/** The prepared logical-operation facts safe for query arounds to inspect. */
+/** The prepared logical-operation facts safe for `around` parts to inspect. */
 export type PreparedQueryContext<
   Input extends object = Record<string, unknown>,
 > = PreparedModelQueryContext<Input> | PreparedRawQueryContext<Input>;

@@ -289,7 +289,7 @@ type SchemaCheck<
     : { readonly "unknown model": Exclude<keyof Models, keyof S> };
 
 // =============================================================================
-// THE ENTRY: one rows step (plan §1.1; K7(b))
+// THE ENTRY: one extension (plan §1.1; K7(b))
 // =============================================================================
 
 const NAME = "viborm.permissions";

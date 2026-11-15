@@ -98,15 +98,13 @@ type ComputeRowOf<
   : never;
 
 /**
- * The `result` member as `$extends` and `defineExtension` type it. `Fields`
- * is its own type parameter, inferred from each field's `needs`, so that
- * each `compute` is given exactly the fields its `needs` names, typed from
- * the model: reading one it does not name is a compile error, as it would be
- * `undefined` at runtime, and a need the model lacks is refused. The
- * definition's own type parameter cannot carry this: a definition holding a
- * `compute` not yet typed is not inferred from at all. The shapes are
- * written inline, not through an interface, which TypeScript does not infer
- * through.
+ * The declaration `fields(...)` types (its `result` member). `Fields` is its
+ * own type parameter, inferred from each field's `needs`, so that each
+ * `compute` is given exactly the fields its `needs` names, typed from the
+ * model: reading one it does not name is a compile error, as it would be
+ * `undefined` at runtime, and a need the model lacks is refused. The shapes
+ * are written inline, not through an interface, which TypeScript does not
+ * infer through.
  */
 export type ResultInference<
   C extends VibORMConfig,

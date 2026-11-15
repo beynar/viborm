@@ -346,7 +346,7 @@ export function observationOf(handlers: readonly UnitLayer[]): Observation {
 }
 
 /**
- * The host part of one `unit(handler, kinds)`: it adds a layer to the
+ * The part one `unit(handler, kinds)` builds: it adds a layer to the
  * chain's units, the first extension outermost. It brings no interception
  * of `$transaction([...])`: the array starts every member's unit, and waits
  * until each reached its child, before it prepares any member.

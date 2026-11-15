@@ -659,7 +659,7 @@ export type ExtensionState = ExtensionStateConstraint;
 /**
  * One operation's result on a derived client, as that client's own delegate
  * types it: its `defaultOmit` applied to `Args`, and a to-one relation whose
- * target the chain's `rows` can hide typed `| null`. Index the client with
+ * target a rule of the chain can hide typed `| null`. Index the client with
  * `M[K & keyof M]` in a plugin generic over it.
  */
 export type ExtendedOperationResult<

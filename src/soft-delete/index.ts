@@ -65,8 +65,8 @@ type PurgeManyArgs<C extends VibORMConfig, K, Self> = NonNullable<
 type NoExtra<A, R> = A & Record<Exclude<keyof A, keyof R>, never>; // flags data and typos
 
 // Each result is typed from the delegate the method is called on (`Self`),
-// so it follows every extension applied after this one: a later `rows`
-// step types a to-one relation `| null`, a later `defaultOmit` drops a
+// so it follows every extension applied after this one: a later rule
+// that hides rows types a to-one relation `| null`, a later `defaultOmit` drops a
 // field. Called off its delegate (destructured), its result is `unknown`:
 // using it is a type error, not a silent `never`. A type alias, not an interface: a method record.
 // Exported so an exported client's declaration names it instead of spelling

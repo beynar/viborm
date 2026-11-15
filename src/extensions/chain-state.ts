@@ -33,8 +33,8 @@ export interface ResolvedExtensionHandler<
 }
 
 /**
- * A request or query handler. The arguments its extension declares travel
- * with it: the only ones its `context.arguments` shows.
+ * A `call` or `around` handler. The arguments its extension declares travel
+ * with it: the only ones its context's `values` shows.
  */
 export interface ResolvedOperationHandler<
   Handler extends CallableFunction = CallableFunction,

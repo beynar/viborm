@@ -1,10 +1,10 @@
 /**
  * A call's row domain as prepared meaning, and the call's scope built from
- * it: what an extension's `rows` declarations answer where the engine asks
- * which rows a call may take. What judges the rows a write produces and what
- * a read may carry (`verbs`, `evidence`, `reads`) are the domain's `judge` and
- * `project`, made by what reads the verbs: this module does not hold them, so
- * a program whose extensions only filter rows does not either. The engine
+ * it: what an extension's rules answer where the engine asks which rows a
+ * call may take. What judges the rows a write produces and what a read may
+ * carry (the words `only`, `check`, `gate` and `facts`) are the domain's
+ * `judge` and `project`, brought by those words: this module does not hold
+ * them, so a program whose extensions only filter rows does not either. The engine
  * names these questions and knows no declaration: this module is loaded with
  * the extensions that declare one.
  */
