@@ -350,9 +350,10 @@ function addMethods(
   surface: "client" | "model",
   at = ""
 ): MethodRecord {
-  const methods: Record<string, RuntimeExtensionMethodFunction> =
-    Object.create(null);
-  Object.assign(methods, previous);
+  const methods: Record<string, RuntimeExtensionMethodFunction> = Object.assign(
+    Object.create(null),
+    previous
+  );
   for (const [name, method] of added) {
     const label = `${surface} method "${at}${name}"`;
     if (!isFunction(method)) refuse(`${label} must be a function`);

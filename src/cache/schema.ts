@@ -17,7 +17,7 @@ export type CacheInvalidationSchema = V.Object<
   { optional: true }
 >;
 
-export const cacheInvalidationSchema = v.object(
+const cacheInvalidationSchema = v.object(
   {
     /**
      * Specific keys to clear from cache
@@ -57,7 +57,7 @@ export function hasCacheInvalidationWork(
 /**
  * Default TTL: 5 minutes (in milliseconds)
  */
-export const DEFAULT_CACHE_TTL = 5 * 60 * 1000;
+const DEFAULT_CACHE_TTL = 5 * 60 * 1000;
 
 export type WithCacheSchemaEntries = {
   ttl: V.Optional<V.Union<[V.String, V.Number]>>;
@@ -71,7 +71,7 @@ export type WithCacheSchema = V.Object<
   { optional: true }
 >;
 
-export const withCacheSchema = v.object(
+const withCacheSchema = v.object(
   {
     /**
      * Time to live for cache entries

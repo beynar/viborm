@@ -99,8 +99,12 @@ function planNode(
     for (const key of Object.keys(projection)) {
       const resolved = slots?.get(key);
       const value = projection[key];
-      if (!resolved || directVariantCarrier(resolved)) continue;
-      if (value !== true && !isRecord(value)) continue;
+      if (
+        !resolved ||
+        directVariantCarrier(resolved) ||
+        (value !== true && !isRecord(value))
+      )
+        continue;
       const target = slotTarget(resolved, model);
       const childArgs = value === true ? undefined : value;
       const child = planNode(fields, relations, target, childArgs);
