@@ -5,8 +5,10 @@
  * judgement rides the write, is stated here, beside what declares it.
  */
 import { assembleAdapterSelect } from "@adapters/adapter-internals";
+import { type JudgedSpelling, holds as judgedHolds } from "@adapters/judged";
 import {
   NO_RELATIONS,
+  type PreparedPredicate,
   type PreparedSelector,
   rowValue,
   throughDerived,
@@ -16,6 +18,7 @@ import type { Input } from "@query-engine/raptor3/shared/schema";
 import type { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import type { AnyModel } from "@schema/model";
 import { Sql, sql } from "@sql";
+import { fold } from "./layers";
 import { readsAny } from "./reads";
 
 /**
@@ -24,11 +27,12 @@ import { readsAny } from "./reads";
  * where it says nothing). The model's own columns type them, through an
  * empty read of the table, so a bound value takes its column's type where
  * PostgreSQL would resolve a bare parameter as text; how the rows follow
- * it is the dialect's (`setOperations.typedRows`), so a chunk is bounded
- * by its binds alone.
+ * it is the dialect's (`typedRows`), so a chunk is bounded by its binds
+ * alone.
  */
 function producedRows(
   q: SqlQueries,
+  spelling: JudgedSpelling,
   model: AnyModel,
   rows: readonly ((field: string) => Sql | undefined)[],
   alias: string
@@ -45,7 +49,8 @@ function producedRows(
     from,
     where: a.literals.false(),
   });
-  return a.setOperations.typedRows(
+  return spelling.typedRows(
+    a,
     {
       head,
       from,
@@ -89,38 +94,79 @@ function outsideOwnSubtree(
   );
 }
 /**
- * `judged` over the produced row `from` reads (and, for each `acyclic`
- * relation, the row outside its own subtree), as the adapter's assertion:
- * 1, or the statement that carries it fails before it writes. `undefined`
- * where nothing is left to judge: the call drops every layer `judged` is
- * made of (R6).
+ * `predicate` over a produced row whose fields' nullness the write states
+ * (`nulls`: field to whether its value is null), each null test of such a
+ * field replaced by its outcome: the values a write sets fold into its
+ * judgement, so an arm on a key it leaves null does not reach the statement.
+ * Only the row's own columns: a relation reads other rows, and is kept as it
+ * is.
+ */
+const foldKnownNulls = (
+  predicate: PreparedPredicate,
+  nulls: ReadonlyMap<string, boolean>
+): PreparedPredicate =>
+  fold(
+    predicate,
+    // The conditions of a call were folded before it is judged: every leaf
+    // here is an operation, which the first test only narrows.
+    (leaf) =>
+      leaf.kind === "operation" &&
+      leaf.operator === "equals" &&
+      leaf.target.kind === "column" &&
+      leaf.target.path === undefined &&
+      leaf.operand?.kind === "value" &&
+      leaf.operand.value === null &&
+      leaf.target.scalar.physical.scalar["~"].state.type !== "json"
+        ? nulls.get(leaf.target.scalar.field)
+        : undefined,
+    false
+  );
+/**
+ * The SELECT `select` makes of the guard `judged` puts on the produced row
+ * `from` reads (and, for each `acyclic` relation, the row outside its own
+ * subtree), read with the statement's shared bodies: the adapter's
+ * assertion, 1 or the statement that carries it fails before it writes.
+ * `undefined` where nothing is left to judge: the call drops every layer
+ * `judged` is made of (R6).
  */
 function holds(
   q: SqlQueries,
+  spelling: JudgedSpelling,
   model: AnyModel,
   judged: Pick<PreparedSelector, "model" | "predicate"> | undefined,
   alias: string,
   nulls: ReadonlyMap<string, boolean>,
+  select: (guard: Sql) => Parameters<typeof assembleAdapterSelect>[1],
   from?: Sql,
   acyclic: readonly string[] = NO_RELATIONS
 ): Sql | undefined {
   const a = q.adapter;
-  const outer = q.known;
-  q.known = { alias, nulls };
-  let lowered: Sql | undefined;
-  try {
-    lowered = judged && q.lowerSelector(judged, alias);
-  } finally {
-    q.known = outer;
-  }
-  const conditions = [
-    ...(lowered === undefined ? [] : [lowered]),
-    ...acyclic.map((relation) => outsideOwnSubtree(q, model, relation, alias)),
-  ];
-  if (conditions.length === 0) return undefined;
-  return a.subqueries.scalar(
-    a.assertions.holds(a.operators.and(...conditions), from)
-  );
+  return q.sharing(() => {
+    const outer = q.known;
+    q.known = { alias, nulls, fold: foldKnownNulls };
+    let lowered: Sql | undefined;
+    try {
+      lowered = judged && q.lowerSelector(judged, alias);
+    } finally {
+      q.known = outer;
+    }
+    const conditions = [
+      ...(lowered === undefined ? [] : [lowered]),
+      ...acyclic.map((relation) =>
+        outsideOwnSubtree(q, model, relation, alias)
+      ),
+    ];
+    return conditions.length === 0
+      ? undefined
+      : assembleAdapterSelect(
+          a,
+          select(
+            a.subqueries.scalar(
+              judgedHolds(a, spelling, a.operators.and(...conditions), from)
+            )
+          )
+        );
+  });
 }
 /**
  * The SELECT an INSERT of `rows` reads its values from when the rows it
@@ -131,16 +177,17 @@ function holds(
  */
 export function producedSource(
   q: SqlQueries,
+  spelling: JudgedSpelling,
   model: AnyModel,
   columns: readonly string[],
   rows: readonly Input[],
   judged: PreparedSelector
 ): Sql | undefined {
-  const a = q.adapter;
   const alias = q.alias();
   const written = new Set(columns);
   const from = producedRows(
     q,
+    spelling,
     model,
     rows.map(
       (row) => (field) =>
@@ -163,18 +210,14 @@ export function producedSource(
     const [state] = states;
     if (states.size === 1 && state !== undefined) nulls.set(field, state);
   }
-  return q.sharing(() => {
-    const guard = holds(q, model, judged, alias, nulls);
-    if (guard === undefined) return undefined;
-    return assembleAdapterSelect(a, {
-      columns: sql.join(
-        columns.map((field) => q.column(model, field, alias)),
-        ", "
-      ),
-      from,
-      where: sql`${guard} = 1`,
-    });
-  });
+  return holds(q, spelling, model, judged, alias, nulls, (guard) => ({
+    columns: sql.join(
+      columns.map((field) => q.column(model, field, alias)),
+      ", "
+    ),
+    from,
+    where: sql`${guard} = 1`,
+  }));
 }
 /**
  * The WHERE of an UPDATE of `model` assigning `values` that judges the
@@ -200,6 +243,7 @@ export function producedSource(
  */
 export function producedWhere(
   q: SqlQueries,
+  spelling: JudgedSpelling,
   model: AnyModel,
   candidates: (alias: string) => Sql | undefined,
   values: Input,
@@ -232,6 +276,7 @@ export function producedWhere(
     );
   const from = producedRows(
     q,
+    spelling,
     model,
     [
       (field) =>
@@ -241,18 +286,22 @@ export function producedWhere(
     ],
     produced
   );
+  // A write's values hold no `undefined`: `schema.scalars` leaves it out.
   const nulls = new Map<string, boolean>();
   for (const [field, value] of Object.entries(values)) {
-    if (value === undefined) continue;
     const whole = wholeValue(value);
     if (whole && !(whole.value instanceof Sql))
       nulls.set(field, whole.value === null);
   }
-  const judgedSet = (): Sql | undefined => {
-    const guard = holds(q, model, judged, produced, nulls, from, acyclic);
-    if (guard === undefined) return undefined;
-    const keys = q.keyOrder(model).map(current);
-    return assembleAdapterSelect(a, {
+  const keys = q.keyOrder(model).map(current);
+  const set = holds(
+    q,
+    spelling,
+    model,
+    judged,
+    produced,
+    nulls,
+    (guard) => ({
       columns: sql.join(keys, ", "),
       from: q.table(model, row),
       where: candidates(row),
@@ -262,9 +311,10 @@ export function producedWhere(
         orderBy: q.ascendingKeys(model, row),
         limit: q.value(limit),
       }),
-    });
-  };
-  const set = q.sharing(judgedSet);
+    }),
+    from,
+    acyclic
+  );
   if (set === undefined) return undefined;
   const table = model["~"].names.sql!;
   return a.operators.in(

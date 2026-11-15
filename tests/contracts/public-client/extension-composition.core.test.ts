@@ -25,24 +25,27 @@ import {
   NotFoundError,
   ValidationError,
 } from "@errors";
-import { withRows } from "@extensions/rows-runtime";
 import {
+  accepts,
+  arg,
+  bound,
   createClient,
-  defineExtension,
-  type ExtensionState,
-  type MergeExtensionState,
+  defaults,
+  args as extArgs,
+  extension,
+  methods as extMethods,
+  modelMethods,
+  oneOf,
+  parts,
   s,
-  type VibORMClient,
-  type VibORMConfig,
+  when,
+  writes,
 } from "@src/index";
 import { softDelete } from "@src/soft-delete/index";
 import { v } from "@src/validation";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, describe, expect, expectTypeOf, test } from "vitest";
-
-// These definitions are stated as plain objects: what reads their rows is brought here.
-withRows();
 
 const user = s.model({
   id: s.string().id(),
@@ -156,88 +159,82 @@ async function seeded() {
 
 // --- a rows-with-controls entry, from public exports only -------------------
 
-const me = { control: "actor" } as const;
+const me = arg("actor");
 const inRowOrganization = {
   organization: { is: { members: { some: { userId: me } } } },
-} as const;
-const NOTHING = { id: { in: [] } };
-type Where = Readonly<Record<string, unknown>>;
-/** Two modes: rows the actor views, and of those, the ones it edits. */
-const modes = (view: Where, edit: Where) => ({
-  view: { root: view, related: view },
-  edit: { root: { AND: [view, edit] }, related: view },
-});
-const rowModes = {
-  user: modes({ id: me }, NOTHING),
-  organization: modes({ members: { some: { userId: me } } }, NOTHING),
-  member: modes({ userId: me }, { userId: me, role: "admin" }),
-  document: modes(
-    { OR: [{ ownerId: me }, inRowOrganization] },
-    { ownerId: me }
-  ),
-  page: modes(inRowOrganization, inRowOrganization),
 };
-type Governed = keyof typeof rowModes;
+const NOTHING = { id: { in: [] } };
 
 /** `$as`, declared apart: inline, the factory's contextual type makes `Self` void. */
 type AsMethods = {
   $as<Self>(this: Self, actor: string): Self;
 };
+interface Readable {
+  findFirst(args: object): PromiseLike<unknown>;
+}
+/** Whether the actor may take `action` on a row matching `where`. */
+async function can(this: Readable, action: "view" | "edit", where: object) {
+  return (await this.findFirst({ where, as: action })) !== null;
+}
 
 /**
- * The entry's two steps. `$as` binds the actor, so it lives where the actor
- * is declared: the rows step. Its factory takes its scope untyped (it reads
- * no result), so it is no result consumer and any `rows` may follow it.
+ * The entry: a bound-only actor, its rows in two modes, `$as` (it binds the
+ * actor, so it lives in the extension that declares it) and `can`.
  */
-const policy = {
-  rows: <C extends VibORMConfig, X extends ExtensionState>(
-    base: VibORMClient<C, X>
-  ) => {
-    const definition = {
-      name: "permissionsLike",
-      controls: { actor: { schema: v.string(), bound: true, required: true } },
-      rows: { control: "as", default: "view", models: rowModes },
-      client: (scope: unknown): AsMethods => {
-        const { $bind } = scope as {
-          $bind(values: Readonly<Record<string, unknown>>): unknown;
-        };
-        const methods: AsMethods = {
-          $as: (actor) => $bind({ actor }) as never,
-        };
-        return methods;
-      },
-    } as const;
-    // One cast: for a client generic over its state, the client-method guard
-    // (`keyof X["client"]`) stays deferred and refuses every client method.
-    const extend = base.$extends as unknown as (
-      d: typeof definition
-    ) => VibORMClient<C, MergeExtensionState<X, typeof definition>>;
-    return extend(definition);
-  },
-  methods: <C extends VibORMConfig, X extends ExtensionState>(
-    client: VibORMClient<C, X>
-  ) => {
-    const can = (delegate: never) => {
-      const findFirst = (
-        delegate as { findFirst: (args: object) => PromiseLike<unknown> }
-      ).findFirst;
-      return {
-        can: async (action: "view" | "edit", where: object) =>
-          (await findFirst({ where, as: action })) !== null,
-      };
+const typed = parts<typeof schema>();
+const policy = typed.extension(
+  "permissionsLike",
+  typed.args({
+    actor: bound(v.string()).required(),
+    as: oneOf("view", "edit").default("view"),
+  }),
+  // Two modes: rows the actor views (`related` always), and of those, in
+  // `as: "edit"`, the ones it edits.
+  typed.rule({
+    user: {
+      root: [{ id: me }, when(arg("as"), "edit", NOTHING)],
+      related: { id: me },
+    },
+    organization: {
+      root: [
+        { members: { some: { userId: me } } },
+        when(arg("as"), "edit", NOTHING),
+      ],
+      related: { members: { some: { userId: me } } },
+    },
+    member: {
+      root: [
+        { userId: me },
+        when(arg("as"), "edit", { userId: me, role: "admin" }),
+      ],
+      related: { userId: me },
+    },
+    document: {
+      root: [
+        { OR: [{ ownerId: me }, inRowOrganization] },
+        when(arg("as"), "edit", { ownerId: me }),
+      ],
+      related: { OR: [{ ownerId: me }, inRowOrganization] },
+    },
+    page: {
+      root: [inRowOrganization, when(arg("as"), "edit", inRowOrganization)],
+      related: inRowOrganization,
+    },
+  }),
+  typed.methods((scope) => {
+    const client: AsMethods = {
+      $as: (actor) => scope.$bind({ actor }) as never,
     };
-    const definition = {
-      name: "permissionsLike.methods",
-      model: Object.fromEntries(
-        Object.keys(rowModes).map((model) => [model, can])
-      ) as { readonly [M in Governed]: typeof can },
-    } as const;
-    const extend = client.$extends as unknown as (
-      d: typeof definition
-    ) => VibORMClient<C, MergeExtensionState<X, typeof definition>>;
-    return extend(definition);
-  },
-};
+    return client;
+  }),
+  typed.modelMethods(() => ({
+    user: { can },
+    organization: { can },
+    member: { can },
+    document: { can },
+    page: { can },
+  }))
+);
 
 const tombstones = softDelete({
   models: {
@@ -250,103 +247,106 @@ const sorted = (rows: readonly { id: string }[]) =>
   rows.map((row) => row.id).sort();
 
 describe("composition: one name, one control (K7(a))", () => {
-  test("W-C5: a second declaration of a control name is refused at $extends, naming both extensions; so is a reused rows control, and a rows control repeating its own controls", async () => {
+  test("W-C5: a second declaration of a control name is refused at $extends, naming both extensions; so is a reused rows control", async () => {
     const base = await seeded();
-    const governed = policy.rows(base);
+    const governed = base.$extends(policy);
     const apply = (client: object, definition: object) => () =>
       Reflect.apply(Reflect.get(client, "$extends"), client, [definition]);
     // Accepted today, every update failed one of the two schemas (C10).
-    const audit = defineExtension({
-      name: "audit",
-      controls: { actor: { schema: v.number(), on: "writes" } },
-    });
+    const audit = extension(
+      "audit",
+      extArgs({ actor: accepts(v.number()).on(writes) })
+    );
     expect(apply(governed, audit)).toThrow(ClientInitializationError);
     expect(apply(governed, audit)).toThrow(
-      'Extension "audit" declares control "actor", which extension "permissionsLike" already declares.'
+      'Extension "audit" declares argument "actor", which extension "permissionsLike" already declares.'
     );
     expect(
       apply(
-        base.$extends({
-          name: "tenancy",
-          rows: { control: "as", default: "a", models: {} },
-        }),
-        {
-          name: "other",
-          rows: { control: "as", default: "b", models: {} },
-        }
+        base.$extends(
+          extension("tenancy", extArgs({ as: oneOf("a").default("a") }))
+        ),
+        extension("other", extArgs({ as: oneOf("b").default("b") }))
       )
     ).toThrow(
-      'Extension "other" declares control "as", which extension "tenancy" already declares.'
-    );
-    expect(
-      apply(base, {
-        name: "self",
-        controls: { deleted: { oneOf: ["x"] } },
-        rows: { control: "deleted", default: "a", models: {} },
-      })
-    ).toThrow(
-      'Extension "self" declares control "deleted", which extension "self" already declares.'
+      'Extension "other" declares argument "as", which extension "tenancy" already declares.'
     );
     // Distinct names compose, the official cache's `cache` included.
     expect(
-      apply(governed, {
-        name: "labels",
-        controls: { label: { schema: v.string() } },
-      })
+      apply(
+        governed,
+        extension("labels", extArgs({ label: accepts(v.string()) }))
+      )
     ).not.toThrow();
+  });
+
+  test("W-C5: one extension declaring an argument twice is refused at $extends, as two extensions are", () => {
+    const base = createClient({
+      schema,
+      driver: createInMemorySQLite3Driver(),
+    });
+    clients.push(base);
+    const apply = (client: object, definition: object) => () =>
+      Reflect.apply(Reflect.get(client, "$extends"), client, [definition]);
+    expect(
+      apply(
+        base,
+        extension(
+          "self",
+          extArgs({ deleted: oneOf("x") }),
+          extArgs({ deleted: oneOf("a").default("a") })
+        )
+      )
+    ).toThrow(
+      'Extension "self" declares argument "deleted", which extension "self" already declares.'
+    );
   });
 });
 
 describe("composition: references to earlier controls (K7(c))", () => {
   test("K7(c): a definition naming a control no earlier extension declares is refused at $extends, before the declaring one as after none", async () => {
     const base = await seeded();
-    const audit = {
-      name: "audit",
-      data: { models: { document: { update: { updatedBy: me } } } },
-    };
+    const audit = extension(
+      "audit",
+      defaults({ document: { update: { updatedBy: me } } })
+    );
     const apply = (client: object) => () =>
       Reflect.apply(Reflect.get(client, "$extends"), client, [audit]);
     expect(apply(base)).toThrow(ClientInitializationError);
     expect(apply(base)).toThrow(
-      'Extension "audit" references undeclared control "actor".'
+      'Extension "audit" references undeclared argument "actor".'
     );
-    expect(apply(tombstones.rows(base))).toThrow(
-      'references undeclared control "actor"'
+    expect(apply(base.$extends(tombstones))).toThrow(
+      'references undeclared argument "actor"'
     );
   });
 
   test("W-C8: audit after the rows-with-controls entry stamps createdBy and updatedBy from the actor's path, on create and update", async () => {
     const base = await seeded();
-    const audit = defineExtension({
-      name: "audit",
-      data: {
-        models: {
-          document: {
-            create: { createdBy: { control: "actor", path: "userId" } },
-            update: { updatedBy: { control: "actor", path: "userId" } },
-          },
+    const audit = extension(
+      "audit",
+      defaults({
+        document: {
+          create: { createdBy: arg("actor", "userId") },
+          update: { updatedBy: arg("actor", "userId") },
         },
-      },
-    });
+      })
+    );
     type ObjectAs = {
       $as<Self>(this: Self, actor: { readonly userId: string }): Self;
     };
-    const governed = base.$extends({
-      name: "permissionsLike",
-      controls: {
-        actor: {
-          schema: v.object({ userId: v.string() }),
-          bound: true,
-          required: true,
-        },
-      },
-      client: (scope) => {
-        const methods: ObjectAs = {
-          $as: (actor) => scope.$bind({ actor }) as never,
-        };
-        return methods;
-      },
-    });
+    const governed = base.$extends(
+      extension(
+        "permissionsLike",
+        extArgs({ actor: bound(v.object({ userId: v.string() })).required() }),
+        extMethods((scope) => {
+          const methods: ObjectAs = {
+            $as: (actor) => scope.$bind({ actor }) as never,
+          };
+          return methods;
+        })
+      )
+    );
     const call = governed.$extends(audit).$as({ userId: "u1" });
     await call.document.update({ where: { id: "d1" }, data: { title: "a2" } });
     await call.document.create({
@@ -370,12 +370,11 @@ describe("composition: rows steps first (K7(b), OD-1 option (2))", () => {
     const base = await seeded();
     // A stamp naming no control: what composes here is the order. W-C8 owns
     // audit's reference to the actor.
-    const audit = defineExtension({
-      name: "audit",
-      data: { models: { document: { update: { updatedBy: "audit" } } } },
-    });
-    const governed = policy.rows(tombstones.rows(base)).$extends(audit);
-    const db = policy.methods(tombstones.methods(governed));
+    const audit = extension(
+      "audit",
+      defaults({ document: { update: { updatedBy: "audit" } } })
+    );
+    const db = base.$extends(tombstones).$extends(policy).$extends(audit);
     const u1 = db.$as("u1");
     const u2 = db.$as("u2");
     expectTypeOf(u1).toEqualTypeOf<typeof db>();
@@ -419,7 +418,7 @@ describe("composition: rows steps first (K7(b), OD-1 option (2))", () => {
       await u2.page.can("view", { id: "p3" }),
     ]).toEqual([true, false, true]);
     await expect(db.page.findMany()).rejects.toThrow(
-      'Control "actor" is required'
+      'Argument "actor" is required'
     );
     await expect(db.page.findMany()).rejects.toBeInstanceOf(ValidationError);
 
@@ -427,29 +426,48 @@ describe("composition: rows steps first (K7(b), OD-1 option (2))", () => {
     // before a later rows step reads what those rows hide as missing. Only
     // its types could lie, so TypeScript refuses that order (below); the
     // runtime does not.
-    const typedBefore = base.$extends({
-      name: "mine",
-      model: {
-        document: (d) => ({
-          withOrg: (id: string) =>
-            d.findFirst({ where: { id }, include: { organization: true } }),
-        }),
-      },
-    });
-    const late = Reflect.apply(policy.rows, undefined, [typedBefore]) as {
+    const typedBefore = base.$extends(
+      extension(
+        "mine",
+        modelMethods((scope) => ({
+          document: {
+            withOrg: (id: string) =>
+              scope.document.findFirst({
+                where: { id },
+                include: { organization: true },
+              }),
+          },
+        }))
+      )
+    );
+    const late = Reflect.apply(typedBefore.$extends, typedBefore, [policy]) as {
       $as(actor: string): typeof typedBefore;
     };
     expect(await late.$as("u3").document.withOrg("d2")).toEqual(
       expect.objectContaining({ id: "d2", organization: null })
     );
-    // A rows step after a method typed against its client types as never.
-    expectTypeOf(tombstones(typedBefore)).toBeNever();
+    // A rows step after a method typed against its client is refused by
+    // TypeScript, not by the runtime.
+    expect(() =>
+      // @ts-expect-error a rule hiding rows after a result consumer
+      typedBefore.$extends(tombstones)
+    ).not.toThrow();
   });
 
   test("soft delete is one step, applied before or after the rows-with-controls entry: the same rows, restores and refusals", async () => {
     const base = await seeded();
-    const before = policy.methods(policy.rows(base.$extends(tombstones)));
-    const after = tombstones(policy.methods(policy.rows(base)));
+    const before = base.$extends(tombstones).$extends(policy);
+    // `$as` binds the entry's own actor, so its methods read `scope`: the
+    // entry is a result consumer, and TypeScript refuses soft delete after
+    // it. The runtime composes it all the same.
+    const governed = base.$extends(policy);
+    expect(() =>
+      // @ts-expect-error a rule hiding rows after a result consumer
+      governed.$extends(tombstones)
+    ).not.toThrow();
+    const after: typeof before = Reflect.apply(governed.$extends, governed, [
+      tombstones,
+    ]);
     for (const db of [before, after]) {
       const u1 = db.$as("u1");
       const u2 = db.$as("u2");

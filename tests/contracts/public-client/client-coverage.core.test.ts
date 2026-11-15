@@ -1,14 +1,11 @@
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import {
-  combineArrayFailures,
-  markArrayCommitCertainty,
-} from "@client/array-transaction-failures";
-import {
   assertAtomicArraySupport,
   assertNativeBatchResults,
+  combineArrayFailures,
   unbatchableArrayError,
-} from "@client/array-transaction-native-batch";
+} from "@client/array-transaction";
 import { createClient } from "@client/client";
 import {
   getOperationPayloadSchema,
@@ -356,39 +353,9 @@ describe("array transaction capability contracts", () => {
 });
 
 describe("coverage low value", () => {
-  test("walks nested array-failure metadata and de-duplicates witnesses", () => {
+  test("de-duplicates array-failure witnesses", () => {
     const primary = new QueryError("primary");
     const secondary = new QueryError("secondary");
-    const ordinary = new Error("ordinary");
-    const nested = new AggregateError([primary, ordinary], "nested", {
-      cause: primary,
-    });
-    const marked = markArrayCommitCertainty(nested, "committed");
-
-    expect(markArrayCommitCertainty(ordinary, "committed")).toBe(ordinary);
-    expect(marked).toBeInstanceOf(AggregateError);
-    if (!(marked instanceof AggregateError)) {
-      throw new Error("Expected a marked aggregate");
-    }
-    expect(marked.errors[0]).toMatchObject({
-      meta: { commitCertainty: "committed" },
-    });
-    expect(marked.errors[1]).toBe(ordinary);
-    expect(marked.cause).toBe(marked.errors[0]);
-
-    const separatelyCaused = markArrayCommitCertainty(
-      new AggregateError([ordinary], "separately caused", {
-        cause: secondary,
-      }),
-      "may-have-committed"
-    );
-    expect(separatelyCaused).toBeInstanceOf(AggregateError);
-    if (!(separatelyCaused instanceof AggregateError)) {
-      throw new Error("Expected a separately caused aggregate");
-    }
-    expect(separatelyCaused.cause).toMatchObject({
-      meta: { commitCertainty: "may-have-committed" },
-    });
 
     expect(combineArrayFailures(primary, [primary])).toBe(primary);
     const combined = combineArrayFailures(primary, [primary, secondary]);

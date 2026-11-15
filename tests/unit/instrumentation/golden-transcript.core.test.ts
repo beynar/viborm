@@ -35,6 +35,7 @@
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { CacheDriver, type CacheEntry } from "@cache/driver";
+import { staleWhileRevalidate } from "@cache/revalidate";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { Driver } from "@drivers";
 import { getExecutionTransactionPhases } from "@drivers/execution-context";
@@ -43,7 +44,15 @@ import { runTransactionLifecycle } from "@drivers/shared/transactions";
 import type { CommittedBatchNotification } from "@drivers/types";
 import { QueryError } from "@errors";
 import { cache } from "@src/cache/exports";
-import { createClient, defineExtension, s, sql } from "@src/index";
+import {
+  around,
+  createClient,
+  extension,
+  s,
+  sql,
+  statement,
+  unit,
+} from "@src/index";
 import {
   type InstrumentationConfig,
   instrumentation,
@@ -369,18 +378,21 @@ function recordingObserver(
   name: string,
   after?: () => unknown
 ) {
-  return defineExtension<typeof schema>()({
+  return extension(
     name,
-    observe(unit, proceed) {
-      const entry: ObservedUnit = { observer: name, unit: { ...unit } };
+    unit((observedUnit, next) => {
+      const entry: ObservedUnit = {
+        observer: name,
+        unit: { ...observedUnit },
+      };
       observed.push(entry);
-      const completion = proceed();
+      const completion = next();
       completion.then((summary) => {
         entry.completion = { ...summary };
       });
       return after === undefined ? completion : after();
-    },
-  });
+    })
+  );
 }
 
 const clients: Array<{ $disconnect(): Promise<void> }> = [];
@@ -506,7 +518,6 @@ function logAll(logs: ReturnType<typeof captureLogs>) {
     cache: logs.callback,
     error: logs.callback,
     query: logs.callback,
-    warning: logs.callback,
   };
 }
 
@@ -591,13 +602,22 @@ const SCENARIOS: ReadonlyArray<
           })
         )
         .$extends(observer("ordinary"))
-        .$extends({
-          name: "native-statement-transform",
-          statement({ statement }) {
-            transforms += 1;
-            return sql`${sql.raw(`/* ${transforms} */ `)}${statement}`;
-          },
-        });
+        .$extends(
+          extension(
+            "native-statement-transform",
+            unit(
+              (_unit, next) => {
+                transforms += 1;
+                const sent = statement(_unit);
+                return next(
+                  sent && sql`${sql.raw(`/* ${transforms} */ `)}${sent}`
+                );
+              },
+              ["statement"],
+              { rewrites: true }
+            )
+          )
+        );
       await settle(
         client.$transaction([
           client.$queryRaw(sql`SELECT ${1}`),
@@ -636,12 +656,12 @@ const SCENARIOS: ReadonlyArray<
           })
         )
         .$extends(observer("ordinary"))
-        .$extends({
-          name: "intercepted-native-error-dedup",
-          async query({ proceed }) {
-            return proceed();
-          },
-        });
+        .$extends(
+          extension(
+            "intercepted-native-error-dedup",
+            around(() => (run) => run())
+          )
+        );
       await settle(
         client.$transaction([
           client.record.findMany(),
@@ -663,12 +683,12 @@ const SCENARIOS: ReadonlyArray<
           })
         )
         .$extends(observer("ordinary"))
-        .$extends({
-          name: "successor-error-dedup",
-          async query({ proceed }) {
-            return proceed();
-          },
-        });
+        .$extends(
+          extension(
+            "successor-error-dedup",
+            around(() => (run) => run())
+          )
+        );
       await settle(
         client.$transaction([
           client.record.findMany(),
@@ -887,6 +907,7 @@ const SCENARIOS: ReadonlyArray<
         createClient({ schema, driver: new CacheDatabaseDriver() })
           .$extends(
             cache({
+              swr: staleWhileRevalidate,
               driver: cacheDriver,
               version: "official-parity",
               waitUntil: background.waitUntil,
@@ -933,21 +954,14 @@ const SCENARIOS: ReadonlyArray<
         createClient({ schema, driver: new CacheDatabaseDriver() })
           .$extends(
             cache({
+              swr: staleWhileRevalidate,
               driver: new GoldenCache(createTestClock()),
               version: "invalidate",
             })
           )
-          .$extends(
-            observer("cache-observer-before", () => {
-              throw new Error("contained observer failure");
-            })
-          )
+          .$extends(observer("cache-observer-before"))
           .$extends(instrumentation({ tracing: true }))
-          .$extends(
-            observer("cache-observer-after", () =>
-              Promise.reject(new Error("contained observer rejection"))
-            )
-          )
+          .$extends(observer("cache-observer-after"))
       );
       await settle(client.$invalidate("record:*", "one"));
       await settle(
@@ -969,6 +983,7 @@ const SCENARIOS: ReadonlyArray<
         createClient({ schema, driver: databaseDriver })
           .$extends(
             cache({
+              swr: staleWhileRevalidate,
               driver: cacheDriver,
               version: "swr-instrumentation",
               waitUntil: background.waitUntil,
@@ -1037,15 +1052,18 @@ describe("instrumentation golden transcript", () => {
     const completions: number[] = [];
     const client = createClient({ schema, driver: new StatementDriver() })
       .$extends(instrumentation({ logging: { query: logs.callback } }))
-      .$extends({
-        name: "real-clock-operation",
-        observe(unit, proceed) {
-          if (unit.kind !== "operation") return;
-          return proceed().then(({ durationMs }) => {
-            completions.push(durationMs);
-          });
-        },
-      });
+      .$extends(
+        extension(
+          "real-clock-operation",
+          unit(
+            (_unit, next) =>
+              next().then(({ duration }) => {
+                completions.push(duration);
+              }),
+            ["operation"]
+          )
+        )
+      );
     clients.push(client);
 
     await client.$queryRaw(sql`SELECT ${1}`);

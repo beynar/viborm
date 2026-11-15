@@ -1,7 +1,7 @@
 // Fixture (i) — pg-representative with `viborm/permissions` applied: its difference
 // from (c) is what governing an application costs. The policy is the guide's
 // blog (one actor schema, owner and an identity-provider claim), bound per
-// request with `$as`, with one read, one write and one `can`.
+// request with `$as`, with one read, one write and one `$access`.
 
 import { permissions } from "../../dist/permissions.mjs";
 import { createClient } from "../../dist/pg.mjs";
@@ -37,12 +37,10 @@ const blog = permissions({
   },
 });
 
-export const client = blog(
-  createClient({
-    schema: { user, post },
-    databaseUrl: "postgres://localhost:5432/app",
-  })
-);
+export const client = createClient({
+  schema: { user, post },
+  databaseUrl: "postgres://localhost:5432/app",
+}).$extends(blog);
 
 export async function run(session) {
   const call = client.$as({ userId: session.userId, admin: session.admin });
@@ -53,6 +51,9 @@ export async function run(session) {
   const created = await call.post.create({
     data: { title: "hello", authorId: session.userId },
   });
-  await call.post.can("update", { id: created.id });
+  await call.post.findUnique({
+    where: { id: created.id },
+    select: { $access: ["update"] },
+  });
   return users;
 }

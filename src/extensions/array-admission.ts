@@ -1,86 +1,123 @@
-import type {
-  QueryInterceptorExecutionControl,
-  TransactionWriteOutcomes,
-  WriteOutcome,
-  WriteOutcomeNotifications,
+/**
+ * The `admit` hooks of a chain whose parts concern a member of
+ * `$transaction([...])`. Where `around` parts may wrap a member, before the
+ * one executor (`@client/array-transaction`) sends anything, every member's
+ * handlers start and the array waits until each reached `run()` or failed: a
+ * refusal, a second `run()`, a late detached one or a handler that throws
+ * aborts the array, and nothing is sent. Where parts only hear a member's
+ * writes, nothing waits: each member's registration is staged and its child
+ * handed what tells it of the commit (`stageArray`).
+ */
+import {
+  type ArraySlot,
+  createArrayDeferred,
+  memberValue,
+} from "@client/array-transaction";
+import {
+  type TransactionOperationCapability,
+  transactionOperationOwner,
+} from "@query-engine/transaction-operation";
+import {
+  type AdmissionHooks,
+  type executePreparedQuery,
+  executeRegisteredQuery,
+  type TransactionScope,
+  type WriteOutcomeNotifications,
 } from "./query";
 
-export interface ArrayDeferred<Value> {
-  readonly promise: Promise<Value>;
-  reject(reason: unknown): void;
-  resolve(value: Value): void;
-}
+/** What admission reads and writes of a slot. */
+export type AdmissionSlot = Omit<ArraySlot, "operation" | "owner">;
 
-/** Extension-only state shared by native and fallback array coordination. */
-export interface ArrayAdmissionSlot {
-  admitted: boolean;
-  admissionFailures?: unknown[];
-  readonly child: ArrayDeferred<unknown>;
-  certainty?: WriteOutcome["certainty"];
-  notifications?: WriteOutcomeNotifications;
-  observation?: ArrayDeferred<unknown>;
-  query?: Promise<unknown>;
-}
-
-type StartArrayQuery<Slot extends ArrayAdmissionSlot> = (
-  slot: Slot,
-  child: (notifications?: WriteOutcomeNotifications) => Promise<unknown>,
-  control: QueryInterceptorExecutionControl
-) => Promise<unknown>;
-
-/** Create one privately observed result rail for array admission. */
-export function createArrayDeferred<Value>(): ArrayDeferred<Value> {
-  let settled = false;
-  // Promise executors run synchronously; TypeScript does not model that guarantee.
-  let rejectPromise!: (reason?: unknown) => void;
-  let resolvePromise!: (value: Value | PromiseLike<Value>) => void;
-  const promise = new Promise<Value>((resolve, reject) => {
-    resolvePromise = resolve;
-    rejectPromise = reject;
+/** Whether a part intercepts one of the members, once they are prepared. */
+export function interceptsArray(
+  operations: readonly TransactionOperationCapability[]
+): boolean {
+  return operations.some((operation) => {
+    const { handlers, registration } =
+      transactionOperationOwner(operation).around(operation);
+    return handlers?.length || registration;
   });
-  promise.catch(() => undefined);
-  return {
-    promise,
-    reject(reason) {
-      if (settled) return;
-      settled = true;
-      rejectPromise(reason);
-    },
-    resolve(value) {
-      if (settled) return;
-      settled = true;
-      resolvePromise(value);
-    },
-  };
 }
 
 /**
- * Start every query onion and release the array only after every member has
- * reached its authoritative child. Failures are returned in stable order so
- * the client keeps ownership of its public transaction error composition.
+ * The hook of a chain whose parts hear writes and wrap no call: a member with
+ * a registration runs under it, its child reached at once, so the array has
+ * nothing to wait for. Its value is then the registration's run, whose
+ * rejection the array reads in member order.
  */
-export async function admitArrayQueries<Slot extends ArrayAdmissionSlot>(
-  slots: readonly Slot[],
-  outcomes: TransactionWriteOutcomes,
-  start: StartArrayQuery<Slot>
+export async function stageArray(
+  slots: readonly ArraySlot[],
+  scope: TransactionScope
+): Promise<undefined> {
+  for (const slot of slots) {
+    const { write, registration } = slot.owner.around(slot.operation);
+    if (registration === undefined) continue;
+    const child = (notifications?: WriteOutcomeNotifications) => {
+      slot.notifications = notifications;
+      return slot.child.promise;
+    };
+    const query = executeRegisteredQuery(
+      undefined,
+      undefined,
+      child,
+      write,
+      scope,
+      undefined,
+      registration
+    );
+    slot.query = query;
+    // Read by the array in member order; one the array never reaches (it
+    // failed before) is settled here.
+    query.catch(ignore);
+  }
+  return undefined;
+}
+
+const ignore = (): undefined => undefined;
+
+/**
+ * The hook: each member's handlers started, in member order, by `execute`
+ * (the chain's runner of a prepared call), which stages what it registered;
+ * a member with nothing to intercept is admitted at once.
+ */
+export function admitArray(
+  slots: readonly ArraySlot[],
+  scope: TransactionScope,
+  execute: typeof executePreparedQuery
 ): Promise<readonly unknown[] | undefined> {
-  let firstFailure: unknown;
-  let hasFailure = false;
+  const facts = slots.map((slot) => slot.owner.around(slot.operation));
+  return admitArrayQueries(slots, (slot, child, hooks) => {
+    const { context, handlers, write, registration } =
+      facts[slots.indexOf(slot)]!;
+    return handlers?.length || registration
+      ? execute(context, handlers, child, write, scope, hooks, registration)
+      : child();
+  });
+}
+
+/**
+ * Start every member's handlers and release the array only after each has
+ * reached its child. On a failure, every child rejects with the first one,
+ * and the distinct failures each member reported return in member order.
+ */
+export async function admitArrayQueries<Slot extends AdmissionSlot>(
+  slots: readonly Slot[],
+  start: (
+    slot: Slot,
+    child: (notifications?: WriteOutcomeNotifications) => Promise<unknown>,
+    hooks: AdmissionHooks
+  ) => Promise<unknown>
+): Promise<readonly unknown[] | undefined> {
+  let failed: { readonly failure: unknown } | undefined;
   let remaining = slots.length;
   const signal = createArrayDeferred<void>();
   if (remaining === 0) signal.resolve();
 
   for (const slot of slots) {
     const reportAdmissionFailure = (failure: unknown): void => {
-      const failures = slot.admissionFailures;
-      if (failures === undefined) {
-        slot.admissionFailures = [failure];
-      } else if (!failures.includes(failure)) {
-        failures.push(failure);
-      }
-      if (hasFailure) return;
-      hasFailure = true;
-      firstFailure = failure;
+      const failures = (slot.admissionFailures ??= []);
+      if (!failures.includes(failure)) failures.push(failure);
+      failed ??= { failure };
       signal.reject(failure);
     };
     let query: Promise<unknown>;
@@ -89,11 +126,9 @@ export async function admitArrayQueries<Slot extends ArrayAdmissionSlot>(
         slot,
         (notifications) => {
           slot.notifications = notifications;
-          if (!slot.admitted) {
-            slot.admitted = true;
-            remaining -= 1;
-            if (remaining === 0) signal.resolve();
-          }
+          // Reached once: a second `run()` is refused before its child.
+          remaining -= 1;
+          if (remaining === 0) signal.resolve();
           return slot.child.promise;
         },
         {
@@ -106,34 +141,22 @@ export async function admitArrayQueries<Slot extends ArrayAdmissionSlot>(
       query = Promise.reject(error);
     }
     slot.query = query;
-    if (slot.observation !== undefined) {
-      query
-        .then(slot.observation.resolve, slot.observation.reject)
-        .catch(() => undefined);
-    }
     query.catch(reportAdmissionFailure);
   }
 
   try {
     await signal.promise;
+    // A handler that fails in the turn its member was admitted still aborts.
     await Promise.resolve();
-    if (hasFailure) throw firstFailure;
+    if (failed) throw failed.failure;
     return undefined;
-  } catch (fallback) {
-    outcomes.discardAll();
-    for (const slot of slots) slot.child.reject(fallback);
-    await Promise.allSettled(slots.map(readArrayQuery));
+  } catch (failure) {
+    for (const slot of slots) slot.child.reject(failure);
+    await Promise.allSettled(slots.map(memberValue));
     const reported: unknown[] = [];
-    for (const slot of slots) {
-      for (const failure of slot.admissionFailures ?? []) {
+    for (const slot of slots)
+      for (const failure of slot.admissionFailures ?? [])
         if (!reported.includes(failure)) reported.push(failure);
-      }
-    }
     return reported;
   }
-}
-
-/** Read the public query onion, or its authoritative child before attachment. */
-export function readArrayQuery(slot: ArrayAdmissionSlot): Promise<unknown> {
-  return slot.query ?? slot.child.promise;
 }

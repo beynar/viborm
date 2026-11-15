@@ -4,13 +4,6 @@
  * Provides pretty console output or custom callbacks per log level.
  */
 
-import {
-  type DiagnosticDisclosure,
-  sanitizeAllowedRecord,
-  sanitizeDiagnosticParameters,
-  sanitizeErrorForLogging,
-} from "@errors";
-import { isString } from "@validation/value-guards";
 import type {
   LogEvent,
   LoggingConfig,
@@ -18,33 +11,41 @@ import type {
   LogLevelHandler,
 } from "./types";
 
-// `deprecation` and `notice` carry ORM-authored notice text (constant wording
-// around schema and driver names, never user data or query text), so they are
-// disclosed on the warning channel unconditionally.
-const LOG_META_KEYS = new Set(["deprecation", "event", "notice", "status"]);
+// The words a log's `meta` may carry, and the values they take: a note's
+// other keys and values are left out, whoever noted them, so no note can
+// bring statement text or a parameter into a log.
+const EVENTS: ReadonlySet<unknown> = new Set([
+  "bypass",
+  "hit",
+  "miss",
+  "revalidate",
+]);
+const STATUSES: ReadonlySet<unknown> = new Set([
+  "cache-set-failed",
+  "error",
+  "fresh",
+  "stale",
+  "start",
+  "success",
+]);
 
-/** The log event metadata a logger may present: known keys and values only. */
-export function sanitizeLogMetadata(
-  value: Record<string, unknown>,
-  disclosure?: DiagnosticDisclosure
+/** The log metadata a logger presents: known keys and values only. */
+export function presentLogMetadata(
+  meta: Readonly<Record<string, unknown>>
 ): Record<string, unknown> {
-  return sanitizeAllowedRecord(value, LOG_META_KEYS, disclosure, true);
+  const { event, status } = meta;
+  return {
+    ...(EVENTS.has(event) ? { event } : {}),
+    ...(STATUSES.has(status) ? { status } : {}),
+  };
 }
 
 /**
  * Logger interface for internal use
  */
 export interface Logger {
-  /** Log an event with explicit level */
+  /** Log an event at its level */
   log(event: LogEvent): void;
-  /** Log a query event */
-  query(event: Omit<LogEvent, "level">): void;
-  /** Log a cache event */
-  cache(event: Omit<LogEvent, "level">): void;
-  /** Log a warning event */
-  warn(event: Omit<LogEvent, "level">): void;
-  /** Log an error event */
-  error(event: Omit<LogEvent, "level">): void;
   /** Check if a specific level is enabled */
   isLevelEnabled(level: LogLevel): boolean;
 }
@@ -71,12 +72,9 @@ function prettyLog(event: LogEvent): void {
       console.log(
         "[CACHE]",
         time,
-        isString(event.meta?.event) ? event.meta.event : "unknown",
-        isString(event.meta?.status) ? `(${event.meta.status})` : ""
+        typeof event.meta?.event === "string" ? event.meta.event : "unknown",
+        typeof event.meta?.status === "string" ? `(${event.meta.status})` : ""
       );
-      break;
-    case "warning":
-      console.warn("[WARN]", time, target, formatDiagnostic(event.meta));
       break;
     case "error":
       console.error("[ERROR]", time, target, duration);
@@ -86,113 +84,56 @@ function prettyLog(event: LogEvent): void {
   }
 }
 
-function formatDiagnostic(value: unknown): string {
-  return value === undefined ? "" : String(JSON.stringify(value));
-}
-
 /**
- * Get the handler for a specific level from config
- * Falls back to `all` handler if specific level is not defined
- */
-function getHandler(
-  config: LoggingConfig,
-  level: LogLevel
-): LogLevelHandler | undefined {
-  const specific = config[level];
-  if (specific !== undefined) return specific;
-  return config.all;
-}
-
-/**
- * Create a logger instance from config
+ * Create a logger instance from config: a level is handled by its own
+ * handler, or else by `all`.
  */
 export function createLogger(config: LoggingConfig): Logger {
-  const disclosure = Object.freeze({
-    includeParams: config.includeParams === true,
-    includeSql: config.includeSql === true,
-  });
-  const handlers: Readonly<Record<LogLevel, LogLevelHandler | undefined>> =
-    Object.freeze({
-      cache: getHandler(config, "cache"),
-      error: getHandler(config, "error"),
-      query: getHandler(config, "query"),
-      warning: getHandler(config, "warning"),
-    });
-
-  function sanitizeEvent(
-    event: LogEvent | Omit<LogEvent, "level">,
-    level: LogLevel
-  ): LogEvent {
-    const sanitizedParams =
-      disclosure.includeParams && event.params
-        ? sanitizeDiagnosticParameters(event.params, disclosure)
-        : undefined;
-    return {
-      level,
-      timestamp: event.timestamp,
-      duration: event.duration,
-      model: event.model,
-      operation: event.operation,
-      correlationId: event.correlationId,
-      sql: disclosure.includeSql ? event.sql : undefined,
-      params: sanitizedParams,
-      error: event.error
-        ? sanitizeErrorForLogging(event.error, disclosure)
-        : undefined,
-      meta: event.meta
-        ? sanitizeLogMetadata(event.meta, disclosure)
-        : undefined,
-    };
-  }
-
-  function emit(
-    event: LogEvent | Omit<LogEvent, "level">,
-    level: LogLevel
-  ): void {
-    try {
-      const handler = handlers[level];
-      if (!handler) return;
-      const sanitized = sanitizeEvent(event, level);
-      const defaultLog = () => {
-        try {
-          prettyLog(sanitized);
-        } catch {
-          // Console output remains observational even when invoked later.
-        }
-      };
-      if (handler === true) {
-        defaultLog();
-      } else {
-        Promise.resolve(handler(sanitized, defaultLog)).catch(() => undefined);
-      }
-    } catch {
-      // Logging is observational and cannot alter application behavior.
-    }
-  }
+  const handlerOf = (level: LogLevel): LogLevelHandler | undefined =>
+    config[level] ?? config.all;
 
   return Object.freeze({
     log(event: LogEvent): void {
-      emit(event, event.level);
-    },
-
-    query(event: Omit<LogEvent, "level">): void {
-      emit(event, "query");
-    },
-
-    cache(event: Omit<LogEvent, "level">): void {
-      emit(event, "cache");
-    },
-
-    warn(event: Omit<LogEvent, "level">): void {
-      emit(event, "warning");
-    },
-
-    error(event: Omit<LogEvent, "level">): void {
-      emit(event, "error");
+      try {
+        const handler = handlerOf(event.level);
+        if (!handler) return;
+        // The presentation made every field safe to show (`disclosed`, the
+        // `parameters` snapshot, `presentLogMetadata`) and left out what the
+        // logging channel does not disclose: an event is handed on as it is
+        // made, in one shape.
+        const presented: LogEvent = {
+          level: event.level,
+          timestamp: event.timestamp,
+          duration: event.duration,
+          model: event.model,
+          operation: event.operation,
+          correlationId: event.correlationId,
+          sql: event.sql,
+          params: event.params,
+          error: event.error,
+          meta: event.meta,
+        };
+        const defaultLog = () => {
+          try {
+            prettyLog(presented);
+          } catch {
+            // Console output remains observational even when invoked later.
+          }
+        };
+        if (handler === true) {
+          defaultLog();
+        } else {
+          Promise.resolve(handler(presented, defaultLog)).catch(
+            () => undefined
+          );
+        }
+      } catch {
+        // Logging is observational and cannot alter application behavior.
+      }
     },
 
     isLevelEnabled(level: LogLevel): boolean {
-      return handlers[level] !== undefined;
+      return handlerOf(level) !== undefined;
     },
   });
 }

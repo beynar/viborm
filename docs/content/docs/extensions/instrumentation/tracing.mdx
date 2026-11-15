@@ -1,6 +1,6 @@
 ---
 title: Tracing
-description: OpenTelemetry spans from protected VibORM lifecycle facts
+description: OpenTelemetry spans from VibORM's lifecycle units
 icon: radar
 ---
 
@@ -107,11 +107,12 @@ inside the logical operation span. A native array is not represented as a
 transaction. N public physical statement units can feed one native provider
 execute span and one query log.
 
-Statement observation begins before statement transformation. The execute span
-starts later, immediately before provider execution, and therefore records the
-exact transformed/rendered SQL when disclosure is enabled. Verbatim unsafe raw
-has no statement-transform authority, but its physical execution is still
-observed and traced without implicit SQL or parameter disclosure.
+The `statement` unit, and its execute span, begin after statement rewriting
+and rendering, immediately before provider execution, so the span records the
+exact rewritten and rendered SQL when disclosure is enabled. Verbatim unsafe
+raw is never rewritten; its physical execution is still traced, and its text
+and parameters appear only where `includeSql` and `includeParams` disclose
+them.
 
 ## Attributes and correlation
 
@@ -136,7 +137,7 @@ boundaries normalize or attach commit certainty to successor errors.
 Transaction completion distinguishes acknowledged commit, dispatched but
 unacknowledged commit, and pre-commit rollback. Savepoints never claim durable
 commit certainty. A committed native provider result remains committed if
-later result parsing, cache publication, or interceptor post-work fails.
+later result parsing, cache publication, or a second moment's post-work fails.
 
 Tracing failures are contained. OTel setup, provider callbacks, span mutation,
 or span completion cannot block provider release or alter the application.

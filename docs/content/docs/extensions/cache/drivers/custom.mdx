@@ -5,7 +5,7 @@ description: Implement your own cache driver for any backend by extending CacheD
 
 ## Interface
 
-```typescript
+```typescript no-check
 import { CacheDriver, type CacheEntry } from "viborm/cache";
 
 abstract class CacheDriver {
@@ -30,16 +30,24 @@ abstract class CacheDriver {
 ### CacheEntry Type
 
 ```typescript
-interface CacheEntry<T = unknown> {
-  value: T;           // The cached data
-  createdAt: number;  // Timestamp when cached (Date.now())
-  ttl: number;        // Original TTL in milliseconds
-}
+import type { CacheEntry } from "viborm/cache";
+
+const now = Date.now();
+const entry: CacheEntry = {
+  value: [{ id: "u1" }],    // The cached data: for a read, the driver's rows as JSON data
+  createdAt: now,           // Timestamp when cached (Date.now())
+  ttl: 60_000,              // Original TTL in milliseconds
+  identity: "…",            // Official entries: the read's full identity, checked before decoding
+  expiresAt: now + 60_000,  // Logical expiry, independent of a backend's minimum physical TTL
+};
 ```
+
+A backend stores the entry as it is given and returns it unchanged: the
+official cache checks `identity` and `expiresAt` itself.
 
 ## Redis Example
 
-```typescript
+```typescript no-check
 import { CacheDriver, type CacheEntry } from "viborm/cache";
 import { Redis } from "ioredis";
 
@@ -94,7 +102,7 @@ export class RedisCache extends CacheDriver {
 
 ### Usage
 
-```typescript
+```typescript no-check
 import { createClient } from "viborm";
 import { cache } from "viborm/cache";
 import { Redis } from "ioredis";
@@ -111,7 +119,7 @@ const client = createClient({ schema: { user, post }, driver }).$extends(
 
 For serverless environments, Upstash provides a REST-based Redis:
 
-```typescript
+```typescript no-check
 import { CacheDriver, type CacheEntry } from "viborm/cache";
 import { Redis } from "@upstash/redis";
 
@@ -162,7 +170,7 @@ export class UpstashCache extends CacheDriver {
 
 ### Usage with Vercel
 
-```typescript
+```typescript no-check
 import { createClient } from "viborm";
 import { cache } from "viborm/cache";
 import { Redis } from "@upstash/redis";
@@ -180,7 +188,7 @@ const client = createClient({ schema: { user }, driver }).$extends(
 
 ### 1. Call `super()` with a Driver Name
 
-```typescript
+```typescript no-check
 constructor(/* config */) {
   super("my-driver");  // Used for logging/debugging
   // ...
@@ -191,7 +199,7 @@ constructor(/* config */) {
 
 Return `null` when a key doesn't exist, not an error:
 
-```typescript
+```typescript no-check
 protected async get<T>(key: string): Promise<CacheEntry<T> | null> {
   const data = await this.backend.get(key);
   return data ?? null;  // null, not undefined
@@ -202,7 +210,7 @@ protected async get<T>(key: string): Promise<CacheEntry<T> | null> {
 
 The `storageTtl` parameter is already calculated (the user TTL, extended by the stale window when SWR is enabled). Use it directly:
 
-```typescript
+```typescript no-check
 protected async set<T>(key: string, storageTtl: number, entry: CacheEntry<T>) {
   // storageTtl is in milliseconds
   await this.backend.set(key, entry, { ttl: storageTtl });
@@ -211,7 +219,7 @@ protected async set<T>(key: string, storageTtl: number, entry: CacheEntry<T>) {
 
 ### 4. Handle Empty Operations Gracefully
 
-```typescript
+```typescript no-check
 protected async delete(keys: string[]): Promise<void> {
   if (keys.length === 0) return;  // No-op for empty array
   await this.backend.del(...keys);
@@ -222,7 +230,7 @@ protected async delete(keys: string[]): Promise<void> {
 
 The `clear` method receives a prefix like `viborm:user`. It should delete all keys starting with that prefix:
 
-```typescript
+```typescript no-check
 protected async clear(prefix: string): Promise<void> {
   // Match: viborm:user:findMany:abc, viborm:user:findFirst:xyz, etc.
   const keys = await this.backend.keys(`${prefix}*`);
@@ -232,38 +240,42 @@ protected async clear(prefix: string): Promise<void> {
 
 ## Testing Your Driver
 
-```typescript
+```typescript no-check
 import { describe, it, expect } from "vitest";
+import { getEntry, invalidateEntries, setEntry } from "viborm/cache";
 import { MyCache } from "./my-cache";
+
+// The driver's unscoped storage is reached through functions of the
+// driver, which an application that never calls them does not carry.
 
 describe("MyCache", () => {
   it("stores and retrieves entries", async () => {
     const cache = new MyCache(/* config */);
 
-    await cache._set("test-key", { id: 1 }, { ttl: 60000 });
-    const entry = await cache._get("test-key");
+    await setEntry(cache, "test-key", { id: 1 }, { ttl: 60000 });
+    const entry = await getEntry(cache, "test-key");
 
     expect(entry?.value).toEqual({ id: 1 });
   });
 
   it("returns null for missing keys", async () => {
     const cache = new MyCache(/* config */);
-    const entry = await cache._get("nonexistent");
+    const entry = await getEntry(cache, "nonexistent");
     expect(entry).toBeNull();
   });
 
   it("clears by prefix", async () => {
     const cache = new MyCache(/* config */);
 
-    await cache._set("viborm:user:a", {}, { ttl: 60000 });
-    await cache._set("viborm:user:b", {}, { ttl: 60000 });
-    await cache._set("viborm:post:c", {}, { ttl: 60000 });
+    await setEntry(cache, "viborm:user:a", {}, { ttl: 60000 });
+    await setEntry(cache, "viborm:user:b", {}, { ttl: 60000 });
+    await setEntry(cache, "viborm:post:c", {}, { ttl: 60000 });
 
-    await cache._invalidate("user", {});
+    await invalidateEntries(cache, "user", {});
 
-    expect(await cache._get("viborm:user:a")).toBeNull();
-    expect(await cache._get("viborm:user:b")).toBeNull();
-    expect(await cache._get("viborm:post:c")).not.toBeNull();
+    expect(await getEntry(cache, "viborm:user:a")).toBeNull();
+    expect(await getEntry(cache, "viborm:user:b")).toBeNull();
+    expect(await getEntry(cache, "viborm:post:c")).not.toBeNull();
   });
 });
 ```

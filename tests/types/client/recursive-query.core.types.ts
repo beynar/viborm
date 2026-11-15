@@ -4,6 +4,7 @@ import { createClient } from "@client/client";
 import { defaultOmit } from "@client/default-omit-extension";
 import { PGliteDriver } from "@drivers/pglite";
 import { s } from "@schema";
+import { extension } from "@src/index";
 
 type Equal<Left, Right> =
   (<Value>() => Value extends Left ? 1 : 2) extends <
@@ -778,14 +779,14 @@ const _transactionTypo = () =>
     })
   );
 
-const one = { name: "rq-one" } as const;
+const one = extension("rq-one");
 const extendedOnce = client.$extends(one);
 const extendedFive = client
   .$extends(one)
-  .$extends({ name: "rq-two" })
-  .$extends({ name: "rq-three" })
-  .$extends({ name: "rq-four" })
-  .$extends({ name: "rq-five" });
+  .$extends(extension("rq-two"))
+  .$extends(extension("rq-three"))
+  .$extends(extension("rq-four"))
+  .$extends(extension("rq-five"));
 const onceExtended = () =>
   extendedOnce.node.findMany({
     include: { children: { recurse: { depth: false } } },
@@ -836,9 +837,7 @@ cachedClient.$withCache().node.findMany({
 });
 
 // A client default omit reaches every repeated level through the one node.
-const omitting = client.$extends(
-  defaultOmit<typeof schema>()({ node: { label: true } })
-);
+const omitting = client.$extends(defaultOmit({ node: { label: true } }));
 const omittedRead = () =>
   omitting.node.findMany({
     include: { children: { recurse: { depth: false } } },

@@ -148,9 +148,6 @@ describe("D-15 retirement closure: no surviving file reaches a deleted owner", (
       existsSync(join(QUERY_ENGINE, "raptor3/shared/parse-boundary.ts"))
     ).toBe(true);
     expect(names(join(QUERY_ENGINE, "result"))).toEqual([
-      "cache-json-codec.ts",
-      "cache-snapshot-structure.ts",
-      "cache-value-codecs.ts",
       "groupby-fields.ts",
       "result-aggregate-leaf.ts",
       "result-column.ts",

@@ -20,7 +20,16 @@
  */
 
 import type { AnyDriver } from "@src/drivers/exports";
-import { createClient, defineExtension, s } from "@src/index";
+import {
+  accepts,
+  arg,
+  args,
+  createClient,
+  defaults,
+  extension,
+  s,
+  writes,
+} from "@src/index";
 import { v } from "@src/validation";
 import {
   audit,
@@ -81,26 +90,28 @@ const base = createClient({ schema, driver });
 // An inline declaration keeps its model names: only the models it names are
 // narrowed.
 const stamped = base.$extends(
-  defineExtension({
-    name: "audit",
-    controls: { actor: { schema: v.string(), required: true, on: "writes" } },
-    data: {
-      models: {
-        post: {
-          create: { createdBy: { control: "actor" } },
-          update: {
-            updatedBy: { control: "actor" },
-            version: { increment: 1 },
-          },
+  extension(
+    "audit",
+    args({
+      actor: accepts(v.string())
+        .on(writes)
+        .required(["post", "note", "ledger"]),
+    }),
+    defaults({
+      post: {
+        create: { createdBy: arg("actor") },
+        update: {
+          updatedBy: arg("actor"),
+          version: { increment: 1 },
         },
-        note: {
-          create: { createdBy: { control: "actor" } },
-          update: { updatedBy: { control: "actor" } },
-        },
-        ledger: { create: { owner: { control: "actor" } } },
       },
-    },
-  })
+      note: {
+        create: { createdBy: arg("actor") },
+        update: { updatedBy: arg("actor") },
+      },
+      ledger: { create: { owner: arg("actor") } },
+    })
+  )
 );
 
 export async function aStampedFieldIsTheCallersWhenWritten() {
@@ -287,25 +298,10 @@ export async function aRequiredStampedFieldMayBeLeftOut() {
 export function aMisspeltModelIsAnEditorError() {
   base.$extends(
     // @ts-expect-error - no model "psot" in this schema
-    defineExtension({
-      name: "typo",
-      data: {
-        models: {
-          psot: { create: { createdBy: "system" } },
-        },
-      },
-    })
+    extension("typo", defaults({ psot: { create: { createdBy: "system" } } }))
   );
   // The schema-bound form refuses it at the model, where it is written.
-  defineExtension<typeof schema>()({
-    name: "typo",
-    data: {
-      models: {
-        // @ts-expect-error - no model "psot" in this schema
-        psot: { create: { createdBy: "system" } },
-      },
-    },
-  });
+  extension("typo", defaults({ psot: { create: { createdBy: "system" } } }));
 }
 
 // A recipe keeps the model names it is given, with no `as const`: the
@@ -362,13 +358,11 @@ export async function optimisticLockTypes() {
 // Two inline declarations on one client: each one's fields are the caller's
 // when written.
 const both = stamped.$extends(
-  defineExtension({
-    name: "tenancy",
-    controls: { tenant: { schema: v.string(), required: true } },
-    data: {
-      models: { post: { create: { tenantId: { control: "tenant" } } } },
-    },
-  })
+  extension(
+    "tenancy",
+    args({ tenant: accepts(v.string()).required(["post"]) }),
+    defaults({ post: { create: { tenantId: arg("tenant") } } })
+  )
 );
 
 export async function twoExtensions() {

@@ -1,11 +1,3 @@
-const compareLists = (a: readonly unknown[], b: readonly unknown[]): number => {
-  for (const [index, value] of a.entries()) {
-    const compared = compareValues(value, b[index]);
-    if (compared !== 0) return compared;
-  }
-  return 0;
-};
-
 /**
  * One list's new keys, as respacing's statement computes them on SQL, for a database
  * that reads the rows and writes them itself.
@@ -21,6 +13,8 @@ export interface PlannedMember {
   readonly order: readonly unknown[];
   readonly movable: boolean;
 }
+
+const DIGIT_KEY = /^[0-9]{2,}$/;
 
 const compareValues = (a: unknown, b: unknown): number => {
   if (a === b) return 0;
@@ -43,57 +37,61 @@ export function placed(
   const current = members
     .map((member, at) => ({ member, at }))
     .sort(
-      (a, b) =>
-        compareValues(a.member.key, b.member.key) ||
-        compareLists(a.member.identity, b.member.identity)
+      ({ member: a }, { member: b }) =>
+        compareValues(a.key, b.key) ||
+        // Two identities, field by field: the first field that differs decides.
+        a.identity.reduce<number>(
+          (decided, value, index) =>
+            decided || compareValues(value, b.identity[index]),
+          0
+        )
     );
   const bound = ({ member }: (typeof current)[number]) =>
-    !member.movable && isDigits(member.key);
+    !member.movable &&
+    typeof member.key === "string" &&
+    DIGIT_KEY.test(member.key);
   const anyBound = current.some(bound);
   const places: (string | null)[] = [];
-  let run: number | undefined;
   let lower: string | null = null;
-  const close = (upper: string | null, count: number) => {
-    if (count === 0) return;
-    let keys: readonly (string | null)[];
-    try {
-      keys = keysBetween(lower, upper, count);
-    } catch {
-      keys = Array.from({ length: count }, () => null);
-    }
-    places.push(...keys);
-  };
   let count = 0;
+  const close = (upper: string | null) => {
+    if (count === 0) return;
+    try {
+      places.push(...keysBetween(lower, upper, count));
+    } catch {
+      places.push(...new Array<null>(count).fill(null));
+    }
+  };
   for (const entry of current) {
     if (bound(entry)) {
-      close(entry.member.key as string, count);
+      // `bound` held: the key is a string (a predicate on a destructured
+      // member cannot say so).
+      close(entry.member.key as string);
       count = 0;
+      // The same key.
       lower = entry.member.key as string;
     } else if (entry.member.movable) {
       count += 1;
-      run = (run ?? -1) + 1;
-      if (!anyBound) places.push(`${String(run).length}${run}`);
+      if (!anyBound)
+        places.push(`${String(places.length).length}${places.length}`);
     }
   }
-  if (anyBound) close(null, count);
-  const movable = current.filter((entry) => entry.member.movable);
+  if (anyBound) close(null);
   // A stable sort: members equal in the order keep their places.
-  const picked = [...movable].sort((a, b) => {
-    for (const [index, way] of ways.entries()) {
-      const compared = compareValues(
-        a.member.order[index],
-        b.member.order[index]
-      );
-      if (compared !== 0) return way === "desc" ? -compared : compared;
-    }
-    return 0;
-  });
+  const picked = current
+    .filter((entry) => entry.member.movable)
+    .sort((a, b) => {
+      for (const [index, way] of ways.entries()) {
+        const compared = compareValues(
+          a.member.order[index],
+          b.member.order[index]
+        );
+        if (compared !== 0) return way === "desc" ? -compared : compared;
+      }
+      return 0;
+    });
   const keys: (string | null)[] = members.map(() => null);
   for (const [slot, entry] of picked.entries())
     keys[entry.at] = places[slot] ?? null;
   return keys;
 }
-
-const isDigits = (key: unknown): key is string =>
-  typeof key === "string" && DIGIT_KEY.test(key);
-const DIGIT_KEY = /^[0-9]{2,}$/;

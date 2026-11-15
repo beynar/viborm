@@ -27,7 +27,6 @@ import type {
   QueryExecutionContext,
   QueryResult,
 } from "@drivers/types";
-import { appendResolvedExtension } from "@extensions/chain";
 import {
   ATTR_DB_QUERY_PARAMETER_PREFIX,
   ATTR_DB_QUERY_TEXT,
@@ -35,10 +34,12 @@ import {
   SPAN_EXECUTE,
 } from "@instrumentation/spans";
 import { sql } from "@sql";
+import { extension, statement, unit } from "@src/index";
 import {
   type InstrumentationConfig,
   instrumentation,
 } from "@src/instrumentation/exports";
+import { appendExtension } from "@tests/fixtures/extension-chain";
 import {
   captureLogs,
   type OtelRecorder,
@@ -67,10 +68,10 @@ function held() {
 function observedContext(
   config: InstrumentationConfig,
   values: QueryExecutionContext,
-  companion?: Readonly<Record<string, unknown>>
+  companion?: unknown
 ): QueryExecutionContext {
-  let chain = appendResolvedExtension(undefined, instrumentation(config), {});
-  if (companion) chain = appendResolvedExtension(chain, companion, {});
+  let chain = appendExtension(undefined, instrumentation(config), {});
+  if (companion) chain = appendExtension(chain, companion, {});
   return createExecutionContext(values, undefined, chain);
 }
 
@@ -160,11 +161,17 @@ async function waitFor(check: () => boolean): Promise<void> {
 }
 
 /** One extension that appends a comment to every statement it is given. */
-const taggingExtension = {
-  name: "statement-tagger",
-  statement: ({ statement }: { statement: unknown }) =>
-    sql`${statement} /* tagged */`,
-};
+const taggingExtension = extension(
+  "statement-tagger",
+  unit(
+    (u, next) => {
+      const sent = statement(u);
+      return next(sent && sql`${sent} /* tagged */`);
+    },
+    ["statement"],
+    { rewrites: true }
+  )
+);
 
 describe("observed statement disclosure", () => {
   test("logs one query event per observed statement, per the logging policy", async () => {

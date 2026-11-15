@@ -9,10 +9,11 @@
  */
 
 import { ClientInitializationError } from "@errors";
-import { withRows } from "@extensions/rows-runtime";
+import { check, extension, rule } from "@src/index";
 import {
   createProducedRowClient,
-  policy,
+  policyArgs,
+  policyRules,
   runProducedRowBehavior,
 } from "@tests/contracts/engine/query/produced-row-behavior";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
@@ -22,15 +23,12 @@ import {
 } from "@tests/providers/local/sqlite3-fixtures";
 import { afterEach, describe, expect, test } from "vitest";
 
-// These definitions are stated as plain objects: what reads their rows is brought here.
-withRows();
-
 runProducedRowBehavior({
   name: "SQLite3",
   createDriver: createInMemorySQLite3Driver,
 });
 runProducedRowBehavior({
-  name: "SQLite3, verbs declared lazily",
+  name: "SQLite3, rules declared lazily",
   createDriver: createInMemorySQLite3Driver,
   lazy: true,
 });
@@ -44,7 +42,7 @@ runProducedRowBehavior({
   generatedKeys: false,
 });
 
-describe("rows.verbs placement, moves and acyclic relations: admitted when the extension is applied", () => {
+describe("rule moves and acyclic relations: admitted when the extension is applied", () => {
   const client = () =>
     createProducedRowClient(createInMemorySQLite3Driver()) as unknown as {
       $extends(definition: object): unknown;
@@ -54,19 +52,13 @@ describe("rows.verbs placement, moves and acyclic relations: admitted when the e
   afterEach(async () => {
     for (const base of opened.splice(0)) await base.$disconnect();
   });
-  const refusal = (entry: object) => {
+  /** The policy with `item`'s entry changed by `change`, applied: its refusal. */
+  const refusal = (change: (entry: typeof policyRules.item) => object) => {
     const base = client();
+    // Each changed entry is one the types refuse: the refusal tested is the runtime's.
+    const rules = { ...policyRules, item: change(policyRules.item) } as never;
     try {
-      base.$extends({
-        ...policy,
-        rows: {
-          ...policy.rows,
-          verbs: {
-            ...policy.rows.verbs,
-            item: { ...policy.rows.verbs.item, ...entry },
-          },
-        },
-      });
+      base.$extends(extension("policy", policyArgs, rule(rules)));
     } catch (error) {
       return error as ClientInitializationError;
     } finally {
@@ -75,25 +67,23 @@ describe("rows.verbs placement, moves and acyclic relations: admitted when the e
     throw new Error("expected the definition to be refused");
   };
 
-  test("a placement or a move names one of the model's predicates, and a move one of its fields", () => {
-    expect(refusal({ place: "nope" })).toBeInstanceOf(
-      ClientInitializationError
-    );
-    expect(refusal({ place: "nope" }).message).toBe(
-      'Extension "policy" rows.verbs.item at "place": names unknown predicate "nope".'
-    );
-    expect(refusal({ moves: { folderId: "nope" } }).message).toBe(
-      'Extension "policy" rows.verbs.item at "moves.folderId": names unknown predicate "nope".'
-    );
-    expect(refusal({ moves: { shelf: "edit" } }).message).toBe(
-      'Extension "policy" rows.verbs.item at "moves.shelf": names an unknown field.'
+  test("a move names one of the model's fields", () => {
+    const moved = refusal((item) => ({
+      ...item,
+      update: { ...item.update, fields: { shelf: { check: check({}) } } },
+    }));
+    expect(moved).toBeInstanceOf(ClientInitializationError);
+    expect(moved.message).toBe(
+      'Extension "policy" rule.item: update.fields names unknown field "shelf".'
     );
   });
 
   test("an acyclic relation is a to-one relation of the model to itself that holds its key", () => {
     for (const relation of ["folder", "missing"])
-      expect(refusal({ acyclic: [relation] }).message).toBe(
-        `Extension "policy" rows.verbs.item at "acyclic.${relation}": names no to-one relation of the model to itself holding its key.`
+      expect(
+        refusal((item) => ({ ...item, acyclic: [relation] })).message
+      ).toBe(
+        `Extension "policy" rule.item.acyclic.${relation}: names no to-one relation of the model to itself holding its key.`
       );
   });
 });

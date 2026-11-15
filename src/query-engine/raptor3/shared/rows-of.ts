@@ -1,7 +1,7 @@
 import type { AnyModel } from "@schema/model";
 import { Sql } from "../../../sql/sql";
 import type { QueryEngine } from "../../query-engine";
-import type { RowJudgement } from "./row-scope";
+import type { WriteJudgement } from "./row-scope";
 
 /**
  * The rows of `model` the operation rendering it may see, under `alias`: a
@@ -17,12 +17,12 @@ import type { RowJudgement } from "./row-scope";
 export class RowsOf extends Sql {
   readonly model: AnyModel;
   readonly alias: string;
-  readonly judgement: RowJudgement | undefined;
+  readonly judgement: WriteJudgement | undefined;
   readonly where: unknown;
   constructor(
     model: AnyModel,
     alias: string,
-    judgement?: RowJudgement,
+    judgement?: WriteJudgement,
     where?: unknown
   ) {
     super(["(viborm: rows of a model rendered outside a query)"], []);

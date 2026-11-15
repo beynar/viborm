@@ -1,4 +1,4 @@
-import { cacheLookupOf } from "@cache/key";
+import { stableStringify } from "@extensions/key";
 
 import { AnyNull, DbNull, JsonNull } from "@schema";
 import { FIELD_REF_BRAND } from "@schema/field-ref";
@@ -6,7 +6,7 @@ import { sql } from "@sql";
 import { describe, expect, test } from "vitest";
 
 const cacheKeyOf = (model: string, operation: string, args: unknown) =>
-  cacheLookupOf(model, operation, args).key;
+  stableStringify([model, operation, args]);
 
 /**
  * A cache key must separate a BRANDED TOKEN from a user document that merely

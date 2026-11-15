@@ -79,6 +79,13 @@ import type { QueryExecutionContext } from "@drivers/driver";
 import { PgDriver } from "@drivers/pg";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import { s } from "@schema";
+import {
+  around,
+  extension,
+  settled as extSettled,
+  target,
+  writes,
+} from "@src/index";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { Client as NativePgClient, type Pool, type PoolClient } from "pg";
 import {
@@ -384,7 +391,7 @@ const messageOf = (error: unknown): string =>
 const OUTCOME_THREW = "closure-repair write-outcome listener failed";
 /** The publication owner's own sentence for it (`@extensions/query`). */
 const LISTENER_FAILED =
-  'Extension "failing-outcome" write-outcome listener failed after committed.';
+  'Extension "failing-outcome" settled() failed (committed).';
 /** The one composition of a primary with a retained listener failure
  *  (`retainWriteOutcomeFailure`, `@errors`). */
 const COMPOSED = "Query execution and write-outcome publication both failed.";
@@ -396,25 +403,22 @@ const COMPOSED = "Query execution and write-outcome publication both failed.";
  * happens BEFORE the operation has answered for that batch.
  */
 const withFailingOutcome = (client: FcpgClient) =>
-  client.$extends({
-    name: "failing-outcome",
-    query: {
-      note: {
-        deleteMany({ onWriteOutcome, proceed }) {
-          onWriteOutcome(() => {
+  client.$extends(
+    extension(
+      "failing-outcome",
+      // `writes` is what brings the watch of a write's outcome; the cells
+      // here only send `deleteMany` and `updateMany`.
+      around(
+        (c) => {
+          extSettled(c, () => {
             throw new Error(OUTCOME_THREW);
           });
-          return proceed();
+          return (run) => run();
         },
-        updateMany({ onWriteOutcome, proceed }) {
-          onWriteOutcome(() => {
-            throw new Error(OUTCOME_THREW);
-          });
-          return proceed();
-        },
-      },
-    },
-  });
+        target("note", writes)
+      )
+    )
+  );
 
 /**
  * The composition, read as the estate's ONE composition states it
@@ -462,7 +466,7 @@ const COMPOSITION = {
 const RETAINED_LISTENER = {
   name: "QueryError",
   message: LISTENER_FAILED,
-  meta: { method: "onWriteOutcome", commitCertainty: "committed" },
+  meta: { method: "settled", commitCertainty: "committed" },
   keepsCause: true,
 };
 

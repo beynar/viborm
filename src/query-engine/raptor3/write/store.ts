@@ -1549,7 +1549,7 @@ export class Store {
         pins
       ) ||
       selector.scoped ||
-      q.domain?.produced(model) ||
+      q.domain?.judge?.produced(model) ||
       fields.length === 0 ||
       this.operation.schema.keys(model).some((key) => key in set) ||
       // The row created is the one the question would name.

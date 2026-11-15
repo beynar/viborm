@@ -8,23 +8,23 @@
  * `findUniqueOrThrow` / `findFirstOrThrow` differently (its set omits them), so a
  * substitution would change the OBSERVABLE interception contract.
  *
- * `src/extensions/query.ts#requiresProceed` is where that classification is observable
- * through the public client: a model interceptor in `direct` mode may answer a READ
- * without calling `proceed()`, and must be refused ("completed without proceed") for
+ * `src/extensions/query.ts#requiresRun` is where that classification is observable
+ * through the public client: an `around` part in `direct` mode may answer a READ
+ * without calling `run()`, and must be refused ("returned without run()") for
  * anything else. These cells run that seam end to end on a real sqlite3 client.
  */
 import assert from "node:assert/strict";
+import { SQLite3Driver } from "@drivers/sqlite3";
 import { QueryError } from "@errors";
+import { isReadOperation as engineIsReadOperation } from "@query-engine/raptor3/shared/schema";
 import {
   isReadOperation,
   isWriteOperation,
   ROUTED_OPERATIONS,
 } from "@query-engine/routed-operations";
-import { isReadOperation as engineIsReadOperation } from "@query-engine/raptor3/shared/schema";
 import { s } from "@schema";
-import { createClient } from "@src/index";
+import { around, createClient, extension, target } from "@src/index";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import { SQLite3Driver } from "@drivers/sqlite3";
 import Database from "better-sqlite3";
 import { afterEach, describe, it } from "vitest";
 
@@ -45,6 +45,8 @@ afterEach(async () => {
   for (const database of opened.splice(0)) database.close();
 });
 
+const COMPLETED_WITHOUT_PROCEED = /returned without run\(\)/;
+
 async function world() {
   const database = new Database(":memory:");
   opened.push(database);
@@ -52,7 +54,7 @@ async function world() {
   const client = createClient({ driver, schema });
   clients.push(client as unknown as { $disconnect(): Promise<unknown> });
   const migration = await syncLiveSchema(client);
-  assert.equal(migration.applied, true);
+  if (!migration.applied) throw new Error("expected the schema to be applied");
   await client.author.create({
     data: { email: "present@example.test", name: "Ada" },
   });
@@ -63,14 +65,15 @@ describe("C-01 review — routed-operations is the one read/write authority", ()
   it("findUniqueOrThrow is a READ at the interception seam: an interceptor may answer without proceeding", async () => {
     const base = await world();
     const short = { id: -1, email: "short@circuit", name: "not the row" };
-    const client = base.$extends({
-      name: "or-throw-read",
-      query: {
-        author: {
-          findUniqueOrThrow: async () => short as never,
-        },
-      },
-    });
+    const client = base.$extends(
+      extension(
+        "or-throw-read",
+        around(
+          () => async (_run) => short as never,
+          target("author", "findUniqueOrThrow")
+        )
+      )
+    );
     const answer = await client.author.findUniqueOrThrow({
       where: { email: "present@example.test" },
     });
@@ -80,14 +83,15 @@ describe("C-01 review — routed-operations is the one read/write authority", ()
   it("findFirstOrThrow is a READ at the same seam", async () => {
     const base = await world();
     const short = { id: -2, email: "short@circuit", name: "not the row" };
-    const client = base.$extends({
-      name: "or-throw-read-first",
-      query: {
-        author: {
-          findFirstOrThrow: async () => short as never,
-        },
-      },
-    });
+    const client = base.$extends(
+      extension(
+        "or-throw-read-first",
+        around(
+          () => async (_run) => short as never,
+          target("author", "findFirstOrThrow")
+        )
+      )
+    );
     const answer = await client.author.findFirstOrThrow({
       where: { email: "present@example.test" },
     });
@@ -96,14 +100,15 @@ describe("C-01 review — routed-operations is the one read/write authority", ()
 
   it("a WRITE is still refused when the interceptor does not proceed", async () => {
     const base = await world();
-    const client = base.$extends({
-      name: "write-without-proceed",
-      query: {
-        author: {
-          create: async () => ({ id: -3, email: "x@y", name: "z" }) as never,
-        },
-      },
-    });
+    const client = base.$extends(
+      extension(
+        "write-without-proceed",
+        around(
+          () => async (_run) => ({ id: -3, email: "x@y", name: "z" }) as never,
+          target("author", "create")
+        )
+      )
+    );
     let raised: unknown;
     try {
       await client.author.create({
@@ -113,7 +118,7 @@ describe("C-01 review — routed-operations is the one read/write authority", ()
       raised = error;
     }
     assert.equal(raised instanceof QueryError, true);
-    assert.match(String((raised as Error).message), /completed without proceed/);
+    assert.match(String((raised as Error).message), COMPLETED_WITHOUT_PROCEED);
   });
 
   it("the retained vocabulary differs from the engine's own read set exactly on the OrThrow verbs", () => {
@@ -128,26 +133,23 @@ describe("C-01 review — routed-operations is the one read/write authority", ()
         "raptor3/shared/schema.ts must keep its narrower set"
       );
     }
-    assert.deepEqual(
-      [...ROUTED_OPERATIONS].sort(),
-      [
-        "aggregate",
-        "count",
-        "create",
-        "createMany",
-        "delete",
-        "deleteMany",
-        "exist",
-        "findFirst",
-        "findFirstOrThrow",
-        "findMany",
-        "findUnique",
-        "findUniqueOrThrow",
-        "groupBy",
-        "update",
-        "updateMany",
-        "upsert",
-      ]
-    );
+    assert.deepEqual([...ROUTED_OPERATIONS].sort(), [
+      "aggregate",
+      "count",
+      "create",
+      "createMany",
+      "delete",
+      "deleteMany",
+      "exist",
+      "findFirst",
+      "findFirstOrThrow",
+      "findMany",
+      "findUnique",
+      "findUniqueOrThrow",
+      "groupBy",
+      "update",
+      "updateMany",
+      "upsert",
+    ]);
   });
 });

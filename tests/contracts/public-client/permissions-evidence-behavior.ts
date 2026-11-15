@@ -1,6 +1,15 @@
 import { ValidationError } from "@errors";
+import {
+  accepts,
+  args,
+  bound,
+  extension,
+  methods,
+  rule,
+  statement,
+  unit,
+} from "@src/index";
 import type { CompiledPolicy } from "@src/permissions";
-import { verbsOf } from "@src/permissions/compile";
 import { v } from "@src/validation";
 import {
   createPermissionsAppClient,
@@ -31,12 +40,11 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 /**
  * K5 against the oracle (plan §4.5, §3.3 D5/D6; §7 W-EV1..W-EV4 and
  * W-F1..W-F8): the compiled §1.1 policy exactly as `viborm/permissions` hands it
- * to its `rows.verbs` (`verbsOf`), which declares per listed model
- * `evidence: { as: "$access", names }` with the model's actions (`ordered`
- * where they are exactly the levels chain) and `reads` as the policy
- * compiled them (`collection.budget` at `full`). The expectations read the
- * oracle's own actions and order (`actionsOf`, `ordered`), never the
- * compiled ones. A plain extension carries it, its actor an argument; no
+ * to its `rule`: per listed model, `$access` facts for the model's actions
+ * and the read-gated fields as the policy compiled them (`collection.budget`
+ * at `full`). The
+ * expectations read the oracle's own actions and order (`actionsOf`), never
+ * the compiled ones. A plain extension carries it, its actor an argument; no
  * other layer, so the oracle is read without tombstones.
  *
  * What a caller observes of a row at action `a` is `P(read) ∧ P(a)` (R2), so
@@ -60,42 +68,44 @@ interface Delegate {
 }
 type Client = Record<string, Delegate> & {
   $transaction<T>(body: (tx: Client) => Promise<T>): Promise<T>;
-  $extends(definition: object): Client;
+  $extends(definition: unknown): Client;
   $unrestricted(): Client;
 };
 
 const KEY = "$access";
-const MODE = "as";
 const ROLLBACK = new Error("rolled back");
 
-/** The plain extension carrying the compiled policy and K5's declarations. */
-export const evidenceExtension = (compiled: CompiledPolicy) => ({
-  name: "evidence",
-  controls: {
-    actor: { schema: ActorSchema, required: true },
-    scopes: {
-      schema: v.object({
-        unrestricted: v.boolean(),
-        allowed: v.array(v.string()),
-      }),
-      required: true,
-    },
-  },
-  client: (scope: {
-    $bind(values: Readonly<Record<string, unknown>>): unknown;
-  }) => ({
-    $unrestricted: () =>
-      scope.$bind({ scopes: { unrestricted: true, allowed: [] } }),
-  }),
-  rows: {
-    control: MODE,
-    default: "default",
-    models: Object.fromEntries(
-      GOVERNED_MODELS.map((model) => [model, { default: {} }])
+/**
+ * The compiled policy as `viborm/permissions` writes it (one rule entry per
+ * model), and K5's arguments: the actor a call argument, the
+ * credential scopes bound by `$unrestricted()`.
+ */
+export const evidenceExtension = (compiled: CompiledPolicy) =>
+  extension(
+    "evidence",
+    args({
+      actor: accepts(ActorSchema).required(),
+      scopes: bound(
+        v.object({
+          unrestricted: v.boolean(),
+          allowed: v.array(v.string()),
+        })
+      ).required(),
+    }),
+    rule(
+      Object.fromEntries(
+        // Each entry without the policy's own modes: no call names one.
+        Object.entries(compiled.models).map(([name, { root: _, ...model }]) => [
+          name,
+          model,
+        ])
+      )
     ),
-    verbs: verbsOf(compiled),
-  },
-});
+    methods((scope) => ({
+      $unrestricted: () =>
+        scope.$bind({ scopes: { unrestricted: true, allowed: [] } }),
+    }))
+  );
 
 const keyOf = (model: string) =>
   model === "teamMember" ? { teamId: true, userId: true } : { id: true };
@@ -211,13 +221,19 @@ export function runPermissionsEvidenceBehavior(
       db = (base as unknown as Client)
         .$extends(evidenceExtension(policy.compile(schema)))
         .$unrestricted()
-        .$extends({
-          name: "meter",
-          statement: (context: { statement: unknown }) => {
-            statements.push("statement");
-            return context.statement;
-          },
-        });
+        .$extends(
+          extension(
+            "meter",
+            unit(
+              (u, next) => {
+                statements.push("statement");
+                return next(statement(u));
+              },
+              ["statement"],
+              { rewrites: true }
+            )
+          )
+        );
     }, timeout);
 
     afterAll(async () => {

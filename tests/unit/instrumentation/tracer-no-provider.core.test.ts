@@ -21,9 +21,7 @@ describe("createTracerWrapper (OTel loaded, no provider registered)", () => {
     const tracer = createTracerWrapper();
     await primeTracer(tracer);
 
-    // otel imported successfully...
-    expect(tracer.isEnabled()).toBe(true);
-    // ...but with no provider, the span is a no-op and the callback still runs.
+    // With no provider, the span is a no-op and the callback still runs.
     const result = await tracer.startActiveSpan(
       { name: SPAN_OPERATION },
       () => "async-value"

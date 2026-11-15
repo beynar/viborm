@@ -1,70 +1,45 @@
 /**
  * The official extension's presentation: span options, attributes and log
- * events built from the neutral facts core publishes. Core never names a span,
- * an attribute key or a log event.
+ * events built from what a unit's words read. Core never names a span, an
+ * attribute key or a log event.
  */
 
+import { type DiagnosticDisclosure, isVibORMError } from "@errors";
+import type { UnitContext as Unit } from "@extensions/contract";
+import { disclosed } from "@extensions/disclosed";
 import {
-  type DriverIdentity,
-  type DriverIdentitySource,
-  readDriverIdentity,
-} from "@drivers/driver-identity";
-import type { QueryExecutionContext } from "@drivers/exports";
+  correlation,
+  driver,
+  statements,
+  table,
+  text,
+} from "@extensions/unit-words";
+import { presentLogMetadata } from "./logger";
 import {
-  type DiagnosticDisclosure,
-  EMPTY_DISCLOSURE,
-  sanitizeErrorForLogging,
-} from "@errors";
-import type {
-  CacheBackendFacts,
-  CacheOutcome,
-  CacheUnitFacts,
-  LifecycleDispatch,
-  OperationFacts,
-  StatementCompletionFacts,
-  StatementDispatch,
-} from "@extensions/official-facts";
-import {
-  ATTR_CACHE_DRIVER,
-  ATTR_CACHE_TTL,
   ATTR_DB_COLLECTION,
   ATTR_DB_DRIVER,
   ATTR_DB_NAMESPACE,
   ATTR_DB_OPERATION_NAME,
+  ATTR_DB_QUERY_PARAMETER_PREFIX,
+  ATTR_DB_QUERY_TEXT,
   ATTR_DB_SYSTEM,
   ATTR_VIBORM_CORRELATION_ID,
-  SPAN_CACHE_CLEAR,
-  SPAN_CACHE_DELETE,
-  SPAN_CACHE_GET,
-  SPAN_CACHE_INVALIDATE,
-  SPAN_CACHE_SET,
   SPAN_CONNECT,
   SPAN_DISCONNECT,
   SPAN_EXECUTE,
   SPAN_OPERATION,
   SPAN_TRANSACTION,
+  type VibORMSpanName,
 } from "./spans";
-import type { VibORMSpanOptions } from "./tracer";
-import type { LogEvent, TracingConfig } from "./types";
+import type { SpanAttributes, VibORMSpanOptions } from "./tracer";
+import type {
+  InstrumentationNote,
+  LogEvent,
+  LogLevel,
+  TracingConfig,
+} from "./types";
 
-type PresentedLog = Omit<LogEvent, "level">;
-
-// Savepoints present under the transaction span name; there is no other.
-const LIFECYCLE_SPAN_NAMES = {
-  connect: SPAN_CONNECT,
-  disconnect: SPAN_DISCONNECT,
-  savepoint: SPAN_TRANSACTION,
-  transaction: SPAN_TRANSACTION,
-} as const;
-
-const CACHE_SPAN_NAMES = {
-  clear: SPAN_CACHE_CLEAR,
-  delete: SPAN_CACHE_DELETE,
-  get: SPAN_CACHE_GET,
-  invalidate: SPAN_CACHE_INVALIDATE,
-  revalidate: SPAN_OPERATION,
-  set: SPAN_CACHE_SET,
-} as const;
+const OR_THROW = /OrThrow$/;
 
 /**
  * The `db.*` identity of one driver. `db.namespace` is added here and nowhere
@@ -72,7 +47,7 @@ const CACHE_SPAN_NAMES = {
  * or the text `undefined`.
  */
 export function createDriverAttributes(
-  identity: DriverIdentity | undefined
+  identity: InstrumentationNote["database"]
 ): Record<string, string> {
   if (identity === undefined) return {};
   const { dialect, driverName, namespace } = identity;
@@ -84,175 +59,215 @@ export function createDriverAttributes(
 }
 
 function createCorrelationAttributes(
-  context: QueryExecutionContext | undefined
+  correlationId: string | undefined
 ): Record<string, string> {
-  const correlationId = context?.correlationId;
-  return correlationId === undefined
-    ? {}
-    : { [ATTR_VIBORM_CORRELATION_ID]: correlationId };
+  return correlationId ? { [ATTR_VIBORM_CORRELATION_ID]: correlationId } : {};
 }
 
-/** The span of one cache step; a revalidation is a root operation span. */
-export function createCacheSpanOptions(
-  operation: keyof typeof CACHE_SPAN_NAMES,
-  facts: CacheBackendFacts | CacheUnitFacts
+/** The operation an error log names: the one that resolved, without `OrThrow`. */
+function resolvedOperation(unit: Unit): string | undefined {
+  return unit.operation?.replace(OR_THROW, "");
+}
+
+/** A note, if `value` can be one: whoever noted it, it is read by its members. */
+export const noteOf = (value: unknown): InstrumentationNote | undefined =>
+  typeof value === "object" && value !== null ? value : undefined;
+
+/**
+ * The statement's text, summary and parameters: only the library presents
+ * them, from the statement it sent, as `includeSql` and `includeParams` let
+ * it. A note setting one is not refused but dropped, silently: the
+ * instrumentation never fails the call it observes.
+ */
+const STATEMENT_FACTS = "db.query.";
+
+/** The spans the library presents for a call's own units. */
+const CALL_SPANS: ReadonlySet<string> = new Set([
+  SPAN_OPERATION,
+  SPAN_EXECUTE,
+  SPAN_TRANSACTION,
+  SPAN_CONNECT,
+  SPAN_DISCONNECT,
+]);
+
+/**
+ * Whether a note may trace its unit under the span it names: never as one
+ * of a call's own spans, but as an operation of its own when that is a root
+ * span (the cache's background revalidation), outside any call's trace. A
+ * unit whose note may not is presented without a span.
+ */
+export const tracesAs = (
+  noted: InstrumentationNote & { readonly span: string }
+): boolean =>
+  !CALL_SPANS.has(noted.span) ||
+  (noted.span === SPAN_OPERATION && noted.root === true);
+
+/**
+ * The attributes a note gives, those given `undefined` and the statement's
+ * facts left out.
+ */
+export function notedAttributes(
+  attributes: NonNullable<InstrumentationNote["attributes"]>
+): SpanAttributes {
+  const defined: SpanAttributes = {};
+  for (const [key, value] of Object.entries(attributes))
+    if (value !== undefined && !key.startsWith(STATEMENT_FACTS))
+      defined[key] = value;
+  return defined;
+}
+
+/** The span a unit's first note names: its database, the call's correlation, its attributes. */
+export function createNotedSpanOptions(
+  unit: Unit,
+  noted: InstrumentationNote & { readonly span: string }
 ): VibORMSpanOptions {
-  if (facts.kind === "cache-backend") {
-    return {
-      name: CACHE_SPAN_NAMES[facts.boundary],
-      attributes: { [ATTR_CACHE_DRIVER]: facts.driverName },
-    };
-  }
-  const { driverName, read, ttl } = facts;
   return {
-    name: CACHE_SPAN_NAMES[operation],
-    attributes: {
-      ...(driverName === undefined ? {} : { [ATTR_CACHE_DRIVER]: driverName }),
-      ...(ttl === undefined ? {} : { [ATTR_CACHE_TTL]: String(ttl) }),
-      ...(read === undefined
-        ? {}
-        : {
-            ...createDriverAttributes(read.identity),
-            [ATTR_DB_COLLECTION]: read.model,
-            [ATTR_DB_OPERATION_NAME]: read.operation,
-          }),
-      ...createCorrelationAttributes(facts.context),
-    },
-    ...(read === undefined ? {} : { root: true }),
+    name: noted.span,
+    attributes: notedAttributes({
+      ...createDriverAttributes(noted.database),
+      ...createCorrelationAttributes(correlation(unit)),
+      ...noted.attributes,
+    }),
+    root: noted.root === true,
   };
 }
 
-/** The cache log event of one outcome core recorded. Keys never appear. */
-export function presentCacheOutcome(
-  context: QueryExecutionContext | undefined,
-  outcome: CacheOutcome
-): PresentedLog {
-  const { error } = outcome;
-  return Object.freeze({
-    timestamp: new Date(outcome.at),
-    model: context?.model,
-    operation: context?.operation,
-    correlationId: context?.correlationId,
-    error: error instanceof Error ? sanitizeErrorForLogging(error) : undefined,
-    meta: Object.freeze({ event: outcome.event, status: outcome.status }),
-  });
+/** The log a note asks for. Keys never appear: a note carries none. */
+export function presentNoteLog(
+  unit: Unit,
+  level: LogLevel,
+  noted: InstrumentationNote
+): LogEvent {
+  const { error } = noted;
+  return {
+    level,
+    timestamp: new Date(noted.at ?? Date.now()),
+    model: noted.model ?? unit.model,
+    operation: noted.operation ?? resolvedOperation(unit),
+    correlationId: correlation(unit),
+    error: error instanceof Error ? disclosed(error) : undefined,
+    meta: noted.meta === undefined ? undefined : presentLogMetadata(noted.meta),
+  };
 }
 
 /**
  * The span of one logical operation, named by the operation the caller
- * requested; without `db.*` driver attributes when core could not read the
- * driver's identity.
+ * requested; without `db.*` driver attributes when the driver's identity
+ * cannot be read.
  */
-export function createOperationSpanOptions(
-  facts: OperationFacts
-): VibORMSpanOptions {
-  const { collection } = facts;
+export function createOperationSpanOptions(unit: Unit): VibORMSpanOptions {
   return {
     name: SPAN_OPERATION,
-    attributes: {
-      ...createDriverAttributes(facts.identity),
-      ...(collection === undefined ? {} : { [ATTR_DB_COLLECTION]: collection }),
-      [ATTR_DB_OPERATION_NAME]: facts.requestedOperation,
-      ...createCorrelationAttributes(facts.context),
-    },
+    attributes: createUnitAttributes(unit, table(unit)),
   };
 }
 
-/** The error log of the operation failure core selected, at the instant it settled. */
-export function createOperationErrorLogEvent(
-  facts: OperationFacts,
-  correlationId: string | undefined,
-  failure: Error,
-  endedAt: number,
-  duration: number
-): PresentedLog {
-  return Object.freeze({
-    timestamp: new Date(endedAt),
-    error: sanitizeErrorForLogging(failure),
-    model: facts.model,
-    operation: facts.operation,
-    correlationId,
-    duration,
-  });
+/**
+ * The driver identity plus the collection a unit addresses (an operation's
+ * table, another unit's model), its operation and correlation. An empty
+ * attribution string is never presented: a caller-supplied context may carry
+ * `operation: ""`, which the fallback operation does not replace.
+ */
+function createUnitAttributes(
+  unit: Unit,
+  collection: string | undefined
+): Record<string, string> {
+  const { operation } = unit;
+  return {
+    ...createDriverAttributes(driver(unit)),
+    ...(collection ? { [ATTR_DB_COLLECTION]: collection } : {}),
+    ...(operation ? { [ATTR_DB_OPERATION_NAME]: operation } : {}),
+    ...createCorrelationAttributes(correlation(unit)),
+  };
+}
+
+/** The execute span of one physical send, disclosed per the tracing channel. */
+export function createStatementSpanOptions(
+  tracing: true | Readonly<TracingConfig> | undefined,
+  unit: Unit,
+  sql: string | undefined,
+  params: readonly unknown[] | undefined
+): VibORMSpanOptions {
+  const { includeParams, includeSql } = channelOf(tracing);
+  const attributes: SpanAttributes = createUnitAttributes(unit, unit.model);
+  if (includeSql && sql !== undefined) attributes[ATTR_DB_QUERY_TEXT] = sql;
+  // The parameters are the unit's bounded snapshot (`parameters(u)`), plain
+  // data, one attribute each per the OTel spec: db.query.parameter.0, .1, …
+  if (includeParams)
+    for (const [index, value] of (params ?? []).entries())
+      attributes[`${ATTR_DB_QUERY_PARAMETER_PREFIX}.${index}`] =
+        typeof value === "string" ? value : String(JSON.stringify(value));
+  return { name: SPAN_EXECUTE, attributes };
 }
 
 /** One channel's SQL/parameter disclosure; `true` and absence disclose nothing. */
-function readChannelDisclosure(
+export function channelOf(
   channel: true | Readonly<DiagnosticDisclosure> | undefined
 ): DiagnosticDisclosure {
-  return channel && channel !== true ? channel : EMPTY_DISCLOSURE;
+  return channel && channel !== true ? channel : {};
 }
 
-/**
- * The driver identity plus the context's model, operation and correlation.
- * An empty attribution string is never presented: a caller-supplied context
- * may carry `operation: ""`, which the fallback operation does not replace.
- */
-function createContextAttributes(
-  driver: DriverIdentitySource,
-  context: QueryExecutionContext
-): Record<string, string> {
-  const { model, operation, correlationId } = context;
-  return {
-    ...createDriverAttributes(readDriverIdentity(driver)),
-    ...(model ? { [ATTR_DB_COLLECTION]: model } : {}),
-    ...(operation ? { [ATTR_DB_OPERATION_NAME]: operation } : {}),
-    ...(correlationId ? { [ATTR_VIBORM_CORRELATION_ID]: correlationId } : {}),
-  };
-}
-
-/** The execute span of one provider dispatch, disclosed per the tracing channel. */
-export function createStatementSpanOptions(
-  tracing: true | Readonly<TracingConfig> | undefined,
-  dispatch: StatementDispatch
-): VibORMSpanOptions {
-  const { includeParams, includeSql } = readChannelDisclosure(tracing);
-  return {
-    name: SPAN_EXECUTE,
-    attributes: createContextAttributes(dispatch.driver, dispatch.context),
-    ...(includeSql || includeParams
-      ? {
-          sql: {
-            ...(includeSql ? { query: dispatch.sql } : {}),
-            ...(includeParams ? { params: dispatch.params } : {}),
-          },
-        }
-      : {}),
-  };
-}
-
-/** The late span of one connection, transaction, or savepoint dispatch. */
+/** The span of one connection, transaction, or savepoint. */
 export function createLifecycleSpanOptions(
-  dispatch: LifecycleDispatch
+  name: VibORMSpanName,
+  unit: Unit
 ): VibORMSpanOptions {
-  return {
-    name: LIFECYCLE_SPAN_NAMES[dispatch.boundary],
-    attributes: createContextAttributes(dispatch.driver, dispatch.context),
-  };
+  return { name, attributes: createUnitAttributes(unit, unit.model) };
+}
+
+/** The native batch member a failure names, if it names one. */
+function statementIndexOf(error: Error): number | undefined {
+  const index = isVibORMError(error) ? error.meta.statementIndex : undefined;
+  return typeof index === "number" ? index : undefined;
 }
 
 /**
- * The query or error log of one statement core decided to log, disclosed per
- * `logging`: the channel of the chain the log is attributed to.
+ * The query log of one statement, or with `failure` its error log, disclosed
+ * per `logging`: a failure that names a native batch member is presented as
+ * that member.
  */
 export function createStatementLogEvent(
-  completion: StatementCompletionFacts,
+  logging: true | Readonly<DiagnosticDisclosure> | undefined,
+  unit: Unit,
   startedAt: number,
-  logging: true | Readonly<DiagnosticDisclosure> | undefined
-): PresentedLog {
-  const { context, endedAt, failure } = completion;
-  const disclosure = readChannelDisclosure(logging);
-  return Object.freeze({
-    timestamp: new Date(endedAt),
-    duration: endedAt - startedAt,
-    model: context.model,
-    operation: context.operation,
-    correlationId: context.correlationId,
-    sql: disclosure.includeSql ? completion.sql : undefined,
-    params: disclosure.includeParams ? completion.params : undefined,
+  duration: number,
+  shown: readonly unknown[] | undefined,
+  failure?: Error
+): LogEvent {
+  const disclosure = channelOf(logging);
+  const index = failure === undefined ? undefined : statementIndexOf(failure);
+  const member = index === undefined ? undefined : statements(unit)?.[index];
+  const sql = member?.sql ?? text(unit);
+  // A batch's snapshot holds one list per member.
+  const params =
+    member === undefined || index === undefined
+      ? shown
+      : batchMemberParameters(shown, index);
+  return {
+    level: failure === undefined ? "query" : "error",
+    // The instant the statement settled, not when this log is made.
+    timestamp: new Date(startedAt + duration),
+    duration,
+    model: member === undefined ? unit.model : member.model,
+    operation: member === undefined ? unit.operation : member.operation,
+    correlationId:
+      member === undefined ? correlation(unit) : member.correlation,
+    sql: disclosure.includeSql ? sql : undefined,
+    params: disclosure.includeParams ? [...(params ?? [])] : undefined,
     error:
       failure === undefined
         ? undefined
-        : sanitizeErrorForLogging(failure, disclosure),
-  });
+        : disclosed(failure, {
+            sql: disclosure.includeSql,
+            parameters: disclosure.includeParams,
+          }),
+  };
+}
+
+function batchMemberParameters(
+  shown: readonly unknown[] | undefined,
+  index: number
+): readonly unknown[] | undefined {
+  const member = shown?.[index];
+  return Array.isArray(member) ? member : undefined;
 }

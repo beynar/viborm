@@ -10,40 +10,22 @@ import type {
   ClientRowsContext,
   ComputedOperation,
   ComputedOperations,
-  Operations,
+  Schema,
   StampedOperation,
   StampedOperations,
 } from "@client/types";
-import { ClientInitializationError } from "@errors";
 import type { ModelSql } from "@query-engine/raptor3/shared/insert-value";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { isFunction, isRecord } from "@validation/value-guards";
-import type { OfficialCacheControls } from "../cache/capability";
-import { errorCause } from "../errors/diagnostic-safety";
-import type { ResolvedExtensionChain } from "./chain";
-import type {
-  DefinitionControls,
-  DefinitionData,
-  NoControls,
-  RowsModels,
-} from "./controls";
-import { extensionError } from "./definition";
-import type { DefinitionResultFields, MergeResultFields } from "./result-types";
+import { type AdmittedArgs, notBound } from "./arguments";
+import type { ExtensionPart } from "./chain";
+import { extensionError } from "./chain";
+import type { NoArguments } from "./contract";
+import type { MergeResultFields } from "./result-types";
 
 type NoMethods = Record<never, never>;
-type ExtensionMethod = (this: void, ...args: never[]) => unknown;
-export type ExtensionMethodRecord = Readonly<Record<string, ExtensionMethod>>;
+type RuntimeExtensionMethodFunction = (...args: never[]) => unknown;
 
-export type RuntimeExtensionMethodFunction = (...args: never[]) => unknown;
-export type RuntimeClientMethodContribution = RuntimeExtensionMethodFunction;
-export type RuntimeModelMethodContribution = Readonly<
-  Record<string, RuntimeExtensionMethodFunction>
->;
-
-declare const extensionCacheState: unique symbol;
-export interface ExtensionCacheState {
-  readonly [extensionCacheState]: true;
-}
 declare const extensionResultConsumerState: unique symbol;
 export interface ExtensionResultConsumerState {
   readonly [extensionResultConsumerState]: true;
@@ -53,36 +35,33 @@ export interface ExtensionResultConsumerState {
 export interface ClientExtensionState<
   ClientMethods extends object = NoMethods,
   ModelMethods extends object = NoMethods,
-  CacheState extends ExtensionCacheState | undefined = undefined,
   ResultConsumerState extends
     | ExtensionResultConsumerState
     | undefined = undefined,
-  Controls extends object = NoControls,
-  RowModels extends string = never,
-  Data = never,
-  Result extends object = Record<never, never>,
+  Arguments extends object = NoArguments,
+  Filtered extends string = never,
+  Defaults = never,
+  Fields extends object = Record<never, never>,
 > {
   readonly client: ClientMethods;
   readonly models: ModelMethods;
-  readonly cache: CacheState;
   readonly resultConsumer: ResultConsumerState;
-  /** The controls the chain declares: each one's values and placement. */
-  readonly controls: Controls;
-  /** The models the chain's `rows` can hide from a relation read. */
-  readonly rows: RowModels;
-  /** The fields the chain's `data` writes, which a caller no longer writes. */
-  readonly data: Data;
-  /** The fields the chain's `result` computes, per model key, and their types. */
-  readonly result: Result;
+  /** The arguments the chain declares: each one's values and placement. */
+  readonly args: Arguments;
+  /** The models whose rows the chain's rules filter: a relation read can find none. */
+  readonly filtered: Filtered;
+  /** The fields the chain's `defaults` write on a create, which a caller no longer writes. */
+  readonly defaults: Defaults;
+  /** The fields the chain's `fields` compute, per model key, and their types. */
+  readonly fields: Fields;
 }
 
 export type EmptyClientExtensionState = ClientExtensionState;
 
-/** Internal constraint for either the absent or enabled nominal cache bit. */
+/** What every extension state is: the widest of each fact. */
 export type ExtensionStateConstraint = ClientExtensionState<
   object,
   object,
-  ExtensionCacheState | undefined,
   ExtensionResultConsumerState | undefined,
   object,
   string,
@@ -90,33 +69,8 @@ export type ExtensionStateConstraint = ClientExtensionState<
   object
 >;
 
-/** Whether the current type-state includes the official cache capability. */
-export type HasExtensionCache<X extends ExtensionStateConstraint> = [
-  X["cache"],
-] extends [ExtensionCacheState]
-  ? true
-  : false;
-
-/**
- * Add the official cache capability without carrying its runtime config. Its
- * one control, `cache` on every write, joins the chain's controls as its
- * definition declares it.
- */
-export type EnableExtensionCache<X extends ExtensionStateConstraint> =
-  ClientExtensionState<
-    X["client"],
-    X["models"],
-    ExtensionCacheState,
-    X["resultConsumer"],
-    X["controls"] &
-      DefinitionControls<{ readonly controls: OfficialCacheControls }>,
-    X["rows"],
-    X["data"],
-    X["result"]
-  >;
-
 /** Whether an earlier extension was typed against result-bearing delegates. */
-export type HasResultConsumingExtension<X extends ExtensionStateConstraint> = [
+type HasResultConsumingExtension<X extends ExtensionStateConstraint> = [
   X["resultConsumer"],
 ] extends [undefined]
   ? false
@@ -128,7 +82,7 @@ declare const delegateState: unique symbol;
 /**
  * Declaration-only: what a result read on a delegate of a chain that adds
  * model methods depends on (its client's config, the models the chain's
- * `rows` can hide, its computed fields, the model), so a method typed with a
+ * rules filter, its computed fields, the model), so a method typed with a
  * `this` parameter reads its result from the client it is called on
  * (`DelegateOperationResult`), whatever the chain added after it. Nothing
  * else of the extension state: a later step that changes none of these (the
@@ -155,28 +109,28 @@ type DelegateLink<
   ModelName extends PropertyKey,
 > = [keyof X["models"]] extends [never]
   ? unknown
-  : DelegateState<C, X["rows"], X["result"], ModelName>;
+  : DelegateState<C, X["filtered"], X["fields"], ModelName>;
 
 /**
- * One model's delegate after the chain's methods and controls. On a chain
- * that declares create `data`, its writes may leave out the fields the chain
+ * One model's delegate after the chain's methods and arguments. On a chain
+ * that writes `defaults` on a create, its writes may leave out the fields the chain
  * writes on a create.
  */
 export type ExtensionModelDelegate<
   C extends VibORMConfig,
   X extends ExtensionStateConstraint,
   ModelName extends keyof ClientSchema<C>,
-> = ([X["data"]] extends [never]
-  ? Client<C, ClientRowsContext<C, X["rows"]>, X["controls"]>[ModelName]
+> = ([X["defaults"]] extends [never]
+  ? Client<C, ClientRowsContext<C, X["filtered"]>, X["args"]>[ModelName]
   : Omit<
-      Client<C, ClientRowsContext<C, X["rows"]>, X["controls"]>[ModelName],
+      Client<C, ClientRowsContext<C, X["filtered"]>, X["args"]>[ModelName],
       StampedOperation
     > &
       StampedOperations<
         C,
-        ClientRowsContext<C, X["rows"]>,
-        X["controls"],
-        X["data"],
+        ClientRowsContext<C, X["filtered"]>,
+        X["args"],
+        X["defaults"],
         ModelName
       >) &
   MethodsForModel<X, ModelName> &
@@ -189,7 +143,7 @@ interface ModelRows {
    * The rows of this model this client may read, as a `FROM` item of a
    * tagged `$queryRaw` named `alias`: a derived table filtered by the row
    * domain a `findMany` of this model on this client takes (permissions,
-   * soft delete, bound controls). Refused anywhere else.
+   * soft delete, bound arguments). Refused anywhere else.
    *
    * @example
    * ```ts
@@ -209,9 +163,9 @@ interface ModelRows {
 }
 
 /**
- * One model's delegate on a chain that declares `result`: its projecting
+ * One model's delegate on a chain that declares `fields`: its projecting
  * operations rebuilt so `select` and `omit` name the computed fields and the
- * rows carry them. A chain without `result` never reaches this type.
+ * rows carry them. A chain without `fields` never reaches this type.
  */
 type ComputedModelDelegate<
   C extends VibORMConfig,
@@ -220,11 +174,11 @@ type ComputedModelDelegate<
 > = Omit<ExtensionModelDelegate<C, X, ModelName>, ComputedOperation> &
   ComputedOperations<
     C,
-    ClientRowsContext<C, X["rows"]>,
-    X["controls"],
-    X["data"],
+    ClientRowsContext<C, X["filtered"]>,
+    X["args"],
+    X["defaults"],
     ModelName,
-    X["result"]
+    X["fields"]
   >;
 
 /**
@@ -232,13 +186,13 @@ type ComputedModelDelegate<
  * always-true test is deliberate: for a client generic over its config it
  * stays deferred, so the model map adds no index signature to that client and
  * its `$` members stay reachable inside a body generic over `C`. A chain
- * that declares `result` is told apart here, once per client.
+ * that declares `fields` is told apart here, once per client.
  */
 export type ExtensionModelClient<
   C extends VibORMConfig,
   X extends ExtensionStateConstraint,
 > = [keyof C["schema"]] extends [PropertyKey]
-  ? [keyof X["result"]] extends [never]
+  ? [keyof X["fields"]] extends [never]
     ? {
         [ModelName in keyof ClientSchema<C>]: ExtensionModelDelegate<
           C,
@@ -266,128 +220,14 @@ export type ExtensionClientScope<
     readonly $transaction: TransactionClient<C, X>["$transaction"];
     /**
      * The client this scope's methods are called on, its calls admitting
-     * these values of this extension's own controls as if passed (a
-     * `bound: true` control only from here). Its type is that client's,
+     * these values of this extension's own arguments as if passed (a
+     * `bound: true` argument only from here). Its type is that client's,
      * which only the method knows: declare it with a `this` parameter,
      * `$with<Self>(this: Self, value: Value): Self`, outside the returned
      * literal (inside it, the factory's contextual type makes `Self` void).
      */
     readonly $bind: (values: Readonly<Record<string, unknown>>) => unknown;
   };
-
-type NonFunctionKeys<Methods extends object> = {
-  [Key in keyof Methods]: Methods[Key] extends CallableFunction ? never : Key;
-}[keyof Methods];
-
-type InvalidClientMethodKeys<
-  Methods extends object,
-  C extends VibORMConfig,
-  X extends ExtensionStateConstraint,
-> =
-  | Exclude<keyof Methods, `$${string}`>
-  | Extract<
-      keyof Methods,
-      | keyof RawSurface
-      | "$driver"
-      | "$schema"
-      | "$transaction"
-      | "$connect"
-      | "$disconnect"
-      | "$withCache"
-      | "$invalidate"
-      | "$extends"
-      | keyof X["client"]
-    >
-  | (string extends keyof C["schema"]
-      ? never
-      : Extract<keyof Methods, keyof C["schema"]>)
-  | NonFunctionKeys<Methods>;
-
-type GuardMethodFactory<
-  Factory,
-  Forbidden extends PropertyKey,
-> = Factory extends (...args: infer Params) => infer Methods
-  ? Methods extends object
-    ? (...args: Params) => Methods & Record<Forbidden, never>
-    : (...args: Params) => never
-  : never;
-
-type ClientFactoryGuard<
-  Definition,
-  C extends VibORMConfig,
-  X extends ExtensionStateConstraint,
-> = Definition extends { readonly client: infer Factory }
-  ? Factory extends (...args: never[]) => infer Methods
-    ? Methods extends object
-      ? {
-          readonly client: GuardMethodFactory<
-            Factory,
-            InvalidClientMethodKeys<Methods, C, X>
-          >;
-        }
-      : { readonly client: never }
-    : { readonly client: never }
-  : unknown;
-
-/**
- * What every model factory may not return: a core operation or `then`. That
- * each returned member is a function is the definition's own factory type
- * (`ModelMethodFactory` returns an `ExtensionMethodRecord`), not this guard;
- * `object` only keeps the all-optional key list from being a weak type, which
- * would refuse every return that names none of those keys. Stated as a target
- * shape, not a conditional over the factory, so a factory map generic over the
- * client is checked rather than deferred. A method a prior extension put on
- * the model cannot be named here for a client generic over its extension
- * state: the runtime refuses that replacement when the extension is applied.
- */
-type ModelFactoryGuard = (...args: never[]) => object & {
-  readonly [Name in Operations | "$rows" | "then"]?: never;
-};
-
-/**
- * Model keys outside the schema are refused by the definition's own `model`
- * type (its per-schema factory table); this guard checks each factory's
- * methods.
- */
-type ModelFactoriesGuard<Definition> = Definition extends {
-  readonly model: infer Factories;
-}
-  ? {
-      readonly model: {
-        readonly [ModelName in keyof Factories]: ModelFactoryGuard;
-      };
-    }
-  : unknown;
-
-export type ExtensionMethodDefinitionGuard<
-  Definition,
-  C extends VibORMConfig,
-  X extends ExtensionStateConstraint,
-> = ClientFactoryGuard<Definition, C, X> & ModelFactoriesGuard<Definition>;
-
-type ClientMethodsOf<Definition> = Definition extends {
-  readonly client: (...args: never[]) => infer Methods;
-}
-  ? Methods extends object
-    ? Methods
-    : NoMethods
-  : NoMethods;
-
-type ModelMethodsOf<Definition> = Definition extends {
-  readonly model: infer Factories;
-}
-  ? Factories extends object
-    ? {
-        readonly [ModelName in keyof Factories]: Factories[ModelName] extends (
-          ...args: never[]
-        ) => infer Methods
-          ? Methods extends object
-            ? Methods
-            : NoMethods
-          : NoMethods;
-      }
-    : NoMethods
-  : NoMethods;
 
 export type MergeModelMethods<Left extends object, Right extends object> = {
   readonly [ModelName in
@@ -398,125 +238,43 @@ export type MergeModelMethods<Left extends object, Right extends object> = {
     (ModelName extends keyof Right ? Right[ModelName] : NoMethods);
 };
 
-/** Whether one parameter list holds an argument typed other than `never` or `unknown` (`any` counts as typed). */
-type TypedParameters<Given extends readonly unknown[]> = true extends {
-  [Index in keyof Given]: 0 extends 1 & Given[Index]
-    ? true
-    : [Given[Index]] extends [never]
-      ? false
-      : unknown extends Given[Index]
-        ? false
-        : true;
-}[number]
-  ? true
-  : false;
-
-/**
- * Whether a client or model factory is typed against the client it is
- * applied to: one of its signatures takes an argument typed other than
- * `never` or `unknown`. A factory that takes none reads nothing typed at its
- * step, so a later `rows` or `defaultOmit` cannot make its types lie: its
- * methods type their results from the client they are called on (a `this`
- * parameter), and it is no result consumer. Matched against four
- * signatures, so an overloaded factory is read by its last four (one
- * signature repeats).
- */
-type ReadsTyped<Factory> = Factory extends {
-  (...args: infer First): unknown;
-  (...args: infer Second): unknown;
-  (...args: infer Third): unknown;
-  (...args: infer Fourth): unknown;
-}
-  ? true extends
-      | TypedParameters<First>
-      | TypedParameters<Second>
-      | TypedParameters<Third>
-      | TypedParameters<Fourth>
-    ? true
-    : false
-  : true;
-
-type TypedFactories<Definition> =
-  | (Definition extends { readonly client: infer Factory }
-      ? ReadsTyped<Factory>
-      : false)
-  | (Definition extends { readonly model: infer Factories }
-      ? Factories extends object
-        ? {
-            [ModelName in keyof Factories]: ReadsTyped<Factories[ModelName]>;
-          }[keyof Factories]
-        : true
-      : false);
-
-export type ResultConsumerContextOf<Definition> =
-  true extends TypedFactories<Definition>
-    ? "result-consuming"
-    : Definition extends { readonly query: infer Query }
-      ? Query extends CallableFunction
-        ? "result-independent"
-        : "result-consuming"
-      : "result-independent";
-
 /** Incoming facts keep their nominal bit derivation inside this named state. */
-export interface ExtensionContributionState<
+export interface AddedExtensionState<
   ClientMethods extends object,
   ModelMethods extends object,
-  Controls extends object,
-  RowModels extends string,
-  Data,
+  Arguments extends object,
+  Filtered extends string,
+  Defaults,
   ConsumerContext extends string,
   // Defaulted: 1.3.3 exported this state with six parameters.
-  Result extends object = Record<never, never>,
+  Fields extends object = Record<never, never>,
 > extends ExtensionStateConstraint {
   readonly client: ClientMethods;
   readonly models: ModelMethods;
-  readonly cache: undefined;
   readonly resultConsumer: ConsumerContext extends "result-consuming"
     ? ExtensionResultConsumerState
     : undefined;
-  readonly controls: Controls;
-  readonly rows: RowModels;
-  readonly data: Data;
-  readonly result: Result;
+  readonly args: Arguments;
+  readonly filtered: Filtered;
+  readonly defaults: Defaults;
+  readonly fields: Fields;
 }
-
-/** Retain contribution facts, never the factory's contextual argument surface. */
-export type ExtensionStateContributionOf<Definition> = [Definition] extends [
-  unknown,
-]
-  ? ExtensionContributionState<
-      ClientMethodsOf<Definition>,
-      ModelMethodsOf<Definition>,
-      DefinitionControls<Definition>,
-      RowsModels<Definition>,
-      DefinitionData<Definition>,
-      ResultConsumerContextOf<Definition>,
-      DefinitionResultFields<Definition>
-    >
-  : never;
 
 /** Accumulate the same seven facts lazily, without retaining callback definitions. */
-export interface AccumulatedExtensionState<
+export interface ChainedExtensionState<
   X extends ExtensionStateConstraint,
-  Contribution extends ExtensionStateConstraint,
+  Added extends ExtensionStateConstraint,
 > extends ExtensionStateConstraint {
-  readonly client: X["client"] & Contribution["client"];
-  readonly models: MergeModelMethods<X["models"], Contribution["models"]>;
-  readonly cache: X["cache"];
-  readonly resultConsumer: HasResultConsumingExtension<Contribution> extends true
+  readonly client: X["client"] & Added["client"];
+  readonly models: MergeModelMethods<X["models"], Added["models"]>;
+  readonly resultConsumer: HasResultConsumingExtension<Added> extends true
     ? ExtensionResultConsumerState
     : X["resultConsumer"];
-  readonly controls: X["controls"] & Contribution["controls"];
-  readonly rows: X["rows"] | Contribution["rows"];
-  readonly data: X["data"] | Contribution["data"];
-  readonly result: MergeResultFields<X["result"], Contribution["result"]>;
+  readonly args: X["args"] & Added["args"];
+  readonly filtered: X["filtered"] | Added["filtered"];
+  readonly defaults: X["defaults"] | Added["defaults"];
+  readonly fields: MergeResultFields<X["fields"], Added["fields"]>;
 }
-
-/** Public compatibility surface: the incoming argument remains a definition. */
-export type MergeExtensionState<
-  X extends ExtensionStateConstraint,
-  Definition,
-> = AccumulatedExtensionState<X, ExtensionStateContributionOf<Definition>>;
 
 type MethodRecord = Readonly<Record<string, RuntimeExtensionMethodFunction>>;
 
@@ -529,10 +287,18 @@ export interface ExtensionMethods {
   readonly model: (model: string) => MethodRecord;
 }
 
-const NO_METHODS: MethodRecord = Object.freeze(Object.create(null));
-const NO_LAYER: ExtensionMethods = Object.freeze({
+/** A view's methods, and what invokes every factory of its chain in order. */
+type BoundExtensionMethods = ExtensionMethods & {
+  readonly force: () => void;
+};
+
+const NO_METHODS: MethodRecord = /* @__PURE__ */ Object.freeze(
+  Object.create(null)
+);
+const NO_LAYER: BoundExtensionMethods = /* @__PURE__ */ Object.freeze({
   client: () => NO_METHODS,
   model: () => NO_METHODS,
+  force: () => undefined,
 });
 
 const CORE_CLIENT_METHODS = new Set([
@@ -541,209 +307,193 @@ const CORE_CLIENT_METHODS = new Set([
   "$transaction",
   "$connect",
   "$disconnect",
-  "$withCache",
-  "$invalidate",
   "$extends",
 ]);
 
-function readMethodRecord(
-  value: unknown,
-  label: string,
-  extension: string
-): Record<string, RuntimeExtensionMethodFunction> {
-  if (!isRecord(value)) {
-    extensionError(
-      `Extension "${extension}" ${label} factory must return an object.`,
-      extension
-    );
-  }
-  const methods: Record<string, RuntimeExtensionMethodFunction> =
-    Object.create(null);
-  let names: PropertyKey[];
-  try {
-    names = Reflect.ownKeys(value);
-  } catch (cause) {
-    throw new ClientInitializationError(
-      `Extension "${extension}" ${label} methods could not be inspected.`,
-      { cause: errorCause(cause), meta: { extension } }
-    );
-  }
-  for (const name of names) {
-    if (typeof name !== "string") {
-      extensionError(
-        `Extension "${extension}" ${label} returned a non-string method key.`,
-        extension
-      );
-    }
-    let method: unknown;
-    try {
-      method = value[name];
-    } catch (cause) {
-      throw new ClientInitializationError(
-        `Extension "${extension}" ${label} method "${name}" could not be read.`,
-        { cause: errorCause(cause), meta: { extension } }
-      );
-    }
-    if (!isFunction(method)) {
-      extensionError(
-        `Extension "${extension}" ${label} method "${name}" must be a function.`,
-        extension
-      );
-    }
-    methods[name] = bindExtensionMethod(method);
-  }
-  return methods;
-}
-
-function invokeFactory(
-  factory: RuntimeExtensionMethodFunction,
-  argument: unknown,
-  label: string,
-  extension: string,
-  scope?: unknown
-): unknown {
-  try {
-    return Reflect.apply(
-      factory,
-      undefined,
-      scope === undefined ? [argument] : [argument, scope]
-    );
-  } catch (cause) {
-    throw new ClientInitializationError(
-      `Extension "${extension}" ${label} factory failed.`,
-      { cause: errorCause(cause), meta: { extension } }
-    );
-  }
-}
-
-function bindExtensionMethod(
-  method: RuntimeExtensionMethodFunction
-): RuntimeExtensionMethodFunction {
-  return (...args: never[]) => Reflect.apply(method, undefined, args);
-}
-
-/** The methods before one extension with its own added, each name checked. */
+/**
+ * The methods before one extension with its own added, each a function and
+ * each name (`at` the model's, for a model method) checked against what the
+ * view already answers.
+ */
 function addMethods(
   previous: MethodRecord,
-  added: MethodRecord,
-  check: (name: string, taken: boolean) => void
+  added: readonly (readonly [string, unknown])[],
+  refuse: (problem: string) => never,
+  collides: (name: string) => boolean,
+  surface: "client" | "model",
+  at = ""
 ): MethodRecord {
-  const methods: Record<string, RuntimeExtensionMethodFunction> =
-    Object.create(null);
-  Object.assign(methods, previous);
-  for (const [name, method] of Object.entries(added)) {
-    check(name, Object.hasOwn(methods, name));
+  const methods: Record<string, RuntimeExtensionMethodFunction> = Object.assign(
+    Object.create(null),
+    previous
+  );
+  for (const [name, method] of added) {
+    const label = `${surface} method "${at}${name}"`;
+    if (!isFunction(method)) refuse(`${label} must be a function`);
+    if (Object.hasOwn(methods, name) || collides(name))
+      refuse(`${label} collides with the existing ${surface} surface`);
     methods[name] = method;
   }
   return Object.freeze(methods);
 }
 
 /**
- * The methods of one view's chain. Extension `i`'s factories are invoked
- * against the scope `createScope` builds over the methods of the extensions
- * before it, the first time a method they return could be read, one model at
- * a time: a view costs the factories it uses. `force` invokes every factory
- * in chain order, where a root view surfaces an extension's faults.
+ * What one factory's methods add to a view, given the view's methods before
+ * it: brought by the builder (`methods` its client methods, `modelMethods`
+ * its model methods), so an extension carries only the half it writes. Its
+ * `force` forces the view before it first.
  */
-export function bindExtensionMethods(
-  chain: ResolvedExtensionChain,
-  createScope: (prior: ExtensionMethods, extension: string) => object
-): ExtensionMethods & { readonly force: () => void } {
-  const layers: ExtensionMethods[] = [NO_LAYER];
-  for (const {
-    name,
-    client: clientFactory,
-    model: modelFactories,
-  } of chain.extensions) {
-    const prior = layers.at(-1)!;
-    let scope: object | undefined;
-    const scopeOf = () => (scope ??= createScope(prior, name));
-    let client: MethodRecord | undefined;
-    const models = new Map<string, MethodRecord>();
-    layers.push({
-      client: () =>
-        (client ??=
-          clientFactory === undefined
-            ? prior.client()
-            : addMethods(
-                prior.client(),
-                readMethodRecord(
-                  invokeFactory(clientFactory, scopeOf(), "client", name),
-                  "client",
-                  name
-                ),
-                (method, taken) => {
-                  if (!method.startsWith("$")) {
-                    extensionError(
-                      `Extension "${name}" client method "${method}" must be dollar-prefixed.`,
-                      name
-                    );
-                  }
-                  if (
-                    taken ||
-                    CORE_CLIENT_METHODS.has(method) ||
-                    Object.hasOwn(RAW_METHOD_NAMES, method)
-                  ) {
-                    extensionError(
-                      `Extension "${name}" client method "${method}" collides with the existing client surface.`,
-                      name
-                    );
-                  }
-                }
-              )),
-      model: (model) => {
-        let methods = models.get(model);
-        if (methods === undefined) {
-          const factory = modelFactories?.[model];
-          const label = `model.${model}`;
-          methods =
-            factory === undefined
-              ? prior.model(model)
-              : addMethods(
-                  prior.model(model),
-                  readMethodRecord(
-                    invokeFactory(
-                      factory,
-                      Reflect.get(scopeOf(), model),
-                      label,
-                      name,
-                      // The client scope, as a client factory receives it:
-                      // what a model method needs beyond its own delegate.
-                      scopeOf()
-                    ),
-                    label,
-                    name
-                  ),
-                  (method, taken) => {
-                    if (
-                      taken ||
-                      method === "then" ||
-                      method === "$rows" ||
-                      ROUTED_OPERATIONS.has(method)
-                    ) {
-                      extensionError(
-                        `Extension "${name}" model method "${model}.${method}" collides with the existing model surface.`,
-                        name
-                      );
-                    }
-                  }
-                );
-          models.set(model, methods);
-        }
-        return methods;
-      },
-    });
-  }
-  const view = layers.at(-1)!;
+type MethodsLayer = (made: {
+  readonly prior: BoundExtensionMethods;
+  /** The factory's answer, once per view, each key checked by `owns`. */
+  readonly answer: () => Readonly<Record<string, unknown>>;
+  readonly scope: () => object;
+  readonly refuse: (problem: string) => never;
+}) => BoundExtensionMethods;
+
+/** `methods`' half: the `$` client methods its factory returns. */
+export const clientLayer: MethodsLayer = ({ prior, answer, refuse }) => {
+  let client: MethodRecord | undefined;
+  const methods = () =>
+    (client ??= addMethods(
+      prior.client(),
+      Object.entries(answer()),
+      refuse,
+      (method) =>
+        CORE_CLIENT_METHODS.has(method) ||
+        Object.hasOwn(RAW_METHOD_NAMES, method),
+      "client"
+    ));
   return {
-    client: view.client,
-    model: view.model,
+    client: methods,
+    model: prior.model,
     force: () => {
-      for (const [index, { model }] of chain.extensions.entries()) {
-        const layer = layers[index + 1]!;
-        layer.client();
-        for (const name of Object.keys(model ?? {})) layer.model(name);
-      }
+      prior.force();
+      methods();
+    },
+  };
+};
+
+/**
+ * `modelMethods`' half: each model's methods, made the first time the model
+ * is read on a view; a model's entry may be a function of its delegate and
+ * the scope, and a model method is called with `this` equal to its delegate.
+ */
+export const modelLayer: MethodsLayer = ({ prior, answer, scope, refuse }) => {
+  const models = new Map<string, MethodRecord>();
+  const methods = (model: string) => {
+    let made = models.get(model);
+    if (made === undefined) {
+      const given = answer()[model];
+      const delegate: unknown = Reflect.get(scope(), model);
+      const own: unknown = isFunction(given)
+        ? Reflect.apply(given, undefined, [delegate, scope()])
+        : given;
+      if (own !== undefined && !isRecord(own))
+        refuse(`methods.${model} must be an object of methods`);
+      made = addMethods(
+        prior.model(model),
+        Object.entries(own ?? {}).map(([method, fn]) => [
+          method,
+          isFunction(fn)
+            ? (...args: unknown[]) => Reflect.apply(fn, delegate, args)
+            : fn,
+        ]),
+        refuse,
+        (method) =>
+          method === "then" ||
+          method === "$rows" ||
+          ROUTED_OPERATIONS.has(method),
+        "model",
+        `${model}.`
+      );
+      models.set(model, made);
+    }
+    return made;
+  };
+  return {
+    client: prior.client,
+    model: methods,
+    force: () => {
+      prior.force();
+      for (const key of Object.keys(answer())) methods(key);
+    },
+  };
+};
+
+/** A `methods` factory as its part keeps it. */
+type RuntimeMethodsFactory = (scope: never) => unknown;
+
+/** A chain's methods, and what binds one view's methods. */
+export interface ExtensionMethodsState {
+  readonly bind: (
+    createScope: (prior: ExtensionMethods, extension: string) => object
+  ) => BoundExtensionMethods;
+  /**
+   * A factory scope's `$bind` on a chain that declares no `bound` argument:
+   * it binds nothing, and refuses any argument it is asked to.
+   */
+  readonly bindNone: (
+    extension: string,
+    values: Readonly<Record<string, unknown>>,
+    previous: AdmittedArgs | undefined
+  ) => AdmittedArgs;
+}
+
+/**
+ * A methods part: what a view answers, in chain order. `owns` (which keys
+ * the factory may return: why not, else `undefined`) and `layer` (what its
+ * methods add to a view) are its builder's half (`methods-part.ts`).
+ *
+ * A view's methods are this part's layer over the view the chain's methods
+ * before it bind. The factory is invoked against the scope `createScope`
+ * builds over those, the first time a method it returns could be read: a
+ * view costs the factories it uses. `force` invokes every factory in chain
+ * order, where a root view surfaces an extension's faults.
+ */
+export function methodsPart(
+  factory: RuntimeMethodsFactory,
+  layer: MethodsLayer,
+  owns: (key: string, schema: Schema) => string | undefined
+): ExtensionPart {
+  return {
+    join({ next, name, schema }) {
+      const before = next.methods;
+      next.methods = {
+        bind: (createScope) => {
+          const prior = before?.bind(createScope) ?? NO_LAYER;
+          // Typed where it is declared, so a call to it ends the argument flow.
+          const refuse: (problem: string) => never = (problem) =>
+            extensionError(`Extension "${name}" ${problem}.`, name);
+          let scope: object | undefined;
+          const scopeOf = () => (scope ??= createScope(prior, name));
+          let returned: Readonly<Record<string, unknown>> | undefined;
+          return layer({
+            prior,
+            // The factory's answer, once per view: the methods come from it.
+            answer: () => {
+              if (returned !== undefined) return returned;
+              const value: unknown = Reflect.apply(factory, undefined, [
+                scopeOf(),
+              ]);
+              if (!isRecord(value))
+                refuse("methods factory must return an object");
+              for (const key of Object.keys(value)) {
+                const problem = owns(key, schema);
+                if (problem) refuse(`methods returned "${key}", ${problem}`);
+              }
+              returned = value;
+              return value;
+            },
+            scope: scopeOf,
+            refuse,
+          });
+        },
+        bindNone: (extension, values, previous) => {
+          for (const key of Object.keys(values)) notBound(extension, key);
+          return { ...previous };
+        },
+      };
     },
   };
 }

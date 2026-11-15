@@ -34,11 +34,11 @@ import type {
 } from "@validation/relations/recurrence";
 import type { DecimalUpdateOperationKeys } from "@validation/scalars";
 import type {
-  NoControls,
-  OperationControls,
+  NoArguments,
+  OperationArguments,
   StampedFieldNames,
   StampedFields,
-} from "../extensions/controls";
+} from "../extensions/contract";
 import type { ModelResultFields } from "../extensions/result-types";
 import type { VibORMConfig } from "./client";
 import type { CachedProjectedOperations } from "./projected-types";
@@ -68,7 +68,7 @@ export type Schema = Record<string, Model<any>>;
  * Schema-only application types, keyed by the schema's model names.
  * Row uses the default scalar projection and respects schema-level omission;
  * client extensions and defaultOmit are not part of this schema-only view.
- * On a client whose extensions declare `rows`, a to-one relation can read
+ * On a client whose extensions' rules filter rows, a to-one relation can read
  * `null` where these types say it cannot: use `ExtendedOperationResult`.
  */
 export type InferDatabase<S extends Schema> = {
@@ -379,9 +379,9 @@ type ClientRelationOmitContext<C extends VibORMConfig> = [
   : ClientResultOmitContext<ClientRelationOmitEntries<C>>;
 
 /**
- * The result context of a client whose chain declares `rows` over `Models`:
+ * The result context of a client whose chain's rules filter `Models`:
  * its relation omission defaults, and the shallow surfaces of the models a
- * relation read can find hidden. Without `rows`, exactly the omission context.
+ * relation read can find hidden. Without rules, exactly the omission context.
  * The schema's names are filtered BY `Models`, so a definition typed over
  * every string hides every model rather than none.
  */
@@ -476,7 +476,7 @@ type OperationResultWithClientDefaults<
 
 /**
  * Public operation result helper for one operation and its declared args.
- * Schema-only: on a client whose extensions declare `rows`, a to-one relation
+ * Schema-only: on a client whose extensions' rules filter rows, a to-one relation
  * can read `null` where this type says it cannot. `ExtendedOperationResult`
  * types a derived client's results.
  */
@@ -489,7 +489,7 @@ export type OperationResult<
 
 /**
  * One concrete client's result under the result context it computed: its
- * top-level and relation defaults, and the surfaces its `rows` can hide
+ * top-level and relation defaults, and the surfaces its rules can hide
  * (`ClientRowsContext`). The one owner every client-bound result reads.
  */
 export type ContextualOperationResult<
@@ -513,7 +513,7 @@ export type ContextualOperationResult<
 export type Client<
   C extends VibORMConfig,
   ClientDefaults = ClientRelationOmitContext<C>,
-  Controls extends object = NoControls,
+  Arguments extends object = NoArguments,
 > = {
   [K in keyof ClientSchema<C>]: {
     [O in Operations]: Operation<
@@ -521,17 +521,17 @@ export type Client<
       ClientSchema<C>[K],
       ClientDefaultOmit<C, K>,
       ClientDefaults,
-      PlacedOperationControls<Controls, K, O>
+      PlacedOperationArguments<Arguments, K, O>
     >;
   };
 };
 
-/** The controls one (model, operation) accepts; none without a declaration. */
-export type PlacedOperationControls<Controls, ModelName, O> = [
-  keyof Controls,
+/** The arguments one (model, operation) accepts; none without a declaration. */
+export type PlacedOperationArguments<Arguments, ModelName, O> = [
+  keyof Arguments,
 ] extends [never]
-  ? NoControls
-  : OperationControls<Controls, ModelName, O>;
+  ? NoArguments
+  : OperationArguments<Arguments, ModelName, O>;
 
 // =============================================================================
 // `data`: A FIELD A CHAIN WRITES ON CREATE MAY BE LEFT OUT
@@ -556,7 +556,7 @@ export type StampedOperation =
 export type StampedOperations<
   C extends VibORMConfig,
   ClientDefaults,
-  Controls,
+  Arguments,
   Data,
   K extends keyof ClientSchema<C>,
 > = {
@@ -565,7 +565,7 @@ export type StampedOperations<
     ClientSchema<C>[K],
     ClientDefaultOmit<C, K>,
     ClientDefaults,
-    PlacedOperationControls<Controls, K, O>,
+    PlacedOperationArguments<Arguments, K, O>,
     StampedPayload<
       O,
       OperationPayload<O, ClientSchema<C>[K]>,
@@ -607,7 +607,7 @@ export interface ComputedResultContext<Result, S, ModelName> {
 export type ComputedOperations<
   C extends VibORMConfig,
   ClientDefaults,
-  Controls,
+  Arguments,
   Data,
   K extends keyof ClientSchema<C>,
   Result,
@@ -617,7 +617,7 @@ export type ComputedOperations<
     ClientSchema<C>[K],
     ClientDefaultOmit<C, K>,
     ClientDefaults,
-    PlacedOperationControls<Controls, K, O>,
+    PlacedOperationArguments<Arguments, K, O>,
     WithComputedKeys<
       O extends StampedOperation
         ? [Data] extends [never]
@@ -641,20 +641,20 @@ type ComputedOperationMethod<
   M extends Model<any>,
   DefaultOmit,
   ClientDefaults,
-  Controls,
+  Arguments,
   Payload,
   Context,
 > = undefined extends Payload
   ? <Arg extends Payload>(
-      args?: WithControlArgs<
+      args?: WithArguments<
         NoExtraOperationKeys<
           O,
           Exclude<Arg, undefined>,
           Exclude<Payload, undefined>,
           M,
-          Controls
+          Arguments
         >,
-        Controls
+        Arguments
       >
     ) => PendingOperation<
       WithComputedResult<
@@ -671,9 +671,9 @@ type ComputedOperationMethod<
       >
     >
   : <Arg extends Payload>(
-      args: WithControlArgs<
-        NoExtraOperationKeys<O, Arg, Payload, M, Controls>,
-        Controls
+      args: WithArguments<
+        NoExtraOperationKeys<O, Arg, Payload, M, Arguments>,
+        Arguments
       >
     ) => PendingOperation<
       WithComputedResult<
@@ -993,7 +993,7 @@ type StampedArms<
 
 /**
  * The fields the chain writes on a create of a relation's target. A target
- * is found by its shallow surface, as `rows` finds a hidden one: a model
+ * is found by its shallow surface, as a rule finds a hidden one: a model
  * that shares its surface with a stamped model is narrowed with it.
  */
 type TargetStampedFields<
@@ -1017,18 +1017,18 @@ type NamesTarget<Names, Target extends Model<any>, S> = Names extends keyof S
   : never;
 
 /**
- * An operation's parameter with its placed controls beside the payload's own
- * keys. Controls join the PARAMETER, never the payload the call's argument is
+ * An operation's parameter with its placed arguments beside the payload's own
+ * keys. Arguments join the PARAMETER, never the payload the call's argument is
  * inferred against: an intersection there is rebuilt in every inference and
  * every guard of every operation, which measured as most of the type cost of
- * a client with controls. The parameter gives a control value its contextual
+ * a client with arguments. The parameter gives an argument value its contextual
  * literal type all the same.
  */
-export type WithControlArgs<Parameter, Controls> = [keyof Controls] extends [
+export type WithArguments<Parameter, Arguments> = [keyof Arguments] extends [
   never,
 ]
   ? Parameter
-  : Parameter & Controls;
+  : Parameter & Arguments;
 
 /**
  * Every key ONE clause accepts, taking the union across a union-typed clause
@@ -2247,10 +2247,10 @@ export type NoExtraOperationKeys<
   Arg,
   Payload,
   M extends Model<any>,
-  Controls = NoControls,
+  Arguments = NoArguments,
 > = Arg &
   ExclusiveSelection<Arg> &
-  Record<Exclude<keyof Arg, keyof Payload | keyof Controls>, never> &
+  Record<Exclude<keyof Arg, keyof Payload | keyof Arguments>, never> &
   ClauseGuard<Arg, Payload, "where"> &
   NestedClauseGuard<Arg, Payload, M, "where"> &
   OperatorBagGuard<Arg, Payload, M> &
@@ -2258,7 +2258,7 @@ export type NoExtraOperationKeys<
   ClauseGuard<Arg, Payload, "include"> &
   ClauseGuard<Arg, Payload, "orderBy"> &
   ClauseGuard<Arg, Payload, "omit"> &
-  ClauseGuard<Arg, Controls, "cache"> &
+  ClauseGuard<Arg, Arguments, "cache"> &
   DirectPolymorphicProjectionGuard<Arg, M, "select"> &
   DirectPolymorphicProjectionGuard<Arg, M, "include"> &
   RecursiveProjectionRootGuard<Arg, M> &
@@ -2281,29 +2281,29 @@ type OperationMethod<
   M extends Model<any>,
   DefaultOmit,
   ClientDefaults,
-  Controls,
+  Arguments,
   Payload,
   Pending extends boolean,
 > = undefined extends Payload
   ? <Arg extends Payload>(
-      args?: WithControlArgs<
+      args?: WithArguments<
         NoExtraOperationKeys<
           O,
           Exclude<Arg, undefined>,
           Exclude<Payload, undefined>,
           M,
-          Controls
+          Arguments
         >,
-        Controls
+        Arguments
       >
     ) => OperationCarrier<
       OperationResultWithClientDefaults<O, M, Arg, DefaultOmit, ClientDefaults>,
       Pending
     >
   : <Arg extends Payload>(
-      args: WithControlArgs<
-        NoExtraOperationKeys<O, Arg, Payload, M, Controls>,
-        Controls
+      args: WithArguments<
+        NoExtraOperationKeys<O, Arg, Payload, M, Arguments>,
+        Arguments
       >
     ) => OperationCarrier<
       OperationResultWithClientDefaults<O, M, Arg, DefaultOmit, ClientDefaults>,
@@ -2319,22 +2319,30 @@ type Operation<
   M extends Model<any>,
   DefaultOmit = undefined,
   ClientDefaults = never,
-  Controls = NoControls,
+  Arguments = NoArguments,
   Payload = OperationPayload<O, M>,
-> = OperationMethod<O, M, DefaultOmit, ClientDefaults, Controls, Payload, true>;
+> = OperationMethod<
+  O,
+  M,
+  DefaultOmit,
+  ClientDefaults,
+  Arguments,
+  Payload,
+  true
+>;
 
 type CachedOperation<
   O extends Operations,
   M extends Model<any>,
   DefaultOmit = undefined,
   ClientDefaults = never,
-  Controls = NoControls,
+  Arguments = NoArguments,
 > = OperationMethod<
   O,
   M,
   DefaultOmit,
   ClientDefaults,
-  Controls,
+  Arguments,
   OperationPayload<O, M>,
   false
 >;
@@ -2351,7 +2359,7 @@ type CachedOperation<
 export type CachedClient<
   C extends VibORMConfig,
   ClientDefaults = ClientRelationOmitContext<C>,
-  Controls extends object = NoControls,
+  Arguments extends object = NoArguments,
   Models extends object = Record<never, never>,
 > = {
   [K in keyof ClientSchema<C>]: {
@@ -2360,13 +2368,13 @@ export type CachedClient<
       ClientSchema<C>[K],
       ClientDefaultOmit<C, K>,
       ClientDefaults,
-      PlacedOperationControls<Controls, K, O>
+      PlacedOperationArguments<Arguments, K, O>
     >;
   } & CachedProjectedOperations<
     C,
     K,
     ClientDefaults,
-    Controls,
+    Arguments,
     K extends keyof Models ? Models[K] : Record<never, never>
   >;
 };

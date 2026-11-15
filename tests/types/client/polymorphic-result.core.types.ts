@@ -342,7 +342,7 @@ const targetOmitClient = createClient({
   schema: targetOmitSchema,
   driver: new PGliteDriver(),
 }).$extends(
-  defaultOmit<typeof targetOmitSchema>()({
+  defaultOmit({
     post: { secret: true },
     video: { token: true },
   })

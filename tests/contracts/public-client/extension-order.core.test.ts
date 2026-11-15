@@ -11,8 +11,8 @@ import { MemoryCache } from "@cache/drivers/memory";
 import { cache } from "@cache/extension";
 import { createClient } from "@client/client";
 import { ClientInitializationError } from "@errors";
-import { defineExtension } from "@extensions/define";
 import { s } from "@schema";
+import { defaults, extension } from "@src/index";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { describe, expect, test } from "vitest";
@@ -56,10 +56,10 @@ const CARDS = [
   { id: "e", columnId: "c2", rank: "0" },
 ];
 
-const byRank = defineExtension({
-  name: "by-rank",
-  order: { models: { card: [{ columnId: "asc" }, { rank: "asc" }] } },
-});
+const byRank = extension(
+  "by-rank",
+  defaults({ card: { orderBy: [{ columnId: "asc" }, { rank: "asc" }] } })
+);
 
 async function fixture() {
   const base = createClient({ schema, driver: createInMemorySQLite3Driver() });
@@ -187,10 +187,10 @@ describe("order: the caller's orderBy", () => {
   test("a later extension's order replaces an earlier one's for its model", async () => {
     const { db } = await fixture();
     const reversed = db.$extends(
-      defineExtension({
-        name: "by-rank-desc",
-        order: { models: { card: { rank: "desc" } } },
-      })
+      extension(
+        "by-rank-desc",
+        defaults({ card: { orderBy: { rank: "desc" } } })
+      )
     );
     expect(ids(await reversed.card.findMany())).toEqual([
       "a",
@@ -224,24 +224,23 @@ describe("order: admission", () => {
       schema: { ...schema, keyless },
       driver: createInMemorySQLite3Driver(),
     });
-  const refused = (order: unknown) => () =>
-    base().$extends({ name: "bad", order } as never);
+  // Each order is one the types refuse: the refusal tested is the runtime's.
+  const refused = (model: string, orderBy: unknown) => () =>
+    base().$extends(
+      extension("bad", defaults({ [model]: { orderBy } } as never))
+    );
 
   test.each([
-    ["not an object", 1],
-    ["no models", {}],
-    ["an unknown model", { models: { nope: { id: "asc" } } }],
-    ["an unknown field", { models: { card: { nope: "asc" } } }],
-    ["a relation", { models: { card: { column: "asc" } } }],
-    ["a bad direction", { models: { card: { rank: "up" } } }],
-    [
-      "two fields in one term",
-      { models: { card: { rank: "asc", id: "asc" } } },
-    ],
-    ["no terms", { models: { card: [] } }],
-    ["a term that is not an object", { models: { card: ["rank"] } }],
-    ["a model without a key", { models: { keyless: { label: "asc" } } }],
-  ])("refuses %s", (_, order) => {
-    expect(refused(order)).toThrow(ClientInitializationError);
+    ["not an object", "card", 1],
+    ["an unknown model", "nope", { id: "asc" }],
+    ["an unknown field", "card", { nope: "asc" }],
+    ["a relation", "card", { column: "asc" }],
+    ["a bad direction", "card", { rank: "up" }],
+    ["two fields in one term", "card", { rank: "asc", id: "asc" }],
+    ["no terms", "card", []],
+    ["a term that is not an object", "card", ["rank"]],
+    ["a model without a key", "keyless", { label: "asc" }],
+  ])("refuses %s", (_, model, orderBy) => {
+    expect(refused(model, orderBy)).toThrow(ClientInitializationError);
   });
 });

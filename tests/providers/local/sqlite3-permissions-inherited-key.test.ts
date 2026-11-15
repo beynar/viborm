@@ -1,12 +1,12 @@
 /**
- * R4 and a key inherited from the parent: a create rule that equates a foreign
- * key with the same key of a row it already proves readable (the parent page)
- * accepts a target the actor cannot read, and only that one. A missing target
- * and a hidden one fail alike, so the existence oracle stays closed.
+ * R4 and a key equal to the parent's: a create rule that equates a foreign key
+ * with the same key of a row it already proves readable (the parent page)
+ * states a restriction, never a grant. The written key still needs a target
+ * the actor reads ("a key taken from the parent" was removed), and a hidden
+ * target and a missing one fail alike, so the existence oracle stays closed.
  */
 
-import { createClient as createDriverClient } from "@client/client";
-import { createClient, SQLite3Driver } from "@drivers/sqlite3";
+import { createClient } from "@drivers/sqlite3";
 import { s } from "@schema";
 import { permissions } from "@src/permissions";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -14,6 +14,7 @@ import { v } from "@validation";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const LEVELS = ["read", "update"] as const;
+const ladder = { read: [], update: ["read"] } as const;
 const teamspace = s.model({
   id: s.string().id(),
   memberId: s.string(),
@@ -69,11 +70,14 @@ const access = (level: string) => ({
 const policyWith = (create: unknown) =>
   permissions({
     actor: v.object({ userId: v.string() }),
-    levels: LEVELS,
     models: {
-      teamspace: { read: { memberId: { actor: "userId" } } },
-      grant: { read: { page: "read" } },
-      page: { "read, update": access, create } as never,
+      teamspace: { actions: ladder, read: { memberId: { actor: "userId" } } },
+      grant: { actions: ladder, read: { page: "read" } },
+      page: {
+        actions: { ...ladder, create: [] },
+        "read, update": access,
+        create,
+      } as never,
     },
   });
 const sameTeamspace = {
@@ -117,16 +121,12 @@ describe("R4: a key equal to the readable parent's", () => {
       .$as({ userId: "guest" })
       .page.create({ data: data as never });
 
-  it("accepts the parent's hidden teamspace, and only it", async () => {
+  it("refuses the parent's hidden teamspace as it refuses a missing one", async () => {
     const rule = { AND: [{ parent: "update" }, sameTeamspace] };
-    await expect(
-      create(rule, { id: "C1", parentId: "P1", teamspaceId: "ts0" })
-    ).resolves.toMatchObject({ id: "C1", teamspaceId: "ts0" });
-    // Another hidden teamspace, and one that does not exist: the same refusal.
     const hidden = await create(rule, {
-      id: "C2",
+      id: "C1",
       parentId: "P1",
-      teamspaceId: "ts1",
+      teamspaceId: "ts0",
     }).catch((error: unknown) => error);
     const missing = await create(rule, {
       id: "C3",
@@ -147,47 +147,8 @@ describe("R4: a key equal to the readable parent's", () => {
       create(rule, { id: "C5", parentId: "P1", teamspaceId: null })
     ).rejects.toThrow();
     expect(
-      (await base.page.findMany({ select: { id: true } })).map(({ id }) => id)
-    ).toEqual(expect.arrayContaining(["C1", "C4"]));
-    expect(
-      await base.page.count({ where: { id: { in: ["C2", "C3", "C5"] } } })
+      await base.page.count({ where: { id: { in: ["C1", "C3", "C5"] } } })
     ).toBe(0);
-  });
-
-  it("keeps refusing a hidden target where the rule states no equality", async () => {
-    const rule = { parent: "update" };
-    await expect(
-      create(rule, { id: "D1", parentId: "P1", teamspaceId: "ts0" })
-    ).rejects.toThrow();
-  });
-
-  it("never inherits from a parent the actor cannot read", async () => {
-    // The equality alone, without `parent: "update"`: only the parent's own
-    // key clause proves it readable.
-    const guest = base
-      .$extends(policyWith(sameTeamspace))
-      .$as({ userId: "guest" });
-    await base.page.create({ data: { id: "H", teamspaceId: "ts1" } });
-    await base.page.create({
-      data: { id: "M2", parentId: "H", teamspaceId: "ts0" },
-    });
-    await base.grant.create({
-      data: { id: "G4", pageId: "M2", userId: "guest", level: "update" },
-    });
-    await expect(
-      guest.page.update({ where: { id: "M2" }, data: { teamspaceId: "ts1" } })
-    ).rejects.toThrow();
-    await expect(
-      guest.page.create({
-        data: { id: "C6", parentId: "H", teamspaceId: "ts1" },
-      })
-    ).rejects.toThrow();
-    expect(
-      await base.page.findUnique({
-        where: { id: "M2" },
-        select: { teamspaceId: true },
-      })
-    ).toEqual({ teamspaceId: "ts0" });
   });
 
   it("judges a move of the key the same way", async () => {
@@ -199,16 +160,14 @@ describe("R4: a key equal to the readable parent's", () => {
     await base.grant.create({
       data: { id: "G3", pageId: "M1", userId: "guest", level: "update" },
     });
-    await expect(
-      guest.page.update({ where: { id: "M1" }, data: { teamspaceId: "ts1" } })
-    ).rejects.toThrow();
-    await expect(
-      guest.page.update({ where: { id: "M1" }, data: { teamspaceId: "ts0" } })
-    ).resolves.toMatchObject({ teamspaceId: "ts0" });
+    for (const teamspaceId of ["ts0", "ts1"])
+      await expect(
+        guest.page.update({ where: { id: "M1" }, data: { teamspaceId } })
+      ).rejects.toThrow();
   });
 });
 
-describe("R4: an inherited key vouches only through a visible row", () => {
+describe("R4: keys equated with each other vouch for nothing", () => {
   const project = s.model({
     id: s.string().id(),
     memberId: s.string(),
@@ -246,7 +205,7 @@ describe("R4: an inherited key vouches only through a visible row", () => {
       .references("id"),
   });
 
-  it("refuses two keys inherited through each other alike, hidden or missing", async () => {
+  it("refuses two keys equated with each other alike, hidden or missing", async () => {
     const base = createClient({
       schema: { project, milestone, task },
       dataDir: ":memory:",
@@ -337,55 +296,5 @@ describe("R4: an inherited key vouches only through a visible row", () => {
       alice.page.update({ where: { id: "X" }, data: { teamspaceId: "alices" } })
     ).resolves.toMatchObject({ teamspaceId: "alices" });
     await base.$disconnect();
-  });
-});
-
-describe("R4: the equality costs no bound value where create proves the parent", () => {
-  class Counting extends SQLite3Driver {
-    readonly counts: number[] = [];
-    protected override execute<T>(
-      client: never,
-      sql: string,
-      params: unknown[],
-      context?: never
-    ) {
-      this.counts.push(params.length);
-      return super.execute<T>(client, sql, params, context);
-    }
-  }
-  // The same rule shape, its last member comparing a value without `$row`.
-  const rule = (member: Record<string, unknown>) => ({
-    OR: [
-      { AND: [{ parent: "update" }, { OR: [{ teamspaceId: null }, member] }] },
-      { parentId: null, teamspace: { is: { memberId: { actor: "userId" } } } },
-    ],
-  });
-  const moveCost = async (member: Record<string, unknown>) => {
-    const driver = new Counting({ dataDir: ":memory:" });
-    const base = createDriverClient({ schema, driver });
-    await syncLiveSchema(base);
-    await base.teamspace.createMany({
-      data: [
-        { id: "ts0", memberId: "bob" },
-        { id: "ts1", memberId: "bob" },
-      ],
-    });
-    await base.page.create({ data: { id: "R", teamspaceId: "ts0" } });
-    const bob = base.$extends(policyWith(rule(member))).$as({ userId: "bob" });
-    const from = driver.counts.length;
-    await bob.page.update({ where: { id: "R" }, data: { teamspaceId: "ts1" } });
-    const cost = Math.max(...driver.counts.slice(from));
-    await base.$disconnect();
-    return cost;
-  };
-
-  it("moves a root page's key with the bound values of a rule without it", async () => {
-    const inherited = await moveCost({
-      parent: { is: { teamspaceId: { $row: "teamspaceId", up: 1 } } },
-    });
-    const plain = await moveCost({
-      parent: { is: { teamspaceId: { not: null } } },
-    });
-    expect(inherited).toBe(plain);
   });
 });

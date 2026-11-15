@@ -2,6 +2,7 @@ import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { s } from "@schema";
 import { sql } from "@sql";
+import { args, extension, nothing, oneOf, only, rule } from "@src/index";
 import { permissions } from "@src/permissions";
 import { v } from "@src/validation";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -54,30 +55,35 @@ export function runSharedBodiesBehavior({
             embeddedSecond: "no",
           },
         });
-        for (const fields of [
-          ["first", "second"],
-          ["embeddedFirst", "embeddedSecond"],
+        // Each pair of fields written out: a computed key is any string to
+        // the types, which a rule's filter refuses.
+        for (const permitted of [
+          {
+            AND: [
+              { entries: { some: { first: "yes" } } },
+              { entries: { some: { second: "yes" } } },
+            ],
+          },
+          {
+            AND: [
+              { entries: { some: { embeddedFirst: "yes" } } },
+              { entries: { some: { embeddedSecond: "yes" } } },
+            ],
+          },
         ]) {
-          const governed = base.$extends({
-            name: "physical-name-policy",
-            rows: {
-              control: "scope",
-              default: "all",
-              models: {},
-              verbs: {
+          const governed = base.$extends(
+            extension(
+              "physical-name-policy",
+              args({ scope: oneOf("all").default("all") }),
+              rule({
                 container: {
-                  predicates: {
-                    permitted: {
-                      AND: fields.map((field) => ({
-                        entries: { some: { [field]: "yes" } },
-                      })),
-                    },
-                  },
-                  read: "permitted",
+                  read: { where: permitted },
+                  update: { where: only(nothing) },
+                  delete: { where: only(nothing) },
                 },
-              },
-            },
-          });
+              })
+            )
+          );
           expect(await governed.container.findMany()).toEqual([]);
         }
       });
@@ -129,13 +135,13 @@ export function runSharedBodiesBehavior({
           { grants: { some: { level: { equals: sql`'_q1_'` } } } },
           { grants: { some: { level: { equals: sql`'_q2_'` } } } },
         ];
-        for (const client of [base, governed]) {
-          const read = (where: object) =>
-            client.doc.findMany({
-              where,
-              select: { id: true },
-              orderBy: { id: "asc" },
-            });
+        const query = { select: { id: true }, orderBy: { id: "asc" } } as const;
+        // One read per client: an extended client's delegate and the base's
+        // are two signatures, which a union of the clients cannot call.
+        for (const read of [
+          (where: object) => base.doc.findMany({ where, ...query }),
+          (where: object) => governed.doc.findMany({ where, ...query }),
+        ]) {
           expect(await read({ OR: arms })).toEqual([
             { id: "d1" },
             { id: "d2" },
@@ -176,27 +182,26 @@ export function runSharedBodiesBehavior({
             tags: ["a,string:b"],
           },
         });
-        const governed = base.$extends({
-          name: "collision-policy",
-          rows: {
-            control: "scope",
-            default: "all",
-            models: {},
-            verbs: {
+        const governed = base.$extends(
+          extension(
+            "collision-policy",
+            args({ scope: oneOf("all").default("all") }),
+            rule({
               container: {
-                predicates: {
-                  permitted: {
+                read: {
+                  where: {
                     AND: [
                       { entries: { some: { a: "a\u0002string:b", b: "c" } } },
                       { entries: { some: { a: "a", b: "b\u0002string:c" } } },
                     ],
                   },
                 },
-                read: "permitted",
+                update: { where: only(nothing) },
+                delete: { where: only(nothing) },
               },
-            },
-          },
-        });
+            })
+          )
+        );
         const arrayQuery = () =>
           base.container.findMany({
             where: {

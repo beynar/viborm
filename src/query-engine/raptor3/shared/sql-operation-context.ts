@@ -181,11 +181,18 @@ export class SqlOperationContext {
 
   /**
    * One read: its one statement sent, or queued for the owner the call
-   * prepares for, and its rows decoded and decided once.
+   * prepares for, and its rows decoded and decided once. `seen` is told the
+   * driver's rows first; it takes object rows, as a prepared parser does.
    */
-  async publish(read: Read, missing?: () => Error): Promise<unknown> {
+  async publish(
+    read: Read,
+    missing?: () => Error,
+    seen?: (rows: readonly unknown[]) => void
+  ): Promise<unknown> {
     const positional =
-      this.#owner === "standalone" && read.value.kind === "collection"
+      seen === undefined &&
+      this.#owner === "standalone" &&
+      read.value.kind === "collection"
         ? resolvePositionalResultDriver(this.driver)
         : undefined;
     if (positional === undefined) {
@@ -193,6 +200,7 @@ export class SqlOperationContext {
         read.query.sql,
         this.attribution
       );
+      seen?.(response.rows);
       return decide(read, missing, this.#published(read, response.rows));
     }
     const response = await positional(read.query.sql, this.attribution);

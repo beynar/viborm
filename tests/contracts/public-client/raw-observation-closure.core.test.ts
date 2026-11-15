@@ -11,6 +11,7 @@ import type { QueryResult } from "@drivers";
 import { Driver } from "@drivers";
 import { s } from "@schema";
 import { sql } from "@sql";
+import { extension, unit } from "@src/index";
 import { afterEach, describe, expect, test } from "vitest";
 
 const record = s.model({
@@ -77,18 +78,20 @@ describe("observed raw write certainty", () => {
       status: string;
       certainty: string | undefined;
     }> = [];
-    const client = base.$extends({
-      name: "closure-raw-observation",
-      observe(unit, proceed) {
-        proceed().then((completion) => {
-          observed.push({
-            unit: `${unit.kind}:${unit.operation}`,
-            status: completion.status,
-            certainty: completion.commitCertainty,
+    const client = base.$extends(
+      extension(
+        "closure-raw-observation",
+        unit((u, next) => {
+          return next().then((completion) => {
+            observed.push({
+              unit: `${u.kind}:${u.operation}`,
+              status: completion.status,
+              certainty: completion.certainty,
+            });
           });
-        });
-      },
-    });
+        })
+      )
+    );
 
     let caught: unknown;
     try {
