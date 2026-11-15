@@ -13,7 +13,8 @@ TTL handling, stale-while-revalidate behavior, invalidation, and backend
 abstractions while keeping database queries in the query engine and drivers.
 
 The official `cache()` extension exposes `$withCache()` and `$invalidate()` on
-its derived client only. Cache backends implement storage; they do not know how
+its derived client only: they are its client methods, typed as any
+extension's are (`CacheMethods`, through `this`). Cache backends implement storage; they do not know how
 VibORM builds or executes SQL.
 
 ## Boundary

@@ -181,7 +181,7 @@ code on disk.
 | `pending-operation.ts` | lazy public model-operation entry; its one arm is the Raptor 3 route |
 | `pending-execution.ts` | one-shot default/driver-bound execution lifecycle shared by model and raw operations |
 | `transaction-operation.ts` | the internal protocol consumed by `$transaction([...])` |
-| `routed-operations.ts` | the read/write verb vocabulary the cache and interception seams key on |
+| `routed-operations.ts` | the read/write verb vocabulary the cache and the `around` parts key on |
 | `types.ts` | the prepared-operation, prepared-batch and prepared-guard shapes the client and the route share, including `PreparedGuardFailure` |
 | `batch-error-attribution.ts` | attribution of a native-batch assertion failure to the guard that raised it, and the ONE guard-failure-to-error construction |
 | `raptor3/shared/parse-boundary.ts` | the typed parse boundary: the one place a user payload becomes a validated, typed value |

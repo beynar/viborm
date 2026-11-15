@@ -106,21 +106,22 @@ later read (N1), so an argument's value never turns an independent lookup
 into an ordered observation, which on a batch-only driver would split the
 operation into two batches and commit the first alone.
 
-*Verbs (permissions plan K3; written by a `rule`'s `only`, `check`, `gate`,
-`facts` and `lazy`, `src/extensions/verbs.ts`).* A domain may hold, per model
-and layer, `verbs` (`RuleEntry`): `read` ANDs with that layer's predicate at every purpose, and
+*Rule entries (permissions plan K3; written by a `rule`'s `only`, `check`,
+`gate`, `facts` and `lazy`, `src/extensions/entries.ts`).* A domain may hold,
+per model and layer, `rules` (`RuleEntry`): `read` ANDs with that layer's predicate at every purpose, and
 a write lookup names a `WriteJudgement` beside its purpose: `DELETE_JUDGEMENT`
 for every delete and tombstone candidate set, `Commands.judge` for an update
 occurrence (the fields the caller's data writes, a held key's relation with
 its key fields, a join by every verb but `update`/`updateMany`; none when only
 stamps and generated values are written; `undefined` when it emits no
 UPDATE), and `linkJudgement(edge)` for a connect, set or disconnect target
-whose key or join row changes. `PreparedDomain.selector` puts the verb's
-predicates inside the layer's node, so R5 and R6 judge them with the read
-predicate; a model without verbs ignores the judgement and keeps its bytes. A
+whose key or join row changes. `PreparedDomain.selector` puts the entry's
+`update`/`delete` predicates (the judgement's `kind`) inside the layer's node,
+so R5 and R6 judge them with the read predicate; a model without an entry
+ignores the judgement and keeps its bytes. A
 clear (`remove` with no target) first refuses, with `NestedWriteError`, a
-member it sees and may not unlink. A lax nested `delete: true` under a delete
-verb that narrows what the call sees carries `Selection.unjudged`: when its
+member it sees and may not unlink. A lax nested `delete: true` under a
+`delete.where` that narrows what the call sees carries `Selection.unjudged`: when its
 judged lookup binds nothing, `runSelection` requires absent a member of the
 slot it addresses outside its candidates (`Selection.outsideVerb`), with the
 strict form's "not found" sentence. A key the parent holds addresses its
@@ -143,9 +144,9 @@ keep their bytes. A dialect without a spelling of the judgement is a
 compile error, never a silent skip (`src/adapters/judged.ts`). `PreparedDomain.produced`
 is the one answer to "what is the row this write produces judged at":
 `place` for a create; for an update, the predicates that judged its old row
-(`read` and the verb's, the selector's `judgement`, `Queries.candidates`
+(`read` and the entry's `update` predicates, the selector's `judgement`, `Queries.candidates`
 records it) and its written fields' `moves`; nothing for a delete, a
-tombstone or a model without verbs, whose statements keep their bytes. The
+tombstone or a model without an entry, whose statements keep their bytes. The
 row is judged as a VALUE, against the rows before the write, inside the
 statement that writes it, and a refused row raises the dialect's
 `holds` (`src/adapters/judged.ts`) there, before any row is written and
@@ -355,7 +356,7 @@ terms and cursors, `distinct`, aggregates) reads `CASE WHEN <gate> THEN
 <column> END`; inside a layer the column is read as it is. A grouped read,
 and a paged aggregate, of a gated model reads a masked window of its
 filtered rows (`#overMasked`), so the gate is lowered once per row rather
-than once per grouped expression. A model whose verbs declare neither keeps
+than once per grouped expression. A model whose entry declares neither keeps
 its default projection and its bytes.
 
 *Tombstones (a `rule`'s `delete.instead: keep(…)`, `src/extensions/kept.ts`;

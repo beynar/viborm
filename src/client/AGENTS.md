@@ -357,9 +357,9 @@ and commit publication.
 |---|---|
 | `src/extensions/extension.ts` | `extension(name, ...parts)` (each part an `ExtensionPart` that joins the chain with its own state), `isAppliedExtension` |
 | `src/extensions/chain.ts`, `chain-state.ts` | The one mechanism: each part's phases (`declare`, `join`, `seal`), what two parts of one extension meet through (`Application`: `owner`, `bring`, `shared`), and the resolved chain every part writes on |
-| `src/extensions/call.ts`, `call-words.ts`, `handlers.ts`, `request.ts`, `watch-part.ts`, `written.ts` | `call` and `around`, their first and second moments, `inner`; `watch`, `settled`, `again`, `via`; what tells a watch of the rows a write wrote |
+| `src/extensions/call.ts`, `call-words.ts`, `targeted.ts`, `request.ts`, `watch-part.ts`, `written.ts` | `call` and `around`, their first and second moments, `inner`; `watch`, `settled`, `again`, `via`; what tells a watch of the rows a write wrote |
 | `src/extensions/arguments.ts`, `args.ts` | `args`, `oneOf`, `accepts`, `bound` and the modifiers; placement per (model, operation) and the one admission of a call's arguments |
-| `src/extensions/rule.ts`, `rule-words.ts`, `judge-words.ts`, `confine.ts`, `admission.ts`, `call-rows.ts`, `call-values.ts`, `rows.ts`, `row-domain.ts`, `layers.ts`, `verbs.ts`, `judge.ts`, `produced.ts`, `projection.ts`, `projected.ts`, `gates.ts`, `kept.ts`, `reads.ts` | `rule` and its words; each entry admitted once per schema, bound once per application; what a call's values are to the rules that read them, brought by the words that read a call (`call-values.ts`); what `only`, `check`, `gate`, `facts`, `keep`, `lazy` and `within` bring |
+| `src/extensions/rule.ts`, `rule-words.ts`, `judge-words.ts`, `confine.ts`, `admission.ts`, `call-rows.ts`, `call-values.ts`, `rows.ts`, `row-domain.ts`, `layers.ts`, `entries.ts`, `judge.ts`, `produced.ts`, `projection.ts`, `projected.ts`, `gates.ts`, `kept.ts`, `reads.ts` | `rule` and its words; each entry admitted once per schema, bound once per application; what a call's values are to the rules that read them, brought by the words that read a call (`call-values.ts`); what `only`, `check`, `gate`, `facts`, `keep`, `lazy` and `within` bring |
 | `src/extensions/defaults.ts`, `order.ts`, `stamps.ts`, `plain-domain.ts` | `defaults` and `omitted`: default order, default data, default omission, without the filter domain |
 | `src/query-engine/raptor3/commands/commands.ts` (`Commands.stamp`) | The engine side of default data: one owner admits a model's stamp per occurrence and attempt and puts it under the occurrence: a field the caller writes, by name or through the relation holding it, stays the caller's; every create and update site calls it (see `src/query-engine/raptor3/AGENTS.md`) |
 | `src/extensions/methods-part.ts`, `methods.ts` | `methods(factory)` (client methods) and `modelMethods(factory)` (model methods): one factory per view (eager on the client `$extends` returns, lazy elsewhere), collisions, `scope.$bind`; on a chain that declares create data, the model delegate's five narrowed writes (`ExtensionModelDelegate`) |
@@ -598,7 +598,7 @@ or observes a native batch's units; then its unit is entered, its arguments
 admitted and its handlers started before anything is sent. The plain path
 allocates no slot, deferred result, outcome collector or admission callback,
 and the chain's hooks are optional calls on its state, so an application
-without extension carries the executor and nothing of interception.
+without extension carries the executor and nothing of the `around` parts.
 
 ## Coverage Gate
 

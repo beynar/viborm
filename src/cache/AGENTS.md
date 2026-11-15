@@ -24,7 +24,12 @@ const cached = createClient({ schema, driver }).$extends(
 );
 ```
 
-Base and ordinary-derived clients have no `$withCache` or `$invalidate` surface.
+Base and ordinary-derived clients have no `$withCache` or `$invalidate` surface:
+they are the cache's client methods (`CacheMethods`, its facts), each typed
+through `this` from the client it is called on, so a transaction or a cached
+view refuses them and the view (`CachedClientOf`) types the chain's client
+methods it carries. One cache per chain is the general rule that an extension
+adds no client method under a name the client has.
 Never restore `cache`, `cacheVersion`, or `waitUntil` to `createClient()`.
 The chain names nothing of the cache, the engine names nothing of it, and
 the client holds no cache capability, lookup or trigger point: what the

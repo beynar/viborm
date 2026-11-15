@@ -29,7 +29,7 @@ QueryEngine
 | `raptor3/` | Admission, preparation, lowering, execution and decoding — the whole operation |
 | `QueryEngine` | Driver, operation route, extension chain, client identity, and transaction scope |
 | `PendingOperation` | Lazy and Promise-like public operation lifecycle |
-| `routed-operations.ts` | The read/write verb vocabulary the cache and interception seams key on |
+| `routed-operations.ts` | The read/write verb vocabulary the cache and the `around` parts key on |
 | `types.ts` | The prepared-operation, prepared-batch and guard shapes the client and the route share |
 | `batch-error-attribution.ts` | Attribution of a native-batch assertion failure to the guard that raised it, and the one guard-failure-to-error construction |
 | `result/` | The result-shape vocabulary the client's type renderer reads, and `groupby-fields.ts` |

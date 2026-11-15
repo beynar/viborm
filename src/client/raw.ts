@@ -493,7 +493,7 @@ class DeferredRawOperation<T>
     if (this.#resolved) return this.#resolved;
 
     // Refusing before memoizing keeps a rejected statement rejected however
-    // many times admission, interception, and execution ask for it.
+    // many times admission, the `around` parts and execution ask for it.
     const resolved = this.#resolveQuery();
     validateRawParametersFirst(
       this.#method,

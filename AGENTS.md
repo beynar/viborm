@@ -252,7 +252,7 @@ in its own module and returns its part, which carries its state and its
 code; a builder never names a word, it calls what the value carries
 (`CarriedValue.join(site)` and `PredicateWord` in `rule-words.ts`; `only`,
 `check`, `gate`, `facts`, `keep`, `lazy` and `omitted` are classes whose
-`join` writes their own state and brings their own part: `verbs.ts`,
+`join` writes their own state and brings their own part: `entries.ts`,
 `judge.ts`, `produced.ts`, `projection.ts`, `kept.ts`,
 `default-omit-identity.ts`); `around` is a separate export, never a
 property of `call` (a property assigned to an exported function is a module
@@ -549,7 +549,11 @@ instrumentation presents whoever wrote them.
   invalidates, an `around` on `target(reads)` with `{ inner: true }` keyed
   by `key(run)` and storing the driver's rows through `codec(run)` (a hit
   is decoded again by the engine), and `methods` (`$withCache`,
-  `$invalidate`, which uses `settled(scope)`). Its scope is derived from the
+  `$invalidate`, which uses `settled(scope)`), typed as any extension's
+  client methods are, through its own facts (`CacheMethods`, each method
+  typed through `this` from the client it is called on, the view by
+  `CachedClientOf`): neither the contract's `Facts` nor the client names
+  the cache. Its scope is derived from the
   private storage revision (`r6`), `version`, and `database(x)`
   (dialect and SQL namespace), memoized by value inside the extension —
   never add a registry to hand an old one back.
