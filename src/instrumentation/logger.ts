@@ -11,10 +11,9 @@ import type {
   LogLevelHandler,
 } from "./types";
 
-// The words a log's `meta` may carry, and the values `event` and `status`
-// take: a note's other keys and values are left out, whoever noted them, so
-// no note can bring statement text or a parameter into a log. `deprecation`
-// and `notice` carry notice text, constant wording an extension writes.
+// The words a log's `meta` may carry, and the values they take: a note's
+// other keys and values are left out, whoever noted them, so no note can
+// bring statement text or a parameter into a log.
 const EVENTS: ReadonlySet<unknown> = new Set([
   "bypass",
   "hit",
@@ -34,11 +33,9 @@ const STATUSES: ReadonlySet<unknown> = new Set([
 export function presentLogMetadata(
   meta: Readonly<Record<string, unknown>>
 ): Record<string, unknown> {
-  const { deprecation, event, notice, status } = meta;
+  const { event, status } = meta;
   return {
-    ...(typeof deprecation === "string" ? { deprecation } : {}),
     ...(EVENTS.has(event) ? { event } : {}),
-    ...(typeof notice === "string" ? { notice } : {}),
     ...(STATUSES.has(status) ? { status } : {}),
   };
 }

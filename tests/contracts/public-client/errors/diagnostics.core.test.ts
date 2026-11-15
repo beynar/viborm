@@ -177,7 +177,6 @@ describe("diagnostic disclosure contracts", () => {
         status: "success",
       })
     ).toEqual({
-      deprecation: "use the extension API",
       event: "hit",
       status: "success",
     });
