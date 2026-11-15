@@ -4,7 +4,6 @@
  * Combines tracer and logger into a single context passed through layers.
  */
 
-import type { DiagnosticDisclosure } from "@errors";
 import { createLogger, type Logger } from "./logger";
 import { createTracerWrapper, type TracerWrapper } from "./tracer";
 import type {
@@ -16,64 +15,30 @@ import type {
 /** Combined instrumentation context */
 export interface InstrumentationContext {
   /** Immutable configuration snapshot resolved at the public boundary. */
-  config: ResolvedInstrumentationConfig;
+  readonly config: ResolvedInstrumentationConfig;
   /** Tracer wrapper (if tracing enabled) */
-  tracer?: TracerWrapper | undefined;
+  readonly tracer: TracerWrapper | undefined;
   /** Logger (if logging enabled) */
-  logger?: Logger | undefined;
+  readonly logger: Logger | undefined;
 }
 
 interface ResolvedInstrumentationConfig {
-  readonly diagnostics: Required<DiagnosticDisclosure>;
   readonly logging?: true | Readonly<LoggingConfig> | undefined;
   readonly tracing?: true | Readonly<TracingConfig> | undefined;
 }
 
 /**
- * Create instrumentation context from config
- *
- * @param config - Instrumentation configuration
- * @returns Combined context with tracer and logger
+ * Create instrumentation context from config: the configuration as it is
+ * when the extension is built, so that what the caller changes in its object
+ * later changes nothing. Its type is its guard; the flags are read as
+ * booleans, `true` alone enabling one. `diagnostics` is not part of it: the
+ * extension hands it to `disclosure`, which reads it once.
  */
-export function createInstrumentationContext(
-  config: InstrumentationConfig
-): InstrumentationContext {
-  const snapshot = snapshotInstrumentationConfig(config);
-  const context: InstrumentationContext = { config: snapshot };
-
-  // Create tracer if tracing is configured
-  if (snapshot.tracing) {
-    const tracingConfig = snapshot.tracing === true ? {} : snapshot.tracing;
-    context.tracer = createTracerWrapper({
-      includeSql: tracingConfig.includeSql,
-      includeParams: tracingConfig.includeParams,
-      ignoreSpanTypes: tracingConfig.ignoreSpanTypes,
-      tracer: tracingConfig.tracer,
-    });
-  }
-
-  // Create logger if logging is configured
-  if (snapshot.logging) {
-    const loggingConfig: LoggingConfig =
-      snapshot.logging === true ? { all: true } : snapshot.logging;
-    context.logger = createLogger(loggingConfig);
-  }
-
-  return Object.freeze(context);
-}
-
-/**
- * The configuration as it is when the extension is built: what the caller
- * changes in its object later changes nothing. Its type is its guard; the
- * flags are read as booleans, `true` alone enabling one.
- */
-function snapshotInstrumentationConfig({
-  diagnostics,
+export function createInstrumentationContext({
   tracing,
   logging,
-}: InstrumentationConfig): ResolvedInstrumentationConfig {
-  return Object.freeze({
-    diagnostics: snapshotDisclosure(diagnostics),
+}: InstrumentationConfig): InstrumentationContext {
+  const config: ResolvedInstrumentationConfig = Object.freeze({
     tracing:
       tracing === true || tracing === undefined
         ? tracing
@@ -83,16 +48,14 @@ function snapshotInstrumentationConfig({
         ? logging
         : snapshotLoggingConfig(logging),
   });
-}
-
-function snapshotDisclosure(
-  value: DiagnosticDisclosure | undefined
-): Required<DiagnosticDisclosure> {
   return Object.freeze({
-    includeParams: value?.includeParams === true,
-    includeSql: value?.includeSql === true,
-    includeProviderDetails: value?.includeProviderDetails === true,
-    includeCallsite: value?.includeCallsite === true,
+    config,
+    tracer:
+      config.tracing &&
+      createTracerWrapper(config.tracing === true ? {} : config.tracing),
+    logger:
+      config.logging &&
+      createLogger(config.logging === true ? { all: true } : config.logging),
   });
 }
 

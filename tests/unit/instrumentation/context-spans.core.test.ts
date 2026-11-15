@@ -65,15 +65,8 @@ describe("createInstrumentationContext — tracer", () => {
     expect(ctx.tracer).toBeUndefined();
     expect(ctx.logger).toBeUndefined();
     expect(ctx.config).not.toBe(config);
-    expect(ctx.config.diagnostics).toEqual({
-      includeProviderDetails: false,
-      includeCallsite: false,
-      includeParams: false,
-      includeSql: false,
-    });
     expect(Object.isFrozen(ctx)).toBe(true);
     expect(Object.isFrozen(ctx.config)).toBe(true);
-    expect(Object.isFrozen(ctx.config.diagnostics)).toBe(true);
   });
 
   it("snapshots flags, handlers, and ignore patterns before caller mutation", async () => {
@@ -81,13 +74,11 @@ describe("createInstrumentationContext — tracer", () => {
     const replacementHandler = vi.fn();
     const pattern = /^viborm\.connect$/g;
     const config: InstrumentationConfig = {
-      diagnostics: { includeParams: true },
       tracing: { includeParams: true, ignoreSpanTypes: [pattern] },
       logging: { query: originalHandler },
     };
     const ctx = createInstrumentationContext(config);
 
-    config.diagnostics = { includeSql: true };
     config.tracing = undefined;
     config.logging = { query: replacementHandler };
     pattern.lastIndex = 4;
@@ -95,12 +86,6 @@ describe("createInstrumentationContext — tracer", () => {
     ctx.logger?.query({ timestamp: new Date() });
     await ctx.tracer?.startActiveSpan({ name: SPAN_CONNECT }, () => undefined);
 
-    expect(ctx.config.diagnostics).toEqual({
-      includeProviderDetails: false,
-      includeCallsite: false,
-      includeParams: true,
-      includeSql: false,
-    });
     expect(originalHandler).toHaveBeenCalledOnce();
     expect(replacementHandler).not.toHaveBeenCalled();
     expect(recorder.find(SPAN_CONNECT)).toBeUndefined();

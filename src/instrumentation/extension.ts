@@ -65,7 +65,8 @@ export function instrumentation<T extends AnyTarget, const Config>(
 ): Extension<T, EmptyFacts>;
 export function instrumentation(config: InstrumentationConfig): unknown {
   const context = createInstrumentationContext(config);
-  const { diagnostics, logging, tracing } = context.config;
+  const { logging, tracing } = context.config;
+  const { diagnostics = {} } = config;
   const policy = disclosure({
     sql: diagnostics.includeSql,
     parameters: diagnostics.includeParams,
