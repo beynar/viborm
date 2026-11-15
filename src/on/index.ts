@@ -330,11 +330,16 @@ function refuse(problem: string): never {
   });
 }
 
+const AFTER = {
+  committed: "committed",
+  "may-have-committed": "may have committed",
+} as const;
+
 /** A hook's failure, as the error reported for it. */
 function failure(thrown: unknown, event: OnEvent, label: string): QueryError {
   const cause = thrown instanceof Error ? thrown : new Error(String(thrown));
   const error = new QueryError(
-    `Extension "${NAME}" hook ${label} failed after the write ${event.certainty === "committed" ? "committed" : "may have committed"}; the write is not undone.`,
+    `Extension "${NAME}" hook ${label} failed after the write ${AFTER[event.certainty]}; the write is not undone.`,
     {
       cause,
       meta: {
