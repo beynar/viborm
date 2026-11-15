@@ -21,7 +21,7 @@ import {
   type Reader,
   type Shape,
 } from "@query-engine/raptor3/shared/query";
-import type { RuleEntry } from "@query-engine/raptor3/shared/row-scope";
+import type { JudgedEntry } from "@query-engine/raptor3/shared/row-scope";
 import type { Operation as Admitted } from "@query-engine/raptor3/shared/schema";
 import {
   type Arguments,
@@ -68,7 +68,7 @@ function sharedGate(gate: FieldGate, known: FieldGate[]): FieldGate {
  */
 export function refuseSharedKeys(
   model: string,
-  layers: readonly (RuleEntry | undefined)[]
+  layers: readonly (JudgedEntry | undefined)[]
 ): void {
   const keys = new Set<string>();
   for (const layer of layers) {

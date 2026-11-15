@@ -68,7 +68,7 @@ export interface RowDomain {
    * rule entries of the model. A model absent here judges a write by
    * its purpose's predicates alone.
    */
-  readonly rules?: ByModel<readonly (RuleEntry | undefined)[]> & {
+  readonly rules?: ByModel<readonly (JudgedEntry | undefined)[]> & {
     has(model: string): boolean;
   };
   /**
@@ -112,7 +112,7 @@ export interface RowDomain {
  * an updated row at the predicates that judged its old row, `check`, and per
  * field it writes, that field's `moves` predicate.
  */
-export interface RuleEntry<P = Input> {
+export interface JudgedEntry<P = Input> {
   readonly read?: P;
   /**
    * What a row a write returns holds for the layer's projection key and

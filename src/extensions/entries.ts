@@ -4,15 +4,15 @@
  * holds none of this code: per model and layer, which rows a write may take
  * (`update`, `delete`, `writes`), what the rows it produces must hold and
  * what a read carries or hides, admitted once per schema and bound once per
- * application as the engine reads them (`RuleEntry`). What judges and what
+ * application as the engine reads them (`JudgedEntry`). What judges and what
  * projects come with the words that ask for them; for an entry given lazily,
  * whose words are known only once its model is read, a forwarder asks the
  * model first.
  */
 import type { Queries } from "@query-engine/raptor3/shared/query";
 import type {
+  JudgedEntry,
   LazyRelations,
-  RuleEntry,
   WriteJudgement,
 } from "@query-engine/raptor3/shared/row-scope";
 import { type Input, memo } from "@query-engine/raptor3/shared/schema";
@@ -41,7 +41,7 @@ export const ALL: Input = Object.freeze({});
  * `update`'s, or `update`'s when it writes none (R3).
  */
 export function judgedInputs(
-  entry: RuleEntry,
+  entry: JudgedEntry,
   judgement: WriteJudgement
 ): Input[] {
   const { update = ALL, delete: removal = ALL } = entry;

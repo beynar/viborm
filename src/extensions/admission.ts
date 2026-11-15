@@ -11,8 +11,8 @@ import type { Schema } from "@client/types";
 import { ClientInitializationError } from "@errors";
 import type {
   CallRows,
+  JudgedEntry,
   RowDomain,
-  RuleEntry,
 } from "@query-engine/raptor3/shared/row-scope";
 import type { Input } from "@query-engine/raptor3/shared/schema";
 import { memo } from "@query-engine/raptor3/shared/schema";
@@ -41,11 +41,11 @@ type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 /**
  * One model's entry of one rule layer beyond its filters, as its words
- * wrote it (`RuleEntry` with its predicates raw): admitted, it is the
- * layer's `RuleEntry`. An entry given lazily holds its filters here too,
+ * wrote it (`JudgedEntry` with its predicates raw): admitted, it is the
+ * layer's `JudgedEntry`. An entry given lazily holds its filters here too,
  * since what filters is bound before any entry is resolved.
  */
-export type EntryDraft = Mutable<Omit<RuleEntry<unknown>, "cycles">> & {
+export type EntryDraft = Mutable<Omit<JudgedEntry<unknown>, "cycles">> & {
   writes?: Map<string, unknown>;
   moves?: Map<string, unknown>;
   reads?: Map<string, unknown>;
@@ -60,7 +60,7 @@ export type EntryDraft = Mutable<Omit<RuleEntry<unknown>, "cycles">> & {
  * One model's admitted entry, with an entry given lazily's filters and the
  * arguments its predicates name, checked against the chain it is bound to.
  */
-export interface AdmittedEntry extends RuleEntry {
+export interface AdmittedEntry extends JudgedEntry {
   readonly filters?: Filters;
   readonly references?: readonly (string | undefined)[];
 }
@@ -86,12 +86,15 @@ export interface RuleLayer {
   reads?: CallReads;
   /** What judges and projects, brought by the words that ask either. */
   brings?: {
-    judge?: RuleEntry["judge"];
+    judge?: JudgedEntry["judge"];
     project?: (domain: PreparedDomain) => Projection;
     /** What prepares a call's domains where a layer takes rows by `only`. */
     prepare?: CallRows["prepare"];
     /** What refuses one model's projection keys across the chain's layers. */
-    keys?: (model: string, layers: readonly (RuleEntry | undefined)[]) => void;
+    keys?: (
+      model: string,
+      layers: readonly (JudgedEntry | undefined)[]
+    ) => void;
     /** What admits and reads an entry given lazily, brought by `lazy`. */
     lazy?: LazyEntries;
     /** What admits and binds the confinements, brought by `within`. */
