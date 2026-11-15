@@ -162,24 +162,6 @@ export function createOperationSpanOptions(unit: Unit): VibORMSpanOptions {
   };
 }
 
-/** The error log of an operation's failure, at the instant it settled. */
-export function createOperationErrorLogEvent(
-  unit: Unit,
-  failure: Error,
-  startedAt: number,
-  duration: number
-): LogEvent {
-  return {
-    level: "error",
-    timestamp: new Date(startedAt + duration),
-    error: disclosed(failure),
-    model: unit.model,
-    operation: resolvedOperation(unit),
-    correlationId: correlation(unit),
-    duration,
-  };
-}
-
 /**
  * The driver identity plus the collection a unit addresses (an operation's
  * table, another unit's model), its operation and correlation. An empty

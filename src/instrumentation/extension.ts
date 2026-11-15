@@ -24,7 +24,6 @@ import {
   channelOf,
   createLifecycleSpanOptions,
   createNotedSpanOptions,
-  createOperationErrorLogEvent,
   createOperationSpanOptions,
   createStatementLogEvent,
   createStatementSpanOptions,
@@ -198,9 +197,15 @@ function presentOperation(
         logs(context, "error") &&
         !context.logged.has(origin(error))
       )
-        context.logger?.log(
-          createOperationErrorLogEvent(unit, error, startedAt, settled.duration)
-        );
+        // The log a note of the failure would ask for, at the instant core
+        // settled the operation, with its duration.
+        context.logger?.log({
+          ...presentNoteLog(unit, "error", {
+            at: startedAt + settled.duration,
+            error,
+          }),
+          duration: settled.duration,
+        });
     }
   );
 }
