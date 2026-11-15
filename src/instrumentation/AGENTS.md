@@ -6,7 +6,7 @@
 ## Purpose
 
 Instrumentation presents OpenTelemetry spans, structured logs, and diagnostic
-disclosure from authenticated core lifecycle facts. It observes application
+disclosure from the units core runs, read through the public unit words. It observes application
 work; it never chooses SQL, cache policy, query recovery, transaction outcome,
 or application error authority.
 
@@ -23,117 +23,84 @@ const observed = createClient({ schema, driver }).$extends(
 ```
 
 Never restore `instrumentation` to `createClient()` or driver-wrapper config.
-There is no driver/cache setter fallback. Each exact chain owns one immutable
-`InstrumentationContext`; shared drivers and caches do not share its tracer,
-logger, disclosure, or correlation.
+There is no driver/cache setter fallback. Each `instrumentation()` value owns
+one immutable `InstrumentationContext`; shared drivers and caches do not share
+its tracer, logger, or disclosure.
+
+`instrumentation(config)` is written with public words only:
+`extension("viborm.instrumentation", unit(observe), disclosure(diagnostics))`.
+With neither `tracing` nor `logging` it is the `disclosure` part alone. Every
+import of this folder is a public name
+(`tests/contracts/public-client/extension-imports.core.test.ts`): what it
+lacks becomes a public word for every author, as `disclosed` did. Never import
+a private helper of core here.
 
 ## Owners
 
 | Owner | Responsibility |
 |---|---|
-| `src/instrumentation/extension.ts` | Fixed-name factory, the one trusted protected-observer handler, and the private capability→context map (core holds only the neutral capability) |
-| `context.ts` | Hostile-safe config snapshot and instrumentation context |
-| `presentation.ts` | Span options, attributes, log events and per-channel disclosure built from core's neutral facts (`src/extensions/official-facts.ts`) |
-| `tracer.ts` | Active spans through a handed tracer (`tracing.tracer`: OpenTelemetry or Cloudflare Workers `tracing`, never importing the api) or else the auto-detected optional OTel api; the one exactly-once containment and span settlement both paths share |
-| `logger.ts` | Level selection, callback containment, pretty presentation, and the log metadata vocabulary (`LOG_META_KEYS`) |
-| `src/drivers/driver-instrumentation.ts` | Provider-dispatch facts, the statement log decision and de-dup mark, and the deferred handoff (`start()` inside the trusted span); no presentation and no generic extension runner |
-| `src/extensions/official-facts.ts` | The neutral fact contract, the fact unions core produces, and `OfficialObservationCapability` (types only, never re-exported) |
-| `src/extensions/observation.ts` | Public unit/completion onion, trusted identity registry, the chain→capability map, `selectTrustedObservers`, and the one contained observer runner |
-| `src/errors/logged-errors.ts` | The logged-error record: core marks a failure it selected for a log, synchronously, and transfers the mark to package-owned successors |
+| `src/instrumentation/extension.ts` | The factory and the one unit handler over every kind, with its own containment |
+| `context.ts` | Config snapshot and instrumentation context |
+| `presentation.ts` | Span options, attributes and log events, built from the unit words |
+| `tracer.ts` | Active spans through a handed tracer or the auto-detected optional OTel api; the exactly-once containment and span settlement both paths share |
+| `logger.ts` | Level selection (`query`, `cache`, `error`), callback containment, pretty presentation, the log metadata vocabulary |
+| `src/extensions/observation.ts` | The one generation of unit handlers (`runUnit`), the array barrier (`members`), `work` |
+| `src/extensions/unit-words.ts` | The unit words: `text`, `parameters`, `driver`, `failure`, `correlation`, `table`, `statements`, `origin`, `statement`, `run`, `note`, `notes` |
+| `src/extensions/disclosed.ts` | `disclosed(error, { sql?, parameters? })`: the copy of a failure a log or a span shows, under the application's `disclosure` |
+| `src/errors/logged-errors.ts` | The line of successors the package makes from one failure (`origin`) |
 
-Core reads only `observesLifecycle`, `prewarm`, `diagnostics`, `wants(need)`
-and `warn(notice)` from the capability, and the type enforces it: core holds
-an `OfficialObservationCapability`, which carries no tracer, logger or
-`InstrumentationContext`, and it imports nothing from this directory, not even
-a type. The extension recovers its own context from its private
-capability→context map. The extension formats; core selects and marks.
+Core never names this extension: it builds a unit only where the chain has a
+`unit` part (`chain.observation`), and reads the disclosure policy from
+`chain.disclosure`.
 
-Do not add another event registry, presenter, context manager, public token, or
-driver-attached instrumentation state.
+## Units
 
-## Lifecycle rail
+A unit starts at its physical boundary. `operation` around the whole call;
+`statement` around the one provider call, after rewriting, rendering, the
+parameter snapshot and taking the connection: one unit per physical send, a
+native batch included (`statements(u)` gives its members); `transaction`,
+`savepoint`, `connection` past the queue wait; `batch` around
+`$transaction([...])`, which waits until every member's operation unit
+reached its child before preparing any member. The cache emits `cache` units
+of its own through `work`.
 
-Public units are discriminated as `operation`, `statement`, `batch`,
-`transaction`, `savepoint`, `connection`, or `cache`. Core creates
-and freezes the exact unit. The official handler identity unlocks private facts
-through WeakMaps; a clone, rename, bind, copied context, or ordinary observer
-cannot recover them.
+A unit of any other kind is presented from its notes alone
+(`presentNoted`, `InstrumentationNote` in `types.ts`): the span its first
+note names as it starts, `attributes` noted later set at its end, every
+`log` note logged at its level; on the call's `operation` unit, after it
+ends, its `cache` logs alone. The instrumentation names no extension's
+units: the cache's spans and logs are what the cache notes. Never add a
+branch for one extension's kind.
 
-Operation observation begins before lazy request transformation and completes
-after query-interceptor post-work. Statement observation begins before the
-statement transform. The execute presentation starts later at the old provider
-dispatch boundary, after transformation, rendering preparation, and client
-acquisition. Transaction/savepoint/connection observation begins outside queue
-wait, while its late execute span starts at the existing serialized provider
-boundary.
+What the disclosure settings promise holds for notes because a note never
+carries what they govern: an attribute under `db.query.` is dropped
+(`notedAttributes`), whatever `includeSql` and `includeParams` say, a note's
+`error` passes through `disclosed` as every log's does, and its `meta` keeps
+the log metadata words alone (`presentLogMetadata`). A note may not take the
+name of a call's own span (`tracesAs`): its unit is then presented without a
+span; `viborm.operation` is admitted as a root span, an operation outside
+any call (the cache's revalidation). Dropping, never refusing: the
+instrumentation never fails the call it observes. Never add a second
+sanitizer for notes; never let a note reach a core unit's span.
 
-Protected completion facts carry the same `kind` discriminant as their start
-facts. Producers publish only that kind's completion shape, and the official
-observer narrows by the discriminant; property-name probes are not a lifecycle
-identity mechanism.
+Every handler is a plain wrapper `(u, next) => …`: the child starts only at
+`next()`, the host awaits the handler's promise, `next()` is called once and
+must be, the child's failure is authoritative, and what a handler throws
+fails the call. That is what keeps the execute span inside the operation span
+with no prewarm: a handler waiting for the OTel import delays its child.
 
-Native arrays emit one batch, N operations, and N statement units but one
-provider execute span/query log. They emit no fictional transaction. Fallback
-arrays use the real transaction or savepoint. Cache revalidation owns its real
-nested set and cleanup facts without exposing marker helpers as public
-lifecycle units.
-
-A cache backend delete or clear inside an invalidation has no public unit. It
-runs through the same runner with only the chain's trusted observer selected
-(`selectTrustedObservers` in `src/extensions/observation.ts`): the frozen unit
-reuses the public `invalidate` shape so the public union does not grow, and the
-private `cache-backend` facts tell the extension which span to present. No
-ordinary observer receives it, and it stays a child of the invalidate span.
-
-## Protected observer contract
-
-Ordinary observers receive only a frozen unit and a frozen completion. They do
-not receive SQL, parameters, rows, application results, cache keys, raw errors,
-driver objects, correlation, or private facts. Their throw, rejection, or
-never-settling returned promise cannot delay or change the application.
-
-The official handler has a separate downstream-only application bridge. First
-use can await OTel readiness while preserving its declared onion index and
-active context. Setup failure is consumed and core still starts the exact child
-once. Array coordination prewarms the one trusted capability once before member
-observers, preparation, admission, or provider effects; ordinary-only/already-
-warm paths return synchronously without a Promise allocation.
-
-## Disclosure and errors
-
-Tracing, logging, and diagnostics snapshot independently approved SQL and
-parameter disclosures. Both fields default to false. One hostile parameter
-surface is read once before provider mutation and reused by every enabled
-channel. Cache keys and custom suffixes are never disclosed.
-
-Provider failures are normalized at the driver boundary. Core owns selected
-error logging and exact-error deduplication, including transfer to package-owned
-successor errors that add execution context or commit certainty. The extension
-formats; core selects and marks: the statement completion marks the failure it
-selected synchronously, and the operation completion hands the extension a
-failure only when it is not yet marked. Public
-completion exposes only a sanitized summary and optional certainty. A
-statement log is emitted by the chain its completion facts attribute it to
-(`capability`), never by the chain observing the statement: a native-batch
-member's failure reaches that member's client, with that client's disclosure.
-Known driver-level limits (the public API refuses a batch that mixes clients):
-a settled batch, or a failure no member can be pinned to, is presented only to
-the batch's own context, under its disclosure, with the batch-wide SQL and
-parameters its caller composed; and a member's failure under a batch context
-whose chain carries no official instrumentation is not observed at all.
-
-Observer, logger, console, OTel import/provider/span, and cache-presentation
-failures are contained. They cannot replace the child value/error, prevent an
-independent durable-fact consumer from running, alter commit, or cause an
-unhandled rejection.
+The instrumentation contains its own failures (`observe` in `extension.ts`):
+`next()` runs exactly once whatever the presentation does, and its returned
+promise never rejects. A failure a statement log presented is not presented
+again by its operation (`origin`).
 
 ## Span rules
 
 - `viborm.operation` owns the complete logical operation.
 - `viborm.execute` owns one provider statement dispatch, or the one native
   provider batch presentation.
-- `viborm.transaction`, `viborm.savepoint`, `viborm.batch`, connection, and
-  cache spans represent only real lifecycle boundaries.
+- `viborm.transaction` (savepoints too), connection, and cache spans
+  represent only real lifecycle boundaries; a batch has no span.
 - There are no separate validate/build/parse spans.
 - `db.namespace` reports `adapter.namespace` and is added in exactly one place,
   `createDriverAttributes` in `presentation.ts`, from the identity
@@ -143,12 +110,11 @@ unhandled rejection.
   attribute to a span that carries no other `db.*` (the cache backend's own
   get/set/delete/clear spans), and do not invent a lifecycle fact kind for it. Immutability rides the non-writable `adapter.namespace`
   install, NOT a ban on copies: `readDriverIdentity` returns a fresh frozen
-  record on every call, and the cache revalidation span is deliberately built
-  from a snapshot of one, taken at `$withCache` and carried as
-  `options.driverIdentity`. The operation facts carry the same kind of
-  snapshot as `identity`, read by core's facts reader when the trusted
-  observer is reached; an operation never hands the extension its driver.
-  Neither snapshot can go stale, because the property it read cannot be
+  record on every call, and the cache revalidation span is built from the
+  `database(run)` the read took when it was served, noted as the unit's
+  `database` and rendered by `createDriverAttributes`. `driver(u)` reads a fresh identity from the
+  unit's driver when it is called; a unit never hands the extension its
+  driver itself. No snapshot can go stale, because the property it read cannot be
   reassigned — which is also why no reader may take its namespace from
   anywhere else. `readDriverIdentity` contains its own read: when a custom
   adapter's `namespace` getter throws it returns `undefined`, and the
@@ -158,8 +124,8 @@ unhandled rejection.
   times; it is pinned (`native-batch-attribution.core`, a `vi.mock` spy on
   `@drivers/driver-identity`), and any new identity fact has to preserve that.
 - Ignoring a cache span must not write late cache attributes onto its parent.
-- Verbatim unsafe raw excludes statement transformation, but its physical
-  execution remains observed without implicit SQL/parameter disclosure.
+- Verbatim unsafe raw is never rewritten, but its physical execution remains
+  observed without implicit SQL/parameter disclosure.
 
 ## Optional OTel
 
@@ -174,15 +140,14 @@ values declared in `tracer.ts`. Attributes are set with `span.setAttribute`
 after the span starts; kind and `root` are not passed (the tracer decides the
 parent). `setStatus` and `recordException` are called only when the span has
 them (the Workers span has neither on workerd 1.20260801.1). It is enabled at
-once and has no readiness to prewarm. The config snapshot keeps the tracer by
-reference only when it has a callable `startActiveSpan`; any other value falls
-back to auto-detection.
+once. The config snapshot keeps the tracer by reference. The configuration
+is read once, with plain reads: its type is its guard (decision D6), so never
+add a guard against a throwing getter or an ill-typed value in it.
 
 Without `tracer`, `@opentelemetry/api` is dynamically imported, and the span
 kind and status codes are read from that api object, as they always were.
-Missing or hostile OTel falls back to application execution. Readiness is
-one-shot: after it settles, prewarming returns `undefined` synchronously and
-does not add a permanent microtask to traced operations.
+Missing or hostile OTel falls back to application execution. The first span
+waits for the import; later spans start synchronously.
 
 Both paths share one containment (`createExecution`): the application callback
 runs exactly once whether the tracer or context manager calls back twice,
@@ -213,7 +178,9 @@ owner: `includeProviderDetails` and `includeCallsite` are false by default. The
 error snapshot retains bounded own-data provider message/detail/hint with
 credential redaction; the private operation execution context captures origin
 only when opted in. Official logs preserve those selected diagnostics while SQL
-and parameters remain channel-owned. Protected completion facts can carry one
-failure for tracing without selecting a log (`skipLog`); no ordinary observer
-receives that failure. Tracer settlement publishes only canonical class/code and
-allowlisted SQLSTATE, never provider message/callsite/parameters.
+and parameters remain channel-owned. Every failure a log or span shows passes
+through `disclosed` once, in `presentation.ts`; the logger and the tracer
+hand on what the presentation made and never sanitize again, and parameters
+are the `parameters(u)` snapshot, already bounded. Tracer settlement reads
+only the class, code and allowlisted SQLSTATE of the `disclosed` copy, never
+provider message/callsite/parameters.

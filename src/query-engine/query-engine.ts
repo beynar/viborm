@@ -1,7 +1,7 @@
 import type { AnyDriver } from "@drivers/exports";
+import type { AdmittedArgs } from "@extensions/arguments";
 import type { ResolvedExtensionChain } from "@extensions/chain";
-import type { AdmittedControls } from "@extensions/controls";
-import type { TransactionWriteOutcomes } from "@extensions/query";
+import type { TransactionScope } from "@extensions/query";
 import type { Model } from "@schema/model";
 import {
   createPendingOperation,
@@ -16,12 +16,16 @@ import type { Operation, PrepareOptions } from "./types";
 export class QueryEngine {
   readonly driver: AnyDriver;
   readonly extensionChain: ResolvedExtensionChain | undefined;
-  readonly transactionWriteOutcomes: TransactionWriteOutcomes | undefined;
   /**
-   * The control values this view binds, admitted on each of its calls as if
+   * The transaction scope this engine runs in, inside a callback
+   * transaction: what its calls register there waits for its end.
+   */
+  readonly transaction: TransactionScope | undefined;
+  /**
+   * The argument values this view binds, admitted on each of its calls as if
    * passed. Every engine bound from it keeps them (transactions, `$extends`).
    */
-  readonly bound: AdmittedControls | undefined;
+  readonly bound: AdmittedArgs | undefined;
 
   /**
    * Identity of the originating client lineage. Transaction-bound engines
@@ -44,13 +48,13 @@ export class QueryEngine {
     clientId = Symbol("viborm.client"),
     scopeId = Symbol("viborm.scope"),
     extensionChain?: ResolvedExtensionChain,
-    transactionWriteOutcomes?: TransactionWriteOutcomes,
-    bound?: AdmittedControls
+    transaction?: TransactionScope,
+    bound?: AdmittedArgs
   ) {
     this.driver = driver;
     this.route = route;
     this.extensionChain = extensionChain;
-    this.transactionWriteOutcomes = transactionWriteOutcomes;
+    this.transaction = transaction;
     this.clientId = clientId;
     this.scopeId = scopeId;
     this.bound = bound;
@@ -60,14 +64,14 @@ export class QueryEngine {
    * This engine with other bound values: the same scope, so operations of
    * both may share one array transaction.
    */
-  withBound(bound: AdmittedControls): QueryEngine {
+  withBound(bound: AdmittedArgs): QueryEngine {
     return new QueryEngine(
       this.driver,
       this.route,
       this.clientId,
       this.scopeId,
       this.extensionChain,
-      this.transactionWriteOutcomes,
+      this.transaction,
       bound
     );
   }
@@ -75,8 +79,7 @@ export class QueryEngine {
   bind(
     driver: AnyDriver,
     extensionChain: ResolvedExtensionChain | undefined = this.extensionChain,
-    transactionWriteOutcomes: TransactionWriteOutcomes | undefined = this
-      .transactionWriteOutcomes
+    transaction: TransactionScope | undefined = this.transaction
   ): QueryEngine {
     return new QueryEngine(
       driver,
@@ -84,7 +87,7 @@ export class QueryEngine {
       this.clientId,
       Symbol("viborm.scope"),
       extensionChain,
-      transactionWriteOutcomes,
+      transaction,
       this.bound
     );
   }

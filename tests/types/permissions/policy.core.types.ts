@@ -127,12 +127,6 @@ describe("action names", () => {
     const stale = { actor: Actor, models: { page: { arms: [{}], read: {} } } };
     // @ts-expect-error - old arrays are refused even in non-fresh declarations
     permissions(stale);
-    // @ts-expect-error - the level ladder cannot reintroduce retired names either
-    permissions({
-      actor: Actor,
-      levels: ["read", "arms"],
-      models: { page: { read: {} } },
-    });
     // @ts-expect-error - an explicit graph cannot reintroduce the retired key
     permissions({
       actor: Actor,
@@ -175,12 +169,6 @@ describe("action names", () => {
     permissions({ actor: Actor, models: { page: { "read, mandatory": {} } } });
     // @ts-expect-error - retired names cannot be hidden in a group
     permissions({ actor: Actor, models: { page: { "read, arms": {} } } });
-    // @ts-expect-error - the ladder declares individual action names
-    permissions({
-      actor: Actor,
-      levels: ["read", "update, full"],
-      models: { page: { read: {} } },
-    });
     // @ts-expect-error - graph nodes are individual names, not groups
     permissions({
       actor: Actor,
@@ -197,7 +185,6 @@ describe("action names", () => {
     // @ts-expect-error - `remove` is not an action of page
     permissions({
       actor: Actor,
-      levels: ["read", "update", "full"],
       models: { page: { read: {}, operations: { delete: "remove" } } },
     });
     // @ts-expect-error - `full` is not an action of a model with its own actions
@@ -214,6 +201,59 @@ describe("action names", () => {
     permissions({
       actor: Actor,
       models: { document: { actions: { read: [], update: ["veiw"] } } },
+    });
+  });
+
+  test("the retired global levels are refused: each model declares its graph", () => {
+    permissions({
+      actor: Actor,
+      models: {
+        page: {
+          actions: { read: [], update: ["read"], full: ["update"] },
+          read: {},
+          full: {},
+        },
+      },
+    });
+    // @ts-expect-error - levels was removed, beside the policy's real keys
+    permissions({
+      actor: Actor,
+      levels: ["read", "update", "full"],
+      models: { page: { read: {} } },
+    });
+    const leveled = {
+      actor: Actor,
+      levels: ["read", "update", "full"],
+      models: { page: { read: {} } },
+    };
+    // @ts-expect-error - held in a variable, levels is still refused
+    permissions(leveled);
+  });
+
+  test("without a graph a model's actions are create, read, update and delete", () => {
+    permissions({
+      actor: Actor,
+      models: {
+        page: {
+          actions: { read: [], publish: ["read"] },
+          read: {},
+          publish: {},
+        },
+      },
+    });
+    // @ts-expect-error - a custom action outside a graph was removed
+    permissions({ actor: Actor, models: { page: { read: {}, publish: {} } } });
+    // @ts-expect-error - a misspelt action beside a real one
+    permissions({ actor: Actor, models: { page: { read: {}, raed: {} } } });
+    // @ts-expect-error - a misspelt member of a group
+    permissions({ actor: Actor, models: { page: { "read, updaet": {} } } });
+    const misspelt = { actor: Actor, models: { page: { read: {}, raed: {} } } };
+    // @ts-expect-error - held in a variable, the misspelt action is still refused
+    permissions(misspelt);
+    // @ts-expect-error - an operation names an action without a graph only if it is CRUD
+    permissions({
+      actor: Actor,
+      models: { page: { read: {}, operations: { delete: "full" } } },
     });
   });
 

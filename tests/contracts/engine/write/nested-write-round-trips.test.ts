@@ -18,15 +18,21 @@ import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { NestedWriteError, NotFoundError } from "@errors";
-import { withRows } from "@extensions/rows-runtime";
 import { hydrateSchemaNames, s } from "@schema";
+import {
+  arg,
+  args,
+  check,
+  extension,
+  oneOf,
+  only,
+  rule,
+  when,
+} from "@src/index";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import type Database from "better-sqlite3";
 import { beforeAll, describe, expect, test } from "vitest";
-
-// These definitions are stated as plain objects: what reads their rows is brought here.
-withRows();
 
 const user = s
   .model({
@@ -96,40 +102,36 @@ const note = s
 const schema = { user, post, tag, note };
 
 /** Tags whose posts carry the "secret" tag are hidden from related reads. */
-const hiddenBesideSecret = {
-  name: "test.nwrt",
-  rows: {
-    control: "visibility",
-    default: "beside",
-    models: {
-      tag: {
-        beside: {
-          related: { posts: { none: { tags: { some: { name: "secret" } } } } },
-        },
-      },
+const hiddenBesideSecret = extension(
+  "test.nwrt",
+  args({ visibility: oneOf("beside").default("beside") }),
+  rule({
+    tag: {
+      related: when(arg("visibility"), "beside", {
+        posts: { none: { tags: { some: { name: "secret" } } } },
+      }),
     },
-  },
-} as const;
+  })
+);
 
+const postAny = {};
 /** A post moves to another author only where its title is not "locked". */
-const lockedStays = {
-  name: "test.nwrt.moves",
-  rows: {
-    control: "moves",
-    default: "all",
-    models: {},
-    verbs: {
-      post: {
-        predicates: { any: {}, open: { title: { not: "locked" } } },
-        read: "any",
-        update: "any",
-        delete: "any",
-        place: "any",
-        moves: { authorId: "open" },
+const lockedStays = extension(
+  "test.nwrt.moves",
+  args({ moves: oneOf("all").default("all") }),
+  rule({
+    post: {
+      read: { where: postAny },
+      create: { check: check(postAny) },
+      update: {
+        where: only(postAny),
+        check: check(postAny),
+        fields: { authorId: { check: check({ title: { not: "locked" } }) } },
       },
+      delete: { where: only(postAny) },
     },
-  },
-} as const;
+  })
+);
 
 beforeAll(() => hydrateSchemaNames(schema));
 const getFamily = usePGliteSchemaFamily(schema);

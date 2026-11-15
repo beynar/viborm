@@ -321,7 +321,7 @@ function analyzeRawParameterGraph(
   return { dateTimes, nodes, roots };
 }
 
-/** Validate every interpreted raw parameter before query interception. */
+/** Validate every interpreted raw parameter before any first moment runs. */
 export function validateRawParameters(
   params: readonly unknown[],
   errors: RawParameterErrors

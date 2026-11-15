@@ -2,9 +2,10 @@
  * Public type falsifiers for client extensions.
  *
  * Every probe enters through an API a caller imports: the root entry point,
- * the `viborm/client` entry point, a concrete client, or a driver wrapper.
- * Extension-definition typo probes put the typo beside a real key and cover
- * both fresh and held values. No internal extension type is named here.
+ * a concrete client, or a driver wrapper, and writes an extension as
+ * `client.$extends(extension(name, ...parts))`. Typo probes put the typo
+ * beside a real key and cover both fresh and held values. No internal
+ * extension type is named here.
  *
  * Nothing in this file is called. Only the types matter.
  */
@@ -14,16 +15,20 @@ import {
   PGliteDriver,
 } from "@drivers/pglite";
 import {
-  type ClientExtension as ClientSubpathExtension,
-  defineExtension as defineClientExtension,
-} from "@src/client/exports";
-import {
-  type ClientExtension,
+  type AddedExtensionState,
+  args,
+  around,
+  call,
   createClient,
-  defineExtension,
   type ExtendedClient,
-  type ExtensionContributionState,
+  extension,
+  methods,
+  modelMethods,
+  oneOf,
+  parts,
   s,
+  settled,
+  target,
 } from "@src/index";
 import { expectTypeOf } from "vitest";
 
@@ -84,320 +89,322 @@ const schema = { author, post, node, note, image, board, $audit: audit };
 
 const baseClient = () => createClient({ schema, driver: new PGliteDriver() });
 
-function _clientAwareFactory() {
+// `$extends` takes an extension value, nothing else (owner rule D11): the
+// client factory of 1.14 is gone.
+function _onlyExtensionValues() {
   const base = baseClient();
-  const factory = (client: typeof base) =>
-    client.$extends({
-      name: "factory-method",
-      client: () => ({ $answer: () => 42 as const }),
-    });
-  const result = base.$extends(factory);
-  expectTypeOf(result.$answer()).toEqualTypeOf<42>();
+  const factory = (client: typeof base) => client;
+  // @ts-expect-error - a function of the client is not an extension
+  base.$extends(factory);
+  // @ts-expect-error - nor is an arbitrary value
+  base.$extends(42);
   expectTypeOf<
     ExtendedClient<typeof base, [typeof factory]>
   >().toEqualTypeOf<never>();
-  result.post.findMany({ where: { title: "typed" } });
-  // @ts-expect-error - factories return a client synchronously
-  base.$extends(async (client) => client);
-  // @ts-expect-error - factories return a client, not an arbitrary value
-  base.$extends(() => 42);
 }
 
 // =============================================================================
-// PUBLIC DEFINITIONS — inline, generic, curried, and both export surfaces
+// PUBLIC DEFINITIONS — inline, written apart, and bound to the schema
 // =============================================================================
 
 const _inlineContextualTyping = () =>
-  baseClient().$extends({
-    name: "inline-context",
-    request: {
-      post: {
-        findMany({ model, operation, input }) {
-          expectTypeOf(model).toEqualTypeOf<"post">();
-          expectTypeOf(operation).toEqualTypeOf<"findMany">();
-          expectTypeOf(input).not.toBeAny();
-          input.where;
-          // @ts-expect-error - the borrowed request input is shallow readonly
-          input.take = 1;
+  baseClient().$extends(
+    extension(
+      "inline-context",
+      call(
+        (c) => {
+          expectTypeOf(c.model).toEqualTypeOf<"post">();
+          expectTypeOf(c.operation).toEqualTypeOf<"findMany">();
+          expectTypeOf(c.args).not.toBeAny();
+          c.args.where;
+          // @ts-expect-error - the call's arguments are shallow readonly
+          c.args.take = 1;
 
-          return { where: { published: true } };
+          c.set({ where: { published: true } });
         },
-      },
-    },
-    query: {
-      post: {
-        async findMany({
-          model,
-          operation,
-          kind,
-          mode,
-          input,
-          proceed,
-          onWriteOutcome,
-        }) {
-          expectTypeOf(model).toEqualTypeOf<"post">();
-          expectTypeOf(operation).toEqualTypeOf<"findMany">();
-          expectTypeOf(kind).not.toBeAny();
-          expectTypeOf(mode).toEqualTypeOf<
-            "direct" | "transaction" | "array"
-          >();
-          onWriteOutcome((outcome) => {
+        target("post", "findMany")
+      ),
+      around(
+        (c) => {
+          expectTypeOf(c.model).toEqualTypeOf<"post">();
+          expectTypeOf(c.operation).toEqualTypeOf<"findMany">();
+          expectTypeOf(c.kind).toEqualTypeOf<"model">();
+          settled(c, (outcome) => {
             expectTypeOf(outcome.certainty).toEqualTypeOf<
               "committed" | "may-have-committed"
             >();
           });
-          // @ts-expect-error - opaque generic input values are unknown, not any
-          const _opaqueInputValue: string = input.__extensionTypeProbe;
-          return proceed();
+          return async (run) => {
+            expectTypeOf(run.mode).toEqualTypeOf<
+              "direct" | "transaction" | "array"
+            >();
+            run.input.where?.title;
+            // @ts-expect-error - "ttitle" is not a field of post
+            run.input.where?.ttitle;
+            return run();
+          };
         },
-      },
-    },
-    client(scope) {
-      scope.post.findMany({ where: { published: true } });
-      scope.$transaction([scope.post.count()]);
-
-      return {
-        $postCount() {
-          return scope.post.count();
+        target("post", "findMany")
+      ),
+      methods((scope) => {
+        scope.post.findMany({ where: { published: true } });
+        scope.$transaction([scope.post.count()]);
+        return { $postCount: () => scope.post.count() };
+      }),
+      modelMethods((scope) => ({
+        post: {
+          findPublished: () =>
+            scope.post.findMany({ where: { published: true } }),
         },
-      };
-    },
-    model: {
-      post(delegate) {
-        delegate.findMany({ where: { title: "typed" } });
-
-        return {
-          findPublished() {
-            return delegate.findMany({ where: { published: true } });
-          },
-        };
-      },
-    },
-  });
+      }))
+    )
+  );
 
 /**
- * The all-query form has one opaque result. It may return only the value its
- * continuation owns; it cannot invent one result that claims to fit every
- * operation and schema.
+ * The all-call form has one opaque result. It may return only the value its
+ * `run()` owns; it cannot invent one result that claims to fit every
+ * operation and schema. Without a target it also sees raw statements, told
+ * apart by `kind`.
  */
-const genericQueryExtension = defineExtension({
-  name: "generic-query",
-  async query(context) {
-    expectTypeOf(context.model).not.toBeAny();
-    expectTypeOf(context.operation).not.toBeAny();
-    expectTypeOf(context.kind).not.toBeAny();
-    expectTypeOf(context.input).not.toBeAny();
-    expectTypeOf(context.mode).toEqualTypeOf<
-      "direct" | "transaction" | "array"
-    >();
-    context.onWriteOutcome((outcome) => {
-      expectTypeOf(outcome.certainty).toEqualTypeOf<
-        "committed" | "may-have-committed"
-      >();
-    });
-    if (context.kind === "model") {
-      expectTypeOf(context.model).toEqualTypeOf<string>();
-      expectTypeOf(context.operation).not.toBeAny();
-    } else if (context.kind === "queryRaw") {
-      expectTypeOf(context.model).toEqualTypeOf<undefined>();
-      expectTypeOf(context.operation).toEqualTypeOf<"$queryRaw">();
-    } else if (context.kind === "executeRaw") {
-      expectTypeOf(context.operation).toEqualTypeOf<"$executeRaw">();
-    } else if (context.kind === "queryRawUnsafe") {
-      expectTypeOf(context.operation).toEqualTypeOf<"$queryRawUnsafe">();
+const genericQueryExtension = extension(
+  "generic-query",
+  around((c) => {
+    expectTypeOf(c.operation).not.toBeAny();
+    expectTypeOf(c.args).not.toBeAny();
+    if (c.kind === "model") {
+      expectTypeOf(c.model).toEqualTypeOf<string>();
+      settled(c, (outcome) => {
+        expectTypeOf(outcome.certainty).toEqualTypeOf<
+          "committed" | "may-have-committed"
+        >();
+      });
     } else {
-      expectTypeOf(context.operation).toEqualTypeOf<"$executeRawUnsafe">();
+      expectTypeOf(c.model).toEqualTypeOf<undefined>();
+      expectTypeOf(c.operation).toEqualTypeOf<
+        "$queryRaw" | "$executeRaw" | "$queryRawUnsafe" | "$executeRawUnsafe"
+      >();
+      // @ts-expect-error - a raw statement has no arguments to set
+      c.set({});
     }
-    return context.proceed();
-  },
-});
+    return async (run) => {
+      expectTypeOf(run.input).toEqualTypeOf<Readonly<unknown>>();
+      expectTypeOf(run.mode).toEqualTypeOf<
+        "direct" | "transaction" | "array"
+      >();
+      return run();
+    };
+  })
+);
 
 const _genericQueryAppliesToAConcreteClient = () =>
   baseClient().$extends(genericQueryExtension);
 
-const _genericQueryCannotFabricateOneUniversalResult = defineExtension({
-  name: "generic-query-fabrication",
-  // @ts-expect-error - a string cannot stand in for the opaque result of every query
-  async query({ proceed }) {
-    await proceed();
+const _genericQueryCannotFabricateOneUniversalResult = extension(
+  "generic-query-fabrication",
+  // @ts-expect-error - a string cannot stand in for the opaque result of every call
+  around(() => async (run) => {
+    await run();
     return "fabricated";
-  },
-});
+  })
+);
 
-const _genericRequestInputStaysProjectionFree = defineExtension({
-  name: "generic-request-input",
-  request({ input }) {
-    expectTypeOf(input.where).toEqualTypeOf<unknown>();
-    expectTypeOf(input.select).toEqualTypeOf<undefined>();
-    expectTypeOf(input.include).toEqualTypeOf<undefined>();
-    expectTypeOf(input.omit).toEqualTypeOf<undefined>();
-    expectTypeOf(input.by).toEqualTypeOf<undefined>();
+// Without a target, a plain `call` sees raw statements too, told apart by
+// `kind` (spec 3).
+const _plainCallSeesModelsAndRaw = extension(
+  "plain-call",
+  call((c) => {
+    expectTypeOf(c.kind).toEqualTypeOf<"model" | "raw">();
+    if (c.kind === "raw") return;
+    expectTypeOf(c.args.where).toEqualTypeOf<unknown>();
+    // Every argument is shown (spec §12.6); setting one that decides the
+    // result's shape is refused.
+    expectTypeOf(c.args.select).toEqualTypeOf<unknown>();
+    c.set({ where: c.args.where });
+  })
+);
 
-    return { where: input.where };
-  },
-});
-
-const _genericRequestFreshProtectedPatch = defineExtension({
-  name: "generic-request-fresh-protected-patch",
-  // @ts-expect-error - a generic patch cannot add select beside the allowed where key
-  request: () => ({ where: { published: true }, select: { id: true } }),
-});
+const _genericRequestFreshProtectedPatch = extension(
+  "generic-request-fresh-protected-patch",
+  call((c) => {
+    if (c.kind === "raw") return;
+    // @ts-expect-error - a generic patch cannot add select beside the allowed where key
+    c.set({ where: { published: true }, select: { id: true } });
+  })
+);
 
 const heldGenericRequestPatch = {
   where: { published: true },
   include: { author: true },
 };
 
-const _genericRequestHeldProtectedPatch = defineExtension({
-  name: "generic-request-held-protected-patch",
-  // @ts-expect-error - held generic patches structurally refuse protected keys
-  request: () => heldGenericRequestPatch,
-});
+const _genericRequestHeldProtectedPatch = extension(
+  "generic-request-held-protected-patch",
+  call((c) => {
+    if (c.kind === "raw") return;
+    // @ts-expect-error - held generic patches structurally refuse protected keys
+    c.set(heldGenericRequestPatch);
+  })
+);
 
-const _genericMapsRequireSchemaBinder = () => {
-  defineExtension({
-    name: "generic-request-map-refused",
-    client: () => ({ $valid: () => true }),
-    // @ts-expect-error - direct reusable definitions require the generic function form
-    request: { post: { findMany: () => ({}) } },
-  });
+// Written apart from any client, a targeted part types against the widest
+// client: its model and operation are still known.
+const reusableExtension = extension(
+  "written-apart",
+  call(
+    (c) => {
+      expectTypeOf(c.model).toEqualTypeOf<"post">();
+      expectTypeOf(c.operation).toEqualTypeOf<"findMany">();
+      c.set({ where: c.args.where });
+    },
+    target("post", "findMany")
+  )
+);
 
-  defineExtension({
-    name: "generic-query-map-refused",
-    client: () => ({ $valid: () => true }),
-    // @ts-expect-error - schema-specific query maps require the curried binder
-    query: { post: { findMany: async () => [] } },
-  });
-};
+const _reusableDefinitionApplies = () =>
+  baseClient().$extends(reusableExtension);
 
-const reusableSchemaExtension = defineExtension<typeof schema>()({
-  name: "schema-bound",
-  request: {
+// Bound to the schema, its parts read the schema's own types.
+const forSchema = parts<typeof schema>();
+
+const reusableSchemaExtension = forSchema.extension(
+  "schema-bound",
+  call(
+    (c) => {
+      expectTypeOf(c.model).toEqualTypeOf<"post">();
+      expectTypeOf(c.operation).toEqualTypeOf<"findMany">();
+      c.args.where?.title;
+      // @ts-expect-error - "ttitle" is not a field of post
+      c.args.where?.ttitle;
+      c.set({ where: c.args.where });
+    },
+    target("post", "findMany")
+  ),
+  modelMethods((scope) => ({
     post: {
-      findMany({ model, operation, input }) {
-        expectTypeOf(model).toEqualTypeOf<"post">();
-        expectTypeOf(operation).toEqualTypeOf<"findMany">();
-        return { where: input.where };
-      },
+      findByTitle: (title: string) =>
+        scope.post.findFirst({
+          where: { title },
+          select: { id: true, title: true },
+        }),
     },
-  },
-  model: {
-    post(delegate) {
-      return {
-        findByTitle(title: string) {
-          return delegate.findFirst({
-            where: { title },
-            select: { id: true, title: true },
-          });
-        },
-      };
-    },
-  },
-});
+  }))
+);
 
-const _schemaBoundDefinitionApplies = () =>
-  baseClient().$extends(reusableSchemaExtension);
+const _schemaBoundDefinitionApplies = () => {
+  const client = baseClient().$extends(reusableSchemaExtension);
+  const found = client.post.findByTitle("typed");
+  expectTypeOf(found).resolves.toEqualTypeOf<{
+    id: string;
+    title: string;
+  } | null>();
+};
 
 const _inlineRequestProjectionKeysStayProtected = () =>
-  baseClient().$extends({
-    name: "inline-request-projections",
-    request: {
-      post: {
-        findFirst({ input }) {
-          // @ts-expect-error - handlers cannot read caller-owned include
-          input.include;
-          return { where: input.where };
+  baseClient().$extends(
+    extension(
+      "inline-request-projections",
+      call(
+        (c) => {
+          // @ts-expect-error - select determines the public row result
+          c.set({ where: c.args.where, select: { id: true } });
         },
-        // @ts-expect-error - select determines the public row result
-        findMany({ input }) {
-          return { where: input.where, select: { id: true } };
+        target("post", "findMany")
+      ),
+      call(
+        (c) => {
+          // @ts-expect-error - omit determines the public row result
+          c.set({ data: c.args.data, omit: { secret: true } });
         },
-        // @ts-expect-error - omit determines the public row result
-        create({ input }) {
-          return { data: input.data, omit: { secret: true } };
+        target("post", "create")
+      ),
+      call(
+        (c) => {
+          // @ts-expect-error - count.select determines the public count result
+          c.set({ where: c.args.where, select: { _all: true } });
         },
-        // @ts-expect-error - count.select determines the public count result
-        count({ input }) {
-          return { where: input.where, select: { _all: true } };
+        target("post", "count")
+      ),
+      call(
+        (c) => {
+          // @ts-expect-error - aggregate selectors determine its public result
+          c.set({ where: c.args.where, _count: true });
         },
-        // @ts-expect-error - aggregate selectors determine its public result
-        aggregate({ input }) {
-          return { where: input.where, _count: true };
+        target("post", "aggregate")
+      ),
+      call(
+        (c) => {
+          // @ts-expect-error - groupBy.by determines its public result
+          c.set({ where: c.args.where, by: ["published"] });
         },
-        // @ts-expect-error - groupBy.by determines its public result
-        groupBy({ input }) {
-          return { where: input.where, by: ["published"] };
+        target("post", "groupBy")
+      ),
+      call(
+        (c) => {
+          // @ts-expect-error - bulk select is the returning projection witness
+          c.set({ data: c.args.data, select: { id: true } });
         },
-        // @ts-expect-error - bulk select is the returning projection witness
-        createMany({ input }) {
-          return { data: input.data, select: { id: true } };
+        target("post", "createMany")
+      ),
+      call(
+        (c) => {
+          // @ts-expect-error - bulk omit is also a returning projection witness
+          c.set({ data: c.args.data, omit: { secret: true } });
         },
-        // @ts-expect-error - bulk omit is also a returning projection witness
-        updateMany({ input }) {
-          return { data: input.data, omit: { secret: true } };
-        },
-      },
+        target("post", "updateMany")
+      )
+    )
+  );
+
+const _schemaBoundRequestBoundary = forSchema.extension(
+  "schema-bound-request-boundary",
+  call(
+    (c) => {
+      // @ts-expect-error - schema-bound parts reject protected patches too
+      c.set({ where: c.args.where, select: { id: true } });
     },
-  });
+    target("post", "findMany")
+  )
+);
 
-const _curriedRequestBoundary = defineExtension<typeof schema>()({
-  name: "curried-request-boundary",
-  // @ts-expect-error - curried reusable maps reject protected patches too
-  request: {
-    post: {
-      findFirst: ({ input }) => ({ where: input.where }),
-      findMany({ input }) {
-        return { where: input.where, select: { id: true } };
-      },
-    },
-  },
-});
+const _freshOperationTypo = () =>
+  baseClient().$extends(
+    extension(
+      "fresh-operation-typo",
+      call(
+        () => undefined,
+        // @ts-expect-error - "findManny" is not an operation, beside the real "findMany"
+        target("post", ["findMany", "findManny"])
+      )
+    )
+  );
 
-const _curriedFreshOperationTypo = defineExtension<typeof schema>()({
-  name: "curried-fresh-operation-typo",
-  request: {
-    post: {
-      findMany: () => ({}),
-      // @ts-expect-error - typo is refused beside a real operation
-      findManny: () => ({}),
-    },
-  },
-});
+const heldOperations = ["findMany", "findManny"] as const;
 
-const heldCurriedOperationMap = {
-  findMany: () => ({}),
-  findManny: () => ({}),
-};
-
-const _curriedHeldOperationTypo = defineExtension<typeof schema>()({
-  name: "curried-held-operation-typo",
-  request: {
-    // @ts-expect-error - non-fresh operation maps are structurally exact
-    post: heldCurriedOperationMap,
-  },
-});
-
-// The public type describes one reusable schema-bound definition before any
-// prior extension state exists; the curried definition must fit it directly.
-const _rootPublicType: ClientExtension<typeof schema> = reusableSchemaExtension;
-
-const _clientSubpathPublicType: ClientSubpathExtension<typeof schema> =
-  defineClientExtension<typeof schema>()({ name: "client-subpath" });
+const _heldOperationTypo = () =>
+  baseClient().$extends(
+    extension(
+      "held-operation-typo",
+      call(
+        () => undefined,
+        // @ts-expect-error - a held operation list is checked too
+        target("post", heldOperations)
+      )
+    )
+  );
 
 const _driverWrapperExtension = () =>
-  createPGliteClient({ schema }).$extends({
-    name: "driver-wrapper",
-    client(scope) {
-      return {
-        $publishedIds() {
-          return scope.post.findMany({
+  createPGliteClient({ schema }).$extends(
+    extension(
+      "driver-wrapper",
+      methods((scope) => ({
+        $publishedIds: () =>
+          scope.post.findMany({
             where: { published: true },
             select: { id: true },
-          });
-        },
-      };
-    },
-  });
+          }),
+      }))
+    )
+  );
 
 type DriverWrapperRows = Awaited<
   ReturnType<ReturnType<typeof _driverWrapperExtension>["$publishedIds"]>
@@ -415,77 +422,91 @@ const _extensionChains = () => {
   // @ts-expect-error - the base client has no contributed methods
   zero.$one();
 
-  const one = zero.$extends({
-    name: "chain-1",
-    client() {
-      return { $one: () => 1 };
-    },
-  });
+  const one = zero.$extends(
+    extension(
+      "chain-1",
+      methods(() => ({ $one: () => 1 }))
+    )
+  );
   one.$one();
   // @ts-expect-error - a later method does not appear early
   one.$two();
 
-  const two = one.$extends({
-    name: "chain-2",
-    client(scope) {
-      scope.$one();
-      return { $two: () => "two" };
-    },
-  });
+  const two = one.$extends(
+    extension(
+      "chain-2",
+      methods((scope) => {
+        scope.$one();
+        return { $two: () => "two" };
+      })
+    )
+  );
   two.$one();
   two.$two();
 
-  const three = two.$extends({
-    name: "chain-3",
-    client() {
-      return { $three: () => true };
-    },
-  });
-  const four = three.$extends({
-    name: "chain-4",
-    client() {
-      return { $four: () => 4 };
-    },
-  });
-  const five = four.$extends({
-    name: "chain-5",
-    client(scope) {
-      scope.$one();
-      scope.$four();
-      return { $five: () => "five" };
-    },
-  });
+  const three = two.$extends(
+    extension(
+      "chain-3",
+      methods(() => ({ $three: () => true }))
+    )
+  );
+  const four = three.$extends(
+    extension(
+      "chain-4",
+      methods(() => ({ $four: () => 4 }))
+    )
+  );
+  const five = four.$extends(
+    extension(
+      "chain-5",
+      methods((scope) => {
+        scope.$one();
+        scope.$four();
+        return { $five: () => "five" };
+      })
+    )
+  );
   five.$one();
   five.$two();
   five.$three();
   five.$four();
   five.$five();
 
-  const six = five.$extends({
-    name: "chain-6",
-    client: () => ({ $six: () => 6 }),
-  });
-  const seven = six.$extends({
-    name: "chain-7",
-    client: () => ({ $seven: () => 7 }),
-  });
-  const eight = seven.$extends({
-    name: "chain-8",
-    client: () => ({ $eight: () => 8 }),
-  });
-  const nine = eight.$extends({
-    name: "chain-9",
-    client: () => ({ $nine: () => 9 }),
-  });
-  const ten = nine.$extends({
-    name: "chain-10",
-    client(scope) {
-      scope.$one();
-      scope.$five();
-      scope.$nine();
-      return { $ten: () => 10 };
-    },
-  });
+  const six = five.$extends(
+    extension(
+      "chain-6",
+      methods(() => ({ $six: () => 6 }))
+    )
+  );
+  const seven = six.$extends(
+    extension(
+      "chain-7",
+      methods(() => ({ $seven: () => 7 }))
+    )
+  );
+  const eight = seven.$extends(
+    extension(
+      "chain-8",
+      methods(() => ({ $eight: () => 8 }))
+    )
+  );
+  const nine = eight.$extends(
+    extension(
+      "chain-9",
+      methods(() => ({ $nine: () => 9 }))
+    )
+  );
+  const ten = nine.$extends(
+    extension(
+      "chain-10",
+      methods((scope) => {
+        scope.$one();
+        scope.$five();
+        scope.$nine();
+        return { $ten: () => 10 };
+      })
+    )
+  );
   ten.$one();
   ten.$two();
   ten.$three();
@@ -504,47 +525,42 @@ const _extensionChains = () => {
 
 const activeMethodsClient = () =>
   baseClient()
-    .$extends({
-      name: "actor",
-      client() {
-        return { $actor: () => "Ada" };
-      },
-      model: {
-        post(delegate) {
-          return {
-            findByTitle(title: string) {
-              return delegate.findFirst({
+    .$extends(
+      extension(
+        "actor",
+        methods(() => ({ $actor: () => "Ada" })),
+        modelMethods((scope) => ({
+          post: {
+            findByTitle: (title: string) =>
+              scope.post.findFirst({
                 where: { title },
                 select: { id: true, title: true },
-              });
-            },
-          };
-        },
-      },
-    })
-    .$extends({
-      name: "published",
-      client(scope) {
-        scope.$actor();
-        return {
-          $published() {
-            return scope.post.findMany({
-              where: { published: true },
-              select: { id: true },
-            });
+              }),
           },
-        };
-      },
-      model: {
-        author(delegate) {
+        }))
+      )
+    )
+    .$extends(
+      extension(
+        "published",
+        methods((scope) => {
+          scope.$actor();
           return {
-            findNamed(name: string) {
-              return delegate.findFirst({ where: { name } });
-            },
+            $published: () =>
+              scope.post.findMany({
+                where: { published: true },
+                select: { id: true },
+              }),
           };
-        },
-      },
-    });
+        }),
+        modelMethods((scope) => ({
+          author: {
+            findNamed: (name: string) =>
+              scope.author.findFirst({ where: { name } }),
+          },
+        }))
+      )
+    );
 
 const _rootMethodsAreInferred = () => {
   const client = activeMethodsClient();
@@ -577,7 +593,7 @@ const _callbackTransactionKeepsMethods = () =>
     await tx.author.findNamed(actor);
 
     // @ts-expect-error - a transaction view carries methods but cannot derive views
-    tx.$extends({ name: "inside-transaction" });
+    tx.$extends(extension("inside-transaction"));
 
     return { actor, rows, found };
   });
@@ -598,175 +614,157 @@ type _methodPendingOperationsStayBatchable = Expect<
 >;
 
 // =============================================================================
-// EXACTNESS AND COLLISIONS — fresh and non-fresh public definitions
+// EXACTNESS AND COLLISIONS — fresh and held methods
 // =============================================================================
 
-const heldEnvelopeTypo = {
-  name: "held-envelope-typo",
-  client: () => ({ $valid: () => true }),
-  cliet: () => ({ $ignored: () => true }),
-};
-
 const heldModelTypo = {
-  post: () => ({ valid: () => true }),
-  posst: () => ({ ignored: () => true }),
+  post: { valid: () => true },
+  posst: { ignored: () => true },
 };
 
-const heldOperationTypo = {
-  findMany: () => ({}),
-  findManny: () => ({}),
-};
-
-const _definitionTyposAreRefused = () => {
+const _methodTyposAreRefused = () => {
   const client = baseClient();
 
-  client.$extends({
-    name: "fresh-envelope-typo",
-    client: () => ({ $valid: () => true }),
-    // @ts-expect-error - "cliet" is not an envelope key, beside real "client"
-    cliet: () => ({ $ignored: () => true }),
-  });
+  client.$extends(
+    extension(
+      "fresh-model-typo",
+      modelMethods(() => ({
+        post: { valid: () => true },
+        // @ts-expect-error - "posst" is not a schema model, beside real "post"
+        posst: { ignored: () => true },
+      }))
+    )
+  );
 
-  // @ts-expect-error - held definitions are structurally exact too
-  client.$extends(heldEnvelopeTypo);
-
-  client.$extends({
-    name: "fresh-model-typo",
-    model: {
-      post: () => ({ valid: () => true }),
-      // @ts-expect-error - "posst" is not a schema model, beside real "post"
-      posst: () => ({ ignored: () => true }),
-    },
-  });
-
-  // @ts-expect-error - a held model map is exact too
-  client.$extends({ name: "held-model-typo", model: heldModelTypo });
-
-  client.$extends({
-    name: "fresh-operation-typo",
-    request: {
-      post: {
-        findMany: () => ({}),
-        // @ts-expect-error - "findManny" is not an operation, beside real "findMany"
-        findManny: () => ({}),
-      },
-    },
-  });
-
-  client.$extends({
-    name: "held-operation-typo",
-    request: {
-      // @ts-expect-error - a held operation map is exact too
-      post: heldOperationTypo,
-    },
-  });
+  client.$extends(
+    extension(
+      "held-model-typo",
+      // @ts-expect-error - a held method map is exact too
+      modelMethods(() => heldModelTypo)
+    )
+  );
 };
 
 const _methodShapesAreRefused = () => {
   const client = baseClient();
 
-  client.$extends({
-    name: "client-value",
-    // @ts-expect-error - every client contribution must be a function
-    client: () => ({ $valid: () => true, $value: 1 }),
-  });
+  client.$extends(
+    extension(
+      "client-value",
+      methods(() => ({
+        $valid: () => true,
+        // @ts-expect-error - every client contribution must be a function
+        $value: 1,
+      }))
+    )
+  );
 
-  client.$extends({
-    name: "missing-dollar",
-    // @ts-expect-error - client method names must be dollar-prefixed
-    client: () => ({ $valid: () => true, missingDollar: () => false }),
-  });
+  client.$extends(
+    extension(
+      "missing-dollar",
+      methods(() => ({
+        $valid: () => true,
+        // @ts-expect-error - client method names must be dollar-prefixed
+        missingDollar: () => false,
+      }))
+    )
+  );
 
-  client.$extends({
-    name: "model-value",
-    model: {
-      // @ts-expect-error - every model contribution must be a function
-      post: () => ({ valid: () => true, value: 1 }),
-    },
-  });
+  client.$extends(
+    extension(
+      "model-value",
+      modelMethods(() => ({
+        post: {
+          valid: () => true,
+          // @ts-expect-error - every model contribution must be a function
+          value: 1,
+        },
+      }))
+    )
+  );
 
-  client.$extends({
-    name: "core-client-collision",
-    // @ts-expect-error - a client method cannot replace a core member
-    client: () => ({ $transaction: () => "collision" }),
-  });
+  client.$extends(
+    extension(
+      "core-client-collision",
+      methods(() => ({
+        // @ts-expect-error - a client method cannot replace a core member
+        $transaction: () => "collision",
+      }))
+    )
+  );
 
-  client.$extends({
-    name: "schema-client-collision",
-    // @ts-expect-error - static defense for invalid schemas; valid model keys cannot start "$"
-    client: () => ({ $audit: () => "collision" }),
-  });
+  client.$extends(
+    extension(
+      "schema-client-collision",
+      methods(() => ({
+        // @ts-expect-error - a client method cannot take a model's name
+        $audit: () => "collision",
+      }))
+    )
+  );
 
-  client.$extends({
-    name: "core-model-collision",
-    model: {
-      // @ts-expect-error - a model method cannot replace a core operation
-      post: () => ({ findMany: () => "collision" }),
-    },
-  });
+  client.$extends(
+    extension(
+      "core-model-collision",
+      modelMethods(() => ({
+        // @ts-expect-error - a model method cannot replace a core operation
+        post: { findMany: () => "collision" },
+      }))
+    )
+  );
 
-  client.$extends({
-    name: "then-model",
-    model: {
-      // @ts-expect-error - a model method named `then` would make the delegate a thenable
-      post: () => ({ then: () => 1 }),
-    },
-  });
+  client.$extends(
+    extension(
+      "then-model",
+      modelMethods(() => ({
+        // @ts-expect-error - a model method named `then` would make the delegate a thenable
+        post: { then: () => 1 },
+      }))
+    )
+  );
 
-  const priorClientMethod = client.$extends({
-    name: "prior-client-method",
-    client: () => ({ $existing: () => true }),
-  });
-  priorClientMethod.$extends({
-    name: "prior-client-collision",
-    // @ts-expect-error - later extensions cannot replace prior client methods
-    client: () => ({ $existing: () => false }),
-  });
+  const priorClientMethod = client.$extends(
+    extension(
+      "prior-client-method",
+      methods(() => ({ $existing: () => true }))
+    )
+  );
+  priorClientMethod.$extends(
+    extension(
+      "prior-client-collision",
+      methods(() => ({
+        // @ts-expect-error - later extensions cannot replace prior client methods
+        $existing: () => false,
+      }))
+    )
+  );
 
-  const priorModelMethod = client.$extends({
-    name: "prior-model-method",
-    model: { post: () => ({ existing: () => true }) },
-  });
-  priorModelMethod.$extends({
-    name: "prior-model-collision",
-    model: {
+  const priorModelMethod = client.$extends(
+    extension(
+      "prior-model-method",
+      modelMethods(() => ({ post: { existing: () => true } }))
+    )
+  );
+  priorModelMethod.$extends(
+    extension(
+      "prior-model-collision",
       // Compiles: a plugin generic over the extension state cannot prove this
-      // collision, so the refusal is application-time only (DC2), pinned at
-      // runtime by extensions-foundation.core.test.ts "prior-model".
-      post: () => ({ existing: () => false }),
-    },
-  });
+      // collision, so the refusal is application-time only.
+      modelMethods(() => ({ post: { existing: () => false } }))
+    )
+  );
 
   // The same contributed name on different models is not a collision.
-  client.$extends({
-    name: "cross-model-name",
-    model: {
-      post: () => ({ summarize: () => "post" }),
-      author: () => ({ summarize: () => "author" }),
-    },
-  });
+  client.$extends(
+    extension(
+      "cross-model-name",
+      modelMethods(() => ({
+        post: { summarize: () => "post" },
+        author: { summarize: () => "author" },
+      }))
+    )
+  );
 };
-
-const _siblingMethodsAreNotThisVisible = () =>
-  baseClient().$extends({
-    name: "no-sibling-this",
-    client: () => ({
-      $first() {
-        // @ts-expect-error - contributed methods have no dynamic client this
-        return this.$second();
-      },
-      $second: () => "client sibling",
-    }),
-    model: {
-      post: () => ({
-        first() {
-          // @ts-expect-error - contributed methods have no dynamic delegate this
-          return this.second();
-        },
-        second: () => "model sibling",
-      }),
-    },
-  });
 
 // =============================================================================
 // RESULT INFERENCE — ordinary, recursive, variant, and returning operations
@@ -775,10 +773,12 @@ const _siblingMethodsAreNotThisVisible = () =>
 const resultClient = () =>
   baseClient()
     .$extends(genericQueryExtension)
-    .$extends({
-      name: "result-inference",
-      client: () => ({ $ready: () => true }),
-    });
+    .$extends(
+      extension(
+        "result-inference",
+        methods(() => ({ $ready: () => true }))
+      )
+    );
 
 const selectedRows = () =>
   resultClient().post.findMany({ select: { id: true, title: true } });
@@ -931,47 +931,43 @@ type _variantResultStaysExact = Expect<
   >
 >;
 
-// A declaring extension's handlers read its admitted controls, read-only and
-// unknown until narrowed (the runtime shows each handler only its own).
-baseClient().$extends({
-  name: "control-context",
-  controls: { reason: { oneOf: ["audit", "sync"] } },
-  request: {
-    post: {
-      findMany({ controls }) {
-        type _requestControls = Expect<
-          Equal<typeof controls, Readonly<Record<string, unknown>> | undefined>
-        >;
-        return {};
+// An extension's parts read its own arguments, typed and read-only (the
+// runtime shows each part only its own extension's).
+baseClient().$extends(
+  extension(
+    "control-context",
+    args({ reason: oneOf("audit", "sync") }),
+    call(
+      (c) => {
+        expectTypeOf(c.values).toEqualTypeOf<{
+          readonly reason?: "audit" | "sync";
+        }>();
       },
-    },
-  },
-  query: {
-    post: {
-      findMany({ controls, proceed }) {
-        type _queryControls = Expect<
-          Equal<typeof controls, Readonly<Record<string, unknown>> | undefined>
-        >;
-        // @ts-expect-error - admitted controls are read-only
-        if (controls) controls.reason = "sync";
-        return proceed();
+      target("post", "findMany")
+    ),
+    around(
+      (c) => (run) => {
+        // @ts-expect-error - its values are read-only
+        c.values.reason = "sync";
+        return run();
       },
-    },
-  },
-});
+      target("post", "findMany")
+    )
+  )
+);
 
-// 1.3.3 exported the contribution state with six parameters; the seventh
-// (`Result`) is defaulted so a state spelled with six still names one.
-type _sixParameterContributionState = Expect<
+// The added state's seventh parameter (`Fields`) is defaulted, so a state
+// spelled with six still names one.
+type _sixParameterAddedState = Expect<
   Equal<
-    ExtensionContributionState<
+    AddedExtensionState<
       Record<never, never>,
       Record<never, never>,
       Record<never, never>,
       never,
       never,
       "result-independent"
-    >["result"],
+    >["fields"],
     Record<never, never>
   >
 >;

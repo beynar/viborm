@@ -2340,7 +2340,11 @@ export class SurrealReadBackend implements ReadBackend {
     input: Input,
     path = ""
   ): Sql | undefined {
-    const { predicate } = this.#queries.domain!.layered(model, layer, input);
+    const { predicate } = this.#queries.domain!.project!.layered(
+      model,
+      layer,
+      input
+    );
     return predicate && this.predicate(predicate, true, path);
   }
 
@@ -2353,7 +2357,7 @@ export class SurrealReadBackend implements ReadBackend {
   #gated(model: AnyModel, field: string, column: Sql, path = ""): Sql {
     const q = this.#queries;
     if (q.lowersLayer) return column;
-    const gate = q.domain?.projected(model)?.gates.get(field);
+    const gate = q.domain?.project?.projected(model)?.gates.get(field);
     if (!gate) return column;
     const held = gate.flatMap(([layer, read, input]) => {
       if (input === read) return [];
@@ -2371,7 +2375,8 @@ export class SurrealReadBackend implements ReadBackend {
   #gatedHere(model: AnyModel, field: string): boolean {
     const q = this.#queries;
     return (
-      !q.lowersLayer && q.domain?.projected(model)?.gates.has(field) === true
+      !q.lowersLayer &&
+      q.domain?.project?.projected(model)?.gates.has(field) === true
     );
   }
 
@@ -2426,30 +2431,15 @@ export class SurrealReadBackend implements ReadBackend {
       : sql.raw("true");
   }
 
-  /**
-   * A declared projection key on this row: the layer's `read` around one test per
-   * name. Ordered, the last name that holds; else one boolean per name.
-   */
+  /** A declared projection key on this row: the layer's `read` around one boolean per name. */
   #evidence(
     model: AnyModel,
     field: Extract<PreparedProjectionField, { kind: "evidence" }>
   ): Sql {
-    const { layer, read, ordered } = field.evidence;
+    const { layer, read } = field.evidence;
     const visible = this.#layerHolds(model, layer, read);
     const test = (input: Input) =>
       input === read ? undefined : this.#layerHolds(model, layer, input);
-    if (ordered) {
-      let highest = sql.raw("NULL");
-      for (const [name, input] of field.names) {
-        const held = test(input);
-        highest = held
-          ? sql`(IF ${held} { ${name} } ELSE { ${highest} })`
-          : sql`${name}`;
-      }
-      return visible
-        ? sql`(IF ${visible} { ${highest} } ELSE { NULL })`
-        : highest;
-    }
     const held = sql.join(
       field.names.map(
         ([name, input]) =>

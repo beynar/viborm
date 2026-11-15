@@ -120,7 +120,7 @@ filters. It compiles to one correlated `WITH RECURSIVE` inside `EXISTS`, in the
 same statement as the rest of the query.
 
 - **Row scopes.** With [soft delete](/docs/extensions/soft-delete) or another
-  `rows` extension, the walk reads the related domain at every hop: a hidden
+  extension whose `rule` hides rows, the walk reads the related domain at every hop: a hidden
   row is not a member and stops the walk below it. The `self` row is the row
   the call already selected and is not filtered again.
 - **MySQL.** An `updateMany` or `deleteMany` filtered through a relation

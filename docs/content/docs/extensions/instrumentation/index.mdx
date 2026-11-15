@@ -1,12 +1,15 @@
 ---
 title: Instrumentation
-description: Official protected tracing, logging, and diagnostic disclosure
+description: Official tracing, logging, and diagnostic disclosure
 icon: activity
 ---
 
 Instrumentation is an official client extension. It presents tracing and
-structured logging from VibORM's protected lifecycle rail without giving
-observer code authority over the application.
+structured logging from VibORM's lifecycle units, read through a `unit` part,
+and contains its own failures, so telemetry never changes the application.
+Its `diagnostics` go to a [`disclosure`](/docs/extensions/create#emit-your-own-units)
+part, which says what an error thrown by a call of the chain may carry; with
+neither `tracing` nor `logging`, the extension is that part alone.
 
 ```ts
 import { createClient } from "viborm";
@@ -18,7 +21,6 @@ const client = createClient({ schema, driver }).$extends(
     logging: {
       query: true,
       cache: true,
-      warning: true,
       error: true,
     },
     diagnostics: { includeSql: false, includeParams: false },
@@ -55,8 +57,8 @@ credentials, named passwords/tokens, and bearer credentials redacted. Provider
 text can still contain application data, so choose disclosure deliberately.
 Migration commands of a client extended with this extension
 (`createMigrationClient(client)`) disclose their failures under the same
-`diagnostics`; only its `diagnostics`, never its observers or transforms, reach
-migration statements.
+`diagnostics`; only its `diagnostics`, never its units, reach migration
+statements.
 `includeCallsite` captures `meta.callsite` when a deferred raw or model operation
 is created, before its later await; ordinary operations allocate no diagnostic
 stack. The selected details and callsite survive official error logs and JSON
@@ -75,36 +77,114 @@ Parameters may contain credentials, personal data, or application secrets.
 
 ## Lifecycle coverage
 
-Official instrumentation consumes the same real lifecycle units exposed to
-ordinary observers: logical operation, physical statement, public array batch,
-transaction, savepoint, connection, and cache.
+Official instrumentation reads the same real units any `unit` part sees:
+logical operation, physical statement, public array batch, transaction,
+savepoint, connection, and the `cache` units the cache emits.
 
-- A native array produces one batch, N logical operations, N physical statement
-  units, and one provider execution presentation. It produces no fictional
+- A native array produces one batch, N logical operations, and one statement
+  unit for its one provider submission. It produces no fictional
   transaction.
 - A fallback array uses the real transaction or savepoint lifecycle.
 - Cache revalidation contains the nested cache set and marker cleanup while the
   stale application result stays authoritative.
 - Connect and disconnect each produce one connection lifecycle.
 
-Logical operation spans begin before lazy request transformation and finish
-after query-interceptor post-work. Execute spans begin at the provider dispatch
-boundary, after statement transformation and client acquisition. Correlation
+Logical operation spans begin before the first moments of the extensions'
+`call` parts and finish after their second moments' post-work. Execute spans
+begin at the provider dispatch boundary, after statement rewriting, rendering
+and client acquisition. Correlation
 is carried by the authenticated execution context, so clients sharing a driver
 or cache keep isolated spans and logs.
 
+## Present your own units
+
+The instrumentation presents what an extension notes on a unit, whoever
+noted it: it knows no extension's units by name. The cache presents its
+`cache` units this way. A note is a plain object (`InstrumentationNote`,
+from `viborm/instrumentation`):
+
+| Member | When it is read | What is presented |
+|---|---|---|
+| `span` | On a unit of your own kind (`work`), as the unit starts: give it as `work`'s `note` | The unit is traced as a span of that name, a root span if `root`, with the `db.*` attributes of `database` (what `database(x)` gives), the call's correlation and `attributes` |
+| `attributes` | Noted later on that unit | Set on its span when the unit ends; an attribute given `undefined` is left out, the correlation's included |
+| `log` | On a unit of your own kind: as it starts if noted by then, else when it ends. On the call's own unit (a note on `c` or `run`): `"cache"` only, after the call ends | A log event at that level (`"query"`, `"cache"`, `"error"`), at `at`, naming `model` and `operation` (the unit's own by default), with `error` and `meta` |
+
+```ts
+import { around, extension, note, work } from "viborm";
+
+const lookups = extension(
+  "lookups",
+  around(() => async (run) => {
+    await work(
+      run,
+      {
+        kind: "lookup",
+        operation: "hint",
+        note: { span: "app.lookup", attributes: { "lookup.source": "edge" } },
+      },
+      async (u) => {
+        note(u, { attributes: { "lookup.result": "warm" } });
+      }
+    );
+    note(run, { log: "cache", at: Date.now(), meta: { event: "hit" } });
+    return run();
+  })
+);
+```
+
+What a note may not set is dropped, never refused: telemetry never fails the
+call it observes.
+
+- **Span names of a call.** `viborm.operation`, `viborm.execute`,
+  `viborm.transaction`, `viborm.connect` and `viborm.disconnect` name the
+  spans the library presents for a call's own units. A note naming one
+  leaves its unit without a span (its logs are still presented), except
+  `viborm.operation` with `root: true`: an operation of your own outside any
+  call's trace, as the cache's background revalidation is. Any other name is
+  yours, `viborm.cache.*` included: the instrumentation does not know the
+  cache's names.
+- **Statement attributes.** Every attribute under `db.query.`
+  (`db.query.text`, `db.query.summary`, `db.query.parameter.*`) is dropped
+  from a note, whatever `includeSql` and `includeParams` say: only the
+  library presents a statement's text and parameters, from the statement it
+  sent, and only as those settings let it. With `includeSql` off no span or
+  log carries statement text; with `includeParams` off none carries
+  parameters; a note cannot change that.
+- **Logs of a call.** A call's `query` and `error` logs are the library's
+  account of its work: a note on the call's own unit cannot add one, so a
+  call that succeeded never logs an error. Notes on a unit of your own kind
+  may log at any level.
+- **Status.** A span ends failed when its unit fails, sanitized as every
+  span's failure is. A note cannot change the status of any span: on your
+  own unit, fail the work instead.
+- **Errors and metadata.** A note's `error` is presented through
+  [`disclosed`](/docs/extensions/create#present-a-failure-disclosed), as the
+  errors of the library's own logs are (an error that is not VibORM's has its
+  details redacted); its `meta` keeps only the log metadata vocabulary (`event`: `"bypass"`,
+  `"hit"`, `"miss"`, `"revalidate"`; `status`: `"cache-set-failed"`,
+  `"error"`, `"fresh"`, `"stale"`, `"start"`, `"success"`); any other key or
+  value is dropped.
+
+Any other attribute is presented as given, under any disclosure setting:
+what it holds is the extension author's responsibility. Do not put
+statement text, parameter values or anything your application treats as
+secret under a name of your own (`lookup.query`, `lookup.user`): the
+instrumentation cannot tell it is a statement or a parameter.
+
 ## Failure containment
 
-Telemetry is observational. A logger callback, console method, OTel provider,
-observer, or dynamic OTel import can throw, reject, or never settle without
-changing the application value, application error, transaction outcome, or
-commit certainty. The core selects and deduplicates the application error;
-instrumentation receives only normalized and disclosure-approved facts.
+Telemetry is observational. Instrumentation contains its own failures: a
+logger callback, console method, OTel provider, or dynamic OTel import can
+throw, reject, or never settle without changing the application value,
+application error, transaction outcome, or commit certainty. The core selects
+and deduplicates the application error; instrumentation presents only
+normalized and disclosure-approved facts.
 
-An ordinary `observe` contribution is even narrower: it receives a frozen
-public unit and sanitized completion only. It never receives SQL, parameters,
-rows, result values, cache keys, raw errors, drivers, correlation identity, or
-private facts.
+A `unit` part of your own has no such containment: VibORM awaits it, and what
+it throws fails the call. It reads the facts it needs through words
+(`text(u)`, `parameters(u)`, `failure(u)`, …), produced only when read, and
+presents a failure through `disclosed`, as this extension does; see
+[Create an extension](/docs/extensions/create#present-a-failure-disclosed).
 
 ## Optional OpenTelemetry dependency
 
@@ -112,10 +192,9 @@ private facts.
 extension a tracer (`tracing: { tracer }`, for example Cloudflare Workers'
 `tracing` from `cloudflare:workers`), VibORM never imports the package and
 tracing is ready at once. Otherwise the package is loaded dynamically; if it is
-absent or setup fails, database work proceeds normally, and the official
-observer prewarms the tracer once so the first operation still enters the
-correct active context; later operations do not pay a permanent readiness
-microtask. See [Tracing](/docs/extensions/instrumentation/tracing).
+absent or setup fails, database work proceeds normally. The first operation
+waits for that load inside its `operation` unit, so it still enters the
+correct active context; later operations do not wait. See [Tracing](/docs/extensions/instrumentation/tracing).
 
 <CardGroup>
   <Card title="Logging" href="/docs/extensions/instrumentation/logging">

@@ -27,16 +27,39 @@ import type {
   QueryResult,
 } from "@drivers/types";
 import { UnsupportedOperationError } from "@errors";
-import { appendResolvedExtension } from "@extensions/chain";
-import type {
-  LifecycleUnit,
-  ObservationCompletion,
-} from "@extensions/observation";
-import type { StatementContext } from "@extensions/statement";
+import type { Sql } from "@sql";
 import { sql } from "@sql";
+import {
+  extension,
+  type UnitContext as LifecycleUnit,
+  type UnitOutcome as ObservationCompletion,
+  statement as statementOf,
+  unit,
+} from "@src/index";
 import { instrumentation } from "@src/instrumentation/exports";
+import { appendExtension } from "@tests/fixtures/extension-chain";
 import { createOfficialTestExecutionContext } from "@tests/unit/instrumentation/_official-context";
 import { describe, expect, test, vi } from "vitest";
+
+interface StatementContext {
+  readonly statement: Sql;
+  readonly model: string | undefined;
+  readonly operation: string | undefined;
+}
+
+/** A rewriting unit written as the transform it applies. */
+const rewriting = (transform: (context: StatementContext) => Sql) =>
+  unit(
+    (u, next) => {
+      const statement = statementOf(u);
+      if (statement === undefined) return next();
+      return next(
+        transform({ statement, model: u.model, operation: u.operation })
+      );
+    },
+    ["statement"],
+    { rewrites: true }
+  );
 
 interface FakeSession {
   readonly id: string;
@@ -441,22 +464,27 @@ describe("_prepare typed provenance", () => {
   }) => {
     const driver = new RecordingDriver({ supportsBatch: native });
     const calls: string[] = [];
-    const chain = appendResolvedExtension(
+    const chain = appendExtension(
       undefined,
-      {
-        name: "dispatch-only",
-        statement({ statement }: StatementContext) {
-          calls.push("transform");
-          return sql`${statement} /* transformed */`;
-        },
-        ...(observed
-          ? {
-              observe(unit: LifecycleUnit) {
-                if (unit.kind === "statement") calls.push("observe");
-              },
-            }
-          : {}),
-      },
+      observed
+        ? extension(
+            "dispatch-only",
+            rewriting(({ statement }) => {
+              calls.push("transform");
+              return sql`${statement} /* transformed */`;
+            }),
+            unit((observedUnit, next) => {
+              if (observedUnit.kind === "statement") calls.push("observe");
+              return next();
+            })
+          )
+        : extension(
+            "dispatch-only",
+            rewriting(({ statement }) => {
+              calls.push("transform");
+              return sql`${statement} /* transformed */`;
+            })
+          ),
       {}
     );
     const context = createExecutionContext(
@@ -472,9 +500,13 @@ describe("_prepare typed provenance", () => {
 
     await driver._executeBatch([first, second], undefined, context);
 
+    // Every statement is transformed before the first is sent, and a unit
+    // starts at each physical send: one for a native batch.
     expect(calls).toEqual(
       observed
-        ? ["observe", "transform", "observe", "transform"]
+        ? native
+          ? ["transform", "transform", "observe"]
+          : ["transform", "transform", "observe", "observe"]
         : ["transform", "transform"]
     );
     const executed = native
@@ -504,7 +536,7 @@ describe("_prepare typed provenance", () => {
       }
     }
     const driver = new FailingDriver();
-    const official = appendResolvedExtension(
+    const official = appendExtension(
       undefined,
       instrumentation({
         logging: {
@@ -519,25 +551,29 @@ describe("_prepare typed provenance", () => {
       }),
       {}
     );
-    const chain = appendResolvedExtension(
+    const chain = appendExtension(
       official,
-      {
-        name: "prepared-sequential-completion",
-        statement({ statement, operation }: StatementContext) {
+      extension(
+        "prepared-sequential-completion",
+        rewriting(({ statement, operation }) => {
           events.push(`transform:${operation}`);
           return sql`${statement} /* ${sql.raw(operation ?? "unknown")} */`;
-        },
-        observe(
-          unit: LifecycleUnit,
-          proceed: () => Promise<ObservationCompletion>
-        ) {
-          if (unit.kind !== "statement") return;
-          events.push(`observe:${unit.operation}`);
-          return proceed().then((completion) => {
-            events.push(`complete:${unit.operation}:${completion.status}`);
-          });
-        },
-      },
+        }),
+        unit(
+          (
+            observed: LifecycleUnit,
+            proceed: () => Promise<ObservationCompletion>
+          ) => {
+            if (observed.kind !== "statement") return proceed();
+            events.push(`observe:${observed.operation}`);
+            return proceed().then((completion) => {
+              events.push(
+                `complete:${observed.operation}:${completion.status}`
+              );
+            });
+          }
+        )
+      ),
       {}
     );
     const contexts = [1, 2, 3].map((index) =>
@@ -560,18 +596,16 @@ describe("_prepare typed provenance", () => {
     } else await expect(execution).resolves.toHaveLength(3);
     const executedCount = failAt || 3;
     await vi.waitFor(() => expect(logs).toHaveLength(executedCount));
-    expect(events.slice(0, 6)).toEqual([
-      "observe:statement1",
+    // Every statement is transformed first; each one sent is then its own
+    // unit, and a statement after the failing one is never sent.
+    expect(events.filter((event) => !event.startsWith("provider:"))).toEqual([
       "transform:statement1",
-      "observe:statement2",
       "transform:statement2",
-      "observe:statement3",
       "transform:statement3",
-    ]);
-    expect(events.filter((event) => event.startsWith("complete:"))).toEqual([
-      `complete:statement1:${failAt === 1 ? "failure" : "success"}`,
-      `complete:statement2:${failAt === 0 ? "success" : "failure"}`,
-      `complete:statement3:${failAt === 0 ? "success" : "failure"}`,
+      ...Array.from({ length: executedCount }, (_, index) => [
+        `observe:statement${index + 1}`,
+        `complete:statement${index + 1}:${failAt === index + 1 ? "failure" : "success"}`,
+      ]).flat(),
     ]);
     expect(
       logs.map(({ level, operation, sql: statement }) => ({
@@ -616,11 +650,11 @@ describe("_prepare typed provenance", () => {
     const driver = new LimitedDriver();
     const completions: string[] = [];
     const transformed: string[] = [];
-    const chain = appendResolvedExtension(
+    const chain = appendExtension(
       undefined,
-      {
-        name: "preparation-failure",
-        statement({ statement, model }: StatementContext) {
+      extension(
+        "preparation-failure",
+        rewriting(({ statement, model }) => {
           transformed.push(model ?? "unknown");
           if (model === "second") {
             if (failure === "throw")
@@ -628,21 +662,14 @@ describe("_prepare typed provenance", () => {
             return sql`${statement}, ${2}`;
           }
           return statement;
-        },
-        ...(observing
-          ? {
-              observe(
-                unit: LifecycleUnit,
-                proceed: () => Promise<ObservationCompletion>
-              ) {
-                if (unit.kind !== "statement") return;
-                return proceed().then((completion) => {
-                  completions.push(`${unit.model}:${completion.status}`);
-                });
-              },
-            }
-          : {}),
-      },
+        }),
+        unit((observed, proceed) => {
+          if (!observing || observed.kind !== "statement") return proceed();
+          return proceed().then((completion) => {
+            completions.push(`${observed.model}:${completion.status}`);
+          });
+        })
+      ),
       {}
     );
     const contexts = ["first", "second", "third"].map((model) =>
@@ -656,14 +683,15 @@ describe("_prepare typed provenance", () => {
     await expect(
       driver._executeBatch(batch, undefined, contexts[0])
     ).rejects.toMatchObject({
-      name: failure === "throw" ? "QueryError" : "UnsupportedOperationError",
+      // What a rewriting unit throws fails the call as it is (D5).
+      name: "UnsupportedOperationError",
       meta: { statementIndex: 1 },
     });
-    expect(transformed).toEqual(["first", "second"]);
+    // Every member is rewritten before any is sent.
+    expect(transformed).toEqual(["first", "second", "third"]);
     expect(driver.sqlOf()).toEqual(["BEGIN", "ROLLBACK"]);
-    expect(completions).toEqual(
-      observing ? ["second:failure", "first:failure"] : []
-    );
+    // The refusal comes before any statement is sent: no statement unit.
+    expect(completions).toEqual([]);
   });
 
   test.each([
@@ -675,15 +703,15 @@ describe("_prepare typed provenance", () => {
     }
     const driver = new LimitedDriver({ supportsBatch: native });
     let calls = 0;
-    const chain = appendResolvedExtension(
+    const chain = appendExtension(
       undefined,
-      {
-        name: "bind-growth",
-        statement({ statement }: StatementContext) {
+      extension(
+        "bind-growth",
+        rewriting(({ statement }) => {
           calls++;
           return sql`${statement}, ${1}, ${2}`;
-        },
-      },
+        })
+      ),
       {}
     );
     const context = createExecutionContext(

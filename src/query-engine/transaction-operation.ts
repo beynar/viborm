@@ -4,13 +4,22 @@ import type {
   QueryResult,
 } from "@drivers/exports";
 import { InvalidTransactionInputError } from "@errors";
-import type { ObservationCompletionFactsReader } from "@extensions/observation";
 import type {
-  QueryInterceptorExecutionControl,
-  TransactionWriteOutcomes,
+  AroundHandlers,
+  PreparedQueryContext,
   WriteOutcomeNotifications,
+  WriteOutcomeRegistration,
 } from "@extensions/query";
+import type { UnitSource } from "@extensions/unit-source";
 import type { PreparedBatchOperation, PreparedQuery } from "./types";
+
+/** The `around` handlers of one array member and what they see (see `around`). */
+export interface MemberAround {
+  readonly context: PreparedQueryContext | undefined;
+  readonly handlers: AroundHandlers | undefined;
+  readonly write: boolean;
+  readonly registration?: WriteOutcomeRegistration | undefined;
+}
 
 /** One shared owner table registered once by each genuine operation class. */
 export interface TransactionOperationOwner<Owner extends object = object> {
@@ -19,30 +28,20 @@ export interface TransactionOperationOwner<Owner extends object = object> {
   model(owner: Owner): string;
   operation(owner: Owner): string;
   context(owner: Owner): QueryExecutionContext;
-  requiresInterception(owner: Owner): boolean;
   prepareAdmission(owner: Owner, phase?: "input" | "plan"): void;
-  stagePackageWriteOutcomes(
-    owner: Owner,
-    outcomes: TransactionWriteOutcomes
-  ): void;
-  startInterception(
-    owner: Owner,
-    child: (notifications?: WriteOutcomeNotifications) => Promise<unknown>,
-    outcomes: TransactionWriteOutcomes,
-    control: QueryInterceptorExecutionControl
-  ): Promise<unknown>;
+  /**
+   * What may intercept the member in an array, read once it is prepared:
+   * the handlers around it and the context they see, whether it writes, and
+   * its package's write-outcome listener.
+   */
+  around(owner: Owner): MemberAround;
   executeCore(
     owner: Owner,
     driver: AnyDriver,
     notifications?: WriteOutcomeNotifications
   ): Promise<unknown>;
-  isWrite(owner: Owner): boolean;
-  hasObservation(owner: Owner): boolean;
-  observe(
-    owner: Owner,
-    child: () => Promise<unknown>,
-    readCompletionFacts?: ObservationCompletionFactsReader
-  ): Promise<unknown>;
+  /** The member's `operation` unit, where its chain observes units. */
+  unit(owner: Owner): UnitSource;
   reserveWith(owner: Owner, driver: AnyDriver): void;
   executeWith(owner: Owner, driver: AnyDriver): Promise<unknown>;
   /** The member's value as its caller receives it (its computed fields). */

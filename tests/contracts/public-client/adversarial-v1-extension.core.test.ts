@@ -1,19 +1,22 @@
-import { appendResolvedExtension } from "@extensions/chain";
+import type { Schema } from "@client/types";
+import type { AnyTarget, EmptyFacts, Part } from "@extensions/contract";
 import {
-  type ExtensionDefinitionInput,
-  normalizeExtensionDefinition,
-} from "@extensions/definition";
-import { withRows } from "@extensions/rows-runtime";
-import { createClient, defineExtension, s } from "@src/index";
+  arg,
+  args,
+  createClient,
+  defaults,
+  extension,
+  keep,
+  oneOf,
+  parts,
+  rule,
+  s,
+} from "@src/index";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { describe, expect, it } from "vitest";
 
-// These definitions are stated as plain objects: what reads their rows is brought here.
-withRows();
-
 const UNKNOWN_PATTERN = /unknown/i;
-const SHARE_MODE_NAMES_PATTERN = /share mode names/;
-const UNDECLARED_CONTROL_TENNAT_PATTERN = /undeclared control "tennat"/;
+const UNDECLARED_CONTROL_TENNAT_PATTERN = /undeclared argument "tennat"/;
 
 const post = s.model({
   id: s.string().id(),
@@ -21,202 +24,91 @@ const post = s.model({
   title: s.string(),
 });
 const schema = { post };
+/** A part built from entries the types would refuse, as a caller without them writes. */
+const written = (
+  build: (entries: never) => unknown,
+  entries: object
+): Part<AnyTarget, EmptyFacts> => Reflect.apply(build, undefined, [entries]);
+
+/** An extension applied by a client of `receiving`, its types left unread. */
+const applied = (definition: unknown, receiving: Schema): unknown => {
+  const client = createClient({
+    schema: receiving,
+    driver: new PlanningDriver("postgresql"),
+  });
+  return Reflect.apply(client.$extends, client, [definition]);
+};
 describe("named extension policy admission", () => {
-  it("rejects malformed policy containers and scalar assignments", () => {
-    const cases: readonly (readonly [Record<string, unknown>, string])[] = [
-      [{ rows: 42 }, "rows must be an object"],
-      [{ data: { models: 42 } }, "data.models must be an object"],
-      [{ data: { models: { post: 42 } } }, "data.post must be an object"],
-      [
-        { data: { models: { post: { create: 42 } } } },
-        "fields must be an object",
-      ],
-      [{ deletion: { models: { post: { at: 42 } } } }, "names unknown scalar"],
-      [
-        { rows: { default: "tenant", models: { post: { tenant: 42 } } } },
-        "row mode must be an object",
-      ],
-      [
-        {
-          rows: {
-            default: "tenant",
-            models: { post: { tenant: {}, [Symbol("mode")]: {} } },
-          },
-        },
-        "row mode must be a string",
-      ],
-    ];
-    for (const [component, message] of cases)
-      expect(() =>
-        Reflect.apply(normalizeExtensionDefinition, undefined, [
-          { name: "hostile-policy", ...component },
-          schema,
-        ])
-      ).toThrow(message);
-  });
-
-  it("admits a predicate past a caller's nesting bound and refuses different mode counts before binding", () => {
-    // A domain predicate is the application's own data: its lowering, not a
-    // depth number, bounds it (plan K1(a)).
-    let predicate: Record<string, unknown> = { tenantId: "acme" };
-    for (let depth = 0; depth < 17; depth++) predicate = { AND: [predicate] };
-    expect(() =>
-      normalizeExtensionDefinition(
-        {
-          name: "deep-policy",
-          rows: {
-            control: "scope",
-            default: "tenant",
-            models: {
-              post: { tenant: { root: predicate } },
-            },
-          },
-        },
-        schema
-      )
-    ).not.toThrow();
-    expect(() =>
-      normalizeExtensionDefinition(
-        {
-          name: "different-mode-counts",
-          rows: {
-            control: "scope",
-            default: "tenant",
-            models: {
-              post: { tenant: {} },
-              other: { tenant: {}, all: {} },
-            },
-          },
-        },
-        { post, other: post }
-      )
-    ).toThrow(SHARE_MODE_NAMES_PATTERN);
-  });
-
+  // The members a builder writes are no longer read from a hand-made
+  // definition (`rows`, `data`, `deletion` and the modes are gone): what is
+  // refused is what an author writes with the public parts.
   it("refuses config-sourced unknown models and fields before binding", () => {
-    const components: ExtensionDefinitionInput[] = [
-      {
-        rows: {
-          control: "scope",
-          default: "tenant",
-          models: { posts: { tenant: { root: { tenantId: "acme" } } } },
-        },
-      },
-      {
-        data: {
-          models: {
-            post: { create: { tenantId: "acme", tenantld: "globex" } },
-          },
-        },
-      },
-      { deletion: { models: { post: { at: "deletedAT" } } } },
-      {
-        rows: {
-          control: "scope",
-          default: "tenant",
-          models: {
-            post: {
-              tenant: {
-                related: { AND: [{ tenantId: "acme", tenantld: "globex" }] },
-              },
-            },
-          },
-        },
-      },
+    const tenantld = { tenantId: "acme", tenantld: "globex" };
+    const components = [
+      written(rule, { posts: { root: { tenantId: "acme" } } }),
+      written(defaults, { post: { create: tenantld } }),
+      written(rule, {
+        post: { delete: { instead: keep({ deletedAT: "now" }) } },
+      }),
+      written(rule, { post: { related: { AND: [tenantld] } } }),
     ];
     for (const component of components)
       expect(() =>
-        normalizeExtensionDefinition({ name: "policy", ...component }, schema)
+        applied(
+          Reflect.apply(extension, undefined, ["policy", component]),
+          schema
+        )
       ).toThrow(UNKNOWN_PATTERN);
   });
-  it("refuses missing policy modes and preserves a scalar named AND", () => {
-    const other = s.model({ id: s.string().id(), tenantId: s.string() });
-    expect(() =>
-      normalizeExtensionDefinition(
-        {
-          name: "modes",
-          rows: {
-            control: "scope",
-            default: "tenant",
-            models: {
-              post: { tenant: { root: { tenantId: "acme" } } },
-              other: { all: {} },
-            },
-          },
-        },
-        { post, other }
-      )
-    ).toThrow(SHARE_MODE_NAMES_PATTERN);
+  it("admits a scalar named AND as a field", () => {
     const named = s.model({ id: s.string().id(), AND: s.string() });
     expect(() =>
-      normalizeExtensionDefinition(
-        {
-          name: "logical-field",
-          rows: {
-            control: "scope",
-            default: "tenant",
-            models: { named: { tenant: { root: { AND: "field value" } } } },
-          },
-        },
+      applied(
+        extension(
+          "logical-field",
+          rule({ named: { root: { AND: "field value" } } })
+        ),
         { named }
       )
     ).not.toThrow();
   });
-  it("refuses dangling control references without rejecting declared optional absence", () => {
-    const definition = {
-      name: "references",
-      controls: { tenant: { oneOf: ["acme"] } },
-      rows: {
-        control: "scope",
-        default: "tenant",
-        models: {
-          post: {
-            tenant: {
-              root: {
-                tenantId: { control: "tenant" },
-                AND: [{ tenantId: { in: { control: "tennat" } } }],
-              },
+  it("refuses dangling argument references without rejecting declared optional absence", () => {
+    // Held apart from the rule, a name is checked at $extends (D7).
+    const tennat = arg("tennat");
+    const tenant = arg("tenant");
+    // An argument is the chain's to judge: order owns it (K7(c)).
+    expect(() =>
+      applied(
+        extension(
+          "references",
+          args({ tenant: oneOf("acme") }),
+          // A test the types would refuse: the arguments' own refusal is read.
+          written(rule, {
+            post: {
+              root: { tenantId: tenant, AND: [{ tenantId: { in: tennat } }] },
             },
-          },
-        },
-      },
-    };
-    // A reference is the chain's to judge: order owns it (K7(c)).
-    expect(() =>
-      normalizeExtensionDefinition(definition, schema)
-    ).not.toThrow();
-    expect(() =>
-      appendResolvedExtension(undefined, definition, schema)
+          })
+        ),
+        schema
+      )
     ).toThrow(UNDECLARED_CONTROL_TENNAT_PATTERN);
     expect(() =>
-      normalizeExtensionDefinition(
-        {
-          name: "optional",
-          controls: { tenant: { oneOf: ["acme"] } },
-          rows: {
-            control: "scope",
-            default: "tenant",
-            models: {
-              post: { tenant: { root: { tenantId: { control: "tenant" } } } },
-            },
-          },
-        },
+      applied(
+        extension(
+          "optional",
+          args({ tenant: oneOf("acme") }),
+          rule({ post: { root: { tenantId: tenant } } })
+        ),
         schema
       )
     ).not.toThrow();
     const controlled = s.model({ id: s.string().id(), control: s.string() });
     expect(() =>
-      normalizeExtensionDefinition(
-        {
-          name: "control-field",
-          rows: {
-            control: "scope",
-            default: "tenant",
-            models: {
-              controlled: { tenant: { root: { control: "literal field" } } },
-            },
-          },
-        },
+      applied(
+        extension(
+          "control-field",
+          rule({ controlled: { root: { control: "literal field" } } })
+        ),
         { controlled }
       )
     ).not.toThrow();
@@ -227,25 +119,23 @@ describe("named extension policy admission", () => {
       driver: new PlanningDriver("postgresql"),
     });
     const probe = () => {
-      defineExtension<typeof schema>()({
-        name: "rows",
-        rows: {
-          control: "scope",
-          default: "tenant",
-          models: {
-            // @ts-expect-error the whole model map is refused when any key is unknown
-            post: { tenant: {} },
-            // @ts-expect-error model typo beside the real model
-            posts: { tenant: {} },
-          },
-        },
+      // Written apart from the client, against its schema.
+      parts<typeof schema>().rule({
+        post: {},
+        // @ts-expect-error model typo beside the real model
+        posts: {},
       });
-      const dynamic = {
-        name: "deletion",
-        deletion: { models: { post: {}, posts: {} } },
-      };
-      // @ts-expect-error non-fresh policy model typo is structurally refused
-      client.$extends(dynamic);
+      // Written where it is applied.
+      client.$extends(
+        extension(
+          "deletion",
+          rule({
+            post: { delete: { instead: keep({ title: "deleted" }) } },
+            // @ts-expect-error model typo beside the real model
+            posts: { delete: { instead: keep({ title: "deleted" }) } },
+          })
+        )
+      );
     };
     expect(probe).toBeTypeOf("function");
   });

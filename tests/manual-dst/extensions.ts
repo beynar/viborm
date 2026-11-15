@@ -9,6 +9,7 @@ import { SQLite3Driver } from "@drivers/sqlite3";
 import type { QueryResult } from "@drivers/types";
 import { ForbiddenError, NotFoundError, QueryError } from "@errors";
 import { s } from "@schema";
+import { extension, statement, unit } from "@src/index";
 import { permissions } from "@src/permissions";
 import { softDelete } from "@src/soft-delete";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -244,6 +245,11 @@ export async function runExtensionSeed(
       const tombstones = softDelete({
         models: { post: { deletedAt: "deletedAt" } },
       });
+      // `userId` is optional: every rule that reads it tests its presence,
+      // or a call without one would close the whole permission.
+      const known = {
+        $if: { control: "actor", path: "userId", exists: true },
+      } as const;
       const policy = permissions({
         actor: v.object({
           tenantId: v.string(),
@@ -261,9 +267,10 @@ export async function runExtensionSeed(
             read: {
               OR: [
                 { published: true },
-                { ownerId: { actor: "userId" } },
+                { ...known, ownerId: { actor: "userId" } },
                 // About the actor alone: the same check for every row.
                 {
+                  ...known,
                   $exists: {
                     member: {
                       tenantId: { actor: "tenantId" },
@@ -276,9 +283,10 @@ export async function runExtensionSeed(
             },
             update: {
               OR: [
-                { ownerId: { actor: "userId" } },
+                { ...known, ownerId: { actor: "userId" } },
                 // About this post: its tenant and its editor role.
                 {
+                  ...known,
                   $exists: {
                     member: {
                       tenantId: { $row: "tenantId", up: 1 },
@@ -290,36 +298,41 @@ export async function runExtensionSeed(
               ],
             },
             delete: { actor: { admin: true } },
-            create: { ownerId: { actor: "userId" } },
+            create: { ...known, ownerId: { actor: "userId" } },
           },
         },
       });
       const db = base
-        .$extends(defaultOmit<typeof schema>()({ post: { secret: true } }))
+        .$extends(defaultOmit({ post: { secret: true } }))
         .$extends(cache({ driver: new MemoryCache(), version: "manual-dst" }))
-        .$extends(tombstones.rows)
+        .$extends(tombstones)
         .$extends(policy)
-        .$extends(tombstones.methods)
-        .$extends({
-          name: "manual-dst-fault",
-          statement(context) {
-            if (failAfter > 0 && --failAfter === 0) {
-              recorder.record({
-                kind: "injected-failure",
-                cut: "statement-transform",
-              });
-              throw new Error("manual-dst injected statement failure");
-            }
-            return context.statement;
-          },
-        });
+        .$extends(
+          extension(
+            "manual-dst-fault",
+            unit(
+              (u, next) => {
+                if (failAfter > 0 && --failAfter === 0) {
+                  recorder.record({
+                    kind: "injected-failure",
+                    cut: "statement-transform",
+                  });
+                  throw new Error("manual-dst injected statement failure");
+                }
+                return next(statement(u));
+              },
+              ["statement"],
+              { rewrites: true }
+            )
+          )
+        );
       // A statement transform disables caching by contract. The cached chain
       // must be built without that transform, while retaining the same policies.
       const cached = base
         .$extends(
           cache({ driver: new MemoryCache(), version: "manual-dst-cache" })
         )
-        .$extends(tombstones.rows)
+        .$extends(tombstones)
         .$extends(policy);
       const rawState = () =>
         database
@@ -513,8 +526,12 @@ export async function runExtensionSeed(
           } else await refused(run, NotFoundError);
         } else if (operation === "access") {
           for (const action of actions) {
+            const row = await view.post.findUnique({
+              where: { id: target.id },
+              select: { $access: [action] },
+            });
             assert.equal(
-              await view.post.can(action, { id: target.id }),
+              row?.$access[action] === true,
               !target.deleted &&
                 allows(target, actor, scopes, "read") &&
                 allows(target, actor, scopes, action)

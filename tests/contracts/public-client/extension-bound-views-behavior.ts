@@ -32,6 +32,17 @@ import {
   QueryError,
   ValidationError,
 } from "@errors";
+import {
+  accepts,
+  arg,
+  bound,
+  args as extArgs,
+  extension,
+  methods as extMethods,
+  parts,
+  unless,
+  when,
+} from "@src/index";
 import { v } from "@src/validation";
 import { failure } from "@tests/fixtures/failure";
 import { createOracle } from "@tests/package/fixtures/permissions-app/oracle";
@@ -56,17 +67,19 @@ const NAMES = Object.keys(actors).slice(0, 10);
 type Where = Record<string, unknown>;
 const NOTHING: Where = { id: { in: [] } };
 
-/** One mode per actor: the rows of the model the oracle says it views. */
+/**
+ * One mode per actor: the rows of the model the oracle says it views, read
+ * from the bound actor itself (`$bind` binds `bound` arguments only), and
+ * none for any other actor.
+ */
 function modesOf(model: "page" | "pageGroup") {
-  const modes: Record<string, { root: Where; related: Where }> = {
-    nobody: { root: NOTHING, related: NOTHING },
-  };
-  for (const name of NAMES) {
-    const view = {
-      id: { in: oracle.rows(actors[name]!, model, "read", { now }) },
-    };
-    modes[name] = { root: view, related: view };
-  }
+  const modes = [unless(arg("actor"), { in: NAMES }, NOTHING)];
+  for (const name of NAMES)
+    modes.push(
+      when(arg("actor"), name, {
+        id: { in: oracle.rows(actors[name]!, model, "read", { now }) },
+      })
+    );
   return modes;
 }
 
@@ -76,34 +89,44 @@ type RequestMethods = {
 };
 
 let factoryRuns = 0;
-const requests = {
-  name: "requests",
-  controls: {
-    // Bound only, and required on the models `rows` names: never passed.
-    actor: { oneOf: NAMES, bound: true, required: true },
-    label: { schema: v.string() },
-  },
-  rows: {
-    control: "as",
-    default: "nobody",
-    models: { page: modesOf("page"), pageGroup: modesOf("pageGroup") },
-  },
-  client: (scope: {
-    $bind(values: Readonly<Record<string, unknown>>): unknown;
-  }) => {
-    factoryRuns += 1;
-    const methods: RequestMethods = {
-      $as: (name) => scope.$bind({ as: name, actor: name }) as never,
-    };
-    return methods;
-  },
-  model: {
-    page: (delegate: { count(args?: object): Promise<number> }) => {
-      factoryRuns += 1;
-      return { visible: () => delegate.count() };
-    },
-  },
-} as const;
+const typed = parts<PermissionsAppClient>();
+/**
+ * The extension, with its rows read through `read` (a rule read from the
+ * schema: the mode filters are computed per actor).
+ */
+const requestsReading = (read: () => void = () => undefined) =>
+  typed.extension(
+    "requests",
+    typed.args({
+      // Bound only, and required on the models the rule names: never passed.
+      actor: bound(v.enum(NAMES)).required(["page", "pageGroup"]),
+      label: accepts(v.string()),
+    }),
+    typed.rule(() => {
+      read();
+      return {
+        page: { root: modesOf("page"), related: modesOf("page") },
+        pageGroup: {
+          root: modesOf("pageGroup"),
+          related: modesOf("pageGroup"),
+        },
+      };
+    }),
+    typed.methods((scope) => {
+      const methods: RequestMethods = {
+        $as: (name) => scope.$bind({ actor: name }) as never,
+      };
+      return methods;
+    }),
+    typed.modelMethods(() => ({
+      // A model's methods are made when that model is first read on a view.
+      page: (delegate: { count(args?: object): Promise<number> }) => {
+        factoryRuns += 1;
+        return { visible: () => delegate.count() };
+      },
+    }))
+  );
+const requests = requestsReading();
 
 /** What one actor must read: its pages, each with its group or `null`. */
 const expectations = new Map(
@@ -173,24 +196,13 @@ export function runBoundViewsBehavior(substrate: BoundViewsSubstrate): void {
     test(
       "W-AS1: a bound view builds no chain and no row binding, and runs no factory it does not use",
       async () => {
-        // The definition's rows are read when a chain binds them, and only then.
+        // The extension's rows are read when a chain binds them, and only then.
         let rowsReads = 0;
-        const models = { ...requests.rows.models };
-        const counted = Object.defineProperty({}, "page", {
-          enumerable: true,
-          get: () => {
+        const chained = base.$extends(
+          requestsReading(() => {
             rowsReads += 1;
-            return models.page;
-          },
-        });
-        Object.defineProperty(counted, "pageGroup", {
-          enumerable: true,
-          value: models.pageGroup,
-        });
-        const chained = base.$extends({
-          ...requests,
-          rows: { ...requests.rows, models: counted as typeof models },
-        });
+          })
+        );
         const applied = rowsReads;
         expect(applied).toBeGreaterThan(0);
         factoryRuns = 0;
@@ -218,7 +230,12 @@ export function runBoundViewsBehavior(substrate: BoundViewsSubstrate): void {
     test(
       "W-AS2: 1,000 interleaved requests under Promise.all, with includes, transactions, array transactions, $extends and rebinding, never mix",
       async () => {
-        const derived = db.$extends({ name: "later", client: () => ({}) });
+        const derived = db.$extends(
+          extension(
+            "later",
+            extMethods(() => ({}))
+          )
+        );
         // Without a callback transaction, the array form is the only one.
         const inTransaction = (call: typeof db) =>
           callbackTransactions
@@ -281,11 +298,11 @@ export function runBoundViewsBehavior(substrate: BoundViewsSubstrate): void {
       const pass = (client: typeof db) =>
         Reflect.apply(client.page.findMany, undefined, [{ actor: NAMES[0] }]);
       await expect(pass(db)).rejects.toBeInstanceOf(ValidationError);
-      await expect(pass(db)).rejects.toThrow('Control "actor" is required');
+      await expect(pass(db)).rejects.toThrow('Argument "actor" is required');
       await expect(pass(call)).rejects.toBeInstanceOf(ValidationError);
       await expect(pass(call)).rejects.toThrow("actor: Unknown key: actor");
       await expect(db.page.findMany()).rejects.toThrow(
-        'Control "actor" is required'
+        'Argument "actor" is required'
       );
       await expect(
         db.page.create({
@@ -297,7 +314,7 @@ export function runBoundViewsBehavior(substrate: BoundViewsSubstrate): void {
             position: 0,
           },
         })
-      ).rejects.toThrow('Control "actor" is required');
+      ).rejects.toThrow('Argument "actor" is required');
       expect(await base.page.count({ where: { id: "never" } })).toBe(0);
     });
 
@@ -351,9 +368,12 @@ export function runBoundViewsBehavior(substrate: BoundViewsSubstrate): void {
 
     test("W-AS4, W-AS5, W-AS7: a client $extends derives from a bound view keeps its values; array-transaction members keep their own; a cached read is keyed per binding", async () => {
       const [first, second] = NAMES as [string, string];
-      const derived = db
-        .$as(first)
-        .$extends({ name: "derived", client: () => ({}) });
+      const derived = db.$as(first).$extends(
+        extension(
+          "derived",
+          extMethods(() => ({}))
+        )
+      );
       expect(observed(await derived.page.findMany(pagesWithGroups))).toEqual(
         sorted(expected(first))
       );
@@ -380,49 +400,50 @@ export function runBoundViewsBehavior(substrate: BoundViewsSubstrate): void {
       expect(await reads(first)).toEqual(sorted(expected(first)));
     });
 
-    test("W-AS6: $bind admits only the calling extension's own controls, each through its declaration", () => {
-      const binder = {
-        name: "binder",
-        controls: {
-          mine: { schema: v.string() },
-          hostile: {
-            schema: {
-              "~standard": {
-                version: 1,
-                vendor: "test",
-                validate: () => {
-                  throw new Error("boom");
-                },
+    test("W-AS6: $bind admits only the calling extension's own bound arguments, each through its declaration", () => {
+      const binder = extension(
+        "binder",
+        extArgs({
+          mine: bound(v.string()),
+          // Its own, but a call's: `$bind` binds a `bound` argument only.
+          free: accepts(v.string()),
+          hostile: bound({
+            "~standard": {
+              version: 1,
+              vendor: "test",
+              validate: () => {
+                throw new Error("boom");
               },
             },
-          },
-        },
-        client: (scope: {
-          $bind(values: Readonly<Record<string, unknown>>): unknown;
-        }) => ({
+          }),
+        }),
+        extMethods((scope) => ({
           $with: (values: Readonly<Record<string, unknown>>) =>
             scope.$bind(values),
-        }),
-      } as const;
-      const bound = db.$extends(binder);
-      expect(() => bound.$with({ actor: NAMES[0] })).toThrow(
+        }))
+      );
+      const binding = db.$extends(binder);
+      expect(() => binding.$with({ actor: NAMES[0] })).toThrow(
         ClientInitializationError
       );
-      expect(() => bound.$with({ actor: NAMES[0] })).toThrow(
-        'Extension "binder" binds control "actor", which it does not declare.'
+      expect(() => binding.$with({ actor: NAMES[0] })).toThrow(
+        'Extension "binder" binds argument "actor", which it does not declare with bound(schema).'
       );
-      expect(() => bound.$with({ nowhere: 1 })).toThrow(
-        'binds control "nowhere"'
+      expect(() => binding.$with({ free: "ok" })).toThrow(
+        'Extension "binder" binds argument "free", which it does not declare with bound(schema).'
       );
-      expect(() => bound.$with({ mine: 1 })).toThrow(ValidationError);
-      expect(() => bound.$with({ mine: 1 })).toThrow(
+      expect(() => binding.$with({ nowhere: 1 })).toThrow(
+        'binds argument "nowhere"'
+      );
+      expect(() => binding.$with({ mine: 1 })).toThrow(ValidationError);
+      expect(() => binding.$with({ mine: 1 })).toThrow(
         "Validation failed for $bind"
       );
-      expect(() => bound.$with({ hostile: 1 })).toThrow(QueryError);
-      expect(() => bound.$with({ hostile: 1 })).toThrow(
-        'Extension "binder" control "hostile" validator for $bind threw.'
+      expect(() => binding.$with({ hostile: 1 })).toThrow(QueryError);
+      expect(() => binding.$with({ hostile: 1 })).toThrow(
+        'Extension "binder" argument "hostile" validator for $bind threw.'
       );
-      expect(bound.$with({ mine: "ok" })).toBeTypeOf("object");
+      expect(binding.$with({ mine: "ok" })).toBeTypeOf("object");
       // The other extension binds its own: the same values are refused here.
       expect(() => db.$as("not-an-actor")).toThrow(ValidationError);
     });

@@ -8,6 +8,7 @@ import { runTransactionLifecycle } from "@drivers/shared/transactions";
 import { NestedWriteAssertionError, NotFoundError } from "@errors";
 import { s } from "@schema";
 import { sql } from "@sql";
+import { extension, unit } from "@src/index";
 import {
   overrideTransactionOperation,
   readTestTransactionOperation,
@@ -180,19 +181,21 @@ describe("legacy native array composition", () => {
     const driver = new NativeBatchDriver();
     const base = trackedClient(driver);
     const completions: string[] = [];
-    const client = base.$extends({
-      name: "legacy-observation-coverage",
-      async observe(unit, proceed) {
-        try {
-          const value = await proceed();
-          completions.push(`${unit.kind}:${unit.operation}:success`);
-          return value;
-        } catch (error) {
-          completions.push(`${unit.kind}:${unit.operation}:failure`);
-          throw error;
-        }
-      },
-    });
+    const client = base.$extends(
+      extension(
+        "legacy-observation-coverage",
+        unit(async (u, next) => {
+          try {
+            const value = await next();
+            completions.push(`${u.kind}:${u.operation}:success`);
+            return value;
+          } catch (error) {
+            completions.push(`${u.kind}:${u.operation}:failure`);
+            throw error;
+          }
+        })
+      )
+    );
 
     await expect(
       client.$transaction([
@@ -217,15 +220,17 @@ describe("observed legacy fallback certainty", () => {
   ] as const)("reports %s-stage failure certainty as %s", async (failurePoint, expectedCertainty) => {
     const base = trackedClient(new LifecycleDriver(failurePoint));
     const facts: Array<string | undefined> = [];
-    const client = base.$extends({
-      name: `legacy-${failurePoint}-observation`,
-      observe(unit, proceed) {
-        if (unit.kind !== "batch") return;
-        proceed().then((completion) => {
-          facts.push(completion.commitCertainty);
-        });
-      },
-    });
+    const client = base.$extends(
+      extension(
+        `legacy-${failurePoint}-observation`,
+        unit((u, next) => {
+          if (u.kind !== "batch") return next();
+          next().then((completion) => {
+            facts.push(completion.certainty);
+          });
+        })
+      )
+    );
 
     await expect(
       client.$transaction([client.record.findMany()])

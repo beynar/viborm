@@ -1,5 +1,16 @@
+import {
+  accepts,
+  arg,
+  args,
+  bound,
+  extension,
+  methods,
+  oneOf,
+  rule,
+  when,
+} from "@src/index";
 import type { CompiledPolicy } from "@src/permissions";
-import { verbsOf } from "@src/permissions/compile";
+import { EVIDENCE_KEY, policyCompiler } from "@src/permissions/compile";
 import { v } from "@src/validation";
 import {
   createPermissionsAppClient,
@@ -34,7 +45,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 /**
  * The compiled policy against the oracle (plan §3.3 D2, D3, D9; §7 W-H1,
  * W-A1..W-A6): `permissions(§1.1).compile(schema)` is plain data, its K3 part
- * (`verbsOf`) handed to a plain extension's `rows.verbs`, whose modes name each
+ * (`entryOf`) handed to a plain extension's `rows.verbs`, whose modes name each
  * `(model, action)` predicate, conjoined by K3 with the model's read
  * predicate (R2). Its `actor` control is a call argument (K1 admission, K2
  * parameters and conditions), on the seeded permissions-app fixture with no other
@@ -54,57 +65,73 @@ interface Delegate {
 const MODE = "as";
 const NOWHERE = { OR: [] };
 
-/**
- * The action modes of every governed model, each naming its compiled
- * predicate: K3 ANDs the model's `read` with it (R2); false where the model
- * lacks the action.
- */
-function observedModes(compiled: CompiledPolicy) {
-  const names = [...new Set(MODEL_ACTIONS.map(([, action]) => action))];
-  const models: Record<string, Record<string, { root: object | string }>> = {};
-  for (const model of GOVERNED_MODELS) {
-    const { predicates } = compiled.models[model]!;
-    models[model] = Object.fromEntries([
-      ["none", { root: NOWHERE }],
-      ...names.map((action) => [
-        action,
-        { root: Object.hasOwn(predicates, action) ? action : NOWHERE },
-      ]),
-    ]);
-  }
-  return models;
-}
+/** Every action a governed model may name: each one an `as` mode. */
+const ACTIONS = [...new Set(MODEL_ACTIONS.map(([, action]) => action))];
 
 /**
  * A plain extension carrying the compiled policy as K3 declares it: every
- * model's compiled predicates and verbs are its `verbs`, so an unlisted model reads nothing
- * (R9). The actor is an argument.
+ * model's compiled predicates and verbs are its rule, so an unlisted model
+ * reads nothing (R9). The actor is an argument. Each action is a mode
+ * naming its compiled predicate: K3 ANDs the model's `read` with it (R2);
+ * false where the model lacks the action, and in the default mode.
  */
-const extensionOf = (name: string, compiled: CompiledPolicy) => ({
-  name,
-  controls: {
-    actor: { schema: ActorSchema, required: true },
-    scopes: {
-      schema: v.object({
-        unrestricted: v.boolean(),
-        allowed: v.array(v.string()),
-      }),
-      required: true,
-    },
-  },
-  client: (scope: {
-    $bind(values: Readonly<Record<string, unknown>>): unknown;
-  }) => ({
-    $unrestricted: () =>
-      scope.$bind({ scopes: { unrestricted: true, allowed: [] } }),
-  }),
-  rows: {
-    control: MODE,
-    default: "none",
-    models: observedModes(compiled),
-    verbs: verbsOf(compiled),
-  },
-});
+const extensionOf = (name: string, compiled: CompiledPolicy) =>
+  extension(
+    name,
+    args({
+      actor: accepts(ActorSchema).required(),
+      scopes: bound(
+        v.object({
+          unrestricted: v.boolean(),
+          allowed: v.array(v.string()),
+        })
+      ).required(),
+      [MODE]: oneOf("none", ...ACTIONS).default("none"),
+    }),
+    rule(
+      Object.fromEntries(
+        // Every model of the schema: one the policy does not list holds nothing (R9).
+        Object.entries(compiled.models).map(([model, entry]) => {
+          // The entry's own modes give way to this extension's.
+          const { root: _modes, ...own } = entry;
+          const predicates =
+            (
+              own.read.select?.[EVIDENCE_KEY] as
+                | { readonly held: Readonly<Record<string, object>> }
+                | undefined
+            )?.held ?? {};
+          return [
+            model,
+            GOVERNED_MODELS.includes(model as never)
+              ? {
+                  ...own,
+                  root: [
+                    when(arg(MODE), "none", NOWHERE),
+                    ...ACTIONS.map((action) =>
+                      when(
+                        arg(MODE),
+                        action,
+                        Object.hasOwn(predicates, action)
+                          ? predicates[action]!
+                          : NOWHERE
+                      )
+                    ),
+                  ],
+                }
+              : own,
+          ];
+        })
+      ) as never
+    ),
+    methods(
+      (scope: {
+        $bind(values: Readonly<Record<string, unknown>>): unknown;
+      }) => ({
+        $unrestricted: () =>
+          scope.$bind({ scopes: { unrestricted: true, allowed: [] } }),
+      })
+    )
+  );
 
 export function runCompiledPolicyBehavior(
   substrate: PermissionsAppSubstrate
@@ -189,9 +216,9 @@ export function runCompiledPolicyBehavior(
     test(
       "W-A1: R1 per action: each model's actions are the oracle's, and their row sets differ",
       async () => {
-        const compiled = declaredPolicy();
+        const listed = policyCompiler(policy.config, schema).declared;
         for (const model of GOVERNED_MODELS)
-          expect(Object.keys(compiled.models[model]!.modes), model).toEqual([
+          expect(listed[model]!.modes, model).toEqual([
             ...actionsOf(model),
             ...(model === "page" ? ["given"] : []),
           ]);

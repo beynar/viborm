@@ -29,10 +29,8 @@ vi.mock("@opentelemetry/api", () => {
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
-import { MemoryCache } from "@cache/drivers/memory";
-import { cache } from "@cache/extension";
 import { isVibORMError } from "@errors";
-import { createClient, s, sql } from "@src/index";
+import { call, createClient, extension, s, sql } from "@src/index";
 import { createInstrumentationContext } from "@src/instrumentation/context";
 import { instrumentation } from "@src/instrumentation/exports";
 import {
@@ -46,11 +44,7 @@ import {
   SPAN_OPERATION,
   SPAN_TRANSACTION,
 } from "@src/instrumentation/spans";
-import {
-  createTracerWrapper,
-  prewarmTracer,
-  shouldTraceSpan,
-} from "@src/instrumentation/tracer";
+import { createTracerWrapper } from "@src/instrumentation/tracer";
 import type {
   LogEvent,
   SpanTracer,
@@ -173,9 +167,9 @@ describe("tracing.tracer: spans start through the handed tracer", () => {
         () => "value"
       )
     ).resolves.toBe("value");
-    // Kind and root have no meaning to a handed tracer: never passed.
+    // Root has no meaning to a handed tracer: never passed.
     await wrapper.startActiveSpan(
-      { name: SPAN_CONNECT, kind: 2, root: true },
+      { name: SPAN_CONNECT, root: true },
       () => undefined
     );
 
@@ -256,19 +250,12 @@ describe("tracing.tracer: spans start through the handed tracer", () => {
     ]);
   });
 
-  it("applies ignoreSpanTypes before the tracer and the disclosure options to attributes", async () => {
+  it("applies ignoreSpanTypes before the tracer", async () => {
     const { spans, tracer } = fakeTracer();
     const ignoring = createTracerWrapper({
       tracer,
       ignoreSpanTypes: [SPAN_CONNECT, EXECUTE_PATTERN],
     });
-    const disclosing = createTracerWrapper({
-      tracer,
-      includeParams: true,
-      includeSql: true,
-    });
-    const withholding = createTracerWrapper({ tracer });
-    const sqlFacts = { query: "SELECT $1", params: ["alice"] };
 
     await expect(
       ignoring.startActiveSpan({ name: SPAN_CONNECT }, () => "ignored")
@@ -276,38 +263,22 @@ describe("tracing.tracer: spans start through the handed tracer", () => {
     await expect(
       ignoring.startActiveSpan({ name: SPAN_EXECUTE }, () => "ignored")
     ).resolves.toBe("ignored");
-    expect(shouldTraceSpan(ignoring, SPAN_EXECUTE)).toBe(false);
-    expect(shouldTraceSpan(ignoring, SPAN_OPERATION)).toBe(true);
+    expect(ignoring.traces(SPAN_EXECUTE)).toBe(false);
+    expect(ignoring.traces(SPAN_OPERATION)).toBe(true);
     expect(spans).toEqual([]);
-
-    await disclosing.startActiveSpan(
-      { name: SPAN_EXECUTE, sql: sqlFacts },
-      () => undefined
-    );
-    await withholding.startActiveSpan(
-      { name: SPAN_EXECUTE, sql: sqlFacts },
-      () => undefined
-    );
-    expect(spans.map(({ calls }) => calls)).toEqual([
-      [
-        "attr:db.query.text=SELECT $1",
-        "attr:db.query.parameter.0=alice",
-        OK,
-        "end",
-      ],
-      [OK, "end"],
-    ]);
   });
 
-  it("is enabled at once and has no readiness to prewarm", () => {
-    const { tracer } = fakeTracer();
+  it("is enabled at once: the first span starts in the call that asks for it", async () => {
+    const { spans, tracer } = fakeTracer();
     const wrapper = createTracerWrapper({ tracer });
     const context = createInstrumentationContext({ tracing: { tracer } });
 
-    expect(wrapper.isEnabled()).toBe(true);
-    expect(prewarmTracer(wrapper)).toBeUndefined();
-    expect(context.tracer.isEnabled()).toBe(true);
-    expect(prewarmTracer(context.tracer)).toBeUndefined();
+    const first = context.tracer?.startActiveSpan(
+      { name: SPAN_OPERATION },
+      () => undefined
+    );
+    expect(spans.map(({ name }) => name)).toEqual([SPAN_OPERATION]);
+    await first;
     expect(Object.isFrozen(wrapper)).toBe(true);
   });
 });
@@ -621,35 +592,6 @@ describe("tracing.tracer: span and driver failures stay outside the operation", 
     }
   });
 
-  it("keeps $withCache when the adapter namespace throws after the cache bound", async () => {
-    let namespaceThrows = false;
-    const { spans, tracer } = fakeTracer();
-    const record = s.model({ id: s.string().id(), name: s.string() });
-    const driver = new StatementDriver();
-    Object.defineProperty(driver, "adapter", {
-      value: Object.create(new SQLiteAdapter(), {
-        namespace: {
-          get: () => {
-            if (namespaceThrows) throw new Error("namespace getter failed");
-            return undefined;
-          },
-        },
-      }),
-    });
-    const client = createClient({ schema: { record }, driver })
-      .$extends(cache({ driver: new MemoryCache() }))
-      .$extends(instrumentation({ tracing: { tracer } }));
-    namespaceThrows = true;
-
-    await expect(
-      client.$withCache({ ttl: 60_000 }).record.findMany({})
-    ).resolves.toEqual([{ id: "record-1", name: "Ada" }]);
-
-    const operation = spans.filter(({ name }) => name === SPAN_OPERATION);
-    expect(operation).toHaveLength(1);
-    expect(operation[0]?.calls.filter(isDriverAttributeCall)).toEqual([]);
-  });
-
   it("presents the operation span without driver attributes when the adapter namespace throws", async () => {
     const { spans, tracer } = fakeTracer();
     const record = s.model({ id: s.string().id(), name: s.string() });
@@ -685,12 +627,14 @@ describe("tracing.tracer: span and driver failures stay outside the operation", 
           },
         })
       )
-      .$extends({
-        name: "failing-request",
-        request() {
-          throw new Error("request transform failed");
-        },
-      });
+      .$extends(
+        extension(
+          "failing-request",
+          call(() => {
+            throw new Error("request transform failed");
+          })
+        )
+      );
 
     const failure = await client.record.findMany().catch((error) => error);
 
@@ -803,20 +747,5 @@ describe("tracing.tracer: the configured extension", () => {
     await autoDetected.startActiveSpan({ name: SPAN_OPERATION }, () => 1);
 
     expect(api.imports).toBeGreaterThan(0);
-  });
-
-  // After the control: a refused value auto-detects, which imports.
-  it("refuses a value that cannot start spans and auto-detects instead", () => {
-    const notATracer: unknown = {};
-    const refused = createInstrumentationContext({
-      tracing: { tracer: notATracer as SpanTracer, includeSql: true },
-    });
-
-    expect(refused.config.tracing).toEqual({
-      includeParams: false,
-      includeSql: true,
-    });
-    // Only the auto-detected path has a load to prewarm.
-    expect(prewarmTracer(refused.tracer)).toBeInstanceOf(Promise);
   });
 });

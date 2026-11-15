@@ -19,10 +19,20 @@ const client = createClient({ schema, driver }).$extends(
 );
 ```
 
-The extension snapshots its configuration once. `version` and `waitUntil`
-belong to that exact extension chain, not to the shared cache driver. Two
-clients can share one `CacheDriver` while using different namespaces and
-background schedulers.
+`cache(config)` reads its configuration once, when it is called, and refuses
+a missing `CacheDriver`, a `version` that is neither a string nor a finite
+number, and a `waitUntil` that is no function, with a
+`CacheConfigurationError`. `version` and `waitUntil` belong to that exact
+extension, not to the shared cache driver. Two clients can share one
+`CacheDriver` while using different namespaces and background schedulers.
+
+The extension is written with the public parts
+([Create an extension](/docs/extensions/create#store-answers-key-codec-database)):
+an `args` part (the mutation option `cache`, and a `bound` argument that
+`$withCache()` binds), a `call` on `target(writes)` whose `settled`
+invalidates, an `around` on `target(reads)` with `{ inner: true }` that reads
+`key(run)`, `codec(run)` and `database(run)`, and `methods` for
+`$withCache()` and `$invalidate()`.
 
 ## Cached reads
 
@@ -41,60 +51,91 @@ const fresh = await client
 | Option | Type | Default | Meaning |
 |---|---|---|---|
 | `ttl` | `string \| number` | 5 minutes | Freshness duration |
-| `swr` | `boolean \| string \| number` | `false` | Stale-while-revalidate window |
+| `swr` | `boolean \| string \| number` | `false` | Stale-while-revalidate window; needs `cache({ swr: staleWhileRevalidate })` |
 | `key` | `string` | absent | Suffix contributed to the canonical key |
 | `bypass` | `boolean` | `false` | Skip lookup, execute core, then store |
 
-The canonical identity always includes model, operation, normalized validated
-arguments, projection, the private result-format revision, and the extension's
-version namespace. A custom `key` is only a suffix contribution. It does not
-replace the canonical identity, so two different queries using the same suffix
-do not collide.
+A read is keyed by the statement it would send: its model, its operation, its
+validated arguments, and the prepared statement's text and parameters
+(`key(run)`), inside a namespace made of the cache's private storage
+revision, the database (dialect and SQL namespace, so one store can serve
+several databases) and the extension's `version`. A rule that changes the
+statement (a tenant, soft delete's `deleted`, a permission) changes the key; an
+argument that changes no statement does not, unless it is declared
+`.volatile()`, in which case the read is not cached. A custom `key` is only a
+suffix contribution. It does not replace the canonical identity, so two
+different queries using the same suffix do not collide.
 
 Official invalidation accepts relative keys and prefixes such as `user:*`.
 Strings beginning with `viborm:` are refused before backend effects; only the
-authenticated extension rail can address its private namespace. Cache-key
+cache's own module can address its private namespace. Cache-key
 construction is private; no public helper can address the official namespace.
 
 ## Detached values
 
-The cache stores a backend-portable snapshot of the parsed core result before
-ordinary query-interceptor post-work can mutate it. Every hit materializes a
-fresh complete public graph. Arrays, objects, dates, byte arrays, relations,
-JSON, decimals, bigints, aggregates, counts, and grouped results retain their
-documented public values without sharing mutable references between calls.
+The cache sits closest to the core (`around` with `{ inner: true }`), so it
+stores what the driver returned before any other extension's second moment
+can change the answer. An entry holds the driver's rows for the read's one
+statement, as JSON data, not a copy of the parsed result. A value JSON cannot
+carry (a bigint, a `Date`, bytes, a non-finite number, `-0`) is written as a
+tagged array, and every array is tagged, so no document a JSON column holds
+can be mistaken for one.
 
-Fixed decimals are snapshotted as validated canonical private strings, never as
-Decimal prototypes or JSON numbers. Every scalar and list member is rebuilt as
-a fresh `Decimal` on every hit. Compare those values with `.eq()` rather than
-object identity. A `Decimal` carries its state privately and the value type has
-no configuration, so neither a caller mutation nor an application setting can
-poison a later hit or change cache identity.
+Every hit hands the stored rows to the same decoding a driver's answer goes
+through: the driver's result parser, then the engine's result decoder. A hit
+is therefore a fresh complete graph, with no mutable reference shared between
+calls, and every value is decided again as on a miss: relations, JSON,
+decimals, bigints, dates, bytes, aggregates, counts and grouped results take
+their documented public values. Decimals are rebuilt as a fresh `Decimal` on
+every hit (compare them with `.eq()`, not by identity), and GeoPoint values as
+a fresh `{ longitude, latitude }`; a selected `_distance` remains a number (or
+null for a nullable point).
 
-GeoPoint values are snapshotted through the one coordinate codec. Every cache
-hit returns a fresh `{ longitude, latitude }` object, including nested and
-variant relation graphs. A selected `_distance` remains a number (or null for a
-nullable point); provider-owned row claims never enter cache storage.
+A driver result parser of your own (a custom driver's `result`) is called on
+hits too. It sees the restored values, which are the driver's values after a
+round trip through JSON: a `Uint8Array` where the driver gave a `Buffer`, a
+plain object or array where it gave one.
 
-Malformed stored snapshots fail at the cache boundary. VibORM does not route
-them back through the provider result parser or rerun custom JSON validation.
-Cache-managed reads remain outside consumable-provider-row optimization.
+A row value the cache cannot store (a class instance a driver did not turn
+into plain data) does not fail the read: the read answers uncached, and the
+operation records a `cache-set-failed` outcome. Entries are written under a
+private storage revision (`r6`); an entry written by an earlier VibORM version
+is never read. A stored entry that is malformed, or that the decoder refuses as
+it would refuse a driver's value, fails the read with a
+`CacheConfigurationError` whose `meta.method` is `"materialize"`; it exposes no
+stored value.
+
+Two checks are looser than when the cache stored the parsed result: a column
+the read does not decode is ignored, as it is in a driver's answer, and an
+object read through getters or a proxy (from an in-memory backend that hands
+back live objects) is read as the plain data it shows, not refused.
 
 ## Stale-while-revalidate
 
+Stale-while-revalidate is a value the cache is configured with, so an
+application that never serves stale entries carries none of its code:
+
 ```ts
+import { cache, staleWhileRevalidate } from "viborm/cache";
+
+const client = createClient({ schema, driver }).$extends(
+  cache({ driver: new MemoryCache(), swr: staleWhileRevalidate })
+);
 const cached = client.$withCache({ ttl: "5 minutes", swr: "1 hour" });
 ```
 
-- A fresh hit returns immediately.
-- A stale hit returns a fresh materialization of the old snapshot and schedules
-  one background promise covering claim, inner core replay, snapshot, set, and
-  marker cleanup.
-- A miss runs the inner prepared/core read and stores its snapshot.
+A view's `swr` option on a cache configured without it is refused with a
+`CacheConfigurationError` when the view is made.
 
-Background replay does not rerun request transforms, ordinary query
-interceptors, or another logical application operation. The stale application
-result remains authoritative if replay, snapshot, storage, or cleanup fails.
+- A fresh hit returns immediately.
+- A stale hit returns a fresh decoding of the old entry and schedules one
+  background promise covering claim, inner core replay, storing its rows, set,
+  and marker cleanup.
+- A miss runs the inner prepared/core read and stores the driver's rows.
+
+Background replay runs the core alone: it does not rerun any extension's
+first or second moment, or another logical application operation. The stale application
+result remains authoritative if replay, storing, or cleanup fails.
 The built-in marker is best-effort; it is not an atomic distributed lock and
 does not promise a single winner across concurrent workers.
 
@@ -128,15 +169,23 @@ await client.user.update({
 });
 ```
 
-A mutation's `cache` option is the cache extension's own declared control.
-VibORM takes it out of the arguments and checks it before any request handler
-runs, so request and query handlers never see it and a request handler cannot
-add or replace it (that is refused with a `QueryError`). A malformed value is
-a `CacheConfigurationError`; a `cache` getter that throws is a `QueryError`.
-The options are then registered on the existing ordered write-outcome rail. A
-rollback or savepoint rollback publishes no invalidation. A committed or
-possibly committed write attempts cache invalidation before later public
-write-outcome listeners, while retaining all failures in order.
+A mutation's `cache` option is the cache extension's own declared argument
+(`args`). VibORM takes it out of the arguments and checks it before any first
+moment runs, so other extensions never see it and no `c.set` can add or
+replace it. A malformed value is refused before the write runs. Invalidation
+runs when the write is durable (`settled`): a rollback or savepoint rollback
+publishes none, and a write that may have committed (a statement that failed
+after it was sent) invalidates too. A backend failure during that
+invalidation rejects the write's promise as a `CacheConfigurationError`
+(the write is not undone). `settled` functions run in chain order and the
+first failure rejects the write's promise, so apply `cache()` before
+[`on()`](/docs/extensions/on) for a write to invalidate before its hooks run.
+
+`$invalidate()` runs at once outside a transaction. On an interactive
+transaction's client (`tx.$invalidate()`) it runs after the outermost commit.
+`tx.$withCache()` exists too; its reads, like every read in a transaction,
+bypass the cache (below). A key it refuses is refused as it is; a backend that
+fails is a `CacheConfigurationError`.
 
 `autoInvalidate` clears the bound extension's entire cache scope, including
 reads whose nested relations depend on the mutation. Manual invalidation uses
@@ -151,12 +200,14 @@ mixed list has no partial effects.
 
 Official read caching is bypassed for callback and nested callback
 transactions, `$transaction([...])` on both substrates, any chain with a
-statement transform, safe and unsafe raw operations, and an existing internal
-no-cache execution context.
+statement rewrite (a `unit` declared `{ rewrites: true }`), safe and unsafe
+raw operations, and a read that carries a `.volatile()` argument (it runs
+without being served or stored, and without an error).
 
-Ordinary query interceptors remain outside the cache wrapper on hits and
-misses. Bypass preserves their behavior and the existing transaction,
-statement, raw, and result-ownership contracts.
+Every other extension's `around` stays outside the cache, on hits and
+misses alike, whatever the order of the chain: each sees every call. Bypass
+preserves their behavior and the existing transaction, statement, raw, and
+result-ownership contracts.
 
 ### Writes the cache does not see
 
@@ -183,11 +234,13 @@ also name every model whose reads reach the changed rows through `include` or
 
 ## Observability
 
-With the official `instrumentation()` extension, cache get, set, invalidate,
-and revalidate work uses protected cache lifecycle units. Logs and spans report
-hit, miss, stale, bypass, duration, model, operation, and correlation where
-applicable. Cache keys and custom suffixes are never disclosed. Observer or
-telemetry failures do not alter cache, application, or commit behavior.
+The cache presents its get, set, invalidate, and revalidate work as `cache`
+units, seen by every `unit` part that listens to them. With the official
+`instrumentation()` extension, logs and spans report hit, miss, stale, bypass,
+duration, model, operation, and correlation where applicable. Cache keys and
+custom suffixes are never disclosed. Instrumentation contains its own
+failures, so they do not alter cache, application, or commit behavior; a
+`unit` part of your own that throws fails the call.
 
 ## Drivers
 

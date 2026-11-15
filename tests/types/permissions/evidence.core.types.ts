@@ -9,13 +9,18 @@ const actor = v.object({ userId: v.string() });
 function sameShapeClient() {
   const alpha = s.model({ id: s.string().id(), name: s.string() });
   const beta = s.model({ id: s.string().id(), name: s.string() });
-  return permissions({
-    actor,
-    models: {
-      alpha: { actions: { read: [], archive: [] }, read: {}, archive: {} },
-      beta: { actions: { read: [], publish: [] }, read: {}, publish: {} },
-    },
-  })(createClient({ schema: { alpha, beta }, dataDir: ":memory:" }));
+  return createClient({
+    schema: { alpha, beta },
+    dataDir: ":memory:",
+  }).$extends(
+    permissions({
+      actor,
+      models: {
+        alpha: { actions: { read: [], archive: [] }, read: {}, archive: {} },
+        beta: { actions: { read: [], publish: [] }, read: {}, publish: {} },
+      },
+    })
+  );
 }
 
 export async function rootEvidenceNames() {
@@ -51,14 +56,19 @@ function linkedClient() {
       .fields("betaId")
       .references("id"),
   });
-  return permissions({
-    actor,
-    models: {
-      parent: { read: {} },
-      alpha: { actions: { read: [], archive: [] }, read: {}, archive: {} },
-      beta: { actions: { read: [], publish: [] }, read: {}, publish: {} },
-    },
-  })(createClient({ schema: { parent, alpha, beta }, dataDir: ":memory:" }));
+  return createClient({
+    schema: { parent, alpha, beta },
+    dataDir: ":memory:",
+  }).$extends(
+    permissions({
+      actor,
+      models: {
+        parent: { read: {} },
+        alpha: { actions: { read: [], archive: [] }, read: {}, archive: {} },
+        beta: { actions: { read: [], publish: [] }, read: {}, publish: {} },
+      },
+    })
+  );
 }
 
 export async function linkedEvidenceNames() {

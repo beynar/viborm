@@ -183,6 +183,20 @@ export async function readCatalog(
           name: row.name,
           reason: `a document has no CHECK constraint (${row.definition}); the database keeps enforcing it`,
         });
+  } else if (dialect === "snowflake") {
+    const schema = migrationDriver.namespace;
+    for (const row of await rows<{ name: string }>(
+      driver,
+      schema === undefined
+        ? 'SELECT TABLE_NAME AS "name" FROM INFORMATION_SCHEMA.VIEWS WHERE TABLE_SCHEMA = CURRENT_SCHEMA() ORDER BY TABLE_NAME'
+        : 'SELECT TABLE_NAME AS "name" FROM INFORMATION_SCHEMA.VIEWS WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME',
+      schema === undefined ? [] : [schema]
+    ))
+      skipped.push({
+        kind: "view",
+        name: row.name,
+        reason: "it is a view, and a document declares tables only",
+      });
   } else {
     for (const row of await rows<{ name: string }>(
       driver,

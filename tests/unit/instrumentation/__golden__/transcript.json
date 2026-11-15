@@ -95,7 +95,7 @@
     "observed": [
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "ordinary",
@@ -106,18 +106,19 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "ordinary",
         "unit": {
           "kind": "statement",
+          "model": "$raw",
           "operation": "$queryRaw"
         }
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "ordinary",
@@ -129,7 +130,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "ordinary",
@@ -248,12 +249,7 @@
     "observed": [
       {
         "completion": {
-          "durationMs": 0,
-          "error": {
-            "code": "V2001",
-            "message": "Query execution failed",
-            "name": "QueryError"
-          },
+          "duration": 0,
           "status": "failure"
         },
         "observer": "ordinary",
@@ -264,17 +260,13 @@
       },
       {
         "completion": {
-          "durationMs": 0,
-          "error": {
-            "code": "V2001",
-            "message": "Query execution failed",
-            "name": "QueryError"
-          },
+          "duration": 0,
           "status": "failure"
         },
         "observer": "ordinary",
         "unit": {
           "kind": "statement",
+          "model": "$raw",
           "operation": "$queryRaw"
         }
       }
@@ -389,12 +381,7 @@
     "observed": [
       {
         "completion": {
-          "durationMs": 0,
-          "error": {
-            "code": "V2001",
-            "message": "Query execution failed",
-            "name": "QueryError"
-          },
+          "duration": 0,
           "status": "failure"
         },
         "observer": "ordinary",
@@ -405,17 +392,13 @@
       },
       {
         "completion": {
-          "durationMs": 0,
-          "error": {
-            "code": "V2001",
-            "message": "Query execution failed",
-            "name": "QueryError"
-          },
+          "duration": 0,
           "status": "failure"
         },
         "observer": "ordinary",
         "unit": {
           "kind": "statement",
+          "model": "$raw",
           "operation": "$queryRaw"
         }
       }
@@ -492,8 +475,8 @@
     "observed": [
       {
         "completion": {
-          "commitCertainty": "committed",
-          "durationMs": 0,
+          "certainty": "committed",
+          "duration": 0,
           "status": "success"
         },
         "observer": "ordinary",
@@ -504,8 +487,8 @@
       },
       {
         "completion": {
-          "commitCertainty": "committed",
-          "durationMs": 0,
+          "certainty": "committed",
+          "duration": 0,
           "status": "success"
         },
         "observer": "ordinary",
@@ -516,8 +499,8 @@
       },
       {
         "completion": {
-          "commitCertainty": "committed",
-          "durationMs": 0,
+          "certainty": "committed",
+          "duration": 0,
           "status": "success"
         },
         "observer": "ordinary",
@@ -528,24 +511,14 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "ordinary",
         "unit": {
           "kind": "statement",
-          "operation": "$queryRaw"
-        }
-      },
-      {
-        "completion": {
-          "durationMs": 0,
-          "status": "success"
-        },
-        "observer": "ordinary",
-        "unit": {
-          "kind": "statement",
-          "operation": "$queryRaw"
+          "model": "$transaction",
+          "operation": "$transaction([...])"
         }
       }
     ]
@@ -599,12 +572,7 @@
     "observed": [
       {
         "completion": {
-          "durationMs": 0,
-          "error": {
-            "code": "V2001",
-            "message": "Query execution failed",
-            "name": "QueryError"
-          },
+          "duration": 0,
           "status": "failure"
         },
         "observer": "ordinary",
@@ -616,23 +584,19 @@
       },
       {
         "completion": {
-          "durationMs": 0,
-          "error": {
-            "code": "V2001",
-            "message": "Query execution failed",
-            "name": "QueryError"
-          },
+          "duration": 0,
           "status": "failure"
         },
         "observer": "ordinary",
         "unit": {
           "kind": "transaction",
+          "model": "batchRow",
           "operation": "createMany"
         }
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "ordinary",
@@ -644,12 +608,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
-          "error": {
-            "code": "V2001",
-            "message": "Query execution failed",
-            "name": "QueryError"
-          },
+          "duration": 0,
           "status": "failure"
         },
         "observer": "ordinary",
@@ -706,13 +665,8 @@
     "observed": [
       {
         "completion": {
-          "commitCertainty": "may-have-committed",
-          "durationMs": 0,
-          "error": {
-            "code": "V2001",
-            "message": "native member failed",
-            "name": "QueryError"
-          },
+          "certainty": "may-have-committed",
+          "duration": 0,
           "status": "failure"
         },
         "observer": "ordinary",
@@ -723,13 +677,8 @@
       },
       {
         "completion": {
-          "commitCertainty": "may-have-committed",
-          "durationMs": 0,
-          "error": {
-            "code": "V2001",
-            "message": "native member failed",
-            "name": "QueryError"
-          },
+          "certainty": "may-have-committed",
+          "duration": 0,
           "status": "failure"
         },
         "observer": "ordinary",
@@ -741,13 +690,8 @@
       },
       {
         "completion": {
-          "commitCertainty": "may-have-committed",
-          "durationMs": 0,
-          "error": {
-            "code": "V2001",
-            "message": "native member failed",
-            "name": "QueryError"
-          },
+          "certainty": "may-have-committed",
+          "duration": 0,
           "status": "failure"
         },
         "observer": "ordinary",
@@ -758,35 +702,14 @@
       },
       {
         "completion": {
-          "durationMs": 0,
-          "error": {
-            "code": "V2001",
-            "message": "native member failed",
-            "name": "QueryError"
-          },
+          "duration": 0,
           "status": "failure"
         },
         "observer": "ordinary",
         "unit": {
           "kind": "statement",
-          "model": "record",
-          "operation": "findMany"
-        }
-      },
-      {
-        "completion": {
-          "durationMs": 0,
-          "error": {
-            "code": "V2001",
-            "message": "native member failed",
-            "name": "QueryError"
-          },
-          "status": "failure"
-        },
-        "observer": "ordinary",
-        "unit": {
-          "kind": "statement",
-          "operation": "$queryRaw"
+          "model": "$transaction",
+          "operation": "$transaction([...])"
         }
       }
     ]
@@ -922,13 +845,8 @@
     "observed": [
       {
         "completion": {
-          "commitCertainty": "may-have-committed",
-          "durationMs": 0,
-          "error": {
-            "code": "V2001",
-            "message": "native member failed",
-            "name": "QueryError"
-          },
+          "certainty": "may-have-committed",
+          "duration": 0,
           "status": "failure"
         },
         "observer": "ordinary",
@@ -939,13 +857,8 @@
       },
       {
         "completion": {
-          "commitCertainty": "may-have-committed",
-          "durationMs": 0,
-          "error": {
-            "code": "V2001",
-            "message": "native member failed",
-            "name": "QueryError"
-          },
+          "certainty": "may-have-committed",
+          "duration": 0,
           "status": "failure"
         },
         "observer": "ordinary",
@@ -957,13 +870,8 @@
       },
       {
         "completion": {
-          "commitCertainty": "may-have-committed",
-          "durationMs": 0,
-          "error": {
-            "code": "V2001",
-            "message": "native member failed",
-            "name": "QueryError"
-          },
+          "certainty": "may-have-committed",
+          "duration": 0,
           "status": "failure"
         },
         "observer": "ordinary",
@@ -974,35 +882,14 @@
       },
       {
         "completion": {
-          "durationMs": 0,
-          "error": {
-            "code": "V2001",
-            "message": "native member failed",
-            "name": "QueryError"
-          },
+          "duration": 0,
           "status": "failure"
         },
         "observer": "ordinary",
         "unit": {
           "kind": "statement",
-          "model": "record",
-          "operation": "findMany"
-        }
-      },
-      {
-        "completion": {
-          "durationMs": 0,
-          "error": {
-            "code": "V2001",
-            "message": "native member failed",
-            "name": "QueryError"
-          },
-          "status": "failure"
-        },
-        "observer": "ordinary",
-        "unit": {
-          "kind": "statement",
-          "operation": "$queryRaw"
+          "model": "$transaction",
+          "operation": "$transaction([...])"
         }
       }
     ]
@@ -1159,53 +1046,57 @@
     "observed": [
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "before",
         "unit": {
           "kind": "connection",
+          "model": "$connection",
           "operation": "$connect"
         }
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "after",
         "unit": {
           "kind": "connection",
+          "model": "$connection",
           "operation": "$connect"
         }
       },
       {
         "completion": {
-          "commitCertainty": "committed",
-          "durationMs": 0,
+          "certainty": "committed",
+          "duration": 0,
           "status": "success"
         },
         "observer": "before",
         "unit": {
           "kind": "transaction",
+          "model": "$transaction",
           "operation": "$transaction(callback)"
         }
       },
       {
         "completion": {
-          "commitCertainty": "committed",
-          "durationMs": 0,
+          "certainty": "committed",
+          "duration": 0,
           "status": "success"
         },
         "observer": "after",
         "unit": {
           "kind": "transaction",
+          "model": "$transaction",
           "operation": "$transaction(callback)"
         }
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "before",
@@ -1217,7 +1108,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "after",
@@ -1229,7 +1120,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "before",
@@ -1241,7 +1132,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "after",
@@ -1253,29 +1144,31 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "before",
         "unit": {
           "kind": "savepoint",
+          "model": "$transaction",
           "operation": "$transaction(callback)"
         }
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "after",
         "unit": {
           "kind": "savepoint",
+          "model": "$transaction",
           "operation": "$transaction(callback)"
         }
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "before",
@@ -1287,7 +1180,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "after",
@@ -1299,7 +1192,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "before",
@@ -1311,7 +1204,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "after",
@@ -1323,23 +1216,25 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "before",
         "unit": {
           "kind": "connection",
+          "model": "$connection",
           "operation": "$disconnect"
         }
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "after",
         "unit": {
           "kind": "connection",
+          "model": "$connection",
           "operation": "$disconnect"
         }
       }
@@ -1407,69 +1302,75 @@
     "observed": [
       {
         "completion": {
-          "commitCertainty": "committed",
-          "durationMs": 0,
+          "certainty": "committed",
+          "duration": 0,
           "status": "success"
         },
         "observer": "before",
         "unit": {
           "kind": "transaction",
+          "model": "$transaction",
           "operation": "$transaction(callback)"
         }
       },
       {
         "completion": {
-          "commitCertainty": "committed",
-          "durationMs": 0,
+          "certainty": "committed",
+          "duration": 0,
           "status": "success"
         },
         "observer": "after",
         "unit": {
           "kind": "transaction",
+          "model": "$transaction",
           "operation": "$transaction(callback)"
         }
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "before",
         "unit": {
           "kind": "savepoint",
+          "model": "$transaction",
           "operation": "$transaction(callback)"
         }
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "after",
         "unit": {
           "kind": "savepoint",
+          "model": "$transaction",
           "operation": "$transaction(callback)"
         }
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "before",
         "unit": {
           "kind": "savepoint",
+          "model": "$transaction",
           "operation": "$transaction(callback)"
         }
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "after",
         "unit": {
           "kind": "savepoint",
+          "model": "$transaction",
           "operation": "$transaction(callback)"
         }
       }
@@ -1653,66 +1554,51 @@
     "observed": [
       {
         "completion": {
-          "durationMs": 0,
-          "error": {
-            "code": "V2001",
-            "message": "Query execution failed",
-            "name": "QueryError"
-          },
+          "duration": 0,
           "status": "failure"
         },
         "observer": "capture-begin-failure",
         "unit": {
           "kind": "transaction",
+          "model": "$transaction",
           "operation": "$transaction(callback)"
         }
       },
       {
         "completion": {
-          "durationMs": 0,
-          "error": {
-            "message": "Error details redacted",
-            "name": "Error"
-          },
+          "duration": 0,
           "status": "failure"
         },
         "observer": "capture-body-failure",
         "unit": {
           "kind": "transaction",
+          "model": "$transaction",
           "operation": "$transaction(callback)"
         }
       },
       {
         "completion": {
-          "commitCertainty": "may-have-committed",
-          "durationMs": 0,
-          "error": {
-            "code": "V2001",
-            "message": "Query execution failed",
-            "name": "QueryError"
-          },
+          "certainty": "may-have-committed",
+          "duration": 0,
           "status": "failure"
         },
         "observer": "capture-commit-failure",
         "unit": {
           "kind": "transaction",
+          "model": "$transaction",
           "operation": "$transaction(callback)"
         }
       },
       {
         "completion": {
-          "commitCertainty": "committed",
-          "durationMs": 0,
-          "error": {
-            "code": "V2001",
-            "message": "Query execution failed",
-            "name": "QueryError"
-          },
+          "certainty": "committed",
+          "duration": 0,
           "status": "failure"
         },
         "observer": "capture-cleanup-failure",
         "unit": {
           "kind": "transaction",
+          "model": "$transaction",
           "operation": "$transaction(callback)"
         }
       }
@@ -1814,8 +1700,8 @@
     "observed": [
       {
         "completion": {
-          "commitCertainty": "committed",
-          "durationMs": 0,
+          "certainty": "committed",
+          "duration": 0,
           "status": "success"
         },
         "observer": "fallback",
@@ -1826,19 +1712,20 @@
       },
       {
         "completion": {
-          "commitCertainty": "committed",
-          "durationMs": 0,
+          "certainty": "committed",
+          "duration": 0,
           "status": "success"
         },
         "observer": "fallback",
         "unit": {
           "kind": "transaction",
+          "model": "$transaction",
           "operation": "$transaction([...])"
         }
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "fallback",
@@ -1849,19 +1736,20 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "fallback",
         "unit": {
           "kind": "statement",
+          "model": "$raw",
           "operation": "$executeRawUnsafe"
         }
       },
       {
         "completion": {
-          "commitCertainty": "committed",
-          "durationMs": 0,
+          "certainty": "committed",
+          "duration": 0,
           "status": "success"
         },
         "observer": "native",
@@ -1872,8 +1760,8 @@
       },
       {
         "completion": {
-          "commitCertainty": "committed",
-          "durationMs": 0,
+          "certainty": "committed",
+          "duration": 0,
           "status": "success"
         },
         "observer": "native",
@@ -1884,13 +1772,14 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "native",
         "unit": {
           "kind": "statement",
-          "operation": "$executeRawUnsafe"
+          "model": "$transaction",
+          "operation": "$transaction([...])"
         }
       }
     ]
@@ -2082,71 +1971,61 @@
     "observed": [
       {
         "completion": {
-          "durationMs": 0,
-          "error": {
-            "code": "V1001",
-            "message": "Database connection failed",
-            "name": "ConnectionError"
-          },
+          "duration": 0,
           "status": "failure"
         },
         "observer": "connect",
         "unit": {
           "kind": "connection",
+          "model": "$connection",
           "operation": "$connect"
         }
       },
       {
         "completion": {
-          "durationMs": 0,
-          "error": {
-            "code": "V1001",
-            "message": "Database disconnection failed",
-            "name": "ConnectionError"
-          },
+          "duration": 0,
           "status": "failure"
         },
         "observer": "disconnect",
         "unit": {
           "kind": "connection",
+          "model": "$connection",
           "operation": "$disconnect"
         }
       },
       {
         "completion": {
-          "durationMs": 0,
-          "error": {
-            "code": "V1003",
-            "message": "Database connection cleanup is incomplete",
-            "name": "ConnectionError"
-          },
+          "duration": 0,
           "status": "failure"
         },
         "observer": "disconnect",
         "unit": {
           "kind": "connection",
+          "model": "$connection",
           "operation": "$connect"
         }
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "disconnect",
         "unit": {
           "kind": "connection",
+          "model": "$connection",
           "operation": "$disconnect"
         }
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "disconnect",
         "unit": {
           "kind": "connection",
+          "model": "$connection",
           "operation": "$connect"
         }
       }
@@ -2231,7 +2110,7 @@
     "observed": [
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "before",
@@ -2242,7 +2121,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "after",
@@ -2253,29 +2132,31 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "before",
         "unit": {
           "kind": "statement",
+          "model": "$raw",
           "operation": "$queryRaw"
         }
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "after",
         "unit": {
           "kind": "statement",
+          "model": "$raw",
           "operation": "$queryRaw"
         }
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "before",
@@ -2287,7 +2168,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "after",
@@ -2299,7 +2180,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "before",
@@ -2311,7 +2192,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "after",
@@ -2431,12 +2312,7 @@
     "observed": [
       {
         "completion": {
-          "durationMs": 0,
-          "error": {
-            "code": "V2001",
-            "message": "Query execution failed",
-            "name": "QueryError"
-          },
+          "duration": 0,
           "status": "failure"
         },
         "observer": "before",
@@ -2448,12 +2324,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
-          "error": {
-            "code": "V2001",
-            "message": "Query execution failed",
-            "name": "QueryError"
-          },
+          "duration": 0,
           "status": "failure"
         },
         "observer": "after",
@@ -2465,12 +2336,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
-          "error": {
-            "code": "V2001",
-            "message": "Query execution failed",
-            "name": "QueryError"
-          },
+          "duration": 0,
           "status": "failure"
         },
         "observer": "before",
@@ -2482,12 +2348,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
-          "error": {
-            "code": "V2001",
-            "message": "Query execution failed",
-            "name": "QueryError"
-          },
+          "duration": 0,
           "status": "failure"
         },
         "observer": "after",
@@ -2560,12 +2421,7 @@
     "observed": [
       {
         "completion": {
-          "durationMs": 0,
-          "error": {
-            "code": "V4001",
-            "message": "Validation failed for record.findMany: take: Expected integer",
-            "name": "ValidationError"
-          },
+          "duration": 0,
           "status": "failure"
         },
         "observer": "before",
@@ -2577,12 +2433,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
-          "error": {
-            "code": "V4001",
-            "message": "Validation failed for record.findMany: take: Expected integer",
-            "name": "ValidationError"
-          },
+          "duration": 0,
           "status": "failure"
         },
         "observer": "after",
@@ -2890,7 +2741,7 @@
     "observed": [
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "ordinary",
@@ -2902,7 +2753,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "ordinary",
@@ -2913,7 +2764,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "ordinary",
@@ -2925,7 +2776,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "ordinary",
@@ -2936,7 +2787,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "ordinary",
@@ -2948,7 +2799,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "ordinary",
@@ -2959,7 +2810,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "ordinary",
@@ -2971,7 +2822,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "ordinary",
@@ -2983,7 +2834,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "ordinary",
@@ -2994,7 +2845,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "ordinary",
@@ -3006,7 +2857,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "ordinary",
@@ -3017,7 +2868,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "ordinary",
@@ -3029,11 +2880,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
-          "error": {
-            "message": "Error details redacted",
-            "name": "Error"
-          },
+          "duration": 0,
           "status": "failure"
         },
         "observer": "ordinary",
@@ -3174,7 +3021,7 @@
     "observed": [
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "cache-observer-before",
@@ -3185,7 +3032,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "cache-observer-after",
@@ -3196,8 +3043,52 @@
       },
       {
         "completion": {
-          "commitCertainty": "committed",
-          "durationMs": 0,
+          "duration": 0,
+          "status": "success"
+        },
+        "observer": "cache-observer-before",
+        "unit": {
+          "kind": "cache",
+          "operation": "clear"
+        }
+      },
+      {
+        "completion": {
+          "duration": 0,
+          "status": "success"
+        },
+        "observer": "cache-observer-after",
+        "unit": {
+          "kind": "cache",
+          "operation": "clear"
+        }
+      },
+      {
+        "completion": {
+          "duration": 0,
+          "status": "success"
+        },
+        "observer": "cache-observer-before",
+        "unit": {
+          "kind": "cache",
+          "operation": "delete"
+        }
+      },
+      {
+        "completion": {
+          "duration": 0,
+          "status": "success"
+        },
+        "observer": "cache-observer-after",
+        "unit": {
+          "kind": "cache",
+          "operation": "delete"
+        }
+      },
+      {
+        "completion": {
+          "certainty": "committed",
+          "duration": 0,
           "status": "success"
         },
         "observer": "cache-observer-before",
@@ -3209,8 +3100,8 @@
       },
       {
         "completion": {
-          "commitCertainty": "committed",
-          "durationMs": 0,
+          "certainty": "committed",
+          "duration": 0,
           "status": "success"
         },
         "observer": "cache-observer-after",
@@ -3222,7 +3113,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "cache-observer-before",
@@ -3234,7 +3125,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "cache-observer-after",
@@ -3246,7 +3137,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "cache-observer-before",
@@ -3257,13 +3148,57 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "cache-observer-after",
         "unit": {
           "kind": "cache",
           "operation": "invalidate"
+        }
+      },
+      {
+        "completion": {
+          "duration": 0,
+          "status": "success"
+        },
+        "observer": "cache-observer-before",
+        "unit": {
+          "kind": "cache",
+          "operation": "clear"
+        }
+      },
+      {
+        "completion": {
+          "duration": 0,
+          "status": "success"
+        },
+        "observer": "cache-observer-after",
+        "unit": {
+          "kind": "cache",
+          "operation": "clear"
+        }
+      },
+      {
+        "completion": {
+          "duration": 0,
+          "status": "success"
+        },
+        "observer": "cache-observer-before",
+        "unit": {
+          "kind": "cache",
+          "operation": "delete"
+        }
+      },
+      {
+        "completion": {
+          "duration": 0,
+          "status": "success"
+        },
+        "observer": "cache-observer-after",
+        "unit": {
+          "kind": "cache",
+          "operation": "delete"
         }
       }
     ]
@@ -3614,7 +3549,7 @@
     "observed": [
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "ordinary",
@@ -3626,7 +3561,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "ordinary",
@@ -3637,7 +3572,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "ordinary",
@@ -3649,7 +3584,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "ordinary",
@@ -3660,7 +3595,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "ordinary",
@@ -3672,7 +3607,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "ordinary",
@@ -3683,7 +3618,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "ordinary",
@@ -3694,7 +3629,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "ordinary",
@@ -3706,7 +3641,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "ordinary",
@@ -3717,7 +3652,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "ordinary",
@@ -3729,7 +3664,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
+          "duration": 0,
           "status": "success"
         },
         "observer": "ordinary",
@@ -3740,11 +3675,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
-          "error": {
-            "message": "Error details redacted",
-            "name": "Error"
-          },
+          "duration": 0,
           "status": "failure"
         },
         "observer": "ordinary",
@@ -3755,12 +3686,7 @@
       },
       {
         "completion": {
-          "durationMs": 0,
-          "error": {
-            "code": "V2001",
-            "message": "Query execution failed",
-            "name": "QueryError"
-          },
+          "duration": 0,
           "status": "failure"
         },
         "observer": "ordinary",

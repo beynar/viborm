@@ -5,26 +5,9 @@
  * Import from "viborm/client"
  */
 
-export {
-  type ClientExtension,
-  defineExtension,
-  type ObservationCompletion,
-  type ObservationUnit,
-  type ObserveHandler,
-  type StatementContext,
-  type StatementHandler,
-} from "../extensions";
 // Named so an exported extended client's declaration can write them.
-export type {
-  DefinitionControls,
-  PlacedControl,
-  RowsVerbs,
-  StampedFields,
-} from "../extensions/controls";
-export type {
-  ExtensionCacheState,
-  ExtensionResultConsumerState,
-} from "../extensions/methods";
+export type { PlacedArgument, StampedFields } from "../extensions/contract";
+export type { ExtensionResultConsumerState } from "../extensions/methods";
 // Pending operation
 export {
   isPendingOperation,
@@ -35,11 +18,16 @@ export {
 export type { IndexDefinition, IndexOptions } from "../schema/model";
 export type { ObjectSchema, VibSchema } from "../validation";
 export type {
+  AddedProjectedState,
+  CachedClientOf,
   ClientTypeState,
   ExtendedClient,
-  ProjectedContribution,
 } from "./client";
 export { defaultOmit } from "./default-omit-extension";
+// The fields a client may leave out, per model, and that map held exactly
+// (no model or field the schema lacks, in every member of a union): what an
+// extension configured by such a map types its configuration with.
+export type { ClientOmitConfig, ExactClientOmitConfig } from "./omit";
 // Result types
 export type { ProjectedModelOperations } from "./projected-types";
 export type { RawOperation, RowsFragment } from "./raw";

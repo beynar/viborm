@@ -2,6 +2,7 @@ import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { ForbiddenError, NotFoundError, ValidationError } from "@errors";
 import { s } from "@schema";
+import { around, extension } from "@src/index";
 import { permissions, type Rule } from "@src/permissions";
 import { v } from "@src/validation";
 import {
@@ -323,11 +324,18 @@ export function runPermissionsAdversarialBehavior(substrate: {
       ).toBe("original");
     });
 
-    test("a successful can check does not outlive a committed membership revocation", async () => {
+    test("a held $access does not outlive a committed membership revocation", async () => {
       const db = alice();
-      expect(await db.document.can("update", { id: "alice-a" })).toBe(true);
+      const update = async () =>
+        (
+          await db.document.findUnique({
+            where: { id: "alice-a" },
+            select: { $access: ["update"] },
+          })
+        )?.$access.update === true;
+      expect(await update()).toBe(true);
       await base.membership.delete({ where: { id: "alice-a" } });
-      expect(await db.document.can("update", { id: "alice-a" })).toBe(false);
+      expect(await update()).toBe(false);
       await expect(
         db.document.update({
           where: { id: "alice-a" },
@@ -342,16 +350,18 @@ export function runPermissionsAdversarialBehavior(substrate: {
     test("revocation committed while a prepared write waits is judged when it executes", async () => {
       const reached = signal();
       const resume = signal();
-      const db = alice().$extends({
-        name: "pause-before-write",
-        query: async ({ model, operation, proceed }) => {
-          if (model === "document" && operation === "update") {
-            reached.resolve();
-            await resume.promise;
-          }
-          return proceed();
-        },
-      });
+      const db = alice().$extends(
+        extension(
+          "pause-before-write",
+          around((c) => async (run) => {
+            if (c.model === "document" && c.operation === "update") {
+              reached.resolve();
+              await resume.promise;
+            }
+            return run();
+          })
+        )
+      );
       const pending = db.document.update({
         where: { id: "alice-a" },
         data: { title: "changed" },

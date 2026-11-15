@@ -5,16 +5,290 @@ Versioning.
 
 ## Unreleased
 
-## 1.14.0 — 2026-11-14
+## 1.14.0 — 2026-11-15
 
 VibORM now runs on a Durable Object's own SQLite storage, takes over tables it
 did not create, and reads an existing database into a schema document. Indexes
 of a new SurrealDB table no longer hold a push for minutes.
 
-The write half of the engine is rewritten, for SQL and for SurrealDB. An
-application without extensions is smaller, a nested write sends fewer
-statements, and a many-row write on a batch-only driver is all-or-nothing when
-it fits one batch.
+The write half of the engine is rewritten, for SQL and for SurrealDB, and
+extensions have a new contract: one function, `extension(name, ...parts)`,
+whose parts and words each bring only their own code. An application without
+extensions is smaller, an application with one is much smaller, a nested
+write sends fewer statements, and a many-row write on a batch-only driver is
+all-or-nothing when it fits one batch.
+
+VibORM reads Snowflake.
+
+### Extensions: what changes for users of the official extensions (breaking)
+
+- **Every official extension is applied in one step,
+  `client.$extends(official(config))`.** `softDelete(config).rows` and
+  `.methods` are gone, and so is applying an official extension as a function
+  of the client (`softDelete(config)(base)`, `ordering(config)(base)`): write
+  successive `$extends()` calls. `defaultOmit<typeof schema>()(config)` is
+  `defaultOmit(config)`. It is the extension `viborm.defaultOmit`, so a chain
+  applies it once: a second is refused as any extension applied twice
+  (`Extension "viborm.defaultOmit" is already present on this client.`);
+  merge the two configs. Other extensions' omissions, written with
+  `defaults`, add up per model. See
+  [Migrating an extension](https://viborm.dev/docs/extensions/migrating#users-of-the-official-extensions).
+- **`viborm/permissions` loses five forms of its policy language**: the
+  automatic guards for optional actor values (write `$if`), a key taken from
+  the parent, `can` and `assert` (read `$access`), a custom action outside a
+  model's `actions` graph, and the global `levels`. `levels` and an action
+  without a graph are refused when the policy is applied, with a message that
+  says what to write. See
+  [Permissions](https://viborm.dev/docs/extensions/permissions#removed-in-this-version).
+- **`viborm/permissions` refuses earlier.**
+  - A call on a model the policy does not list, or whose action its model
+    does not grant (an `upsert` excepted), is refused with `ForbiddenError`
+    before its arguments are validated: a malformed call there is a
+    `ForbiddenError`, not a `ValidationError`.
+  - A `create` or `createMany` on a model without a `create` rule is refused
+    before any statement. Code that catches that `ForbiddenError` inside
+    `$transaction(async (tx) => …)` now commits the transaction's other
+    writes; before, the refusal left the transaction rollback-only and
+    nothing was written.
+  - In `$transaction([...])`, each member is judged when it is reached. The
+    reported error can change between `NotFoundError` and `ForbiddenError`,
+    and the statements of earlier members run inside the transaction that is
+    then rolled back. A failing array emits no `operation` span and no error
+    log for the members that never ran.
+- **`$access`** (a key a `facts` declares, `viborm/permissions`' answer) is
+  admitted by the operation's own validation: `select: { $access: false }`
+  alone is an empty `select`, refused with `ValidationError`; the key comes
+  back where the `select` wrote it, not last; no `data` accepts it.
+- **The SQL a call sends is not byte for byte the same** as before for some
+  calls with the same result: the `$access` column is placed after the
+  scalar columns, and a call that a refusal now stops first sends no
+  statement. Tests that pin exact SQL need new expectations.
+- **The cache keys a read by the statement it sends**, inside a namespace of
+  its storage revision, the database and `version`:
+  - with `permissions({ cache: "allow" })`, two actors whose governed reads
+    send the same statement share an entry;
+  - a read that carries a `.volatile()` argument runs uncached instead of
+    being refused, and `$withCache()` on a governed view (`viborm/permissions`
+    without `cache: "allow"`) runs the read without serving or storing it,
+    where it raised a `ValidationError`;
+  - it stores the rows the driver returned and decodes a hit through the
+    driver's result parser and the engine's decoder, as a miss is. A custom
+    driver result parser is called on hits, with restored values (a
+    `Uint8Array` where the driver gave a `Buffer`); a row value the cache
+    cannot store makes the read answer uncached, with a `cache-set-failed`
+    outcome. Its private storage revision is `r6` (was `r4`): entries written
+    by an earlier version are ignored and expire on their own;
+  - `tx.$withCache()` and `tx.$invalidate()` exist in an interactive
+    transaction; a backend that fails during `$invalidate()` is a
+    `CacheConfigurationError`;
+  - stale-while-revalidate is a value the cache is configured with:
+    `cache({ driver, swr: staleWhileRevalidate })`, imported from
+    `viborm/cache`. A view's `swr` option on a cache configured without it is
+    a `CacheConfigurationError`, so an application that never serves stale
+    entries carries none of the revalidation code.
+- **A cache driver's unscoped storage is reached through functions**:
+  `driver._get(key)`, `_set`, `_delete`, `_clear`, `_invalidate`,
+  `_markRevalidating` and `_clearRevalidating` are `getEntry(driver, key)`,
+  `setEntry(driver, key, value, options)`, `deleteEntry`, `clearEntries`,
+  `invalidateEntries(driver, model, options?)`, `markRevalidating` and
+  `clearRevalidating`, from `viborm/cache`, with the same refusals. A
+  method is in every application's bundle whether it calls it or not; a
+  function only where it is called. Writing a backend (`get`, `set`,
+  `delete`, `clear`) is unchanged.
+- **`instrumentation()` no longer takes a `logging.warning` level**: nothing
+  produced warnings.
+- **Error texts changed throughout the extension host.** Match errors on their
+  class and code. An argument's refusals name it an argument
+  (`Argument "tenant" is required`, `references undeclared argument "x"`)
+  where they said `Control`.
+
+### Extensions: what changes for extension authors (breaking)
+
+- **The earlier contract is gone**: `defineExtension`, `defineHooks`,
+  `enableExtensions`, an object literal passed to `$extends()` and a function
+  of the client passed to it. An extension is `extension(name, ...parts)`,
+  applied with `client.$extends(extension(…))`. Each earlier member has its
+  part: `request` → `call`, `query` → `around`, `onWriteOutcome` and
+  `written` → `settled` and `watch` on `target(writes)`, `retry` → `again`,
+  `route` → `via`, `transaction` → a `unit` with `run`, `statement` → a
+  `unit` declared `{ rewrites: true }`, `observe` and `observes` → `unit` and
+  its words, `controls` → `args`, `rows` → `args` and `rule` (`rows.confine` →
+  `confine: within(where)`), `deletion` → `keep`, `data` and `order` →
+  `defaults`, `result` → `fields`, `client` → `methods`, `model` →
+  `modelMethods`. The full mapping, member by member, is in
+  [Migrating an extension](https://viborm.dev/docs/extensions/migrating).
+- **Meanings that change:**
+  - A key a `rule` entry leaves out restricts nothing (an omitted verb used
+    to take no row): write `only(nothing)` to refuse an action.
+  - An updated row is judged again only where `update.check` says so.
+  - A unit handler is awaited and what it throws fails the call; a child's
+    failure stands and no error is aggregated.
+  - `settled` is also told of a write that may have committed
+    (`certainty: "may-have-committed"`). In a part whose target is not a set
+    of writes, `watch` and `settled` are refused with a `TypeError`, never
+    ignored; an `around` with no target may register a raw query's
+    `settled`, told after the outermost commit like any other.
+- **An argument is placed by its own declaration only**: it is accepted where
+  its `.on(…)` and `.models([…])` say, on every operation of every model
+  without them. Nothing is deduced from the rest of the extension:
+  - an argument a `keep` reads (a `controls` entry a `deletion` removed on,
+    which was placed on the managed models' deletes whatever its `on`) writes
+    `.on(["delete", "deleteMany"]).models([…])` to be accepted only there;
+  - a bare `.required()` asks for the argument on every model that accepts
+    it (a `required` control was asked for only on the models the
+    extension's `rows`, `data` and `deletion` named): write
+    `.required([…models])` for those models only.
+- **One spelling per argument** (supersedes the contract specification's
+  §12.9, which kept a bare schema): an argument is declared with
+  `oneOf(...)`, `accepts(schema)` or `bound(schema)`. A bare Standard Schema
+  in `args({ … })` is refused when the extension is written, with a
+  `TypeError` that says to write `accepts(schema)`; each word brings the code
+  that admits its values, so an extension of `oneOf` arguments carries no
+  schema admission. `scope.$bind` binds `bound(schema)` arguments only, as
+  the documentation said: binding a `oneOf` or `accepts` argument is a
+  `ClientInitializationError`.
+- **Client methods and model methods are two parts**: `methods((scope) =>
+  ({ $name }))` adds `$` client methods only, and `modelMethods((scope) =>
+  ({ post: { restore } }))` adds model methods (an entry is still an object
+  of methods or a function of the delegate and the scope). A factory that
+  returned both is written as one part of each; a model's name returned by
+  `methods`, or anything but a model returned by `modelMethods`, is refused
+  when the extension is applied. Each brings only its own code: the cache
+  (client methods) carries nothing of model methods, soft delete and
+  ordering (model methods) nothing of client methods.
+- **Two parts of one kind in one extension both run**, composed as two
+  extensions would be: two `unit` parts each see every unit, two `methods`
+  parts each add their methods, filters conjoin and a default set later wins.
+  One part value named twice in one extension is in it once.
+- **Every `settled` of an extension runs**, each after the commit, whatever
+  an earlier one did: the first failure is still the one the call rejects
+  with. A failing `settled` used to stop the extension's later ones.
+- **A `methods` factory that throws fails with its own error**: it is no
+  longer wrapped in a `ClientInitializationError` naming the extension.
+- **Public types renamed**: `PlacedControl` is `PlacedArgument` (what an
+  exported extended client's declaration names for each argument) and
+  `NoControls` is `NoArguments` (`viborm`, `viborm/client`). The types
+  that carry an extended client's state speak the parts' names: the members
+  of `ClientExtensionState` and of `Facts` that were `rows`, `data` and
+  `result` are `filtered` (the models a rule filters), `defaults` (the
+  fields a `defaults` part writes on a create) and `fields` (the computed
+  fields), and `Facts`'s `verbs` is `projected` (what a rule's `facts` and
+  `gate` add). `ExtensionContributionState` is `AddedExtensionState`,
+  `AccumulatedExtensionState` is `ChainedExtensionState`,
+  `ProjectedContribution` is `AddedProjectedState` and `GenericCallContext`
+  is `AnyCallContext`. Only code that names these types or their members
+  changes.
+- **The cache types its methods as any extension does**: `$withCache` and
+  `$invalidate` are the cache's client methods (`CacheMethods`, typed
+  through `this` from the client they are called on), not members the
+  client types itself. `ExtensionCacheState` is removed, and with it the
+  `cache` member and type parameter of `Facts` and of
+  `ClientExtensionState` (the parameters after it move up one place). The
+  view `$withCache()` returns (`CachedView`, `viborm/cache`) now types the
+  chain's client methods it carries at runtime. A second extension that
+  adds a client method under a name the client has is refused by the types
+  too, whoever wrote it.
+- **Public types removed**, with the definition they typed: from `viborm`,
+  `ClientExtension`, `MergeExtensionState`, `ObservationCompletion`,
+  `ObservationFacts`, `ObservationNeed`, `ObservationUnit`, `ObservedFacts`,
+  `ObserveHandler`, `ObservesDeclaration`, `RetryHandler`, `RouteHandler`,
+  `StatementContext`, `StatementHandler`, `TransactionHandler`, `UnitCall`,
+  `WrittenCall`, `WrittenHandler` and `WrittenWatch`; from `viborm/client`,
+  `defineExtension`, those of these types it exported, `DefinitionControls`
+  and `RowsVerbs`; `ModelAnswers` from `viborm/permissions`; `OnExtension`
+  from `viborm/on`.
+
+### Extensions: what is new
+
+- **The vocabulary.** The parts are built by functions exported from
+  `viborm`: `call` (a function on each call, before validation), `around`
+  (the same, wrapping the prepared call), `unit` (around each unit of real
+  work), `args` (arguments a call may pass), `rule` (what binds every caller:
+  rows read, rows a write may take, the row a write leaves, gated fields,
+  kept rows), `defaults` (default order, default data, default omission),
+  `methods` and `modelMethods` (client and model methods), `fields`
+  (computed fields) and `disclosure` (what a thrown error
+  may carry). Words carry the rest: `target(…)` with `reads`, `writes`,
+  `deletes`, `selecting`, `models`; `watch`, `settled`, `again`, `via`,
+  `key`, `codec`, `database`; `arg`, `now`, `row`, `exists`, `when`,
+  `unless`, `provided`, `nothing`, `only`, `check`, `gate`, `facts`, `keep`,
+  `lazy`, `within`, `omitted`; `oneOf`, `accepts`, `bound` with `.on`, `.models`,
+  `.required`, `.default`, `.volatile`; and `text`, `parameters`, `driver`,
+  `failure`, `statement`, `statements`, `run`, `work`, `note`, `notes` and
+  the other unit words. Each part and each word brings into a bundle only
+  the code that runs it. See
+  [Create an extension](https://viborm.dev/docs/extensions/create).
+- **Names for what an extension written apart needs**:
+  `database(x).driverName` beside its `dialect` and `namespace`; `work(scope,
+  …)`, a unit of an extension's own kind emitted from a method's scope;
+  `VIBORM_VERSION`, the package's version; `DelegateConfig`, what a model
+  method written apart from any client reads its model from (as
+  `viborm/ordering`'s `move` and `rekey` do); `InstrumentationNote`
+  (`viborm/instrumentation`); `ClientOmitConfig` and `ExactClientOmitConfig`
+  (`viborm/client`), the config `defaultOmit()` takes.
+- **The instrumentation presents any extension's units**, from what was noted
+  on them (`note`, `work`'s `note`): a span, its attributes, a log event.
+  It knows no extension's units by name; the cache presents its own this way.
+  A note may not set a statement attribute (`db.query.*`, whatever
+  `includeSql` and `includeParams` say), the span names of a call's own units
+  (`viborm.operation`, `viborm.execute`, `viborm.transaction`,
+  `viborm.connect`, `viborm.disconnect`), a call's `query` or `error` log, or
+  a span's status: what it may not set is dropped, never refused. See
+  [Present your own units](https://viborm.dev/docs/extensions/instrumentation#present-your-own-units).
+- **`disclosed(error, { sql?, parameters? })`: a failure as a log or a span
+  may show it.** A `unit` part that logs or traces presents `failure(u)`
+  through it: a new `Error` with what VibORM recorded of an error it made
+  (class, message, code, known `meta`), the provider's words only where the
+  application's `disclosure` allowed `providerDetails`, statement text and
+  parameter values only where both that `disclosure` and `sql` / `parameters`
+  allow them, no stack; any other value gives `Error details redacted`. It
+  never throws, and a getter on the error's own properties never runs. The
+  official instrumentation presents its failures through it, and imports
+  only public names, as the six other official extensions do.
+  `parameters(u)` reads a parameter once however many extensions read it.
+  See
+  [Present a failure](https://viborm.dev/docs/extensions/create#present-a-failure-disclosed).
+- **Several `on()` on one client.** Each `on()` is an extension of its own
+  name (the first `on()` a program calls is `viborm.on`, the next
+  `viborm.on.2`, …) and runs its own hooks, in the order they were applied. A
+  second `on()` was refused before.
+- **No official extension's name is reserved.** `on()`, `cache()`,
+  `instrumentation()` and the others are ordinary extensions built from the
+  public parts; a name is only unique in a chain.
+
+### Extensions: fixed
+
+- **`viborm/permissions`: a `mandatory` restriction that negates another
+  model's rule no longer lets an actor through.** In 1.13.0 and 1.14.0, when
+  that rule read an optional actor value
+  (`mandatory: { NOT: { organization: "update" } }` with an `update` rule on
+  `userId`), an actor without the value saw every row: the automatic guard
+  folded the negated rule false, and its negation held everywhere. The guard
+  is gone; the rule now keeps such an actor out.
+- **A `gate` no longer hides a field a unique index holds.** A field of an
+  index declared `unique` (`.index(["code"], { unique: true })`, whole,
+  partial or compound) could be gated, in a `rule` or by
+  `viborm/permissions`' `fields: { code: { read } }`: a caller who writes a
+  guessed value to a row it may update is answered by the constraint exactly
+  when a hidden row holds that value. It is now refused as a `.unique()`
+  field always was, with the same `ClientInitializationError`
+  (`read.fields.code names a key, a unique or a foreign key field`): where
+  the extension is applied, or, for `viborm/permissions`, at the first call
+  that needs the model. An index that is not unique changes nothing.
+
+### Extensions: what they weigh
+
+- **What each extension adds to a PostgreSQL application, minified**
+  (measured with `node scripts/extension-bytes.mjs`; before → now):
+  default omission 45,233 → 5,692 bytes; `on` 47,016 → 9,667;
+  instrumentation 56,422 → 14,784; soft delete 80,013 → 20,563; ordering
+  100,547 → 26,879; cache 71,844 → 26,849; permissions 114,651 → 63,311;
+  `on`, ordering, permissions and soft delete together 142,213 → 99,091.
+  An application that applies no extension: 519,322 → 508,070 bytes, of
+  which 646 bytes are extension code.
+- **What one extension of an application costs the type checker**: an
+  extension of the user's own on a 50-model schema, 1,345,449 → 649,244
+  instantiations; on a 100-model schema, 2,422,856 → 899,335.
 
 ### Added
 
@@ -82,12 +356,6 @@ it fits one batch.
   `viborm/ordering/keys` gives the fractional key functions without a client
   (about 3 kB).
 
-- **`written`, a new extension capability.** A definition is asked once per
-  write call and can return a watch: which rows it wants (`wants`), the whole
-  rows the call wrote, nested writes included (`rows`), then the commit
-  (`settled`). `viborm/on` is now built on it and has no private channel into
-  the client. See "Receive the rows a write wrote with `written`" in the
-  extension guide.
 - **`computed()`, `stored()` and `joined()`: values a write computes.** A value
   computed when the statement is written, a field kept as stored, and an
   `updateMany` value each row reads from a joined table. `viborm/ordering` used
@@ -98,17 +366,44 @@ it fits one batch.
 - **`getRowKey(model)`.** A model's primary key fields in constraint order,
   and the compound key's name. `viborm/client` also exports the type
   `NoExtraOperationKeys`.
-- **`observes`, beside `observe`.** One extension per client declares the facts
-  its observer needs (statement text, parameters, driver identity, cache
-  outcomes) and receives them as a third argument. `viborm/instrumentation` is
-  built on it and no longer registers a private identity.
-- **`retry`, `route` and `transaction`: three points where an extension decides
-  how a call is sent.** Make a failed call again when nothing of it was
-  written, send a read outside a transaction to another driver (a read
-  replica), and run statements first in every transaction (`SET LOCAL` for row
-  level security).
-- **Several `on()` on one client.** Each runs its own hooks, in the order they
-  were applied. A second `on()` was refused before.
+- **`viborm/snowflake`, a read-only driver for Snowflake's SQL API v2.** It
+  sends `fetch` requests and signs its key-pair JWT with WebCrypto (an OAuth or
+  programmatic access token works too), so it runs in Node, Bun, Workers and
+  Durable Objects without `snowflake-sdk`. It polls a statement that answers
+  202, reads every result partition, sends a failed request again with the
+  same `requestId`, and stops a statement past its `timeout`: half an hour by
+  default, held by the driver alone so a shorter account, user or warehouse
+  limit still applies, and `timeout: false` for none of the driver's
+  (Snowflake's own timeout, and a cancel once Snowflake has answered its
+  handle). `findMany`,
+  `findFirst`, `findUnique`, `count`, `exist`, `aggregate`, `groupBy` and
+  `$queryRaw` run, with nested `include`/`select`: Snowflake refuses a
+  correlated `LIMIT`, so a relation is read from an uncorrelated page numbered
+  per key, and only its `ARRAY_AGG` is correlated. Values cross exactly:
+  `bigint` and `Decimal` as text, timestamps to the nanosecond in a UTC
+  session. Every write, `$executeRaw` and `$transaction` fails before anything
+  is sent, and `createMigrationClient` refuses a Snowflake client (`V8001`):
+  Snowflake enforces no key, has no savepoint and no `RETURNING`. A recursive
+  filter and a root `cursor` not ordered by the model's single-field key are
+  refused too, as Snowflake refuses the SQL they need. Only `QUERY_TAG`,
+  `USE_CACHED_RESULT` and `CLIENT_RESULT_CHUNK_SIZE` pass as session
+  parameters, and an `account` that would send the token to another host, or
+  a `host` that is not `https://`, is refused. `s.time()` reads a `TIME` to the
+  millisecond, flat and nested, and refuses a finer one. A `5xx` is sent again
+  (same `requestId`, `retry=true`) and, still answered, is a `ConnectionError`;
+  a statement whose status reads fail is cancelled. A `NaN` or `Infinity`
+  inside a `VARIANT` reads as the string `STRICT_JSON_OUTPUT` prints, whatever
+  the account sets, and a raw result naming one column twice is refused.
+  `s.vector()` reads `VECTOR(FLOAT, n)` (`l2` and `cosine` distances) and
+  `s.point()` reads `GEOGRAPHY` (equality, bounds, polygons, distance in the
+  same metres as every provider; a point exactly on a polygon hole's edge reads
+  as outside there). See the
+  [Snowflake](https://viborm.dev/docs/drivers/snowflake) page.
+- **`introspectSchema({ driver })` reads a Snowflake schema**, its declared
+  (unenforced) foreign keys as relations (a key into another schema or
+  database is listed in `skipped`), with
+  `viborm/migrations/snowflake` registering only the Snowflake migration
+  driver, which reads and writes no DDL.
 
 ### Changed
 
@@ -129,22 +424,9 @@ it fits one batch.
 - **Size budgets (owner-approved, OD-17):** pg application +0.98 kB and D1
   Worker +1.02 kB gzip, mostly for `$rows`.
 
-- **An application that applies no extension no longer carries the code that
-  runs extensions**: about 12 kB gzip less in a PostgreSQL application.
-  `defineExtension()`, the new `defineHooks()` (the same without the code that
-  reads `rows`, `data`, `deletion` and `order`), every official extension and
-  the new `enableExtensions()` bring it. **Breaking for one case**: a bare
-  object literal passed to `$extends` in a program that calls none of them is
-  refused with a `ClientInitializationError` that says so. Build it with
-  `defineHooks()` or `defineExtension()`, or call `enableExtensions()` once.
 - **`viborm/ordering` on SurrealDB brings its own SurrealQL.** The driver no
   longer holds code for it: it writes a `joined()` value from the list the
   extension gives it.
-- **The name `viborm.instrumentation` is no longer reserved.** A copy of the
-  extension under another name is refused only where the client already
-  carries one that declares `observes`.
-- **The name `viborm.on` is no longer reserved.** `on()` is an extension like
-  any other.
 - **Nested writes send fewer statements.** A write reads what it needs
   together, then sends its writes as one unit. No call that succeeds sends more
   statements or more round trips than before. The SQL of a write may differ.
@@ -175,6 +457,12 @@ it fits one batch.
   run** (`delete` then `connect`, with or without `update`, where the child
   holds the key). `delete` then `connect` where the parent holds the key is
   still refused.
+- **A call costs less processor time and less memory.** Measured on in-memory
+  SQLite against 1.14.0: `create`, `update`, `upsert` and `delete` take 3 % to
+  7 % less time, `findUnique` 8 % less, and a `create` allocates 13 % fewer
+  bytes. `createMany` of ten rows takes 5 % more time and allocates 14 % fewer
+  bytes. A call sent to a database over a network spends its time there: the
+  gain shows on SQLite, Durable Objects and other in-process databases.
 - **A `default()` function is called once per written row, before any read.**
   A nested `updateMany` called it once more than it wrote rows.
 - **Every statement of a call is attributed to the operation the caller
@@ -204,13 +492,10 @@ it fits one batch.
 
 ### Upgrade notes
 
-- **Extension authors: build every definition with `defineExtension()`.** A
-  plain object that declares `rows`, `data`, `deletion` or `order` and was not
-  passed to `defineExtension()` is refused by `$extends()` with
-  `ClientInitializationError`. The code that reads these declarations is now
-  brought by `defineExtension()` and by the official extensions, so a client
-  without them does not carry it. See
-  [Create an extension](https://viborm.dev/docs/extensions/create).
+- **Extension authors: rewrite each definition as `extension(name, ...parts)`**,
+  member by member, with
+  [Migrating an extension](https://viborm.dev/docs/extensions/migrating).
+  Users of official extensions: apply each in one `$extends()`.
 - **Tests that count statements or assert exact SQL of a write** need new
   expectations. Assert the rows a call returns and the rows it leaves.
 - **Code that caught `NestedWriteError` for a concurrent change** now sees the

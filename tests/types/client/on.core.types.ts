@@ -12,7 +12,20 @@
 import { defaultOmit } from "@src/client/exports";
 import { PGliteDriver } from "@src/drivers/pglite";
 import type { QueryError } from "@src/errors";
-import { createClient, defineExtension, s } from "@src/index";
+import {
+  accepts,
+  arg,
+  args,
+  createClient,
+  extension,
+  fields,
+  gate,
+  nothing,
+  oneOf,
+  only,
+  rule,
+  s,
+} from "@src/index";
 import { type OnEvent, type OnOperation, type OnRow, on } from "@src/on";
 import { softDelete } from "@src/soft-delete";
 import { v } from "@src/validation";
@@ -130,9 +143,7 @@ base.$extends(
 );
 
 // `defaultOmit()` hides a field from the caller, not from a hook.
-const omitting = base.$extends(
-  defaultOmit<typeof schema>()({ user: { passwordHash: true } })
-);
+const omitting = base.$extends(defaultOmit({ user: { passwordHash: true } }));
 omitting.$extends(
   on({
     user: {
@@ -144,17 +155,19 @@ omitting.$extends(
 );
 
 // A computed field reaches the caller, never a hook.
-const computed = base.$extends({
-  name: "labels",
-  result: {
-    user: {
-      label: {
-        needs: { email: true },
-        compute: (row: { email: string }) => `<${row.email}>`,
+const computed = base.$extends(
+  extension(
+    "labels",
+    fields({
+      user: {
+        label: {
+          needs: { email: true },
+          compute: (row: { email: string }) => `<${row.email}>`,
+        },
       },
-    },
-  },
-});
+    })
+  )
+);
 computed.$extends(
   on({
     user: {
@@ -166,17 +179,21 @@ computed.$extends(
 );
 
 // After soft delete: the restore methods stay, and soft delete's controls too.
-const tombstoned = softDelete({
-  models: { post: { deletedAt: "deletedAt" } },
-})(base).$extends(
-  on({
-    post: {
-      update: (rows) => {
-        expectTypeOf(rows).toEqualTypeOf<readonly PostRow[]>();
+const tombstoned = base
+  .$extends(
+    softDelete({
+      models: { post: { deletedAt: "deletedAt" } },
+    })
+  )
+  .$extends(
+    on({
+      post: {
+        update: (rows) => {
+          expectTypeOf(rows).toEqualTypeOf<readonly PostRow[]>();
+        },
       },
-    },
-  })
-);
+    })
+  );
 export const restored = tombstoned.post.restore({ where: { id: "p1" } });
 export const bin = tombstoned.post.findMany({ deleted: "only" });
 
@@ -190,9 +207,6 @@ const standalone = on({
     },
   },
 });
-type _Applied = Expect<
-  Equal<ReturnType<typeof standalone<typeof base>>, typeof base>
->;
 const appliedLater = base.$extends(standalone);
 type _AppliedLater = Expect<Equal<typeof appliedLater, typeof base>>;
 
@@ -209,21 +223,23 @@ type _Event = Expect<
 // A field a `rows` extension's `reads` gates is optional in a hook's row: the
 // row carries it only where the call may read it. A default omit stays.
 const gating = base.$extends(
-  defineExtension({
-    name: "gating",
-    controls: { viewer: { schema: v.string() } },
-    rows: {
-      control: "as",
-      default: "default",
-      models: { post: { default: {} } },
-      verbs: {
-        post: {
-          predicates: { own: { authorId: { control: "viewer" } } },
-          reads: { title: "own" },
+  extension(
+    "gating",
+    args({
+      viewer: accepts(v.string()),
+      as: oneOf("default").default("default"),
+    }),
+    rule({
+      post: {
+        read: {
+          where: nothing,
+          fields: { title: gate({ authorId: arg("viewer") }) },
         },
+        update: { where: only(nothing) },
+        delete: { where: only(nothing) },
       },
-    },
-  } as const)
+    })
+  )
 );
 gating.$extends(
   on({

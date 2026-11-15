@@ -216,7 +216,7 @@ They are deliberately not native `Promise` instances.
 
 Raw SQL runs as the base client: on a view that filters rows (a
 [permissions](/docs/extensions/permissions) actor, [soft
-delete](/docs/extensions/soft-delete), a bound control), `$queryRaw` still
+delete](/docs/extensions/soft-delete), a bound argument), `$queryRaw` still
 sees every row. To keep a hand-written read inside the view, take the
 model's rows from it with `$rows(alias)` and use them as a `FROM` item:
 

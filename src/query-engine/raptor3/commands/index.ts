@@ -123,6 +123,14 @@ export interface PreparedOperation {
   readonly read: PreparedRead | undefined;
   /** The model and the verb the caller asked for, `…OrThrow` included. */
   readonly requested: { readonly model: string; readonly operation: string };
+  /**
+   * Told the rows the driver returned for a read's one statement, before
+   * they are decoded, on every run while it is set: what stores an answer as
+   * those rows (`codec`) sets it, and decodes them later with
+   * {@link PreparedOperation.prepareSingle}'s parser. A run it is set on is
+   * sent alone and reads object rows.
+   */
+  seen?: (rows: readonly unknown[]) => void;
   execute(
     binding?: ExecutionBinding,
     attribution?: QueryExecutionContext
@@ -162,6 +170,7 @@ export interface PreparedOperation {
 
 /** A class, not a closure: one is made per call, and its methods are made once. */
 class PreparedCommand implements PreparedOperation {
+  declare seen?: (rows: readonly unknown[]) => void;
   readonly #config: EngineConfig;
   readonly #queries: Queries;
   readonly #modelName: string;
@@ -217,13 +226,13 @@ class PreparedCommand implements PreparedOperation {
     if (this.#admitted) return this.#admitted;
     const { schema } = this.#queries;
     const stamps = this.#scope?.rows.stamps;
-    const domain = this.#scope?.domain;
-    const own = (raw: unknown) =>
-      schema.admit(this.#model, this.#operation, raw);
-    const admit = domain?.projects
-      ? () =>
-          domain.admit(schema, this.#model, this.#operation, this.#rawArgs, own)
-      : () => own(this.#rawArgs);
+    const admit = () =>
+      this.#scope?.domain.project?.admit(
+        schema,
+        this.#model,
+        this.#operation,
+        this.#rawArgs
+      ) ?? schema.admit(this.#model, this.#operation, this.#rawArgs);
     return (this.#admitted =
       stamps === undefined ? admit() : parseStamped(stamps, admit));
   }
@@ -275,7 +284,7 @@ class PreparedCommand implements PreparedOperation {
       const context = this.#context(false, attribution, binding);
       const value = this.#read();
       return value
-        ? context.run(() => context.publish(value, this.#missing))
+        ? context.run(() => context.publish(value, this.#missing, this.seen))
         : writeCall(
             context,
             this.#config.driver,
@@ -435,7 +444,7 @@ export function createCommandEngine(config: EngineConfig) {
   ): PreparedOperation =>
     new PreparedCommand(config, queries, modelName, requested, rawArgs, rows);
   /**
-   * `$rows`: `model`'s rows a root read under `rows` takes, as a raw read's
+   * `$rows`: `model`'s rows a root read under the chain's rules takes, as a raw read's
    * `FROM` item named `alias`. A model whose layers gate a field's reads is
    * refused: `SELECT *` would disclose it to every row.
    */
@@ -451,7 +460,7 @@ export function createCommandEngine(config: EngineConfig) {
         "$rows() needs a driver bound to its database (a MySQL namespace): a caller's CTE could otherwise stand for a table its rows read"
       );
     const scope = rows?.prepare(queries, instant);
-    scope?.domain.refuseGatedRows(model);
+    scope?.domain.project?.refuseGatedRows(model);
     const view = (scope ? scope.domain.reads(scope) : queries) as SqlQueries;
     return view.rowsOf(model, alias);
   };

@@ -10,7 +10,7 @@ import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { s } from "@schema";
 import { raw, sql } from "@sql";
-import { defineExtension } from "@src/index";
+import { extension, unit } from "@src/index";
 import Database from "better-sqlite3";
 import { describe, expect, test, vi } from "vitest";
 
@@ -31,11 +31,17 @@ describe("sqlite3 positional reads past 2^53", () => {
       );
       await driver._executeRaw(`INSERT INTO "item" VALUES (1, ${EXACT}, 0)`);
       const bumping = client.$extends(
-        defineExtension<typeof schema>()({
-          name: "bump-on-read",
-          statement: () =>
-            sql`UPDATE "item" SET "n" = "n" + 1 RETURNING "id", "big", "n"`,
-        })
+        extension(
+          "bump-on-read",
+          unit(
+            (_u, next) =>
+              next(
+                sql`UPDATE "item" SET "n" = "n" + 1 RETURNING "id", "big", "n"`
+              ),
+            ["statement"],
+            { rewrites: true }
+          )
+        )
       );
 
       await expect(bumping.item.findMany()).resolves.toEqual([
@@ -59,10 +65,14 @@ describe("sqlite3 positional reads past 2^53", () => {
       );
       await driver._executeRaw(`INSERT INTO "item" VALUES (1, ${EXACT}, 0)`);
       const bumping = client.$extends(
-        defineExtension<typeof schema>()({
-          name: "bump-silently",
-          statement: () => sql`UPDATE "item" SET "n" = "n" + 1`,
-        })
+        extension(
+          "bump-silently",
+          unit(
+            (_u, next) => next(sql`UPDATE "item" SET "n" = "n" + 1`),
+            ["statement"],
+            { rewrites: true }
+          )
+        )
       );
       await expect(bumping.item.findMany()).resolves.toEqual([]);
       const stored = await driver._executeRaw<{ n: number }>(
@@ -84,11 +94,17 @@ describe("sqlite3 positional reads past 2^53", () => {
     const client = createClient({ schema, driver });
     try {
       const ticking = client.$extends(
-        defineExtension<typeof schema>()({
-          name: "tick-on-read",
-          statement: () =>
-            sql`SELECT tick() AS "id", ${raw(String(EXACT))} AS "big", 0 AS "n"`,
-        })
+        extension(
+          "tick-on-read",
+          unit(
+            (_u, next) =>
+              next(
+                sql`SELECT tick() AS "id", ${raw(String(EXACT))} AS "big", 0 AS "n"`
+              ),
+            ["statement"],
+            { rewrites: true }
+          )
+        )
       );
       await expect(ticking.item.findMany()).resolves.toEqual([
         { id: 1, big: EXACT, n: 0 },
@@ -124,10 +140,12 @@ describe("sqlite3 positional reads past 2^53", () => {
       );
       await driver._executeRaw(`INSERT INTO "item" VALUES (1, ${EXACT}, 0)`);
       const starred = client.$extends(
-        defineExtension<typeof schema>()({
-          name: "select-star",
-          statement: () => sql`SELECT * FROM "item"`,
-        })
+        extension(
+          "select-star",
+          unit((_u, next) => next(sql`SELECT * FROM "item"`), ["statement"], {
+            rewrites: true,
+          })
+        )
       );
       await expect(starred.item.findMany()).resolves.toEqual([
         { id: 1, big: EXACT, n: 0 },

@@ -127,34 +127,21 @@ export interface ClientOmitResolver {
   readonly relations: ResolvedRelationIndex;
 }
 
-const hasEntries = (value: Record<string, boolean>): boolean =>
-  Object.keys(value).length > 0;
-
 /**
- * Build the model → default-omit lookup, or `undefined` when the client
- * configured nothing worth walking for. Keyed by model IDENTITY so a nested
- * relation resolves through its `ResolvedSlot` target without a name
- * round-trip.
+ * Build the model → default-omit lookup from the fields `defaults` hides.
+ * Keyed by model IDENTITY so a nested relation resolves through its
+ * `ResolvedSlot` target without a name round-trip.
  */
 export const createClientOmitResolver = <S extends Record<string, AnyModel>>(
   schema: S,
   config: ClientOmitConfig<S>,
   relations: ResolvedRelationIndex
-): ClientOmitResolver | undefined => {
+): ClientOmitResolver => {
   const byModel = new Map<AnyModel, Record<string, boolean>>();
   for (const key of Object.keys(config)) {
-    const model = Object.hasOwn(schema, key) ? schema[key] : undefined;
+    // `defaults` wrote the config, naming only models of this schema.
+    const model = schema[key]!;
     const entry = config[key as keyof ClientOmitConfig<S>];
-    // A config naming a model or field that does not exist is a typo the
-    // resolver would otherwise carry silently. The official factory owns
-    // structural exactness; this runtime boundary owns hostile JavaScript.
-    if (!model) {
-      throw new VibORMError(
-        `Client 'omit' names model '${key}', which is not in the schema.`,
-        VibORMErrorCode.INVALID_INPUT,
-        { meta: { model: key } }
-      );
-    }
     if (!isPlainRecord(entry)) continue;
     const projectable = new Set(projectableScalarNames(model));
     const flags: Record<string, boolean> = {};
@@ -166,11 +153,11 @@ export const createClientOmitResolver = <S extends Record<string, AnyModel>>(
           { meta: { model: key, field } }
         );
       }
-      if (entry[field] === true) flags[field] = true;
+      // `omitted` writes each field it hides as true, and nothing else.
+      flags[field] = true;
     }
-    if (hasEntries(flags)) byModel.set(model, flags);
+    byModel.set(model, flags);
   }
-  if (byModel.size === 0) return undefined;
   return { omit: (model: AnyModel) => byModel.get(model), relations };
 };
 
@@ -342,7 +329,6 @@ const rewriteRelationMap = (
     }
 
     const target = slotTarget(resolved, model);
-    if (!target) continue;
 
     if (value === true) {
       const defaults = resolve.omit(target);
@@ -389,7 +375,7 @@ export const directVariantCarrier = (
 export const slotTarget = (
   resolved: ResolvedSlot,
   source: AnyModel
-): AnyModel | undefined => {
+): AnyModel => {
   const edge = resolved.edge;
   if (edge.kind === "foreignKey" || edge.kind === "junction") {
     const [first, second] = edge.endpoints;

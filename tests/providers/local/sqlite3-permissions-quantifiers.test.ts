@@ -1,9 +1,12 @@
 import { createClient } from "@drivers/sqlite3";
 import { s } from "@schema";
-import { permissions } from "@src/permissions";
+import { permissions, type Rule } from "@src/permissions";
 import { v } from "@src/validation";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import { expect, test } from "vitest";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
+
+/** An optional actor value's presence: the guard an author writes. */
+const present = (path: string) => ({ control: "actor", path, exists: true });
 
 test.each([
   { every: { OR: [] }, none: { id: "blocked" } },
@@ -28,19 +31,27 @@ test.each([
       data: [{ id: "empty" }, { id: "populated" }],
     });
     await base.child.create({ data: { id: "allowed", parentId: "populated" } });
-    const db = permissions({
-      actor: v.object({ id: v.string() }),
-      levels: ["read"],
-      models: { parent: { read: { children } }, child: { read: {} } },
-    })(base).$as({ id: "actor" });
+    const db = base
+      .$extends(
+        permissions({
+          actor: v.object({ id: v.string() }),
+          models: { parent: { read: { children } }, child: { read: {} } },
+        })
+      )
+      .$as({ id: "actor" });
     expect(await db.parent.findMany()).toEqual([{ id: "empty" }]);
-    expect(await db.parent.can("read", { id: "populated" })).toBe(false);
+    expect(
+      await db.parent.findUnique({
+        where: { id: "populated" },
+        select: { $access: ["read"] },
+      })
+    ).toBeNull();
   } finally {
     await base.$disconnect();
   }
 });
 
-test("optional facts preserve positive related grants without allowing negated uncertainty", async () => {
+test("a missing optional fact closes the permission unless the author guards it, positive or negated", async () => {
   const organization = s.model({
     id: s.string().id(),
     ownerId: s.string(),
@@ -95,18 +106,32 @@ test("optional facts preserve positive related grants without allowing negated u
       },
       update: { ownerId: { actor: "userId" as const } },
     };
-    const positive = base.$extends(
-      permissions({
-        actor,
-        models: {
-          organization: organizationRules,
-          document: { read: { organization: "read" } },
-          envelope: { read: { document: "read" } },
-        },
-      })
-    );
+    const positive = (read: Rule, update: Rule) =>
+      base.$extends(
+        permissions({
+          actor,
+          models: {
+            organization: { read, update },
+            document: { read: { organization: "read" } },
+            envelope: { read: { document: "read" } },
+          },
+        })
+      );
+    // Unguarded, the absent value closes the whole permission, the public
+    // alternative with it, and so does the update rule read inherits; the
+    // author's guards skip only what they guard.
+    const owner = { $if: present("userId"), ownerId: { actor: "userId" } };
+    const guardedRead = { OR: [{ public: true }, owner] };
+    for (const read of [organizationRules.read, guardedRead])
+      expect(
+        await positive(read, organizationRules.update)
+          .$as({})
+          .envelope.findMany()
+      ).toEqual([]);
     expect(
-      await positive.$as({}).envelope.findMany({ select: { id: true } })
+      await positive(guardedRead, owner)
+        .$as({})
+        .envelope.findMany({ select: { id: true } })
     ).toEqual([{ id: "public" }]);
     const negative = base.$extends(
       permissions({
@@ -172,14 +197,30 @@ test("optional scalar, list and mandatory dependencies retain their declared bou
       ids: v.optional(v.array(v.string())),
       active: v.boolean(),
     });
-    const db = base.$extends(
+    // Update and delete imply read: unguarded, their missing values close it.
+    const unguarded = base.$extends(
       permissions({
         actor,
         models: {
           post: {
             read: { public: true },
             update: { NOT: { ownerId: { actor: "user.id" } } },
-            delete: { id: { in: { actor: "ids" } } },
+          },
+        },
+      })
+    );
+    expect(await unguarded.$as({ active: true }).post.count()).toBe(0);
+    const db = base.$extends(
+      permissions({
+        actor,
+        models: {
+          post: {
+            read: { public: true },
+            update: {
+              $if: present("user.id"),
+              NOT: { ownerId: { actor: "user.id" } },
+            },
+            delete: { $if: present("ids"), id: { in: { actor: "ids" } } },
           },
         },
       })
@@ -191,8 +232,11 @@ test("optional scalar, list and mandatory dependencies retain their declared bou
       const view = db.$as(facts);
       expect(await view.post.count()).toBe(1);
       expect(
-        await view.post.can(["read", "update", "delete"], { id: "p" })
-      ).toEqual({ read: true, update: false, delete: false });
+        await view.post.findUnique({
+          where: { id: "p" },
+          select: { $access: ["read", "update", "delete"] },
+        })
+      ).toEqual({ $access: { read: true, update: false, delete: false } });
     }
     const nestedNull = base.$extends(
       permissions({
@@ -202,30 +246,39 @@ test("optional scalar, list and mandatory dependencies retain their declared bou
         models: {
           post: {
             read: { public: true },
-            update: { ownerId: { actor: "userId" } },
+            update: { $if: present("userId"), ownerId: { actor: "userId" } },
           },
         },
       })
     );
     expect(await nestedNull.$as({ userId: null }).post.count()).toBe(1);
     expect(
-      await nestedNull.$as({ userId: null }).post.can("update", { id: "p" })
-    ).toBe(false);
+      await nestedNull.$as({ userId: null }).post.findUnique({
+        where: { id: "p" },
+        select: { $access: ["update"] },
+      })
+    ).toEqual({ $access: { update: false } });
     const jsonActor = base.$extends(
       permissions({
         actor: v.object({ json: v.json() }),
         models: {
           post: {
             read: { public: true },
-            update: { metadata: { equals: { actor: "json" } } },
+            update: {
+              $if: present("json"),
+              metadata: { equals: { actor: "json" } },
+            },
           },
         },
       })
     );
     expect(await jsonActor.$as({ json: null }).post.count()).toBe(1);
     expect(
-      await jsonActor.$as({ json: null }).post.can("update", { id: "p" })
-    ).toBe(false);
+      await jsonActor.$as({ json: null }).post.findUnique({
+        where: { id: "p" },
+        select: { $access: ["update"] },
+      })
+    ).toEqual({ $access: { update: false } });
     const restricted = base.$extends(
       permissions({
         actor,
@@ -271,7 +324,7 @@ test("optional scalar, list and mandatory dependencies retain their declared bou
   }
 });
 
-test("positive OR alternatives isolate missing facts through nested relations", async () => {
+test("guarded OR alternatives isolate missing facts through nested relations; unguarded ones close the permission", async () => {
   const folder = s.model({
     id: s.string().id(),
     documents: s.toMany(() => document),
@@ -312,14 +365,21 @@ test("positive OR alternatives isolate missing facts through nested relations", 
         { id: { in: { actor: "ids" as const } } },
       ],
     };
+    const guarded = {
+      OR: [
+        { public: true },
+        { $if: present("userId"), ownerId: { actor: "userId" as const } },
+        { $if: present("ids"), id: { in: { actor: "ids" as const } } },
+      ],
+    };
     const db = base.$extends(
       permissions({
         actor,
         models: {
           document: {
-            read: { AND: [{ id: { not: "excluded" } }, alternatives] },
+            read: { AND: [{ id: { not: "excluded" } }, guarded] },
           },
-          folder: { read: { documents: { some: alternatives } } },
+          folder: { read: { documents: { some: guarded } } },
         },
       })
     );
@@ -331,8 +391,20 @@ test("positive OR alternatives isolate missing facts through nested relations", 
       expect(await view.folder.findMany({ select: { id: true } })).toEqual([
         { id: "public" },
       ]);
-      expect(await view.document.can("read", { id: "private" })).toBe(false);
+      expect(
+        await view.document.findUnique({
+          where: { id: "private" },
+          select: { $access: ["read"] },
+        })
+      ).toBeNull();
     }
+    const unguarded = base.$extends(
+      permissions({
+        actor,
+        models: { document: { read: alternatives } },
+      })
+    );
+    expect(await unguarded.$as({}).document.findMany()).toEqual([]);
     expect(await db.$as({ userId: "alice" }).document.count()).toBe(2);
     expect(await db.$as({ ids: ["private"] }).document.count()).toBe(2);
     expect(await db.$as({ ids: [] }).document.count()).toBe(1);
@@ -343,7 +415,13 @@ test("positive OR alternatives isolate missing facts through nested relations", 
         models: {
           document: {
             read: {
-              OR: [{ public: true }, { NOT: { ownerId: { actor: "userId" } } }],
+              OR: [
+                { public: true },
+                {
+                  $if: present("userId"),
+                  NOT: { ownerId: { actor: "userId" } },
+                },
+              ],
             },
           },
         },
@@ -375,8 +453,8 @@ test("positive OR alternatives isolate missing facts through nested relations", 
         .document.findMany({ select: { id: true } })
     ).toEqual([{ id: "public" }]);
 
-    // Keeping the complete negative/vacuous body unavailable also protects an
-    // empty relation: none/every must not manufacture a grant from missing facts.
+    // An unguarded negative or vacuous body reading a missing fact closes the
+    // permission: none/every never manufacture a grant from it.
     for (const quantifier of ["none", "every"] as const) {
       const negative = base.$extends(
         permissions({
@@ -410,7 +488,12 @@ test("positive OR alternatives isolate missing facts through nested relations", 
           document: {
             read: {
               folder: {
-                is: { OR: [{ id: "public" }, { id: { actor: "userId" } }] },
+                is: {
+                  OR: [
+                    { id: "public" },
+                    { $if: present("userId"), id: { actor: "userId" } },
+                  ],
+                },
               },
             },
           },
@@ -438,4 +521,106 @@ test("positive OR alternatives isolate missing facts through nested relations", 
   } finally {
     await base.$disconnect();
   }
+});
+
+describe("a rule another model reads at an action name under a negation", () => {
+  const organization = s.model({
+    id: s.string().id(),
+    ownerId: s.string(),
+    documents: s.toMany(() => document),
+  });
+  const document = s.model({
+    id: s.string().id(),
+    organizationId: s.string(),
+    organization: s
+      .toOne(() => organization)
+      .fields("organizationId")
+      .references("id"),
+  });
+  const base = createClient({
+    schema: { organization, document },
+    dataDir: ":memory:",
+  });
+  const actor = v.object({ userId: v.optional(v.string()) });
+  const owner = { ownerId: { actor: "userId" } } as const;
+  const ids = async (db: unknown, facts: object) =>
+    (
+      await (
+        db as {
+          $as(facts: object): {
+            document: { findMany(args: object): Promise<{ id: string }[]> };
+          };
+        }
+      )
+        .$as(facts)
+        .document.findMany({ select: { id: true }, orderBy: { id: "asc" } })
+    ).map(({ id }) => id);
+  beforeAll(async () => {
+    await syncLiveSchema(base);
+    await base.organization.createMany({
+      data: [
+        { id: "alice", ownerId: "alice" },
+        { id: "bob", ownerId: "bob" },
+      ],
+    });
+    await base.document.createMany({
+      data: [
+        { id: "alice", organizationId: "alice" },
+        { id: "bob", organizationId: "bob" },
+      ],
+    });
+  });
+  afterAll(() => base.$disconnect());
+
+  test("in mandatory, never lets an actor without the value that rule reads through", async () => {
+    // Released through 1.13.0: the automatic guard folded the update rule
+    // false for an actor without userId, so the restriction held on every row.
+    const db = base.$extends(
+      permissions({
+        actor,
+        models: {
+          organization: { read: true, update: owner },
+          document: {
+            mandatory: { NOT: { organization: "update" } },
+            read: true,
+          },
+        },
+      })
+    );
+    expect(await ids(db, { userId: "alice" })).toEqual(["bob"]);
+    expect(await ids(db, {})).toEqual([]);
+  });
+
+  test("is negated with its guards: a guard inside the negation grants on absence, one outside it skips the alternative", async () => {
+    const guarded = {
+      read: true,
+      update: { $if: present("userId"), ...owner },
+    };
+    const inside = base.$extends(
+      permissions({
+        actor,
+        models: {
+          organization: guarded,
+          document: { read: { NOT: { organization: "update" } } },
+        },
+      })
+    );
+    // The skipped rule is false, so its negation holds on every row, the
+    // row alice may not read included.
+    expect(await ids(inside, { userId: "alice" })).toEqual(["bob"]);
+    expect(await ids(inside, {})).toEqual(["alice", "bob"]);
+    const outside = base.$extends(
+      permissions({
+        actor,
+        models: {
+          organization: guarded,
+          document: {
+            read: { $if: present("userId"), NOT: { organization: "update" } },
+          },
+        },
+      })
+    );
+    expect(await ids(outside, { userId: "alice" })).toEqual(["bob"]);
+    expect(await ids(outside, {})).toEqual([]);
+  });
 });

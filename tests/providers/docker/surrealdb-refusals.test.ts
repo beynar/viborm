@@ -4,8 +4,8 @@
  */
 
 import { createClient } from "@client/client";
-import { withRows } from "@extensions/rows-runtime";
 import { s } from "@schema";
+import { check, nothing, only, parts, rule } from "@src/index";
 import { softDelete } from "@src/soft-delete";
 import {
   createSurrealTestDriver,
@@ -14,9 +14,6 @@ import {
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { describe, expect, it } from "vitest";
 import { caught, compare, rows } from "./surrealdb-parity-fixture";
-
-// These definitions are stated as plain objects: what reads their rows is brought here.
-withRows();
 
 const counted = () => {
   const item = s.model({ id: s.int().id(), label: s.string() });
@@ -408,21 +405,20 @@ describe.skipIf(!surrealUrl)("SurrealDB refusals against SQL", () => {
             { org: "o", code: "c", parentOrg: "o", parentCode: "b" },
           ],
         });
-        const governed = db.$extends({
-          name: "tree",
-          rows: {
-            default: "on",
-            models: { folder: { on: {} } },
-            verbs: {
+        const all = { org: "o" };
+        const governed = db.$extends(
+          parts<ReturnType<typeof folders>>().extension(
+            "tree",
+            rule({
               folder: {
-                predicates: { all: { org: "o" } },
-                read: "all",
-                update: "all",
+                read: { where: all },
+                update: { where: only(all), check: check(all) },
+                delete: { where: only(nothing) },
                 acyclic: ["parent"],
               },
-            },
-          },
-        });
+            })
+          )
+        );
         const cycle = await caught(() =>
           governed.folder.update({
             where: { org_code: { org: "o", code: "a" } },
@@ -465,9 +461,11 @@ describe.skipIf(!surrealUrl)("SurrealDB refusals against SQL", () => {
               { id: "b", name: "x" },
             ],
           });
-          const governed: any = softDelete({
-            models: { owner: { deletedAt: "deletedAt" } },
-          } as never)(db);
+          const governed: any = db.$extends(
+            softDelete({
+              models: { owner: { deletedAt: "deletedAt" } },
+            } as never)
+          );
           const free = await caught(() =>
             governed.owner.deleteMany({ where: { id: "a" } })
           );

@@ -13,16 +13,17 @@ TTL handling, stale-while-revalidate behavior, invalidation, and backend
 abstractions while keeping database queries in the query engine and drivers.
 
 The official `cache()` extension exposes `$withCache()` and `$invalidate()` on
-its derived client only. Cache backends implement storage; they do not know how
+its derived client only: they are its client methods, typed as any
+extension's are (`CacheMethods`, through `this`). Cache backends implement storage; they do not know how
 VibORM builds or executes SQL.
 
 ## Boundary
 
 | Cache owns | Cache does not own |
 |------------|--------------------|
-| Canonical validated-operation keys and private extension namespaces | Query construction |
+| Private extension namespaces around the prepared call's key (`key(run)`) | Query construction |
 | TTL and stale-while-revalidate policy | Database execution |
-| Portable detached snapshots and fresh materialization | Provider-row ownership |
+| Storing a read's driver rows as portable JSON data | Decoding them: a hit goes through the driver's result parser and the engine's decoder |
 | Explicit and mutation-triggered invalidation | Result parsing |
 
 See [Caching](/docs/extensions/cache) for configuration and backend
@@ -30,14 +31,24 @@ documentation.
 
 ## Connection to Other Layers
 
-- **L9 (Client)**: Authenticates the official capability and creates cached views
-- **L11 (Instrumentation)**: Observes cache hits, misses, writes, and refreshes
+- **L9 (Client)**: Applies the cache extension, whose methods create cached views
+- **L11 (Instrumentation)**: Presents the `cache` units the cache emits (hits, misses, writes, refreshes) from their notes
 - **L6-L8 (Execution)**: Run only when the cache path requires a database read
 
 Read caching deliberately bypasses callback and array transactions, raw calls,
-and statement-transform chains. Mutation invalidation uses the existing ordered
-write-outcome rail in `src/extensions/query.ts`, so savepoint rollback discards
-it and outer commit publishes it once. The official factory and authenticated
-capability stay in `src/cache/extension.ts`; the inner-core read trigger remains
-in the query engine. A custom read key is a suffix of canonical identity, never
-a replacement.
+and chains that rewrite statements. Mutation invalidation runs through
+`settled`, so savepoint rollback discards it and outer commit publishes it
+once. The official factory stays in `src/cache/extension.ts`: an ordinary
+extension of `args` (the mutation option `cache`, and a `bound` argument
+`$withCache()` binds), a `call` on `target(writes)` whose `settled`
+invalidates, an `around` on `target(reads)` with `{ inner: true }` reading
+`key(run)`, `codec(run)` and `database(run)`, and `methods`. A read is keyed
+by the statement it would send, inside a namespace of the private storage
+revision, the database and the extension's `version`; a custom read key is a
+suffix of that key, never a replacement. An entry holds the rows the driver
+returned for that statement, and a hit hands them to the engine's decoder as
+a driver's answer, so the cache keeps no second codec of the result's
+shape. The cache imports only names a public entry exports
+(`tests/contracts/public-client/extension-imports.core.test.ts` holds it to
+that), and presents its own `cache` units through notes the instrumentation
+reads, never through a name the instrumentation knows.

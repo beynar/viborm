@@ -1,0 +1,270 @@
+/**
+ * What a rule holds beyond its filters, brought by the words that write it
+ * (`only`, `check`, `gate`, `facts`, `lazy`), so a rule that only filters
+ * holds none of this code: per model and layer, which rows a write may take
+ * (`update`, `delete`, `writes`), what the rows it produces must hold and
+ * what a read carries or hides, admitted once per schema and bound once per
+ * application as the engine reads them (`JudgedEntry`). What judges and what
+ * projects come with the words that ask for them; for an entry given lazily,
+ * whose words are known only once its model is read, a forwarder asks the
+ * model first.
+ */
+import type { Queries } from "@query-engine/raptor3/shared/query";
+import type {
+  JudgedEntry,
+  LazyRelations,
+  WriteJudgement,
+} from "@query-engine/raptor3/shared/row-scope";
+import { type Input, memo } from "@query-engine/raptor3/shared/schema";
+import type { AnyModel } from "@schema/model";
+import type {
+  Admission,
+  AdmittedEntry,
+  BoundEntries,
+  EntryDraft,
+  EntryHost,
+  References,
+  RuleLayer,
+} from "./admission";
+import type { ResolvedExtensionChain } from "./chain-state";
+import { FilterDomain, preparer } from "./row-domain";
+import type { Site } from "./rule-words";
+
+/** No restriction: what a key an entry leaves out takes, read as no predicate. */
+export const ALL: Input = Object.freeze({});
+
+/** Whether a predicate an entry may leave out is given. */
+export const given = (input: Input | undefined): input is Input =>
+  input !== undefined;
+
+/**
+ * The predicates one layer's entry gives a write `judgement`, each once:
+ * `delete`'s, or per field an update writes that field's own, else
+ * `update`'s, or `update`'s when it writes none (R3).
+ */
+export function judgedInputs(
+  entry: JudgedEntry,
+  judgement: WriteJudgement
+): Input[] {
+  const { update = ALL, delete: removal = ALL } = entry;
+  if (judgement.kind === "delete") return [removal];
+  if (judgement.writes.length === 0) return [update];
+  return [
+    ...new Set([
+      ...judgement.writes.map((field) => entry.writes?.get(field) ?? update),
+      ...(judgement.marks ? [removal] : []),
+    ]),
+  ];
+}
+/**
+ * A domain some of whose layers hold entries: a model some layer holds an
+ * entry on is judged, so a link to it is not written unjudged.
+ */
+class EntryDomain extends FilterDomain {
+  override restrictsLinkWrite(queries: Queries, model: AnyModel): boolean {
+    // A model's entries are bound only where some layer declares one.
+    return (
+      super.restrictsLinkWrite(queries, model) ||
+      this.rows.rules?.get(model["~"].names.ts!) !== undefined
+    );
+  }
+}
+
+/**
+ * A domain whose layers say which rows a write may take (`only`) or hold an
+ * entry given lazily: under a `judgement`, a model's predicate takes each
+ * layer's predicates of the write it judges beside its filters (R2, R3), and an entry
+ * given lazily brings its `read.where` here.
+ */
+class JudgedDomain extends EntryDomain {
+  protected override key(
+    name: string,
+    excluded: readonly number[],
+    judgement?: WriteJudgement
+  ): string {
+    const judged = this.rows.rules?.get(name) && judgement;
+    return judged
+      ? `${name} ${excluded} ${judged.kind}${judged.marks ? "+" : ""} ${[...judged.writes].sort()}`
+      : super.key(name, excluded);
+  }
+  protected override layers(
+    name: string,
+    inputs: readonly Input[] | undefined,
+    excluded: readonly number[],
+    judgement?: WriteJudgement
+  ): (readonly [number, readonly Input[]])[] {
+    const entries = this.rows.rules?.get(name);
+    if (entries === undefined) return super.layers(name, inputs, excluded);
+    const layers: (readonly [number, Input[]])[] = [];
+    const count = Math.max(inputs?.length ?? 0, entries.length);
+    for (let layer = 0; layer < count; layer++) {
+      if (excluded.includes(layer)) continue;
+      const own = entries[layer];
+      layers.push([
+        layer,
+        [
+          own?.read,
+          inputs?.[layer],
+          ...(own && judgement ? judgedInputs(own, judgement) : []),
+        ].filter(given),
+      ]);
+    }
+    return layers;
+  }
+}
+
+/** What prepares the call facts of a chain whose layers hold entries. */
+const prepareEntries = /* @__PURE__ */ preparer(EntryDomain);
+/** What prepares them where a layer takes rows by `only`: brought by `only` and `lazy`. */
+export const prepareJudged = /* @__PURE__ */ preparer(JudgedDomain);
+
+type Mutable<T> = { -readonly [K in keyof T]: T[K] };
+
+/** The keys of a draft that hold one predicate, each admitted as one. */
+const SINGLE = ["read", "shown", "update", "delete", "place", "check"] as const;
+/** The keys of a draft that hold one predicate per field, each written at its own name but `facts`. */
+const PER_FIELD = ["writes", "moves", "reads", "facts"] as const;
+
+/**
+ * The self relations `acyclic` names, each checked to be one of `model`'s
+ * to itself holding its key: only those can loop, so only an update that
+ * writes one of those keys asks them. Given as a function, they are read
+ * and checked then; as a list, now.
+ */
+function cyclesOf(
+  { schema, refuse }: Admission,
+  name: string,
+  declared: unknown
+): LazyRelations {
+  const model = schema[name]!;
+  const { relations } = model["~"].state;
+  const keyed = Object.keys(relations).filter((relation) => {
+    const held = relations[relation]!["~"];
+    return held.state.foreignKey !== undefined && held.settleTarget() === model;
+  });
+  const checked = (listed: unknown): readonly string[] => {
+    if (!Array.isArray(listed))
+      return refuse(
+        name,
+        `${name}.acyclic`,
+        "lists relations, or is a function returning them"
+      );
+    for (const relation of listed)
+      if (!keyed.includes(relation))
+        refuse(
+          name,
+          `${name}.acyclic.${relation}`,
+          "names no to-one relation of the model to itself holding its key"
+        );
+    return listed;
+  };
+  let resolved: readonly string[] | undefined;
+  const resolve = () =>
+    (resolved ??= checked(
+      typeof declared === "function" ? declared() : declared
+    ));
+  if (typeof declared !== "function") resolve();
+  return { candidates: keyed, resolve };
+}
+
+/** One model's draft with every predicate admitted: the layer's entry. */
+export function admitDraft(
+  admission: Admission,
+  name: string,
+  draft: EntryDraft,
+  references: References,
+  of?: string
+): Mutable<AdmittedEntry> {
+  const admit = (place: string, where: unknown) =>
+    admission.admit(name, `${name}.${place}`, where, references, of);
+  const out: Mutable<AdmittedEntry> = { judge: draft.judge, as: draft.as };
+  if (draft.acyclic !== undefined)
+    out.cycles = cyclesOf(admission, name, draft.acyclic);
+  for (const key of SINGLE)
+    if (draft[key] !== undefined) out[key] = admit(key, draft[key]);
+  for (const key of PER_FIELD) {
+    const given = draft[key];
+    const place = key === "facts" ? "read.select" : key;
+    if (given !== undefined)
+      out[key] = new Map(
+        [...given].map(([field, where]) => [
+          field,
+          admit(`${place}.${field}`, where),
+        ])
+      );
+  }
+  return out;
+}
+
+/**
+ * Every layer's entries bound to `chain`, each model's taken the first time
+ * it is read, an entry given lazily read then. A model no
+ * layer gives as a function is taken now: its refusals are the
+ * application's, as they would be at admission.
+ */
+function bindEntries(chain: ResolvedExtensionChain): BoundEntries {
+  const layers = chain.rules!;
+  // What the chain's layers brought: one value per kind, whichever brought it.
+  const brought: NonNullable<RuleLayer["brings"]> = {};
+  for (const layer of layers) Object.assign(brought, layer.brings);
+  const { judge, project, prepare = prepareEntries, keys, lazy } = brought;
+  const declares = (model: string) =>
+    layers.some((layer) => Object.hasOwn(layer.rules, model));
+  const built = new Map<string, readonly (AdmittedEntry | undefined)[]>();
+  const get = (
+    model: string
+  ): readonly (AdmittedEntry | undefined)[] | undefined =>
+    declares(model)
+      ? memo(built, model, () => {
+          const out = layers.map(({ rules, extension }) => {
+            const entry = rules[model];
+            // Only `lazy` writes an entry as a function: it reads itself.
+            return typeof entry === "function"
+              ? entry(chain, extension)
+              : entry;
+          });
+          keys?.(model, out);
+          return out;
+        })
+      : undefined;
+  for (const layer of layers)
+    for (const model of Object.keys(layer.rules))
+      if (layers.every((other) => typeof other.rules[model] !== "function"))
+        get(model);
+  return {
+    rules: { has: declares, get },
+    judge,
+    project,
+    // An entry given lazily is read later: its calls carry their values.
+    ...(lazy && {
+      lazy,
+      filters: (model: string, layer: number) => get(model)?.[layer]?.filters,
+    }),
+    prepare,
+  };
+}
+
+/** What the words that write entries bring: their admission and their binding. */
+export const ENTRIES: EntryHost = {
+  admit: (admitting, layer, filtersOf, references) =>
+    Object.fromEntries(
+      Object.entries(layer.rules).map(([name, draft]) => [
+        name,
+        typeof draft === "function"
+          ? draft(admitting, filtersOf)
+          : admitDraft(admitting, name, draft, references),
+      ])
+    ),
+  bind: bindEntries,
+};
+
+/**
+ * The entry of the model a word is written on, made at the first word that
+ * writes one, with what admits and binds them.
+ */
+export function entryOf(site: Site): EntryDraft {
+  // Asked first: where nothing takes an entry (a default's field), it refuses.
+  const entry = site.entry();
+  site.layer!.host ??= ENTRIES;
+  return entry;
+}

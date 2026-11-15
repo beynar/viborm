@@ -6,26 +6,21 @@
 
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { ClientInitializationError } from "../errors";
-import { type VibSchema, v } from "../validation";
+import type { VibSchema } from "../validation";
+import { v } from "../validation/primitives/v";
 
 /** The paths below one actor value: named keys, or any key of a record. */
 interface Paths {
   readonly keys?: ReadonlyMap<string, Paths>;
   readonly any?: Paths;
   readonly item?: Paths;
-  readonly optional: boolean;
-  readonly nullable: boolean;
-  readonly uncertain: boolean;
 }
 
 /** The members of a validation schema the walk reads. */
 interface Walked {
   readonly type?: string;
   readonly entries?: Readonly<Record<string, unknown>>;
-  readonly options?: NonNullable<Parameters<typeof v.object>[1]> & {
-    readonly schema?: unknown;
-  };
-  readonly acceptsUndefined?: boolean;
+  readonly options?: NonNullable<Parameters<typeof v.object>[1]>;
   readonly wrapped?: unknown;
   readonly value?: unknown;
   readonly item?: unknown;
@@ -50,103 +45,68 @@ export function refuse(
   });
 }
 
-/** Nullability follows the structural schema; no validator is executed here. */
-function mayBeNull(input: unknown, synthetic: WeakSet<object>): boolean {
-  const { type, options, value, wrapped } = input as Walked;
-  if (
-    type === "nullable" ||
-    options?.nullable === true ||
-    (type === "json" && options?.array !== true)
-  )
-    return true;
-  if (
-    options?.schema !== undefined ||
-    (options?.transform !== undefined && !synthetic.has(input as object))
-  )
-    return true;
-  if (type === "literal") return value === null;
-  if (type === "union" && Array.isArray(options))
-    return options.some((member) => mayBeNull(member, synthetic));
-  if (type === "optional" || type === "lazyRef")
-    return mayBeNull(wrapped, synthetic);
-  return type === "transform" || type === "pipe";
-}
-
 /** bindingSchema already resolved thunks and refused cycles. */
-function walk(input: unknown, at: string, synthetic: WeakSet<object>): Paths {
+function walk(input: unknown, at: string): Paths {
   let schema = input;
-  let optional = false;
-  let nullable = false;
-  let uncertain = false;
   for (;;) {
-    const { type, wrapped, options, acceptsUndefined } = schema as Walked;
-    optional ||= acceptsUndefined === true || options?.optional === true;
-    nullable ||= mayBeNull(schema, synthetic);
-    uncertain ||=
-      (options?.transform !== undefined && !synthetic.has(schema as object)) ||
-      options?.schema !== undefined ||
-      type === "transform" ||
-      type === "pipe";
+    // A viborm/validation schema, read for its kind and what it wraps.
+    const { type, wrapped } = schema as Walked;
     if (type === undefined || !WRAPPERS.has(type)) break;
     schema = wrapped;
   }
+  // The same schema, unwrapped, read for its children.
   const { type, entries, options, value, item } = schema as Walked;
-  if (type !== "object" && type !== "record" && type !== "array")
-    return { optional, nullable, uncertain };
+  if (type !== "object" && type !== "record" && type !== "array") return {};
   let paths: Paths;
-  if (type === "array")
-    paths = {
-      optional,
-      nullable,
-      uncertain,
-      item: walk(item, `${at}[]`, synthetic),
-    };
-  else if (type === "record")
-    paths = {
-      optional,
-      nullable,
-      uncertain,
-      any: walk(value, `${at}.*`, synthetic),
-    };
+  if (type === "array") paths = { item: walk(item, `${at}[]`) };
+  else if (type === "record") paths = { any: walk(value, `${at}.*`) };
   else {
     if (options?.strict === false)
       refuse(
         `the actor schema admits unknown keys at "${at}": a path it does not declare would be read`
       );
     paths = {
-      optional,
-      nullable,
-      uncertain,
       keys: new Map(
         Object.entries(entries!)
           .filter(([key]) => !options?.omit?.includes(key))
           .map(([key, entry]) => [
             key,
-            walk(entry, at === "actor" ? key : `${at}.${key}`, synthetic),
+            walk(entry, at === "actor" ? key : `${at}.${key}`),
           ])
       ),
     };
   }
-  return options?.array
-    ? { optional, nullable, uncertain, item: paths }
-    : paths;
+  return options?.array ? { item: paths } : paths;
 }
 
 /** One actor declaration's path vocabulary and binding boundary. */
 export interface ActorContract {
   readonly hasPath: (path: string) => boolean;
-  readonly availabilityPath: (path: string | undefined) => string | undefined;
   readonly schema: StandardSchemaV1;
 }
+
+/** Whether a normalized schema takes `undefined`: published, or the literal itself. */
+const acceptsUndefined = (value: VibSchema): boolean => {
+  // A schema that takes `undefined` publishes it; any other has neither key.
+  const shape = value as VibSchema & {
+    acceptsUndefined?: boolean;
+    value?: unknown;
+  };
+  return (
+    shape.acceptsUndefined === true ||
+    (shape.type === "literal" && shape.value === undefined)
+  );
+};
 
 /** Normalize structural actor objects once; native validation owns parsing. */
 function bindingSchema(
   input: unknown,
   memo = new WeakMap<object, VibSchema>(),
   open = new Set<object>(),
-  at = "actor",
-  synthetic = new WeakSet<object>()
+  at = "actor"
 ): VibSchema {
+  // A viborm/validation schema, or a thunk of one, read structurally: what
+  // is not one is refused below by its kind.
   const schema = (typeof input === "function" ? input() : input) as VibSchema &
     Walked & {
       readonly key?: VibSchema<string, string>;
@@ -165,9 +125,10 @@ function bindingSchema(
     );
   open.add(schema);
   const child = (value: unknown, path = at) =>
-    bindingSchema(value, memo, open, path, synthetic);
+    bindingSchema(value, memo, open, path);
+  const { type } = schema;
   let result: VibSchema = schema;
-  if (schema.type === "object") {
+  if (type === "object") {
     const { transform, refuse: refusal, ...options } = schema.options ?? {};
     const sparse = options.partial !== false && options.atLeast === undefined;
     // Native required-object parsing is dense. Keep the original sparse
@@ -202,39 +163,32 @@ function bindingSchema(
           : transform,
       }
     );
-    if (sparse && transform === undefined) synthetic.add(result);
-  } else if (schema.type === "optional")
+  } else if (type === "optional")
     result = v.optional(child(schema.wrapped), schema.default);
-  else if (schema.type === "nullable")
-    result = v.nullable(child(schema.wrapped));
-  else if (schema.type === "lazyRef") result = child(schema.wrapped);
-  else if (schema.type === "array") result = v.array(child(schema.item));
-  else if (schema.type === "record")
+  else if (type === "nullable") result = v.nullable(child(schema.wrapped));
+  else if (type === "lazyRef") result = child(schema.wrapped);
+  else if (type === "array") result = v.array(child(schema.item));
+  else if (type === "record")
     result = v.record(schema.key!, child(schema.value));
-  else if (schema.type === "union" && Array.isArray(schema.options))
+  else if (type === "union" && Array.isArray(schema.options))
     result = v.union(schema.options.map((member) => child(member)));
-  else if (schema.type === "pipe")
+  else if (type === "pipe")
     result = v.pipe(child(schema.schema), ...schema.actions!);
   // These wrappers delegate undefined correctly, but their ordinary object
   // metadata does not publish it. Actor objects require this fact before
   // choosing whether to run a member's validator on a missing key.
-  const acceptsUndefined = (value: VibSchema): boolean => {
-    const shape = value as VibSchema & {
-      acceptsUndefined?: boolean;
-      value?: unknown;
-    };
-    return (
-      shape.acceptsUndefined === true ||
-      (shape.type === "literal" && shape.value === undefined)
-    );
-  };
+  const delegates =
+    type === "union"
+      ? schema.options
+      : type === "pipe"
+        ? [schema.schema]
+        : type === "nullable"
+          ? [schema.wrapped]
+          : [];
   if (
     result !== schema &&
-    ((schema.type === "union" &&
-      Array.isArray(schema.options) &&
-      schema.options.some((member) => acceptsUndefined(child(member)))) ||
-      (schema.type === "pipe" && acceptsUndefined(child(schema.schema))) ||
-      (schema.type === "nullable" && acceptsUndefined(child(schema.wrapped))))
+    Array.isArray(delegates) &&
+    delegates.some((member) => acceptsUndefined(child(member)))
   )
     Object.defineProperty(result, "acceptsUndefined", { value: true });
   open.delete(schema);
@@ -249,17 +203,11 @@ function bindingSchema(
  * and array/record traversal with their existing native validators.
  */
 export function actorContract(schema: unknown): ActorContract {
+  // Any value: an object schema is told apart by its `type`.
   if ((schema as Walked | undefined)?.type !== "object")
     refuse("the actor must be a viborm/validation object schema (v.object)");
-  const synthetic = new WeakSet<object>();
-  const normalized = bindingSchema(
-    schema,
-    new WeakMap(),
-    new Set(),
-    "actor",
-    synthetic
-  );
-  const root = walk(normalized, "actor", synthetic);
+  const normalized = bindingSchema(schema);
+  const root = walk(normalized, "actor");
   return {
     hasPath(path) {
       let at: Paths | undefined = root;
@@ -268,20 +216,6 @@ export function actorContract(schema: unknown): ActorContract {
         if (at === undefined) return false;
       }
       return true;
-    },
-    availabilityPath(path) {
-      let at: Paths | undefined = root;
-      let uncertain: string | undefined;
-      const keys = path === undefined ? [] : path.split(".");
-      for (let index = 0; index < keys.length; index++) {
-        if (at.uncertain) return path;
-        if (at.any !== undefined) return path; // A record need not contain a key.
-        at = at.keys?.get(keys[index]!);
-        if (at === undefined) return path;
-        if (at.optional || at.nullable || at.uncertain)
-          uncertain = keys.slice(0, index + 1).join(".");
-      }
-      return uncertain;
     },
     schema: normalized,
   };

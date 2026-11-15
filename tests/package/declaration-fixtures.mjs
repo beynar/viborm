@@ -247,7 +247,7 @@ import { SQLite3Driver } from "viborm/sqlite3";
 const db = createClient({ schema, driver: new SQLite3Driver() });`
 );
 
-export const modifierSource = `import { createClient, defineExtension, s } from "viborm";
+export const modifierSource = `import { createClient, extension, methods, s } from "viborm";
 import { defaultOmit } from "viborm/client";
 import { cache } from "viborm/cache";
 import { MemoryCache } from "viborm/cache/memory";
@@ -255,7 +255,7 @@ import { SQLite3Driver } from "viborm/sqlite3";
 export const parent = s.model({ tenantId: s.string(), localId: s.string(), email: s.string(), name: s.string(), modelSecret: s.string(), children: s.toMany(() => child) }).id(["tenantId", "localId"], { name: "parent_pk" }).unique(["tenantId", "email"], { name: "tenant_email" }).omit({ modelSecret: true }).index(["name"], { name: "parent_name", type: "btree" }).index(["tenantId", "name"], { name: "parent_tenant_name", unique: true }).map("linked_parents");
 export const child = s.model({ id: s.string().id(), tenantId: s.string(), parentId: s.string(), title: s.string(), secret: s.string(), parent: s.toOne(() => parent).fields("tenantId", "parentId").references("tenantId", "localId") }).index(["tenantId", "parentId"], { name: "child_parent" }).map("linked_children");
 export const schema = { parent, child };
-export const db = createClient({ schema, driver: new SQLite3Driver() }).$extends(defaultOmit<typeof schema>()({ child: { secret: true } })).$extends(defineExtension({ name: "ready", client: () => ({ $ready: () => true }) })).$extends(cache({ driver: new MemoryCache() }));
+export const db = createClient({ schema, driver: new SQLite3Driver() }).$extends(defaultOmit({ child: { secret: true } })).$extends(extension("ready", methods(() => ({ $ready: () => true })))).$extends(cache({ driver: new MemoryCache() }));
 `;
 
 export const modifierProbe = `import { db } from "./modifiers.js";
@@ -319,7 +319,7 @@ export async function modifiedResults() {
 /** Construct all public views while refusing even a first provider initialization. */
 export function constructionSource(fixture) {
   return `import assert from "node:assert/strict";
-import { defineHooks } from "viborm";
+import { extension, methods } from "viborm";
 import { SQLite3Driver } from "viborm/sqlite3";
 const prototype = SQLite3Driver.prototype;
 const initialize = Object.getOwnPropertyDescriptor(prototype, "initClient");
@@ -348,7 +348,7 @@ try {
     }
   };
   check(fixture.db);
-  const extended = fixture.db.$extends(defineHooks({ name: "construction-check", client: () => ({ $constructionCheck: () => true }) }));
+  const extended = fixture.db.$extends(extension("construction-check", methods(() => ({ $constructionCheck: () => true }))));
   check(extended, fixture.db.$driver);
   assert.equal(extended.$constructionCheck(), true);
   assert.equal(fixture.db.$constructionCheck, undefined);

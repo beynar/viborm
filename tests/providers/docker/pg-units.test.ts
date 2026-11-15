@@ -6,7 +6,7 @@
  */
 
 import { PgDriver } from "@drivers/pg";
-import { sql } from "@src/index";
+import { extension, run as extRun, sql, unit } from "@src/index";
 import { openOnFixture } from "@tests/contracts/public-client/on-behavior";
 import { dropEveryLiveTable, TEST_CONNECTION_STRING } from "./pg-fixtures";
 
@@ -21,12 +21,21 @@ describeIf("pg Driver: transaction point", () => {
       new PgDriver({ databaseUrl: TEST_CONNECTION_STRING })
     );
     try {
-      const db = base.$extends({
-        name: "tenant",
-        async transaction(run) {
-          await run(sql`SET LOCAL app.tenant = 'acme'`);
-        },
-      });
+      const db = base.$extends(
+        extension(
+          "tenant",
+          unit(
+            async (u, next) => {
+              const open = async (run) => {
+                await run(sql`SET LOCAL app.tenant = 'acme'`);
+              };
+              await open((query) => extRun(u, query));
+              return next();
+            },
+            ["transaction"]
+          )
+        )
+      );
       const tenant = (client: Pick<typeof db, "$queryRaw">) =>
         client.$queryRaw<{
           tenant: string | null;
