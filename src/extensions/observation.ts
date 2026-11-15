@@ -257,6 +257,19 @@ export interface Observation {
       | undefined
     )[];
   }>;
+  /**
+   * For a chain's rewriting units (`unit(fn, kinds, { rewrites: true })`):
+   * the members of one batch, each its own logical statement: every member
+   * is rewritten before `send` sends any (it receives each member's final
+   * statement, `undefined` for a member with no unit), and each member's
+   * unit then ends as the batch does. A member whose unit fails before its
+   * `next()` refuses the batch: `refuse(index, failure)` is thrown.
+   */
+  readonly together: <Result>(
+    sources: readonly (UnitSource | undefined)[],
+    send: (statements: readonly (Sql | undefined)[]) => Promise<Result>,
+    refuse: (index: number, failure: unknown) => unknown
+  ) => Promise<Result>;
 }
 
 export function observationOf(handlers: readonly UnitLayer[]): Observation {
@@ -269,17 +282,65 @@ export function observationOf(handlers: readonly UnitLayer[]): Observation {
     done.then(reach, reach);
     return { done, reached };
   };
+  const members: Observation["members"] = async (members) => {
+    const units = members.map((member) =>
+      member === undefined ? undefined : enter(member[0], member[1])
+    );
+    await Promise.all(units.map((unit) => unit?.reached));
+    const done = Promise.all(units.map((unit) => unit?.done));
+    done.catch(() => undefined);
+    return { done, units };
+  };
   return {
     handlers,
     run: (source, child) => runUnit(handlers, source, child),
-    members: async (members) => {
-      const units = members.map((member) =>
-        member === undefined ? undefined : enter(member[0], member[1])
+    members,
+    together: async (sources, send, refuse) => {
+      const statements: (Sql | undefined)[] = [];
+      let settle!: (outcome: Promise<unknown>) => void;
+      const outcome = new Promise<unknown>((resolve) => {
+        settle = resolve;
+      });
+      const { done, units } = await members(
+        sources.map((source, index) =>
+          source === undefined
+            ? undefined
+            : [
+                source,
+                (statement) => {
+                  statements[index] = statement;
+                  return outcome;
+                },
+              ]
+        )
       );
-      await Promise.all(units.map((unit) => unit?.reached));
-      const done = Promise.all(units.map((unit) => unit?.done));
-      done.catch(() => undefined);
-      return { done, units };
+      // A member's unit reached its child where the child kept its
+      // statement.
+      const refused = units.findIndex(
+        (unit, index) => unit !== undefined && !(index in statements)
+      );
+      if (refused >= 0) {
+        // An unreached unit's end is its failure.
+        const failure = await units[refused]?.done.catch(
+          (error: unknown) => error
+        );
+        settle(Promise.reject(failure));
+        await done.catch(() => undefined);
+        throw refuse(refused, failure);
+      }
+      const sent = send(statements);
+      settle(sent);
+      // The send's failure is the call's, through `sent`; the units that
+      // wait on `outcome` see it too, and where none started, nothing
+      // else does.
+      outcome.catch(() => undefined);
+      try {
+        const value = await sent;
+        await done;
+        return value;
+      } finally {
+        await done.catch(() => undefined);
+      }
     },
   };
 }
