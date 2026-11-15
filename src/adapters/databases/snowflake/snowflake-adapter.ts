@@ -626,7 +626,7 @@ export class SnowflakeAdapter implements DatabaseAdapter {
     ...createLateralJoins(quoteIdent),
   };
 
-  setOperations = createSetOperations(quoteIdent);
+  setOperations = createSetOperations();
 
   /**
    * `VECTOR(FLOAT, n)`: an operand is its JSON array cast into the column's

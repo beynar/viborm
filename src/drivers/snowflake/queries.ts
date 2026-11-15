@@ -343,14 +343,14 @@ export class SnowflakeQueries extends SqlQueries {
         // a read-gated field reads NULL on a row that does not carry it.
         const column = this.column(model, field, alias);
         keys.push({
-          expression: this.domain
-            ? this.domain.guarded(this, model, field, column, alias)
-            : column,
+          expression:
+            this.domain?.project?.guarded(this, model, field, column, alias) ??
+            column,
           descending,
           nulls: nulls ?? (descending ? "first" : "last"),
           nullable:
             physicalField(this.schema, model, field).nullable ||
-            this.domain?.projected(model)?.gates.has(field) === true,
+            this.domain?.project?.projected(model)?.gates.has(field) === true,
         });
       }
     }

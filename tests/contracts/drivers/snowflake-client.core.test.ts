@@ -474,7 +474,7 @@ describe("Snowflake refusals", () => {
         host: server.host,
         fetch: server.fetch,
       });
-    const ordered = ordering({ card: { key: "rank" } })(base());
+    const ordered = base().$extends(ordering({ card: { key: "rank" } }));
     const soft = base().$extends(
       softDelete({ models: { memo: { deletedAt: "deletedAt" } } })
     );
@@ -729,15 +729,15 @@ describe("Snowflake root pages and filters", () => {
         orderBy: [{ id: "asc" }, { id: "desc" }],
       }),
       // No order stated: the one an extension gives the model is the order.
-      ordering({ card: { key: "rank" } })(
-        createClient({
-          schema: { card },
-          account: "myorg-acct",
-          token: "t",
-          host: server.host,
-          fetch: server.fetch,
-        })
-      ).card.findMany({ cursor: { id: 2 } }),
+      createClient({
+        schema: { card },
+        account: "myorg-acct",
+        token: "t",
+        host: server.host,
+        fetch: server.fetch,
+      })
+        .$extends(ordering({ card: { key: "rank" } }))
+        .card.findMany({ cursor: { id: 2 } }),
     ])
       await expect(read).rejects.toBeInstanceOf(UnsupportedOperationError);
     expect(server.requests).toEqual([]);
@@ -769,11 +769,11 @@ describe("Snowflake root pages and filters", () => {
       .$extends(
         permissions({
           actor: v.object({ userId: v.number() }),
-          levels: ["read", "full"],
           models: {
             author: { read: true },
             tag: { read: true },
             post: {
+              actions: { read: [], full: ["read"] },
               operations: { read: "read" },
               read: true,
               full: { actor: { userId: 0 } },
