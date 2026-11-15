@@ -16,7 +16,10 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { MutationOperations } from "../client/exports";
 import { VibORMError } from "../errors/base";
-import { CacheConfigurationError } from "../errors/cache";
+import {
+  CacheConfigurationError,
+  CacheOperationNotCacheableError,
+} from "../errors/cache";
 import { accepts, args, bound } from "../extensions/args";
 import { around, call } from "../extensions/call";
 import { codec } from "../extensions/codec";
@@ -39,10 +42,10 @@ import { cacheCodec } from "./result-codec";
 import {
   admitMutationOptions,
   admitReadOptions,
+  CACHEABLE,
   type CacheInvalidationOptions,
   type CacheReadOptions,
   hasCacheInvalidationWork,
-  validateCacheableOperation,
   type WithCacheOptions,
 } from "./schema";
 
@@ -136,10 +139,40 @@ export function cache(config: CacheExtensionConfig): unknown {
     }
     return scope;
   };
-  const invalidate = (
+  /**
+   * Invalidate the scope of `origin`'s database. A backend failure is the
+   * cache's; after a write (`meta`), whatever failed is, and a key
+   * `$invalidate` was handed that the scope refuses is said as it is.
+   */
+  const invalidate = async (
     origin: object,
-    options: CacheInvalidationOptions | undefined
-  ) => driver[INVALIDATE]("", options, origin, namespaceOf(database(origin)));
+    options: CacheInvalidationOptions | undefined,
+    meta?: {
+      model?: string;
+      operation: string;
+      commitCertainty: "committed" | "may-have-committed";
+    }
+  ): Promise<void> => {
+    try {
+      await driver[INVALIDATE](
+        "",
+        options,
+        origin,
+        namespaceOf(database(origin))
+      );
+    } catch (cause) {
+      if (meta === undefined && cause instanceof VibORMError) throw cause;
+      throw new CacheConfigurationError(
+        meta
+          ? `Cache invalidation failed after mutation '${meta.operation}' on model '${meta.model}'.`
+          : "Cache invalidation failed.",
+        {
+          cause: cause instanceof Error ? cause : undefined,
+          meta: { method: "invalidate", ...meta },
+        }
+      );
+    }
+  };
 
   return extension(
     "viborm.cache",
@@ -154,28 +187,18 @@ export function cache(config: CacheExtensionConfig): unknown {
     // write is durable.
     call((c) => {
       const values: Values = c.values;
+      // Only reads are served through the view: this part sees writes alone.
       if (values.cacheRead !== undefined)
-        validateCacheableOperation(c.operation);
+        throw new CacheOperationNotCacheableError(c.operation, [...CACHEABLE]);
       const options = values.cache;
       if (!hasCacheInvalidationWork(options)) return;
-      settled(c, async ({ certainty }) => {
-        try {
-          await invalidate(c, options);
-        } catch (cause) {
-          throw new CacheConfigurationError(
-            `Cache invalidation failed after mutation '${c.operation}' on model '${c.model}'.`,
-            {
-              cause: cause instanceof Error ? cause : undefined,
-              meta: {
-                method: "invalidate",
-                model: c.model,
-                operation: c.operation,
-                commitCertainty: certainty,
-              },
-            }
-          );
-        }
-      });
+      settled(c, ({ certainty }) =>
+        invalidate(c, options, {
+          model: c.model,
+          operation: c.operation,
+          commitCertainty: certainty,
+        })
+      );
     }, target(writes)),
 
     // Reads through the view: answered from the store, closest to the core,
@@ -213,19 +236,7 @@ export function cache(config: CacheExtensionConfig): unknown {
       $withCache: (options?: WithCacheOptions) =>
         scope.$bind({ cacheRead: options }),
       $invalidate: (...keys: string[]) =>
-        settled(scope, async () => {
-          try {
-            await invalidate(scope, { invalidate: keys });
-          } catch (cause) {
-            // A refused key is said as it is; a backend failure is the
-            // cache's, as a write's invalidation failure is.
-            if (cause instanceof VibORMError) throw cause;
-            throw new CacheConfigurationError("Cache invalidation failed.", {
-              cause: cause instanceof Error ? cause : undefined,
-              meta: { method: "invalidate" },
-            });
-          }
-        }),
+        settled(scope, () => invalidate(scope, { invalidate: keys })),
     }))
   );
 }

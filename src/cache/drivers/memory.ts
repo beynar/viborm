@@ -18,25 +18,16 @@ export class MemoryCache<
       Record<Exclude<keyof Options, keyof MemoryCacheOptions>, never>
   ) {
     super("memory");
-    let maxEntries = 1024;
-    if (options !== undefined) {
-      const descriptors = Object.getOwnPropertyDescriptors(options);
-      const limit = descriptors.maxEntries;
-      const supplied: unknown =
-        limit && "value" in limit ? limit.value : undefined;
-      if (
-        Reflect.ownKeys(descriptors).length !== 1 ||
-        !limit ||
-        !("value" in limit) ||
-        typeof supplied !== "number" ||
-        !Number.isSafeInteger(supplied) ||
-        supplied < 1
-      )
-        throw new CacheConfigurationError(
-          "MemoryCache options must contain a positive safe-integer maxEntries only."
-        );
-      maxEntries = supplied;
-    }
+    const maxEntries = options?.maxEntries ?? 1024;
+    // A misspelled or retired option is refused, not ignored.
+    if (
+      !Number.isSafeInteger(maxEntries) ||
+      maxEntries < 1 ||
+      Object.keys(options ?? {}).some((key) => key !== "maxEntries")
+    )
+      throw new CacheConfigurationError(
+        "MemoryCache options must contain a positive safe-integer maxEntries only."
+      );
     this.#maxEntries = maxEntries;
   }
 

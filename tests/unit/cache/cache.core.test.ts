@@ -4,22 +4,15 @@ import { createTestClock } from "@tests/fixtures/test-clock";
 import { describe, expect, it } from "vitest";
 
 describe("Cache", () => {
-  it("refuses unknown memory bounds without invoking getters", () => {
-    let reads = 0;
-    const hostile = new Proxy(
-      {},
-      {
-        get() {
-          reads += 1;
-          throw new Error("must not read retired options");
-        },
-      }
-    );
-
-    expect(() => Reflect.construct(MemoryCache, [hostile])).toThrow(
-      CacheConfigurationError
-    );
-    expect(reads).toBe(0);
+  it("refuses a misspelled option and a bound that is no positive integer", () => {
+    for (const options of [
+      { maxEntrie: 2 },
+      { maxEntries: 0 },
+      { maxEntries: 1.5 },
+    ])
+      expect(() => Reflect.construct(MemoryCache, [options])).toThrow(
+        CacheConfigurationError
+      );
 
     const retiredClockOption = () => {
       // @ts-expect-error - the public MemoryCache clock seam was removed

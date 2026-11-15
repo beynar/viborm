@@ -249,21 +249,15 @@ export abstract class CacheDriver {
     identity: string
   ): Promise<CacheEntry<T> | null> {
     const cached = await this.#getScoped<unknown>(key, origin, namespace);
-    return cached === null ||
-      cached.identity !== identity ||
-      !Number.isFinite(cached.createdAt) ||
-      !Number.isFinite(cached.ttl) ||
-      cached.ttl <= 0 ||
-      cached.expiresAt === undefined ||
-      !Number.isFinite(cached.expiresAt) ||
-      cached.expiresAt < cached.createdAt
-      ? null
-      : {
-          createdAt: cached.createdAt,
-          ttl: cached.ttl,
-          expiresAt: cached.expiresAt,
-          value: codec.materialize(cached.value),
-        };
+    // Read as the backend gives it: an entry of another identity, or whose
+    // times are not a finite span, is a miss.
+    if (cached?.identity !== identity) return null;
+    const { createdAt, ttl, expiresAt } = cached;
+    return [createdAt, ttl, expiresAt].every(Number.isFinite) &&
+      ttl > 0 &&
+      expiresAt! >= createdAt
+      ? { createdAt, ttl, expiresAt, value: codec.materialize(cached.value) }
+      : null;
   }
 
   #setResultInBackground<T>(
