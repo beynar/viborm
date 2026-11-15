@@ -29,7 +29,11 @@ its tracer, logger, or disclosure.
 
 `instrumentation(config)` is written with public words only:
 `extension("viborm.instrumentation", unit(observe), disclosure(diagnostics))`.
-With neither `tracing` nor `logging` it is the `disclosure` part alone.
+With neither `tracing` nor `logging` it is the `disclosure` part alone. Every
+import of this folder is a public name
+(`tests/contracts/public-client/extension-imports.core.test.ts`): what it
+lacks becomes a public word for every author, as `disclosed` did. Never import
+a private helper of core here.
 
 ## Owners
 
@@ -42,6 +46,7 @@ With neither `tracing` nor `logging` it is the `disclosure` part alone.
 | `logger.ts` | Level selection (`query`, `cache`, `error`), callback containment, pretty presentation, the log metadata vocabulary |
 | `src/extensions/observation.ts` | The one generation of unit handlers (`runUnit`), the array barrier (`members`), `work` |
 | `src/extensions/unit-words.ts` | The unit words: `text`, `parameters`, `driver`, `failure`, `correlation`, `table`, `statements`, `origin`, `statement`, `run`, `note`, `notes` |
+| `src/extensions/disclosed.ts` | `disclosed(error, { sql?, parameters? })`: the copy of a failure a log or a span shows, under the application's `disclosure` |
 | `src/errors/logged-errors.ts` | The line of successors the package makes from one failure (`origin`) |
 
 Core never names this extension: it builds a unit only where the chain has a
@@ -69,9 +74,9 @@ branch for one extension's kind.
 
 What the disclosure settings promise holds for notes because a note never
 carries what they govern: an attribute under `db.query.` is dropped
-(`notedAttributes`), whatever `includeSql` and `includeParams` say, and a
-note's `error` and `meta` pass the same sanitizers as every log's
-(`sanitizeErrorForLogging`, `sanitizeLogMetadata`). A note may not take the
+(`notedAttributes`), whatever `includeSql` and `includeParams` say, a note's
+`error` passes through `disclosed` as every log's does, and its `meta` keeps
+the log metadata words alone (`presentLogMetadata`). A note may not take the
 name of a call's own span (`tracesAs`): its unit is then presented without a
 span; `viborm.operation` is admitted as a root span, an operation outside
 any call (the cache's revalidation). Dropping, never refusing: the
@@ -135,9 +140,9 @@ values declared in `tracer.ts`. Attributes are set with `span.setAttribute`
 after the span starts; kind and `root` are not passed (the tracer decides the
 parent). `setStatus` and `recordException` are called only when the span has
 them (the Workers span has neither on workerd 1.20260801.1). It is enabled at
-once. The config snapshot keeps the tracer by
-reference only when it has a callable `startActiveSpan`; any other value falls
-back to auto-detection.
+once. The config snapshot keeps the tracer by reference. The configuration
+is read once, with plain reads: its type is its guard (decision D6), so never
+add a guard against a throwing getter or an ill-typed value in it.
 
 Without `tracer`, `@opentelemetry/api` is dynamically imported, and the span
 kind and status codes are read from that api object, as they always were.
@@ -173,5 +178,9 @@ owner: `includeProviderDetails` and `includeCallsite` are false by default. The
 error snapshot retains bounded own-data provider message/detail/hint with
 credential redaction; the private operation execution context captures origin
 only when opted in. Official logs preserve those selected diagnostics while SQL
-and parameters remain channel-owned. Tracer settlement publishes only canonical class/code and
-allowlisted SQLSTATE, never provider message/callsite/parameters.
+and parameters remain channel-owned. Every failure a log or span shows passes
+through `disclosed` once, in `presentation.ts`; the logger and the tracer
+hand on what the presentation made and never sanitize again, and parameters
+are the `parameters(u)` snapshot, already bounded. Tracer settlement reads
+only the class, code and allowlisted SQLSTATE of the `disclosed` copy, never
+provider message/callsite/parameters.

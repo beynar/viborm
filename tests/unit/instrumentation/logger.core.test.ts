@@ -6,6 +6,7 @@
  * captureLogs(), and assert prettyLog console output via spied console methods.
  */
 
+import { disclosed } from "@src/extensions/disclosed";
 import { createLogger } from "@src/instrumentation/logger";
 import type { LogEvent } from "@src/instrumentation/types";
 import { captureLogs } from "@tests/unit/instrumentation/_capture";
@@ -170,150 +171,16 @@ describe("createLogger — callback receives (sanitizedEvent, defaultLog)", () =
   });
 });
 
-describe("sanitizeEvent — sql/params gating", () => {
-  it("includeSql defaults false: sql is omitted", () => {
-    const cap = captureLogs();
-    const logger = createLogger({ query: cap.callback });
-
-    logger.query({ timestamp: ts, sql: "SELECT 1" });
-
-    expect(cap.events[0]?.sql).toBeUndefined();
-  });
-
-  it("includeSql:false: emitted sql is undefined even when source carried it", () => {
-    const cap = captureLogs();
-    const logger = createLogger({ query: cap.callback, includeSql: false });
-
-    logger.query({ timestamp: ts, sql: "SELECT 1" });
-
-    expect(cap.events[0]?.sql).toBeUndefined();
-  });
-
-  it("includeParams default false: params undefined even when source carried them", () => {
-    const cap = captureLogs();
-    const logger = createLogger({ query: cap.callback });
-
-    logger.query({ timestamp: ts, params: [1, 2, 3] });
-
-    expect(cap.events[0]?.params).toBeUndefined();
-  });
-
-  it("includeParams:true: params pass through", () => {
+describe("createLogger — the event it hands on", () => {
+  // The presentation decides what an event shows (`disclosed`, the
+  // `parameters` snapshot, the channel's flags); the logger hands it on.
+  it("hands on the params it is given", () => {
     const cap = captureLogs();
     const logger = createLogger({ query: cap.callback, includeParams: true });
 
     logger.query({ timestamp: ts, params: [1, 2, 3] });
 
     expect(cap.events[0]?.params).toEqual([1, 2, 3]);
-  });
-
-  it("preserves declared fields while dropping arbitrary metadata", () => {
-    const cap = captureLogs();
-    const logger = createLogger({
-      query: cap.callback,
-      includeSql: false,
-      includeParams: false,
-    });
-
-    const meta = { region: "eu" };
-    logger.query({
-      timestamp: ts,
-      model: "user",
-      operation: "findMany",
-      duration: 42,
-      meta,
-      sql: "SELECT 1",
-      params: [1],
-    });
-
-    const e = cap.events[0];
-    expect(e?.model).toBe("user");
-    expect(e?.operation).toBe("findMany");
-    expect(e?.duration).toBe(42);
-    expect(e?.meta).toEqual({});
-    expect(e?.timestamp).toEqual(ts);
-    expect(e?.sql).toBeUndefined();
-    expect(e?.params).toBeUndefined();
-  });
-
-  it("does not treat disclosure flags as authorization for arbitrary metadata", () => {
-    const sqlOnly = captureLogs();
-    const paramsOnly = captureLogs();
-    createLogger({
-      query: sqlOnly.callback,
-      includeSql: true,
-    }).query({
-      timestamp: ts,
-      meta: { nested: { sql: "SELECT secret", params: ["secret"] } },
-    });
-    createLogger({
-      query: paramsOnly.callback,
-      includeParams: true,
-    }).query({
-      timestamp: ts,
-      meta: { nested: { sql: "SELECT secret", params: ["secret"] } },
-    });
-
-    expect(sqlOnly.events[0]?.meta).toEqual({});
-    expect(paramsOnly.events[0]?.meta).toEqual({});
-    expect(JSON.stringify(sqlOnly.events[0])).not.toContain("secret");
-    expect(JSON.stringify(paramsOnly.events[0])).not.toContain("secret");
-  });
-
-  it("bounds and serializes bigint, binary, cycles, sparse arrays, and hostile properties", () => {
-    const cap = captureLogs();
-    const logger = createLogger({
-      query: cap.callback,
-      includeParams: true,
-    });
-    const cyclic: Record<string, unknown> = {
-      bigint: 9_007_199_254_740_993n,
-      hugeBigint: BigInt("9".repeat(10_000)),
-      binary: new Uint8Array([1, 2, 3]),
-      long: "x".repeat(10_000),
-    };
-    const hostileDate = new Date(0);
-    Object.defineProperty(hostileDate, "toISOString", {
-      value: () => "date-override-secret".repeat(1000),
-    });
-    cyclic.date = hostileDate;
-    cyclic.error = Object.assign(new Error("private error detail"), {
-      code: "c".repeat(10_000),
-    });
-    cyclic[`key-${"y".repeat(10_000)}`] = "bounded-key";
-    cyclic.self = cyclic;
-    Object.defineProperty(cyclic, "hostile", {
-      enumerable: true,
-      get() {
-        throw new Error("getter must not run");
-      },
-    });
-    const sparse: unknown[] = [];
-    sparse[2] = "present";
-    const hostileProxy = new Proxy(
-      {},
-      {
-        ownKeys() {
-          throw new Error("proxy must not escape");
-        },
-      }
-    );
-
-    expect(() =>
-      logger.query({
-        timestamp: ts,
-        params: [cyclic, sparse, hostileProxy],
-      })
-    ).not.toThrow();
-    const serialized = JSON.stringify(cap.events[0]);
-    expect(serialized).toContain('"bigint":"9007199254740993"');
-    expect(serialized).toContain('"self":"[Circular]"');
-    expect(serialized).toContain('"hostile":"[Unreadable]"');
-    expect(serialized).not.toContain("y".repeat(5000));
-    expect(serialized).not.toContain("9".repeat(5000));
-    expect(serialized).not.toContain("c".repeat(5000));
-    expect(serialized).not.toContain("date-override-secret");
-    expect(serialized.length).toBeLessThan(40_000);
   });
 
   it("isolates throwing callbacks and pretty-console failures", () => {
@@ -366,66 +233,6 @@ describe("sanitizeEvent — sql/params gating", () => {
     expect(cap.events).toHaveLength(1);
     expect(cap.events[0]).not.toHaveProperty("statement");
     expect(cap.events[0]).not.toHaveProperty("bindings");
-  });
-
-  it.each([
-    { includeSql: false, includeParams: false },
-    { includeSql: true, includeParams: false },
-    { includeSql: false, includeParams: true },
-    { includeSql: true, includeParams: true },
-  ])("keeps raw error identity private for disclosure %#", ({
-    includeSql,
-    includeParams,
-  }) => {
-    const errorCanary = "phase7-error-canary";
-    const sqlCanary = "phase7-sql-canary";
-    const parameterCanary = "phase7-parameter-canary";
-    const consoleError = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
-    const capture = captureLogs(true);
-    const logger = createLogger({
-      error: capture.callback,
-      includeSql,
-      includeParams,
-    });
-    const cause = Object.assign(new Error(errorCanary), {
-      code: errorCanary,
-      meta: { token: errorCanary },
-    });
-    const raw = Object.assign(new Error(errorCanary), {
-      cause,
-      code: errorCanary,
-      meta: { token: errorCanary },
-      name: errorCanary,
-      sqlState: errorCanary,
-      status: errorCanary,
-    });
-
-    logger.error({
-      timestamp: ts,
-      error: raw,
-      sql: sqlCanary,
-      params: [parameterCanary],
-      meta: { token: errorCanary },
-    });
-
-    const event = capture.events[0];
-    const callbackOutput = JSON.stringify(event);
-    const consoleOutput = consoleError.mock.calls.flat().join(" ");
-    expect(callbackOutput).not.toContain(errorCanary);
-    expect(consoleOutput).not.toContain(errorCanary);
-    expect(event?.error).toMatchObject({
-      name: "Error",
-      message: "Error details redacted",
-    });
-    expect(event?.error).not.toHaveProperty("code");
-    expect(event?.error).not.toHaveProperty("meta");
-    expect(callbackOutput.includes(sqlCanary)).toBe(includeSql);
-    expect(callbackOutput.includes(parameterCanary)).toBe(includeParams);
-    expect(consoleOutput.includes(sqlCanary)).toBe(includeSql);
-    expect(consoleOutput).not.toContain(parameterCanary);
-    consoleError.mockRestore();
   });
 });
 
@@ -514,7 +321,7 @@ describe("prettyLog — cache branch", () => {
 });
 
 describe("prettyLog — error branch", () => {
-  it("uses console.error; redacts raw error messages and logs opted-in SQL", () => {
+  it("uses console.error; prints the presented error and SQL", () => {
     const error = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
@@ -524,7 +331,7 @@ describe("prettyLog — error branch", () => {
       timestamp: ts,
       model: "user",
       operation: "create",
-      error: new Error("constraint violation"),
+      error: disclosed(new Error("constraint violation")),
       sql: "INSERT INTO user",
     });
 

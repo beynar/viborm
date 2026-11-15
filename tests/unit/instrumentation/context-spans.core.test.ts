@@ -36,10 +36,7 @@ import {
   SPAN_TRANSACTION,
 } from "@src/instrumentation/spans";
 import { getNoopTracer } from "@src/instrumentation/tracer";
-import type {
-  InstrumentationConfig,
-  LoggingConfig,
-} from "@src/instrumentation/types";
+import type { InstrumentationConfig } from "@src/instrumentation/types";
 import {
   captureLogs,
   type OtelRecorder,
@@ -113,68 +110,7 @@ describe("createInstrumentationContext — tracer", () => {
     if (!tracing || tracing === true) {
       throw new Error("expected a resolved tracing snapshot");
     }
-    expect(tracing.ignoreSpanTypes?.[0]).not.toBe(pattern);
-    expect(Object.isFrozen(tracing.ignoreSpanTypes?.[0])).toBe(true);
-    expect(Object.isFrozen(tracing)).toBe(true);
-    expect(Object.isFrozen(tracing.ignoreSpanTypes)).toBe(true);
-  });
-
-  it("fails closed for unreadable top-level configuration", () => {
-    const config: InstrumentationConfig = {};
-    for (const key of ["diagnostics", "logging", "tracing"]) {
-      Object.defineProperty(config, key, {
-        get() {
-          throw new Error(`${key} getter failed`);
-        },
-      });
-    }
-
-    const ctx = createInstrumentationContext(config);
-
-    expect(ctx.tracer).toBe(getNoopTracer());
-    expect(ctx.logger).toBeUndefined();
-    expect(ctx.config.diagnostics).toEqual({
-      includeProviderDetails: false,
-      includeCallsite: false,
-      includeParams: false,
-      includeSql: false,
-    });
-  });
-
-  it("ignores unreadable handlers and ignore-pattern entries", () => {
-    class UnreadablePattern extends RegExp {
-      override get source(): string {
-        throw new Error("pattern source getter failed");
-      }
-    }
-    const logging: LoggingConfig = {};
-    Object.defineProperty(logging, "query", {
-      get() {
-        throw new Error("query handler getter failed");
-      },
-    });
-    const patterns: Array<string | RegExp> = [
-      SPAN_CONNECT,
-      new UnreadablePattern("execute"),
-    ];
-    Object.defineProperty(patterns, "2", {
-      configurable: true,
-      enumerable: true,
-      get() {
-        throw new Error("pattern entry getter must not run");
-      },
-    });
-    patterns.length = 3;
-
-    const ctx = createInstrumentationContext({
-      logging,
-      tracing: { ignoreSpanTypes: patterns },
-    });
-
-    expect(ctx.logger).toBeUndefined();
-    expect(ctx.config.tracing).toMatchObject({
-      ignoreSpanTypes: [SPAN_CONNECT],
-    });
+    expect(tracing.includeParams).toBe(true);
   });
 
   it("tracing: true creates a real tracer (not the noop singleton), enabled once primed", async () => {
