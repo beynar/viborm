@@ -57,7 +57,6 @@ export function runUnit<Result>(
 ): Promise<Result> {
   const unit = unitOf(source);
   let core: Promise<Result> | undefined;
-  let entered = false;
   const startCore = (): Promise<Result> => {
     core ??= attempt(() => child(source.statement));
     return core;
@@ -72,7 +71,6 @@ export function runUnit<Result>(
     if (resolved?.kinds?.includes(source.kind) === false)
       return enter(index + 1);
     if (resolved === undefined) {
-      entered = true;
       reached?.();
       transaction?.enter();
       return startCore();
@@ -80,19 +78,7 @@ export function runUnit<Result>(
     return around(resolved, unit, source, () => enter(index + 1));
   };
   const result = enter(0);
-  return transaction === undefined
-    ? result
-    : result.catch((failure: unknown) => {
-        // Thrown, not returned rejected: workerd reports a rejection that the
-        // promise taking it holds only a microtask later.
-        if (core === undefined || entered) throw failure;
-        // A transaction `run(unit, sql)` opened whose body was never let run
-        // rolls back before the unit fails.
-        transaction.abort(failure);
-        return core.catch(nothing).then(() => {
-          throw failure;
-        });
-      });
+  return transaction === undefined ? result : result.catch(transaction.fail);
 }
 
 function attempt<Result>(child: () => Promise<Result>): Promise<Result> {
@@ -186,7 +172,8 @@ function unitError(
 /**
  * A transaction unit's `run(unit, sql)`: it opens the transaction if no
  * `next()` has yet, and runs the statement there before the body. The body
- * then waits for the innermost `next()`.
+ * then waits for the innermost `next()`; a unit that fails before it rolls
+ * back the transaction `run` opened (`fail`).
  */
 function openTransaction<Result>(
   source: UnitSource,
@@ -197,6 +184,8 @@ function openTransaction<Result>(
   let refuse: ((failure: unknown) => void) | undefined;
   let aborted: { readonly failure: unknown } | undefined;
   let bodyEntered = false;
+  // The transaction `run` opened before the body was let run.
+  let opening: Promise<Result> | undefined;
   let announce: ((run: TransactionStatementRunner) => void) | undefined;
   const opened = new Promise<TransactionStatementRunner>((resolve) => {
     announce = resolve;
@@ -216,10 +205,10 @@ function openTransaction<Result>(
   source.opened = openedWith;
   const runIn = (statement: Sql) => {
     if (runner !== undefined) return runner(statement);
-    const core = startCore();
+    opening ??= startCore();
     return Promise.race([
       opened,
-      core.then(() => {
+      opening.then(() => {
         throw new QueryError("run() was called on a transaction that ended.");
       }),
     ]).then((run) => run(statement));
@@ -230,9 +219,15 @@ function openTransaction<Result>(
       bodyEntered = true;
       ready?.();
     },
-    abort: (failure: unknown) => {
+    fail: (failure: unknown): Promise<never> => {
+      // Thrown, not returned rejected: workerd reports a rejection that the
+      // promise taking it holds only a microtask later.
+      if (opening === undefined || bodyEntered) throw failure;
       aborted = { failure };
       refuse?.(failure);
+      return opening.catch(nothing).then(() => {
+        throw failure;
+      });
     },
   };
 }
