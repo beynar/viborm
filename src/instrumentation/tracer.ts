@@ -11,8 +11,6 @@
  * for conditional `if (tracer)` checks throughout the codebase.
  */
 
-import { sanitizeDiagnosticParameters, serializeTrustedError } from "@errors";
-import { isError } from "../errors/diagnostic-safety";
 import { VIBORM_VERSION } from "../version";
 import {
   ATTR_DB_QUERY_PARAMETER_PREFIX,
@@ -172,21 +170,12 @@ export function createTracerWrapper(
       if (includeSql && options.sql.query !== undefined) {
         attrs[ATTR_DB_QUERY_TEXT] = options.sql.query;
       }
+      // The parameters are the unit's bounded snapshot (`parameters(u)`),
+      // one attribute each per the OTel spec: db.query.parameter.0, .1, …
       if (includeParams && options.sql.params) {
-        const sanitizedParams = sanitizeDiagnosticParameters(
-          options.sql.params,
-          {
-            includeParams: true,
-            includeSql,
-          }
-        );
-        // Use individual parameter attributes per OTel spec
-        // db.query.parameter.0, db.query.parameter.1, etc.
-        for (let i = 0; i < sanitizedParams.length; i++) {
-          const value = sanitizedParams[i];
-          attrs[`${ATTR_DB_QUERY_PARAMETER_PREFIX}.${i}`] =
-            formatSanitizedSpanParameter(value);
-        }
+        for (const [index, value] of options.sql.params.entries())
+          attrs[`${ATTR_DB_QUERY_PARAMETER_PREFIX}.${index}`] =
+            formatSpanParameter(value);
       }
     }
 
@@ -385,24 +374,21 @@ function endSpan(
   if (settledSpans.has(span)) return;
   settledSpans.add(span);
   if (failed) {
-    const snapshot = isError(failure)
-      ? serializeTrustedError(failure)
-      : undefined;
-    const name = typeof snapshot?.name === "string" ? snapshot.name : "Error";
+    // What the instrumentation throws to fail a span is a `disclosed` copy
+    // of the failure; anything else is an `Error` of the package.
+    const shown: {
+      readonly name?: unknown;
+      readonly code?: unknown;
+      readonly meta?: { readonly providerSqlState?: unknown };
+    } = failure instanceof Error ? failure : {};
+    const name = typeof shown.name === "string" ? shown.name : "Error";
     safely(() => span.setAttribute("error.type", name));
-    const code = snapshot?.code;
+    const { code } = shown;
     if (typeof code === "string")
       safely(() => span.setAttribute("viborm.error.code", code));
-    const meta = snapshot?.meta;
-    if (
-      typeof meta === "object" &&
-      meta !== null &&
-      "providerSqlState" in meta &&
-      typeof meta.providerSqlState === "string"
-    ) {
-      const sqlState = meta.providerSqlState;
+    const sqlState = shown.meta?.providerSqlState;
+    if (typeof sqlState === "string")
       safely(() => span.setAttribute("db.response.sqlstate", sqlState));
-    }
     safely(() =>
       span.setStatus?.({
         code: codes.SpanStatusCode.ERROR,
@@ -473,7 +459,7 @@ function createTraceError(): Error {
   return error;
 }
 
-function formatSanitizedSpanParameter(value: unknown): string {
+function formatSpanParameter(value: unknown): string {
   if (typeof value === "string") return value;
   return String(JSON.stringify(value));
 }

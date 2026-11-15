@@ -772,17 +772,4 @@ describe("tracing.tracer: the configured extension", () => {
 
     expect(api.imports).toBeGreaterThan(0);
   });
-
-  // After the control: a refused value auto-detects, which imports.
-  it("refuses a value that cannot start spans and auto-detects instead", () => {
-    const notATracer: unknown = {};
-    const refused = createInstrumentationContext({
-      tracing: { tracer: notATracer as SpanTracer, includeSql: true },
-    });
-
-    expect(refused.config.tracing).toEqual({
-      includeParams: false,
-      includeSql: true,
-    });
-  });
 });

@@ -192,6 +192,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "database",
       "defaults",
       "deletes",
+      "disclosed",
       "disclosure",
       "driver",
       "exists",

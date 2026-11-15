@@ -47,7 +47,7 @@ import {
   toError,
   UNREADABLE_DIAGNOSTIC_VALUE,
 } from "@src/errors/diagnostic-safety";
-import { sanitizeLogMetadata } from "@src/instrumentation/logger";
+import { presentLogMetadata } from "@src/instrumentation/logger";
 
 describe("diagnostic disclosure contracts", () => {
   it("defaults closed and admits only explicit disclosure flags", () => {
@@ -171,7 +171,7 @@ describe("diagnostic disclosure contracts", () => {
 
   it("validates logging events and statuses independently", () => {
     expect(
-      sanitizeLogMetadata({
+      presentLogMetadata({
         deprecation: "use the extension API",
         event: "hit",
         status: "success",
@@ -182,7 +182,7 @@ describe("diagnostic disclosure contracts", () => {
       status: "success",
     });
     expect(
-      sanitizeLogMetadata({
+      presentLogMetadata({
         deprecation: 1,
         event: "unknown",
         status: "pending",
