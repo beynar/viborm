@@ -93,6 +93,7 @@ const documentedRuntimeExports = [
   "database",
   "defaults",
   "deletes",
+  "disclosed",
   "disclosure",
   "driver",
   "exists",

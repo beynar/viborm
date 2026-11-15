@@ -26,17 +26,26 @@ import { originOf, sourceOf } from "./unit-source";
  */
 export const text = (u: UnitContext): string | undefined => sourceOf(u)?.sql;
 
+/** The snapshots taken here, by what they were taken of: a unit, a member. */
+const snapshots = new WeakMap<object, readonly unknown[]>();
+
 /**
- * The snapshot the driver took for its diagnostics, or one taken now: a
- * caller's parameter is read once however many read it.
+ * The snapshot the driver took for its diagnostics, or the one taken here at
+ * the first read: a caller's parameter is read once however many read it.
  */
-const shownOf = (
+function shownOf(
+  of: object,
   taken: unknown,
   params: readonly unknown[] | undefined
-): readonly unknown[] =>
-  Array.isArray(taken) && taken !== EMPTY_DIAGNOSTIC_PARAMS
-    ? taken
-    : snapshotDiagnosticParameters(params ?? []);
+): readonly unknown[] {
+  if (Array.isArray(taken) && taken !== EMPTY_DIAGNOSTIC_PARAMS) return taken;
+  let shown = snapshots.get(of);
+  if (shown === undefined) {
+    shown = snapshotDiagnosticParameters(params ?? []);
+    snapshots.set(of, shown);
+  }
+  return shown;
+}
 
 /**
  * A bounded snapshot of the parameters a `statement` unit sends; for a
@@ -47,11 +56,15 @@ export function parameters(u: UnitContext): readonly unknown[] | undefined {
   const source = sourceOf(u);
   if (source?.batch !== undefined)
     return source.batch.map((member) =>
-      shownOf(Reflect.get(member, BATCH_DIAGNOSTIC_PARAMS), member.params)
+      shownOf(
+        member,
+        Reflect.get(member, BATCH_DIAGNOSTIC_PARAMS),
+        member.params
+      )
     );
   return source?.params === undefined
     ? undefined
-    : shownOf(source.shown, source.params);
+    : shownOf(source, source.shown, source.params);
 }
 
 /**
@@ -94,6 +107,7 @@ export function statements(u: UnitContext): readonly BatchMember[] | undefined {
     // A snapshot only when read, as `parameters(u)` takes one.
     get parameters() {
       return shownOf(
+        member,
         Reflect.get(member, BATCH_DIAGNOSTIC_PARAMS),
         member.params
       );

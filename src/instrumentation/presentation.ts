@@ -4,18 +4,16 @@
  * attribute key or a log event.
  */
 
-import {
-  type DiagnosticDisclosure,
-  isVibORMError,
-  sanitizeErrorForLogging,
-} from "@errors";
+import { type DiagnosticDisclosure, isVibORMError } from "@errors";
 import type { UnitContext as Unit } from "@extensions/contract";
+import { disclosed } from "@extensions/disclosed";
 import {
   type BatchMember,
   correlation,
   driver,
   table,
 } from "@extensions/unit-words";
+import { presentLogMetadata } from "./logger";
 import {
   ATTR_DB_COLLECTION,
   ATTR_DB_DRIVER,
@@ -146,8 +144,8 @@ export function presentNoteLog(
     model: noted.model ?? unit.model,
     operation: noted.operation ?? resolvedOperation(unit),
     correlationId: correlation(unit),
-    error: error instanceof Error ? sanitizeErrorForLogging(error) : undefined,
-    meta: noted.meta,
+    error: error instanceof Error ? disclosed(error) : undefined,
+    meta: noted.meta === undefined ? undefined : presentLogMetadata(noted.meta),
   };
 }
 
@@ -180,7 +178,7 @@ export function createOperationErrorLogEvent(
 ): PresentedLog {
   return Object.freeze({
     timestamp: new Date(startedAt + duration),
-    error: sanitizeErrorForLogging(failure),
+    error: disclosed(failure),
     model: unit.model,
     operation: resolvedOperation(unit),
     correlationId: correlation(unit),
@@ -274,14 +272,16 @@ export function createStatementLogEvent(
     error:
       failure === undefined
         ? undefined
-        : sanitizeErrorForLogging(failure, disclosure),
+        : disclosed(failure, {
+            sql: disclosure.includeSql,
+            parameters: disclosure.includeParams,
+          }),
   });
 }
 
-/** What a failed span is settled with: the failure's class and code only. */
-export function presentTraceFailure(failure: unknown): Error {
-  if (failure instanceof Error) return sanitizeErrorForLogging(failure);
-  const generic = new Error("Operation failed");
-  generic.stack = undefined;
-  return generic;
-}
+/**
+ * What a failed span is settled with: the failure as it may be shown, of
+ * which the span reads the class and code only.
+ */
+export const presentTraceFailure = (failure: unknown): Error =>
+  disclosed(failure);

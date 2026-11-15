@@ -4,12 +4,6 @@
  * Provides pretty console output or custom callbacks per log level.
  */
 
-import {
-  type DiagnosticDisclosure,
-  sanitizeAllowedRecord,
-  sanitizeDiagnosticParameters,
-  sanitizeErrorForLogging,
-} from "@errors";
 import type {
   LogEvent,
   LoggingConfig,
@@ -17,17 +11,33 @@ import type {
   LogLevelHandler,
 } from "./types";
 
-// `deprecation` and `notice` carry ORM-authored notice text (constant wording
-// around schema and driver names, never user data or query text), so they are
-// disclosed unconditionally.
-const LOG_META_KEYS = new Set(["deprecation", "event", "notice", "status"]);
+// The words a log's `meta` may carry, and the values they take: a note's
+// other keys and values are left out, whoever noted them, so no note can
+// bring statement text or a parameter into a log.
+const EVENTS: ReadonlySet<unknown> = new Set([
+  "bypass",
+  "hit",
+  "miss",
+  "revalidate",
+]);
+const STATUSES: ReadonlySet<unknown> = new Set([
+  "cache-set-failed",
+  "error",
+  "fresh",
+  "stale",
+  "start",
+  "success",
+]);
 
-/** The log event metadata a logger may present: known keys and values only. */
-export function sanitizeLogMetadata(
-  value: Record<string, unknown>,
-  disclosure?: DiagnosticDisclosure
+/** The log metadata a logger presents: known keys and values only. */
+export function presentLogMetadata(
+  meta: Readonly<Record<string, unknown>>
 ): Record<string, unknown> {
-  return sanitizeAllowedRecord(value, LOG_META_KEYS, disclosure, true);
+  const { event, status } = meta;
+  return {
+    ...(EVENTS.has(event) ? { event } : {}),
+    ...(STATUSES.has(status) ? { status } : {}),
+  };
 }
 
 /**
@@ -97,10 +107,6 @@ function getHandler(
  * Create a logger instance from config
  */
 export function createLogger(config: LoggingConfig): Logger {
-  const disclosure = Object.freeze({
-    includeParams: config.includeParams === true,
-    includeSql: config.includeSql === true,
-  });
   const handlers: Readonly<Record<LogLevel, LogLevelHandler | undefined>> =
     Object.freeze({
       cache: getHandler(config, "cache"),
@@ -108,14 +114,13 @@ export function createLogger(config: LoggingConfig): Logger {
       query: getHandler(config, "query"),
     });
 
-  function sanitizeEvent(
+  // The presentation made every field safe to show (`disclosed`, the
+  // `parameters` snapshot, `presentLogMetadata`) and left out what the
+  // logging channel does not disclose: an event is handed on as it is made.
+  function eventAt(
     event: LogEvent | Omit<LogEvent, "level">,
     level: LogLevel
   ): LogEvent {
-    const sanitizedParams =
-      disclosure.includeParams && event.params
-        ? sanitizeDiagnosticParameters(event.params, disclosure)
-        : undefined;
     return {
       level,
       timestamp: event.timestamp,
@@ -123,14 +128,10 @@ export function createLogger(config: LoggingConfig): Logger {
       model: event.model,
       operation: event.operation,
       correlationId: event.correlationId,
-      sql: disclosure.includeSql ? event.sql : undefined,
-      params: sanitizedParams,
-      error: event.error
-        ? sanitizeErrorForLogging(event.error, disclosure)
-        : undefined,
-      meta: event.meta
-        ? sanitizeLogMetadata(event.meta, disclosure)
-        : undefined,
+      sql: event.sql,
+      params: event.params,
+      error: event.error,
+      meta: event.meta,
     };
   }
 
@@ -141,10 +142,10 @@ export function createLogger(config: LoggingConfig): Logger {
     try {
       const handler = handlers[level];
       if (!handler) return;
-      const sanitized = sanitizeEvent(event, level);
+      const presented = eventAt(event, level);
       const defaultLog = () => {
         try {
-          prettyLog(sanitized);
+          prettyLog(presented);
         } catch {
           // Console output remains observational even when invoked later.
         }
@@ -152,7 +153,7 @@ export function createLogger(config: LoggingConfig): Logger {
       if (handler === true) {
         defaultLog();
       } else {
-        Promise.resolve(handler(sanitized, defaultLog)).catch(() => undefined);
+        Promise.resolve(handler(presented, defaultLog)).catch(() => undefined);
       }
     } catch {
       // Logging is observational and cannot alter application behavior.

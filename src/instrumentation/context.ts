@@ -7,13 +7,6 @@
  */
 
 import type { DiagnosticDisclosure } from "@errors";
-import {
-  isArrayValue,
-  isRecord,
-  safeArrayLength,
-  safeOwnPropertyDescriptor,
-  safeRead,
-} from "../errors/diagnostic-safety";
 import { createLogger, type Logger } from "./logger";
 import {
   createTracerWrapper,
@@ -22,10 +15,7 @@ import {
 } from "./tracer";
 import type {
   InstrumentationConfig,
-  LogCallback,
   LoggingConfig,
-  LogLevelHandler,
-  SpanTracer,
   TracingConfig,
 } from "./types";
 
@@ -86,115 +76,69 @@ export function createInstrumentationContext(
   return Object.freeze(context);
 }
 
-/** A handler the application gave: called with each event, its own to type. */
-const isCallback = (value: unknown): value is LogCallback =>
-  typeof value === "function";
-
-function snapshotInstrumentationConfig(
-  config: InstrumentationConfig
-): ResolvedInstrumentationConfig {
-  const diagnostics = snapshotDisclosure(safeRead(config, "diagnostics"));
-  const tracingValue = safeRead(config, "tracing");
-  const loggingValue = safeRead(config, "logging");
-  const tracing =
-    tracingValue === true
-      ? true
-      : isRecord(tracingValue)
-        ? snapshotTracingConfig(tracingValue)
-        : undefined;
-  const logging =
-    loggingValue === true
-      ? true
-      : isRecord(loggingValue)
-        ? snapshotLoggingConfig(loggingValue)
-        : undefined;
-  return Object.freeze({ diagnostics, tracing, logging });
-}
-
-function snapshotDisclosure(value: unknown): Required<DiagnosticDisclosure> {
-  return Object.freeze({
-    includeParams: isRecord(value) && safeRead(value, "includeParams") === true,
-    includeSql: isRecord(value) && safeRead(value, "includeSql") === true,
-    includeProviderDetails:
-      isRecord(value) && safeRead(value, "includeProviderDetails") === true,
-    includeCallsite:
-      isRecord(value) && safeRead(value, "includeCallsite") === true,
-  });
-}
-
-function snapshotTracingConfig(value: Record<string, unknown>): TracingConfig {
-  const ignoreSpanTypes = snapshotIgnorePatterns(
-    safeRead(value, "ignoreSpanTypes")
-  );
-  const tracer = safeRead(value, "tracer");
-  return Object.freeze({
-    includeParams: safeRead(value, "includeParams") === true,
-    includeSql: safeRead(value, "includeSql") === true,
-    ...(ignoreSpanTypes.length > 0 ? { ignoreSpanTypes } : {}),
-    ...(isPlatformTracer(tracer) ? { tracer } : {}),
-  });
-}
-
 /**
- * The caller-owned tracer is kept by reference (its methods are its own). A
- * value without `startActiveSpan`, the one member spans start through, is not
- * a tracer: the api is auto-detected instead.
+ * The configuration as it is when the extension is built: what the caller
+ * changes in its object later changes nothing. Its type is its guard; the
+ * flags are read as booleans, `true` alone enabling one.
  */
-function isPlatformTracer(value: unknown): value is SpanTracer {
-  return (
-    isRecord(value) && typeof safeRead(value, "startActiveSpan") === "function"
-  );
-}
-
-function snapshotIgnorePatterns(
-  value: unknown
-): ReadonlyArray<string | RegExp> {
-  if (!isArrayValue(value)) return Object.freeze([]);
-  const patterns: Array<string | RegExp> = [];
-  const length = Math.min(safeArrayLength(value), 128);
-  for (let index = 0; index < length; index += 1) {
-    const descriptor = safeOwnPropertyDescriptor(value, String(index));
-    if (!(descriptor && "value" in descriptor)) continue;
-    const pattern = descriptor.value;
-    if (typeof pattern === "string") {
-      patterns.push(pattern);
-      continue;
-    }
-    try {
-      if (pattern instanceof RegExp) {
-        patterns.push(Object.freeze(new RegExp(pattern.source, pattern.flags)));
-      }
-    } catch {
-      // Invalid caller-owned patterns are ignored at this boundary.
-    }
-  }
-  return Object.freeze(patterns);
-}
-
-function snapshotLoggingConfig(
-  value: Record<string, unknown>
-): LoggingConfig | undefined {
-  const all = readLogHandler(value, "all");
-  const cache = readLogHandler(value, "cache");
-  const error = readLogHandler(value, "error");
-  const query = readLogHandler(value, "query");
-  if ([all, cache, error, query].every((handler) => !handler)) {
-    return undefined;
-  }
+function snapshotInstrumentationConfig({
+  diagnostics,
+  tracing,
+  logging,
+}: InstrumentationConfig): ResolvedInstrumentationConfig {
   return Object.freeze({
-    includeParams: safeRead(value, "includeParams") === true,
-    includeSql: safeRead(value, "includeSql") === true,
+    diagnostics: snapshotDisclosure(diagnostics),
+    tracing:
+      tracing === true || tracing === undefined
+        ? tracing
+        : snapshotTracingConfig(tracing),
+    logging:
+      logging === true || logging === undefined
+        ? logging
+        : snapshotLoggingConfig(logging),
+  });
+}
+
+function snapshotDisclosure(
+  value: DiagnosticDisclosure | undefined
+): Required<DiagnosticDisclosure> {
+  return Object.freeze({
+    includeParams: value?.includeParams === true,
+    includeSql: value?.includeSql === true,
+    includeProviderDetails: value?.includeProviderDetails === true,
+    includeCallsite: value?.includeCallsite === true,
+  });
+}
+
+function snapshotTracingConfig({
+  includeParams,
+  includeSql,
+  ignoreSpanTypes,
+  tracer,
+}: TracingConfig): TracingConfig {
+  return Object.freeze({
+    includeParams: includeParams === true,
+    includeSql: includeSql === true,
+    ...(ignoreSpanTypes?.length ? { ignoreSpanTypes } : {}),
+    ...(tracer === undefined ? {} : { tracer }),
+  });
+}
+
+function snapshotLoggingConfig({
+  all,
+  cache,
+  error,
+  query,
+  includeParams,
+  includeSql,
+}: LoggingConfig): LoggingConfig | undefined {
+  if (!(all || cache || error || query)) return undefined;
+  return Object.freeze({
+    includeParams: includeParams === true,
+    includeSql: includeSql === true,
     all,
     cache,
     error,
     query,
   });
-}
-
-function readLogHandler(
-  value: Record<string, unknown>,
-  key: "all" | "cache" | "error" | "query"
-): LogLevelHandler | undefined {
-  const handler = safeRead(value, key);
-  return handler === true || isCallback(handler) ? handler : undefined;
 }

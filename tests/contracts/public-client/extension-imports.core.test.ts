@@ -1,19 +1,17 @@
 /**
  * An extension imports only what any extension author can import.
  *
- * `viborm/cache`, `viborm/on`, `viborm/ordering`, `viborm/permissions`,
- * `viborm/soft-delete` and `defaultOmit` (`viborm/client`) are built on the
- * public extension contract. Each file of theirs imports its own folder, a
- * package, or names the public entries export (`viborm`, `viborm/client`,
- * `viborm/validation`, and `viborm/instrumentation`, whose span and attribute
- * names the cache presents its units with). A name may be imported from the
+ * `viborm/cache`, `viborm/instrumentation`, `viborm/on`, `viborm/ordering`,
+ * `viborm/permissions`, `viborm/soft-delete` and `defaultOmit`
+ * (`viborm/client`) are built on the public extension contract. Each file
+ * of theirs imports its own folder, a package, or names the public entries
+ * export (`viborm`, `viborm/client`, `viborm/validation`, and
+ * `viborm/instrumentation`, whose span and attribute names the cache
+ * presents its units with). A name may be imported from the
  * module that defines it, which keeps the built chunks as they are, but it
  * must be a public name: anything else is a private channel into core, which
  * a third party could not take, and fails here. What an extension lacks
  * becomes public surface for everyone.
- *
- * `viborm/instrumentation` is not on the contract yet: it is listed below,
- * with what it still takes.
  */
 
 import { readdirSync, readFileSync } from "node:fs";
@@ -52,17 +50,12 @@ const PACKAGES = new Set([
 const ON_CONTRACT = [
   "cache",
   "client/default-omit-extension.ts",
+  "instrumentation",
   "on",
   "ordering",
   "permissions",
   "soft-delete",
 ];
-
-/** The extensions that still take a private channel, and what is left. */
-const PENDING: Readonly<Record<string, string>> = {
-  instrumentation:
-    "presents errors, parameters and log metadata through the package's private sanitizers (`sanitizeErrorForLogging`, `sanitizeDiagnosticParameters`, `sanitizeAllowedRecord`, `serializeTrustedError`): a public word for a disclosed error is the owner's to shape",
-};
 
 const IMPORT = /import\s+(type\s+)?([^;]*?)\s+from\s+"([^"]+)"/g;
 const BINDING = /^(?:type\s+)?(\w+)(?:\s+as\s+\w+)?$/;
@@ -127,12 +120,6 @@ function bindingsOf(clause: string): string[] {
 describe("extension imports", () => {
   test.each(ON_CONTRACT)("viborm/%s imports only public entries", (name) => {
     expect(privateImportsOf(name)).toEqual([]);
-  });
-
-  test.each(
-    Object.keys(PENDING)
-  )("viborm/%s is not on the contract yet: when it is, it moves to the list above", (name) => {
-    expect(privateImportsOf(name).length).toBeGreaterThan(0);
   });
 });
 

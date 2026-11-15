@@ -157,9 +157,10 @@ call it observes.
 - **Status.** A span ends failed when its unit fails, sanitized as every
   span's failure is. A note cannot change the status of any span: on your
   own unit, fail the work instead.
-- **Errors and metadata.** A note's `error` passes the same sanitizer as
-  the error of the library's own logs (an error that is not VibORM's has its
-  details redacted by default); its `meta` keeps only the log metadata vocabulary (`event`: `"bypass"`,
+- **Errors and metadata.** A note's `error` is presented through
+  [`disclosed`](/docs/extensions/create#present-a-failure-disclosed), as the
+  errors of the library's own logs are (an error that is not VibORM's has its
+  details redacted); its `meta` keeps only the log metadata vocabulary (`event`: `"bypass"`,
   `"hit"`, `"miss"`, `"revalidate"`; `status`: `"cache-set-failed"`,
   `"error"`, `"fresh"`, `"stale"`, `"start"`, `"success"`); any other key or
   value is dropped.
@@ -181,8 +182,9 @@ normalized and disclosure-approved facts.
 
 A `unit` part of your own has no such containment: VibORM awaits it, and what
 it throws fails the call. It reads the facts it needs through words
-(`text(u)`, `parameters(u)`, `failure(u)`, …), produced only when read; see
-[Create an extension](/docs/extensions/create#unit-around-physical-work).
+(`text(u)`, `parameters(u)`, `failure(u)`, …), produced only when read, and
+presents a failure through `disclosed`, as this extension does; see
+[Create an extension](/docs/extensions/create#present-a-failure-disclosed).
 
 ## Optional OpenTelemetry dependency
 
