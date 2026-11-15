@@ -45,6 +45,7 @@ const contracts = [
   "tests/contracts/public-client/extension-words-edges.core.test.ts",
   "tests/contracts/public-client/extensions-foundation.core.test.ts",
   "tests/contracts/public-client/extensions/array-admission.core.test.ts",
+  "tests/contracts/public-client/judged-side-review.core.test.ts",
   "tests/contracts/public-client/official-cache-extension.core.test.ts",
   "tests/contracts/public-client/official-cache-swr.core.test.ts",
   "tests/contracts/public-client/official-instrumentation-extension.core.test.ts",

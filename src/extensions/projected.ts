@@ -3,7 +3,6 @@ import type {
   Arguments,
   EngineSchema,
 } from "@query-engine/raptor3/shared/schema";
-import type { Operation } from "@query-engine/types";
 import type { AnyModel } from "@schema/model";
 import { isPlainRecord } from "@schema/relation/terminal";
 import { parseProviding } from "@validation/primitives/object";
@@ -23,18 +22,12 @@ import type { Projection } from "./projection";
  * arguments and marked on the `select` admission returned.
  */
 
-/** The operations whose results are rows: the only ones a projection reaches. */
-const ROW_RESULTS: ReadonlySet<Operation> = new Set<Operation>([
-  "findMany",
-  "findFirst",
-  "findUnique",
-  "create",
-  "update",
-  "upsert",
-  "delete",
-  "createMany",
-  "updateMany",
-  "deleteMany",
+/** The operations whose results are not rows: a projection reaches none. */
+const NOT_ROWS: ReadonlySet<Admitted> = new Set<Admitted>([
+  "count",
+  "exist",
+  "aggregate",
+  "groupBy",
 ]);
 
 /** A key's admitted value: `true`, nothing for `false`, or a list of the names it declares. */
@@ -44,11 +37,8 @@ const keyValidator =
       ? { value: value || undefined }
       : Array.isArray(value) &&
           value.length > 0 &&
-          value.every(
-            (name) =>
-              typeof name === "string" &&
-              names.some(([declared]) => declared === name)
-          )
+          // A declared name is a string: no other value equals one.
+          value.every((name) => names.some(([declared]) => declared === name))
         ? { value: [...value] }
         : {
             issues: [
@@ -93,43 +83,37 @@ function markNamed(
         : undefined;
       if (resolved === undefined) continue;
       const many = resolved.edge.kind === "variantJunctionCarrier";
-      if (
-        resolved.member ||
-        !(many || resolved.edge.kind === "variantRowCarrier")
-      ) {
+      // A polymorphic relation's arms, each under its variant (a
+      // junction's under `variants`); any other relation is one arm.
+      const variants =
+        resolved.member || !(many || resolved.edge.kind === "variantRowCarrier")
+          ? [undefined]
+          : resolved.edge.members.map(({ variant }) => variant);
+      const arm = (node: unknown, variant: string | undefined) => {
+        if (variant === undefined) return node;
+        const arms = isPlainRecord(node) && many ? node.variants : node;
+        return isPlainRecord(arms) ? arms[variant] : undefined;
+      };
+      for (const variant of variants)
         markNamed(
           domain,
           schema,
-          schema.membership(model, name).target,
-          given[name],
-          kept[name]
-        );
-        continue;
-      }
-      const arms = (node: unknown) =>
-        isPlainRecord(node) && many ? node.variants : node;
-      const givenArms = arms(given[name]);
-      const keptArms = arms(kept[name]);
-      if (!(isPlainRecord(givenArms) && isPlainRecord(keptArms))) continue;
-      for (const member of resolved.edge.members)
-        markNamed(
-          domain,
-          schema,
-          schema.membership(model, name, member.variant).target,
-          givenArms[member.variant],
-          keptArms[member.variant]
+          schema.membership(model, name, variant).target,
+          arm(given[name], variant),
+          arm(kept[name], variant)
         );
     }
   }
 }
 
 /**
- * `raw` admitted by the schema with the projection keys of `domain` added
+ * `raw` admitted by the schema with the projection keys of the domain added
  * to the schema's, and the read-gated fields it names marked: as the schema
- * admits it where the call reads no rows.
+ * admits it where the call reads no rows. The projection's `admit`, called
+ * on it.
  */
 export function admitProjected(
-  domain: Projection,
+  this: Projection,
   schema: EngineSchema,
   model: AnyModel,
   operation: Admitted,
@@ -138,14 +122,14 @@ export function admitProjected(
   const admit = () => schema.admit(model, operation, raw);
   // The model's entries are read before its arguments: an entry given
   // lazily refuses the call first.
-  domain.projected(model);
-  if (!ROW_RESULTS.has(operation)) return admit();
+  this.projected(model);
+  if (NOT_ROWS.has(operation)) return admit();
   // A projection is provided under `$` and its model's name.
   const admitted = parseProviding((name, key) => {
     const target = name[0] === "$" ? schema.schema[name.slice(1)] : undefined;
-    const declared = target && domain.projected(target)?.keys.get(key);
+    const declared = target && this.projected(target)?.keys.get(key);
     return declared && keyValidator(declared.names);
   }, admit);
-  markNamed(domain, schema, model, raw, admitted);
+  markNamed(this, schema, model, raw, admitted);
   return admitted;
 }

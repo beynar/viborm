@@ -11,7 +11,6 @@
 
 import { UnsupportedOperationError } from "@errors";
 import {
-  freeze,
   NO_LAYERS,
   type PreparedPredicate,
   type PreparedSelector,
@@ -54,14 +53,14 @@ function plainLayer(
   model: string,
   predicate: PreparedPredicate
 ): PreparedPredicate {
-  return freeze({
+  return {
     kind: "layer",
     layer,
     model,
     predicate,
     resolve: (queries: Queries, alias?: string) =>
       overKnown(queries, alias, predicate),
-  });
+  };
 }
 
 /** A domain no member confines bounds no set. */
@@ -175,9 +174,10 @@ export class FilterDomain implements PreparedDomain {
       const part =
         wheres.length === 1 ? wheres[0]! : queries.andSelectors(model, wheres);
       // Every input prepares to a predicate: `{}` to an empty conjunction.
-      parts.push(
-        freeze({ ...part, predicate: layered(layer, name, part.predicate!) })
-      );
+      parts.push({
+        ...part,
+        predicate: layered(layer, name, part.predicate!),
+      });
     }
     if (parts.length === 0) return null;
     return parts.length === 1 ? parts[0]! : queries.andSelectors(model, parts);

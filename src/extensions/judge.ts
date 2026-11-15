@@ -10,10 +10,7 @@ import {
   NO_RELATIONS,
   type PreparedSelector,
 } from "@query-engine/raptor3/shared/query";
-import type {
-  LazyRelations,
-  WriteJudgement,
-} from "@query-engine/raptor3/shared/row-scope";
+import type { WriteJudgement } from "@query-engine/raptor3/shared/row-scope";
 import { type Input, memo } from "@query-engine/raptor3/shared/schema";
 import type { SqlOperationContext } from "@query-engine/raptor3/shared/sql-operation-context";
 import type { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
@@ -22,7 +19,7 @@ import type { Question } from "@query-engine/raptor3/write/statements";
 import type { PreparedGuardFailure } from "@query-engine/types";
 import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
-import { ALL, judgedInputs } from "./entries";
+import { ALL, given, judgedInputs } from "./entries";
 import { producedSource, producedWhere } from "./produced";
 import { readsAny } from "./reads";
 import type { PreparedDomain } from "./row-domain";
@@ -224,8 +221,8 @@ export const judgeOf = (domain: PreparedDomain) => {
                 ? [
                     own.read ?? ALL,
                     ...judgedInputs(own, judgement),
-                    ...(own.check === undefined ? [] : [own.check]),
-                  ]
+                    own.check,
+                  ].filter(given)
                 : [];
               const unchanged =
                 changed !== undefined &&
@@ -239,15 +236,10 @@ export const judgeOf = (domain: PreparedDomain) => {
               const wheres = judgement
                 ? [
                     ...(unchanged ? [] : checked),
-                    ...judgement.writes.flatMap((field) => {
-                      const move = own.moves?.get(field);
-                      return move === undefined ? [] : [move];
-                    }),
+                    ...judgement.writes.map((field) => own.moves?.get(field)),
                   ]
-                : own.place === undefined
-                  ? []
-                  : [own.place];
-              layers.push([layer, [...new Set(wheres)]]);
+                : [own.place];
+              layers.push([layer, [...new Set(wheres.filter(given))]]);
             }
             return domain.conjunction(model, layers);
           }
@@ -274,15 +266,10 @@ export const judgeOf = (domain: PreparedDomain) => {
       };
       for (const own of entries) {
         const acyclic = own?.cycles;
-        if (acyclic === undefined) continue;
-        // Not a list, the cycles are the lazy relations `cyclesOf` made.
-        const named = Array.isArray(acyclic)
-          ? acyclic
-          : (acyclic as LazyRelations).candidates.some(written)
-            ? (acyclic as LazyRelations).resolve()
-            : NO_RELATIONS;
-        for (const relation of named)
-          if (written(relation)) relations.add(relation);
+        // Named only where the update writes one of the keys that could be.
+        if (acyclic?.candidates.some(written))
+          for (const relation of acyclic.resolve())
+            if (written(relation)) relations.add(relation);
       }
       return relations.size === 0 ? NO_RELATIONS : [...relations];
     },

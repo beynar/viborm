@@ -23,17 +23,19 @@ import type {
   BoundEntries,
   EntryDraft,
   EntryHost,
-  LazyEntries,
   References,
   RuleLayer,
 } from "./admission";
-import { extensionError } from "./chain";
 import type { ResolvedExtensionChain } from "./chain-state";
 import { FilterDomain, preparer } from "./row-domain";
 import type { Site } from "./rule-words";
 
 /** No restriction: what a key an entry leaves out takes, read as no predicate. */
 export const ALL: Input = Object.freeze({});
+
+/** Whether a predicate an entry may leave out is given. */
+export const given = (input: Input | undefined): input is Input =>
+  input !== undefined;
 
 /**
  * The predicates one layer's entry gives a write `judgement`, each once:
@@ -60,11 +62,10 @@ export function judgedInputs(
  */
 class EntryDomain extends FilterDomain {
   override restrictsLinkWrite(queries: Queries, model: AnyModel): boolean {
+    // A model's entries are bound only where some layer declares one.
     return (
       super.restrictsLinkWrite(queries, model) ||
-      this.rows.rules
-        ?.get(model["~"].names.ts!)
-        ?.some((entry) => entry !== undefined) === true
+      this.rows.rules?.get(model["~"].names.ts!) !== undefined
     );
   }
 }
@@ -99,14 +100,13 @@ class JudgedDomain extends EntryDomain {
     for (let layer = 0; layer < count; layer++) {
       if (excluded.includes(layer)) continue;
       const own = entries[layer];
-      const where = inputs?.[layer];
       layers.push([
         layer,
         [
-          ...(own?.read === undefined ? [] : [own.read]),
-          ...(where === undefined ? [] : [where]),
+          own?.read,
+          inputs?.[layer],
           ...(own && judgement ? judgedInputs(own, judgement) : []),
-        ],
+        ].filter(given),
       ]);
     }
     return layers;
@@ -122,24 +122,20 @@ type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 /** The keys of a draft that hold one predicate, each admitted as one. */
 const SINGLE = ["read", "shown", "update", "delete", "place", "check"] as const;
-/** The keys of a draft that hold one predicate per field, and where each is written. */
-const PER_FIELD = [
-  ["writes", "writes"],
-  ["moves", "moves"],
-  ["reads", "reads"],
-  ["facts", "read.select"],
-] as const;
+/** The keys of a draft that hold one predicate per field, each written at its own name but `facts`. */
+const PER_FIELD = ["writes", "moves", "reads", "facts"] as const;
 
 /**
  * The self relations `acyclic` names, each checked to be one of `model`'s
- * to itself holding its key: only those can loop. Given as a function, they
- * are read and checked when an update first writes one of those keys.
+ * to itself holding its key: only those can loop, so only an update that
+ * writes one of those keys asks them. Given as a function, they are read
+ * and checked then; as a list, now.
  */
 function cyclesOf(
   { schema, refuse }: Admission,
   name: string,
   declared: unknown
-): readonly string[] | LazyRelations {
+): LazyRelations {
   const model = schema[name]!;
   const { relations } = model["~"].state;
   const keyed = Object.keys(relations).filter((relation) => {
@@ -162,16 +158,17 @@ function cyclesOf(
         );
     return listed;
   };
-  if (typeof declared !== "function") return checked(declared);
   let resolved: readonly string[] | undefined;
-  return {
-    candidates: keyed,
-    resolve: () => (resolved ??= checked(declared())),
-  };
+  const resolve = () =>
+    (resolved ??= checked(
+      typeof declared === "function" ? declared() : declared
+    ));
+  if (typeof declared !== "function") resolve();
+  return { candidates: keyed, resolve };
 }
 
 /** One model's draft with every predicate admitted: the layer's entry. */
-function admitDraft(
+export function admitDraft(
   admission: Admission,
   name: string,
   draft: EntryDraft,
@@ -185,8 +182,9 @@ function admitDraft(
     out.cycles = cyclesOf(admission, name, draft.acyclic);
   for (const key of SINGLE)
     if (draft[key] !== undefined) out[key] = admit(key, draft[key]);
-  for (const [key, place] of PER_FIELD) {
+  for (const key of PER_FIELD) {
     const given = draft[key];
+    const place = key === "facts" ? "read.select" : key;
     if (given !== undefined)
       out[key] = new Map(
         [...given].map(([field, where]) => [
@@ -200,17 +198,16 @@ function admitDraft(
 
 /**
  * Every layer's entries bound to `chain`, each model's taken the first time
- * it is read, an entry given lazily read then (`LAZY_ENTRIES`). A model no
+ * it is read, an entry given lazily read then. A model no
  * layer gives as a function is taken now: its refusals are the
  * application's, as they would be at admission.
  */
 function bindEntries(chain: ResolvedExtensionChain): BoundEntries {
-  // A layer of the chain brought what binds the entries.
   const layers = chain.rules!;
-  const brought = <K extends keyof NonNullable<RuleLayer["brings"]>>(kind: K) =>
-    layers.find((layer) => layer.brings?.[kind])?.brings?.[kind];
-  const keys = brought("keys");
-  const lazy = brought("lazy");
+  // What the chain's layers brought: one value per kind, whichever brought it.
+  const brought: NonNullable<RuleLayer["brings"]> = {};
+  for (const layer of layers) Object.assign(brought, layer.brings);
+  const { judge, project, prepare = prepareEntries, keys, lazy } = brought;
   const declares = (model: string) =>
     layers.some((layer) => Object.hasOwn(layer.rules, model));
   const built = new Map<string, readonly (AdmittedEntry | undefined)[]>();
@@ -221,9 +218,9 @@ function bindEntries(chain: ResolvedExtensionChain): BoundEntries {
       ? memo(built, model, () => {
           const out = layers.map(({ rules, extension }) => {
             const entry = rules[model];
-            // Only `lazy` writes an entry as a function, and it brings its reader.
+            // Only `lazy` writes an entry as a function: it reads itself.
             return typeof entry === "function"
-              ? lazy!.read(chain, entry, extension)
+              ? entry(chain, extension)
               : entry;
           });
           keys?.(model, out);
@@ -234,18 +231,16 @@ function bindEntries(chain: ResolvedExtensionChain): BoundEntries {
     for (const model of Object.keys(layer.rules))
       if (layers.every((other) => typeof other.rules[model] !== "function"))
         get(model);
-  const judge = brought("judge");
-  const project = brought("project");
   return {
     rules: { has: declares, get },
-    ...(judge && { judge }),
-    ...(project && { project }),
+    judge,
+    project,
     // An entry given lazily is read later: its calls carry their values.
     ...(lazy && {
-      lazy: true,
+      lazy,
       filters: (model: string, layer: number) => get(model)?.[layer]?.filters,
     }),
-    prepare: brought("prepare") ?? prepareEntries,
+    prepare,
   };
 }
 
@@ -256,55 +251,11 @@ export const ENTRIES: EntryHost = {
       Object.entries(layer.rules).map(([name, draft]) => [
         name,
         typeof draft === "function"
-          ? layer.brings!.lazy!.admit(admitting, name, draft, filtersOf)
+          ? draft(admitting, filtersOf)
           : admitDraft(admitting, name, draft, references),
       ])
     ),
   bind: bindEntries,
-};
-
-/**
- * What `lazy` brings: an entry given as a function admitted once, the first
- * time its model is read, with its own references, checked then against
- * what the chain declared up to its extension, as `$extends` checks an
- * eager entry's.
- */
-export const LAZY_ENTRIES: LazyEntries = {
-  admit(admitting, name, draft, filtersOf) {
-    let resolved: AdmittedEntry | undefined;
-    return () => {
-      if (resolved !== undefined) return resolved;
-      const own: References = new Set();
-      const { root, related, ...given } = draft();
-      const at = `lazy ${name}`;
-      const admitted = admitDraft(admitting, name, given, own, at);
-      if (root !== undefined || related !== undefined)
-        admitted.filters = filtersOf(name, { root, related }, own, at);
-      // Read after the filters: what they name is the entry's too.
-      admitted.references = [...own];
-      resolved = admitted;
-      return admitted;
-    };
-  },
-  read(chain, entry, extension) {
-    const draft = entry();
-    const at = chain.extensions.findIndex((own) => own.name === extension);
-    const names = new Set(
-      chain.extensions.slice(0, at + 1).map((own) => own.name)
-    );
-    for (const name of draft.references!)
-      if (
-        name !== undefined &&
-        !chain.args?.all.some(
-          (argument) => argument.name === name && names.has(argument.extension)
-        )
-      )
-        extensionError(
-          `Extension "${extension}" references undeclared argument "${name}".`,
-          extension
-        );
-    return draft;
-  },
 };
 
 /**
