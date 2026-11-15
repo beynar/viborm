@@ -185,15 +185,6 @@ export function on(hooks: RuntimeHooks, options?: OnOptions): unknown {
         (hook !== undefined && typeof hook !== "function")
       )
         refuse(`${model}.${kind} must be a create, update or delete function`);
-  /** A failing hook's report: never a failure of the write itself. */
-  const report = async (error: QueryError, event: OnEvent) => {
-    try {
-      if (onError) await onError(error, event);
-      else console.error(error);
-    } catch (thrown) {
-      console.error(error, thrown);
-    }
-  };
   const hooked = Object.keys(own);
   /** Per model, the models a nested write from it can write. */
   const reached: Reached = new WeakMap();
@@ -257,7 +248,14 @@ export function on(hooks: RuntimeHooks, options?: OnOptions): unknown {
           try {
             await own[name]![kind]!(Object.freeze(rows), event);
           } catch (thrown) {
-            await report(failure(thrown, event, `${name}.${kind}`), event);
+            // Reported, never a failure of the write itself.
+            const error = failure(thrown, event, `${name}.${kind}`);
+            try {
+              if (onError) await onError(error, event);
+              else console.error(error);
+            } catch (reporting) {
+              console.error(error, reporting);
+            }
           }
       });
     }, target(writes))
@@ -289,30 +287,22 @@ type Reached = WeakMap<AnyModel, ReadonlySet<string>>;
 function reachable(model: AnyModel, reached: Reached): ReadonlySet<string> {
   const known = reached.get(model);
   if (known !== undefined) return known;
-  const names = new Set<string>();
+  // A set's walk visits what is added to it while it is walked.
   const seen = new Set<AnyModel>([model]);
-  const pending = [model];
-  for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
-    names.add(next["~"].names.ts!);
+  for (const next of seen)
     for (const relation of Object.values(
       next["~"].state.relations
     ) as AnyRelation[]) {
       const internal = relation["~"];
-      const { target } = internal.state;
-      const variants =
-        target.kind === "variants" ? Object.keys(target.entries) : [undefined];
-      const found = variants.map(
-        (variant) => internal.settleTarget(variant) as AnyModel
-      );
-      if (internal.state.junction?.model)
-        found.push(internal.settleJunctionModel!() as AnyModel);
-      for (const other of found) {
-        if (seen.has(other)) continue;
-        seen.add(other);
-        pending.push(other);
-      }
+      const { target, junction } = internal.state;
+      for (const variant of target.kind === "variants"
+        ? Object.keys(target.entries)
+        : [undefined])
+        seen.add(internal.settleTarget(variant) as AnyModel);
+      if (junction?.model)
+        seen.add(internal.settleJunctionModel!() as AnyModel);
     }
-  }
+  const names = new Set([...seen].map((each) => each["~"].names.ts!));
   reached.set(model, names);
   return names;
 }
