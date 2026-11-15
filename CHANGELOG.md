@@ -206,7 +206,7 @@ all-or-nothing when it fits one batch.
 - **What each extension adds to a PostgreSQL application, minified**
   (measured with `node scripts/extension-bytes.mjs`; before → now):
   default omission 45,233 → 5,853 bytes; `on` 47,016 → 11,562;
-  instrumentation 56,422 → 18,342; soft delete 80,013 → 23,963; ordering
+  instrumentation 56,422 → 18,242; soft delete 80,013 → 23,963; ordering
   100,547 → 29,694; cache 71,844 → 33,143; permissions 114,651 → 69,547;
   `on`, ordering, permissions and soft delete together 142,213 → 108,685.
   An application that applies no extension: 519,322 → 508,097 bytes, of
