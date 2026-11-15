@@ -62,10 +62,12 @@ export function callOf(x: object): CallOrigin | undefined {
   return isCall(call) ? call : undefined;
 }
 
-/** What a second moment's `run` started, if `x` is one. */
-export function attemptOf(x: object): Attempt | undefined {
-  const attempt: unknown = Reflect.get(x, ATTEMPT);
-  return isCall<Attempt>(attempt) ? attempt : undefined;
+/**
+ * What a second moment's `run` started: every `run` the host hands carries
+ * it, and a forged one is not guarded against (D6).
+ */
+export function attemptOf(run: object): Attempt {
+  return Reflect.get(run, ATTEMPT);
 }
 
 /** The view a method's scope serves, if `x` is one. */

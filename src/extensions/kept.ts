@@ -37,11 +37,6 @@ import type { ExtensionPart } from "./chain";
 import { extensionError } from "./chain";
 import { bindRows } from "./rows";
 
-/** No argument a kept delete's test reads is required: absent, it is absent. */
-const optional = (): boolean => false;
-/** An argument's test reads no instant. */
-const unread = (): Date => new Date(Number.NaN);
-
 /** Per managed model, what its deletes write instead, and who declared it. */
 export class Kept extends Map<string, ResolvedKept> implements Tombstones {
   /**
@@ -53,8 +48,8 @@ export class Kept extends Map<string, ResolvedKept> implements Tombstones {
     const kept = this.get(model);
     return (
       kept?.test !== undefined &&
-      kept.test.holds({ args: values ?? {}, required: optional }, unread) !==
-        kept.keeps
+      // Its test names an argument (`keep` refuses `now`): no instant.
+      kept.test.holds({ args: values ?? {} }) !== kept.keeps
     );
   }
   marks(writer: Writer, model: AnyModel): Input | undefined {

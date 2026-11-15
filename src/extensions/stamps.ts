@@ -13,13 +13,7 @@ import type { AdmittedArgs } from "./arguments";
 /** The call's one instant, where a field writes `now`. */
 export const NOW = /* @__PURE__ */ new Parameter();
 
-const NO_VALUES = /* @__PURE__ */ Object.freeze({
-  args: {},
-  required: () => false,
-});
-
-/** Never read: a field naming an argument reads no instant. */
-const instant = () => new Date();
+const NO_VALUES = /* @__PURE__ */ Object.freeze({ args: {} });
 
 /** Whether a field writes an argument's value, read per call. */
 const named = (value: unknown): value is Parameter =>
@@ -34,7 +28,8 @@ function boundStamp(
   const values = given ? { ...NO_VALUES, args: given } : NO_VALUES;
   const out: Record<string, unknown> = {};
   for (const [field, value] of Object.entries(stamp)) {
-    const given = named(value) ? value.read(values, instant) : value;
+    // A field naming an argument reads no instant.
+    const given = named(value) ? value.read(values) : value;
     if (given !== undefined) out[field] = given;
   }
   return out;

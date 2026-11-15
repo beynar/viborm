@@ -599,7 +599,8 @@ class DeferredRawOperation<T>
     } catch (error) {
       return Promise.reject(error);
     }
-    return coordination.executePreparedQuery<T, Record<string, unknown>>(
+    // Handlers come with `around`, which coordinates with what runs them.
+    return coordination.executePreparedQuery!<T, Record<string, unknown>>(
       this.#queryContext(
         this.#engine.transaction ? "transaction" : "direct",
         query

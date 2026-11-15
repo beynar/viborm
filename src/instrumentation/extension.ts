@@ -99,13 +99,10 @@ function observe(
     end ??= next();
     return end;
   };
-  let presented: unknown;
-  try {
-    presented = present(context, logged, unit, once);
-  } catch {
-    presented = undefined;
-  }
-  return Promise.resolve(presented)
+  // What runs synchronously reads facts the library built, or an author's
+  // notes, which are not read as hostile (D6): a presenter fails by its
+  // promise.
+  return Promise.resolve(present(context, logged, unit, once))
     .then(ignore, ignore)
     .then(() => (end === undefined ? once().then(ignore) : undefined));
 }

@@ -42,7 +42,7 @@ export function watch(c: object, watcher: Watcher): void {
 export function again(run: Run<unknown, unknown>): boolean {
   const attempt = attemptOf(run);
   if (
-    !(attempt?.direct && attempt.failed) ||
+    !(attempt.direct && attempt.failed) ||
     attempt.done ||
     attempt.certainty?.() !== undefined
   )
@@ -59,7 +59,6 @@ export function again(run: Run<unknown, unknown>): boolean {
  */
 export function via<R>(run: Run<unknown, R>, driver: AnyDriver): Promise<R> {
   const attempt = attemptOf(run);
-  if (attempt === undefined) return run();
   // The routed run resolves to what `run()` would: the call's own result.
   return attempt.start(attempt.routable ? driver : undefined) as Promise<R>;
 }

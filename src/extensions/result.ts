@@ -205,7 +205,8 @@ function planNode(
   model: AnyModel,
   args: Row | undefined
 ): { readonly args: Row | undefined; readonly node: ResultNode } | undefined {
-  const declared = fields[model["~"].names.ts ?? ""];
+  // A hydrated model always has its name.
+  const declared = fields[model["~"].names.ts!];
   const select = isRecord(args?.select) ? args.select : undefined;
   const include = isRecord(args?.include) ? args.include : undefined;
   const omit = isRecord(args?.omit) ? args.omit : undefined;
@@ -398,14 +399,13 @@ function detached(held: unknown): unknown {
   if (held instanceof Date) return new Date(held.getTime());
   // The typed arrays' own `slice`, read here and not at module scope: a
   // top-level read is a side effect every bundle importing viborm would keep.
+  // No provider row holds a `DataView`: a view is a typed array.
   if (ArrayBuffer.isView(held))
-    return held instanceof DataView
-      ? held
-      : (
-          Object.getPrototypeOf(Uint8Array.prototype).slice as (
-            this: ArrayBufferView
-          ) => ArrayBufferView
-        ).call(held);
+    return (
+      Object.getPrototypeOf(Uint8Array.prototype).slice as (
+        this: ArrayBufferView
+      ) => ArrayBufferView
+    ).call(held);
   const prototype = Object.getPrototypeOf(held);
   if (prototype !== Object.prototype && prototype !== null) return held;
   const copy: Row = {};

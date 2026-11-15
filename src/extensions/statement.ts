@@ -42,7 +42,7 @@ export function rewritePart(handler: UnitHandler): ExtensionPart {
         together: async (members, send, refuse) => {
           const statements: (Sql | undefined)[] = [];
           const reached = new Set<number>();
-          let settle: (outcome: Promise<unknown>) => void = () => undefined;
+          let settle!: (outcome: Promise<unknown>) => void;
           const outcome = new Promise<unknown>((resolve) => {
             settle = resolve;
           });
@@ -60,8 +60,8 @@ export function rewritePart(handler: UnitHandler): ExtensionPart {
             (unit, index) => unit !== undefined && !reached.has(index)
           );
           if (refused >= 0) {
-            const failure = await units[refused]?.done.then(
-              () => undefined,
+            // An unreached unit's end is its failure.
+            const failure = await units[refused]?.done.catch(
               (error: unknown) => error
             );
             settle(Promise.reject(failure));

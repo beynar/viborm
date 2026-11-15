@@ -301,9 +301,15 @@ export class Parameter {
     this.#keys = path === undefined ? [] : path.split(".");
     Object.freeze(this);
   }
-  /** The call's value, `undefined` when absent. */
-  read(values: CallValues | undefined, instant: () => Date): unknown {
-    if (this.arg === undefined) return instant();
+  /**
+   * The call's value, `undefined` when absent. Only a parameter without an
+   * argument reads `instant`, and every caller that may hold one passes it.
+   */
+  read(
+    values: Pick<CallValues, "args"> | undefined,
+    instant?: () => Date
+  ): unknown {
+    if (this.arg === undefined) return instant!();
     let value = values?.args[this.arg];
     for (const key of this.#keys) {
       if (value === null || typeof value !== "object") return undefined;
@@ -330,7 +336,10 @@ export class Condition {
     this.test = test;
     Object.freeze(this);
   }
-  holds(values: CallValues | undefined, instant: () => Date): boolean {
+  holds(
+    values: Pick<CallValues, "args"> | undefined,
+    instant?: () => Date
+  ): boolean {
     const value = this.parameter.read(values, instant);
     const test = this.test;
     if ("exists" in test) return (value !== undefined) === test.exists;

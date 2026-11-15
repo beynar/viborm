@@ -39,7 +39,12 @@ export interface Coordination {
    * certainty even when nothing registered.
    */
   readonly collect?: typeof collect;
-  readonly executePreparedQuery: typeof executePreparedQuery;
+  /**
+   * What runs a prepared call under the chain's `around` parts and what it
+   * registered: absent where neither exists (`unit` parts alone), since
+   * core asks it only of a call that has handlers or a registration.
+   */
+  readonly executePreparedQuery?: typeof executePreparedQuery;
   /** Present with `admit`: whether a part intercepts one of the members. */
   readonly intercepts?: typeof interceptsArray;
   /**
@@ -57,10 +62,7 @@ export interface Coordination {
  * For `unit` parts: nothing of the chain wraps a call, the prepared call
  * runs as it is.
  */
-export const UNITS: Coordination = {
-  rank: -1,
-  executePreparedQuery: (_context, _handlers, child) => child(),
-};
+export const UNITS: Coordination = { rank: -1 };
 
 /**
  * For the part that watches writes: an array member it hears runs under its

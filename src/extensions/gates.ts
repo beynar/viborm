@@ -220,22 +220,11 @@ export function gatedDocument(
   };
   return (value) => {
     let source: unknown = value;
-    if (positions) {
-      if (!Array.isArray(value))
-        throw new InvalidScalarResult(
-          "row",
-          "a positional row is not an array"
-        );
-    } else {
+    // A positional row is an array: its driver asserted it. Only the count
+    // carrier is never null, and it carries no gate.
+    if (!positions) {
       source = providerDocument(providerJson(value));
-      if (source === null) {
-        if (shape.nullable === false)
-          throw new InvalidScalarResult(
-            "row",
-            "a document the statement always builds is null"
-          );
-        return null;
-      }
+      if (source === null) return null;
       if (source === undefined)
         throw new InvalidScalarResult(
           "row",

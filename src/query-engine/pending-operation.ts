@@ -579,7 +579,9 @@ export class PendingOperation<T>
             this.#engine.transaction ? "transaction" : "direct",
             preparedInput
           );
-    return coordination.executePreparedQuery<T, Record<string, unknown>>(
+    // Handlers come with `around` and a registration with the part that
+    // watches writes: each coordinates with what runs them.
+    return coordination.executePreparedQuery!<T, Record<string, unknown>>(
       context,
       handlers,
       (notifications, driver) =>
