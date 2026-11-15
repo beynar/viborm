@@ -264,8 +264,8 @@ all-or-nothing when it fits one batch.
   (measured with `node scripts/extension-bytes.mjs`; before → now):
   default omission 45,233 → 5,692 bytes; `on` 47,016 → 9,667;
   instrumentation 56,422 → 14,784; soft delete 80,013 → 20,674; ordering
-  100,547 → 26,868; cache 71,844 → 26,849; permissions 114,651 → 64,751;
-  `on`, ordering, permissions and soft delete together 142,213 → 100,520.
+  100,547 → 26,879; cache 71,844 → 26,849; permissions 114,651 → 64,751;
+  `on`, ordering, permissions and soft delete together 142,213 → 100,531.
   An application that applies no extension: 519,322 → 508,070 bytes, of
   which 646 bytes are extension code.
 - **What one extension of an application costs the type checker**: an

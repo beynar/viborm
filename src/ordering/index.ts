@@ -639,8 +639,9 @@ function methods(ordered: Ordered) {
     // The anchor's unique filter, validated by the read of the anchor.
     const anchor = (after ?? before) as Row | undefined;
     // The side the row's neighbour is read on: below it (before an anchor,
-    // last of a list), else above.
-    const back = after === undefined && first !== true;
+    // last of a list), else above. Without an anchor only `first` decides:
+    // an `after` that names none (`null`) is no anchor.
+    const back = anchor === undefined ? first !== true : after === undefined;
     const projection = defined({ select, include, omit });
     // Every write of the move writes what `data` names beside its key and
     // list, its `updatedAt()` fields as stored.
