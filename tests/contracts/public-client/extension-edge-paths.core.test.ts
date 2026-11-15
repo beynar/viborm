@@ -400,6 +400,38 @@ describe("rules", () => {
     );
   });
 
+  test("a check that reads a many-to-many relation, which reaches it through the row's key, does not judge again an update that writes another field", async () => {
+    const member = s.model({
+      id: s.string().id(),
+      name: s.string(),
+      groups: s.toMany(() => group),
+    });
+    const group = s.model({
+      id: s.string().id(),
+      label: s.string(),
+      members: s.toMany(() => member),
+    });
+    const driver = new ScriptedDriver("postgresql");
+    const db = createClient({ schema: { member, group }, driver }).$extends(
+      extension(
+        "grouped",
+        rule({
+          member: {
+            update: { check: check({ groups: { some: { label: "g" } } }) },
+          },
+        })
+      )
+    );
+    await db.member.updateMany({ where: { id: "m" }, data: { name: "n" } });
+    // The row's answer is its old one, which the candidates already state.
+    expect(driver.sent).toEqual([
+      {
+        sql: 'UPDATE "public"."member" SET "name" = $1 WHERE "member"."id" = $2',
+        params: ["n", "m"],
+      },
+    ]);
+  });
+
   test("exists() whose filter is not an object is refused where the extension is applied, at its place", () => {
     const { base } = scripted();
     const apply = () =>

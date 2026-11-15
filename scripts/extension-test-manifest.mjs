@@ -65,6 +65,7 @@ const contracts = [
   "tests/contracts/public-client/soft-delete.core.test.ts",
   "tests/contracts/public-client/statement-transforms-integration.core.test.ts",
   "tests/contracts/public-client/units.core.test.ts",
+  "tests/contracts/public-client/wave3-review.core.test.ts",
   "tests/contracts/public-client/written.core.test.ts",
   "tests/unit/cache/adversarial-v1-cache.core.test.ts",
   "tests/unit/cache/brand-token-keys.core.test.ts",
