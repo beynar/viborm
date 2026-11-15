@@ -211,6 +211,19 @@ interface Writes {
 }
 
 type Order = readonly Readonly<Record<string, "asc" | "desc">>[];
+/** An order's terms, field by field. */
+type Terms = readonly (readonly [string, "asc" | "desc"])[];
+
+/** `fields`' columns, under `alias` where given, named `prefix` and their rank. */
+const aliased = (
+  q: ModelSql,
+  fields: readonly string[],
+  prefix: string,
+  alias?: string
+) =>
+  fields.map(
+    (field, n) => sql`${q.column(field, alias)} AS ${sql.raw(`${prefix}${n}`)}`
+  );
 
 /**
  * Respacing's keys, read from a derived table the `updateMany` joins (one
@@ -233,12 +246,14 @@ type Order = readonly Readonly<Record<string, "asc" | "desc">>[];
 const named = (q: ModelSql, name: string): Sql =>
   q.name("r", `0viborm_${name}`);
 
-const respacing = (ordered: Ordered, where: unknown, order: Order): string =>
-  joined<string>({
+const respacing = (ordered: Ordered, where: unknown, order: Order): string => {
+  const terms: Terms = order.flatMap((term) => Object.entries(term));
+  return joined<string>({
     value: (q) => named(q, "nk"),
-    rows: (q, read) => respaceRows(ordered, where, order, q, read),
-    join: (q, target) => respaceJoin(ordered, where, order, q, target),
+    rows: (q, read) => respaceRows(ordered, where, terms, q, read),
+    join: (q, target) => respaceJoin(ordered, where, terms, q, target),
   });
+};
 
 /**
  * Respacing's keys as a list, for a database whose UPDATE joins no derived
@@ -251,25 +266,18 @@ const respacing = (ordered: Ordered, where: unknown, order: Order): string =>
 async function respaceRows(
   ordered: Ordered,
   where: unknown,
-  order: Order,
+  terms: Terms,
   q: ModelSql,
   read: (statement: Sql) => Promise<readonly Row[]>
 ): Promise<{ where: Row; value: unknown }[]> {
   const { key, within, identity } = ordered;
-  const terms = order.flatMap(
-    (term) => Object.entries(term) as [string, "asc" | "desc"][]
-  );
   const table = q.table();
-  const as = (fields: readonly string[], prefix: string) =>
-    fields.map(
-      (field, at) => sql`${q.column(field)} AS ${sql.raw(`${prefix}${at}`)}`
-    );
   // The lists respaced: those holding a member the call sees `where` matches.
   const seen = sql`WHERE ${q.visible("", { where: where as object | undefined })}`;
   let lists: readonly Row[];
   if (within.length > 0)
     lists = await read(
-      sql`SELECT ${sql.join(as(within, "w"), ", ")} FROM ${table} ${seen} GROUP BY ${sql.join(
+      sql`SELECT ${sql.join(aliased(q, within, "w"), ", ")} FROM ${table} ${seen} GROUP BY ${sql.join(
         within.map((_, at) => sql.raw(`w${at}`)),
         ", "
       )}`
@@ -292,8 +300,9 @@ async function respaceRows(
       sql`SELECT ${sql.join(
         [
           sql`${q.column(key)} AS k`,
-          ...as(identity, "i"),
-          ...as(
+          ...aliased(q, identity, "i"),
+          ...aliased(
+            q,
             terms.map(([field]) => field),
             "o"
           ),
@@ -336,137 +345,129 @@ async function respaceRows(
 function respaceJoin(
   ordered: Ordered,
   where: unknown,
-  order: Order,
+  terms: Terms,
   q: ModelSql,
   target: string
 ): { source: Sql; on: Sql } {
-  {
-    const { key, within, identity } = ordered;
-    const s = spellings[q.dialect as "postgresql" | "sqlite" | "mysql"];
-    const terms = order.flatMap((term) => Object.entries(term));
-    const column = (field: string, alias?: string) => q.column(field, alias);
-    const at = (alias: string, prefix: string, count: number) =>
-      Array.from({ length: count }, (_, n) =>
-        sql.raw(`${alias}.${prefix}${n}`)
-      );
-    const ids = (alias: string) => at(alias, "i", identity.length);
-    const lists = (alias: string) => at(alias, "w", within.length);
-    const byList = (alias: string, ...more: Sql[]) =>
-      within.length + more.length === 0
-        ? sql.empty
-        : sql`PARTITION BY ${sql.join([...lists(alias), ...more], ", ")} `;
-    const current = (alias: string) =>
-      sql.join([sql.raw(`${alias}.k`), ...ids(alias)], ", ");
-    // The lists respaced: those holding a member the call sees `where` matches.
-    const seen = q.visible("w", { where: where as object | undefined });
-    const listed =
-      within.length > 0
-        ? sql`EXISTS (SELECT 1 FROM ${q.table("w")} WHERE ${sql.join(
-            within.map((field) =>
-              s.same(column(field, "w"), column(field, "s"))
+  const { key, within, identity } = ordered;
+  const s = spellings[q.dialect as "postgresql" | "sqlite" | "mysql"];
+  const column = (field: string, alias?: string) => q.column(field, alias);
+  const at = (alias: string, prefix: string, count: number) =>
+    Array.from({ length: count }, (_, n) => sql.raw(`${alias}.${prefix}${n}`));
+  const ids = (alias: string) => at(alias, "i", identity.length);
+  const lists = (alias: string) => at(alias, "w", within.length);
+  const byList = (alias: string, ...more: Sql[]) =>
+    within.length + more.length === 0
+      ? sql.empty
+      : sql`PARTITION BY ${sql.join([...lists(alias), ...more], ", ")} `;
+  const current = (alias: string) =>
+    sql.join([sql.raw(`${alias}.k`), ...ids(alias)], ", ");
+  // The lists respaced: those holding a member the call sees `where` matches.
+  const seen = q.visible("w", { where: where as object | undefined });
+  const listed =
+    within.length > 0
+      ? sql`EXISTS (SELECT 1 FROM ${q.table("w")} WHERE ${sql.join(
+          within.map((field) => s.same(column(field, "w"), column(field, "s"))),
+          " AND "
+        )} AND ${seen})`
+      : where === undefined
+        ? sql`1 = 1`
+        : sql`EXISTS (SELECT 1 FROM ${q.table("w")} WHERE ${seen})`;
+  const members = sql`SELECT ${sql.join(
+    [
+      ...aliased(q, identity, "i", "s"),
+      ...aliased(q, within, "w", "s"),
+      sql`${column(key, "s")} AS k`,
+      ...aliased(
+        q,
+        terms.map(([field]) => field),
+        "o",
+        "s"
+      ),
+      sql`(CASE WHEN ${q.visible("s", { update: [key] })} THEN 1 ELSE 0 END) AS v`,
+    ],
+    ", "
+  )} FROM ${q.table("s")} WHERE ${listed}`;
+  const bound = sql`(p.v = 0 AND ${s.digits(sql.raw("p.k"))})`;
+  const picked = [
+    ...terms.map(
+      ([, direction], n) =>
+        sql`${sql.raw(`p.o${n}`)} ${sql.raw(direction === "desc" ? "DESC" : "ASC")}`
+    ),
+    current("p"),
+  ];
+  const v = sql.raw("p.v");
+  // The members after each, as a growing frame: MySQL rescans a frame that
+  // ends at UNBOUNDED FOLLOWING for each row.
+  const backwards = sql.join(
+    [sql.raw("p.k DESC"), ...ids("p").map((id) => sql`${id} DESC`)],
+    ", "
+  );
+  const running = (by: Sql) =>
+    sql`OVER (${byList("p")}ORDER BY ${by} ROWS UNBOUNDED PRECEDING)`;
+  const ranked = sql`SELECT p.*, SUM(CASE WHEN ${bound} THEN 1 ELSE 0 END) ${running(current("p"))} AS seg, MAX(CASE WHEN ${bound} THEN p.k END) ${running(current("p"))} AS lo, MIN(CASE WHEN ${bound} THEN p.k END) ${running(backwards)} AS hi, ROW_NUMBER() OVER (${byList("p", v)}ORDER BY ${current("p")}) AS slot, ROW_NUMBER() OVER (${byList("p", v)}ORDER BY ${sql.join(picked, ", ")}) AS pick FROM (${members}) AS p`;
+  const segment = sql.join([...lists("q"), sql.raw("q.seg")], ", ");
+  const movables = sql`SELECT q.*, ROW_NUMBER() OVER (PARTITION BY ${segment} ORDER BY ${current("q")}) AS r, COUNT(*) OVER (PARTITION BY ${segment}) AS cnt FROM (${ranked}) AS q WHERE q.v = 1`;
+  // A place's key: its rank among the movable members between two fixed
+  // keys, fixed width, the last digit not zero.
+  const keyOf = (alias: string) => {
+    const g = (name: string) => sql.raw(`${alias}.${name}`);
+    const n = sql`(${g("slot")} - 1)`;
+    return sql`CASE WHEN ${g("lo")} IS NULL AND ${g("hi")} IS NULL THEN ${s.concat(
+      s.text(sql`length(${s.text(n)})`),
+      s.text(n)
+    )} ELSE ${between(
+      s,
+      g("lo"),
+      g("hi"),
+      s.concat(
+        s.pad(s.text(g("r")), sql`length(${s.text(g("cnt"))})`),
+        sql`'1'`
+      )
+    )} END`;
+  };
+  const keyed =
+    terms.length === 0
+      ? sql`SELECT ${sql.join([...ids("g"), ...lists("g")], ", ")}, g.k, ${keyOf("g")} AS nk FROM (${movables}) AS g`
+      : sql`WITH g AS (${movables}) SELECT ${sql.join([...ids("m"), ...lists("m")], ", ")}, m.k, ${keyOf("t")} AS nk FROM g AS t JOIN g AS m ON ${sql.join(
+          [
+            ...within.map((_, n) =>
+              s.same(sql.raw(`t.w${n}`), sql.raw(`m.w${n}`))
             ),
-            " AND "
-          )} AND ${seen})`
-        : where === undefined
-          ? sql`1 = 1`
-          : sql`EXISTS (SELECT 1 FROM ${q.table("w")} WHERE ${seen})`;
-    const members = sql`SELECT ${sql.join(
+            sql`t.slot = m.pick`,
+          ],
+          " AND "
+        )}`;
+  // Its columns, named as no column of the model can be (`joined`): the
+  // UPDATE's own columns stay unambiguous beside them.
+  const names = [
+    ...identity.map((_, n) => `i${n}`),
+    ...within.map((_, n) => `w${n}`),
+    "k",
+    "nk",
+  ];
+  const source = sql`SELECT ${sql.join(
+    names.map(
+      (name) => sql`${sql.raw(`x.${name}`)} AS ${q.name(`0viborm_${name}`)}`
+    ),
+    ", "
+  )} FROM (${keyed}) AS x`;
+  const r = (name: string) => named(q, name);
+  return {
+    source: sql`(${source}) AS r`,
+    on: sql.join(
       [
         ...identity.map(
-          (field, n) => sql`${column(field, "s")} AS ${sql.raw(`i${n}`)}`
+          (field, n) => sql`${r(`i${n}`)} = ${column(field, target)}`
         ),
-        ...within.map(
-          (field, n) => sql`${column(field, "s")} AS ${sql.raw(`w${n}`)}`
-        ),
-        sql`${column(key, "s")} AS k`,
-        ...terms.map(
-          ([field], n) => sql`${column(field, "s")} AS ${sql.raw(`o${n}`)}`
-        ),
-        sql`(CASE WHEN ${q.visible("s", { update: [key] })} THEN 1 ELSE 0 END) AS v`,
+        // Still in the list and at the key it was ranked with.
+        ...within.map((field, n) => s.same(r(`w${n}`), column(field, target))),
+        sql`${column(key, target)} = ${r("k")}`,
+        sql`${r("nk")} IS NOT NULL`,
       ],
-      ", "
-    )} FROM ${q.table("s")} WHERE ${listed}`;
-    const bound = sql`(p.v = 0 AND ${s.digits(sql.raw("p.k"))})`;
-    const picked = [
-      ...terms.map(
-        ([, direction], n) =>
-          sql`${sql.raw(`p.o${n}`)} ${sql.raw(direction === "desc" ? "DESC" : "ASC")}`
-      ),
-      current("p"),
-    ];
-    const v = sql.raw("p.v");
-    // The members after each, as a growing frame: MySQL rescans a frame that
-    // ends at UNBOUNDED FOLLOWING for each row.
-    const backwards = sql.join(
-      [sql.raw("p.k DESC"), ...ids("p").map((id) => sql`${id} DESC`)],
-      ", "
-    );
-    const ranked = sql`SELECT p.*, SUM(CASE WHEN ${bound} THEN 1 ELSE 0 END) OVER (${byList("p")}ORDER BY ${current("p")} ROWS UNBOUNDED PRECEDING) AS seg, MAX(CASE WHEN ${bound} THEN p.k END) OVER (${byList("p")}ORDER BY ${current("p")} ROWS UNBOUNDED PRECEDING) AS lo, MIN(CASE WHEN ${bound} THEN p.k END) OVER (${byList("p")}ORDER BY ${backwards} ROWS UNBOUNDED PRECEDING) AS hi, ROW_NUMBER() OVER (${byList("p", v)}ORDER BY ${current("p")}) AS slot, ROW_NUMBER() OVER (${byList("p", v)}ORDER BY ${sql.join(picked, ", ")}) AS pick FROM (${members}) AS p`;
-    const segment = sql.join([...lists("q"), sql.raw("q.seg")], ", ");
-    const movables = sql`SELECT q.*, ROW_NUMBER() OVER (PARTITION BY ${segment} ORDER BY ${current("q")}) AS r, COUNT(*) OVER (PARTITION BY ${segment}) AS cnt FROM (${ranked}) AS q WHERE q.v = 1`;
-    // A place's key: its rank among the movable members between two fixed
-    // keys, fixed width, the last digit not zero.
-    const keyOf = (alias: string) => {
-      const g = (name: string) => sql.raw(`${alias}.${name}`);
-      const n = sql`(${g("slot")} - 1)`;
-      return sql`CASE WHEN ${g("lo")} IS NULL AND ${g("hi")} IS NULL THEN ${s.concat(
-        s.text(sql`length(${s.text(n)})`),
-        s.text(n)
-      )} ELSE ${between(
-        s,
-        g("lo"),
-        g("hi"),
-        s.concat(
-          s.pad(s.text(g("r")), sql`length(${s.text(g("cnt"))})`),
-          sql`'1'`
-        )
-      )} END`;
-    };
-    const keyed =
-      terms.length === 0
-        ? sql`SELECT ${sql.join([...ids("g"), ...lists("g")], ", ")}, g.k, ${keyOf("g")} AS nk FROM (${movables}) AS g`
-        : sql`WITH g AS (${movables}) SELECT ${sql.join([...ids("m"), ...lists("m")], ", ")}, m.k, ${keyOf("t")} AS nk FROM g AS t JOIN g AS m ON ${sql.join(
-            [
-              ...within.map((_, n) =>
-                s.same(sql.raw(`t.w${n}`), sql.raw(`m.w${n}`))
-              ),
-              sql`t.slot = m.pick`,
-            ],
-            " AND "
-          )}`;
-    // Its columns, named as no column of the model can be (`joined`): the
-    // UPDATE's own columns stay unambiguous beside them.
-    const names = [
-      ...identity.map((_, n) => `i${n}`),
-      ...within.map((_, n) => `w${n}`),
-      "k",
-      "nk",
-    ];
-    const source = sql`SELECT ${sql.join(
-      names.map(
-        (name) => sql`${sql.raw(`x.${name}`)} AS ${q.name(`0viborm_${name}`)}`
-      ),
-      ", "
-    )} FROM (${keyed}) AS x`;
-    const r = (name: string) => named(q, name);
-    return {
-      source: sql`(${source}) AS r`,
-      on: sql.join(
-        [
-          ...identity.map(
-            (field, n) => sql`${r(`i${n}`)} = ${column(field, target)}`
-          ),
-          // Still in the list and at the key it was ranked with.
-          ...within.map((field, n) =>
-            s.same(r(`w${n}`), column(field, target))
-          ),
-          sql`${column(key, target)} = ${r("k")}`,
-          sql`${r("nk")} IS NOT NULL`,
-        ],
-        " AND "
-      ),
-    };
-  }
+      " AND "
+    ),
+  };
 }
 
 /**
