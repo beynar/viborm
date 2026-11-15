@@ -705,6 +705,23 @@ test("release CI accepts only current complete exact-main proof", async () => {
   console.log("Release CI proof: pass");
 });
 
+test("a red job outside the release proof is not read", async () => {
+  // What this proves is release-ci's side only: the jobs it reads are the
+  // listed ones. That the run is a success when the Snowflake job is red is
+  // ci.yml's continue-on-error, pinned by scripts/credential-free-ci.test.mjs.
+  const jobsPages = [
+    {
+      jobs: [
+        ...RELEASE_CI_JOBS.map((name) => workflowJob(name)),
+        workflowJob("Snowflake provider", { conclusion: "failure" }),
+      ],
+    },
+  ];
+  const proof = await verifyReleaseCi(verification(fixture({ jobsPages })));
+  assert.equal(proof.status, "verified");
+  assert.equal(proof.proof, "push");
+});
+
 test("release CI accepts a tree-equivalent pull-request proof", async () => {
   const pullProof = {
     attempt: 1,

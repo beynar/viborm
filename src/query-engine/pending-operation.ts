@@ -4,34 +4,24 @@
  * method is called. Every operation is served by the single (V2) engine.
  */
 
-import {
-  isCacheManagedExecution,
-  officialCacheRuntime,
-} from "@cache/capability";
 import type { AnyDriver, QueryExecutionContext } from "@drivers/exports";
 import {
   InvalidTransactionInputError,
   retainWriteOutcomeFailure,
 } from "@errors";
-import type { AdmittedControls } from "@extensions/controls";
-import {
-  executePreparedQuery,
-  extensionHost,
-  lookupPlacedControls,
-  lookupResolvedExtensionHandlers,
-  observeOperation,
-} from "@extensions/host-slot";
+import type { AdmittedArgs } from "@extensions/arguments";
+import type { CallOrigin } from "@extensions/origin";
 import type {
+  AroundHandlers,
+  CallMode,
   PreparedModelQueryContext,
-  QueryInterceptionMode,
   WriteOutcomeRegistration,
 } from "@extensions/query";
+import type { UnitSource } from "@extensions/unit-source";
 import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
-import type { CacheResultCodec } from "./cache-flow";
 import {
   createPendingOperationContext,
-  createPendingOperationInstrumentationFacts,
   type OperationExecutionContext,
   observeTransactionBatchPhase,
   withOperationErrorContext,
@@ -60,41 +50,6 @@ export const PENDING_OPERATION_SYMBOL = Symbol.for("viborm.pendingOperation");
 export type CommittedWriteSegmentNotification = () => Promise<void>;
 /** Conservatively invalidate after dispatch when provider acknowledgement is ambiguous. */
 export type WriteMayBeVisibleNotification = () => Promise<void>;
-
-type PendingCacheExecution<T> = (
-  execute: (
-    driver?: AnyDriver,
-    committedWriteSegment?: CommittedWriteSegmentNotification,
-    writeMayBeVisible?: WriteMayBeVisibleNotification
-  ) => Promise<T>,
-  driverOverride: AnyDriver | undefined
-) => Promise<T>;
-
-type AttachPendingCacheExecution = <T>(
-  operation: PendingOperation<T>,
-  wrapper: PendingCacheExecution<T>
-) => PendingOperation<T>;
-
-interface PendingCacheResultAccess {
-  readonly args: Record<string, unknown>;
-  /** The controls the read admitted: part of what its cache entry is keyed on. */
-  readonly controls: AdmittedControls | undefined;
-  readonly codec: CacheResultCodec;
-  readonly executionContext: QueryExecutionContext;
-}
-
-type ReadPendingCacheResult = (
-  operation: PendingOperation<unknown>
-) => PendingCacheResultAccess;
-
-let attachPendingCacheExecutionFriend: AttachPendingCacheExecution;
-let readPendingCacheResultFriend: ReadPendingCacheResult;
-
-type DeferredExecution<T> = (
-  driverOverride?: AnyDriver,
-  committedWriteSegment?: CommittedWriteSegmentNotification,
-  writeMayBeVisible?: WriteMayBeVisibleNotification
-) => Promise<T>;
 
 function combineWriteNotifications(
   first: (() => Promise<void>) | undefined,
@@ -129,31 +84,30 @@ function combineWriteNotifications(
 
 /**
  * Client-owned work that must finish before operation construction starts. It
- * receives the arguments without their controls, and the controls admitted
- * from them.
+ * receives the call's arguments without the ones extensions declare (`args`),
+ * and the values admitted from those.
  */
 export type PrepareOperationInput = (
   args: Record<string, unknown>,
-  controls: AdmittedControls | undefined
+  values: AdmittedArgs | undefined,
+  /** One object per call: what an extension's two moments of it share. */
+  call: object
 ) => Record<string, unknown>;
 
 /** Package-owned write listener prepared only after the operation input is trusted. */
 export type PrepareWriteOutcomeRegistration = (
   context: QueryExecutionContext,
-  controls: AdmittedControls | undefined
+  values: AdmittedArgs | undefined,
+  call: object | undefined
 ) => WriteOutcomeRegistration | undefined;
 
-interface OperationInputPreparation {
+interface OperationInputPreparation extends CallOrigin {
   readonly prepare: PrepareOperationInput;
   status: "pending" | "success" | "failure";
   args?: Record<string, unknown>;
   /** The operation's one admission record, settled with its arguments. */
-  controls?: AdmittedControls;
+  values?: AdmittedArgs;
   error?: unknown;
-}
-
-interface OperationResolution {
-  routed?: PreparedOperation;
 }
 
 type ResolvedPrepareOptions = Readonly<
@@ -194,14 +148,12 @@ export class PendingOperation<T>
   readonly #options: ResolvedPrepareOptions;
 
   readonly #execution: PendingExecution<T>;
-  readonly #deferredExecution: DeferredExecution<T> | undefined;
   readonly #inputPreparation: OperationInputPreparation | undefined;
   readonly #prepareWriteOutcomeRegistration:
     | PrepareWriteOutcomeRegistration
     | undefined;
   #writeOutcomeRegistration: WriteOutcomeRegistration | undefined;
   #writeOutcomeRegistrationResolved = false;
-  #operationResolution: OperationResolution | undefined;
   #observationCommitCertainty: "committed" | "may-have-committed" | undefined;
 
   // The ONE operation owner (C-01). Every client lineage builds it in
@@ -229,104 +181,35 @@ export class PendingOperation<T>
         operation,
         args,
         options,
-        undefined,
-        undefined,
         prepareInput === undefined
           ? undefined
           : { prepare: prepareInput, status: "pending" },
-        undefined,
         prepareWriteOutcomeRegistration
       );
-    attachPendingCacheExecutionFriend = (operation, wrapper) =>
-      operation.#wrapExecution(wrapper);
-    // Each part is computed when read: a read the cache bypasses asks only
-    // for its controls, admitted once with its arguments.
-    readPendingCacheResultFriend = (operation) => ({
-      get args() {
-        return operation.cacheKeyArgs();
-      },
-      get controls() {
-        operation.#resolveArgs();
-        return operation.#inputPreparation?.controls;
-      },
-      get codec() {
-        return operation.#cacheResultCodec();
-      },
-      executionContext: operation.#context.attribution,
-    });
     pendingOperationTransactionOwner = Object.freeze({
       clientId: (operation) => operation.#context.clientId,
       scopeId: (operation) => operation.#context.scopeId,
       model: (operation) => operation.#modelName,
       operation: (operation) => operation.#operation,
       context: (operation) => operation.#context.attribution,
-      requiresInterception: (operation) => {
-        const requestedOperation = String(operation.#options.originalOperation);
-        const requestHandlers = lookupResolvedExtensionHandlers(
-          operation.#engine.extensionChain,
-          "request",
-          operation.#modelName,
-          requestedOperation
-        );
-        const hasRequestHandlers =
-          requestHandlers !== undefined && requestHandlers.length > 0;
-        const requestNeedsObservedCoordination =
-          hasRequestHandlers &&
-          (operation.#engine.extensionChain?.observe.length ?? 0) > 0;
-        const queryHandlers = lookupResolvedExtensionHandlers(
-          operation.#engine.extensionChain,
-          "query",
-          operation.#modelName,
-          requestedOperation
-        );
-        return (
-          requestNeedsObservedCoordination ||
-          (queryHandlers !== undefined && queryHandlers.length > 0) ||
-          // A listener resolved as absent (a write no hook concerns) asks
-          // for none; one not resolved yet is assumed.
-          (operation.#prepareWriteOutcomeRegistration !== undefined &&
-            (!operation.#writeOutcomeRegistrationResolved ||
-              operation.#writeOutcomeRegistration !== undefined))
-        );
-      },
       prepareAdmission: (operation, phase = "input") => {
         operation.#preparedInput();
         if (phase === "plan") operation.#resolveSinglePackage();
       },
-      stagePackageWriteOutcomes: (operation, outcomes) => {
-        const registration = operation.#resolveWriteOutcomeRegistration();
-        if (registration !== undefined) outcomes.stage(registration);
-      },
-      startInterception: (operation, child, outcomes, control) => {
+      around: (operation) => {
         const requestedOperation = String(operation.#options.originalOperation);
-        const handlers = lookupResolvedExtensionHandlers(
-          operation.#engine.extensionChain,
-          "query",
+        const handlers = operation.#engine.extensionChain?.around?.handlers(
           operation.#modelName,
           requestedOperation
         );
-        const preparedInput = operation.#preparedInput();
-        const writeOutcomeRegistration =
-          operation.#resolveWriteOutcomeRegistration();
-        if (
-          (handlers === undefined || handlers.length === 0) &&
-          writeOutcomeRegistration === undefined
-        ) {
-          return child();
-        }
-        const queryContext =
-          handlers === undefined || handlers.length === 0
-            ? undefined
-            : operation.#queryContext("array", preparedInput);
-        return executePreparedQuery<unknown, Record<string, unknown>>(
-          queryContext,
+        return {
+          context: handlers?.length
+            ? operation.#queryContext("array", operation.#preparedInput())
+            : undefined,
           handlers,
-          child,
-          !isReadOperation(requestedOperation),
-          outcomes,
-          control,
-          writeOutcomeRegistration
-        );
+          write: !isReadOperation(requestedOperation),
+          registration: operation.#resolveWriteOutcomeRegistration(),
+        };
       },
       executeCore: (operation, driver, notifications) =>
         operation.#execution.executeReserved(() =>
@@ -336,45 +219,20 @@ export class PendingOperation<T>
             notifications?.mayHaveCommitted
           )
         ),
-      isWrite: (operation) =>
-        !isReadOperation(String(operation.#options.originalOperation)),
-      hasObservation: (operation) =>
-        (operation.#engine.extensionChain?.observe.length ?? 0) > 0,
-      observe: (operation, child, readCompletionFacts) => {
-        const observers = operation.#engine.extensionChain?.observe;
-        if (observers === undefined || observers.length === 0) return child();
-        return observeOperation(
-          observers,
-          String(operation.#options.originalOperation),
-          operation.#modelName,
-          child,
-          readCompletionFacts,
-          operation.#readInstrumentationFacts()
-        );
-      },
+      unit: (operation) => operation.#unit(),
       reserveWith: (operation, driver) => {
         operation.#execution.reserveWith(driver);
       },
       executeWith: (operation, driver) => {
-        const observers = operation.#engine.extensionChain?.observe;
-        if (observers === undefined || observers.length === 0) {
+        const observation = operation.#engine.extensionChain?.observation;
+        if (observation === undefined) {
           return operation.#execution.executeWith(driver, () =>
             operation.#runCoreExecution(driver)
           );
         }
         return operation.#execution.executeWith(driver, () =>
-          observeOperation(
-            observers,
-            String(operation.#options.originalOperation),
-            operation.#modelName,
-            () => operation.#runCoreExecution(driver),
-            () =>
-              operation.#observationCommitCertainty === undefined
-                ? undefined
-                : {
-                    commitCertainty: operation.#observationCommitCertainty,
-                  },
-            operation.#readInstrumentationFacts()
+          observation.run(operation.#unit(true), () =>
+            operation.#runCoreExecution(driver)
           )
         );
       },
@@ -420,10 +278,7 @@ export class PendingOperation<T>
     requestedOperation: Operation | `${Operation}OrThrow`,
     args: Record<string, unknown>,
     options?: PrepareOptions,
-    context?: OperationExecutionContext,
-    deferredExecution?: DeferredExecution<T>,
     inputPreparation?: OperationInputPreparation,
-    operationResolution?: OperationResolution,
     prepareWriteOutcomeRegistration?: PrepareWriteOutcomeRegistration
   ) {
     if (construction !== pendingOperationConstruction) {
@@ -432,10 +287,8 @@ export class PendingOperation<T>
     this.#engine = engine;
     this.#model = model;
     this.#args = args;
-    this.#deferredExecution = deferredExecution;
     this.#inputPreparation = inputPreparation;
     this.#prepareWriteOutcomeRegistration = prepareWriteOutcomeRegistration;
-    this.#operationResolution = operationResolution;
     // Every client lineage installs the route in `VibORM`'s constructor and
     // `bind()` forwards it (C-01); an engine built outside that lineage owns no
     // operation path at all.
@@ -451,22 +304,29 @@ export class PendingOperation<T>
       throwIfNotFound: isOrThrow || options?.throwIfNotFound,
       originalOperation: options?.originalOperation ?? requestedOperation,
     });
-    this.#context =
-      context ??
-      createPendingOperationContext(
-        this.#modelName,
-        this.#operation,
-        engine.clientId,
-        engine.scopeId,
-        engine.extensionChain
-      );
+    this.#context = createPendingOperationContext(
+      this.#modelName,
+      this.#operation,
+      engine.clientId,
+      engine.scopeId,
+      engine.extensionChain
+    );
+    // The call object an extension's moments share is where the words on the
+    // call (`key`, `codec`, `database`) find the operation it became.
+    if (inputPreparation)
+      inputPreparation.of = {
+        engine,
+        context: this.#context.attribution,
+        prepared: () => this.#resolveRouted(),
+      };
     Object.freeze(this);
   }
 
   /**
    * Resolve client request preparation once, caching both values and throws.
-   * The operation's controls leave its arguments and are admitted first, so
-   * the record is settled with the arguments and no request handler sees one.
+   * The arguments extensions declare leave the call's own and are admitted
+   * first, so the record is settled with the call's own arguments and no
+   * first moment sees a declared one among them.
    */
   #resolveArgs(): Record<string, unknown> {
     const preparation = this.#inputPreparation;
@@ -477,27 +337,20 @@ export class PendingOperation<T>
     if (preparation.status === "failure") throw preparation.error;
 
     try {
-      const placed = lookupPlacedControls(
-        this.#engine.extensionChain,
+      const admission = this.#engine.extensionChain?.args?.admit(
         this.#modelName,
-        String(this.#options.originalOperation)
+        String(this.#options.originalOperation),
+        this.#operation,
+        this.#args,
+        this.#engine.bound
       );
-      const admission =
-        placed.length === 0
-          ? undefined
-          : extensionHost().admitControls(
-              this.#modelName,
-              this.#operation,
-              this.#args,
-              placed,
-              this.#engine.bound
-            );
       const args = preparation.prepare(
         admission?.args ?? this.#args,
-        admission?.controls
+        admission?.values,
+        preparation
       );
       preparation.args = args;
-      preparation.controls = admission?.controls;
+      preparation.values = admission?.values;
       preparation.status = "success";
       return args;
     } catch (error) {
@@ -514,20 +367,15 @@ export class PendingOperation<T>
     }
     this.#writeOutcomeRegistration = this.#prepareWriteOutcomeRegistration?.(
       this.#context.attribution,
-      this.#inputPreparation?.controls
+      this.#inputPreparation?.values,
+      this.#inputPreparation
     );
     this.#writeOutcomeRegistrationResolved = true;
     return this.#writeOutcomeRegistration;
   }
 
-  /**
-   * Construct (once) the route's view of this operation. It shares the
-   * cache wrapper's resolution object, so a wrapped copy and its source name
-   * one operation, exactly as the shipped construction above does.
-   */
+  /** Construct (once) the route's view of this operation. */
   #resolveRouted(): PreparedOperation {
-    const shared = this.#operationResolution?.routed;
-    if (shared) return shared;
     if (this.#routedInstance) return this.#routedInstance;
     // The model proxy answers every property with a callable child, so a
     // misspelled or REMOVED operation name (`createManyAndReturn`,
@@ -552,16 +400,13 @@ export class PendingOperation<T>
       this.#callRows()
     );
     this.#routedInstance = routed;
-    if (this.#operationResolution) {
-      this.#operationResolution.routed = routed;
-    }
     return routed;
   }
 
-  /** The row facts this call's admitted controls resolve to, if any. */
+  /** The row facts this call's admitted arguments resolve to, if any. */
   #callRows() {
     const binding = this.#engine.extensionChain?.callRows;
-    return binding?.call(this.#modelName, this.#inputPreparation?.controls);
+    return binding?.call(this.#modelName, this.#inputPreparation?.values);
   }
 
   /**
@@ -597,10 +442,10 @@ export class PendingOperation<T>
    * reads it never copies it.
    */
   #queryContext(
-    mode: QueryInterceptionMode,
+    mode: CallMode,
     preparedInput: Record<string, unknown>
   ): PreparedModelQueryContext<Record<string, unknown>> {
-    const controls = this.#inputPreparation?.controls;
+    const values = this.#inputPreparation?.values;
     let input: Readonly<Record<string, unknown>> | undefined;
     return Object.freeze({
       mode,
@@ -611,31 +456,19 @@ export class PendingOperation<T>
         input ??= snapshotQueryInput(preparedInput);
         return input;
       },
-      ...(controls === undefined ? {} : { controls }),
+      ...(values === undefined ? {} : { values }),
+      call: this.#inputPreparation,
     });
-  }
-
-  /** The detached cache representation of this read, from its result owner. */
-  #cacheResultCodec(): CacheResultCodec {
-    return officialCacheRuntime().routedCodec(this.#resolveRouted());
   }
 
   #getPromise(): Promise<T> {
     return this.#execution.executeDefault(() => {
-      const observers = this.#engine.extensionChain?.observe;
-      if (observers === undefined || observers.length === 0) {
+      const observation = this.#engine.extensionChain?.observation;
+      if (observation === undefined) {
         return this.#finished(this.#runExecution());
       }
-      return observeOperation(
-        observers,
-        String(this.#options.originalOperation),
-        this.#modelName,
-        () => this.#finished(this.#runExecution()),
-        () =>
-          this.#observationCommitCertainty === undefined
-            ? undefined
-            : { commitCertainty: this.#observationCommitCertainty },
-        this.#readInstrumentationFacts()
+      return observation.run(this.#unit(true), () =>
+        this.#finished(this.#runExecution())
       );
     });
   }
@@ -646,16 +479,20 @@ export class PendingOperation<T>
     return finish ? value.then((result) => finish(result) as T) : value;
   }
 
-  #readInstrumentationFacts() {
-    return createPendingOperationInstrumentationFacts(
-      this.#engine.driver,
-      this.#context.attribution,
-      this.#modelName,
-      String(this.#options.originalOperation),
-      String(this.#operation),
-      this.#model["~"].names.sql ?? this.#modelName,
-      isCacheManagedExecution(this.#options)
-    );
+  /**
+   * This operation's `operation` unit. Its certainty is the operation's own,
+   * except for an array member, whose array reports it.
+   */
+  #unit(certain?: true): UnitSource {
+    return {
+      kind: "operation",
+      operation: String(this.#options.originalOperation),
+      model: this.#modelName,
+      context: this.#context.attribution,
+      driver: this.#engine.driver,
+      table: this.#model["~"].names.sql ?? this.#modelName,
+      ...(certain ? { certainty: () => this.#observationCommitCertainty } : {}),
+    };
   }
 
   #runExecution(
@@ -681,9 +518,7 @@ export class PendingOperation<T>
     const observerMayHaveCommitted =
       this.#observationNotification("may-have-committed");
     const requestedOperation = String(this.#options.originalOperation);
-    const handlers = lookupResolvedExtensionHandlers(
-      this.#engine.extensionChain,
-      "query",
+    const handlers = this.#engine.extensionChain?.around?.handlers(
       this.#modelName,
       requestedOperation
     );
@@ -710,7 +545,7 @@ export class PendingOperation<T>
 
   /** Query extensions and write-outcome registration, out of line. */
   #runExtendedExecution(
-    handlers: ReturnType<typeof lookupResolvedExtensionHandlers>,
+    handlers: AroundHandlers | undefined,
     requestedOperation: string,
     observerCommitted: (() => Promise<void>) | undefined,
     observerMayHaveCommitted: (() => Promise<void>) | undefined,
@@ -725,9 +560,11 @@ export class PendingOperation<T>
       return Promise.reject(error);
     }
     const writeOutcomeRegistration = this.#resolveWriteOutcomeRegistration();
+    const coordination = this.#engine.extensionChain?.coordination;
     if (
-      (handlers === undefined || handlers.length === 0) &&
-      writeOutcomeRegistration === undefined
+      coordination === undefined ||
+      ((handlers === undefined || handlers.length === 0) &&
+        writeOutcomeRegistration === undefined)
     ) {
       return this.#runCoreExecution(
         driverOverride,
@@ -739,15 +576,17 @@ export class PendingOperation<T>
       handlers === undefined || handlers.length === 0
         ? undefined
         : this.#queryContext(
-            this.#engine.transactionWriteOutcomes ? "transaction" : "direct",
+            this.#engine.transaction ? "transaction" : "direct",
             preparedInput
           );
-    return executePreparedQuery<T, Record<string, unknown>>(
+    // Handlers come with `around` and a registration with the part that
+    // watches writes: each coordinates with what runs them.
+    return coordination.executePreparedQuery!<T, Record<string, unknown>>(
       context,
       handlers,
-      (notifications) =>
+      (notifications, driver) =>
         this.#runCoreExecution(
-          driverOverride,
+          driver ?? driverOverride,
           combineWriteNotifications(
             committedWriteSegment,
             combineWriteNotifications(
@@ -764,7 +603,7 @@ export class PendingOperation<T>
           )
         ),
       !isReadOperation(requestedOperation),
-      this.#engine.transactionWriteOutcomes,
+      this.#engine.transaction,
       undefined,
       writeOutcomeRegistration
     );
@@ -774,8 +613,8 @@ export class PendingOperation<T>
     certainty: "committed" | "may-have-committed"
   ): (() => Promise<void>) | undefined {
     if (
-      this.#engine.transactionWriteOutcomes !== undefined ||
-      (this.#engine.extensionChain?.observe.length ?? 0) === 0
+      this.#engine.transaction !== undefined ||
+      this.#engine.extensionChain?.observation === undefined
     ) {
       return undefined;
     }
@@ -794,32 +633,7 @@ export class PendingOperation<T>
     committedWriteSegment?: CommittedWriteSegmentNotification,
     writeMayBeVisible?: WriteMayBeVisibleNotification
   ): Promise<T> {
-    const run = (
-      driver: AnyDriver | undefined,
-      committed?: CommittedWriteSegmentNotification,
-      mayBeVisible?: WriteMayBeVisibleNotification
-    ) =>
-      this.#deferredExecution
-        ? this.#deferredExecution(driver, committed, mayBeVisible)
-        : this.#run(driver, committed, mayBeVisible);
-    const chain = this.#engine.extensionChain;
-    // A call inside a transaction, or a member of an array, is its owner's.
-    if (
-      !(chain?.retry || chain?.route) ||
-      driverOverride !== undefined ||
-      this.#engine.transactionWriteOutcomes !== undefined
-    )
-      return run(driverOverride, committedWriteSegment, writeMayBeVisible);
-    const operation = String(this.#options.originalOperation);
-    return extensionHost().sendUnit(
-      chain,
-      { model: this.#modelName, operation },
-      () => this.#resolveArgs(),
-      !isReadOperation(operation),
-      run,
-      committedWriteSegment,
-      writeMayBeVisible
-    );
+    return this.#run(driverOverride, committedWriteSegment, writeMayBeVisible);
   }
 
   /**
@@ -853,13 +667,19 @@ export class PendingOperation<T>
       }) as Promise<T>;
     // Below every per-call lifecycle step, outside any borrowed scope: a
     // `findUnique` may share one read with the calls of the same tick.
-    if (this.#operation === "findUnique" && driverOverride === undefined) {
+    // A read whose rows are kept (`codec`) is sent alone: a shared read's
+    // rows are not its own.
+    if (
+      this.#operation === "findUnique" &&
+      driverOverride === undefined &&
+      routed.seen === undefined
+    ) {
       const batched = batchFindUnique({
         engine: this.#engine,
         model: this.#model,
         requested: String(this.#options.originalOperation),
         args: this.#resolveArgs(),
-        controls: this.#inputPreparation?.controls,
+        values: this.#inputPreparation?.values,
         rows: () => this.#callRows(),
         routed,
         context: this.#context.attribution,
@@ -875,39 +695,6 @@ export class PendingOperation<T>
   }
 
   /**
-   * The payload a cache entry is keyed on: the VALIDATED one, never the
-   * caller's.
-   *
-   * A raw payload may carry an operand callback, and a function has no stable
-   * serialization — keying on it would either throw or, worse, key two
-   * equivalent calls differently. Validation is what turns the callback into the
-   * field reference or fragment it returned, so keying waits for it. That makes
-   * a cached read resolve its operation (validate, build SQL) before it can look
-   * in the cache, where it previously did so only on a miss; the price buys a
-   * key that describes the query that will actually run.
-   *
-   * Fails loudly rather than falling back to the raw payload: only the read
-   * families are cacheable. Routed writes also carry their canonical validated
-   * payload for request and query inspection, but this cache-only seam never
-   * publishes it; scalar and record-series writes share the same refusal.
-   */
-  cacheKeyArgs(): Record<string, unknown> {
-    const validated = this.#cacheKeyPayload();
-    if (!validated) {
-      throw new QueryEngineError(
-        `Operation '${this.#operation}' on model '${this.#modelName}' exposes no validated payload to key a cache entry on.`
-      );
-    }
-    return validated;
-  }
-
-  /** The read payload a cache entry is keyed on, from its admitting owner. */
-  #cacheKeyPayload(): Record<string, unknown> | undefined {
-    if (!isReadOperation(this.#operation)) return undefined;
-    return this.#resolveRouted().args;
-  }
-
-  /**
    * The one SQL statement this operation compiles to, or `undefined` when it
    * does not compile to exactly one (backs {@link QueryEngine.build}).
    *
@@ -919,42 +706,6 @@ export class PendingOperation<T>
    */
   buildStatement(): Sql | undefined {
     return this.#resolveRouted().read?.statement;
-  }
-
-  #wrapExecution(wrapper: PendingCacheExecution<T>): PendingOperation<T> {
-    const operationResolution =
-      this.#operationResolution ??
-      (this.#operationResolution = { routed: this.#routedInstance });
-    const deferredExecution: DeferredExecution<T> = (
-      driverOverride,
-      outerCommittedWriteSegment,
-      outerWriteMayBeVisible
-    ) =>
-      wrapper(
-        (driver, committedWriteSegment, writeMayBeVisible) =>
-          this.#runCoreExecution(
-            driver ?? driverOverride,
-            combineWriteNotifications(
-              committedWriteSegment,
-              outerCommittedWriteSegment
-            ),
-            combineWriteNotifications(writeMayBeVisible, outerWriteMayBeVisible)
-          ),
-        driverOverride
-      );
-    return new PendingOperation(
-      pendingOperationConstruction,
-      this.#engine,
-      this.#model,
-      this.#operation,
-      this.#args,
-      this.#options,
-      this.#context,
-      deferredExecution,
-      this.#inputPreparation,
-      operationResolution,
-      this.#prepareWriteOutcomeRegistration
-    );
   }
 
   then<TResult1 = T, TResult2 = never>(
@@ -994,21 +745,6 @@ export function createPendingOperation<T>(
     prepareInput,
     prepareWriteOutcomeRegistration
   );
-}
-
-/** Place the official cache child inside arbitrary query interception. */
-export function attachPendingCacheExecution<T>(
-  operation: PendingOperation<T>,
-  wrapper: PendingCacheExecution<T>
-): PendingOperation<T> {
-  return attachPendingCacheExecutionFriend(operation, wrapper);
-}
-
-/** Internal cache reader; resolves the operation-owned canonical payload once. */
-export function readPendingCacheResult(
-  operation: PendingOperation<unknown>
-): PendingCacheResultAccess {
-  return readPendingCacheResultFriend(operation);
 }
 
 export function isPendingOperation<T = unknown>(

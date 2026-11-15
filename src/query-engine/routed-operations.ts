@@ -6,7 +6,7 @@ import type { Operations } from "@client/types";
  * These four names are the only part of the deleted shipped routing module that
  * owners OUTSIDE the engine consume: the client (`isWriteOperation`), the
  * official cache (`isWriteOperation`), the extension surface
- * (`ROUTED_OPERATIONS`) and the query-interception seam (`isReadOperation`).
+ * (`ROUTED_OPERATIONS`) and the `around` parts' read test (`isReadOperation`).
  * The text below is the deleted `write-engine/routing.ts` definitions verbatim,
  * so no operation changes classification at the cutover.
  */

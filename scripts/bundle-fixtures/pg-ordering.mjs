@@ -21,12 +21,10 @@ const card = s.model({
     .references("id"),
 });
 
-export const client = ordering({ card: { key: "rank", within: ["columnId"] } })(
-  createClient({
-    schema: { column, card },
-    databaseUrl: "postgres://localhost:5432/app",
-  })
-);
+export const client = createClient({
+  schema: { column, card },
+  databaseUrl: "postgres://localhost:5432/app",
+}).$extends(ordering({ card: { key: "rank", within: ["columnId"] } }));
 
 export async function run() {
   const columns = await client.column.findMany({ include: { cards: true } });

@@ -12,6 +12,18 @@ import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { NotFoundError } from "@errors";
 import { s } from "@schema";
+import {
+  arg,
+  args,
+  around,
+  extension,
+  statement as extStatement,
+  oneOf,
+  rule,
+  target,
+  unit,
+  when,
+} from "@src/index";
 import { instrumentation } from "@src/instrumentation/exports";
 import { SPAN_EXECUTE } from "@src/instrumentation/spans";
 import { permissions } from "@src/permissions";
@@ -518,28 +530,31 @@ export function runFindUniqueBatchingBehavior(provider: {
       const intercepted: unknown[] = [];
       let observed = 0;
       const extended = db
-        .$extends({
-          name: "intercept-find-unique",
-          query: {
-            member: {
-              async findUnique({ input, proceed }) {
-                const result = await proceed();
+        .$extends(
+          extension(
+            "intercept-find-unique",
+            around(
+              () => async (run) => {
+                const result = await run();
                 intercepted.push([
-                  (input as { where: unknown }).where,
+                  (run.input as { where: unknown }).where,
                   (result as { id: number } | null)?.id ?? null,
                 ]);
                 return result;
               },
-            },
-          },
-        })
-        .$extends({
-          name: "observe-operations",
-          observe: async (unit, proceed) => {
-            if (unit.kind === "operation") observed += 1;
-            return proceed();
-          },
-        });
+              target("member", "findUnique")
+            )
+          )
+        )
+        .$extends(
+          extension(
+            "observe-operations",
+            unit(async (u, next) => {
+              if (u.kind === "operation") observed += 1;
+              return next();
+            })
+          )
+        );
       const calls = [4, 404, 5].map(
         (id) => () => extended.member.findUnique({ where: { id } })
       );
@@ -560,10 +575,14 @@ export function runFindUniqueBatchingBehavior(provider: {
     });
 
     test("a statement transform sees every call's own statement", async () => {
-      const transformed = db.$extends({
-        name: "statement-transform",
-        statement: ({ statement }) => statement,
-      });
+      const transformed = db.$extends(
+        extension(
+          "statement-transform",
+          unit((u, next) => next(extStatement(u)), ["statement"], {
+            rewrites: true,
+          })
+        )
+      );
       const calls = [1, 2, 3].map(
         (id) => () => transformed.member.findUnique({ where: { id } })
       );
@@ -577,9 +596,7 @@ export function runFindUniqueBatchingBehavior(provider: {
         actor: v.object({ userId: v.string() }),
         models: { member: { read: { owner: { actor: "userId" } } } },
       });
-      const guarded = (policy as unknown as (base: unknown) => unknown)(db) as {
-        $as(actor: { userId: string }): typeof db;
-      };
+      const guarded = db.$extends(policy);
       const ann = guarded.$as({ userId: "ann" });
       const bob = guarded.$as({ userId: "bob" });
       const calls = [
@@ -607,14 +624,15 @@ export function runFindUniqueBatchingBehavior(provider: {
     });
 
     test("calls whose own controls pick different rows are never merged", async () => {
-      const scoped = db.$extends({
-        name: "owner-scope",
-        rows: {
-          control: "scope",
-          default: "ann",
-          models: { member: { ann: { root: { owner: "ann" } }, all: {} } },
-        },
-      });
+      const scoped = db.$extends(
+        extension(
+          "owner-scope",
+          args({ scope: oneOf("ann", "all").default("ann") }),
+          rule({
+            member: { root: when(arg("scope"), "ann", { owner: "ann" }) },
+          })
+        )
+      );
       const calls = [
         () => scoped.member.findUnique({ where: { id: 1 } }),
         () => scoped.member.findUnique({ where: { id: 9 } }),

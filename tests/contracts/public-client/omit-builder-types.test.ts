@@ -5,7 +5,7 @@
  * `OperationResult` to a hand-written args type. That proves the inference but
  * not the SURFACE: it never asks whether `s.model(…).omit({ … })` refuses a
  * typo, and it never asks whether a client extended with
- * `defaultOmit<typeof schema>()(…)` carries its default into the types a caller
+ * `defaultOmit(…)` carries its default into the types a caller
  * actually reads. Both are exercised here through the real builders.
  *
  * The two claims:
@@ -331,7 +331,7 @@ describe("client-level omit reaches the result types", () => {
     createClient({
       schema,
       driver: new PGliteDriver(),
-    }).$extends(defaultOmit<typeof schema>()({ user: { passwordHash: true } }));
+    }).$extends(defaultOmit({ user: { passwordHash: true } }));
 
   const findUnique = () => client().user.findUnique({ where: { id: "u1" } });
   const findManyBare = () => client().user.findMany();
@@ -475,7 +475,7 @@ describe("client-level omit reaches the result types", () => {
       schema,
       driver: new PGliteDriver(),
     })
-      .$extends(defaultOmit<typeof schema>()({ user: { passwordHash: true } }))
+      .$extends(defaultOmit({ user: { passwordHash: true } }))
       .$extends(cache({ driver: new MemoryCache() }));
   const cachedSelectWithOmit = () =>
     cachedClient()
@@ -568,7 +568,7 @@ describe("client-level omit reaches the result types", () => {
     createClient({
       schema,
       driver: new PGliteDriver(),
-    }).$extends(defaultOmit<typeof schema>()({ post: { authorId: true } }));
+    }).$extends(defaultOmit({ post: { authorId: true } }));
   const withInclude = () =>
     nestedConfigured().user.findMany({ include: { posts: true } });
   const withNestedRestore = () =>
@@ -612,7 +612,7 @@ describe("client-level omit reaches the result types", () => {
       schema,
       driver: new PGliteDriver(),
     }).$extends(
-      defaultOmit<typeof schema>()({
+      defaultOmit({
         user: { passwordHash: true },
         post: { authorId: true },
       })
@@ -639,7 +639,7 @@ describe("client-level omit reaches the result types", () => {
       schema,
       driver: new PGliteDriver(),
     })
-      .$extends(defaultOmit<typeof schema>()({ post: { authorId: true } }))
+      .$extends(defaultOmit({ post: { authorId: true } }))
       .$extends(cache({ driver: new MemoryCache() }));
   const cachedWithNestedInclude = () =>
     nestedCachedClient()
@@ -662,11 +662,11 @@ describe("the driver wrapper preserves omit result inference", () => {
   const configured = () =>
     pgliteCreateClient({
       schema,
-    }).$extends(defaultOmit<typeof schema>()({ user: { passwordHash: true } }));
+    }).$extends(defaultOmit({ user: { passwordHash: true } }));
   const nestedConfigured = () =>
     pgliteCreateClient({
       schema,
-    }).$extends(defaultOmit<typeof schema>()({ post: { authorId: true } }));
+    }).$extends(defaultOmit({ post: { authorId: true } }));
 
   const createWithEveryLegalProjectionLayer = () =>
     wrapped().user.create({
@@ -743,9 +743,7 @@ describe("structurally ambiguous nested client defaults stay sound", () => {
     createClient({
       schema: ambiguousSchema,
       driver: new PGliteDriver(),
-    }).$extends(
-      defaultOmit<typeof ambiguousSchema>()({ left: { secret: true } })
-    );
+    }).$extends(defaultOmit({ left: { secret: true } }));
   const rows = () =>
     ambiguous().root.findMany({ include: { left: true, right: true } });
 
@@ -789,9 +787,7 @@ describe("recursive models keep precise nested client defaults", () => {
     createClient({
       schema: recursiveSchema,
       driver: new PGliteDriver(),
-    }).$extends(
-      defaultOmit<typeof recursiveSchema>()({ node: { label: true } })
-    );
+    }).$extends(defaultOmit({ node: { label: true } }));
   const rows = () => recursive().node.findMany({ include: { children: true } });
 
   test("the carrier neither widens to any nor loses the recursive default", () => {

@@ -5,8 +5,8 @@
  * constraints as single keys with nested field objects.
  */
 
-import { cacheLookupOf } from "@cache/key";
 import { ValidationError } from "@errors";
+import { stableStringify } from "@extensions/key";
 import { s } from "@schema";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
@@ -18,7 +18,7 @@ import { createSchemaRegistry, parse } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 const cacheKeyOf = (model: string, operation: string, args: unknown) =>
-  cacheLookupOf(model, operation, args).key;
+  stableStringify([model, operation, args]);
 
 // =============================================================================
 // TYPE TESTS - Compound ID Model

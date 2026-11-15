@@ -20,10 +20,12 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import type { CacheEntry } from "@cache/driver";
 import { cache as cacheExtension } from "@cache/extension";
 import { createOfficialCacheNamespace } from "@cache/key";
+import { staleWhileRevalidate } from "@cache/revalidate";
 import { createClient } from "@client/client";
 import { Driver, type QueryExecutionContext, type QueryResult } from "@drivers";
 import { instrumentation } from "@instrumentation/extension";
 import { s } from "@schema";
+import { extension } from "@src/index";
 import { ClockedMemoryCache } from "@tests/fixtures/clocked-memory-cache";
 import { createTestClock } from "@tests/fixtures/test-clock";
 import { describe, expect, test } from "vitest";
@@ -88,6 +90,16 @@ class ObservableCache extends ClockedMemoryCache {
       createdAt: 0,
       ttl: storageTtl,
     });
+  }
+
+  /**
+   * Write `value` at `key` under the identity and freshness of the entry at
+   * `from`: what only the revision in the key can keep a reader from.
+   */
+  async seedAs(key: string, from: string, value: unknown): Promise<void> {
+    const entry = await this.get(from);
+    if (entry === null) throw new Error("no entry to copy");
+    await this.set(key, 60_000, { ...entry, value });
   }
 
   isHeld(key: string): boolean {
@@ -174,6 +186,7 @@ function tenants(version?: string | number) {
   const waiting: Array<{ target: number; resolve: () => void }> = [];
   // ONE definition instance appended to both clients: sharing it is the point.
   const definition = cacheExtension({
+    swr: staleWhileRevalidate,
     driver: backend,
     version,
     waitUntil: (promise) => {
@@ -376,7 +389,7 @@ describe("two namespaces over one cache definition and one backend", () => {
 describe("the scope survives further extension", () => {
   test("an ordinary extension appended after the cache keeps the same scope", async () => {
     const { alpha, backend, settle, namespaceFor } = tenants();
-    const extended = alpha.$extends({ name: "ordinary-after-cache" });
+    const extended = alpha.$extends(extension("ordinary-after-cache"));
 
     await alpha.$withCache({ ttl: 60_000 }).account.findMany(IDENTICAL_READ);
     await settle();
@@ -400,7 +413,7 @@ describe("the scope survives further extension", () => {
     const { alpha, backend, settle } = tenants();
     let view = alpha;
     for (let index = 0; index < 10; index += 1) {
-      view = view.$extends({ name: `ordinary-${index}` });
+      view = view.$extends(extension(`ordinary-${index}`));
     }
 
     await alpha.$withCache({ ttl: 60_000 }).account.findMany(IDENTICAL_READ);
@@ -431,6 +444,7 @@ function siblingVersions(shortVersion: string, longVersion: string) {
       driver: new NamespaceRowsDriver("alpha", rows),
     }).$extends(
       cacheExtension({
+        swr: staleWhileRevalidate,
         driver: backend,
         version,
         waitUntil: (promise) => {
@@ -576,6 +590,7 @@ describe("a forged dialect cannot address another dialect's scope", () => {
     // ONE definition, ONE backend, the SAME version and namespace spelling:
     // the dialect is the only fact left that separates the two scopes.
     const definition = cacheExtension({
+      swr: staleWhileRevalidate,
       driver: backend,
       version: 7,
       waitUntil: (promise) => {
@@ -620,7 +635,7 @@ describe("a forged dialect cannot address another dialect's scope", () => {
 });
 
 describe("the snapshot revision partitions old storage", () => {
-  test("an r1-shaped entry is never served to an r4 reader", async () => {
+  test("an r1- or r5-shaped entry is never served to an r6 reader", async () => {
     const { alpha, backend, settle } = tenants();
 
     // The exact key the previous revision would have used for a namespace-blind
@@ -638,10 +653,18 @@ describe("the snapshot revision partitions old storage", () => {
       [{ id: "stale-r1", label: "stale-r1" }],
       60_000
     );
+    // r5 stored the decoded answer where r6 stores the driver's rows. This
+    // r5 entry carries the read's own identity and is fresh, and its value
+    // decodes as rows: only the revision keeps it from being served.
+    await backend.seedAs(
+      liveKey.replace("viborm:cache:r6:", "viborm:cache:r5:"),
+      liveKey,
+      [{ id: "stale-r5", label: "stale-r5" }]
+    );
 
     expect(firstRead).toEqual(rowsFor("alpha"));
-    expect(liveKey.startsWith("viborm:cache:r4:")).toBe(true);
-    // The r1 entry sits in the same backend and is simply unreachable.
+    expect(liveKey.startsWith("viborm:cache:r6:")).toBe(true);
+    // Both entries sit in the same backend and are simply unreachable.
     await expect(
       alpha.$withCache({ ttl: 60_000 }).account.findMany(IDENTICAL_READ)
     ).resolves.toEqual(rowsFor("alpha"));

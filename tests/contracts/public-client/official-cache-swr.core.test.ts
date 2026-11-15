@@ -1,9 +1,21 @@
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { CacheDriver, type CacheEntry } from "@cache/driver";
+import { staleWhileRevalidate } from "@cache/revalidate";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { Driver } from "@drivers";
 import { cache as cacheExtension } from "@src/cache/exports";
-import { createClient, s } from "@src/index";
+import {
+  around,
+  CacheConfigurationError,
+  call,
+  createClient,
+  extension,
+  statement as extStatement,
+  failure,
+  s,
+  target,
+  unit,
+} from "@src/index";
 import type { Operation } from "@src/query-engine/types";
 import type { JsonValue } from "@src/validation";
 import { validateJson } from "@src/validation/primitives/json";
@@ -51,7 +63,7 @@ interface ProviderRow {
 
 interface ObserverCompletion {
   readonly status: "success" | "failure";
-  readonly error?: Readonly<{ readonly name: string }>;
+  readonly error?: unknown;
 }
 
 class SwrDriver extends Driver<object, object> {
@@ -262,6 +274,7 @@ function createOfficialState(
   let calls = 0;
   return {
     extension: cacheExtension({
+      swr: staleWhileRevalidate,
       driver,
       version,
       waitUntil(promise) {
@@ -300,6 +313,18 @@ afterEach(async () => {
 });
 
 describe("official cache stale-while-revalidate", () => {
+  test("a view's swr option is refused by a cache configured without staleWhileRevalidate", () => {
+    const client = trackClient(
+      createClient({ schema, driver: new SwrDriver() }).$extends(
+        cacheExtension({ driver: new SwrCache(createTestClock()) })
+      )
+    );
+    expect(() => client.$withCache({ ttl: 10, swr: true })).toThrow(
+      CacheConfigurationError
+    );
+    expect(() => client.$withCache({ ttl: 10, swr: false })).not.toThrow();
+  });
+
   test("returns a detached stale value and replays only the inner core executor", async () => {
     const clock = createTestClock();
     const cache = new SwrCache(clock);
@@ -309,24 +334,25 @@ describe("official cache stale-while-revalidate", () => {
     let queryCalls = 0;
     const client = trackClient(
       createClient({ schema, driver })
-        .$extends({
-          name: "official-swr-request",
-          request: {
-            record: {
-              findMany() {
+        .$extends(
+          extension(
+            "official-swr-request",
+            call(
+              (c) => {
                 requestCalls += 1;
-                return {};
+                c.set({});
               },
-            },
-          },
-        })
+              target("record", "findMany")
+            )
+          )
+        )
         .$extends(state.extension)
-        .$extends({
-          name: "official-swr-query",
-          query: {
-            record: {
-              async findMany({ proceed }) {
-                const rows = await proceed();
+        .$extends(
+          extension(
+            "official-swr-query",
+            around(
+              () => async (run) => {
+                const rows = await run();
                 queryCalls += 1;
                 for (const row of rows) {
                   if (!isRecord(row)) throw new Error("Expected a result row");
@@ -338,9 +364,10 @@ describe("official cache stale-while-revalidate", () => {
                 }
                 return rows;
               },
-            },
-          },
-        })
+              target("record", "findMany")
+            )
+          )
+        )
     );
     const cached = client.$withCache({ key: "detached", ttl: 10, swr: true });
 
@@ -565,15 +592,22 @@ describe("official cache stale-while-revalidate", () => {
     const client = trackClient(
       createClient({ schema, driver })
         .$extends(state.extension)
-        .$extends({
-          name: "official-swr-observer",
-          observe(unit, proceed) {
-            if (unit.kind !== "cache" || unit.operation !== "revalidate") {
-              return;
-            }
-            completions.push(proceed());
-          },
-        })
+        .$extends(
+          extension(
+            "official-swr-observer",
+            unit((u, next) => {
+              if (u.kind !== "cache" || u.operation !== "revalidate") {
+                return next();
+              }
+              const completion = next().then((outcome) => ({
+                ...outcome,
+                error: failure(u),
+              }));
+              completions.push(completion);
+              return completion;
+            })
+          )
+        )
     );
     const cached = client.$withCache({ ttl: 10, swr: 100 });
 
@@ -587,8 +621,16 @@ describe("official cache stale-while-revalidate", () => {
       [{ name: "old" }]
     );
     await expect(state.settle()).resolves.toBeUndefined();
+    // One generation of handlers: `failure(u)` is the unit's own error,
+    // the worker's and the cleanup's failures together.
     await expect(Promise.all(completions)).resolves.toMatchObject([
-      { status: "failure", error: { name: "Error" } },
+      {
+        status: "failure",
+        error: {
+          name: "AggregateError",
+          message: "Cache revalidation work and cleanup both failed.",
+        },
+      },
     ]);
     expect(driver.readCalls).toBe(2);
     expect(cache.deletes.some((keys) => keys[0]?.endsWith(":reval"))).toBe(
@@ -625,13 +667,19 @@ describe("official cache stale-while-revalidate", () => {
     const statementClient = trackClient(
       createClient({ schema, driver: statementDriver })
         .$extends(statementState.extension)
-        .$extends({
-          name: "official-swr-statement",
-          statement({ statement }) {
-            transforms += 1;
-            return statement;
-          },
-        })
+        .$extends(
+          extension(
+            "official-swr-statement",
+            unit(
+              (u, next) => {
+                transforms += 1;
+                return next(extStatement(u));
+              },
+              ["statement"],
+              { rewrites: true }
+            )
+          )
+        )
     );
     const cached = statementClient.$withCache({ ttl: 10, swr: true });
     await cached.record.findMany();

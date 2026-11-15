@@ -1,33 +1,38 @@
-import { sanitizeErrorForLogging } from "@errors";
-import { withHost } from "@extensions/host";
 import type {
-  LifecycleUnit,
-  ObservationCompletion,
-  ObservedFacts,
-  ObserveHandler,
-} from "@extensions/observation";
-import type {
-  CacheBackendFacts,
-  CacheUnitFacts,
-  ObservationNeed,
-  OfficialObservationCapability,
-  WarningNotice,
-} from "@extensions/official-facts";
+  AnyTarget,
+  EmptyFacts,
+  Extension,
+  UnitContext as Unit,
+  UnitOutcome as UnitEnd,
+} from "@extensions/contract";
+import { disclosed } from "@extensions/disclosed";
+import { disclosure } from "@extensions/disclosure";
+import { extension } from "@extensions/extension";
+import { unit as unitPart } from "@extensions/unit";
+import {
+  failure,
+  notes,
+  origin,
+  parameters,
+  text,
+} from "@extensions/unit-words";
 import {
   createInstrumentationContext,
   type InstrumentationContext,
 } from "./context";
 import {
-  createCacheSpanOptions,
+  channelOf,
   createLifecycleSpanOptions,
-  createOperationErrorLogEvent,
+  createNotedSpanOptions,
   createOperationSpanOptions,
   createStatementLogEvent,
   createStatementSpanOptions,
-  presentCacheOutcome,
+  notedAttributes,
+  noteOf,
+  presentNoteLog,
+  tracesAs,
 } from "./presentation";
 import {
-  ATTR_CACHE_RESULT,
   SPAN_CONNECT,
   SPAN_DISCONNECT,
   SPAN_EXECUTE,
@@ -36,377 +41,280 @@ import {
   type VibORMSpanName,
 } from "./spans";
 import {
-  prewarmTracer,
   setSpanAttributes,
-  shouldTraceSpan,
+  type TracerWrapper,
   type VibORMSpanOptions,
 } from "./tracer";
 import type {
   ExactInstrumentationConfig,
   InstrumentationConfig,
+  InstrumentationNote,
   LogLevel,
   TracingSpan,
 } from "./types";
 
 const NAME = "viborm.instrumentation";
 
-/** The contribution accepted by every concrete client schema. */
-export type OfficialInstrumentationExtension = {
-  readonly name: typeof NAME;
-  readonly observe: ObserveHandler;
-  readonly observes: OfficialObservationCapability;
-};
-
-/** The facts of each unit being observed, as its observer was handed them. */
-const observed = new WeakMap<LifecycleUnit, ObservedFacts>();
-const readProtectedLifecycleFacts = (unit: LifecycleUnit) =>
-  observed.get(unit)?.read();
-const readProtectedLifecycleCompletionFacts = (unit: LifecycleUnit) =>
-  observed.get(unit)?.completion();
+const ignore = (): undefined => undefined;
 
 /**
- * Each registered capability's context. Core holds only the neutral
- * capability; the extension recovers its own context here, never through it.
+ * Create VibORM's instrumentation extension: one handler around every unit
+ * of real work, presenting spans and logs from the facts it reads, and the
+ * `disclosure` of its `diagnostics`.
  */
-const instrumentationContexts = new WeakMap<
-  OfficialObservationCapability,
-  InstrumentationContext
->();
-
-/** Create VibORM's instrumentation extension. */
-export function instrumentation<const Config>(
+export function instrumentation<T extends AnyTarget, const Config>(
   config: Config & InstrumentationConfig & ExactInstrumentationConfig<Config>
-): OfficialInstrumentationExtension {
-  withHost();
+): Extension<T, EmptyFacts>;
+export function instrumentation(config: InstrumentationConfig): unknown {
   const context = createInstrumentationContext(config);
-  const capability: OfficialObservationCapability = Object.freeze({
-    observesLifecycle:
-      context.config.tracing !== undefined ||
-      context.config.logging !== undefined,
-    ...(context.config.tracing === undefined
-      ? {}
-      : { prewarm: () => prewarmTracer(context.tracer) }),
-    diagnostics: context.config.diagnostics,
-    wants: (need: ObservationNeed) => wants(context, need),
-    warn: (notice: WarningNotice) => warn(context, notice),
+  const { logging, tracing } = context.config;
+  const { diagnostics = {} } = config;
+  const policy = disclosure({
+    sql: diagnostics.includeSql,
+    parameters: diagnostics.includeParams,
+    providerDetails: diagnostics.includeProviderDetails,
+    callsite: diagnostics.includeCallsite,
   });
-  instrumentationContexts.set(capability, context);
-  return Object.freeze({
-    name: NAME,
-    observe(unit, proceed, facts) {
-      // Handed no facts, it is not the observer core asks: it does nothing.
-      if (!facts) return undefined;
-      observed.set(unit, facts);
-      return observeOfficialInstrumentation(context, unit, proceed);
-    },
-    observes: capability,
-  });
+  if (tracing === undefined && logging === undefined)
+    return extension(NAME, policy);
+  return extension(
+    NAME,
+    unitPart((unit, next) => observe(context, unit, next)),
+    policy
+  );
 }
 
-/** Answer one core enablement question from this chain's live context. */
-function wants(
+/**
+ * The containment the core no longer provides: `next()` runs exactly once,
+ * whatever the presentation does, and nothing the presentation throws
+ * reaches the call. The returned promise never rejects.
+ */
+function observe(
   context: InstrumentationContext,
-  need: ObservationNeed
-): boolean {
-  switch (need) {
-    case "operation":
-      return traces(context, SPAN_OPERATION);
-    case "statement":
-      return traces(context, SPAN_EXECUTE);
-    // Savepoints present under the transaction span name; there is no other.
-    case "transaction":
-    case "savepoint":
-      return traces(context, SPAN_TRANSACTION);
-    case "connect":
-      return traces(context, SPAN_CONNECT);
-    case "disconnect":
-      return traces(context, SPAN_DISCONNECT);
-    case "cache":
-      return context.config.tracing !== undefined;
-    case "cache-outcomes":
-      return logs(context, "cache");
-    case "query-log":
-      return logs(context, "query");
-    case "error-log":
-      return logs(context, "error");
-    // The last need of the closed union; another need fails to compile here.
-    default:
-      need satisfies "parameters";
-      return disclosesParameters(context);
-  }
+  unit: Unit,
+  next: () => Promise<UnitEnd>
+): Promise<undefined> {
+  let end: Promise<UnitEnd> | undefined;
+  const once = (): Promise<UnitEnd> => {
+    end ??= next();
+    return end;
+  };
+  // What runs synchronously reads facts the library built, or an author's
+  // notes, which are not read as hostile (D6): a presenter fails by its
+  // promise.
+  return Promise.resolve(present(context, unit, once))
+    .then(ignore, ignore)
+    .then(() => (end === undefined ? once().then(ignore) : undefined));
 }
 
 function traces(
   context: InstrumentationContext,
   name: VibORMSpanName
-): boolean {
-  return (
-    context.config.tracing !== undefined &&
-    shouldTraceSpan(context.tracer, name)
-  );
+): context is InstrumentationContext & { readonly tracer: TracerWrapper } {
+  return context.tracer?.traces(name) === true;
 }
 
 function logs(context: InstrumentationContext, level: LogLevel): boolean {
   return context.logger?.isLevelEnabled(level) === true;
 }
 
-/** Whether a logging or tracing channel discloses statement parameters. */
-function disclosesParameters(context: InstrumentationContext): boolean {
-  const { logging, tracing } = context.config;
-  if (
-    logging !== undefined &&
-    logging !== true &&
-    logging.includeParams === true &&
-    (logs(context, "query") || logs(context, "error"))
-  ) {
-    return true;
+function present(
+  context: InstrumentationContext,
+  unit: Unit,
+  next: () => Promise<UnitEnd>
+): Promise<unknown> | undefined {
+  switch (unit.kind) {
+    case "operation":
+      return presentOperation(context, unit, next);
+    case "statement":
+      return presentStatement(context, unit, next);
+    case "transaction":
+    case "savepoint":
+    case "connection":
+      return presentLifecycle(context, unit, next);
+    // A batch has no span of its own: its members and statements do.
+    case "batch":
+      return undefined;
+    default:
+      return presentNoted(context, unit, next);
   }
-  return (
-    tracing !== undefined &&
-    tracing !== true &&
-    tracing.includeParams === true &&
-    shouldTraceSpan(context.tracer, SPAN_EXECUTE)
+}
+
+/**
+ * What every presenter does around its unit: `next()` inside the span
+ * `options` names (none when `undefined`), `after` once the unit settled,
+ * given the instant `next()` was called, then the span settled the way the
+ * work settled: a failure the owner did not recover marks it failed, by the
+ * error's class and code only.
+ */
+function spanned(
+  context: InstrumentationContext,
+  options: VibORMSpanOptions | undefined,
+  unit: Unit,
+  next: () => Promise<UnitEnd>,
+  after?: (settled: UnitEnd, startedAt: number, span?: TracingSpan) => void
+): Promise<unknown> {
+  const settle = (span?: TracingSpan): Promise<void> => {
+    const startedAt = Date.now();
+    return next().then((settled) => {
+      after?.(settled, startedAt, span);
+      // What a failed span is settled with: the failure as it may be shown,
+      // of which the span reads the class and code only.
+      if (settled.status === "failure" && settled.recovered !== true)
+        throw disclosed(failure(unit));
+    });
+  };
+  return context.tracer && options
+    ? context.tracer.startActiveSpan(options, settle)
+    : settle();
+}
+
+function presentOperation(
+  context: InstrumentationContext,
+  unit: Unit,
+  next: () => Promise<UnitEnd>
+): Promise<unknown> {
+  return spanned(
+    context,
+    traces(context, SPAN_OPERATION)
+      ? createOperationSpanOptions(unit)
+      : undefined,
+    unit,
+    next,
+    (settled, startedAt) => {
+      // A call's query and error logs are the library's account of its own
+      // work: an extension's note on the call is logged at `cache` alone.
+      for (const noted of notes(unit)) {
+        const fact = noteOf(noted);
+        if (fact?.log === "cache") log(context, unit, fact);
+      }
+      const error = failure(unit);
+      // A failure a statement log presented is not presented again; every
+      // operation whose own failure it is presents it, as before.
+      if (
+        settled.status === "failure" &&
+        error instanceof Error &&
+        logs(context, "error") &&
+        !context.logged.has(origin(error))
+      )
+        // The log a note of the failure would ask for, at the instant core
+        // settled the operation, with its duration.
+        context.logger?.log({
+          ...presentNoteLog(unit, "error", {
+            at: startedAt + settled.duration,
+            error,
+          }),
+          duration: settled.duration,
+        });
+    }
   );
 }
 
-function warn(context: InstrumentationContext, notice: WarningNotice): boolean {
-  const logger = context.logger;
-  if (logger?.isLevelEnabled("warning") !== true) return false;
-  logger.warn({
-    timestamp: new Date(),
-    model: notice.model,
-    operation: notice.operation,
-    correlationId: notice.correlationId,
-    meta: { notice: notice.message },
-  });
-  return true;
-}
-
-function observeOfficialInstrumentation(
+function presentStatement(
   context: InstrumentationContext,
-  unit: LifecycleUnit,
-  proceed: () => Promise<ObservationCompletion>
-): unknown {
-  const facts = readProtectedLifecycleFacts(unit);
-  if (
-    unit.kind === "cache" &&
-    (facts?.kind === "cache" || facts?.kind === "cache-backend")
-  ) {
-    return observeCacheInstrumentation(
-      context,
-      unit.operation,
-      unit,
-      facts,
-      proceed
-    );
-  }
-  if (facts?.kind === "statement") {
-    const completion = proceed();
-    return facts.dispatch.then((dispatch) =>
-      dispatch === undefined
-        ? observeLifecycleCompletion(completion)
-        : presentDispatch(
-            context,
-            dispatch.start,
-            wants(context, "statement")
-              ? createStatementSpanOptions(context.config.tracing, dispatch)
-              : undefined,
-            () =>
-              observeStatementCompletion(unit, completion, dispatch.startedAt)
-          )
-    );
-  }
-  if (facts?.kind === "driver-lifecycle") {
-    const completion = proceed();
-    return facts.dispatch.then((dispatch) =>
-      dispatch === undefined
-        ? observeLifecycleCompletion(completion)
-        : presentDispatch(
-            context,
-            dispatch.start,
-            createLifecycleSpanOptions(dispatch),
-            () => observeLifecycleCompletion(completion, unit)
-          )
-    );
-  }
-  if (facts?.kind !== "operation") return proceed();
-
-  // The correlation id is created as the operation starts, never later.
-  const correlationId = facts.context.correlationId;
-  const observeCompletion = (): Promise<void> => {
-    const completion = proceed();
-    return completion.then((outcome) => {
-      const completionFacts = readProtectedLifecycleCompletionFacts(unit);
-      if (completionFacts?.kind === "operation") {
-        const { failure, readCacheOutcomes } = completionFacts;
-        if (readCacheOutcomes !== undefined) {
-          for (const cacheOutcome of readCacheOutcomes()) {
-            context.logger?.cache(
-              presentCacheOutcome(facts.context, cacheOutcome)
-            );
-          }
-        }
-        if (failure !== undefined && completionFacts.skipLog !== true) {
-          context.logger?.error(
-            createOperationErrorLogEvent(
-              facts,
-              correlationId,
-              failure,
-              completionFacts.endedAt,
-              outcome.durationMs
-            )
-          );
-        }
-      }
-      if (outcome.status === "failure")
-        throw createObservedFailure(
-          completionFacts?.kind === "operation"
-            ? completionFacts.failure
-            : undefined
-        );
-    });
-  };
-
-  return context.config.tracing === undefined
-    ? observeCompletion()
-    : context.tracer.startActiveSpan(
-        createOperationSpanOptions(facts),
-        observeCompletion
-      );
-}
-
-function observeCacheInstrumentation(
-  instrumentationContext: InstrumentationContext,
-  operation: Extract<LifecycleUnit, { kind: "cache" }>["operation"],
-  unit: LifecycleUnit,
-  facts: CacheBackendFacts | CacheUnitFacts,
-  proceed: () => Promise<ObservationCompletion>
-): Promise<void> {
-  const { logger, tracer } = instrumentationContext;
-  const traced = wants(instrumentationContext, "cache");
-  const context = facts.kind === "cache" ? facts.context : undefined;
-  const logged =
-    facts.kind === "cache" && wants(instrumentationContext, "cache-outcomes");
-  // A revalidation presents its start at the instant it is observed.
+  unit: Unit,
+  next: () => Promise<UnitEnd>
+): Promise<unknown> | undefined {
+  const traced = traces(context, SPAN_EXECUTE);
+  const queried = logs(context, "query");
+  const erred = logs(context, "error");
+  if (!(traced || queried || erred)) return undefined;
+  const { logging, tracing } = context.config;
+  // Read only for a channel that shows them, before the provider is reached:
+  // it may change what it was handed.
+  const shown =
+    ((queried || erred) && channelOf(logging).includeParams) ||
+    (traced && channelOf(tracing).includeParams)
+      ? parameters(unit)
+      : undefined;
   const startedAt = Date.now();
-  const observeCompletion = async (span?: TracingSpan): Promise<void> => {
-    if (logged && operation === "revalidate") {
-      logger?.cache(
-        presentCacheOutcome(context, {
-          event: "revalidate",
-          status: "start",
-          at: startedAt,
-        })
+  return spanned(
+    context,
+    traced
+      ? createStatementSpanOptions(tracing, unit, text(unit), shown)
+      : undefined,
+    unit,
+    next,
+    ({ duration, recovered, status }) => {
+      const error = failure(unit);
+      const failed = status === "failure" && error instanceof Error;
+      if (
+        recovered === true ||
+        !(failed ? erred : status === "success" && queried)
+      )
+        return;
+      if (failed) context.logged.add(origin(error));
+      context.logger?.log(
+        createStatementLogEvent(
+          logging,
+          unit,
+          startedAt,
+          duration,
+          shown,
+          failed ? error : undefined
+        )
       );
     }
-    const outcome = await proceed();
-    const completionFacts = readProtectedLifecycleCompletionFacts(unit);
-    if (completionFacts?.kind === "cache") {
-      if (traced && completionFacts.result !== undefined) {
-        setSpanAttributes(span, {
-          [ATTR_CACHE_RESULT]: completionFacts.result,
-        });
-      }
-      if (logged && completionFacts.outcomes !== undefined) {
-        for (const cacheOutcome of completionFacts.outcomes) {
-          logger?.cache(presentCacheOutcome(context, cacheOutcome));
-        }
-      }
-    }
-    if (outcome.status === "failure") throw createObservedFailure();
-  };
-
-  return traced
-    ? tracer.startActiveSpan(
-        createCacheSpanOptions(operation, facts),
-        observeCompletion
-      )
-    : observeCompletion();
+  );
 }
 
-/**
- * Start the gated provider call exactly once, inside the span when one is
- * presented. The span options cannot throw: the one read of the driver's own
- * metadata, `readDriverIdentity`, contains a throwing custom-adapter getter.
- */
-async function presentDispatch(
+function presentLifecycle(
   context: InstrumentationContext,
-  start: () => void,
-  spanOptions: VibORMSpanOptions | undefined,
-  observeCompletion: () => Promise<void>
-): Promise<void> {
-  if (spanOptions === undefined) {
-    start();
-    return observeCompletion();
-  }
-  try {
-    return await context.tracer.startActiveSpan(spanOptions, () => {
-      start();
-      return observeCompletion();
-    });
-  } finally {
-    // A hostile OTel provider cannot leave the authoritative child gated.
-    start();
-  }
+  unit: Unit,
+  next: () => Promise<UnitEnd>
+): Promise<unknown> | undefined {
+  const name =
+    unit.kind !== "connection"
+      ? SPAN_TRANSACTION
+      : unit.operation === "$disconnect" || unit.operation === "disconnect"
+        ? SPAN_DISCONNECT
+        : SPAN_CONNECT;
+  if (!traces(context, name)) return undefined;
+  return spanned(context, createLifecycleSpanOptions(name, unit), unit, next);
+}
+
+/** Log what a note asks to, at its level, if that level is on. */
+function log(
+  context: InstrumentationContext,
+  unit: Unit,
+  noted: InstrumentationNote | undefined
+): void {
+  if (noted?.log !== undefined && logs(context, noted.log))
+    context.logger?.log(presentNoteLog(unit, noted.log, noted));
 }
 
 /**
- * The statement log is emitted by the chain its facts attribute it to: a
- * native-batch member's failure reaches that member's client, with its
- * disclosure, even when another client's chain observes the batch. A settled
- * batch pins no member and is the batch context's own.
+ * A unit of an extension's own kind, presented from what was noted on it:
+ * the span its first note names as it starts, if a note may take that name,
+ * the attributes noted later set on it at its end, and every log asked for.
  */
-async function observeStatementCompletion(
-  unit: LifecycleUnit,
-  completion: Promise<ObservationCompletion>,
-  startedAt: number
-): Promise<void> {
-  const outcome = await completion;
-  const completionFacts = readProtectedLifecycleCompletionFacts(unit);
-  if (
-    completionFacts?.kind === "statement" &&
-    completionFacts.skipLog !== true
-  ) {
-    // instrumentation() registers every capability it creates; one registered
-    // any other way (a test-only observer) presents no statement log.
-    const attributed = instrumentationContexts.get(completionFacts.capability);
-    const event = createStatementLogEvent(
-      completionFacts,
-      startedAt,
-      attributed?.config.logging
-    );
-    if (completionFacts.failure === undefined) {
-      attributed?.logger?.query(event);
-    } else {
-      attributed?.logger?.error(event);
-    }
+function presentNoted(
+  context: InstrumentationContext,
+  unit: Unit,
+  next: () => Promise<UnitEnd>
+): Promise<unknown> {
+  const started = notes(unit).length;
+  let span: (InstrumentationNote & { readonly span: string }) | undefined;
+  for (const noted of notes(unit)) {
+    const fact = noteOf(noted);
+    if (span === undefined && fact?.span !== undefined)
+      span = { ...fact, span: fact.span };
+    log(context, unit, fact);
   }
-  if (
-    outcome.status === "failure" &&
-    !(completionFacts?.kind === "statement" && completionFacts.recovered)
-  )
-    throw createObservedFailure(
-      completionFacts?.kind === "statement"
-        ? completionFacts.failure
-        : undefined
-    );
-}
-
-async function observeLifecycleCompletion(
-  completion: Promise<ObservationCompletion>,
-  unit?: LifecycleUnit
-): Promise<void> {
-  const outcome = await completion;
-  const facts = unit && readProtectedLifecycleCompletionFacts(unit);
-  if (outcome.status === "failure")
-    throw createObservedFailure(
-      facts?.kind === "driver-lifecycle" ? facts.failure : undefined
-    );
-}
-
-function createObservedFailure(source?: Error): Error {
-  if (source) return sanitizeErrorForLogging(source);
-  const failure = new Error("Operation failed");
-  failure.stack = undefined;
-  return failure;
+  return spanned(
+    context,
+    span !== undefined && context.tracer !== undefined && tracesAs(span)
+      ? createNotedSpanOptions(unit, span)
+      : undefined,
+    unit,
+    next,
+    (_settled, _startedAt, opened) => {
+      for (const noted of notes(unit).slice(started)) {
+        const fact = noteOf(noted);
+        if (fact?.attributes !== undefined)
+          setSpanAttributes(opened, notedAttributes(fact.attributes));
+        log(context, unit, fact);
+      }
+    }
+  );
 }

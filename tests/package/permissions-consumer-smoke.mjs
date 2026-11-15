@@ -13,7 +13,7 @@
  *   A. TYPES — `tsc --strict` over the consumer, against the published
  *              declarations: the policy, the composed `server.ts` chain and
  *              the blog type-check; `$as` is the governed client again;
- *              `can` takes each model's own actions; the `@ts-expect-error`
+ *              `$access` names each model's own actions; the `@ts-expect-error`
  *              lines are needed.
  *   B. RUN   — Node runs the same files (type stripping) on SQLite3 in
  *              memory. `acceptance.ts` is §1.1's `server.ts`: the seed is
@@ -112,8 +112,10 @@ function fixtureFiles() {
  */
 const acceptance = `import assert from "node:assert/strict";
 import {
+  arg,
   ClientInitializationError,
-  defineExtension,
+  defaults,
+  extension,
   ForbiddenError,
   NestedWriteError,
   NotFoundError,
@@ -183,10 +185,10 @@ const tombstones = softDelete({
 });
 // §1.1 stamps \`updatedBy\`; the fixture's document has no such column, so
 // the stamp writes \`searchKey\`, a string column (as W-C3 does).
-const audit = defineExtension({
-  name: "audit",
-  data: { models: { document: { update: { searchKey: { control: "actor", path: "userId" } } } } },
-});
+const audit = extension(
+  "audit",
+  defaults({ document: { update: { searchKey: arg("actor", "userId") } } })
+);
 
 const failures: string[] = [];
 let lines = 0;
@@ -235,13 +237,11 @@ const pick = (actor: Actor, model: GovernedModel, inside: string, outside?: stri
 const READERS = ["u01", "u03", "u04", "u05", "u20", "u22", "u42", "u56"];
 const KEYED = Object.keys(actors).filter((name) => actors[name]!.key !== undefined);
 
-const db: Loose = policy.methods(tombstones.methods(policy.rows(tombstones.rows(base)).$extends(audit)));
+const db: Loose = base.$extends(tombstones).$extends(policy).$extends(audit);
 
-await line("each official extension is one step, in any order: policy(tombstones(base)) and tombstones(policy(base)) read what the steps apart read", async () => {
-  // Each its own binding: an array of the two would compare two whole client types.
-  const softFirst: Loose = policy(tombstones(base)).$extends(audit);
-  const policyFirst: Loose = tombstones(policy(base)).$extends(audit);
-  const oneStep: Loose[] = [softFirst, policyFirst];
+await line("each official extension is one step, in any order: base.$extends(policy).$extends(tombstones) reads what base.$extends(tombstones).$extends(policy) reads", async () => {
+  const policyFirst: Loose = base.$extends(policy).$extends(tombstones).$extends(audit);
+  const oneStep: Loose[] = [policyFirst];
   for (const name of READERS) {
     const actor = actors[name]!;
     const expected = ids(await db.$as(actor).page.findMany());
@@ -565,41 +565,44 @@ await line("team.update({ where: { id: myTeam }, data: { parents: { connect: { i
   return cases > 0 ? undefined : "no lead who is not an admin";
 });
 
-await line('team.can("invite", { id: teamId }): boolean, one statement', async () => {
+await line('team.findUnique({ where: { id: teamId }, select: { $access: ["invite"] } }): $access.invite, one statement', async () => {
   for (const name of READERS) {
     const actor = actors[name]!;
     const invite = new Set(at(actor, "team", "invite"));
     for (const team of seed.team) {
-      const got = await db.$as(actor).team.can("invite", { id: team.id });
+      const row = await db.$as(actor).team.findUnique({ where: { id: team.id }, select: { $access: ["invite"] } });
+      const got = row?.$access.invite === true;
       if (got !== invite.has(team.id)) return name + " " + team.id + ": " + got;
     }
   }
 });
 
-await line('document.can(["comment", "update", "share"], { id }): { comment, update, share }, one statement', async () => {
+await line('document.findUnique({ where: { id }, select: { $access: ["comment", "update", "share"] } }): { comment, update, share }, one statement', async () => {
   for (const name of READERS) {
     const actor = actors[name]!;
     const holds = (action: string) => new Set(at(actor, "document", action));
     const [comment, update, share] = [holds("comment"), holds("update"), holds("share")];
     for (const document of seed.document.slice(0, 20)) {
-      const got = await db.$as(actor).document.can(["comment", "update", "share"], { id: document.id });
+      const row = await db.$as(actor).document.findUnique({ where: { id: document.id }, select: { $access: ["comment", "update", "share"] } });
+      const got = { comment: row?.$access.comment === true, update: row?.$access.update === true, share: row?.$access.share === true };
       const failure = differs(got, { comment: comment.has(document.id), update: update.has(document.id), share: share.has(document.id) });
       if (failure) return name + " " + document.id + ": " + failure;
     }
   }
 });
 
-await line('organization.assert("export", { id: orgId }): ForbiddenError unless admin, plan pro, office network', async () => {
+await line('organization.findUnique({ where: { id: orgId }, select: { $access: ["export"] } }): $access.export only for an admin, plan pro, office network', async () => {
   let passed = 0;
   let refused = 0;
   for (const name of Object.keys(actors)) {
     const actor = actors[name]!;
     const exports = new Set(at(actor, "organization", "export"));
     for (const organization of seed.organization) {
-      const got = await outcome(() => db.$as(actor).organization.assert("export", { id: organization.id }));
-      const expected = exports.has(organization.id) ? "ok" : ForbiddenError.name;
+      const row = await db.$as(actor).organization.findUnique({ where: { id: organization.id }, select: { $access: ["export"] } });
+      const got = row?.$access.export === true;
+      const expected = exports.has(organization.id);
       if (got !== expected) return name + " " + organization.id + ": " + got + ", expected " + expected;
-      if (got === "ok") passed += 1;
+      if (got) passed += 1;
       else refused += 1;
     }
   }
@@ -657,7 +660,7 @@ await line("db.page.findMany({ actor }): ValidationError: actor is bound only", 
   const got = await outcome(() => db.page.findMany({ actor: actors.u01 }));
   return got === ValidationError.name ? undefined : got;
 });
-await line('db.page.findMany(): ValidationError: control "actor" is required', async () => {
+await line('db.page.findMany(): ValidationError: argument "actor" is required', async () => {
   const got = await outcome(() => db.page.findMany());
   return got === ValidationError.name ? undefined : got;
 });
@@ -726,9 +729,9 @@ assert.deepEqual(await titles(), ["all", "b"]);
 assert.equal(await outcome(() => call.post.delete({ where: { id: "p1" } })), NotFoundError.name);
 assert.equal(await outcome(() => call.post.create({ data: { id: "p3", title: "c", authorId: "u2" } })), ForbiddenError.name);
 assert.equal((await call.post.create({ data: { id: "p3", title: "c", authorId: "u1" } })).authorId, "u1");
-assert.equal(await call.post.can("update", { id: "p1" }), true);
-assert.equal(await call.post.can("update", { id: "p2" }), false);
-assert.equal(await outcome(() => call.post.assert("delete", { id: "p1" })), ForbiddenError.name);
+const access = async (id: string) => (await call.post.findUnique({ where: { id }, select: { $access: ["update", "delete"] } }))?.$access;
+assert.deepEqual(await access("p1"), { update: true, delete: false });
+assert.deepEqual(await access("p2"), { update: false, delete: false });
 assert.equal((await admin.post.delete({ where: { id: "p2" } })).id, "p2");
 assert.equal(await outcome(() => db.post.findMany()), ValidationError.name);
 assert.equal(await outcome(() => call.$as({ userId: 1 as never, admin: false }).post.findMany()), ValidationError.name);
@@ -738,7 +741,7 @@ assert.equal((await base.post.findMany()).length, 2);
 export const same: typeof db = call;
 export async function flagged() {
   // @ts-expect-error "publish" is not an action of post
-  await call.post.can("publish", { id: "p1" });
+  await call.post.findMany({ select: { $access: ["update", "publish"] } });
   // @ts-expect-error the actor's userId is required
   db.$as({ admin: true });
 }

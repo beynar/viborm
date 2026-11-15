@@ -1,15 +1,10 @@
+import type { CacheEntry } from "@cache/driver";
+import { CacheDriver } from "@cache/driver";
 import { MemoryCache } from "@cache/drivers/memory";
-import {
-  cache,
-  getOfficialCacheChainCapability,
-  getOfficialCacheChainDefinition,
-} from "@cache/extension";
+import { cache } from "@cache/extension";
+import type { QueryResult } from "@drivers";
 import { CacheConfigurationError, ClientInitializationError } from "@errors";
-import {
-  appendResolvedExtension,
-  type ResolvedExtensionChain,
-} from "@extensions/chain";
-import { createClient, s } from "@src/index";
+import { createClient, extension as extExtension, s } from "@src/index";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -26,31 +21,49 @@ function baseClient() {
   return client;
 }
 
-function applyUnsafe(client: object, extension: unknown): object {
-  return Reflect.apply(Reflect.get(client, "$extends"), client, [extension]);
-}
-
-/**
- * Append with no client and therefore no driver. Such a chain carries the cache
- * DEFINITION only: the scope partitions on dialect and SQL namespace, which do
- * not exist until a client composition root binds the chain, so every assertion
- * here reads the definition rather than a bound capability.
- */
-function appendOfficial(
-  extension: Readonly<Record<string, unknown>>,
-  chain?: ResolvedExtensionChain
-): ResolvedExtensionChain {
-  return appendResolvedExtension(chain, extension, schema);
+/** Records the prefixes an invalidation clears. */
+class ClearRecordingCache extends MemoryCache {
+  readonly cleared: string[] = [];
+  protected override async clear(prefix: string): Promise<void> {
+    this.cleared.push(prefix);
+    await super.clear(prefix);
+  }
 }
 
 afterEach(async () => {
   for (const client of clients.splice(0)) await client.$disconnect();
 });
 
+/** Answers every statement with `rows`, and counts what it sends. */
+class RowsDriver extends PlanningDriver {
+  sent = 0;
+  rows: Record<string, unknown>[] = [{ id: "i1", name: "one" }];
+  constructor() {
+    super("postgresql");
+  }
+  protected override async execute<T>(): Promise<QueryResult<T>> {
+    this.sent += 1;
+    return { rows: this.rows as T[], rowCount: this.rows.length };
+  }
+}
+
+/** Hands back `value` in place of the next entry it reads. */
+class RewritingCache extends MemoryCache {
+  next: { value: unknown } | undefined;
+  protected override async get<T>(key: string): Promise<CacheEntry<T> | null> {
+    const entry = await super.get<T>(key);
+    const next = this.next;
+    this.next = undefined;
+    return entry && next ? { ...entry, value: next.value as T } : entry;
+  }
+}
+
+/** Lets the background set of a miss land before the next read. */
+const settle = () => new Promise((resolve) => setTimeout(resolve, 5));
+
 describe("official cache extension foundation", () => {
-  it("snapshots hostile config once without mutating the shared driver", () => {
+  it("reads its configuration once, as given", () => {
     const driver = new MemoryCache();
-    const firstWaitUntil = () => undefined;
     const reads = { driver: 0, version: 0, waitUntil: 0 };
     const config = {
       get driver() {
@@ -63,57 +76,30 @@ describe("official cache extension foundation", () => {
       },
       get waitUntil() {
         reads.waitUntil += 1;
-        return firstWaitUntil;
+        return () => undefined;
       },
     };
-
     const extension = cache(config);
-    const chain = appendOfficial(extension);
-    const capability = getOfficialCacheChainDefinition(chain);
-
-    expect(getOfficialCacheChainCapability(chain)).toBeUndefined();
-    expect(extension.name).toBe("viborm.cache");
-    // The mutation `cache` argument is the extension's one declared control.
-    expect(Reflect.ownKeys(extension)).toEqual(["name", "query", "controls"]);
-    expect([...(chain.controls?.names ?? [])]).toEqual(["cache"]);
-    expect(Object.isFrozen(extension)).toBe(true);
-    expect(Object.isFrozen(config)).toBe(false);
+    baseClient().$extends(extension);
+    baseClient().$extends(extension);
     expect(reads).toEqual({ driver: 1, version: 1, waitUntil: 1 });
-    expect(capability?.driver).toBe(driver);
-    expect(capability?.version).toBe("first");
-    expect(capability?.waitUntil).toBe(firstWaitUntil);
-    expect(chain.hasCache).toBe(true);
-    expect(chain.hasQueryHandlers).toBe(false);
-    expect(chain.query.global).toHaveLength(0);
+    expect(extension.name).toBe("viborm.cache");
   });
 
-  it("keeps version and waitUntil isolated when one driver is shared", () => {
-    const driver = new MemoryCache();
-    const firstWaitUntil = () => undefined;
-    const secondWaitUntil = () => undefined;
-
-    const first = appendOfficial(
-      cache({ driver, version: "first", waitUntil: firstWaitUntil })
-    );
-    const second = appendOfficial(
-      cache({ driver, version: "second", waitUntil: secondWaitUntil })
-    );
-
-    expect(getOfficialCacheChainDefinition(first)).toMatchObject({
-      driver,
-      version: "first",
-      waitUntil: firstWaitUntil,
-    });
-    expect(getOfficialCacheChainDefinition(second)).toMatchObject({
-      driver,
-      version: "second",
-      waitUntil: secondWaitUntil,
-    });
+  it("keeps version scopes apart when one driver is shared", async () => {
+    const driver = new ClearRecordingCache();
+    const first = baseClient().$extends(cache({ driver, version: "first" }));
+    const second = baseClient().$extends(cache({ driver, version: "second" }));
+    await first.$invalidate("*");
+    await second.$invalidate("*");
+    expect(driver.cleared).toHaveLength(2);
+    expect(driver.cleared[0]).not.toBe(driver.cleared[1]);
+    expect(driver).toBeInstanceOf(CacheDriver);
   });
 
-  it("exposes cache methods only on an authentic official derived client", () => {
+  it("exposes cache methods only on a client the cache extends", () => {
     const base = baseClient();
-    const ordinary = base.$extends({ name: "ordinary" });
+    const ordinary = base.$extends(extExtension("ordinary"));
     const official = base.$extends(cache({ driver: new MemoryCache() }));
 
     expect(Reflect.get(base, "$withCache")).toBeUndefined();
@@ -151,136 +137,82 @@ describe("official cache extension foundation", () => {
     expect(coreReads).toEqual({ cache: 0, cacheVersion: 0, waitUntil: 0 });
   });
 
-  it("accepts an exact clone and preserves provenance through ordinary chains", () => {
-    const base = baseClient();
-    const official = cache({ driver: new MemoryCache() });
-    const cloned = { ...official };
-    const cached = base.$extends(cloned);
-    const ordinary = cached.$extends({ name: "after-cache" });
+  it("keeps its methods through ordinary extensions applied after it", () => {
+    const cached = baseClient().$extends(cache({ driver: new MemoryCache() }));
+    const ordinary = cached.$extends(extExtension("after-cache"));
 
     expect(ordinary.$schema).toBe(schema);
     expect(typeof ordinary.$withCache).toBe("function");
     expect(typeof ordinary.$invalidate).toBe("function");
   });
 
-  it("refuses fake, renamed, replaced, bound, and duplicate capabilities atomically", () => {
-    const base = baseClient();
-    const official = cache({ driver: new MemoryCache() });
-    const derived = base.$extends(official);
-
-    expect(() => applyUnsafe(base, { name: "viborm.cache" })).toThrow(
-      ClientInitializationError
+  it("is applied once: a second cache is refused by its name", () => {
+    const derived = baseClient().$extends(cache({ driver: new MemoryCache() }));
+    expect(() =>
+      // @ts-expect-error - one cache per chain: the runtime refusal is tested
+      derived.$extends(cache({ driver: new MemoryCache() }))
+    ).toThrow(ClientInitializationError);
+    expect(derived.$extends(extExtension("after-refusal")).$schema).toBe(
+      schema
     );
-    expect(() =>
-      applyUnsafe(base, { ...official, name: "renamed-cache" })
-    ).toThrow(ClientInitializationError);
-    expect(() =>
-      applyUnsafe(base, {
-        ...official,
-        query: async ({ proceed }: { proceed(): Promise<unknown> }) =>
-          proceed(),
-      })
-    ).toThrow(ClientInitializationError);
-    expect(() =>
-      applyUnsafe(base, { ...official, query: official.query.bind(undefined) })
-    ).toThrow(ClientInitializationError);
-    expect(() => applyUnsafe(derived, { ...official })).toThrow(
-      ClientInitializationError
-    );
-
-    expect(derived.$extends({ name: "after-refusals" }).$schema).toBe(schema);
   });
 
-  it("reports hostile factory configuration without leaking raw throws", () => {
-    const hostile = new Proxy(
+  it("refuses a configuration without a cache driver, a bad version or waitUntil", () => {
+    const refusals: unknown[] = [
       {},
-      {
-        ownKeys() {
-          throw new Error("private-hostile-value");
-        },
-      }
-    );
-
-    expect(() => Reflect.apply(cache, undefined, [hostile])).toThrow(
-      CacheConfigurationError
-    );
-    try {
-      Reflect.apply(cache, undefined, [hostile]);
-    } catch (error) {
-      expect(error).toBeInstanceOf(CacheConfigurationError);
-      if (!(error instanceof CacheConfigurationError)) throw error;
-      expect(error.originalCause).toBeInstanceOf(Error);
-      expect(String(error)).not.toContain("private-hostile-value");
-    }
+      { driver: {} },
+      { driver: new MemoryCache(), version: Number.NaN },
+      { driver: new MemoryCache(), version: true },
+      { driver: new MemoryCache(), waitUntil: "later" },
+    ];
+    for (const config of refusals)
+      expect(() => Reflect.apply(cache, undefined, [config])).toThrow(
+        CacheConfigurationError
+      );
   });
 
-  it("retains sanitized validation cause evidence for $withCache options", () => {
+  it("refuses invalid $withCache options when the view is made", () => {
     const cached = baseClient().$extends(cache({ driver: new MemoryCache() }));
-    const cause = new Error("private with-cache option failure");
-    const config = Object.defineProperty({}, "ttl", {
-      enumerable: true,
-      get() {
-        throw cause;
-      },
-    });
-
-    try {
-      Reflect.apply(Reflect.get(cached, "$withCache"), cached, [config]);
-      throw new Error("Expected cache options validation to fail");
-    } catch (error) {
-      expect(error).toBeInstanceOf(CacheConfigurationError);
-      if (!(error instanceof CacheConfigurationError)) throw error;
-      expect(error.originalCause).toBeInstanceOf(Error);
-      expect(error.originalCause).not.toBe(cause);
-      expect(String(error)).not.toContain("private with-cache option failure");
-    }
-  });
-
-  it("normalizes a hostile Error thrown while reading factory configuration", () => {
-    const hostileFailure = new Proxy(new Error("private-config-failure"), {
-      getPrototypeOf() {
-        throw new Error("hostile config error prototype read");
-      },
-    });
-    const config = Object.defineProperty({}, "driver", {
-      enumerable: true,
-      get() {
-        throw hostileFailure;
-      },
-    });
-
-    try {
-      Reflect.apply(cache, undefined, [config]);
-      throw new Error("Expected cache configuration to fail");
-    } catch (error) {
-      expect(error).toBeInstanceOf(CacheConfigurationError);
-      if (!(error instanceof CacheConfigurationError)) throw error;
-      expect(error.originalCause).toBeInstanceOf(Error);
-      expect(error.originalCause).not.toBe(hostileFailure);
-      expect(String(error)).not.toContain("private-config-failure");
-    }
-  });
-
-  it("normalizes a hostile cache driver prototype inspection", () => {
-    const hostileDriver = new Proxy(
-      {},
-      {
-        getPrototypeOf() {
-          throw new Error("private-driver-prototype");
-        },
-      }
-    );
-
     expect(() =>
-      Reflect.apply(cache, undefined, [{ driver: hostileDriver }])
+      Reflect.apply(Reflect.get(cached, "$withCache"), cached, [
+        { ttl: "forever" },
+      ])
     ).toThrow(CacheConfigurationError);
-    try {
-      Reflect.apply(cache, undefined, [{ driver: hostileDriver }]);
-    } catch (error) {
-      expect(error).toBeInstanceOf(CacheConfigurationError);
-      if (!(error instanceof CacheConfigurationError)) throw error;
-      expect(error.originalCause).toBeInstanceOf(Error);
-      expect(String(error)).not.toContain("private-driver-prototype");
+  });
+
+  it("stores nothing a driver row cannot carry, and still answers", async () => {
+    const driver = new RowsDriver();
+    const client = createClient({ schema, driver });
+    clients.push(client);
+    // A column the read does not decode, holding a value no stored form has.
+    driver.rows = [{ id: "i1", name: "one", extra: new Map() }];
+    const reader = client
+      .$extends(cache({ driver: new MemoryCache() }))
+      .$withCache();
+    await expect(reader.item.findMany()).resolves.toEqual([
+      { id: "i1", name: "one" },
+    ]);
+    await settle();
+    await reader.item.findMany();
+    expect(driver.sent).toBe(2);
+  });
+
+  it("refuses a stored entry that is not the rows it stores", async () => {
+    const driver = new RowsDriver();
+    const client = createClient({ schema, driver });
+    clients.push(client);
+    const backend = new RewritingCache();
+    const reader = client.$extends(cache({ driver: backend })).$withCache();
+    await reader.item.findMany();
+    await settle();
+    await expect(reader.item.findMany()).resolves.toEqual(driver.rows);
+    for (const value of [{ not: "rows" }, [{ id: "i1", name: 1 }]]) {
+      backend.next = { value };
+      await expect(reader.item.findMany()).rejects.toMatchObject({
+        name: "CacheConfigurationError",
+        meta: { method: "materialize", operation: "findMany" },
+      });
     }
+    expect(driver.sent).toBe(1);
   });
 });

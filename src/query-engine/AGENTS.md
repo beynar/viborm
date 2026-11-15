@@ -149,10 +149,7 @@ unexpected columns and invalid counts raise typed errors; result code never
 substitutes a plausible empty object, array, count or null for malformed
 provider output. Middleware caches stay isolated per driver.
 
-What survives in `result/` outside the route is the CACHE boundary's value
-codecs — `cache-value-codecs.ts`, `cache-json-codec.ts`,
-`cache-snapshot-structure.ts`, which the route's `cacheCodec` composes into the
-`CacheResultCodec` that `cache-flow.ts` declares — plus the result-shape vocabulary
+What survives in `result/` outside the route is the result-shape vocabulary
 (`result-shape.ts`, `result-column.ts`, `result-aggregate-leaf.ts`) that
 `client/typescript-type-renderer.ts` reads. `ExpectedResultShape` remains the
 one runtime source for public TypeScript result rendering: a selected computed
@@ -184,14 +181,13 @@ code on disk.
 | `pending-operation.ts` | lazy public model-operation entry; its one arm is the Raptor 3 route |
 | `pending-execution.ts` | one-shot default/driver-bound execution lifecycle shared by model and raw operations |
 | `transaction-operation.ts` | the internal protocol consumed by `$transaction([...])` |
-| `routed-operations.ts` | the read/write verb vocabulary the cache and interception seams key on |
+| `routed-operations.ts` | the read/write verb vocabulary the cache and the `around` parts key on |
 | `types.ts` | the prepared-operation, prepared-batch and prepared-guard shapes the client and the route share, including `PreparedGuardFailure` |
 | `batch-error-attribution.ts` | attribution of a native-batch assertion failure to the guard that raised it, and the ONE guard-failure-to-error construction |
 | `raptor3/shared/parse-boundary.ts` | the typed parse boundary: the one place a user payload becomes a validated, typed value |
 | `result/groupby-fields.ts` | the groupBy field vocabulary `result/result-shape.ts` reads |
-| `result/cache-*.ts` | the cache boundary's codecs and snapshot structure |
 | `result/result-shape.ts`, `result-column.ts`, `result-aggregate-leaf.ts` | the result-shape vocabulary the client's TypeScript renderer reads; `result-shape.ts` also owns the selection rules the prepared projection shares with it (`selectedArm`, the distance sentences) |
-| `bind-budget.ts`, `execution-context.ts`, `cache-flow.ts`, `query-inspection.ts`, `result-aliases.ts` | retained boundaries outside either engine |
+| `bind-budget.ts`, `execution-context.ts`, `query-inspection.ts`, `result-aliases.ts`, `write-sinks.ts` | retained boundaries outside either engine; `write-sinks.ts` is where a write shows its rows to what watches them |
 
 Do not add a generic mutation DSL, payload walker, branch-step IR, locator,
 strategy, lifecycle hook, or shared utility landfill. Do not recreate a second
@@ -200,35 +196,37 @@ compiler, lowerer, executor, query builder or result engine beside `raptor3/`.
 ## Extension execution boundary
 
 The query engine consumes the client chain; it does not own a second middleware
-registry. Declared controls are admitted once by the pending operation, before
-request transforms (`src/extensions/controls.ts`); the call's row facts are
-looked up from them (`src/extensions/rows.ts`) and reach Raptor 3 as neutral
-domains, tombstones and one instant (`raptor3/shared/row-scope.ts`), never as
-a control, mode or extension name. Request transforms run before core
-validation. Query interceptors run
-around the prepared logical operation and preserve child execution/failure
-once `proceed()` starts. After child success, the handler's returned transformation
-is published. Ordinary handler Error objects retain identity; protocol failures
-remain engine-owned. Statement transforms run once at the common typed
-`Sql` boundary after statement observation and before rendering; verbatim unsafe
-raw excludes transforms. Protected observers receive public completion facts
-only, while official instrumentation reads private facts keyed by the exact
-core-created lifecycle unit. Those facts are neutral records
-(`src/extensions/official-facts.ts`): the operation's requested and resolved
-operation, collection, driver and context, and at completion the failure core
-selected (never one `isErrorLogged` already marks) and the cache-managed
-execution's outcome reader. The extension builds the operation span and the
-error log; the query engine names no span, attribute or log event and imports
-nothing from `src/instrumentation/` at runtime.
+registry, and it names no extension (root Rule 6). The chain's arguments are
+admitted once by the pending operation, before any first moment
+(`src/extensions/arguments.ts`); the call's row facts are looked up from them
+(`src/extensions/rows.ts`) and reach Raptor 3 as neutral domains, tombstones
+and one instant (`raptor3/shared/row-scope.ts`), never as an argument, mode
+or extension name. First moments run before core validation. An `around`'s
+second moment runs around the prepared logical operation and the child's
+execution or failure stands once `run()` starts; after child success, the
+handler's returned value is published, and there is no aggregated error.
+Ordinary handler Error objects retain identity; protocol failures remain
+engine-owned. Rewriting units run once per logical `Sql`, before rendering;
+verbatim unsafe raw is never rewritten. Unit handlers run around the real
+units the engine and the drivers open (`src/extensions/observation.ts`, the
+one generation of unit handlers): the engine builds a unit only where the
+chain observes units, records the facts its producer already holds
+(`src/extensions/unit-source.ts`), and the unit words read them on demand.
+No observer is trusted or protected: instrumentation reads the same words as
+any extension, and the query engine names no span, attribute or log event and
+imports nothing from `src/instrumentation/` at runtime.
 
-The capability protocols and their single runners live in
-`src/extensions/request.ts`, `query.ts`, `statement.ts`, and `observation.ts`.
-The engine consumes the resolved lookups from `src/extensions/chain.ts`; native
-and fallback arrays share only the extension admission latch in
-`src/extensions/array-admission.ts`. The query engine retains only irreducible
-lifecycle triggers and the private facts it can know at execution time; it does
-not wrap, copy, or reinterpret an extension handler. Core array dispatch remains
-here and in the client rather than moving into the extension module.
+A write shows the rows it wrote to `write-sinks.ts` where a part watches it
+(`watch` on a `writes` or `deletes` target); a write nothing watches sends
+exactly the statements it sends unwatched. The engine consumes the state the
+parts wrote on the chain (`chain.call`, `chain.around`, `chain.rewrites`,
+`chain.observation`, `chain.watch`); the one array executor
+(`src/client/array-transaction.ts`) asks the chain only for its `admit` hook
+(`src/extensions/array-admission.ts`), which starts the members' handlers. The
+query engine retains only irreducible lifecycle triggers and the facts it can
+know at execution time; it does not wrap, copy, or reinterpret an extension
+handler. Core array dispatch remains here and in the client rather than
+moving into the extension module.
 
 Array coordination resolves transaction authority from the private WeakMap in
 `transaction-operation.ts`. Client/scope ownership is read from unshadowable
@@ -236,10 +234,16 @@ class-private state before reservation or preparation. No operation method,
 symbol property, public token, or structural protocol grants execution
 authority.
 
-Official cache execution attaches at the prepared operation's inner-core seam,
-inside ordinary query interceptors. It snapshots the parsed core result before
-outer post-work and remains a borrowed-row path. Callback/array transactions,
-raw operations, and statement-transform chains bypass cached reads.
+The official cache is an `around` with `{ inner: true }` that keys a read by
+`key(run)` (the prepared statement) and stores what `codec(run)` keeps (see
+`src/cache/AGENTS.md`). Its one seam here is `PreparedOperation.seen`: a
+function the read is told the rows the driver returned for its one statement,
+before decoding them; a hit hands stored rows to the same prepared read's
+parser (`prepareSingle(…).parseResult`), so there is no second walker over the
+decoded answer. A read with `seen` set reads object rows (never the positional
+transport) and is never folded into a shared `findUnique` batch
+(`pending-operation.ts`), whose rows are not its own. A late `run()` after its
+handler returned replays the core alone (`context.replay()`).
 
 ## Core rules
 

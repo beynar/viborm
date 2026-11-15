@@ -6,50 +6,12 @@
 
 import { CacheInvalidTTLError } from "@errors";
 
-/**
- * Time unit multipliers in milliseconds
- */
-const TIME_UNITS: Record<string, number> = {
-  ms: 1,
-  millisecond: 1,
-  milliseconds: 1,
-  s: 1000,
-  sec: 1000,
-  second: 1000,
-  seconds: 1000,
-  m: 60 * 1000,
-  min: 60 * 1000,
-  minute: 60 * 1000,
-  minutes: 60 * 1000,
-  h: 60 * 60 * 1000,
-  hr: 60 * 60 * 1000,
-  hour: 60 * 60 * 1000,
-  hours: 60 * 60 * 1000,
-  d: 24 * 60 * 60 * 1000,
-  day: 24 * 60 * 60 * 1000,
-  days: 24 * 60 * 60 * 1000,
-  w: 7 * 24 * 60 * 60 * 1000,
-  week: 7 * 24 * 60 * 60 * 1000,
-  weeks: 7 * 24 * 60 * 60 * 1000,
-  month: 30 * 24 * 60 * 60 * 1000,
-  months: 30 * 24 * 60 * 60 * 1000,
-};
+/** `<number> <unit>`, each unit's spellings one group, in the order of `UNIT_MS`. */
+const TTL_PATTERN =
+  /^(\d+(?:\.\d+)?)\s*(?:(ms|milliseconds?)|(s|sec|seconds?)|(m|min|minutes?)|(h|hr|hours?)|(d|days?)|(w|weeks?)|(months?))$/;
 
-const VALID_UNITS = Object.keys(TIME_UNITS).join(", ");
-
-/**
- * Parse a TTL string into milliseconds
- *
- * @example
- * parseTTL("1 hour")      // 3600000
- * parseTTL("20 seconds")  // 20000
- * parseTTL("5m")          // 300000
- * parseTTL("2.5 hours")   // 9000000
- * parseTTL(3000)          // 3000 (passthrough)
- *
- * @throws CacheInvalidTTLError if format is invalid
- */
-const TTL_PATTERN = /^(\d+(?:\.\d+)?)\s*([a-z]+)$/;
+/** Milliseconds per unit, a month being thirty days. */
+const UNIT_MS = [1, 1e3, 6e4, 36e5, 864e5, 6048e5, 2592e6];
 
 export function parseTTL(ttl: string | number): number {
   if (typeof ttl === "number") {
@@ -59,29 +21,18 @@ export function parseTTL(ttl: string | number): number {
     return ttl;
   }
 
-  const normalized = ttl.trim().toLowerCase();
-
-  // Match patterns like "1 hour", "20seconds", "2.5 h"
-  const match = normalized.match(TTL_PATTERN);
+  const match = TTL_PATTERN.exec(ttl.trim().toLowerCase());
 
   if (!match) {
     throw new CacheInvalidTTLError(
-      `Invalid TTL format: "${ttl}". Expected format: "<number> <unit>" (e.g., "1 hour", "20 seconds")`
+      `Invalid TTL format: "${ttl}". Expected format: "<number> <unit>" (e.g., "1 hour", "20 seconds"), the unit one of ms, s, sec, m, min, h, hr, d, w, month, or a word for it.`
     );
   }
 
-  const valueStr = match[1] as string;
-  const unit = match[2] as string;
-  const value = Number.parseFloat(valueStr);
-  const multiplier = TIME_UNITS[unit];
-
-  if (multiplier === undefined) {
-    throw new CacheInvalidTTLError(
-      `Unknown time unit: "${unit}". Valid units: ${VALID_UNITS}`
-    );
-  }
-
-  const result = Math.floor(value * multiplier);
+  const result = Math.floor(
+    Number.parseFloat(match[1]!) *
+      UNIT_MS[match.slice(2).findIndex((unit) => unit !== undefined)]!
+  );
 
   if (!Number.isSafeInteger(result) || result <= 0) {
     throw new CacheInvalidTTLError(

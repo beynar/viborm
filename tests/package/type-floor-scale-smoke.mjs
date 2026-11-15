@@ -12,8 +12,9 @@
  * Each query is checked alone with the schema and client (`base` is those two
  * alone), and its `tsc --extendedDiagnostics` instantiation and type counts
  * must stay within `type-budgets.json`: the recorded values plus its headroom.
- * `VIBORM_TYPE_BUDGET_ENTRY` checks one entry instead of all four, which keeps
- * each package case inside its timeout. Every measurement is printed with its
+ * `extended` adds one extension a user writes in the vocabulary to the
+ * client. `VIBORM_TYPE_BUDGET_ENTRY` checks one entry instead of all five,
+ * which keeps each package case inside its timeout. Every measurement is printed with its
  * check time. To ratchet after making types cheaper, or to re-measure on a new
  * compiler, run this file with `VIBORM_TYPE_BUDGETS_WRITE=1` for each fixture
  * and commit the new values.
@@ -96,6 +97,7 @@ const entries = {
   deep: "deep.ts",
   filter: "filter.ts",
   create: "create.ts",
+  extended: "extended.ts",
 };
 const budgetsFile = join(repositoryRoot, "tests/package/type-budgets.json");
 const budgets = JSON.parse(readFileSync(budgetsFile, "utf8"));
@@ -154,6 +156,30 @@ export async function create() {
   // @ts-expect-error - the nested create's include keeps the child's exact shape
   void row.children6[0]!.slgu;
   return child;
+}
+`,
+    // One extension a user writes in the vocabulary: an argument, a row
+    // filter and a create default on one model, a handler around one of its
+    // reads. The contract before the vocabulary cost 1,330,009 instantiations
+    // for the same extension at 50 models (extension-step1-types.md, 5).
+    "extended.ts": `import { accepts, arg, args, around, defaults, extension, rule, target } from "viborm";
+import { v } from "viborm/validation";
+import { orm } from "./client.ts";
+export const tenanted = orm.$extends(
+  extension(
+    "tenant",
+    args({ tenant: accepts(v.string()) }),
+    rule({ m3: { read: { where: { orgId: arg("tenant") } } } }),
+    defaults({ m3: { create: { orgId: arg("tenant") } } }),
+    around(() => async (run) => run(), target("m3", "findMany"))
+  )
+);
+export async function extended() {
+  const rows = await tenanted.m3.findMany({ tenant: "o", select: { id: true } });
+  const id: string | undefined = rows[0]?.id;
+  // @ts-expect-error - the extension's argument keeps its declared type
+  void tenanted.m3.findMany({ tenant: 1 });
+  return id;
 }
 `,
   },

@@ -33,7 +33,7 @@ misspelt model, hook or field is an editor error.
 
 ## What a hook receives
 
-```ts
+```ts no-check
 (rows, event) => unknown
 ```
 
@@ -46,8 +46,8 @@ misspelt model, hook or field is an editor error.
   rows a nested write wrote, the root call's: a `user.update` hook called by
   `post.update({ data: { author: { update: {…} } } })` receives
   `model: "post"`, `operation: "update"`.
-- `event.args`: the call's arguments, after request transforms and default
-  omit.
+- `event.args`: the call's arguments, after the extensions' first moments
+  (`call` patches) and default omission.
 - `event.certainty`: `"committed"`, or `"may-have-committed"` when the
   provider could not confirm the commit (a connection lost while committing):
   the write may be durable or not.
@@ -180,8 +180,9 @@ const db = base.$extends(
   keep the next from running; each failure is reported on its own.
 - The [cache](/docs/extensions/cache)'s own invalidation failure is not a
   hook's: it still fails the write, as it does without `on()`.
-- A [`query` handler](/docs/extensions/create#wrap-logical-execution) that
-  throws after its write committed does not lose the hook: it has already run.
+- An [`around`](/docs/extensions/create#the-second-moment-around)
+  that throws after its write committed does not lose the hook: it has
+  already run.
 
 ## Request-scoped values (Cloudflare Workers)
 
@@ -230,10 +231,10 @@ editor's checks.
 
 Why not the other two places a request value could come from:
 
-- **A bound control** (like the permissions entry's `$as`) is a value of the
-  calls a client makes, handed to an extension's own request and query
-  handlers. A hook runs after the commit, outside every handler, and a
-  `waitUntil` is not a value a call should carry.
+- **A bound argument** (like the permissions entry's `$as`) is a value of the
+  calls a client makes, handed to the parts of the extension that declares it.
+  A hook runs after the commit, outside every part, and a `waitUntil` is not a
+  value a call should carry.
 - **A hook argument** would make VibORM carry your platform's request object,
   and every runtime names it differently. A closure carries exactly what you
   give it.
@@ -307,20 +308,31 @@ transaction adds its `BEGIN` and `COMMIT`:
 Apply `on()` before or after any other extension. It sees the writes of the whole chain, including the update a soft
 delete makes of a delete and the rows a permission lets a call write (a row the
 call may not write is not written, so it calls no hook). Every other
-extension's `query` handler sees the call's own value, exactly what the caller
+extension's `around` sees the call's own value, exactly what the caller
 asked for, never the whole rows the hook receives.
 
-One client can carry several `on()`: each runs its own hooks, in the order they
-were applied. Applying the same `on()` value twice to one client is refused.
-The declaration is checked when it is applied: a model the schema lacks, a hook name other than
-`create`, `update` and `delete`, or a hook that is no function is a
-`ClientInitializationError` there. To name a hooked client's type, use
-`typeof` (`ExtendedClient` takes object definitions, not a factory such as
-`on()`).
+One client can carry several `on()`: each call of `on()` makes an extension of
+its own name, counted in the program (the first `on()` called is `viborm.on`,
+the next `viborm.on.2`, …), and each runs its own hooks, in the order they
+were applied. A hook's failure says `viborm.on` whichever `on()` holds it. Applying the same `on()` value twice to one
+client is refused, as any extension applied twice. A hook name other than
+`create`, `update` and `delete`, a hook that is no function, and an `onError`
+that is no function are refused when `on()` is called; a model the schema
+lacks is refused when the extension is applied. Each is a
+`ClientInitializationError`. To name a hooked client's type, use `typeof` on
+the client `$extends(on(...))` returns.
+
+`on()` is written with the public parts: a `call` on
+[`target(writes)`](/docs/extensions/create#which-calls-target) that
+[`watch`](/docs/extensions/create#receive-the-rows-a-write-wrote-watch)es the
+rows a write wrote and is
+[`settled`](/docs/extensions/create#act-after-the-commit-settled) after its
+commit. The selector of a call part is `target`, so `on` names only this
+extension.
 
 ## Not covered
 
 - Hooks before a write, or hooks that change it: use a
-  [`query` handler](/docs/extensions/create#wrap-logical-execution) or
-  [`data`](/docs/extensions/create#write-fields-with-data).
+  [`call`](/docs/extensions/create#call-a-function-on-a-call) or
+  [`defaults`](/docs/extensions/create#default-data-create-update).
 - Delivery that survives a crash: write an outbox row in the transaction.

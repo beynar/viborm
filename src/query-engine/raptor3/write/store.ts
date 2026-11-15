@@ -47,7 +47,7 @@ import {
   Stopped,
   type Transport,
 } from "./send";
-import { type Junction, type Question, Writer } from "./statements";
+import { after, type Junction, type Question, Writer } from "./statements";
 
 /** A row the call knows: what it holds, as far as the call knows it. */
 export type Row = Input;
@@ -307,7 +307,7 @@ export class Store {
   /** How much of what the verbs note is sent already, and what the database said of it. */
   #sent = 0;
   #delivered = 0;
-  readonly #heard = new Map<number, Sent[]>();
+  #heard: Map<number, Sent[]> | undefined;
   /** The rows taken to be there that a unit asked for already, where rows are held. */
   #asserted: Set<string> | undefined;
   /** How many times what the call wrote was made before the call ended. */
@@ -317,15 +317,18 @@ export class Store {
   #members: number[] = [];
   /** A row as the statement that read it whole said it. */
   #raw: WeakMap<Input, Input> | undefined;
-  #meta = new WeakMap<Row, Meta>();
-  #known = new Map<string, Row>();
+  // Made where a call first needs them: most calls are one write that knows no row.
+  #meta: WeakMap<Row, Meta> | undefined;
+  #known: Map<string, Row> | undefined;
   #log: Entry[] = [];
-  #missed = new Map<string, { question?: Question; after: number }>();
+  #missed: Map<string, { question?: Question; after: number }> | undefined;
   /** Whether each part undone alone was written, once sent; and the part being noted. */
   #outcomes: Map<number, boolean> | undefined;
   #attempting: number | undefined;
-  #presumed = new Map<string, { question: Question; row?: Row; at: number }>();
-  #used = new Map<Answer, number>();
+  #presumed:
+    | Map<string, { question: Question; row?: Row; at: number }>
+    | undefined;
+  #used: Map<Answer, number> | undefined;
   /** What the database may hold of a model beyond what the call knows: every field of its rows, or those named. */
   #stale = new Map<AnyModel, Set<string> | true>();
   /** The models the call wrote a row of, and the junctions it wrote a link of. */
@@ -351,17 +354,17 @@ export class Store {
   /** Asks the database in the call's unit, once what was written before is sent. */
   #hear = async (statement: Statement): Promise<Input[]> =>
     (await this.#transport.send([statement], false))[0]!.rows;
-  /** Runs the verbs until they ran on an image that could answer them. */
-  async #settle<T>(work: () => () => T): Promise<() => T> {
+  /** Runs the verbs on the image the store holds: their answer, or none where the database must say more first. */
+  #settle<T>(work: () => () => T): (() => T) | undefined {
     for (;;) {
       // A store begins as a run leaves it to the next.
       if (this.#ran) {
-        this.#meta = new WeakMap();
-        this.#known = new Map();
+        this.#meta = undefined;
+        this.#known = undefined;
         this.#log = [];
-        this.#missed = new Map();
-        this.#presumed = new Map();
-        this.#used = new Map();
+        this.#missed = undefined;
+        this.#presumed = undefined;
+        this.#used = undefined;
         this.#stale = new Map();
         this.#touched = new Set();
         this.#again = false;
@@ -369,7 +372,7 @@ export class Store {
         this.#members = [];
         this.#says = [];
         this.#absences = [];
-        this.#left = new Set();
+        this.#left = undefined;
       }
       this.#ran = true;
       let answer: (() => T) | undefined;
@@ -381,9 +384,17 @@ export class Store {
       }
       // What a run refuses on an image that could not answer it says nothing.
       if (this.#again) continue;
-      if (this.#missed.size > 0) await this.#learn();
-      else if (refused) throw refused.error;
-      else return answer!;
+      if (this.#missed?.size) return;
+      if (refused) throw refused.error;
+      return answer!;
+    }
+  }
+  /** Runs the verbs until they ran on an image that could answer them, once the database said what the first run missed. */
+  async #learnt<T>(work: () => () => T): Promise<() => T> {
+    for (;;) {
+      await this.#learn();
+      const answer = this.#settle(work);
+      if (answer) return answer;
     }
   }
   /**
@@ -393,7 +404,8 @@ export class Store {
   async run<T>(work: () => () => T): Promise<T> {
     for (let races = 0; ; ) {
       try {
-        const answer = await this.#settle(work);
+        // Most calls are answered by their first run: no tick is spent waiting for it.
+        const answer = this.#settle(work) ?? (await this.#learnt(work));
         const [only] = this.#log;
         // A call that is one write naming its rows itself, and that took nothing for granted, is sent as it is.
         if (
@@ -402,10 +414,11 @@ export class Store {
             only!.kind === "skipping" ||
             only!.kind === "either") &&
           only!.attempt === undefined &&
-          this.#presumed.size + this.#used.size + this.#sent === 0
+          !(this.#presumed?.size || this.#used?.size || this.#sent)
         ) {
+          const whole = this.#whole(only as never);
           const sent = await this.#transport.send(
-            await this.#whole(only as never),
+            whole instanceof Promise ? await whole : whole,
             true
           );
           this.said = true;
@@ -436,7 +449,7 @@ export class Store {
           );
         // What the call took for granted is asked for real; what it read is read again.
         if (believed === "presumed")
-          for (const id of this.#presumed.keys())
+          for (const id of this.#presumed?.keys() ?? [])
             (this.#concrete ??= new Set()).add(id);
         // Only a unit that holds nothing of what it reads asks again what it read: it plans again on what the database says now, three times at most.
         else if (++races > 3)
@@ -451,7 +464,7 @@ export class Store {
   /** Runs the verbs, and hands their unit over instead of sending it. */
   async prepare<T>(work: () => () => T) {
     this.#handed = true;
-    const answer = await this.#settle(work);
+    const answer = this.#settle(work) ?? (await this.#learnt(work));
     const written: { statements: Statement[]; step: Step }[] = [];
     try {
       for (const step of this.#steps(this.#log.length))
@@ -479,12 +492,12 @@ export class Store {
    */
   async #learn(): Promise<void> {
     const after = Math.min(
-      ...[...this.#missed.values()].map((missed) => missed.after)
+      ...[...(this.#missed?.values() ?? [])].map((missed) => missed.after)
     );
     // Before a unit handed over, only the call's own row may be looked for: found, the unit asks for it again; not found, the key it is created under refuses a row that came since.
     if (
       this.#handed &&
-      [...this.#missed.values()].some(
+      [...(this.#missed?.values() ?? [])].some(
         ({ question, after: asked }) =>
           asked > 0 ||
           !question?.unique ||
@@ -510,13 +523,13 @@ export class Store {
         question.writes,
         question.makes,
       ]);
-    for (const [id, { question, after: asked }] of this.#missed) {
+    for (const [id, { question, after: asked }] of this.#missed ?? []) {
       if (asked !== after || !question) continue;
       const key = group(question) || id;
       groups.set(key, [...(groups.get(key) ?? []), [id, question]]);
     }
     // A row taken to be there is read with them rather than asked for after.
-    for (const [id, { question, row }] of this.#presumed) {
+    for (const [id, { question, row }] of this.#presumed ?? []) {
       const together = row && groups.get(group(question) || "");
       if (together) together.push([id, question]);
     }
@@ -629,7 +642,7 @@ export class Store {
   }
   /** What the call holds of a row it knows. */
   #about(row: Row) {
-    return this.#meta.get(row)!;
+    return this.#meta?.get(row) as Meta;
   }
   /** What refuses the call where the row a question names is not there. */
   #absent(question: Question, lost?: boolean) {
@@ -673,11 +686,11 @@ export class Store {
   /** The one handle of a row, by its key. */
   #intern(model: AnyModel, values: Input, question?: Question): Row {
     const name = this.#name(model, values);
-    let row = this.#known.get(name);
+    let row = this.#known?.get(name);
     if (!row) {
       row = { ...values };
-      this.#known.set(name, row);
-      this.#meta.set(row, { model, question });
+      (this.#known ??= new Map()).set(name, row);
+      (this.#meta ??= new WeakMap()).set(row, { model, question });
     }
     return row;
   }
@@ -801,7 +814,7 @@ export class Store {
       return undefined;
     const key = Object.fromEntries(pins);
     const name = named ? `${id}` : this.#name(model, key);
-    let row = this.#known.get(name);
+    let row = this.#known?.get(name);
     if (!row) {
       const fields = schema.storedFields(model);
       const held: Row = { ...key };
@@ -811,7 +824,7 @@ export class Store {
             typeof field === "string" &&
             fields.includes(field) &&
             !(field in target) &&
-            this.#meta.get(partial)?.partial
+            this.#meta?.get(partial)?.partial
           ) {
             (this.#concrete ??= new Set()).add(id);
             this.#again = true;
@@ -831,15 +844,19 @@ export class Store {
               () => this.writer.located(question, field),
               true
             );
-      this.#known.set(name, row);
-      this.#meta.set(row, {
+      (this.#known ??= new Map()).set(name, row);
+      (this.#meta ??= new WeakMap()).set(row, {
         model,
         question,
         partial: true,
         named: named ? id : undefined,
       });
     }
-    this.#presumed.set(id, { question, row, at: this.#log.length });
+    (this.#presumed ??= new Map()).set(id, {
+      question,
+      row,
+      at: this.#log.length,
+    });
     return [row];
   }
   /**
@@ -859,7 +876,7 @@ export class Store {
         ? facts.keys
         : undefined);
     if (!(question.unique && pins)) return false;
-    for (const row of this.#known.values()) {
+    for (const row of this.#known?.values() ?? []) {
       if (
         this.#about(row).model !== question.model ||
         ![...pins].every(
@@ -880,7 +897,7 @@ export class Store {
   /** Whether the database may hold, of the rows a question names, what the call does not know. */
   #spoiled(question: Question): boolean {
     const { model, member } = question;
-    if (member && this.#meta.get(member.of)?.moved) return true;
+    if (member && this.#meta?.get(member.of)?.moved) return true;
     const stale = this.#stale.get(model);
     if (stale === true) return true;
     const { facts } = this.writer.selector(question);
@@ -914,7 +931,7 @@ export class Store {
     this.writable(question);
     // The members of a row the call gave another key, where the database does not make them follow, are those it had under the key it had: asked as of then, ahead of what the call writes.
     const { member } = question;
-    const stood = member && this.#meta.get(member.of)?.stood;
+    const stood = member && this.#meta?.get(member.of)?.stood;
     if (
       stood &&
       member.edge.kind === "reference" &&
@@ -939,10 +956,10 @@ export class Store {
     );
   }
   /** The keys the call moved a row away from: no row has one of them until the call makes one. */
-  #left = new Set<string>();
+  #left: Set<string> | undefined;
   #rows(question: Question, late: boolean): Row[] {
     const { model, member } = question;
-    if (this.#left.size > 0 && question.unique) {
+    if (this.#left?.size && question.unique) {
       const pins = this.writer.selector(question).uniqueValues;
       const keys = this.operation.schema.keys(model);
       const name =
@@ -953,15 +970,15 @@ export class Store {
           Object.fromEntries(keys.map((field) => [field, pins.get(field)]))
         );
       // Unless the call made a row under it since: the row that had it is known by its new key.
-      const there = name ? this.#known.get(name) : undefined;
+      const there = name ? this.#known?.get(name) : undefined;
       if (
         name &&
-        this.#left.has(name) &&
+        this.#left?.has(name) &&
         !(there && this.#name(model, there) === name)
       )
         return [];
     }
-    const fresh = member && this.#meta.get(member.of)?.made;
+    const fresh = member && this.#meta?.get(member.of)?.made;
     // What makes a row a member is read of the row it is a member of.
     if (member?.edge.kind === "reference" && !fresh)
       for (const pair of member.edge.pairs)
@@ -1001,11 +1018,14 @@ export class Store {
         ? recalled.filter((row) => !this.#changed(row))
         : [];
       if (read.length > 0)
-        this.#used.set({ question, rows: read }, this.#log.length);
+        (this.#used ??= new Map()).set(
+          { question, rows: read },
+          this.#log.length
+        );
       const known = recalled || (!late && this.#presume(id, question));
       if (known) return known;
       // Asked of the row as it stands now, whatever the call writes of it next.
-      this.#missed.set(id, {
+      (this.#missed ??= new Map()).set(id, {
         question: member
           ? { ...question, member: { ...member, of: this.#of(member) } }
           : question,
@@ -1013,8 +1033,8 @@ export class Store {
       });
       return [];
     }
-    if (!(fresh || this.#used.has(answer)))
-      this.#used.set(answer, this.#log.length);
+    if (!(fresh || this.#used?.has(answer)))
+      (this.#used ??= new Map()).set(answer, this.#log.length);
     const read = new Set(
       answer.rows.map((values) => {
         const row = this.#intern(model, values, question);
@@ -1034,7 +1054,7 @@ export class Store {
     const rows = [...read];
     if (late) return rows;
     // What the call wrote since may answer now, or no longer.
-    for (const row of this.#known.values()) {
+    for (const row of this.#known?.values() ?? []) {
       const meta = this.#about(row);
       if (meta.model !== model) continue;
       const linked =
@@ -1055,12 +1075,15 @@ export class Store {
   }
   /** The one row a question names, which must be there. */
   one(question: Question): Row {
-    const missed = this.#missed.size;
+    const missed = this.#missed?.size ?? 0;
     const [row] = this.rows({ ...question, must: true });
     // A question not answered yet says nothing: the verbs go on, on a row of which nothing is known.
-    if (!row && this.#missed.size > missed) {
+    if (!row && (this.#missed?.size ?? 0) > missed) {
       const unknown: Row = {};
-      this.#meta.set(unknown, { model: question.model, question });
+      (this.#meta ??= new WeakMap()).set(unknown, {
+        model: question.model,
+        question,
+      });
       return unknown;
     }
     if (!row) throw this.#absent(question);
@@ -1082,7 +1105,8 @@ export class Store {
       this.#touched.add(this.#about(entry.row).model);
     else if (entry.kind === "skipping") this.#touched.add(entry.model);
     else if ("edge" in entry) this.#touched.add(entry.edge.table);
-    const heard = this.#heard.get(this.#log.push(entry) - 1);
+    const place = this.#log.push(entry) - 1;
+    const heard = this.#heard?.get(place);
     if (heard) entry.take?.(heard);
   }
   /** A row created: what was admitted of what the caller wrote of it, and what it `takes` of the rows it references. */
@@ -1117,14 +1141,14 @@ export class Store {
       );
     // A row created under a key another has is the database's to refuse.
     const name = this.#name(model, row);
-    if (!this.#known.has(name)) this.#known.set(name, row);
+    if (!this.#known?.has(name)) (this.#known ??= new Map()).set(name, row);
     const meta: Meta = {
       model,
       made: true,
       at: this.#log.length,
       born: computed,
     };
-    this.#meta.set(row, meta);
+    (this.#meta ??= new WeakMap()).set(row, meta);
     this.#note({
       kind: "insert",
       row,
@@ -1198,7 +1222,7 @@ export class Store {
         )
       )
         continue;
-      for (const child of [...this.#known.values()]) {
+      for (const child of [...(this.#known?.values() ?? [])]) {
         const meta = this.#about(child);
         if (
           meta.model !== edge.target ||
@@ -1215,7 +1239,7 @@ export class Store {
           (meta.wrote ??= new Set()).add(pair.target);
         }
         if (schema.keys(meta.model).some((key) => was[key] !== child[key])) {
-          this.#known.set(this.#name(meta.model, child), child);
+          (this.#known ??= new Map()).set(this.#name(meta.model, child), child);
           meta.moved = true;
         }
         this.#follow(child, was);
@@ -1269,7 +1293,7 @@ export class Store {
           update.value instanceof Pending &&
           update.value.at > made) ||
         // So is what it holds of a row the call creates after it: that row is not there when this one is inserted.
-        (of !== undefined && (this.#meta.get(of)?.at ?? -1) > made);
+        (of !== undefined && (this.#meta?.get(of)?.at ?? -1) > made);
       if (update.kind !== "value" || later) {
         const stood = row[field];
         // Of a row the call creates only.
@@ -1315,8 +1339,8 @@ export class Store {
       meta.stood ??= before;
     // A row is known by the key it has now: the key it had names no row the call knows of.
     if (keys.some((field) => field in set)) {
-      this.#left.add(this.#name(model, before));
-      this.#known.set(this.#name(model, row), row);
+      (this.#left ??= new Set()).add(this.#name(model, before));
+      (this.#known ??= new Map()).set(this.#name(model, row), row);
       meta.moved = true;
       this.#cascades(model);
     }
@@ -1499,7 +1523,7 @@ export class Store {
     this.writable(question);
     // A row that must be there is asked for where what the write says of it comes too late.
     if (question.must && this.#handed)
-      this.#presumed.set(`all:${this.#log.length}`, {
+      (this.#presumed ??= new Map()).set(`all:${this.#log.length}`, {
         question,
         row: undefined,
         at: this.#log.length,
@@ -1549,7 +1573,7 @@ export class Store {
         pins
       ) ||
       selector.scoped ||
-      q.domain?.produced(model) ||
+      q.domain?.judge?.produced(model) ||
       fields.length === 0 ||
       this.operation.schema.keys(model).some((key) => key in set) ||
       // The row created is the one the question would name.
@@ -1740,7 +1764,7 @@ export class Store {
           const expected = query.expectedRows;
           if (!expected || sent[at]!.rows.length >= expected.count) continue;
           // A row taken to be there, read before anything said it was: the read says it is not.
-          for (const { question, row } of this.#presumed.values())
+          for (const { question, row } of this.#presumed?.values() ?? [])
             if (row && there.includes(row))
               throw new Stopped({
                 sql: query.sql,
@@ -1821,7 +1845,9 @@ export class Store {
     const written = this.#outcomes?.get(from);
     // Only the database can say: once the part is sent.
     if (written === undefined) {
-      this.#missed.set(`attempt:${from}`, { after: this.#log.length });
+      (this.#missed ??= new Map()).set(`attempt:${from}`, {
+        after: this.#log.length,
+      });
       return true;
     }
     if (!written)
@@ -1831,14 +1857,14 @@ export class Store {
         Object.assign(meta, { gone: true, passed: true });
         // The row that has its key is the one the database holds.
         const name = this.#name(meta.model, entry.row);
-        if (this.#known.get(name) === entry.row) this.#known.delete(name);
+        if (this.#known?.get(name) === entry.row) this.#known?.delete(name);
       }
     return written;
   }
   /** How many of the rows the call created the database said it wrote. */
   written(rows: readonly Row[]): number {
     let count = 0;
-    for (const row of rows) count += this.#meta.get(row)?.inserted ?? 0;
+    for (const row of rows) count += this.#meta?.get(row)?.inserted ?? 0;
     return count;
   }
   /** The call's unit is handed over. */
@@ -2026,7 +2052,7 @@ export class Store {
               entry.edge.table === question.member!.edge.table
         );
     /** The rows taken to be there that this unit hears of, in the order the call took them. */
-    const taken = [...this.#presumed].filter(
+    const taken = [...(this.#presumed ?? [])].filter(
       ([id, { row, at }]) =>
         !(at > to || (holds ? this.#asserted?.has(id) : passed(row)))
     );
@@ -2097,7 +2123,7 @@ export class Store {
           (each) =>
             each.question.where === entry.question.where &&
             firstOf(each.row) === each &&
-            !this.#meta.get(each.row)?.made
+            !this.#meta?.get(each.row)?.made
         ),
     });
     /**
@@ -2123,7 +2149,7 @@ export class Store {
     };
     /** Whether a write is of a row the call names by what the question that found it says, its key being the database's to say. */
     const unkeyed = (entry: Entry) =>
-      "row" in entry && this.#meta.get(entry.row)?.named !== undefined;
+      "row" in entry && this.#meta?.get(entry.row)?.named !== undefined;
     /** The keys a write of rows names them by; none where the question does. */
     const keyed = (run: readonly { row: Row; key: Input }[]) =>
       unkeyed(run[0] as Entry)
@@ -2228,14 +2254,14 @@ export class Store {
         ? next
         : undefined;
     };
-    for (const [answer, at] of this.#used) {
+    for (const [answer, at] of this.#used ?? []) {
       // Rows read where what is read is held are not asked again.
       if (holds) continue;
       {
         const { model, where } = answer.question;
         const keys = (at > to ? [] : answer.rows)
           .filter(
-            (values) => !passed(this.#known.get(this.#name(model, values)))
+            (values) => !passed(this.#known?.get(this.#name(model, values)))
           )
           // By its key, and by every value of it no other row may have: what the call may have given another row to hold. A value it does not have names no row.
           .map((values) =>
@@ -2256,7 +2282,9 @@ export class Store {
         const held = !(
           writes === answer.rows.length &&
           answer.rows.every((values) => {
-            const first = firstOf(this.#known.get(this.#name(model, values))!);
+            const first = firstOf(
+              this.#known?.get(this.#name(model, values)) as Row
+            );
             return (
               (first?.kind === "update" || first?.kind === "delete") &&
               span.includes(first)
@@ -2291,14 +2319,14 @@ export class Store {
         return run;
       };
       const take = (sent: Sent[], queries?: Query[]) => {
-        this.#heard.set(place, sent);
+        (this.#heard ??= new Map()).set(place, sent);
         confirmed(entry, sent[0]!);
         entry.take?.(sent, queries);
       };
       /** Tells the read a write answered what the write said. */
       const tells =
         (read: Entry | undefined, from: number) => (sent: Sent[]) => {
-          this.#heard.set(from, sent);
+          (this.#heard ??= new Map()).set(from, sent);
           confirmed(entry, sent[0]!);
           read?.take?.(sent);
         };
@@ -2586,14 +2614,14 @@ export class Store {
     return steps;
   }
   /** The statements of a write that names its rows itself. */
-  async #whole(
+  #whole(
     entry: Extract<Entry, { kind: "all" | "skipping" | "either" }>
-  ): Promise<Statement[]> {
+  ): Statement[] | Promise<Statement[]> {
     const { writer } = this;
     if (entry.kind === "all")
-      return [
+      return after(
         entry.set
-          ? await writer.update(
+          ? writer.update(
               this.#asked(entry.question),
               this.#said(entry.set),
               undefined,
@@ -2604,17 +2632,19 @@ export class Store {
               undefined,
               entry.projection
             ),
-      ];
+        (statement) => [statement]
+      );
     if (entry.kind === "either")
-      return [
-        await writer.either(
+      return after(
+        writer.either(
           entry.question,
           this.#said(entry.row),
           this.#said(entry.set),
           entry.projection,
           entry.marker
         ),
-      ];
+        (statement) => [statement]
+      );
     // As many statements as the rows' shapes and the provider's bound on one statement ask.
     const chunks: Input[][] = [];
     let columns: string[] = [];
@@ -2627,18 +2657,19 @@ export class Store {
         columns = Object.keys(row);
       }
     }
-    return Promise.all(
-      chunks.map((chunk) =>
-        writer.insert(
-          entry.model,
-          chunk.map((row) => this.#said(row)),
-          undefined,
-          entry.projection,
-          undefined,
-          entry.passes
-        )
+    const written = chunks.map((chunk) =>
+      writer.insert(
+        entry.model,
+        chunk.map((row) => this.#said(row)),
+        undefined,
+        entry.projection,
+        undefined,
+        entry.passes
       )
     );
+    return written.some((statement) => statement instanceof Promise)
+      ? Promise.all(written)
+      : (written as Statement[]);
   }
   /**
    * Sends the steps of a unit. A statement that needs a value the database

@@ -15,6 +15,7 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
 import type { Dialect } from "@drivers";
+import { createClient as createSnowflakeClient } from "@drivers/snowflake";
 import { SurrealDriver } from "@drivers/surrealdb";
 import { FeatureNotSupportedError } from "@errors";
 import { hydrateSchemaNames, s, TYPES } from "@schema";
@@ -23,6 +24,7 @@ import {
   createModelRegistry,
   TestQueryEngine,
 } from "@tests/fixtures/query-engine";
+import { rows, startFakeSnowflake } from "@tests/fixtures/snowflake-server";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 
@@ -199,5 +201,30 @@ describe("every other engine refuses before any statement", () => {
       client.facture.groupBy({ by: [{ date: "month" }], _count: true })
     ).rejects.toBeInstanceOf(FeatureNotSupportedError);
     expect(asked).toEqual([]);
+  });
+
+  test("Snowflake: the same typed refusal, the server never asked", async () => {
+    const server = await startFakeSnowflake(() => rows([], []));
+    try {
+      const client = createSnowflakeClient({
+        schema,
+        account: "myorg-acct",
+        token: "oauth-token",
+        warehouse: "WH",
+        database: "DB",
+        namespace: "PUBLIC",
+        host: server.host,
+        fetch: server.fetch,
+      });
+      await expect(
+        client.facture.groupBy({ by: [{ date: "month" }], _count: true })
+      ).rejects.toBeInstanceOf(FeatureNotSupportedError);
+      expect(server.requests).toEqual([]);
+      // The same grouping without a step is sent: the refusal is the step's.
+      await client.facture.groupBy({ by: ["date"], _count: true });
+      expect(server.requests.length).toBeGreaterThan(0);
+    } finally {
+      await server.close();
+    }
   });
 });

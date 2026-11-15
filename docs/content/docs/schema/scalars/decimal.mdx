@@ -224,9 +224,10 @@ not their elements.
 
 ## Cache and application arithmetic
 
-Cache snapshots, operation identity, cursors, and relation keys use canonical
-private strings. Every cache hit reconstructs fresh public `Decimal` instances;
-the cache never clones a Decimal prototype.
+Operation identity, cursors, and relation keys use canonical private strings.
+The cache stores a decimal as the driver returned it, and every cache hit
+decodes it again into fresh public `Decimal` instances; the cache never clones
+a Decimal prototype.
 
 There is no configuration to get wrong: the value type has no statics, so
 nothing an application sets can reach field-domain validation, SQL, storage,

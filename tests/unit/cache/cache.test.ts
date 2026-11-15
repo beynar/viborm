@@ -1,5 +1,6 @@
 import { MemoryCache } from "@cache/drivers/memory";
 import { cache as cacheExtension } from "@cache/extension";
+import { staleWhileRevalidate } from "@cache/revalidate";
 import { VibORM } from "@client/client";
 import { instrumentation } from "@instrumentation/extension";
 
@@ -41,7 +42,12 @@ function createCachedClient(
   version?: string
 ) {
   return VibORM.create({ schema, driver: family().driver }).$extends(
-    cacheExtension({ driver: cacheDriver, waitUntil, version })
+    cacheExtension({
+      swr: staleWhileRevalidate,
+      driver: cacheDriver,
+      waitUntil,
+      version,
+    })
   );
 }
 

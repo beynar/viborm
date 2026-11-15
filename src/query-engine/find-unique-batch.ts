@@ -8,15 +8,15 @@
  * its batch), which may not be every member's: a driver that picks a database
  * by `AsyncLocalStorage`, or a trace per request, sees the leader's. That is
  * why it is opt-in. The merge happens below every per-call lifecycle step — request
- * transforms, controls, default omit, admission, query interceptors, the
+ * transforms, arguments, default omit, admission, query interceptors, the
  * official cache and observers all still see each call as its own operation —
  * and above the route, which runs the merged read like any other read.
  *
  * Two calls share a batch only when nothing that decides their rows differs:
  * the same engine (so the same client view, extension chain and bound
- * controls), outside every transaction, the same model, the same unique key
+ * arguments), outside every transaction, the same model, the same unique key
  * spelled the same way, the same projection (`select`/`include`/`omit`, nested
- * arguments included, compared structurally) and the same admitted controls.
+ * arguments included, compared structurally) and the same admitted arguments.
  * The `where` must be the key alone: a value per member, nothing else.
  *
  * A row reaches a caller only when its decoded key is EXACTLY the caller's
@@ -37,7 +37,7 @@ import { passThroughParseResult } from "@adapters/adapter-result-parser";
 import { normalizedBindParameterLimit } from "@drivers/bind-parameter-capacity";
 import { deriveRecoverableExecutionContext } from "@drivers/execution-context";
 import type { QueryExecutionContext } from "@drivers/exports";
-import type { AdmittedControls } from "@extensions/controls";
+import type { AdmittedArgs } from "@extensions/arguments";
 import type { AnyModel } from "@schema/model";
 import { findAddressableKey } from "@schema/model/keys";
 import { isRecord } from "@validation/value-guards";
@@ -52,9 +52,9 @@ export interface FindUniqueCall {
   readonly model: AnyModel;
   /** `findUnique` or `findUniqueOrThrow`. */
   readonly requested: string;
-  /** The client-prepared input: controls removed, request transforms applied. */
+  /** The client-prepared input: arguments removed, request transforms applied. */
   readonly args: Record<string, unknown>;
-  readonly controls: AdmittedControls | undefined;
+  readonly values: AdmittedArgs | undefined;
   /** The call's own row domain, resolved for the batch that runs it. */
   readonly rows: () => CallRows | undefined;
   readonly routed: PreparedOperation;
@@ -190,7 +190,7 @@ function engineBatches(engine: QueryEngine): boolean {
   return (
     batchingRoutes.has(engine.route) &&
     driver === engine.route.driver &&
-    (engine.extensionChain?.statement.length ?? 0) === 0 &&
+    engine.extensionChain?.rewrites === undefined &&
     driver.result?.parseResult === undefined &&
     driver.adapter.result.parseResult === passThroughParseResult
   );
@@ -250,7 +250,7 @@ function enqueue(
   let batches = byShape.get(signature);
   if (batches === undefined) byShape.set(signature, (batches = []));
   let batch = batches.find((candidate) =>
-    sameControls(candidate.leader.controls, call.controls)
+    sameControls(candidate.leader.values, call.values)
   );
   let leads = false;
   if (batch === undefined) {
@@ -269,10 +269,10 @@ function enqueue(
   return leads;
 }
 
-/** Admitted controls decide the row domain: the same values, the same rows. */
+/** Admitted arguments decide the row domain: the same values, the same rows. */
 function sameControls(
-  first: AdmittedControls | undefined,
-  second: AdmittedControls | undefined
+  first: AdmittedArgs | undefined,
+  second: AdmittedArgs | undefined
 ): boolean {
   if (first === second) return true;
   if (first === undefined || second === undefined) return false;

@@ -1,5 +1,7 @@
 import type { AnyDriver, QueryResult } from "@drivers";
+import type { UnitSource } from "@extensions/unit-source";
 import {
+  type MemberAround,
   readTransactionOperation,
   registerTransactionOperationOwner,
   type TransactionOperationCapability,
@@ -50,12 +52,12 @@ export class TestTransactionOperationView {
     return this.#owner.context(this.#capability);
   }
 
-  requiresInterception(): boolean {
-    return this.#owner.requiresInterception(this.#capability);
+  around(): MemberAround {
+    return this.#owner.around(this.#capability);
   }
 
-  hasObservation(): boolean {
-    return this.#owner.hasObservation(this.#capability);
+  unit(): UnitSource {
+    return this.#owner.unit(this.#capability);
   }
 
   executeWith(driver: AnyDriver): Promise<unknown> {
@@ -104,37 +106,16 @@ export class TestTransactionOperation<T> implements PromiseLike<T> {
       operation: (operation) =>
         operation.#owner.operation(operation.#capability),
       context: (operation) => operation.#owner.context(operation.#capability),
-      requiresInterception: (operation) =>
-        operation.#owner.requiresInterception(operation.#capability),
       prepareAdmission: (operation, phase) =>
         operation.#owner.prepareAdmission(operation.#capability, phase),
-      stagePackageWriteOutcomes: (operation, outcomes) =>
-        operation.#owner.stagePackageWriteOutcomes(
-          operation.#capability,
-          outcomes
-        ),
-      startInterception: (operation, child, outcomes, control) =>
-        operation.#owner.startInterception(
-          operation.#capability,
-          child,
-          outcomes,
-          control
-        ),
+      around: (operation) => operation.#owner.around(operation.#capability),
       executeCore: (operation, driver, notifications) =>
         operation.#owner.executeCore(
           operation.#capability,
           driver,
           notifications
         ),
-      isWrite: (operation) => operation.#owner.isWrite(operation.#capability),
-      hasObservation: (operation) =>
-        operation.#owner.hasObservation(operation.#capability),
-      observe: (operation, child, readCompletionFacts) =>
-        operation.#owner.observe(
-          operation.#capability,
-          child,
-          readCompletionFacts
-        ),
+      unit: (operation) => operation.#owner.unit(operation.#capability),
       reserveWith: (operation, driver) =>
         operation.#owner.reserveWith(operation.#capability, driver),
       executeWith: (operation, driver) =>

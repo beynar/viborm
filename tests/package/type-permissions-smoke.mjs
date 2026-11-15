@@ -96,8 +96,8 @@ export const compiled = [
 `;
 /**
  * The entry on a client: `$as` is the governed client again (a key actor
- * too, its restrictions judged in the statement); can and assert take each model's
- * own actions, one or a list; `$access` is a projection key at every depth,
+ * too, its restrictions judged in the statement); can and assert are gone;
+ * `$access` names each model's own actions and is a projection key at every depth,
  * typed as a boolean map of each model's actions; a read-gated field is absent
  * from a default row and present where
  * selected; `as` takes the policy's actions and domains. Each wrong name is
@@ -117,20 +117,17 @@ export const keyed: typeof db = db.$as({
   network: "office",
   key: { id: "key-02-a", scopes: { page: ["read"] }, resources: { document: ["d1"] } },
 });
-export const answers: [Promise<boolean>, Promise<void>, Promise<boolean>] = [
-  call.team.can("invite", { id: "t1" }),
-  call.organization.assert("export", { id: "org-1" }),
-  call.document.can("archive", { id: "d1" }),
-];
-// @ts-expect-error - a filter is not the unique selector can takes
-export const filtered = call.document.can("archive", { parentId: null });
-export const listed: Promise<{ readonly comment: boolean; readonly share: boolean }> =
-  call.document.can(["comment", "share"], { id: "d1" });
-export const all: Promise<void> = call.page.assert(["read", "update"], { id: "p1" });
-// @ts-expect-error - "export" is not an action of team
-export const wrong = call.team.can("export", { id: "t1" });
+export async function answers() {
+  const team = await call.team.findUnique({ where: { id: "t1" }, select: { $access: ["invite"] } });
+  const invite: boolean = team?.$access.invite === true;
+  return invite;
+}
+// @ts-expect-error - can was removed: read $access instead
+export const removed = call.team.can("invite", { id: "t1" });
+// @ts-expect-error - "export" is not an action of team, beside one that is
+export const wrong = call.team.findMany({ select: { $access: ["invite", "export"] } });
 // @ts-expect-error - "archive" is document's, not page's
-export const wrongList = call.page.can(["read", "archive"], { id: "p1" });
+export const wrongList = call.page.findMany({ select: { $access: ["read", "archive"] } });
 
 export async function reads() {
   const documents = await call.document.findMany({

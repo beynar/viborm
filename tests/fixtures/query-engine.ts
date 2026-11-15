@@ -13,7 +13,7 @@
 
 import type { AnyDriver } from "@drivers";
 import type { ResolvedExtensionChain } from "@extensions/chain";
-import type { TransactionWriteOutcomes } from "@extensions/query";
+import type { TransactionScope } from "@extensions/query";
 import { QueryEngine } from "@query-engine/query-engine";
 import {
   type CommandEngine,
@@ -68,17 +68,10 @@ export class TestQueryEngine extends QueryEngine {
     clientId?: symbol,
     scopeId?: symbol,
     extensionChain?: ResolvedExtensionChain,
-    transactionWriteOutcomes?: TransactionWriteOutcomes,
+    transaction?: TransactionScope,
     route: CommandEngine = provisionedRoute(driver, registry)
   ) {
-    super(
-      driver,
-      route,
-      clientId,
-      scopeId,
-      extensionChain,
-      transactionWriteOutcomes
-    );
+    super(driver, route, clientId, scopeId, extensionChain, transaction);
   }
 
   /** The one statement an operation compiles to, or the refusal. */

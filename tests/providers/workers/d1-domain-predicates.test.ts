@@ -24,9 +24,9 @@ import { env } from "cloudflare:test";
 import { createClient } from "@client/client";
 import type { D1Database } from "@cloudflare/workers-types";
 import { UniqueConstraintError } from "@errors";
-import { defineExtension } from "@extensions/define";
 import { Queries } from "@query-engine/raptor3/shared/query";
 import { D1Driver } from "@src/drivers/d1";
+import { accepts, arg, args, extension, oneOf, rule, when } from "@src/index";
 import { createMigrationClient } from "@src/migrations/client";
 import { v } from "@src/validation";
 import {
@@ -150,33 +150,24 @@ describe("D1: one prepared predicate for every call value (W-K2a)", () => {
           { id: "d2", ownerId: "u2", parentId: "d1", expiresAt: null },
         ],
       });
-      const userId = { control: "actor", path: "userId" };
       const db = base.$extends(
-        defineExtension({
-          name: "actor",
-          controls: {
-            actor: {
-              schema: v.object({ userId: v.string() }),
-              required: true,
+        extension(
+          "actor",
+          args({
+            actor: accepts(v.object({ userId: v.string() })).required(["doc"]),
+            actorMode: oneOf("on").default("on"),
+          }),
+          rule({
+            doc: {
+              root: when(arg("actorMode"), "on", {
+                OR: [
+                  { ownerId: arg("actor", "userId") },
+                  { parent: { is: { ownerId: arg("actor", "userId") } } },
+                ],
+              }),
             },
-          },
-          rows: {
-            control: "actorMode",
-            default: "on",
-            models: {
-              doc: {
-                on: {
-                  root: {
-                    OR: [
-                      { ownerId: userId },
-                      { parent: { is: { ownerId: userId } } },
-                    ],
-                  },
-                },
-              },
-            },
-          },
-        })
+          })
+        )
       );
       const prepare = vi.spyOn(Queries.prototype, "prepareSelector");
       expect(

@@ -26,7 +26,7 @@ import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { ValidationError } from "@errors";
 import { s } from "@schema";
-import { defineExtension } from "@src/index";
+import { defaults, extension } from "@src/index";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { beforeEach, describe, expect, test } from "vitest";
@@ -288,10 +288,7 @@ describe("insert-only timestamps written by an extension's data", () => {
       );
       const EPOCH = new Date(0);
       const stamped = base.$extends(
-        defineExtension<typeof schema>()({
-          name: "epoch",
-          data: { models: { item: { create: { createdAt: EPOCH } } } },
-        })
+        extension("epoch", defaults({ item: { create: { createdAt: EPOCH } } }))
       );
       await expect(
         stamped.item.create({ data: { id: "stamped" } })

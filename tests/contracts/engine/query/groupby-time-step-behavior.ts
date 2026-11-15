@@ -108,8 +108,21 @@ export function runGroupByTimeStepBehavior(
       const cached = base
         .$extends(cache({ driver: new MemoryCache() }))
         .$withCache({});
+      expect(expected).toContainEqual(expect.objectContaining({ dueAt: null }));
       expect(await cached.facture.groupBy(args)).toEqual(expected);
       expect(await cached.facture.groupBy(args)).toEqual(expected);
+      // Periods before the common era: year zero, and a week of year -1.
+      for (const step of ["year", "week"] as const) {
+        const ancient = { by: [{ date: step }], _count: true as const };
+        const direct = await base.ancien.groupBy(ancient);
+        expect(direct).toContainEqual(
+          expect.objectContaining({
+            date: step === "year" ? "0000-01-01" : "-0001-12-27",
+          })
+        );
+        expect(await cached.ancien.groupBy(ancient)).toEqual(direct);
+        expect(await cached.ancien.groupBy(ancient)).toEqual(direct);
+      }
     });
 
     for (const { name, run } of GROUPBY_TIME_STEP_CASES)

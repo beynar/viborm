@@ -40,6 +40,14 @@ import type { BatchQuery, QueryExecutionContext } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import type { QueryResult } from "@drivers/types";
 import { s } from "@schema";
+import {
+  around,
+  deletes,
+  extension,
+  settled,
+  target,
+  writes,
+} from "@src/index";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import type Database from "better-sqlite3";
 import { afterEach, describe, expect, test } from "vitest";
@@ -69,7 +77,7 @@ const CHANGED = (verb: string) =>
 const OUTCOME_THREW = "closure-repair credential-free listener failed";
 /** The publication owner's own sentence for it (`@extensions/query`). */
 const LISTENER_FAILED =
-  'Extension "failing-outcome" write-outcome listener failed after committed.';
+  'Extension "failing-outcome" settled() failed (committed).';
 /** The one composition of a primary with a retained listener failure
  *  (`retainWriteOutcomeFailure`, `@errors`). */
 const COMPOSED = "Query execution and write-outcome publication both failed.";
@@ -145,25 +153,34 @@ class CapturingBatchOnlyDriver extends CapturingSQLite3Driver {
  * BEFORE the operation has answered for that batch.
  */
 const withFailingOutcome = (client: SettlementClient) =>
-  client.$extends({
-    name: "failing-outcome",
-    query: {
-      note: {
-        deleteMany({ onWriteOutcome, proceed }) {
-          onWriteOutcome(() => {
+  client.$extends(
+    extension(
+      "failing-outcome",
+      around(
+        (c) => {
+          settled(c, () => {
             throw new Error(OUTCOME_THREW);
           });
-          return proceed();
+          return (run) => {
+            return run();
+          };
         },
-        updateMany({ onWriteOutcome, proceed }) {
-          onWriteOutcome(() => {
+        target("note", deletes)
+      ),
+      around(
+        (c) => {
+          if (c.operation !== "updateMany") return;
+          settled(c, () => {
             throw new Error(OUTCOME_THREW);
           });
-          return proceed();
+          return (run) => {
+            return run();
+          };
         },
-      },
-    },
-  });
+        target("note", writes)
+      )
+    )
+  );
 
 /**
  * The composition, as the estate's ONE composition states it
@@ -211,7 +228,7 @@ const COMPOSITION = {
 const RETAINED_LISTENER = {
   name: "QueryError",
   message: LISTENER_FAILED,
-  meta: { method: "onWriteOutcome", commitCertainty: "committed" },
+  meta: { method: "settled", commitCertainty: "committed" },
   keepsCause: true,
 };
 

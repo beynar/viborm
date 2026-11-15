@@ -60,15 +60,17 @@ target behind the `IN (SELECT …)` form once per parent). Positive observations
 absence is consumed lexically and is deliberately not cached across re-entry.
 Junction capture stores the exact membership pair, not a synthetic row lookup.
 
-*Row domains (extension `rows`, extension-capabilities plan v3.1 §2.2).* A call
-of a client with `rows` carries its facts (`CallScope`, `shared/row-scope.ts`):
-the domain its controls chose and the default one, each a `PreparedDomain`
+*Row domains (an extension's `rule`: `read.where`, `root`, `related`, written
+with `when`/`unless`; root Rule 6).* A call of a client whose chain has a
+`rule` carries its facts (`CallScope`, `shared/row-scope.ts`), built by
+`src/extensions/rows.ts` and `row-domain.ts`: the domain its arguments chose
+and the default one (every argument with a default read at it), each a `PreparedDomain`
 prepared at most once per engine view, model and purpose. A `Queries` is scoped
 to one domain: reads get `PreparedDomain.reads(call)`: the domain's one read
 view (built on first use, living as long as the domain), or the call's own
 when the call carries values; each layer's predicate is a `layer` node that
 folds the call's conditions and resolves an absent value (`null` included)
-by its control's `required`, and inside it
+by its argument's `required`, and inside it
 the lowering-time read sites (`#within`, `#related`, the cursor anchor,
 `#missingArm`, `remove`, through `domainOf`) read `PreparedDomain.defaults`
 without the layers on the `Queries` exclusion stack. Write contexts are one
@@ -96,53 +98,67 @@ records the domain's fields among its dependency facts, as a to-many one does.
 convergence and a hidden conflict's rethrow behave as without a domain, and
 marks the selector `scoped`, so the two consumers that trust the key alone —
 the RETURNING confirmation fast path and the targeted `ON CONFLICT` fold —
-decline. The engine never sees a mode or an extension's name; a control's
+decline. The engine never sees a mode or an extension's name; an argument's
 name only as the key a parameter reads its call value under (`CallValues`). An
 equality on a parameter pins no value in `SelectorFacts` and leaves the
 selector `exact`: its literal equalities still prove a write disjoint from a
-later read (N1), so a control's value never turns an independent lookup
+later read (N1), so an argument's value never turns an independent lookup
 into an ordered observation, which on a batch-only driver would split the
 operation into two batches and commit the first alone.
 
-*Verbs (permissions plan K3).* A domain may hold, per model and layer, `verbs`
-(`ModelVerbs`): `read` ANDs with that layer's predicate at every purpose, and
-a write lookup names a `RowJudgement` beside its purpose: `DELETE_JUDGEMENT`
+*Rule entries (permissions plan K3; written by a `rule`'s `only`, `check`,
+`gate`, `facts` and `lazy`, `src/extensions/entries.ts`).* A domain may hold,
+per model and layer, `rules` (`JudgedEntry`): `read` ANDs with that layer's
+predicate at every purpose, and
+a write lookup names a `WriteJudgement` beside its purpose: `DELETE_JUDGEMENT`
 for every delete and tombstone candidate set, `Commands.judge` for an update
 occurrence (the fields the caller's data writes, a held key's relation with
 its key fields, a join by every verb but `update`/`updateMany`; none when only
 stamps and generated values are written; `undefined` when it emits no
 UPDATE), and `linkJudgement(edge)` for a connect, set or disconnect target
-whose key or join row changes. `PreparedDomain.selector` puts the verb's
-predicates inside the layer's node, so R5 and R6 judge them with the read
-predicate; a model without verbs ignores the judgement and keeps its bytes. A
+whose key or join row changes. `PreparedDomain.selector` puts the entry's
+`update`/`delete` predicates (the judgement's `kind`) inside the layer's node,
+so R5 and R6 judge them with the read predicate; a model without an entry
+ignores the judgement and keeps its bytes. A
 clear (`remove` with no target) first refuses, with `NestedWriteError`, a
-member it sees and may not unlink. A lax nested `delete: true` under a delete
-verb that narrows what the call sees carries `Selection.unjudged`: when its
+member it sees and may not unlink. A lax nested `delete: true` under a
+`delete.where` that narrows what the call sees carries `Selection.unjudged`: when its
 judged lookup binds nothing, `runSelection` requires absent a member of the
 slot it addresses outside its candidates (`Selection.outsideVerb`), with the
 strict form's "not found" sentence. A key the parent holds addresses its
 member seen or not; a key the member holds addresses only members the call
 sees, so a hidden one is an empty slot.
 
-*Produced rows (permissions plan K4, OD-13: one statement).* A layer's `ModelVerbs`
-may name `place` (every created row), `moves` (per field, the new row of an
-update writing it) and `acyclic` self relations. `PreparedDomain.produced`
+*Produced rows (permissions plan K4, OD-13: one statement).* A layer's `JudgedEntry`
+may name `place` (every created row: `create.check`), `check` (`update.check`,
+judged only where the update writes a field the predicate reads), `moves`
+(per field, the new row of an update writing it: `update.fields[f].check`)
+and `acyclic` self relations. The code that judges is not the engine's to
+carry: `CallScope.judge?` and `CallScope.project?` (`shared/row-scope.ts`)
+are present only where a `check` (`src/extensions/judge.ts`,
+`produced.ts`) or a `gate`/`facts` (`projection.ts`, `gates.ts`) brought
+them, and every site asks through them (`domain?.judge?.…`,
+`domain?.project?.…`: `write/statements.ts`, `write/store.ts`,
+`write/verbs.ts`, `commands/index.ts`, `shared/sql-queries.ts`), so a
+program whose rules only filter holds none of that code and its statements
+keep their bytes. A dialect without a spelling of the judgement is a
+compile error, never a silent skip (`src/adapters/judged.ts`). `PreparedDomain.produced`
 is the one answer to "what is the row this write produces judged at":
 `place` for a create; for an update, the predicates that judged its old row
-(`read` and the verb's, the selector's `judgement`, `Queries.candidates`
+(`read` and the entry's `update` predicates, the selector's `judgement`, `Queries.candidates`
 records it) and its written fields' `moves`; nothing for a delete, a
-tombstone or a model without verbs, whose statements keep their bytes. The
+tombstone or a model without an entry, whose statements keep their bytes. The
 row is judged as a VALUE, against the rows before the write, inside the
-statement that writes it, and a refused row raises the adapter's
-`assertions.holds` there, before any row is written and before any
-constraint. An INSERT (`OperationContext.#insertStatement`, every create
+statement that writes it, and a refused row raises the dialect's
+`holds` (`src/adapters/judged.ts`) there, before any row is written and
+before any constraint. An INSERT (`OperationContext.#insertStatement`, every create
 site: root, `createMany` chunks, nested, `connectOrCreate`, upsert arms)
 reads its rows from `Queries.producedSource`: one FROM item of the values,
 typed by the model's own columns (an empty read of the table, so a bound
 value is never PostgreSQL's untyped text), each row kept where its `holds`
 is 1; one statement's rows never see each other (`INSERT … SELECT`
 materializes its source). How the rows follow the typed read is the
-adapter's (`setOperations.typedRows`, ENG-3, review 2): one `UNION ALL
+dialect's (`typedRows`, ENG-3, review 2): one `UNION ALL
 SELECT` arm per row on MySQL, one `VALUES` list after the head on SQLite
 (the compound limit, 500 terms, does not count it), one `VALUES` list typed
 by its first row (`COALESCE` with a NULL of the table's row type) on
@@ -159,7 +175,7 @@ was measured judging a row the update does not write, and a guard in `SET`
 is evaluated row by row by SQLite and MySQL and was measured seeing the
 statement's own earlier rows. The values a write sets fold into its
 judgement where they are null tests of the produced row's own columns
-(`foldKnownNulls`, `src/extensions/layers.ts`): an arm on a key the write leaves null never reaches the
+(`foldKnownNulls`, `src/extensions/produced.ts`): an arm on a key the write leaves null never reaches the
 statement. An acyclic relation is a physical walk under no domain
 (`outsideOwnSubtree`, `src/extensions/produced.ts`). A refused write raises its adapter's refusal sentinel
 (`__viborm_refused__` under the `__viborm_judged__` alias, never a premise's
@@ -311,7 +327,7 @@ level and refused at 9 before, 5 per level and 94 at admission's 15 after).
 It costs D1's acceptance `$access` reads about 7% more VDBE instructions
 (`accessGrant` `$access` 21,737 → 23,333); every one D1 ran still runs.
 
-*Evidence and read-gated fields (permissions plan K5).* A layer's `ModelVerbs` may
+*Evidence and read-gated fields (permissions plan K5).* A layer's `JudgedEntry` may
 carry `evidence` (a projection key and the predicates it reports) and `reads`
 (per field, the predicate its row holds where it carries the field);
 `PreparedDomain.projected(model)` gathers them per model, and `layered`
@@ -325,8 +341,7 @@ into a `select` naming every scalar. The walk includes singular variant arms
 and collection `variants`, resolving each target from the shared membership
 index and retaining its exact projection path; variant tags never name a
 second evidence or field-gating contract. `prepareProjection` lowers a key as the
-`evidence` field (a document of booleans, or `ordered`, the last name that
-holds) and a gated field beside one `gate` member per distinct gate
+`evidence` field (a document of booleans) and a gated field beside one `gate` member per distinct gate
 (`0viborm_gate:<n>`, never published); a projection the engine reads for
 itself is `internal` and carries neither, and an internal decode reads every
 member it asked for. The decoder (`#compileGatedDocument`) writes a gated
@@ -342,22 +357,24 @@ terms and cursors, `distinct`, aggregates) reads `CASE WHEN <gate> THEN
 <column> END`; inside a layer the column is read as it is. A grouped read,
 and a paged aggregate, of a gated model reads a masked window of its
 filtered rows (`#overMasked`), so the gate is lowered once per row rather
-than once per grouped expression. A model whose verbs declare neither keeps
+than once per grouped expression. A model whose entry declares neither keeps
 its default projection and its bytes.
 
 *Time steps (`groupBy`'s `{ column: step }`, `validation/model/args/time-step.ts`).*
-A grouped read with a time step in `by` reads the same window, gated or not:
+A grouped read with a time step in `by` reads a window of its own, over the
+masked window where the model gates fields and over the table otherwise:
 each period is the adapter's `period.of` computed once there as a private
 date column (`periodColumnKey`), which the grouping and the order read and
 the projection spells through `period.text`. Written twice, its zone bound
 twice, PostgreSQL no longer sees one grouped expression. The decoder reads
 that text as a calendar day (`decodePeriod`), since a period may begin
-outside the DateTime domain; its leaf has no declaring scalar, and the cache
-codec has its own arm for it (`periodCodec`). An adapter without `period` is
-refused before any statement (`timeStepUnsupported`).
+outside the DateTime domain. An adapter without `period` is refused before
+any statement (`timeStepUnsupported`).
 
-*Tombstones (extension `deletion`, plan v3.1 §2.3).* A call whose facts carry
-`tombstones` (absent when its controls matched `removeWhen`) writes an update
+*Tombstones (a `rule`'s `delete.instead: keep(…)`, `src/extensions/kept.ts`;
+plan v3.1 §2.3).* A call whose facts carry `tombstones` (absent when its
+arguments matched the `unless`/`when` that keeps the delete physical) writes
+an update
 wherever core would delete a row of a managed model: root `delete` and
 `deleteMany`, nested `delete`/`deleteMany`/`delete: true`, and each member a
 captured series removes. `Commands.tombstone(model)` owns one occurrence's
@@ -408,10 +425,11 @@ requirement reads (DC14: `unreferenced`, and a nested set-oriented
 `deleteMany` through `restrict.lock`), so a concurrent `connect` cannot leave a
 live child under a tombstone; measured on PostgreSQL with
 `tests/providers/docker/pg-deletion-races.test.ts`.
-Statement attribution, observers, errors and `NotFoundError` verbs still say
-the caller's delete (`ctx.operation`).
+Statement attribution, unit handlers, errors and `NotFoundError` verbs still
+say the caller's delete (`ctx.operation`).
 
-*Stamps (extension `data`, plan v4 §2.2).* A call whose facts carry `stamps`
+*Stamps (a `defaults` part's `create`/`update` data, `src/extensions/stamps.ts`;
+plan v4 §2.2).* A call whose facts carry `stamps`
 writes, per model, the declared fields on every create and every update of it.
 `Commands.stamp(model, kind, admitted, raw)` is the one owner. A field the
 caller's raw data writes, by name or through the relation whose foreign key
@@ -438,7 +456,7 @@ both `rootUpsert` arms), relation-free root `createMany` rows and `updateMany`,
 the nested relation-free `updateMany`, and `Commands.tombstone`, whose stamped
 data every tombstone site reads; a captured member a series tombstones is
 admitted again from the tombstone's raw data and stamped there. Stamps that
-name a control are put in per call outside the engine (`callRows`); a
+name an argument are put in per call outside the engine (`callRows`); a
 domain's values are parameters read at lowering, so every tenant's domain is
 one object whoever writes. A
 `connect`/`set` that only moves a foreign key (`MEMBERSHIP_MOVE`) is not
@@ -527,7 +545,7 @@ window (`relationShape`), so a nested negative `take` is restored per parent by
 the same decoder rather than by a second reversal site.
 
 Prepared command and routed-operation handles keep admission, prepared reads,
-and cache codecs local to each operation. Their methods and getters are shared
+and a cached read's `seen` local to each operation. Their methods and getters are shared
 on module-scoped prototypes; each handle holds its own engine and driver
 binding, and internal consumers call methods with their handle receiver.
 Dispatch and operations without outcome notifications forward the
@@ -921,9 +939,7 @@ brief keeps available, and `@client/client` reaches `commands/index.ts`.)
 `query-engine/bind-budget.ts` (`shared/operation-context.ts`) is a pure `Sql`
 chunker over the driver's normalized verified bind capacity, shared by the
 deleted engines and the candidate alike — a neutral boundary, not the shipped
-engine. `result/cache-value-codecs.ts` is the official
-cache value-codec owner and imports no compiler, lowerer, executor or result
-parser. The schema-to-`ValidationError` admission owner `shared/schema.ts` reads
+engine. The schema-to-`ValidationError` admission owner `shared/schema.ts` reads
 was the third until follow-up F-2 moved it INTO this tree: it is
 `shared/parse-boundary.ts`, the candidate's own source, and no longer a
 retention. The candidate may import the two unchanged; charge the complete
@@ -1048,7 +1064,10 @@ is NOT what the placement avoids — `src/query-engine/pending-operation.ts`
 already imports `executePreparedQuery` from `@extensions/query` at runtime, so
 the `src/query-engine` ↔ `src/extensions` cycle is pre-existing and carries the
 shipped path. That is why the pure rule moved to the boundary both layers
-already depend on rather than being imported from the publication owner. The
+already depend on rather than being imported from the publication owner.
+(Since the extension rewrite of 2026-11, neither import claim above holds: `pending-operation.ts`
+imports only types of `@extensions/query`, and Raptor 3 imports types of
+`@extensions/*` — `PreparedDomain`, `Judge`, `Projection` — and never a value.) The
 composing sites are unchanged and stay four, because their timings differ:
 `submit`'s dispatch-failure catch, the carried value's decode catch,
 `settleSubmitted` and `stateWriteOutcome`. Pin:
@@ -1270,29 +1289,25 @@ gates on `failure.meta.raceable === true` (Arnaud's D-32).
 One prepared operation per request: `prepare(modelName, operation, rawArgs)` in
 `commands/index.ts` admits the raw input exactly ONCE and publishes the admitted
 `args` and, for a read verb, the prepared read's own facts; `execute`,
-`prepareBatch` and the route's cache codec all read that same handle. The client
+`prepareBatch` and a cached read's `codec(run)` all read that same handle. The client
 lifecycle is admission-first by construction — a cache must key before it can
-look up, and an interceptor must see the payload before it calls `proceed()` —
+look up (`key(run)` reads this handle), and an `around` sees the payload
+before it calls `run()` —
 so no consumer re-admits, and nothing publishes a re-rawed payload. Admission
 itself stays lazy inside the handle, because the client's own `PendingOperation`
 is lazy.
 
-A cached read's value codec is composed from the official owners in
-`result/cache-value-codecs.ts` (`compileScalarCodec`, `compileWidenedSumCodec`,
-`recordCodec`, `arrayCodec`, `nullableCodec`, `taggedRelationCodec`,
-`recursiveRelationCodec`) through the
-leaf's own declaring `Scalar`, carried as `Leaf.scalar` by the read owner. It is
-never re-dispatched from a leaf's `type` name, which would be a second
-scalar-meaning authority. The leaves with no declaring scalar are the read
-owner's OWN values — `_count`, `exist`, a non-decimal `_avg` and `_distance` —
-and naming those three is the same classification the shipped compiler makes. A
-recursive slot composes `recursiveRelationCodec` from the node's own row codec and the
-prepared slot's cardinality, optionality and normalized depth: one iterative
-enter/leave walker on both snapshot and materialization, the repeated key
-exactly ABSENT at a numeric cutoff and PRESENT at an exhaustive natural end, a
-cyclic value refused as a malformed snapshot, fresh objects and leaves on every
-hit (RQ-05, `recursive-query/rq-cache.md`). The cache never
-re-derives physical identity or the cycle policy — the decoder answered those.
+A cached read stores the rows the driver returned for its one statement, and
+a hit hands them to the prepared read's own parser (`prepareSingle(…)
+.parseResult`), exactly as a driver's answer: there is no second walker over
+the decoded answer, and no leaf is re-dispatched outside the decoder. The seam
+is `PreparedOperation.seen`, a function `publish` tells the driver's rows
+before decoding them; a run it is set on reads object rows (never the
+positional transport) and is never folded into a shared `findUnique` batch,
+whose rows are not its own. A recursive slot's facts — the repeated key ABSENT
+at a numeric cutoff and PRESENT at an exhaustive natural end, the cycle
+policy, fresh occurrences — are the decoder's, decided again on every hit
+(RQ-05, `recursive-query/cache-codec.test.ts`).
 
 The private `prepareBatch(modelName, operation, rawArgs)` boundary enters the
 same schema admission and command dispatch with a preparation-owned
@@ -1575,7 +1590,7 @@ or segmented RETURNING" is left for a produced field that is not one increment
 key on a provider whose RETURNING cannot be segmented; do not widen the scratch
 to other produced columns without a ruling.
 
-The query interceptor's `context.input` for `upsert` is the ONE admission —
+An `around`'s `run.input` for `upsert` is the ONE admission —
 scalar defaults filled into `create`, assignments normalized to `{ set: … }` in
 `update` — on both arms. It is the payload that actually runs, which is the rule
 every other verb already obeyed. Never publish a re-rawed arm: reading the

@@ -1,7 +1,6 @@
 /** In-memory LRU cache with a bounded entry count and one expiry sweep. */
-import type { ClockTimer } from "../../clock";
 import { CacheConfigurationError } from "../../errors";
-import { CacheDriver, type CacheEntry } from "../driver";
+import { CacheDriver, type CacheEntry, type CacheTimer } from "../driver";
 
 export interface MemoryCacheOptions {
   readonly maxEntries: number;
@@ -12,44 +11,23 @@ export class MemoryCache<
 > extends CacheDriver {
   readonly #store = new Map<string, { entry: CacheEntry; expiresAt: number }>();
   readonly #maxEntries: number;
-  #timer?: ClockTimer;
+  #timer?: CacheTimer;
 
   constructor(
     options?: Options &
-      Record<Exclude<keyof Options, keyof MemoryCacheOptions>, never>,
-    ...extra: never[]
+      Record<Exclude<keyof Options, keyof MemoryCacheOptions>, never>
   ) {
     super("memory");
-    if (extra.length)
+    const maxEntries = options?.maxEntries ?? 1024;
+    // A misspelled or retired option is refused, not ignored.
+    if (
+      !Number.isSafeInteger(maxEntries) ||
+      maxEntries < 1 ||
+      Object.keys(options ?? {}).some((key) => key !== "maxEntries")
+    )
       throw new CacheConfigurationError(
-        "MemoryCache received extra construction arguments."
+        "MemoryCache options must contain a positive safe-integer maxEntries only."
       );
-    let maxEntries = 1024;
-    if (options !== undefined) {
-      let descriptors: PropertyDescriptorMap;
-      try {
-        descriptors = Object.getOwnPropertyDescriptors(options);
-      } catch {
-        throw new CacheConfigurationError(
-          "MemoryCache options could not be inspected."
-        );
-      }
-      const limit = descriptors.maxEntries;
-      const supplied: unknown =
-        limit && "value" in limit ? limit.value : undefined;
-      if (
-        Reflect.ownKeys(descriptors).length !== 1 ||
-        !limit ||
-        !("value" in limit) ||
-        typeof supplied !== "number" ||
-        !Number.isSafeInteger(supplied) ||
-        supplied < 1
-      )
-        throw new CacheConfigurationError(
-          "MemoryCache options must contain a positive safe-integer maxEntries only."
-        );
-      maxEntries = supplied;
-    }
     this.#maxEntries = maxEntries;
   }
 
@@ -62,6 +40,7 @@ export class MemoryCache<
       return null;
     }
     this.#store.set(key, stored);
+    // The entry `set` stored under this key, for the type the caller reads it as.
     return stored.entry as CacheEntry<T>;
   }
 
@@ -72,10 +51,9 @@ export class MemoryCache<
   ): Promise<void> {
     this.#store.delete(key);
     this.#store.set(key, { entry, expiresAt: this.clock.now() + storageTtl });
-    while (this.#store.size > this.#maxEntries) {
-      const oldest = this.#store.keys().next().value;
-      if (oldest !== undefined) this.#store.delete(oldest);
-    }
+    // Past the bound the store holds an entry: the oldest is the first key.
+    while (this.#store.size > this.#maxEntries)
+      this.#store.delete(this.#store.keys().next().value!);
     this.#schedule(storageTtl);
   }
 

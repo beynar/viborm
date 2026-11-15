@@ -10,7 +10,16 @@
 
 import { defaultOmit } from "@src/client/exports";
 import { PGliteDriver } from "@src/drivers/pglite";
-import { createClient, s } from "@src/index";
+import {
+  arg,
+  args,
+  createClient,
+  extension,
+  oneOf,
+  rule,
+  s,
+  when,
+} from "@src/index";
 import { keyBetween, ordering, orderingKey } from "@src/ordering";
 import { expectTypeOf } from "vitest";
 
@@ -31,11 +40,15 @@ const card = s.model({
 const schema = { column, card };
 
 const base = createClient({ schema, driver: new PGliteDriver() });
-const db = ordering({
-  models: { card: { key: "rank", within: ["columnId"] } },
-})(base);
+const db = base.$extends(
+  ordering({
+    models: { card: { key: "rank", within: ["columnId"] } },
+  })
+);
 // The models as the whole argument (before 1.9.1, deprecated): the same client.
-const legacy = ordering({ card: { key: "rank", within: ["columnId"] } })(base);
+const legacy = base.$extends(
+  ordering({ card: { key: "rank", within: ["columnId"] } })
+);
 
 export async function probes() {
   // The key is optional on a create: the extension appends it.
@@ -65,33 +78,33 @@ export async function probes() {
   // A later rows step: move's to-one relation to a model those rows can
   // hide reads `| null`, as the client's own update does; defaultOmit may
   // follow too.
-  const governed = db.$extends({
-    name: "test.tenancy",
-    rows: {
-      control: "tenant",
-      default: "own",
-      models: {
-        column: { own: { root: { id: "c1" }, related: { id: "c1" } } },
-      },
-    },
-  });
+  const governed = db.$extends(
+    extension(
+      "test.tenancy",
+      args({ tenant: oneOf("own").default("own") }),
+      rule({
+        column: {
+          root: when(arg("tenant"), "own", { id: "c1" }),
+          related: when(arg("tenant"), "own", { id: "c1" }),
+        },
+      })
+    )
+  );
   const included = await governed.card.move({
     where: { id: "a" },
     first: true,
     include: { column: true },
   });
   expectTypeOf(included.column).toEqualTypeOf<{ id: string } | null>();
-  const omitted = db.$extends(
-    defaultOmit<typeof schema>()({ card: { title: true } })
-  );
+  const omitted = db.$extends(defaultOmit({ card: { title: true } }));
   const bare = await omitted.card.move({ where: { id: "a" }, first: true });
   // @ts-expect-error title is omitted by the later defaultOmit
   bare.title;
   // A list field omitted before ordering is applied is still named by `to`:
   // destinations are inputs, not presented rows.
-  const omittedFirst = ordering({
-    card: { key: "rank", within: ["columnId"] },
-  })(base.$extends(defaultOmit<typeof schema>()({ card: { columnId: true } })));
+  const omittedFirst = base
+    .$extends(defaultOmit({ card: { columnId: true } }))
+    .$extends(ordering({ card: { key: "rank", within: ["columnId"] } }));
   await omittedFirst.card.move({ where: { id: "a" }, to: { columnId: "c2" } });
   // `to` names the list by its fields, with their types.
   // @ts-expect-error not a list field
@@ -204,20 +217,22 @@ export async function probes() {
   db.column.move;
 
   // @ts-expect-error the configuration names the client's models
-  ordering({ models: { nope: { key: "rank" } } })(base);
+  base.$extends(ordering({ models: { nope: { key: "rank" } } }));
   // @ts-expect-error so does the form before 1.9.1
-  ordering({ nope: { key: "rank" } })(base);
+  base.$extends(ordering({ nope: { key: "rank" } }));
   // And each model's scalar fields, at application (1.10 review, Sol B #2).
   // @ts-expect-error the key is one of the model's fields
   base.$extends(ordering({ models: { card: { key: "rnak" } } }));
   base.$extends(
-    // @ts-expect-error so is each list field, beside a real one
     ordering({
+      // @ts-expect-error so is each list field, beside a real one
       models: { card: { key: "rank", within: ["columnId", "colmnId"] } },
     })
   );
-  // @ts-expect-error a list field is a scalar, not a relation
-  ordering({ models: { card: { key: "rank", within: ["column"] } } })(base);
+  base.$extends(
+    // @ts-expect-error a list field is a scalar, not a relation
+    ordering({ models: { card: { key: "rank", within: ["column"] } } })
+  );
   const heldTypo = { models: { card: { key: "rnak" } } } as const;
   // @ts-expect-error a held configuration too
   base.$extends(ordering(heldTypo));
@@ -226,5 +241,30 @@ export async function probes() {
     models: { card: { key: "rank" } },
   };
   base.$extends(ordering(widened));
-  expectTypeOf(legacy.card.move).toEqualTypeOf(db.card.move);
+  expectTypeOf(legacy).toEqualTypeOf(db);
+  expectTypeOf(legacy.card).toEqualTypeOf(db.card);
+
+  // An `ordering(...)` held before `$extends` knows no model of its own:
+  // `move` and `rekey` read the client they are called on.
+  const ranks = ordering({
+    models: { card: { key: "rank", within: ["columnId"] } },
+  });
+  const held = base.$extends(ranks);
+  const heldMoved = await held.card.move({
+    where: { id: "a" },
+    first: true,
+    to: { columnId: "c2" },
+    data: { title: "t" },
+    select: { title: true },
+  });
+  expectTypeOf(heldMoved).toEqualTypeOf<{ title: string }>();
+  await held.card.rekey({ where: { columnId: "c1" } });
+  // @ts-expect-error a held extension's where names the model's fields
+  held.card.move({ where: { id: "a", idd: "b" }, first: true });
+  // @ts-expect-error its data may not write the key
+  held.card.move({ where: { id: "a" }, first: true, data: { rank: "1" } });
+  // @ts-expect-error its `to` names the list's fields
+  held.card.move({ where: { id: "a" }, first: true, to: { title: "t" } });
+  // @ts-expect-error and rekey's where the model's
+  held.card.rekey({ where: { idd: "b" } });
 }

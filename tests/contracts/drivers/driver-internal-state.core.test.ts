@@ -6,9 +6,7 @@ import {
 import {
   BATCH_DIAGNOSTIC_PARAMS,
   EMPTY_DIAGNOSTIC_PARAMS,
-  findUniqueErrorLogDetails,
   findUniqueExecutionContextIndex,
-  getErrorExecutionContext,
   readTrustedErrorExecutionContext,
   snapshotDiagnosticParameters,
 } from "@drivers/driver-diagnostics";
@@ -93,18 +91,6 @@ describe("prepared driver batch state", () => {
     expect(prepared.queries).toHaveLength(2);
     expect(prepared.queries.every(Object.isFrozen)).toBe(true);
     expect(Object.isFrozen(prepared.queries[0]?.params)).toBe(true);
-    expect(prepared.members).toEqual([
-      {
-        context: prepared.queries[0]?.context,
-        params: diagnosticSnapshots[0],
-        sql: "SELECT ?",
-      },
-      {
-        context: prepared.queries[1]?.context,
-        params: diagnosticSnapshots[1],
-        sql: "SELECT ?",
-      },
-    ]);
     if (discloseBatchParameters) {
       expect(prepared.diagnosticParams).toStrictEqual(diagnosticSnapshots);
       expect(prepared.diagnosticParams).not.toBe(diagnosticSnapshots);
@@ -176,34 +162,21 @@ describe("trusted driver diagnostics", () => {
     expect(
       findUniqueExecutionContextIndex(error, [unique, unique])
     ).toBeUndefined();
-    expect(findUniqueErrorLogDetails(error, [other, unique])).toBe(unique);
-    expect(findUniqueErrorLogDetails(error, undefined)).toBeUndefined();
   });
 
-  test("reads only the durable VibORM error snapshot and fills absent context", () => {
+  test("reads only the durable VibORM error snapshot", () => {
     const error = new QueryError("failed", {
       meta: { correlationId: "trusted", model: "entry" },
     });
     Object.defineProperty(error, "toJSON", {
       value: () => ({ meta: { correlationId: "spoofed" } }),
     });
-    const fallback = {
-      correlationId: "fallback",
-      model: "fallback-model",
-      operation: "execute",
-    };
 
     expect(readTrustedErrorExecutionContext(error)).toEqual({
       correlationId: "trusted",
       model: "entry",
       operation: undefined,
     });
-    expect(getErrorExecutionContext(error, fallback)).toEqual({
-      correlationId: "trusted",
-      model: "entry",
-      operation: "execute",
-    });
-    expect(getErrorExecutionContext(new Error("raw"), fallback)).toBe(fallback);
   });
 });
 

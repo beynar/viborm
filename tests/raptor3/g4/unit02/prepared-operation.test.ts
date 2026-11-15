@@ -7,9 +7,6 @@
  * and `prepareBatch` are its callers.
  */
 
-// The route's cache codec belongs to the cache runtime `viborm/cache` loads.
-import { routedCodec } from "@cache/result-codec";
-import "@cache/runtime";
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
@@ -125,7 +122,7 @@ describe("G4-02 prepared operation boundary", () => {
     }
   });
 
-  it("isolates admission, prepared reads, and cache codecs across concurrent handles and factories", async () => {
+  it("isolates admission, prepared reads, and the driver rows each keeps across concurrent handles and factories", async () => {
     world = await createWorld();
     const otherWorld = await createWorld();
     try {
@@ -174,38 +171,45 @@ describe("G4-02 prepared operation boundary", () => {
         );
         const admitted = handle.args;
         const statement = handle.read?.statement;
-        const codec = routedCodec(handle);
+        // What the cache keeps: the driver's rows for this handle's statement.
+        const kept: { rows?: readonly unknown[] } = {};
+        handle.seen = (rows) => {
+          kept.rows = rows;
+        };
         assert.ok(statement);
         assert.deepEqual(admitted.select, request.args.select);
-        return { request, handle, admitted, statement, codec };
+        return { request, handle, admitted, statement, kept };
       });
       assert.equal(new Set(prepared.map(({ admitted }) => admitted)).size, 3);
       assert.equal(new Set(prepared.map(({ statement }) => statement)).size, 3);
-      assert.equal(new Set(prepared.map(({ codec }) => codec)).size, 3);
+
       assert.equal(world.driver.statements.length, 0);
       assert.equal(otherWorld.driver.statements.length, 0);
 
       await Promise.all(
-        prepared.map(
-          async ({ request, handle, admitted, statement, codec }) => {
-            const value = await handle.run({
-              context: { model: "author", operation: request.operation },
-              engineDriver: request.driver,
-              driverOverride: undefined,
-              isWrite: false,
-              committedWriteSegment: undefined,
-              writeMayBeVisible: undefined,
-            });
-            assert.deepEqual(value, request.expected);
-            assert.deepEqual(
-              codec.materialize(codec.snapshot(value)),
-              request.expected
-            );
-            assert.equal(handle.args, admitted);
-            assert.equal(handle.read?.statement, statement);
-            assert.equal(routedCodec(handle), codec);
-          }
-        )
+        prepared.map(async ({ request, handle, admitted, statement, kept }) => {
+          const value = await handle.run({
+            context: { model: "author", operation: request.operation },
+            engineDriver: request.driver,
+            driverOverride: undefined,
+            isWrite: false,
+            committedWriteSegment: undefined,
+            writeMayBeVisible: undefined,
+          });
+          assert.deepEqual(value, request.expected);
+          const rows = [...(kept.rows ?? [])].map((row) => new Object(row));
+          assert.deepEqual(
+            handle
+              .prepareSingle({
+                model: "author",
+                operation: request.operation,
+              })
+              ?.parseResult([{ rows, rowCount: rows.length }]),
+            request.expected
+          );
+          assert.equal(handle.args, admitted);
+          assert.equal(handle.read?.statement, statement);
+        })
       );
       assert.equal(world.driver.statements.length, 2);
       assert.equal(otherWorld.driver.statements.length, 1);

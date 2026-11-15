@@ -3,9 +3,7 @@ import {
   sanitizeDiagnosticParameters,
   VibORMError,
 } from "@errors";
-import type { StatementMember } from "@extensions/official-facts";
 import { isRecord } from "@validation/value-guards";
-import { snapshotExecutionContext } from "./execution-context";
 import type { QueryExecutionContext } from "./types";
 
 export const BATCH_DIAGNOSTIC_PARAMS = Symbol("viborm.batchDiagnosticParams");
@@ -52,27 +50,6 @@ export function findUniqueExecutionContextIndex(
     match = index;
   }
   return match;
-}
-
-export function findUniqueErrorLogDetails(
-  error: Error,
-  details: readonly StatementMember[] | undefined
-): StatementMember | undefined {
-  if (!details) return undefined;
-  const index = findUniqueExecutionContextIndex(error, details);
-  return index === undefined ? undefined : details[index];
-}
-
-export function getErrorExecutionContext(
-  error: Error,
-  fallback: QueryExecutionContext
-): QueryExecutionContext {
-  if (!isVibORMError(error)) return fallback;
-  return snapshotExecutionContext(
-    readTrustedErrorExecutionContext(error),
-    fallback,
-    fallback.operation
-  );
 }
 
 export function readTrustedErrorExecutionContext(

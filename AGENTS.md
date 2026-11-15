@@ -205,32 +205,196 @@ carrier parser created it with `JSON.parse`, completed structural validation of
 the fixed or variant carrier and its full row set before mutation, and decodes
 it through the existing nested parser.
 
-### Rule 6: One Immutable Ten-Capability Extension Chain
+### Rule 6: One Extension Mechanism, Built From Parts That Carry Their Code
 
-`$extends()` compiles one ordered immutable chain. Its exact capabilities are
-`request`, `query`, `statement`, `observe`, `client`, `model`, `controls`,
-`rows`, `deletion`, and `data`; do not add a second middleware/plugin registry,
-priority system, public execution token, or operation-program surface.
-`controls`, `rows`, `deletion` and `data` are plain data that core honours at
-every scope they concern; a capability that needs a branch naming one extension,
-model, marker field or mode in core is a design failure, not a feature.
+An extension is `extension(name, ...parts)` (`src/extensions/extension.ts`):
+one immutable value with a non-empty name, unique in a chain, and up to
+eight parts (the runtime takes any number; the types take eight,
+positionally, each part typed against the client `$extends` is called on
+and the facts of the parts before it, `src/extensions/contract.ts`). It is
+always applied as `client.$extends(extension(…))`, and an official extension
+the same way: `$extends(softDelete(config))`, `$extends(permissions(config))`,
+`$extends(cache(config))`, `$extends(defaultOmit(config))`. `$extends()` has
+one signature, an extension value: no object literal, no function of the
+client, no two-step form (`softDelete(config).rows`/`.methods` are gone), no
+`defineExtension`, `defineHooks` or `enableExtensions`. `parts<Of>()`
+(`parts.ts`) binds the same builders' types to a client or a schema for an
+extension written apart; an extension meant for any client is written with
+plain `extension(…)` and words held apart from the rule, its names checked
+by `$extends()` (`tests/fixtures/extension-recipes.ts`).
 
-The lazy lifecycle is operation observation → control admission → request
-transforms → default omit → core validation/preparation → query interception →
-physical statement observation → statement transform → render/provider → parse
-→ query post-work → operation completion. A query child becomes authoritative once `proceed()`
-starts. Ordinary observer failures and returned promises never affect the
-application. Statement transforms exclude verbatim unsafe raw, while protected
-physical statement observation remains disclosure-limited and still covers it.
+The parts: the six primitives `call`, `unit`, `args`, `rule`, `defaults`,
+`methods` (written `methods` for `$` client methods and `modelMethods` for
+model methods: each brings its half of `methods.ts`, `clientLayer` or
+`modelLayer`, so an extension carries only the half it writes), plus
+`around` (a `call` with a second moment), `fields` and `disclosure`. Everything else is a word, a top-level function or value of
+its own: `target(…)` and the sets `reads`, `writes`, `deletes`, `selecting`,
+`models` (`on.ts`; not `on`, which is `viborm/on`'s); `watch`, `settled`,
+`again`, `via` (`call-words.ts`), `key`, `codec`, `database`; `arg`, `now`,
+`row`, `exists`, `when`, `unless`, `provided`, `nothing` (`rule-words.ts`);
+`only`, `check`, `gate`, `facts`, `keep`, `lazy` (`judge-words.ts`);
+`within` (`confine.ts`);
+`omitted` (`defaults.ts`); `oneOf`, `accepts`, `bound` and the modifiers
+`.on`, `.models`, `.required`, `.default`, `.volatile` (`args.ts`); and for
+units `text`, `parameters`, `driver`, `failure`, `correlation`, `table`,
+`statements`, `origin`, `statement`, `run`, `note`, `notes` (`unit-words.ts`),
+`work` (`observation.ts`) and `disclosed` (`disclosed.ts`). `src/extensions/index.ts` is the intentional
+surface; `tests/package/public-surface-golden.mjs` pins it. Do not add a
+middleware or plugin registry, a priority, extension removal, a public
+execution token, an operation program, or a member that a part does not own.
+
+**The weight principle, which every change here must keep.** What a program
+does not import is not in its bundle. esbuild drops unused top-level
+declarations but never code inside a function or a class's methods, so a
+shared function that names an optional feature puts it in every caller's
+bundle. Hence: a word brings its code, a plain key cannot. Each builder lives
+in its own module and returns its part, which carries its state and its
+code; a builder never names a word, it calls what the value carries
+(`CarriedValue.join(site)` and `PredicateWord` in `rule-words.ts`; `only`,
+`check`, `gate`, `facts`, `keep`, `lazy` and `omitted` are classes whose
+`join` writes their own state and brings their own part: `entries.ts`,
+`judge.ts`, `produced.ts`, `projection.ts`, `kept.ts`,
+`default-omit-identity.ts`); `around` is a separate export, never a
+property of `call` (a property assigned to an exported function is a module
+side effect esbuild keeps); the code that watches writes comes with the sets
+that name writes (`writes` and `deletes` carry `watchPart`), so a `call` that
+only patches carries none of it; `settled` brings the collector of a
+transaction scope by value where it registers (`collect`), so a part that
+never imports it pays nothing for it; a feature with a cost is a word (`only`
+is why `update.where` is written `only(where)`: what a rule of filters alone
+does not carry). An official extension's entry imports the values it uses
+from the modules that define them, never from an index. Measure with
+`node scripts/extension-bytes.mjs` (the `pg-one-*` fixtures of
+`scripts/bundle-fixtures/`, one part each, and one fixture per official
+extension); `docs/content/docs/extensions/create.mdx` carries the figures of
+the release.
+
+**What an application that applies no extension carries:** the client asks
+the chain, and a part's state on the chain carries the code that runs it
+(`chain.watch.watch`, `chain.args.admit`, `chain.observation.run`), so the
+client, the engine, the executor and the drivers import no builder. What
+core imports of `src/extensions` at runtime is how a transaction scope runs
+(`transact` and `scopeOf`, `coordination.ts`: what its calls register waits
+in the scope, whose collector the first registration installs),
+`isAppliedExtension` (`extension.ts`) and the `SCOPE` symbol (`origin.ts`);
+the unit records (`unit-source.ts`), the handler and write-outcome types
+(`query.ts`), the call's row scope (`row-domain.ts`), the chain's state
+(`chain-state.ts`, through `chain.ts`), the admitted arguments
+(`arguments.ts`), the call's origin (`origin.ts`), `Judge` and `Projection`
+(`judge.ts`, `projection.ts`, for Raptor 3's row scope), and the vocabulary
+and method types (`contract.ts`, `methods.ts`) are imported for their types
+only. It must not grow by
+one byte (`pg-representative`, measured by `extension-bytes.mjs`: 508,070
+bytes minified on `f34031a03`, of which 646 come from `src/extensions`): a chain member a core path reads is named short, since
+minified property names are kept.
+
+**The chain.** `src/extensions/chain.ts` is the one mechanism. An extension
+value (`extension.ts`) is a name and its parts; `$extends` hands them to
+`appendParts`, which runs each part's phases, `declare`, `join` and `seal`,
+for every part before the next phase starts, so a part never depends on the
+order the parts were named in. A part (`ExtensionPart`) is what a builder
+returns: its own state, and the phases it needs; a part another needs
+beside it is brought by `bring` (`Application`), each once. Two parts of one extension meet only through the `Application`:
+what one writes in `declare` the others read in `join` (`args` declares the
+extension's arguments on `next.args` and `owner`, which `call`, `around`,
+`rule`, `defaults` and `keep` read); a word brings the part it needs with
+`bring` (`keep` its kept rows, `omitted` its omission); and `shared(key,
+make)` keeps what the parts make of one schema, once per extension and
+schema (the one rule layer an extension's `rule` parts write, a `defaults`
+part's reading), which is also what keeps an admitted layer admitted for
+every client of the schema. Of `src/extensions`, `chain.ts` imports only
+`chain-state.ts`; it names no member, no part, no capability and no official extension
+(`tests/contracts/architecture/extension-system-census.core.test.ts`);
+every member of `ResolvedExtensionChain` is written by a part and named
+after the word that brings it (`call`, `around`, `rewrites`, `watch`,
+`rules`, `defaultData`, `defaultOrder`, `fields`, `args`, …). A part is
+trusted code made by a builder, not hostile data: nothing is read
+defensively and nothing internal is frozen; what is frozen is what a
+promise pins (an extension value, `c.args`). No module holds a registry of
+extensions or parts; what `src/extensions` keeps at module level is per-
+object caches (`WeakMap`s keyed by the object they describe) and one empty
+constant, listed with `src/on`'s name counter in the census's
+`MODULE_STATE_LEFT`, which may only shrink, and the census refuses a
+module-level assignment (an import that brings code).
+
+**The life of a call.** The pending operation owns the admission record.
+Unit `operation` begins (`observation.ts`, the one generation of unit
+handlers); the chain's arguments are taken out of the call's arguments and
+validated once (`arguments.ts`: shown only to the declaring extension's parts
+as `c.values` and to the chain's rules as `arg(name)`; a `bound` argument
+only from a view's `scope.$bind`; one name space per chain, a name declared
+twice refused, in one extension too); first moments run in chain order,
+synchronously, before validation (`call.ts` `runFirstMoments`: each sees the
+patches before it; `c.set` refuses a shape key, an argument name and a raw
+query's arguments; what a handler throws refuses the call, a `VibORMError`
+as it is, anything else as the cause of a `QueryError` naming the
+extension; a promise, or a function returned from `call`, is refused);
+default omission and computed fields are planned; validation and
+preparation; second moments nest, the first applied outermost, `{ inner:
+true }` parts nearest the core whatever the order (`aroundPart`, `call.ts`);
+rewrites
+(`statement.ts`, units declared `{ rewrites: true }`, per logical
+statement, in chain order); rendering, the parameter snapshot, the
+connection; one `statement` unit per physical send (a native batch is one,
+`statements(u)` its members); the driver; the result read; computed fields
+attached; unit `operation` ends. Once `run()` starts, the child is
+authoritative: its error is the call's whatever the handler throws after,
+and there is no aggregated error anywhere. A direct read may call `run()`
+again after its handler returned (the replay runs the core alone, unawaited).
+`settled` functions run when the write is durable (after the outermost
+commit; never after a rollback; also for a write that may have committed,
+and for `$executeRaw`/`$executeRawUnsafe` in a target-less `around`), all
+of them, in chain order, the first fault rejecting the call. A unit handler
+is awaited and what it throws fails the call: core contains no observer's
+faults. `watch`/`settled` in a part whose target brings nothing that
+watches writes are refused (`TypeError`), never ignored. In
+`$transaction([...])` every member finishes its first moments and reaches
+`run()` before any driver work (`array-admission.ts` owns that latch).
+
+**Rules and defaults are not moments.** The engine applies them wherever a
+model appears in a query, asking the call's row facts; Raptor 3 receives
+those facts (`raptor3/shared/row-scope.ts`: domains by purpose, tombstones,
+one instant, the values its predicates read by argument name) and never a
+mode or an extension name (see `src/query-engine/raptor3/AGENTS.md`).
+`rule.ts` and `admission.ts` check each entry once per schema at
+`$extends()` (an unknown model, field or key, a `target` naming an unknown
+model or operation, an argument no extension of the chain declares: D7),
+the layer admitted once per extension and schema by its own part;
+`rows.ts` binds one domain per application, and a call only looks its
+facts up: there is no mode. `when` and `unless` fold per call (`layers.ts`),
+a layer whose `when`s and `unless`es all apply nothing states nothing, and
+calls that pass the same closed (`oneOf`) values share their facts and
+read view. A key an entry leaves out adds no
+restriction; `update.fields[f].where` replaces `update.where` for a write of
+`f`; `check` is the only re-judgement and is stated in SQL only where the
+update writes a field its predicate reads; a `lazy` entry is read when its
+model is first needed. A projection key a `facts` declares (`$access`) is
+admitted by the operation's own `select` and `include` schemas, inside
+`parseProviding` (`projected.ts`, `src/validation/primitives/object.ts`),
+never taken out before validation and put back after: it stays where the
+caller wrote it, an empty `select` holding it as `false` is refused as any
+empty `select`, and no `data` admits it. `defaults` (`defaults.ts`, `order.ts`, `stamps.ts`,
+`plain-domain.ts`) brings neither the prepared filter domain nor argument
+admission. Inside a filter's own relation reads every other layer reads at
+its default and never its own (`PreparedDomain.defaults`, the `Queries`
+exclusion stack): an argument with a default is read at it there, whatever
+declared it, and a delete that keeps its rows takes only what those
+defaults show. A `keep(when(…))` or `keep(unless(…))` is its own test,
+which `kept.ts` reads per call. There is no runtime order guard: every method runs
+through the whole chain of the client it is called on; the order rule is
+TypeScript's alone (a part typed against a result declares the `consumer`
+fact, and a later rule that hides rows or a later omission fails to type;
+a `modelMethods` factory that takes nothing types its methods through `this`
+and `DelegateOperationResult`).
 
 Raw Date admission has two non-redundant boundaries. `src/client/raw.ts`
-refuses invalid caller input before query handlers run;
+refuses invalid caller input before any first moment runs;
 `src/drivers/provider-parameter-snapshot.ts` revalidates and detaches raw Date
-leaves after the last statement transform and before direct or batch provider
+leaves after the last rewrite and before direct or batch provider
 dispatch. Resolving a caller-supplied `Sql` first creates one operation-owned
 flat projection: query inspection, transaction preparation, and provider
 dispatch read the same statement strings and top-level value slots even when
-the caller mutates the original fragment during asynchronous pre-`proceed()`
+the caller mutates the original fragment during asynchronous pre-`run()`
 work. It snapshots every admitted data-descriptor ordinary JSON record and
 plain array as one stable own-descriptor view, preserving provider-visible
 aliases, cycles, sparse arrays, and property descriptors. Admitted foreign
@@ -248,198 +412,155 @@ detaches both its admitted public parameter graph and its private prepared-`Sql`
 provenance. The finalizer recognizes raw work through
 `context.model === "$raw"`;
 non-raw statements retain their shallow parameter-copy path because typed input
-was validated upstream and statement transforms are trusted.
+was validated upstream and rewrites are trusted.
 
-Generic extension ownership is exact: `src/extensions/definition.ts` owns the
-public envelope and hostile-definition boundary. `controls`, `deletion` and
-`data` are trusted definitions bound as written, their model and field names
-checked against the receiving schema; each `rows` predicate is admitted once,
-when it is applied, through its model's `where` schema (`admission.ts`: the
-values a call supplies become parameters, a `recurse` writes its depth, a
-caller's nesting bound does not apply), and a call's values are read when its
-statement is built;
-`chain.ts` owns the one resolved chain,
-handler lookup, the chain's one control name space (one declaration per
-control name; a definition's references to an earlier extension's controls)
-and placed controls, and one `deletion` entry per model. There is no runtime order guard: every method runs
-through the whole chain of the client it is called on, so the order rule
-is TypeScript's alone (`methods.ts`, `ResultConsumerContextOf`: a client or
-model factory taking a typed argument is a result consumer, and `rows` or
-`defaultOmit` after one types as `never`; one taking `never`, `unknown` or
-nothing is not, and types its methods' results from their delegate through
-a `this` parameter and `DelegateOperationResult`, which reads the
-declaration-only `DelegateState` link). `controls.ts` owns control
-placement, the call's one admission (taken out of the arguments before
-request transforms, validated once, handed only to the declaring extension's
-handlers; `bound` controls only from a view's `$bind`) and the control types the model
-delegate reads from the extension state, beside the models a chain's `rows`
-name, from which `src/client/result-types.ts` types a to-one relation that
-can read hidden as `| null`; `rows.ts` binds, once per
-application, each mode combination's row domains, tombstones and the row
-identity a cached read is keyed on, so a call only looks its facts up;
-`methods.ts` owns client/model factories (lazy per view, eager on the
-client `$extends` returns) and collisions; `request.ts`,
-`query.ts`, `statement.ts`, and `observation.ts` each own their capability
-contract and single runner; `array-admission.ts` owns only the extension
-admission latch; and `index.ts` is the intentional surface. The pending
-operation owns the admission record; Raptor 3 receives only the resolved call
-facts (`shared/row-scope.ts`: domains by purpose, tombstones, one instant, and
-the call's values its domains' parameters read by control name) and never a
-mode or an extension name (see `src/query-engine/raptor3/AGENTS.md`,
-row domains and tombstones). Core
-array dispatch and the lifecycle facts known only by client, query-engine,
-executor, cache, and driver composition roots remain with those roots.
+**Official extensions are built with public names.** Each is an ordinary
+`extension(…)` of public parts, applied in one step, in any order.
+`tests/contracts/public-client/extension-imports.core.test.ts` holds
+`viborm/cache`, `defaultOmit`, `viborm/instrumentation`, `viborm/on`,
+`viborm/ordering`, `viborm/permissions` and `viborm/soft-delete` to names the
+public entries export. What an official extension lacks is a capability to
+make public for every author, never a friend import to add: the
+instrumentation presents failures through `disclosed`, the word any logging
+extension uses. No official extension is
+authenticated by identity; the engine names none (the same census). Two
+official extensions talk only through public facts: the cache publishes
+its units' presentation as notes (`InstrumentationNote`), which the
+instrumentation presents whoever wrote them.
 
-Official `cache()`, `instrumentation()`, and `defaultOmit()` capabilities are
-implemented only in `src/cache/extension.ts`,
-`src/instrumentation/extension.ts`, and
-`src/client/default-omit-extension.ts`. They are authenticated by identity and
-replace their old `createClient()` config keys. The official `softDelete()`
-(`src/soft-delete/index.ts`, entry `viborm/soft-delete`) is the other kind: an
-ordinary definition built only from public exports (its imports are the files
-behind `viborm` and `viborm/client`; its one runtime import is
-`ClientInitializationError`, for the marker it checks when applied), with no
-identity and no private fact, one `$extends` in any order (its `rows` and
-`methods` steps stay for chains written before 1.8);
-`tests/package/soft-delete-consumer-smoke.mjs`
-rebuilds it from the packed package. Keep it that way: a need it cannot meet
-through the public capabilities is a capability to add, not a friend import.
-The cache's mutation `cache` argument is a declared control on writes.
-Cached values are detached/fresh and custom keys are canonical-key suffixes;
-cached reads bypass callback/array transactions, raw calls, and statement-
-transform chains. Omit is presentation, not authorization. A `rows`
-predicate may traverse relations: inside its own traversals every other
-layer reads at its default and never its own (`PreparedDomain.defaults`, the
-`Queries` exclusion stack), so no per-call mode widens what it reads.
-`viborm/permissions` (`src/permissions/`) is the official authorization entry, built like
-soft delete from public exports only: `base.$extends(permissions(config))` compiles one
-predicate per (model, action) against `base`'s schema and applies a rows step
-(a bound-only, required `actor`; the `as` mode; every model's `verbs`; a
-generic `query` handler refusing a root call false when applied; and `$as`,
-which lives with the control it binds) and then a methods step
-(`can`/`assert`). Core names nothing of it. Its only runtime export is `permissions`;
-applications own field names, membership, grant, credential and role conventions through explicit
-predicates. `src/permissions/rules.ts` owns `Rule`, `Where` and rule functions' readonly
-model `name` and `actions` metadata; no graph traversal or domain helper API is
-shipped. CRUD permissions are `create`, `read`, `update` and `delete`;
-`operations` remaps read/update/delete only. Creation uses `create` independently
-of update and evaluates the proposed row. The default graph makes update
-and delete imply read; create implies nothing; custom graphs and levels add
-implications.
-A rule's `true` grants; a directly declared literal `false` blocks inherited
-grants, while a callback returning `false` or an omitted rule supplies no direct
-grant. Global and model `mandatory` are action-independent predicates;
-the retired top-level `limit` is refused. Inherited rules and their nested
-callbacks evaluate the declaring action and reuse that predicate unchanged;
-grouped declarations evaluate separately per action. `$as(actor, scopes?)` binds
-optional exact `model.permission` credential scopes. Omission adds no credential
-restriction; an empty list denies all; supplied scopes follow the same action
-graph and intersect model grants, mandatory restrictions and field protections.
-Scopes never override `false`. Service identities use the application's actor
-schema and need explicit model grants; the server authenticates their keys.
-`$access` always returns an action-keyed boolean map, including inside each
-polymorphic variant. Variant projection admission preserves both evidence keys
-and explicitly selected gated fields, with the same refusal as an ordinary
-relation; default selection omits unreadable fields. The retired `arms`
-and `within` keys are refused rather than admitted as implicit actions.
-Comma-separated rule keys assign one rule to individual actions, with surrounding
-ASCII whitespace ignored. `compile.ts` resolves the graph, rule bindings and
-evidence together; overlapping assignments, empty members and grouped reserved
-keys are refused. Levels, graph edges and call sites still name single actions.
-`$as` rejects missing required actor fields at binding. A missing optional
-actor dependency disables its positive OR alternative, or its declared grant
-when there is no enclosing positive OR. Other alternatives and inherited grants
-remain available. Automatic guards traverse AND and positive relation bodies,
-never NOT/none/isNot/every or named predicate boundaries; authored dependencies
-remain authoritative under negation. Explicit `$if` guards fold first.
-Missing dependencies in global or model `mandatory` still deny the complete
-permission. Generic `rows` R6 semantics are unchanged: Permissions expresses
-grant availability through the existing public conditions.
-Predicate simplification preserves row truth and conditional actor dependency
-checks. Conditional read summaries include AND-false and OR-true folding and
-distinguish scalar from whole-list parameters. Unproved or unsupported shapes
-remain unchanged.
-`tests/package/permissions-consumer-smoke.mjs` runs §1.1 and the blog from the
-packed package.
-
-The official `on()` (`src/on/index.ts`, entry `viborm/on`) is authenticated
-by identity like the cache: its `query` is the plan function core recognizes
-(`src/extensions/writes.ts`) and keeps out of the chain's handlers. For each
-write a hook concerns, the client asks it once for a plan: the arguments
-widened to whole rows (the caller's `select` moved to `include`, a bulk write
-given `omit: {}`), the value cut back to the caller's projection, and the
-write's one registration on the `TransactionWriteOutcomes` rail (after the
-cache's), so hooks run after the outermost commit and never after a rollback.
-A write no hook concerns is planned as written. Raptor 3 reports to the
-write's sink, `src/query-engine/write-sinks.ts` (keyed by the operation's
-attribution, registered before any planning). A root upsert reports its arm:
-its
-`INSERT … ON CONFLICT` fold returns the adapter's `mutations.upserted` marker
-(PostgreSQL's `xmax = 0`) beside the row, and where an adapter has none a
-probe of the key rides the same unit just before it. Nested writes report
-through the same sink: where it `wants` a model, `OperationContext.captureRows`
-reads each written row by key (before a delete; a cleared foreign key's rows
-before, reported cleared) in the operation's own unit — at once on the
-interactive route, queued in the same batch and decoded with its answer on
-the batch route — and a nested `updateMany`/`deleteMany` returns its rows from
-its own `RETURNING` (members captured one by one where there is none). The
-client cuts a hooked write's value back to the call's own projection
-(`takeResult`) before any extension sees it, so query handlers never see the
-hook's whole rows. A failing hook never fails its write: its error goes to
-`on(hooks, { onError })`, else `console.error`.
-
-The official `ordering()` (`src/ordering/`, entry `viborm/ordering`; plan
-`docs/architecture/ordering-extension-plan-2026-10-31.md`) is one ordinary
-definition plus one engine seam, applied in any order (its `keys` and
-`methods` steps stay for chains written before 1.8). It declares the generic `order`
-capability (a model's default `orderBy`, threaded as `RowDomain.order` with
-the call's row facts and applied by `Queries.#ordered` at root
-`findMany`/`findFirst`, `#prepareRelationProjection` for to-many edges, and
-paged aggregate windows; never in `#page`, whose internal selects keep key
-order; keyed into cached reads by `cacheKeyOf`) and a `data` create stamp that
-is an `InsertValue` (`raptor3/shared/insert-value.ts`): `Commands.stamp` keeps
-it out of create admission, and every INSERT path of `OperationContext`
-(`insert`, `insertMany`, the upsert fold) asks it, through `#computed`, for its
-values once the rows are final (incoming foreign keys assigned). `AppendKey`
-answers with one SQL expression per row over `MAX(key)` of the row's list
-(PostgreSQL, SQLite), or, on MySQL outside batch preparation, with keys it
-computes after one consistent read (the one-statement form deadlocks under
-concurrent appends there). Its methods add `move` and `rekey` from
-the delegate and the client scope a model factory now receives; both are lazy
-thenables, so an array transaction refuses them before any statement.
-Ordering writes no SQL past the client. The SQL it writes (the move's
-subqueries, respacing's ranks) reads `model AS alias` beside a `RowsOf`
-(`raptor3/shared/rows-of.ts`), which the operation's `Queries` settles to the
-call's root domain at that alias when it lowers the caller's fragment
-(`Queries.#settleRows`, in `value` and `#scalarValue`; `#prepareOperand`
-peeks a caller's `Sql` rather than flattening it, so the node survives):
-every extension applies to it as to any read, and rendered elsewhere its
-text is not SQL. So a move is still one UPDATE under soft delete or
-permissions (a hidden anchor is a missing one, a hidden member no
-neighbour). Respacing (`rekey`, and `move` on a tie or a used-up gap) is one
-`updateMany` through the delegate, its key a `JoinedValue`
-(`raptor3/shared/insert-value.ts`): a derived table ranking the lists'
-members (window functions over the table, the call's `RowsOf` under the
-update judgement of the key marking the members it may write, a `RowsOf`
-under the call's admitted `where` naming the lists) maps each to a short key
-between the keys of the others around the place it takes, so every viewer
-keeps the order and no other row is written. The UPDATE joins it
-(`adapter.mutations.updateFrom`: `UPDATE … FROM` on PostgreSQL and SQLite,
-`UPDATE … JOIN` on MySQL, which materializes it), never a correlated
-subquery, because SQLite's subqueries see the rows its UPDATE already
-rewrote. A row is written only while it holds the list and the key it was
-ranked with, so a member moved meanwhile stays where its writer put it. An
-`updateMany` that captures its rows first (no RETURNING, as on MySQL under
-an `on` hook) captures, and claims in a batch's premises, only the rows the
-join names (`condition` of `Queries.select`, a function of the root alias). Running window frames
-only (`UNBOUNDED PRECEDING`, the upper bound read backwards): a frame that
-ends at `UNBOUNDED FOLLOWING` is rescanned per row, quadratic in a list.
-
-`cache()` produces a namespace-free DEFINITION; the client composition root
-binds it to the concrete driver, deriving one scope from the private snapshot
-revision, the cache `version`, the dialect, and `adapter.namespace`. The
-derivation is pure, so a re-appended chain retains the scope by value — never
-add a registry to hand an old one back.
+- `defaultOmit(config)` (`src/client/default-omit-extension.ts`, entry
+  `viborm/client`): `defaults(() => entries)` with `omitted`, named
+  `viborm.defaultOmit`, so a chain applies it once; the omissions of
+  different extensions' `defaults` add up per model.
+- `softDelete(config)` (`src/soft-delete/index.ts`): `args` (`deleted`,
+  with a default, on `selecting`; `mode` on the deletes of the managed models), a
+  `rule((schema) => …)` whose entries write `root`/`related` with `when`
+  and `unless` and `delete.instead` with `keep(unless(arg("mode"), "hard",
+  { [deletedAt]: now, … }))`, after checking each marker is a nullable
+  `DateTime`, and `modelMethods` (`restore`, `restoreMany`, `purge`,
+  `purgeMany`, typed through `this`). `tests/package/soft-delete-consumer-smoke.mjs`
+  rebuilds it from the packed package.
+- `permissions(config)` (`src/permissions/`): one `rule((schema) => …)`
+  whose every listed model is a `lazy` entry compiled the first time a call
+  needs it (`compile.ts`, once per schema, again for a schema that gained or
+  swapped a model), one rule of `confine` for `tenant`, `args` (`actor` and
+  `scopes`, `bound` and required, `.volatile()` unless `cache: "allow"`;
+  `as`, with a default, on `selecting`, each model's entry testing only its
+  own `as` values), a `call` refusing a call the policy cannot reach
+  with `ForbiddenError` before validation, and `methods` for `$as`. One
+  row's `$access` (`facts`) answers what a check asks: `can` and `assert`
+  are gone. Its only runtime export is `permissions`;
+  applications own field names, membership, grant, credential and role conventions through explicit
+  predicates. `src/permissions/rules.ts` owns `Rule`, `Where` and rule functions' readonly
+  model `name` and `actions` metadata; no graph traversal or domain helper API is
+  shipped. CRUD permissions are `create`, `read`, `update` and `delete`;
+  `operations` remaps read/update/delete only. Creation uses `create` independently
+  of update and evaluates the proposed row. Without an `actions` graph a model's
+  actions are create, read, update and delete, and any other rule key is refused;
+  a model's `actions` graph declares custom actions and adds implications; the
+  retired global `levels` is refused. The default graph makes update and delete
+  imply read; create implies nothing. An action a model does not grant is
+  written as a filter that takes no row (`only(nothing)`), since a key a
+  `rule` entry leaves out restricts nothing.
+  A rule's `true` grants; a directly declared literal `false` blocks inherited
+  grants, while a callback returning `false` or an omitted rule supplies no direct
+  grant. Global and model `mandatory` are action-independent predicates;
+  the retired top-level `limit` is refused. Inherited rules and their nested
+  callbacks evaluate the declaring action and reuse that predicate unchanged;
+  grouped declarations evaluate separately per action. `$as(actor, scopes?)` binds
+  optional exact `model.permission` credential scopes. Omission adds no credential
+  restriction; an empty list denies all; supplied scopes follow the same action
+  graph and intersect model grants, mandatory restrictions and field protections.
+  Scopes never override `false`. Service identities use the application's actor
+  schema and need explicit model grants; the server authenticates their keys.
+  `$access` always returns an action-keyed boolean map, including inside each
+  polymorphic variant. Variant projection admission preserves both evidence keys
+  and explicitly selected gated fields, with the same refusal as an ordinary
+  relation; default selection omits unreadable fields. The retired `arms`
+  and `within` keys are refused rather than admitted as implicit actions.
+  Comma-separated rule keys assign one rule to individual actions, with surrounding
+  ASCII whitespace ignored. `compile.ts` resolves the graph, rule bindings and
+  evidence together; overlapping assignments, empty members and grouped reserved
+  keys are refused. Graph edges and call sites still name single actions.
+  `$as` rejects missing required actor fields at binding. Permissions adds no
+  absence guard: an optional actor value read outside an authored `$if` closes
+  the whole permission, its other alternatives and inherited grants included,
+  so an author guards each rule or alternative that reads one.
+  An authored `$if` is only a condition: a guard that skips inside NOT, none,
+  isNot or every (or in a rule read at an action name under one) makes the
+  negation hold, so a negated alternative is guarded outside its negation.
+  A written foreign key needs a target the actor reads; a `create` rule equating
+  it with a readable row's key restricts the row, never grants the target.
+  Predicate simplification preserves row truth and conditional actor dependency
+  checks. Conditional read summaries include AND-false and OR-true folding and
+  distinguish scalar from whole-list parameters. Unproved or unsupported shapes
+  remain unchanged.
+  `tests/package/permissions-consumer-smoke.mjs` runs §1.1 and the blog from the
+  packed package.
+- `on(hooks, { onError })` (`src/on/index.ts`): a `call` on
+  `target(hooked, "create")` that only makes `$extends()` check the hooked
+  models, and a `call` on `target(writes)` that `watch`es the rows a write
+  wrote and is `settled` after its commit. Each `on()` is an extension of its
+  own name (`viborm.on`, `viborm.on.2`, …). The engine shows the rows to the
+  write's sink, `src/query-engine/write-sinks.ts` (keyed by the operation's
+  attribution, registered before any planning), and `written.ts` tells each
+  watch. A root upsert reports its arm: its `INSERT … ON CONFLICT` fold
+  returns the adapter's `mutations.upserted` marker (PostgreSQL's
+  `xmax = 0`) beside the row, and where an adapter has none a probe of the
+  key rides the same unit just before it. Nested writes report through the
+  same sink: where it `wants` a model, the write store
+  (`raptor3/write/store.ts`) reads each written row by key (before a delete; a cleared foreign key's rows
+  before, reported cleared) in the operation's own unit, and a nested
+  `updateMany`/`deleteMany` returns its rows from its own `RETURNING`. A
+  write nothing wants sends exactly the statements it sends unwatched. The
+  caller's value is cut back to its own projection before any extension sees
+  it. A failing hook never fails its write: its error goes to `onError`,
+  else `console.error`.
+- `ordering(config)` (`src/ordering/`, plan
+  `docs/architecture/ordering-extension-plan-2026-10-31.md`): `defaults((schema)
+  => …)` writing each model's `orderBy` (the list's fields then the key,
+  applied by `Queries.#ordered` in `raptor3/shared/sql-queries.ts` at root
+  `findMany`/`findFirst`, to-many projections and paged aggregate windows,
+  never in `#page`) and a `create` value `appendKey(within)` (an
+  `InsertValue`, `raptor3/shared/insert-value.ts`: every INSERT path of
+  `OperationContext` asks it for its values once the rows are final), and
+  `modelMethods` (`move`, `rekey`, lazy thenables an array transaction refuses
+  before any statement). `appendKey`
+  (`src/ordering/append.ts`, a `computed()` value) answers with one SQL
+  expression per row over `MAX(key)` of the row's list
+  (PostgreSQL, SQLite), or, on MySQL outside batch preparation, with keys it
+  computes after one consistent read. Ordering writes no SQL past the
+  client. The SQL it writes (the move's subqueries, respacing's ranks) reads
+  `model AS alias` beside a `RowsOf` (`raptor3/shared/rows-of.ts`), which the
+  operation's `Queries` settles to the call's root domain at that alias when
+  it lowers the caller's fragment (`Queries.settleRows`), so every extension
+  applies to it as to any read. Respacing (`rekey`, and `move` on a tie or a
+  used-up gap) is one `updateMany` through the delegate, its key a
+  `JoinedValue`: a derived table ranking the lists' members maps each to a
+  short key between the keys around the place it takes, joined by
+  `adapter.mutations.updateFrom` (`UPDATE … FROM` on PostgreSQL and SQLite,
+  `UPDATE … JOIN` on MySQL), never a correlated subquery, because SQLite's
+  subqueries see the rows its UPDATE already rewrote. A row is written only
+  while it holds the list and the key it was ranked with. Running window
+  frames only (`UNBOUNDED PRECEDING`, the upper bound read backwards).
+- `cache(config)` (`src/cache/extension.ts`, see `src/cache/AGENTS.md`):
+  `args` (the mutation option `cache` on `writes`; `cacheRead`, `bound`,
+  which `$withCache()` binds), a `call` on `target(writes)` whose `settled`
+  invalidates, an `around` on `target(reads)` with `{ inner: true }` keyed
+  by `key(run)` and storing the driver's rows through `codec(run)` (a hit
+  is decoded again by the engine), and `methods` (`$withCache`,
+  `$invalidate`, which uses `settled(scope)`), typed as any extension's
+  client methods are, through its own facts (`CacheMethods`, each method
+  typed through `this` from the client it is called on, the view by
+  `CachedClientOf`): neither the contract's `Facts` nor the client names
+  the cache. Its scope is derived from the
+  private storage revision (`r6`), `version`, and `database(x)`
+  (dialect and SQL namespace), memoized by value inside the extension —
+  never add a registry to hand an old one back.
+- `instrumentation(config)` (`src/instrumentation/extension.ts`): one
+  `unit` part over every kind and a `disclosure` part for its
+  `diagnostics`; with neither tracing nor logging, the `disclosure` part
+  alone. It contains its own failures; core contains none.
 
 ### Rule 7: One namespace, owned by the adapter
 
@@ -452,7 +573,7 @@ INSTALL — own, non-writable, non-configurable — not a ban on copies: models,
 relations, query scopes, operation programs, result types, journals, cache
 identity, and instrumentation read it or do without it, and the two readers that
 deliberately capture it once — the bound migration driver at bind time, and the
-`readDriverIdentity` snapshot a cached read takes at `$withCache` — cannot go stale
+`database(run)` a cached read takes when it is served — cannot go stale
 because the property they read can never be reassigned.
 
 Every VibORM-generated persistent-object reference goes through
@@ -580,7 +701,7 @@ Client uses types:     orm.user.findMany({ where: { name: ... }})  // Fully type
 | Add cache invalidation option | [cache/](src/cache/AGENTS.md) | Update `schema.ts` |
 | Add tracing span/attribute | [instrumentation/](src/instrumentation/AGENTS.md) | Update `spans.ts`, `presentation.ts`; core only publishes neutral facts |
 | Add logging level | [instrumentation/](src/instrumentation/AGENTS.md) | Update `types.ts`, `logger.ts` |
-| Change list ordering | `src/ordering/` (`keys.ts` decimal keys, `append.ts` per-dialect appends, `index.ts` config, `move`, `rekey`); `order` capability in `src/extensions/definition.ts` + `query.ts`; `InsertValue` seam in `raptor3/shared/insert-value.ts` | Keys stay digits only (collation-proof); appends go through `InsertValue`, never a read in `Commands`; `tests/contracts/public-client/ordering*.ts`, `extension-order.core.test.ts`, provider `*-ordering.test.ts` |
+| Change list ordering | `src/ordering/` (`keys.ts` decimal keys, `append.ts` per-dialect appends, `index.ts` config, `move`, `rekey`); the default order in `src/extensions/order.ts` (a `defaults` part's `orderBy`), applied by `Queries.#ordered`; `InsertValue` seam in `raptor3/shared/insert-value.ts` | Keys stay digits only (collation-proof); appends go through `InsertValue`, never a read in `Commands`; `tests/contracts/public-client/ordering*.ts`, `extension-order.core.test.ts`, provider `*-ordering.test.ts` |
 | Change VibORM Studio | `packages/studio/` (`@viborm/studio`: `src/` server, API, config discovery and watching; `ui/` Svelte app) | Reads and writes only through the loaded client; bundles VibORM internals from `src/`, so its version follows `viborm`'s; no `viborm` source imports it (`packages/studio/test/studio-boundary.core.test.ts`) |
 
 Studio's project store keeps `views`, `queries`, and `layout` independently in

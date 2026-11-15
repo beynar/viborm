@@ -19,8 +19,21 @@
 
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { defineExtension } from "@extensions/define";
 import { s } from "@schema";
+import {
+  accepts,
+  arg,
+  args,
+  defaults,
+  deletes,
+  keep,
+  now,
+  oneOf,
+  parts,
+  rule,
+  unless,
+  when,
+} from "@src/index";
 import { v } from "@src/validation";
 import type { RecordingD1 } from "./d1-statements";
 
@@ -57,64 +70,62 @@ const comment = s.model({
   deletedAt: s.dateTime().nullable(),
   version: s.int().default(0),
 });
-const MODELS = ["author", "post", "comment"] as const;
-const each = <T>(build: () => T) =>
-  Object.fromEntries(MODELS.map((model) => [model, build()])) as Record<
-    (typeof MODELS)[number],
-    T
-  >;
-const tenancy = defineExtension({
-  name: "tenancy",
-  controls: { tenant: { schema: v.string(), required: true } },
-  rows: {
-    control: "scope",
-    default: "tenant",
-    models: each(() => ({
-      tenant: {
-        root: { tenantId: { control: "tenant" } },
-        related: { tenantId: { control: "tenant" } },
-      },
-      all: {},
-    })),
-  },
-  data: {
-    models: each(() => ({ create: { tenantId: { control: "tenant" } } })),
+/** The parts, typed against the three models (every model of the client). */
+const forSchema = parts<{
+  author: typeof author;
+  post: typeof post;
+  comment: typeof comment;
+}>();
+// Each model's entry is built afresh, in place: an entry the `rule` receives
+// through a generic helper loses the types of its arguments.
+const tenantRows = () => ({
+  root: when(arg("scope"), "tenant", { tenantId: arg("tenant") }),
+  related: when(arg("scope"), "tenant", { tenantId: arg("tenant") }),
+});
+const tenantData = () => ({ create: { tenantId: arg("tenant") } });
+const tenancy = forSchema.extension(
+  "tenancy",
+  args({
+    tenant: accepts(v.string()).required(),
+    scope: oneOf("tenant", "all").default("tenant"),
+  }),
+  rule({ author: tenantRows(), post: tenantRows(), comment: tenantRows() }),
+  defaults({ author: tenantData(), post: tenantData(), comment: tenantData() })
+);
+const softRows = () => ({
+  root: [
+    when(arg("deleted"), "without", { deletedAt: null }),
+    when(arg("deleted"), "only", { deletedAt: { not: null } }),
+  ],
+  related: [
+    when(arg("deleted"), "without", { deletedAt: null }),
+    when(arg("deleted"), "only", { deletedAt: null }),
+  ],
+  delete: {
+    instead: keep(unless(arg("mode"), "hard", { deletedAt: now })),
   },
 });
-const soft = defineExtension({
-  name: "soft",
-  controls: { mode: { oneOf: ["soft", "hard"] } },
-  rows: {
-    control: "deleted",
-    default: "without",
-    models: each(() => ({
-      without: { root: { deletedAt: null }, related: { deletedAt: null } },
-      with: {},
-      only: {
-        root: { deletedAt: { not: null } },
-        related: { deletedAt: null },
-      },
-    })),
-  },
-  deletion: {
-    removeWhen: { mode: "hard" },
-    models: each(() => ({ at: "deletedAt", assign: {} })),
-  },
+const soft = forSchema.extension(
+  "soft",
+  args({
+    mode: oneOf("soft", "hard").on(deletes),
+    deleted: oneOf("without", "with", "only").default("without"),
+  }),
+  rule({ author: softRows(), post: softRows(), comment: softRows() })
+);
+const lockRows = () => ({
+  root: when(arg("versionCheck"), "checked", {
+    version: arg("expectedVersion"),
+  }),
 });
-const lock = defineExtension({
-  name: "lock",
-  controls: {
-    expectedVersion: { schema: v.number(), on: ["update", "delete"] },
-  },
-  rows: {
-    control: "versionCheck",
-    default: "checked",
-    models: each(() => ({
-      checked: { root: { version: { control: "expectedVersion" } } },
-      unchecked: {},
-    })),
-  },
-});
+const lock = forSchema.extension(
+  "lock",
+  args({
+    expectedVersion: accepts(v.number()).on(["update", "delete"]),
+    versionCheck: oneOf("checked", "unchecked").default("checked"),
+  }),
+  rule({ author: lockRows(), post: lockRows(), comment: lockRows() })
+);
 
 /** An ISO instant among a statement's values: the call's clock, not a pin. */
 const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;

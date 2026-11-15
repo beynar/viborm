@@ -1,10 +1,11 @@
 /**
  * The rows a model keeps where a call deletes them: what such a row takes
  * instead of going, and what it meets where the database would have refused
- * its removal. The engine asks the call's tombstones; this module, loaded
- * with the extensions that declare a deletion, answers.
+ * its removal (`keep`). The engine asks the call's tombstones; this module,
+ * brought by `keep`, answers.
  */
 import { assembleAdapterSelect } from "@adapters/adapter-internals";
+import type { Schema } from "@client/types";
 import type {
   PreparedDomain,
   PreparedPredicate,
@@ -17,7 +18,7 @@ import {
   newSelectorFacts,
 } from "@query-engine/raptor3/shared/query";
 import type {
-  Tombstone,
+  Condition,
   Tombstones,
 } from "@query-engine/raptor3/shared/row-scope";
 import type { EngineSchema, Input } from "@query-engine/raptor3/shared/schema";
@@ -29,8 +30,28 @@ import {
 import type { Writer } from "@query-engine/raptor3/write/statements";
 import type { PreparedGuardFailure } from "@query-engine/types";
 import type { AnyModel } from "@schema/model";
+import type { AnyRelation } from "@schema/relation/types";
+import type { AdmittedArgs } from "./arguments";
+import { rebind, refuseUndeclared } from "./call-rows";
+import type { ExtensionPart } from "./chain";
+import { extensionError } from "./chain";
+import { bindRows } from "./rows";
 
-export class Kept extends Map<string, Tombstone> implements Tombstones {
+/** Per managed model, what its deletes write instead, and who declared it. */
+export class Kept extends Map<string, ResolvedKept> implements Tombstones {
+  /**
+   * Whether a delete of `model` removes its rows: its `keep` keeps them
+   * where its test holds (`when`) or fails (`unless`), and the call's
+   * arguments say otherwise, where its argument's `.on()` accepts it.
+   */
+  removes(model: string, values: AdmittedArgs | undefined): boolean {
+    const kept = this.get(model);
+    return (
+      kept?.test !== undefined &&
+      // Its test names an argument (`keep` refuses `now`): no instant.
+      kept.test.holds({ args: values ?? {} }) !== kept.keeps
+    );
+  }
   marks(writer: Writer, model: AnyModel): Input | undefined {
     const { scope, schema } = writer.operation;
     const mark = this.get(model["~"].names.ts!);
@@ -87,6 +108,7 @@ export class Kept extends Map<string, Tombstone> implements Tombstones {
    * then costs one row back, not a million keys.
    */
   lock(queries: Queries, selector: PreparedSelector): Query {
+    // Tombstones lock only on a SQL write: the engine hands its SqlQueries.
     const q = queries as SqlQueries;
     const a = q.adapter;
     const inner = q.rootAlias();
@@ -135,19 +157,83 @@ export class Kept extends Map<string, Tombstone> implements Tombstones {
             ])
           );
         // Visibility is the given domain's, never the lowering call's own.
-        return Object.freeze({
+        return {
           kind: "relation",
           edge,
           quantifier: "some",
           predicate:
             arms.length === 0 ? undefined : queries.combine("AND", arms),
           unscoped: true,
-        });
+        };
       });
-    return Object.freeze({
+    return {
       model,
       facts: newSelectorFacts(false),
       predicate: queries.combine("OR", predicates),
-    });
+    };
   }
+}
+
+/** The slot a model is the declared junction of, for a refusal to name. */
+function junctionHolder(schema: Schema, model: AnyModel) {
+  for (const [holder, candidate] of Object.entries(schema))
+    for (const [field, relation] of Object.entries(
+      candidate["~"].state.relations
+    )) {
+      // A model state types its relations loosely; each is a relation.
+      const internal = (relation as AnyRelation)["~"];
+      if (
+        internal.state.junction?.model !== undefined &&
+        internal.settleJunctionModel!() === model
+      )
+        return `${holder}.${field}`;
+    }
+  return undefined;
+}
+
+/** What a delete of one model writes instead of removing the row, as `keep` writes it. */
+interface KeptModel {
+  /** The DateTime field that receives the call's one instant. */
+  readonly at?: string;
+  readonly assign: Readonly<Record<string, unknown>>;
+  /**
+   * `keep(when(…))` or `keep(unless(…))`: the test of an argument, and
+   * whether the row is kept where it holds (`when`) or where it fails.
+   * Without one, every delete keeps the row.
+   */
+  readonly test?: Condition;
+  readonly keeps?: boolean;
+}
+
+/** What a delete of one managed model writes, and who declared it. */
+export interface ResolvedKept extends KeptModel {
+  readonly extension: string;
+}
+
+/**
+ * Kept rows of one model, brought by its `keep`. A delete of a managed
+ * model is an update, which every filter of the chain reads as it reads
+ * any, so the filters' binding binds a chain that keeps rows; a later
+ * entry for a model replaces one.
+ */
+export function keptPart(model: string, entry: KeptModel): ExtensionPart {
+  return {
+    join(application) {
+      const { next, schema, name: extension } = application;
+      refuseUndeclared(application, [entry.test?.parameter.arg]);
+      const holder = junctionHolder(schema, schema[model]!);
+      if (holder !== undefined)
+        extensionError(
+          `Extension "${extension}" rule.${model}.delete.instead: the model is the junction of '${holder}', so a kept link would still be followed. Delete the link with the relation's disconnect, or the row through its delegate.`,
+          extension
+        );
+      const kept = new Kept(next.kept);
+      kept.set(model, { extension, ...entry });
+      next.kept = kept;
+      next.bindRows = bindRows;
+    },
+    seal(application) {
+      rebind(application, bindRows);
+    },
+  };
 }

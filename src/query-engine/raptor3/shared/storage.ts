@@ -14,7 +14,7 @@ import type {
   ResolvedVariantJunctionMember,
   ResolvedVariantRowMember,
 } from "@schema/validation/relation-resolution";
-import type { RowJudgement } from "./row-scope";
+import type { WriteJudgement } from "./row-scope";
 import type { EngineSchema } from "./schema";
 import { scalarsOf } from "./terms";
 
@@ -91,7 +91,7 @@ export type PhysicalField = {
  * `undefined` where the source holds the key: the target's row does not
  * change, and is only read.
  */
-export function linkJudgement(edge: Membership): RowJudgement | undefined {
+export function linkJudgement(edge: Membership): WriteJudgement | undefined {
   if (edge.kind === "reference" && edge.owner === "source") return undefined;
   const resolved = edge.scope.edge;
   const writes =
@@ -107,7 +107,7 @@ export function linkJudgement(edge: Membership): RowJudgement | undefined {
         ? edge.scope.member?.inverse
         : resolved.carrier;
   if (inverse) writes.push(inverse.field);
-  return { verb: "update", writes };
+  return { kind: "update", writes };
 }
 
 /** Orient the already resolved storage once; no declaration getter or inverse search. */

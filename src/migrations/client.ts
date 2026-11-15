@@ -166,6 +166,16 @@ export function createMigrationClient(
   client: MigrationClient,
   options?: MigrationClientOptions | LiveMigrationClientOptions
 ): LiveMigrations | ReadableMigrations | WritableMigrations {
+  // VibORM only reads Snowflake: no estate, no control table, no DDL. Every
+  // command is refused here, before it reads storage or sends a statement.
+  if (client.$driver.dialect === "snowflake")
+    throw new MigrationError(
+      // Short: this text ships in every migrations bundle. The Snowflake page
+      // says why.
+      "Snowflake has no migrations: VibORM only reads it (introspectSchema() reads its schema).",
+      VibORMErrorCode.FEATURE_NOT_SUPPORTED,
+      { meta: { dialect: "snowflake" } }
+    );
   const record =
     options === undefined
       ? undefined

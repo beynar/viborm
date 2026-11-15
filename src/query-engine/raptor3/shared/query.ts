@@ -74,8 +74,8 @@ import {
   Existence,
   OuterColumn,
   Parameter,
-  type RowJudgement,
   type RowPurpose,
+  type WriteJudgement,
 } from "./row-scope";
 import {
   type Arguments,
@@ -272,8 +272,7 @@ export type PreparedProjectionField =
   | {
       /**
        * A declared projection key (K5): per row, whether each named
-       * predicate holds beside the layer's `read`, or, `ordered`, the last
-       * name that does.
+       * predicate holds beside the layer's `read`.
        */
       readonly kind: "evidence";
       readonly name: string;
@@ -1614,7 +1613,6 @@ export interface DeclaredEvidence {
   readonly layer: number;
   readonly read: Input;
   readonly names: readonly (readonly [string, Input])[];
-  readonly ordered: boolean;
 }
 /**
  * What a read-gated field's row must hold, per layer gating it: the layer's
@@ -1647,6 +1645,16 @@ export function balancedOr<T>(
   return build(0, items.length);
 }
 
+/** A produced row a judgement reads: its alias, which written fields are null, and what folds them in. */
+export interface KnownRow {
+  readonly alias: string;
+  readonly nulls: ReadonlyMap<string, boolean>;
+  readonly fold: (
+    predicate: PreparedPredicate,
+    nulls: ReadonlyMap<string, boolean>
+  ) => PreparedPredicate;
+}
+
 export abstract class Queries {
   readonly schema: EngineSchema;
   readonly adapter: EngineFacts;
@@ -1664,9 +1672,14 @@ export abstract class Queries {
   /**
    * The row domain this `Queries` reads under: every to-many relation it
    * correlates, and every root read or lookup that names a purpose. Absent on
-   * every path of a client without `rows`.
+   * every path of a client without rules.
    */
   readonly domain: PreparedDomain | undefined;
+  /**
+   * The produced row a judgement is lowering over, where one is: declared
+   * here for what a layer folds over it (`overKnown`), held by `SqlQueries`.
+   */
+  declare known?: KnownRow;
   /** The call whose values the domain's parameters read. */
   readonly #call: CallScope | undefined;
   /**
@@ -1713,7 +1726,7 @@ export abstract class Queries {
   protected scope(
     model: AnyModel,
     purpose: RowPurpose,
-    judgement?: RowJudgement
+    judgement?: WriteJudgement
   ): PreparedSelector | undefined {
     const excluded = this.excluded;
     return excluded === undefined || excluded.length === 0
@@ -1728,7 +1741,7 @@ export abstract class Queries {
   domainOf(
     model: AnyModel,
     purpose: RowPurpose,
-    judgement?: RowJudgement
+    judgement?: WriteJudgement
   ): PreparedSelector | undefined {
     const scope = this.scope(model, purpose, judgement);
     return scope && !this.#drops(scope.predicate) ? scope : undefined;
@@ -2144,7 +2157,7 @@ export abstract class Queries {
     selector: PreparedSelector,
     purpose: RowPurpose,
     domain: PreparedDomain | undefined = this.domain,
-    judgement?: RowJudgement
+    judgement?: WriteJudgement
   ): PreparedSelector {
     const scope = domain?.selector(
       selector.model,
@@ -3141,19 +3154,16 @@ export abstract class Queries {
     internal = false,
     path = ""
   ): PreparedProjection {
-    const projected = internal ? undefined : this.domain?.projected(model);
+    // What the domain's declared keys and read gates add (K5).
+    const added = internal
+      ? undefined
+      : this.domain?.project?.preparing(model, args.select, path);
     const shared = args.select === undefined && args.include === undefined;
-    const defaults =
-      projected === undefined
-        ? this.#views.defaultProjections
-        : this.domain!.defaultProjections;
+    const defaults = added?.defaults ?? this.#views.defaultProjections;
     if (shared) {
       const resolved = defaults.get(model);
       if (resolved !== undefined) return resolved;
     }
-    // What the domain's read gates add to this projection (K5).
-    const gating =
-      projected && this.domain!.gating(projected, args.select, path);
     // `omit` is desugared into `select` at admission; an explicit selection and
     // an include can therefore both be present and both belong to the result.
     let selected = args.select ?? defaultSelection(model);
@@ -3186,21 +3196,11 @@ export abstract class Queries {
           continue;
         }
       }
-      const evidence = projected?.keys.get(name);
-      if (evidence !== undefined) {
-        this.domain!.projectEvidence(
-          evidence,
-          name,
-          selection,
-          fields,
-          prepared
-        );
-        continue;
-      }
+      if (added?.key(name, selection, fields, prepared)) continue;
       if (!model["~"].state.relations[name]) {
         prepared.push({ kind: "scalar", name });
         fields[name] = this.scalarShape(model, name);
-        gating?.field(name, prepared);
+        added?.field(name, prepared);
         continue;
       }
       const resolved = this.schema.index.get(model)!.get(name)!;
@@ -3237,7 +3237,7 @@ export abstract class Queries {
     const projection: PreparedProjection = {
       model,
       fields: prepared,
-      shape: { kind: "object", fields, ...gating?.shape() },
+      shape: { kind: "object", fields, ...added?.shape() },
     };
     if (shared) defaults.set(model, projection);
     return projection;
@@ -3302,7 +3302,7 @@ export abstract class Queries {
    *
    * It RETURNS the junction model's columns, so it is a read of that model,
    * unlike the hop beside it. Whatever a direct read of them would hide on
-   * this client refuses the key, before any statement: a row its `rows` hide
+   * this client refuses the key, before any statement: a row its rules hide
    * or a field a gate masks has no faithful answer in a value the hop already
    * reached (the target row is there; the link it came through is not to be
    * told). `defaultOmit` is presentation, and is settled at the client.
@@ -3825,9 +3825,10 @@ export abstract class Queries {
    *
    * The reader holds a driver's parser, so it lives no longer than the batch
    * it was compiled for and is never stored on the prepared shape, which
-   * `EngineSchema` shares across executions and driver bindings.
+   * `EngineSchema` shares across executions and driver bindings. A domain's
+   * gated document reads its gates with it.
    */
-  private compileReader(
+  compileReader(
     shape: Shape | Leaf,
     internal: boolean,
     carried: boolean,
@@ -3938,9 +3939,10 @@ export abstract class Queries {
     });
     // An internal read is the engine's own: it reads every member it asked
     // for, its gates unread (K5).
-    if (shape.gates !== undefined && !internal)
-      return this.domain!.gatedDocument(
-        this.compileReader(BOOLEAN_LEAF, false, carried),
+    if (shape.gates && !internal)
+      return this.domain!.project!.gatedDocument(
+        this,
+        carried,
         shape,
         fields,
         readers,

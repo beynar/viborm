@@ -10,7 +10,18 @@
 import { MemoryCache } from "@src/cache/drivers/memory";
 import { cache } from "@src/cache/exports";
 import { PGliteDriver } from "@src/drivers/pglite";
-import { createClient, s } from "@src/index";
+import {
+  args,
+  createClient,
+  extension,
+  facts,
+  gate,
+  nothing,
+  oneOf,
+  only,
+  rule,
+  s,
+} from "@src/index";
 import { describe, expectTypeOf, test } from "vitest";
 
 const user = s.model({
@@ -44,35 +55,42 @@ const base = createClient({
   schema: { user, post, note },
   driver: new PGliteDriver(),
 });
-const db = base.$extends({
-  name: "evidence",
-  rows: {
-    control: "as",
-    default: "all",
-    models: {},
-    verbs: {
+const postView = {};
+const postEdit = { title: "x" };
+const userView = {};
+const db = base.$extends(
+  extension(
+    "evidence",
+    args({ as: oneOf("all").default("all") }),
+    rule({
       post: {
-        predicates: { view: {}, edit: { title: "x" } },
-        read: "view",
-        evidence: { as: "$access", names: ["view", "edit"] },
-        reads: { secret: "edit" },
+        read: {
+          where: postView,
+          fields: { secret: gate(postEdit) },
+          select: { $access: facts({ view: postView, edit: postEdit }) },
+        },
+        update: { where: only(nothing) },
+        delete: { where: only(nothing) },
       },
       user: {
-        predicates: { view: {}, edit: {}, full: {} },
-        read: "view",
-        evidence: {
-          as: "$access",
-          names: ["view", "edit", "full"],
-          ordered: true,
+        read: {
+          where: userView,
+          select: { $access: facts({ view: userView, edit: {}, full: {} }) },
         },
+        update: { where: only(nothing) },
+        delete: { where: only(nothing) },
       },
-      note: { predicates: { view: {} }, read: "view" },
-    },
-  },
-});
+      note: {
+        read: { where: {} },
+        update: { where: only(nothing) },
+        delete: { where: only(nothing) },
+      },
+    })
+  )
+);
 
 describe("a declared projection key", () => {
-  test("reports the model's names at the root, a list its own, ordered the highest", async () => {
+  test("reports the model's names at the root, a list its own", async () => {
     const posts = await db.post.findMany({
       select: { id: true, $access: true },
     });
@@ -90,9 +108,11 @@ describe("a declared projection key", () => {
     const users = await db.user.findMany({
       select: { id: true, $access: true },
     });
-    expectTypeOf(users[0]!.$access).toEqualTypeOf<
-      "view" | "edit" | "full" | null
-    >();
+    expectTypeOf(users[0]!.$access).toEqualTypeOf<{
+      readonly view: boolean;
+      readonly edit: boolean;
+      readonly full: boolean;
+    }>();
   });
 
   test("is admitted at every depth, at the target's own names", async () => {
@@ -110,9 +130,11 @@ describe("a declared projection key", () => {
       include: { author: { include: { $access: true } } },
     });
     // A to-one onto a model a `rows` member names may read hidden: `null`.
-    expectTypeOf(posts[0]!.author!.$access).toEqualTypeOf<
-      "view" | "edit" | "full" | null
-    >();
+    expectTypeOf(posts[0]!.author!.$access).toEqualTypeOf<{
+      readonly view: boolean;
+      readonly edit: boolean;
+      readonly full: boolean;
+    }>();
   });
 
   test("rides a write's result", async () => {
@@ -163,27 +185,38 @@ describe("a read-gated field", () => {
 
 /** A second projection on the same model must not erase the first in a cache view. */
 test("cached views preserve two projection keys and exact nested results", () => {
+  const postDraft = {};
+  const userContact = {};
   const composed = db
-    .$extends({
-      name: "review-evidence",
-      rows: {
-        control: "reviewMode",
-        default: "all",
-        models: {},
-        verbs: {
+    .$extends(
+      extension(
+        "review-evidence",
+        args({ reviewMode: oneOf("all").default("all") }),
+        rule({
           post: {
-            predicates: { draft: {}, published: { title: "published" } },
-            read: "draft",
-            evidence: { as: "$review", names: ["draft", "published"] },
+            read: {
+              where: postDraft,
+              select: {
+                $review: facts({
+                  draft: postDraft,
+                  published: { title: "published" },
+                }),
+              },
+            },
+            update: { where: only(nothing) },
+            delete: { where: only(nothing) },
           },
           user: {
-            predicates: { contact: {} },
-            read: "contact",
-            evidence: { as: "$review", names: ["contact"] },
+            read: {
+              where: userContact,
+              select: { $review: facts({ contact: userContact }) },
+            },
+            update: { where: only(nothing) },
+            delete: { where: only(nothing) },
           },
-        },
-      },
-    })
+        })
+      )
+    )
     .$extends(cache({ driver: new MemoryCache() }));
   const cached = composed.$withCache();
   const access = cached.post.findMany({
@@ -211,9 +244,17 @@ test("cached views preserve two projection keys and exact nested results", () =>
       }[]
     >
   >();
-  const ordered = cached.user.findMany({ select: { $access: true } });
-  expectTypeOf(ordered).toEqualTypeOf<
-    Promise<{ readonly $access: "view" | "edit" | "full" | null }[]>
+  const all = cached.user.findMany({ select: { $access: true } });
+  expectTypeOf(all).toEqualTypeOf<
+    Promise<
+      {
+        readonly $access: {
+          readonly view: boolean;
+          readonly edit: boolean;
+          readonly full: boolean;
+        };
+      }[]
+    >
   >();
   // @ts-expect-error - each projection retains its own permission vocabulary
   cached.post.findMany({ select: { $review: ["edit"] } });
@@ -228,24 +269,27 @@ test("cached views preserve two projection keys and exact nested results", () =>
 });
 
 describe("a lazy verbs entry (a function returning it)", () => {
-  const lazy = base.$extends({
-    name: "lazy-evidence",
-    rows: {
-      control: "as",
-      default: "all",
-      models: {},
-      verbs: {
-        // A function's return is not a const context: spell it `as const`.
-        post: () =>
-          ({
-            predicates: { view: {}, edit: { title: "x" } },
-            read: "view",
-            evidence: { as: "$access", names: ["view", "edit"] },
-            reads: { secret: "edit" },
-          }) as const,
-      },
-    },
-  });
+  const lazy = base.$extends(
+    extension(
+      "lazy-evidence",
+      args({ as: oneOf("all").default("all") }),
+      rule({
+        post: () => {
+          const postView2 = {};
+          const postEdit2 = { title: "x" };
+          return {
+            read: {
+              where: postView2,
+              fields: { secret: gate(postEdit2) },
+              select: { $access: facts({ view: postView2, edit: postEdit2 }) },
+            },
+            update: { where: only(nothing) },
+            delete: { where: only(nothing) },
+          };
+        },
+      })
+    )
+  );
 
   test("declares its projection key and gates its read-gated fields as an entry would", async () => {
     const posts = await lazy.post.findMany({

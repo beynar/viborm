@@ -15,19 +15,26 @@ import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import { ForeignKeyError, NotFoundError } from "@errors";
-import { appendResolvedExtension } from "@extensions/chain";
-import { callRows } from "@extensions/rows";
-import { withRows } from "@extensions/rows-runtime";
+import type { ResolvedExtensionChain } from "@extensions/chain";
+import { isAppliedExtension } from "@extensions/extension";
 import { s } from "@schema";
+import {
+  arg,
+  args,
+  extension,
+  keep,
+  now,
+  oneOf,
+  rule,
+  unless,
+  when,
+} from "@src/index";
 import { openDeletionFixture } from "@tests/contracts/engine/write/deletion-capability-behavior";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { failure } from "@tests/fixtures/failure";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import type Database from "better-sqlite3";
 import { afterEach, describe, expect, test } from "vitest";
-
-// These definitions are stated as plain objects: what reads their rows is brought here.
-withRows();
 
 const UNKNOWN_MODEL_PATTERN = /unknown model/;
 
@@ -121,23 +128,25 @@ describe("one instant per call, whatever is raced", () => {
   test("a domain bound to the call's value is resolved once, whatever is raced: only that author's rows go", async () => {
     const driver = new RacingSQLite3Driver({ dataDir: ":memory:" });
     const { base, db, ledger } = await fixture(driver);
-    const own = db.$extends({
-      name: "test.byAuthor",
-      controls: { author: { oneOf: [1, 2, 3] } },
-      rows: {
-        control: "authors",
-        default: "own",
-        models: {
+    // Held: inside a filter word, an argument is typed before this
+    // extension's own arguments once an earlier one declared any (a
+    // reported type defect); the name is checked where it is applied.
+    const author = arg("author");
+    const own = db.$extends(
+      extension(
+        "test.byAuthor",
+        args({
+          author: oneOf(1, 2, 3),
+          authors: oneOf("own", "all").default("own"),
+        }),
+        rule({
           post: {
-            own: {
-              root: { authorId: { control: "author" } },
-              related: { authorId: { control: "author" } },
-            },
-            all: {},
+            root: when(arg("authors"), "own", { authorId: author }),
+            related: when(arg("authors"), "own", { authorId: author }),
           },
-        },
-      },
-    });
+        })
+      )
+    );
     // Post 19 is another author's and sits on the same tag.
     for (const [id, authorId] of [
       [17, 1],
@@ -202,95 +211,88 @@ describe("a chain's rows and deletion resolve to one call's facts", () => {
   });
   const schema = { item };
 
-  test("every combination of two rows members, the default shared, a removeWhen match physical", () => {
-    let chain = appendResolvedExtension(
-      undefined,
-      {
-        name: "archive",
-        controls: { purge: { oneOf: [true, false] } },
-        rows: {
-          control: "archived",
-          default: "no",
-          models: {
-            item: {
-              no: { root: { archivedAt: null } },
-              yes: { root: { archivedAt: { not: null } } },
+  /** The chain `value` makes over `previous`, as `$extends` builds it. */
+  const chainOf = (
+    value: unknown,
+    previous?: ResolvedExtensionChain
+  ): ResolvedExtensionChain => {
+    if (!isAppliedExtension(value)) throw new TypeError("not an extension");
+    return value.append(previous, schema);
+  };
+
+  test("two rule members share one domain, a call's values beside it, a delete physical where its keep's test says", () => {
+    let chain = chainOf(
+      extension(
+        "archive",
+        args({
+          purge: oneOf(true, false),
+          archived: oneOf("no", "yes").default("no"),
+        }),
+        rule({
+          item: {
+            root: [
+              when(arg("archived"), "no", { archivedAt: null }),
+              when(arg("archived"), "yes", { archivedAt: { not: null } }),
+            ],
+            delete: {
+              instead: keep(unless(arg("purge"), true, { archivedAt: now })),
             },
           },
-        },
-        deletion: {
-          removeWhen: { purge: true },
-          models: { item: { at: "archivedAt" } },
-        },
-      },
-      schema
+        })
+      )
     );
-    chain = appendResolvedExtension(
-      chain,
-      {
-        name: "visibility",
-        rows: {
-          control: "hidden",
-          default: "exclude",
-          models: {
-            item: {
-              exclude: { root: { hidden: false }, related: { hidden: false } },
-              include: {},
-            },
+    chain = chainOf(
+      extension(
+        "visibility",
+        args({ hidden: oneOf("exclude", "include").default("exclude") }),
+        rule({
+          item: {
+            root: when(arg("hidden"), "exclude", { hidden: false }),
+            related: when(arg("hidden"), "exclude", { hidden: false }),
           },
-        },
-      },
-      schema
+        })
+      ),
+      chain
     );
     const binding = chain.callRows!;
-    const defaults = callRows(binding, "item", undefined);
-    expect(defaults.domain).toBe(defaults.defaults);
-    // Each predicate as admission left it, at its member's layer.
-    expect(defaults.domain.root.get("item")).toEqual([
-      { archivedAt: { equals: null } },
-      { hidden: { equals: false } },
-    ]);
+    const defaults = binding.call("item", undefined);
+    // One domain at each member's layer, its tests of an argument folded per
+    // call: a call that passes none reads each argument at its default.
+    expect(defaults.domain.root.get("item")).toHaveLength(2);
     const related = defaults.domain.related.get("item")!;
     expect(related).toHaveLength(2);
     expect(0 in related).toBe(false);
-    expect(related[1]).toEqual({ hidden: { equals: false } });
+    // Both arguments have a default: the domain read at the defaults is
+    // its own twin.
+    expect(defaults.domain.defaults).toMatchObject({
+      root: defaults.domain.root,
+    });
+    expect(defaults.values?.args).toEqual({
+      archived: "no",
+      hidden: "exclude",
+    });
     expect(defaults.tombstones?.get("item")).toMatchObject({
       at: "archivedAt",
     });
-    const archived = callRows(binding, "item", {
+    const archived = binding.call("item", {
       archived: "yes",
       hidden: "include",
     });
-    expect(archived.defaults).toBe(defaults.domain);
-    expect(archived.domain.root.get("item")).toEqual([
-      { archivedAt: { not: { equals: null } } },
-    ]);
-    // Explicit defaults resolve to the very same facts as absent controls.
-    expect(
-      callRows(binding, "item", { archived: "no", hidden: "exclude" })
-    ).toBe(defaults);
-    const purge = callRows(binding, "item", { purge: true });
+    expect(archived.domain).toBe(defaults.domain);
+    expect(archived.values?.args).toEqual({
+      archived: "yes",
+      hidden: "include",
+    });
+    const purge = binding.call("item", { purge: true });
     expect(purge.tombstones).toBeUndefined();
     expect(purge.domain).toBe(defaults.domain);
-    // `removeWhen` belongs to the managed model: another model never matches.
-    expect(
-      callRows(binding, "other", { purge: true }).tombstones
-    ).toBeDefined();
+    // A keep's test belongs to the model it keeps: another model's deletes
+    // keep their rows whatever the call passes.
+    expect(binding.call("other", { purge: true }).tombstones).toBeDefined();
   });
 
-  test("a rows member with no model entry reads its default; a chain without deletion writes no tombstone", () => {
-    const chain = appendResolvedExtension(
-      undefined,
-      { name: "empty", rows: { control: "scope", default: "all", models: {} } },
-      schema
-    );
-    const facts = callRows(chain.callRows!, "item", { scope: "all" });
-    expect(facts.domain.root.size).toBe(0);
-    expect(facts.tombstones).toBeUndefined();
-    // A chain that declares neither binds nothing.
-    expect(
-      appendResolvedExtension(undefined, { name: "plain" }, schema).callRows
-    ).toBeUndefined();
+  test("a chain that declares no rows and no deletion binds nothing", () => {
+    expect(chainOf(extension("plain")).callRows).toBeUndefined();
   });
 
   test("raw shorthand filters rows end to end and an unknown policy model is refused", async () => {
@@ -307,33 +309,32 @@ describe("a chain's rows and deletion resolve to one call's facts", () => {
         { id: 3, archivedAt: null, hidden: true },
       ],
     });
-    const db = base.$extends({
-      name: "trusted",
-      rows: {
-        control: "archived",
-        default: "no",
-        models: {
+    const db = base.$extends(
+      extension(
+        "trusted",
+        args({ archived: oneOf("no", "yes").default("no") }),
+        rule({
           item: {
-            no: { root: { archivedAt: null, hidden: false } },
-            yes: { root: { NOT: { archivedAt: null } } },
+            root: [
+              when(arg("archived"), "no", { archivedAt: null, hidden: false }),
+              when(arg("archived"), "yes", { NOT: { archivedAt: null } }),
+            ],
           },
-        },
-      },
-    });
+        })
+      )
+    );
     expect(() =>
-      base.$extends({
-        name: "invalid-model",
-        rows: {
-          control: "archived",
-          default: "no",
-          models: {
-            // @ts-expect-error the whole model map is refused when any key is unknown
-            item: { no: { root: { hidden: false } } },
-            // @ts-expect-error runtime falsifier: unknown policy models fail admission
-            ghost: { no: { root: { gone: 1 } } },
-          },
-        },
-      })
+      base.$extends(
+        extension(
+          "invalid-model",
+          args({ archived: oneOf("no").default("no") }),
+          rule({
+            item: { root: when(arg("archived"), "no", { hidden: false }) },
+            // @ts-expect-error - "ghost" is no model: the refusal tested is the runtime's
+            ghost: { root: when(arg("archived"), "no", { gone: 1 }) },
+          })
+        )
+      )
     ).toThrow(UNKNOWN_MODEL_PATTERN);
     const ids = (rows: readonly { readonly id: number }[]) =>
       rows.map((row) => row.id);
@@ -361,12 +362,14 @@ describe("a deletion entry without rows", () => {
     clients.push(base);
     await syncLiveSchema(base);
     await base.item.create({ data: { id: 1 } });
-    const db = base.$extends({
-      name: "stamp",
-      deletion: {
-        models: { item: { at: "removedAt", assign: { note: "gone" } } },
-      },
-    });
+    const db = base.$extends(
+      extension(
+        "stamp",
+        rule({
+          item: { delete: { instead: keep({ removedAt: now, note: "gone" }) } },
+        })
+      )
+    );
     const first = await db.item.delete({ where: { id: 1 } });
     await new Promise((resolve) => setTimeout(resolve, 5));
     const second = await db.item.delete({ where: { id: 1 } });
@@ -541,10 +544,11 @@ describe("a declared junction model", () => {
       schema: { link, node, other },
       driver: createInMemorySQLite3Driver(),
     });
-  const deletion = (model: string) => ({
-    name: "tombstones",
-    deletion: { models: { [model]: { at: "removedAt" } } },
-  });
+  const deletion = (model: string) =>
+    extension(
+      "tombstones",
+      rule({ [model]: { delete: { instead: keep({ removedAt: now }) } } })
+    );
 
   test("takes no `deletion`, and names the slot that hops through it", () => {
     expect(() => client().$extends(deletion("link"))).toThrow(
@@ -555,7 +559,7 @@ describe("a declared junction model", () => {
   test("leaves every other model's `deletion` alone", () => {
     expect(() => client().$extends(deletion("other"))).not.toThrow();
     expect(() => client().$extends(deletion("node"))).toThrow(
-      "names unknown scalar"
+      'rule.node: keep() names unknown field "removedAt"'
     );
   });
 });

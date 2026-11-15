@@ -8,25 +8,21 @@ import type { Operations } from "@client/types";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { Driver } from "@drivers";
 import { QueryError, ValidationError } from "@errors";
-import {
-  applyRequestTransforms,
-  type RequestTransform,
-} from "@extensions/request";
 import { s } from "@schema";
+import {
+  around,
+  call,
+  extension,
+  target as extTarget,
+  methods,
+  models,
+  target,
+  watch,
+} from "@src/index";
 import { readTestTransactionOperation } from "@tests/fixtures/transaction-operation";
-import { createSchemaRegistry } from "@validation";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test } from "vitest";
 
-type FindManyInput = {
-  where?: { published?: boolean };
-  take?: number;
-  skip?: number;
-  select?: { id?: boolean };
-  include?: { author?: boolean };
-  omit?: { secret?: boolean };
-};
-
-function captureQueryError(action: () => unknown): QueryError {
+function _captureQueryError(action: () => unknown): QueryError {
   try {
     action();
   } catch (error) {
@@ -36,7 +32,7 @@ function captureQueryError(action: () => unknown): QueryError {
   throw new Error("Expected a QueryError");
 }
 
-function requireTransformedInput(input: object | undefined): object {
+function _requireTransformedInput(input: object | undefined): object {
   if (input === undefined) throw new Error("Expected transformed input");
   return input;
 }
@@ -47,203 +43,7 @@ function transactionOperation(operation: unknown) {
   return capability;
 }
 
-describe("standalone request transforms", () => {
-  test("the no-handler path returns by identity without inspecting input", () => {
-    const input = new Proxy(
-      { where: { published: true } },
-      {
-        ownKeys() {
-          throw new Error("the no-handler path inspected input");
-        },
-        getOwnPropertyDescriptor() {
-          throw new Error("the no-handler path inspected a descriptor");
-        },
-      }
-    );
-
-    expect(applyRequestTransforms("post", "findMany", input, undefined)).toBe(
-      input
-    );
-    expect(applyRequestTransforms("post", "findMany", input, [])).toBe(input);
-    expect(
-      applyRequestTransforms("post", "findMany", undefined, undefined)
-    ).toBeUndefined();
-  });
-
-  test("an empty patch materializes the captured caller input after one protected inspection", () => {
-    const shape = { id: true };
-    let ownKeyReads = 0;
-    let descriptorReads = 0;
-    const callerInput = new Proxy(
-      { where: { published: true }, select: shape },
-      {
-        ownKeys(target) {
-          ownKeyReads += 1;
-          return Reflect.ownKeys(target);
-        },
-        getOwnPropertyDescriptor(target, key) {
-          descriptorReads += 1;
-          return Reflect.getOwnPropertyDescriptor(target, key);
-        },
-      }
-    );
-    const handler = vi.fn(({ input }) => {
-      expect(input).toEqual({ where: { published: true } });
-      expect(Object.hasOwn(input, "select")).toBe(false);
-      expect(Object.isFrozen(input)).toBe(true);
-      return Object.freeze({});
-    });
-
-    const transformed = applyRequestTransforms(
-      "post",
-      "findMany",
-      callerInput,
-      [{ extension: "no-op", handler }]
-    );
-    const readsAfterTransform = { ownKeyReads, descriptorReads };
-    expect(transformed).not.toBe(callerInput);
-    expect(transformed).toEqual({
-      where: { published: true },
-      select: shape,
-    });
-    expect(handler).toHaveBeenCalledOnce();
-    expect(readsAfterTransform).toEqual({
-      ownKeyReads: 1,
-      descriptorReads: 2,
-    });
-    expect(callerInput.select).toBe(shape);
-  });
-
-  test("an empty patch cannot authorize closed-over caller mutation", () => {
-    const select = { id: true };
-    const include = { author: true };
-    const callerInput: Record<string, unknown> = {};
-    Object.defineProperties(callerInput, {
-      where: {
-        configurable: true,
-        enumerable: true,
-        value: { published: true },
-        writable: false,
-      },
-      take: {
-        configurable: true,
-        enumerable: false,
-        get: () => 3,
-      },
-      select: {
-        configurable: true,
-        enumerable: true,
-        value: select,
-        writable: false,
-      },
-      include: {
-        configurable: true,
-        enumerable: false,
-        value: include,
-        writable: true,
-      },
-    });
-    const originalKeys = Reflect.ownKeys(callerInput);
-    const originalDescriptors = Object.getOwnPropertyDescriptors(callerInput);
-
-    const transformed = requireTransformedInput(
-      applyRequestTransforms("post", "findMany", callerInput, [
-        {
-          extension: "closed-over-mutator",
-          handler() {
-            Reflect.deleteProperty(callerInput, "where");
-            Object.defineProperty(callerInput, "take", {
-              configurable: true,
-              enumerable: true,
-              value: 99,
-              writable: true,
-            });
-            Object.defineProperty(callerInput, "select", {
-              configurable: true,
-              enumerable: true,
-              value: { compromised: true },
-              writable: true,
-            });
-            Reflect.deleteProperty(callerInput, "include");
-            Reflect.set(callerInput, "injected", true);
-            return {};
-          },
-        },
-      ])
-    );
-
-    expect(Reflect.ownKeys(transformed)).toEqual(originalKeys);
-    expect(Object.getOwnPropertyDescriptors(transformed)).toEqual(
-      originalDescriptors
-    );
-    expect(Reflect.get(transformed, "select")).toBe(select);
-    expect(Reflect.get(transformed, "include")).toBe(include);
-    expect(Reflect.has(transformed, "injected")).toBe(false);
-    expect(Reflect.has(callerInput, "where")).toBe(false);
-    expect(Reflect.get(callerInput, "take")).toBe(99);
-    expect(Reflect.has(callerInput, "injected")).toBe(true);
-  });
-
-  test("absent input is immutable and patches compose once in application order", () => {
-    const calls: string[] = [];
-    const first = vi.fn(({ input }) => {
-      calls.push("first");
-      expect(input).toEqual({});
-      expect(Object.isFrozen(input)).toBe(true);
-      return { take: 2 };
-    });
-    const second = vi.fn(({ input }) => {
-      calls.push("second");
-      expect(input).toEqual({ take: 2 });
-      expect(Object.isFrozen(input)).toBe(true);
-      return { skip: 1 };
-    });
-    const transforms: RequestTransform<"findMany", FindManyInput>[] = [
-      { extension: "first", handler: first },
-      { extension: "second", handler: second },
-    ];
-
-    expect(
-      applyRequestTransforms("post", "findMany", undefined, transforms)
-    ).toEqual({ take: 2, skip: 1 });
-    expect(calls).toEqual(["first", "second"]);
-    expect(first).toHaveBeenCalledOnce();
-    expect(second).toHaveBeenCalledOnce();
-  });
-
-  test("later transforms see earlier shallow patches without caller mutation", () => {
-    const callerWhere = { published: false };
-    const callerInput: FindManyInput = {
-      where: callerWhere,
-      take: 5,
-    };
-    const transforms: RequestTransform<"findMany", FindManyInput>[] = [
-      {
-        extension: "tenant",
-        handler({ input }) {
-          expect(input.where).toBe(callerWhere);
-          return { where: { published: true } };
-        },
-      },
-      {
-        extension: "pagination",
-        handler({ input }) {
-          expect(input.where).toEqual({ published: true });
-          expect(input.take).toBe(5);
-          return { take: 2 };
-        },
-      },
-    ];
-
-    expect(
-      applyRequestTransforms("post", "findMany", callerInput, transforms)
-    ).toEqual({ where: { published: true }, take: 2 });
-    expect(callerInput).toEqual({ where: callerWhere, take: 5 });
-    expect(callerInput.where).toBe(callerWhere);
-  });
-});
-
-const projectionCases: readonly {
+const _projectionCases: readonly {
   readonly operation: Operations;
   readonly keys: readonly string[];
 }[] = [
@@ -275,360 +75,6 @@ const projectionCases: readonly {
   { operation: "updateMany", keys: ["select", "omit"] },
   { operation: "deleteMany", keys: ["select", "omit"] },
 ];
-
-describe("the operation-specific result-shape projector", () => {
-  test.each(projectionCases)("$operation detaches and restores $keys", ({
-    operation,
-    keys,
-  }) => {
-    const input: Record<string, unknown> = { ordinary: "caller" };
-    const originals = new Map<string, object>();
-    for (const key of keys) {
-      const descriptor = { family: operation, key };
-      originals.set(key, descriptor);
-      Object.defineProperty(input, key, {
-        configurable: true,
-        enumerable: true,
-        value: descriptor,
-        writable: true,
-      });
-    }
-
-    const transformed = requireTransformedInput(
-      applyRequestTransforms("entry", operation, input, [
-        {
-          extension: "projection-attack",
-          handler({ input: visibleInput }) {
-            for (const key of keys) {
-              expect(Object.hasOwn(visibleInput, key)).toBe(false);
-              expect(Reflect.get(visibleInput, key)).toBeUndefined();
-            }
-            const patch = {
-              ordinary: "patched",
-              added: true,
-            };
-            for (const key of keys) {
-              Reflect.set(patch, key, { malicious: key });
-            }
-            return patch;
-          },
-        },
-      ])
-    );
-
-    expect(transformed).toMatchObject({ ordinary: "patched", added: true });
-    for (const key of keys) {
-      expect(Reflect.get(transformed, key)).toBe(originals.get(key));
-      expect(Reflect.get(input, key)).toBe(originals.get(key));
-    }
-  });
-
-  test("projection accessors and nested objects are unreachable and restored exactly", () => {
-    const select = { id: true };
-    const include = { author: { select: { id: true } } };
-    const omit = { secret: true };
-    const readInclude = vi.fn(() => include);
-    const callerInput: FindManyInput = { where: { published: true } };
-    Object.defineProperty(callerInput, "select", {
-      configurable: false,
-      enumerable: true,
-      value: select,
-      writable: false,
-    });
-    Object.defineProperty(callerInput, "include", {
-      configurable: true,
-      enumerable: true,
-      get: readInclude,
-    });
-    Object.defineProperty(callerInput, "omit", {
-      configurable: true,
-      enumerable: false,
-      value: omit,
-      writable: true,
-    });
-    const originalKeys = Reflect.ownKeys(callerInput);
-    const originalDescriptors = Object.getOwnPropertyDescriptors(callerInput);
-
-    const transform: RequestTransform<"findMany", FindManyInput> = {
-      extension: "hostile",
-      handler({ input }) {
-        expect(Object.isFrozen(input)).toBe(true);
-        expect(Object.hasOwn(input, "select")).toBe(false);
-        expect(Object.hasOwn(input, "include")).toBe(false);
-        expect(Object.hasOwn(input, "omit")).toBe(false);
-
-        const patch = { take: 3 };
-        Object.defineProperty(patch, "select", {
-          enumerable: true,
-          get() {
-            throw new Error("a protected patch getter was invoked");
-          },
-        });
-        return patch;
-      },
-    };
-
-    const transformed = requireTransformedInput(
-      applyRequestTransforms("post", "findMany", callerInput, [transform])
-    );
-
-    expect(readInclude).not.toHaveBeenCalled();
-    expect(Reflect.ownKeys(callerInput)).toEqual(originalKeys);
-    expect(Reflect.ownKeys(transformed)).toEqual([...originalKeys, "take"]);
-    expect(Reflect.get(transformed, "select")).toBe(select);
-    expect(Reflect.get(transformed, "omit")).toBe(omit);
-    expect(readInclude).not.toHaveBeenCalled();
-    expect(Object.getOwnPropertyDescriptor(transformed, "select")).toEqual(
-      originalDescriptors.select
-    );
-    expect(Object.getOwnPropertyDescriptor(transformed, "include")).toEqual(
-      originalDescriptors.include
-    );
-    expect(Object.getOwnPropertyDescriptor(transformed, "omit")).toEqual(
-      originalDescriptors.omit
-    );
-    expect(Reflect.get(transformed, "include")).toBe(include);
-    expect(readInclude).toHaveBeenCalledOnce();
-  });
-
-  test("preserves symbol descriptors across handler snapshots and patches", () => {
-    const symbol = Symbol("request metadata");
-    const callerInput = { where: { published: true }, [symbol]: "caller" };
-    const transformed = requireTransformedInput(
-      applyRequestTransforms("post", "findMany", callerInput, [
-        {
-          extension: "symbol-patch",
-          handler({ input }) {
-            expect(Reflect.get(input, symbol)).toBe("caller");
-            return { [symbol]: "patched" };
-          },
-        },
-      ])
-    );
-
-    expect(Reflect.get(transformed, symbol)).toBe("patched");
-  });
-
-  test("leaves result-like keys ordinary for exist", () => {
-    const transformed = applyRequestTransforms(
-      "post",
-      "exist",
-      { select: "ordinary" },
-      [
-        {
-          extension: "exist-input",
-          handler({ input }) {
-            expect(input).toEqual({ select: "ordinary" });
-            return { select: "patched" };
-          },
-        },
-      ]
-    );
-
-    expect(transformed).toEqual({ select: "patched" });
-  });
-
-  test("hostile input descriptor enumeration fails at the named boundary", () => {
-    const cause = new Error("ownKeys exploded");
-    const input = new Proxy(
-      {},
-      {
-        ownKeys() {
-          throw cause;
-        },
-      }
-    );
-
-    const error = captureQueryError(() =>
-      applyRequestTransforms("post", "findMany", input, [
-        {
-          extension: "hostile-input",
-          handler: () => ({}),
-        },
-      ])
-    );
-
-    expect(error.message).toContain('Extension "hostile-input"');
-    expect(error.message).toContain("could not inspect request input");
-    expect(error.originalCause).toBeInstanceOf(Error);
-    expect(error.meta).toEqual({
-      model: "post",
-      operation: "findMany",
-    });
-  });
-});
-
-describe("request-transform failures", () => {
-  test("a thrown Error is attributed to the named extension with its cause", () => {
-    const cause = new Error("tenant lookup failed");
-    const error = captureQueryError(() =>
-      applyRequestTransforms("post", "findMany", {}, [
-        {
-          extension: "tenant",
-          handler() {
-            throw cause;
-          },
-        },
-      ])
-    );
-
-    expect(error.message).toContain('Extension "tenant"');
-    expect(error.meta).toMatchObject({
-      model: "post",
-      operation: "findMany",
-    });
-    expect(error.originalCause).toBeInstanceOf(Error);
-  });
-
-  test("a non-Error throw gets one deterministic cause", () => {
-    const error = captureQueryError(() =>
-      applyRequestTransforms("post", "findMany", {}, [
-        {
-          extension: "hostile-throw",
-          handler() {
-            // biome-ignore lint/style/useThrowOnlyError: hostile JavaScript can throw any value.
-            throw { toString: null };
-          },
-        },
-      ])
-    );
-
-    expect(error.originalCause).toBeInstanceOf(Error);
-  });
-
-  test("a hostile Error proxy cannot escape the named request boundary", () => {
-    const hostileFailure = new Proxy(new Error("private request failure"), {
-      getPrototypeOf() {
-        throw new Error("hostile request prototype read");
-      },
-    });
-    const error = captureQueryError(() =>
-      applyRequestTransforms("post", "findMany", {}, [
-        {
-          extension: "hostile-request-error",
-          handler() {
-            throw hostileFailure;
-          },
-        },
-      ])
-    );
-
-    expect(error.message).toContain('Extension "hostile-request-error"');
-    expect(error.message).toContain("request handler for post.findMany threw");
-    expect(error.originalCause).toBeInstanceOf(Error);
-    expect(error.originalCause).not.toBe(hostileFailure);
-  });
-
-  test("promise and non-record outputs fail at the named extension boundary", () => {
-    const promiseError = captureQueryError(() =>
-      applyRequestTransforms<"findMany", FindManyInput>(
-        "post",
-        "findMany",
-        {},
-        [
-          {
-            extension: "async-request",
-            // @ts-expect-error - runtime falsifier for hostile JavaScript
-            handler() {
-              return Promise.resolve({ take: 1 });
-            },
-          },
-        ]
-      )
-    );
-    expect(promiseError.message).toContain('Extension "async-request"');
-    expect(promiseError.message).toContain("returned a promise");
-    expect(promiseError.originalCause).toBeInstanceOf(Error);
-
-    const nonRecordError = captureQueryError(() =>
-      applyRequestTransforms<"findMany", FindManyInput>(
-        "post",
-        "findMany",
-        {},
-        [
-          {
-            extension: "primitive-request",
-            // @ts-expect-error - runtime falsifier for hostile JavaScript
-            handler() {
-              return 1;
-            },
-          },
-        ]
-      )
-    );
-    expect(nonRecordError.message).toContain('Extension "primitive-request"');
-    expect(nonRecordError.message).toContain("returned a non-record patch");
-    expect(nonRecordError.originalCause).toBeInstanceOf(Error);
-  });
-
-  test("contains unreadable thenable and patch reflection", () => {
-    const unreadableThenable = new Proxy(
-      {},
-      {
-        has(_target, key) {
-          if (key === "then") throw new Error("then membership failed");
-          return false;
-        },
-      }
-    );
-    const thenableError = captureQueryError(() =>
-      applyRequestTransforms("post", "findMany", {}, [
-        {
-          extension: "unreadable-thenable",
-          handler: () => unreadableThenable,
-        },
-      ])
-    );
-    expect(thenableError.message).toContain("returned an unreadable patch");
-    expect(thenableError.originalCause).toBeInstanceOf(Error);
-
-    const unreadablePatch = new Proxy(
-      {},
-      {
-        ownKeys() {
-          throw new Error("patch keys failed");
-        },
-      }
-    );
-    const patchError = captureQueryError(() =>
-      applyRequestTransforms("post", "findMany", {}, [
-        {
-          extension: "unreadable-patch",
-          handler: () => unreadablePatch,
-        },
-      ])
-    );
-    expect(patchError.message).toContain("returned an unreadable patch");
-    expect(patchError.originalCause).toBeInstanceOf(Error);
-  });
-});
-
-describe("validation ownership", () => {
-  test("an unknown ordinary key survives transforms and fails at core validation", () => {
-    const user = s.model({ id: s.string().id(), name: s.string() });
-    const registry = createSchemaRegistry({ user });
-    type HostileInput = { where?: { id?: string }; unknownKey?: boolean };
-
-    const transformed = applyRequestTransforms<"findMany", HostileInput>(
-      "user",
-      "findMany",
-      {},
-      [
-        {
-          extension: "unknown-key",
-          handler() {
-            return { unknownKey: true };
-          },
-        },
-      ]
-    );
-
-    expect(transformed).toMatchObject({ unknownKey: true });
-    expect(() => registry.validate("user", "findMany", transformed)).toThrow(
-      ValidationError
-    );
-  });
-});
 
 const author = s.model({
   id: s.string().id(),
@@ -705,19 +151,20 @@ afterEach(async () => {
 });
 
 describe("public request-transform integration", () => {
-  test("protects a GeoPoint distance projection through an extension", async () => {
-    let sawDetachedSelect = false;
-    const client = integratedClient().$extends({
-      name: "point-distance-projection",
-      request: {
-        entry: {
-          findMany({ input }) {
-            sawDetachedSelect = !Object.hasOwn(input, "select");
-            return {};
+  test("shows a GeoPoint distance projection to an extension, which reads it", async () => {
+    let sawSelect = false;
+    const client = integratedClient().$extends(
+      extension(
+        "point-distance-projection",
+        call(
+          (c) => {
+            sawSelect = Object.hasOwn(c.args, "select");
+            c.set({});
           },
-        },
-      },
-    });
+          extTarget("entry", "findMany")
+        )
+      )
+    );
 
     await expect(
       client.entry.findMany({
@@ -728,46 +175,53 @@ describe("public request-transform integration", () => {
         },
       })
     ).resolves.toEqual([]);
-    expect(sawDetachedSelect).toBe(true);
+    expect(sawSelect).toBe(true);
   });
 
   test("stays lazy and resolves one application-ordered patch chain once", async () => {
     const calls: string[] = [];
     const base = integratedClient();
     const client = base
-      .$extends({
-        name: "A",
-        request: {
-          entry: {
-            findMany({ input }) {
+      .$extends(
+        extension(
+          "A",
+          call(
+            (c) => {
               calls.push("A");
-              expect(input.take).toBeUndefined();
-              return { take: 3 };
+              expect(c.args.take).toBeUndefined();
+              c.set({ take: 3 });
             },
-          },
-        },
-      })
-      .$extends({
-        name: "B",
-        request({ operation, input }) {
-          if (operation !== "findMany") return {};
-          calls.push("B");
-          expect(input.take).toBe(3);
-          return { skip: 1 };
-        },
-      })
-      .$extends({
-        name: "C",
-        request: {
-          entry: {
-            findMany({ input }) {
+            extTarget("entry", "findMany")
+          )
+        )
+      )
+      .$extends(
+        extension(
+          "B",
+          call((c) => {
+            if (c.operation !== "findMany") {
+              c.set({});
+              return;
+            }
+            calls.push("B");
+            expect(c.args.take).toBe(3);
+            c.set({ skip: 1 });
+          }, target(models))
+        )
+      )
+      .$extends(
+        extension(
+          "C",
+          call(
+            (c) => {
               calls.push("C");
-              expect(input.skip).toBe(1);
-              return { where: { category: "patched" } };
+              expect(c.args.skip).toBe(1);
+              c.set({ where: { category: "patched" } });
             },
-          },
-        },
-      });
+            extTarget("entry", "findMany")
+          )
+        )
+      );
 
     const delegate = client.entry;
     const method = delegate.findMany;
@@ -776,7 +230,6 @@ describe("public request-transform integration", () => {
 
     transactionOperation(operation).prepare();
     operation.buildStatement();
-    operation.cacheKeyArgs();
     transactionOperation(operation).prepare();
     expect(calls).toEqual(["A", "B", "C"]);
 
@@ -787,16 +240,22 @@ describe("public request-transform integration", () => {
   });
 
   test("runs before the unique guard and the existing validation owner", () => {
-    const client = integratedClient().$extends({
-      name: "unique-and-validation",
-      request({ operation }) {
-        if (operation === "findUnique") {
-          return { where: { id: "from-request" } };
-        }
-        if (operation === "findMany") return { take: "not-a-number" };
-        return {};
-      },
-    });
+    const client = integratedClient().$extends(
+      extension(
+        "unique-and-validation",
+        call((c) => {
+          if (c.operation === "findUnique") {
+            c.set({ where: { id: "from-request" } });
+            return;
+          }
+          if (c.operation === "findMany") {
+            c.set({ take: "not-a-number" });
+            return;
+          }
+          c.set({});
+        }, target(models))
+      )
+    );
 
     const findUnique = Reflect.get(client.entry, "findUnique");
     if (typeof findUnique !== "function") {
@@ -817,12 +276,14 @@ describe("public request-transform integration", () => {
   });
 
   test("lets the unique guard refuse a patched empty selector before validation", () => {
-    const client = integratedClient().$extends({
-      name: "empty-unique",
-      request() {
-        return { where: {}, unknownPatchedKey: true };
-      },
-    });
+    const client = integratedClient().$extends(
+      extension(
+        "empty-unique",
+        call((c) => {
+          c.set({ where: {}, unknownPatchedKey: true });
+        }, target(models))
+      )
+    );
     const operation = client.entry.findUnique({ where: { id: "caller" } });
 
     expect(() => transactionOperation(operation).prepare()).toThrow(
@@ -831,12 +292,14 @@ describe("public request-transform integration", () => {
   });
 
   test("leaves unknown patched keys to core operation validation", () => {
-    const client = integratedClient().$extends({
-      name: "unknown-patch",
-      request() {
-        return { unknownPatchedKey: true };
-      },
-    });
+    const client = integratedClient().$extends(
+      extension(
+        "unknown-patch",
+        call((c) => {
+          c.set({ unknownPatchedKey: true });
+        }, target(models))
+      )
+    );
     const operation = client.entry.findMany();
 
     expect(() => transactionOperation(operation).prepare()).toThrow(
@@ -847,16 +310,16 @@ describe("public request-transform integration", () => {
   test("applies client default omit after request preparation", () => {
     let handlerInput: Readonly<Record<string, unknown>> | undefined;
     const client = integratedClient()
+      .$extends(defaultOmit({ entry: { secret: true } }))
       .$extends(
-        defaultOmit<typeof integratedSchema>()({ entry: { secret: true } })
-      )
-      .$extends({
-        name: "omit-order",
-        request({ input }) {
-          handlerInput = input;
-          return { take: 1 };
-        },
-      });
+        extension(
+          "omit-order",
+          call((c) => {
+            handlerInput = c.args;
+            c.set({ take: 1 });
+          }, target(models))
+        )
+      );
 
     const statement = transactionOperation(client.entry.findMany()).prepare();
     expect(handlerInput).toBeDefined();
@@ -869,16 +332,17 @@ describe("public request-transform integration", () => {
     const select = { id: true };
     const args = { where, select };
     const descriptors = Object.getOwnPropertyDescriptors(args);
-    const client = integratedClient().$extends({
-      name: "caller-preservation",
-      request: {
-        entry: {
-          findMany() {
-            return { take: 2 };
+    const client = integratedClient().$extends(
+      extension(
+        "caller-preservation",
+        call(
+          (c) => {
+            c.set({ take: 2 });
           },
-        },
-      },
-    });
+          extTarget("entry", "findMany")
+        )
+      )
+    );
 
     transactionOperation(client.entry.findMany(args)).prepare();
 
@@ -888,7 +352,7 @@ describe("public request-transform integration", () => {
     expect(Object.getOwnPropertyDescriptors(args)).toEqual(descriptors);
   });
 
-  test("protects every result-shape family through the public client", () => {
+  test("shows every result-shape key and refuses a patch of one, through the public client", () => {
     const protectedKeys = new Map<string, readonly string[]>([
       ["findMany", ["select"]],
       ["findFirst", ["include"]],
@@ -925,16 +389,24 @@ describe("public request-transform integration", () => {
           return { select: { missing: true } };
       }
     };
-    const client = integratedClient().$extends({
-      name: "projection-attacker",
-      request({ operation, input }) {
-        const keys = protectedKeys.get(operation);
-        if (!keys) return {};
-        seen.add(operation);
-        for (const key of keys) expect(Object.hasOwn(input, key)).toBe(false);
-        return protectedPatch(operation);
-      },
-    });
+    const client = integratedClient().$extends(
+      extension(
+        "projection-attacker",
+        call((c) => {
+          const keys = protectedKeys.get(c.operation);
+          if (!keys) {
+            c.set({});
+            return;
+          }
+          seen.add(c.operation);
+          // The call's own shape keys are shown as it passed them.
+          expect(keys.some((key) => Object.hasOwn(c.args, key))).toBe(true);
+          expect(() => c.set(protectedPatch(c.operation))).toThrow(
+            "decides the result's shape"
+          );
+        }, target(models))
+      )
+    );
 
     const createData = {
       id: "entry-1",
@@ -972,22 +444,136 @@ describe("public request-transform integration", () => {
     expect(seen).toEqual(new Set(protectedKeys.keys()));
   });
 
-  test("runs through array prepare admission and never for raw calls", async () => {
+  test("runs through array prepare admission, and once for a raw statement when it has no target", async () => {
     let requestCalls = 0;
-    const client = integratedClient().$extends({
-      name: "array-admission",
-      request() {
-        requestCalls += 1;
-        return {};
-      },
-    });
+    const client = integratedClient().$extends(
+      extension(
+        "array-admission",
+        call((c) => {
+          requestCalls += 1;
+          if (c.kind === "model") c.set({});
+        })
+      )
+    );
     const operation = client.entry.findMany();
     expect(requestCalls).toBe(0);
 
     await expect(client.$transaction([operation])).resolves.toEqual([[]]);
     expect(requestCalls).toBe(1);
     await expect(client.$queryRawUnsafe("SELECT 1")).resolves.toEqual([]);
-    expect(requestCalls).toBe(1);
+    expect(requestCalls).toBe(2);
+    const raw = client.$executeRawUnsafe("DELETE FROM entry");
+    await expect(client.$transaction([raw])).resolves.toEqual([0]);
+    expect(requestCalls).toBe(3);
+  });
+
+  test("a raw statement shows its input, refuses a patch and a watch, and reaches no targeted part", async () => {
+    const seen: unknown[] = [];
+    const client = integratedClient()
+      .$extends(
+        extension(
+          "targeted",
+          call(() => {
+            seen.push("targeted");
+          }, extTarget(models)),
+          around(() => {
+            seen.push("around targeted");
+          }, extTarget("entry"))
+        )
+      )
+      .$extends(
+        extension(
+          "raw",
+          call((c) => {
+            seen.push([c.kind, c.model, c.operation, c.args]);
+          })
+        )
+      );
+    await client.$queryRawUnsafe("SELECT $1", 1);
+    expect(seen).toEqual([
+      ["raw", undefined, "$queryRawUnsafe", { sql: "SELECT $1", params: [1] }],
+    ]);
+
+    const patching = integratedClient().$extends(
+      extension(
+        "patching",
+        call((c) => {
+          // @ts-expect-error - a raw statement has no arguments to set: the runtime refusal is tested
+          c.set({ take: 1 });
+        })
+      )
+    );
+    await expect(patching.$queryRawUnsafe("SELECT 1")).rejects.toThrow(
+      'Extension "patching" first moment for $queryRawUnsafe set no model call\'s arguments.'
+    );
+
+    const watching = integratedClient().$extends(
+      extension(
+        "watching",
+        around((c) => {
+          watch(c, { wants: () => true, rows: () => undefined });
+        })
+      )
+    );
+    const refusal = await watching.$executeRawUnsafe("DELETE FROM entry").then(
+      () => undefined,
+      (error: unknown) => error
+    );
+    // A raw statement writes no rows to tell: the registration is refused.
+    expect(refusal).toBeInstanceOf(QueryError);
+    expect(refusal).toMatchObject({
+      message: 'Extension "watching" first moment for $executeRawUnsafe threw.',
+    });
+  });
+
+  test("an around without a target runs its first moment once for a raw statement, its second around it", async () => {
+    const seen: string[] = [];
+    const client = integratedClient().$extends(
+      extension(
+        "both",
+        around((c) => {
+          seen.push(`first ${c.operation}`);
+          return (run) => {
+            seen.push("second");
+            return run();
+          };
+        })
+      )
+    );
+    await expect(client.$queryRawUnsafe("SELECT 1")).resolves.toEqual([]);
+    await expect(
+      client.$transaction([client.$queryRawUnsafe("SELECT 2")])
+    ).resolves.toEqual([[]]);
+    expect(seen).toEqual([
+      "first $queryRawUnsafe",
+      "second",
+      "first $queryRawUnsafe",
+      "second",
+    ]);
+  });
+
+  test("a target naming a model or an operation the client lacks is refused at $extends", () => {
+    const base = integratedClient();
+    expect(() =>
+      base.$extends(
+        extension(
+          "unknown-model",
+          call(() => undefined, extTarget("nobody" as never))
+        )
+      )
+    ).toThrow(
+      'Extension "unknown-model" target names unknown model or operation "nobody".'
+    );
+    expect(() =>
+      base.$extends(
+        extension(
+          "unknown-operation",
+          call(() => undefined, extTarget("entry", "findAll" as never))
+        )
+      )
+    ).toThrow(
+      'Extension "unknown-operation" target names unknown model or operation "findAll".'
+    );
   });
 
   test("memoizes a request failure across wrapped lifecycle entry points", async () => {
@@ -995,17 +581,18 @@ describe("public request-transform integration", () => {
     let calls = 0;
     const client = integratedClient()
       .$extends(cache({ driver: new MemoryCache() }))
-      .$extends({
-        name: "memoized-failure",
-        request: {
-          entry: {
-            create() {
+      .$extends(
+        extension(
+          "memoized-failure",
+          call(
+            (_c) => {
               calls += 1;
               throw cause;
             },
-          },
-        },
-      });
+            extTarget("entry", "create")
+          )
+        )
+      );
     const operation = client.entry.create({
       data: {
         id: "entry-1",
@@ -1034,59 +621,14 @@ describe("public request-transform integration", () => {
   test("keeps the no-request-handler argument identity path", () => {
     const args = { where: { category: "caller" } };
     const base = integratedClient();
-    const extended = base.$extends({
-      name: "client-only",
-      client: () => ({ $ready: () => true }),
-    });
+    const extended = base.$extends(
+      extension(
+        "client-only",
+        methods((_scope) => ({ $ready: () => true }))
+      )
+    );
 
     expect(base.entry.findMany(args).getArgs()).toBe(args);
     expect(extended.entry.findMany(args).getArgs()).toBe(args);
-  });
-});
-
-describe("coverage low value", () => {
-  test("ignores a proxy key whose descriptor vanished during inspection", () => {
-    const callerInput = new Proxy(
-      { where: { published: true } },
-      {
-        ownKeys(target) {
-          return [...Reflect.ownKeys(target), "vanished"];
-        },
-        getOwnPropertyDescriptor(target, key) {
-          if (key === "vanished") return undefined;
-          return Reflect.getOwnPropertyDescriptor(target, key);
-        },
-      }
-    );
-
-    const transformed = requireTransformedInput(
-      applyRequestTransforms("post", "findMany", callerInput, [
-        { extension: "vanishing-key", handler: () => ({}) },
-      ])
-    );
-
-    expect(Object.hasOwn(transformed, "vanished")).toBe(false);
-  });
-
-  test("ignores a transform patch key whose descriptor vanished", () => {
-    const patch = new Proxy(
-      {},
-      {
-        ownKeys() {
-          return ["vanished"];
-        },
-        getOwnPropertyDescriptor() {
-          return undefined;
-        },
-      }
-    );
-
-    const transformed = requireTransformedInput(
-      applyRequestTransforms("post", "findMany", {}, [
-        { extension: "vanishing-patch-key", handler: () => patch },
-      ])
-    );
-
-    expect(Object.hasOwn(transformed, "vanished")).toBe(false);
   });
 });

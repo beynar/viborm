@@ -1,5 +1,5 @@
 import { ForbiddenError, NestedWriteError, NotFoundError } from "@errors";
-import { verbsOf } from "@src/permissions/compile";
+import { accepts, args, bound, extension, methods, rule } from "@src/index";
 import { v } from "@src/validation";
 import {
   CREATES,
@@ -34,7 +34,7 @@ import {
  * OD-14 recommended; §7 W-P1..W-P16): the row a write produces is judged as
  * a value, against the rows before the write, inside the statement that
  * writes it. The declaration is the compiled §1.1 policy exactly as
- * `viborm/permissions` hands it to its `rows.verbs` (`verbsOf`): per model,
+ * `viborm/permissions` hands it to its `rows.verbs` (`entryOf`): per model,
  *
  * - `place`: mandatory ∧ the named `create` rule AND every key's target visible,
  *   `P(T, read)` inlined; nothing (`OR: []`) on a model that declares no
@@ -92,31 +92,36 @@ export function runPermissionsAppPlacement(
   const now = new Date();
   const opts: OracleOptions = { now, tombstones: false };
   const compiled = policy.compile(schema);
-  const declaration = {
-    name: "placement",
-    controls: {
-      actor: { schema: ActorSchema, required: true },
-      scopes: {
-        schema: v.object({
+  const declaration = extension(
+    "placement",
+    args({
+      actor: accepts(ActorSchema).required(),
+      scopes: bound(
+        v.object({
           unrestricted: v.boolean(),
           allowed: v.array(v.string()),
-        }),
-        required: true,
-      },
-    },
-    client: (scope: {
-      $bind(values: Readonly<Record<string, unknown>>): unknown;
-    }) => ({
-      $unrestricted: () =>
-        scope.$bind({ scopes: { unrestricted: true, allowed: [] } }),
+        })
+      ).required(),
     }),
-    rows: {
-      control: "as",
-      default: "all",
-      models: Object.fromEntries(GOVERNED_MODELS.map((m) => [m, { all: {} }])),
-      verbs: verbsOf(compiled),
-    },
-  };
+    rule(
+      Object.fromEntries(
+        // Every model of the schema: one the policy does not list holds nothing (R9).
+        // Each entry without the policy's own modes: no call names one.
+        Object.entries(compiled.models).map(([model, { root: _, ...own }]) => [
+          model,
+          own,
+        ])
+      ) as never
+    ),
+    methods(
+      (scope: {
+        $bind(values: Readonly<Record<string, unknown>>): unknown;
+      }) => ({
+        $unrestricted: () =>
+          scope.$bind({ scopes: { unrestricted: true, allowed: [] } }),
+      })
+    )
+  );
   /** The oracle over the rows a nested child's statement sees: the seed and its created parent. */
   const withCreated = (model: keyof PermissionsSeed, row: Row) =>
     createOracle({
