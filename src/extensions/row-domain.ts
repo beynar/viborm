@@ -236,8 +236,8 @@ export class FilterDomain implements PreparedDomain {
         layers.push([layer, [where]]);
     return layers;
   }
-  /** Whether a call's `purpose` domain of `model` can leave a row out. */
-  #hidesRows(queries: Queries, model: AnyModel, purpose: RowPurpose): boolean {
+  /** Whether a call's domain of `model`, root or related, can leave a row out. */
+  #hidesRows(queries: Queries, model: AnyModel): boolean {
     const holds = (predicate: PreparedPredicate): boolean => {
       if (predicate.kind === "layer") {
         const resolved = predicate.resolve(queries);
@@ -246,8 +246,10 @@ export class FilterDomain implements PreparedDomain {
       if (predicate.kind === "and") return predicate.predicates.every(holds);
       return predicate.kind === "always" && predicate.value;
     };
-    const domain = queries.domainOf(model, purpose);
-    return domain?.predicate !== undefined && !holds(domain.predicate);
+    return (["root", "related"] as const).some((purpose) => {
+      const domain = queries.domainOf(model, purpose);
+      return domain?.predicate !== undefined && !holds(domain.predicate);
+    });
   }
   /**
    * Whether a call's extensions judge writes to a junction model: its rows,
@@ -256,10 +258,7 @@ export class FilterDomain implements PreparedDomain {
    * is refused where a direct write would have been judged.
    */
   restrictsLinkWrite(queries: Queries, model: AnyModel): boolean {
-    return (
-      this.#hidesRows(queries, model, "root") ||
-      this.#hidesRows(queries, model, "related")
-    );
+    return this.#hidesRows(queries, model);
   }
   /**
    * What a direct read of the junction model would hide stays hidden from a
@@ -278,10 +277,7 @@ export class FilterDomain implements PreparedDomain {
     const model = (edge as Extract<Membership, { kind: "junction" }>).declared!
       .model;
     const name = model["~"].names.ts;
-    if (
-      this.#hidesRows(queries, model, "root") ||
-      this.#hidesRows(queries, model, "related")
-    )
+    if (this.#hidesRows(queries, model))
       throw new UnsupportedOperationError(
         `Cannot ${use} $through of relation '${edge.name}': '${name}' rows are restricted here; read the links through the '${name}' delegate.`
       );
