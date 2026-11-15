@@ -279,12 +279,9 @@ export abstract class CacheDriver {
     const result = await codec.run();
     if (revision === this.#fillRevision) {
       try {
-        // The observed set unit presents a failure; without the catch it
-        // would become an unhandled rejection.
-        scheduleBackground(
-          store(codec.snapshot(), request).catch(() => undefined),
-          request.waitUntil
-        );
+        // The observed set unit presents a failure, which the background
+        // promise then holds.
+        scheduleBackground(store(codec.snapshot(), request), request.waitUntil);
       } catch (error) {
         note(origin, cacheOutcome("miss", "cache-set-failed", error));
       }

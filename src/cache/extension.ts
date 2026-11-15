@@ -215,8 +215,9 @@ export function cache(config: CacheExtensionConfig): unknown {
       (c) => {
         const values: Values = c.values;
         const read = values.cacheRead;
-        const model = c.model;
-        if (read === undefined || model === undefined) return;
+        if (read === undefined) return;
+        // target(reads) selects model calls only: each names its model.
+        const model = c.model!;
         return <R>(run: Run<unknown, R>): Promise<R> => {
           // A transaction's and an array's reads see their own writes.
           if (run.mode !== "direct") return run();
