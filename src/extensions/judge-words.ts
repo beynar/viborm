@@ -83,7 +83,7 @@ function placed(
  */
 function shown(site: Site) {
   const own = entryOf(site);
-  if (site.shows !== undefined) own.shown = site.shows;
+  own.shown = site.shows;
   brings(site).project = projectionOf;
   return own;
 }
