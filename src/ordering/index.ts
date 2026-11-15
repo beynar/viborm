@@ -88,6 +88,8 @@ type Schema = VibORMConfig["schema"];
 type AnyModel = Schema[string];
 type Names<Config extends OrderingConfig> = keyof Config & string;
 type Row = Readonly<Record<string, unknown>>;
+/** One update of a move: the row's selector, and what it writes. */
+type Write = readonly [Row, Row];
 type Delegate = Readonly<
   Record<string, (args: object) => PromiseLike<unknown>>
 >;
@@ -563,156 +565,6 @@ function methods(ordered: Ordered) {
         for (const [inner, part] of Object.entries(value)) take(inner, part);
     return fields;
   };
-  /**
-   * The move as one UPDATE (two where the row changes list), its key computed
-   * by the statement from the keys around its place (`between.ts`), the row
-   * written only while it is where the key was computed for: PostgreSQL and
-   * SQLite. MISSED where no write matched (a missing or tied neighbour, a
-   * gap used up, a missing row): the move then reads and respaces.
-   */
-  async function inStatement(
-    place: {
-      readonly where: Row;
-      readonly anchor: Row | undefined;
-      readonly after: boolean;
-      readonly first: boolean;
-    },
-    to: Row | undefined,
-    recognised: Row,
-    q: ModelSql,
-    write: (guard: Sql, data: Row) => PromiseLike<unknown>
-  ): Promise<unknown> {
-    // MySQL locks every row a statement's subqueries read (the locating
-    // SELECT … FOR UPDATE and the UPDATE alike): concurrent moves into one
-    // list deadlocked 37 times in 240 there (measured), none on the read
-    // path, which reads the neighbours by a consistent read.
-    const { dialect } = q;
-    if (dialect !== "postgresql" && dialect !== "sqlite") return MISSED;
-    const anchored =
-      place.anchor === undefined ? undefined : named(place.anchor);
-    if (
-      Object.keys(recognised).length === 0 ||
-      (anchored !== undefined && Object.keys(anchored).length === 0)
-    )
-      return MISSED;
-    const s = spellings[dialect];
-    const table = q.table();
-    const column = (field: string, alias?: string) => q.column(field, alias);
-    const matches = (alias: string, fields: Row) =>
-      sql.join(
-        Object.entries(fields).map(([field, value]) =>
-          value === null
-            ? sql`${column(field, alias)} IS NULL`
-            : sql`${column(field, alias)} = ${q.value(field, value)}`
-        ),
-        " AND "
-      );
-    // Not that row: where a field it names is NULL in another row, the
-    // match is unknown there, and that row is still another one.
-    const other = (alias: string, fields: Row) =>
-      sql`NOT COALESCE((${matches(alias, fields)}), 1 = 0)`;
-    // The anchor and the neighbours are read as the caller sees them: each
-    // read takes the call's row domain (`RowsOf`), as every read of the
-    // engine does, so a hidden anchor is a missing one and a hidden member
-    // is no neighbour. The moved row is the UPDATE's own target, which the
-    // UPDATE reads under that domain already.
-    const seen = (alias: string) => q.visible(alias);
-    const of = (alias: string, fields: Row, field: string) =>
-      sql`(SELECT ${column(field, alias)} FROM ${table} AS ${sql.raw(alias)} WHERE ${matches(alias, fields)}${
-        alias === "a" ? sql` AND ${seen("a")}` : sql.empty
-      })`;
-    // The list's fields: the anchor's, `to`'s, else the row's own. A NULL
-    // in `to` is never read here: `inList` tests it with IS NULL.
-    const listed = (field: string) =>
-      anchored !== undefined
-        ? of("a", anchored, field)
-        : to !== undefined
-          ? q.value(field, to[field])
-          : of("m", recognised, field);
-    // A required list field compares with `=`; a nullable one NULL-safely.
-    const inList = (alias?: string) =>
-      within.length === 0
-        ? sql`1 = 1`
-        : sql.join(
-            within.map((field) =>
-              // `to` names the list by value: no NULL to compare safely.
-              to !== undefined && anchored === undefined && to[field] === null
-                ? sql`${column(field, alias)} IS NULL`
-                : scalars[field]!["~"].state.nullable && to === undefined
-                  ? s.same(column(field, alias), listed(field))
-                  : sql`${column(field, alias)} = ${listed(field)}`
-            ),
-            " AND "
-          );
-    const anchorKey =
-      anchored &&
-      sql`SELECT ${column(key, "a")} FROM ${table} AS a WHERE ${matches("a", anchored)} AND ${other("a", recognised)} AND ${s.digits(column(key, "a"))} AND ${seen("a")}`;
-    // The nearest key on one side, in the list, the moved row aside.
-    const nearest = (aggregate: "MIN" | "MAX") =>
-      sql`SELECT ${sql.raw(aggregate)}(${column(key, "n")}) FROM ${table} AS n WHERE ${inList("n")} AND ${other("n", recognised)} AND ${s.digits(column(key, "n"))} AND ${seen("n")}${
-        anchored && anchorKey
-          ? sql` AND ${column(key, "n")} ${sql.raw(aggregate === "MIN" ? ">=" : "<=")} (${anchorKey}) AND ${other("n", anchored)}`
-          : sql.empty
-      }`;
-    const none = sql`NULL`;
-    // The keys around the row's place.
-    const [lower, upper] =
-      anchorKey === undefined
-        ? place.first
-          ? [none, nearest("MIN")]
-          : [nearest("MAX"), none]
-        : place.after
-          ? [anchorKey, nearest("MIN")]
-          : [nearest("MAX"), anchorKey];
-    const placed = between(
-      s,
-      lower,
-      upper,
-      jitter(),
-      anchorKey === undefined ? undefined : place.after ? "lower" : "upper"
-    );
-    // A row of the list already there: written by no statement here, so the
-    // read path answers it unchanged.
-    const away = sql`NOT ((${lower}) IS NULL OR ${column(key)} > (${lower})) OR NOT ((${upper}) IS NULL OR ${column(key)} < (${upper}))`;
-    const guard = (condition: Sql) =>
-      sql`CASE WHEN ${placed} IS NOT NULL AND (${condition}) THEN ${column(key)} END`;
-    const keyed = { [key]: computed(() => [placed]) };
-    const attempt = async (condition: Sql, data: Row) => {
-      try {
-        return await write(guard(condition), data);
-      } catch (error) {
-        if (error instanceof NotFoundError) return MISSED;
-        throw error;
-      }
-    };
-    // Its own list, or a model of one list: the key alone.
-    if (within.length === 0 || (anchored === undefined && to === undefined))
-      return attempt(away, keyed);
-    const joined = {
-      ...keyed,
-      ...Object.fromEntries(
-        within.map((field) => [
-          field,
-          anchored === undefined ? to![field] : computed(() => [listed(field)]),
-        ])
-      ),
-    };
-    // The key alone while the row stays in the list (no permission on the
-    // list fields needed), else the key and the list; `to` tries the move
-    // first.
-    const outside = sql`NOT (${inList()})`;
-    const inside = sql`${inList()} AND (${away})`;
-    if (to !== undefined) {
-      const moved = await attempt(outside, joined);
-      return moved === MISSED ? attempt(inside, keyed) : moved;
-    }
-    const stayed = await attempt(inside, keyed);
-    // A list field in the row key is written by the read path, by value.
-    return stayed === MISSED &&
-      !within.some((field) => identity.includes(field))
-      ? attempt(outside, joined)
-      : stayed;
-  }
   async function place(
     delegate: Delegate,
     args: Readonly<Record<string, unknown>>
@@ -749,8 +601,9 @@ function methods(ordered: Ordered) {
       (last !== undefined && last !== true)
     )
       invalid(name, "first and last take true.");
-    if (to !== undefined) {
-      const fields = Object.keys(to as Row);
+    const list = to as Row | undefined;
+    if (list !== undefined) {
+      const fields = Object.keys(list);
       if (
         fields.length !== within.length ||
         !within.every((field) => fields.includes(field))
@@ -769,33 +622,38 @@ function methods(ordered: Ordered) {
         name,
         `data writes the model's own fields beside the key: not ${placing.join(", ")}${within.length === 0 ? "" : " (to moves the row between lists)"}, nor a relation.`
       );
-    // What every write of the move writes beside its key and list.
-    const writing: Row = { ...stored, ...extra };
     const anchor = (after ?? before) as Row | undefined;
+    // The side the row's neighbour is read on: below it (before an anchor,
+    // last of a list), else above.
+    const back = after === undefined && first !== true;
     const projection = {
       ...(select === undefined ? {} : { select }),
       ...(include === undefined ? {} : { include }),
       ...(omit === undefined ? {} : { omit }),
     };
+    // Every write of the move writes what `data` names beside its key and
+    // list, its `updatedAt()` fields as stored.
+    const update = (selected: Row, written: Row) =>
+      delegate.update!({
+        ...passed,
+        where: selected,
+        data: { ...stored, ...extra, ...written },
+        ...projection,
+      });
+    // The first of `writes` that finds its row; none: the move's row is
+    // missing.
+    const settle = async (...writes: Write[]) => {
+      for (const [selected, written] of writes)
+        try {
+          return await update(selected, written);
+        } catch (error) {
+          if (!(error instanceof NotFoundError)) throw error;
+        }
+      throw new NotFoundError(name, "move");
+    };
     // A key the caller computed (`keyBetween` over the neighbours it
     // shows): written as given, in one update, nothing read first.
-    if (given !== undefined)
-      try {
-        return await delegate.update!({
-          ...passed,
-          where,
-          data: {
-            ...writing,
-            [key]: given,
-            ...((to as Row | undefined) ?? {}),
-          },
-          ...projection,
-        });
-      } catch (error) {
-        throw error instanceof NotFoundError
-          ? new NotFoundError(name, "move")
-          : error;
-      }
+    if (given !== undefined) return settle([where, { [key]: given, ...list }]);
     const recognised = named(where);
     const fields = Object.keys(recognised);
     const isMoved = (row: Row) =>
@@ -807,19 +665,7 @@ function methods(ordered: Ordered) {
     };
     // Already in place: its key stays; what `data` writes is written.
     const inPlace = async () => {
-      if (Object.keys(extra).length > 0)
-        try {
-          return await delegate.update!({
-            ...passed,
-            where,
-            data: writing,
-            ...projection,
-          });
-        } catch (error) {
-          throw error instanceof NotFoundError
-            ? new NotFoundError(name, "move")
-            : error;
-        }
+      if (Object.keys(extra).length > 0) return settle([where, {}]);
       const row = await delegate.findUnique!({
         ...passed,
         where,
@@ -828,37 +674,170 @@ function methods(ordered: Ordered) {
       if (row === null) throw new NotFoundError(name, "move");
       return row;
     };
-    const moved = await inStatement(
-      { where, anchor, after: after !== undefined, first: first === true },
-      to as Row | undefined,
-      recognised,
-      (delegate as unknown as { $sql: ModelSql }).$sql,
-      (guard, data) =>
-        delegate.update!({
-          ...passed,
-          where: { ...where, [key]: { equals: () => guard } },
-          data: { ...writing, ...data },
-          ...projection,
-        })
-    );
+    /**
+     * The move as one UPDATE (two where the row changes list), its key
+     * computed by the statement from the keys around its place
+     * (`between.ts`), the row written only while it is where the key was
+     * computed for: PostgreSQL and SQLite. MISSED where no write matched (a
+     * missing or tied neighbour, a gap used up, a missing row): the move then
+     * reads and respaces.
+     */
+    const inStatement = async (): Promise<unknown> => {
+      // MySQL locks every row a statement's subqueries read (the locating
+      // SELECT … FOR UPDATE and the UPDATE alike): concurrent moves into one
+      // list deadlocked 37 times in 240 there (measured), none on the read
+      // path, which reads the neighbours by a consistent read.
+      const q = (delegate as unknown as { $sql: ModelSql }).$sql;
+      const { dialect } = q;
+      if (dialect !== "postgresql" && dialect !== "sqlite") return MISSED;
+      const anchored = anchor && named(anchor);
+      if (
+        fields.length === 0 ||
+        (anchored !== undefined && Object.keys(anchored).length === 0)
+      )
+        return MISSED;
+      const s = spellings[dialect];
+      const table = q.table();
+      const column = (field: string, alias?: string) => q.column(field, alias);
+      const matches = (alias: string, fields: Row) =>
+        sql.join(
+          Object.entries(fields).map(([field, value]) =>
+            value === null
+              ? sql`${column(field, alias)} IS NULL`
+              : sql`${column(field, alias)} = ${q.value(field, value)}`
+          ),
+          " AND "
+        );
+      // Not that row: where a field it names is NULL in another row, the
+      // match is unknown there, and that row is still another one.
+      const other = (alias: string, fields: Row) =>
+        sql`NOT COALESCE((${matches(alias, fields)}), 1 = 0)`;
+      // The anchor and the neighbours are read as the caller sees them: each
+      // read takes the call's row domain (`RowsOf`), as every read of the
+      // engine does, so a hidden anchor is a missing one and a hidden member
+      // is no neighbour. The moved row is the UPDATE's own target, which the
+      // UPDATE reads under that domain already.
+      const of = (alias: string, fields: Row, field: string) =>
+        sql`(SELECT ${column(field, alias)} FROM ${table} AS ${sql.raw(alias)} WHERE ${matches(alias, fields)}${
+          alias === "a" ? sql` AND ${q.visible("a")}` : sql.empty
+        })`;
+      // The list's fields: the anchor's, `to`'s, else the row's own. A NULL
+      // in `to` is never read here: `inList` tests it with IS NULL.
+      const listed = (field: string) =>
+        anchored !== undefined
+          ? of("a", anchored, field)
+          : list !== undefined
+            ? q.value(field, list[field])
+            : of("m", recognised, field);
+      // A required list field compares with `=`; a nullable one NULL-safely.
+      const inList = (alias?: string) =>
+        within.length === 0
+          ? sql`1 = 1`
+          : sql.join(
+              within.map((field) =>
+                // `to` names the list by value: no NULL to compare safely.
+                list !== undefined &&
+                anchored === undefined &&
+                list[field] === null
+                  ? sql`${column(field, alias)} IS NULL`
+                  : scalars[field]!["~"].state.nullable && list === undefined
+                    ? s.same(column(field, alias), listed(field))
+                    : sql`${column(field, alias)} = ${listed(field)}`
+              ),
+              " AND "
+            );
+      const anchorKey =
+        anchored &&
+        sql`SELECT ${column(key, "a")} FROM ${table} AS a WHERE ${matches("a", anchored)} AND ${other("a", recognised)} AND ${s.digits(column(key, "a"))} AND ${q.visible("a")}`;
+      // The nearest key on one side, in the list, the moved row aside.
+      const nearest = (aggregate: "MIN" | "MAX") =>
+        sql`SELECT ${sql.raw(aggregate)}(${column(key, "n")}) FROM ${table} AS n WHERE ${inList("n")} AND ${other("n", recognised)} AND ${s.digits(column(key, "n"))} AND ${q.visible("n")}${
+          anchored && anchorKey
+            ? sql` AND ${column(key, "n")} ${sql.raw(aggregate === "MIN" ? ">=" : "<=")} (${anchorKey}) AND ${other("n", anchored)}`
+            : sql.empty
+        }`;
+      // The keys around the row's place.
+      const edge = anchorKey ?? sql`NULL`;
+      const [lower, upper] = back
+        ? [nearest("MAX"), edge]
+        : [edge, nearest("MIN")];
+      const placed = between(
+        s,
+        lower,
+        upper,
+        jitter(),
+        anchorKey && (back ? "upper" : "lower")
+      );
+      // A row of the list already there: written by no statement here, so
+      // the read path answers it unchanged.
+      const away = sql`NOT ((${lower}) IS NULL OR ${column(key)} > (${lower})) OR NOT ((${upper}) IS NULL OR ${column(key)} < (${upper}))`;
+      const keyed = { [key]: computed(() => [placed]) };
+      const attempt = async (condition: Sql, written: Row) => {
+        try {
+          return await update(
+            {
+              ...where,
+              [key]: {
+                equals: () =>
+                  sql`CASE WHEN ${placed} IS NOT NULL AND (${condition}) THEN ${column(key)} END`,
+              },
+            },
+            written
+          );
+        } catch (error) {
+          if (error instanceof NotFoundError) return MISSED;
+          throw error;
+        }
+      };
+      // Its own list, or a model of one list: the key alone.
+      if (within.length === 0 || (anchored === undefined && list === undefined))
+        return attempt(away, keyed);
+      const joined = {
+        ...keyed,
+        ...Object.fromEntries(
+          within.map((field) => [
+            field,
+            anchored === undefined
+              ? list![field]
+              : computed(() => [listed(field)]),
+          ])
+        ),
+      };
+      // The key alone while the row stays in the list (no permission on the
+      // list fields needed), else the key and the list; `to` tries the move
+      // first.
+      const outside = sql`NOT (${inList()})`;
+      const inside = sql`${inList()} AND (${away})`;
+      if (list !== undefined) {
+        const moved = await attempt(outside, joined);
+        return moved === MISSED ? attempt(inside, keyed) : moved;
+      }
+      const stayed = await attempt(inside, keyed);
+      // A list field in the row key is written by the read path, by value.
+      return stayed === MISSED &&
+        !within.some((field) => identity.includes(field))
+        ? attempt(outside, joined)
+        : stayed;
+    };
+    const moved = await inStatement();
     if (moved !== MISSED) return moved;
     for (let attempt = 1; ; attempt++) {
       if (attempt > MOVE_ATTEMPTS)
         throw new QueryError(
           `${name}.move: the list kept changing under concurrent writes; try again.`
         );
-      let group: Row;
-      let low: string | null;
-      let high: string | null;
+      let group = list ?? {};
       // Whether the row is known to be in `group` already.
       let home = within.length === 0;
+      let at: Row | null | undefined;
+      let rows: Row[];
       if (anchor !== undefined) {
         // The anchor and the rows after (or before) it in the list's order
         // (the `order` capability), the moved row recognised among them.
         // The moved row itself is not read.
         // The anchor itself, by all it states, where the cursor cannot
         // carry it: a nullable list field, or a condition beside its key.
-        const at =
+        at =
           open || Object.keys(anchor).length > 1
             ? ((await delegate.findUnique!({
                 ...passed,
@@ -866,17 +845,41 @@ function methods(ordered: Ordered) {
                 select: reading,
               })) as Row | null)
             : undefined;
-        const rows =
+        rows =
           at === null
             ? []
             : ((await delegate.findMany!({
                 ...passed,
                 ...(at && { where: fieldsOf(within, at), orderBy: keyOrder }),
                 cursor: at ? selectorOf(at) : anchor,
-                take: after === undefined ? -3 : 3,
+                take: back ? -3 : 3,
                 select: reading,
               })) as Row[]);
-        const found = after === undefined ? rows.at(-1) : rows[0];
+      } else {
+        if (list === undefined && within.length > 0) {
+          // First or last of its own list: the one read of the row.
+          const moved = (await delegate.findUnique!({
+            ...passed,
+            where,
+            select: selection,
+          })) as Row | null;
+          if (moved === null) throw new NotFoundError(name, "move");
+          group = fieldsOf(within, moved);
+          home = true;
+        }
+        // The list's two rows at that end, the moved row recognised.
+        rows = (await delegate.findMany!({
+          ...passed,
+          where: group,
+          take: back ? -2 : 2,
+          select: reading,
+        })) as Row[];
+      }
+      // From the place outward.
+      if (back) rows = [...rows].reverse();
+      let edge: string | null = null;
+      if (anchor !== undefined) {
+        const [found] = rows;
         if (found === undefined) throw new NotFoundError(name, "move anchor");
         // The anchor left the list it was read in before its neighbours
         // were: the cursor's row is outside them, and the row read in its
@@ -889,56 +892,29 @@ function methods(ordered: Ordered) {
         if (isMoved(found))
           invalid(name, "a row cannot be placed next to itself.");
         group = fieldsOf(within, found);
-        const others = (
-          after === undefined ? rows.slice(0, -1).reverse() : rows.slice(1)
-        ).filter((row) =>
-          within.every((field) => same(row[field], found[field]))
-        );
-        // Already the anchor's neighbour on that side: nothing to write.
-        if (others[0] !== undefined && isMoved(others[0])) return inPlace();
-        const neighbour =
-          (others.find((row) => !isMoved(row))?.[key] as string | undefined) ??
-          null;
-        [low, high] =
-          after === undefined
-            ? [neighbour, found[key] as string]
-            : [found[key] as string, neighbour];
-      } else {
-        if (to === undefined && within.length > 0) {
-          // First or last of its own list: the one read of the row.
-          const moved = (await delegate.findUnique!({
-            ...passed,
-            where,
-            select: selection,
-          })) as Row | null;
-          if (moved === null) throw new NotFoundError(name, "move");
-          group = fieldsOf(within, moved);
-          home = true;
-        } else group = (to as Row | undefined) ?? {};
-        // The list's two rows at that end, the moved row recognised.
-        const rows = (await delegate.findMany!({
-          ...passed,
-          where: group,
-          take: first === true ? 2 : -2,
-          select: reading,
-        })) as Row[];
-        const ends = first === true ? rows : [...rows].reverse();
-        if (ends[0] !== undefined && isMoved(ends[0])) return inPlace();
-        const bound =
-          (ends.find((row) => !isMoved(row))?.[key] as string | undefined) ??
-          null;
-        [low, high] = first === true ? [null, bound] : [bound, null];
+        edge = found[key] as string;
+        rows = rows
+          .slice(1)
+          .filter((row) =>
+            within.every((field) => same(row[field], found[field]))
+          );
       }
+      // Already the neighbour on that side: nothing to write.
+      if (rows[0] !== undefined && isMoved(rows[0])) return inPlace();
+      const neighbour =
+        (rows.find((row) => !isMoved(row))?.[key] as string | undefined) ??
+        null;
+      const [low, high] = back ? [neighbour, edge] : [edge, neighbour];
       let next: string | undefined;
       try {
         if (
           (low === null || isKeyFormat(low)) &&
-          (high === null || isKeyFormat(high)) &&
-          (low === null || high === null || low < high)
+          (high === null || isKeyFormat(high))
         )
           next = keyBetween(low, high);
       } catch {
-        // An integer past 10^9: the list is respaced below.
+        // Tied neighbours, or an integer past 10^9: the list is respaced
+        // below.
       }
       if (next === undefined || !isKeyFormat(next)) {
         // Tied or malformed neighbours, or a gap split too often: the
@@ -954,35 +930,22 @@ function methods(ordered: Ordered) {
       // The row's list is not read: its key alone is written where the row
       // is in `group` already (so a reorder needs no permission on the list
       // fields), else the key and the list. `to` tries the move first.
-      const stay = {
-        where: { ...where, ...group },
-        data: { ...writing, [key]: next },
-      };
-      const join = (guarded: boolean) => ({
-        where: guarded
+      const keyed = { [key]: next };
+      const stay: Write = [{ ...where, ...group }, keyed];
+      const join = (guarded: boolean): Write => [
+        guarded
           ? {
               ...where,
               NOT: where.NOT === undefined ? group : [where.NOT, group].flat(),
             }
           : where,
-        data: { ...writing, [key]: next, ...group },
-      });
-      const writes = home
-        ? [{ where, data: { ...writing, [key]: next } }]
-        : to === undefined
-          ? [stay, join(false)]
-          : [join(true), stay];
-      for (const write of writes)
-        try {
-          return await delegate.update!({
-            ...passed,
-            ...write,
-            ...projection,
-          });
-        } catch (error) {
-          if (!(error instanceof NotFoundError)) throw error;
-        }
-      throw new NotFoundError(name, "move");
+        { ...keyed, ...group },
+      ];
+      return home
+        ? settle([where, keyed])
+        : list === undefined
+          ? settle(stay, join(false))
+          : settle(join(true), stay);
     }
   }
 
