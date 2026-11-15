@@ -20,6 +20,8 @@ export interface InstrumentationContext {
   readonly tracer: TracerWrapper | undefined;
   /** Logger (if logging enabled) */
   readonly logger: Logger | undefined;
+  /** The origins of the failures already logged: one failure, one error log. */
+  readonly logged: WeakSet<object>;
 }
 
 interface ResolvedInstrumentationConfig {
@@ -56,6 +58,7 @@ export function createInstrumentationContext({
     logger:
       config.logging &&
       createLogger(config.logging === true ? { all: true } : config.logging),
+    logged: new WeakSet<object>(),
   });
 }
 

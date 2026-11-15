@@ -77,11 +77,9 @@ export function instrumentation(config: InstrumentationConfig): unknown {
   });
   if (tracing === undefined && logging === undefined)
     return extension(NAME, policy);
-  // The origins already logged: one failure, one error log.
-  const logged = new WeakSet<object>();
   return extension(
     NAME,
-    unitPart((unit, next) => observe(context, logged, unit, next)),
+    unitPart((unit, next) => observe(context, unit, next)),
     policy
   );
 }
@@ -93,7 +91,6 @@ export function instrumentation(config: InstrumentationConfig): unknown {
  */
 function observe(
   context: InstrumentationContext,
-  logged: WeakSet<object>,
   unit: Unit,
   next: () => Promise<UnitEnd>
 ): Promise<undefined> {
@@ -105,7 +102,7 @@ function observe(
   // What runs synchronously reads facts the library built, or an author's
   // notes, which are not read as hostile (D6): a presenter fails by its
   // promise.
-  return Promise.resolve(present(context, logged, unit, once))
+  return Promise.resolve(present(context, unit, once))
     .then(ignore, ignore)
     .then(() => (end === undefined ? once().then(ignore) : undefined));
 }
@@ -142,15 +139,14 @@ function disclosesParameters(context: InstrumentationContext): boolean {
 
 function present(
   context: InstrumentationContext,
-  logged: WeakSet<object>,
   unit: Unit,
   next: () => Promise<UnitEnd>
 ): Promise<unknown> | undefined {
   switch (unit.kind) {
     case "operation":
-      return presentOperation(context, logged, unit, next);
+      return presentOperation(context, unit, next);
     case "statement":
-      return presentStatement(context, logged, unit, next);
+      return presentStatement(context, unit, next);
     case "transaction":
     case "savepoint":
     case "connection":
@@ -194,7 +190,6 @@ function spanned(
 
 function presentOperation(
   context: InstrumentationContext,
-  logged: WeakSet<object>,
   unit: Unit,
   next: () => Promise<UnitEnd>
 ): Promise<unknown> {
@@ -219,7 +214,7 @@ function presentOperation(
         settled.status === "failure" &&
         error instanceof Error &&
         logs(context, "error") &&
-        !logged.has(origin(error))
+        !context.logged.has(origin(error))
       )
         context.logger?.log(
           createOperationErrorLogEvent(unit, error, startedAt, settled.duration)
@@ -230,7 +225,6 @@ function presentOperation(
 
 function presentStatement(
   context: InstrumentationContext,
-  logged: WeakSet<object>,
   unit: Unit,
   next: () => Promise<UnitEnd>
 ): Promise<unknown> | undefined {
@@ -261,7 +255,7 @@ function presentStatement(
         !(failed ? erred : status === "success" && queried)
       )
         return;
-      if (failed) logged.add(origin(error));
+      if (failed) context.logged.add(origin(error));
       context.logger?.log(
         createStatementLogEvent(
           context.config.logging,
