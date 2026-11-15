@@ -671,8 +671,11 @@ function methods(ordered: Ordered) {
     // The caller's reads of the model, with the call's own arguments.
     const one = async (args: object) =>
       (await delegate.findUnique!({ ...passed, ...args })) as Row | null;
-    const many = async (args: object) =>
-      (await delegate.findMany!({ ...passed, ...args })) as Row[];
+    // Rows read around the row's place, from it outward.
+    const many = async (args: object) => {
+      const rows = (await delegate.findMany!({ ...passed, ...args })) as Row[];
+      return back ? [...rows].reverse() : rows;
+    };
     // Already in place: its key stays; what `data` writes is written.
     const inPlace = async () => {
       if (Object.keys(extra).length > 0) return settle([[where, {}]]);
@@ -810,7 +813,7 @@ function methods(ordered: Ordered) {
       let group = list ?? {};
       // Whether the row is known to be in `group` already.
       let home = within.length === 0;
-      let at: Row | null | undefined;
+      let edge: string | null = null;
       let rows: Row[];
       if (anchor !== undefined) {
         // The anchor and the rows after (or before) it in the list's order
@@ -818,7 +821,7 @@ function methods(ordered: Ordered) {
         // The moved row itself is not read.
         // The anchor itself, by all it states, where the cursor cannot
         // carry it: a nullable list field, or a condition beside its key.
-        at =
+        const at =
           open || Object.keys(anchor).length > 1
             ? await one({ where: anchor, select: reading })
             : undefined;
@@ -831,25 +834,6 @@ function methods(ordered: Ordered) {
                 take: back ? -3 : 3,
                 select: reading,
               });
-      } else {
-        if (list === undefined && within.length > 0) {
-          // First or last of its own list: the one read of the row.
-          const moved = await one({ where, select: selection });
-          if (moved === null) throw new NotFoundError(name, "move");
-          group = fieldsOf(within, moved);
-          home = true;
-        }
-        // The list's two rows at that end, the moved row recognised.
-        rows = await many({
-          where: group,
-          take: back ? -2 : 2,
-          select: reading,
-        });
-      }
-      // From the place outward.
-      if (back) rows = [...rows].reverse();
-      let edge: string | null = null;
-      if (anchor !== undefined) {
         const [found] = rows;
         if (found === undefined) throw new NotFoundError(name, "move anchor");
         // The anchor left the list it was read in before its neighbours
@@ -868,6 +852,20 @@ function methods(ordered: Ordered) {
           .filter((row) =>
             within.every((field) => same(row[field], found[field]))
           );
+      } else {
+        if (list === undefined && within.length > 0) {
+          // First or last of its own list: the one read of the row.
+          const moved = await one({ where, select: selection });
+          if (moved === null) throw new NotFoundError(name, "move");
+          group = fieldsOf(within, moved);
+          home = true;
+        }
+        // The list's two rows at that end, the moved row recognised.
+        rows = await many({
+          where: group,
+          take: back ? -2 : 2,
+          select: reading,
+        });
       }
       // Already the neighbour on that side: nothing to write.
       if (rows[0] !== undefined && isMoved(rows[0])) return inPlace();
