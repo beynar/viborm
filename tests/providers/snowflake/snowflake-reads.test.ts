@@ -44,7 +44,12 @@ import { QueryError, VibORMErrorCode } from "@errors";
 import { introspectSchema } from "@migrations/introspect";
 import { s } from "@schema";
 import { parseSchema } from "@schema/json";
+import { MemoryCache } from "@src/cache/drivers/memory";
+import { cache } from "@src/cache/exports";
+import { defaultOmit } from "@src/client/default-omit-extension";
+import { instrumentation } from "@src/instrumentation/exports";
 import { permissions } from "@src/permissions";
+import { softDelete } from "@src/soft-delete";
 import { v } from "@src/validation";
 import { GEO_POINT_EARTH_RADIUS_METERS } from "@validation/primitives/geo-area-codec";
 import type { GeoPoint } from "@validation/primitives/geo-values";
@@ -181,6 +186,14 @@ const shift = s
   })
   .map("SHIFTS");
 
+const memo = s
+  .model({
+    id: s.int().id(),
+    body: s.string(),
+    deletedAt: s.dateTime().nullable(),
+  })
+  .map("MEMOS");
+
 const tally = s
   .model({
     id: s.int().id(),
@@ -191,6 +204,7 @@ const tally = s
   .map("TALLIES");
 
 const schema = {
+  memo,
   tally,
   author,
   post,
@@ -248,6 +262,9 @@ const SEED = [
   `INSERT INTO "${SCHEMA}"."SHOPS" VALUES (1, '12:34:56.12'), (2, '08:00:00'), (3, '12:34:56.123456789')`,
   `CREATE TABLE "${SCHEMA}"."SHIFTS" ("id" NUMBER(9,0) NOT NULL PRIMARY KEY, "shopId" NUMBER(9,0) NOT NULL REFERENCES "${SCHEMA}"."SHOPS" ("id"), "startsAt" TIME(3) NOT NULL)`,
   `INSERT INTO "${SCHEMA}"."SHIFTS" VALUES (1, 1, '09:15:30.5'), (2, 1, '00:00:00')`,
+  // Soft-deleted rows: 2 is in the recycle bin.
+  `CREATE TABLE "${SCHEMA}"."MEMOS" ("id" NUMBER(9,0) NOT NULL PRIMARY KEY, "body" VARCHAR NOT NULL, "deletedAt" TIMESTAMP_NTZ(9))`,
+  `INSERT INTO "${SCHEMA}"."MEMOS" VALUES (1, 'kept', NULL), (2, 'binned', '2024-01-01 00:00:00')`,
   // Lists of numbers, as a Snowflake ARRAY holds them: numbers, not text.
   `CREATE TABLE "${SCHEMA}"."TALLIES" ("id" NUMBER(9,0) NOT NULL PRIMARY KEY, "big" ARRAY NOT NULL, "amounts" ARRAY NOT NULL, "labels" ARRAY NOT NULL)`,
   `INSERT INTO "${SCHEMA}"."TALLIES" SELECT column1, PARSE_JSON(column2)::ARRAY, PARSE_JSON(column3)::ARRAY, PARSE_JSON(column4)::ARRAY FROM VALUES
@@ -817,6 +834,88 @@ describe.skipIf(credentials === undefined)("Snowflake, a real account", () => {
     expect(await ids({ labels: { hasSome: ["[1]", "x"] } })).toEqual([2]);
     expect(await ids({ labels: { hasEvery: ['"foo"', "[1]"] } })).toEqual([2]);
     expect(await ids({ labels: { has: "123" } })).toEqual([1]);
+  });
+
+  it("reads under the read extensions: permissions, soft delete, cache, instrumentation, default omit", async () => {
+    // A permission rule filters the rows, and $access reads its verdicts.
+    const gated = db!
+      .$extends(
+        permissions({
+          actor: v.object({ userId: v.number() }),
+          models: {
+            post: {
+              read: { authorId: { actor: "userId" } },
+              update: { id: 2 },
+            },
+            author: { read: true },
+            tag: { read: true },
+            authorTag: { read: true },
+            place: { read: true },
+            note: { read: true },
+            revision: { read: true },
+            tally: { read: true },
+            memo: { read: true },
+          },
+        })
+      )
+      .$as({ userId: 1 });
+    expect(
+      await gated.post.findMany({
+        orderBy: { id: "asc" },
+        select: { id: true, $access: ["update"] },
+      })
+    ).toEqual([
+      { id: 1, $access: { update: false } },
+      { id: 2, $access: { update: true } },
+      { id: 3, $access: { update: false } },
+      { id: 4, $access: { update: false } },
+    ]);
+    // The recycle bin and its filter.
+    const soft = db!.$extends(
+      softDelete({ models: { memo: { deletedAt: "deletedAt" } } })
+    );
+    const bodies = (rows: readonly { body: string }[]) =>
+      rows.map((row) => row.body);
+    expect(
+      bodies(await soft.memo.findMany({ orderBy: { id: "asc" } }))
+    ).toEqual(["kept"]);
+    expect(
+      bodies(
+        await soft.memo.findMany({ deleted: "only", orderBy: { id: "asc" } })
+      )
+    ).toEqual(["binned"]);
+    // A cached read is answered once from Snowflake, then from the cache.
+    const { exchanges, fetch: send } = recording();
+    const cached = client(credentials!, { fetch: send }).$extends(
+      cache({ driver: new MemoryCache(), version: SCHEMA })
+    );
+    const read = () =>
+      cached
+        .$withCache({ ttl: 60_000 })
+        .author.findMany({ orderBy: { id: "asc" }, select: { id: true } });
+    expect(await read()).toEqual([{ id: 1 }, { id: 2 }, { id: 3 }]);
+    expect(await read()).toEqual([{ id: 1 }, { id: 2 }, { id: 3 }]);
+    expect(
+      exchanges.filter((exchange) => exchange.method === "POST")
+    ).toHaveLength(1);
+    // Instrumentation observes the read, which runs as without it.
+    const logged: unknown[] = [];
+    const instrumented = db!.$extends(
+      instrumentation({
+        logging: {
+          query: (event) => {
+            logged.push(event);
+          },
+        },
+      })
+    );
+    expect(await instrumented.author.count({ where: { name: "Ada" } })).toBe(1);
+    expect(logged.length).toBeGreaterThan(0);
+    // A default projection leaves the column out of the statement.
+    const omitted = db!.$extends(defaultOmit({ post: { payload: true } }));
+    const post = await omitted.post.findUnique({ where: { id: 1 } });
+    expect(post).not.toHaveProperty("payload");
+    expect(post).toMatchObject({ id: 1, title: "a1" });
   });
 
   it("reads two levels of nested relations", async () => {

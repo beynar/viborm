@@ -599,8 +599,6 @@ export class SnowflakeAdapter implements DatabaseAdapter {
       sql`SELECT 1 / IFF(EXISTS (${query}), 1, 0) AS "__viborm_assert__"`,
     notExists: (query: Sql): Sql =>
       sql`SELECT 1 / IFF(NOT EXISTS (${query}), 1, 0) AS "__viborm_assert__"`,
-    holds: (condition: Sql, from?: Sql): Sql =>
-      sql`SELECT 1 / IFF(${condition}, 1, 0) AS "__viborm_judged__"${from ? sql` FROM ${from}` : sql``}`,
   };
 
   capabilities: DatabaseAdapter["capabilities"] = {

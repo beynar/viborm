@@ -495,6 +495,40 @@ describe("Snowflake refusals", () => {
     expect(server.requests).toEqual([]);
   });
 
+  it("refuses a write a permission rule judges with the read-only refusal, never a TypeError", async () => {
+    // The judged write's spellings are per dialect (JUDGED), and Snowflake
+    // has none: the refusal must come first.
+    const gated = client()
+      .$extends(
+        permissions({
+          actor: v.object({ userId: v.number() }),
+          models: {
+            author: {
+              read: true,
+              create: { id: { actor: "userId" } },
+              update: { id: { actor: "userId" } },
+              delete: { id: { actor: "userId" } },
+            },
+            post: { read: true },
+            tag: { read: true },
+          },
+        })
+      )
+      .$as({ userId: 1 });
+    const writes = [
+      () => gated.author.create({ data: { id: 1, name: "a", email: "a@x" } }),
+      () => gated.author.update({ where: { id: 1 }, data: { name: "b" } }),
+      () => gated.author.updateMany({ where: {}, data: { name: "b" } }),
+      () => gated.author.delete({ where: { id: 1 } }),
+    ];
+    for (const write of writes) {
+      const failure = await write().catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(FeatureNotSupportedError);
+      expect(failure).not.toBeInstanceOf(TypeError);
+    }
+    expect(server.requests).toEqual([]);
+  });
+
   it("refuses a transaction, callback or array, before sending anything", async () => {
     const db = client();
     await expect(
