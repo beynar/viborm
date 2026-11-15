@@ -23,6 +23,7 @@ import {
   type ExtensionContributionState,
   extension,
   methods,
+  modelMethods,
   oneOf,
   parts,
   s,
@@ -148,14 +149,14 @@ const _inlineContextualTyping = () =>
       methods((scope) => {
         scope.post.findMany({ where: { published: true } });
         scope.$transaction([scope.post.count()]);
-        return {
-          $postCount: () => scope.post.count(),
-          post: {
-            findPublished: () =>
-              scope.post.findMany({ where: { published: true } }),
-          },
-        };
-      })
+        return { $postCount: () => scope.post.count() };
+      }),
+      modelMethods((scope) => ({
+        post: {
+          findPublished: () =>
+            scope.post.findMany({ where: { published: true } }),
+        },
+      }))
     )
   );
 
@@ -278,7 +279,7 @@ const reusableSchemaExtension = forSchema.extension(
     },
     target("post", "findMany")
   ),
-  methods((scope) => ({
+  modelMethods((scope) => ({
     post: {
       findByTitle: (title: string) =>
         scope.post.findFirst({
@@ -527,8 +528,8 @@ const activeMethodsClient = () =>
     .$extends(
       extension(
         "actor",
-        methods((scope) => ({
-          $actor: () => "Ada",
+        methods(() => ({ $actor: () => "Ada" })),
+        modelMethods((scope) => ({
           post: {
             findByTitle: (title: string) =>
               scope.post.findFirst({
@@ -550,12 +551,14 @@ const activeMethodsClient = () =>
                 where: { published: true },
                 select: { id: true },
               }),
-            author: {
-              findNamed: (name: string) =>
-                scope.author.findFirst({ where: { name } }),
-            },
           };
-        })
+        }),
+        modelMethods((scope) => ({
+          author: {
+            findNamed: (name: string) =>
+              scope.author.findFirst({ where: { name } }),
+          },
+        }))
       )
     );
 
@@ -625,7 +628,7 @@ const _methodTyposAreRefused = () => {
   client.$extends(
     extension(
       "fresh-model-typo",
-      methods(() => ({
+      modelMethods(() => ({
         post: { valid: () => true },
         // @ts-expect-error - "posst" is not a schema model, beside real "post"
         posst: { ignored: () => true },
@@ -637,7 +640,7 @@ const _methodTyposAreRefused = () => {
     extension(
       "held-model-typo",
       // @ts-expect-error - a held method map is exact too
-      methods(() => heldModelTypo)
+      modelMethods(() => heldModelTypo)
     )
   );
 };
@@ -670,7 +673,7 @@ const _methodShapesAreRefused = () => {
   client.$extends(
     extension(
       "model-value",
-      methods(() => ({
+      modelMethods(() => ({
         post: {
           valid: () => true,
           // @ts-expect-error - every model contribution must be a function
@@ -703,7 +706,7 @@ const _methodShapesAreRefused = () => {
   client.$extends(
     extension(
       "core-model-collision",
-      methods(() => ({
+      modelMethods(() => ({
         // @ts-expect-error - a model method cannot replace a core operation
         post: { findMany: () => "collision" },
       }))
@@ -713,7 +716,7 @@ const _methodShapesAreRefused = () => {
   client.$extends(
     extension(
       "then-model",
-      methods(() => ({
+      modelMethods(() => ({
         // @ts-expect-error - a model method named `then` would make the delegate a thenable
         post: { then: () => 1 },
       }))
@@ -739,7 +742,7 @@ const _methodShapesAreRefused = () => {
   const priorModelMethod = client.$extends(
     extension(
       "prior-model-method",
-      methods(() => ({ post: { existing: () => true } }))
+      modelMethods(() => ({ post: { existing: () => true } }))
     )
   );
   priorModelMethod.$extends(
@@ -747,7 +750,7 @@ const _methodShapesAreRefused = () => {
       "prior-model-collision",
       // Compiles: a plugin generic over the extension state cannot prove this
       // collision, so the refusal is application-time only.
-      methods(() => ({ post: { existing: () => false } }))
+      modelMethods(() => ({ post: { existing: () => false } }))
     )
   );
 
@@ -755,7 +758,7 @@ const _methodShapesAreRefused = () => {
   client.$extends(
     extension(
       "cross-model-name",
-      methods(() => ({
+      modelMethods(() => ({
         post: { summarize: () => "post" },
         author: { summarize: () => "author" },
       }))

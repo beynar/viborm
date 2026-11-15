@@ -224,8 +224,10 @@ plain `extension(…)` and words held apart from the rule, its names checked
 by `$extends()` (`tests/fixtures/extension-recipes.ts`).
 
 The parts: the six primitives `call`, `unit`, `args`, `rule`, `defaults`,
-`methods`, plus `around` (a `call` with a second moment), `fields` and
-`disclosure`. Everything else is a word, a top-level function or value of
+`methods` (written `methods` for `$` client methods and `modelMethods` for
+model methods: each brings its half of `methods.ts`, `clientLayer` or
+`modelLayer`, so an extension carries only the half it writes), plus
+`around` (a `call` with a second moment), `fields` and `disclosure`. Everything else is a word, a top-level function or value of
 its own: `target(…)` and the sets `reads`, `writes`, `deletes`, `selecting`,
 `models` (`on.ts`; not `on`, which is `viborm/on`'s); `watch`, `settled`,
 `again`, `via` (`call-words.ts`), `key`, `codec`, `database`; `arg`, `now`,
@@ -379,8 +381,8 @@ which `kept.ts` reads per call. There is no runtime order guard: every method ru
 through the whole chain of the client it is called on; the order rule is
 TypeScript's alone (a part typed against a result declares the `consumer`
 fact, and a later rule that hides rows or a later omission fails to type;
-a `methods` factory that takes nothing types its methods through `this` and
-`DelegateOperationResult`).
+a `modelMethods` factory that takes nothing types its methods through `this`
+and `DelegateOperationResult`).
 
 Raw Date admission has two non-redundant boundaries. `src/client/raw.ts`
 refuses invalid caller input before any first moment runs;
@@ -432,7 +434,7 @@ instrumentation presents whoever wrote them.
   `rule((schema) => …)` whose entries write `root`/`related` with `when`
   and `unless` and `delete.instead` with `keep(unless(arg("mode"), "hard",
   { [deletedAt]: now, … }))`, after checking each marker is a nullable
-  `DateTime`, and `methods` (`restore`, `restoreMany`, `purge`,
+  `DateTime`, and `modelMethods` (`restore`, `restoreMany`, `purge`,
   `purgeMany`, typed through `this`). `tests/package/soft-delete-consumer-smoke.mjs`
   rebuilds it from the packed package.
 - `permissions(config)` (`src/permissions/`): one `rule((schema) => …)`
@@ -519,7 +521,7 @@ instrumentation presents whoever wrote them.
   never in `#page`) and a `create` value `appendKey(within)` (an
   `InsertValue`, `raptor3/shared/insert-value.ts`: every INSERT path of
   `OperationContext` asks it for its values once the rows are final), and
-  `methods` (`move`, `rekey`, lazy thenables an array transaction refuses
+  `modelMethods` (`move`, `rekey`, lazy thenables an array transaction refuses
   before any statement). `appendKey`
   (`src/ordering/append.ts`, a `computed()` value) answers with one SQL
   expression per row over `MAX(key)` of the row's list

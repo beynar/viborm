@@ -5,7 +5,7 @@ import { ClientInitializationError } from "../errors"; // viborm's own class
 import { args, oneOf } from "../extensions/args";
 import { extension } from "../extensions/extension";
 import { keep } from "../extensions/judge-words";
-import { methods } from "../extensions/methods-part";
+import { modelMethods } from "../extensions/methods-part";
 import { selecting } from "../extensions/on";
 import { rule } from "../extensions/rule";
 import { arg, now, unless, when } from "../extensions/rule-words";
@@ -246,7 +246,7 @@ export function softDelete(config: SoftDeleteConfig): unknown {
     // The methods read nothing typed at this step (each result is typed from
     // the delegate it is called on), so later extensions may hide rows or
     // omit fields freely.
-    methods((): object =>
+    modelMethods((): object =>
       Object.fromEntries(
         entries.map(([model, { deletedAt, deletedBy }]) => {
           const data = {

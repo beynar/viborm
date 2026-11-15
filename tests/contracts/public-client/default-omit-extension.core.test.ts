@@ -9,6 +9,7 @@ import {
   createClient,
   extension as extExtension,
   methods,
+  modelMethods,
   models,
   s,
   target,
@@ -99,7 +100,7 @@ describe("official default omit foundation", () => {
       base.$extends(
         extExtension(
           "model",
-          methods(() => ({ user: { prior: () => true } }))
+          modelMethods(() => ({ user: { prior: () => true } }))
         )
       ),
     ];

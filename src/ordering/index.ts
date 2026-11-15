@@ -22,7 +22,7 @@ import { ValidationError } from "../errors/validation";
 import type { StampedFields } from "../extensions/contract";
 import { defaults } from "../extensions/defaults";
 import { extension } from "../extensions/extension";
-import { methods as methodsOf } from "../extensions/methods-part";
+import { modelMethods } from "../extensions/methods-part";
 import { computed, joined, stored } from "../extensions/values";
 import type {
   AnyTarget,
@@ -1319,7 +1319,7 @@ function orderingOf(config: OrderingConfig): unknown {
         ])
       )
     ),
-    methodsOf((scope): object =>
+    modelMethods((scope): object =>
       Object.fromEntries(
         admittedFor(scope.$schema).map((ordered) => {
           const legacy = methods(ordered);

@@ -1410,7 +1410,7 @@ export type ArgsFunction<T extends AnyTarget> = <
 ) => Part<T, ArgsFacts<D>>;
 
 // =============================================================================
-// methods((scope) => ({ $client: …, model: { … } }))
+// methods((scope) => ({ $client: … })), modelMethods((scope) => ({ model: { … } }))
 // =============================================================================
 
 type ClientKeys<R> = Extract<keyof R, `$${string}`>;
@@ -1499,16 +1499,22 @@ type ModelMethodsCheck<E> = E extends (...args: never[]) => unknown
     };
 
 /**
- * What the factory may return, key by key: a `$` client method under a
- * free name, or a model's methods. A refused key reads `never`, so the
- * error is at the key. A valid one reads `unknown`, never a signature (see
- * `MethodsFunction`).
+ * What the factory may return, key by key: for `methods`, a `$` client
+ * method under a free name; for `modelMethods`, a model's methods. A refused
+ * key reads `never`, so the error is at the key. A valid one reads
+ * `unknown`, never a signature (see `MethodsFunction`).
  */
-export type MethodsCheck<R, T extends AnyTarget> = {
-  readonly [Key in keyof R]: Key extends `$${string}`
-    ? Key extends TakenClientKey<T>
-      ? never
-      : IsMethod<R[Key]>
+export type MethodsCheck<
+  R,
+  T extends AnyTarget,
+  Of extends "client" | "model",
+> = {
+  readonly [Key in keyof R]: Of extends "client"
+    ? Key extends `$${string}`
+      ? Key extends TakenClientKey<T>
+        ? never
+        : IsMethod<R[Key]>
+      : never
     : Key extends ModelName<T>
       ? ModelMethodsCheck<R[Key]>
       : never;
@@ -1521,7 +1527,20 @@ export type MethodsCheck<R, T extends AnyTarget> = {
  * `restore<Self>(this: Self, …)` at once, and `Self` would be lost.
  */
 export type MethodsFunction<T extends AnyTarget> = <
-  F extends (scope: MethodsScope<T>) => MethodsCheck<ReturnType<F>, T> = (
+  F extends (
+    scope: MethodsScope<T>
+  ) => MethodsCheck<ReturnType<F>, T, "client"> = (
+    scope: MethodsScope<T>
+  ) => object,
+>(
+  factory: F
+) => Part<T, MethodsFacts<ReturnType<F>, ConsumesResults<F>, never>>;
+
+/** `modelMethods`, typed as `methods` is: a model's methods under its name. */
+export type ModelMethodsFunction<T extends AnyTarget> = <
+  F extends (
+    scope: MethodsScope<T>
+  ) => MethodsCheck<ReturnType<F>, T, "model"> = (
     scope: MethodsScope<T>
   ) => object,
 >(
@@ -1581,6 +1600,7 @@ export interface Parts<T extends AnyTarget> {
   readonly disclosure: DisclosureFunction<Within<T>>;
   readonly args: ArgsFunction<Within<T>>;
   readonly methods: MethodsFunction<Within<T>>;
+  readonly modelMethods: ModelMethodsFunction<Within<T>>;
   readonly fields: FieldsFunction<Within<T>>;
 }
 

@@ -1,13 +1,13 @@
 /**
- * The methods host runs one `methods` factory per view and checks what it
- * returns; a first moment refuses a promise and, in `call`, a function. Each
+ * The methods host runs one `methods` or `modelMethods` factory per view and
+ * checks what it returns; a first moment refuses a promise and, in `call`, a function. Each
  * test states one refusal or one answer through the public builders.
  */
 
 import { createClient } from "@drivers/sqlite3";
 import { QueryError } from "@errors";
 import { s } from "@schema";
-import { call, extension, methods } from "@src/index";
+import { call, extension, methods, modelMethods } from "@src/index";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, describe, expect, test } from "vitest";
 
@@ -50,6 +50,11 @@ const returning = (name: string, value: unknown) =>
     name,
     methods(() => value as never)
   );
+const returningModels = (name: string, value: unknown) =>
+  extension(
+    name,
+    modelMethods(() => value as never)
+  );
 
 describe("methods: what the factory returns", () => {
   test("a factory that throws fails where the view is made with its own error; one that returns no object is refused", async () => {
@@ -69,7 +74,16 @@ describe("methods: what the factory returns", () => {
       'Extension "number" methods factory must return an object.'
     );
     expect(() => base.$extends(returning("bare", { hello: () => 1 }))).toThrow(
-      'Extension "bare" methods returned "hello", which is neither a $ client method nor a model.'
+      'Extension "bare" methods returned "hello", which is not a $ client method (a model\'s are written with modelMethods).'
+    );
+    // A model's methods are modelMethods' own: `methods` refuses them.
+    expect(() =>
+      base.$extends(returning("model", { post: { hello: () => 1 } }))
+    ).toThrow('Extension "model" methods returned "post", which is not a $');
+    expect(() =>
+      base.$extends(returningModels("client", { $hello: () => 1 }))
+    ).toThrow(
+      'Extension "client" methods returned "$hello", which is not a model.'
     );
   });
 
@@ -88,17 +102,17 @@ describe("methods: what the factory returns", () => {
 
   test("a model entry is an object of methods, or a function of its delegate and the scope", async () => {
     const base = await seeded();
-    expect(() => base.$extends(returning("entry", { post: 1 }))).toThrow(
+    expect(() => base.$extends(returningModels("entry", { post: 1 }))).toThrow(
       'Extension "entry" methods.post must be an object of methods.'
     );
     for (const name of ["findMany", "then", "$rows"])
       expect(() =>
-        base.$extends(returning("model", { post: { [name]: () => 1 } }))
+        base.$extends(returningModels("model", { post: { [name]: () => 1 } }))
       ).toThrow(
         `Extension "model" model method "post.${name}" collides with the existing model surface.`
       );
     const scoped = base.$extends(
-      returning("scoped", {
+      returningModels("scoped", {
         post: (delegate: Delegate, scope: Loose) => ({
           same: () => delegate === scope.post,
           async total(this: Delegate) {
@@ -113,28 +127,33 @@ describe("methods: what the factory returns", () => {
     expect(await scoped.user.findMany()).toEqual([]);
   });
 
-  test("the factory runs once per view: at once for the client $extends returns, at first use in a transaction", async () => {
+  test("each factory runs once per view: at once for the client $extends returns, at first use in a transaction", async () => {
     const base = await seeded();
-    let runs = 0;
+    const runs = { client: 0, models: 0 };
     const client = base.$extends(
       extension(
         "counted",
         methods(() => {
-          runs += 1;
-          return { $hello: () => "hi", post: { hello: () => "post" } };
+          runs.client += 1;
+          return { $hello: () => "hi" };
+        }),
+        modelMethods(() => {
+          runs.models += 1;
+          return { post: { hello: () => "post" } };
         })
       )
     );
-    expect(runs).toBe(1);
+    expect(runs).toEqual({ client: 1, models: 1 });
     expect((client.$hello as () => string)()).toBe("hi");
     expect((client.post.hello as () => string)()).toBe("post");
-    expect(runs).toBe(1);
+    expect(runs).toEqual({ client: 1, models: 1 });
     await client.$transaction(async (tx) => {
-      expect(runs).toBe(1);
+      expect(runs).toEqual({ client: 1, models: 1 });
       expect((tx.post.hello as () => string)()).toBe("post");
+      expect(runs).toEqual({ client: 1, models: 2 });
       expect((tx.$hello as () => string)()).toBe("hi");
     });
-    expect(runs).toBe(2);
+    expect(runs).toEqual({ client: 2, models: 2 });
   });
 });
 

@@ -25,6 +25,7 @@ import {
   extension,
   keep,
   methods,
+  modelMethods,
   models,
   now,
   omitted,
@@ -670,7 +671,7 @@ describe("extension and methods", () => {
     const client = base.$extends(
       extension(
         "count-own",
-        methods(
+        modelMethods(
           () =>
             ({
               post: {

@@ -356,6 +356,86 @@ function addMethods(
 }
 
 /**
+ * What one factory's methods add to a view, given the view's methods before
+ * it: brought by the builder (`methods` its client methods, `modelMethods`
+ * its model methods), so an extension carries only the half it writes.
+ */
+export type MethodsLayer = (made: {
+  readonly prior: ExtensionMethods;
+  /** The factory's answer, once per view, each key checked by `owns`. */
+  readonly answer: () => Readonly<Record<string, unknown>>;
+  readonly scope: () => object;
+  readonly refuse: (problem: string) => never;
+}) => ExtensionMethods & { readonly force: () => void };
+
+/** `methods`' half: the `$` client methods its factory returns. */
+export const clientLayer: MethodsLayer = ({ prior, answer, refuse }) => {
+  let client: MethodRecord | undefined;
+  const layer = {
+    client: () =>
+      (client ??= addMethods(
+        prior.client(),
+        Object.entries(answer()),
+        refuse,
+        (method) =>
+          CORE_CLIENT_METHODS.has(method) ||
+          Object.hasOwn(RAW_METHOD_NAMES, method),
+        "client",
+        (method) => `client method "${method}"`
+      )),
+    model: prior.model,
+    force: () => layer.client(),
+  };
+  return layer;
+};
+
+/**
+ * `modelMethods`' half: each model's methods, made the first time the model
+ * is read on a view; a model's entry may be a function of its delegate and
+ * the scope, and a model method is called with `this` equal to its delegate.
+ */
+export const modelLayer: MethodsLayer = ({ prior, answer, scope, refuse }) => {
+  const models = new Map<string, MethodRecord>();
+  const layer = {
+    client: prior.client,
+    model: (model: string) => {
+      let methods = models.get(model);
+      if (methods === undefined) {
+        const given = answer()[model];
+        const delegate: unknown = Reflect.get(scope(), model);
+        const own: unknown = isFunction(given)
+          ? Reflect.apply(given, undefined, [delegate, scope()])
+          : given;
+        if (own !== undefined && !isRecord(own))
+          refuse(`methods.${model} must be an object of methods`);
+        methods = addMethods(
+          prior.model(model),
+          Object.entries(own ?? {}).map(([method, fn]) => [
+            method,
+            isFunction(fn)
+              ? (...args: unknown[]) => Reflect.apply(fn, delegate, args)
+              : fn,
+          ]),
+          refuse,
+          (method) =>
+            method === "then" ||
+            method === "$rows" ||
+            ROUTED_OPERATIONS.has(method),
+          "model",
+          (method) => `model method "${model}.${method}"`
+        );
+        models.set(model, methods);
+      }
+      return methods;
+    },
+    force: () => {
+      for (const key of Object.keys(answer())) layer.model(key);
+    },
+  };
+  return layer;
+};
+
+/**
  * The methods of one view's chain. Extension `i`'s factory is invoked against
  * the scope `createScope` builds over the methods of the extensions before
  * it, the first time a method it returns could be read: a view costs the
@@ -366,9 +446,10 @@ export function bindExtensionMethods(
   entries: readonly MethodEntry[],
   createScope: (prior: ExtensionMethods, extension: string) => object
 ): BoundExtensionMethods {
-  const layers: ExtensionMethods[] = [NO_LAYER];
-  const made: (() => Readonly<Record<string, unknown>>)[] = [];
-  for (const { name, factory, schema } of entries) {
+  const layers: (ExtensionMethods & { readonly force?: () => void })[] = [
+    NO_LAYER,
+  ];
+  for (const { name, factory, owns, layer } of entries) {
     const prior = layers.at(-1)!;
     // Typed where it is declared, so a call to it ends the argument flow.
     const refuse: (problem: string) => never = (problem) =>
@@ -376,80 +457,32 @@ export function bindExtensionMethods(
     let scope: object | undefined;
     const scopeOf = () => (scope ??= createScope(prior, name));
     let returned: Readonly<Record<string, unknown>> | undefined;
-    // The factory's answer, once per view: the client's methods and each
-    // model's come from it.
-    const answer = (): Readonly<Record<string, unknown>> => {
-      if (returned !== undefined) return returned;
-      const value: unknown = Reflect.apply(factory, undefined, [scopeOf()]);
-      if (!isRecord(value)) refuse("methods factory must return an object");
-      for (const key of Object.keys(value))
-        if (!(key.startsWith("$") || Object.hasOwn(schema, key)))
-          refuse(
-            `methods returned "${key}", which is neither a $ client method nor a model`
-          );
-      returned = value;
-      return value;
-    };
-    made.push(answer);
-    let client: MethodRecord | undefined;
-    const models = new Map<string, MethodRecord>();
-    layers.push({
-      client: () =>
-        (client ??= addMethods(
-          prior.client(),
-          Object.entries(answer()).filter(([key]) => key.startsWith("$")),
-          refuse,
-          (method) =>
-            CORE_CLIENT_METHODS.has(method) ||
-            Object.hasOwn(RAW_METHOD_NAMES, method),
-          "client",
-          (method) => `client method "${method}"`
-        )),
-      model: (model) => {
-        let methods = models.get(model);
-        if (methods === undefined) {
-          const given = answer()[model];
-          // A model's entry may be a function of its delegate and the scope.
-          const delegate: unknown = Reflect.get(scopeOf(), model);
-          const own: unknown = isFunction(given)
-            ? Reflect.apply(given, undefined, [delegate, scopeOf()])
-            : given;
-          if (own !== undefined && !isRecord(own))
-            refuse(`methods.${model} must be an object of methods`);
-          methods = addMethods(
-            prior.model(model),
-            // A model method is called with `this` equal to its delegate.
-            Object.entries(own ?? {}).map(([method, fn]) => [
-              method,
-              isFunction(fn)
-                ? (...args: unknown[]) => Reflect.apply(fn, delegate, args)
-                : fn,
-            ]),
-            refuse,
-            (method) =>
-              method === "then" ||
-              method === "$rows" ||
-              ROUTED_OPERATIONS.has(method),
-            "model",
-            (method) => `model method "${model}.${method}"`
-          );
-          models.set(model, methods);
-        }
-        return methods;
-      },
-    });
+    layers.push(
+      layer({
+        prior,
+        // The factory's answer, once per view: the methods come from it.
+        answer: () => {
+          if (returned !== undefined) return returned;
+          const value: unknown = Reflect.apply(factory, undefined, [scopeOf()]);
+          if (!isRecord(value)) refuse("methods factory must return an object");
+          for (const key of Object.keys(value)) {
+            const problem = owns(key);
+            if (problem) refuse(`methods returned "${key}", ${problem}`);
+          }
+          returned = value;
+          return value;
+        },
+        scope: scopeOf,
+        refuse,
+      })
+    );
   }
   const view = layers.at(-1)!;
   return {
     client: view.client,
     model: view.model,
     force: () => {
-      for (const [index, answer] of made.entries()) {
-        const layer = layers[index + 1]!;
-        layer.client();
-        for (const key of Object.keys(answer()))
-          if (!key.startsWith("$")) layer.model(key);
-      }
+      for (const layer of layers) layer.force?.();
     },
   };
 }
@@ -458,13 +491,15 @@ export function bindExtensionMethods(
 export type RuntimeMethodsFactory = (scope: never) => unknown;
 
 /**
- * One extension's methods factory, as the chain keeps it, and the schema it
- * was applied to: a key it returns names a `$` client method or a model.
+ * One extension's methods factory, as the chain keeps it, with what its
+ * builder brings: which keys it may return (`owns`: why not, else
+ * `undefined`) and what its methods add to a view (`layer`).
  */
 export interface MethodEntry {
   readonly name: string;
   readonly factory: RuntimeMethodsFactory;
-  readonly schema: Schema;
+  readonly owns: (key: string) => string | undefined;
+  readonly layer: MethodsLayer;
 }
 
 export type BoundExtensionMethods = ExtensionMethods & {
@@ -488,13 +523,20 @@ export interface ExtensionMethodsState {
   ) => AdmittedArgs;
 }
 
-/** `methods`: what a view answers, in chain order. */
-export function methodsPart(factory: RuntimeMethodsFactory): ExtensionPart {
+/**
+ * A methods part: what a view answers, in chain order. `owns` and `layer`
+ * are its builder's half (`methods-part.ts`).
+ */
+export function methodsPart(
+  factory: RuntimeMethodsFactory,
+  layer: MethodsLayer,
+  owns: (key: string, schema: Schema) => string | undefined
+): ExtensionPart {
   return {
     join({ next, name, schema }) {
       const entries = [
         ...(next.methods?.entries ?? []),
-        { name, factory, schema },
+        { name, factory, layer, owns: (key: string) => owns(key, schema) },
       ];
       next.methods = {
         entries,

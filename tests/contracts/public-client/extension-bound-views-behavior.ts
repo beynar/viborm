@@ -116,15 +116,15 @@ const requestsReading = (read: () => void = () => undefined) =>
       const methods: RequestMethods = {
         $as: (name) => scope.$bind({ actor: name }) as never,
       };
-      return {
-        ...methods,
-        // A model's methods are made when that model is first read on a view.
-        page: (delegate: { count(args?: object): Promise<number> }) => {
-          factoryRuns += 1;
-          return { visible: () => delegate.count() };
-        },
-      };
-    })
+      return methods;
+    }),
+    typed.modelMethods(() => ({
+      // A model's methods are made when that model is first read on a view.
+      page: (delegate: { count(args?: object): Promise<number> }) => {
+        factoryRuns += 1;
+        return { visible: () => delegate.count() };
+      },
+    }))
   );
 const requests = requestsReading();
 

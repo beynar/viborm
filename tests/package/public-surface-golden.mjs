@@ -205,6 +205,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "key",
       "lazy",
       "methods",
+      "modelMethods",
       "models",
       "note",
       "notes",

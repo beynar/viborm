@@ -129,6 +129,15 @@ all-or-nothing when it fits one batch.
   schema admission. `scope.$bind` binds `bound(schema)` arguments only, as
   the documentation said: binding a `oneOf` or `accepts` argument is a
   `ClientInitializationError`.
+- **Client methods and model methods are two parts**: `methods((scope) =>
+  ({ $name }))` adds `$` client methods only, and `modelMethods((scope) =>
+  ({ post: { restore } }))` adds model methods (an entry is still an object
+  of methods or a function of the delegate and the scope). A factory that
+  returned both is written as one part of each; a model's name returned by
+  `methods`, or anything but a model returned by `modelMethods`, is refused
+  when the extension is applied. Each brings only its own code: the cache
+  (client methods) carries nothing of model methods, soft delete and
+  ordering (model methods) nothing of client methods.
 - **Two parts of one kind in one extension both run**, composed as two
   extensions would be: two `unit` parts each see every unit, two `methods`
   parts each add their methods, filters conjoin and a default set later wins.

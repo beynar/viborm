@@ -12,6 +12,7 @@ import {
   type ExtendedClient,
   extension,
   methods as extMethods,
+  modelMethods,
   parts,
   s,
 } from "@src/index";
@@ -39,8 +40,8 @@ const cached = cache({ driver: new MemoryCache() });
 const observed = instrumentation({ logging: { query: true } });
 const methods = extension(
   "application-methods",
-  extMethods(() => ({
-    $ping: () => "pong" as const,
+  extMethods(() => ({ $ping: () => "pong" as const })),
+  modelMethods(() => ({
     user: { $label: (name: string) => `user:${name}` },
   }))
 );
@@ -99,7 +100,7 @@ const _omittedResult = async (client: OmittedClient) => {
 
 const schemaBound = parts<typeof schema>().extension(
   "schema-bound",
-  extMethods(() => ({ user: { $schemaLabel: () => "schema" as const } }))
+  modelMethods(() => ({ user: { $schemaLabel: () => "schema" as const } }))
 );
 type SchemaBoundClient = ExtendedClient<
   BaseClient,
@@ -163,7 +164,9 @@ type _omitBeforeResultConsumerIsValid = Expect<
 // may follow it.
 const reader = parts<BaseClient>().extension(
   "reader",
-  extMethods((scope) => ({ user: { $first: () => scope.user.findFirst() } }))
+  modelMethods((scope) => ({
+    user: { $first: () => scope.user.findFirst() },
+  }))
 );
 type _resultConsumerBeforeOmitIsRejected = Expect<
   Equal<

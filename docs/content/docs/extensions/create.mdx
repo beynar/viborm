@@ -137,7 +137,7 @@ fields, and `disclosure` says what a thrown error may carry:
 | Accept a new call argument | `args` | Declared, validated once; only your parts and the chain's rules read it |
 | Hide rows, judge writes, gate fields, keep deleted rows | `rule` | Per model, in the ORM's own `where` and `data`; binds the caller |
 | Order reads, write fields, omit fields by default | `defaults` | Per model; holds when the caller says nothing, and the caller can override it |
-| Add client and model methods | `methods` | One factory returning `$`-prefixed client methods and per-model methods |
+| Add client methods, model methods | `methods`, `modelMethods` | A factory returning `$`-prefixed client methods; a factory returning each model's methods |
 | Add fields computed from a row | `fields` | `needs` and `compute` per field; on every row of the model a call returns |
 
 Do not put every concern into `around`. Each part exposes only the facts
@@ -1455,12 +1455,15 @@ A create's own data does not take these values yet: use a `defaults` value.
 
 ## `methods`: client and model methods
 
-`methods(factory)` adds methods. The factory returns `$`-prefixed client
-methods and, under a model's name, that model's methods:
+`methods(factory)` adds client methods: the factory returns `$`-prefixed
+functions. `modelMethods(factory)` adds model methods: the factory returns,
+under a model's name, that model's methods. Each brings only its own code, so
+an extension of client methods carries nothing of model methods, and the
+reverse:
 
 ```ts
 import type { DelegateOperationResult, PendingOperation } from "viborm";
-import { extension, methods } from "viborm";
+import { extension, methods, modelMethods } from "viborm";
 
 type Archive = {
   archive<Self, const A extends { where: { id: string } }>(
@@ -1479,10 +1482,8 @@ const archive: Archive["archive"] = function (args) {
 const db = client.$extends(
   extension(
     "post-tools",
-    methods((scope) => ({
-      $postCount: () => scope.post.count(),
-      post: { archive },
-    }))
+    methods((scope) => ({ $postCount: () => scope.post.count() })),
+    modelMethods(() => ({ post: { archive } }))
   )
 );
 
@@ -1490,6 +1491,8 @@ await db.$postCount();
 await db.post.archive({ where: { id } });
 ```
 
+- A key a factory may not return is refused when the extension is applied:
+  a model's name in `methods`, anything but a model in `modelMethods`.
 - The factory receives the client scope of the current view. Use it, not a
   root client captured in a closure, so the methods also work inside callback
   and nested transactions; capturing an unrelated root client deliberately
@@ -1499,10 +1502,10 @@ await db.post.archive({ where: { id } });
   what that delegate's operation returns on the client it is called on, after
   every extension applied later, computed fields included. Called off its
   delegate (`const { archive } = db.post`), its result is `unknown`.
-- The client `$extends()` returns runs the factory then, once, so a faulty
+- The client `$extends()` returns runs each factory then, once, so a faulty
   factory fails there. Every other view (an interactive transaction's `tx`, a
   client `$bind` returns) runs it once, when what it returns is first read.
-- Client method names must start with `$`. A contributed method cannot replace
+- Client method names start with `$`. A contributed method cannot replace
   a core method, a model name, `then`, or a method from an earlier extension.
   The whole extension application fails if any name collides; TypeScript does
   not flag a replaced model method in your editor.

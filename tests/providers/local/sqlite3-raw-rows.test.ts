@@ -22,6 +22,7 @@ import {
   extension,
   methods as extMethods,
   statement as extStatement,
+  modelMethods,
   oneOf,
   parts,
   rule,
@@ -364,7 +365,7 @@ describe("$rows", () => {
       base.$extends(
         extension(
           "shadowing",
-          extMethods(() => ({ page: { $rows: () => "mine" } }))
+          modelMethods(() => ({ page: { $rows: () => "mine" } }))
         )
       )
     ).toThrow(

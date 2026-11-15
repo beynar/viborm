@@ -26,7 +26,7 @@ import {
   type ExtendedOperationResult,
   extension,
   fields,
-  methods,
+  modelMethods,
   oneOf,
   rule,
   s,
@@ -146,7 +146,7 @@ export async function omissionCarries() {
 // `secret`, which the runtime omits. At `30ff17e69` this was refused (TS2345).
 const builtForBase = extension(
   "built-for-base",
-  methods(() => {
+  modelMethods(() => {
     const own = {
       models: {
         post: (delegate: (typeof base)["post"]) => ({

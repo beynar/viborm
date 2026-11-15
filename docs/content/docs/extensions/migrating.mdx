@@ -96,7 +96,7 @@ build its rows passes a function of the schema to `rule`:
 | `data` | `defaults({ m: { create, update } })` |
 | `order` | `defaults({ m: { orderBy } })` |
 | `result` | `fields({...})` |
-| `client`, `model` | `methods((scope) => ({ $name, model: { … } }))` |
+| `client`, `model` | `methods((scope) => ({ $name }))`, `modelMethods((scope) => ({ model: { … } }))` |
 | `diagnostics` of an error | `disclosure({ sql, parameters, … })` |
 | `{ control, path }`, `{ now: true }`, `{ $row, up }`, `{ $exists }`, `{ $if }` | `arg(name, path)`, `now`, `row(column, up)`, `exists(…)`, `provided(…)` |
 
@@ -575,9 +575,9 @@ const db = client.$extends(
 );
 ```
 
-### `client` and `model` → `methods`
+### `client` and `model` → `methods` and `modelMethods`
 
-One factory returns both:
+Each becomes a part of its own, which brings only its own code:
 
 ```ts no-check
 // Before
@@ -587,13 +587,13 @@ model: { post: (delegate) => ({ findPublished: () => delegate.findMany({ where: 
 
 ```ts
 // After
-import { extension, methods } from "viborm";
+import { extension, methods, modelMethods } from "viborm";
 
 const db = client.$extends(
   extension(
     "post-tools",
-    methods((scope) => ({
-      $postCount: () => scope.post.count(),
+    methods((scope) => ({ $postCount: () => scope.post.count() })),
+    modelMethods((scope) => ({
       post: {
         findPublished() {
           return scope.post.findMany({ where: { published: true } });

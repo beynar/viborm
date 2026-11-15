@@ -44,7 +44,7 @@ export { extension } from "./extension";
 export { fields } from "./fields";
 export { check, facts, gate, keep, lazy, only } from "./judge-words";
 export { key } from "./key";
-export { methods } from "./methods-part";
+export { methods, modelMethods } from "./methods-part";
 export { work } from "./observation";
 export { deletes, models, reads, selecting, target, writes } from "./on";
 export { parts } from "./parts";

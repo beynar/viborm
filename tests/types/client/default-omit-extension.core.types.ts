@@ -8,6 +8,7 @@ import {
   createClient,
   extension,
   methods,
+  modelMethods,
   s,
   statement,
   target,
@@ -197,7 +198,9 @@ const priorClient = base.$extends(
 const priorModel = base.$extends(
   extension(
     "prior-model",
-    methods((scope) => ({ user: { prior: () => scope.user.findFirst() } }))
+    modelMethods((scope) => ({
+      user: { prior: () => scope.user.findFirst() },
+    }))
   )
 );
 const priorBlindClient = base.$extends(
@@ -209,7 +212,7 @@ const priorBlindClient = base.$extends(
 const priorBlindModel = base.$extends(
   extension(
     "prior-blind-model",
-    methods(() => ({ user: { prior: () => true } }))
+    modelMethods(() => ({ user: { prior: () => true } }))
   )
 );
 const priorStatement = base.$extends(
@@ -496,8 +499,11 @@ const after = omitted.$extends(
       type _scopeRows = Expect<
         Equal<Awaited<ReturnType<typeof rows>>, HiddenUser[]>
       >;
-      return { $hiddenUsers: rows, user: { hidden: rows } };
-    })
+      return { $hiddenUsers: rows };
+    }),
+    modelMethods((scope) => ({
+      user: { hidden: () => scope.user.findMany({}) },
+    }))
   )
 );
 const afterRoot = () => after.user.findMany({});

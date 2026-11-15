@@ -63,18 +63,19 @@ describe("bound views: cost", () => {
         const methods: RequestMethods = {
           $as: (actor) => scope.$bind({ actor }) as never,
         };
-        return {
-          ...methods,
-          ...Object.fromEntries(
-            Object.keys(models).map((name, index) => [
-              name,
-              () => {
-                factoryRuns += 1;
-                return { touch: () => index };
-              },
-            ])
-          ),
-        };
+        return methods;
+      }),
+      typed.modelMethods(() => {
+        factoryRuns += 1;
+        return Object.fromEntries(
+          Object.keys(models).map((name, index) => [
+            name,
+            () => {
+              factoryRuns += 1;
+              return { touch: () => index };
+            },
+          ])
+        );
       })
     );
     const extendOnce = () =>

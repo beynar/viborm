@@ -106,6 +106,7 @@ const documentedRuntimeExports = [
   "key",
   "lazy",
   "methods",
+  "modelMethods",
   "models",
   "note",
   "notes",

@@ -17,6 +17,7 @@ import {
   fields as extFields,
   unit as extUnit,
   methods,
+  modelMethods,
   now,
   oneOf,
   raw,
@@ -558,17 +559,12 @@ const handlers = async (step, note) => {
       ["statement"],
       { rewrites: true }
     ),
-    methods((scope) => {
-      const own = {
-        client: (scope) => ({ $postCount: () => scope.post.count() }),
-        models: {
-          post: (delegate) => ({
-            titled: (title) => delegate.findMany({ where: { title } }),
-          }),
-        },
-      };
-      return { ...own.client?.(scope), ...own.models };
-    })
+    methods((scope) => ({ $postCount: () => scope.post.count() })),
+    modelMethods(() => ({
+      post: (delegate) => ({
+        titled: (title) => delegate.findMany({ where: { title } }),
+      }),
+    }))
   );
   const db = base.$extends(tools).$extends(
     extension(
@@ -611,10 +607,7 @@ const handlers = async (step, note) => {
     base.$extends(
       extension(
         "bad",
-        methods((scope) => {
-          const own = { client: () => ({ $transaction: () => 1 }) };
-          return { ...own.client?.(scope), ...own.models };
-        })
+        methods(() => ({ $transaction: () => 1 }))
       )
     )
   );

@@ -24,6 +24,7 @@ import {
   fields,
   keep,
   methods,
+  modelMethods,
   now,
   omitted,
   oneOf,
@@ -490,8 +491,8 @@ const withMethods = tenanted.$extends(
     methods(() => ({
       $as: as,
       $ping: () => "pong" as const,
-      post: { restore },
-    }))
+    })),
+    modelMethods(() => ({ post: { restore } }))
   )
 );
 const _methodResults = async () => {

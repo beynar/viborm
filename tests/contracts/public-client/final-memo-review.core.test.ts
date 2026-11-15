@@ -21,6 +21,7 @@ import {
   defaults,
   extension,
   methods,
+  modelMethods,
   rule,
   sql,
   statement,
@@ -301,8 +302,8 @@ describe("C. two unit parts, two methods parts in one extension", () => {
       base.$extends(
         extension(
           "twice-model",
-          methods(() => ({ post: { tag: () => "first" } })),
-          methods(() => ({ post: { tag: () => "second" } }))
+          modelMethods(() => ({ post: { tag: () => "first" } })),
+          modelMethods(() => ({ post: { tag: () => "second" } }))
         )
       )
     ).toThrow(NAMES_TWICE_MODEL);

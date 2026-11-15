@@ -11,7 +11,7 @@ import { defaults } from "./defaults";
 import { disclosure } from "./disclosure";
 import { extension } from "./extension";
 import { fields } from "./fields";
-import { methods } from "./methods-part";
+import { methods, modelMethods } from "./methods-part";
 import { target } from "./on";
 import { rule } from "./rule";
 import { unit } from "./unit";
@@ -30,6 +30,7 @@ export function parts(): unknown {
     disclosure,
     args,
     methods,
+    modelMethods,
     fields,
   };
 }

@@ -31,7 +31,7 @@ await db.column.findMany({ include: { cards: true } });                // cards 
 The extension lives in its own entry point, and is written with the public
 extension parts any author can import: `defaults` (each list's order, a key
 written on create), the statement values `computed`, `joined` and `stored`,
-and `methods` (`move`, `rekey`). An application that does not import it
+and `modelMethods` (`move`, `rekey`). An application that does not import it
 carries none of its code.
 
 ## Configuration

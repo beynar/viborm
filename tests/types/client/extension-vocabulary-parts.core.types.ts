@@ -22,7 +22,7 @@ import {
   deletes,
   extension,
   fields,
-  methods,
+  modelMethods,
   omitted,
   oneOf,
   parts,
@@ -143,7 +143,7 @@ declare const restore: <
 const withMethods = tenanted.$extends(
   forSchema.extension(
     "methods",
-    methods(() => ({ post: { restore } }))
+    modelMethods(() => ({ post: { restore } }))
   )
 );
 const _restored = async () => {

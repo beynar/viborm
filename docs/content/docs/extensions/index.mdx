@@ -61,7 +61,7 @@ it, and nothing else:
 | `args` | A call's arguments | Declare an argument; only the declaring extension's parts and the chain's rules read its value |
 | `rule` | The rows every call of the client reads and writes | Filters, write judgements, gated fields and kept rows, per model, in the ORM's own `where` and `data` |
 | `defaults` | What a call gets when it says nothing | Default order, default data and default omission, per model; the caller can override them |
-| `methods` | The derived client and its model delegates | Add typed `$`-prefixed client methods and model methods |
+| `methods`, `modelMethods` | The derived client, its model delegates | Add typed `$`-prefixed client methods; add model methods |
 | `fields` | The rows an operation returns | Fields computed from each row's `needs`, selectable and omittable by name |
 | `disclosure` | The errors a call throws | Whether they may carry SQL, parameters, provider details and the call site |
 

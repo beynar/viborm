@@ -37,7 +37,7 @@ import {
   now as extNow,
   target as extTarget,
   keep,
-  methods,
+  modelMethods,
   models,
   oneOf,
   reads,
@@ -1218,7 +1218,9 @@ describe("controls: the order a chain takes", () => {
       extension(
         "consumer",
         // Taking the scope makes it a result consumer.
-        methods((_scope) => ({ audited: () => ({ ping: () => "pong" }) }))
+        modelMethods((_scope) => ({
+          audited: () => ({ ping: () => "pong" }),
+        }))
       )
     );
     const late = applyUnchecked(

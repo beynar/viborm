@@ -6,6 +6,7 @@ import {
   createClient,
   extension as extExtension,
   methods as extMethods,
+  modelMethods,
   s,
   statement,
   target,
@@ -166,17 +167,12 @@ describe("client extension foundation", () => {
     const base = baseClient();
     const definition = extExtension(
       "identity",
-      extMethods((_scope) => {
-        const own = {
-          client: () => ({ $identity: () => "derived" }),
-          models: {
-            item: (delegate: typeof base.item) => ({
-              byName: (name: string) => delegate.findMany({ where: { name } }),
-            }),
-          },
-        };
-        return { ...own.client(), ...own.models };
-      })
+      extMethods(() => ({ $identity: () => "derived" })),
+      modelMethods(() => ({
+        item: (delegate: typeof base.item) => ({
+          byName: (name: string) => delegate.findMany({ where: { name } }),
+        }),
+      }))
     );
 
     const derived = base.$extends(definition);
@@ -320,29 +316,24 @@ describe("client extension foundation", () => {
       extExtension(
         "factory-counts",
         extMethods((scope) => {
-          const own = {
-            client(scope) {
-              clientRuns += 1;
-              return {
-                $activeScope: () =>
-                  transactionOperation(scope.item.findMany()).scopeId,
-                // Capturing the external root is the documented author-controlled
-                // escape: the host can bind only the supplied scope.
-                $capturedRoot: () => base.item.findMany(),
-              };
-            },
-            models: {
-              item(delegate) {
-                modelRuns += 1;
-                return {
-                  activeScope: () =>
-                    transactionOperation(delegate.findMany()).scopeId,
-                };
-              },
-            },
+          clientRuns += 1;
+          return {
+            $activeScope: () =>
+              transactionOperation(scope.item.findMany()).scopeId,
+            // Capturing the external root is the documented author-controlled
+            // escape: the host can bind only the supplied scope.
+            $capturedRoot: () => base.item.findMany(),
           };
-          return { ...own.client?.(scope), ...own.models };
-        })
+        }),
+        modelMethods(() => ({
+          item(delegate) {
+            modelRuns += 1;
+            return {
+              activeScope: () =>
+                transactionOperation(delegate.findMany()).scopeId,
+            };
+          },
+        }))
       )
     );
 
@@ -368,13 +359,8 @@ describe("client extension foundation", () => {
     const valid = base.$extends(
       extExtension(
         "valid",
-        extMethods((_scope) => {
-          const own = {
-            client: () => ({ $valid: () => true }),
-            models: { item: () => ({ valid: () => true }) },
-          };
-          return { ...own.client(), ...own.models };
-        })
+        extMethods(() => ({ $valid: () => true })),
+        modelMethods(() => ({ item: () => ({ valid: () => true }) }))
       )
     );
 

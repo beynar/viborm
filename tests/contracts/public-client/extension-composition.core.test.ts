@@ -34,6 +34,7 @@ import {
   args as extArgs,
   extension,
   methods as extMethods,
+  modelMethods,
   oneOf,
   parts,
   s,
@@ -224,15 +225,15 @@ const policy = typed.extension(
     const client: AsMethods = {
       $as: (actor) => scope.$bind({ actor }) as never,
     };
-    return {
-      ...client,
-      user: { can },
-      organization: { can },
-      member: { can },
-      document: { can },
-      page: { can },
-    };
-  })
+    return client;
+  }),
+  typed.modelMethods(() => ({
+    user: { can },
+    organization: { can },
+    member: { can },
+    document: { can },
+    page: { can },
+  }))
 );
 
 const tombstones = softDelete({
@@ -428,7 +429,7 @@ describe("composition: rows steps first (K7(b), OD-1 option (2))", () => {
     const typedBefore = base.$extends(
       extension(
         "mine",
-        extMethods((scope) => ({
+        modelMethods((scope) => ({
           document: {
             withOrg: (id: string) =>
               scope.document.findFirst({

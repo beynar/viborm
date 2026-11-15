@@ -6,6 +6,7 @@ import {
   call,
   extension as extExtension,
   methods,
+  modelMethods,
   s,
   target,
 } from "@src/index";
@@ -458,6 +459,8 @@ describe("official default omit public behavior", () => {
           ),
           methods((scope) => ({
             $hiddenUsers: () => scope.user.findMany({}),
+          })),
+          modelMethods(() => ({
             user: {
               hidden(this: { findMany(args: object): Promise<unknown> }) {
                 return this.findMany({});
