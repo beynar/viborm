@@ -14,6 +14,7 @@ import { fieldRefPayload, isFieldRef } from "@schema/field-ref";
 import { isJsonNullSentinel } from "@schema/json-null";
 import { isSql } from "@sql";
 import { JsonParameter } from "../sql/json-parameter";
+import { base64 } from "./codec";
 import type { Run } from "./contract";
 import { callOf } from "./origin";
 
@@ -123,22 +124,12 @@ export function stableStringify(
 
   const type = typeof value;
 
-  if (type === "boolean" || type === "number") {
-    return String(value);
-  }
-
-  if (type === "string") {
-    return JSON.stringify(value);
-  }
-
-  if (type === "bigint") {
-    return brandToken("bigint", String(value));
-  }
-
-  if (type !== "object") {
-    // Functions and symbols are not cacheable
+  if (type === "boolean" || type === "number") return String(value);
+  if (type === "string") return JSON.stringify(value);
+  if (type === "bigint") return brandToken("bigint", String(value));
+  // Functions and symbols are not cacheable.
+  if (type !== "object")
     throw new CacheInvalidKeyError(`Uncacheable value type: ${type}`);
-  }
 
   // A fragment is identified by what it will EMIT, not by its instance fields:
   // an `Sql` memoizes its flattened text on first read, so enumerating its own
@@ -185,20 +176,7 @@ export function stableStringify(
     return brandToken("date", value.toISOString());
   }
 
-  if (value instanceof Uint8Array) {
-    // Use Buffer in Node.js, btoa in browser/edge
-    let base64: string;
-    if (typeof Buffer !== "undefined") {
-      base64 = Buffer.from(value).toString("base64");
-    } else {
-      let binary = "";
-      for (const byte of value) {
-        binary += String.fromCharCode(byte);
-      }
-      base64 = btoa(binary);
-    }
-    return brandToken("bytes", base64);
-  }
+  if (value instanceof Uint8Array) return brandToken("bytes", base64(value));
 
   // `seen` holds the objects on the current PATH only: one object reached
   // twice through different keys (`{ a: ids, b: ids }`) is data, not a cycle.

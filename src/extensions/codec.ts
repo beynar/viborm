@@ -120,7 +120,8 @@ function stored(value: unknown): unknown {
   throw new TypeError("A row holds a value the cache cannot store.");
 }
 
-function base64(bytes: Uint8Array): string {
+/** Bytes as base64, whatever view holds them. */
+export function base64(bytes: Uint8Array): string {
   let binary = "";
   // biome-ignore lint/style/useForOf: indexed reads take any byte view as it is.
   for (let index = 0; index < bytes.length; index++)
