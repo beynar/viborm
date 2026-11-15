@@ -1251,42 +1251,52 @@ export function policyCompiler(
     if (isTrue(guard)) return false;
     if (Object.keys(guard).length === 1 && isClause(guard.NOT))
       return guard.NOT;
-    const held = negations.get(guard);
-    if (held !== undefined) return held;
-    const negation = Array.isArray(guard.AND)
-      ? guardOr(guard.AND.map((member: Where) => negate(member)))
-      : Array.isArray(guard.OR)
-        ? guardAnd(guard.OR.map((member: Where) => negate(member)))
-        : shared({ NOT: guard });
-    negations.set(guard, negation);
+    let negation = negations.get(guard);
+    if (negation === undefined)
+      negations.set(
+        guard,
+        (negation = Array.isArray(guard.AND)
+          ? combined(
+              false,
+              guard.AND.map((member: Where) => negate(member))
+            )
+          : Array.isArray(guard.OR)
+            ? combined(
+                true,
+                guard.OR.map((member: Where) => negate(member))
+              )
+            : shared({ NOT: guard }))
+      );
     return negation;
   };
-  /** One combination of shared guards, built once per distinct operands. */
+  /**
+   * One combination of shared guards, built once per distinct operands.
+   * Boolean guards, unlike row predicates, have two-valued logic: a
+   * conjunction drops repeated factors, never distributes over a disjunction
+   * nor expands a truth table.
+   */
   const combinations = new Map<string, Clause>();
   const combined = (
-    operator: string,
-    operands: readonly Clause[],
-    build: () => Clause
+    conjunction: boolean,
+    guards: readonly Clause[]
   ): Clause => {
-    let key = operator;
-    for (const operand of operands)
+    let key = `${conjunction}`;
+    for (const operand of guards)
       key += operand === false ? " F" : ` ${keyOf(operand)}`;
-    if (combinations.has(key)) return combinations.get(key)!;
-    const guard = shared(build());
-    combinations.set(key, guard);
+    let guard = combinations.get(key);
+    if (guard === undefined) {
+      const all = conjunction ? and(guards) : or(guards);
+      combinations.set(
+        key,
+        (guard = shared(
+          conjunction && all && Array.isArray(all.AND)
+            ? and(distinct(all.AND as Where[]))
+            : all
+        ))
+      );
+    }
     return guard;
   };
-  const guardOr = (guards: readonly Clause[]): Clause =>
-    combined("OR", guards, () => or(guards));
-  /** Boolean guards, unlike row predicates, have two-valued logic. Push
-   * negation to conditions and remove repeated factors without distributing
-   * conjunctions over disjunctions or expanding a truth table. */
-  const guardAnd = (guards: readonly Clause[]): Clause =>
-    combined("AND", guards, () => {
-      const all = and(guards);
-      if (all === false || !Array.isArray(all.AND)) return all;
-      return and(distinct(all.AND as Where[]));
-    });
   const falseSummary: ReadSummary = {
     yes: false,
     no: {},
@@ -1303,19 +1313,25 @@ export function policyCompiler(
     conjunction: boolean,
     summaries: readonly ReadSummary[]
   ): ReadSummary => {
-    const yes = (conjunction ? guardAnd : guardOr)(
+    const yes = combined(
+      conjunction,
       summaries.map((part) => part.yes)
     );
-    const no = (conjunction ? guardOr : guardAnd)(
+    const no = combined(
+      !conjunction,
       summaries.map((part) => part.no)
     );
     const live = negate(conjunction ? no : yes);
     const reads = new Map<string, Clause>();
     for (const part of summaries)
-      for (const [key, guard] of part.reads) {
-        const held = guardAnd([live, guard]);
-        reads.set(key, guardOr([reads.get(key) ?? false, held]));
-      }
+      for (const [key, guard] of part.reads)
+        reads.set(
+          key,
+          combined(false, [
+            reads.get(key) ?? false,
+            combined(true, [live, guard]),
+          ])
+        );
     return { yes, no, reads };
   };
   /** Each clause's summary per model: a shared clause is walked once. */
@@ -1365,24 +1381,18 @@ export function policyCompiler(
     // records of their own, which no read operator spells.
     if (operand === now || madeOf(operand)) return null;
     if (!isRecord(operand)) return containsParameter(operand) ? null : atomic();
-    if (Object.keys(operand).length === 0) return null;
     const reads = new Map<string, Clause>();
     for (const [operator, value] of Object.entries(operand)) {
       if (operator === "mode" || operator === "path") continue;
       if (!readOperators.has(operator)) return null;
-      const key = parameterKey(
-        value,
-        operator === "in" || operator === "notIn"
-      );
+      const spread = operator === "in" || operator === "notIn";
+      const key = parameterKey(value, spread);
       if (key !== undefined) reads.set(key, {});
       else if (operator === "not" || operator === "equals") {
         const nested = scalarReads(value);
         if (nested === null) return null;
         for (const [read, guard] of nested.reads) reads.set(read, guard);
-      } else if (
-        Array.isArray(value) &&
-        (operator === "in" || operator === "notIn")
-      ) {
+      } else if (spread && Array.isArray(value)) {
         for (const item of value) {
           const read = parameterKey(item, false);
           if (read !== undefined) reads.set(read, {});
@@ -1390,11 +1400,52 @@ export function policyCompiler(
         }
       } else if (containsParameter(value)) return null;
     }
-    // Modifier-only objects can also be literal JSON. Do not infer folding
-    // without the scalar codec's admission decision.
+    // Modifier-only objects (and `{}`) can also be literal JSON. Do not infer
+    // folding without the scalar codec's admission decision.
     if (Object.keys(operand).every((key) => key === "mode" || key === "path"))
       return null;
     return atomic(reads);
+  };
+  /** The summary of one key of a clause read at `name`, or null where unsupported. */
+  const partOf = (
+    name: string,
+    key: string,
+    value: unknown
+  ): ReadSummary | null => {
+    if (LOGICAL.has(key)) {
+      const nested: ReadSummary[] = [];
+      for (const body of Array.isArray(value) ? value : [value]) {
+        const summary = summarizeReads(name, body);
+        if (summary === null) return null;
+        nested.push(
+          key === "NOT"
+            ? { yes: summary.no, no: summary.yes, reads: summary.reads }
+            : summary
+        );
+      }
+      return combineReads(key !== "OR", nested);
+    }
+    if (Object.hasOwn(stateOf(name).scalars, key)) return scalarReads(value);
+    const target = targetOf(name, key);
+    if (target === undefined) return null;
+    const bodies: unknown[] = [];
+    if (
+      isRecord(value) &&
+      Object.keys(value).some((op) => QUANTIFIERS.has(op))
+    ) {
+      for (const [op, body] of Object.entries(value))
+        if (QUANTIFIERS.has(op)) bodies.push(body);
+        else if (op !== "recurse" && op !== "self") return null;
+    } else bodies.push(value);
+    const relations: ReadSummary[] = [];
+    for (const body of bodies) {
+      // A relation keeps its quantifier even when its body folds constant;
+      // a null one (`relation: null`, `is: null`) reads nothing.
+      const summary = body === null ? atomic() : summarizeReads(target, body);
+      if (summary === null) return null;
+      relations.push(atomic(summary.reads));
+    }
+    return combineReads(true, relations);
   };
   const summarizeReads = (
     name: string,
@@ -1420,58 +1471,13 @@ export function policyCompiler(
     const known = cache.get(clause);
     if (known !== undefined) return known;
     const parts: ReadSummary[] = [];
-    const unsupported = () => {
-      cache.set(clause, null);
-      return null;
-    };
     for (const [key, value] of Object.entries(clause)) {
-      if (LOGICAL.has(key)) {
-        const bodies = Array.isArray(value) ? value : [value];
-        const nested: ReadSummary[] = [];
-        for (const body of bodies) {
-          const summary = summarizeReads(name, body);
-          if (summary === null) return unsupported();
-          nested.push(
-            key === "NOT"
-              ? { yes: summary.no, no: summary.yes, reads: summary.reads }
-              : summary
-          );
-        }
-        parts.push(combineReads(key !== "OR", nested));
-      } else if (Object.hasOwn(stateOf(name).scalars, key)) {
-        const summary = scalarReads(value);
-        if (summary === null) return unsupported();
-        parts.push(summary);
-      } else {
-        const target = targetOf(name, key);
-        if (target === undefined) return unsupported();
-        if (value === null) {
-          parts.push(atomic());
-          continue;
-        }
-        const bodies: unknown[] = [];
-        if (
-          isRecord(value) &&
-          Object.keys(value).some((op) => QUANTIFIERS.has(op))
-        ) {
-          for (const [op, body] of Object.entries(value)) {
-            if (QUANTIFIERS.has(op)) bodies.push(body);
-            else if (op !== "recurse" && op !== "self") return unsupported();
-          }
-        } else bodies.push(value);
-        const relations: ReadSummary[] = [];
-        for (const body of bodies) {
-          if (body === null) {
-            relations.push(atomic());
-            continue;
-          }
-          const summary = summarizeReads(target, body);
-          if (summary === null) return unsupported();
-          // A relation keeps its quantifier even when its body folds constant.
-          relations.push(atomic(summary.reads));
-        }
-        parts.push(combineReads(true, relations));
+      const part = partOf(name, key, value);
+      if (part === null) {
+        cache.set(clause, null);
+        return null;
       }
+      parts.push(part);
     }
     const result = combineReads(true, parts);
     cache.set(clause, result);
