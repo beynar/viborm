@@ -26,6 +26,7 @@ interface Shared {
 }
 
 const NO_VALUES: AdmittedArgs = {};
+const fresh = (): Shared => ({ next: new Map() });
 
 export const CALL_READS: CallReads = {
   bind(chain, lazy, domain) {
@@ -97,7 +98,6 @@ export const CALL_READS: CallReads = {
         : own,
       call(facts, values) {
         if (closed === undefined) return { ...facts, values: valuesOf(values) };
-        const fresh = (): Shared => ({ next: new Map() });
         let node = memo(roots, facts, fresh);
         // Closed: every name is an argument's, none the instant.
         for (const name of closed)
