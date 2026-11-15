@@ -26,24 +26,20 @@ import { originOf, sourceOf } from "./unit-source";
  */
 export const text = (u: UnitContext): string | undefined => sourceOf(u)?.sql;
 
-/** The snapshots taken here, by what they were taken of: a unit, a member. */
-const snapshots = new WeakMap<object, readonly unknown[]>();
-
 /**
  * The snapshot the driver took for its diagnostics, or the one taken here at
- * the first read: a caller's parameter is read once however many read it.
+ * the first read and kept where the driver keeps its own (`key` of `of`): a
+ * caller's parameter is read once however many read it.
  */
 function shownOf(
   of: object,
-  taken: unknown,
+  key: PropertyKey,
   params: readonly unknown[] | undefined
 ): readonly unknown[] {
+  const taken: unknown = Reflect.get(of, key);
   if (Array.isArray(taken) && taken !== EMPTY_DIAGNOSTIC_PARAMS) return taken;
-  let shown = snapshots.get(of);
-  if (shown === undefined) {
-    shown = snapshotDiagnosticParameters(params ?? []);
-    snapshots.set(of, shown);
-  }
+  const shown = snapshotDiagnosticParameters(params ?? []);
+  Reflect.set(of, key, shown);
   return shown;
 }
 
@@ -56,15 +52,11 @@ export function parameters(u: UnitContext): readonly unknown[] | undefined {
   const source = sourceOf(u);
   if (source?.batch !== undefined)
     return source.batch.map((member) =>
-      shownOf(
-        member,
-        Reflect.get(member, BATCH_DIAGNOSTIC_PARAMS),
-        member.params
-      )
+      shownOf(member, BATCH_DIAGNOSTIC_PARAMS, member.params)
     );
   return source?.params === undefined
     ? undefined
-    : shownOf(source, source.shown, source.params);
+    : shownOf(source, "shown", source.params);
 }
 
 /**
