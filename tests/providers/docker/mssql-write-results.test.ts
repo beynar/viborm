@@ -28,8 +28,7 @@ import {
 } from "./mssql-fixtures";
 
 /** What a create refused under an INSTEAD OF INSERT trigger says is missing. */
-const MISSING_ROW =
-  /did not hand back a row or key this write needs/;
+const MISSING_ROW = /did not hand back a row or key this write needs/;
 
 const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
 const NAMESPACE = "viborm_write_results";
