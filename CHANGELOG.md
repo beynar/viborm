@@ -5,6 +5,12 @@ Versioning.
 
 ## Unreleased
 
+## 1.14.0 — 2026-11-15
+
+VibORM now runs on a Durable Object's own SQLite storage, takes over tables it
+did not create, and reads an existing database into a schema document. Indexes
+of a new SurrealDB table no longer hold a push for minutes.
+
 The write half of the engine is rewritten, for SQL and for SurrealDB, and
 extensions have a new contract: one function, `extension(name, ...parts)`,
 whose parts and words each bring only their own code. An application without
@@ -286,129 +292,6 @@ VibORM reads Snowflake.
 
 ### Added
 
-- **`computed()`, `stored()` and `joined()`: values a write computes.** A value
-  computed when the statement is written, a field kept as stored, and an
-  `updateMany` value each row reads from a joined table. `viborm/ordering` used
-  private forms of them; they are now exported from `viborm` for any caller.
-- **`db.<model>.$sql`.** The model's table, columns and bound values as the
-  client's statements spell them, and `visible()`, the rows a call may see as a
-  condition, for a fragment you write by hand.
-- **`getRowKey(model)`.** A model's primary key fields in constraint order,
-  and the compound key's name. `viborm/client` also exports the type
-  `NoExtraOperationKeys`.
-- **`viborm/snowflake`, a read-only driver for Snowflake's SQL API v2.** It
-  sends `fetch` requests and signs its key-pair JWT with WebCrypto (an OAuth or
-  programmatic access token works too), so it runs in Node, Bun, Workers and
-  Durable Objects without `snowflake-sdk`. It polls a statement that answers
-  202, reads every result partition, sends a failed request again with the
-  same `requestId`, and stops a statement past its `timeout`: half an hour by
-  default, held by the driver alone so a shorter account, user or warehouse
-  limit still applies, and `timeout: false` for none of the driver's
-  (Snowflake's own timeout, and a cancel once Snowflake has answered its
-  handle). `findMany`,
-  `findFirst`, `findUnique`, `count`, `exist`, `aggregate`, `groupBy` and
-  `$queryRaw` run, with nested `include`/`select`: Snowflake refuses a
-  correlated `LIMIT`, so a relation is read from an uncorrelated page numbered
-  per key, and only its `ARRAY_AGG` is correlated. Values cross exactly:
-  `bigint` and `Decimal` as text, timestamps to the nanosecond in a UTC
-  session. Every write, `$executeRaw` and `$transaction` fails before anything
-  is sent, and `createMigrationClient` refuses a Snowflake client (`V8001`):
-  Snowflake enforces no key, has no savepoint and no `RETURNING`. A recursive
-  filter and a root `cursor` not ordered by the model's single-field key are
-  refused too, as Snowflake refuses the SQL they need. Only `QUERY_TAG`,
-  `USE_CACHED_RESULT` and `CLIENT_RESULT_CHUNK_SIZE` pass as session
-  parameters, and an `account` that would send the token to another host, or
-  a `host` that is not `https://`, is refused. `s.time()` reads a `TIME` to the
-  millisecond, flat and nested, and refuses a finer one. A `5xx` is sent again
-  (same `requestId`, `retry=true`) and, still answered, is a `ConnectionError`;
-  a statement whose status reads fail is cancelled. A `NaN` or `Infinity`
-  inside a `VARIANT` reads as the string `STRICT_JSON_OUTPUT` prints, whatever
-  the account sets, and a raw result naming one column twice is refused.
-  `s.vector()` reads `VECTOR(FLOAT, n)` (`l2` and `cosine` distances) and
-  `s.point()` reads `GEOGRAPHY` (equality, bounds, polygons, distance in the
-  same metres as every provider; a point exactly on a polygon hole's edge reads
-  as outside there). See the
-  [Snowflake](https://viborm.dev/docs/drivers/snowflake) page.
-- **`introspectSchema({ driver })` reads a Snowflake schema**, its declared
-  (unenforced) foreign keys as relations (a key into another schema or
-  database is listed in `skipped`), with
-  `viborm/migrations/snowflake` registering only the Snowflake migration
-  driver, which reads and writes no DDL.
-
-### Changed
-
-- **`viborm/ordering` on SurrealDB brings its own SurrealQL.** The driver no
-  longer holds code for it: it writes a `joined()` value from the list the
-  extension gives it.
-- **Nested writes send fewer statements.** A write reads what it needs
-  together, then sends its writes as one unit. No call that succeeds sends more
-  statements or more round trips than before. The SQL of a write may differ.
-- **Many-row writes with relations on batch-only drivers (D1, neon-http) are
-  all-or-nothing** when the call fits one atomic batch. They ran one batch per
-  row before, and a failure could leave earlier rows written. A call past the
-  batch limits still runs in several batches and reports its progress
-  (`RecordSeriesProgress`).
-- **A row found and then changed by another session makes the call run
-  again** where it used to fail with `NestedWriteError` ("replaced by another
-  transaction"). On a driver with transactions the call runs again once, in a
-  new transaction. On a batch-only driver it plans again up to three times,
-  then fails with `NotFoundError`.
-- **SurrealDB: a write that needs no answer between its statements is one
-  request**, a transaction of its own. Only `create` was sent so before. A
-  request of several statements that fails runs again, one statement per
-  request, so that the error is the failing statement's own. `logging.query`
-  reports such a request once, under the call's model; a `statement` hook still
-  sees each statement.
-- **SurrealDB: changing a record's key reads the rows first**, under the
-  call's own filters and permissions, then moves them.
-- **A refused produced row on a batch-only driver reports its own error**
-  (`ForbiddenError`) where it reported the generic batch failure.
-- **`$transaction([...])` on a batch-only driver accepts more calls**: a write
-  whose answer reads a relation now fits the batch. A member that would need a
-  read between two statements is still refused with `TransactionError`.
-- **Two of the three to-one compositions the documentation listed as refused
-  run** (`delete` then `connect`, with or without `update`, where the child
-  holds the key). `delete` then `connect` where the parent holds the key is
-  still refused.
-- **A call costs less processor time and less memory.** Measured on in-memory
-  SQLite against 1.14.0: `create`, `update`, `upsert` and `delete` take 3 % to
-  7 % less time, `findUnique` 8 % less, and a `create` allocates 13 % fewer
-  bytes. `createMany` of ten rows takes 5 % more time and allocates 14 % fewer
-  bytes. A call sent to a database over a network spends its time there: the
-  gain shows on SQLite, Durable Objects and other in-process databases.
-- **A `default()` function is called once per written row, before any read.**
-  A nested `updateMany` called it once more than it wrote rows.
-- **Every statement of a call is attributed to the operation the caller
-  asked for** and to the model the statement touches. A nested create under
-  `post.createMany` was attributed to `create`.
-- **Changing a key that a row with a restricting `onUpdate` references fails
-  with the database's own foreign-key error.** Nothing is written in either
-  case; the error used to be a `NestedWriteError` raised before the write.
-- **Two `deleteMany` on the same junction relation in one call run in order**
-  where they were refused.
-
-### Upgrade notes
-
-- **Extension authors: rewrite each definition as `extension(name, ...parts)`**,
-  member by member, with
-  [Migrating an extension](https://viborm.dev/docs/extensions/migrating).
-  Users of official extensions: apply each in one `$extends()`.
-- **Tests that count statements or assert exact SQL of a write** need new
-  expectations. Assert the rows a call returns and the rows it leaves.
-- **Code that caught `NestedWriteError` for a concurrent change** now sees the
-  call succeed after it planned again, or `NotFoundError` when it kept losing
-  the race.
-- **On D1 and neon-http, do not rely on partial progress** of a many-row write
-  with relations that fits one batch: nothing is left when it fails.
-
-## 1.14.0 — 2026-11-11
-
-VibORM now runs on a Durable Object's own SQLite storage, takes over tables it
-did not create, and reads an existing database into a schema document. Indexes
-of a new SurrealDB table no longer hold a push for minutes.
-
-### Added
-
 - **`viborm/durable-object`, a driver for `ctx.storage.sql`.** Transactions are
   `storage.transaction()` at every depth, which nests natively. Defaults suit
   the platform: no deep expressions, 100 bound values, one driver per SQL
@@ -473,6 +356,55 @@ of a new SurrealDB table no longer hold a push for minutes.
   `viborm/ordering/keys` gives the fractional key functions without a client
   (about 3 kB).
 
+- **`computed()`, `stored()` and `joined()`: values a write computes.** A value
+  computed when the statement is written, a field kept as stored, and an
+  `updateMany` value each row reads from a joined table. `viborm/ordering` used
+  private forms of them; they are now exported from `viborm` for any caller.
+- **`db.<model>.$sql`.** The model's table, columns and bound values as the
+  client's statements spell them, and `visible()`, the rows a call may see as a
+  condition, for a fragment you write by hand.
+- **`getRowKey(model)`.** A model's primary key fields in constraint order,
+  and the compound key's name. `viborm/client` also exports the type
+  `NoExtraOperationKeys`.
+- **`viborm/snowflake`, a read-only driver for Snowflake's SQL API v2.** It
+  sends `fetch` requests and signs its key-pair JWT with WebCrypto (an OAuth or
+  programmatic access token works too), so it runs in Node, Bun, Workers and
+  Durable Objects without `snowflake-sdk`. It polls a statement that answers
+  202, reads every result partition, sends a failed request again with the
+  same `requestId`, and stops a statement past its `timeout`: half an hour by
+  default, held by the driver alone so a shorter account, user or warehouse
+  limit still applies, and `timeout: false` for none of the driver's
+  (Snowflake's own timeout, and a cancel once Snowflake has answered its
+  handle). `findMany`,
+  `findFirst`, `findUnique`, `count`, `exist`, `aggregate`, `groupBy` and
+  `$queryRaw` run, with nested `include`/`select`: Snowflake refuses a
+  correlated `LIMIT`, so a relation is read from an uncorrelated page numbered
+  per key, and only its `ARRAY_AGG` is correlated. Values cross exactly:
+  `bigint` and `Decimal` as text, timestamps to the nanosecond in a UTC
+  session. Every write, `$executeRaw` and `$transaction` fails before anything
+  is sent, and `createMigrationClient` refuses a Snowflake client (`V8001`):
+  Snowflake enforces no key, has no savepoint and no `RETURNING`. A recursive
+  filter and a root `cursor` not ordered by the model's single-field key are
+  refused too, as Snowflake refuses the SQL they need. Only `QUERY_TAG`,
+  `USE_CACHED_RESULT` and `CLIENT_RESULT_CHUNK_SIZE` pass as session
+  parameters, and an `account` that would send the token to another host, or
+  a `host` that is not `https://`, is refused. `s.time()` reads a `TIME` to the
+  millisecond, flat and nested, and refuses a finer one. A `5xx` is sent again
+  (same `requestId`, `retry=true`) and, still answered, is a `ConnectionError`;
+  a statement whose status reads fail is cancelled. A `NaN` or `Infinity`
+  inside a `VARIANT` reads as the string `STRICT_JSON_OUTPUT` prints, whatever
+  the account sets, and a raw result naming one column twice is refused.
+  `s.vector()` reads `VECTOR(FLOAT, n)` (`l2` and `cosine` distances) and
+  `s.point()` reads `GEOGRAPHY` (equality, bounds, polygons, distance in the
+  same metres as every provider; a point exactly on a polygon hole's edge reads
+  as outside there). See the
+  [Snowflake](https://viborm.dev/docs/drivers/snowflake) page.
+- **`introspectSchema({ driver })` reads a Snowflake schema**, its declared
+  (unenforced) foreign keys as relations (a key into another schema or
+  database is listed in `skipped`), with
+  `viborm/migrations/snowflake` registering only the Snowflake migration
+  driver, which reads and writes no DDL.
+
 ### Changed
 
 - **A nullable member of a compound id is refused when the schema is
@@ -492,6 +424,56 @@ of a new SurrealDB table no longer hold a push for minutes.
 - **Size budgets (owner-approved, OD-17):** pg application +0.98 kB and D1
   Worker +1.02 kB gzip, mostly for `$rows`.
 
+- **`viborm/ordering` on SurrealDB brings its own SurrealQL.** The driver no
+  longer holds code for it: it writes a `joined()` value from the list the
+  extension gives it.
+- **Nested writes send fewer statements.** A write reads what it needs
+  together, then sends its writes as one unit. No call that succeeds sends more
+  statements or more round trips than before. The SQL of a write may differ.
+- **Many-row writes with relations on batch-only drivers (D1, neon-http) are
+  all-or-nothing** when the call fits one atomic batch. They ran one batch per
+  row before, and a failure could leave earlier rows written. A call past the
+  batch limits still runs in several batches and reports its progress
+  (`RecordSeriesProgress`).
+- **A row found and then changed by another session makes the call run
+  again** where it used to fail with `NestedWriteError` ("replaced by another
+  transaction"). On a driver with transactions the call runs again once, in a
+  new transaction. On a batch-only driver it plans again up to three times,
+  then fails with `NotFoundError`.
+- **SurrealDB: a write that needs no answer between its statements is one
+  request**, a transaction of its own. Only `create` was sent so before. A
+  request of several statements that fails runs again, one statement per
+  request, so that the error is the failing statement's own. `logging.query`
+  reports such a request once, under the call's model; a `statement` hook still
+  sees each statement.
+- **SurrealDB: changing a record's key reads the rows first**, under the
+  call's own filters and permissions, then moves them.
+- **A refused produced row on a batch-only driver reports its own error**
+  (`ForbiddenError`) where it reported the generic batch failure.
+- **`$transaction([...])` on a batch-only driver accepts more calls**: a write
+  whose answer reads a relation now fits the batch. A member that would need a
+  read between two statements is still refused with `TransactionError`.
+- **Two of the three to-one compositions the documentation listed as refused
+  run** (`delete` then `connect`, with or without `update`, where the child
+  holds the key). `delete` then `connect` where the parent holds the key is
+  still refused.
+- **A call costs less processor time and less memory.** Measured on in-memory
+  SQLite against 1.14.0: `create`, `update`, `upsert` and `delete` take 3 % to
+  7 % less time, `findUnique` 8 % less, and a `create` allocates 13 % fewer
+  bytes. `createMany` of ten rows takes 5 % more time and allocates 14 % fewer
+  bytes. A call sent to a database over a network spends its time there: the
+  gain shows on SQLite, Durable Objects and other in-process databases.
+- **A `default()` function is called once per written row, before any read.**
+  A nested `updateMany` called it once more than it wrote rows.
+- **Every statement of a call is attributed to the operation the caller
+  asked for** and to the model the statement touches. A nested create under
+  `post.createMany` was attributed to `create`.
+- **Changing a key that a row with a restricting `onUpdate` references fails
+  with the database's own foreign-key error.** Nothing is written in either
+  case; the error used to be a `NestedWriteError` raised before the write.
+- **Two `deleteMany` on the same junction relation in one call run in order**
+  where they were refused.
+
 ### Fixed
 
 - **SurrealDB: a migration that changes a table's key** no longer fails with
@@ -507,6 +489,20 @@ of a new SurrealDB table no longer hold a push for minutes.
   `createMany` split by the bind budget, the `V8003` and `V5001` refusals, a
   pinned session's failure) no longer report an unhandled rejection that was
   handled a microtask later.
+
+### Upgrade notes
+
+- **Extension authors: rewrite each definition as `extension(name, ...parts)`**,
+  member by member, with
+  [Migrating an extension](https://viborm.dev/docs/extensions/migrating).
+  Users of official extensions: apply each in one `$extends()`.
+- **Tests that count statements or assert exact SQL of a write** need new
+  expectations. Assert the rows a call returns and the rows it leaves.
+- **Code that caught `NestedWriteError` for a concurrent change** now sees the
+  call succeed after it planned again, or `NotFoundError` when it kept losing
+  the race.
+- **On D1 and neon-http, do not rely on partial progress** of a many-row write
+  with relations that fits one batch: nothing is left when it fails.
 
 ## 1.13.0 — 2026-11-08
 
