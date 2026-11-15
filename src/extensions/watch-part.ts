@@ -8,44 +8,13 @@
 import type { Application, ExtensionPart } from "./chain";
 import { ARRAYS, coordinate } from "./coordination";
 import type { CallOrigin } from "./origin";
-import { collect, type tell } from "./query";
-import { type WrittenWatch, watchWrite } from "./written";
+import { collect } from "./query";
+import { type Watching, watchWrite } from "./written";
+
+export type { Watched, Watching } from "./written";
 
 /** The key a first moment's context registers watches through. */
 export const REGISTER = Symbol("viborm.watch");
-
-/** What `watch(c, …)` and `settled(c, …)` register for one call. */
-export interface Watching {
-  readonly wants?: WrittenWatch["wants"];
-  readonly rows?: WrittenWatch["rows"];
-  readonly settled?: WrittenWatch["settled"];
-  /** What shows the rows: what `watch` brings, never `settled`. */
-  readonly show?: WrittenWatch["show"];
-  /** What installs a transaction's collector: what `settled` brings. */
-  readonly collect?: typeof collect;
-  /** What tells a raw statement's `settled` of its outcome: what `settled` brings. */
-  readonly tell?: typeof tell;
-}
-
-/** A call's `watched`: what each extension's first moments registered. */
-export type Watched = Map<string, Watching[]>;
-
-/** What one extension's first moments registered for a write call, as one watch. */
-function watchOf(own: readonly Watching[]): WrittenWatch {
-  return {
-    wants: (model, kind) =>
-      own.some((watching) => watching.wants?.(model, kind) === true),
-    rows(model, kind, rows, nested) {
-      for (const watching of own)
-        if (watching.wants?.(model, kind) === true)
-          watching.rows?.(model, kind, rows, nested);
-    },
-    async settled(outcome) {
-      for (const watching of own) await watching.settled?.(outcome);
-    },
-    show: own.find((watching) => watching.show)?.show,
-  };
-}
 
 /** What a first moment's context registers watches through, for one call. */
 export interface Registering {
@@ -65,27 +34,15 @@ export interface WatchPart extends ExtensionPart {
 export const watchPart: WatchPart = {
   registering: (call, extension) => ({
     [REGISTER](watching) {
-      const byExtension = (call.watched ??= new Map());
-      byExtension.set(extension, [
-        ...(byExtension.get(extension) ?? []),
-        watching,
-      ]);
+      (call.watched ??= []).push([extension, watching]);
       return true;
     },
   }),
-  join({ next, chain, owner }: Application) {
-    const extensions = [...(chain?.watch?.extensions ?? []), owner.name];
+  join({ next }: Application) {
+    // First moments run in chain order: what a call registered is in it.
     next.watch = {
-      extensions,
-      watch: (written, _controls, context, late) => {
-        const byExtension = written.call?.watched;
-        const watches: (readonly [string, WrittenWatch])[] = [];
-        for (const extension of extensions) {
-          const own = byExtension?.get(extension);
-          if (own !== undefined) watches.push([extension, watchOf(own)]);
-        }
-        return watchWrite(watches, context, late);
-      },
+      watch: (written, _values, context, late) =>
+        watchWrite(written.call?.watched ?? [], context, late),
     };
     coordinate(next, ARRAYS, collect);
   },

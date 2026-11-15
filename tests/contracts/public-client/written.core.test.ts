@@ -282,6 +282,31 @@ for (const [name, createDriver] of [
       );
     });
 
+    test("every settled of one extension runs after one of them fails; the first fault rejects", async () => {
+      const base = await open();
+      const told: string[] = [];
+      const db = base.$extends(
+        extension(
+          "twice",
+          extCall((c) => {
+            extWatch(c, { wants: () => true, rows: () => undefined });
+            settled(c, () => {
+              told.push("first");
+              throw new Error("first down");
+            });
+            settled(c, () => {
+              told.push("second");
+            });
+          }, target(writes))
+        )
+      );
+      const error = (await failure(
+        db.user.update({ where: { id: "u1" }, data: { name: "Twice" } })
+      )) as QueryError;
+      expect(error.message).toContain('Extension "twice"');
+      expect(told).toEqual(["first", "second"]);
+    });
+
     test("a watch sees only the controls its own extension declares", async () => {
       const base = await open();
       const seen: unknown[] = [];
