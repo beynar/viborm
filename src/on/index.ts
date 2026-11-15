@@ -155,13 +155,6 @@ const KINDS: Readonly<Record<string, readonly OnKind[]>> = {
   deleteMany: ["delete", "update"],
 };
 
-/** One write call, as what watches it reads it. */
-interface WriteCall {
-  readonly model: string;
-  readonly operation: string;
-  readonly args: Readonly<Record<string, unknown>>;
-}
-
 /**
  * Hooks per model and kind, run after a write commits:
  *
@@ -215,83 +208,60 @@ export function on(hooks: RuntimeHooks, options?: OnOptions): unknown {
     call((c) => {
       // target(writes) selects model calls only: each names its model.
       const model = c.model!;
-      const watching = watchOf(own, report, reached, c.schema[model]!, {
-        model,
-        operation: c.operation,
-        args: c.args,
+      const { operation, schema } = c;
+      const mine = own[model] ?? {};
+      // The call's own rows, where a hook wants what its verb may do to them;
+      // and the rows its nested writes reach, where its payload names a
+      // relation. Any other write is not watched.
+      if (
+        !(
+          KINDS[operation]!.some((kind) => mine[kind] !== undefined) ||
+          (writesRelation(c.args, schema[model]!["~"].state.relations) &&
+            [...reachable(schema[model]!, reached)].some(
+              (other) => own[other] !== undefined
+            ))
+        )
+      )
+        return;
+      // The event's own copy: neither the caller nor a hook changes the other's.
+      const args = detached(c.args) as Row;
+      /** The rows the call wrote, per model and kind, the call's own first. */
+      const written: {
+        model: string;
+        kind: WriteKind;
+        rows: Row[];
+        nested: boolean;
+      }[] = [];
+      watch(c, {
+        wants: (name, kind) => own[name]?.[kind] !== undefined,
+        rows(name, kind, rows, nested) {
+          const group =
+            (nested &&
+              written.find(
+                (each) =>
+                  each.nested && each.model === name && each.kind === kind
+              )) ||
+            written[written.push({ model: name, kind, rows: [], nested }) - 1]!;
+          for (const row of rows) group.rows.push(detached(row) as Row);
+        },
       });
-      if (watching === undefined) return;
-      watch(c, watching);
-      settled(c, watching.settled);
+      // Told once: a call's registration hears the one outcome it reached.
+      settled(c, async ({ certainty }) => {
+        const event: OnEvent = Object.freeze({
+          model,
+          operation: operation as OnOperation,
+          args,
+          certainty,
+        });
+        for (const { model: name, kind, rows } of written)
+          try {
+            await own[name]![kind]!(Object.freeze(rows), event);
+          } catch (thrown) {
+            await report(failure(thrown, event, `${name}.${kind}`), event);
+          }
+      });
     }, target(writes))
   );
-}
-
-/** What watches one write a hook concerns; nothing for any other write. */
-function watchOf(
-  hooks: RuntimeHooks,
-  report: (error: QueryError, event: OnEvent) => Promise<void>,
-  reached: Reached,
-  model: AnyModel,
-  call: WriteCall
-) {
-  const mine = hooks[call.model] ?? {};
-  // The call's own rows, where a hook wants what its verb may do to them;
-  // and the rows its nested writes reach, where its payload names a relation.
-  if (
-    !(
-      KINDS[call.operation]!.some((kind) => mine[kind] !== undefined) ||
-      (writesRelation(call.args, model["~"].state.relations) &&
-        [...reachable(model, reached)].some(
-          (other) => hooks[other] !== undefined
-        ))
-    )
-  )
-    return undefined;
-  // The event's own copy: neither the caller nor a hook changes the other's.
-  const args = detached(call.args) as Row;
-  /** The rows the call wrote, per model and kind, the call's own first. */
-  const written: {
-    model: string;
-    kind: WriteKind;
-    rows: Row[];
-    nested: boolean;
-  }[] = [];
-  return {
-    wants: (name: string, kind: WriteKind) => hooks[name]?.[kind] !== undefined,
-    rows(
-      name: string,
-      kind: WriteKind,
-      rows: readonly Readonly<Record<string, unknown>>[],
-      nested: boolean
-    ) {
-      const group =
-        (nested &&
-          written.find(
-            (each) => each.nested && each.model === name && each.kind === kind
-          )) ||
-        written[written.push({ model: name, kind, rows: [], nested }) - 1]!;
-      for (const row of rows) group.rows.push(detached(row) as Row);
-    },
-    // Told once: a call's registration hears the one outcome it reached.
-    async settled({ certainty }: WriteOutcome) {
-      const event: OnEvent = Object.freeze({
-        model: call.model,
-        operation: call.operation as OnOperation,
-        args,
-        certainty,
-      });
-      for (const { model: name, kind, rows } of written) {
-        const failure = await runHook(
-          hooks[name]![kind]!,
-          rows,
-          event,
-          `${name}.${kind}`
-        );
-        if (failure) await report(failure, event);
-      }
-    },
-  };
 }
 
 /** Does a write's payload name a relation of its model: a nested write? */
@@ -375,37 +345,27 @@ const AFTER = {
   "may-have-committed": "may have committed",
 } as const;
 
-/** Run one hook; its failure, if any, as the error reported for it. */
-async function runHook(
-  hook: RuntimeHook,
-  rows: Row[],
-  event: OnEvent,
-  label: string
-): Promise<QueryError | undefined> {
-  try {
-    await hook(Object.freeze(rows), event);
-    return undefined;
-  } catch (thrown) {
-    const cause = thrown instanceof Error ? thrown : new Error(String(thrown));
-    const error = new QueryError(
-      `Extension "${NAME}" hook ${label} failed after the write ${AFTER[event.certainty]}; the write is not undone.`,
-      {
-        cause,
-        meta: {
-          method: "on",
-          model: event.model,
-          operation: event.operation,
-          commitCertainty: event.certainty,
-        },
-      }
-    );
-    // The hook is the application's own code: its error is handed back as
-    // it threw it (serialized diagnostics keep the redacted copy).
-    Object.defineProperty(error, "cause", {
-      value: cause,
-      configurable: true,
-      writable: true,
-    });
-    return error;
-  }
+/** A hook's failure, as the error reported for it. */
+function failure(thrown: unknown, event: OnEvent, label: string): QueryError {
+  const cause = thrown instanceof Error ? thrown : new Error(String(thrown));
+  const error = new QueryError(
+    `Extension "${NAME}" hook ${label} failed after the write ${AFTER[event.certainty]}; the write is not undone.`,
+    {
+      cause,
+      meta: {
+        method: "on",
+        model: event.model,
+        operation: event.operation,
+        commitCertainty: event.certainty,
+      },
+    }
+  );
+  // The hook is the application's own code: its error is handed back as
+  // it threw it (serialized diagnostics keep the redacted copy).
+  Object.defineProperty(error, "cause", {
+    value: cause,
+    configurable: true,
+    writable: true,
+  });
+  return error;
 }
