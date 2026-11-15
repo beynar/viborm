@@ -101,34 +101,25 @@ export interface Admitting {
   reads?: CallReads;
 }
 
-/** `arg(name, path?)`'s value: the call's value for one argument, or a field of it. */
-export class ArgValue extends PredicateWord {
-  readonly name: string;
+/**
+ * `arg(name, path?)`'s value: the call's value for one argument, or a field
+ * of it; without a name, `now`'s: the call's one instant.
+ */
+class ArgValue extends PredicateWord {
+  readonly name: string | undefined;
   readonly path: string | undefined;
-  constructor(name: string, path: string | undefined) {
+  constructor(name?: string, path?: string) {
     super();
     this.name = name;
     this.path = path;
   }
-  override value(at: Admitting): object {
+  override value(at: Admitting): Parameter {
     at.references.add(this.name);
     at.reads = CALL_READS;
     return this.stamp();
   }
   override stamp(): Parameter {
-    return new Parameter(this.name, this.path);
-  }
-}
-
-/** `now`'s value: the call's one instant. */
-export class NowValue extends PredicateWord {
-  override value(at: Admitting): object {
-    at.references.add(undefined);
-    at.reads = CALL_READS;
-    return new Parameter();
-  }
-  override stamp(): Parameter {
-    return NOW;
+    return this.name === undefined ? NOW : new Parameter(this.name, this.path);
   }
 }
 
@@ -201,18 +192,20 @@ export function testOf(given: unknown): ConditionTest | string {
  * `unless` the reverse; `provided` holds only where the test holds (and
  * `then`, if any).
  */
-export class ArgTestFilter extends PredicateWord {
+class ArgTestFilter extends PredicateWord {
   readonly kind: "when" | "unless" | "provided";
   readonly arg: ArgValue;
   readonly test: ArgTest;
   readonly then: unknown;
   constructor(
     kind: "when" | "unless" | "provided",
-    tested: ArgValue,
+    tested: unknown,
     test: ArgTest,
     then: unknown
   ) {
     super();
+    if (!(tested instanceof ArgValue && tested.name !== undefined))
+      throw new TypeError(`${kind}() tests an argument written arg(name)`);
     this.kind = kind;
     this.arg = tested;
     this.test = test;
@@ -221,11 +214,9 @@ export class ArgTestFilter extends PredicateWord {
   override filter(at: Admitting): FilterWord {
     const test = testOf(this.test);
     if (typeof test === "string") return { message: test, path: [] };
-    const { arg, kind, then } = this;
-    at.references.add(arg.name);
-    at.reads = CALL_READS;
+    const { kind, then } = this;
     const condition = new (kind === "provided" ? Condition : Choice)(
-      new Parameter(arg.name, arg.path),
+      this.arg.value(at),
       test
     );
     if (kind === "provided")
@@ -237,11 +228,6 @@ export class ArgTestFilter extends PredicateWord {
       where: { OR: [kind === "when" ? { NOT: condition } : condition, then] },
     };
   }
-}
-
-function argValueOf(word: unknown, role: string): ArgValue {
-  if (word instanceof ArgValue) return word;
-  throw new TypeError(`${role}() tests an argument written arg(name)`);
 }
 
 /**
@@ -268,7 +254,7 @@ export const nothing: { readonly OR: readonly never[] } =
 export const now: NowWord = /* @__PURE__ */ nowValue();
 function nowValue(): NowWord;
 function nowValue(): unknown {
-  return new NowValue();
+  return new ArgValue();
 }
 
 /** A column of the row `up` relation bodies above (0: the row itself). */
@@ -299,7 +285,7 @@ export function when<N extends string, W>(
   then: HeldOperand<W>
 ): HeldWhen<N, W>;
 export function when(tested: unknown, test: ArgTest, then: unknown): unknown {
-  return new ArgTestFilter("when", argValueOf(tested, "when"), test, then);
+  return new ArgTestFilter("when", tested, test, then);
 }
 
 /** `then` applies where the argument fails the test; elsewhere, nothing. */
@@ -309,7 +295,7 @@ export function unless<N extends string, W>(
   then: HeldOperand<W>
 ): HeldWhen<N, W>;
 export function unless(tested: unknown, test: ArgTest, then: unknown): unknown {
-  return new ArgTestFilter("unless", argValueOf(tested, "unless"), test, then);
+  return new ArgTestFilter("unless", tested, test, then);
 }
 
 /** Holds only where the argument passes the test, and `then` with it. */
@@ -323,10 +309,5 @@ export function provided(
   test: ArgTest,
   then?: object
 ): unknown {
-  return new ArgTestFilter(
-    "provided",
-    argValueOf(tested, "provided"),
-    test,
-    then
-  );
+  return new ArgTestFilter("provided", tested, test, then);
 }

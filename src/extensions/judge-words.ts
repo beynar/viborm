@@ -7,7 +7,7 @@
  * is first read). Each carries what applies it, so a rule that only filters
  * holds none of it.
  */
-import { Condition, Parameter } from "@query-engine/raptor3/shared/row-scope";
+import { Condition } from "@query-engine/raptor3/shared/row-scope";
 import type { ModelState } from "@schema/model";
 import { isPlainRecord } from "@schema/relation/terminal";
 import type { VerbsDraft } from "./admission";
@@ -243,10 +243,7 @@ class Kept extends CarriedValue {
     if (chosen?.arg !== undefined) {
       const tested = testOf(chosen.test);
       if (typeof tested === "string") refuse(tested);
-      test = new Condition(
-        new Parameter(chosen.arg.name, chosen.arg.path),
-        tested
-      );
+      test = new Condition(chosen.arg.stamp(), tested);
       data = chosen.then;
     }
     if (!isPlainRecord(data))
