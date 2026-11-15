@@ -9,7 +9,6 @@
  * whose words are known only once its model is read, a forwarder asks the
  * model first.
  */
-import { ClientInitializationError } from "@errors";
 import type { Queries } from "@query-engine/raptor3/shared/query";
 import type {
   LazyRelations,
@@ -28,6 +27,7 @@ import type {
   VerbsDraft,
   VerbsHost,
 } from "./admission";
+import { extensionError } from "./chain";
 import type { ResolvedExtensionChain } from "./chain-state";
 import { FilterDomain, preparer } from "./row-domain";
 import type { Site } from "./rule-words";
@@ -299,9 +299,9 @@ export const LAZY_ENTRIES: LazyEntries = {
           (argument) => argument.name === name && names.has(argument.extension)
         )
       )
-        throw new ClientInitializationError(
+        extensionError(
           `Extension "${extension}" references undeclared argument "${name}".`,
-          { meta: { extension } }
+          extension
         );
     return draft;
   },
