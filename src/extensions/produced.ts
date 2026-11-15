@@ -127,8 +127,9 @@ const foldKnownNulls = (
  * subtree), read with the statement's shared bodies: the adapter's
  * assertion, 1 or the statement that carries it fails before it writes.
  * `undefined` where nothing is left to judge: the call drops every layer
- * `judged` is made of (R6). `within` turns the condition the row is held to
- * into the one the guard judges (`keptWhere`).
+ * `judged` is made of (R6). Where the dialect judges in the filter
+ * (`keptWhere`), `keep` is the candidates' condition, lowered after the
+ * guard's and handed to `select` with it.
  */
 function holds(
   q: SqlQueries,
@@ -137,10 +138,13 @@ function holds(
   judged: Pick<PreparedSelector, "model" | "predicate"> | undefined,
   alias: string,
   nulls: ReadonlyMap<string, boolean>,
-  select: (guard: Sql) => Parameters<typeof assembleAdapterSelect>[1],
+  select: (
+    guard: Sql,
+    kept?: Sql
+  ) => Parameters<typeof assembleAdapterSelect>[1],
   from?: Sql,
   acyclic: readonly string[] = NO_RELATIONS,
-  within?: (held: Sql) => Sql
+  keep?: () => Sql
 ): Sql | undefined {
   const a = q.adapter;
   return q.sharing(() => {
@@ -160,12 +164,19 @@ function holds(
     ];
     if (conditions.length === 0) return undefined;
     const held = a.operators.and(...conditions);
+    const kept = keep?.();
     return assembleAdapterSelect(
       a,
       select(
         a.subqueries.scalar(
-          judgedHolds(a, spelling, within ? within(held) : held, from)
-        )
+          judgedHolds(
+            a,
+            spelling,
+            (kept && spelling.keptWhere?.(a, kept, held)) || held,
+            from
+          )
+        ),
+        kept
       )
     );
   });
@@ -298,8 +309,6 @@ export function producedWhere(
   const keys = q.keyOrder(model).map(current);
   // Where the dialect aggregates no subquery, the guard judges the rows the
   // candidates' filter keeps and the update keeps `kept AND guard = 1`.
-  const { keptWhere } = spelling;
-  let kept: Sql | undefined;
   const set = holds(
     q,
     spelling,
@@ -307,7 +316,7 @@ export function producedWhere(
     judged,
     produced,
     nulls,
-    (guard) => ({
+    (guard, kept) => ({
       columns: sql.join(keys, ", "),
       from: q.table(model, row),
       ...(kept
@@ -324,11 +333,7 @@ export function producedWhere(
     }),
     from,
     acyclic,
-    keptWhere &&
-      ((held) => {
-        kept = candidates(row) ?? a.literals.true();
-        return keptWhere(a, kept, held);
-      })
+    spelling.keptWhere && (() => candidates(row) ?? a.literals.true())
   );
   if (set === undefined) return undefined;
   const table = model["~"].names.sql!;
