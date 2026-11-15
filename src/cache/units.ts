@@ -20,11 +20,6 @@ import {
   ATTR_DB_COLLECTION,
   ATTR_DB_OPERATION_NAME,
   ATTR_VIBORM_CORRELATION_ID,
-  SPAN_CACHE_CLEAR,
-  SPAN_CACHE_DELETE,
-  SPAN_CACHE_GET,
-  SPAN_CACHE_INVALIDATE,
-  SPAN_CACHE_SET,
   SPAN_OPERATION,
 } from "../instrumentation/spans";
 import type { InstrumentationNote } from "../instrumentation/types";
@@ -34,14 +29,6 @@ export interface CacheCall {
   readonly model: string;
   readonly operation: string;
 }
-
-const SPANS = {
-  clear: SPAN_CACHE_CLEAR,
-  delete: SPAN_CACHE_DELETE,
-  get: SPAN_CACHE_GET,
-  invalidate: SPAN_CACHE_INVALIDATE,
-  set: SPAN_CACHE_SET,
-};
 
 /**
  * One decision of a read, as a cache log presents it: the call is named
@@ -81,7 +68,7 @@ export function placeSetFailure(
  * with no origin (a backend method called directly) belongs to no chain.
  */
 export function cacheStep<T>(
-  step: keyof typeof SPANS,
+  step: "get" | "set" | "invalidate" | "delete" | "clear",
   origin: object | undefined,
   driverName: string,
   execute: (unit?: UnitContext) => Promise<T>,
@@ -98,45 +85,30 @@ export function cacheStep<T>(
   };
   return work(
     origin,
-    { kind: "cache", operation: step, note: { span: SPANS[step], attributes } },
+    // Its span is `viborm.cache.<step>` (`SPAN_CACHE_GET`, …).
+    {
+      kind: "cache",
+      operation: step,
+      note: { span: `viborm.cache.${step}`, attributes },
+    },
     execute
   );
 }
 
-/** How a revalidation's work and cleanup failed. */
-export interface RevalidationFailure {
-  failed: boolean;
-  error: unknown;
-}
-
 /**
- * Run one actual revalidation as its own `cache` unit, presented as the root
- * operation it replays: `run` is handed the record of its failure to fill,
- * and its terminal outcome is noted on that unit.
+ * What a revalidation's own `cache` unit starts with: it is presented as the
+ * root operation it replays.
  */
-export async function revalidation(
-  origin: object,
+export const revalidationStart = (
   call: CacheCall,
-  database: Database | undefined,
-  run: (failure: RevalidationFailure) => Promise<InstrumentationNote>
-): Promise<void> {
-  const failure: RevalidationFailure = { failed: false, error: undefined };
-  const start: InstrumentationNote = {
-    ...cacheOutcome("revalidate", "start", undefined, call),
-    span: SPAN_OPERATION,
-    root: true,
-    database,
-    attributes: {
-      [ATTR_DB_COLLECTION]: call.model,
-      [ATTR_DB_OPERATION_NAME]: call.operation,
-    },
-  };
-  await work(
-    origin,
-    { kind: "cache", operation: "revalidate", note: start },
-    async (unit) => {
-      note(unit, await run(failure));
-      if (failure.failed) throw failure.error;
-    }
-  );
-}
+  database: Database
+): InstrumentationNote => ({
+  ...cacheOutcome("revalidate", "start", undefined, call),
+  span: SPAN_OPERATION,
+  root: true,
+  database,
+  attributes: {
+    [ATTR_DB_COLLECTION]: call.model,
+    [ATTR_DB_OPERATION_NAME]: call.operation,
+  },
+});

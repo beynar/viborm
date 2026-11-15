@@ -3,10 +3,11 @@
  * (`cache({ driver, swr: staleWhileRevalidate })`): a cache without it
  * carries none of this code, and refuses a view's `swr` option.
  */
+import { work } from "@extensions/observation";
 import { note } from "@extensions/unit-words";
 import { marker, scheduleBackground } from "./cache-background";
 import type { Refresh, Revalidate } from "./driver";
-import { cacheOutcome, revalidation } from "./units";
+import { cacheOutcome, revalidationStart } from "./units";
 
 /**
  * A stale entry within its window is served, and refreshed in the
@@ -45,35 +46,42 @@ async function refreshed({
     return;
   }
   const { codec } = request;
-  await revalidation(
+  // Its own `cache` unit, whose terminal outcome is noted on it; a failure
+  // of the replay is primary over the cleanup's, both retained.
+  await work(
     request.origin,
-    request,
-    request.database,
-    async (failure) => {
+    {
+      kind: "cache",
+      operation: "revalidate",
+      note: revalidationStart(request, request.database),
+    },
+    async (unit) => {
+      let failed = false;
+      let failure: unknown;
       let terminal: ReturnType<typeof cacheOutcome>;
       try {
         await codec.run();
         await store(codec.snapshot());
         terminal = cacheOutcome("revalidate", "success", undefined, request);
       } catch (error) {
-        failure.failed = true;
-        failure.error = error;
+        failed = true;
+        failure = error;
         terminal = cacheOutcome("revalidate", "error", error, request);
-      } finally {
-        try {
-          await marker(backend, key, false);
-        } catch (cleanupFailure) {
-          failure.error = failure.failed
-            ? new AggregateError(
-                [failure.error, cleanupFailure],
-                "Cache revalidation work and cleanup both failed.",
-                { cause: failure.error }
-              )
-            : cleanupFailure;
-          failure.failed = true;
-        }
       }
-      return terminal;
+      try {
+        await marker(backend, key, false);
+      } catch (cleanupFailure) {
+        failure = failed
+          ? new AggregateError(
+              [failure, cleanupFailure],
+              "Cache revalidation work and cleanup both failed.",
+              { cause: failure }
+            )
+          : cleanupFailure;
+        failed = true;
+      }
+      note(unit, terminal);
+      if (failed) throw failure;
     }
   );
 }
