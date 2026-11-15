@@ -84,7 +84,7 @@ function planNode(
   args: Row | undefined
 ): { readonly args: Row | undefined; readonly node: ResultNode } | undefined {
   // A hydrated model always has its name.
-  const declared = fields[model["~"].names.ts!];
+  const declared = fields[model["~"].names.ts!] ?? [];
   const select = isRecord(args?.select) ? args.select : undefined;
   const include = isRecord(args?.include) ? args.include : undefined;
   const omit = isRecord(args?.omit) ? args.omit : undefined;
@@ -117,7 +117,7 @@ function planNode(
 
   // The latest declaration of each name is the visible field.
   const visible = new Map<string, number>();
-  for (const [index, field] of (declared ?? []).entries())
+  for (const [index, field] of declared.entries())
     visible.set(field.name, index);
   // A name the payload keeps: a column it returns, or a field it computes.
   const kept = (name: string) =>
@@ -137,7 +137,7 @@ function planNode(
   const close = (index: number) => {
     if (computing.has(index)) return;
     computing.add(index);
-    for (const need of declared![index]!.needs) {
+    for (const need of declared[index]!.needs) {
       if (typeof need === "number") close(need);
       else reads.add(need);
     }
@@ -157,7 +157,11 @@ function planNode(
   // anyway, then removed again.
   let nextOmit: Row | undefined;
   for (const name of visible.keys()) {
-    if (omit?.[name] === undefined || readsColumn(model, name)) continue;
+    if (
+      omit?.[name] === undefined ||
+      Object.hasOwn(model["~"].state.scalars, name)
+    )
+      continue;
     nextOmit ??= { ...omit };
     delete nextOmit[name];
   }
@@ -188,7 +192,7 @@ function planNode(
   return {
     args: next,
     node: {
-      fields: declared ?? [],
+      fields: declared,
       outputs: wanted,
       reads: [...reads],
       strip: [...strip],
@@ -196,9 +200,6 @@ function planNode(
     },
   };
 }
-
-const readsColumn = (model: AnyModel, name: string): boolean =>
-  Object.hasOwn(model["~"].state.scalars, name);
 
 function finishValue(value: unknown, node: ResultNode): unknown {
   if (Array.isArray(value)) return value.map((row) => finishRow(row, node));
