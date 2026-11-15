@@ -284,8 +284,8 @@ the unit records (`unit-source.ts`), the handler and write-outcome types
 (`judge.ts`, `projection.ts`, for Raptor 3's row scope), and the vocabulary
 and method types (`contract.ts`, `methods.ts`) are imported for their types
 only. It must not grow by
-one byte (`pg-representative`, measured by `extension-bytes.mjs`: 508,082
-bytes minified on `d26773ec0`, of which 646 come from `src/extensions`): a chain member a core path reads is named short, since
+one byte (`pg-representative`, measured by `extension-bytes.mjs`: 508,070
+bytes minified on `f8ed6cbe1`, of which 646 come from `src/extensions`): a chain member a core path reads is named short, since
 minified property names are kept.
 
 **The chain.** `src/extensions/chain.ts` is the one mechanism. An extension

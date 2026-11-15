@@ -67,13 +67,13 @@ share the chain's own code, so a second part costs less than its row.
 
 {/* Measured with `node scripts/extension-bytes.mjs` (the `pg-one-*`
 fixtures of scripts/bundle-fixtures, and the official extensions' fixtures),
-last on d26773ec0; rerun it and update these figures when the code of
+last on f8ed6cbe1; rerun it and update these figures when the code of
 src/extensions changes. */}
 
 | You import | Your bundle carries | Adds (min) | Adds (gzip) |
 |---|---|---:|---:|
 | `methods` | Client method factories and their collision checks | 2.4 kB | 1.2 kB |
-| `args`, `oneOf` | Argument admission: taken out of the call, validated once | 3.2 kB | 1.4 kB |
+| `args`, `oneOf` | Argument admission: taken out of the call, validated once | 3.1 kB | 1.4 kB |
 | `call`, `target(reads)` | The chain, the first moment: argument patches and refusals | 3.4 kB | 1.6 kB |
 | `fields` | Computed fields: planning their needs, attaching them to rows | 4.5 kB | 1.9 kB |
 | `unit` | The runner around physical units | 4.9 kB | 2.1 kB |
@@ -82,13 +82,13 @@ src/extensions changes. */}
 | `defaults` with `omitted` | Default omission | 5.5 kB | 2.4 kB |
 | `around` | The second moment around the prepared call, and the admission of `$transaction([...])` members | 6.6 kB | 2.8 kB |
 | `around` with `again` | Making a failed call again | 6.8 kB | 2.9 kB |
-| `around`, `target(reads)` | The second moment, on the calls a target selects | 7.0 kB | 3.0 kB |
-| `call`, `target(writes)`, `watch`, `settled` | The rows a write wrote, the hook after its commit | 7.2 kB | 3.0 kB |
-| `rule` with `root` and `related` filters | Row filters, prepared once per schema | 8.2 kB | 3.6 kB |
-| `rule` with `args`, `when`, `arg` | Row filters that read an argument, folded per call | 14.9 kB | 6.1 kB |
-| `rule` with `keep`, `now` | Kept deleted rows | 14.9 kB | 6.3 kB |
-| `rule` with `gate` | Gated fields | 16.4 kB | 6.9 kB |
-| `rule` with `check` | The judgement of the rows a write produces | 18.2 kB | 7.4 kB |
+| `around`, `target(reads)` | The second moment, on the calls a target selects | 6.9 kB | 3.0 kB |
+| `call`, `target(writes)`, `watch`, `settled` | The rows a write wrote, the hook after its commit | 7.1 kB | 3.1 kB |
+| `rule` with `root` and `related` filters | Row filters, prepared once per schema | 8.0 kB | 3.6 kB |
+| `rule` with `args`, `when`, `arg` | Row filters that read an argument, folded per call | 14.6 kB | 6.0 kB |
+| `rule` with `keep`, `now` | Kept deleted rows | 14.7 kB | 6.2 kB |
+| `rule` with `gate` | Gated fields | 16.2 kB | 6.8 kB |
+| `rule` with `check` | The judgement of the rows a write produces | 18.0 kB | 7.4 kB |
 
 The official extensions, measured the same way:
 
@@ -97,11 +97,11 @@ The official extensions, measured the same way:
 | [`defaultOmit()`](/docs/extensions/omit) | 5.7 kB | 2.2 kB |
 | [`on()`](/docs/extensions/on) | 9.7 kB | 3.9 kB |
 | [`instrumentation()`](/docs/extensions/instrumentation) | 14.8 kB | 5.4 kB |
-| [`softDelete()`](/docs/extensions/soft-delete) | 21.0 kB | 8.2 kB |
+| [`softDelete()`](/docs/extensions/soft-delete) | 20.7 kB | 8.1 kB |
 | [`cache()`](/docs/extensions/cache) | 26.9 kB | 10.1 kB |
-| [`ordering()`](/docs/extensions/ordering) | 29.0 kB | 11.4 kB |
-| [`permissions()`](/docs/extensions/permissions) | 66.3 kB | 25.6 kB |
-| `on`, `ordering`, `permissions` and `softDelete` together | 104.2 kB | 39.4 kB |
+| [`ordering()`](/docs/extensions/ordering) | 26.9 kB | 11.0 kB |
+| [`permissions()`](/docs/extensions/permissions) | 64.8 kB | 25.2 kB |
+| `on`, `ordering`, `permissions` and `softDelete` together | 100.5 kB | 38.6 kB |
 
 The PostgreSQL application they are added to weighs 508.1 kB minified
 (168.0 kB gzip) and carries 646 bytes of this code, chiefly how a transaction
