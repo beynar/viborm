@@ -19,7 +19,7 @@ import type { Question } from "@query-engine/raptor3/write/statements";
 import type { PreparedGuardFailure } from "@query-engine/types";
 import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
-import { ALL, judgedInputs } from "./entries";
+import { ALL, given, judgedInputs } from "./entries";
 import { producedSource, producedWhere } from "./produced";
 import { readsAny } from "./reads";
 import type { PreparedDomain } from "./row-domain";
@@ -221,8 +221,8 @@ export const judgeOf = (domain: PreparedDomain) => {
                 ? [
                     own.read ?? ALL,
                     ...judgedInputs(own, judgement),
-                    ...(own.check === undefined ? [] : [own.check]),
-                  ]
+                    own.check,
+                  ].filter(given)
                 : [];
               const unchanged =
                 changed !== undefined &&
@@ -236,15 +236,10 @@ export const judgeOf = (domain: PreparedDomain) => {
               const wheres = judgement
                 ? [
                     ...(unchanged ? [] : checked),
-                    ...judgement.writes.flatMap((field) => {
-                      const move = own.moves?.get(field);
-                      return move === undefined ? [] : [move];
-                    }),
+                    ...judgement.writes.map((field) => own.moves?.get(field)),
                   ]
-                : own.place === undefined
-                  ? []
-                  : [own.place];
-              layers.push([layer, [...new Set(wheres)]]);
+                : [own.place];
+              layers.push([layer, [...new Set(wheres.filter(given))]]);
             }
             return domain.conjunction(model, layers);
           }

@@ -33,6 +33,10 @@ import type { Site } from "./rule-words";
 /** No restriction: what a key an entry leaves out takes, read as no predicate. */
 export const ALL: Input = Object.freeze({});
 
+/** Whether a predicate an entry may leave out is given. */
+export const given = (input: Input | undefined): input is Input =>
+  input !== undefined;
+
 /**
  * The predicates one layer's entry gives a write `judgement`, each once:
  * `delete`'s, or per field an update writes that field's own, else
@@ -97,14 +101,13 @@ class JudgedDomain extends EntryDomain {
     for (let layer = 0; layer < count; layer++) {
       if (excluded.includes(layer)) continue;
       const own = entries[layer];
-      const where = inputs?.[layer];
       layers.push([
         layer,
         [
-          ...(own?.read === undefined ? [] : [own.read]),
-          ...(where === undefined ? [] : [where]),
+          own?.read,
+          inputs?.[layer],
           ...(own && judgement ? judgedInputs(own, judgement) : []),
-        ],
+        ].filter(given),
       ]);
     }
     return layers;

@@ -9,6 +9,7 @@ import { type Input, memo } from "@query-engine/raptor3/shared/schema";
 import type { AnyModel } from "@schema/model";
 import type { AdmittedLayer, Confines } from "./admission";
 import type { ConfineWord, HeldOperand, IsHeld } from "./contract";
+import { given } from "./entries";
 import { Held } from "./judge-words";
 import type { PreparedDomain } from "./row-domain";
 import type { Site } from "./rule-words";
@@ -35,10 +36,9 @@ function bound(domain: PreparedDomain) {
       memo(bounds, `${name} ${excluded}`, () =>
         domain.conjunction(
           model,
-          excluded.map((layer) => {
-            const input = inputs[layer];
-            return [layer, input === undefined ? [] : [input]] as const;
-          })
+          excluded.map(
+            (layer) => [layer, [inputs[layer]].filter(given)] as const
+          )
         )
       ) ?? undefined
     );
