@@ -83,6 +83,18 @@ export interface ActorContract {
   readonly schema: StandardSchemaV1;
 }
 
+/** Whether a normalized schema takes `undefined`: published, or the literal itself. */
+const acceptsUndefined = (value: VibSchema): boolean => {
+  const shape = value as VibSchema & {
+    acceptsUndefined?: boolean;
+    value?: unknown;
+  };
+  return (
+    shape.acceptsUndefined === true ||
+    (shape.type === "literal" && shape.value === undefined)
+  );
+};
+
 /** Normalize structural actor objects once; native validation owns parsing. */
 function bindingSchema(
   input: unknown,
@@ -109,8 +121,9 @@ function bindingSchema(
   open.add(schema);
   const child = (value: unknown, path = at) =>
     bindingSchema(value, memo, open, path);
+  const { type } = schema;
   let result: VibSchema = schema;
-  if (schema.type === "object") {
+  if (type === "object") {
     const { transform, refuse: refusal, ...options } = schema.options ?? {};
     const sparse = options.partial !== false && options.atLeast === undefined;
     // Native required-object parsing is dense. Keep the original sparse
@@ -145,38 +158,32 @@ function bindingSchema(
           : transform,
       }
     );
-  } else if (schema.type === "optional")
+  } else if (type === "optional")
     result = v.optional(child(schema.wrapped), schema.default);
-  else if (schema.type === "nullable")
-    result = v.nullable(child(schema.wrapped));
-  else if (schema.type === "lazyRef") result = child(schema.wrapped);
-  else if (schema.type === "array") result = v.array(child(schema.item));
-  else if (schema.type === "record")
+  else if (type === "nullable") result = v.nullable(child(schema.wrapped));
+  else if (type === "lazyRef") result = child(schema.wrapped);
+  else if (type === "array") result = v.array(child(schema.item));
+  else if (type === "record")
     result = v.record(schema.key!, child(schema.value));
-  else if (schema.type === "union" && Array.isArray(schema.options))
+  else if (type === "union" && Array.isArray(schema.options))
     result = v.union(schema.options.map((member) => child(member)));
-  else if (schema.type === "pipe")
+  else if (type === "pipe")
     result = v.pipe(child(schema.schema), ...schema.actions!);
   // These wrappers delegate undefined correctly, but their ordinary object
   // metadata does not publish it. Actor objects require this fact before
   // choosing whether to run a member's validator on a missing key.
-  const acceptsUndefined = (value: VibSchema): boolean => {
-    const shape = value as VibSchema & {
-      acceptsUndefined?: boolean;
-      value?: unknown;
-    };
-    return (
-      shape.acceptsUndefined === true ||
-      (shape.type === "literal" && shape.value === undefined)
-    );
-  };
+  const delegates =
+    type === "union"
+      ? schema.options
+      : type === "pipe"
+        ? [schema.schema]
+        : type === "nullable"
+          ? [schema.wrapped]
+          : [];
   if (
     result !== schema &&
-    ((schema.type === "union" &&
-      Array.isArray(schema.options) &&
-      schema.options.some((member) => acceptsUndefined(child(member)))) ||
-      (schema.type === "pipe" && acceptsUndefined(child(schema.schema))) ||
-      (schema.type === "nullable" && acceptsUndefined(child(schema.wrapped))))
+    Array.isArray(delegates) &&
+    delegates.some((member) => acceptsUndefined(child(member)))
   )
     Object.defineProperty(result, "acceptsUndefined", { value: true });
   open.delete(schema);
