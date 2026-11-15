@@ -3,7 +3,6 @@ import type {
   Arguments,
   EngineSchema,
 } from "@query-engine/raptor3/shared/schema";
-import type { Operation } from "@query-engine/types";
 import type { AnyModel } from "@schema/model";
 import { isPlainRecord } from "@schema/relation/terminal";
 import { parseProviding } from "@validation/primitives/object";
@@ -23,18 +22,12 @@ import type { Projection } from "./projection";
  * arguments and marked on the `select` admission returned.
  */
 
-/** The operations whose results are rows: the only ones a projection reaches. */
-const ROW_RESULTS: ReadonlySet<Operation> = new Set<Operation>([
-  "findMany",
-  "findFirst",
-  "findUnique",
-  "create",
-  "update",
-  "upsert",
-  "delete",
-  "createMany",
-  "updateMany",
-  "deleteMany",
+/** The operations whose results are not rows: a projection reaches none. */
+const NOT_ROWS: ReadonlySet<Admitted> = new Set<Admitted>([
+  "count",
+  "exist",
+  "aggregate",
+  "groupBy",
 ]);
 
 /** A key's admitted value: `true`, nothing for `false`, or a list of the names it declares. */
@@ -140,7 +133,7 @@ export function admitProjected(
   // The model's entries are read before its arguments: an entry given
   // lazily refuses the call first.
   this.projected(model);
-  if (!ROW_RESULTS.has(operation)) return admit();
+  if (NOT_ROWS.has(operation)) return admit();
   // A projection is provided under `$` and its model's name.
   const admitted = parseProviding((name, key) => {
     const target = name[0] === "$" ? schema.schema[name.slice(1)] : undefined;

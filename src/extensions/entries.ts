@@ -120,24 +120,20 @@ type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 /** The keys of a draft that hold one predicate, each admitted as one. */
 const SINGLE = ["read", "shown", "update", "delete", "place", "check"] as const;
-/** The keys of a draft that hold one predicate per field, and where each is written. */
-const PER_FIELD = [
-  ["writes", "writes"],
-  ["moves", "moves"],
-  ["reads", "reads"],
-  ["facts", "read.select"],
-] as const;
+/** The keys of a draft that hold one predicate per field, each written at its own name but `facts`. */
+const PER_FIELD = ["writes", "moves", "reads", "facts"] as const;
 
 /**
  * The self relations `acyclic` names, each checked to be one of `model`'s
- * to itself holding its key: only those can loop. Given as a function, they
- * are read and checked when an update first writes one of those keys.
+ * to itself holding its key: only those can loop, so only an update that
+ * writes one of those keys asks them. Given as a function, they are read
+ * and checked then; as a list, now.
  */
 function cyclesOf(
   { schema, refuse }: Admission,
   name: string,
   declared: unknown
-): readonly string[] | LazyRelations {
+): LazyRelations {
   const model = schema[name]!;
   const { relations } = model["~"].state;
   const keyed = Object.keys(relations).filter((relation) => {
@@ -160,12 +156,13 @@ function cyclesOf(
         );
     return listed;
   };
-  if (typeof declared !== "function") return checked(declared);
   let resolved: readonly string[] | undefined;
-  return {
-    candidates: keyed,
-    resolve: () => (resolved ??= checked(declared())),
-  };
+  const resolve = () =>
+    (resolved ??= checked(
+      typeof declared === "function" ? declared() : declared
+    ));
+  if (typeof declared !== "function") resolve();
+  return { candidates: keyed, resolve };
 }
 
 /** One model's draft with every predicate admitted: the layer's entry. */
@@ -183,8 +180,9 @@ export function admitDraft(
     out.cycles = cyclesOf(admission, name, draft.acyclic);
   for (const key of SINGLE)
     if (draft[key] !== undefined) out[key] = admit(key, draft[key]);
-  for (const [key, place] of PER_FIELD) {
+  for (const key of PER_FIELD) {
     const given = draft[key];
+    const place = key === "facts" ? "read.select" : key;
     if (given !== undefined)
       out[key] = new Map(
         [...given].map(([field, where]) => [
@@ -203,12 +201,11 @@ export function admitDraft(
  * application's, as they would be at admission.
  */
 function bindEntries(chain: ResolvedExtensionChain): BoundEntries {
-  // A layer of the chain brought what binds the entries.
   const layers = chain.rules!;
-  const brought = <K extends keyof NonNullable<RuleLayer["brings"]>>(kind: K) =>
-    layers.find((layer) => layer.brings?.[kind])?.brings?.[kind];
-  const keys = brought("keys");
-  const lazy = brought("lazy");
+  // What the chain's layers brought: one value per kind, whichever brought it.
+  const brought: NonNullable<RuleLayer["brings"]> = {};
+  for (const layer of layers) Object.assign(brought, layer.brings);
+  const { judge, project, prepare = prepareEntries, keys, lazy } = brought;
   const declares = (model: string) =>
     layers.some((layer) => Object.hasOwn(layer.rules, model));
   const built = new Map<string, readonly (AdmittedEntry | undefined)[]>();
@@ -232,18 +229,16 @@ function bindEntries(chain: ResolvedExtensionChain): BoundEntries {
     for (const model of Object.keys(layer.rules))
       if (layers.every((other) => typeof other.rules[model] !== "function"))
         get(model);
-  const judge = brought("judge");
-  const project = brought("project");
   return {
     rules: { has: declares, get },
-    ...(judge && { judge }),
-    ...(project && { project }),
+    judge,
+    project,
     // An entry given lazily is read later: its calls carry their values.
     ...(lazy && {
-      lazy: true,
+      lazy,
       filters: (model: string, layer: number) => get(model)?.[layer]?.filters,
     }),
-    prepare: brought("prepare") ?? prepareEntries,
+    prepare,
   };
 }
 

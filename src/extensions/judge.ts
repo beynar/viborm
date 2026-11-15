@@ -10,10 +10,7 @@ import {
   NO_RELATIONS,
   type PreparedSelector,
 } from "@query-engine/raptor3/shared/query";
-import type {
-  LazyRelations,
-  WriteJudgement,
-} from "@query-engine/raptor3/shared/row-scope";
+import type { WriteJudgement } from "@query-engine/raptor3/shared/row-scope";
 import { type Input, memo } from "@query-engine/raptor3/shared/schema";
 import type { SqlOperationContext } from "@query-engine/raptor3/shared/sql-operation-context";
 import type { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
@@ -274,15 +271,10 @@ export const judgeOf = (domain: PreparedDomain) => {
       };
       for (const own of entries) {
         const acyclic = own?.cycles;
-        if (acyclic === undefined) continue;
-        // Not a list, the cycles are the lazy relations `cyclesOf` made.
-        const named = Array.isArray(acyclic)
-          ? acyclic
-          : (acyclic as LazyRelations).candidates.some(written)
-            ? (acyclic as LazyRelations).resolve()
-            : NO_RELATIONS;
-        for (const relation of named)
-          if (written(relation)) relations.add(relation);
+        // Named only where the update writes one of the keys that could be.
+        if (acyclic?.candidates.some(written))
+          for (const relation of acyclic.resolve())
+            if (written(relation)) relations.add(relation);
       }
       return relations.size === 0 ? NO_RELATIONS : [...relations];
     },
