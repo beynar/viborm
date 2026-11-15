@@ -361,7 +361,7 @@ and attaches facts with `note`.
 | Earlier | Now |
 |---|---|
 | `{ oneOf: ["a", "b"] }` | `oneOf("a", "b")` |
-| `{ schema: v.string() }` | `v.string()`, or `accepts(v.string())` to add modifiers |
+| `{ schema: v.string() }` | `accepts(v.string())` (a bare schema is refused) |
 | `on: "reads"`, `"writes"`, a list | `.on(reads)`, `.on(writes)`, `.on([...])`; nothing for every operation |
 | `required: true` | `.required()` everywhere it is accepted, or `.required([...models])` |
 | `bound: true` | `bound(schema)` |

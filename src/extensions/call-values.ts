@@ -52,7 +52,7 @@ export const CALL_READS: CallReads = {
       chain.stamps?.named === true ||
       ![...read].every((name) =>
         declared.some(
-          (argument) => argument.name === name && "oneOf" in argument
+          (argument) => argument.name === name && argument.oneOf !== undefined
         )
       )
         ? undefined

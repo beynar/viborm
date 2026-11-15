@@ -426,7 +426,7 @@ export function rowDefinitionOrdering() {
       methods(() => ({ $stillReady: () => true }))
     )
   );
-  consumer.$extends(extension("control", args({ tag: v.string() })));
+  consumer.$extends(extension("control", args({ tag: accepts(v.string()) })));
 }
 
 export function thirdPartyStepsOverFactories() {

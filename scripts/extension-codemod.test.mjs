@@ -352,10 +352,12 @@ test("controls → args with each modifier; required lists the models the defini
   kind: { oneOf: ["a", "b"], on: "reads", uncacheable: true },
   version: { schema: v.number(), on: ["update", "delete"] },
   all: { oneOf: modes, on: "all" },
+  note: { schema: v.string() },
 }, data: { models: { post: { create: { tenantId: { control: "tenant" } } } } } });`);
+  // A schema without modifier is written accepts(schema) too: one spelling.
   has(
     r,
-    `args({ tenant: accepts(v.string()).required(["post"]), actor: bound(actorSchema), kind: oneOf("a", "b").on(reads).volatile(), version: accepts(v.number()).on(["update", "delete"]), all: oneOf(...modes) })`
+    `args({ tenant: accepts(v.string()).required(["post"]), actor: bound(actorSchema), kind: oneOf("a", "b").on(reads).volatile(), version: accepts(v.number()).on(["update", "delete"]), all: oneOf(...modes), note: accepts(v.string()) })`
   );
 });
 

@@ -107,7 +107,7 @@ describe("a builder handed no function refuses at once", () => {
     );
   });
 
-  test("an argument is declared with a builder or a Standard Schema", () => {
+  test("an argument is declared with oneOf, accepts or bound: a bare Standard Schema is refused", () => {
     expect(() => loose(args, { tenant: 3 })).toThrow(
       'Argument "tenant" is declared with oneOf'
     );
@@ -120,9 +120,18 @@ describe("a builder handed no function refuses at once", () => {
         validate: (value: unknown) => ({ value }),
       },
     });
+    // One spelling (D1): bare, it is refused with the word to write.
+    expect(() => loose(args, { tenant: callable })).toThrow(
+      new TypeError(
+        'Argument "tenant" is declared with oneOf(...), accepts(schema) or bound(schema); write a Standard Schema as accepts(schema)'
+      )
+    );
     expect(() =>
       base().$extends(
-        extension("x", loose(args, { tenant: callable }) as never)
+        extension(
+          "x",
+          loose(args, { tenant: loose(accepts, callable) }) as never
+        )
       )
     ).not.toThrow();
   });

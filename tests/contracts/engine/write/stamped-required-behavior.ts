@@ -2,7 +2,7 @@ import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { ValidationError } from "@errors";
 import { s } from "@schema";
-import { arg, defaults, args as extArgs, extension } from "@src/index";
+import { accepts, arg, defaults, args as extArgs, extension } from "@src/index";
 import { tenancy } from "@tests/fixtures/extension-recipes";
 import { failure } from "@tests/fixtures/failure";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -100,7 +100,7 @@ const javascript = (client: object) => client as JavaScriptClient;
 /** The tenancy stamp with an optional control: a call without it writes nothing. */
 const optionalTenant = extension(
   "optionalTenant",
-  extArgs({ tenant: v.string() }),
+  extArgs({ tenant: accepts(v.string()) }),
   defaults({ post: { create: { tenantId: arg("tenant") } } })
 );
 

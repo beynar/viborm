@@ -98,7 +98,7 @@ const tree = (rows: readonly Row[]): string[] =>
 describe("a rule that reads now and an argument, under recursion", () => {
   const published = extension(
     "published",
-    extArgs({ user: v.string() }),
+    extArgs({ user: accepts(v.string()) }),
     rule({
       node: {
         read: { where: { publishAt: { lte: now }, ownerId: arg("user") } },

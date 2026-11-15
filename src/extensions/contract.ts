@@ -28,7 +28,6 @@ import type {
 import type { FieldRef } from "@schema/field-ref";
 import type { Model } from "@schema/model";
 import type { Sql } from "@sql";
-import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type {
   ExtensionClientScope,
   ExtensionStateConstraint,
@@ -1377,16 +1376,11 @@ export interface BoundAccepted<out Value>
   volatile(): BoundAccepted<Value>;
 }
 
-export type ArgSource =
-  | ArgDeclaration<unknown, Operations, boolean>
-  | StandardSchemaV1;
+/** `oneOf(...)`, `accepts(schema)` or `bound(schema)`: one spelling each (D1). */
+export type ArgSource = ArgDeclaration<unknown, Operations, boolean>;
 
 type ValueOf<D> =
-  D extends ArgDeclaration<infer Value, Operations, boolean>
-    ? Value
-    : D extends StandardSchemaV1<infer Input>
-      ? Input
-      : never;
+  D extends ArgDeclaration<infer Value, Operations, boolean> ? Value : never;
 
 type OperationsOf<D> =
   D extends ArgDeclaration<unknown, infer O, boolean> ? O : Operations;

@@ -17,7 +17,7 @@ import type {
 import type { ModelSql } from "@query-engine/raptor3/shared/insert-value";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { isFunction, isRecord } from "@validation/value-guards";
-import { type AdmittedArgs, undeclaredBinding } from "./arguments";
+import { type AdmittedArgs, notBound } from "./arguments";
 import type { ExtensionPart } from "./chain";
 import { extensionError } from "./chain";
 import type { NoArguments } from "./contract";
@@ -478,8 +478,8 @@ export interface ExtensionMethodsState {
     createScope: (prior: ExtensionMethods, extension: string) => object
   ) => BoundExtensionMethods;
   /**
-   * A factory scope's `$bind` on a chain that declares no argument: it binds
-   * nothing, and refuses any argument it is asked to.
+   * A factory scope's `$bind` on a chain that declares no `bound` argument:
+   * it binds nothing, and refuses any argument it is asked to.
    */
   readonly bindNone: (
     extension: string,
@@ -506,8 +506,7 @@ export function methodsPart(factory: RuntimeMethodsFactory): ExtensionPart {
           values: Readonly<Record<string, unknown>>,
           previous: AdmittedArgs | undefined
         ) => {
-          for (const name of Object.keys(values))
-            undeclaredBinding(extension, name);
+          for (const name of Object.keys(values)) notBound(extension, name);
           return { ...previous };
         },
       };

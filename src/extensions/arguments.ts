@@ -4,12 +4,7 @@
  * carries none of it.
  */
 
-import {
-  ClientInitializationError,
-  QueryError,
-  ValidationError,
-  VibORMError,
-} from "@errors";
+import { QueryError, ValidationError, VibORMError } from "@errors";
 import { memo } from "@query-engine/raptor3/shared/schema";
 import type { Operation } from "@query-engine/types";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
@@ -22,28 +17,40 @@ export type ArgLiteral = string | number | boolean;
 
 /**
  * One argument an extension declares. Its values are a closed list or a
- * Standard Schema; `on` names the operations that accept it (every operation
- * when absent), `models` the models (every model when absent). With
- * `required`, a call on one of those operations that does not pass it is
- * refused: on every model that accepts it, or on the models it lists. With
- * `bound`, it is accepted only from a binding (the client scope's `$bind`),
- * never from a call's arguments, so a call that passes it is refused as
- * passing an unknown key. With `volatile`, a call that holds a value of it
- * has no key (`key(run)`): a read that holds one is never served from a
- * store nor kept in one.
+ * Standard Schema, and `admit` is the code that checks one, brought by the
+ * word that declared it (`oneOf`, or `accepts` and `bound`), so a chain of
+ * closed arguments carries no Standard Schema admission. `on` names the
+ * operations that accept it (every operation when absent), `models` the
+ * models (every model when absent). With `required`, a call on one of those
+ * operations that does not pass it is refused: on every model that accepts
+ * it, or on the models it lists. With `bound`, it is accepted only from a
+ * binding (the client scope's `$bind`, which `bind` runs), never from a
+ * call's arguments, so a call that passes it is refused as passing an
+ * unknown key. With `volatile`, a call that holds a value of it has no key
+ * (`key(run)`): a read that holds one is never served from a store nor kept
+ * in one.
  */
-export type ArgDeclaration = (
-  | { readonly oneOf: readonly (string | number | boolean)[] }
-  | { readonly schema: StandardSchemaV1 }
-) & {
+export interface ArgDeclaration {
+  /** A closed argument's values; absent for a Standard Schema's. */
+  readonly oneOf?: readonly ArgLiteral[];
+  readonly admit: AdmitValue;
   readonly on?: readonly string[];
   readonly models?: readonly string[];
   readonly required?: true | readonly string[];
   /** The value a call that passes none reads. */
   readonly default?: ArgLiteral;
   readonly bound?: boolean;
+  readonly bind?: typeof bindArguments;
   readonly volatile?: boolean;
-};
+}
+
+/** One value admitted for a call's (model, operation), or, without them, a binding. */
+type AdmitValue = (
+  argument: ResolvedArg,
+  value: unknown,
+  model?: string,
+  operation?: Operation
+) => unknown;
 
 /**
  * One argument of a chain: its declaration as written, its name and the
@@ -99,7 +106,7 @@ function admitArguments(
     const value =
       raw === undefined
         ? (bound?.[name] ?? argument.default)
-        : admitValue(argument, raw, model, operation);
+        : argument.admit(argument, raw, model, operation);
     if (value !== undefined) (values ??= {})[name] = value;
     else if (required === true || required?.includes(model)) {
       throw invalidArgument(argument, model, operation, ["is required"]);
@@ -111,9 +118,9 @@ function admitArguments(
 /**
  * The values a view binds after one extension binds its own arguments: each
  * admitted once, over the values the view already binds, a value replacing
- * an earlier one.
+ * an earlier one. Brought by `bound`: only a `bound` argument is bound.
  */
-function bindArguments(
+export function bindArguments(
   all: readonly ResolvedArg[],
   extension: string,
   values: Readonly<Record<string, unknown>>,
@@ -123,19 +130,21 @@ function bindArguments(
   for (const [name, raw] of Object.entries(values)) {
     const argument = all.find(
       (candidate) =>
-        candidate.name === name && candidate.extension === extension
+        candidate.name === name &&
+        candidate.extension === extension &&
+        candidate.bound === true
     );
-    if (argument === undefined) undeclaredBinding(extension, name);
-    next[name] = admitValue(argument, raw);
+    if (argument === undefined) notBound(extension, name);
+    next[name] = argument.admit(argument, raw);
   }
   return next;
 }
 
-/** The refusal of a `$bind` naming an argument its extension does not declare. */
-export function undeclaredBinding(extension: string, name: string): never {
-  throw new ClientInitializationError(
-    `Extension "${extension}" binds argument "${name}", which it does not declare.`,
-    { meta: { extension } }
+/** The refusal of a `$bind` naming an argument its extension does not declare `bound`. */
+export function notBound(extension: string, name: string): never {
+  return extensionError(
+    `Extension "${extension}" binds argument "${name}", which it does not declare with bound(schema).`,
+    extension
   );
 }
 
@@ -150,49 +159,50 @@ export function argsOwnedBy(
   return owned;
 }
 
-/** One value admitted for a call's (model, operation), or, without them, a binding. */
-function admitValue(
-  argument: ResolvedArg,
-  value: unknown,
-  model?: string,
-  operation?: Operation
-): unknown {
-  if ("oneOf" in argument) {
-    if (argument.oneOf.some((allowed) => allowed === value)) return value;
+/** What admits a value of one of `values`, brought by `oneOf`. */
+export const closedValues =
+  (values: readonly ArgLiteral[]): AdmitValue =>
+  (argument, value, model, operation) => {
+    if (values.some((allowed) => allowed === value)) return value;
     throw invalidArgument(argument, model, operation, [
-      `must be one of ${argument.oneOf.map((allowed) => JSON.stringify(allowed)).join(", ")}`,
+      `must be one of ${values.map((allowed) => JSON.stringify(allowed)).join(", ")}`,
     ]);
-  }
-  let result: ReturnType<StandardSchemaV1["~standard"]["validate"]>;
-  try {
-    result = argument.schema["~standard"].validate(value);
-  } catch (cause) {
-    // A validator may own its typed failure; anything else is a failure of
-    // extension code, as a throwing first moment is.
-    if (cause instanceof VibORMError) throw cause;
-    throw validatorFailure(argument, model, operation, "threw", cause);
-  }
-  if ("then" in result) {
-    // The refused promise is still live; without a handler its rejection
-    // would surface as an unhandled rejection (D-37).
-    discardAsyncValidationResult(result);
-    throw validatorFailure(
-      argument,
-      model,
-      operation,
-      "returned a promise",
-      new TypeError("Argument validators must return synchronously")
-    );
-  }
-  if (result.issues)
-    throw invalidArgument(
-      argument,
-      model,
-      operation,
-      result.issues.map((issue) => issue.message)
-    );
-  return result.value;
-}
+  };
+
+/** What admits a value `schema` checks, brought by `accepts` and `bound`. */
+export const checkedBy =
+  (schema: StandardSchemaV1): AdmitValue =>
+  (argument, value, model, operation) => {
+    let result: ReturnType<StandardSchemaV1["~standard"]["validate"]>;
+    try {
+      result = schema["~standard"].validate(value);
+    } catch (cause) {
+      // A validator may own its typed failure; anything else is a failure of
+      // extension code, as a throwing first moment is.
+      if (cause instanceof VibORMError) throw cause;
+      throw validatorFailure(argument, model, operation, "threw", cause);
+    }
+    if ("then" in result) {
+      // The refused promise is still live; without a handler its rejection
+      // would surface as an unhandled rejection (D-37).
+      discardAsyncValidationResult(result);
+      throw validatorFailure(
+        argument,
+        model,
+        operation,
+        "returned a promise",
+        new TypeError("Argument validators must return synchronously")
+      );
+    }
+    if (result.issues)
+      throw invalidArgument(
+        argument,
+        model,
+        operation,
+        result.issues.map((issue) => issue.message)
+      );
+    return result.value;
+  };
 
 function invalidArgument(
   argument: ResolvedArg,
@@ -237,6 +247,7 @@ export function appendArguments(
   declared: readonly ResolvedArg[]
 ): ResolvedArgs {
   const all = [...(previous?.all ?? []), ...declared];
+  const binder = all.find((argument) => argument.bind)?.bind;
   const names = new Set<string>();
   for (const { name, extension } of all) {
     if (names.has(name))
@@ -274,10 +285,7 @@ export function appendArguments(
         ? undefined
         : admitArguments(model, operation, args, list, bound);
     },
-    bind: (
-      extension: string,
-      values: Readonly<Record<string, unknown>>,
-      previous: AdmittedArgs | undefined
-    ) => bindArguments(all, extension, values, previous),
+    // Brought by `bound`: a chain that declares no bound argument binds none.
+    bind: binder && ((...binding) => binder(all, ...binding)),
   };
 }

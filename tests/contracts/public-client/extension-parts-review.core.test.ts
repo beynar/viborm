@@ -10,6 +10,7 @@
 import { createClient } from "@drivers/sqlite3";
 import { s } from "@schema";
 import {
+  accepts,
   arg,
   bound,
   defaults,
@@ -88,7 +89,7 @@ const byRank = extension(
   "by-rank",
   defaults({ node: { orderBy: [{ rank: "desc" }] } })
 );
-const user = extension("user", extArgs({ user: v.string() }));
+const user = extension("user", extArgs({ user: accepts(v.string()) }));
 const ownedRows = extension(
   "owned",
   extArgs({ scope: oneOf("mine", "all").default("mine") }),
@@ -184,7 +185,10 @@ describe("default data on a chain that neither filters nor keeps rows", () => {
   test("overlapping calls each write their own control's value", async () => {
     const db = (await seeded())
       .$extends(
-        extension("actor", extArgs({ actor: v.object({ id: v.string() }) }))
+        extension(
+          "actor",
+          extArgs({ actor: accepts(v.object({ id: v.string() })) })
+        )
       )
       .$extends(stamping);
     const made = await Promise.all(

@@ -204,7 +204,7 @@ describe("controls: admission and ownership", () => {
       .$extends(
         extension(
           "audit",
-          extArgs({ reason: standard((value) => ({ value })) }),
+          extArgs({ reason: accepts(standard((value) => ({ value }))) }),
           call(
             (c) => record("audit-request", c.args, c.values),
             extTarget("post", "findMany")
@@ -446,7 +446,7 @@ describe("controls: admission and ownership", () => {
     ) =>
       applyUnchecked(
         base,
-        extension(name, extArgs({ reason: standard(validate) }))
+        extension(name, extArgs({ reason: accepts(standard(validate)) }))
       );
 
     const invalid = await failure(
@@ -508,7 +508,7 @@ describe("controls: admission and ownership", () => {
       )
     );
     const db = base.$extends(
-      extension("callable", extArgs({ reason: schema }))
+      extension("callable", extArgs({ reason: accepts(schema) }))
     );
     await expect(db.post.findMany({ reason: "why" })).resolves.toHaveLength(1);
     const invalid = await failure(db.post.findMany({ reason: "because" }));
@@ -553,10 +553,12 @@ describe("controls: admission and ownership", () => {
       extension(
         "counted",
         extArgs({
-          reason: standard((value) => {
-            timeline.push(`validate:${String(value)}`);
-            return { value };
-          }),
+          reason: accepts(
+            standard((value) => {
+              timeline.push(`validate:${String(value)}`);
+              return { value };
+            })
+          ),
         }),
         call((c) => {
           timeline.push("request");
@@ -1112,8 +1114,8 @@ describe("controls: rows bound to the call", () => {
       extension(
         "dated",
         extArgs({
-          day: given,
-          tenants: given,
+          day: accepts(given),
+          tenants: accepts(given),
           view: oneOf("scoped", "all").default("scoped"),
         }),
         rule({
@@ -1516,7 +1518,7 @@ describe("controls: the cache key", () => {
         extension(
           "floor",
           extArgs({
-            floor: standard<Decimal>((value) => ({ value })),
+            floor: accepts(standard<Decimal>((value) => ({ value }))),
             scope: oneOf("above").default("above"),
           }),
           rule({

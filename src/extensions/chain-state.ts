@@ -81,8 +81,11 @@ export interface ResolvedArgs {
     admitted: AdmittedArgs | undefined,
     names: readonly string[]
   ) => AdmittedArgs;
-  /** A view's `$bind`: one extension's own arguments, bound over `previous`. */
-  readonly bind: (
+  /**
+   * A view's `$bind`: one extension's own arguments, bound over `previous`.
+   * Absent on a chain that declares no `bound` argument.
+   */
+  readonly bind?: (
     extension: string,
     values: Readonly<Record<string, unknown>>,
     previous: AdmittedArgs | undefined

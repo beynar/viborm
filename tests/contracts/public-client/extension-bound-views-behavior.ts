@@ -33,13 +33,14 @@ import {
   ValidationError,
 } from "@errors";
 import {
+  accepts,
   arg,
   bound,
   args as extArgs,
   extension,
   methods as extMethods,
-  oneOf,
   parts,
+  unless,
   when,
 } from "@src/index";
 import { v } from "@src/validation";
@@ -66,12 +67,16 @@ const NAMES = Object.keys(actors).slice(0, 10);
 type Where = Record<string, unknown>;
 const NOTHING: Where = { id: { in: [] } };
 
-/** One mode per actor: the rows of the model the oracle says it views. */
+/**
+ * One mode per actor: the rows of the model the oracle says it views, read
+ * from the bound actor itself (`$bind` binds `bound` arguments only), and
+ * none for any other actor.
+ */
 function modesOf(model: "page" | "pageGroup") {
-  const modes = [when(arg("as"), "nobody", NOTHING)];
+  const modes = [unless(arg("actor"), { in: NAMES }, NOTHING)];
   for (const name of NAMES)
     modes.push(
-      when(arg("as"), name, {
+      when(arg("actor"), name, {
         id: { in: oracle.rows(actors[name]!, model, "read", { now }) },
       })
     );
@@ -95,8 +100,7 @@ const requestsReading = (read: () => void = () => undefined) =>
     typed.args({
       // Bound only, and required on the models the rule names: never passed.
       actor: bound(v.enum(NAMES)).required(["page", "pageGroup"]),
-      label: v.string(),
-      as: oneOf("nobody", ...NAMES).default("nobody"),
+      label: accepts(v.string()),
     }),
     typed.rule(() => {
       read();
@@ -110,7 +114,7 @@ const requestsReading = (read: () => void = () => undefined) =>
     }),
     typed.methods((scope) => {
       const methods: RequestMethods = {
-        $as: (name) => scope.$bind({ as: name, actor: name }) as never,
+        $as: (name) => scope.$bind({ actor: name }) as never,
       };
       return {
         ...methods,
@@ -396,12 +400,14 @@ export function runBoundViewsBehavior(substrate: BoundViewsSubstrate): void {
       expect(await reads(first)).toEqual(sorted(expected(first)));
     });
 
-    test("W-AS6: $bind admits only the calling extension's own controls, each through its declaration", () => {
+    test("W-AS6: $bind admits only the calling extension's own bound arguments, each through its declaration", () => {
       const binder = extension(
         "binder",
         extArgs({
-          mine: v.string(),
-          hostile: {
+          mine: bound(v.string()),
+          // Its own, but a call's: `$bind` binds a `bound` argument only.
+          free: accepts(v.string()),
+          hostile: bound({
             "~standard": {
               version: 1,
               vendor: "test",
@@ -409,32 +415,35 @@ export function runBoundViewsBehavior(substrate: BoundViewsSubstrate): void {
                 throw new Error("boom");
               },
             },
-          },
+          }),
         }),
         extMethods((scope) => ({
           $with: (values: Readonly<Record<string, unknown>>) =>
             scope.$bind(values),
         }))
       );
-      const bound = db.$extends(binder);
-      expect(() => bound.$with({ actor: NAMES[0] })).toThrow(
+      const binding = db.$extends(binder);
+      expect(() => binding.$with({ actor: NAMES[0] })).toThrow(
         ClientInitializationError
       );
-      expect(() => bound.$with({ actor: NAMES[0] })).toThrow(
-        'Extension "binder" binds argument "actor", which it does not declare.'
+      expect(() => binding.$with({ actor: NAMES[0] })).toThrow(
+        'Extension "binder" binds argument "actor", which it does not declare with bound(schema).'
       );
-      expect(() => bound.$with({ nowhere: 1 })).toThrow(
+      expect(() => binding.$with({ free: "ok" })).toThrow(
+        'Extension "binder" binds argument "free", which it does not declare with bound(schema).'
+      );
+      expect(() => binding.$with({ nowhere: 1 })).toThrow(
         'binds argument "nowhere"'
       );
-      expect(() => bound.$with({ mine: 1 })).toThrow(ValidationError);
-      expect(() => bound.$with({ mine: 1 })).toThrow(
+      expect(() => binding.$with({ mine: 1 })).toThrow(ValidationError);
+      expect(() => binding.$with({ mine: 1 })).toThrow(
         "Validation failed for $bind"
       );
-      expect(() => bound.$with({ hostile: 1 })).toThrow(QueryError);
-      expect(() => bound.$with({ hostile: 1 })).toThrow(
+      expect(() => binding.$with({ hostile: 1 })).toThrow(QueryError);
+      expect(() => binding.$with({ hostile: 1 })).toThrow(
         'Extension "binder" argument "hostile" validator for $bind threw.'
       );
-      expect(bound.$with({ mine: "ok" })).toBeTypeOf("object");
+      expect(binding.$with({ mine: "ok" })).toBeTypeOf("object");
       // The other extension binds its own: the same values are refused here.
       expect(() => db.$as("not-an-actor")).toThrow(ValidationError);
     });

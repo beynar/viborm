@@ -13,6 +13,7 @@ import { defaultOmit } from "@src/client/exports";
 import { PGliteDriver } from "@src/drivers/pglite";
 import type { QueryError } from "@src/errors";
 import {
+  accepts,
   arg,
   args,
   createClient,
@@ -224,7 +225,10 @@ type _Event = Expect<
 const gating = base.$extends(
   extension(
     "gating",
-    args({ viewer: v.string(), as: oneOf("default").default("default") }),
+    args({
+      viewer: accepts(v.string()),
+      as: oneOf("default").default("default"),
+    }),
     rule({
       post: {
         read: {

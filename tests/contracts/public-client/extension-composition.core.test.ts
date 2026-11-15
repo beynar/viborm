@@ -272,7 +272,10 @@ describe("composition: one name, one control (K7(a))", () => {
     );
     // Distinct names compose, the official cache's `cache` included.
     expect(
-      apply(governed, extension("labels", extArgs({ label: v.string() })))
+      apply(
+        governed,
+        extension("labels", extArgs({ label: accepts(v.string()) }))
+      )
     ).not.toThrow();
   });
 

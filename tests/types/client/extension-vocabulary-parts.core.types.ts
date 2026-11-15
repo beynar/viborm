@@ -13,6 +13,7 @@ import type {
   ExtendedOperationResult as OperationResultOf,
 } from "@src/index";
 import {
+  accepts,
   arg,
   args,
   around,
@@ -65,7 +66,7 @@ base.$extends(oneOperation);
 const tenancy = forSchema.extension(
   "tenancy",
   args({
-    tenant: v.string(),
+    tenant: accepts(v.string()),
     deleted: oneOf("without", "with", "only").default("without"),
     mode: oneOf("soft", "hard").on(deletes),
   }),
@@ -89,7 +90,7 @@ const _nullableAuthor = async () => {
 
 const _misspelt = forSchema.extension(
   "misspelt",
-  args({ tenant: v.string() }),
+  args({ tenant: accepts(v.string()) }),
   rule({
     post: {
       read: {
@@ -106,7 +107,7 @@ const _misspelt = forSchema.extension(
 );
 const _misspeltArgument = forSchema.extension(
   "misspelt-argument",
-  args({ tenant: v.string() }),
+  args({ tenant: accepts(v.string()) }),
   rule({
     post: {
       read: {
@@ -174,7 +175,9 @@ const _computed = async () => {
 // What binding to the schema loses. The chain the extension will follow is
 // unknown, so:
 // (1) an argument an earlier extension declares cannot be named;
-const first = base.$extends(extension("first", args({ tenant: v.string() })));
+const first = base.$extends(
+  extension("first", args({ tenant: accepts(v.string()) }))
+);
 first.$extends(
   forSchema.extension(
     "second",

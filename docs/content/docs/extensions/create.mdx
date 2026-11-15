@@ -721,9 +721,10 @@ const db = client.$extends(
 await db.post.update({ where: { id }, data: { title }, reason: "typo" });
 ```
 
-A declaration is `oneOf(...values)` (a closed list), a Standard Schema
-(`v.string()`), `accepts(schema)` (a schema with the modifiers of `oneOf`), or
-`bound(schema)`:
+A declaration is `oneOf(...values)` (a closed list), `accepts(schema)` (any
+Standard Schema, such as `v.string()`, with the modifiers of `oneOf`), or
+`bound(schema)`. Each word brings the code that admits its values, so an
+extension of `oneOf` arguments carries no schema admission:
 
 | Modifier | Meaning |
 |---|---|
@@ -734,8 +735,9 @@ A declaration is `oneOf(...values)` (a closed list), a Standard Schema
 | `.volatile()` | A read that carries it is neither served from the cache nor stored there |
 | `bound(schema)` | The value comes from the client (`scope.$bind`), never from a call; it takes `.required()` and `.volatile()` |
 
-- A bare Standard Schema takes no modifier: wrap it in `accepts(...)` for one.
-  A list held in a variable keeps its literal values only with `as const`.
+- A bare Standard Schema is refused when the extension is written (a
+  `TypeError` that says to write `accepts(schema)`). A list held in a
+  variable keeps its literal values only with `as const`.
 - TypeScript flags an argument where it is not accepted. At runtime a
   misplaced or undeclared argument is refused as an unknown argument is.
 - A value outside the declaration is a `ValidationError` at the argument's
@@ -798,7 +800,9 @@ await call.post.findMany(); // as if every call passed `actor`
   replaces them. Its cached reads are keyed on them, unless a bound argument
   is `.volatile()`.
 - A value the declaration refuses is a `ValidationError`; binding an argument
-  another extension declares is a `ClientInitializationError`.
+  the extension does not declare with `bound(schema)` (another extension's,
+  or one of its own `oneOf` or `accepts` arguments) is a
+  `ClientInitializationError`.
 - `$bind` returns `unknown`: the method that returns the bound client types
   it with a `this` parameter, so each client sees itself. Declare the methods
   apart from the returned object, as above: written inline, the factory's own

@@ -120,6 +120,15 @@ all-or-nothing when it fits one batch.
     it (a `required` control was asked for only on the models the
     extension's `rows`, `data` and `deletion` named): write
     `.required([…models])` for those models only.
+- **One spelling per argument** (supersedes the contract specification's
+  §12.9, which kept a bare schema): an argument is declared with
+  `oneOf(...)`, `accepts(schema)` or `bound(schema)`. A bare Standard Schema
+  in `args({ … })` is refused when the extension is written, with a
+  `TypeError` that says to write `accepts(schema)`; each word brings the code
+  that admits its values, so an extension of `oneOf` arguments carries no
+  schema admission. `scope.$bind` binds `bound(schema)` arguments only, as
+  the documentation said: binding a `oneOf` or `accepts` argument is a
+  `ClientInitializationError`.
 - **Two parts of one kind in one extension both run**, composed as two
   extensions would be: two `unit` parts each see every unit, two `methods`
   parts each add their methods, filters conjoin and a default set later wins.

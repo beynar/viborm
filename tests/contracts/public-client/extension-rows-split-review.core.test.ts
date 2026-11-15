@@ -8,6 +8,7 @@ import { createClient } from "@drivers/sqlite3";
 import { ClientInitializationError } from "@errors";
 import { s } from "@schema";
 import {
+  accepts,
   arg,
   check,
   exists,
@@ -88,7 +89,7 @@ test("two lazy entries sharing a sub-predicate that names an undeclared argument
   const db = base.$extends(
     typed.extension(
       "lazy",
-      extArgs({ user: v.string() }),
+      extArgs({ user: accepts(v.string()) }),
       typed.rule({
         node: lazy(() => ({
           read: { where: ghost },
@@ -116,7 +117,7 @@ test("a lazy entry shared by two chains is checked against each chain's own cont
   const tenant = arg("tenant");
   const declaration = typed.extension(
     "lazy",
-    extArgs({ user: v.string() }),
+    extArgs({ user: accepts(v.string()) }),
     typed.rule({
       note: lazy(() => ({
         read: { where: { ownerId: tenant } },
@@ -125,7 +126,10 @@ test("a lazy entry shared by two chains is checked against each chain's own cont
       })),
     })
   );
-  const tenancy = typed.extension("tenant", extArgs({ tenant: v.string() }));
+  const tenancy = typed.extension(
+    "tenant",
+    extArgs({ tenant: accepts(v.string()) })
+  );
   const bare = () => base.$extends(declaration);
   const declared = () => base.$extends(tenancy).$extends(declaration);
   for (const order of [
@@ -196,7 +200,7 @@ test("one predicate object shared by two modes and two models filters under each
   const db = base.$extends(
     typed.extension(
       "scoped",
-      extArgs({ owner: v.string(), as: oneOf("a", "b").default("a") }),
+      extArgs({ owner: accepts(v.string()), as: oneOf("a", "b").default("a") }),
       typed.rule({
         node: {
           root: [when(arg("as"), "a", owned), when(arg("as"), "b", owned)],
@@ -231,7 +235,7 @@ test("one declaration applied to two schemas whose models share names is admitte
   const own = { ownerId: arg("user") };
   const declaration = typed.extension(
     "gates",
-    extArgs({ user: v.string() }),
+    extArgs({ user: accepts(v.string()) }),
     typed.rule({
       node: {
         read: { where: own, fields: { secret: gate(own) } },
@@ -251,7 +255,7 @@ const own = { ownerId: arg("user") };
 /** Hides a gated field, refuses a created row its `place` refuses. */
 const judged = typed.extension(
   "judged",
-  extArgs({ user: v.string() }),
+  extArgs({ user: accepts(v.string()) }),
   typed.rule({
     node: {
       read: { where: {}, fields: { secret: gate(own) } },
@@ -300,7 +304,7 @@ test("a lazy entry function that throws fails the call and every later call on i
   const db = base.$extends(
     typed.extension(
       "lazy",
-      extArgs({ user: v.string() }),
+      extArgs({ user: accepts(v.string()) }),
       typed.rule({
         note: lazy((): never => {
           calls++;

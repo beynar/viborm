@@ -141,10 +141,30 @@ describe("extension parts", () => {
 
     expect(Reflect.get(client, "$schema")).toBe(schema);
     expect(() => scope?.$bind({ actor: "ada" })).toThrow(
-      'Extension "binder" binds argument "actor", which it does not declare.'
+      'Extension "binder" binds argument "actor", which it does not declare with bound(schema).'
     );
     // Binding no value is a view of the same client.
     expect(() => scope?.$bind({})).not.toThrow();
+  });
+
+  it("a factory scope binds bound(schema) arguments only: its own oneOf argument is refused", () => {
+    type Scope = { $bind(values: Readonly<Record<string, unknown>>): unknown };
+    let scope: Scope | undefined;
+    const client = baseClient().$extends(
+      extension(
+        "closed",
+        args({ mode: oneOf("a", "b") }),
+        methods((given) => {
+          scope = given as Scope;
+          return {};
+        })
+      )
+    );
+
+    expect(Reflect.get(client, "$schema")).toBe(schema);
+    expect(() => scope?.$bind({ mode: "a" })).toThrow(
+      'Extension "closed" binds argument "mode", which it does not declare with bound(schema).'
+    );
   });
 
   it("refuses what is not an extension value", () => {

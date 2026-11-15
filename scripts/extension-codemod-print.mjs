@@ -172,7 +172,7 @@ export function printers(w) {
     /**
      * One argument: a closed list or a schema, then its modifiers. `base` is
      * `{ oneOf: [printed values] }`, `{ oneOfSpread: printed }` or
-     * `{ schema: printed }`; a schema alone stays itself.
+     * `{ schema: printed }`; a schema is always written with its word.
      */
     printArgDeclaration({
       base,
@@ -186,8 +186,9 @@ export function printers(w) {
       let text;
       if (base.oneOf) text = `${w("oneOf")}(${base.oneOf.join(", ")})`;
       else if (base.oneOfSpread) text = `${w("oneOf")}(...${base.oneOfSpread})`;
-      else text = base.schema;
-      if (bound) text = `${w("bound")}(${text})`;
+      // One spelling (D1): a schema is `accepts(schema)` or `bound(schema)`.
+      else text = `${w(bound ? "bound" : "accepts")}(${base.schema})`;
+      if (bound && !base.schema) text = `${w("bound")}(${text})`;
       const modifiers = [];
       if (on) modifiers.push(`.on(${on})`);
       if (models) modifiers.push(`.models(${models})`);
@@ -195,8 +196,6 @@ export function printers(w) {
         modifiers.push(`.required(${required === true ? "" : required})`);
       if (fallback !== undefined) modifiers.push(`.default(${fallback})`);
       if (volatile) modifiers.push(".volatile()");
-      if (modifiers.length === 0) return text;
-      if (base.schema && !bound) text = `${w("accepts")}(${text})`;
       return text + modifiers.join("");
     },
 

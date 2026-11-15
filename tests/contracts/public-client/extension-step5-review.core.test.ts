@@ -13,6 +13,7 @@ import {
 } from "@errors";
 import { s } from "@schema";
 import {
+  accepts,
   again,
   arg,
   args,
@@ -477,7 +478,7 @@ describe("rule: arguments", () => {
     const owned = base.$extends(
       extension(
         "owned",
-        args({ owner: v.string() }),
+        args({ owner: accepts(v.string()) }),
         rule({ post: { read: { where: { ownerId: arg("owner") } } } } as never)
       )
     );

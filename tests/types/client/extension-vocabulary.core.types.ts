@@ -13,6 +13,7 @@ import type {
   ExtendedOperationResult as OperationResultOf,
 } from "@src/index";
 import {
+  accepts,
   arg,
   args,
   around,
@@ -246,7 +247,7 @@ const tenancy = base.$extends(
   extension(
     "tenancy",
     args({
-      tenant: v.string(),
+      tenant: accepts(v.string()),
       deleted: oneOf("without", "with", "only").default("without"),
       mode: oneOf("soft", "hard").on(deletes),
     })
@@ -272,7 +273,7 @@ base.post.findMany({ tenant: "t" });
 const tenanted = base.$extends(
   extension(
     "tenant-rule",
-    args({ tenant: v.string() }),
+    args({ tenant: accepts(v.string()) }),
     rule({
       user: { read: { where: { tenantId: arg("tenant") } } },
       post: { read: { where: { tenantId: arg("tenant") } } },
@@ -284,7 +285,7 @@ const tenanted = base.$extends(
 const _misspeltModel = base.$extends(
   extension(
     "misspelt-model",
-    args({ tenant: v.string() }),
+    args({ tenant: accepts(v.string()) }),
     rule({
       post: { read: { where: { tenantId: arg("tenant") } } },
       // @ts-expect-error - "pots" is not a model, beside the real "post"
@@ -295,7 +296,7 @@ const _misspeltModel = base.$extends(
 const _misspeltField = base.$extends(
   extension(
     "misspelt-field",
-    args({ tenant: v.string() }),
+    args({ tenant: accepts(v.string()) }),
     rule({
       post: {
         read: {
@@ -309,7 +310,7 @@ const _misspeltField = base.$extends(
 const _misspeltDataField = base.$extends(
   extension(
     "misspelt-data-field",
-    args({ tenant: v.string() }),
+    args({ tenant: accepts(v.string()) }),
     defaults({
       post: {
         // @ts-expect-error - "tenatId" is not a field, beside the real "tenantId"
@@ -321,7 +322,7 @@ const _misspeltDataField = base.$extends(
 const _misspeltArgument = base.$extends(
   extension(
     "misspelt-argument",
-    args({ tenant: v.string() }),
+    args({ tenant: accepts(v.string()) }),
     rule({
       post: {
         read: {
@@ -586,7 +587,9 @@ const _misspeltNeed = base.$extends(
 // 8. Two extensions: the second names an argument the first declares
 // =============================================================================
 
-const first = base.$extends(extension("first", args({ tenant: v.string() })));
+const first = base.$extends(
+  extension("first", args({ tenant: accepts(v.string()) }))
+);
 const second = first.$extends(
   extension(
     "second",
@@ -614,7 +617,7 @@ const _unknownInSecond = first.$extends(
 const _ownValues = base.$extends(
   extension(
     "own-values",
-    args({ tenant: v.string() }),
+    args({ tenant: accepts(v.string()) }),
     call(
       (c) => {
         expectTypeOf(c.values).toEqualTypeOf<{ readonly tenant?: string }>();

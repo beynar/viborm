@@ -65,7 +65,7 @@ describe("step 8: a confinement, a judgement and a gate reach the engine from an
     "sharing",
     extArgs({
       user: accepts(v.string()).required(["page"]),
-      tenant: v.string(),
+      tenant: accepts(v.string()),
       as: oneOf("default", "other").default("default"),
     }),
     rule({

@@ -1,5 +1,11 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { type ArgDeclaration, appendArguments } from "./arguments";
+import {
+  type ArgDeclaration,
+  appendArguments,
+  bindArguments,
+  checkedBy,
+  closedValues,
+} from "./arguments";
 import type { ExtensionPart } from "./chain";
 import type {
   Accepted,
@@ -38,7 +44,7 @@ export function oneOf<
   const Values extends readonly (string | number | boolean)[],
 >(...values: Values): Accepted<Values[number]>;
 export function oneOf(...values: (string | number | boolean)[]): unknown {
-  return declared({ oneOf: values });
+  return declared({ oneOf: values, admit: closedValues(values) });
 }
 
 /** An argument whose value a Standard Schema checks, with the modifiers of `oneOf`. */
@@ -46,7 +52,7 @@ export function accepts<S extends StandardSchemaV1>(
   schema: S
 ): Accepted<StandardSchemaV1.InferInput<S>>;
 export function accepts(schema: StandardSchemaV1): unknown {
-  return declared({ schema });
+  return declared({ admit: checkedBy(schema) });
 }
 
 /**
@@ -57,27 +63,27 @@ export function bound<D extends StandardSchemaV1>(
   schema: D
 ): BoundAccepted<StandardSchemaV1.InferInput<D>>;
 export function bound(schema: StandardSchemaV1): unknown {
-  return declared({ schema, bound: true });
+  return declared({
+    admit: checkedBy(schema),
+    bound: true,
+    bind: bindArguments,
+  });
 }
 
-const isSchema = (value: object): value is StandardSchemaV1 =>
-  "~standard" in value;
-
 /** Whether `value` is a declaration: its `spec` is one only a builder writes. */
-const isDeclared = (value: object): value is Declared =>
-  "spec" in value && typeof value.spec === "object" && value.spec !== null;
+const isDeclared = (value: unknown): value is Declared =>
+  typeof value === "object" &&
+  value !== null &&
+  "spec" in value &&
+  typeof value.spec === "object" &&
+  value.spec !== null;
 
 function specOf(name: string, value: unknown): ArgDeclaration {
-  // A schema may be callable (ArkType's types are functions).
-  if (
-    (typeof value === "object" && value !== null) ||
-    typeof value === "function"
-  ) {
-    if (isSchema(value)) return { schema: value };
-    if (isDeclared(value)) return value.spec;
-  }
+  if (isDeclared(value)) return value.spec;
+  // One spelling (D1): a Standard Schema is declared with `accepts`, which
+  // brings its admission, so a chain of closed arguments carries none.
   throw new TypeError(
-    `Argument "${name}" is declared with oneOf(...), accepts(schema), bound(schema) or a Standard Schema`
+    `Argument "${name}" is declared with oneOf(...), accepts(schema) or bound(schema); write a Standard Schema as accepts(schema)`
   );
 }
 

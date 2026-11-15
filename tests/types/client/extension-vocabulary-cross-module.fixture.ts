@@ -5,6 +5,7 @@
  */
 
 import {
+  accepts,
   arg,
   args,
   defaults,
@@ -21,7 +22,7 @@ const forSchema = parts<typeof schema>();
 
 export const tenancy = forSchema.extension(
   "tenancy",
-  args({ tenant: v.string() }),
+  args({ tenant: accepts(v.string()) }),
   rule({ user: { read: { where: { tenantId: arg("tenant") } } } }),
   defaults({ post: { create: { tenantId: arg("tenant") } } })
 );

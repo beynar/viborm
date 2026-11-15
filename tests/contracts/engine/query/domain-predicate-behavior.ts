@@ -861,7 +861,10 @@ export function runDomainPredicateBehavior(
       const base = await seeded();
       const optional = extension(
         "optionalTenant",
-        args({ tenant: v.string(), scope: oneOf("tenant").default("tenant") }),
+        args({
+          tenant: accepts(v.string()),
+          scope: oneOf("tenant").default("tenant"),
+        }),
         rule({
           file: {
             root: when(arg("scope"), "tenant", { tenantId: arg("tenant") }),

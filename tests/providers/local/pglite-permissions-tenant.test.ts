@@ -470,7 +470,7 @@ describe("PGlite: rows.confine, the capability tenant is built on", () => {
       "sharing",
       extArgs({
         user: accepts(v.string()).required(["page", "grant"]),
-        tenant: v.string(),
+        tenant: accepts(v.string()),
       }),
       rule({
         page: {

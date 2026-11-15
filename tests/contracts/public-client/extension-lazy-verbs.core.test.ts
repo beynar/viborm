@@ -14,6 +14,7 @@ import { createClient } from "@drivers/sqlite3";
 import { ClientInitializationError } from "@errors";
 import { s } from "@schema";
 import {
+  accepts,
   arg,
   check,
   args as extArgs,
@@ -73,7 +74,7 @@ const governed = (
 ) =>
   typed.extension(
     extra.name ?? "lazy",
-    extArgs({ [extra.control ?? "user"]: v.string() }),
+    extArgs({ [extra.control ?? "user"]: accepts(v.string()) }),
     typed.rule(() =>
       Object.fromEntries(
         Object.entries(entries).map(([model, entry]) => [
@@ -209,7 +210,7 @@ test("a lazy entry's control references are checked against the chain where it w
   );
   // Declared earlier in the chain: admitted.
   const tenant = base
-    .$extends(extension("tenant", extArgs({ tenant: v.string() })))
+    .$extends(extension("tenant", extArgs({ tenant: accepts(v.string()) })))
     .$extends(
       governed({
         note: () => readOnly({ ownerId: arg("tenant") }),
@@ -347,7 +348,7 @@ test("a cached read keys an eager entry's function acyclic, and lazy rows by the
   const eager = base.$extends(cache({ driver: new MemoryCache() })).$extends(
     typed.extension(
       "lazy",
-      extArgs({ user: v.string() }),
+      extArgs({ user: accepts(v.string()) }),
       typed.rule({
         node: {
           read: { where: { ownerId: me } },

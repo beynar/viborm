@@ -162,13 +162,13 @@ export async function create() {
     // filter and a create default on one model, a handler around one of its
     // reads. The contract before the vocabulary cost 1,330,009 instantiations
     // for the same extension at 50 models (extension-step1-types.md, 5).
-    "extended.ts": `import { arg, args, around, defaults, extension, rule, target } from "viborm";
+    "extended.ts": `import { accepts, arg, args, around, defaults, extension, rule, target } from "viborm";
 import { v } from "viborm/validation";
 import { orm } from "./client.ts";
 export const tenanted = orm.$extends(
   extension(
     "tenant",
-    args({ tenant: v.string() }),
+    args({ tenant: accepts(v.string()) }),
     rule({ m3: { read: { where: { orgId: arg("tenant") } } } }),
     defaults({ m3: { create: { orgId: arg("tenant") } } }),
     around(() => async (run) => run(), target("m3", "findMany"))
