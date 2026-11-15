@@ -59,11 +59,11 @@ export interface OfficialCacheScopeFacts {
  * namespace, which is the whole isolation guarantee.
  */
 function encodeText(value: string): string {
-  let encoded = "";
-  for (let index = 0; index < value.length; index += 1) {
-    encoded += value.charCodeAt(index).toString(16).padStart(4, "0");
-  }
-  return encoded;
+  // `split("")` gives the code units, never a pair as one code point.
+  return value
+    .split("")
+    .map((unit) => unit.charCodeAt(0).toString(16).padStart(4, "0"))
+    .join("");
 }
 
 /** `u` unversioned, `n:<f64 hex>` numeric, `s:<hex>` string. */
@@ -72,22 +72,9 @@ function encodeVersion(version: string | number | undefined): string {
   if (typeof version === "number") {
     const bytes = new Uint8Array(8);
     new DataView(bytes.buffer).setFloat64(0, version, false);
-    let encoded = "";
-    for (const byte of bytes) encoded += byte.toString(16).padStart(2, "0");
-    return `n:${encoded}`;
+    return `n:${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
   }
   return `s:${encodeText(version)}`;
-}
-
-/**
- * `x` unknown, `k:<hex>` known.
- *
- * An unknown namespace is a bare `x` with no body, so it cannot be reached by
- * encoding any string whatsoever — a database literally named `undefined`
- * encodes as `k:0075...`. Absence is a distinct value here, not a spelling.
- */
-function encodeNamespace(namespace: string | undefined): string {
-  return namespace === undefined ? "x" : `k:${encodeText(namespace)}`;
 }
 
 /**
@@ -104,7 +91,11 @@ export function createOfficialCacheNamespace(
     OFFICIAL_CACHE_NAMESPACE_ROOT,
     OFFICIAL_CACHE_SNAPSHOT_REVISION,
     `d:${encodeText(facts.dialect)}`,
-    encodeNamespace(facts.namespace),
+    // `x` unknown, `k:<hex>` known. An unknown namespace is a bare `x` with
+    // no body, so it cannot be reached by encoding any string whatsoever — a
+    // database literally named `undefined` encodes as `k:0075...`. Absence is
+    // a distinct value here, not a spelling.
+    facts.namespace === undefined ? "x" : `k:${encodeText(facts.namespace)}`,
     encodeVersion(facts.version),
   ].join(":");
 }
