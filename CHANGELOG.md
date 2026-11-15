@@ -33,6 +33,17 @@ Versioning.
 
 ### Changed
 
+- **Included rows are no longer sorted when you ask for no order
+  (behaviour change).** A relation read in an `include` or a `select`, at any
+  depth, with no `orderBy`, `take`, `skip`, `cursor` or `distinct` of its own
+  now comes back in the order the database gives, like a SQL query without
+  `ORDER BY`; it was sorted by the related model's key. The rows are the same.
+  The sort was about 10 % of a nested read's server time on PostgreSQL 18
+  (20 users with their posts 0.45 → 0.41 ms, 100 users with their posts and
+  comments 10.5 → 9.4 ms, the same SQL replayed with and without it). Give
+  an `orderBy` where the order matters. A page (`take`, `skip`, `cursor`), a
+  `distinct`, and an `ordering` or `defaults` extension's order still read in
+  a stable order, as does a root `findMany`. On every database.
 - **`viborm/pg` reads a `findMany` as positional rows.** node-postgres hands
   each row over as the array it parsed (`rowMode: "array"`) instead of an
   object keyed by every column name, and VibORM decodes it by position, as it

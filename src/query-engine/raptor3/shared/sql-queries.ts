@@ -4603,6 +4603,16 @@ export class SqlQueries extends Queries {
     // A nested node is the ordinary page operator inside the parent's
     // correlation scope; `take: -n` reverses the window exactly as at the root.
     const window = this.#page(edge.target, nested, childAlias, "related");
+    // Related rows with no order, page, cursor or `distinct` of their own
+    // (Arnaud, 2026-11-16): the caller asked for the rows, not their order,
+    // so none is paid for — 10 % of a nested read's server time on
+    // PostgreSQL. An extension's order (`ordering`) arrives as `orderBy`.
+    const unordered =
+      nested.orderBy === undefined &&
+      nested.take === undefined &&
+      nested.skip === undefined &&
+      nested.cursor === undefined &&
+      !nested.distinct?.length;
     const source = this.#memberSource(edge, alias, childAlias);
     const lowered = linkWhere && this.lowerSelector(linkWhere, source.link);
     // The link row is the one this page's own join reads the target through,
@@ -4633,7 +4643,7 @@ export class SqlQueries extends Queries {
         ...(lowered ? [lowered] : []),
         ...(window.cursor ? [window.cursor] : [])
       ),
-      orderBy: window.orderBy,
+      orderBy: unordered ? undefined : window.orderBy,
       // The aggregate below reads this page IN ORDER, so an ordered page
       // states its bound. MySQL merges an UNLIMITED derived table into the
       // query that reads it and the merge takes the ORDER BY with it, and the
@@ -4648,7 +4658,8 @@ export class SqlQueries extends Queries {
       // the dialect's own "no limit" value is. A dialect that needs no bound
       // to keep a derived order declares none (PostgreSQL) and emits nothing.
       limit: edge.many
-        ? (window.limit ?? (window.orderBy ? a.noLimitValue : undefined))
+        ? (window.limit ??
+          (window.orderBy && !unordered ? a.noLimitValue : undefined))
         : this.value(1),
       offset: window.offset,
       ...(window.distinct

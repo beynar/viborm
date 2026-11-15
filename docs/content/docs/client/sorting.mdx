@@ -222,6 +222,14 @@ const posts = await client.post.findMany({
 
 ## Sorting Included Relations
 
+Included rows come back in the order you ask for, and in no particular order
+when you ask for none: like a SQL query without `ORDER BY`, VibORM spends
+nothing sorting rows no one asked to sort. Give an `orderBy` wherever the
+order matters, in an `include` or a `select` at any depth. A `take`, `skip`,
+`cursor` or `distinct` on included rows always reads them in a stable order
+(yours, then the related model's key), so the page they pick is the same each
+time; so does an `ordering` extension's or a `defaults` extension's order.
+
 Sort included relations:
 
 ```ts
