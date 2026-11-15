@@ -377,14 +377,17 @@ function respaceJoin(
   // The lists respaced: those holding a member the call sees `where` matches.
   const seen = q.visible("w", { where: where as object | undefined });
   const listed =
-    within.length > 0
-      ? sql`EXISTS (SELECT 1 FROM ${q.table("w")} WHERE ${sql.join(
-          within.map((field) => s.same(column(field, "w"), column(field, "s"))),
+    within.length === 0 && where === undefined
+      ? sql`1 = 1`
+      : sql`EXISTS (SELECT 1 FROM ${q.table("w")} WHERE ${sql.join(
+          [
+            ...within.map((field) =>
+              s.same(column(field, "w"), column(field, "s"))
+            ),
+            seen,
+          ],
           " AND "
-        )} AND ${seen})`
-      : where === undefined
-        ? sql`1 = 1`
-        : sql`EXISTS (SELECT 1 FROM ${q.table("w")} WHERE ${seen})`;
+        )})`;
   const members = sql`SELECT ${sql.join(
     [
       ...aliased(q, identity, "i", "s"),
@@ -1224,11 +1227,8 @@ function orderingOf(config: OrderingConfig): unknown {
   // Checked against the schema the extension is applied to, once per schema.
   const admitted = new WeakMap<Schema, readonly Ordered[]>();
   const admittedFor = (schema: Schema) => {
-    let known = admitted.get(schema);
-    if (known === undefined) {
-      known = admit(schema, config);
-      admitted.set(schema, known);
-    }
+    const known = admitted.get(schema) ?? admit(schema, config);
+    admitted.set(schema, known);
     return known;
   };
   // Built against no client: `ordering`'s own signature types what it adds.

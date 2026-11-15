@@ -150,12 +150,9 @@ export function between(
   const r = typeof jitter === "string" ? sql`${jitter}` : jitter;
   const rest = sql`substr(${hi}, length(${lo}) + 1)`;
   const zeros = sql`length(${rest}) - length(${s.trimZeros(rest)}) + 1`;
-  const missing =
-    required === undefined
-      ? sql`FALSE`
-      : required === "lower"
-        ? sql`${lo} IS NULL`
-        : sql`${hi} IS NULL`;
+  const missing = required
+    ? sql`${required === "lower" ? lo : hi} IS NULL`
+    : sql`FALSE`;
   const key = sql`CASE
     WHEN ${missing} THEN NULL
     WHEN ${lo} IS NULL AND ${hi} IS NULL THEN ${s.concat(sql`'10'`, r)}
