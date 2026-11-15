@@ -15,6 +15,7 @@ import { QueryError, retainWriteOutcomeFailure } from "@errors";
 import type { ResolvedOperationHandler } from "@extensions/chain";
 import {
   type AroundRunner,
+  collect,
   executePreparedQuery,
   type PreparedModelQueryContext,
   type PreparedRawQueryContext,
@@ -22,7 +23,8 @@ import {
   type QueryInterceptionMode,
   type RawQueryKind,
   runArounds,
-  TransactionWriteOutcomes,
+  type TransactionScope,
+  tell,
   type WriteOutcomeListener,
   type WriteOutcomeNotifications,
   type WriteOutcomeRegistration,
@@ -54,15 +56,12 @@ function second(
   return { extension, handler: (_prepared, run) => moment(run) };
 }
 
-const ignoreRegistration = (_registration: WriteOutcomeRegistration): void =>
-  undefined;
-
 /** The runner over `parts`, around `child`. */
 const runSeconds = <Result>(
   context: PreparedModelQueryContext<object> | PreparedRawQueryContext<object>,
   parts: readonly ResolvedOperationHandler<AroundRunner>[] | undefined,
   child: () => Promise<Result>
-): Promise<Result> => runArounds(context, parts, child, ignoreRegistration);
+): Promise<Result> => runArounds(context, parts, child);
 
 function modelContext(
   operation: string,
@@ -207,21 +206,16 @@ describe("the runner of second moments", () => {
 
     await executePreparedQuery(
       modelContext("createMany"),
-      [
-        {
-          extension: "segments",
-          handler: (_prepared, run, register) => {
-            register(listener);
-            return run();
-          },
-        },
-      ],
+      [second("segments", (run) => run())],
       async (notifications) => {
         await notifications?.committed();
         await notifications?.committed();
         return [{ id: "written" }];
       },
-      true
+      true,
+      undefined,
+      undefined,
+      { extension: "segments", listener, tell }
     );
 
     expect(certainties).toEqual(["committed", "committed"]);
@@ -837,40 +831,32 @@ describe("settled in a transaction whose chain hears no writes", () => {
 });
 
 describe("write-outcome publication", () => {
-  test("stages each identity once and promotes only confirmed registrations", async () => {
+  test("a savepoint hands its parent only what reached its outcome", async () => {
     const published: string[] = [];
-    const confirmed: WriteOutcomeRegistration = Object.freeze({
-      extension: "confirmed",
+    const registered = (name: string): WriteOutcomeRegistration => ({
+      extension: name,
       listener: ({ certainty }) => {
-        published.push(`confirmed:${certainty}`);
+        published.push(`${name}:${certainty}`);
       },
     });
-    const discarded: WriteOutcomeRegistration = Object.freeze({
-      extension: "discarded",
-      listener: ({ certainty }) => {
-        published.push(`discarded:${certainty}`);
-      },
-    });
-    const child = new TransactionWriteOutcomes();
-    const parent = new TransactionWriteOutcomes();
+    const root = {};
+    const parent: TransactionScope = { parent: undefined, root };
+    const child: TransactionScope = { parent, root };
+    const confirmed = registered("confirmed");
+    const discarded = registered("discarded");
+    collect(child);
+    await tell([confirmed], child)("committed");
+    tell([discarded], child);
+    discarded.ok = false;
 
-    child.stage(confirmed);
-    child.stage(confirmed);
-    child.stage(discarded);
-    child.confirm([confirmed]);
-    child.discard([discarded]);
-    child.promoteTo(parent);
-
-    await child.publish("committed");
+    await expect(collect(child).end(child, "child")).resolves.toBe("child");
     expect(published).toEqual([]);
-    await parent.publish("may-have-committed");
-    expect(published).toEqual(["confirmed:may-have-committed"]);
-    await parent.publish("committed");
+    await collect(parent).publish("may-have-committed");
     expect(published).toEqual(["confirmed:may-have-committed"]);
   });
 
   test("attempts every listener; the first fault rejects and later ones are lost", async () => {
-    const boundaryFailure = new Error("official boundary failed");
+    const official = new QueryError("official failure");
     const calls: string[] = [];
     const failure = await captureFailure(
       publishWriteOutcomes(
@@ -885,10 +871,9 @@ describe("write-outcome publication", () => {
           },
           {
             extension: "official",
-            failurePolicy: "boundary-owned",
             listener() {
               calls.push("official");
-              throw boundaryFailure;
+              throw official;
             },
           },
         ],
@@ -903,23 +888,22 @@ describe("write-outcome publication", () => {
     });
   });
 
-  test("keeps one boundary-owned listener failure authoritative by identity", async () => {
-    const boundaryFailure = new Error("official boundary failed");
+  test("an error of viborm's own rejects as it is", async () => {
+    const official = new QueryError("official failure");
 
     await expect(
       publishWriteOutcomes(
         [
           {
             extension: "official",
-            failurePolicy: "boundary-owned",
             listener() {
-              throw boundaryFailure;
+              throw official;
             },
           },
         ],
         { certainty: "committed" }
       )
-    ).rejects.toBe(boundaryFailure);
+    ).rejects.toBe(official);
   });
 
   test("retains one or many listener failures behind the execution failure", () => {
@@ -940,10 +924,7 @@ describe("write-outcome publication", () => {
 
   test("publishes a pre-registered direct outcome without a query chain", async () => {
     const listener = vi.fn();
-    const registration = Object.freeze({
-      extension: "pre-registered",
-      listener,
-    });
+    const registration = { extension: "pre-registered", listener, tell };
     const child = vi.fn(
       async (notifications: WriteOutcomeNotifications | undefined) => {
         await notifications?.mayHaveCommitted();

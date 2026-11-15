@@ -13,6 +13,7 @@ import type { AdmittedArgs } from "./arguments";
 import type { CallOrigin } from "./origin";
 import {
   publishWriteOutcomes,
+  tell,
   type WriteOutcome,
   type WriteOutcomeRegistration,
 } from "./query";
@@ -131,8 +132,8 @@ export function watchWrite(
   );
   return {
     extension: first.extension,
-    // Each listener's failure is already said as its own.
-    failurePolicy: "boundary-owned",
+    tell,
+    // Each listener's failure is said as its own, an error of viborm's.
     listener(outcome: WriteOutcome) {
       // A write that may have committed failed: no rows will be told.
       if (told || outcome.certainty === "may-have-committed")

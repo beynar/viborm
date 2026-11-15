@@ -76,21 +76,16 @@ export async function stageArray(
 const ignore = (): undefined => undefined;
 
 /**
- * The hook: each member's package listener staged, then its handlers started
- * by `execute` (the chain's runner of a prepared call); a member with
- * nothing to intercept is admitted at once.
+ * The hook: each member's handlers started, in member order, by `execute`
+ * (the chain's runner of a prepared call), which stages what it registered;
+ * a member with nothing to intercept is admitted at once.
  */
 export function admitArray(
   slots: readonly ArraySlot[],
   scope: TransactionScope,
   execute: typeof executePreparedQuery
 ): Promise<readonly unknown[] | undefined> {
-  const facts = slots.map((slot) => {
-    const interception = slot.owner.interception(slot.operation);
-    if (interception.registration)
-      scope.outcomes?.stage(interception.registration);
-    return interception;
-  });
+  const facts = slots.map((slot) => slot.owner.interception(slot.operation));
   return admitArrayQueries(slots, (slot, child, hooks) => {
     const { context, handlers, write, registration } =
       facts[slots.indexOf(slot)]!;

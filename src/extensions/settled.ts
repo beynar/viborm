@@ -9,7 +9,7 @@
 import { registerOn } from "./call-words";
 import type { Outcome } from "./contract";
 import { scopeOf } from "./origin";
-import { collect, publishWriteOutcomes } from "./query";
+import { collect, publishWriteOutcomes, tell } from "./query";
 
 /**
  * Be told when the call's write is durable: after its commit, after the
@@ -36,15 +36,13 @@ export function settled(
 ): Promise<void> | undefined {
   const scope = scopeOf(target);
   if (scope === undefined) {
-    registerOn(target, { settled: listener, collect });
+    registerOn(target, { settled: listener, collect, tell });
     return;
   }
-  const registration = { extension: scope.extension, listener };
+  const registration = { extension: scope.extension, listener, ok: true };
   const transaction = scope.engine.transaction;
   if (transaction === undefined)
     return publishWriteOutcomes([registration], { certainty: "committed" });
-  const outcomes = collect(transaction);
-  outcomes.stage(registration);
-  outcomes.confirm([registration]);
+  collect(transaction).staged.push(registration);
   return Promise.resolve();
 }

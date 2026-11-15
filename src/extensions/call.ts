@@ -16,7 +16,6 @@
 
 import type { Schema } from "@client/types";
 import { QueryError, VibORMError } from "@errors";
-import { memo } from "@query-engine/raptor3/shared/schema";
 import { isFunction, isRecord } from "@validation/value-guards";
 import { errorCause } from "../errors/diagnostic-safety";
 import type { AdmittedArgs } from "./arguments";
@@ -38,12 +37,7 @@ import { MODEL_OPERATIONS, type SelectionValue, selectionOf } from "./on";
 import { CALL, type CallOrigin } from "./origin";
 import type { AroundRunner } from "./query";
 import { SHAPE_KEYS } from "./request";
-import {
-  REGISTER,
-  type Registering,
-  type Watching,
-  type WatchPart,
-} from "./watch-part";
+import { REGISTER, type Registering, type WatchPart } from "./watch-part";
 
 /**
  * What a first moment is handed, beside what `contract.ts` types: where the
@@ -77,9 +71,9 @@ interface CallSpec {
   ) => void;
   /**
    * `around` only: what a raw statement's first moment registers `settled`
-   * through, kept for its second moment, which the host tells the outcome.
+   * through, kept on the call, which the host tells of the outcome.
    */
-  readonly told?: (call: CallOrigin, first: FirstMoment) => Registering;
+  readonly told?: (call: CallOrigin, extension: string) => Registering;
   /** What registers `watch` and `settled`, where the part brings what tells them. */
   readonly watch?: WatchPart | undefined;
   /** `around` only: placed nearest the core. */
@@ -159,7 +153,7 @@ function firstOf(
         // statement never reaches such a part; an `around` hears a raw
         // statement's outcome.
         ...(model === undefined
-          ? told?.(call, first)
+          ? told?.(call, extension)
           : watch?.registering(call, extension)),
         [CALL]: model === undefined ? undefined : call,
       });
@@ -204,19 +198,8 @@ export function runFirstMoments(
   return state.args;
 }
 
-/** What one `around` part's first moment left its second, for one call. */
-interface Kept {
-  second?: SecondMoment;
-  /** A raw statement's `settled` registrations, told its outcome by the host. */
-  settled?: Watching[];
-}
-
-/** A call's `seconds`: by the first moment of each `around` part. */
-export type Seconds = Map<FirstMoment, Kept>;
-
-function keptFor(call: CallOrigin, first: FirstMoment): Kept {
-  return memo((call.seconds ??= new Map()), first, () => ({}));
-}
+/** A call's `seconds`: the second moment each `around` part's first returned. */
+export type Seconds = Map<FirstMoment, SecondMoment>;
 
 /** What `around` hands its first moments: the call's second moments kept. */
 function keepSecond(
@@ -224,36 +207,29 @@ function keepSecond(
   first: FirstMoment,
   second: SecondMoment
 ): void {
-  keptFor(call, first).second = second;
+  (call.seconds ??= new Map()).set(first, second);
 }
 
 /**
  * What a raw statement's first moment registers through: its `settled`
- * functions, kept for the second moment. A raw statement shows no rows: a
- * `watch` would never be told, and is refused.
+ * functions, kept on the call, which the host tells of an execute's
+ * outcome. A raw statement shows no rows: a `watch` would never be told,
+ * and is refused.
  */
-const rawTold = (call: CallOrigin, first: FirstMoment): Registering => ({
-  [REGISTER](watching) {
-    if (watching.settled === undefined) return false;
-    (keptFor(call, first).settled ??= []).push(watching);
+const rawTold = (call: CallOrigin, extension: string): Registering => ({
+  [REGISTER]({ settled, collect, tell }) {
+    if (settled === undefined) return false;
+    (call.told ??= []).push({ extension, listener: settled, collect, tell });
     return true;
   },
 });
 
-/**
- * The second moment of one `around` part: the second its first returned for
- * this call, run around `run`. The runner makes the child's failure the
- * call's.
- */
+/** The second moment of one `around` part: the second its first returned for this call. */
 const secondMoment =
   (first: FirstMoment): AroundRunner =>
-  (prepared, run, register) => {
-    const kept = prepared.call?.seconds?.get(first);
-    // The host tells a raw execute family's outcome to what its first
-    // moment registered; a raw read's outcome is no write and is dropped.
-    for (const { settled, collect } of kept?.settled ?? [])
-      if (settled) register(settled, collect);
-    return kept?.second === undefined ? run() : kept.second(run);
+  (prepared, run) => {
+    const second = prepared.call?.seconds?.get(first);
+    return second === undefined ? run() : second(run);
   };
 
 /**

@@ -9,6 +9,7 @@ import type { QueryEngine } from "@query-engine/query-engine";
 import type { PreparedOperation } from "@query-engine/raptor3/commands";
 import type { AdmittedArgs } from "./arguments";
 import type { Seconds } from "./call";
+import type { WriteOutcomeRegistration } from "./query";
 import type { Watched } from "./watch-part";
 
 /** The key of the call a first moment's context and a `run` belong to. */
@@ -39,6 +40,8 @@ export interface CallOrigin {
   seconds?: Seconds;
   /** `watch` and `settled` on a model call (`watch-part.ts`): per extension. */
   watched?: Watched;
+  /** `settled` on a raw statement, in an `around`'s first moment (`call.ts`). */
+  told?: WriteOutcomeRegistration[];
 }
 
 /** The view one extension's method scope serves. */

@@ -8,6 +8,7 @@ import {
 import { ARRAYS } from "@extensions/coordination";
 import {
   executePreparedQuery,
+  tell,
   type WriteOutcomeRegistration,
 } from "@extensions/query";
 import { PendingExecution } from "@query-engine/pending-execution";
@@ -341,6 +342,7 @@ describe("PendingOperation frozen public contract", () => {
       listener: ({ certainty }: { certainty: string }) => {
         published.push(certainty);
       },
+      tell,
     };
 
     await expect(
@@ -497,7 +499,6 @@ describe("pending operation transaction coordination", () => {
     const listener = vi.fn();
     const registration: WriteOutcomeRegistration = Object.freeze({
       extension: "package-listener",
-      failurePolicy: "boundary-owned",
       listener,
     });
     const prepareRegistration = vi.fn(() => registration);

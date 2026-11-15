@@ -8,7 +8,7 @@
 import type { Application, ExtensionPart } from "./chain";
 import { ARRAYS, coordinate } from "./coordination";
 import type { CallOrigin } from "./origin";
-import { collect } from "./query";
+import { collect, type tell } from "./query";
 import { type WrittenWatch, watchWrite } from "./written";
 
 /** The key a first moment's context registers watches through. */
@@ -23,6 +23,8 @@ export interface Watching {
   readonly show?: WrittenWatch["show"];
   /** What installs a transaction's collector: what `settled` brings. */
   readonly collect?: typeof collect;
+  /** What tells a raw statement's `settled` of its outcome: what `settled` brings. */
+  readonly tell?: typeof tell;
 }
 
 /** A call's `watched`: what each extension's first moments registered. */
