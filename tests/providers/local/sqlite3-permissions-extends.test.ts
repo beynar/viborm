@@ -1215,3 +1215,27 @@ test("a tenant bounds the policy's own sets and reads the same rows as without i
     await base.$disconnect();
   }
 });
+
+test.each([
+  null,
+  true,
+  "admin",
+])("a $if that is no condition (%s) is refused at its model's first call, never read as true", async (condition) => {
+  const post = s.model({ id: s.string().id(), title: s.string() });
+  const base = createClient({ schema: { post }, dataDir: ":memory:" });
+  try {
+    await syncLiveSchema(base);
+    await base.post.create({ data: { id: "p", title: "private" } });
+    const db = base.$extends(
+      permissions({
+        actor: v.object({ admin: v.boolean() }),
+        models: { post: { read: { $if: condition } } },
+      })
+    );
+    await expect(db.$as({ admin: false }).post.findMany()).rejects.toThrow(
+      "$if names one control and exactly one test of it"
+    );
+  } finally {
+    await base.$disconnect();
+  }
+});

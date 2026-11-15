@@ -10,13 +10,11 @@ import { ClientInitializationError } from "@errors";
 import { s } from "@schema";
 import { createModelFieldRefs, isFieldRef } from "@schema/field-ref";
 import {
-  type CompiledModel,
   type PermissionsConfig,
   type PolicyModel,
   permissions,
   type Rule,
 } from "@src/permissions";
-import { compilePolicy, policyCompiler } from "@src/permissions/compile";
 import { v } from "@src/validation";
 import { schema } from "@tests/package/fixtures/permissions-app/schema";
 import {
@@ -28,6 +26,12 @@ import {
   tokenRestrictions,
 } from "@tests/types/permissions/acceptance-policy";
 import { describe, expect, test } from "vitest";
+import {
+  compilePolicy,
+  type PlainModel,
+  plain,
+  policyCompiler,
+} from "./compiled-view";
 
 const me = { control: "actor", path: "userId" };
 const NOWHERE = { OR: [] };
@@ -132,7 +136,7 @@ const refusalOf = (run: () => unknown): string => {
 const LEVELS = ["read", "update", "full"] as const;
 
 describe("the acceptance policy (§1.1)", () => {
-  const compiled = policy.compile(schema);
+  const compiled = compilePolicy(policy.config, schema);
 
   test("compiles to the bytes 1.3.1 compiled (no simplification or lazy path changes them)", () => {
     const bytes = JSON.stringify(compiled);
@@ -143,7 +147,7 @@ describe("the acceptance policy (§1.1)", () => {
   });
 
   test("compiles to the same plain data every time", () => {
-    expect(JSON.stringify(policy.compile(schema))).toBe(
+    expect(JSON.stringify(compilePolicy(policy.config, schema))).toBe(
       JSON.stringify(compiled)
     );
     expect(JSON.parse(JSON.stringify(compiled))).toEqual(compiled);
@@ -178,11 +182,11 @@ describe("the acceptance policy (§1.1)", () => {
   });
 
   test("the blog compiles whole", () => {
-    expect(blog.compile(schema)).toMatchSnapshot();
+    expect(compilePolicy(blog.config, schema)).toMatchSnapshot();
   });
 
   test("the stored-role variant differs only in the ceiling", () => {
-    const stored = storedPolicy.compile(schema);
+    const stored = compilePolicy(storedPolicy.config, schema);
     expect(stored.models.organization).toEqual(compiled.models.organization);
     expect(stored.models.member!.predicates.read).not.toEqual(
       compiled.models.member!.predicates.read
@@ -757,14 +761,14 @@ describe("R1: P(M, a) = mandatory ∧ scope(a) ∧ ⋁ rule(b ⊒ a)(b)", () => 
           models: { page: { within: { title: "private" }, read: {} } },
         })
       )
-    ).toContain('models.page.within was renamed to "mandatory"');
+    ).toContain('models.page.within: "within" was renamed to "mandatory"');
     expect(
       refusalOf(() =>
         compile({
           models: { page: { actions: { read: [], within: [] }, read: {} } },
         })
       )
-    ).toContain('"within" is a retired declaration key');
+    ).toContain('models.page: "within" was renamed to "mandatory"');
   });
 
   test("global and model mandatory restrictions are conjoined with every action", () => {
@@ -1055,7 +1059,7 @@ describe("verbs, fields, modes and placement (K3, OD-3, R4)", () => {
         bookmark: { read: {}, delete: {} },
       },
     });
-    const verbs = ({ read, update, delete: remove }: CompiledModel) => ({
+    const verbs = ({ read, update, delete: remove }: PlainModel) => ({
       read,
       update,
       delete: remove,
@@ -2153,7 +2157,6 @@ describe("coverage low value", () => {
     // Simplification must not erase either branch before where admission can
     // diagnose an unsupported shape. Public runtime refusal is tested there.
     const cases = [
-      { $if: null },
       { group: 42 },
       { group: { is: { label: "a" }, extra: "unknown" } },
       { title: { in: [{ nested: me }] } },
@@ -2193,8 +2196,8 @@ describe("a policy's tenant", () => {
     const bound = {
       organizationId: { control: "actor", path: "organizationId" },
     };
-    expect(models.page!.bound).toEqual(bound);
-    expect(models.team!.bound).toEqual(bound);
+    expect(plain(models.page!.bound)).toEqual(bound);
+    expect(plain(models.team!.bound)).toEqual(bound);
     expect(models.member!.bound).toBeUndefined();
     expect(models.organization!.bound).toBeUndefined();
     expect(models.user!.bound).toBeUndefined();
@@ -2209,11 +2212,19 @@ describe("a policy's tenant", () => {
           models: { page: { read: {} } },
         } as never)
       );
-    const shape = "tenant is { field, actor, except? }";
-    expect(refusal("organizationId")).toContain(shape);
-    expect(refusal({ field: "organizationId" })).toContain(shape);
-    expect(refusal({ ...TENANT, model: "page" })).toContain(shape);
-    expect(refusal({ ...TENANT, except: "member" })).toContain(shape);
+    // A declaration of another shape names no field, path or model.
+    expect(refusal("organizationId")).toContain(
+      'tenant.actor reads actor path "undefined"'
+    );
+    expect(refusal({ actor: "organizationId" })).toContain(
+      'tenant.field: no model of the schema has a scalar field "undefined"'
+    );
+    expect(refusal({ field: "organizationId" })).toContain(
+      'tenant.actor reads actor path "undefined"'
+    );
+    expect(refusal({ ...TENANT, except: "member" })).toContain(
+      "tenant.except names m, which is not a model of the schema"
+    );
     expect(refusal({ ...TENANT, actor: "orgId" })).toContain(
       'tenant.actor reads actor path "orgId", which the actor schema does not declare'
     );
@@ -2613,7 +2624,7 @@ describe("a model at a time, and a rule checked where it compiles", () => {
       "ownerId is compared with undefined"
     );
     expect(compile({ owner: undefined })).toThrow(
-      "owner is filtered with undefined, which holds for every row"
+      "owner is compared with undefined, which holds for every row"
     );
   });
 

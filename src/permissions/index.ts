@@ -19,7 +19,6 @@ import { lazy } from "../extensions/judge-words";
 import { methods } from "../extensions/methods-part";
 import { models as everyOperation, selecting, target } from "../extensions/on";
 import { rule } from "../extensions/rule";
-import { arg, when } from "../extensions/rule-words";
 import type {
   AnyTarget,
   ClientSchema,
@@ -36,15 +35,13 @@ import {
   type CompiledPolicy,
   compilePolicy,
   DEFAULT_MODE,
-  type DeclaredModel,
   type EVIDENCE_KEY,
+  MODE,
   type ModelPolicy,
   type PermissionsConfig,
   type PolicyCompiler,
   policyArguments,
   policyCompiler,
-  ruleEntryOf,
-  wordsOf,
 } from "./compile";
 import type { PolicyModel, Where } from "./rules";
 
@@ -296,8 +293,6 @@ type SchemaCheck<
 // =============================================================================
 
 const NAME = "viborm.permissions";
-/** The call argument that narrows a call to one action or domain (R8). */
-const MODE = "as";
 
 type Listed<Config extends PermissionsConfig> = keyof Config["models"] & string;
 type ActionOf<
@@ -402,12 +397,10 @@ type PermissionsFacts<
 export interface Policy<Config extends PermissionsConfig> {
   readonly config: Config;
   /**
-   * The policy compiled against the schema it governs (R1, plain data): per
-   * model, its named predicates and the verbs, written fields, read-gated
-   * fields, modes, placement, moves, acyclic relations and projection key
-   * that take them. Refusals are
-   * `ClientInitializationError`s naming the declaration's path. Public for
-   * inspection; the entry applies it as it is.
+   * The policy compiled against the schema it governs (R1): per model, the
+   * rule entry the extension applies, and each credential scope with the
+   * scopes it implies. Refusals are `ClientInitializationError`s naming the
+   * declaration's path. Public for inspection.
    */
   compile<S extends Schema>(
     schema: S & SchemaCheck<S, Config["models"]>
@@ -424,7 +417,7 @@ const UPDATES = /^update/;
  * here: each of its arms is judged where it runs, the update where it locates
  * its row and the create in its statement.
  */
-const actionOf = (operation: string): string =>
+const actionOf = (operation: string) =>
   READS.test(operation)
     ? "read"
     : CREATES.test(operation)
@@ -432,13 +425,6 @@ const actionOf = (operation: string): string =>
       : UPDATES.test(operation)
         ? "update"
         : "delete";
-
-/** What a root call may reach on one model before its predicates run (R9). */
-interface Reach {
-  readonly listed: boolean;
-  readonly verbs: ReadonlySet<string>;
-  readonly modes: ReadonlySet<string>;
-}
 
 /**
  * Every model's modes, alike in name (one argument): the default and the
@@ -500,27 +486,6 @@ function scopeSchema(
       },
     },
   };
-}
-
-function reachOf(
-  config: PermissionsConfig,
-  models: { readonly [model: string]: DeclaredModel }
-): ReadonlyMap<string, Reach> {
-  return new Map(
-    Object.entries(models).map(([name, model]) => [
-      name,
-      {
-        listed: Object.hasOwn(config.models, name),
-        verbs: new Set([
-          ...(["read", "update", "delete"] as const).filter(
-            (verb) => model[verb] !== undefined
-          ),
-          ...(Object.hasOwn(model.modes, "create") ? ["create"] : []),
-        ]),
-        modes: new Set([DEFAULT_MODE, ...Object.keys(model.modes)]),
-      },
-    ])
-  );
 }
 
 /** No client: what an extension written apart from one is built against. */
@@ -677,7 +642,11 @@ export function permissions<const Config extends PermissionsConfig>(
   const actor = actorContract(config.actor);
   const compile = (schema: Schema) => compilePolicy(config, schema, actor);
   const { modes, scopes } = policyArguments(config);
-  const volatile = config.cache !== "allow";
+  /** A bound argument: a read that carries it is never cached, but under `cache: "allow"`. */
+  const held = (schema: Parameters<typeof bound>[0]) => {
+    const value = bound(schema).required();
+    return config.cache === "allow" ? value : value.volatile();
+  };
   /**
    * What applying the policy to one schema made: what the declaration
    * names, checked once, and what a root call may reach. Each model
@@ -687,69 +656,35 @@ export function permissions<const Config extends PermissionsConfig>(
    * and again for a schema object that gained or swapped a model: a model
    * the policy lacks would be left open (R9).
    */
-  const applied = new WeakMap<
-    Schema,
-    {
-      readonly compiler: PolicyCompiler;
-      readonly reach: ReadonlyMap<string, Reach>;
-    }
-  >();
-  const apply = (schema: Schema) => {
-    const compiler = policyCompiler(config, { ...schema }, actor);
-    const known = { compiler, reach: reachOf(config, compiler.declared) };
-    applied.set(schema, known);
-    return known;
-  };
-  /** One model's compiled predicates as a rule entry. */
-  const entryOf = (compiler: PolicyCompiler, name: string) => {
-    const model = compiler.model(name);
-    return ruleEntryOf(
-      model,
-      // The default and the model's read action narrow nothing (`read`
-      // holds in every mode); another of its actions or domains narrows by
-      // its predicate (R8). A mode it does not declare is refused before
-      // any statement (the `call` below).
-      (P) =>
-        Object.entries(model.modes)
-          .filter(([mode]) => mode !== DEFAULT_MODE && mode !== model.read)
-          .map(([mode, named]) => when(arg(MODE), mode, P(named))),
-      // Knowing which self relations are kept acyclic takes every model
-      // compiled: they are read when an update first writes a self key.
-      () => compiler.acyclic(name)
-    );
-  };
+  const applied = new WeakMap<Schema, PolicyCompiler>();
   const governed = extension(
     NAME,
     // Every model of the schema, each read when a call first needs it.
     rule<Untyped, (schema: Schema) => object>((schema) => {
-      const { compiler } = apply(schema);
+      const compiler = policyCompiler(config, { ...schema }, actor);
+      applied.set(schema, compiler);
       return Object.fromEntries(
         Object.keys(compiler.declared).map((name) => [
           name,
-          lazy(() => entryOf(compiler, name)),
+          lazy(() => compiler.model(name).entry),
         ])
       );
     }),
     // The tenant the policy's own whole-table sets stay in (`tenant`).
-    rule<Untyped, (schema: Schema) => object>((schema) => {
-      const known = new WeakMap<object, unknown>();
-      return Object.fromEntries(
+    rule<Untyped, (schema: Schema) => object>((schema) =>
+      Object.fromEntries(
         // The first rule part, declared before this one, applied the policy.
-        Object.entries(applied.get(schema)?.compiler.declared ?? {}).flatMap(
+        Object.entries(applied.get(schema)?.declared ?? {}).flatMap(
           ([name, model]) =>
             model.bound === undefined
               ? []
-              : [[name, { confine: within(wordsOf(model.bound, known)) }]]
+              : [[name, { confine: within(model.bound) }]]
         )
-      );
-    }),
+      )
+    ),
     args({
-      actor: volatile
-        ? bound(actor.schema).required().volatile()
-        : bound(actor.schema).required(),
-      scopes: volatile
-        ? bound(scopeSchema(scopes)).required().volatile()
-        : bound(scopeSchema(scopes)).required(),
+      actor: held(actor.schema),
+      scopes: held(scopeSchema(scopes)),
       [MODE]: oneOf(...modes)
         .default(DEFAULT_MODE)
         .on(selecting),
@@ -759,14 +694,21 @@ export function permissions<const Config extends PermissionsConfig>(
     call((c) => {
       // target(models) selects model calls only: each names its model.
       const model = c.model!;
-      const at = applied.get(c.schema)?.reach.get(model);
+      const at = applied.get(c.schema)?.declared[model];
+      const verb = actionOf(c.operation);
       const mode: unknown = c.values[MODE];
       if (
         !(
-          at?.listed &&
-          (c.operation === "upsert" || at.verbs.has(actionOf(c.operation)))
+          at &&
+          Object.hasOwn(config.models, model) &&
+          (c.operation === "upsert" ||
+            (verb === "create"
+              ? Object.hasOwn(at.modes, verb)
+              : at[verb] !== undefined))
         ) ||
-        (typeof mode === "string" && !at.modes.has(mode))
+        (typeof mode === "string" &&
+          mode !== DEFAULT_MODE &&
+          !Object.hasOwn(at.modes, mode))
       )
         throw new ForbiddenError(model, c.operation);
     }, target(everyOperation)),

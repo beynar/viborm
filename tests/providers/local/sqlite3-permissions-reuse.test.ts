@@ -80,9 +80,17 @@ test("reused policy keeps clients, factories, actors, scopes and transactions se
     expect([first.$ordinal(), again.$ordinal(), other.$ordinal()]).toEqual([
       1, 2, 3,
     ]);
-    const inspection = policy.compile(schema);
-    for (const predicate of Object.values(inspection.models.post!.predicates))
-      Reflect.set(predicate, "OR", []);
+    // Every object of the inspection's entry, its predicates among them,
+    // made to hold no row: what was applied reads none of them.
+    const spoiled = new Set<object>();
+    const spoil = (node: unknown): void => {
+      if (typeof node !== "object" || node === null || spoiled.has(node))
+        return;
+      spoiled.add(node);
+      for (const member of Object.values(node)) spoil(member);
+      if (!Array.isArray(node)) Reflect.set(node, "OR", []);
+    };
+    spoil(policy.compile(schema).models.post);
     const read = a.$extends(policy);
     expect(await read.$as({ userId: "alice" }).post.findMany()).toEqual([
       { id: "a1", ownerId: "alice" },
