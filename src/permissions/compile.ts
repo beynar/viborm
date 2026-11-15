@@ -759,10 +759,21 @@ export function policyCompiler(
     tenant: PermissionsConfig["tenant"]
   ): ((name: string) => Where | undefined) => {
     if (tenant === undefined) return () => undefined;
-    // Each of these refuses a declaration of another shape: a path or a
-    // field that is no string names nothing, nor does a member of `except`.
-    const except = tenant.except ?? [];
-    path("tenant.actor", `${tenant.actor}`);
+    const except = tenant?.except ?? [];
+    if (
+      !isRecord(tenant) ||
+      typeof tenant.field !== "string" ||
+      typeof tenant.actor !== "string" ||
+      !Array.isArray(except) ||
+      except.some((name) => typeof name !== "string") ||
+      Object.keys(tenant).some(
+        (key) => key !== "field" && key !== "actor" && key !== "except"
+      )
+    )
+      refuse(
+        "tenant is { field, actor, except? }: the scalar field that names a row's tenant, the actor path that names the caller's, and the models read beyond it"
+      );
+    path("tenant.actor", tenant.actor);
     const holds = (name: string) =>
       Object.hasOwn(stateOf(name).scalars, tenant.field);
     if (!Object.keys(schema).some(holds))
@@ -801,7 +812,12 @@ export function policyCompiler(
     if (isReference(input)) return ref(input.control, input.path);
     const keys = Object.keys(input);
     if (typeof input.$row === "string" && keys.length === 2) {
-      if (isEnclosingRow(input)) enclosing(input);
+      // `up` counts bodies: another value would read the rule's own row.
+      if (!isEnclosingRow(input))
+        refuse(
+          `${at}: { $row, up } takes a column and a whole number, 0 or more`
+        );
+      enclosing(input);
       return wrote(row(input.$row, input.up as number), {
         row: [input.$row, input.up],
       });

@@ -2212,19 +2212,11 @@ describe("a policy's tenant", () => {
           models: { page: { read: {} } },
         } as never)
       );
-    // A declaration of another shape names no field, path or model.
-    expect(refusal("organizationId")).toContain(
-      'tenant.actor reads actor path "undefined"'
-    );
-    expect(refusal({ actor: "organizationId" })).toContain(
-      'tenant.field: no model of the schema has a scalar field "undefined"'
-    );
-    expect(refusal({ field: "organizationId" })).toContain(
-      'tenant.actor reads actor path "undefined"'
-    );
-    expect(refusal({ ...TENANT, except: "member" })).toContain(
-      "tenant.except names m, which is not a model of the schema"
-    );
+    const shape = "tenant is { field, actor, except? }";
+    expect(refusal("organizationId")).toContain(shape);
+    expect(refusal({ field: "organizationId" })).toContain(shape);
+    expect(refusal({ ...TENANT, model: "page" })).toContain(shape);
+    expect(refusal({ ...TENANT, except: "member" })).toContain(shape);
     expect(refusal({ ...TENANT, actor: "orgId" })).toContain(
       'tenant.actor reads actor path "orgId", which the actor schema does not declare'
     );

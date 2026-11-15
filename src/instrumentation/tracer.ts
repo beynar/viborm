@@ -383,8 +383,10 @@ function endSpan(
     } = failure instanceof Error ? failure : {};
     const name = typeof shown.name === "string" ? shown.name : "Error";
     safely(() => span.setAttribute("error.type", name));
+    // A code of the library's own errors only: a failure of another origin
+    // is shown as a plain `Error`, and what it calls a code may be a value.
     const { code } = shown;
-    if (typeof code === "string")
+    if (typeof code === "string" && name !== "Error")
       safely(() => span.setAttribute("viborm.error.code", code));
     const sqlState = shown.meta?.providerSqlState;
     if (typeof sqlState === "string")
