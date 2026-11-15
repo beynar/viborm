@@ -13,7 +13,7 @@ import {
   createClient as createPGliteClient,
   PGliteDriver,
 } from "@src/drivers/pglite";
-import { call, createClient, extension, s, target } from "@src/index";
+import { call, createClient, extension, methods, s, target } from "@src/index";
 import { expectTypeOf } from "vitest";
 
 const user = s.model({ id: s.string().id(), name: s.string() });
@@ -137,6 +137,21 @@ const chain10 = chain9.$extends(extension("ten"));
 chain2.$withCache();
 chain5.$withCache();
 chain10.$withCache();
+
+// The view carries the chain's client methods, typed: the cache types its
+// methods through `this`, from the client they are called on.
+const tooled = cached.$extends(
+  extension(
+    "tools",
+    methods(() => ({ $ping: () => "pong" as const }))
+  )
+);
+expectTypeOf(tooled.$withCache().$ping()).toEqualTypeOf<"pong">();
+expectTypeOf(
+  tooled.$withCache().user.findMany({ select: { id: true } })
+).toEqualTypeOf<Promise<{ id: string }[]>>();
+// @ts-expect-error - a view is not a client: it takes no second view
+tooled.$withCache().$withCache();
 
 cache({
   driver: cacheDriver,

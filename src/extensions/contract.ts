@@ -31,7 +31,6 @@ import type { Sql } from "@sql";
 import type {
   ExtensionClientScope,
   ExtensionStateConstraint,
-  HasExtensionCache,
   MergeModelMethods,
 } from "./methods";
 import type { WriteOutcome } from "./query";
@@ -109,9 +108,9 @@ export type StampedFieldNames<Data, ModelName> =
  * The facts a part can contribute: the members of `ClientExtensionState` a
  * chain accumulates, `omit` (the fields a default leaves out, which joins the
  * client's own omission), `consumer` (the part was typed against a result,
- * so a later rule that hides rows would make its type lie), `cache` (the
- * official cache) and `projected` (what a rule's `gate` and `facts` add to
- * the delegates, in the form the projected types read).
+ * so a later rule that hides rows would make its type lie) and `projected`
+ * (what a rule's `gate` and `facts` add to the delegates, in the form the
+ * projected types read).
  */
 export interface Facts<
   Client extends object = NoMethods,
@@ -122,7 +121,6 @@ export interface Facts<
   Fields extends object = NoFields,
   Omit extends object = NoFields,
   Consumer extends boolean = false,
-  Cache extends boolean = false,
   Projected extends object = NoFields,
 > {
   readonly client: Client;
@@ -133,7 +131,6 @@ export interface Facts<
   readonly fields: Fields;
   readonly omit: Omit;
   readonly consumer: Consumer;
-  readonly cache: Cache;
   readonly projected: Projected;
 }
 
@@ -147,7 +144,6 @@ export type AnyFacts = Facts<
   unknown,
   object,
   object,
-  boolean,
   boolean,
   object
 >;
@@ -179,7 +175,6 @@ export type MergeFacts<Left extends AnyFacts, Right extends AnyFacts> = Facts<
     : Right["consumer"] extends true
       ? true
       : false,
-  Left["cache"] extends true ? true : Right["cache"],
   MergeObjects<Left["projected"], Right["projected"]>
 >;
 
@@ -1137,7 +1132,6 @@ type EntryFacts<R, Names extends string> = Facts<
   NoFields,
   NoFields,
   false,
-  false,
   RuleProjections<R, Names>
 >;
 
@@ -1478,11 +1472,6 @@ export type MethodsScope<T extends AnyTarget> = ExtensionClientScope<
 type TakenClientKey<T extends AnyTarget> =
   | keyof VibORMClientMembers<VibORMConfig, ExtensionStateConstraint>
   | keyof RawSurface
-  // The cache's own methods, once it is applied: its facts name them through
-  // the cache state, not as client methods, so the cache can declare them.
-  | (HasExtensionCache<T["state"]> extends true
-      ? "$withCache" | "$invalidate"
-      : never)
   | (string extends ModelName<T> ? never : ModelName<T>)
   | keyof T["state"]["client"]
   | keyof T["own"]["client"];

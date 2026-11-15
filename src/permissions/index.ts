@@ -393,7 +393,6 @@ type PermissionsFacts<
   Record<never, never>,
   Record<never, never>,
   false,
-  false,
   { readonly [K in Listed<Config>]: ModelProjection<Config, K> }
 >;
 

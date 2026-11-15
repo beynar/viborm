@@ -7,10 +7,7 @@
 
 // Named so an exported extended client's declaration can write them.
 export type { PlacedArgument, StampedFields } from "../extensions/contract";
-export type {
-  ExtensionCacheState,
-  ExtensionResultConsumerState,
-} from "../extensions/methods";
+export type { ExtensionResultConsumerState } from "../extensions/methods";
 // Pending operation
 export {
   isPendingOperation,
@@ -22,6 +19,7 @@ export type { IndexDefinition, IndexOptions } from "../schema/model";
 export type { ObjectSchema, VibSchema } from "../validation";
 export type {
   AddedProjectedState,
+  CachedClientOf,
   ClientTypeState,
   ExtendedClient,
 } from "./client";

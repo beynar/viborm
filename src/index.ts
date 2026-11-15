@@ -35,7 +35,6 @@ export type {
   DelegateOperationResult,
   ExtendedClient,
   ExtendedOperationResult,
-  ExtensionState,
   TransactionClient,
   TransactionClientOf,
   VibORMClient,
@@ -63,8 +62,10 @@ export type {
   ChainedExtensionState,
   ClientExtensionState,
   EmptyClientExtensionState,
-  ExtensionCacheState,
   ExtensionResultConsumerState,
+  // The extension type-state a derived client carries, under its own
+  // symbol: an exported client's declaration names it (TS2742 otherwise).
+  ExtensionStateConstraint as ExtensionState,
 } from "./extensions/methods";
 // Values a write computes, and the names a hand-written fragment spells them with.
 export {

@@ -1,4 +1,3 @@
-import type { WithCacheOptions } from "@cache/schema";
 import { ASYNC_DISPOSE, type AsyncDisposeMember } from "@drivers/async-dispose";
 import { CLIENT_DIAGNOSTICS } from "@drivers/execution-context";
 import type { AnyDriver } from "@drivers/exports";
@@ -24,11 +23,9 @@ import type {
   ChainedExtensionState,
   DelegateState,
   EmptyClientExtensionState,
-  ExtensionCacheState,
   ExtensionMethods,
   ExtensionModelClient,
   ExtensionStateConstraint,
-  HasExtensionCache,
   MergeModelMethods,
 } from "@extensions/methods";
 import { SCOPE } from "@extensions/origin";
@@ -246,7 +243,6 @@ export interface AddedProjectedState<
 > extends ExtensionStateConstraint {
   readonly client: Added["client"];
   readonly models: MergeModelMethods<Added["models"], Projected>;
-  readonly cache: Added["cache"];
   readonly resultConsumer: Added["resultConsumer"];
   readonly args: Added["args"];
   readonly filtered: Added["filtered"];
@@ -272,8 +268,7 @@ type AddedStateOf<F extends AnyFacts> = AddedExtensionState<
   F["filtered"],
   F["defaults"],
   F["consumer"] extends true ? "result-consuming" : "result-independent",
-  F["fields"],
-  F["cache"] extends true ? ExtensionCacheState : undefined
+  F["fields"]
 >;
 
 /** The config a client has once an extension with facts `F` is applied. */
@@ -315,14 +310,18 @@ export type AppliedExtensionState<
 
 /**
  * The order rule: after a part typed against a result, a rule that hides
- * rows or a default that omits a field would make that type lie. And one
- * cache per chain: a second one's `$withCache` would replace the first's. A
+ * rows or a default that omits a field would make that type lie. And a
+ * client method keeps the name it was added under, which `$extends` refuses
+ * at runtime too: a part typed against this client is refused at the key
+ * (`methods`), and this reads an extension whose facts were not (an
+ * official one, one written apart: a second cache's `$withCache`). A
  * constraint on the facts, not a conditional beside the extension: a
  * parameter type that depends on the facts being inferred gives the parts
- * no client to be typed against.
+ * no client to be typed against. `object &` keeps the method names a type
+ * with members, not a weak type every unrelated object would be refused by.
  */
 type AdmittedFacts<X extends ExtensionStateConstraint> = Facts<
-  object,
+  object & { readonly [Name in keyof X["client"]]?: never },
   object,
   object,
   [X["resultConsumer"]] extends [undefined] ? string : never,
@@ -332,7 +331,6 @@ type AdmittedFacts<X extends ExtensionStateConstraint> = Facts<
     ? object
     : { readonly [model: string]: never },
   boolean,
-  HasExtensionCache<X> extends true ? false : boolean,
   object
 >;
 
@@ -421,6 +419,28 @@ export type TransactionClient<
   } & X["client"];
 
 /**
+ * The read-only view of `Client` a cache serves (`$withCache()`): its read
+ * operations answering promises, typed as `Client`'s own delegates type them,
+ * and its client methods. `Client` is a client `createClient`, `$extends` or
+ * a view such as `$as(actor)` returned; `never` for a transaction client or
+ * a cached view, which carry no client state.
+ */
+export type CachedClientOf<Client> = typeof clientTypeState extends keyof Client
+  ? Client extends ClientTypeState<
+      infer C,
+      infer X extends ExtensionStateConstraint
+    >
+    ? CachedClient<
+        C,
+        ClientRowsContext<C, X["filtered"]>,
+        X["args"],
+        X["models"]
+      > &
+        X["client"]
+    : never
+  : never;
+
+/**
  * The interactive transaction client of `Client`, a client `createClient`,
  * `$extends` or a view such as `$as(actor)` returned: what code that takes
  * "a client or a transaction" names for its transaction half.
@@ -498,28 +518,9 @@ export type VibORMClient<
   // never declared `Symbol.asyncDispose`. The interactive `tx` client is
   // deliberately NOT disposable: `$transaction` owns that driver's lifetime.
   AsyncDisposeMember &
-  VibORMClientMembers<C, X> &
-  Omit<
-    {
-      /** Create a client with cache - only read operations available */
-      $withCache: (
-        config?: WithCacheOptions
-      ) => CachedClient<
-        C,
-        ClientRowsContext<C, X["filtered"]>,
-        X["args"],
-        X["models"]
-      >;
-      /** Invalidate cache entries by keys or patterns (use * suffix for prefix matching) */
-      $invalidate: (...keys: string[]) => Promise<void>;
-    },
-    HasExtensionCache<X> extends true ? "never" : "$withCache" | "$invalidate"
-  >;
+  VibORMClientMembers<C, X>;
 
-/**
- * The client members no extension state removes. An interface outside the
- * `Omit` above, so a body generic over the extension state still reaches them.
- */
+/** The client members no extension state removes. */
 export interface VibORMClientMembers<
   C extends VibORMConfig,
   X extends ExtensionStateConstraint,
@@ -654,9 +655,6 @@ export type ExtendedClient<
         : never
       : never
     : never;
-
-/** The extension type-state a derived client carries. */
-export type ExtensionState = ExtensionStateConstraint;
 
 /**
  * One operation's result on a derived client, as that client's own delegate

@@ -26,10 +26,6 @@ import type { MergeResultFields } from "./result-types";
 type NoMethods = Record<never, never>;
 export type RuntimeExtensionMethodFunction = (...args: never[]) => unknown;
 
-declare const extensionCacheState: unique symbol;
-export interface ExtensionCacheState {
-  readonly [extensionCacheState]: true;
-}
 declare const extensionResultConsumerState: unique symbol;
 export interface ExtensionResultConsumerState {
   readonly [extensionResultConsumerState]: true;
@@ -39,11 +35,6 @@ export interface ExtensionResultConsumerState {
 export interface ClientExtensionState<
   ClientMethods extends object = NoMethods,
   ModelMethods extends object = NoMethods,
-  // Without the cache, either: a client the cache extends stays assignable
-  // to the type of the client before it (the cache reads, it hides nothing).
-  CacheState extends ExtensionCacheState | undefined =
-    | ExtensionCacheState
-    | undefined,
   ResultConsumerState extends
     | ExtensionResultConsumerState
     | undefined = undefined,
@@ -54,7 +45,6 @@ export interface ClientExtensionState<
 > {
   readonly client: ClientMethods;
   readonly models: ModelMethods;
-  readonly cache: CacheState;
   readonly resultConsumer: ResultConsumerState;
   /** The arguments the chain declares: each one's values and placement. */
   readonly args: Arguments;
@@ -68,24 +58,16 @@ export interface ClientExtensionState<
 
 export type EmptyClientExtensionState = ClientExtensionState;
 
-/** Internal constraint for either the absent or enabled nominal cache bit. */
+/** What every extension state is: the widest of each fact. */
 export type ExtensionStateConstraint = ClientExtensionState<
   object,
   object,
-  ExtensionCacheState | undefined,
   ExtensionResultConsumerState | undefined,
   object,
   string,
   unknown,
   object
 >;
-
-/** Whether the current type-state includes the official cache capability. */
-export type HasExtensionCache<X extends ExtensionStateConstraint> = [
-  X["cache"],
-] extends [ExtensionCacheState]
-  ? true
-  : false;
 
 /** Whether an earlier extension was typed against result-bearing delegates. */
 export type HasResultConsumingExtension<X extends ExtensionStateConstraint> = [
@@ -266,15 +248,9 @@ export interface AddedExtensionState<
   ConsumerContext extends string,
   // Defaulted: 1.3.3 exported this state with six parameters.
   Fields extends object = Record<never, never>,
-  // Without the cache, either: a client the cache extends stays assignable
-  // to the type of the client before it (the cache reads, it hides nothing).
-  CacheState extends ExtensionCacheState | undefined =
-    | ExtensionCacheState
-    | undefined,
 > extends ExtensionStateConstraint {
   readonly client: ClientMethods;
   readonly models: ModelMethods;
-  readonly cache: CacheState;
   readonly resultConsumer: ConsumerContext extends "result-consuming"
     ? ExtensionResultConsumerState
     : undefined;
@@ -291,9 +267,6 @@ export interface ChainedExtensionState<
 > extends ExtensionStateConstraint {
   readonly client: X["client"] & Added["client"];
   readonly models: MergeModelMethods<X["models"], Added["models"]>;
-  readonly cache: [Added["cache"]] extends [ExtensionCacheState]
-    ? ExtensionCacheState
-    : X["cache"];
   readonly resultConsumer: HasResultConsumingExtension<Added> extends true
     ? ExtensionResultConsumerState
     : X["resultConsumer"];

@@ -170,6 +170,16 @@ all-or-nothing when it fits one batch.
   `ProjectedContribution` is `AddedProjectedState` and `GenericCallContext`
   is `AnyCallContext`. Only code that names these types or their members
   changes.
+- **The cache types its methods as any extension does**: `$withCache` and
+  `$invalidate` are the cache's client methods (`CacheMethods`, typed
+  through `this` from the client they are called on), not members the
+  client types itself. `ExtensionCacheState` is removed, and with it the
+  `cache` member and type parameter of `Facts` and of
+  `ClientExtensionState` (the parameters after it move up one place). The
+  view `$withCache()` returns (`CachedView`, `viborm/cache`) now types the
+  chain's client methods it carries at runtime. A second extension that
+  adds a client method under a name the client has is refused by the types
+  too, whoever wrote it.
 - **Public types removed**, with the definition they typed: from `viborm`,
   `ClientExtension`, `MergeExtensionState`, `ObservationCompletion`,
   `ObservationFacts`, `ObservationNeed`, `ObservationUnit`, `ObservedFacts`,

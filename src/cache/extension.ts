@@ -14,7 +14,7 @@
  *   entries and two databases never do.
  */
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import type { MutationOperations } from "../client/exports";
+import type { CachedClientOf, MutationOperations } from "../client/exports";
 import { VibORMError } from "../errors/base";
 import {
   CacheConfigurationError,
@@ -74,9 +74,29 @@ type ExactCacheExtensionConfig<Config> = Record<
   never
 >;
 
+/** `Self` is a client, not a transaction nor a view: what the cache's methods are called on. */
+type OnClient<Self> = [CachedClientOf<Self>] extends [never] ? never : unknown;
+
+/**
+ * The client methods the cache adds, typed through `this` from the client
+ * they are called on, whatever the chain added after the cache.
+ */
+export interface CacheMethods {
+  /** A view whose reads the cache serves: read operations only. */
+  $withCache<Self>(
+    this: Self & OnClient<Self>,
+    options?: WithCacheOptions
+  ): CachedClientOf<Self>;
+  /** Invalidate entries by keys or patterns (a `*` suffix matches a prefix). */
+  $invalidate<Self>(
+    this: Self & OnClient<Self>,
+    ...keys: string[]
+  ): Promise<void>;
+}
+
 /** What the cache adds to a client: its `cache` argument on writes, `$withCache`, `$invalidate`. */
 export type CacheFacts = Facts<
-  Record<never, never>,
+  CacheMethods,
   Record<never, never>,
   {
     readonly cache: PlacedArgument<
@@ -89,8 +109,7 @@ export type CacheFacts = Facts<
   never,
   Record<never, never>,
   Record<never, never>,
-  false,
-  true
+  false
 >;
 
 /** A validator as a Standard Schema: what an argument of the cache is checked by. */
