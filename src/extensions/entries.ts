@@ -62,11 +62,10 @@ export function judgedInputs(
  */
 class EntryDomain extends FilterDomain {
   override restrictsLinkWrite(queries: Queries, model: AnyModel): boolean {
+    // A model's entries are bound only where some layer declares one.
     return (
       super.restrictsLinkWrite(queries, model) ||
-      this.rows.rules
-        ?.get(model["~"].names.ts!)
-        ?.some((entry) => entry !== undefined) === true
+      this.rows.rules?.get(model["~"].names.ts!) !== undefined
     );
   }
 }
