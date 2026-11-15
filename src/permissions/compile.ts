@@ -1542,37 +1542,27 @@ export function policyCompiler(
     return and(kept);
   };
 
-  /** The rows `relation` reaches that the actor views: `P(T, read)`, false
-   * where T holds none (R9, fail closed). */
-  const visibleThrough = (name: string, relation: string): Clause => {
-    const target = targetOf(name, relation)!;
-    const action = declarations.get(target)?.read;
-    const held = action ? P(target, action) : false;
-    return held === false ? false : { [relation]: { is: held } };
-  };
   /**
    * Each foreign key `name` holds, with what R4 asks of a value written to
    * it: null where every field of the key may be, or a target the actor
-   * views.
+   * views (`P(T, read)`, false where T holds none: R9, fail closed).
    */
   const keysOf = (name: string) =>
     Object.entries(stateOf(name).relations).flatMap(([relation, declared]) => {
       const key = declared["~"].state.foreignKey;
       if (key === undefined) return [];
-      const visible = visibleThrough(name, relation);
+      const target = targetOf(name, relation)!;
+      const action = declarations.get(target)?.read;
+      const held = action ? P(target, action) : false;
+      const visible = held && { [relation]: { is: held } };
       const nullable = key.fields.every(
         (field) => stateOf(name).scalars[field]?.["~"].state.nullable === true
       );
-      const own = nullable
+      const clause = nullable
         ? or([and(key.fields.map((field) => ({ [field]: null }))), visible])
         : visible;
-      return [{ relation, fields: key.fields, clause: own }];
+      return [{ relation, fields: key.fields, clause }];
     });
-  /**
-   * The fields of `name`'s row a clause read at `name` reads: a scalar, the
-   * key behind a relation it holds, the fields a relation it does not hold
-   * joins on, and a self relation's body where `self` reads the row itself.
-   */
   /**
    * The fields of the rule's own row its bodies compare (`{ $row, up:
    * depth }`). An inlined predicate is relative to its own root and never
@@ -1598,77 +1588,56 @@ export function policyCompiler(
     const depths = seen.get(clause) ?? new Set<number>();
     if (depths.has(depth)) return;
     seen.set(clause, depths.add(depth));
-    if (Array.isArray(clause)) {
+    if (Array.isArray(clause))
       for (const item of clause) rootReads(name, item, depth, into, seen);
-      return;
-    }
-    if (word && "exists" in word) {
-      const [model, body] = word.exists;
-      rootReads(model, body, depth + 1, into, seen);
-    }
-    if (!isRecord(clause)) return;
-    for (const [key, member] of Object.entries(clause)) {
-      const target = LOGICAL.has(key) ? undefined : targetOf(name, key);
-      if (target === undefined || !isRecord(member)) {
-        rootReads(name, member, depth, into, seen);
-        continue;
-      }
-      const quantified = Object.keys(member).some((op) => QUANTIFIERS.has(op));
-      if (!quantified) {
+    else if (word && "exists" in word)
+      rootReads(word.exists[0], word.exists[1], depth + 1, into, seen);
+    else if (isRecord(clause))
+      for (const [key, member] of Object.entries(clause)) {
+        const target = LOGICAL.has(key) ? undefined : targetOf(name, key);
+        if (target === undefined || !isRecord(member))
+          rootReads(name, member, depth, into, seen);
+        else if (Object.keys(member).some((op) => QUANTIFIERS.has(op))) {
+          for (const op of QUANTIFIERS)
+            if (isRecord(member[op]))
+              rootReads(target, member[op], depth + 1, into, seen);
+        }
         // The to-one shorthand: the body is the related row's own filter.
-        rootReads(target, member, depth + 1, into, seen);
-        continue;
+        else rootReads(target, member, depth + 1, into, seen);
       }
-      for (const op of QUANTIFIERS) {
-        const body = member[op];
-        if (isRecord(body)) rootReads(target, body, depth + 1, into, seen);
-      }
-    }
   };
-  const fieldsRead = (name: string, clause: Where, into: Set<string>) => {
-    rootReads(name, clause, 0, into);
-    return ownFields(name, clause, into);
-  };
+  /**
+   * The fields of `name`'s row a clause read at `name` reads: a scalar, the
+   * fields a relation joins on (its key, or on the other side the fields of
+   * `name` any key references), and a self relation's body where `self`
+   * reads the row itself.
+   */
   const ownFields = (name: string, clause: unknown, into: Set<string>) => {
     // A condition and another model's rows read no field of the row.
-    if (!isRecord(clause)) return into;
+    if (!isRecord(clause)) return;
     for (const [key, member] of Object.entries(clause)) {
       if (LOGICAL.has(key))
         for (const item of Array.isArray(member) ? member : [member])
           ownFields(name, item, into);
       else if (targetOf(name, key) === undefined) into.add(key);
       else {
-        for (const field of joinedOn(name, key)) into.add(field);
+        const own = relationOf(name, key)!.state.foreignKey;
+        if (own !== undefined) for (const field of own.fields) into.add(field);
+        else
+          for (const other of names.values())
+            for (const declared of Object.values(stateOf(other).relations)) {
+              const foreign = declared["~"].state.foreignKey;
+              if (
+                foreign !== undefined &&
+                names.get(declared["~"].settleTarget() as AnyModel) === name
+              )
+                for (const field of foreign.references) into.add(field);
+            }
         if (isRecord(member) && member.self === true)
           for (const op of QUANTIFIERS)
             if (isRecord(member[op])) ownFields(name, member[op], into);
       }
     }
-    return into;
-  };
-  /** The relations of `name` whose foreign key holds `field`. */
-  const holders = (name: string, field: string) =>
-    Object.entries(stateOf(name).relations)
-      .filter(([, declared]) =>
-        declared["~"].state.foreignKey?.fields.includes(field)
-      )
-      .map(([relation]) => relation);
-  /** The fields of `name` a relation of it joins on. */
-  const joinedOn = (name: string, relation: string): readonly string[] => {
-    const own = relationOf(name, relation)!.state.foreignKey;
-    if (own !== undefined) return own.fields;
-    // Held on the other side: the fields of `name` some key references.
-    const referenced = new Set<string>();
-    for (const other of names.values())
-      for (const declared of Object.values(stateOf(other).relations)) {
-        const key = declared["~"].state.foreignKey;
-        if (
-          key !== undefined &&
-          names.get(declared["~"].settleTarget() as AnyModel) === name
-        )
-          for (const field of key.references) referenced.add(field);
-      }
-    return [...referenced];
   };
 
   /** One name per predicate of a model: actions, domains, the placement, moves. */
@@ -1820,22 +1789,24 @@ export function policyCompiler(
     );
     // A move (OD-14): an update writing a field the placement reads is
     // placed again; one writing a key, its target visible.
-    const placed =
-      create === false
-        ? new Set<string>()
-        : fieldsRead(name, create, new Set());
+    const placed = new Set<string>();
+    if (create !== false) {
+      rootReads(name, create, 0, placed);
+      ownFields(name, create, placed);
+    }
     const moves: Record<string, string> = {};
     for (const field of new Set([
       ...placed,
       ...keys.flatMap(({ fields }) => fields),
     ])) {
       const move = `move:${field}`;
+      const holding = keys.filter(({ fields }) => fields.includes(field));
       // The new row is also judged at what judged the old one (R4), which a
       // move need not say: the read verb, and the field's write action when
       // every spelling of the write (the field, a relation holding it) takes
       // the same one (R3).
       const spelled = new Set(
-        [field, ...holders(name, field)].map(
+        [field, ...holding.map(({ relation }) => relation)].map(
           (written) => writes[written] ?? verbs.update
         )
       );
@@ -1849,9 +1820,7 @@ export function policyCompiler(
           name,
           [
             placed.has(field) ? create : {},
-            ...keys
-              .filter(({ fields }) => fields.includes(field))
-              .map(({ clause }) => clause),
+            ...holding.map(({ clause }) => clause),
           ],
           judged
         ) || FALSE
