@@ -933,8 +933,14 @@ export function policyCompiler(
         also.push(...conditions(at, member));
       } else if (key === "$if") {
         const { control, path: read, ...test } = isRecord(member) ? member : {};
+        // A name the words take for the call's instant: refused here, in
+        // the policy's own terms.
+        if (typeof control !== "string")
+          refuse(
+            `${at}: $if names one control and exactly one test of it`,
+            name
+          );
         if (control === "actor") path(at, read);
-        // The rule's admission refuses an argument that is not a string.
         tested = condition(control as string, read, test);
       } else if (key === EXISTS) {
         // Another model's rows, read at their own model: action names are

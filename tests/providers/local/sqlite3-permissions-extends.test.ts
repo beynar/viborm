@@ -1233,7 +1233,7 @@ test.each([
       })
     );
     await expect(db.$as({ admin: false }).post.findMany()).rejects.toThrow(
-      "a test is a value or exactly one of"
+      "$if names one control and exactly one test of it"
     );
   } finally {
     await base.$disconnect();

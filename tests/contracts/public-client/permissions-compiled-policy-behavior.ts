@@ -96,9 +96,9 @@ const extensionOf = (name: string, compiled: CompiledPolicy) =>
           const predicates =
             (
               own.read.select?.[EVIDENCE_KEY] as
-                | { readonly predicates: Readonly<Record<string, object>> }
+                | { readonly held: Readonly<Record<string, object>> }
                 | undefined
-            )?.predicates ?? {};
+            )?.held ?? {};
           return [
             model,
             GOVERNED_MODELS.includes(model as never)

@@ -19,7 +19,7 @@ import {
 
 const FIELD_GATED = /gates that field/;
 const IS_A_JUNCTION = /junction of 'team\.parents'/;
-const THIS_CLIENT = /this client/;
+const THIS_CLIENT = /rows are restricted here|this client/;
 
 /**
  * A hop is storage; `$through` is a read or a write of the junction model. So
