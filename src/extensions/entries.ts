@@ -23,11 +23,9 @@ import type {
   BoundEntries,
   EntryDraft,
   EntryHost,
-  LazyEntries,
   References,
   RuleLayer,
 } from "./admission";
-import { extensionError } from "./chain";
 import type { ResolvedExtensionChain } from "./chain-state";
 import { FilterDomain, preparer } from "./row-domain";
 import type { Site } from "./rule-words";
@@ -171,7 +169,7 @@ function cyclesOf(
 }
 
 /** One model's draft with every predicate admitted: the layer's entry. */
-function admitDraft(
+export function admitDraft(
   admission: Admission,
   name: string,
   draft: EntryDraft,
@@ -200,7 +198,7 @@ function admitDraft(
 
 /**
  * Every layer's entries bound to `chain`, each model's taken the first time
- * it is read, an entry given lazily read then (`LAZY_ENTRIES`). A model no
+ * it is read, an entry given lazily read then. A model no
  * layer gives as a function is taken now: its refusals are the
  * application's, as they would be at admission.
  */
@@ -221,9 +219,9 @@ function bindEntries(chain: ResolvedExtensionChain): BoundEntries {
       ? memo(built, model, () => {
           const out = layers.map(({ rules, extension }) => {
             const entry = rules[model];
-            // Only `lazy` writes an entry as a function, and it brings its reader.
+            // Only `lazy` writes an entry as a function: it reads itself.
             return typeof entry === "function"
-              ? lazy!.read(chain, entry, extension)
+              ? entry(chain, extension)
               : entry;
           });
           keys?.(model, out);
@@ -256,55 +254,11 @@ export const ENTRIES: EntryHost = {
       Object.entries(layer.rules).map(([name, draft]) => [
         name,
         typeof draft === "function"
-          ? layer.brings!.lazy!.admit(admitting, name, draft, filtersOf)
+          ? draft(admitting, filtersOf)
           : admitDraft(admitting, name, draft, references),
       ])
     ),
   bind: bindEntries,
-};
-
-/**
- * What `lazy` brings: an entry given as a function admitted once, the first
- * time its model is read, with its own references, checked then against
- * what the chain declared up to its extension, as `$extends` checks an
- * eager entry's.
- */
-export const LAZY_ENTRIES: LazyEntries = {
-  admit(admitting, name, draft, filtersOf) {
-    let resolved: AdmittedEntry | undefined;
-    return () => {
-      if (resolved !== undefined) return resolved;
-      const own: References = new Set();
-      const { root, related, ...given } = draft();
-      const at = `lazy ${name}`;
-      const admitted = admitDraft(admitting, name, given, own, at);
-      if (root !== undefined || related !== undefined)
-        admitted.filters = filtersOf(name, { root, related }, own, at);
-      // Read after the filters: what they name is the entry's too.
-      admitted.references = [...own];
-      resolved = admitted;
-      return admitted;
-    };
-  },
-  read(chain, entry, extension) {
-    const draft = entry();
-    const at = chain.extensions.findIndex((own) => own.name === extension);
-    const names = new Set(
-      chain.extensions.slice(0, at + 1).map((own) => own.name)
-    );
-    for (const name of draft.references!)
-      if (
-        name !== undefined &&
-        !chain.args?.all.some(
-          (argument) => argument.name === name && names.has(argument.extension)
-        )
-      )
-        extensionError(
-          `Extension "${extension}" references undeclared argument "${name}".`,
-          extension
-        );
-    return draft;
-  },
 };
 
 /**
