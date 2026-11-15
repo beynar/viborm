@@ -135,15 +135,9 @@ async function around<Result>(
       (failure: unknown) => settle(source, at, true, failure)
     );
   };
-  let returned: unknown;
-  try {
-    returned = resolved.handler(unit, next);
-  } catch (failure) {
-    returned = Promise.reject(failure);
-  }
   let handlerFailure: { readonly failure: unknown } | undefined;
   try {
-    await returned;
+    await resolved.handler(unit, next);
   } catch (failure) {
     handlerFailure = { failure };
   }
