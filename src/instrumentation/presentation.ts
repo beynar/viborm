@@ -128,7 +128,7 @@ export function createNotedSpanOptions(
       ...createCorrelationAttributes(correlation(unit)),
       ...noted.attributes,
     }),
-    ...(noted.root === true ? { root: true } : {}),
+    root: noted.root === true,
   };
 }
 
