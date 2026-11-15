@@ -48,6 +48,18 @@ export type ShowRows = (
 ) => void;
 
 /**
+ * One write call under what its first moments registered, where one of them
+ * asked for rows: what `watch` brings (`watchShown`), so a call watched by
+ * `settled` alone is told its outcome and carries none of it.
+ */
+export type WatchShown = (
+  watched: Watched,
+  settled: readonly WriteOutcomeRegistration[],
+  context: QueryExecutionContext,
+  late: (settle: () => Promise<void>) => void
+) => WriteOutcomeRegistration["listener"];
+
+/**
  * What `watch(c, …)` and `settled(c, …)` register for one call: which rows
  * it wants shown and receives (every scalar field, as the write left them,
  * as they were before a delete; the call's own first, then those written
@@ -66,7 +78,7 @@ export interface Watching {
   ) => void;
   readonly settled?: (outcome: WriteOutcome) => unknown;
   /** What shows the rows: what `watch` brings, never `settled`. */
-  readonly show?: ShowRows;
+  readonly show?: WatchShown;
   /** What installs a transaction's collector: what `settled` brings. */
   readonly collect?: typeof collect;
   /** What tells a raw statement's `settled` of its outcome: what `settled` brings. */
@@ -77,12 +89,10 @@ export interface Watching {
 export type Watched = (readonly [string, Watching])[];
 
 /**
- * One write call under what its first moments registered: the engine is
- * told what they want to see, and the call's one outcome registration tells
- * them that it settled. A unit handed over whole answers after it commits:
- * what an extension shown rows registered is then told it settled once its
- * rows are, by what `late` receives, which the call's value runs and waits
- * for.
+ * One write call under what its first moments registered: the call's one
+ * outcome registration tells each `settled` that the write settled, and,
+ * where a `watch` asked for rows, what that word brings shows them first
+ * (`watchShown`).
  */
 export function watchWrite(
   watched: Watched,
@@ -90,24 +100,40 @@ export function watchWrite(
   late: (settle: () => Promise<void>) => void
 ): WriteOutcomeRegistration | undefined {
   if (watched.length === 0) return undefined;
-  const seeing = new Set<string>();
-  let show: ShowRows | undefined;
-  for (const [extension, watching] of watched)
-    if (watching.show) {
-      seeing.add(extension);
-      show = watching.show;
-    }
   const settled: WriteOutcomeRegistration[] = [];
   for (const [extension, watching] of watched)
     if (watching.settled)
       settled.push({ extension, listener: watching.settled });
+  return {
+    extension: watched[0]![0],
+    tell,
+    // Each listener's failure is said as its own, an error of viborm's.
+    listener:
+      watched
+        .find(([, watching]) => watching.show)?.[1]
+        .show?.(watched, settled, context, late) ??
+      ((outcome) => publishWriteOutcomes(settled, outcome)),
+  };
+}
+
+/**
+ * A write call some of whose watches asked for rows: the engine is told what
+ * they want to see, and the call's one outcome registration tells them that
+ * it settled. A unit handed over whole answers after it commits: what an
+ * extension shown rows registered is then told it settled once its rows
+ * are, by what `late` receives, which the call's value runs and waits for.
+ */
+export const watchShown: WatchShown = (watched, settled, context, late) => {
+  const seeing = new Set<string>();
+  for (const [extension, watching] of watched)
+    if (watching.show) seeing.add(extension);
   const shown = settled.filter(({ extension }) => seeing.has(extension));
   const blind = settled.filter(({ extension }) => !seeing.has(extension));
   let told = false;
   let heard: WriteOutcome | undefined;
   const wants = (model: string, kind: WriteKind) =>
     watched.some(([, watching]) => watching.wants?.(model, kind) === true);
-  show?.(context, wants, (rows) => {
+  showRows(context, wants, (rows) => {
     for (const [model, kind, written, nested] of rows)
       for (const [, watching] of watched)
         if (watching.wants?.(model, kind) === true)
@@ -122,19 +148,14 @@ export function watchWrite(
     const outcome = heard;
     if (outcome) late(() => publishWriteOutcomes(shown, outcome));
   });
-  return {
-    extension: watched[0]![0],
-    tell,
-    // Each listener's failure is said as its own, an error of viborm's.
-    listener(outcome: WriteOutcome) {
-      // A write that may have committed failed: no rows will be told.
-      if (told || outcome.certainty === "may-have-committed")
-        return publishWriteOutcomes(settled, outcome);
-      heard = outcome;
-      return publishWriteOutcomes(blind, outcome);
-    },
+  return (outcome) => {
+    // A write that may have committed failed: no rows will be told.
+    if (told || outcome.certainty === "may-have-committed")
+      return publishWriteOutcomes(settled, outcome);
+    heard = outcome;
+    return publishWriteOutcomes(blind, outcome);
   };
-}
+};
 
 /** The engine shows the rows of one call's writes that `wants` wants. */
 export const showRows: ShowRows = (context, wants, told) => {
