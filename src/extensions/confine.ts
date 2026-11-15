@@ -9,8 +9,9 @@ import { type Input, memo } from "@query-engine/raptor3/shared/schema";
 import type { AnyModel } from "@schema/model";
 import type { AdmittedLayer, Confines } from "./admission";
 import type { ConfineWord, HeldOperand, IsHeld } from "./contract";
+import { Held } from "./judge-words";
 import type { PreparedDomain } from "./row-domain";
-import { CarriedValue, type Site } from "./rule-words";
+import type { Site } from "./rule-words";
 
 /**
  * What an `excluded` layer states its own whole-table sets of a model hold,
@@ -62,12 +63,7 @@ const CONFINES: Confines = {
 };
 
 /** `within(where)`'s value: what a model's whole-table sets hold. */
-class Within extends CarriedValue {
-  readonly where: object;
-  constructor(where: object) {
-    super();
-    this.where = where;
-  }
+class Within extends Held<object> {
   join({ key, model, schema, lazy, layer, refuse }: Site): void {
     // An entry given lazily is admitted after its layer's confinements.
     if (key !== "confine" || lazy)
@@ -75,10 +71,10 @@ class Within extends CarriedValue {
     // The model's own columns: a confinement reads no relation, so lowering
     // it never builds another set it would confine in turn.
     const { scalars } = schema[model]!["~"].state;
-    for (const field of Object.keys(this.where))
+    for (const field of Object.keys(this.held))
       if (!Object.hasOwn(scalars, field))
         refuse(`confine names "${field}", which is not a scalar field`);
-    (layer!.confine ??= {})[model] = this.where;
+    (layer!.confine ??= {})[model] = this.held;
     (layer!.brings ??= {}).confines = CONFINES;
   }
 }

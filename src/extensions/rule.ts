@@ -37,8 +37,7 @@ const RULE_KEYS = new Set([
   "confine",
 ]);
 
-const isPlain = isPlainRecord;
-const own = (value: unknown): Entry => (isPlain(value) ? value : {});
+const own = (value: unknown): Entry => (isPlainRecord(value) ? value : {});
 /** A filter list as written, copied: one filter or several. */
 export const listOf = (value: unknown): unknown[] =>
   value === undefined ? [] : Array.isArray(value) ? [...value] : [value];
@@ -88,7 +87,7 @@ export function draftOf(
       });
       return;
     }
-    if (!(container && isPlain(value)))
+    if (!(container && isPlainRecord(value)))
       refuse(
         container
           ? `${key} is an object`
@@ -109,7 +108,7 @@ export function draftOf(
     join(entry, "the entry");
     return;
   }
-  if (!isPlain(entry))
+  if (!isPlainRecord(entry))
     return refuse(
       typeof entry === "function"
         ? "an entry given as a function is written lazy(() => entry)"

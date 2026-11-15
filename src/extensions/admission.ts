@@ -229,9 +229,6 @@ export interface Admission {
   reads?: CallReads;
 }
 
-/** A layer without verbs. */
-const NO_VERBS: AdmittedLayer["verbs"] = Object.freeze({});
-
 /**
  * What admits one schema's predicates: refusals are
  * `ClientInitializationError`s naming the extension, the model, the
@@ -338,9 +335,7 @@ export function admitLayer(
       ""
     );
   const { host } = layer;
-  const verbs = host
-    ? host.admit(admitting, layer, filtersOf, references)
-    : NO_VERBS;
+  const verbs = host?.admit(admitting, layer, filtersOf, references) ?? {};
   const confine = layer.confine
     ? layer.brings!.confines!.admit(admitting, layer.confine, references)
     : undefined;
