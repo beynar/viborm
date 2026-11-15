@@ -113,6 +113,13 @@ async function cached(options: { swr?: boolean } = {}) {
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
 
+/** A view as the scope test calls it. */
+interface View {
+  readonly post: { findMany(): Promise<unknown> };
+  $withCache(options: object): unknown;
+  $tenant(tenant: string): View;
+}
+
 describe("[DROP]: a backend that fails one step of an invalidation", () => {
   test("a failing delete rejects $invalidate, and the prefix it was handed beside it is cleared", async () => {
     const { db, backend } = await cached();
@@ -267,14 +274,24 @@ describe("the cache's scope, computed on every read", () => {
         )
       )
       .$extends(cache({ driver: backend }));
+    // A cached view carries the chain's client methods at runtime, and a
+    // method's scope binds a view: neither type names it (`CachedClient`
+    // lists no client method, `scope.$bind` answers `unknown`).
+    const view = (value: unknown) => value as View;
     expect(
-      await db.$tenant("one").$withCache({ ttl: "1h" }).post.findMany()
+      await view(
+        view(db.$tenant("one")).$withCache({ ttl: "1h" })
+      ).post.findMany()
     ).toEqual([{ id: 1, title: "one" }]);
     expect(
-      await db.$withCache({ ttl: "1h" }).$tenant("two").post.findMany()
+      await view(db.$withCache({ ttl: "1h" }))
+        .$tenant("two")
+        .post.findMany()
     ).toEqual([{ id: 2, title: "two" }]);
     expect(
-      await db.$withCache({ ttl: "1h" }).$tenant("one").post.findMany()
+      await view(db.$withCache({ ttl: "1h" }))
+        .$tenant("one")
+        .post.findMany()
     ).toEqual([{ id: 1, title: "one" }]);
     expect(backend.store.size).toBe(2);
   });

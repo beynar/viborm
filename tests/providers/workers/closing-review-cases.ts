@@ -27,7 +27,7 @@ import {
   writes,
 } from "@src/index";
 import { instrumentation } from "@src/instrumentation/exports";
-import type { SpanTracer } from "@src/instrumentation/types";
+import type { SpanTracer, TracingSpan } from "@src/instrumentation/types";
 import { on } from "@src/on";
 
 export const record = s.model({
@@ -85,8 +85,13 @@ const throwingSpan = {
   },
 };
 
+/** A tracer as a platform may hand one over, its answer whatever it is. */
+interface FailingTracer {
+  startActiveSpan(name: string, fn: (span: TracingSpan) => unknown): unknown;
+}
+
 /** Tracers a platform may hand over that fail in each way a tracer can. */
-export const FAILING_TRACERS: Record<string, SpanTracer> = {
+export const FAILING_TRACERS: Record<string, FailingTracer> = {
   "throws before calling back": {
     startActiveSpan() {
       throw new Error("tracer failed");
@@ -156,10 +161,15 @@ export const EXERCISED = [
   "raw: QueryError",
 ];
 
-export const withTracer = (base: AnyClient, tracer: SpanTracer) =>
+export const withTracer = (base: AnyClient, tracer: FailingTracer) =>
   base.$extends(
     instrumentation({
-      tracing: { tracer, includeSql: true, includeParams: true },
+      tracing: {
+        // It breaks the contract its type states, as a failing tracer does.
+        tracer: tracer as SpanTracer,
+        includeSql: true,
+        includeParams: true,
+      },
     })
   );
 
