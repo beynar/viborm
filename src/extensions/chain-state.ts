@@ -1,7 +1,7 @@
 /**
  * What a resolved chain holds: the names of its extensions, and what each
  * part an extension was built from wrote on it. A part's state carries the
- * code that runs it (`chain.written.watch`, `chain.arguments.admit`), so the
+ * code that runs it (`chain.watch`, `chain.args`), so the
  * client asks the chain and imports nothing that runs extensions.
  */
 
@@ -99,21 +99,20 @@ export interface CallRowsBinding {
 }
 
 /**
- * Absent on an unextended client; frozen whenever it exists, except the
- * values a part was given, held as given, and what the parts built from
- * them. Each member is written by the part that reads it, and absent
- * where no extension of the chain was built with that part.
+ * Absent on an unextended client. Each member is written by the part that
+ * reads it, and absent where no extension of the chain was built with that
+ * part.
  */
 export interface ResolvedExtensionChain {
   readonly extensions: readonly ResolvedExtension[];
   /**
-   * How a call whose execution an extension wraps is run, and how a
-   * transaction collects its write outcomes: present on a chain with query
-   * handlers, `written`, `retry`, `route` or a lifecycle observer.
+   * How a call whose execution an extension wraps is run, and how an array
+   * transaction admits its members: present on a chain with an `around`, a
+   * part that watches writes or a `unit` part.
    */
   readonly coordination?: Coordination;
   /**
-   * Where a part hears writes (`written`, `observation`): the collector each
+   * Where a part hears writes (a watch, a `unit` part): the collector each
    * transaction scope installs from its start (`transact`).
    */
   readonly collect?: typeof collect;
@@ -142,7 +141,7 @@ export interface ResolvedExtensionChain {
    */
   readonly bindRows?: (chain: ResolvedExtensionChain) => CallRowsBinding;
   /**
-   * Derived from `rows`, `kept`, `stamps` and `order`: what each call's
+   * Derived from `rules`, `kept`, `stamps` and `defaultOrder`: what each call's
    * arguments resolve to.
    */
   readonly callRows?: CallRowsBinding;
@@ -156,7 +155,7 @@ export interface ResolvedExtensionChain {
    * unit only where it is present.
    */
   readonly observation?: Observation;
-  /** Every `written` declaration, in chain order: what watches a write call. */
+  /** Every watch, in chain order: what watches a write call. */
   readonly watch?: WrittenHandlers;
   /** Per model, every extension's computed fields, and what plans a call's. */
   readonly fields?: ResultFields;

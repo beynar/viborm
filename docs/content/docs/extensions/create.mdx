@@ -67,43 +67,45 @@ share the chain's own code, so a second part costs less than its row.
 
 {/* Measured with `node scripts/extension-bytes.mjs` (the `pg-one-*`
 fixtures of scripts/bundle-fixtures, and the official extensions' fixtures),
-last on 2a78fcca1; rerun it and update these figures when the code of
+last on 41e987fa1; rerun it and update these figures when the code of
 src/extensions changes. */}
 
 | You import | Your bundle carries | Adds (min) | Adds (gzip) |
 |---|---|---:|---:|
-| `methods` | Method factories and their collision checks | 3.8 kB | 1.8 kB |
-| `call`, `target(reads)` | The chain, the first moment: argument patches and refusals | 4.2 kB | 2.1 kB |
-| `defaults` with `create` or `orderBy` | Default data or default order, without filter code or argument admission | 5.6 kB | 2.5 kB |
-| `args`, `oneOf` | Argument admission: taken out of the call, validated once | 5.7 kB | 2.5 kB |
-| `fields` | Computed fields: planning their needs, attaching them to rows | 5.8 kB | 2.6 kB |
-| `defaults` with `omitted` | Default omission | 6.1 kB | 2.7 kB |
-| `unit` | The runner around physical units | 6.7 kB | 2.8 kB |
-| `unit` with `{ rewrites: true }`, `statement` | Statement rewriting | 6.8 kB | 2.8 kB |
-| `call`, `target(writes)`, `watch`, `settled` | The rows a write wrote, the hook after its commit | 13.5 kB | 5.1 kB |
-| `around` | The second moment around the prepared call, and the admission of `$transaction([...])` members | 13.9 kB | 5.2 kB |
-| `around` with `again` | Making a failed call again | 14.0 kB | 5.2 kB |
-| `rule` with `keep`, `now` | Kept deleted rows | 16.6 kB | 6.8 kB |
-| `rule` with `gate` | Gated fields | 19.0 kB | 7.9 kB |
-| `rule` with `args`, `when`, `arg` | Row filters, prepared once per schema | 19.1 kB | 7.5 kB |
-| `rule` with `check` | The judgement of the rows a write produces | 20.6 kB | 8.4 kB |
+| `methods` | Method factories and their collision checks | 3.3 kB | 1.6 kB |
+| `call`, `target(reads)` | The chain, the first moment: argument patches and refusals | 3.8 kB | 1.8 kB |
+| `args`, `oneOf` | Argument admission: taken out of the call, validated once | 4.5 kB | 2.0 kB |
+| `fields` | Computed fields: planning their needs, attaching them to rows | 5.3 kB | 2.3 kB |
+| `defaults` with `create` or `orderBy` | Default data or default order, without filter code or argument admission | 5.4 kB | 2.3 kB |
+| `defaults` with `omitted` | Default omission | 5.7 kB | 2.5 kB |
+| `unit` | The runner around physical units | 6.0 kB | 2.5 kB |
+| `unit` with `{ rewrites: true }`, `statement` | Statement rewriting | 6.1 kB | 2.5 kB |
+| `around` | The second moment around the prepared call, and the admission of `$transaction([...])` members | 8.3 kB | 3.4 kB |
+| `around` with `again` | Making a failed call again | 8.4 kB | 3.5 kB |
+| `call`, `target(writes)`, `watch`, `settled` | The rows a write wrote, the hook after its commit | 8.7 kB | 3.6 kB |
+| `rule` with `root` and `related` filters | Row filters, prepared once per schema | 10.4 kB | 4.4 kB |
+| `rule` with `keep`, `now` | Kept deleted rows | 16.4 kB | 6.8 kB |
+| `rule` with `args`, `when`, `arg` | Row filters that read an argument, folded per call | 17.4 kB | 6.9 kB |
+| `rule` with `gate` | Gated fields | 18.7 kB | 7.7 kB |
+| `rule` with `check` | The judgement of the rows a write produces | 20.3 kB | 8.2 kB |
 
 The official extensions, measured the same way:
 
 | Extension | Adds (min) | Adds (gzip) |
 |---|---:|---:|
-| [`defaultOmit()`](/docs/extensions/omit) | 6.5 kB | 2.5 kB |
-| [`on()`](/docs/extensions/on) | 16.5 kB | 6.2 kB |
-| [`instrumentation()`](/docs/extensions/instrumentation) | 20.2 kB | 7.3 kB |
-| [`softDelete()`](/docs/extensions/soft-delete) | 26.5 kB | 9.9 kB |
-| [`ordering()`](/docs/extensions/ordering) | 30.3 kB | 11.9 kB |
-| [`cache()`](/docs/extensions/cache) | 39.6 kB | 14.5 kB |
-| [`permissions()`](/docs/extensions/permissions) | 72.1 kB | 26.8 kB |
-| `on`, `ordering`, `permissions` and `softDelete` together | 116.2 kB | 42.8 kB |
+| [`defaultOmit()`](/docs/extensions/omit) | 5.9 kB | 2.3 kB |
+| [`on()`](/docs/extensions/on) | 11.6 kB | 4.4 kB |
+| [`instrumentation()`](/docs/extensions/instrumentation) | 18.9 kB | 6.6 kB |
+| [`softDelete()`](/docs/extensions/soft-delete) | 24.0 kB | 9.2 kB |
+| [`ordering()`](/docs/extensions/ordering) | 29.7 kB | 11.7 kB |
+| [`cache()`](/docs/extensions/cache) | 33.1 kB | 11.8 kB |
+| [`permissions()`](/docs/extensions/permissions) | 69.5 kB | 26.3 kB |
+| `on`, `ordering`, `permissions` and `softDelete` together | 108.7 kB | 40.7 kB |
 
-The PostgreSQL application they are added to weighs 508.8 kB minified
-(167.7 kB gzip) and carries 112 bytes of this code. The figures are those of
-this release; later releases may lower them.
+The PostgreSQL application they are added to weighs 508.5 kB minified
+(168.2 kB gzip) and carries 646 bytes of this code, chiefly how a transaction
+scope runs. The figures are those
+of this release; later releases may lower them.
 
 An extension that only patches or refuses arguments (`call`) does not pay
 for the second moment. A rule made of `where` filters alone does not pay for
@@ -317,8 +319,10 @@ const outbox = extension(
   or an `around` whose target is a set of writes: `target(writes)`,
   `target(deletes)`, or `target("order", writes)`. The set brings what tells
   them, so a part that never watches carries none of it. Anywhere else they
-  are refused with a `TypeError`, never ignored: `target("order", "update")`
-  names an operation, not a set, and brings nothing that watches.
+  are refused with a `TypeError`, never ignored (a raw query's `settled` in
+  an `around` with no target excepted, [below](#act-after-the-commit-settled)):
+  `target("order", "update")` names an operation, not a set, and brings
+  nothing that watches.
 - A call that fails calls neither `rows` nor `settled`, with one exception:
   a write whose statement failed after it was sent may have committed, so
   `settled` is told (`certainty: "may-have-committed"`) and `rows` is not.
@@ -817,8 +821,10 @@ removes its arm, the values inside it included.
   that builds entries) is not typed by the rule's arguments: `$extends()`
   refuses it if no extension of the chain declares that name.
 - A call that does not pass an argument drops every filter that names it:
-  that filter hides nothing. Make the argument `.required()` when a missing
-  value must be refused instead. A model it is required on is then never read
+  that filter hides nothing. Make the argument required when a missing value
+  must be refused instead: `.required([...models])` on the models whose
+  filters read it, or `.required()` on every model that accepts it. A model
+  it is required on is then never read
   without it: a call that reaches that model's rows through a relation of
   another model, where it is not required, and does not pass it, matches none
   of them. `null`, and a path the value does not have, are a missing value: a
@@ -837,10 +843,11 @@ removes its arm, the values inside it included.
   statement is built, so no tenant, version or actor takes room or pushes
   another out.
 
-### Modes: an argument with a default
+### An argument with a default
 
-A mode is an argument with a default, read by `when` and `unless`. The caller
-writes `archived: "only"` as before:
+An argument with a default, read by `when` and `unless`, chooses what a call
+sees when it says nothing. The caller writes `archived: "only"` to see
+something else:
 
 ```ts
 import { arg, args, extension, oneOf, rule, selecting, unless, when } from "viborm";
@@ -868,15 +875,21 @@ await db.project.findMany({ archived: "only" }); // archived projects
 - `root` filters the rows the call itself selects; `related` filters rows
   reached through a relation. Each takes a `where` or a list of them, which
   conjoin.
-- `.on(selecting)` places a mode where it means something: every operation
-  that selects rows (reads, `count`, `aggregate`, `groupBy`, updates,
-  `upsert`, deletes), and not `create` or `createMany`.
+- `when` and `unless` are folded per call: a test that does not hold removes
+  its filter for that call, and calls that pass the same `oneOf` value share
+  their prepared filters.
+- `.on(selecting)` accepts the argument where it means something: every
+  operation that selects rows (reads, `count`, `aggregate`, `groupBy`,
+  updates, `upsert`, deletes), and not `create` or `createMany`. An argument
+  is accepted only where its own `.on(…)` and `.models([…])` say; without
+  them, on every operation of every model.
 - Inside a filter's own relation reads, every other extension's rules apply
-  at their default mode, whatever mode the call passes, and the filter's own
-  extension does not apply: `deleted: "with"` revives no tombstoned row a
-  filter reads through, and a filter over its own model's relation (a parent)
-  reads that row unfiltered. Write "visible if the parent is visible" as a
-  `recurse` over the parent.
+  with each argument that has a default read at that default, whatever the
+  call passes and whether it was declared with `oneOf` or `accepts`, and the
+  filter's own extension does not apply: `deleted: "with"` revives no
+  tombstoned row a filter reads through, and a filter over its own model's
+  relation (a parent) reads that row unfiltered. Write "visible if the parent
+  is visible" as a `recurse` over the parent.
 
 ### Where rules apply
 
@@ -890,7 +903,7 @@ its link.
 - A to-one relation whose target is filtered out reads `null`. So on a client
   whose chain has a `read.where`, `root`, `related` or lazy entry for a model,
   TypeScript types a to-one relation to that model as `| null`, required or
-  not, in every mode. A reference to a row that does not exist at all is
+  not, whatever the call's arguments. A reference to a row that does not exist at all is
   still an error.
 - `OperationResult`, `InferDatabase` and `renderOperationResultType` describe
   the schema alone: on such a client they type a to-one relation as present
@@ -904,7 +917,7 @@ its link.
   after a part typed against the client it extends, whose types it would make
   lie ([compose](#compose-extensions)).
 - A rule decides which rows are visible. It is not authorization by itself:
-  any caller can choose another mode or pass another value, unless that value
+  any caller can pass another value of an argument, unless that value
   is a `bound`, required argument (as
   [`viborm/permissions`](/docs/extensions/permissions)' actor), and raw SQL is
   not filtered. Pass a tenant from your own server's session, never from the
@@ -1135,18 +1148,24 @@ await db.project.delete({ where: { id }, purge: true }); // a physical delete
   data is written too.
 - Every row one call updates this way gets the same `now`; separate calls get
   their own.
-- A delete takes only the rows the model's **default** mode shows, whatever
-  the call's arguments say, so deleting a hidden row is `NotFoundError`. A
+- A delete takes only the rows the model's rules show with every argument
+  that has a default read at that **default**, whatever the call's arguments
+  say, so deleting a hidden row is `NotFoundError`. A
   model kept this way with no filter has every row eligible: deleting it
   again writes a new time.
-- It is refused with `ForeignKeyError` while a row the child model's default
-  mode shows still references it through a foreign key that restricts deletes,
+- It is refused with `ForeignKeyError` while a row the child model's rules
+  show at those defaults still references it through a foreign key that
+  restricts deletes,
   as the database refuses a physical delete.
-- `keep` writes constants and `now`, in one field at most. `unless(arg(x),
-  value, data)` (or `when` over an argument of two values) chooses, per call,
-  when the delete stays physical. It is written in an inline entry, not a
-  `lazy` one. The official [soft delete](/docs/extensions/soft-delete) is
-  built this way.
+- `keep` writes constants, and `now` in one field at most.
+  `keep(unless(arg(x), test, data))` keeps the row unless the test holds, and
+  `keep(when(arg(x), test, data))` only when it holds: the test is folded per
+  call, and where the row is not kept the delete stays physical. The argument
+  is accepted where its own declaration says: write
+  `.on(deletes).models([...])` to accept it only on the deletes of the kept
+  models, as above. A `keep` is written in an inline entry, not a `lazy`
+  one. The official [soft delete](/docs/extensions/soft-delete) is built this
+  way.
 
 ### Confine the sets your predicates compute: `confine`
 
@@ -1177,7 +1196,8 @@ const db = client.$extends(
 - It applies where a test reads the set positively: `some` or `is`, outside
   a `NOT`, and not in what a `none`, `every` or `isNot` ranges over.
   `confine` can only take rows away from what your predicates grant.
-- It holds in every mode, and states a promise: a row a set would lose to it
+- It holds whatever the call's arguments, and states a promise: a row a set
+  would lose to it
   must be one your predicates never need. `permissions`' `tenant` states its
   tenant here.
 
@@ -1265,7 +1285,8 @@ extension's actor.
   required foreign key such as `tenantId` counts as given for its relation
   too. When the call does not pass the argument the field names, nothing
   writes it, so leaving it out is refused as missing when the call runs; make
-  the argument `.required()` so the call must pass it.
+  the argument required on that model (`.required(["post"])`) so the call
+  must pass it.
 - On the extended client, each field a default writes on create is optional in
   that model's create data, in the call's own data and in every create it
   nests through a relation, and it keeps its own type when you write it. The

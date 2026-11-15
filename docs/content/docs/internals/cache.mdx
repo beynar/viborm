@@ -31,7 +31,7 @@ documentation.
 ## Connection to Other Layers
 
 - **L9 (Client)**: Applies the cache extension, whose methods create cached views
-- **L11 (Instrumentation)**: Observes cache hits, misses, writes, and refreshes
+- **L11 (Instrumentation)**: Presents the `cache` units the cache emits (hits, misses, writes, refreshes) from their notes
 - **L6-L8 (Execution)**: Run only when the cache path requires a database read
 
 Read caching deliberately bypasses callback and array transactions, raw calls,
@@ -47,6 +47,7 @@ revision, the database and the extension's `version`; a custom read key is a
 suffix of that key, never a replacement. An entry holds the rows the driver
 returned for that statement, and a hit hands them to the engine's decoder as
 a driver's answer, so the cache keeps no second codec of the result's
-shape. The cache still reads a few private helpers (a call's execution
-context and driver, whether its chain observes units); the census
-`tests/contracts/public-client/extension-imports.core.test.ts` lists them.
+shape. The cache imports only names a public entry exports
+(`tests/contracts/public-client/extension-imports.core.test.ts` holds it to
+that), and presents its own `cache` units through notes the instrumentation
+reads, never through a name the instrumentation knows.

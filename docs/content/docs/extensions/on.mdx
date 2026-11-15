@@ -312,8 +312,9 @@ extension's `around` sees the call's own value, exactly what the caller
 asked for, never the whole rows the hook receives.
 
 One client can carry several `on()`: each call of `on()` makes an extension of
-its own name (`viborm.on`, then `viborm.on.2`, …), and each runs its own hooks,
-in the order they were applied. Applying the same `on()` value twice to one
+its own name, counted in the program (the first `on()` called is `viborm.on`,
+the next `viborm.on.2`, …), and each runs its own hooks, in the order they
+were applied. A hook's failure says `viborm.on` whichever `on()` holds it. Applying the same `on()` value twice to one
 client is refused, as any extension applied twice. A hook name other than
 `create`, `update` and `delete`, a hook that is no function, and an `onError`
 that is no function are refused when `on()` is called; a model the schema

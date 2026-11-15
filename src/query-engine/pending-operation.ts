@@ -84,8 +84,8 @@ function combineWriteNotifications(
 
 /**
  * Client-owned work that must finish before operation construction starts. It
- * receives the arguments without their arguments, and the arguments admitted
- * from them.
+ * receives the call's arguments without the ones extensions declare (`args`),
+ * and the values admitted from those.
  */
 export type PrepareOperationInput = (
   args: Record<string, unknown>,
@@ -324,8 +324,9 @@ export class PendingOperation<T>
 
   /**
    * Resolve client request preparation once, caching both values and throws.
-   * The operation's arguments leave its arguments and are admitted first, so
-   * the record is settled with the arguments and no request handler sees one.
+   * The arguments extensions declare leave the call's own and are admitted
+   * first, so the record is settled with the call's own arguments and no
+   * first moment sees a declared one among them.
    */
   #resolveArgs(): Record<string, unknown> {
     const preparation = this.#inputPreparation;

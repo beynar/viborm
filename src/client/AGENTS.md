@@ -340,10 +340,12 @@ no part and no official extension) and every part's code; each part writes
 its own state on the chain and that state carries the code that runs it.
 This client layer asks the chain (`chain.args.admit`,
 `chain.watch.watch`, `chain.observation.run`, …) and imports no builder,
-so a client that applies no extension carries none of their code (594 bytes
-of `src/extensions` in the PostgreSQL application: `transact`, how every
-transaction scope runs, which replaced the rail branches the client and the
-array executor held; `isAppliedExtension`; the origin symbols). A part is trusted code made by the builders: there
+so a client that applies no extension carries none of their code (646 bytes
+of `src/extensions` in the PostgreSQL application, measured with
+`node scripts/extension-bytes.mjs` on the tree of the extension rewrite:
+`transact` and `scopeOf`, how every transaction scope runs, which replaced
+the rail branches the client and the array executor held;
+`isAppliedExtension`; the `SCOPE` symbol). A part is trusted code made by the builders: there
 is no hostile-part read. Call-time admission of an
 argument's value stays, as user input (`arguments.ts`): a value its
 declaration refuses, a `required` argument the call left out, a `bound` one
@@ -415,7 +417,7 @@ Official implementations stay at `src/cache/extension.ts`,
 `src/instrumentation/extension.ts`, `src/client/default-omit-extension.ts`,
 `src/soft-delete/index.ts`, `src/permissions/`, `src/on/index.ts` and
 `src/ordering/`, each an ordinary `extension(…)` of public parts (root Rule
-6 lists what `cache` and `instrumentation` still read privately). Do not
+6 lists what `instrumentation` still reads privately). Do not
 recreate a generic extension representation or runner in `src/client/`,
 `src/query-engine/`, or `src/drivers/`.
 
