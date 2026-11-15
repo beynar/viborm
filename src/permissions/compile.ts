@@ -195,14 +195,12 @@ const EXISTS = "$exists";
 /** A row a rule reads: its model, and why a `{ $row, up }` may not cross it. */
 interface Scope {
   readonly model: string;
-  readonly sealed?: string;
+  readonly sealed?: boolean;
 }
-/** `{ $row, up }`: a column of a row the rule reads, `up` bodies above. */
+/** `{ $row, up }` (a record of these two keys): a column of a row the rule reads, `up` bodies above. */
 const isEnclosingRow = (
-  value: unknown
+  value: Record<string, unknown>
 ): value is { readonly $row: string; readonly up: number } =>
-  isRecord(value) &&
-  Object.keys(value).length === 2 &&
   typeof value.$row === "string" &&
   Number.isSafeInteger(value.up) &&
   (value.up as number) >= 0;
@@ -723,27 +721,21 @@ export function policyCompiler(
     if (clause === false || !Array.isArray(clause.OR)) return clause;
     // lower/or normalize siblings into AND, so OR is the only root key here.
     const members = clause.OR as Where[];
-    const dropped = new Set<number>();
-    let judgement = and([restriction(name), clause]);
-    for (let at = 0; at < members.length; at++) {
-      const member = members[at]!;
-      for (let other = 0; other < members.length; other++) {
-        if (other === at || dropped.has(other)) continue;
-        const wider = members[other]!;
-        if (!implies(name, member, wider)) continue;
-        // Equivalent members keep the earlier one.
-        if (other > at && implies(name, wider, member)) continue;
-        const after = members.filter(
-          (_, index) => index !== at && !dropped.has(index)
-        );
-        const reduced = and([restriction(name), or(after)]);
-        if (!preservesReads(name, judgement, reduced)) continue;
-        judgement = reduced;
-        dropped.add(at);
-        break;
-      }
-    }
-    const kept = members.filter((_, at) => !dropped.has(at));
+    const kept = prune(
+      name,
+      members,
+      [...members.keys()],
+      (at, dropped) =>
+        members.some(
+          (wider, other) =>
+            other !== at &&
+            !dropped.has(other) &&
+            implies(name, members[at]!, wider) &&
+            // Equivalent members keep the earlier one.
+            !(other > at && implies(name, wider, members[at]!))
+        ),
+      (remaining) => and([restriction(name), or(remaining)])
+    );
     return kept.length === 1 ? kept[0]! : { OR: kept };
   };
 
@@ -767,7 +759,7 @@ export function policyCompiler(
       !Array.isArray(except) ||
       except.some((name) => typeof name !== "string") ||
       Object.keys(tenant).some(
-        (key) => key !== "field" && key !== "actor" && key !== "except"
+        (key) => !["field", "actor", "except"].includes(key)
       )
     )
       refuse(
@@ -864,27 +856,6 @@ export function policyCompiler(
     });
   };
 
-  /**
-   * A rule function's predicate. Whatever it throws is its model's refusal,
-   * like any other mistake in a rule: it fails that model, never another.
-   */
-  const evaluated = (
-    rule: Extract<Rule, (...args: never[]) => unknown>,
-    action: string,
-    name: string,
-    at: string
-  ): unknown => {
-    try {
-      return rule(action, modelOf(name));
-    } catch (error) {
-      if (error instanceof ClientInitializationError) throw error;
-      return refuse(
-        `${at}: the rule function threw at "${action}"`,
-        name,
-        error
-      );
-    }
-  };
   /** A rule of `name` read at `action` (written at `at`), lowered to the `where` vocabulary. */
   const lower = (
     name: string,
@@ -894,24 +865,23 @@ export function policyCompiler(
     scopes: readonly Scope[] = [{ model: name }]
   ): Clause => {
     if (typeof rule === "boolean") return rule ? {} : false;
-    if (typeof rule === "function")
-      return action === undefined
-        ? refuse(
-            `${at}: mandatory is action-independent and cannot contain callbacks`,
-            name
-          )
-        : lower(
-            name,
-            action,
-            evaluated(
-              rule as Extract<Rule, (...args: never[]) => unknown>,
-              action,
-              name,
-              at
-            ),
-            at,
-            scopes
-          );
+    if (typeof rule === "function") {
+      if (action === undefined)
+        refuse(
+          `${at}: mandatory is action-independent and cannot contain callbacks`,
+          name
+        );
+      // Whatever a rule function throws is its model's refusal, like any
+      // other mistake in a rule: it fails that model, never another.
+      let evaluated: unknown;
+      try {
+        evaluated = rule(action, modelOf(name));
+      } catch (error) {
+        if (error instanceof ClientInitializationError) throw error;
+        refuse(`${at}: the rule function threw at "${action}"`, name, error);
+      }
+      return lower(name, action, evaluated, at, scopes);
+    }
     if (!isRecord(rule))
       refuse(
         `${at}: a rule is a boolean, a where object or a function of the action`,
@@ -1027,25 +997,21 @@ export function policyCompiler(
     at: string,
     scopes: readonly Scope[]
   ): void => {
-    const spelled = `{ $row: ${JSON.stringify(operand.$row)}, up: ${operand.up} }`;
+    const fail = (why: string) =>
+      refuse(
+        `${at}: ${key} compares { $row: ${JSON.stringify(operand.$row)}, up: ${operand.up} }${why}`,
+        name
+      );
     const index = scopes.length - 1 - operand.up;
     if (index < 0)
-      refuse(
-        `${at}: ${key} compares ${spelled}, which reaches past the rule (${scopes.length - 1} relation bodies deep here)`,
-        name
+      fail(
+        `, which reaches past the rule (${scopes.length - 1} relation bodies deep here)`
       );
     const crossed = scopes.slice(index + 1).find((scope) => scope.sealed);
-    if (crossed)
-      refuse(
-        `${at}: ${key} compares ${spelled} across a recursive relation to ${crossed.model}`,
-        name
-      );
+    if (crossed) fail(` across a recursive relation to ${crossed.model}`);
     const owner = scopes[index]!.model;
     if (!Object.hasOwn(stateOf(owner).scalars, operand.$row))
-      refuse(
-        `${at}: ${key} compares ${spelled}, and ${owner} has no scalar field "${operand.$row}"`,
-        name
-      );
+      fail(`, and ${owner} has no scalar field "${operand.$row}"`);
   };
   /** A relation filter: an action name is the target's predicate (D7). */
   const relation = (
@@ -1064,7 +1030,7 @@ export function policyCompiler(
           name
         );
       const held = P(target, member);
-      return held === false ? false : { is: held };
+      return held && { is: held };
     }
     // A field reference, a Date or any other value is not a relation filter.
     if (typeof member === "object" && member !== null && !isRecord(member))
@@ -1077,10 +1043,7 @@ export function policyCompiler(
       return lower(target, action, member, at, [...scopes, { model: target }]);
     const out: Record<string, unknown> = {};
     let requiresEmpty = false;
-    const scope = {
-      model: target,
-      ...(member.recurse !== undefined && { sealed: "recursive" }),
-    };
+    const scope = { model: target, sealed: member.recurse !== undefined };
     for (const [op, body] of Object.entries(member)) {
       if (!(QUANTIFIERS.has(op) && body !== null)) {
         out[op] = body;
@@ -1508,10 +1471,34 @@ export function policyCompiler(
     return true;
   };
   /**
+   * `members` without each one `covered` says another contains, tried in
+   * `order`: a member is dropped only where the judgement `whole` builds of
+   * the members left retains the same conditional parameter reads (R6).
+   */
+  const prune = (
+    name: string,
+    members: readonly Where[],
+    order: readonly number[],
+    covered: (at: number, dropped: ReadonlySet<number>) => boolean,
+    whole: (members: readonly Where[]) => Clause
+  ): Where[] => {
+    const dropped = new Set<number>();
+    let judgement = whole(members);
+    for (const at of order) {
+      if (!covered(at, dropped)) continue;
+      const reduced = whole(
+        members.filter((_, index) => index !== at && !dropped.has(index))
+      );
+      if (!preservesReads(name, judgement, reduced)) continue;
+      judgement = reduced;
+      dropped.add(at);
+    }
+    return members.filter((_, at) => !dropped.has(at));
+  };
+  /**
    * The conjunction of `clauses` without a member another one implies (or
-   * one of `given`, which the same statement already judges). A member is
-   * dropped only where the complete judgement retains the same conditional
-   * parameter reads, including those supplied by `given` (R6).
+   * one of `given`, which the same statement already judges), the later
+   * first, where the whole judgement, `given` included, keeps its reads.
    */
   const conjoin = (
     name: string,
@@ -1520,26 +1507,25 @@ export function policyCompiler(
   ): Clause => {
     const all = and(clauses);
     if (all === false) return false;
-    const kept = [...conjuncts(all)];
-    let judgement = and([...given, ...kept]);
-    for (let index = kept.length - 1; index >= 0; index--) {
-      const member = kept[index]!;
-      const covers = (other: Where) => implies(name, other, member);
-      if (
-        !(
-          given.some(covers) ||
-          kept.some((other, at) => at !== index && covers(other))
-        )
+    const members = conjuncts(all);
+    return and(
+      prune(
+        name,
+        members,
+        [...members.keys()].reverse(),
+        (at, dropped) => {
+          const covers = (other: Where) => implies(name, other, members[at]!);
+          return (
+            given.some(covers) ||
+            members.some(
+              (other, index) =>
+                index !== at && !dropped.has(index) && covers(other)
+            )
+          );
+        },
+        (remaining) => and([...given, ...remaining])
       )
-        continue;
-      const remaining = kept.filter((_, at) => at !== index);
-      const reduced = and([...given, ...remaining]);
-      if (preservesReads(name, judgement, reduced)) {
-        judgement = reduced;
-        kept.splice(index, 1);
-      }
-    }
-    return and(kept);
+    );
   };
 
   /**
