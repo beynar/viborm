@@ -269,10 +269,11 @@ export interface CallValues {
   /** An absent value of `arg` on `model` matches nothing; else it drops. */
   readonly required: (arg: string, model: string) => boolean;
   /**
-   * The same object serves every call that passes these values, and no
-   * predicate reads the instant: one read view serves them all.
+   * The read view under `domain` for a call carrying these values: one per
+   * domain where the same object serves every call that passes them and no
+   * predicate reads the instant, else the call's own.
    */
-  readonly shared?: true;
+  readonly view?: (domain: PreparedDomain, call: CallScope) => Queries;
   /**
    * The values where every argument with a default takes it, where this
    * call's differ: what the default domain reads (`CallScope.defaults`).

@@ -6,6 +6,8 @@
  * shared domain, an argument with a default at its default where the call
  * passes none, and the domain read at the defaults beside the call's own.
  */
+
+import type { Queries } from "@query-engine/raptor3/shared/query";
 import type {
   CallRows,
   CallValues,
@@ -15,6 +17,7 @@ import { memo } from "@query-engine/raptor3/shared/schema";
 import type { CallReads } from "./admission";
 import type { AdmittedArgs } from "./arguments";
 import { layerOf } from "./layers";
+import type { PreparedDomain } from "./row-domain";
 
 /** Calls' shared facts, by the value of one closed argument, then the next. */
 interface Shared {
@@ -66,10 +69,14 @@ export const CALL_READS: CallReads = {
         if (Object.hasOwn(args, name))
           departs ||= !Object.is(args[name], fallback[name]);
         else args = { ...fallback, ...args };
+      const views = shared && new WeakMap<PreparedDomain, Queries>();
       const own: CallValues = {
         args,
         required,
-        ...(shared && { shared }),
+        view: (domain, call) =>
+          views
+            ? memo(views, domain, () => domain.queries.under(domain, call))
+            : domain.queries.under(domain, call),
         ...(departs && {
           defaults: { args: { ...args, ...fallback }, required },
         }),
