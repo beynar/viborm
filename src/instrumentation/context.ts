@@ -71,8 +71,9 @@ function snapshotTracingConfig({
   return Object.freeze({
     includeParams: includeParams === true,
     includeSql: includeSql === true,
-    ...(ignoreSpanTypes?.length ? { ignoreSpanTypes } : {}),
-    ...(tracer === undefined ? {} : { tracer }),
+    // The tracer copies the patterns as it is built, from this snapshot.
+    ignoreSpanTypes,
+    tracer,
   });
 }
 
