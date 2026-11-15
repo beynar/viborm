@@ -644,20 +644,22 @@ function methods(ordered: Ordered) {
         data: { ...stored, ...extra, ...written },
         ...projection,
       });
-    // The first of `writes` that finds its row; none: the move's row is
-    // missing.
-    const settle = async (...writes: Write[]) => {
+    // The first of `writes` that finds its row; none: `missed`, else the
+    // move's row is missing.
+    const settle = async (writes: readonly Write[], missed?: typeof MISSED) => {
       for (const [selected, written] of writes)
         try {
           return await update(selected, written);
         } catch (error) {
           if (!(error instanceof NotFoundError)) throw error;
         }
+      if (missed) return missed;
       throw new NotFoundError(name, "move");
     };
     // A key the caller computed (`keyBetween` over the neighbours it
     // shows): written as given, in one update, nothing read first.
-    if (given !== undefined) return settle([where, { [key]: given, ...list }]);
+    if (given !== undefined)
+      return settle([[where, { [key]: given, ...list }]]);
     const recognised = named(where);
     const fields = Object.keys(recognised);
     const isMoved = (row: Row) =>
@@ -669,7 +671,7 @@ function methods(ordered: Ordered) {
     };
     // Already in place: its key stays; what `data` writes is written.
     const inPlace = async () => {
-      if (Object.keys(extra).length > 0) return settle([where, {}]);
+      if (Object.keys(extra).length > 0) return settle([[where, {}]]);
       const row = await delegate.findUnique!({
         ...passed,
         where,
@@ -776,26 +778,14 @@ function methods(ordered: Ordered) {
       // the read path answers it unchanged.
       const away = sql`NOT ((${lower}) IS NULL OR ${column(key)} > (${lower})) OR NOT ((${upper}) IS NULL OR ${column(key)} < (${upper}))`;
       const keyed = { [key]: computed(() => [placed]) };
-      const attempt = async (condition: Sql, written: Row) => {
-        try {
-          return await update(
-            {
-              ...where,
-              [key]: {
-                equals: () =>
-                  sql`CASE WHEN ${placed} IS NOT NULL AND (${condition}) THEN ${column(key)} END`,
-              },
-            },
-            written
-          );
-        } catch (error) {
-          if (error instanceof NotFoundError) return MISSED;
-          throw error;
-        }
+      // Written only while the row is where its key was computed for.
+      const guarded = (condition: Sql, written: Row): Write => {
+        const guard = sql`CASE WHEN ${placed} IS NOT NULL AND (${condition}) THEN ${column(key)} END`;
+        return [{ ...where, [key]: { equals: () => guard } }, written];
       };
       // Its own list, or a model of one list: the key alone.
       if (within.length === 0 || (anchored === undefined && list === undefined))
-        return attempt(away, keyed);
+        return settle([guarded(away, keyed)], MISSED);
       const joined = {
         ...keyed,
         ...Object.fromEntries(
@@ -809,19 +799,18 @@ function methods(ordered: Ordered) {
       };
       // The key alone while the row stays in the list (no permission on the
       // list fields needed), else the key and the list; `to` tries the move
-      // first.
-      const outside = sql`NOT (${inList()})`;
-      const inside = sql`${inList()} AND (${away})`;
-      if (list !== undefined) {
-        const moved = await attempt(outside, joined);
-        return moved === MISSED ? attempt(inside, keyed) : moved;
-      }
-      const stayed = await attempt(inside, keyed);
-      // A list field in the row key is written by the read path, by value.
-      return stayed === MISSED &&
-        !within.some((field) => identity.includes(field))
-        ? attempt(outside, joined)
-        : stayed;
+      // first. A list field in the row key is written by the read path, by
+      // value.
+      const outside = guarded(sql`NOT (${inList()})`, joined);
+      const inside = guarded(sql`${inList()} AND (${away})`, keyed);
+      return settle(
+        list !== undefined
+          ? [outside, inside]
+          : within.some((field) => identity.includes(field))
+            ? [inside]
+            : [inside, outside],
+        MISSED
+      );
     };
     const moved = await inStatement();
     if (moved !== MISSED) return moved;
@@ -945,11 +934,13 @@ function methods(ordered: Ordered) {
           : where,
         { ...keyed, ...group },
       ];
-      return home
-        ? settle([where, keyed])
-        : list === undefined
-          ? settle(stay, join(false))
-          : settle(join(true), stay);
+      return settle(
+        home
+          ? [[where, keyed]]
+          : list === undefined
+            ? [stay, join(false)]
+            : [join(true), stay]
+      );
     }
   }
 
