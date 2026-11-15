@@ -73,49 +73,6 @@ export interface ArgAdmission {
 }
 
 /**
- * Take every argument placed on this operation out of the call's arguments
- * and admit each once, before any first moment runs. A key naming an argument
- * placed elsewhere, or a bound one, stays in the arguments, where core
- * validation refuses it as an unknown key. An argument the call did not pass
- * takes the value its view binds, else its default; without either it is
- * refused where it is required.
- */
-function admitArguments(
-  model: string,
-  operation: Operation,
-  input: Record<string, unknown>,
-  placed: readonly ResolvedArg[],
-  bound?: AdmittedArgs
-): ArgAdmission {
-  // Arguments that are not an object hold no extension argument: core
-  // validation refuses them as it does on a client without extensions.
-  if (typeof input !== "object" || input === null) {
-    return { args: input, values: undefined };
-  }
-  let values: Record<string, unknown> | undefined;
-  let args: Record<string, unknown> | undefined;
-  for (const argument of placed) {
-    const { name, required } = argument;
-    let raw: unknown;
-    if (argument.bound !== true && Object.hasOwn(input, name)) {
-      raw = input[name];
-      args ??= { ...input };
-      delete args[name];
-    }
-    // A bound value was admitted once, when its view was bound.
-    const value =
-      raw === undefined
-        ? (bound?.[name] ?? argument.default)
-        : argument.admit(argument, raw, model, operation);
-    if (value !== undefined) (values ??= {})[name] = value;
-    else if (required === true || required?.includes(model)) {
-      throw invalidArgument(argument, model, operation, ["is required"]);
-    }
-  }
-  return { args: args ?? input, values };
-}
-
-/**
  * The values a view binds after one extension binds its own arguments: each
  * admitted once, over the values the view already binds, a value replacing
  * an earlier one. Brought by `bound`: only a `bound` argument is bound.
@@ -273,17 +230,49 @@ export function appendArguments(
     all,
     placed,
     owned: argsOwnedBy,
+    /**
+     * Take every argument placed on this operation out of the call's
+     * arguments and admit each once, before any first moment runs. A key
+     * naming an argument placed elsewhere, or a bound one, stays in the
+     * arguments, where core validation refuses it as an unknown key. An
+     * argument the call did not pass takes the value its view binds, else
+     * its default; without either it is refused where it is required.
+     */
     admit: (
       model: string,
       placement: string,
       operation: Operation,
-      args: Record<string, unknown>,
+      input: Record<string, unknown>,
       bound: AdmittedArgs | undefined
-    ) => {
+    ): ArgAdmission | undefined => {
       const list = placed(model, placement);
-      return list.length === 0
-        ? undefined
-        : admitArguments(model, operation, args, list, bound);
+      if (list.length === 0) return undefined;
+      // Arguments that are not an object hold no extension argument: core
+      // validation refuses them as it does on a client without extensions.
+      if (typeof input !== "object" || input === null) {
+        return { args: input, values: undefined };
+      }
+      let values: Record<string, unknown> | undefined;
+      let args: Record<string, unknown> | undefined;
+      for (const argument of list) {
+        const { name, required } = argument;
+        let raw: unknown;
+        if (argument.bound !== true && Object.hasOwn(input, name)) {
+          raw = input[name];
+          args ??= { ...input };
+          delete args[name];
+        }
+        // A bound value was admitted once, when its view was bound.
+        const value =
+          raw === undefined
+            ? (bound?.[name] ?? argument.default)
+            : argument.admit(argument, raw, model, operation);
+        if (value !== undefined) (values ??= {})[name] = value;
+        else if (required === true || required?.includes(model)) {
+          throw invalidArgument(argument, model, operation, ["is required"]);
+        }
+      }
+      return { args: args ?? input, values };
     },
     // Brought by `bound`: a chain that declares no bound argument binds none.
     bind: binder && ((...binding) => binder(all, ...binding)),
