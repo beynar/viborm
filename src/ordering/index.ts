@@ -495,6 +495,23 @@ async function respace(
   return written.count;
 }
 
+/** A lazy result: nothing runs until it is awaited, so an array
+ * transaction refuses it before any statement is sent. */
+const lazily = <T>(run: () => Promise<T>) => {
+  let started: Promise<T> | undefined;
+  const result = () => (started ??= run());
+  return {
+    then: <A = T, B = never>(
+      onFulfilled?: ((value: T) => A | PromiseLike<A>) | null,
+      onRejected?: ((reason: unknown) => B | PromiseLike<B>) | null
+    ) => result().then(onFulfilled, onRejected),
+    catch: <B = never>(
+      onRejected?: ((reason: unknown) => B | PromiseLike<B>) | null
+    ) => result().catch(onRejected),
+    finally: (onFinally?: (() => void) | null) => result().finally(onFinally),
+  };
+};
+
 function methods(ordered: Ordered) {
   const { name, key, within, identity, model } = ordered;
   const scalars = model["~"].state.scalars;
@@ -696,80 +713,106 @@ function methods(ordered: Ordered) {
       ? attempt(outside, joined)
       : stayed;
   }
-  return (delegate: Delegate) => {
-    async function place(args: Readonly<Record<string, unknown>>) {
-      const {
-        where,
-        after,
-        before,
-        first,
-        last,
-        key: given,
-        to,
-        data,
-        select,
-        include,
-        omit,
-        ...passed
-      } = args as Record<string, unknown> & { where: Row };
-      const chosen = PLACEMENTS.filter((option) => args[option] !== undefined);
-      if (chosen.length > 1 || (chosen.length === 0 && to === undefined))
-        invalid(
-          name,
-          "give exactly one of after, before, first, last, key, or to."
-        );
-      if (to !== undefined && (after !== undefined || before !== undefined))
-        invalid(
-          name,
-          "to goes with first, last or key, not with after or before."
-        );
-      if (given !== undefined && !isKeyFormat(given))
-        invalid(name, "key takes an ordering key (isKeyFormat, keyBetween).");
+  async function place(
+    delegate: Delegate,
+    args: Readonly<Record<string, unknown>>
+  ) {
+    const {
+      where,
+      after,
+      before,
+      first,
+      last,
+      key: given,
+      to,
+      data,
+      select,
+      include,
+      omit,
+      ...passed
+    } = args as Record<string, unknown> & { where: Row };
+    const chosen = PLACEMENTS.filter((option) => args[option] !== undefined);
+    if (chosen.length > 1 || (chosen.length === 0 && to === undefined))
+      invalid(
+        name,
+        "give exactly one of after, before, first, last, key, or to."
+      );
+    if (to !== undefined && (after !== undefined || before !== undefined))
+      invalid(
+        name,
+        "to goes with first, last or key, not with after or before."
+      );
+    if (given !== undefined && !isKeyFormat(given))
+      invalid(name, "key takes an ordering key (isKeyFormat, keyBetween).");
+    if (
+      (first !== undefined && first !== true) ||
+      (last !== undefined && last !== true)
+    )
+      invalid(name, "first and last take true.");
+    if (to !== undefined) {
+      const fields = Object.keys(to as Row);
       if (
-        (first !== undefined && first !== true) ||
-        (last !== undefined && last !== true)
+        fields.length !== within.length ||
+        !within.every((field) => fields.includes(field))
       )
-        invalid(name, "first and last take true.");
-      if (to !== undefined) {
-        const fields = Object.keys(to as Row);
-        if (
-          fields.length !== within.length ||
-          !within.every((field) => fields.includes(field))
+        invalid(name, `to names the list's fields: ${within.join(", ")}.`);
+    }
+    // Read once: the copy is what is checked and written.
+    // A field given `undefined` is left out, as in any update.
+    const extra: Row = isRecord(data)
+      ? Object.fromEntries(
+          Object.entries(data).filter(([, value]) => value !== undefined)
         )
-          invalid(name, `to names the list's fields: ${within.join(", ")}.`);
+      : {};
+    if (data !== undefined && (!isRecord(data) || places(extra)))
+      invalid(
+        name,
+        `data writes the model's own fields beside the key: not ${placing.join(", ")}${within.length === 0 ? "" : " (to moves the row between lists)"}, nor a relation.`
+      );
+    // What every write of the move writes beside its key and list.
+    const writing: Row = { ...stored, ...extra };
+    const anchor = (after ?? before) as Row | undefined;
+    const projection = {
+      ...(select === undefined ? {} : { select }),
+      ...(include === undefined ? {} : { include }),
+      ...(omit === undefined ? {} : { omit }),
+    };
+    // A key the caller computed (`keyBetween` over the neighbours it
+    // shows): written as given, in one update, nothing read first.
+    if (given !== undefined)
+      try {
+        return await delegate.update!({
+          ...passed,
+          where,
+          data: {
+            ...writing,
+            [key]: given,
+            ...((to as Row | undefined) ?? {}),
+          },
+          ...projection,
+        });
+      } catch (error) {
+        throw error instanceof NotFoundError
+          ? new NotFoundError(name, "move")
+          : error;
       }
-      // Read once: the copy is what is checked and written.
-      // A field given `undefined` is left out, as in any update.
-      const extra: Row = isRecord(data)
-        ? Object.fromEntries(
-            Object.entries(data).filter(([, value]) => value !== undefined)
-          )
-        : {};
-      if (data !== undefined && (!isRecord(data) || places(extra)))
-        invalid(
-          name,
-          `data writes the model's own fields beside the key: not ${placing.join(", ")}${within.length === 0 ? "" : " (to moves the row between lists)"}, nor a relation.`
-        );
-      // What every write of the move writes beside its key and list.
-      const writing: Row = { ...stored, ...extra };
-      const anchor = (after ?? before) as Row | undefined;
-      const projection = {
-        ...(select === undefined ? {} : { select }),
-        ...(include === undefined ? {} : { include }),
-        ...(omit === undefined ? {} : { omit }),
-      };
-      // A key the caller computed (`keyBetween` over the neighbours it
-      // shows): written as given, in one update, nothing read first.
-      if (given !== undefined)
+    const recognised = named(where);
+    const fields = Object.keys(recognised);
+    const isMoved = (row: Row) =>
+      fields.length > 0 &&
+      fields.every((field) => same(row[field], recognised[field]));
+    const reading = {
+      ...selection,
+      ...Object.fromEntries(fields.map((field) => [field, true])),
+    };
+    // Already in place: its key stays; what `data` writes is written.
+    const inPlace = async () => {
+      if (Object.keys(extra).length > 0)
         try {
           return await delegate.update!({
             ...passed,
             where,
-            data: {
-              ...writing,
-              [key]: given,
-              ...((to as Row | undefined) ?? {}),
-            },
+            data: writing,
             ...projection,
           });
         } catch (error) {
@@ -777,254 +820,210 @@ function methods(ordered: Ordered) {
             ? new NotFoundError(name, "move")
             : error;
         }
-      const recognised = named(where);
-      const fields = Object.keys(recognised);
-      const isMoved = (row: Row) =>
-        fields.length > 0 &&
-        fields.every((field) => same(row[field], recognised[field]));
-      const reading = {
-        ...selection,
-        ...Object.fromEntries(fields.map((field) => [field, true])),
-      };
-      // Already in place: its key stays; what `data` writes is written.
-      const inPlace = async () => {
-        if (Object.keys(extra).length > 0)
-          try {
-            return await delegate.update!({
-              ...passed,
-              where,
-              data: writing,
-              ...projection,
-            });
-          } catch (error) {
-            throw error instanceof NotFoundError
-              ? new NotFoundError(name, "move")
-              : error;
-          }
-        const row = await delegate.findUnique!({
+      const row = await delegate.findUnique!({
+        ...passed,
+        where,
+        ...projection,
+      });
+      if (row === null) throw new NotFoundError(name, "move");
+      return row;
+    };
+    const moved = await inStatement(
+      { where, anchor, after: after !== undefined, first: first === true },
+      to as Row | undefined,
+      recognised,
+      (delegate as unknown as { $sql: ModelSql }).$sql,
+      (guard, data) =>
+        delegate.update!({
           ...passed,
-          where,
+          where: { ...where, [key]: { equals: () => guard } },
+          data: { ...writing, ...data },
           ...projection,
-        });
-        if (row === null) throw new NotFoundError(name, "move");
-        return row;
-      };
-      const moved = await inStatement(
-        { where, anchor, after: after !== undefined, first: first === true },
-        to as Row | undefined,
-        recognised,
-        (delegate as unknown as { $sql: ModelSql }).$sql,
-        (guard, data) =>
-          delegate.update!({
-            ...passed,
-            where: { ...where, [key]: { equals: () => guard } },
-            data: { ...writing, ...data },
-            ...projection,
-          })
-      );
-      if (moved !== MISSED) return moved;
-      for (let attempt = 1; ; attempt++) {
-        if (attempt > MOVE_ATTEMPTS)
-          throw new QueryError(
-            `${name}.move: the list kept changing under concurrent writes; try again.`
-          );
-        let group: Row;
-        let low: string | null;
-        let high: string | null;
-        // Whether the row is known to be in `group` already.
-        let home = within.length === 0;
-        if (anchor !== undefined) {
-          // The anchor and the rows after (or before) it in the list's order
-          // (the `order` capability), the moved row recognised among them.
-          // The moved row itself is not read.
-          // The anchor itself, by all it states, where the cursor cannot
-          // carry it: a nullable list field, or a condition beside its key.
-          const at =
-            open || Object.keys(anchor).length > 1
-              ? ((await delegate.findUnique!({
-                  ...passed,
-                  where: anchor,
-                  select: reading,
-                })) as Row | null)
-              : undefined;
-          const rows =
-            at === null
-              ? []
-              : ((await delegate.findMany!({
-                  ...passed,
-                  ...(at && { where: fieldsOf(within, at), orderBy: keyOrder }),
-                  cursor: at ? selectorOf(at) : anchor,
-                  take: after === undefined ? -3 : 3,
-                  select: reading,
-                })) as Row[]);
-          const found = after === undefined ? rows.at(-1) : rows[0];
-          if (found === undefined) throw new NotFoundError(name, "move anchor");
-          // The anchor left the list it was read in before its neighbours
-          // were: the cursor's row is outside them, and the row read in its
-          // place is another one. Read again.
-          if (
-            at &&
-            !rowKey.fields.every((field) => same(found[field], at[field]))
-          )
-            continue;
-          if (isMoved(found))
-            invalid(name, "a row cannot be placed next to itself.");
-          group = fieldsOf(within, found);
-          const others = (
-            after === undefined ? rows.slice(0, -1).reverse() : rows.slice(1)
-          ).filter((row) =>
-            within.every((field) => same(row[field], found[field]))
-          );
-          // Already the anchor's neighbour on that side: nothing to write.
-          if (others[0] !== undefined && isMoved(others[0])) return inPlace();
-          const neighbour =
-            (others.find((row) => !isMoved(row))?.[key] as
-              | string
-              | undefined) ?? null;
-          [low, high] =
-            after === undefined
-              ? [neighbour, found[key] as string]
-              : [found[key] as string, neighbour];
-        } else {
-          if (to === undefined && within.length > 0) {
-            // First or last of its own list: the one read of the row.
-            const moved = (await delegate.findUnique!({
-              ...passed,
-              where,
-              select: selection,
-            })) as Row | null;
-            if (moved === null) throw new NotFoundError(name, "move");
-            group = fieldsOf(within, moved);
-            home = true;
-          } else group = (to as Row | undefined) ?? {};
-          // The list's two rows at that end, the moved row recognised.
-          const rows = (await delegate.findMany!({
-            ...passed,
-            where: group,
-            take: first === true ? 2 : -2,
-            select: reading,
-          })) as Row[];
-          const ends = first === true ? rows : [...rows].reverse();
-          if (ends[0] !== undefined && isMoved(ends[0])) return inPlace();
-          const bound =
-            (ends.find((row) => !isMoved(row))?.[key] as string | undefined) ??
-            null;
-          [low, high] = first === true ? [null, bound] : [bound, null];
-        }
-        let next: string | undefined;
-        try {
-          if (
-            (low === null || isKeyFormat(low)) &&
-            (high === null || isKeyFormat(high)) &&
-            (low === null || high === null || low < high)
-          )
-            next = keyBetween(low, high);
-        } catch {
-          // An integer past 10^9: the list is respaced below.
-        }
-        if (next === undefined || !isKeyFormat(next)) {
-          // Tied or malformed neighbours, or a gap split too often: the
-          // list is respaced, then read again.
-          await respace(
-            ordered,
-            delegate as unknown as Writes,
-            passed,
-            within.length === 0 ? undefined : group
-          );
+        })
+    );
+    if (moved !== MISSED) return moved;
+    for (let attempt = 1; ; attempt++) {
+      if (attempt > MOVE_ATTEMPTS)
+        throw new QueryError(
+          `${name}.move: the list kept changing under concurrent writes; try again.`
+        );
+      let group: Row;
+      let low: string | null;
+      let high: string | null;
+      // Whether the row is known to be in `group` already.
+      let home = within.length === 0;
+      if (anchor !== undefined) {
+        // The anchor and the rows after (or before) it in the list's order
+        // (the `order` capability), the moved row recognised among them.
+        // The moved row itself is not read.
+        // The anchor itself, by all it states, where the cursor cannot
+        // carry it: a nullable list field, or a condition beside its key.
+        const at =
+          open || Object.keys(anchor).length > 1
+            ? ((await delegate.findUnique!({
+                ...passed,
+                where: anchor,
+                select: reading,
+              })) as Row | null)
+            : undefined;
+        const rows =
+          at === null
+            ? []
+            : ((await delegate.findMany!({
+                ...passed,
+                ...(at && { where: fieldsOf(within, at), orderBy: keyOrder }),
+                cursor: at ? selectorOf(at) : anchor,
+                take: after === undefined ? -3 : 3,
+                select: reading,
+              })) as Row[]);
+        const found = after === undefined ? rows.at(-1) : rows[0];
+        if (found === undefined) throw new NotFoundError(name, "move anchor");
+        // The anchor left the list it was read in before its neighbours
+        // were: the cursor's row is outside them, and the row read in its
+        // place is another one. Read again.
+        if (
+          at &&
+          !rowKey.fields.every((field) => same(found[field], at[field]))
+        )
           continue;
-        }
-        // The row's list is not read: its key alone is written where the row
-        // is in `group` already (so a reorder needs no permission on the list
-        // fields), else the key and the list. `to` tries the move first.
-        const stay = {
-          where: { ...where, ...group },
-          data: { ...writing, [key]: next },
-        };
-        const join = (guarded: boolean) => ({
-          where: guarded
-            ? {
-                ...where,
-                NOT:
-                  where.NOT === undefined ? group : [where.NOT, group].flat(),
-              }
-            : where,
-          data: { ...writing, [key]: next, ...group },
-        });
-        const writes = home
-          ? [{ where, data: { ...writing, [key]: next } }]
-          : to === undefined
-            ? [stay, join(false)]
-            : [join(true), stay];
-        for (const write of writes)
-          try {
-            return await delegate.update!({
-              ...passed,
-              ...write,
-              ...projection,
-            });
-          } catch (error) {
-            if (!(error instanceof NotFoundError)) throw error;
-          }
-        throw new NotFoundError(name, "move");
-      }
-    }
-
-    /** A lazy result: nothing runs until it is awaited, so an array
-     * transaction refuses it before any statement is sent. */
-    const lazily = <T>(run: () => Promise<T>) => {
-      let started: Promise<T> | undefined;
-      const result = () => (started ??= run());
-      return {
-        then: <A = T, B = never>(
-          onFulfilled?: ((value: T) => A | PromiseLike<A>) | null,
-          onRejected?: ((reason: unknown) => B | PromiseLike<B>) | null
-        ) => result().then(onFulfilled, onRejected),
-        catch: <B = never>(
-          onRejected?: ((reason: unknown) => B | PromiseLike<B>) | null
-        ) => result().catch(onRejected),
-        finally: (onFinally?: (() => void) | null) =>
-          result().finally(onFinally),
-      };
-    };
-
-    return {
-      move: (args: Readonly<Record<string, unknown>>) =>
-        lazily(() => place(args)),
-      rekey: (args: Readonly<Record<string, unknown>> = {}) =>
-        lazily(async () => {
-          const { where, orderBy, ...passed } = args;
-          const order = (
-            orderBy === undefined
-              ? []
-              : Array.isArray(orderBy)
-                ? orderBy
-                : [orderBy]
-          ) as Readonly<Record<string, "asc" | "desc">>[];
-          for (const term of order)
-            for (const [field, direction] of Object.entries(term))
-              if (
-                !Object.hasOwn(ordered.model["~"].state.scalars, field) ||
-                (direction !== "asc" && direction !== "desc")
-              )
-                throw new ValidationError("update", [
-                  {
-                    path: "orderBy",
-                    message: `${name}.rekey: orderBy takes { field: "asc" | "desc" } over the model's scalar fields.`,
-                  },
-                ]);
-          // The lists the matched rows are in, each respaced: named by the
-          // UPDATE itself, through the caller's view (`Respace`).
-          const count = await respace(
-            ordered,
-            delegate as unknown as Writes,
-            passed,
+        if (isMoved(found))
+          invalid(name, "a row cannot be placed next to itself.");
+        group = fieldsOf(within, found);
+        const others = (
+          after === undefined ? rows.slice(0, -1).reverse() : rows.slice(1)
+        ).filter((row) =>
+          within.every((field) => same(row[field], found[field]))
+        );
+        // Already the anchor's neighbour on that side: nothing to write.
+        if (others[0] !== undefined && isMoved(others[0])) return inPlace();
+        const neighbour =
+          (others.find((row) => !isMoved(row))?.[key] as string | undefined) ??
+          null;
+        [low, high] =
+          after === undefined
+            ? [neighbour, found[key] as string]
+            : [found[key] as string, neighbour];
+      } else {
+        if (to === undefined && within.length > 0) {
+          // First or last of its own list: the one read of the row.
+          const moved = (await delegate.findUnique!({
+            ...passed,
             where,
-            order
-          );
-          return { count };
-        }),
-    };
-  };
+            select: selection,
+          })) as Row | null;
+          if (moved === null) throw new NotFoundError(name, "move");
+          group = fieldsOf(within, moved);
+          home = true;
+        } else group = (to as Row | undefined) ?? {};
+        // The list's two rows at that end, the moved row recognised.
+        const rows = (await delegate.findMany!({
+          ...passed,
+          where: group,
+          take: first === true ? 2 : -2,
+          select: reading,
+        })) as Row[];
+        const ends = first === true ? rows : [...rows].reverse();
+        if (ends[0] !== undefined && isMoved(ends[0])) return inPlace();
+        const bound =
+          (ends.find((row) => !isMoved(row))?.[key] as string | undefined) ??
+          null;
+        [low, high] = first === true ? [null, bound] : [bound, null];
+      }
+      let next: string | undefined;
+      try {
+        if (
+          (low === null || isKeyFormat(low)) &&
+          (high === null || isKeyFormat(high)) &&
+          (low === null || high === null || low < high)
+        )
+          next = keyBetween(low, high);
+      } catch {
+        // An integer past 10^9: the list is respaced below.
+      }
+      if (next === undefined || !isKeyFormat(next)) {
+        // Tied or malformed neighbours, or a gap split too often: the
+        // list is respaced, then read again.
+        await respace(
+          ordered,
+          delegate as unknown as Writes,
+          passed,
+          within.length === 0 ? undefined : group
+        );
+        continue;
+      }
+      // The row's list is not read: its key alone is written where the row
+      // is in `group` already (so a reorder needs no permission on the list
+      // fields), else the key and the list. `to` tries the move first.
+      const stay = {
+        where: { ...where, ...group },
+        data: { ...writing, [key]: next },
+      };
+      const join = (guarded: boolean) => ({
+        where: guarded
+          ? {
+              ...where,
+              NOT: where.NOT === undefined ? group : [where.NOT, group].flat(),
+            }
+          : where,
+        data: { ...writing, [key]: next, ...group },
+      });
+      const writes = home
+        ? [{ where, data: { ...writing, [key]: next } }]
+        : to === undefined
+          ? [stay, join(false)]
+          : [join(true), stay];
+      for (const write of writes)
+        try {
+          return await delegate.update!({
+            ...passed,
+            ...write,
+            ...projection,
+          });
+        } catch (error) {
+          if (!(error instanceof NotFoundError)) throw error;
+        }
+      throw new NotFoundError(name, "move");
+    }
+  }
+
+  // The host binds each model's methods once per view, to its delegate.
+  return (delegate: Delegate) => ({
+    move: (args: Readonly<Record<string, unknown>>) =>
+      lazily(() => place(delegate, args)),
+    rekey: (args: Readonly<Record<string, unknown>> = {}) =>
+      lazily(async () => {
+        const { where, orderBy, ...passed } = args;
+        const order = (
+          orderBy === undefined
+            ? []
+            : Array.isArray(orderBy)
+              ? orderBy
+              : [orderBy]
+        ) as Readonly<Record<string, "asc" | "desc">>[];
+        for (const term of order)
+          for (const [field, direction] of Object.entries(term))
+            if (
+              !Object.hasOwn(ordered.model["~"].state.scalars, field) ||
+              (direction !== "asc" && direction !== "desc")
+            )
+              throw new ValidationError("update", [
+                {
+                  path: "orderBy",
+                  message: `${name}.rekey: orderBy takes { field: "asc" | "desc" } over the model's scalar fields.`,
+                },
+              ]);
+        // The lists the matched rows are in, each respaced: named by the
+        // UPDATE itself, through the caller's view (`Respace`).
+        const count = await respace(
+          ordered,
+          delegate as unknown as Writes,
+          passed,
+          where,
+          order
+        );
+        return { count };
+      }),
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1299,7 +1298,6 @@ function orderingOf(config: OrderingConfig): unknown {
     }
     return known;
   };
-  const made = new WeakMap<object, ReturnType<ReturnType<typeof methods>>>();
   // Built against no client: `ordering`'s own signature types what it adds.
   return extension(
     NAME,
@@ -1318,29 +1316,10 @@ function orderingOf(config: OrderingConfig): unknown {
     ),
     modelMethods((scope): object =>
       Object.fromEntries(
-        admittedFor(scope.$schema).map((ordered) => {
-          const legacy = methods(ordered);
-          // One method record per delegate a method is read from (`this`).
-          const of = (delegate: object) => {
-            let own = made.get(delegate);
-            if (own === undefined) {
-              own = legacy(delegate as Delegate);
-              made.set(delegate, own);
-            }
-            return own;
-          };
-          return [
-            ordered.name,
-            {
-              move(this: object, args: Readonly<Record<string, unknown>>) {
-                return of(this).move(args);
-              },
-              rekey(this: object, args?: Readonly<Record<string, unknown>>) {
-                return of(this).rekey(args);
-              },
-            },
-          ];
-        })
+        admittedFor(scope.$schema).map((ordered) => [
+          ordered.name,
+          methods(ordered),
+        ])
       )
     )
   );
