@@ -167,9 +167,9 @@ describe("tracing.tracer: spans start through the handed tracer", () => {
         () => "value"
       )
     ).resolves.toBe("value");
-    // Kind and root have no meaning to a handed tracer: never passed.
+    // Root has no meaning to a handed tracer: never passed.
     await wrapper.startActiveSpan(
-      { name: SPAN_CONNECT, kind: 2, root: true },
+      { name: SPAN_CONNECT, root: true },
       () => undefined
     );
 

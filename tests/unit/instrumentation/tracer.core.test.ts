@@ -232,16 +232,11 @@ describe("createTracerWrapper (OTel present)", () => {
     expect(rooted?.parentSpanContext).toBeUndefined();
   });
 
-  it("kind option is honored; defaults to INTERNAL when omitted", async () => {
+  it("every span is of kind INTERNAL", async () => {
     const tracer = createTracerWrapper();
 
-    await tracer.startActiveSpan(
-      { name: SPAN_OPERATION, kind: SpanKind.CLIENT },
-      () => undefined
-    );
     await tracer.startActiveSpan({ name: SPAN_EXECUTE }, () => undefined);
 
-    expect(findLast(SPAN_OPERATION)?.kind).toBe(SpanKind.CLIENT);
     expect(findLast(SPAN_EXECUTE)?.kind).toBe(SpanKind.INTERNAL);
   });
 
