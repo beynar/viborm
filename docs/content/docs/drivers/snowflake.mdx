@@ -211,8 +211,11 @@ What VibORM does not refuse can still write: `$queryRaw` and
 and a query interceptor. A role with only `SELECT` privileges is what
 guarantees nothing writes. An extension's write verbs are refused before
 anything is sent too: `restore` and `delete` of `viborm/soft-delete` and
-`create` of `viborm/ordering` by the write refusal, and its `move` by its
-first read, a cursor in the list's order.
+`create` of `viborm/ordering` by the write refusal. `move` of
+`viborm/ordering` never sends a write either, but it is not refused before
+anything is sent: `move({ after })` fails on its first read (a cursor in the
+list's order) with an `UnsupportedOperationError`, and `move({ first: true })`
+or `move({ last: true })` sends one read before it is refused.
 
 ### Why VibORM does not write to Snowflake
 
