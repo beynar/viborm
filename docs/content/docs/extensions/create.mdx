@@ -67,7 +67,7 @@ share the chain's own code, so a second part costs less than its row.
 
 {/* Measured with `node scripts/extension-bytes.mjs` (the `pg-one-*`
 fixtures of scripts/bundle-fixtures, and the official extensions' fixtures),
-last on f8ed6cbe1; rerun it and update these figures when the code of
+last on f34031a03; rerun it and update these figures when the code of
 src/extensions changes. */}
 
 | You import | Your bundle carries | Adds (min) | Adds (gzip) |
@@ -84,11 +84,11 @@ src/extensions changes. */}
 | `around` with `again` | Making a failed call again | 6.8 kB | 2.9 kB |
 | `around`, `target(reads)` | The second moment, on the calls a target selects | 6.9 kB | 3.0 kB |
 | `call`, `target(writes)`, `watch`, `settled` | The rows a write wrote, the hook after its commit | 7.1 kB | 3.1 kB |
-| `rule` with `root` and `related` filters | Row filters, prepared once per schema | 8.0 kB | 3.6 kB |
-| `rule` with `args`, `when`, `arg` | Row filters that read an argument, folded per call | 14.6 kB | 6.0 kB |
-| `rule` with `keep`, `now` | Kept deleted rows | 14.7 kB | 6.2 kB |
-| `rule` with `gate` | Gated fields | 16.2 kB | 6.8 kB |
-| `rule` with `check` | The judgement of the rows a write produces | 18.0 kB | 7.4 kB |
+| `rule` with `root` and `related` filters | Row filters, prepared once per schema | 7.9 kB | 3.5 kB |
+| `rule` with `args`, `when`, `arg` | Row filters that read an argument, folded per call | 14.5 kB | 6.0 kB |
+| `rule` with `keep`, `now` | Kept deleted rows | 14.6 kB | 6.2 kB |
+| `rule` with `gate` | Gated fields | 15.4 kB | 6.6 kB |
+| `rule` with `check` | The judgement of the rows a write produces | 17.8 kB | 7.3 kB |
 
 The official extensions, measured the same way:
 
@@ -97,11 +97,11 @@ The official extensions, measured the same way:
 | [`defaultOmit()`](/docs/extensions/omit) | 5.7 kB | 2.2 kB |
 | [`on()`](/docs/extensions/on) | 9.7 kB | 3.9 kB |
 | [`instrumentation()`](/docs/extensions/instrumentation) | 14.8 kB | 5.4 kB |
-| [`softDelete()`](/docs/extensions/soft-delete) | 20.7 kB | 8.1 kB |
+| [`softDelete()`](/docs/extensions/soft-delete) | 20.6 kB | 8.1 kB |
 | [`cache()`](/docs/extensions/cache) | 26.9 kB | 10.1 kB |
 | [`ordering()`](/docs/extensions/ordering) | 26.9 kB | 11.0 kB |
-| [`permissions()`](/docs/extensions/permissions) | 64.8 kB | 25.2 kB |
-| `on`, `ordering`, `permissions` and `softDelete` together | 100.5 kB | 38.6 kB |
+| [`permissions()`](/docs/extensions/permissions) | 63.3 kB | 24.9 kB |
+| `on`, `ordering`, `permissions` and `softDelete` together | 99.1 kB | 38.4 kB |
 
 The PostgreSQL application they are added to weighs 508.1 kB minified
 (168.0 kB gzip) and carries 646 bytes of this code, chiefly how a transaction
