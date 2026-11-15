@@ -30,12 +30,7 @@ import {
   type VibORMSpanName,
 } from "./spans";
 import type { SpanAttributes, VibORMSpanOptions } from "./tracer";
-import type {
-  InstrumentationNote,
-  LogEvent,
-  LogLevel,
-  TracingConfig,
-} from "./types";
+import type { InstrumentationNote, LogEvent, LogLevel } from "./types";
 
 type PresentedLog = Omit<LogEvent, "level">;
 
@@ -156,16 +151,9 @@ export function presentNoteLog(
  * cannot be read.
  */
 export function createOperationSpanOptions(unit: Unit): VibORMSpanOptions {
-  const collection = table(unit);
   return {
     name: SPAN_OPERATION,
-    attributes: {
-      ...createDriverAttributes(driver(unit)),
-      ...(collection === undefined ? {} : { [ATTR_DB_COLLECTION]: collection }),
-      // An operation unit always names its operation.
-      [ATTR_DB_OPERATION_NAME]: unit.operation!,
-      ...createCorrelationAttributes(correlation(unit)),
-    },
+    attributes: createUnitAttributes(unit, table(unit)),
   };
 }
 
@@ -186,47 +174,38 @@ export function createOperationErrorLogEvent(
   });
 }
 
-/** One channel's SQL/parameter disclosure; `true` and absence disclose nothing. */
-function readChannelDisclosure(
-  channel: true | Readonly<DiagnosticDisclosure> | undefined
-): DiagnosticDisclosure {
-  return channel && channel !== true ? channel : {};
-}
-
 /**
- * The driver identity plus the unit's model, operation and correlation. An
- * empty attribution string is never presented: a caller-supplied context may
- * carry `operation: ""`, which the fallback operation does not replace.
+ * The driver identity plus the collection a unit addresses (an operation's
+ * table, another unit's model), its operation and correlation. An empty
+ * attribution string is never presented: a caller-supplied context may carry
+ * `operation: ""`, which the fallback operation does not replace.
  */
-function createUnitAttributes(unit: Unit): Record<string, string> {
-  const { model, operation } = unit;
+function createUnitAttributes(
+  unit: Unit,
+  collection: string | undefined
+): Record<string, string> {
+  const { operation } = unit;
   return {
     ...createDriverAttributes(driver(unit)),
-    ...(model ? { [ATTR_DB_COLLECTION]: model } : {}),
+    ...(collection ? { [ATTR_DB_COLLECTION]: collection } : {}),
     ...(operation ? { [ATTR_DB_OPERATION_NAME]: operation } : {}),
     ...createCorrelationAttributes(correlation(unit)),
   };
 }
 
-/** The execute span of one physical send, disclosed per the tracing channel. */
+/**
+ * The execute span of one physical send: the tracer shows its text and
+ * parameters as the tracing channel discloses them.
+ */
 export function createStatementSpanOptions(
-  tracing: true | Readonly<TracingConfig> | undefined,
   unit: Unit,
   sql: string | undefined,
   params: readonly unknown[] | undefined
 ): VibORMSpanOptions {
-  const { includeParams, includeSql } = readChannelDisclosure(tracing);
   return {
     name: SPAN_EXECUTE,
-    attributes: createUnitAttributes(unit),
-    ...(includeSql || includeParams
-      ? {
-          sql: {
-            ...(includeSql && sql !== undefined ? { query: sql } : {}),
-            ...(includeParams ? { params: [...(params ?? [])] } : {}),
-          },
-        }
-      : {}),
+    attributes: createUnitAttributes(unit, unit.model),
+    sql: { query: sql, params },
   };
 }
 
@@ -235,7 +214,7 @@ export function createLifecycleSpanOptions(
   name: VibORMSpanName,
   unit: Unit
 ): VibORMSpanOptions {
-  return { name, attributes: createUnitAttributes(unit) };
+  return { name, attributes: createUnitAttributes(unit, unit.model) };
 }
 
 /** The native batch member a failure names, if it names one. */
@@ -257,7 +236,8 @@ export function createStatementLogEvent(
   shown: readonly unknown[] | undefined,
   failure?: Error
 ): PresentedLog {
-  const disclosure = readChannelDisclosure(logging);
+  // `true` and absence disclose nothing.
+  const disclosure = logging && logging !== true ? logging : {};
   const index = failure === undefined ? undefined : statementIndexOf(failure);
   const member = index === undefined ? undefined : statements(unit)?.[index];
   const sql = member?.sql ?? text(unit);

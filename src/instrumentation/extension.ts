@@ -243,14 +243,7 @@ function presentStatement(
   const startedAt = Date.now();
   return spanned(
     context,
-    traced
-      ? createStatementSpanOptions(
-          context.config.tracing,
-          unit,
-          text(unit),
-          shown
-        )
-      : undefined,
+    traced ? createStatementSpanOptions(unit, text(unit), shown) : undefined,
     unit,
     next,
     ({ duration, recovered, status }) => {

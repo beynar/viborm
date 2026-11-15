@@ -60,7 +60,7 @@ export interface VibORMSpanOptions {
   /** Additional attributes */
   attributes?: SpanAttributes | undefined;
   /** SQL info (only included if tracer config has includeSql enabled) */
-  sql?: { query?: string; params?: unknown[] } | undefined;
+  sql?: { query?: string; params?: readonly unknown[] } | undefined;
   /**
    * Start a new root span (not child of current context). A handed tracer
    * takes no parent: its span nests under the active span.
