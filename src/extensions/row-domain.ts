@@ -86,8 +86,7 @@ export interface PreparedDomain {
   prepare(model: AnyModel, input: Input): PreparedSelector;
   conjunction(
     model: AnyModel,
-    layers: Iterable<readonly [layer: number, inputs: readonly Input[]]>,
-    reading?: boolean
+    layers: Iterable<readonly [layer: number, inputs: readonly Input[]]>
   ): PreparedSelector | null;
   reads(call: CallScope): Queries;
   selector(
@@ -160,14 +159,11 @@ export class FilterDomain implements PreparedDomain {
   /**
    * The conjunction of what `layers` state of `model`, each layer by its
    * place in the chain: a layer's inputs ANDed and marked as that layer's
-   * node, then the layers ANDed. `null` where no layer states one. With
-   * `reading`, a layer whose inputs read no row is left out: it judges
-   * nothing.
+   * node, then the layers ANDed. `null` where no layer states one.
    */
   conjunction(
     model: AnyModel,
-    layers: Iterable<readonly [layer: number, inputs: readonly Input[]]>,
-    reading = false
+    layers: Iterable<readonly [layer: number, inputs: readonly Input[]]>
   ): PreparedSelector | null {
     const name = model["~"].names.ts!;
     const queries = this.queries;
@@ -178,14 +174,10 @@ export class FilterDomain implements PreparedDomain {
       const wheres = inputs.map((input) => this.prepare(model, input));
       const part =
         wheres.length === 1 ? wheres[0]! : queries.andSelectors(model, wheres);
-      if (part.predicate !== undefined)
-        parts.push(
-          freeze({
-            ...part,
-            predicate: layered(layer, name, part.predicate),
-          })
-        );
-      else if (!reading) parts.push(part);
+      // Every input prepares to a predicate: `{}` to an empty conjunction.
+      parts.push(
+        freeze({ ...part, predicate: layered(layer, name, part.predicate!) })
+      );
     }
     if (parts.length === 0) return null;
     return parts.length === 1 ? parts[0]! : queries.andSelectors(model, parts);

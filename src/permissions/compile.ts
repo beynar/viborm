@@ -1389,13 +1389,16 @@ export function policyCompiler(
     // A condition guards what it is read with; another model's rows are
     // read like a positive relation's body, wherever the clause is.
     const word = madeOf(clause);
+    // A word in a clause's place is a condition or another model's rows:
+    // an argument's value and an enclosing row's column stand for values.
     if (word !== undefined) {
-      if ("provided" in word)
-        return combineReads(true, [
-          { yes: clause, no: negate(clause), reads: new Map() },
-        ]);
-      const summary = "exists" in word ? summarizeReads(...word.exists) : null;
-      return summary && combineReads(true, [atomic(summary.reads)]);
+      if ("exists" in word) {
+        const summary = summarizeReads(...word.exists);
+        return summary && combineReads(true, [atomic(summary.reads)]);
+      }
+      return combineReads(true, [
+        { yes: clause, no: negate(clause), reads: new Map() },
+      ]);
     }
     const cache = summaries.get(name)!;
     const known = cache.get(clause);

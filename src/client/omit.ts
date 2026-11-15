@@ -329,7 +329,6 @@ const rewriteRelationMap = (
     }
 
     const target = slotTarget(resolved, model);
-    if (!target) continue;
 
     if (value === true) {
       const defaults = resolve.omit(target);
@@ -376,7 +375,7 @@ export const directVariantCarrier = (
 export const slotTarget = (
   resolved: ResolvedSlot,
   source: AnyModel
-): AnyModel | undefined => {
+): AnyModel => {
   const edge = resolved.edge;
   if (edge.kind === "foreignKey" || edge.kind === "junction") {
     const [first, second] = edge.endpoints;

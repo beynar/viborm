@@ -107,18 +107,18 @@ const foldKnownNulls = (
 ): PreparedPredicate =>
   fold(
     predicate,
-    (leaf) => {
-      if (leaf.kind !== "operation") return;
-      const { target, operand } = leaf;
-      return leaf.operator === "equals" &&
-        target.kind === "column" &&
-        target.path === undefined &&
-        operand?.kind === "value" &&
-        operand.value === null &&
-        target.scalar.physical.scalar["~"].state.type !== "json"
-        ? nulls.get(target.scalar.field)
-        : undefined;
-    },
+    // The conditions of a call were folded before it is judged: every leaf
+    // here is an operation, which the first test only narrows.
+    (leaf) =>
+      leaf.kind === "operation" &&
+      leaf.operator === "equals" &&
+      leaf.target.kind === "column" &&
+      leaf.target.path === undefined &&
+      leaf.operand?.kind === "value" &&
+      leaf.operand.value === null &&
+      leaf.target.scalar.physical.scalar["~"].state.type !== "json"
+        ? nulls.get(leaf.target.scalar.field)
+        : undefined,
     false
   );
 /**
@@ -286,9 +286,9 @@ export function producedWhere(
     ],
     produced
   );
+  // A write's values hold no `undefined`: `schema.scalars` leaves it out.
   const nulls = new Map<string, boolean>();
   for (const [field, value] of Object.entries(values)) {
-    if (value === undefined) continue;
     const whole = wholeValue(value);
     if (whole && !(whole.value instanceof Sql))
       nulls.set(field, whole.value === null);

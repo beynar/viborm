@@ -126,11 +126,9 @@ export async function admitArrayQueries<Slot extends AdmissionSlot>(
         slot,
         (notifications) => {
           slot.notifications = notifications;
-          if (!slot.admitted) {
-            slot.admitted = true;
-            remaining -= 1;
-            if (remaining === 0) signal.resolve();
-          }
+          // Reached once: a second `run()` is refused before its child.
+          remaining -= 1;
+          if (remaining === 0) signal.resolve();
           return slot.child.promise;
         },
         {

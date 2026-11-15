@@ -257,8 +257,6 @@ function watchOf(
     rows: Row[];
     nested: boolean;
   }[] = [];
-  let certainty: WriteOutcome["certainty"] | undefined;
-  let delivered = false;
   return {
     wants: (name: string, kind: WriteKind) => hooks[name]?.[kind] !== undefined,
     rows(
@@ -275,10 +273,8 @@ function watchOf(
         written[written.push({ model: name, kind, rows: [], nested }) - 1]!;
       for (const row of rows) group.rows.push(detached(row) as Row);
     },
-    async settled(outcome: WriteOutcome) {
-      if (certainty !== "committed") certainty = outcome.certainty;
-      if (delivered) return;
-      delivered = true;
+    // Told once: a call's registration hears the one outcome it reached.
+    async settled({ certainty }: WriteOutcome) {
       const event: OnEvent = Object.freeze({
         model: call.model,
         operation: call.operation as OnOperation,

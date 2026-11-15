@@ -194,7 +194,8 @@ export function planResultFields(
   if (planned === undefined) return undefined;
   const { node } = planned;
   return {
-    args: planned.args ?? args,
+    // Planned from `args`, never absent: only a relation's may be.
+    args: planned.args!,
     finish: (value) => finishValue(value, node),
   };
 }
@@ -224,7 +225,6 @@ function planNode(
       if (!resolved || directVariantCarrier(resolved)) continue;
       if (value !== true && !isRecord(value)) continue;
       const target = slotTarget(resolved, model);
-      if (!target) continue;
       const childArgs = value === true ? undefined : value;
       const child = planNode(fields, relations, target, childArgs);
       if (child === undefined) continue;
@@ -293,7 +293,7 @@ function planNode(
   }
   if (nextOmit !== undefined) rewrite("omit", nextOmit);
   if (select !== undefined) {
-    const nextSelect: Row = { ...(nextProjection ?? select) };
+    const nextSelect: Row = { ...nextProjection };
     for (const name of visible.keys()) delete nextSelect[name];
     for (const field of reads) nextSelect[field] = true;
     if (!Object.values(nextSelect).some((value) => value !== false)) {

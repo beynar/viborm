@@ -11,7 +11,7 @@
  * that keyed it, so nothing survives a request in a reused isolate.
  */
 
-const origins = new WeakMap<object, unknown>();
+const origins = new WeakMap<object, Error>();
 
 /** Record that the package made `successor` from `source`. */
 export function recordErrorSuccessor(source: Error, successor: Error): void {
@@ -19,6 +19,8 @@ export function recordErrorSuccessor(source: Error, successor: Error): void {
 }
 
 /** The first error `error` was made from, or `error` itself. */
+export function errorOrigin(error: Error): Error;
+export function errorOrigin(error: unknown): unknown;
 export function errorOrigin(error: unknown): unknown {
   return typeof error === "object" && error !== null
     ? (origins.get(error) ?? error)

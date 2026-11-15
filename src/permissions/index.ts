@@ -674,7 +674,7 @@ export function permissions<const Config extends PermissionsConfig>(
     rule<Untyped, (schema: Schema) => object>((schema) =>
       Object.fromEntries(
         // The first rule part, declared before this one, applied the policy.
-        Object.entries(applied.get(schema)?.declared ?? {}).flatMap(
+        Object.entries(applied.get(schema)!.declared).flatMap(
           ([name, model]) =>
             model.bound === undefined
               ? []

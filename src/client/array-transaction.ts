@@ -201,7 +201,6 @@ export interface ArraySlot {
   query?: Promise<unknown>;
   notifications?: WriteOutcomeNotifications;
   certainty?: WriteOutcome["certainty"];
-  admitted?: boolean;
   admissionFailures?: unknown[];
 }
 

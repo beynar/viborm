@@ -190,19 +190,17 @@ function presentOperation(
       if (fact?.log === "cache") log(context, unit, fact);
     }
     const error = failure(unit);
+    // A failure a statement log presented is not presented again; every
+    // operation whose own failure it is presents it, as before.
     if (
       settled.status === "failure" &&
       error instanceof Error &&
-      logs(context, "error")
-    ) {
-      // A failure a statement log presented is not presented again; every
-      // operation whose own failure it is presents it, as before.
-      const first = origin(error);
-      if (!(typeof first === "object" && first !== null && logged.has(first)))
-        context.logger?.error(
-          createOperationErrorLogEvent(unit, error, startedAt, settled.duration)
-        );
-    }
+      logs(context, "error") &&
+      !logged.has(origin(error))
+    )
+      context.logger?.error(
+        createOperationErrorLogEvent(unit, error, startedAt, settled.duration)
+      );
     return endWith(end, unit);
   };
   return traces(context, SPAN_OPERATION)
@@ -230,8 +228,7 @@ function presentStatement(
       const error = failure(unit);
       if (settled.status === "failure" && error instanceof Error) {
         if (erred) {
-          const first = origin(error);
-          if (typeof first === "object" && first !== null) logged.add(first);
+          logged.add(origin(error));
           // A failure that names a native batch member is presented as it.
           const index = statementIndexOf(error);
           const member =

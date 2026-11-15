@@ -38,7 +38,8 @@ function shownOf(
 ): readonly unknown[] {
   const taken: unknown = Reflect.get(of, key);
   if (Array.isArray(taken) && taken !== EMPTY_DIAGNOSTIC_PARAMS) return taken;
-  const shown = snapshotDiagnosticParameters(params ?? []);
+  // Every statement the package sends states its parameters, a raw one `[]`.
+  const shown = snapshotDiagnosticParameters(params!);
   Reflect.set(of, key, shown);
   return shown;
 }
@@ -104,15 +105,10 @@ export function statements(u: UnitContext): readonly BatchMember[] | undefined {
         member.params
       );
     },
-    ...(member.context?.model === undefined
-      ? {}
-      : { model: member.context.model }),
-    ...(member.context?.operation === undefined
-      ? {}
-      : { operation: member.context.operation }),
-    ...(member.context?.correlationId === undefined
-      ? {}
-      : { correlation: member.context.correlationId }),
+    // Every member the package sends carries the context of its call.
+    model: member.context?.model,
+    operation: member.context?.operation,
+    correlation: member.context?.correlationId,
   }));
 }
 
@@ -121,7 +117,11 @@ export function statements(u: UnitContext): readonly BatchMember[] | undefined {
  * that adds execution context or commit certainty); the error itself when it
  * has none. Two units that fail with errors of one origin failed once.
  */
-export const origin = (error: unknown): unknown => errorOrigin(error);
+export function origin(error: Error): Error;
+export function origin(error: unknown): unknown;
+export function origin(error: unknown): unknown {
+  return errorOrigin(error);
+}
 
 /**
  * For a unit that rewrites statements: the statement before its rewrite, to

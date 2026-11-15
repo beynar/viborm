@@ -106,10 +106,10 @@ export const tracesAs = (
  * facts left out.
  */
 export function notedAttributes(
-  attributes: InstrumentationNote["attributes"]
+  attributes: NonNullable<InstrumentationNote["attributes"]>
 ): SpanAttributes {
   const defined: SpanAttributes = {};
-  for (const [key, value] of Object.entries(attributes ?? {}))
+  for (const [key, value] of Object.entries(attributes))
     if (value !== undefined && !key.startsWith(STATEMENT_FACTS))
       defined[key] = value;
   return defined;
@@ -161,9 +161,8 @@ export function createOperationSpanOptions(unit: Unit): VibORMSpanOptions {
     attributes: {
       ...createDriverAttributes(driver(unit)),
       ...(collection === undefined ? {} : { [ATTR_DB_COLLECTION]: collection }),
-      ...(unit.operation === undefined
-        ? {}
-        : { [ATTR_DB_OPERATION_NAME]: unit.operation }),
+      // An operation unit always names its operation.
+      [ATTR_DB_OPERATION_NAME]: unit.operation!,
       ...createCorrelationAttributes(correlation(unit)),
     },
   };

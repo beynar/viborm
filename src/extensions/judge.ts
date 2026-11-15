@@ -248,7 +248,7 @@ export const judgeOf = (domain: PreparedDomain) => {
                   : [own.place];
               layers.push([layer, [...new Set(wheres)]]);
             }
-            return domain.conjunction(model, layers, true);
+            return domain.conjunction(model, layers);
           }
         ) ?? undefined
       );

@@ -11,10 +11,7 @@ import {
 import { describe, expect, test } from "vitest";
 
 function createSlot(): AdmissionSlot {
-  return {
-    admitted: false,
-    child: createArrayDeferred<unknown>(),
-  };
+  return { child: createArrayDeferred<unknown>() };
 }
 
 describe("array query admission", () => {
@@ -29,8 +26,8 @@ describe("array query admission", () => {
     });
 
     await expect(admission).resolves.toBeUndefined();
+    // Released only once each member reached its child.
     expect(started).toEqual(slots);
-    expect(slots.every(({ admitted }) => admitted)).toBe(true);
 
     first.child.resolve("first");
     second.child.resolve("second");

@@ -130,7 +130,8 @@ export function executePreparedQuery<Result, Input extends object>(
   hooks?: AdmissionHooks,
   registration?: WriteOutcomeRegistration
 ): Promise<Result> {
-  const intercepted = context !== undefined && (arounds?.length ?? 0) > 0;
+  // A context is prepared only for a call some `around` part wraps.
+  const intercepted = context !== undefined;
   if (!(intercepted || registration)) return child();
   return isWrite || registration
     ? executeRegisteredQuery(
@@ -338,7 +339,6 @@ async function runAround<Result, Input extends object>(
         )
       : undefined;
   if (running === undefined) {
-    if (protocolFailure !== undefined) throw protocolFailure;
     if (failure !== undefined) throw failure;
     if (
       prepared.mode === "array" ||

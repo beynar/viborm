@@ -205,7 +205,8 @@ function admitDraft(
  * application's, as they would be at admission.
  */
 function bindVerbs(chain: ResolvedExtensionChain): VerbsBound {
-  const layers = chain.rules ?? [];
+  // A layer of the chain brought what binds the verbs.
+  const layers = chain.rules!;
   const brought = <K extends keyof NonNullable<RuleLayer["brings"]>>(kind: K) =>
     layers.find((layer) => layer.brings?.[kind])?.brings?.[kind];
   const keys = brought("keys");

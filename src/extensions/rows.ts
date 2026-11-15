@@ -63,7 +63,8 @@ export class RowsBinding implements CallRowsBinding {
   /** Where some predicate reads a call value: what puts the call's in. */
   readonly #values: ReturnType<CallReads["bind"]>["call"] | undefined;
   constructor(chain: ResolvedExtensionChain) {
-    const layers = chain.rules ?? [];
+    // Only a rule's layer binds rows (`keep` comes with one).
+    const layers = chain.rules!;
     // The verbs, where some word brought what binds them.
     const host = layers.find((layer) => layer.host)?.host;
     const {
