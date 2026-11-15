@@ -697,6 +697,14 @@ const db4 = base.$extends(defaultOmit({ user: { passwordHash: true } }));
   refused. Reads are keyed by the statement they send. `tx.$withCache()` and
   `tx.$invalidate()` exist in an interactive transaction. A backend that
   fails during `$invalidate()` is a `CacheConfigurationError`.
+  Stale-while-revalidate comes with a value the cache is configured with,
+  `cache({ driver, swr: staleWhileRevalidate })` (`viborm/cache`): a view's
+  `swr` option on a cache configured without it is a
+  `CacheConfigurationError`. A driver's unscoped storage is reached through
+  functions of `viborm/cache`: `driver._get(key)` is `getEntry(driver, key)`,
+  and `_set`, `_delete`, `_clear`, `_invalidate`, `_markRevalidating`
+  and `_clearRevalidating` are `setEntry`, `deleteEntry`, `clearEntries`,
+  `invalidateEntries`, `markRevalidating` and `clearRevalidating`.
 - `viborm/permissions`: five forms of its policy language are gone, and so
   are `can` and `assert` (read `$access` instead); see
   [Permissions](/docs/extensions/permissions#removed-in-this-version).

@@ -67,43 +67,44 @@ share the chain's own code, so a second part costs less than its row.
 
 {/* Measured with `node scripts/extension-bytes.mjs` (the `pg-one-*`
 fixtures of scripts/bundle-fixtures, and the official extensions' fixtures),
-last on 41e987fa1; rerun it and update these figures when the code of
+last on dd1fdcd42; rerun it and update these figures when the code of
 src/extensions changes. */}
 
 | You import | Your bundle carries | Adds (min) | Adds (gzip) |
 |---|---|---:|---:|
-| `methods` | Method factories and their collision checks | 3.3 kB | 1.6 kB |
-| `call`, `target(reads)` | The chain, the first moment: argument patches and refusals | 3.8 kB | 1.8 kB |
-| `args`, `oneOf` | Argument admission: taken out of the call, validated once | 4.5 kB | 2.0 kB |
-| `fields` | Computed fields: planning their needs, attaching them to rows | 5.3 kB | 2.3 kB |
-| `defaults` with `create` or `orderBy` | Default data or default order, without filter code or argument admission | 5.4 kB | 2.3 kB |
-| `defaults` with `omitted` | Default omission | 5.7 kB | 2.5 kB |
-| `unit` | The runner around physical units | 6.0 kB | 2.5 kB |
-| `unit` with `{ rewrites: true }`, `statement` | Statement rewriting | 6.1 kB | 2.5 kB |
-| `around` | The second moment around the prepared call, and the admission of `$transaction([...])` members | 8.3 kB | 3.4 kB |
-| `around` with `again` | Making a failed call again | 8.4 kB | 3.5 kB |
-| `call`, `target(writes)`, `watch`, `settled` | The rows a write wrote, the hook after its commit | 8.7 kB | 3.6 kB |
-| `rule` with `root` and `related` filters | Row filters, prepared once per schema | 10.4 kB | 4.4 kB |
-| `rule` with `keep`, `now` | Kept deleted rows | 16.4 kB | 6.8 kB |
-| `rule` with `args`, `when`, `arg` | Row filters that read an argument, folded per call | 17.4 kB | 6.9 kB |
-| `rule` with `gate` | Gated fields | 18.7 kB | 7.7 kB |
-| `rule` with `check` | The judgement of the rows a write produces | 20.3 kB | 8.2 kB |
+| `methods` | Client method factories and their collision checks | 2.6 kB | 1.2 kB |
+| `args`, `oneOf` | Argument admission: taken out of the call, validated once | 3.2 kB | 1.4 kB |
+| `call`, `target(reads)` | The chain, the first moment: argument patches and refusals | 3.4 kB | 1.6 kB |
+| `fields` | Computed fields: planning their needs, attaching them to rows | 4.9 kB | 2.1 kB |
+| `unit` | The runner around physical units | 5.1 kB | 2.1 kB |
+| `unit` with `{ rewrites: true }`, `statement` | Statement rewriting | 5.2 kB | 2.2 kB |
+| `defaults` with `create` or `orderBy` | Default data or default order, without filter code or argument admission | 5.2 kB | 2.3 kB |
+| `defaults` with `omitted` | Default omission | 5.5 kB | 2.4 kB |
+| `around` | The second moment around the prepared call, and the admission of `$transaction([...])` members | 6.6 kB | 2.8 kB |
+| `around` with `again` | Making a failed call again | 6.8 kB | 2.9 kB |
+| `around`, `target(reads)` | The second moment, on the calls a target selects | 7.0 kB | 3.0 kB |
+| `call`, `target(writes)`, `watch`, `settled` | The rows a write wrote, the hook after its commit | 7.2 kB | 3.0 kB |
+| `rule` with `root` and `related` filters | Row filters, prepared once per schema | 8.2 kB | 3.6 kB |
+| `rule` with `args`, `when`, `arg` | Row filters that read an argument, folded per call | 14.9 kB | 6.1 kB |
+| `rule` with `keep`, `now` | Kept deleted rows | 14.9 kB | 6.3 kB |
+| `rule` with `gate` | Gated fields | 16.4 kB | 6.9 kB |
+| `rule` with `check` | The judgement of the rows a write produces | 18.2 kB | 7.4 kB |
 
 The official extensions, measured the same way:
 
 | Extension | Adds (min) | Adds (gzip) |
 |---|---:|---:|
-| [`defaultOmit()`](/docs/extensions/omit) | 5.9 kB | 2.3 kB |
-| [`on()`](/docs/extensions/on) | 11.6 kB | 4.4 kB |
-| [`instrumentation()`](/docs/extensions/instrumentation) | 18.2 kB | 6.5 kB |
-| [`softDelete()`](/docs/extensions/soft-delete) | 24.0 kB | 9.2 kB |
-| [`ordering()`](/docs/extensions/ordering) | 29.7 kB | 11.7 kB |
-| [`cache()`](/docs/extensions/cache) | 33.1 kB | 11.8 kB |
-| [`permissions()`](/docs/extensions/permissions) | 69.5 kB | 26.3 kB |
-| `on`, `ordering`, `permissions` and `softDelete` together | 108.7 kB | 40.7 kB |
+| [`defaultOmit()`](/docs/extensions/omit) | 5.7 kB | 2.2 kB |
+| [`on()`](/docs/extensions/on) | 10.0 kB | 4.0 kB |
+| [`instrumentation()`](/docs/extensions/instrumentation) | 17.0 kB | 6.0 kB |
+| [`softDelete()`](/docs/extensions/soft-delete) | 21.2 kB | 8.2 kB |
+| [`cache()`](/docs/extensions/cache) | 27.7 kB | 10.3 kB |
+| [`ordering()`](/docs/extensions/ordering) | 29.2 kB | 11.5 kB |
+| [`permissions()`](/docs/extensions/permissions) | 66.5 kB | 25.7 kB |
+| `on`, `ordering`, `permissions` and `softDelete` together | 104.7 kB | 39.6 kB |
 
-The PostgreSQL application they are added to weighs 508.5 kB minified
-(168.2 kB gzip) and carries 646 bytes of this code, chiefly how a transaction
+The PostgreSQL application they are added to weighs 508.1 kB minified
+(168.0 kB gzip) and carries 646 bytes of this code, chiefly how a transaction
 scope runs. The figures are those
 of this release; later releases may lower them.
 
@@ -120,8 +121,9 @@ deliberately small so the call protocol is visible.
 ## Choose the narrowest part
 
 Six primitives build an extension (`call`, `unit`, `args`, `rule`, `defaults`,
-`methods`). `around` is `call` with a second moment, `fields` adds computed
-fields, and `disclosure` says what a thrown error may carry:
+`methods`). `around` is `call` with a second moment, `modelMethods` is
+`methods` for model delegates, `fields` adds computed fields, and
+`disclosure` says what a thrown error may carry:
 
 | Need | Part | Contract |
 |---|---|---|
@@ -129,13 +131,15 @@ fields, and `disclosure` says what a thrown error may carry:
 | Wrap one prepared logical call | `around` | Asynchronous continuation around execution |
 | Receive the rows a write wrote, act after its commit | `call` with `watch`, `settled` | Rows once every write of the call is made; a function after the durable commit |
 | Make a failed call again, send a read elsewhere | `around` with `again`, `via` | Allowed only where nothing was written; reads outside a transaction |
-| Store answers beside the database | `around` with `key`, `codec`, `database` | A key per prepared statement, the driver's rows of the answer stored as JSON data |
+| Store answers beside the database | `around` with `key`, `codec`, `database` | A key per prepared statement, the driver's rows of the answer stored as JSON data; the official cache's stale-while-revalidate is its own value, `staleWhileRevalidate` from `viborm/cache` |
 | Observe physical work | `unit` | Around a real unit: `next()` lets it run and returns its end |
 | Emit and present work of your own | `work`, `note`, `notes`; `database`, `VIBORM_VERSION` | A unit of your own kind; the official instrumentation traces and logs it from its notes |
+| Present a failure in a log or a span | `unit` with `failure`, `disclosed` | A copy of the error with what the application's `disclosure` allows |
 | Rewrite a statement | `unit` with `{ rewrites: true }` | Trusted `Sql → Sql`, before rendering |
 | Run SQL as a transaction opens | `unit` on `"transaction"` with `run` | First in every transaction |
-| Accept a new call argument | `args` | Declared, validated once; only your parts and the chain's rules read it |
+| Accept a new call argument | `args` with `oneOf`, `accepts`, `bound` | Declared, validated once; only your parts and the chain's rules read it; a `bound` one comes from the client (`$bind`) |
 | Hide rows, judge writes, gate fields, keep deleted rows | `rule` | Per model, in the ORM's own `where` and `data`; binds the caller |
+| Confine the sets your predicates compute | `rule` with `confine: within(where)` | What every row of a set computed over the whole table holds; takes rows away, never adds |
 | Order reads, write fields, omit fields by default | `defaults` | Per model; holds when the caller says nothing, and the caller can override it |
 | Add client methods, model methods | `methods`, `modelMethods` | A factory returning `$`-prefixed client methods; a factory returning each model's methods |
 | Add fields computed from a row | `fields` | `needs` and `compute` per field; on every row of the model a call returns |
@@ -258,7 +262,8 @@ patches or refuses calls does not carry the code of the second moment.
   published, so a handler can map or mask those rows. A child that fails fails
   the call with **its** error, whatever the handler returns or throws after.
   There is no aggregated error. An error your handler throws after a
-  successful child is rethrown unchanged.
+  successful child is rethrown unchanged; a value that is not an `Error` is
+  the cause of a `QueryError` naming the extension.
 - **Typed by one result when the target names one model and one
   operation.** Then `run()` resolves to that operation's result on the client
   the extension is applied to (its rules, omissions and computed fields
@@ -340,10 +345,11 @@ sent and the write may have been made: `fn` is told of that write too, so a
 cache invalidates for it.
 
 - VibORM awaits it before the call's promise (or the transaction's) resolves.
-  A VibORM error it throws rejects that promise as it is; anything else
-  rejects it as a `QueryError`. The write is not undone.
-- The functions of several extensions run in chain order. The first failure
-  rejects the call.
+  A VibORM error it throws rejects that promise as it is; anything else,
+  a value that is not an `Error` included, is the cause of a `QueryError`.
+  The write is not undone.
+- Every function runs, in chain order, those of one extension included,
+  whatever an earlier one did. The first failure rejects the call.
 - In an `around` with no target, `settled` also hears `$executeRaw` and
   `$executeRawUnsafe`, which may have written anything.
 - `settled(scope, fn)` in a [method](#methods-client-and-model-methods) runs
@@ -817,7 +823,7 @@ is held to: which rows it sees and may write, what the rows it writes must
 hold, which fields it may read, and what a delete does instead.
 
 ```ts
-import { accepts, arg, args, extension, rule, within } from "viborm";
+import { accepts, arg, args, extension, rule } from "viborm";
 import { v } from "viborm/validation";
 
 const db = client.$extends(

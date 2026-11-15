@@ -78,13 +78,6 @@ all-or-nothing when it fits one batch.
     `viborm/cache`. A view's `swr` option on a cache configured without it is
     a `CacheConfigurationError`, so an application that never serves stale
     entries carries none of the revalidation code.
-- **`instrumentation()` no longer takes a `logging.warning` level**: nothing
-  produced warnings.
-- **Error texts changed throughout the extension host.** Match errors on their
-  class and code. An argument's refusals name it an argument
-  (`Argument "tenant" is required`, `references undeclared argument "x"`)
-  where they said `Control`.
-
 - **A cache driver's unscoped storage is reached through functions**:
   `driver._get(key)`, `_set`, `_delete`, `_clear`, `_invalidate`,
   `_markRevalidating` and `_clearRevalidating` are `getEntry(driver, key)`,
@@ -94,6 +87,12 @@ all-or-nothing when it fits one batch.
   method is in every application's bundle whether it calls it or not; a
   function only where it is called. Writing a backend (`get`, `set`,
   `delete`, `clear`) is unchanged.
+- **`instrumentation()` no longer takes a `logging.warning` level**: nothing
+  produced warnings.
+- **Error texts changed throughout the extension host.** Match errors on their
+  class and code. An argument's refusals name it an argument
+  (`Argument "tenant" is required`, `references undeclared argument "x"`)
+  where they said `Control`.
 
 ### Extensions: what changes for extension authors (breaking)
 
@@ -105,9 +104,10 @@ all-or-nothing when it fits one batch.
   `written` → `settled` and `watch` on `target(writes)`, `retry` → `again`,
   `route` → `via`, `transaction` → a `unit` with `run`, `statement` → a
   `unit` declared `{ rewrites: true }`, `observe` and `observes` → `unit` and
-  its words, `controls` → `args`, `rows` → `args` and `rule`, `deletion` →
-  `keep`, `data` and `order` → `defaults`, `result` → `fields`, `client` and
-  `model` → `methods`. The full mapping, member by member, is in
+  its words, `controls` → `args`, `rows` → `args` and `rule` (`rows.confine` →
+  `confine: within(where)`), `deletion` → `keep`, `data` and `order` →
+  `defaults`, `result` → `fields`, `client` → `methods`, `model` →
+  `modelMethods`. The full mapping, member by member, is in
   [Migrating an extension](https://viborm.dev/docs/extensions/migrating).
 - **Meanings that change:**
   - A key a `rule` entry leaves out restricts nothing (an omitted verb used
@@ -178,7 +178,8 @@ all-or-nothing when it fits one batch.
   work), `args` (arguments a call may pass), `rule` (what binds every caller:
   rows read, rows a write may take, the row a write leaves, gated fields,
   kept rows), `defaults` (default order, default data, default omission),
-  `methods`, `fields` (computed fields) and `disclosure` (what a thrown error
+  `methods` and `modelMethods` (client and model methods), `fields`
+  (computed fields) and `disclosure` (what a thrown error
   may carry). Words carry the rest: `target(…)` with `reads`, `writes`,
   `deletes`, `selecting`, `models`; `watch`, `settled`, `again`, `via`,
   `key`, `codec`, `database`; `arg`, `now`, `row`, `exists`, `when`,
@@ -241,11 +242,11 @@ all-or-nothing when it fits one batch.
 
 - **What each extension adds to a PostgreSQL application, minified**
   (measured with `node scripts/extension-bytes.mjs`; before → now):
-  default omission 45,233 → 5,853 bytes; `on` 47,016 → 11,562;
-  instrumentation 56,422 → 18,242; soft delete 80,013 → 23,963; ordering
-  100,547 → 29,694; cache 71,844 → 33,143; permissions 114,651 → 69,547;
-  `on`, ordering, permissions and soft delete together 142,213 → 108,685.
-  An application that applies no extension: 519,322 → 508,097 bytes, of
+  default omission 45,233 → 5,692 bytes; `on` 47,016 → 9,979;
+  instrumentation 56,422 → 16,981; soft delete 80,013 → 21,185; ordering
+  100,547 → 29,169; cache 71,844 → 27,743; permissions 114,651 → 66,498;
+  `on`, ordering, permissions and soft delete together 142,213 → 104,691.
+  An application that applies no extension: 519,322 → 508,082 bytes, of
   which 646 bytes are extension code.
 - **What one extension of an application costs the type checker**: an
   extension of the user's own on a 50-model schema, 1,345,449 → 649,244

@@ -61,9 +61,9 @@ For model row exclusions and one-query `omit`, see
 
 The omission applies to every call of the chain, whatever its place. Because
 it changes default result types, TypeScript refuses it after a part typed
-against the result surface that exists when it is applied: a `methods`
-factory that takes its `scope`, or an `around` that names one model and one
-operation. It may follow anything else, the official
+against the result surface that exists when it is applied: a `methods` or
+`modelMethods` factory that takes its `scope`, or an `around` that names one
+model and one operation. It may follow anything else, the official
 [`cache()`](/docs/extensions/cache) and
 [`instrumentation()`](/docs/extensions/instrumentation) included. Apply
 `defaultOmit()` before those parts

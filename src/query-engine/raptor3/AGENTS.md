@@ -1051,7 +1051,10 @@ is NOT what the placement avoids — `src/query-engine/pending-operation.ts`
 already imports `executePreparedQuery` from `@extensions/query` at runtime, so
 the `src/query-engine` ↔ `src/extensions` cycle is pre-existing and carries the
 shipped path. That is why the pure rule moved to the boundary both layers
-already depend on rather than being imported from the publication owner. The
+already depend on rather than being imported from the publication owner.
+(Since the extension rewrite of 2026-11, neither import claim above holds: `pending-operation.ts`
+imports only types of `@extensions/query`, and Raptor 3 imports types of
+`@extensions/*` — `PreparedDomain`, `Judge`, `Projection` — and never a value.) The
 composing sites are unchanged and stay four, because their timings differ:
 `submit`'s dispatch-failure catch, the carried value's decode catch,
 `settleSubmitted` and `stateWriteOutcome`. Pin:

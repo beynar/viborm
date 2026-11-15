@@ -342,7 +342,7 @@ This client layer asks the chain (`chain.args.admit`,
 `chain.watch.watch`, `chain.observation.run`, …) and imports no builder,
 so a client that applies no extension carries none of their code (646 bytes
 of `src/extensions` in the PostgreSQL application, measured with
-`node scripts/extension-bytes.mjs` on the tree of the extension rewrite:
+`node scripts/extension-bytes.mjs` on `dd1fdcd42`:
 `transact` and `scopeOf`, how every transaction scope runs, which replaced
 the rail branches the client and the array executor held;
 `isAppliedExtension`; the `SCOPE` symbol). A part is trusted code made by the builders: there
@@ -357,9 +357,9 @@ and commit publication.
 |---|---|
 | `src/extensions/extension.ts` | `extension(name, ...parts)` (each part an `ExtensionPart` that joins the chain with its own state), `isAppliedExtension` |
 | `src/extensions/chain.ts`, `chain-state.ts` | The one mechanism: each part's phases (`declare`, `join`, `seal`), what two parts of one extension meet through (`Application`: `owner`, `bring`, `shared`), and the resolved chain every part writes on |
-| `src/extensions/call.ts`, `call-words.ts`, `watch-part.ts`, `written.ts` | `call` and `around`, their first and second moments, `inner`; `watch`, `settled`, `again`, `via`; what tells a watch of the rows a write wrote |
+| `src/extensions/call.ts`, `call-words.ts`, `handlers.ts`, `request.ts`, `watch-part.ts`, `written.ts` | `call` and `around`, their first and second moments, `inner`; `watch`, `settled`, `again`, `via`; what tells a watch of the rows a write wrote |
 | `src/extensions/arguments.ts`, `args.ts` | `args`, `oneOf`, `accepts`, `bound` and the modifiers; placement per (model, operation) and the one admission of a call's arguments |
-| `src/extensions/rule.ts`, `rule-words.ts`, `judge-words.ts`, `admission.ts`, `rows.ts`, `row-domain.ts`, `layers.ts`, `verbs.ts`, `judge.ts`, `produced.ts`, `projection.ts`, `gates.ts`, `kept.ts`, `reads.ts` | `rule` and its words; each entry admitted once per schema, bound once per application; what `only`, `check`, `gate`, `facts`, `keep` and `lazy` bring |
+| `src/extensions/rule.ts`, `rule-words.ts`, `judge-words.ts`, `confine.ts`, `admission.ts`, `call-rows.ts`, `call-values.ts`, `rows.ts`, `row-domain.ts`, `layers.ts`, `verbs.ts`, `judge.ts`, `produced.ts`, `projection.ts`, `projected.ts`, `gates.ts`, `kept.ts`, `reads.ts` | `rule` and its words; each entry admitted once per schema, bound once per application; what a call's values are to the rules that read them, brought by the words that read a call (`call-values.ts`); what `only`, `check`, `gate`, `facts`, `keep`, `lazy` and `within` bring |
 | `src/extensions/defaults.ts`, `order.ts`, `stamps.ts`, `plain-domain.ts` | `defaults` and `omitted`: default order, default data, default omission, without the filter domain |
 | `src/query-engine/raptor3/commands/commands.ts` (`Commands.stamp`) | The engine side of default data: one owner admits a model's stamp per occurrence and attempt and puts it under the occurrence: a field the caller writes, by name or through the relation holding it, stays the caller's; every create and update site calls it (see `src/query-engine/raptor3/AGENTS.md`) |
 | `src/extensions/methods-part.ts`, `methods.ts` | `methods(factory)` (client methods) and `modelMethods(factory)` (model methods): one factory per view (eager on the client `$extends` returns, lazy elsewhere), collisions, `scope.$bind`; on a chain that declares create data, the model delegate's five narrowed writes (`ExtensionModelDelegate`) |
@@ -367,7 +367,7 @@ and commit publication.
 | `src/extensions/unit.ts`, `unit-words.ts`, `unit-source.ts`, `observation.ts`, `statement.ts` | `unit`, its words and `work`; the one generation of unit handlers; rewriting units |
 | `src/extensions/query.ts`, `coordination.ts`, `array-admission.ts`, `settled.ts` | The authoritative continuation; `transact`, how every transaction scope runs: what a call registers waits in its scope, whose collector the first registration installs by value (`collect`: `settled`, the part that watches writes, `unit` parts), so a transaction where nothing registers runs none of it; the `admit` hook that starts array members' handlers before anything is sent, never core array dispatch |
 | `src/extensions/key.ts`, `codec.ts`, `database.ts`, `origin.ts` | `key`, `codec`, `database`; the symbols by which a word finds its call, run or scope |
-| `src/extensions/disclosure.ts` | `disclosure`: what an error thrown by a call of the chain may carry |
+| `src/extensions/disclosure.ts`, `disclosed.ts` | `disclosure`: what an error thrown by a call of the chain may carry; `disclosed`: the copy of a failure a log or a span may show |
 | `src/extensions/on.ts`, `parts.ts`, `contract.ts`, `index.ts` | `target` and the operation sets; `parts<Of>()`; the vocabulary's types; the intentional surface |
 
 The result context a delegate reads (`ClientDefaults`) has one owner per
@@ -416,8 +416,8 @@ stamped field is asked for there, and the runtime accepts it left out.
 Official implementations stay at `src/cache/extension.ts`,
 `src/instrumentation/extension.ts`, `src/client/default-omit-extension.ts`,
 `src/soft-delete/index.ts`, `src/permissions/`, `src/on/index.ts` and
-`src/ordering/`, each an ordinary `extension(…)` of public parts (root Rule
-6 lists what `instrumentation` still reads privately). Do not
+`src/ordering/`, each an ordinary `extension(…)` of public parts, importing
+public names only, all seven (root Rule 6). Do not
 recreate a generic extension representation or runner in `src/client/`,
 `src/query-engine/`, or `src/drivers/`.
 
@@ -430,12 +430,14 @@ recreate a generic extension representation or runner in `src/client/`,
   unsafe raw is excluded.
 - Unit handlers run around real units; core awaits them, and what they throw
   fails the call.
-- `methods` adds typed methods to the derived scope.
+- `methods` and `modelMethods` add typed client and model methods to the
+  derived scope.
 
 `defaultOmit()` (and a `rule` that hides rows) may follow any extension at
 runtime: a method runs through the whole chain it is called on. TypeScript
 refuses it after a part that declares the `consumer` fact (an `around` that
-names one model and one operation, a `methods` factory that takes `scope`),
+names one model and one operation, a `methods` or `modelMethods` factory
+that takes `scope`),
 whose result types were fixed before omission; a factory taking nothing
 types its methods' results from their delegate (`DelegateOperationResult`).
 

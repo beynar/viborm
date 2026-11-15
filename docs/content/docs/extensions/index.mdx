@@ -69,11 +69,12 @@ Inside the parts, words imported from `viborm` carry the rest, each with its
 own code: `target(...)` and the sets `reads`, `writes`, `deletes`,
 `selecting`, `models` say which calls a `call` or an `around` concerns;
 `watch`, `settled`, `again`, `via`, `key`, `codec` and `database` serve the
-moments of a call; `arg`, `now`, `row`, `exists`, `when`, `unless`,
-`provided`, `nothing`, `only`, `check`, `gate`, `facts`, `keep` and `lazy`
-write rules; `omitted` writes a default omission; `text`, `parameters`,
-`driver`, `failure`, `statement`, `statements`, `run`, `work`, `note`,
-`notes` and the others read and emit units. See
+moments of a call; `oneOf`, `accepts` and `bound` declare an argument;
+`arg`, `now`, `row`, `exists`, `when`, `unless`, `provided`, `nothing`,
+`only`, `check`, `gate`, `facts`, `keep`, `lazy` and `within` write rules;
+`omitted` writes a default omission; `text`, `parameters`, `driver`,
+`failure`, `statement`, `statements`, `run`, `work`, `note`, `notes` and the
+others read and emit units, and `disclosed` presents a failure. See
 [Create an extension](/docs/extensions/create).
 
 These are one extension language, not one universal hook. A first moment is
@@ -86,10 +87,9 @@ so an extension declares what it wants instead of rewriting queries.
 ## Official extensions
 
 Official extensions are built from the same public parts and applied in one
-step, `client.$extends(softDelete(config))`. The cache, default omission,
-soft delete, ordering, permissions and the write hooks import only names any
-author can import; the instrumentation still presents errors, parameters and
-log metadata through the package's private sanitizers:
+step, `client.$extends(softDelete(config))`. All seven import only names any
+author can import: the instrumentation presents a failure through
+`disclosed`, as any logging extension does:
 
 <CardGroup>
   <Card

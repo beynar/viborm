@@ -237,8 +237,8 @@ its own: `target(…)` and the sets `reads`, `writes`, `deletes`, `selecting`,
 `omitted` (`defaults.ts`); `oneOf`, `accepts`, `bound` and the modifiers
 `.on`, `.models`, `.required`, `.default`, `.volatile` (`args.ts`); and for
 units `text`, `parameters`, `driver`, `failure`, `correlation`, `table`,
-`statements`, `origin`, `statement`, `run`, `note`, `notes` (`unit-words.ts`)
-and `work` (`observation.ts`). `src/extensions/index.ts` is the intentional
+`statements`, `origin`, `statement`, `run`, `note`, `notes` (`unit-words.ts`),
+`work` (`observation.ts`) and `disclosed` (`disclosed.ts`). `src/extensions/index.ts` is the intentional
 surface; `tests/package/public-surface-golden.mjs` pins it. Do not add a
 middleware or plugin registry, a priority, extension removal, a public
 execution token, an operation program, or a member that a part does not own.
@@ -278,11 +278,14 @@ core imports of `src/extensions` at runtime is how a transaction scope runs
 in the scope, whose collector the first registration installs),
 `isAppliedExtension` (`extension.ts`) and the `SCOPE` symbol (`origin.ts`);
 the unit records (`unit-source.ts`), the handler and write-outcome types
-(`query.ts`), the call's row scope (`row-domain.ts`) and the chain's state
-(`chain-state.ts`) are imported for their types only. It must not grow by
-one byte (`pg-representative`, measured by `extension-bytes.mjs`: 508,097
-bytes minified on the tree of the extension rewrite, of which 646 come from
-`src/extensions`): a chain member a core path reads is named short, since
+(`query.ts`), the call's row scope (`row-domain.ts`), the chain's state
+(`chain-state.ts`, through `chain.ts`), the admitted arguments
+(`arguments.ts`), the call's origin (`origin.ts`), `Judge` and `Projection`
+(`judge.ts`, `projection.ts`, for Raptor 3's row scope), and the vocabulary
+and method types (`contract.ts`, `methods.ts`) are imported for their types
+only. It must not grow by
+one byte (`pg-representative`, measured by `extension-bytes.mjs`: 508,082
+bytes minified on `dd1fdcd42`, of which 646 come from `src/extensions`): a chain member a core path reads is named short, since
 minified property names are kept.
 
 **The chain.** `src/extensions/chain.ts` is the one mechanism. An extension

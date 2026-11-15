@@ -29,8 +29,8 @@ const users = await orm.user.findMany({
 
 `$extends()` takes one extension value and returns a new client view with one
 ordered chain. An extension is a name and up to eight parts (`call`,
-`around`, `unit`, `args`, `rule`, `defaults`, `methods`, `fields`,
-`disclosure`); each part writes its own state on the chain and carries the
+`around`, `unit`, `args`, `rule`, `defaults`, `methods`, `modelMethods`,
+`fields`, `disclosure`); each part writes its own state on the chain and carries the
 code that runs it, so the client names no optional capability. No extension
 code runs on a model-method property read. See
 [Client Extensions](/docs/extensions) for lifecycle and authority.
