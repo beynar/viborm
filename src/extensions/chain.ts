@@ -40,12 +40,14 @@ export interface Application {
    * from the current one on run.
    */
   readonly bring: (part: ExtensionPart) => void;
-  /**
-   * What the extension's parts make of this schema, by the key each part
-   * chose, made once per schema: every client of a schema applies the same
-   * values, so what is admitted once stays admitted.
-   */
-  readonly shared: <T>(key: object, make: () => T) => T;
+  /** What the extension's parts made, per schema (`shared`). */
+  readonly made: WeakMap<Schema, Made>;
+}
+
+/** What one extension's parts made of one schema, as its models were then. */
+interface Made {
+  readonly models: Schema;
+  readonly values: Map<object, unknown>;
 }
 
 /**
@@ -54,8 +56,6 @@ export interface Application {
  * never depends on the order the parts were named in.
  */
 export interface ExtensionPart {
-  /** The parts this one needs beside it, brought with it. */
-  readonly uses?: readonly ExtensionPart[];
   /** Write what the other parts of the same extension read. */
   readonly declare?: (application: Application) => void;
   readonly join?: (application: Application) => void;
@@ -80,7 +80,7 @@ export function appendParts(
   chain: ResolvedExtensionChain | undefined,
   name: string,
   schema: Schema,
-  made: Map<object, unknown>,
+  made: WeakMap<Schema, Made>,
   registry?: SchemaRegistryLookup<Schema>
 ): ResolvedExtensionChain {
   if (chain?.extensions.some((extension) => extension.name === name))
@@ -89,13 +89,7 @@ export function appendParts(
       name
     );
   // Insertion order: a part brought while a phase runs is reached by it.
-  const parts = new Set<ExtensionPart>();
-  const bring = (part: ExtensionPart): void => {
-    if (parts.has(part)) return;
-    parts.add(part);
-    for (const used of part.uses ?? []) bring(used);
-  };
-  for (const part of named) bring(part);
+  const parts = new Set(named);
   const next: Draft = {
     ...chain,
     extensions: [...(chain?.extensions ?? []), { name }],
@@ -107,14 +101,39 @@ export function appendParts(
     owner: { name },
     schema,
     registry,
-    bring,
-    shared: <T>(key: object, make: () => T): T => {
-      if (!made.has(key)) made.set(key, make());
-      // What `make` returned for this key, by the key's owner's contract.
-      return made.get(key) as T;
+    bring: (part) => {
+      parts.add(part);
     },
+    made,
   };
   for (const phase of PHASES)
     for (const part of parts) part[phase]?.(application);
   return next;
+}
+
+/**
+ * What the extension's parts make of this schema, by the key each part
+ * chose, made once per schema: every client of a schema applies the same
+ * values, so what is admitted once stays admitted. A schema object that
+ * gained or swapped a model since is another schema.
+ */
+export function shared<T>(
+  { made, schema }: Application,
+  key: object,
+  make: () => T
+): T {
+  let known = made.get(schema);
+  const names = Object.keys(schema);
+  if (
+    known === undefined ||
+    names.length !== Object.keys(known.models).length ||
+    names.some((name) => known!.models[name] !== schema[name])
+  ) {
+    known = { models: { ...schema }, values: new Map() };
+    made.set(schema, known);
+  }
+  const { values } = known;
+  if (!values.has(key)) values.set(key, make());
+  // What `make` returned for this key, by the key's owner's contract.
+  return values.get(key) as T;
 }

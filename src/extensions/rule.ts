@@ -11,7 +11,7 @@
 import type { Schema } from "@client/types";
 import { isPlainRecord } from "@schema/relation/terminal";
 import type { RuleLayer, VerbsDraft } from "./admission";
-import { type ExtensionPart, extensionError } from "./chain";
+import { type ExtensionPart, extensionError, shared } from "./chain";
 import type {
   AnyTarget,
   ExactEntries,
@@ -208,7 +208,7 @@ export function rule(rules: Entry | ((schema: Schema) => Entry)): unknown {
     // brought run with it.
     declare(application) {
       const { name, schema } = application;
-      const own = application.shared(LAYER, (): ExtensionLayer => {
+      const own = shared(application, LAYER, (): ExtensionLayer => {
         const layer: RuleLayer = {
           root: {},
           related: {},
@@ -217,7 +217,7 @@ export function rule(rules: Entry | ((schema: Schema) => Entry)): unknown {
         };
         return { layer, brought: new Set([layerPart(layer)]) };
       });
-      application.shared(part, () =>
+      shared(application, part, () =>
         writeRule(
           name,
           own,

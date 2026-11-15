@@ -33,28 +33,10 @@ export interface AppliedExtension {
 }
 
 /**
- * What `make` makes of one schema, made once per schema. A schema object
- * that gained or swapped a model is read again: what a part read of it (a
- * rule of every model) would miss the new one.
+ * Whether `part` is one a builder made: a phase to run. Neither a builder
+ * passed uncalled (`call` for `call(fn)`) nor an object of the old contract
+ * (`{ query }`) is.
  */
-function perSchema<T>(make: (schema: Schema) => T): (schema: Schema) => T {
-  const made = new WeakMap<Schema, { models: Schema; value: T }>();
-  return (schema) => {
-    const known = made.get(schema);
-    const keys = Object.keys(schema);
-    if (
-      known !== undefined &&
-      keys.length === Object.keys(known.models).length &&
-      keys.every((name) => known.models[name] === schema[name])
-    )
-      return known.value;
-    const value = make(schema);
-    made.set(schema, { models: { ...schema }, value });
-    return value;
-  };
-}
-
-/** Whether `part` is one a builder made: a phase to run. */
 const isPart = (part: unknown): part is ExtensionPart =>
   isRecord(part) &&
   (typeof part.declare === "function" ||
@@ -93,18 +75,16 @@ export function extension<
 export function extension(name: string, ...parts: unknown[]): unknown {
   if (typeof name !== "string" || name.trim().length === 0)
     extensionError("An extension's name must be a non-empty string.");
-  const built = parts.filter(isPart);
-  // A builder passed uncalled (`call` for `call(fn)`) is no part.
-  if (built.length !== parts.length)
+  if (!parts.every(isPart))
     extensionError(
       `Extension "${name}" takes parts built by viborm's part builders.`,
       name
     );
-  const made = perSchema(() => new Map<object, unknown>());
+  const made = new WeakMap();
   const applied: AppliedExtension = {
     name,
     append: (chain, schema, registry) =>
-      appendParts(built, chain, name, schema, made(schema), registry),
+      appendParts(parts, chain, name, schema, made, registry),
   };
   return Object.freeze(applied);
 }

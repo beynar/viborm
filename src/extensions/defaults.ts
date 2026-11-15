@@ -16,7 +16,7 @@ import {
 import type { Input } from "@query-engine/raptor3/shared/schema";
 import { isPlainRecord } from "@schema/relation/terminal";
 import { rebind, refuseUndeclared } from "./call-rows";
-import { type ExtensionPart, extensionError } from "./chain";
+import { type ExtensionPart, extensionError, shared } from "./chain";
 import type {
   AnyTarget,
   DefaultsFacts,
@@ -152,7 +152,7 @@ function defaultsPart(read: (schema: Schema) => Entry): ExtensionPart {
   const part: ExtensionPart = {
     join(application) {
       const { name, next, schema } = application;
-      const { order, data, brought } = application.shared(part, () =>
+      const { order, data, brought } = shared(application, part, () =>
         writeDefaults(name, read(schema), schema)
       );
       for (const omits of brought) application.bring(omits);

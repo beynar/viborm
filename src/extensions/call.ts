@@ -290,10 +290,10 @@ function appendFirst(
 /** What `call` returns: its first moment, made against the schema it joins. */
 function callPart(spec: CallSpec): ExtensionPart {
   return {
-    // What watches the call's writes comes with a set that names writes
-    // (`target(writes)`): a call that only patches does not carry it.
-    uses: spec.watch && [spec.watch],
     join(application) {
+      // What watches the call's writes comes with a set that names writes
+      // (`target(writes)`): a call that only patches does not carry it.
+      if (spec.watch) application.bring(spec.watch);
       appendFirst(application, spec, firstOf(spec, application.schema));
     },
   };
@@ -306,9 +306,9 @@ function callPart(spec: CallSpec): ExtensionPart {
  */
 function aroundPart(spec: CallSpec): ExtensionPart {
   return {
-    uses: spec.watch && [spec.watch],
     join(application) {
       const { next } = application;
+      if (spec.watch) application.bring(spec.watch);
       const first = firstOf(spec, application.schema);
       appendFirst(application, spec, first);
       const handler = placed(spec, secondMoment(first), application);
