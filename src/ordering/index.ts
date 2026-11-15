@@ -113,6 +113,8 @@ interface Ordered {
   /** The row key's fields: how one row is addressed. */
   readonly identity: readonly string[];
   readonly model: AnyModel;
+  /** Its `updatedAt()` fields, kept as stored (`storedOf`). */
+  readonly stored: Row;
 }
 
 /**
@@ -141,6 +143,8 @@ function refuse(message: string): never {
 function admit(schema: Schema, config: OrderingConfig): readonly Ordered[] {
   return Object.entries(config).map(([name, entry]) => {
     if (!Object.hasOwn(schema, name)) refuse(`unknown model "${name}".`);
+    // A refusal about one of the model's fields.
+    const field = (text: string) => refuse(`${name}.${text}`);
     const model = schema[name] as AnyModel;
     const scalars = model["~"].state.scalars;
     const identity: readonly string[] | undefined = getRowKey(model)?.fields;
@@ -149,32 +153,39 @@ function admit(schema: Schema, config: OrderingConfig): readonly Ordered[] {
     const key = entry.key;
     const state = Object.hasOwn(scalars, key)
       ? scalars[key]!["~"].state
-      : refuse(`${name}.${key} is not a scalar field.`);
+      : field(`${key} is not a scalar field.`);
     if (state.type !== "string" || state.array || state.nullable)
-      refuse(`${name}.${key} must be a required string field.`);
+      field(`${key} must be a required string field.`);
     // A literal default is how an existing table adopts the extension (its
     // rows take it, then `rekey`); a create of the client appends instead.
     if (
       state.autoGenerate !== undefined ||
       (state.hasDefault && typeof state.default !== "string")
     )
-      refuse(
-        `${name}.${key} can only default to a literal string: ordering appends the key.`
+      field(
+        `${key} can only default to a literal string: ordering appends the key.`
       );
     if (identity.includes(key))
-      refuse(`${name}.${key} cannot be part of the model's key.`);
+      field(`${key} cannot be part of the model's key.`);
     const within = [...(entry.within ?? [])];
-    for (const field of within) {
-      if (!Object.hasOwn(scalars, field))
-        refuse(`${name}.within names "${field}", not a scalar field.`);
-      if (scalars[field]!["~"].state.array)
-        refuse(`${name}.within names "${field}", a list field.`);
+    for (const named of within) {
+      if (!Object.hasOwn(scalars, named))
+        field(`within names "${named}", not a scalar field.`);
+      if (scalars[named]!["~"].state.array)
+        field(`within names "${named}", a list field.`);
     }
     if (new Set(within).size !== within.length)
-      refuse(`${name}.within names a field twice.`);
+      field("within names a field twice.");
     if (within.includes(key))
-      refuse(`${name}.within cannot name the key field "${key}".`);
-    return Object.freeze({ name, key, within, identity, model });
+      field(`within cannot name the key field "${key}".`);
+    return Object.freeze({
+      name,
+      key,
+      within,
+      identity,
+      model,
+      stored: storedOf(model),
+    });
   });
 }
 
@@ -486,7 +497,7 @@ async function respace(
   const written = (await writes.updateMany({
     ...passed,
     data: {
-      ...storedOf(ordered.model),
+      ...ordered.stored,
       [ordered.key]: respacing(ordered, where, order),
     },
   })) as { count: number };
@@ -511,9 +522,8 @@ const lazily = <T>(run: () => Promise<T>) => {
 };
 
 function methods(ordered: Ordered) {
-  const { name, key, within, identity, model } = ordered;
+  const { name, key, within, identity, model, stored } = ordered;
   const scalars = model["~"].state.scalars;
-  const stored = storedOf(model);
   /** A row read with its key: the unique selector naming it, a cursor. */
   const rowKey = getRowKey(model)!;
   const selectorOf = (row: Row): Row =>
@@ -533,12 +543,6 @@ function methods(ordered: Ordered) {
   // the list's, and no relation (a nested write may change the list, or a
   // related key a foreign key cascades into it).
   const placing = [key, ...within];
-  const places = (data: Readonly<Record<string, unknown>>) =>
-    Object.entries(data).some(
-      ([field, value]) =>
-        value !== undefined &&
-        (!Object.hasOwn(scalars, field) || placing.includes(field))
-    );
   /** The fields `where` names with a value (a compound selector's too): how
    * the moved row is recognised among rows read, without reading it. */
   const named = (where: Row): Row => {
@@ -617,7 +621,13 @@ function methods(ordered: Ordered) {
           Object.entries(data).filter(([, value]) => value !== undefined)
         )
       : {};
-    if (data !== undefined && (!isRecord(data) || places(extra)))
+    if (
+      data !== undefined &&
+      (!isRecord(data) ||
+        Object.keys(extra).some(
+          (field) => !Object.hasOwn(scalars, field) || placing.includes(field)
+        ))
+    )
       invalid(
         name,
         `data writes the model's own fields beside the key: not ${placing.join(", ")}${within.length === 0 ? "" : " (to moves the row between lists)"}, nor a relation.`
@@ -945,7 +955,7 @@ function methods(ordered: Ordered) {
         for (const term of order)
           for (const [field, direction] of Object.entries(term))
             if (
-              !Object.hasOwn(ordered.model["~"].state.scalars, field) ||
+              !Object.hasOwn(scalars, field) ||
               (direction !== "asc" && direction !== "desc")
             )
               throw new ValidationError("update", [
@@ -956,14 +966,15 @@ function methods(ordered: Ordered) {
               ]);
         // The lists the matched rows are in, each respaced: named by the
         // UPDATE itself, through the caller's view (`Respace`).
-        const count = await respace(
-          ordered,
-          delegate as unknown as Writes,
-          passed,
-          where,
-          order
-        );
-        return { count };
+        return {
+          count: await respace(
+            ordered,
+            delegate as unknown as Writes,
+            passed,
+            where,
+            order
+          ),
+        };
       }),
   });
 }
