@@ -119,13 +119,15 @@ function planNode(
   const visible = new Map<string, number>();
   for (const [index, field] of (declared ?? []).entries())
     visible.set(field.name, index);
+  // A name the payload keeps: a column it returns, or a field it computes.
+  const kept = (name: string) =>
+    (select ? select[name] === true : true) && omit?.[name] !== true;
   const wanted: number[] = [];
   // A payload that names a field it does not want still loses that key.
   let named = false;
   for (const [name, index] of visible) {
     named ||= (select ?? omit)?.[name] !== undefined;
-    if ((!select || select[name] === true) && omit?.[name] !== true)
-      wanted.push(index);
+    if (kept(name)) wanted.push(index);
   }
   if (wanted.length === 0 && nested.length === 0 && !named) return undefined;
 
@@ -141,8 +143,8 @@ function planNode(
     }
   };
   for (const index of wanted) close(index);
-  const outputs = new Set(wanted.map((index) => declared![index]!.name));
-  // The columns read only for a field: removed from the rows again.
+  // The columns read only for a field: removed from the rows again (a kept
+  // name that is a field is computed over its column).
   const strip = new Set<string>();
 
   let next = args;
@@ -159,10 +161,8 @@ function planNode(
     nextOmit ??= { ...omit };
     delete nextOmit[name];
   }
-  const kept = (field: string) =>
-    (select ? select[field] === true : true) && omit?.[field] !== true;
   for (const field of reads) {
-    if (!(kept(field) || outputs.has(field))) strip.add(field);
+    if (!kept(field)) strip.add(field);
     if (omit?.[field] === true) {
       nextOmit ??= { ...omit };
       nextOmit[field] = false;
@@ -177,7 +177,7 @@ function planNode(
       const [first] = projectableScalarNames(model);
       if (first !== undefined) {
         nextSelect[first] = true;
-        if (!outputs.has(first)) strip.add(first);
+        if (!kept(first)) strip.add(first);
       }
     }
     rewrite("select", nextSelect);
