@@ -28,17 +28,17 @@ import type { IndexDef } from "./types";
 
 /**
  * The template a dialect reads, by its key in `.rawIndex()`. Snowflake has
- * none: VibORM writes no DDL there.
+ * none: VibORM writes no DDL there. Every other dialect is stated, checked by
+ * the type alone: one added to `Dialect` does not compile until it is here.
  */
 export const RAW_INDEX_TEMPLATE_KEY: Readonly<
-  Record<Dialect, keyof RawIndexTemplates | undefined>
+  Partial<Record<Dialect, keyof RawIndexTemplates>>
 > = {
   postgresql: "pg",
   mysql: "mysql",
   sqlite: "sqlite",
   surrealql: "surrealdb",
-  snowflake: undefined,
-};
+} satisfies Record<Exclude<Dialect, "snowflake">, keyof RawIndexTemplates>;
 
 /** What a SQL database's catalog comment starts with when VibORM wrote it. */
 export const RAW_INDEX_MARKER_PREFIX = "viborm:raw:";

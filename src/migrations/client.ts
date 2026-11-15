@@ -170,7 +170,9 @@ export function createMigrationClient(
   // command is refused here, before it reads storage or sends a statement.
   if (client.$driver.dialect === "snowflake")
     throw new MigrationError(
-      "Snowflake has no migrations: VibORM only reads a Snowflake warehouse. Introspect it with introspectSchema() and manage its tables with Snowflake's own tools.",
+      // Short: this text ships in every migrations bundle. The Snowflake page
+      // says why.
+      "Snowflake has no migrations: VibORM only reads it (introspectSchema() reads its schema).",
       VibORMErrorCode.FEATURE_NOT_SUPPORTED,
       { meta: { dialect: "snowflake" } }
     );
