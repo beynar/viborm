@@ -13,6 +13,7 @@ import {
   check,
   createClient,
   extension,
+  fields,
   gate,
   oneOf,
   only,
@@ -361,5 +362,72 @@ describe("a polymorphic relation", () => {
         params: [],
       },
     ]);
+  });
+});
+
+describe("a computed field", () => {
+  const author = s.model({
+    id: s.string().id(),
+    name: s.string(),
+    books: s.toMany(() => book),
+  });
+  const book = s.model({
+    id: s.string().id(),
+    price: s.decimal({ precision: 10, scale: 2 }),
+    authorId: s.string(),
+    author: s
+      .toOne(() => author)
+      .fields("authorId")
+      .references("id"),
+  });
+  const priced = (answers: readonly Row[][]) => {
+    const driver = new ScriptedDriver(
+      "postgresql",
+      (_, sent) => answers[sent.length - 1] ?? []
+    );
+    const needed: unknown[] = [];
+    const db = createClient({ schema: { author, book }, driver }).$extends(
+      extension(
+        "priced",
+        fields({
+          book: {
+            label: {
+              needs: { price: true },
+              compute: (row: { price: unknown }) => {
+                needed.push(row.price);
+                return String(row.price);
+              },
+            },
+          },
+        })
+      )
+    );
+    return { db, needed };
+  };
+
+  test("reads a decimal it needs as the shared immutable value, beside a relation with no field of its own", async () => {
+    const { db, needed } = priced([
+      [
+        {
+          id: "b",
+          price: "1.50",
+          authorId: "a",
+          author: { id: "a", name: "n" },
+        },
+      ],
+    ]);
+    const [row] = await db.book.findMany({ include: { author: true } });
+    expect(row?.author).toEqual({ id: "a", name: "n" });
+    expect(row?.label).toBe("1.5");
+    expect(String(row?.price)).toBe("1.5");
+    expect(needed).toHaveLength(1);
+    expect(needed[0]?.constructor.name).toBe("ExactDecimal");
+  });
+
+  test("a relation selected false is no node of the plan", async () => {
+    const { db } = priced([[{ id: "b", price: "2.00" }]]);
+    await expect(
+      db.book.findMany({ select: { id: true, author: false, label: true } })
+    ).resolves.toEqual([{ id: "b", label: "2" }]);
   });
 });
