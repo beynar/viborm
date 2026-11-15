@@ -31,6 +31,18 @@ Versioning.
   set `max_prepared_statements` to at least `max` first. Bun SQL prepares every
   statement with values by default, and the docs now say so.
 
+### Changed
+
+- **`viborm/pg` reads a `findMany` as positional rows.** node-postgres hands
+  each row over as the array it parsed (`rowMode: "array"`) instead of an
+  object keyed by every column name, and VibORM decodes it by position, as it
+  already did on D1 and better-sqlite3. The answers are the same. Measured on
+  a local PostgreSQL 18, three alternated runs: the client's CPU per call is
+  18 % to 20 % lower for 1,000 rows and 10 % to 13 % lower for 20 rows with
+  their relation; the memory allocated is the same, and the latency of a small
+  read does not change measurably. A driver whose execution or parsers a
+  caller replaced, and a supplied pool that ignores `rowMode`, keep keyed rows.
+
 ## 1.14.0 — 2026-11-15
 
 VibORM now runs on a Durable Object's own SQLite storage, takes over tables it
