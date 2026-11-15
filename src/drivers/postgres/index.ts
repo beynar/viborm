@@ -54,6 +54,7 @@ import {
   type NamedStatementsOption,
   namedStatements,
   REPLACED_TYPE,
+  routineOf,
 } from "../shared/named-statements";
 import { CLEANUP_BOUND_MS } from "../shared/pinned-session";
 import { installPostgresAdapter } from "../shared/postgres-adapter";
@@ -334,11 +335,7 @@ export class PostgresDriver extends Driver<
         // replaced, and it keys its statements by text: this text is no
         // longer prepared. Alone, the statement failed before it did anything
         // and is sent once more; in a transaction, the failure aborted it.
-        if (
-          !named ||
-          (error as { routine?: unknown }).routine !== REPLACED_TYPE
-        )
-          return fail(error);
+        if (!named || routineOf(error) !== REPLACED_TYPE) return fail(error);
         this.named?.drop(sqlStr);
         if (isTransaction(client)) return fail(error);
         return client

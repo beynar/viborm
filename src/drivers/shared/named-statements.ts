@@ -121,10 +121,16 @@ const STALE_ROUTINES = new Set([
 ]);
 
 /** Whether a statement's failure says its name is stale, not that the statement is wrong. */
-export const isStaleStatement = (error: unknown): boolean =>
-  typeof error === "object" &&
-  error !== null &&
-  STALE_ROUTINES.has((error as { routine?: unknown }).routine as string);
+export const isStaleStatement = (error: unknown): boolean => {
+  const routine = routineOf(error);
+  return typeof routine === "string" && STALE_ROUTINES.has(routine);
+};
+
+/** The server routine a driver error reports, when it reports one. */
+export const routineOf = (error: unknown): unknown =>
+  typeof error === "object" && error !== null && "routine" in error
+    ? error.routine
+    : undefined;
 
 /** The driver's registry for the option, or none when it is absent or `false`. */
 export const namedStatements = (
