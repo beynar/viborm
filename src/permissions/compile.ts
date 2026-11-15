@@ -173,6 +173,11 @@ const RESERVED = new Set([
   "fields",
   "domains",
 ]);
+/** Keys a declaration no longer takes, and what took their place. */
+const RETIRED: Readonly<Record<string, string>> = {
+  within: 'was renamed to "mandatory"',
+  arms: "was removed; assign rules to named actions",
+};
 const OPERATIONS = new Set(["read", "update", "delete"]);
 const CRUD = new Set(["create", "read", "update", "delete"]);
 const CONFIG_KEYS = new Set([
@@ -356,6 +361,17 @@ function actionsOf(name: string, policy: ModelPolicy): ActionRules {
     string,
     { readonly rule: Rule | undefined; readonly source: string }
   >();
+  // Never reinterpret a key of the declaration, nor an old restriction or
+  // grant container, as an action.
+  const notAction = (key: string, at: string) => {
+    if (Object.hasOwn(RETIRED, key))
+      refuse(`${at}: "${key}" ${RETIRED[key]}`, name);
+    if (RESERVED.has(key))
+      refuse(
+        `${at}: "${key}" is a key of the declaration, not an action`,
+        name
+      );
+  };
   // Only a model's rule keys can group actions. Graph edges name individual
   // actions, so accepting a comma there would create another action.
   for (const action of [...implies.keys(), ...[...implies.values()].flat()])
@@ -380,19 +396,7 @@ function actionsOf(name: string, policy: ModelPolicy): ActionRules {
           `${source}: an action group cannot contain an empty member`,
           name
         );
-      // Never reinterpret an old restriction or grant container as an action.
-      if (key === "within")
-        refuse(`${source} was renamed to "mandatory"`, name);
-      if (key === "arms")
-        refuse(
-          `${source}: arms was removed; assign rules to named actions`,
-          name
-        );
-      if (RESERVED.has(key))
-        refuse(
-          `${source}: "${key}" is a key of the declaration, not an action`,
-          name
-        );
+      notAction(key, source);
       const previous = rules.get(key);
       if (previous !== undefined)
         refuse(
@@ -428,16 +432,7 @@ function actionsOf(name: string, policy: ModelPolicy): ActionRules {
       implies.set(action, [...inherited, "read"]);
   }
   for (const [action, implied] of implies) {
-    if (action === "arms" || action === "within")
-      refuse(
-        `models.${name}: "${action}" is a retired declaration key, not an action`,
-        name
-      );
-    if (RESERVED.has(action))
-      refuse(
-        `models.${name}: "${action}" is a key of the declaration, not an action`,
-        name
-      );
+    notAction(action, `models.${name}`);
     for (const next of implied)
       if (!implies.has(next))
         refuse(
@@ -671,22 +666,15 @@ export function policyCompiler(
   const restriction = (name: string): Clause => {
     const known = restrictions.get(name);
     if (known !== undefined) return known;
-    const admit = (input: unknown, at: string): void => {
-      if (typeof input === "function")
-        refuse(
-          `${at}: mandatory is action-independent and cannot contain callbacks`,
-          name
-        );
-      if (Array.isArray(input)) for (const member of input) admit(member, at);
-      else if (isRecord(input))
-        for (const member of Object.values(input)) admit(member, at);
-    };
-    const policy = config.models[name]!;
-    admit(policy.mandatory, `models.${name}.mandatory`);
-    admit(config.mandatory, "mandatory");
+    // Lowered at no action: a callback in it is refused where it stands.
     const clause = and([
-      lower(name, "read", policy.mandatory ?? {}, `models.${name}.mandatory`),
-      lower(name, "read", config.mandatory ?? {}, "mandatory"),
+      lower(
+        name,
+        undefined,
+        config.models[name]!.mandatory ?? {},
+        `models.${name}.mandatory`
+      ),
+      lower(name, undefined, config.mandatory ?? {}, "mandatory"),
     ]);
     restrictions.set(name, clause);
     return clause;
@@ -771,21 +759,10 @@ export function policyCompiler(
     tenant: PermissionsConfig["tenant"]
   ): ((name: string) => Where | undefined) => {
     if (tenant === undefined) return () => undefined;
-    const except = tenant?.except ?? [];
-    if (
-      !isRecord(tenant) ||
-      typeof tenant.field !== "string" ||
-      typeof tenant.actor !== "string" ||
-      !Array.isArray(except) ||
-      except.some((name) => typeof name !== "string") ||
-      Object.keys(tenant).some(
-        (key) => key !== "field" && key !== "actor" && key !== "except"
-      )
-    )
-      refuse(
-        "tenant is { field, actor, except? }: the scalar field that names a row's tenant, the actor path that names the caller's, and the models read beyond it"
-      );
-    path("tenant.actor", tenant.actor);
+    // Each of these refuses a declaration of another shape: a path or a
+    // field that is no string names nothing, nor does a member of `except`.
+    const except = tenant.except ?? [];
+    path("tenant.actor", `${tenant.actor}`);
     const holds = (name: string) =>
       Object.hasOwn(stateOf(name).scalars, tenant.field);
     if (!Object.keys(schema).some(holds))
@@ -806,10 +783,15 @@ export function policyCompiler(
    * as their words, checked. A document compared whole (a JSON value) is a
    * literal: an actor value is the operand itself, never an object inside it.
    */
-  const value = (at: string, input: unknown, spelled = true): unknown => {
+  const value = (
+    at: string,
+    input: unknown,
+    enclosing: (row: { readonly $row: string; readonly up: number }) => void,
+    spelled = true
+  ): unknown => {
     // A list's members keep `{ actor }` as written and check no path.
     if (Array.isArray(input))
-      return input.map((item) => value(at, item, false));
+      return input.map((item) => value(at, item, enclosing, false));
     if (spelled && isActorField(input)) {
       path(at, input.actor);
       return ref("actor", input.actor);
@@ -818,10 +800,12 @@ export function policyCompiler(
     if (spelled && input.control === "actor") path(at, input.path);
     if (isReference(input)) return ref(input.control, input.path);
     const keys = Object.keys(input);
-    if (typeof input.$row === "string" && keys.length === 2)
+    if (typeof input.$row === "string" && keys.length === 2) {
+      if (isEnclosingRow(input)) enclosing(input);
       return wrote(row(input.$row, input.up as number), {
         row: [input.$row, input.up],
       });
+    }
     if (input.now === true && keys.length === 1) return now;
     return Object.fromEntries(
       keys.map((key) => [
@@ -831,7 +815,7 @@ export function policyCompiler(
         !isReference(input[key]) &&
         !isActorField(input[key])
           ? input[key]
-          : value(at, input[key], spelled),
+          : value(at, input[key], enclosing, spelled),
       ])
     );
   };
@@ -888,25 +872,30 @@ export function policyCompiler(
   /** A rule of `name` read at `action` (written at `at`), lowered to the `where` vocabulary. */
   const lower = (
     name: string,
-    action: string,
+    action: string | undefined,
     rule: unknown,
     at: string,
     scopes: readonly Scope[] = [{ model: name }]
   ): Clause => {
     if (typeof rule === "boolean") return rule ? {} : false;
     if (typeof rule === "function")
-      return lower(
-        name,
-        action,
-        evaluated(
-          rule as Extract<Rule, (...args: never[]) => unknown>,
-          action,
-          name,
-          at
-        ),
-        at,
-        scopes
-      );
+      return action === undefined
+        ? refuse(
+            `${at}: mandatory is action-independent and cannot contain callbacks`,
+            name
+          )
+        : lower(
+            name,
+            action,
+            evaluated(
+              rule as Extract<Rule, (...args: never[]) => unknown>,
+              action,
+              name,
+              at
+            ),
+            at,
+            scopes
+          );
     if (!isRecord(rule))
       refuse(
         `${at}: a rule is a boolean, a where object or a function of the action`,
@@ -978,8 +967,9 @@ export function policyCompiler(
             `${at}: ${key} is compared with undefined, which holds for every row; compare with null, a literal or an actor value`,
             name
           );
-        enclosingRows(name, key, member, at, scopes);
-        out[key] = value(at, member);
+        out[key] = value(at, member, (operand) =>
+          enclosingRow(name, key, operand, at, scopes)
+        );
       }
     }
     const words = [tested, existing].filter((word) => word !== undefined);
@@ -1004,49 +994,41 @@ export function policyCompiler(
   };
 
   /**
-   * Every `{ $row, up }` in a scalar's operand names a column of a row the
-   * rule reads (its own at `up: 0`), never past the rule's root, an
-   * `$exists` body's, or a recursive relation's body.
+   * A `{ $row, up }` in a scalar's operand names a column of a row the rule
+   * reads (its own at `up: 0`), never past the rule's root, an `$exists`
+   * body's, or a recursive relation's body.
    */
-  const enclosingRows = (
+  const enclosingRow = (
     name: string,
     key: string,
-    operand: unknown,
+    operand: { readonly $row: string; readonly up: number },
     at: string,
     scopes: readonly Scope[]
   ): void => {
-    if (isEnclosingRow(operand)) {
-      const spelled = `{ $row: ${JSON.stringify(operand.$row)}, up: ${operand.up} }`;
-      const index = scopes.length - 1 - operand.up;
-      if (index < 0)
-        refuse(
-          `${at}: ${key} compares ${spelled}, which reaches past the rule (${scopes.length - 1} relation bodies deep here)`,
-          name
-        );
-      const crossed = scopes.slice(index + 1).find((scope) => scope.sealed);
-      if (crossed)
-        refuse(
-          `${at}: ${key} compares ${spelled} across a recursive relation to ${crossed.model}`,
-          name
-        );
-      const owner = scopes[index]!.model;
-      if (!Object.hasOwn(stateOf(owner).scalars, operand.$row))
-        refuse(
-          `${at}: ${key} compares ${spelled}, and ${owner} has no scalar field "${operand.$row}"`,
-          name
-        );
-      return;
-    }
-    if (Array.isArray(operand))
-      for (const item of operand) enclosingRows(name, key, item, at, scopes);
-    else if (isRecord(operand))
-      for (const item of Object.values(operand))
-        enclosingRows(name, key, item, at, scopes);
+    const spelled = `{ $row: ${JSON.stringify(operand.$row)}, up: ${operand.up} }`;
+    const index = scopes.length - 1 - operand.up;
+    if (index < 0)
+      refuse(
+        `${at}: ${key} compares ${spelled}, which reaches past the rule (${scopes.length - 1} relation bodies deep here)`,
+        name
+      );
+    const crossed = scopes.slice(index + 1).find((scope) => scope.sealed);
+    if (crossed)
+      refuse(
+        `${at}: ${key} compares ${spelled} across a recursive relation to ${crossed.model}`,
+        name
+      );
+    const owner = scopes[index]!.model;
+    if (!Object.hasOwn(stateOf(owner).scalars, operand.$row))
+      refuse(
+        `${at}: ${key} compares ${spelled}, and ${owner} has no scalar field "${operand.$row}"`,
+        name
+      );
   };
   /** A relation filter: an action name is the target's predicate (D7). */
   const relation = (
     name: string,
-    action: string,
+    action: string | undefined,
     key: string,
     member: unknown,
     at: string,
@@ -1534,30 +1516,11 @@ export function policyCompiler(
     return and(kept);
   };
 
-  /**
-   * The action each verb of a listed model takes (K3, OD-3): `operations`,
-   * else read, update and delete; a verb whose action the model does not
-   * declare takes none. Adding actions never changes an operation mapping.
-   */
-  const verbsFor = (name: string) => {
-    const model = modelOf(name);
-    const operations = config.models[name]!.operations ?? {};
-    const verbs: Record<string, string> = {};
-    for (const [verb, fallback] of [
-      ["read", "read"],
-      ["update", "update"],
-      ["delete", "delete"],
-    ] as const) {
-      const action = operations[verb] ?? fallback;
-      if (model.actions.includes(action)) verbs[verb] = action;
-    }
-    return verbs;
-  };
   /** The rows `relation` reaches that the actor views: `P(T, read)`, false
    * where T holds none (R9, fail closed). */
   const visibleThrough = (name: string, relation: string): Clause => {
     const target = targetOf(name, relation)!;
-    const action = config.models[target] && verbsFor(target).read;
+    const action = declarations.get(target)?.read;
     const held = action ? P(target, action) : false;
     return held === false ? false : { [relation]: { is: held } };
   };
@@ -1682,6 +1645,19 @@ export function policyCompiler(
     return [...referenced];
   };
 
+  /** One name per predicate of a model: actions, domains, the placement, moves. */
+  const unclaimed = (
+    names: { has(key: string): boolean },
+    key: string,
+    at: string,
+    name: string
+  ) => {
+    if (names.has(key))
+      refuse(
+        `${at}: an action, a domain, the placement or a move already has the name "${key}"`,
+        name
+      );
+  };
   // Every check that lowers no rule runs before any model is compiled: the
   // declaration's names (operations, fields, domains, the `as` names), so a
   // misspelt one is refused when the policy is applied, wherever it is.
@@ -1701,11 +1677,7 @@ export function policyCompiler(
     // placement lowered: the same refusals, at the same places.
     const claimed = new Set<string>(model.actions);
     const claimName = (key: string, at: string) => {
-      if (claimed.has(key))
-        refuse(
-          `${at}: an action, a domain, the placement or a move already has the name "${key}"`,
-          name
-        );
+      unclaimed(claimed, key, at, name);
       claimed.add(key);
     };
     const operations = policy.operations ?? {};
@@ -1715,9 +1687,14 @@ export function policyCompiler(
           `models.${name}.operations.${operation}: not a configurable operation; use read, update or delete (create always uses its own grant)`,
           name
         );
-    for (const verb of ["read", "update", "delete"] as const)
-      declared(`operations.${verb}`, operations[verb]);
-    const verbs = verbsFor(name);
+    // The action each verb takes (K3, OD-3): `operations`, else read,
+    // update and delete; a verb whose action the model does not declare
+    // takes none. Adding actions never changes an operation mapping.
+    const verbs: { read?: string; update?: string; delete?: string } = {};
+    for (const verb of ["read", "update", "delete"] as const) {
+      const action = declared(`operations.${verb}`, operations[verb]) ?? verb;
+      if (model.actions.includes(action)) verbs[verb] = action;
+    }
     const writes: Record<string, string> = {};
     const protectedWrites: [field: string, write: string][] = [];
     const reads: Record<string, string> = {};
@@ -1783,18 +1760,13 @@ export function policyCompiler(
   const compileModel = (name: string): Compiled => {
     const policy = config.models[name]!;
     const model = modelOf(name);
-    const { writes, protectedWrites, reads, ...declared } =
+    const { writes, protectedWrites, reads, modes, ...verbs } =
       declarations.get(name)!;
-    const verbs = verbsFor(name);
     const named = new Map<string, Where>();
     // The declaration's names were claimed when the policy was applied; a
     // move's name is new here, and a domain may take one.
     const claim = (key: string, at: string, clause: Where) => {
-      if (named.has(key))
-        refuse(
-          `${at}: an action, a domain, the placement or a move already has the name "${key}"`,
-          name
-        );
+      unclaimed(named, key, at, name);
       named.set(key, clause);
     };
     for (const action of model.actions)
@@ -1867,7 +1839,7 @@ export function policyCompiler(
       const at = `models.${name}.domains.${domain}`;
       claim(domain, at, lower(name, "read", rule, at) || FALSE);
     }
-    return entryOf(name, verbs, named, writes, reads, moves, declared.modes);
+    return entryOf(name, verbs, named, writes, reads, moves, modes);
   };
   /**
    * A model's rule entry from its predicates by name: its read action, each

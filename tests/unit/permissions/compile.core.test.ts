@@ -761,14 +761,14 @@ describe("R1: P(M, a) = mandatory ∧ scope(a) ∧ ⋁ rule(b ⊒ a)(b)", () => 
           models: { page: { within: { title: "private" }, read: {} } },
         })
       )
-    ).toContain('models.page.within was renamed to "mandatory"');
+    ).toContain('models.page.within: "within" was renamed to "mandatory"');
     expect(
       refusalOf(() =>
         compile({
           models: { page: { actions: { read: [], within: [] }, read: {} } },
         })
       )
-    ).toContain('"within" is a retired declaration key');
+    ).toContain('models.page: "within" was renamed to "mandatory"');
   });
 
   test("global and model mandatory restrictions are conjoined with every action", () => {
@@ -2212,11 +2212,19 @@ describe("a policy's tenant", () => {
           models: { page: { read: {} } },
         } as never)
       );
-    const shape = "tenant is { field, actor, except? }";
-    expect(refusal("organizationId")).toContain(shape);
-    expect(refusal({ field: "organizationId" })).toContain(shape);
-    expect(refusal({ ...TENANT, model: "page" })).toContain(shape);
-    expect(refusal({ ...TENANT, except: "member" })).toContain(shape);
+    // A declaration of another shape names no field, path or model.
+    expect(refusal("organizationId")).toContain(
+      'tenant.actor reads actor path "undefined"'
+    );
+    expect(refusal({ actor: "organizationId" })).toContain(
+      'tenant.field: no model of the schema has a scalar field "undefined"'
+    );
+    expect(refusal({ field: "organizationId" })).toContain(
+      'tenant.actor reads actor path "undefined"'
+    );
+    expect(refusal({ ...TENANT, except: "member" })).toContain(
+      "tenant.except names m, which is not a model of the schema"
+    );
     expect(refusal({ ...TENANT, actor: "orgId" })).toContain(
       'tenant.actor reads actor path "orgId", which the actor schema does not declare'
     );
