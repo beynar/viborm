@@ -207,9 +207,10 @@ describe("official instrumentation extension construction", () => {
   });
 
   test("keeps diagnostics-only capability without a lifecycle handler or array friend", () => {
-    const diagnostics = instrumentation({
-      diagnostics: { includeSql: true },
-    });
+    const config = { diagnostics: { includeSql: true } };
+    const diagnostics = instrumentation(config);
+    // Read when the extension is built: a later change changes nothing.
+    config.diagnostics.includeSql = false;
     const chain = appendExtension(undefined, diagnostics, schema);
     // Its disclosure part alone: no unit handler, so no unit is ever built.
     expect(chain.observation).toBeUndefined();

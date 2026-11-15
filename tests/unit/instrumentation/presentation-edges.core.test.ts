@@ -7,6 +7,7 @@
  */
 
 import { SpanStatusCode } from "@opentelemetry/api";
+import { unitOf } from "@src/extensions/unit-source";
 import {
   createClient,
   extension,
@@ -16,6 +17,7 @@ import {
   work,
 } from "@src/index";
 import { instrumentation } from "@src/instrumentation/exports";
+import { createStatementSpanOptions } from "@src/instrumentation/presentation";
 import { SPAN_TRANSACTION } from "@src/instrumentation/spans";
 import { afterEach, describe, expect, test } from "vitest";
 import { captureLogs, type OtelRecorder, withOtelRecorder } from "./_capture";
@@ -142,5 +144,62 @@ describe("what is presented", () => {
     await expect(client.record.findMany()).rejects.toThrow();
     expect(logs.events.length).toBeGreaterThan(0);
     expect(logs.events[0]?.model).toBe("record");
+  });
+});
+
+describe("what an execute span shows of its statement", () => {
+  const unitSending = (): UnitContext =>
+    unitOf({ kind: "statement", model: "record", operation: "findMany" });
+  const statementAttributes = (
+    tracing: Parameters<typeof createStatementSpanOptions>[0],
+    sql: string | undefined,
+    params: readonly unknown[] | undefined
+  ) =>
+    createStatementSpanOptions(tracing, unitSending(), sql, params)
+      .attributes ?? {};
+
+  test("its text and parameters only where the tracing channel opts in, each on its own", () => {
+    const query = "SELECT secret_column FROM private_table WHERE id = $1";
+    for (const includeSql of [false, true])
+      for (const includeParams of [false, true]) {
+        const attributes = statementAttributes(
+          { includeSql, includeParams },
+          query,
+          ["private-parameter"]
+        );
+        expect(attributes["db.query.text"] === query).toBe(includeSql);
+        expect(attributes["db.query.parameter.0"] === "private-parameter").toBe(
+          includeParams
+        );
+      }
+    expect(statementAttributes(true, query, ["p"])).toEqual(
+      statementAttributes(undefined, query, ["p"])
+    );
+    expect(statementAttributes(true, query, ["p"])["db.query.text"]).toBe(
+      undefined
+    );
+  });
+
+  test("one attribute per parameter: a string as it is, any other value as JSON", () => {
+    expect(
+      statementAttributes({ includeParams: true }, "SELECT $1, $2", [
+        "alice",
+        { id: 5, sql: "business-value" },
+      ])
+    ).toMatchObject({
+      "db.query.parameter.0": "alice",
+      "db.query.parameter.1": JSON.stringify({ id: 5, sql: "business-value" }),
+    });
+  });
+
+  test("no text without a statement, no parameter without a snapshot", () => {
+    const attributes = statementAttributes(
+      { includeSql: true, includeParams: true },
+      undefined,
+      undefined
+    );
+    expect(
+      Object.keys(attributes).some((key) => key.startsWith("db.query."))
+    ).toBe(false);
   });
 });

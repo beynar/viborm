@@ -8,10 +8,11 @@ import { type DiagnosticDisclosure, isVibORMError } from "@errors";
 import type { UnitContext as Unit } from "@extensions/contract";
 import { disclosed } from "@extensions/disclosed";
 import {
-  type BatchMember,
   correlation,
   driver,
+  statements,
   table,
+  text,
 } from "@extensions/unit-words";
 import { presentLogMetadata } from "./logger";
 import {
@@ -19,6 +20,8 @@ import {
   ATTR_DB_DRIVER,
   ATTR_DB_NAMESPACE,
   ATTR_DB_OPERATION_NAME,
+  ATTR_DB_QUERY_PARAMETER_PREFIX,
+  ATTR_DB_QUERY_TEXT,
   ATTR_DB_SYSTEM,
   ATTR_VIBORM_CORRELATION_ID,
   SPAN_CONNECT,
@@ -35,8 +38,6 @@ import type {
   LogLevel,
   TracingConfig,
 } from "./types";
-
-type PresentedLog = Omit<LogEvent, "level">;
 
 const OR_THROW = /OrThrow$/;
 
@@ -127,7 +128,7 @@ export function createNotedSpanOptions(
       ...createCorrelationAttributes(correlation(unit)),
       ...noted.attributes,
     }),
-    ...(noted.root === true ? { root: true } : {}),
+    root: noted.root === true,
   };
 }
 
@@ -155,53 +156,26 @@ export function presentNoteLog(
  * cannot be read.
  */
 export function createOperationSpanOptions(unit: Unit): VibORMSpanOptions {
-  const collection = table(unit);
   return {
     name: SPAN_OPERATION,
-    attributes: {
-      ...createDriverAttributes(driver(unit)),
-      ...(collection === undefined ? {} : { [ATTR_DB_COLLECTION]: collection }),
-      // An operation unit always names its operation.
-      [ATTR_DB_OPERATION_NAME]: unit.operation!,
-      ...createCorrelationAttributes(correlation(unit)),
-    },
+    attributes: createUnitAttributes(unit, table(unit)),
   };
 }
 
-/** The error log of an operation's failure, at the instant it settled. */
-export function createOperationErrorLogEvent(
-  unit: Unit,
-  failure: Error,
-  startedAt: number,
-  duration: number
-): PresentedLog {
-  return Object.freeze({
-    timestamp: new Date(startedAt + duration),
-    error: disclosed(failure),
-    model: unit.model,
-    operation: resolvedOperation(unit),
-    correlationId: correlation(unit),
-    duration,
-  });
-}
-
-/** One channel's SQL/parameter disclosure; `true` and absence disclose nothing. */
-function readChannelDisclosure(
-  channel: true | Readonly<DiagnosticDisclosure> | undefined
-): DiagnosticDisclosure {
-  return channel && channel !== true ? channel : {};
-}
-
 /**
- * The driver identity plus the unit's model, operation and correlation. An
- * empty attribution string is never presented: a caller-supplied context may
- * carry `operation: ""`, which the fallback operation does not replace.
+ * The driver identity plus the collection a unit addresses (an operation's
+ * table, another unit's model), its operation and correlation. An empty
+ * attribution string is never presented: a caller-supplied context may carry
+ * `operation: ""`, which the fallback operation does not replace.
  */
-function createUnitAttributes(unit: Unit): Record<string, string> {
-  const { model, operation } = unit;
+function createUnitAttributes(
+  unit: Unit,
+  collection: string | undefined
+): Record<string, string> {
+  const { operation } = unit;
   return {
     ...createDriverAttributes(driver(unit)),
-    ...(model ? { [ATTR_DB_COLLECTION]: model } : {}),
+    ...(collection ? { [ATTR_DB_COLLECTION]: collection } : {}),
     ...(operation ? { [ATTR_DB_OPERATION_NAME]: operation } : {}),
     ...createCorrelationAttributes(correlation(unit)),
   };
@@ -214,19 +188,23 @@ export function createStatementSpanOptions(
   sql: string | undefined,
   params: readonly unknown[] | undefined
 ): VibORMSpanOptions {
-  const { includeParams, includeSql } = readChannelDisclosure(tracing);
-  return {
-    name: SPAN_EXECUTE,
-    attributes: createUnitAttributes(unit),
-    ...(includeSql || includeParams
-      ? {
-          sql: {
-            ...(includeSql && sql !== undefined ? { query: sql } : {}),
-            ...(includeParams ? { params: [...(params ?? [])] } : {}),
-          },
-        }
-      : {}),
-  };
+  const { includeParams, includeSql } = channelOf(tracing);
+  const attributes: SpanAttributes = createUnitAttributes(unit, unit.model);
+  if (includeSql && sql !== undefined) attributes[ATTR_DB_QUERY_TEXT] = sql;
+  // The parameters are the unit's bounded snapshot (`parameters(u)`), plain
+  // data, one attribute each per the OTel spec: db.query.parameter.0, .1, …
+  if (includeParams)
+    for (const [index, value] of (params ?? []).entries())
+      attributes[`${ATTR_DB_QUERY_PARAMETER_PREFIX}.${index}`] =
+        typeof value === "string" ? value : String(JSON.stringify(value));
+  return { name: SPAN_EXECUTE, attributes };
+}
+
+/** One channel's SQL/parameter disclosure; `true` and absence disclose nothing. */
+export function channelOf(
+  channel: true | Readonly<DiagnosticDisclosure> | undefined
+): DiagnosticDisclosure {
+  return channel && channel !== true ? channel : {};
 }
 
 /** The span of one connection, transaction, or savepoint. */
@@ -234,31 +212,39 @@ export function createLifecycleSpanOptions(
   name: VibORMSpanName,
   unit: Unit
 ): VibORMSpanOptions {
-  return { name, attributes: createUnitAttributes(unit) };
+  return { name, attributes: createUnitAttributes(unit, unit.model) };
 }
 
 /** The native batch member a failure names, if it names one. */
-export function statementIndexOf(error: Error): number | undefined {
+function statementIndexOf(error: Error): number | undefined {
   const index = isVibORMError(error) ? error.meta.statementIndex : undefined;
   return typeof index === "number" ? index : undefined;
 }
 
 /**
- * The query or error log of one statement, disclosed per `logging`; a
- * native batch member's failure is attributed to that member.
+ * The query log of one statement, or with `failure` its error log, disclosed
+ * per `logging`: a failure that names a native batch member is presented as
+ * that member.
  */
 export function createStatementLogEvent(
   logging: true | Readonly<DiagnosticDisclosure> | undefined,
   unit: Unit,
   startedAt: number,
   duration: number,
-  sql: string | undefined,
-  params: readonly unknown[] | undefined,
-  member?: BatchMember,
+  shown: readonly unknown[] | undefined,
   failure?: Error
-): PresentedLog {
-  const disclosure = readChannelDisclosure(logging);
-  return Object.freeze({
+): LogEvent {
+  const disclosure = channelOf(logging);
+  const index = failure === undefined ? undefined : statementIndexOf(failure);
+  const member = index === undefined ? undefined : statements(unit)?.[index];
+  const sql = member?.sql ?? text(unit);
+  // A batch's snapshot holds one list per member.
+  const params =
+    member === undefined || index === undefined
+      ? shown
+      : batchMemberParameters(shown, index);
+  return {
+    level: failure === undefined ? "query" : "error",
     // The instant the statement settled, not when this log is made.
     timestamp: new Date(startedAt + duration),
     duration,
@@ -275,12 +261,13 @@ export function createStatementLogEvent(
             sql: disclosure.includeSql,
             parameters: disclosure.includeParams,
           }),
-  });
+  };
 }
 
-/**
- * What a failed span is settled with: the failure as it may be shown, of
- * which the span reads the class and code only.
- */
-export const presentTraceFailure = (failure: unknown): Error =>
-  disclosed(failure);
+function batchMemberParameters(
+  shown: readonly unknown[] | undefined,
+  index: number
+): readonly unknown[] | undefined {
+  const member = shown?.[index];
+  return Array.isArray(member) ? member : undefined;
+}

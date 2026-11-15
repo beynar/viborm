@@ -5,6 +5,7 @@ import type {
   UnitContext as Unit,
   UnitOutcome as UnitEnd,
 } from "@extensions/contract";
+import { disclosed } from "@extensions/disclosed";
 import { disclosure } from "@extensions/disclosure";
 import { extension } from "@extensions/extension";
 import { unit as unitPart } from "@extensions/unit";
@@ -13,7 +14,6 @@ import {
   notes,
   origin,
   parameters,
-  statements,
   text,
 } from "@extensions/unit-words";
 import {
@@ -21,17 +21,15 @@ import {
   type InstrumentationContext,
 } from "./context";
 import {
+  channelOf,
   createLifecycleSpanOptions,
   createNotedSpanOptions,
-  createOperationErrorLogEvent,
   createOperationSpanOptions,
   createStatementLogEvent,
   createStatementSpanOptions,
   notedAttributes,
   noteOf,
   presentNoteLog,
-  presentTraceFailure,
-  statementIndexOf,
   tracesAs,
 } from "./presentation";
 import {
@@ -42,7 +40,11 @@ import {
   SPAN_TRANSACTION,
   type VibORMSpanName,
 } from "./spans";
-import { setSpanAttributes, shouldTraceSpan } from "./tracer";
+import {
+  setSpanAttributes,
+  type TracerWrapper,
+  type VibORMSpanOptions,
+} from "./tracer";
 import type {
   ExactInstrumentationConfig,
   InstrumentationConfig,
@@ -65,7 +67,8 @@ export function instrumentation<T extends AnyTarget, const Config>(
 ): Extension<T, EmptyFacts>;
 export function instrumentation(config: InstrumentationConfig): unknown {
   const context = createInstrumentationContext(config);
-  const { diagnostics, logging, tracing } = context.config;
+  const { logging, tracing } = context.config;
+  const { diagnostics = {} } = config;
   const policy = disclosure({
     sql: diagnostics.includeSql,
     parameters: diagnostics.includeParams,
@@ -74,11 +77,9 @@ export function instrumentation(config: InstrumentationConfig): unknown {
   });
   if (tracing === undefined && logging === undefined)
     return extension(NAME, policy);
-  // The origins already logged: one failure, one error log.
-  const logged = new WeakSet<object>();
   return extension(
     NAME,
-    unitPart((unit, next) => observe(context, logged, unit, next)),
+    unitPart((unit, next) => observe(context, unit, next)),
     policy
   );
 }
@@ -90,7 +91,6 @@ export function instrumentation(config: InstrumentationConfig): unknown {
  */
 function observe(
   context: InstrumentationContext,
-  logged: WeakSet<object>,
   unit: Unit,
   next: () => Promise<UnitEnd>
 ): Promise<undefined> {
@@ -102,7 +102,7 @@ function observe(
   // What runs synchronously reads facts the library built, or an author's
   // notes, which are not read as hostile (D6): a presenter fails by its
   // promise.
-  return Promise.resolve(present(context, logged, unit, once))
+  return Promise.resolve(present(context, unit, once))
     .then(ignore, ignore)
     .then(() => (end === undefined ? once().then(ignore) : undefined));
 }
@@ -110,47 +110,24 @@ function observe(
 function traces(
   context: InstrumentationContext,
   name: VibORMSpanName
-): boolean {
-  return (
-    context.config.tracing !== undefined &&
-    shouldTraceSpan(context.tracer, name)
-  );
+): context is InstrumentationContext & { readonly tracer: TracerWrapper } {
+  return context.tracer?.traces(name) === true;
 }
 
 function logs(context: InstrumentationContext, level: LogLevel): boolean {
   return context.logger?.isLevelEnabled(level) === true;
 }
 
-/** Whether a logging or tracing channel discloses statement parameters. */
-function disclosesParameters(context: InstrumentationContext): boolean {
-  const { logging, tracing } = context.config;
-  if (
-    logging !== undefined &&
-    logging !== true &&
-    logging.includeParams === true &&
-    (logs(context, "query") || logs(context, "error"))
-  ) {
-    return true;
-  }
-  return (
-    tracing !== undefined &&
-    tracing !== true &&
-    tracing.includeParams === true &&
-    shouldTraceSpan(context.tracer, SPAN_EXECUTE)
-  );
-}
-
 function present(
   context: InstrumentationContext,
-  logged: WeakSet<object>,
   unit: Unit,
   next: () => Promise<UnitEnd>
 ): Promise<unknown> | undefined {
   switch (unit.kind) {
     case "operation":
-      return presentOperation(context, logged, unit, next);
+      return presentOperation(context, unit, next);
     case "statement":
-      return presentStatement(context, logged, unit, next);
+      return presentStatement(context, unit, next);
     case "transaction":
     case "savepoint":
     case "connection":
@@ -164,53 +141,77 @@ function present(
 }
 
 /**
- * Settle a span the way the work settled: a failure the owner did not
- * recover marks it failed, by the error's class and code only.
+ * What every presenter does around its unit: `next()` inside the span
+ * `options` names (none when `undefined`), `after` once the unit settled,
+ * given the instant `next()` was called, then the span settled the way the
+ * work settled: a failure the owner did not recover marks it failed, by the
+ * error's class and code only.
  */
-async function endWith(end: Promise<UnitEnd>, unit: Unit): Promise<void> {
-  const settled = await end;
-  if (settled.status === "failure" && settled.recovered !== true)
-    throw presentTraceFailure(failure(unit));
+function spanned(
+  context: InstrumentationContext,
+  options: VibORMSpanOptions | undefined,
+  unit: Unit,
+  next: () => Promise<UnitEnd>,
+  after?: (settled: UnitEnd, startedAt: number, span?: TracingSpan) => void
+): Promise<unknown> {
+  const settle = (span?: TracingSpan): Promise<void> => {
+    const startedAt = Date.now();
+    return next().then((settled) => {
+      after?.(settled, startedAt, span);
+      // What a failed span is settled with: the failure as it may be shown,
+      // of which the span reads the class and code only.
+      if (settled.status === "failure" && settled.recovered !== true)
+        throw disclosed(failure(unit));
+    });
+  };
+  return context.tracer && options
+    ? context.tracer.startActiveSpan(options, settle)
+    : settle();
 }
 
 function presentOperation(
   context: InstrumentationContext,
-  logged: WeakSet<object>,
   unit: Unit,
   next: () => Promise<UnitEnd>
 ): Promise<unknown> {
-  const settle = async (): Promise<void> => {
-    const startedAt = Date.now();
-    const end = next();
-    const settled = await end;
-    // A call's query and error logs are the library's account of its own
-    // work: an extension's note on the call is logged at `cache` alone.
-    for (const noted of notes(unit)) {
-      const fact = noteOf(noted);
-      if (fact?.log === "cache") log(context, unit, fact);
+  return spanned(
+    context,
+    traces(context, SPAN_OPERATION)
+      ? createOperationSpanOptions(unit)
+      : undefined,
+    unit,
+    next,
+    (settled, startedAt) => {
+      // A call's query and error logs are the library's account of its own
+      // work: an extension's note on the call is logged at `cache` alone.
+      for (const noted of notes(unit)) {
+        const fact = noteOf(noted);
+        if (fact?.log === "cache") log(context, unit, fact);
+      }
+      const error = failure(unit);
+      // A failure a statement log presented is not presented again; every
+      // operation whose own failure it is presents it, as before.
+      if (
+        settled.status === "failure" &&
+        error instanceof Error &&
+        logs(context, "error") &&
+        !context.logged.has(origin(error))
+      )
+        // The log a note of the failure would ask for, at the instant core
+        // settled the operation, with its duration.
+        context.logger?.log({
+          ...presentNoteLog(unit, "error", {
+            at: startedAt + settled.duration,
+            error,
+          }),
+          duration: settled.duration,
+        });
     }
-    const error = failure(unit);
-    // A failure a statement log presented is not presented again; every
-    // operation whose own failure it is presents it, as before.
-    if (
-      settled.status === "failure" &&
-      error instanceof Error &&
-      logs(context, "error") &&
-      !logged.has(origin(error))
-    )
-      context.logger?.error(
-        createOperationErrorLogEvent(unit, error, startedAt, settled.duration)
-      );
-    return endWith(end, unit);
-  };
-  return traces(context, SPAN_OPERATION)
-    ? context.tracer.startActiveSpan(createOperationSpanOptions(unit), settle)
-    : settle();
+  );
 }
 
 function presentStatement(
   context: InstrumentationContext,
-  logged: WeakSet<object>,
   unit: Unit,
   next: () => Promise<UnitEnd>
 ): Promise<unknown> | undefined {
@@ -218,71 +219,43 @@ function presentStatement(
   const queried = logs(context, "query");
   const erred = logs(context, "error");
   if (!(traced || queried || erred)) return undefined;
-  // Read before the provider is reached: it may change what it was handed.
-  const shown = disclosesParameters(context) ? parameters(unit) : undefined;
+  const { logging, tracing } = context.config;
+  // Read only for a channel that shows them, before the provider is reached:
+  // it may change what it was handed.
+  const shown =
+    ((queried || erred) && channelOf(logging).includeParams) ||
+    (traced && channelOf(tracing).includeParams)
+      ? parameters(unit)
+      : undefined;
   const startedAt = Date.now();
-  const settle = async (): Promise<void> => {
-    const end = next();
-    const settled = await end;
-    if (settled.recovered !== true) {
+  return spanned(
+    context,
+    traced
+      ? createStatementSpanOptions(tracing, unit, text(unit), shown)
+      : undefined,
+    unit,
+    next,
+    ({ duration, recovered, status }) => {
       const error = failure(unit);
-      if (settled.status === "failure" && error instanceof Error) {
-        if (erred) {
-          logged.add(origin(error));
-          // A failure that names a native batch member is presented as it.
-          const index = statementIndexOf(error);
-          const member =
-            index === undefined ? undefined : statements(unit)?.[index];
-          context.logger?.error(
-            createStatementLogEvent(
-              context.config.logging,
-              unit,
-              startedAt,
-              settled.duration,
-              member?.sql ?? text(unit),
-              // A batch's snapshot holds one list per member.
-              member === undefined || index === undefined
-                ? shown
-                : batchMemberParameters(shown, index),
-              member,
-              error
-            )
-          );
-        }
-      } else if (settled.status === "success" && queried) {
-        context.logger?.query(
-          createStatementLogEvent(
-            context.config.logging,
-            unit,
-            startedAt,
-            settled.duration,
-            text(unit),
-            shown
-          )
-        );
-      }
-    }
-    return endWith(end, unit);
-  };
-  return traced
-    ? context.tracer.startActiveSpan(
-        createStatementSpanOptions(
-          context.config.tracing,
-          unit,
-          text(unit),
-          shown
-        ),
-        settle
+      const failed = status === "failure" && error instanceof Error;
+      if (
+        recovered === true ||
+        !(failed ? erred : status === "success" && queried)
       )
-    : settle();
-}
-
-function batchMemberParameters(
-  shown: readonly unknown[] | undefined,
-  index: number
-): readonly unknown[] | undefined {
-  const member = shown?.[index];
-  return Array.isArray(member) ? member : undefined;
+        return;
+      if (failed) context.logged.add(origin(error));
+      context.logger?.log(
+        createStatementLogEvent(
+          logging,
+          unit,
+          startedAt,
+          duration,
+          shown,
+          failed ? error : undefined
+        )
+      );
+    }
+  );
 }
 
 function presentLifecycle(
@@ -297,10 +270,7 @@ function presentLifecycle(
         ? SPAN_DISCONNECT
         : SPAN_CONNECT;
   if (!traces(context, name)) return undefined;
-  return context.tracer.startActiveSpan(
-    createLifecycleSpanOptions(name, unit),
-    () => endWith(next(), unit)
-  );
+  return spanned(context, createLifecycleSpanOptions(name, unit), unit, next);
 }
 
 /** Log what a note asks to, at its level, if that level is on. */
@@ -331,20 +301,20 @@ function presentNoted(
       span = { ...fact, span: fact.span };
     log(context, unit, fact);
   }
-  const settle = async (opened?: TracingSpan): Promise<void> => {
-    const end = next();
-    await end;
-    for (const noted of notes(unit).slice(started)) {
-      const fact = noteOf(noted);
-      if (fact?.attributes !== undefined)
-        setSpanAttributes(opened, notedAttributes(fact.attributes));
-      log(context, unit, fact);
+  return spanned(
+    context,
+    span !== undefined && context.tracer !== undefined && tracesAs(span)
+      ? createNotedSpanOptions(unit, span)
+      : undefined,
+    unit,
+    next,
+    (_settled, _startedAt, opened) => {
+      for (const noted of notes(unit).slice(started)) {
+        const fact = noteOf(noted);
+        if (fact?.attributes !== undefined)
+          setSpanAttributes(opened, notedAttributes(fact.attributes));
+        log(context, unit, fact);
+      }
     }
-    return endWith(end, unit);
-  };
-  return span !== undefined &&
-    context.config.tracing !== undefined &&
-    tracesAs(span)
-    ? context.tracer.startActiveSpan(createNotedSpanOptions(unit, span), settle)
-    : settle();
+  );
 }

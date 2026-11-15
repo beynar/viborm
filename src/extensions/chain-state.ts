@@ -23,7 +23,6 @@ import type { Observation } from "./observation";
 import type { AroundRunner, collect } from "./query";
 import type { ResultFields } from "./result";
 import type { Stamps } from "./stamps";
-import type { StatementHandlers } from "./statement";
 import type { WrittenHandlers } from "./written";
 
 export interface ResolvedExtensionHandler<
@@ -151,7 +150,8 @@ export interface ResolvedExtensionChain {
   readonly call?: RequestHandlers;
   /** The second moments of `around` parts, as the runner calls them. */
   readonly around?: OperationHandlers<AroundRunner>;
-  readonly rewrites?: StatementHandlers;
+  /** The rewriting units, around each logical statement. */
+  readonly rewrites?: Observation;
   /**
    * Every handler around a unit of real work, in chain order, and what runs
    * a unit under them: present when the chain holds one. A producer builds a

@@ -5,14 +5,9 @@ import {
   SPAN_EXECUTE,
   SPAN_OPERATION,
 } from "@src/instrumentation/spans";
-import {
-  createTracerWrapper,
-  getNoopTracer,
-  shouldTraceSpan,
-} from "@src/instrumentation/tracer";
+import { createTracerWrapper } from "@src/instrumentation/tracer";
 import {
   type OtelRecorder,
-  primeTracer,
   withOtelRecorder,
 } from "@tests/unit/instrumentation/_capture";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -62,17 +57,6 @@ describe("createTracerWrapper (OTel present)", () => {
     expect(span?.name).toBe(SPAN_OPERATION);
   });
 
-  it("isEnabled becomes true after the lazy load; primeTracer forces it", async () => {
-    const tracer = createTracerWrapper();
-
-    // Before any span awaits the load, otel is not yet cached.
-    expect(tracer.isEnabled()).toBe(false);
-
-    await primeTracer(tracer);
-
-    expect(tracer.isEnabled()).toBe(true);
-  });
-
   it("applies caller attributes to the recorded span", async () => {
     const tracer = createTracerWrapper();
 
@@ -84,96 +68,6 @@ describe("createTracerWrapper (OTel present)", () => {
     expect(findLast(SPAN_OPERATION)?.attributes["db.collection.name"]).toBe(
       "user"
     );
-  });
-
-  it("includeSql defaults false and requires explicit opt-in", async () => {
-    const withSql = createTracerWrapper({ includeSql: true });
-    const noSql = createTracerWrapper();
-
-    await withSql.startActiveSpan(
-      { name: SPAN_EXECUTE, sql: { query: "SELECT 1" } },
-      () => undefined
-    );
-    await noSql.startActiveSpan(
-      { name: SPAN_CONNECT, sql: { query: "SELECT 1" } },
-      () => undefined
-    );
-
-    expect(findLast(SPAN_EXECUTE)?.attributes["db.query.text"]).toBe(
-      "SELECT 1"
-    );
-    expect(findLast(SPAN_CONNECT)?.attributes["db.query.text"]).toBeUndefined();
-  });
-
-  it("includeParams true emits per-index params (raw string, JSON non-string); default false emits none", async () => {
-    const withParams = createTracerWrapper({ includeParams: true });
-    const noParams = createTracerWrapper();
-
-    await withParams.startActiveSpan(
-      {
-        name: SPAN_EXECUTE,
-        sql: {
-          query: "SELECT $1, $2",
-          params: ["alice", { id: 5, sql: "business-value" }],
-        },
-      },
-      () => undefined
-    );
-    await noParams.startActiveSpan(
-      {
-        name: SPAN_CONNECT,
-        sql: { query: "SELECT $1", params: ["bob"] },
-      },
-      () => undefined
-    );
-
-    const withAttrs = findLast(SPAN_EXECUTE)?.attributes;
-    expect(withAttrs?.["db.query.parameter.0"]).toBe("alice");
-    expect(withAttrs?.["db.query.parameter.1"]).toBe(
-      JSON.stringify({ id: 5, sql: "business-value" })
-    );
-
-    const noAttrs = findLast(SPAN_CONNECT)?.attributes;
-    expect(noAttrs?.["db.query.parameter.0"]).toBeUndefined();
-  });
-
-  it.each([
-    { includeSql: false, includeParams: false },
-    { includeSql: true, includeParams: false },
-    { includeSql: false, includeParams: true },
-    { includeSql: true, includeParams: true },
-  ])("keeps SQL and parameter disclosure independent for %#", async (config) => {
-    const tracer = createTracerWrapper(config);
-    const query = "SELECT secret_column FROM private_table WHERE id = $1";
-    const parameter = "private-parameter";
-
-    await tracer.startActiveSpan(
-      {
-        name: SPAN_EXECUTE,
-        sql: { query, params: [parameter] },
-      },
-      () => undefined
-    );
-
-    const attributes = findLast(SPAN_EXECUTE)?.attributes ?? {};
-    expect(attributes["db.query.text"] === query).toBe(config.includeSql);
-    expect(attributes["db.query.parameter.0"] === parameter).toBe(
-      config.includeParams
-    );
-  });
-
-  it("emits no param attributes when includeParams true but sql.params absent", async () => {
-    const tracer = createTracerWrapper({ includeParams: true });
-
-    await tracer.startActiveSpan(
-      { name: SPAN_EXECUTE, sql: { query: "SELECT 1" } },
-      () => undefined
-    );
-
-    const attrs = findLast(SPAN_EXECUTE)?.attributes ?? {};
-    expect(
-      Object.keys(attrs).some((k) => k.startsWith("db.query.parameter"))
-    ).toBe(false);
   });
 
   it("nested spans are parented (child's parent is the outer span)", async () => {
@@ -248,16 +142,11 @@ describe("createTracerWrapper (OTel present)", () => {
     expect(rooted?.parentSpanContext).toBeUndefined();
   });
 
-  it("kind option is honored; defaults to INTERNAL when omitted", async () => {
+  it("every span is of kind INTERNAL", async () => {
     const tracer = createTracerWrapper();
 
-    await tracer.startActiveSpan(
-      { name: SPAN_OPERATION, kind: SpanKind.CLIENT },
-      () => undefined
-    );
     await tracer.startActiveSpan({ name: SPAN_EXECUTE }, () => undefined);
 
-    expect(findLast(SPAN_OPERATION)?.kind).toBe(SpanKind.CLIENT);
     expect(findLast(SPAN_EXECUTE)?.kind).toBe(SpanKind.INTERNAL);
   });
 
@@ -289,8 +178,8 @@ describe("createTracerWrapper (OTel present)", () => {
 
     expect(result).toBe("ran");
     expect(countOf(SPAN_CONNECT)).toBe(before);
-    expect(shouldTraceSpan(tracer, SPAN_CONNECT)).toBe(false);
-    expect(shouldTraceSpan(tracer, SPAN_EXECUTE)).toBe(true);
+    expect(tracer.traces(SPAN_CONNECT)).toBe(false);
+    expect(tracer.traces(SPAN_EXECUTE)).toBe(true);
   });
 
   it("snapshots ignore patterns when the tracer is created", async () => {
@@ -341,40 +230,5 @@ describe("createTracerWrapper (OTel present)", () => {
     await tracer.startActiveSpan({ name: SPAN_OPERATION }, () => undefined);
 
     expect(findLast(SPAN_OPERATION)?.parentSpanContext).toBeUndefined();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// NOOP path — getNoopTracer, no spans, always inert
-// ---------------------------------------------------------------------------
-
-describe("getNoopTracer", () => {
-  it("startActiveSpan runs the callback and returns its value; isEnabled false", async () => {
-    const tracer = getNoopTracer();
-
-    const result = await tracer.startActiveSpan(
-      { name: SPAN_OPERATION },
-      () => "value"
-    );
-
-    expect(result).toBe("value");
-    expect(tracer.isEnabled()).toBe(false);
-    expect(shouldTraceSpan(tracer, SPAN_OPERATION)).toBe(false);
-  });
-
-  it("returns the shared singleton instance across calls", () => {
-    expect(getNoopTracer()).toBe(getNoopTracer());
-  });
-
-  it("treats unknown and hostile span decisions conservatively", () => {
-    const undecidedTracer = { ...getNoopTracer() };
-    const hostileTracer = new Proxy(getNoopTracer(), {
-      get() {
-        throw new Error("hostile tracer");
-      },
-    });
-
-    expect(shouldTraceSpan(undecidedTracer, SPAN_OPERATION)).toBe(true);
-    expect(shouldTraceSpan(hostileTracer, SPAN_OPERATION)).toBe(true);
   });
 });

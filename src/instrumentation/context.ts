@@ -2,92 +2,45 @@
  * Instrumentation Context
  *
  * Combines tracer and logger into a single context passed through layers.
- * The tracer is ALWAYS present (using no-op when tracing is not configured),
- * eliminating the need for conditional `if (tracer)` checks.
  */
 
-import type { DiagnosticDisclosure } from "@errors";
 import { createLogger, type Logger } from "./logger";
-import {
-  createTracerWrapper,
-  getNoopTracer,
-  type TracerWrapper,
-} from "./tracer";
+import { createTracerWrapper, type TracerWrapper } from "./tracer";
 import type {
   InstrumentationConfig,
   LoggingConfig,
   TracingConfig,
 } from "./types";
 
-/**
- * Combined instrumentation context
- *
- * Note: `tracer` is always defined - it's either a real tracer or a no-op tracer.
- * This allows code to unconditionally call tracer methods without null checks.
- */
+/** Combined instrumentation context */
 export interface InstrumentationContext {
   /** Immutable configuration snapshot resolved at the public boundary. */
-  config: ResolvedInstrumentationConfig;
-  /** Tracer wrapper - always present (no-op if tracing not configured) */
-  tracer: TracerWrapper;
+  readonly config: ResolvedInstrumentationConfig;
+  /** Tracer wrapper (if tracing enabled) */
+  readonly tracer: TracerWrapper | undefined;
   /** Logger (if logging enabled) */
-  logger?: Logger | undefined;
+  readonly logger: Logger | undefined;
+  /** The origins of the failures already logged: one failure, one error log. */
+  readonly logged: WeakSet<object>;
 }
 
 interface ResolvedInstrumentationConfig {
-  readonly diagnostics: Required<DiagnosticDisclosure>;
   readonly logging?: true | Readonly<LoggingConfig> | undefined;
   readonly tracing?: true | Readonly<TracingConfig> | undefined;
 }
 
 /**
- * Create instrumentation context from config
- *
- * @param config - Instrumentation configuration
- * @returns Combined context with tracer (always present) and logger
+ * Create instrumentation context from config: the configuration as it is
+ * when the extension is built, so that what the caller changes in its object
+ * later changes nothing. Its type is its guard; the flags are read as
+ * booleans, `true` alone enabling one. `diagnostics` is not part of it: the
+ * extension hands it to `disclosure`, which reads it once.
  */
-export function createInstrumentationContext(
-  config: InstrumentationConfig
-): InstrumentationContext {
-  const snapshot = snapshotInstrumentationConfig(config);
-  // Create tracer - either real (if tracing configured) or no-op
-  let tracer: TracerWrapper;
-  if (snapshot.tracing) {
-    const tracingConfig = snapshot.tracing === true ? {} : snapshot.tracing;
-    tracer = createTracerWrapper({
-      includeSql: tracingConfig.includeSql,
-      includeParams: tracingConfig.includeParams,
-      ignoreSpanTypes: tracingConfig.ignoreSpanTypes,
-      tracer: tracingConfig.tracer,
-    });
-  } else {
-    tracer = getNoopTracer();
-  }
-
-  const context: InstrumentationContext = { config: snapshot, tracer };
-
-  // Create logger if logging is configured
-  if (snapshot.logging) {
-    const loggingConfig: LoggingConfig =
-      snapshot.logging === true ? { all: true } : snapshot.logging;
-    context.logger = createLogger(loggingConfig);
-  }
-
-  return Object.freeze(context);
-}
-
-/**
- * The configuration as it is when the extension is built: what the caller
- * changes in its object later changes nothing. Its type is its guard; the
- * flags are read as booleans, `true` alone enabling one.
- */
-function snapshotInstrumentationConfig({
-  diagnostics,
+export function createInstrumentationContext({
   tracing,
   logging,
-}: InstrumentationConfig): ResolvedInstrumentationConfig {
-  return Object.freeze({
-    diagnostics: snapshotDisclosure(diagnostics),
+}: InstrumentationConfig): InstrumentationContext {
+  const config: ResolvedInstrumentationConfig = Object.freeze({
     tracing:
       tracing === true || tracing === undefined
         ? tracing
@@ -97,16 +50,15 @@ function snapshotInstrumentationConfig({
         ? logging
         : snapshotLoggingConfig(logging),
   });
-}
-
-function snapshotDisclosure(
-  value: DiagnosticDisclosure | undefined
-): Required<DiagnosticDisclosure> {
   return Object.freeze({
-    includeParams: value?.includeParams === true,
-    includeSql: value?.includeSql === true,
-    includeProviderDetails: value?.includeProviderDetails === true,
-    includeCallsite: value?.includeCallsite === true,
+    config,
+    tracer:
+      config.tracing &&
+      createTracerWrapper(config.tracing === true ? {} : config.tracing),
+    logger:
+      config.logging &&
+      createLogger(config.logging === true ? { all: true } : config.logging),
+    logged: new WeakSet<object>(),
   });
 }
 
@@ -119,8 +71,9 @@ function snapshotTracingConfig({
   return Object.freeze({
     includeParams: includeParams === true,
     includeSql: includeSql === true,
-    ...(ignoreSpanTypes?.length ? { ignoreSpanTypes } : {}),
-    ...(tracer === undefined ? {} : { tracer }),
+    // The tracer copies the patterns as it is built, from this snapshot.
+    ignoreSpanTypes,
+    tracer,
   });
 }
 

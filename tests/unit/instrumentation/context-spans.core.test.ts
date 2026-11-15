@@ -35,7 +35,6 @@ import {
   SPAN_OPERATION,
   SPAN_TRANSACTION,
 } from "@src/instrumentation/spans";
-import { getNoopTracer } from "@src/instrumentation/tracer";
 import type { InstrumentationConfig } from "@src/instrumentation/types";
 import {
   captureLogs,
@@ -60,22 +59,14 @@ afterAll(async () => {
 // ---------------------------------------------------------------------------
 
 describe("createInstrumentationContext — tracer", () => {
-  it("nothing configured: tracer is the noop singleton and config is resolved", () => {
+  it("nothing configured: no tracer and config is resolved", () => {
     const config = {};
     const ctx = createInstrumentationContext(config);
-    expect(ctx.tracer).toBe(getNoopTracer());
-    expect(ctx.tracer.isEnabled()).toBe(false);
+    expect(ctx.tracer).toBeUndefined();
     expect(ctx.logger).toBeUndefined();
     expect(ctx.config).not.toBe(config);
-    expect(ctx.config.diagnostics).toEqual({
-      includeProviderDetails: false,
-      includeCallsite: false,
-      includeParams: false,
-      includeSql: false,
-    });
     expect(Object.isFrozen(ctx)).toBe(true);
     expect(Object.isFrozen(ctx.config)).toBe(true);
-    expect(Object.isFrozen(ctx.config.diagnostics)).toBe(true);
   });
 
   it("snapshots flags, handlers, and ignore patterns before caller mutation", async () => {
@@ -83,26 +74,18 @@ describe("createInstrumentationContext — tracer", () => {
     const replacementHandler = vi.fn();
     const pattern = /^viborm\.connect$/g;
     const config: InstrumentationConfig = {
-      diagnostics: { includeParams: true },
       tracing: { includeParams: true, ignoreSpanTypes: [pattern] },
       logging: { query: originalHandler },
     };
     const ctx = createInstrumentationContext(config);
 
-    config.diagnostics = { includeSql: true };
     config.tracing = undefined;
     config.logging = { query: replacementHandler };
     pattern.lastIndex = 4;
 
-    ctx.logger?.query({ timestamp: new Date() });
-    await ctx.tracer.startActiveSpan({ name: SPAN_CONNECT }, () => undefined);
+    ctx.logger?.log({ level: "query", timestamp: new Date() });
+    await ctx.tracer?.startActiveSpan({ name: SPAN_CONNECT }, () => undefined);
 
-    expect(ctx.config.diagnostics).toEqual({
-      includeProviderDetails: false,
-      includeCallsite: false,
-      includeParams: true,
-      includeSql: false,
-    });
     expect(originalHandler).toHaveBeenCalledOnce();
     expect(replacementHandler).not.toHaveBeenCalled();
     expect(recorder.find(SPAN_CONNECT)).toBeUndefined();
@@ -113,37 +96,20 @@ describe("createInstrumentationContext — tracer", () => {
     expect(tracing.includeParams).toBe(true);
   });
 
-  it("tracing: true creates a real tracer (not the noop singleton), enabled once primed", async () => {
+  it("tracing: true creates a real tracer that records once primed", async () => {
     const ctx = createInstrumentationContext({ tracing: true });
-    expect(ctx.tracer).not.toBe(getNoopTracer());
-    // Real tracer loads OTel lazily: disabled until a span primes it.
-    expect(ctx.tracer.isEnabled()).toBe(false);
-    await primeTracer(ctx.tracer);
-    expect(ctx.tracer.isEnabled()).toBe(true);
-  });
-
-  it("tracing object forwards includeSql/includeParams to the tracer (visible on span attrs)", async () => {
-    const ctx = createInstrumentationContext({
-      tracing: { includeSql: false, includeParams: true },
-    });
-    await ctx.tracer.startActiveSpan(
-      { name: SPAN_EXECUTE, sql: { query: "SELECT 1", params: ["a", 2] } },
-      () => undefined
-    );
-    const span = recorder.find(SPAN_EXECUTE);
-    expect(span).toBeDefined();
-    // includeSql:false -> query text attribute absent.
-    expect(span?.attributes[ATTR_DB_QUERY_TEXT]).toBeUndefined();
-    // includeParams:true -> per-index parameter attributes; non-string stringified.
-    expect(span?.attributes[`${ATTR_DB_QUERY_PARAMETER_PREFIX}.0`]).toBe("a");
-    expect(span?.attributes[`${ATTR_DB_QUERY_PARAMETER_PREFIX}.1`]).toBe("2");
+    const tracer = ctx.tracer;
+    if (tracer === undefined) throw new Error("expected a tracer");
+    await primeTracer(tracer);
+    await tracer.startActiveSpan({ name: SPAN_TRANSACTION }, () => undefined);
+    expect(recorder.find(SPAN_TRANSACTION)).toBeDefined();
   });
 
   it("tracing object forwards ignoreSpanTypes (matching span not recorded)", async () => {
     const ctx = createInstrumentationContext({
       tracing: { ignoreSpanTypes: [SPAN_CONNECT] },
     });
-    const value = await ctx.tracer.startActiveSpan(
+    const value = await ctx.tracer?.startActiveSpan(
       { name: SPAN_CONNECT },
       () => "ran"
     );
@@ -153,7 +119,7 @@ describe("createInstrumentationContext — tracer", () => {
     expect(recorder.find(SPAN_CONNECT)).toBeUndefined();
     // A non-ignored span from the SAME wrapper IS recorded, proving the wrapper
     // is otherwise live (SPAN_DISCONNECT is used by no other test here).
-    await ctx.tracer.startActiveSpan(
+    await ctx.tracer?.startActiveSpan(
       { name: SPAN_DISCONNECT },
       () => undefined
     );
@@ -186,12 +152,17 @@ describe("createInstrumentationContext — logger", () => {
     const ctx = createInstrumentationContext({
       logging: { query: cap.callback },
     });
-    ctx.logger?.query({
+    ctx.logger?.log({
+      level: "query",
       timestamp: new Date(),
       model: "user",
       operation: "findMany",
     });
-    ctx.logger?.error({ timestamp: new Date(), error: new Error("nope") });
+    ctx.logger?.log({
+      level: "error",
+      timestamp: new Date(),
+      error: new Error("nope"),
+    });
     // Only the query handler is configured, so only the query event lands.
     expect(cap.events).toHaveLength(1);
     expect(cap.events[0]?.level).toBe("query");

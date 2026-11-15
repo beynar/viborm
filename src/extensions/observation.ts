@@ -57,7 +57,6 @@ export function runUnit<Result>(
 ): Promise<Result> {
   const unit = unitOf(source);
   let core: Promise<Result> | undefined;
-  let entered = false;
   const startCore = (): Promise<Result> => {
     core ??= attempt(() => child(source.statement));
     return core;
@@ -72,7 +71,6 @@ export function runUnit<Result>(
     if (resolved?.kinds?.includes(source.kind) === false)
       return enter(index + 1);
     if (resolved === undefined) {
-      entered = true;
       reached?.();
       transaction?.enter();
       return startCore();
@@ -80,19 +78,7 @@ export function runUnit<Result>(
     return around(resolved, unit, source, () => enter(index + 1));
   };
   const result = enter(0);
-  return transaction === undefined
-    ? result
-    : result.catch((failure: unknown) => {
-        // Thrown, not returned rejected: workerd reports a rejection that the
-        // promise taking it holds only a microtask later.
-        if (core === undefined || entered) throw failure;
-        // A transaction `run(unit, sql)` opened whose body was never let run
-        // rolls back before the unit fails.
-        transaction.abort(failure);
-        return core.catch(nothing).then(() => {
-          throw failure;
-        });
-      });
+  return transaction === undefined ? result : result.catch(transaction.fail);
 }
 
 function attempt<Result>(child: () => Promise<Result>): Promise<Result> {
@@ -135,15 +121,9 @@ async function around<Result>(
       (failure: unknown) => settle(source, at, true, failure)
     );
   };
-  let returned: unknown;
-  try {
-    returned = resolved.handler(unit, next);
-  } catch (failure) {
-    returned = Promise.reject(failure);
-  }
   let handlerFailure: { readonly failure: unknown } | undefined;
   try {
-    await returned;
+    await resolved.handler(unit, next);
   } catch (failure) {
     handlerFailure = { failure };
   }
@@ -192,7 +172,8 @@ function unitError(
 /**
  * A transaction unit's `run(unit, sql)`: it opens the transaction if no
  * `next()` has yet, and runs the statement there before the body. The body
- * then waits for the innermost `next()`.
+ * then waits for the innermost `next()`; a unit that fails before it rolls
+ * back the transaction `run` opened (`fail`).
  */
 function openTransaction<Result>(
   source: UnitSource,
@@ -203,6 +184,8 @@ function openTransaction<Result>(
   let refuse: ((failure: unknown) => void) | undefined;
   let aborted: { readonly failure: unknown } | undefined;
   let bodyEntered = false;
+  // The transaction `run` opened before the body was let run.
+  let opening: Promise<Result> | undefined;
   let announce: ((run: TransactionStatementRunner) => void) | undefined;
   const opened = new Promise<TransactionStatementRunner>((resolve) => {
     announce = resolve;
@@ -222,10 +205,10 @@ function openTransaction<Result>(
   source.opened = openedWith;
   const runIn = (statement: Sql) => {
     if (runner !== undefined) return runner(statement);
-    const core = startCore();
+    opening ??= startCore();
     return Promise.race([
       opened,
-      core.then(() => {
+      opening.then(() => {
         throw new QueryError("run() was called on a transaction that ended.");
       }),
     ]).then((run) => run(statement));
@@ -236,9 +219,15 @@ function openTransaction<Result>(
       bodyEntered = true;
       ready?.();
     },
-    abort: (failure: unknown) => {
+    fail: (failure: unknown): Promise<never> => {
+      // Thrown, not returned rejected: workerd reports a rejection that the
+      // promise taking it holds only a microtask later.
+      if (opening === undefined || bodyEntered) throw failure;
       aborted = { failure };
       refuse?.(failure);
+      return opening.catch(nothing).then(() => {
+        throw failure;
+      });
     },
   };
 }
@@ -251,26 +240,40 @@ export interface Observation {
     child: Child<Result>
   ) => Promise<Result>;
   /**
-   * One member of `$transaction([...])`: its unit runs until its child is
-   * reached. The array waits for every member's `reached` before it prepares
-   * any: a handler that waits (for a tracer to load) does so before the
-   * array's work, and each member's work runs inside its unit.
-   */
-  readonly enter: <Result>(
-    source: UnitSource,
-    child: Child<Result>
-  ) => { readonly done: Promise<Result>; readonly reached: Promise<void> };
-  /**
-   * Every member's unit, entered: resolves once each reached its child, with
-   * what settles once every unit did (and fails as the first that failed).
+   * The members of `$transaction([...])`, or of a batch of logical
+   * statements: every member's unit is entered (a member without one is
+   * skipped), and this resolves once each reached its child, with the units
+   * and what settles once every unit did (and fails as the first that
+   * failed). The array waits for it before it prepares any member: a handler
+   * that waits (for a tracer to load) does so before the array's work, and
+   * each member's work runs inside its unit.
    */
   readonly members: (
-    members: readonly (readonly [UnitSource, Child<unknown>])[]
-  ) => Promise<{ readonly done: Promise<unknown> }>;
+    members: readonly (readonly [UnitSource, Child<unknown>] | undefined)[]
+  ) => Promise<{
+    readonly done: Promise<unknown>;
+    readonly units: readonly (
+      | { readonly done: Promise<unknown> }
+      | undefined
+    )[];
+  }>;
+  /**
+   * For a chain's rewriting units (`unit(fn, kinds, { rewrites: true })`):
+   * the members of one batch, each its own logical statement: every member
+   * is rewritten before `send` sends any (it receives each member's final
+   * statement, `undefined` for a member with no unit), and each member's
+   * unit then ends as the batch does. A member whose unit fails before its
+   * `next()` refuses the batch: `refuse(index, failure)` is thrown.
+   */
+  readonly together: <Result>(
+    sources: readonly (UnitSource | undefined)[],
+    send: (statements: readonly (Sql | undefined)[]) => Promise<Result>,
+    refuse: (index: number, failure: unknown) => unknown
+  ) => Promise<Result>;
 }
 
 export function observationOf(handlers: readonly UnitLayer[]): Observation {
-  const enter: Observation["enter"] = (source, child) => {
+  const enter = <Result>(source: UnitSource, child: Child<Result>) => {
     let reach: (() => void) | undefined;
     const reached = new Promise<void>((resolve) => {
       reach = resolve;
@@ -279,16 +282,65 @@ export function observationOf(handlers: readonly UnitLayer[]): Observation {
     done.then(reach, reach);
     return { done, reached };
   };
+  const members: Observation["members"] = async (members) => {
+    const units = members.map((member) =>
+      member === undefined ? undefined : enter(member[0], member[1])
+    );
+    await Promise.all(units.map((unit) => unit?.reached));
+    const done = Promise.all(units.map((unit) => unit?.done));
+    done.catch(() => undefined);
+    return { done, units };
+  };
   return {
     handlers,
     run: (source, child) => runUnit(handlers, source, child),
-    enter,
-    members: async (members) => {
-      const units = members.map(([source, child]) => enter(source, child));
-      await Promise.all(units.map((unit) => unit.reached));
-      const done = Promise.all(units.map((unit) => unit.done));
-      done.catch(() => undefined);
-      return { done };
+    members,
+    together: async (sources, send, refuse) => {
+      const statements: (Sql | undefined)[] = [];
+      let settle!: (outcome: Promise<unknown>) => void;
+      const outcome = new Promise<unknown>((resolve) => {
+        settle = resolve;
+      });
+      const { done, units } = await members(
+        sources.map((source, index) =>
+          source === undefined
+            ? undefined
+            : [
+                source,
+                (statement) => {
+                  statements[index] = statement;
+                  return outcome;
+                },
+              ]
+        )
+      );
+      // A member's unit reached its child where the child kept its
+      // statement.
+      const refused = units.findIndex(
+        (unit, index) => unit !== undefined && !(index in statements)
+      );
+      if (refused >= 0) {
+        // An unreached unit's end is its failure.
+        const failure = await units[refused]?.done.catch(
+          (error: unknown) => error
+        );
+        settle(Promise.reject(failure));
+        await done.catch(() => undefined);
+        throw refuse(refused, failure);
+      }
+      const sent = send(statements);
+      settle(sent);
+      // The send's failure is the call's, through `sent`; the units that
+      // wait on `outcome` see it too, and where none started, nothing
+      // else does.
+      outcome.catch(() => undefined);
+      try {
+        const value = await sent;
+        await done;
+        return value;
+      } finally {
+        await done.catch(() => undefined);
+      }
     },
   };
 }
