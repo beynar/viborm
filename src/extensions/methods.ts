@@ -447,65 +447,11 @@ export const modelLayer: MethodsLayer = ({ prior, answer, scope, refuse }) => {
   };
 };
 
-/**
- * The methods of one view's chain. Extension `i`'s factory is invoked against
- * the scope `createScope` builds over the methods of the extensions before
- * it, the first time a method it returns could be read: a view costs the
- * factories it uses. `force` invokes every factory in chain order, where a
- * root view surfaces an extension's faults.
- */
-export function bindExtensionMethods(
-  entries: readonly MethodEntry[],
-  createScope: (prior: ExtensionMethods, extension: string) => object
-): BoundExtensionMethods {
-  let view = NO_LAYER;
-  for (const { name, factory, owns, layer } of entries) {
-    const prior = view;
-    // Typed where it is declared, so a call to it ends the argument flow.
-    const refuse: (problem: string) => never = (problem) =>
-      extensionError(`Extension "${name}" ${problem}.`, name);
-    let scope: object | undefined;
-    const scopeOf = () => (scope ??= createScope(prior, name));
-    let returned: Readonly<Record<string, unknown>> | undefined;
-    view = layer({
-      prior,
-      // The factory's answer, once per view: the methods come from it.
-      answer: () => {
-        if (returned !== undefined) return returned;
-        const value: unknown = Reflect.apply(factory, undefined, [scopeOf()]);
-        if (!isRecord(value)) refuse("methods factory must return an object");
-        for (const key of Object.keys(value)) {
-          const problem = owns(key);
-          if (problem) refuse(`methods returned "${key}", ${problem}`);
-        }
-        returned = value;
-        return value;
-      },
-      scope: scopeOf,
-      refuse,
-    });
-  }
-  return view;
-}
-
 /** A `methods` factory as its part keeps it. */
 export type RuntimeMethodsFactory = (scope: never) => unknown;
 
-/**
- * One extension's methods factory, as the chain keeps it, with what its
- * builder brings: which keys it may return (`owns`: why not, else
- * `undefined`) and what its methods add to a view (`layer`).
- */
-export interface MethodEntry {
-  readonly name: string;
-  readonly factory: RuntimeMethodsFactory;
-  readonly owns: (key: string) => string | undefined;
-  readonly layer: MethodsLayer;
-}
-
-/** A chain's method factories, and what binds one view's methods. */
+/** A chain's methods, and what binds one view's methods. */
 export interface ExtensionMethodsState {
-  readonly entries: readonly MethodEntry[];
   readonly bind: (
     createScope: (prior: ExtensionMethods, extension: string) => object
   ) => BoundExtensionMethods;
@@ -521,8 +467,15 @@ export interface ExtensionMethodsState {
 }
 
 /**
- * A methods part: what a view answers, in chain order. `owns` and `layer`
- * are its builder's half (`methods-part.ts`).
+ * A methods part: what a view answers, in chain order. `owns` (which keys
+ * the factory may return: why not, else `undefined`) and `layer` (what its
+ * methods add to a view) are its builder's half (`methods-part.ts`).
+ *
+ * A view's methods are this part's layer over the view the chain's methods
+ * before it bind. The factory is invoked against the scope `createScope`
+ * builds over those, the first time a method it returns could be read: a
+ * view costs the factories it uses. `force` invokes every factory in chain
+ * order, where a root view surfaces an extension's faults.
  */
 export function methodsPart(
   factory: RuntimeMethodsFactory,
@@ -531,21 +484,39 @@ export function methodsPart(
 ): ExtensionPart {
   return {
     join({ next, name, schema }) {
-      const entries = [
-        ...(next.methods?.entries ?? []),
-        { name, factory, layer, owns: (key: string) => owns(key, schema) },
-      ];
+      const before = next.methods;
       next.methods = {
-        entries,
-        bind: (
-          createScope: (prior: ExtensionMethods, extension: string) => object
-        ) => bindExtensionMethods(entries, createScope),
-        bindNone: (
-          extension: string,
-          values: Readonly<Record<string, unknown>>,
-          previous: AdmittedArgs | undefined
-        ) => {
-          for (const name of Object.keys(values)) notBound(extension, name);
+        bind: (createScope) => {
+          const prior = before?.bind(createScope) ?? NO_LAYER;
+          // Typed where it is declared, so a call to it ends the argument flow.
+          const refuse: (problem: string) => never = (problem) =>
+            extensionError(`Extension "${name}" ${problem}.`, name);
+          let scope: object | undefined;
+          const scopeOf = () => (scope ??= createScope(prior, name));
+          let returned: Readonly<Record<string, unknown>> | undefined;
+          return layer({
+            prior,
+            // The factory's answer, once per view: the methods come from it.
+            answer: () => {
+              if (returned !== undefined) return returned;
+              const value: unknown = Reflect.apply(factory, undefined, [
+                scopeOf(),
+              ]);
+              if (!isRecord(value))
+                refuse("methods factory must return an object");
+              for (const key of Object.keys(value)) {
+                const problem = owns(key, schema);
+                if (problem) refuse(`methods returned "${key}", ${problem}`);
+              }
+              returned = value;
+              return value;
+            },
+            scope: scopeOf,
+            refuse,
+          });
+        },
+        bindNone: (extension, values, previous) => {
+          for (const key of Object.keys(values)) notBound(extension, key);
           return { ...previous };
         },
       };

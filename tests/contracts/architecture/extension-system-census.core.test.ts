@@ -644,7 +644,7 @@ describe("extension-system source census", () => {
   });
 
   test("retains no normalized definition beside compiled execution handlers", () => {
-    // Its method factories are the methods part's (`MethodEntry`).
+    // Its method factories are the methods part's (`methodsPart`).
     expect(resolvedExtensionProperties()).toEqual(["name"]);
   });
 
