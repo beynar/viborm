@@ -25,6 +25,7 @@ import {
   type FilterWord,
 } from "@validation/primitives/parameter";
 import type { SchemaRegistryLookup } from "@validation/types";
+import type { AdmittedArgs } from "./arguments";
 import type { ResolvedExtensionChain } from "./chain-state";
 import type { Projection } from "./projection";
 import type { PreparedDomain } from "./row-domain";
@@ -79,8 +80,8 @@ export interface RuleLayer {
    * (`verbs.ts`), so a rule that only filters holds none of that code.
    */
   host?: VerbsHost;
-  /** What lowers its layer, set where an entry read later may read its call. */
-  layered?: Layered;
+  /** What reads the call, set where an entry read later may read its call. */
+  reads?: CallReads;
   /** What judges and projects, brought by the words that ask either. */
   brings?: {
     judge?: ModelVerbs["judge"];
@@ -111,8 +112,20 @@ export interface LazyEntries {
   ): AdmittedVerbs;
 }
 
-/** What makes a layer's node of a predicate: `RowDomain.layered`. */
-export type Layered = NonNullable<RowDomain["layered"]>;
+/**
+ * What the words that read a call bring (`call-values.ts`): each layer's
+ * node read per call, and every call's values carried beside the domain.
+ */
+export interface CallReads {
+  bind(
+    chain: ResolvedExtensionChain,
+    lazy: boolean,
+    domain: RowDomain
+  ): {
+    readonly domain: RowDomain;
+    call(facts: CallRows, values: AdmittedArgs | undefined): CallRows;
+  };
+}
 
 /** One model's filters by purpose, as admitted. */
 export interface Filters {
@@ -171,8 +184,8 @@ export interface AdmittedLayer {
   };
   /** What admitted `verbs`, and binds them. */
   readonly host?: VerbsHost;
-  /** What lowers the layer, where some predicate of it reads its call. */
-  readonly layered?: Layered;
+  /** What reads the call, where some predicate of it reads one. */
+  readonly reads?: CallReads;
   /** What judges and projects, brought by the words that ask either. */
   readonly brings?: RuleLayer["brings"];
   readonly confine: { readonly [model: string]: Input };
@@ -198,8 +211,8 @@ export interface Admission {
     of?: string
   ) => Input;
   readonly refuse: (name: string, place: string, reason: string) => never;
-  /** What lowers the layer, once a predicate admitted reads its call. */
-  layered?: Layered;
+  /** What reads the call, once a predicate admitted reads one. */
+  reads?: CallReads;
 }
 
 /** A layer without verbs. */
@@ -246,7 +259,7 @@ export function admission(
       () => validateSchema(where, predicate),
       filters
     );
-    admitting.layered ??= at.layered;
+    admitting.reads ??= at.reads;
     // The model's where schema admitted the predicate: an Input.
     if (!result.issues) return result.value as Input;
     const [issue] = result.issues;
@@ -327,13 +340,13 @@ export function admitLayer(
         );
     confine[name] = admit(name, `${name}.confine`, predicate, references);
   }
-  const layered = layer.layered ?? admitting.layered;
+  const reads = layer.reads ?? admitting.reads;
   const out: AdmittedLayer = {
     extension,
     models,
     verbs,
     ...(host && { host }),
-    ...(layered && { layered }),
+    ...(reads && { reads }),
     ...(layer.brings && { brings: layer.brings }),
     confine,
     references: [...references],

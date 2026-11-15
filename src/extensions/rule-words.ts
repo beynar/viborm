@@ -18,7 +18,8 @@ import { isPlainRecord } from "@schema/relation/terminal";
 import { validateSchema } from "@validation/primitives/helpers";
 import type { FilterWord } from "@validation/primitives/parameter";
 import type { SchemaRegistryLookup } from "@validation/types";
-import type { Layered, References, RuleLayer, VerbsDraft } from "./admission";
+import type { CallReads, References, RuleLayer, VerbsDraft } from "./admission";
+import { CALL_READS } from "./call-values";
 import type { ExtensionPart } from "./chain";
 import type {
   ArgTest,
@@ -32,7 +33,7 @@ import type {
   RowWord,
   WhenWord,
 } from "./contract";
-import { Choice, layerOf } from "./layers";
+import { Choice } from "./layers";
 import { NOW } from "./stamps";
 
 /**
@@ -96,8 +97,8 @@ export interface Admitting {
   readonly references: References;
   readonly schema: Schema;
   readonly registry: SchemaRegistryLookup<Schema>;
-  /** What lowers a layer that reads its call: set by the words that read it. */
-  layered?: Layered;
+  /** What reads the call: set by the words that read it. */
+  reads?: CallReads;
 }
 
 /** `arg(name, path?)`'s value: the call's value for one argument, or a field of it. */
@@ -111,7 +112,7 @@ export class ArgValue extends PredicateWord {
   }
   override value(at: Admitting): object {
     at.references.add(this.name);
-    at.layered = layerOf;
+    at.reads = CALL_READS;
     return this.stamp();
   }
   override stamp(): Parameter {
@@ -123,7 +124,7 @@ export class ArgValue extends PredicateWord {
 export class NowValue extends PredicateWord {
   override value(at: Admitting): object {
     at.references.add(undefined);
-    at.layered = layerOf;
+    at.reads = CALL_READS;
     return new Parameter();
   }
   override stamp(): Parameter {
@@ -222,7 +223,7 @@ export class ArgTestFilter extends PredicateWord {
     if (typeof test === "string") return { message: test, path: [] };
     const { arg, kind, then } = this;
     at.references.add(arg.name);
-    at.layered = layerOf;
+    at.reads = CALL_READS;
     const condition = new (kind === "provided" ? Condition : Choice)(
       new Parameter(arg.name, arg.path),
       test

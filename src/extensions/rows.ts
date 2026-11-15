@@ -8,7 +8,6 @@
 import type { PreparedSelector } from "@query-engine/raptor3/shared/query";
 import type {
   CallRows,
-  CallValues,
   ModelDomain,
   RowDomain,
 } from "@query-engine/raptor3/shared/row-scope";
@@ -17,6 +16,7 @@ import type { AnyModel } from "@schema/model";
 import {
   type AdmittedLayer,
   admitLayer,
+  type CallReads,
   nativeSchema,
   type RuleLayer,
   type VerbsBound,
@@ -26,29 +26,9 @@ import { rebind, refuseUndeclared } from "./call-rows";
 import type {
   CallRowsBinding,
   ExtensionPart,
-  ResolvedArgs,
   ResolvedExtensionChain,
 } from "./chain";
 import { type PreparedDomain, prepareCall } from "./row-domain";
-
-const NO_VALUES: AdmittedArgs = Object.freeze({});
-
-/** Calls' shared facts, by the value of one closed argument, then the next. */
-interface Shared {
-  readonly next: Map<unknown, Shared>;
-  rows?: CallRows;
-}
-
-/**
- * The chain's `required` declarations as one test, by argument and model:
- * asked only where a value a predicate reads is absent.
- */
-const requiredOn =
-  (declared: ResolvedArgs | undefined): CallValues["required"] =>
-  (argument, model) => {
-    const on = declared?.all.find(({ name }) => name === argument)?.required;
-    return on === true || on?.includes(model) === true;
-  };
 
 /**
  * One purpose's predicates per model, each at its layer's place in the
@@ -110,32 +90,19 @@ function bound(domain: PreparedDomain) {
  * A chain's row facts, resolved once when an extension is applied: one
  * domain, with the chain's kept rows, stamps and order, so a call only looks
  * its facts up. The predicates hold the values they read as parameters,
- * prepared once for every call: where one of them reads a call value, each
- * call carries its values beside the shared domain, an argument with a
- * default at its default where the call passes none.
+ * prepared once for every call: where one of them reads a call value, what
+ * the words that read it brought carries each call's values beside the
+ * shared domain (`call-values.ts`).
  */
 export class RowsBinding implements CallRowsBinding {
   readonly #kept: ResolvedExtensionChain["kept"];
   readonly #stamps: ResolvedExtensionChain["stamps"];
-  /** Some predicate reads a call value: every call carries its values. */
-  readonly #parametric: boolean;
-  readonly #required: CallValues["required"];
-  /** The value of each argument with a default: what a call that passes none takes. */
-  readonly #fallback: Readonly<Record<string, unknown>> | undefined;
   /** The facts of a call that deletes physically. */
   readonly #physical: CallRows;
   /** The facts of a call whose deletes keep their rows. */
   readonly #tombstoning: CallRows;
-  /**
-   * The arguments the predicates read, where each takes one of closed
-   * values (`oneOf`) and none reads the instant: calls that pass the same
-   * values share one facts object, and so one read view, as many as the
-   * values combine.
-   */
-  readonly #closed: readonly string[] | undefined;
-  /** The facts calls share, by the value of each closed argument in turn. */
-  readonly #shared: Shared = { next: new Map() };
-  readonly #sharedKept: Shared = { next: new Map() };
+  /** Where some predicate reads a call value: what puts the call's in. */
+  readonly #values: ReturnType<CallReads["bind"]>["call"] | undefined;
   constructor(chain: ResolvedExtensionChain) {
     const layers = chain.rules ?? [];
     // The verbs, where some word brought what binds them.
@@ -150,47 +117,23 @@ export class RowsBinding implements CallRowsBinding {
     for (const [layer, member] of layers.entries())
       for (const [model, where] of Object.entries(member.confine))
         memo(confine, model, () => [])[layer] = where;
-    // An entry given lazily's predicates are not known yet: its calls
-    // carry their values.
-    this.#parametric =
-      lazy || layers.some(({ references }) => references.length > 0);
-    const read = new Set(layers.flatMap(({ references }) => references));
-    const declared = chain.args?.all ?? [];
-    // An entry given lazily may read any argument, known once it is read.
-    const defaulted = declared.filter(
-      ({ name, default: fallback }) =>
-        fallback !== undefined && (lazy || read.has(name))
-    );
-    this.#closed =
-      lazy ||
-      chain.stamps?.named === true ||
-      ![...read].every((name) =>
-        declared.some(
-          (argument) => argument.name === name && "oneOf" in argument
-        )
-      )
-        ? undefined
-        : [...read].filter((name) => name !== undefined);
-    this.#fallback =
-      this.#parametric && defaulted.length > 0
-        ? Object.fromEntries(
-            defaulted.map(({ name, default: fallback }) => [name, fallback])
-          )
-        : undefined;
-    const layered = layers.find((layer) => layer.layered)?.layered;
     const { kept, stamps, defaultOrder: order } = chain;
     this.#kept = kept;
     this.#stamps = stamps;
-    this.#required = requiredOn(chain.args);
-    const domain: RowDomain = {
+    let domain: RowDomain = {
       root: modelDomain(layers, "root", filters),
       related: modelDomain(layers, "related", filters),
       ...verbs,
       ...(confine.size > 0 && { confine, bound }),
-      ...(layered && { layered }),
-      ...(this.#fallback && { fallback: this.#fallback }),
       ...(order && { order: new Map(Object.entries(order)) }),
     };
+    // Where some predicate reads its call, what the words that read it
+    // brought carries each call's values.
+    const reads = layers
+      .find((layer) => layer.reads)
+      ?.reads?.bind(chain, lazy, domain);
+    if (reads) domain = reads.domain;
+    this.#values = reads?.call;
     this.#physical = {
       domain,
       ...(stamps && { stamps: stamps.all }),
@@ -202,66 +145,18 @@ export class RowsBinding implements CallRowsBinding {
         : { ...this.#physical, tombstones: kept };
   }
   /**
-   * What a call's predicates read: its arguments, each one with a default at
-   * it where the call passes none, and, where they differ from the
-   * defaults, the defaults too (`CallValues.defaults`).
-   */
-  #values(values: AdmittedArgs | undefined, shared?: true): CallValues {
-    let given = values ?? NO_VALUES;
-    const fallback = this.#fallback;
-    let departs = false;
-    if (fallback !== undefined)
-      for (const name in fallback)
-        if (Object.hasOwn(given, name))
-          departs ||= !Object.is(given[name], fallback[name]);
-        else given = { ...fallback, ...given };
-    const required = this.#required;
-    return {
-      args: given,
-      required,
-      ...(shared && { shared }),
-      ...(departs && {
-        defaults: {
-          args: { ...given, ...fallback },
-          required,
-        },
-      }),
-    };
-  }
-  /**
    * One call's row facts, from the arguments it admitted, and whether it
-   * deletes physically ({@link Kept.removes}). When its predicates read a
-   * call value, the call carries its arguments, each one with a default at
-   * it where the call passes none; when a stamp names one, the call's values
-   * are put in.
+   * deletes physically ({@link Kept.removes}); when a stamp names an
+   * argument, the call's values are put in.
    */
   call(model: string, values: AdmittedArgs | undefined): CallRows {
-    const kept = this.#kept;
-    const facts =
-      kept?.removes(model, values) === true
+    let facts =
+      this.#kept?.removes(model, values) === true
         ? this.#physical
         : this.#tombstoning;
-    const parametric = this.#parametric;
     const stamps = this.#stamps;
-    const stamped = stamps?.named === true;
-    if (!(parametric || stamped)) return facts;
-    const closed = this.#closed;
-    if (closed === undefined)
-      return {
-        ...facts,
-        ...(parametric && { values: this.#values(values) }),
-        ...(stamped && { stamps: stamps.of(values) }),
-      };
-    let node = facts === this.#physical ? this.#shared : this.#sharedKept;
-    for (const name of closed) {
-      const value = values?.[name];
-      node = memo(node.next, value, () => ({ next: new Map() }));
-    }
-    node.rows ??= {
-      ...facts,
-      values: this.#values(values, true),
-    };
-    return node.rows;
+    if (stamps?.named === true) facts = { ...facts, stamps: stamps.of(values) };
+    return this.#values?.(facts, values) ?? facts;
   }
 }
 

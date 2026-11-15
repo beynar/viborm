@@ -262,9 +262,10 @@ describe("a chain's rows and deletion resolve to one call's facts", () => {
     const related = defaults.domain.related.get("item")!;
     expect(related).toHaveLength(2);
     expect(0 in related).toBe(false);
-    expect(defaults.domain.fallback).toEqual({
-      archived: "no",
-      hidden: "exclude",
+    // Both arguments have a default: the domain read at the defaults is
+    // its own twin.
+    expect(defaults.domain.defaults).toMatchObject({
+      root: defaults.domain.root,
     });
     expect(defaults.values?.args).toEqual({
       archived: "no",

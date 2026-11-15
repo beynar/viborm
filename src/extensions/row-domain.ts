@@ -137,8 +137,6 @@ export class FilterDomain implements PreparedDomain {
    * (`rows.confine`): nothing where no member confines one.
    */
   readonly bound: ReturnType<NonNullable<RowDomain["bound"]>>;
-  /** Its layers read every argument with a default at it. */
-  readonly #atDefaults: boolean;
   #view: Queries | undefined;
   /** One read view per shared values, which no call's instant is read under. */
   readonly #views = new WeakMap<CallValues, Queries>();
@@ -146,14 +144,12 @@ export class FilterDomain implements PreparedDomain {
    * The domain read with each call's values, and its default twin of the
    * same class, made with it: where no argument has a default, itself.
    */
-  constructor(rows: RowDomain, queries: Queries, atDefaults = false) {
+  constructor(rows: RowDomain, queries: Queries) {
     this.rows = rows;
     this.queries = queries;
-    this.#atDefaults = atDefaults;
-    this.defaults =
-      atDefaults || rows.fallback === undefined
-        ? this
-        : new new.target(rows, queries, true);
+    this.defaults = rows.defaults
+      ? new new.target(rows.defaults, queries)
+      : this;
     this.judge = rows.judge?.(this);
     this.project = rows.project?.(this);
     this.bound = rows.bound?.(this) ?? unbounded;
@@ -189,7 +185,7 @@ export class FilterDomain implements PreparedDomain {
         parts.push(
           freeze({
             ...part,
-            predicate: layered(layer, name, part.predicate, this.#atDefaults),
+            predicate: layered(layer, name, part.predicate),
           })
         );
       else if (!reading) parts.push(part);

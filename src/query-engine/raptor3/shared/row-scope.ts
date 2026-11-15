@@ -48,20 +48,19 @@ export interface RowDomain {
   /**
    * What makes a layer's node of a predicate that reads its call (an
    * argument, the instant, a test of an argument): brought by the words
-   * that read it. Absent, a layer is what it states. `atDefaults`: the node
-   * reads each argument with a default at it ({@link CallValues.defaults}).
+   * that read it. Absent, a layer is what it states.
    */
   readonly layered?: (
     layer: number,
     model: string,
-    predicate: PreparedPredicate,
-    atDefaults?: boolean
+    predicate: PreparedPredicate
   ) => PreparedPredicate;
   /**
-   * The value each argument with a default takes where a call passes none:
-   * what the default domain reads them as (`CallScope.defaults`).
+   * The same domain read where every argument with a default takes it
+   * ({@link CallValues.defaults}): what `CallScope.defaults` prepares.
+   * Absent where no argument a predicate reads has a default.
    */
-  readonly fallback?: Readonly<Record<string, unknown>>;
+  readonly defaults?: RowDomain;
   /** What a layer's own whole-table sets hold (`rows.confine`), in every mode. */
   readonly confine?: ModelDomain;
   /**

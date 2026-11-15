@@ -11,6 +11,7 @@ import { Condition, Parameter } from "@query-engine/raptor3/shared/row-scope";
 import type { ModelState } from "@schema/model";
 import { isPlainRecord } from "@schema/relation/terminal";
 import type { VerbsDraft } from "./admission";
+import { CALL_READS } from "./call-values";
 import type {
   CheckWord,
   FactsWord,
@@ -23,7 +24,6 @@ import type {
 } from "./contract";
 import { judgeOf } from "./judge";
 import { keptPart } from "./kept";
-import { layerOf } from "./layers";
 import { projectionOf, refuseSharedKeys } from "./projection";
 import { draftOf, listOf } from "./rule";
 import { CarriedValue, PredicateWord, type Site, testOf } from "./rule-words";
@@ -295,7 +295,7 @@ class Lazy extends CarriedValue {
     layer.host = VERBS;
     // What the entry reads of its call, and whether its words judge or
     // project, are known once it is read.
-    layer.layered = layerOf;
+    layer.reads = CALL_READS;
     layer.brings = {
       judge: judgeOf,
       project: projectionOf,
