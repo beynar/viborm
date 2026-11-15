@@ -150,33 +150,25 @@ function planNode(
   // The columns read only for a field: removed from the rows again (a kept
   // name that is a field is computed over its column).
   const strip = new Set<string>();
+  for (const field of reads) if (!kept(field)) strip.add(field);
 
+  // Each key the plan changes is replaced in a copy, in its place.
   let next = args;
-  const rewrite = (key: string, value: Row) => {
-    if (next === args) next = { ...args };
-    next![key] = value;
-  };
   // `omit` subtracts from either projection: a computed name leaves it (a
   // column it shadows stays omitted), and a column a field reads is read
   // anyway, then removed again.
-  let nextOmit: Row | undefined;
-  for (const name of visible.keys()) {
-    if (
-      omit?.[name] === undefined ||
-      Object.hasOwn(model["~"].state.scalars, name)
-    )
-      continue;
-    nextOmit ??= { ...omit };
-    delete nextOmit[name];
+  if (omit !== undefined) {
+    const nextOmit = { ...omit };
+    for (const name of visible.keys())
+      if (
+        omit[name] !== undefined &&
+        !Object.hasOwn(model["~"].state.scalars, name)
+      )
+        delete nextOmit[name];
+    for (const field of reads)
+      if (omit[field] === true) nextOmit[field] = false;
+    next = { ...next, omit: nextOmit };
   }
-  for (const field of reads) {
-    if (!kept(field)) strip.add(field);
-    if (omit?.[field] === true) {
-      nextOmit ??= { ...omit };
-      nextOmit[field] = false;
-    }
-  }
-  if (nextOmit !== undefined) rewrite("omit", nextOmit);
   if (select !== undefined) {
     const nextSelect: Row = { ...nextProjection };
     for (const name of visible.keys()) delete nextSelect[name];
@@ -188,9 +180,9 @@ function planNode(
         if (!kept(first)) strip.add(first);
       }
     }
-    rewrite("select", nextSelect);
+    next = { ...next, select: nextSelect };
   } else if (nextProjection !== projection) {
-    rewrite("include", nextProjection!);
+    next = { ...next, include: nextProjection };
   }
 
   return {
