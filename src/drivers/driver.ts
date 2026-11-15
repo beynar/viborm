@@ -432,7 +432,7 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
    * transport, which reads `?NNN` by position or by name the same way.
    */
   protected override get numbersPlaceholders(): boolean {
-    return Reflect.get(this.baseDriver, "numbersPlaceholders") as boolean;
+    return this.numbersPlaceholdersOf(this.baseDriver);
   }
 
   // Always return the bound transaction
