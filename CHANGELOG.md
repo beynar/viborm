@@ -170,6 +170,19 @@ all-or-nothing when it fits one batch.
   `viborm.connect`, `viborm.disconnect`), a call's `query` or `error` log, or
   a span's status: what it may not set is dropped, never refused. See
   [Present your own units](https://viborm.dev/docs/extensions/instrumentation#present-your-own-units).
+- **`disclosed(error, { sql?, parameters? })`: a failure as a log or a span
+  may show it.** A `unit` part that logs or traces presents `failure(u)`
+  through it: a new `Error` with what VibORM recorded of an error it made
+  (class, message, code, known `meta`), the provider's words only where the
+  application's `disclosure` allowed `providerDetails`, statement text and
+  parameter values only where both that `disclosure` and `sql` / `parameters`
+  allow them, no stack; any other value gives `Error details redacted`. It
+  never throws, and a getter on the error's own properties never runs. The
+  official instrumentation presents its failures through it, and imports
+  only public names, as the six other official extensions do.
+  `parameters(u)` reads a parameter once however many extensions read it.
+  See
+  [Present a failure](https://viborm.dev/docs/extensions/create#present-a-failure-disclosed).
 - **Several `on()` on one client.** Each `on()` is an extension of its own
   name (the first `on()` a program calls is `viborm.on`, the next
   `viborm.on.2`, …) and runs its own hooks, in the order they were applied. A
@@ -193,10 +206,10 @@ all-or-nothing when it fits one batch.
 - **What each extension adds to a PostgreSQL application, minified**
   (measured with `node scripts/extension-bytes.mjs`; before → now):
   default omission 45,233 → 5,853 bytes; `on` 47,016 → 11,562;
-  instrumentation 56,422 → 18,868; soft delete 80,013 → 23,963; ordering
+  instrumentation 56,422 → 18,242; soft delete 80,013 → 23,963; ordering
   100,547 → 29,694; cache 71,844 → 33,143; permissions 114,651 → 69,547;
   `on`, ordering, permissions and soft delete together 142,213 → 108,685.
-  An application that applies no extension: 519,322 → 508,466 bytes, of
+  An application that applies no extension: 519,322 → 508,097 bytes, of
   which 646 bytes are extension code.
 - **What one extension of an application costs the type checker**: an
   extension of the user's own on a 50-model schema, 1,345,449 → 649,244

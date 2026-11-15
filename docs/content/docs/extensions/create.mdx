@@ -95,7 +95,7 @@ The official extensions, measured the same way:
 |---|---:|---:|
 | [`defaultOmit()`](/docs/extensions/omit) | 5.9 kB | 2.3 kB |
 | [`on()`](/docs/extensions/on) | 11.6 kB | 4.4 kB |
-| [`instrumentation()`](/docs/extensions/instrumentation) | 18.9 kB | 6.6 kB |
+| [`instrumentation()`](/docs/extensions/instrumentation) | 18.2 kB | 6.5 kB |
 | [`softDelete()`](/docs/extensions/soft-delete) | 24.0 kB | 9.2 kB |
 | [`ordering()`](/docs/extensions/ordering) | 29.7 kB | 11.7 kB |
 | [`cache()`](/docs/extensions/cache) | 33.1 kB | 11.8 kB |
@@ -503,10 +503,11 @@ const durations = extension(
 
 | Word | Meaning |
 |---|---|
-| `text(u)`, `parameters(u)`, `driver(u)` | A statement's rendered text, its parameters, the driver (`driver(u)` on any kind) |
+| `text(u)`, `parameters(u)`, `driver(u)` | A statement's rendered text, a bounded snapshot of its parameters, the driver (`driver(u)` on any kind) |
 | `statement(u)` | The statement as an `Sql`, before rewriting |
 | `statements(u)` | The members of a native batch sent as one unit |
-| `failure(u)` | The raw error, after the end |
+| `failure(u)` | The raw error, after the end: present it through `disclosed` |
+| `disclosed(error, { sql?, parameters? })` | The copy of an error a log or a span may show ([below](#present-a-failure-disclosed)) |
 | `correlation(u)`, `table(u)` | The call's correlation, the statement's table |
 | `origin(error)` | The unit an error comes from |
 | `notes(u)` | Facts an extension attached to the unit with `note`, in order |
@@ -623,6 +624,76 @@ that says what an error thrown by a call of the chain may carry, each flag
 `false` unless given. The official
 [instrumentation](/docs/extensions/instrumentation) puts its `diagnostics`
 there. Without it, errors disclose none of these.
+
+### Present a failure: `disclosed`
+
+A `unit` that logs or traces holds what the application may not want shown:
+`failure(u)` is the error itself, with whatever a provider put in it, and
+`text(u)` and `parameters(u)` are the statement. What it shows of the
+statement is its own setting, like the official instrumentation's
+`includeSql` and `includeParams`. What it shows of a failure goes through
+`disclosed`, which follows the application's `disclosure`:
+
+```ts
+import { disclosed, extension, failure, parameters, text, unit } from "viborm";
+
+const statementLog = (show: { sql?: boolean; parameters?: boolean }) =>
+  extension(
+    "statement-log",
+    unit(
+      async (u, next) => {
+        // Before next(): the provider may change what it was handed.
+        const values = show.parameters ? parameters(u) : undefined;
+        const end = await next();
+        record({
+          sql: show.sql ? text(u) : undefined,
+          values,
+          error: end.status === "failure" ? disclosed(failure(u), show) : undefined,
+        });
+        return end;
+      },
+      ["statement"]
+    )
+  );
+```
+
+`disclosed(error, { sql?, parameters? })` returns a new `Error`, the one to
+log or put on a span, never the error itself. It is a security boundary:
+
+- **Kept.** Of an error VibORM made (every error it throws): its `name`,
+  `message`, `code`, `prismaCode`, `timestamp`, the `meta` keys VibORM knows,
+  and its causes, as VibORM recorded them when it built the error. Of any
+  other `Error`: the name `"Error"`, the message `"Error details redacted"`,
+  and those of its own `code`, `errno`, `sqlState`, `status`, `statusCode`
+  that have the shape of a code (`ECONNRESET`, a SQLSTATE, an HTTP status).
+- **Removed.** The stack, always, and every other property. A cause's
+  message, `detail` and `hint` (a provider's words), unless the
+  application's `disclosure` allowed `providerDetails`; then they are kept,
+  with the credentials in URLs, `password=…`, `token=…`, `secret=…` and
+  `Bearer …` redacted. A `callsite`, unless the application allowed
+  `callsite`. The statement text in `meta`, unless `sql`; the parameter
+  values in `meta`, unless `parameters`. What the application's `disclosure`
+  hid was never put in the error, so `sql` and `parameters` can only hide
+  more.
+- **Bounded.** A cause seen twice (a cycle) becomes an error
+  `"[Circular]"`, a chain deeper than eight causes `"[Truncated]"`. A string
+  is cut at 4,096 characters, the copy at 32,768.
+- **Any value.** A failure that is not an `Error` (a thrown string, an
+  object, `undefined`) gives `Error: Error details redacted`; nothing of it is
+  read but its prototype chain.
+- **What it reads.** Its own data properties, through their descriptors: a
+  getter on them never runs. `cause` and `originalCause` are read as
+  properties, so a getter there runs, at most once per error of the chain.
+  Each call reads again: call it once per failure. It never throws.
+
+`parameters(u)` is bounded the same way and needs no word: each value is a
+string, a number, a boolean, `null`, an array of at most 128 items, a record
+of its own data properties (a getter on them never runs: `"[Unreadable]"`),
+or a marker (`"[Circular]"`, `"[Truncated]"`, `"[Undefined]"`,
+`"[Function]"`); a `BigInt` becomes its digits,
+a `Date` its ISO string, bytes `{ type: "binary", byteLength, bytes }` with at
+most 128 of them. It is taken once per unit: a hostile value is read once,
+however many extensions read it.
 
 ## `args`: arguments a call passes
 

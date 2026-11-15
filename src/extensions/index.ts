@@ -38,6 +38,7 @@ export type {
 } from "./contract";
 export { type Database, database } from "./database";
 export { defaults, omitted } from "./defaults";
+export { disclosed } from "./disclosed";
 export { type DisclosurePolicy, disclosure } from "./disclosure";
 export { extension } from "./extension";
 export { fields } from "./fields";

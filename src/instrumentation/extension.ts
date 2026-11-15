@@ -66,20 +66,20 @@ export function instrumentation<T extends AnyTarget, const Config>(
 export function instrumentation(config: InstrumentationConfig): unknown {
   const context = createInstrumentationContext(config);
   const { diagnostics, logging, tracing } = context.config;
-  const disclosed = disclosure({
+  const policy = disclosure({
     sql: diagnostics.includeSql,
     parameters: diagnostics.includeParams,
     providerDetails: diagnostics.includeProviderDetails,
     callsite: diagnostics.includeCallsite,
   });
   if (tracing === undefined && logging === undefined)
-    return extension(NAME, disclosed);
+    return extension(NAME, policy);
   // The origins already logged: one failure, one error log.
   const logged = new WeakSet<object>();
   return extension(
     NAME,
     unitPart((unit, next) => observe(context, logged, unit, next)),
-    disclosed
+    policy
   );
 }
 

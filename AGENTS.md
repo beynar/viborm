@@ -278,7 +278,7 @@ in the scope, whose collector the first registration installs),
 the unit records (`unit-source.ts`), the handler and write-outcome types
 (`query.ts`), the call's row scope (`row-domain.ts`) and the chain's state
 (`chain-state.ts`) are imported for their types only. It must not grow by
-one byte (`pg-representative`, measured by `extension-bytes.mjs`: 508,466
+one byte (`pg-representative`, measured by `extension-bytes.mjs`: 508,097
 bytes minified on the tree of the extension rewrite, of which 646 come from
 `src/extensions`): a chain member a core path reads is named short, since
 minified property names are kept.
@@ -412,11 +412,12 @@ was validated upstream and rewrites are trusted.
 **Official extensions are built with public names.** Each is an ordinary
 `extension(…)` of public parts, applied in one step, in any order.
 `tests/contracts/public-client/extension-imports.core.test.ts` holds
-`viborm/cache`, `defaultOmit`, `viborm/on`, `viborm/ordering`,
-`viborm/permissions` and `viborm/soft-delete` to names the public entries
-export; its `PENDING` list says what `viborm/instrumentation` still takes
-(the private error, parameter and metadata sanitizers): a capability to
-make public, never a friend import to add. No official extension is
+`viborm/cache`, `defaultOmit`, `viborm/instrumentation`, `viborm/on`,
+`viborm/ordering`, `viborm/permissions` and `viborm/soft-delete` to names the
+public entries export. What an official extension lacks is a capability to
+make public for every author, never a friend import to add: the
+instrumentation presents failures through `disclosed`, the word any logging
+extension uses. No official extension is
 authenticated by identity; the engine names none (the same census). Two
 official extensions talk only through public facts: the cache publishes
 its units' presentation as notes (`InstrumentationNote`), which the
