@@ -100,6 +100,13 @@ const MOVE_ATTEMPTS = 3;
 const MISSED = Symbol("missed");
 
 /** A model's ordering facts, checked against the schema once. */
+/** An object's fields that hold a value: a field given `undefined` is left
+ * out, as in any update. */
+const defined = (object: object): Row =>
+  Object.fromEntries(
+    Object.entries(object).filter(([, value]) => value !== undefined)
+  );
+
 /** A plain object: what `data` is, as an update's data. */
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" &&
@@ -209,12 +216,6 @@ const same = (left: unknown, right: unknown) =>
 
 const fieldsOf = (fields: readonly string[], row: Row): Row =>
   Object.fromEntries(fields.map((field) => [field, row[field] ?? null]));
-
-function invalid(model: string, message: string): never {
-  throw new ValidationError("update", [
-    { message: `${model}.move: ${message}`, path: "" },
-  ]);
-}
 
 /** A delegate's write, as respacing calls it. */
 interface Writes {
@@ -543,6 +544,11 @@ function methods(ordered: Ordered) {
   // the list's, and no relation (a nested write may change the list, or a
   // related key a foreign key cascades into it).
   const placing = [key, ...within];
+  const invalid = (message: string): never => {
+    throw new ValidationError("update", [
+      { message: `${name}.move: ${message}`, path: "" },
+    ]);
+  };
   /** The fields `where` names with a value (a compound selector's too): how
    * the moved row is recognised among rows read, without reading it. */
   const named = (where: Row): Row => {
@@ -589,22 +595,16 @@ function methods(ordered: Ordered) {
     } = args as Record<string, unknown> & { where: Row };
     const chosen = PLACEMENTS.filter((option) => args[option] !== undefined);
     if (chosen.length > 1 || (chosen.length === 0 && to === undefined))
-      invalid(
-        name,
-        "give exactly one of after, before, first, last, key, or to."
-      );
+      invalid("give exactly one of after, before, first, last, key, or to.");
     if (to !== undefined && (after !== undefined || before !== undefined))
-      invalid(
-        name,
-        "to goes with first, last or key, not with after or before."
-      );
+      invalid("to goes with first, last or key, not with after or before.");
     if (given !== undefined && !isKeyFormat(given))
-      invalid(name, "key takes an ordering key (isKeyFormat, keyBetween).");
+      invalid("key takes an ordering key (isKeyFormat, keyBetween).");
     if (
       (first !== undefined && first !== true) ||
       (last !== undefined && last !== true)
     )
-      invalid(name, "first and last take true.");
+      invalid("first and last take true.");
     const list = to as Row | undefined;
     if (list !== undefined) {
       const fields = Object.keys(list);
@@ -612,15 +612,10 @@ function methods(ordered: Ordered) {
         fields.length !== within.length ||
         !within.every((field) => fields.includes(field))
       )
-        invalid(name, `to names the list's fields: ${within.join(", ")}.`);
+        invalid(`to names the list's fields: ${within.join(", ")}.`);
     }
     // Read once: the copy is what is checked and written.
-    // A field given `undefined` is left out, as in any update.
-    const extra: Row = isRecord(data)
-      ? Object.fromEntries(
-          Object.entries(data).filter(([, value]) => value !== undefined)
-        )
-      : {};
+    const extra = isRecord(data) ? defined(data) : {};
     if (
       data !== undefined &&
       (!isRecord(data) ||
@@ -629,18 +624,13 @@ function methods(ordered: Ordered) {
         ))
     )
       invalid(
-        name,
         `data writes the model's own fields beside the key: not ${placing.join(", ")}${within.length === 0 ? "" : " (to moves the row between lists)"}, nor a relation.`
       );
     const anchor = (after ?? before) as Row | undefined;
     // The side the row's neighbour is read on: below it (before an anchor,
     // last of a list), else above.
     const back = after === undefined && first !== true;
-    const projection = {
-      ...(select === undefined ? {} : { select }),
-      ...(include === undefined ? {} : { include }),
-      ...(omit === undefined ? {} : { omit }),
-    };
+    const projection = defined({ select, include, omit });
     // Every write of the move writes what `data` names beside its key and
     // list, its `updatedAt()` fields as stored.
     const update = (selected: Row, written: Row) =>
@@ -675,14 +665,15 @@ function methods(ordered: Ordered) {
       ...selection,
       ...Object.fromEntries(fields.map((field) => [field, true])),
     };
+    // The caller's reads of the model, with the call's own arguments.
+    const one = async (args: object) =>
+      (await delegate.findUnique!({ ...passed, ...args })) as Row | null;
+    const many = async (args: object) =>
+      (await delegate.findMany!({ ...passed, ...args })) as Row[];
     // Already in place: its key stays; what `data` writes is written.
     const inPlace = async () => {
       if (Object.keys(extra).length > 0) return settle([[where, {}]]);
-      const row = await delegate.findUnique!({
-        ...passed,
-        where,
-        ...projection,
-      });
+      const row = await one({ where, ...projection });
       if (row === null) throw new NotFoundError(name, "move");
       return row;
     };
@@ -826,41 +817,31 @@ function methods(ordered: Ordered) {
         // carry it: a nullable list field, or a condition beside its key.
         at =
           open || Object.keys(anchor).length > 1
-            ? ((await delegate.findUnique!({
-                ...passed,
-                where: anchor,
-                select: reading,
-              })) as Row | null)
+            ? await one({ where: anchor, select: reading })
             : undefined;
         rows =
           at === null
             ? []
-            : ((await delegate.findMany!({
-                ...passed,
+            : await many({
                 ...(at && { where: fieldsOf(within, at), orderBy: keyOrder }),
                 cursor: at ? selectorOf(at) : anchor,
                 take: back ? -3 : 3,
                 select: reading,
-              })) as Row[]);
+              });
       } else {
         if (list === undefined && within.length > 0) {
           // First or last of its own list: the one read of the row.
-          const moved = (await delegate.findUnique!({
-            ...passed,
-            where,
-            select: selection,
-          })) as Row | null;
+          const moved = await one({ where, select: selection });
           if (moved === null) throw new NotFoundError(name, "move");
           group = fieldsOf(within, moved);
           home = true;
         }
         // The list's two rows at that end, the moved row recognised.
-        rows = (await delegate.findMany!({
-          ...passed,
+        rows = await many({
           where: group,
           take: back ? -2 : 2,
           select: reading,
-        })) as Row[];
+        });
       }
       // From the place outward.
       if (back) rows = [...rows].reverse();
@@ -876,8 +857,7 @@ function methods(ordered: Ordered) {
           !rowKey.fields.every((field) => same(found[field], at[field]))
         )
           continue;
-        if (isMoved(found))
-          invalid(name, "a row cannot be placed next to itself.");
+        if (isMoved(found)) invalid("a row cannot be placed next to itself.");
         group = fieldsOf(within, found);
         edge = found[key] as string;
         rows = rows
