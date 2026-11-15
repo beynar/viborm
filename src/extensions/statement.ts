@@ -41,23 +41,27 @@ export function rewritePart(handler: UnitHandler): ExtensionPart {
         ...observation,
         together: async (members, send, refuse) => {
           const statements: (Sql | undefined)[] = [];
-          const reached = new Set<number>();
           let settle!: (outcome: Promise<unknown>) => void;
           const outcome = new Promise<unknown>((resolve) => {
             settle = resolve;
           });
-          const units = members.map((source, index) => {
-            if (source === undefined) return undefined;
-            return observation.enter(source, (statement) => {
-              statements[index] = statement;
-              reached.add(index);
-              return outcome;
-            });
-          });
-          await Promise.all(units.map((unit) => unit?.reached));
-          const done = Promise.all(units.map((unit) => unit?.done));
+          const { done, units } = await observation.members(
+            members.map((source, index) =>
+              source === undefined
+                ? undefined
+                : [
+                    source,
+                    (statement) => {
+                      statements[index] = statement;
+                      return outcome;
+                    },
+                  ]
+            )
+          );
+          // A member's unit reached its child where the child kept its
+          // statement.
           const refused = units.findIndex(
-            (unit, index) => unit !== undefined && !reached.has(index)
+            (unit, index) => unit !== undefined && !(index in statements)
           );
           if (refused >= 0) {
             // An unreached unit's end is its failure.

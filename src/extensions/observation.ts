@@ -245,26 +245,27 @@ export interface Observation {
     child: Child<Result>
   ) => Promise<Result>;
   /**
-   * One member of `$transaction([...])`: its unit runs until its child is
-   * reached. The array waits for every member's `reached` before it prepares
-   * any: a handler that waits (for a tracer to load) does so before the
-   * array's work, and each member's work runs inside its unit.
-   */
-  readonly enter: <Result>(
-    source: UnitSource,
-    child: Child<Result>
-  ) => { readonly done: Promise<Result>; readonly reached: Promise<void> };
-  /**
-   * Every member's unit, entered: resolves once each reached its child, with
-   * what settles once every unit did (and fails as the first that failed).
+   * The members of `$transaction([...])`, or of a batch of logical
+   * statements: every member's unit is entered (a member without one is
+   * skipped), and this resolves once each reached its child, with the units
+   * and what settles once every unit did (and fails as the first that
+   * failed). The array waits for it before it prepares any member: a handler
+   * that waits (for a tracer to load) does so before the array's work, and
+   * each member's work runs inside its unit.
    */
   readonly members: (
-    members: readonly (readonly [UnitSource, Child<unknown>])[]
-  ) => Promise<{ readonly done: Promise<unknown> }>;
+    members: readonly (readonly [UnitSource, Child<unknown>] | undefined)[]
+  ) => Promise<{
+    readonly done: Promise<unknown>;
+    readonly units: readonly (
+      | { readonly done: Promise<unknown> }
+      | undefined
+    )[];
+  }>;
 }
 
 export function observationOf(handlers: readonly UnitLayer[]): Observation {
-  const enter: Observation["enter"] = (source, child) => {
+  const enter = <Result>(source: UnitSource, child: Child<Result>) => {
     let reach: (() => void) | undefined;
     const reached = new Promise<void>((resolve) => {
       reach = resolve;
@@ -276,13 +277,14 @@ export function observationOf(handlers: readonly UnitLayer[]): Observation {
   return {
     handlers,
     run: (source, child) => runUnit(handlers, source, child),
-    enter,
     members: async (members) => {
-      const units = members.map(([source, child]) => enter(source, child));
-      await Promise.all(units.map((unit) => unit.reached));
-      const done = Promise.all(units.map((unit) => unit.done));
+      const units = members.map((member) =>
+        member === undefined ? undefined : enter(member[0], member[1])
+      );
+      await Promise.all(units.map((unit) => unit?.reached));
+      const done = Promise.all(units.map((unit) => unit?.done));
       done.catch(() => undefined);
-      return { done };
+      return { done, units };
     },
   };
 }
