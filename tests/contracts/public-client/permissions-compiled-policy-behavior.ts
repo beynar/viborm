@@ -9,7 +9,7 @@ import {
   when,
 } from "@src/index";
 import type { CompiledPolicy } from "@src/permissions";
-import { ruleEntryOf } from "@src/permissions/compile";
+import { EVIDENCE_KEY, policyCompiler } from "@src/permissions/compile";
 import { v } from "@src/validation";
 import {
   createPermissionsAppClient,
@@ -90,25 +90,34 @@ const extensionOf = (name: string, compiled: CompiledPolicy) =>
     rule(
       Object.fromEntries(
         // Every model of the schema: one the policy does not list holds nothing (R9).
-        Object.entries(compiled.models).map(([model, own]) => {
+        Object.entries(compiled.models).map(([model, entry]) => {
+          // The entry's own modes give way to this extension's.
+          const { root: _modes, ...own } = entry;
+          const predicates =
+            (
+              own.read.select?.[EVIDENCE_KEY] as
+                | { readonly predicates: Readonly<Record<string, object>> }
+                | undefined
+            )?.predicates ?? {};
           return [
             model,
-            ruleEntryOf(own, (P) =>
-              GOVERNED_MODELS.includes(model as never)
-                ? [
+            GOVERNED_MODELS.includes(model as never)
+              ? {
+                  ...own,
+                  root: [
                     when(arg(MODE), "none", NOWHERE),
                     ...ACTIONS.map((action) =>
                       when(
                         arg(MODE),
                         action,
-                        Object.hasOwn(own.predicates, action)
-                          ? P(action)
+                        Object.hasOwn(predicates, action)
+                          ? predicates[action]!
                           : NOWHERE
                       )
                     ),
-                  ]
-                : []
-            ),
+                  ],
+                }
+              : own,
           ];
         })
       ) as never
@@ -206,9 +215,9 @@ export function runCompiledPolicyBehavior(
     test(
       "W-A1: R1 per action: each model's actions are the oracle's, and their row sets differ",
       async () => {
-        const compiled = declaredPolicy();
+        const listed = policyCompiler(policy.config, schema).declared;
         for (const model of GOVERNED_MODELS)
-          expect(Object.keys(compiled.models[model]!.modes), model).toEqual([
+          expect(Object.keys(listed[model]!.modes), model).toEqual([
             ...actionsOf(model),
             ...(model === "page" ? ["given"] : []),
           ]);

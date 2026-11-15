@@ -105,7 +105,7 @@ export interface Admitting {
  * `arg(name, path?)`'s value: the call's value for one argument, or a field
  * of it; without a name, `now`'s: the call's one instant.
  */
-class ArgValue extends PredicateWord {
+export class ArgValue extends PredicateWord {
   readonly name: string | undefined;
   readonly path: string | undefined;
   constructor(name?: string, path?: string) {
@@ -192,7 +192,7 @@ export function testOf(given: unknown): ConditionTest | string {
  * `unless` the reverse; `provided` holds only where the test holds (and
  * `then`, if any).
  */
-class ArgTestFilter extends PredicateWord {
+export class ArgTestFilter extends PredicateWord {
   readonly kind: "when" | "unless" | "provided";
   readonly arg: ArgValue;
   readonly test: ArgTest;

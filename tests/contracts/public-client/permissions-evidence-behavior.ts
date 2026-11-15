@@ -10,7 +10,6 @@ import {
   unit,
 } from "@src/index";
 import type { CompiledPolicy } from "@src/permissions";
-import { ruleEntryOf } from "@src/permissions/compile";
 import { v } from "@src/validation";
 import {
   createPermissionsAppClient,
@@ -41,9 +40,9 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 /**
  * K5 against the oracle (plan §4.5, §3.3 D5/D6; §7 W-EV1..W-EV4 and
  * W-F1..W-F8): the compiled §1.1 policy exactly as `viborm/permissions` hands it
- * to its `rule` (`ruleEntryOf`), which declares per listed model
- * `evidence: { as: "$access", names }` with the model's actions and
- * `reads` as the policy compiled them (`collection.budget` at `full`). The
+ * to its `rule`: per listed model, `$access` facts for the model's actions
+ * and the read-gated fields as the policy compiled them (`collection.budget`
+ * at `full`). The
  * expectations read the oracle's own actions and order (`actionsOf`), never
  * the compiled ones. A plain extension carries it, its actor an argument; no
  * other layer, so the oracle is read without tombstones.
@@ -77,8 +76,8 @@ const KEY = "$access";
 const ROLLBACK = new Error("rolled back");
 
 /**
- * The compiled policy as `viborm/permissions` writes it (`ruleEntryOf`, one
- * rule entry per model), and K5's arguments: the actor a call argument, the
+ * The compiled policy as `viborm/permissions` writes it (one rule entry per
+ * model), and K5's arguments: the actor a call argument, the
  * credential scopes bound by `$unrestricted()`.
  */
 export const evidenceExtension = (compiled: CompiledPolicy) =>
@@ -95,9 +94,10 @@ export const evidenceExtension = (compiled: CompiledPolicy) =>
     }),
     rule(
       Object.fromEntries(
-        Object.entries(compiled.models).map(([name, model]) => [
+        // Each entry without the policy's own modes: no call names one.
+        Object.entries(compiled.models).map(([name, { root: _, ...model }]) => [
           name,
-          ruleEntryOf(model, () => []),
+          model,
         ])
       )
     ),
