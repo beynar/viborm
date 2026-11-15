@@ -357,6 +357,19 @@ describe("keep(): what a delete writes instead", () => {
     ).toContain("keep() takes the data the row is updated with");
   });
 
+  test("a keep()'s when takes a value or one known test", () => {
+    expect(
+      refusal(
+        kept(
+          when(arg("trash"), { near: "keep" }, { deletedAt: now }),
+          args({ trash: oneOf("keep", "remove") })
+        )
+      )
+    ).toContain(
+      "a test is a value or exactly one of exists, equals, in, has, hasSome"
+    );
+  });
+
   test("keep() writes constants and now, now in one field", () => {
     expect(
       refusal(

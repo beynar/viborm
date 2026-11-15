@@ -2007,6 +2007,33 @@ describe("public array lifecycle observers", () => {
     expect(timeline).toEqual(["transform:findMany", "transform:count"]);
   });
 
+  test("a rewriting unit that answers a native member without its statement refuses the batch, and nothing is sent", async () => {
+    const { client: base, driver } = nativeClient();
+    const client = base.$extends(
+      extension(
+        "native-statement-skip",
+        extUnit(
+          (u, next) =>
+            u.operation === "count" ? undefined : next(extStatement(u)),
+          ["statement"],
+          { rewrites: true }
+        )
+      )
+    );
+    const failure = await client
+      .$transaction([client.record.findMany(), client.record.count()])
+      .then(
+        () => "resolved",
+        (error: unknown) => error
+      );
+    expect(failure).toBeInstanceOf(QueryError);
+    expect(failure).toHaveProperty(
+      "message",
+      'Extension "native-statement-skip" unit() for statement settled without calling next().'
+    );
+    expect(driver.events).toEqual([]);
+  });
+
   test("keeps prepared Sql provenance private from copied and hostile batch queries", async () => {
     const statementCompletions: string[] = [];
     let transformCalls = 0;
