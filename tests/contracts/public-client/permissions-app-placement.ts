@@ -1,6 +1,5 @@
 import { ForbiddenError, NestedWriteError, NotFoundError } from "@errors";
 import { accepts, args, extension, methods, rule } from "@src/index";
-import { ruleEntryOf } from "@src/permissions/compile";
 import { v } from "@src/validation";
 import {
   CREATES,
@@ -107,9 +106,10 @@ export function runPermissionsAppPlacement(
     rule(
       Object.fromEntries(
         // Every model of the schema: one the policy does not list holds nothing (R9).
-        Object.entries(compiled.models).map(([model, own]) => [
+        // Each entry without the policy's own modes: no call names one.
+        Object.entries(compiled.models).map(([model, { root: _, ...own }]) => [
           model,
-          ruleEntryOf(own, () => []),
+          own,
         ])
       ) as never
     ),

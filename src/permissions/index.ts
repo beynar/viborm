@@ -18,7 +18,6 @@ import { lazy } from "../extensions/judge-words";
 import { methods } from "../extensions/methods-part";
 import { models as everyOperation, selecting, target } from "../extensions/on";
 import { rule } from "../extensions/rule";
-import { arg, when } from "../extensions/rule-words";
 import type {
   AnyTarget,
   ClientSchema,
@@ -37,13 +36,12 @@ import {
   DEFAULT_MODE,
   type DeclaredModel,
   type EVIDENCE_KEY,
+  MODE,
   type ModelPolicy,
   type PermissionsConfig,
   type PolicyCompiler,
   policyArguments,
   policyCompiler,
-  ruleEntryOf,
-  wordsOf,
 } from "./compile";
 import type { PolicyModel, Where } from "./rules";
 
@@ -295,8 +293,6 @@ type SchemaCheck<
 // =============================================================================
 
 const NAME = "viborm.permissions";
-/** The call argument that narrows a call to one action or domain (R8). */
-const MODE = "as";
 
 type Listed<Config extends PermissionsConfig> = keyof Config["models"] & string;
 type ActionOf<
@@ -401,12 +397,10 @@ type PermissionsFacts<
 export interface Policy<Config extends PermissionsConfig> {
   readonly config: Config;
   /**
-   * The policy compiled against the schema it governs (R1, plain data): per
-   * model, its named predicates and the verbs, written fields, read-gated
-   * fields, modes, placement, moves, acyclic relations and projection key
-   * that take them. Refusals are
-   * `ClientInitializationError`s naming the declaration's path. Public for
-   * inspection; the entry applies it as it is.
+   * The policy compiled against the schema it governs (R1): per model, the
+   * rule entry the extension applies, and each credential scope with the
+   * scopes it implies. Refusals are `ClientInitializationError`s naming the
+   * declaration's path. Public for inspection.
    */
   compile<S extends Schema>(
     schema: S & SchemaCheck<S, Config["models"]>
@@ -699,24 +693,6 @@ export function permissions<const Config extends PermissionsConfig>(
     applied.set(schema, known);
     return known;
   };
-  /** One model's compiled predicates as a rule entry. */
-  const entryOf = (compiler: PolicyCompiler, name: string) => {
-    const model = compiler.model(name);
-    return ruleEntryOf(
-      model,
-      // The default and the model's read action narrow nothing (`read`
-      // holds in every mode); another of its actions or domains narrows by
-      // its predicate (R8). A mode it does not declare is refused before
-      // any statement (the `call` below).
-      (P) =>
-        Object.entries(model.modes)
-          .filter(([mode]) => mode !== DEFAULT_MODE && mode !== model.read)
-          .map(([mode, named]) => when(arg(MODE), mode, P(named))),
-      // Knowing which self relations are kept acyclic takes every model
-      // compiled: they are read when an update first writes a self key.
-      () => compiler.acyclic(name)
-    );
-  };
   const governed = extension(
     NAME,
     // Every model of the schema, each read when a call first needs it.
@@ -725,23 +701,20 @@ export function permissions<const Config extends PermissionsConfig>(
       return Object.fromEntries(
         Object.keys(compiler.declared).map((name) => [
           name,
-          lazy(() => entryOf(compiler, name)),
+          lazy(() => compiler.model(name).entry),
         ])
       );
     }),
     // The tenant the policy's own whole-table sets stay in (`tenant`).
-    rule<Untyped, (schema: Schema) => object>((schema) => {
-      const known = new WeakMap<object, unknown>();
-      return Object.fromEntries(
+    rule<Untyped, (schema: Schema) => object>((schema) =>
+      Object.fromEntries(
         // The first rule part, declared before this one, applied the policy.
         Object.entries(applied.get(schema)?.compiler.declared ?? {}).flatMap(
           ([name, model]) =>
-            model.bound === undefined
-              ? []
-              : [[name, { confine: wordsOf(model.bound, known) }]]
+            model.bound === undefined ? [] : [[name, { confine: model.bound }]]
         )
-      );
-    }),
+      )
+    ),
     args({
       actor: volatile
         ? bound(actor.schema).required().volatile()

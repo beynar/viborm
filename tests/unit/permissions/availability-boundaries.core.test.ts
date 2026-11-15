@@ -1,8 +1,8 @@
 import { s } from "@schema";
 import { actorContract } from "@src/permissions/actor";
-import { compilePolicy } from "@src/permissions/compile";
 import { v } from "@src/validation";
 import { expect, test } from "vitest";
+import { compilePolicy } from "./compiled-view";
 
 test("JSON arrays are required containers even though individual JSON values may be null", () => {
   const actor = actorContract(
