@@ -25,6 +25,7 @@ const contracts = [
   "tests/contracts/public-client/extension-differential-review.core.test.ts",
   "tests/contracts/public-client/extension-disclosed.core.test.ts",
   "tests/contracts/public-client/extension-edge-paths.core.test.ts",
+  "tests/contracts/public-client/extension-reads.core.test.ts",
   "tests/contracts/public-client/extension-evidence.core.test.ts",
   "tests/contracts/public-client/extension-final-review.core.test.ts",
   "tests/contracts/public-client/extension-lazy-verbs.core.test.ts",
