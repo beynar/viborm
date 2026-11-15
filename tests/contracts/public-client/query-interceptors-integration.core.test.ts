@@ -1460,6 +1460,78 @@ describe("public query-interceptor integration", () => {
     expect(certainties).toEqual(["may-have-committed"]);
   });
 
+  test("a transaction whose COMMIT fails tells its settled() listeners it may have committed, then fails with the commit's failure, which carries that certainty", async () => {
+    const commitFailure = new Error("commit acknowledgement lost");
+    const certainties: string[] = [];
+    const { client: base, driver } = integrationClient();
+    driver.failNextCommit(commitFailure);
+    const client = base.$extends(
+      extension(
+        "commit-heard",
+        around(
+          (c) => {
+            settled(c, ({ certainty }) => {
+              certainties.push(certainty);
+            });
+            return async (run) => run();
+          },
+          extTarget("record", deletes)
+        )
+      )
+    );
+    const failure = await client
+      .$transaction(async (tx) => tx.record.deleteMany())
+      .then(
+        () => undefined,
+        (error: unknown) => error
+      );
+    expect(certainties).toEqual(["may-have-committed"]);
+    expect(failure).toBeInstanceOf(QueryError);
+    // The provider's error is kept redacted: its class, not its message.
+    expect(failure).toMatchObject({
+      originalCause: expect.any(Error),
+      meta: expect.objectContaining({ commitCertainty: "may-have-committed" }),
+    });
+  });
+
+  test("a COMMIT that fails and a connection that then fails to close fail the transaction with both, as the provider gave them, once its settled() listeners heard it may have committed", async () => {
+    const certainties: string[] = [];
+    const { client: base, driver } = integrationClient();
+    driver.failNextCommit(new Error("commit acknowledgement lost"));
+    driver.failNextTransactionClose(new Error("connection reset on close"));
+    const client = base.$extends(
+      extension(
+        "commit-heard",
+        around(
+          (c) => {
+            settled(c, ({ certainty }) => {
+              certainties.push(certainty);
+            });
+            return async (run) => run();
+          },
+          extTarget("record", deletes)
+        )
+      )
+    );
+    const failure = await client
+      .$transaction(async (tx) => tx.record.deleteMany())
+      .then(
+        () => undefined,
+        (error: unknown) => error
+      );
+    expect(certainties).toEqual(["may-have-committed"]);
+    expect(failure).toBeInstanceOf(AggregateError);
+    const { errors } = failure as AggregateError;
+    expect(errors).toHaveLength(2);
+    // Not an error of viborm's: no certainty is attached to it.
+    expect(errors[0]).toBeInstanceOf(QueryError);
+    expect(errors[1]).toBeInstanceOf(QueryError);
+    expect((errors[0] as QueryError).meta).not.toHaveProperty(
+      "commitCertainty"
+    );
+    expect(primaryOf(failure)).toBe(errors[0]);
+  });
+
   test("reports commit ambiguity for a direct composed write transaction", async () => {
     const commitFailure = new Error("direct commit acknowledgement lost");
     const certainties: string[] = [];
