@@ -10,10 +10,12 @@
 import {
   arg,
   args,
+  check,
   createClient,
   extension,
   gate,
   oneOf,
+  only,
   QueryError,
   rule,
   s,
@@ -221,5 +223,78 @@ describe("a governed raw read", () => {
         params: ["x"],
       },
     ]);
+  });
+});
+
+describe("a judged update on MySQL", () => {
+  /** A tree whose new parent is judged acyclic, and whose owner is checked. */
+  const node = s.model({
+    id: s.int().id(),
+    ownerId: s.string(),
+    tags: s.string().array(),
+    parentId: s.int().nullable(),
+    parent: s
+      .toOne(() => node)
+      .fields("parentId")
+      .references("id")
+      .name("tree"),
+    children: s.toMany(() => node).name("tree"),
+  });
+  const judged = () => {
+    const driver = new ScriptedDriver("mysql", () => ({
+      rows: [],
+      rowCount: 1,
+    }));
+    const db = createClient({ schema: { node }, driver }).$extends(
+      extension(
+        "owned",
+        args({ user: oneOf("u1", "u2") }),
+        rule({
+          node: {
+            update: {
+              where: only({}),
+              check: check({ ownerId: arg("user") }),
+            },
+            acyclic: ["parent"],
+          },
+        })
+      )
+    );
+    return { db, sent: driver.sent };
+  };
+
+  test("judges the first `limit` candidates through a derived table, read before the write", async () => {
+    const { db, sent } = judged();
+    await expect(
+      db.node.updateMany({
+        where: { ownerId: "u1" },
+        data: { ownerId: "u2" },
+        limit: 2,
+        user: "u2",
+      })
+    ).resolves.toEqual({ count: 1 });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.sql).toContain(" IN (SELECT * FROM (SELECT ");
+    expect(sent[0]!.sql).toContain(" LIMIT ");
+    await expect(transcript(sent)).toMatchFileSnapshot(
+      "./__golden__/extension-dialect-edges/mysql-judged-limit.sql"
+    );
+  });
+
+  test("a new parent is judged acyclic; a list the judgement does not read is assigned as the provider does", async () => {
+    const { db, sent } = judged();
+    await expect(
+      db.node.updateMany({
+        where: { id: 1 },
+        data: { parentId: 2, tags: { push: "t" } },
+        user: "u1",
+      })
+    ).resolves.toEqual({ count: 1 });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.sql).toContain("WITH RECURSIVE");
+    expect(sent[0]!.sql).toContain("JSON_MERGE_PRESERVE");
+    await expect(transcript(sent)).toMatchFileSnapshot(
+      "./__golden__/extension-dialect-edges/mysql-judged-acyclic.sql"
+    );
   });
 });
