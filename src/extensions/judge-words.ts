@@ -7,10 +7,11 @@
  * is first read). Each carries what applies it, so a rule that only filters
  * holds none of it.
  */
-import { Condition, Parameter } from "@query-engine/raptor3/shared/row-scope";
+import { Condition } from "@query-engine/raptor3/shared/row-scope";
 import type { ModelState } from "@schema/model";
 import { isPlainRecord } from "@schema/relation/terminal";
 import type { VerbsDraft } from "./admission";
+import { CALL_READS } from "./call-values";
 import type {
   CheckWord,
   FactsWord,
@@ -23,12 +24,20 @@ import type {
 } from "./contract";
 import { judgeOf } from "./judge";
 import { keptPart } from "./kept";
-import { layerOf } from "./layers";
 import { projectionOf, refuseSharedKeys } from "./projection";
 import { draftOf, listOf } from "./rule";
 import { CarriedValue, PredicateWord, type Site, testOf } from "./rule-words";
 import { NOW } from "./stamps";
 import { LAZY_ENTRIES, prepareJudged, VERBS, verbsOf } from "./verbs";
+
+/** A word written with one value, which its `join` reads. */
+export abstract class Held<T> extends CarriedValue {
+  readonly held: T;
+  constructor(held: T) {
+    super();
+    this.held = held;
+  }
+}
 
 /** What the layer of a word's site brings beside its filters. */
 const brings = (site: Site) => (site.layer!.brings ??= {});
@@ -57,21 +66,16 @@ const UPDATE_FIELD = /^update\.fields\.[^.]+\.check$/;
 const FIELD_WHERE = /^update\.fields\.[^.]+\.where$/;
 
 /** `only(where)`'s value: the rows a write may take. */
-class Only extends CarriedValue {
-  readonly where: object;
-  constructor(where: object) {
-    super();
-    this.where = where;
-  }
+class Only extends Held<object> {
   join(site: Site): void {
     const { key, refuse } = site;
     const own = verbsOf(site);
     brings(site).prepare = prepareJudged;
-    if (key === "update.where") own.update = this.where;
-    else if (key === "delete.where") own.delete = this.where;
+    if (key === "update.where") own.update = this.held;
+    else if (key === "delete.where") own.delete = this.held;
     // An update writing the field takes this instead of `update.where`.
     else if (FIELD_WHERE.test(key))
-      (own.writes ??= new Map()).set(fieldOf(site), this.where);
+      (own.writes ??= new Map()).set(fieldOf(site), this.held);
     else refuse(`${key} does not take only()`);
   }
 }
@@ -89,23 +93,18 @@ export function only(where: object): unknown {
 }
 
 /** `check(where)`'s value: what the row a write produces must hold. */
-class Checked extends CarriedValue {
-  readonly where: object;
-  constructor(where: object) {
-    super();
-    this.where = where;
-  }
+class Checked extends Held<object> {
   join(site: Site): void {
     const { key, refuse } = site;
     const own = verbsOf(site);
     own.judge = judgeOf;
     brings(site).judge = judgeOf;
-    if (key === "create.check") own.place = this.where;
+    if (key === "create.check") own.place = this.held;
     // The row an update leaves is judged again where the update writes a
     // field the predicate reads (`update.check`), or the field named.
-    else if (key === "update.check") own.check = this.where;
+    else if (key === "update.check") own.check = this.held;
     else if (UPDATE_FIELD.test(key))
-      (own.moves ??= new Map()).set(fieldOf(site), this.where);
+      (own.moves ??= new Map()).set(fieldOf(site), this.held);
     else refuse(`${key} does not take check()`);
   }
 }
@@ -146,12 +145,7 @@ function keyFields(state: ModelState): ReadonlySet<string> {
 }
 
 /** `gate(where)`'s value: where a field is present. */
-class Gated extends CarriedValue {
-  readonly where: object;
-  constructor(where: object) {
-    super();
-    this.where = where;
-  }
+class Gated extends Held<object> {
   join(site: Site): void {
     const { key, field, model, schema, refuse } = site;
     if (key !== `read.fields.${field}`) refuse(`${key} does not take gate()`);
@@ -164,7 +158,7 @@ class Gated extends CarriedValue {
       refuse(`${key} names a key, a unique or a foreign key field`);
     const own = shown(site);
     brings(site).project = projectionOf;
-    (own.reads ??= new Map()).set(field!, this.where);
+    (own.reads ??= new Map()).set(field!, this.held);
   }
 }
 
@@ -187,12 +181,7 @@ export function gate(where: object): unknown {
 const PROJECTION_KEY = /^\$[a-zA-Z_][a-zA-Z0-9_]*$/;
 
 /** `facts({ … })`'s value: per row, which named predicates hold. */
-class Facts extends CarriedValue {
-  readonly predicates: Readonly<Record<string, object>>;
-  constructor(predicates: Readonly<Record<string, object>>) {
-    super();
-    this.predicates = predicates;
-  }
+class Facts extends Held<Readonly<Record<string, object>>> {
   join(site: Site): void {
     const { key, field, refuse } = site;
     if (key !== `read.select.${field}`) refuse(`${key} does not take facts()`);
@@ -205,7 +194,7 @@ class Facts extends CarriedValue {
       keys: refuseSharedKeys,
     });
     own.as = field;
-    own.facts = new Map(Object.entries(this.predicates));
+    own.facts = new Map(Object.entries(this.held));
   }
 }
 
@@ -221,6 +210,7 @@ export function facts(predicates: Readonly<Record<string, object>>): unknown {
 }
 
 /** `keep(data)`'s value: what a delete of the model writes instead. */
+// Not a `Held`: written alone (`viborm/soft-delete`), its own field weighs less.
 class Kept extends CarriedValue {
   readonly data: unknown;
   constructor(data: unknown) {
@@ -230,9 +220,9 @@ class Kept extends CarriedValue {
   join({ key, model, schema, lazy, bring, refuse: given }: Site): void {
     // Typed where it is declared, so a refusal narrows what follows it.
     const refuse: (problem: string) => never = given;
-    if (key !== "delete.instead") refuse(`${key} does not take keep()`);
-    if (lazy)
-      refuse("keep() is written in an entry, not one given as a function");
+    // What a delete keeps is bound with the chain, before a lazy entry is read.
+    if (key !== "delete.instead" || lazy)
+      refuse(`${lazy ? "a lazy entry" : key} does not take keep()`);
     let data = this.data;
     // `keep(when(…))`, `keep(unless(…))`: kept where its test says, per call.
     const chosen =
@@ -243,10 +233,7 @@ class Kept extends CarriedValue {
     if (chosen?.arg !== undefined) {
       const tested = testOf(chosen.test);
       if (typeof tested === "string") refuse(tested);
-      test = new Condition(
-        new Parameter(chosen.arg.name, chosen.arg.path),
-        tested
-      );
+      test = new Condition(chosen.arg.stamp(), tested);
       data = chosen.then;
     }
     if (!isPlainRecord(data))
@@ -258,9 +245,8 @@ class Kept extends CarriedValue {
       if (!Object.hasOwn(state.scalars, field))
         refuse(`keep() names unknown field "${field}"`);
       if (!(value instanceof PredicateWord)) assign[field] = value;
-      else if (value.stamp?.() !== NOW)
-        refuse("keep() writes constants and now");
-      else if (at !== undefined) refuse("keep() writes now in one field");
+      else if (value.stamp?.() !== NOW || at !== undefined)
+        refuse("keep() writes constants, and now in one field");
       else at = field;
     }
     bring(
@@ -280,12 +266,7 @@ export function keep(data: object): unknown {
 }
 
 /** `lazy(() => entry)`'s value: an entry read when its model is first read. */
-class Lazy extends CarriedValue {
-  readonly read: () => unknown;
-  constructor(read: () => unknown) {
-    super();
-    this.read = read;
-  }
+class Lazy extends Held<() => unknown> {
   join(site: Site): void {
     const { key, model, schema, lazy, refuse } = site;
     if (key !== "the entry" || lazy) refuse(`${key} does not take lazy()`);
@@ -295,7 +276,7 @@ class Lazy extends CarriedValue {
     layer.host = VERBS;
     // What the entry reads of its call, and whether its words judge or
     // project, are known once it is read.
-    layer.layered = layerOf;
+    layer.reads = CALL_READS;
     layer.brings = {
       judge: judgeOf,
       project: projectionOf,
@@ -304,12 +285,10 @@ class Lazy extends CarriedValue {
       lazy: LAZY_ENTRIES,
     };
     const read = (): VerbsDraft => {
-      const given: unknown = Reflect.apply(this.read, undefined, []);
+      const given: unknown = Reflect.apply(this.held, undefined, []);
       const written: Readonly<Record<string, unknown>> = isPlainRecord(given)
         ? given
         : {};
-      if (written.confine !== undefined)
-        refuse("an entry given lazily holds no confine");
       const verbs = draftOf(given, model, schema, site, refuse, true) ?? {};
       const root = listOf(written.root);
       const related = listOf(written.related);

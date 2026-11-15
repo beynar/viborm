@@ -25,6 +25,7 @@ import {
   type FilterWord,
 } from "@validation/primitives/parameter";
 import type { SchemaRegistryLookup } from "@validation/types";
+import type { AdmittedArgs } from "./arguments";
 import type { ResolvedExtensionChain } from "./chain-state";
 import type { Projection } from "./projection";
 import type { PreparedDomain } from "./row-domain";
@@ -49,7 +50,8 @@ export type VerbsDraft = Mutable<Omit<ModelVerbs<unknown>, "cycles">> & {
   moves?: Map<string, unknown>;
   reads?: Map<string, unknown>;
   facts?: Map<string, unknown>;
-  acyclic?: readonly string[] | (() => readonly string[]);
+  /** As written: a list or a function returning one, checked where it is admitted. */
+  acyclic?: unknown;
   root?: readonly unknown[];
   related?: readonly unknown[];
 };
@@ -73,14 +75,15 @@ export interface RuleLayer {
   readonly root: Record<string, unknown[]>;
   readonly related: Record<string, unknown[]>;
   readonly verbs: Record<string, VerbsDraft | (() => VerbsDraft)>;
-  readonly confine: Record<string, unknown>;
+  /** Per model, what its whole-table sets hold: written by `within`. */
+  confine?: Record<string, unknown>;
   /**
    * What admits and binds `verbs`: set by the words that write them
    * (`verbs.ts`), so a rule that only filters holds none of that code.
    */
   host?: VerbsHost;
-  /** What lowers its layer, set where an entry read later may read its call. */
-  layered?: Layered;
+  /** What reads the call, set where an entry read later may read its call. */
+  reads?: CallReads;
   /** What judges and projects, brought by the words that ask either. */
   brings?: {
     judge?: ModelVerbs["judge"];
@@ -91,7 +94,19 @@ export interface RuleLayer {
     keys?: (model: string, layers: readonly (ModelVerbs | undefined)[]) => void;
     /** What admits and reads an entry given lazily, brought by `lazy`. */
     lazy?: LazyEntries;
+    /** What admits and binds the confinements, brought by `within`. */
+    confines?: Confines;
   };
+}
+
+/** What `within` brings: its predicates admitted, and the chain's bound. */
+export interface Confines {
+  admit(
+    admission: Admission,
+    written: Readonly<Record<string, unknown>>,
+    references: References
+  ): Record<string, Input>;
+  bind(layers: readonly AdmittedLayer[]): Partial<RowDomain>;
 }
 
 /** What `lazy` brings: its entries admitted when first read, then checked per chain. */
@@ -111,8 +126,20 @@ export interface LazyEntries {
   ): AdmittedVerbs;
 }
 
-/** What makes a layer's node of a predicate: `RowDomain.layered`. */
-export type Layered = NonNullable<RowDomain["layered"]>;
+/**
+ * What the words that read a call bring (`call-values.ts`): each layer's
+ * node read per call, and every call's values carried beside the domain.
+ */
+export interface CallReads {
+  bind(
+    chain: ResolvedExtensionChain,
+    lazy: boolean,
+    domain: RowDomain
+  ): {
+    readonly domain: RowDomain;
+    call(facts: CallRows, values: AdmittedArgs | undefined): CallRows;
+  };
+}
 
 /** One model's filters by purpose, as admitted. */
 export interface Filters {
@@ -171,11 +198,11 @@ export interface AdmittedLayer {
   };
   /** What admitted `verbs`, and binds them. */
   readonly host?: VerbsHost;
-  /** What lowers the layer, where some predicate of it reads its call. */
-  readonly layered?: Layered;
+  /** What reads the call, where some predicate of it reads one. */
+  readonly reads?: CallReads;
   /** What judges and projects, brought by the words that ask either. */
   readonly brings?: RuleLayer["brings"];
-  readonly confine: { readonly [model: string]: Input };
+  readonly confine?: { readonly [model: string]: Input };
   /** What its eager predicates read of their call (`References`). */
   readonly references: readonly (string | undefined)[];
 }
@@ -198,12 +225,9 @@ export interface Admission {
     of?: string
   ) => Input;
   readonly refuse: (name: string, place: string, reason: string) => never;
-  /** What lowers the layer, once a predicate admitted reads its call. */
-  layered?: Layered;
+  /** What reads the call, once a predicate admitted reads one. */
+  reads?: CallReads;
 }
-
-/** A layer without verbs. */
-const NO_VERBS: AdmittedLayer["verbs"] = Object.freeze({});
 
 /**
  * What admits one schema's predicates: refusals are
@@ -246,7 +270,7 @@ export function admission(
       () => validateSchema(where, predicate),
       filters
     );
-    admitting.layered ??= at.layered;
+    admitting.reads ??= at.reads;
     // The model's where schema admitted the predicate: an Input.
     if (!result.issues) return result.value as Input;
     const [issue] = result.issues;
@@ -311,31 +335,19 @@ export function admitLayer(
       ""
     );
   const { host } = layer;
-  const verbs = host
-    ? host.admit(admitting, layer, filtersOf, references)
-    : NO_VERBS;
-  const confine: Record<string, Input> = {};
-  for (const [name, predicate] of Object.entries(layer.confine)) {
-    // The model's own columns: a confinement reads no relation, so lowering
-    // it never builds another set it would confine in turn.
-    const { scalars } = schema[name]!["~"].state;
-    for (const field of Object.keys(predicate ?? {}))
-      if (!Object.hasOwn(scalars, field))
-        throw new ClientInitializationError(
-          `Extension "${extension}" rule.${name}.confine: names "${field}", which is not a scalar field: a confinement states the model's own columns.`,
-          { meta: { extension, model: name } }
-        );
-    confine[name] = admit(name, `${name}.confine`, predicate, references);
-  }
-  const layered = layer.layered ?? admitting.layered;
+  const verbs = host?.admit(admitting, layer, filtersOf, references) ?? {};
+  const confine = layer.confine
+    ? layer.brings!.confines!.admit(admitting, layer.confine, references)
+    : undefined;
+  const reads = layer.reads ?? admitting.reads;
   const out: AdmittedLayer = {
     extension,
     models,
     verbs,
     ...(host && { host }),
-    ...(layered && { layered }),
+    ...(reads && { reads }),
     ...(layer.brings && { brings: layer.brings }),
-    confine,
+    ...(confine && { confine }),
     references: [...references],
   };
   return out;

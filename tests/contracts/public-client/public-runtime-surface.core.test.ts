@@ -134,6 +134,7 @@ const documentedRuntimeExports = [
   "via",
   "watch",
   "when",
+  "within",
   "work",
   "writes",
 ];

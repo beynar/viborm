@@ -233,6 +233,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "via",
       "watch",
       "when",
+      "within",
       "work",
       "writes",
     ],

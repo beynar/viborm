@@ -20,7 +20,6 @@ import {
 import type {
   CallRows,
   CallScope,
-  CallValues,
   RowDomain,
   RowJudgement,
   RowPurpose,
@@ -137,23 +136,17 @@ export class FilterDomain implements PreparedDomain {
    * (`rows.confine`): nothing where no member confines one.
    */
   readonly bound: ReturnType<NonNullable<RowDomain["bound"]>>;
-  /** Its layers read every argument with a default at it. */
-  readonly #atDefaults: boolean;
   #view: Queries | undefined;
-  /** One read view per shared values, which no call's instant is read under. */
-  readonly #views = new WeakMap<CallValues, Queries>();
   /**
    * The domain read with each call's values, and its default twin of the
    * same class, made with it: where no argument has a default, itself.
    */
-  constructor(rows: RowDomain, queries: Queries, atDefaults = false) {
+  constructor(rows: RowDomain, queries: Queries) {
     this.rows = rows;
     this.queries = queries;
-    this.#atDefaults = atDefaults;
-    this.defaults =
-      atDefaults || rows.fallback === undefined
-        ? this
-        : new new.target(rows, queries, true);
+    this.defaults = rows.defaults
+      ? new new.target(rows.defaults, queries)
+      : this;
     this.judge = rows.judge?.(this);
     this.project = rows.project?.(this);
     this.bound = rows.bound?.(this) ?? unbounded;
@@ -189,7 +182,7 @@ export class FilterDomain implements PreparedDomain {
         parts.push(
           freeze({
             ...part,
-            predicate: layered(layer, name, part.predicate, this.#atDefaults),
+            predicate: layered(layer, name, part.predicate),
           })
         );
       else if (!reading) parts.push(part);
@@ -200,14 +193,13 @@ export class FilterDomain implements PreparedDomain {
   /**
    * The read view under this domain for `call`: one for every call, whose
    * lifetime is the domain's, unless the call carries the values its
-   * parameters read; then one per values shared by calls, else the call's.
+   * parameters read, which say which.
    */
   reads(call: CallScope): Queries {
-    const { values } = call.rows;
-    if (values === undefined) return (this.#view ??= this.queries.under(this));
-    return values.shared
-      ? memo(this.#views, values, () => this.queries.under(this, call))
-      : this.queries.under(this, call);
+    return (
+      call.rows.values?.view?.(this, call) ??
+      (this.#view ??= this.queries.under(this))
+    );
   }
   /**
    * `model`'s predicate for `purpose` without the `excluded` layers, and,
@@ -299,7 +291,7 @@ export class FilterDomain implements PreparedDomain {
       this.#hidesRows(queries, model, "related")
     )
       throw new UnsupportedOperationError(
-        `Cannot ${use} $through of relation '${edge.name}': this client restricts which '${name}' rows a call may read. Read the links through the '${name}' delegate.`
+        `Cannot ${use} $through of relation '${edge.name}': '${name}' rows are restricted here; read the links through the '${name}' delegate.`
       );
     this.project?.refuseGatedLink(edge, model, fields, use);
   }

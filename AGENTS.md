@@ -231,6 +231,7 @@ its own: `target(…)` and the sets `reads`, `writes`, `deletes`, `selecting`,
 `again`, `via` (`call-words.ts`), `key`, `codec`, `database`; `arg`, `now`,
 `row`, `exists`, `when`, `unless`, `provided`, `nothing` (`rule-words.ts`);
 `only`, `check`, `gate`, `facts`, `keep`, `lazy` (`judge-words.ts`);
+`within` (`confine.ts`);
 `omitted` (`defaults.ts`); `oneOf`, `accepts`, `bound` and the modifiers
 `.on`, `.models`, `.required`, `.default`, `.volatile` (`args.ts`); and for
 units `text`, `parameters`, `driver`, `failure`, `correlation`, `table`,

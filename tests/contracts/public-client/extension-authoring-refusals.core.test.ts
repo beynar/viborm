@@ -36,6 +36,7 @@ import {
   rule,
   unless,
   when,
+  within,
 } from "@src/index";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, describe, expect, test } from "vitest";
@@ -129,6 +130,10 @@ describe("a builder handed no function refuses at once", () => {
   test("when(), unless() and provided() test an argument written arg(name)", () => {
     expect(() => Reflect.apply(when, undefined, ["tenant", "a", {}])).toThrow(
       new TypeError("when() tests an argument written arg(name)")
+    );
+    // `now` is the call's instant, not an argument.
+    expect(() => Reflect.apply(unless, undefined, [now, "a", {}])).toThrow(
+      new TypeError("unless() tests an argument written arg(name)")
     );
   });
 });
@@ -263,12 +268,12 @@ describe("rule: an entry's keys and the words they take", () => {
     ).toContain("read.select holds one projection key");
   });
 
-  test("a field's write slot is { where?, check? }", () => {
+  test("a field's write slot is an object", () => {
     expect(
       refusal(
         applying(loose(rule, { post: { update: { fields: { title: true } } } }))
       )
-    ).toContain("update.fields.title is { where?, check? }");
+    ).toContain("update.fields.title is an object");
   });
 
   test("acyclic lists relations, and is judged with a check beside it", () => {
@@ -280,10 +285,12 @@ describe("rule: an entry's keys and the words they take", () => {
           })
         )
       )
-    ).toContain("acyclic lists relations, or is a function returning them");
+    ).toContain(
+      "rule.post.acyclic: lists relations, or is a function returning them"
+    );
     expect(
       refusal(applying(loose(rule, { post: { acyclic: ["author"] } })))
-    ).toContain("acyclic is judged with the rows a write produces");
+    ).toContain("acyclic needs a check() beside it");
   });
 
   test("a confinement states the model's own columns", () => {
@@ -291,13 +298,24 @@ describe("rule: an entry's keys and the words they take", () => {
       refusal(
         applying(
           loose(rule, {
-            post: { confine: { author: { is: { name: "Ann" } } } },
+            post: { confine: within({ author: { is: { name: "Ann" } } }) },
           })
         )
       )
     ).toContain(
-      'rule.post.confine: names "author", which is not a scalar field'
+      'rule.post: confine names "author", which is not a scalar field'
     );
+    // A confinement is written with its word, and the word only there.
+    expect(
+      refusal(applying(loose(rule, { post: { confine: { title: "a" } } })))
+    ).toContain("rule.post: confine is written with a word");
+    expect(
+      refusal(
+        applying(
+          loose(rule, { post: { update: { where: within({ title: "a" }) } } })
+        )
+      )
+    ).toContain("update.where does not take within()");
   });
 
   test("two rule parts of one extension do not both judge a model", () => {
@@ -373,9 +391,9 @@ describe("keep(): what a delete writes instead", () => {
           })
         )
       )
-    ).toContain("keep() writes constants and now");
+    ).toContain("keep() writes constants, and now in one field");
     expect(refusal(kept({ deletedAt: now, title: now }))).toContain(
-      "keep() writes now in one field"
+      "keep() writes constants, and now in one field"
     );
   });
 
@@ -448,8 +466,8 @@ describe("an entry given lazily is checked where it is first read", () => {
 
   test("it holds no confine", async () => {
     expect(
-      refusal(await firstRead(() => ({ confine: { title: "a" } })))
-    ).toContain("an entry given lazily holds no confine");
+      refusal(await firstRead(() => ({ confine: within({ title: "a" }) })))
+    ).toContain("a lazy entry does not take within()");
   });
 
   test("it holds no keep(), and no lazy() of its own", async () => {
@@ -459,7 +477,7 @@ describe("an entry given lazily is checked where it is first read", () => {
           delete: { instead: keep({ deletedAt: now }) },
         }))
       )
-    ).toContain("keep() is written in an entry, not one given as a function");
+    ).toContain("a lazy entry does not take keep()");
     expect(refusal(await firstRead(() => lazy(() => ({}))))).toContain(
       "the entry does not take lazy()"
     );

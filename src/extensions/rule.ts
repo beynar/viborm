@@ -37,8 +37,7 @@ const RULE_KEYS = new Set([
   "confine",
 ]);
 
-const isPlain = isPlainRecord;
-const own = (value: unknown): Entry => (isPlain(value) ? value : {});
+const own = (value: unknown): Entry => (isPlainRecord(value) ? value : {});
 /** A filter list as written, copied: one filter or several. */
 export const listOf = (value: unknown): unknown[] =>
   value === undefined ? [] : Array.isArray(value) ? [...value] : [value];
@@ -88,10 +87,10 @@ export function draftOf(
       });
       return;
     }
-    if (!(container && isPlain(value)))
+    if (!(container && isPlainRecord(value)))
       refuse(
         container
-          ? `${key} is ${field === undefined ? "an object" : "{ where?, check? }"}`
+          ? `${key} is an object`
           : `${key} is written ${key.endsWith("where") ? "only(where)" : "with a word"}`
       );
     // `fields` and `select` name a field, which every word below them reads.
@@ -109,7 +108,7 @@ export function draftOf(
     join(entry, "the entry");
     return;
   }
-  if (!isPlain(entry))
+  if (!isPlainRecord(entry))
     return refuse(
       typeof entry === "function"
         ? "an entry given as a function is written lazy(() => entry)"
@@ -118,22 +117,17 @@ export function draftOf(
   for (const key of Object.keys(entry))
     if (!RULE_KEYS.has(key)) refuse(`"${key}" is not a rule key`);
   if (lazy && read.where !== undefined) (verbs ??= {}).read = read.where;
+  join(entry.confine, "confine");
   join(read.fields, "read.fields", undefined, true);
   join(read.select, "read.select", undefined, true);
   for (const key of ["create", "update", "delete"])
     join(entry[key], key, undefined, true);
   const { acyclic } = entry;
   if (acyclic !== undefined) {
-    if (!(Array.isArray(acyclic) || typeof acyclic === "function"))
-      refuse("acyclic lists relations, or is a function returning them");
-    // A loop is refused where the row an update produces is judged.
-    if (verbs?.judge === undefined)
-      refuse(
-        "acyclic is judged with the rows a write produces: write a check() on the model beside it"
-      );
-    // Each relation it names is checked where it is admitted (`cyclesOf`).
-    // A list or a function, as checked above; its names are checked at admission.
-    verbs.acyclic = acyclic as VerbsDraft["acyclic"];
+    // A loop is refused where the row an update produces is judged; what
+    // the list names is checked where it is admitted (`cyclesOf`).
+    if (verbs?.judge === undefined) refuse("acyclic needs a check() beside it");
+    verbs.acyclic = acyclic;
   }
   return verbs;
 }
@@ -186,7 +180,6 @@ function writeRule(
         refuse("two rule parts of one extension judge the model");
       layer.verbs[model] = verbs;
     }
-    if (written.confine !== undefined) layer.confine[model] = written.confine;
   }
 }
 
@@ -213,7 +206,6 @@ export function rule(rules: Entry | ((schema: Schema) => Entry)): unknown {
           root: {},
           related: {},
           verbs: {},
-          confine: {},
         };
         return { layer, brought: new Set([layerPart(layer)]) };
       });

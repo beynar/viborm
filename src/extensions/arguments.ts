@@ -85,7 +85,7 @@ function admitArguments(
   if (typeof input !== "object" || input === null) {
     return { args: input, values: undefined };
   }
-  const admitted: [string, unknown][] = [];
+  let values: Record<string, unknown> | undefined;
   let args: Record<string, unknown> | undefined;
   for (const argument of placed) {
     const { name, required } = argument;
@@ -100,15 +100,12 @@ function admitArguments(
       raw === undefined
         ? (bound?.[name] ?? argument.default)
         : admitValue(argument, raw, model, operation);
-    if (value !== undefined) admitted.push([name, value]);
+    if (value !== undefined) (values ??= {})[name] = value;
     else if (required === true || required?.includes(model)) {
       throw invalidArgument(argument, model, operation, ["is required"]);
     }
   }
-  return {
-    args: args ?? input,
-    values: admitted.length === 0 ? undefined : Object.fromEntries(admitted),
-  };
+  return { args: args ?? input, values };
 }
 
 /**
@@ -147,13 +144,10 @@ export function argsOwnedBy(
   admitted: AdmittedArgs | undefined,
   names: readonly string[]
 ): AdmittedArgs {
-  const owned: [string, unknown][] = [];
-  for (const name of names) {
-    if (admitted !== undefined && Object.hasOwn(admitted, name)) {
-      owned.push([name, admitted[name]]);
-    }
-  }
-  return Object.fromEntries(owned);
+  const owned: Record<string, unknown> = {};
+  for (const name of names)
+    if (admitted && Object.hasOwn(admitted, name)) owned[name] = admitted[name];
+  return owned;
 }
 
 /** One value admitted for a call's (model, operation), or, without them, a binding. */
@@ -231,8 +225,6 @@ function validatorFailure(
   );
 }
 
-const NO_ARGUMENTS: readonly ResolvedArg[] = [];
-
 /**
  * The chain's arguments with one extension's added, each (model, operation)
  * listing the ones it accepts the first time a call asks. One name, one
@@ -257,14 +249,13 @@ export function appendArguments(
   const lists = new Map<string, readonly ResolvedArg[]>();
   const placed = (model: string, operation: string): readonly ResolvedArg[] => {
     const key = `${model}\u0000${operation}`;
-    return memo(lists, key, () => {
-      const found = all.filter(
+    return memo(lists, key, () =>
+      all.filter(
         ({ on, models }) =>
           (on === undefined || on.includes(operation)) &&
           (models === undefined || models.includes(model))
-      );
-      return found.length === 0 ? NO_ARGUMENTS : found;
-    });
+      )
+    );
   };
   return {
     names,

@@ -813,7 +813,7 @@ is held to: which rows it sees and may write, what the rows it writes must
 hold, which fields it may read, and what a delete does instead.
 
 ```ts
-import { accepts, arg, args, extension, rule } from "viborm";
+import { accepts, arg, args, extension, rule, within } from "viborm";
 import { v } from "viborm/validation";
 
 const db = client.$extends(
@@ -843,7 +843,7 @@ await db.post.findMany(); // ValidationError: "tenant" is required
 | `update.check` | What the row an update leaves must hold |
 | `delete.instead` | `keep(data)`: the update that replaces the delete |
 | `acyclic` | Self relations an update may not turn into a cycle |
-| `confine` | What every row of a set computed over the whole table holds |
+| `confine` | `within(where)`: what every row of a set computed over the whole table holds |
 
 - Leaves are the ORM's own `where` and `data`. `$extends()` checks each one
   once against its model's schema: a misspelt key anywhere inside it, an
@@ -1243,18 +1243,20 @@ await db.project.delete({ where: { id }, purge: true }); // a physical delete
 On PostgreSQL drivers and D1, a body your predicates repeat in one statement
 is computed once, as a set over its model's whole table, bounded only by what
 the body states. "The grants that name the caller" reads every tenant's
-grants. `confine` says, per model, what every row of such a set holds, as a
-`where` of the model's own columns (no relation):
+grants. `confine: within(where)` says, per model, what every row of such a
+set holds, as a `where` of the model's own columns (no relation). The word
+brings the code that applies it, so a rule that confines nothing carries
+none of it:
 
 ```ts
-import { accepts, arg, args, extension, rule } from "viborm";
+import { accepts, arg, args, extension, rule, within } from "viborm";
 import { v } from "viborm/validation";
 
 const db = client.$extends(
   extension(
     "grants",
     args({ tenant: accepts(v.string()).required(["grant"]) }),
-    rule({ grant: { confine: { tenantId: arg("tenant") } } })
+    rule({ grant: { confine: within({ tenantId: arg("tenant") }) } })
   )
 );
 ```

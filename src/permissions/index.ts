@@ -13,6 +13,7 @@ import type { Operations } from "../client/exports";
 import { ForbiddenError } from "../errors";
 import { args, bound, oneOf } from "../extensions/args";
 import { call } from "../extensions/call";
+import { within } from "../extensions/confine";
 import { extension } from "../extensions/extension";
 import { lazy } from "../extensions/judge-words";
 import { methods } from "../extensions/methods-part";
@@ -738,7 +739,7 @@ export function permissions<const Config extends PermissionsConfig>(
           ([name, model]) =>
             model.bound === undefined
               ? []
-              : [[name, { confine: wordsOf(model.bound, known) }]]
+              : [[name, { confine: within(wordsOf(model.bound, known)) }]]
         )
       );
     }),

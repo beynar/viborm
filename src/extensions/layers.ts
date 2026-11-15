@@ -20,6 +20,7 @@ import {
   Condition,
   Parameter,
 } from "@query-engine/raptor3/shared/row-scope";
+import { memo } from "@query-engine/raptor3/shared/schema";
 import { overKnown } from "./row-domain";
 
 /**
@@ -119,16 +120,6 @@ export function fold(
       return predicate;
   }
 }
-/** `predicate` with every condition replaced by its outcome. */
-const foldConditions = (
-  predicate: PreparedPredicate,
-  holds: (condition: Condition) => boolean
-): PreparedPredicate =>
-  fold(
-    predicate,
-    (leaf) => (leaf.kind === "condition" ? holds(leaf.condition) : undefined),
-    true
-  );
 /** Every parameter and condition a layer's predicate reads. */
 function callReads(
   predicate: PreparedPredicate,
@@ -193,31 +184,26 @@ export function layerOf(
   const found = new Set<Condition>();
   callReads(predicate, new Map(), found);
   const conditions = [...found];
-  /**
-   * Its predicate under each outcome of its conditions, one bit per
-   * condition, first condition highest; past 30, one digit per condition.
-   */
-  const outcomes = new Map<number | string, Folded>();
-  const wide = conditions.length > 30;
+  /** Its predicate under each outcome of its conditions, one digit each. */
+  const outcomes = new Map<string, Folded>();
   /** The values it was last resolved with, and what it stated for them. */
   let last: CallValues | undefined | null = null;
   let outcome: PreparedPredicate | undefined;
-  const under = (key: number | string): Folded => {
-    const holds = (index: number): boolean =>
-      typeof key === "string"
-        ? key[index] === "1"
-        : Math.floor(key / 2 ** (conditions.length - 1 - index)) % 2 === 1;
+  const under = (key: string): Folded => {
     const folded =
       conditions.length === 0
         ? predicate
-        : foldConditions(predicate, (condition) =>
-            holds(conditions.indexOf(condition))
+        : fold(
+            predicate,
+            (leaf) =>
+              leaf.kind === "condition"
+                ? key[conditions.indexOf(leaf.condition)] === "1"
+                : undefined,
+            true
           );
     const parameters = new Map<Parameter, boolean>();
     callReads(folded, parameters, new Set());
-    const outcome = { predicate: folded, parameters: [...parameters] };
-    outcomes.set(key, outcome);
-    return outcome;
+    return { predicate: folded, parameters: [...parameters] };
   };
   return freeze({
     kind: "layer",
@@ -243,20 +229,13 @@ export function layerOf(
     values: CallValues | undefined,
     instant: () => Date
   ): PreparedPredicate | undefined {
-    let key: number | string;
-    if (wide) {
-      let digits = "";
-      for (const condition of conditions)
-        digits += condition.holds(values, instant) ? "1" : "0";
-      key = digits;
-    } else {
-      let bits = 0;
-      // biome-ignore lint/style/useForOf: no iterator on a per-statement path (E5.1, measured).
-      for (let index = 0; index < conditions.length; index++)
-        bits = bits * 2 + (conditions[index]!.holds(values, instant) ? 1 : 0);
-      key = bits;
-    }
-    const { predicate: resolved, parameters } = outcomes.get(key) ?? under(key);
+    let key = "";
+    // biome-ignore lint/style/useForOf: no iterator on a per-statement path (E5.1, measured).
+    for (let index = 0; index < conditions.length; index++)
+      key += conditions[index]!.holds(values, instant) ? 1 : 0;
+    const { predicate: resolved, parameters } = memo(outcomes, key, () =>
+      under(key)
+    );
     if (chosen && resolved === ALWAYS_TRUE) return undefined;
     let dropped = false;
     // biome-ignore lint/style/useForOf: no iterator on a per-statement path (E5.1, measured).

@@ -89,13 +89,11 @@ export function args<
   >,
 >(declarations: D): Part<T, ArgsFacts<D>>;
 export function args(declarations: Readonly<Record<string, unknown>>): unknown {
-  const specs = Object.fromEntries(
-    Object.entries(declarations).map(([name, value]) => [
-      name,
-      specOf(name, value),
-    ])
-  );
-  const names = Object.keys(specs);
+  const names = Object.keys(declarations);
+  const specs = names.map((name) => ({
+    ...specOf(name, declarations[name]),
+    name,
+  }));
   const part: ExtensionPart = {
     // Declared before any other part joins: the extension's parts see its
     // own arguments. A name declared twice, in one extension too, is
@@ -104,11 +102,7 @@ export function args(declarations: Readonly<Record<string, unknown>>): unknown {
       const { next, chain, owner, name: extension } = application;
       next.args = appendArguments(
         next.args ?? chain?.args,
-        Object.entries(specs).map(([name, declaration]) => ({
-          ...declaration,
-          name,
-          extension,
-        }))
+        specs.map((spec) => ({ ...spec, extension }))
       );
       application.owner = {
         name: extension,
