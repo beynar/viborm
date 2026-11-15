@@ -15,7 +15,6 @@
 // interactively, so this read always happens there; the MySQL expression
 // below serves a driver that could not read first.
 
-import { UnsupportedOperationError } from "../errors";
 import { computed } from "../extensions/values";
 import type { ComputedContext } from "../index";
 import { type Sql, sql } from "../sql/sql";
@@ -122,13 +121,10 @@ async function appended(
     const groups = groupsOf(within, context.rows, indexes);
     const keys = new Map<number, unknown>();
     // SurrealDB computes no key in the statement: the last key is read, in
-    // the call's unit, and the keys are computed here.
+    // the call's unit, and the keys are computed here. Its driver sends every
+    // call in a transaction, where each answer is heard: `read` is there.
     if (context.dialect === "surrealql") {
-      const { read } = context;
-      if (!read)
-        throw new UnsupportedOperationError(
-          "viborm/ordering on SurrealDB reads a list's last key before it appends: not in a batch."
-        );
+      const read = context.read!;
       const q = context.sql;
       const key = q.column(context.field);
       for (const group of groups) {
