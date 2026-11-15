@@ -39,8 +39,14 @@ export interface Spelling {
   readonly fence: Sql;
 }
 
-const piped = (...parts: Sql[]) => sql`(${sql.join(parts, " || ")})`;
-const asText = (value: Sql) => sql`CAST(${value} AS TEXT)`;
+/** PostgreSQL's and SQLite's spellings of text. */
+const piped = {
+  concat: (...parts: Sql[]) => sql`(${sql.join(parts, " || ")})`,
+  text: (value: Sql) => sql`CAST(${value} AS TEXT)`,
+  trimZeros: (text: Sql) => sql`ltrim(${text}, '0')`,
+};
+const integer = (value: Sql) => sql`CAST(${value} AS INTEGER)`;
+const signed = (value: Sql) => sql`CAST(${value} AS SIGNED)`;
 
 export const spellings: Readonly<
   Record<"postgresql" | "sqlite" | "mysql", Spelling>
@@ -52,27 +58,23 @@ export const spellings: Readonly<
     small: (value) => sql`CAST(${value} AS integer)`,
     big: (value) => sql`CAST(${value} AS bigint)`,
     pad: (text, length) => sql`lpad(${text}, ${length}, '0')`,
-    concat: piped,
-    text: asText,
-    trimZeros: (text) => sql`ltrim(${text}, '0')`,
+    ...piped,
     fence: sql` OFFSET 0`,
   },
   sqlite: {
     same: (a, b) => sql`${a} IS ${b}`,
     digits: (key) => sql`length(${key}) >= 2 AND ${key} NOT GLOB '*[^0-9]*'`,
-    small: (value) => sql`CAST(${value} AS INTEGER)`,
-    big: (value) => sql`CAST(${value} AS INTEGER)`,
+    small: integer,
+    big: integer,
     pad: (text, length) => sql`substr('000000000' || ${text}, -(${length}))`,
-    concat: piped,
-    text: asText,
-    trimZeros: (text) => sql`ltrim(${text}, '0')`,
+    ...piped,
     fence: sql.empty,
   },
   mysql: {
     same: (a, b) => sql`${a} <=> ${b}`,
     digits: (key) => sql`${key} REGEXP '^[0-9]{2,}$'`,
-    small: (value) => sql`CAST(${value} AS SIGNED)`,
-    big: (value) => sql`CAST(${value} AS SIGNED)`,
+    small: signed,
+    big: signed,
     pad: (text, length) => sql`LPAD(${text}, ${length}, '0')`,
     concat: (...parts) => sql`CONCAT(${sql.join(parts, ", ")})`,
     text: (value) => sql`CAST(${value} AS CHAR)`,
