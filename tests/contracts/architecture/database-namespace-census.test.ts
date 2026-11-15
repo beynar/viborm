@@ -326,6 +326,7 @@ const REJECTED_ALIAS_SPELLINGS = [
 /** The nine admitted option types, spelled independently for the same reason. */
 const ADMITTED_OPTION_TYPE_SPELLINGS = [
   "BunSQLDriverOptions",
+  "MssqlDriverOptions",
   "MySQL2DriverOptions",
   "NeonHTTPDriverOptions",
   "PGliteDriverOptions",

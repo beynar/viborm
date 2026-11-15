@@ -9,6 +9,7 @@
 import type { Dialect, SqlDialect } from "@drivers/types";
 import { type Sql, sql } from "@sql";
 import type { DatabaseAdapter } from "./database-adapter";
+import { MSSQL_JUDGED } from "./databases/mssql/judged";
 import { MYSQL_JUDGED } from "./databases/mysql/judged";
 import { POSTGRES_JUDGED } from "./databases/postgres/judged";
 import { SQLITE_JUDGED } from "./databases/sqlite/judged";
@@ -47,6 +48,15 @@ export interface JudgedSpelling {
     rows: readonly (readonly Sql[])[],
     alias: string
   ) => Sql;
+  /**
+   * Where the dialect aggregates no subquery (SQL Server): the condition a
+   * judged update's guard judges over a candidate row, `condition` for a row
+   * `kept` keeps and true for any other. The update then keeps `kept AND
+   * guard = 1`, and a row it does not write is never refused, however the
+   * plan orders the two. Absent, it groups its candidates by key and keeps
+   * `MIN(guard) = 1`.
+   */
+  readonly keptWhere?: (a: DatabaseAdapter, kept: Sql, condition: Sql) => Sql;
 }
 
 /**
@@ -71,6 +81,7 @@ export const JUDGED: Partial<Record<Dialect, JudgedSpelling>> = {
   postgresql: POSTGRES_JUDGED,
   sqlite: SQLITE_JUDGED,
   mysql: MYSQL_JUDGED,
+  mssql: MSSQL_JUDGED,
 } satisfies Record<SqlDialect, JudgedSpelling>;
 
 /**

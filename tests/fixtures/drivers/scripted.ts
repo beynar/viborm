@@ -1,10 +1,32 @@
 import type { DatabaseAdapter } from "@adapters/database-adapter";
+import { MssqlAdapter } from "@adapters/databases/mssql/mssql-adapter";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { Driver, type QueryResult } from "@drivers";
+import {
+  type QueryExecutionContext,
+  TransactionBoundDriver,
+} from "@drivers/driver";
+import type { Sql } from "@sql";
 
-export type ScriptedDialect = "mysql" | "postgresql" | "sqlite";
+/** `@p1`, `@p2`, …: T-SQL's named parameters, as `viborm/mssql` sends them. */
+const numbered = (query: Sql): string => {
+  const [first, ...rest] = query.strings;
+  return rest.reduce(
+    (text, part, index) => `${text}@p${index + 1}${part}`,
+    first!
+  );
+};
+
+/** A scripted SQL Server transaction, numbering its parameters the same way. */
+class ScriptedMssqlTransaction extends TransactionBoundDriver<object, object> {
+  protected override buildStatement(query: Sql): string {
+    return numbered(query);
+  }
+}
+
+export type ScriptedDialect = "mssql" | "mysql" | "postgresql" | "sqlite";
 
 /** One statement the client sent: its text and its parameters. */
 export interface SentStatement {
@@ -38,9 +60,26 @@ export class ScriptedDriver extends Driver<object, object> {
         ? new PostgresAdapter()
         : dialect === "mysql"
           ? new MySQLAdapter()
-          : new SQLiteAdapter();
+          : dialect === "mssql"
+            ? new MssqlAdapter()
+            : new SQLiteAdapter();
     this.#script = script;
     this.client = {};
+  }
+
+  protected override buildStatement(query: Sql): string {
+    return this.dialect === "mssql"
+      ? numbered(query)
+      : super.buildStatement(query);
+  }
+
+  protected override createTransactionBoundDriver(
+    tx: object,
+    context: QueryExecutionContext
+  ): TransactionBoundDriver<object, object> {
+    return this.dialect === "mssql"
+      ? new ScriptedMssqlTransaction(this, tx, context)
+      : super.createTransactionBoundDriver(tx, context);
   }
 
   protected async initClient(): Promise<object> {

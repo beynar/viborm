@@ -9,6 +9,7 @@ import {
 } from "@migrations/dialects/all";
 import type { MigrationClient } from "@migrations/push/planner";
 import type { ResolveCallback } from "@migrations/types";
+import { pushMssqlSchema } from "@tests/fixtures/mssql-schema";
 
 interface SyncLiveSchemaOptions {
   readonly tables?: readonly string[];
@@ -23,6 +24,9 @@ export async function syncLiveSchema(
   client: MigrationClient,
   options: SyncLiveSchemaOptions = {}
 ) {
+  // VibORM writes no DDL for SQL Server; a test-only T-SQL stand-in does.
+  if (client.$driver.dialect === "mssql")
+    return pushMssqlSchema(client, options);
   if (client.$driver.dialect === "surrealql") {
     await import("@migrations/dialects/surrealql");
     await (client.$driver as unknown as { fresh(): Promise<void> }).fresh();

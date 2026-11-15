@@ -43,7 +43,8 @@ export function normalizeDialect(dialect: string): Dialect {
     dialect === "sqlite" ||
     dialect === "mysql" ||
     dialect === "surrealql" ||
-    dialect === "snowflake"
+    dialect === "snowflake" ||
+    dialect === "mssql"
   ) {
     return dialect;
   }

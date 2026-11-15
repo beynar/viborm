@@ -212,6 +212,7 @@ test("CI keeps every delegated check and shallow sparse checkout", () => {
       "local-providers",
       "docker-providers",
       "surrealdb-provider",
+      "mssql-provider",
       "snowflake-provider",
       "platform-providers",
     ]
@@ -229,6 +230,7 @@ test("CI keeps every delegated check and shallow sparse checkout", () => {
     ["docker-providers", "--project=provider-pg\n"],
     ["docker-providers", "--project=provider-pgbouncer\n"],
     ["surrealdb-provider", "--project provider-surrealdb"],
+    ["mssql-provider", "--project provider-mssql"],
     ["snowflake-provider", "--project provider-snowflake"],
     ["platform-providers", "--project=provider-bun"],
     ["platform-providers", "VIBORM_RECURSIVE_WHERE_CHECKERS: bun"],

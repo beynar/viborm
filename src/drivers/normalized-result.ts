@@ -125,13 +125,11 @@ export function assertNormalizedQueryResult(
   context: NormalizedResultContext,
   resultIndex?: number
 ): void {
+  // An integer of either sign: SQL Server's IDENTITY may start at 0 or below.
   const hasValidInsertId =
     result?.insertId === undefined ||
-    (typeof result.insertId === "bigint" && result.insertId >= 0n) ||
-    (typeof result.insertId === "number" &&
-      Number.isFinite(result.insertId) &&
-      Number.isSafeInteger(result.insertId) &&
-      result.insertId >= 0);
+    typeof result.insertId === "bigint" ||
+    Number.isSafeInteger(result.insertId);
   if (
     !(isNormalizedResultRow(result) && hasNormalizedRows(result.rows)) ||
     typeof result.rowCount !== "number" ||

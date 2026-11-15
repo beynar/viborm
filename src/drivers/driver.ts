@@ -427,6 +427,14 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
       baseDriver.maxBindParametersPerStatement;
   }
 
+  /**
+   * The base driver's: this view sends its statements over the same
+   * transport, which reads `?NNN` by position or by name the same way.
+   */
+  protected override get numbersPlaceholders(): boolean {
+    return this.numbersPlaceholdersOf(this.baseDriver);
+  }
+
   // Always return the bound transaction
   protected override async getClient(
     _context?: QueryExecutionContext

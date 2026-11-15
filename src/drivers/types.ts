@@ -12,11 +12,12 @@ export type Dialect =
   | "mysql"
   | "sqlite"
   | "surrealql"
-  | "snowflake";
+  | "snowflake"
+  | "mssql";
 
 /**
- * The dialects with migrations and a write path: every SQL one but Snowflake,
- * which VibORM only reads (`viborm/snowflake`).
+ * The SQL dialects VibORM writes: every one but Snowflake, which it only
+ * reads (`viborm/snowflake`).
  */
 export type SqlDialect = Exclude<Dialect, "surrealql" | "snowflake">;
 

@@ -130,11 +130,24 @@ export function runUpsertAtomicityBehavior({
         ],
       });
 
+      // A database that pads trailing spaces (SQL Server) holds "trail " and
+      // "trail" as one unique value: the upsert's unique lookup finds
+      // "trail", and takes the update arm.
+      const pads =
+        currentClient.$driver.adapter.capabilities.padsTrailingSpaces === true;
       const cases = [
         { id: "case-variant", name: "CASE" },
         { id: "accent-variant", name: "resume" },
-        { id: "trailing-variant", name: "trail " },
+        ...(pads ? [] : [{ id: "trailing-variant", name: "trail " }]),
       ];
+      if (pads)
+        expect(
+          await currentClient.tag.upsert({
+            where: { name: "trail " },
+            create: { id: "trailing-variant", name: "trail ", count: 2 },
+            update: { count: 1 },
+          })
+        ).toMatchObject({ id: "trailing-original", count: 1 });
       for (const variant of cases) {
         const created = await currentClient.tag.upsert({
           where: { name: variant.name },
@@ -145,7 +158,7 @@ export function runUpsertAtomicityBehavior({
       }
 
       const rows = await currentClient.tag.findMany();
-      expect(rows).toHaveLength(6);
+      expect(rows).toHaveLength(pads ? 5 : 6);
       expect(
         rows
           .filter((row) => row.id.endsWith("-original"))

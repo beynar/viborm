@@ -121,11 +121,12 @@ export function runPolymorphicMemberJunctionBehavior({
       // required, not cosmetic.
       const q = (name: string) =>
         dialect === "mysql" ? `\`${name}\`` : `"${name}"`;
-      // PostgreSQL takes positional `$n`; MySQL and SQLite take `?`.
+      // PostgreSQL takes positional `$n`, SQL Server `@pn`; MySQL and SQLite `?`.
       const holes = (count: number) =>
-        Array.from({ length: count }, (_, index) =>
-          dialect === "postgresql" ? `$${index + 1}` : "?"
-        ).join(", ");
+        Array.from({ length: count }, (_, index) => {
+          if (dialect === "postgresql") return `$${index + 1}`;
+          return dialect === "mssql" ? `@p${index + 1}` : "?";
+        }).join(", ");
       const insertMember = (
         table: string,
         columns: readonly string[],

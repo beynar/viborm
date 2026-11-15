@@ -1,0 +1,475 @@
+/**
+ * SQL Server: a transaction the server rolls back itself (a deadlock victim,
+ * a killed session, `XACT_ABORT ON`) fails with its own typed error, and the
+ * client stays usable. Set MSSQL_TEST_CONNECTION_STRING to run.
+ */
+
+import { createClient } from "@client/client";
+import { MssqlDriver } from "@drivers/mssql";
+import {
+  TransactionError,
+  UniqueConstraintError,
+  VibORMErrorCode,
+} from "@errors";
+import { s } from "@schema";
+import { sql } from "@sql";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import sqlServer from "mssql";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  onTestFinished,
+  test,
+} from "vitest";
+import {
+  createSchema,
+  dropSchema,
+  TEST_CONNECTION_STRING,
+} from "./mssql-fixtures";
+
+const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
+const COMMITTED =
+  /raw COMMIT ended the transaction: what it wrote is committed/;
+const NAMESPACE = "viborm_transactions";
+
+const counter = s
+  .model({
+    id: s.int().id().increment(),
+    key: s.string().unique(),
+    value: s.int(),
+  })
+  .map("counters");
+
+const open = (options?: object) =>
+  createClient({
+    schema: { counter },
+    driver: new MssqlDriver({
+      databaseUrl: TEST_CONNECTION_STRING,
+      namespace: NAMESPACE,
+      ...(options ? { options } : {}),
+    }),
+  });
+
+type Client = ReturnType<typeof open>;
+const clients: Client[] = [];
+const client = (options?: object): Client => {
+  const opened = open(options);
+  clients.push(opened);
+  return opened;
+};
+
+describeIf("SQL Server transactions the server rolls back", () => {
+  beforeAll(async () => {
+    await createSchema(NAMESPACE);
+    await syncLiveSchema(client());
+  });
+  beforeEach(async () => {
+    await clients[0]!.counter.deleteMany({});
+  });
+  afterAll(async () => {
+    for (const opened of clients) await opened.$disconnect();
+    await dropSchema(NAMESPACE);
+  });
+
+  test("each isolation level is the transaction's own, interactive and batch, and the pooled session goes back to READ COMMITTED", async () => {
+    // One pooled connection: every call below runs on the same session.
+    const single = client({ pool: { max: 1, min: 0 } });
+    const LEVEL = sql`SELECT transaction_isolation_level AS level FROM sys.dm_exec_sessions WHERE session_id = @@SPID`;
+    const level = (rows: { level: number }[]) => rows[0]!.level;
+    const levels = {
+      ReadUncommitted: 1,
+      ReadCommitted: 2,
+      RepeatableRead: 3,
+      Serializable: 4,
+    } as const;
+    const seen: Record<string, number> = {};
+    for (const name of Object.keys(levels)) {
+      const isolationLevel = name as keyof typeof levels;
+      seen[`interactive ${name}`] = level(
+        await single.$transaction(
+          (tx) => tx.$queryRaw<{ level: number }>(LEVEL),
+          {
+            isolationLevel,
+          }
+        )
+      );
+      const [batch] = await single.$transaction(
+        [single.$queryRaw<{ level: number }>(LEVEL)],
+        { isolationLevel }
+      );
+      seen[`batch ${name}`] = level(batch!);
+      seen[`after ${name}`] = level(
+        await single.$queryRaw<{ level: number }>(LEVEL)
+      );
+    }
+    expect(seen).toEqual(
+      Object.fromEntries(
+        Object.entries(levels).flatMap(([name, expected]) => [
+          [`interactive ${name}`, expected],
+          [`batch ${name}`, expected],
+          [`after ${name}`, levels.ReadCommitted],
+        ])
+      )
+    );
+  });
+
+  test("a transaction the server or a raw statement ends leaves no foreign isolation level on the pooled session", async () => {
+    const LEVEL = sql`SELECT transaction_isolation_level AS level FROM sys.dm_exec_sessions WHERE session_id = @@SPID`;
+    const levelOf = (rows: { level: number }[]) => rows[0]!.level;
+    const counters = `"${NAMESPACE}"."counters"`;
+    const trigger = `"${NAMESPACE}"."counters_refuse_level"`;
+    await clients[0]!.$executeRaw(
+      sql.raw(
+        `CREATE TRIGGER ${trigger} ON ${counters} AFTER INSERT AS IF EXISTS (SELECT 1 FROM inserted WHERE "key" = 'refused-level') ROLLBACK TRANSACTION`
+      )
+    );
+    onTestFinished(async () => {
+      await clients[0]!.$executeRaw(sql.raw(`${"DR"}OP TRIGGER ${trigger}`));
+    });
+    const endings: Record<string, (tx: Client) => Promise<unknown>> = {
+      XACT_ABORT: (tx) => tx.$queryRaw(sql`SELECT 1 / 0 AS "x"`),
+      "raw COMMIT": (tx) => tx.$executeRaw(sql.raw("COMMIT")),
+      "raw ROLLBACK": (tx) => tx.$executeRaw(sql.raw("ROLLBACK")),
+      "trigger ROLLBACK": (tx) =>
+        tx.counter.create({ data: { key: "refused-level", value: 1 } }),
+    };
+    const seen: Record<string, number> = {};
+    const expected: Record<string, number> = {};
+    for (const isolationLevel of [
+      "ReadUncommitted",
+      "RepeatableRead",
+      "Serializable",
+    ] as const)
+      for (const [name, end] of Object.entries(endings)) {
+        // One pooled connection, under XACT_ABORT ON.
+        const single = client({
+          pool: { max: 1, min: 0 },
+          options: { abortTransactionOnError: true },
+        });
+        await single
+          .$transaction(
+            async (tx) => {
+              await end(tx as unknown as Client);
+            },
+            { isolationLevel }
+          )
+          .catch(() => undefined);
+        const key = `${isolationLevel} ${name}`;
+        seen[key] = levelOf(await single.$queryRaw<{ level: number }>(LEVEL));
+        expected[key] = 2;
+        await single.counter.count();
+      }
+    // A deadlock victim at Serializable, each side on its own one-connection pool.
+    await clients[0]!.counter.createMany({
+      data: [
+        { key: "left", value: 0 },
+        { key: "right", value: 0 },
+      ],
+    });
+    const sides = [
+      client({ pool: { max: 1, min: 0 } }),
+      client({ pool: { max: 1, min: 0 } }),
+    ];
+    let arrived = 0;
+    let release!: () => void;
+    const bothLocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await Promise.allSettled(
+      sides.map((side, index) =>
+        side.$transaction(
+          async (tx) => {
+            const [mine, theirs] =
+              index === 0 ? ["left", "right"] : ["right", "left"];
+            await tx.counter.update({
+              where: { key: mine },
+              data: { value: 1 },
+            });
+            arrived += 1;
+            if (arrived === 2) release();
+            await bothLocked;
+            await tx.counter.update({
+              where: { key: theirs },
+              data: { value: 2 },
+            });
+          },
+          { isolationLevel: "Serializable" }
+        )
+      )
+    );
+    for (const [index, side] of sides.entries()) {
+      seen[`deadlock side ${index}`] = levelOf(
+        await side.$queryRaw<{ level: number }>(LEVEL)
+      );
+      expected[`deadlock side ${index}`] = 2;
+    }
+    expect(seen).toEqual(expected);
+  });
+
+  test("a raw COMMIT inside $transaction ends it, typed, and the client stays usable", async () => {
+    const single = client({ pool: { max: 1, min: 0 } });
+    const failure = await single
+      .$transaction(async (tx) => {
+        await tx.counter.create({ data: { key: "kept", value: 1 } });
+        await tx.$executeRaw(sql.raw("COMMIT"));
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error
+      );
+    expect(failure).toBeInstanceOf(TransactionError);
+    expect((failure as TransactionError).meta.reason).toBe(
+      "transaction-ended-by-statement"
+    );
+    expect((failure as Error).message).toMatch(COMMITTED);
+    // The row is committed, and the one pooled connection serves again.
+    expect(await single.counter.count()).toBe(1);
+    expect(await single.$transaction((tx) => tx.counter.count())).toBe(1);
+  });
+
+  test("a deadlock victim fails with the typed deadlock, and both clients stay usable", async () => {
+    const first = client();
+    const second = client();
+    await first.counter.createMany({
+      data: [
+        { key: "a", value: 0 },
+        { key: "b", value: 0 },
+      ],
+    });
+    let arrived = 0;
+    let release!: () => void;
+    const bothLocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const crossing = (db: Client, mine: string, theirs: string) =>
+      db.$transaction(async (tx) => {
+        await tx.counter.update({ where: { key: mine }, data: { value: 1 } });
+        arrived += 1;
+        if (arrived === 2) release();
+        await bothLocked;
+        await tx.counter.update({ where: { key: theirs }, data: { value: 2 } });
+      });
+    const outcomes = await Promise.allSettled([
+      crossing(first, "a", "b"),
+      crossing(second, "b", "a"),
+    ]);
+    const failures = outcomes.flatMap((outcome) =>
+      outcome.status === "rejected" ? [outcome.reason as unknown] : []
+    );
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toBeInstanceOf(TransactionError);
+    expect((failures[0] as TransactionError).code).toBe(
+      VibORMErrorCode.DEADLOCK
+    );
+    expect(await first.counter.count()).toBe(2);
+    expect(await second.counter.count()).toBe(2);
+  });
+
+  test("a session killed under its transaction fails it, and the client stays usable", async () => {
+    const victim = client();
+    const killer = client();
+    await expect(
+      victim.$transaction(async (tx) => {
+        const [row] = await tx.$queryRaw<{ spid: number }>(
+          sql`SELECT @@SPID AS spid`
+        );
+        await killer.$executeRaw(sql.raw(`KILL ${Number(row!.spid)}`));
+        await tx.counter.create({ data: { key: "k", value: 1 } });
+      })
+    ).rejects.toThrow();
+    expect(await victim.counter.count()).toBe(0);
+    await victim.counter.create({ data: { key: "after", value: 1 } });
+    expect(await victim.counter.count()).toBe(1);
+  });
+
+  test("under XACT_ABORT ON a failed statement fails its transaction with its own error, and the client stays usable", async () => {
+    const strict = client({ options: { abortTransactionOnError: true } });
+    await strict.counter.create({ data: { key: "taken", value: 0 } });
+    await expect(
+      strict.$transaction(async (tx) => {
+        await tx.counter.create({ data: { key: "first", value: 1 } });
+        await tx.counter.create({ data: { key: "taken", value: 1 } });
+      })
+    ).rejects.toBeInstanceOf(UniqueConstraintError);
+    expect(
+      (await strict.counter.findMany({ orderBy: { key: "asc" } })).map(
+        (row) => row.key
+      )
+    ).toEqual(["taken"]);
+  });
+
+  /** What a failed transaction reports: its class and its reason. */
+  const reported = (error: unknown) => ({
+    typed: error instanceof TransactionError,
+    reason: (error as TransactionError | undefined)?.meta?.reason,
+  });
+  const UNKNOWN_COMMIT = { typed: true, reason: "commit-outcome-unknown" };
+
+  test("a session lost between the last statement and COMMIT: an unknown outcome, nothing committed, the client usable", async () => {
+    const victim = client();
+    const killer = client();
+    const failure = await victim
+      .$transaction(async (tx) => {
+        await tx.counter.create({ data: { key: "lost", value: 1 } });
+        const [row] = await tx.$queryRaw<{ spid: number }>(
+          sql`SELECT @@SPID AS spid`
+        );
+        await killer.$executeRaw(sql.raw(`KILL ${Number(row!.spid)}`));
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error
+      );
+    expect(reported(failure)).toEqual(UNKNOWN_COMMIT);
+    expect(await victim.counter.count()).toBe(0);
+  });
+
+  test("a COMMIT past its request timeout: an unknown outcome, and a client that refuses further work", async () => {
+    // One COMMIT with a 1 ms request timeout: tedious cancels it, and the
+    // server has committed, or not, leaving the transaction open on a
+    // connection `mssql` has handed back to its pool.
+    const prototype = sqlServer.Transaction.prototype as unknown as {
+      commit: (...args: unknown[]) => Promise<void>;
+      _acquiredConnection?: { config: { options: { requestTimeout: number } } };
+    };
+    const commit = prototype.commit;
+    onTestFinished(() => {
+      prototype.commit = commit;
+    });
+    prototype.commit = function (this: typeof prototype, ...args: unknown[]) {
+      const options = this._acquiredConnection?.config.options;
+      if (!options) return commit.apply(this, args);
+      const before = options.requestTimeout;
+      options.requestTimeout = 1;
+      const restore = () => {
+        options.requestTimeout = before;
+      };
+      const committing = commit.apply(this, args);
+      committing.then(restore, restore);
+      return committing;
+    };
+    // A server may answer within the millisecond: that COMMIT succeeded,
+    // and the scenario is run again on a fresh client.
+    let slow = open();
+    let failure: unknown;
+    for (let attempt = 1; attempt <= 10; attempt++) {
+      failure = await slow
+        .$transaction(async (tx) => {
+          await tx.$executeRaw(
+            sql.raw(
+              `INSERT INTO "${NAMESPACE}"."counters" ("key", "value") SELECT TOP 3000 CONCAT('slow-', ROW_NUMBER() OVER (ORDER BY (SELECT NULL))), 1 FROM sys.all_objects AS a CROSS JOIN sys.all_objects AS b`
+            )
+          );
+        })
+        .then(
+          () => undefined,
+          (error: unknown) => error
+        );
+      if (failure !== undefined) break;
+      await slow.counter.deleteMany({});
+      await slow.$disconnect();
+      slow = open();
+    }
+    prototype.commit = commit;
+    expect(reported(failure)).toEqual(UNKNOWN_COMMIT);
+    expect(
+      reported(await slow.counter.count().catch((error) => error))
+    ).toEqual({ typed: true, reason: undefined });
+    // Closing the pool ends whatever it held; the outcome is one or the other.
+    await slow.$disconnect();
+    expect([0, 3000]).toContain(await client().counter.count());
+  });
+
+  test("a trigger's ROLLBACK inside a savepoint: the same typed reason at every level", async () => {
+    const counters = `"${NAMESPACE}"."counters"`;
+    const trigger = `"${NAMESPACE}"."counters_refuse"`;
+    const strict = client();
+    await strict.$executeRaw(
+      sql.raw(
+        `CREATE TRIGGER ${trigger} ON ${counters} AFTER INSERT AS IF EXISTS (SELECT 1 FROM inserted WHERE "key" = 'refused') ROLLBACK TRANSACTION`
+      )
+    );
+    onTestFinished(async () => {
+      await strict.$executeRaw(sql.raw(`${"DR"}OP TRIGGER ${trigger}`));
+    });
+    const seen: Record<string, unknown> = {};
+    seen.outer = await strict
+      .$transaction(async (tx) => {
+        await tx.counter.create({ data: { key: "kept?", value: 1 } });
+        seen.inner = await tx
+          .$transaction((inner) =>
+            inner.counter.create({ data: { key: "refused", value: 1 } })
+          )
+          .then(
+            () => undefined,
+            (error: unknown) => error
+          );
+        seen.model = await tx.counter
+          .create({ data: { key: "after", value: 1 } })
+          .catch((error: unknown) => error);
+        seen.raw = await tx
+          .$queryRaw(sql`SELECT 1 AS one`)
+          .catch((error: unknown) => error);
+        seen.nested = await tx
+          .$transaction((inner) => inner.counter.count())
+          .catch((error: unknown) => error);
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error
+      );
+    const ROLLED_BACK = {
+      typed: true,
+      reason: "transaction-rolled-back-by-server",
+    };
+    expect(
+      Object.fromEntries(
+        Object.entries(seen).map(([level, error]) => [level, reported(error)])
+      )
+    ).toEqual({
+      inner: ROLLED_BACK,
+      model: ROLLED_BACK,
+      raw: ROLLED_BACK,
+      nested: ROLLED_BACK,
+      outer: ROLLED_BACK,
+    });
+    expect(await strict.counter.count()).toBe(0);
+  });
+
+  test("after the server rolls back the whole transaction inside a savepoint, the next statement says so, typed", async () => {
+    const strict = client({ options: { abortTransactionOnError: true } });
+    await strict.counter.create({ data: { key: "taken", value: 0 } });
+    let next: unknown;
+    const outcome = await strict
+      .$transaction(async (tx) => {
+        await tx.counter.create({ data: { key: "outer", value: 1 } });
+        // As on PostgreSQL: the inner failure is caught, the outer goes on.
+        await tx
+          .$transaction(async (inner) => {
+            await inner.counter.create({ data: { key: "taken", value: 1 } });
+          })
+          .catch(() => undefined);
+        next = await tx.counter
+          .create({ data: { key: "after", value: 1 } })
+          .catch((error: unknown) => error);
+        throw next;
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error
+      );
+    expect(reported(next)).toEqual({
+      typed: true,
+      reason: "transaction-rolled-back-by-server",
+    });
+    expect(reported(outcome)).toEqual(reported(next));
+    expect(
+      (await strict.counter.findMany({ orderBy: { key: "asc" } })).map(
+        (row) => row.key
+      )
+    ).toEqual(["taken"]);
+  });
+});

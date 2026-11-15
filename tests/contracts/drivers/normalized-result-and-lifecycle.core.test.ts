@@ -125,6 +125,9 @@ describe("normalized provider result boundary", () => {
   test.each([
     { rows: [], rowCount: 0, insertId: 0 },
     { rows: [], rowCount: 0, insertId: 1n },
+    // SQL Server's IDENTITY may start at or below 0.
+    { rows: [], rowCount: 0, insertId: -1 },
+    { rows: [], rowCount: 0, insertId: -2n },
   ])("accepts normalized optional insert ids", (result) => {
     expect(() =>
       assertNormalizedQueryResult(result, normalizedContext)
@@ -134,7 +137,6 @@ describe("normalized provider result boundary", () => {
   test.each([
     Number.POSITIVE_INFINITY,
     Number.MAX_SAFE_INTEGER + 1,
-    -1,
     1.5,
   ])("refuses malformed normalized insert id %s", (insertId) => {
     expect(() =>

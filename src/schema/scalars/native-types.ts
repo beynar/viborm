@@ -6,11 +6,11 @@
 // =============================================================================
 
 export interface NativeType {
-  readonly db: "pg" | "mysql" | "sqlite";
+  readonly db: "pg" | "mysql" | "sqlite" | "mssql";
   readonly type: string;
 }
 
-/** The three dialects a native type can name. */
+/** The dialects a native type can name. */
 export type NativeDialect = NativeType["db"];
 
 /**
@@ -34,6 +34,7 @@ export interface NativeTypeMap {
   readonly pg?: DialectNativeType<"pg">;
   readonly mysql?: DialectNativeType<"mysql">;
   readonly sqlite?: DialectNativeType<"sqlite">;
+  readonly mssql?: DialectNativeType<"mssql">;
 }
 
 /**
@@ -50,6 +51,7 @@ export const NATIVE_DIALECTS: readonly NativeDialect[] = [
   "pg",
   "mysql",
   "sqlite",
+  "mssql",
 ];
 
 /** Whether a declaration is the tagged shorthand rather than a map. */
@@ -133,6 +135,7 @@ const fixed =
 const pg = fixed("pg");
 const mysql = fixed("mysql");
 const sqlite = fixed("sqlite");
+const mssql = fixed("mssql");
 
 /** A type that takes one required size: `varchar(80)`. */
 const sized =
@@ -337,5 +340,29 @@ export const SQLITE = {
   // Binary types
   BLOB: {
     BLOB: sqlite("BLOB"),
+  },
+} as const;
+
+// =============================================================================
+// SQL SERVER NATIVE TYPES
+// A column VibORM's own SQL Server tables do not use: an adopted table's.
+// =============================================================================
+
+export const MSSQL = {
+  // String types: a VARCHAR or CHAR operand is cast to the column's type, so
+  // an index on it is sought and its own collation rules decide.
+  STRING: {
+    VARCHAR: sized("mssql", "VARCHAR"),
+    VARCHAR_MAX: mssql("VARCHAR(MAX)"),
+    CHAR: sized("mssql", "CHAR"),
+    NVARCHAR: sized("mssql", "NVARCHAR"),
+    NVARCHAR_MAX: mssql("NVARCHAR(MAX)"),
+    NCHAR: sized("mssql", "NCHAR"),
+  },
+
+  // DateTime types: an instant is compared as the column stores it.
+  DATETIME: {
+    DATETIME: mssql("DATETIME"),
+    SMALLDATETIME: mssql("SMALLDATETIME"),
   },
 } as const;

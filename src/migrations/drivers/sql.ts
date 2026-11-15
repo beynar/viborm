@@ -336,7 +336,8 @@ export abstract class SqlMigrationDriver extends MigrationDriver {
    */
   protected decimalDialect(): DecimalDialect {
     if (this.dialect === "postgresql") return "pg";
-    if (this.dialect === "mysql") return "mysql";
+    if (this.dialect === "mysql" || this.dialect === "mssql")
+      return this.dialect;
     return "sqlite";
   }
 

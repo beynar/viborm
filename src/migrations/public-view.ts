@@ -207,7 +207,7 @@ function uniqueOperationValues<K extends "origin" | "risk">(
 }
 
 function migrationTarget(target: MigrationTarget): MigrationTarget {
-  return target.dialect === "postgresql"
+  return target.dialect === "postgresql" || target.dialect === "mssql"
     ? Object.freeze({ dialect: target.dialect, namespace: target.namespace })
     : Object.freeze({ dialect: target.dialect });
 }

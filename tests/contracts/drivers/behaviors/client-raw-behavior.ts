@@ -56,6 +56,7 @@ export function runClientRawBehavior({
       const { dialect } = driver;
       if (dialect === "postgresql") placeholder = (i) => `$${i}`;
       else if (dialect === "surrealql") placeholder = (i) => `$p${i}`;
+      else if (dialect === "mssql") placeholder = (i) => `@p${i}`;
       else placeholder = () => "?";
       client = createClient({ schema, driver });
       await syncLiveSchema(client);

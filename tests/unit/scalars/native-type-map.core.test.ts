@@ -126,7 +126,7 @@ describe("every native-typed factory takes the map", () => {
       builder: name,
       path: "nativeType.oracle",
       message: expect.stringContaining(
-        "'oracle' is not a dialect: a native-type map names only pg, mysql, sqlite"
+        "'oracle' is not a dialect: a native-type map names only pg, mysql, sqlite, mssql"
       ),
     });
   });

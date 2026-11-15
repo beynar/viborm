@@ -91,6 +91,7 @@ export const MIGRATION_ATTESTATION_MEMBER = "migrationNamespaceAttestation";
  */
 export const ADMITTED_DRIVER_OPTION_TYPES = [
   "BunSQLDriverOptions",
+  "MssqlDriverOptions",
   "MySQL2DriverOptions",
   "NeonHTTPDriverOptions",
   "PGliteDriverOptions",

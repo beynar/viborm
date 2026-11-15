@@ -40,6 +40,7 @@ import { isRecord } from "@validation/value-guards";
 import {
   type DialectNativeType,
   isTaggedNativeType,
+  MSSQL,
   MYSQL,
   NATIVE_DIALECTS,
   type NativeDialect,
@@ -77,6 +78,7 @@ const CONSTANT_NAMES: Record<Dialect, string> = {
   pg: "PG",
   mysql: "MYSQL",
   sqlite: "SQLITE",
+  mssql: "MSSQL",
 };
 
 // Built on the first native-type check rather than at import: walking every
@@ -248,10 +250,12 @@ function buildCatalogs(): Record<Dialect, DialectCatalog> {
     pg: emptyCatalog(),
     mysql: emptyCatalog(),
     sqlite: emptyCatalog(),
+    mssql: emptyCatalog(),
   };
   walk(PG, catalogs.pg);
   walk(MYSQL, catalogs.mysql);
   walk(SQLITE, catalogs.sqlite);
+  walk(MSSQL, catalogs.mssql);
   return catalogs;
 }
 

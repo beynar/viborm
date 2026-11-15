@@ -62,7 +62,8 @@ export type IntrospectionDialect =
   | "postgresql"
   | "sqlite"
   | "mysql"
-  | "snowflake";
+  | "snowflake"
+  | "mssql";
 
 export interface IntrospectSchemaResult {
   /** The schema, in canonical form (`serializeSchema(parseSchema(document))`). */

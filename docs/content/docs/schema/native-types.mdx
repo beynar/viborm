@@ -9,14 +9,15 @@ override the default column type:
 
 ```ts
 import { s } from "viborm";
-import { PG, MYSQL, SQLITE } from "viborm/schema";
+import { PG, MYSQL, SQLITE, MSSQL } from "viborm/schema";
 
 s.string(PG.STRING.VARCHAR(255)); // varchar(255) instead of text
 s.string(MYSQL.STRING.LONGTEXT);  // LONGTEXT on MySQL
 s.json(PG.JSON.JSON);             // json instead of jsonb
+s.string(MSSQL.STRING.VARCHAR(40)); // an adopted VARCHAR(40) on SQL Server
 ```
 
-A native type only applies when it matches the database you run against (`PG.*` on PostgreSQL, `MYSQL.*` on MySQL, `SQLITE.*` on SQLite); otherwise the default mapping below is used. This keeps schemas portable across databases.
+A native type only applies when it matches the database you run against (`PG.*` on PostgreSQL, `MYSQL.*` on MySQL, `SQLITE.*` on SQLite, `MSSQL.*` on SQL Server); otherwise the default mapping below is used. This keeps schemas portable across databases.
 
 ## One native type per dialect
 
@@ -46,7 +47,7 @@ takes each dialect's entry exactly as it takes a single native type.
 
 The map is exact:
 
-- its keys are `pg`, `mysql` and `sqlite`, at least one of them — an unknown key
+- its keys are `pg`, `mysql`, `sqlite` and `mssql`, at least one of them — an unknown key
   is a type error, beside a real key and in a map held in a variable, and an
   object with no dialect key at all must be a whole `{ db, type }` constant;
 - each entry is a constant of its own key's dialect. A parameterized constant
@@ -123,6 +124,15 @@ Without a native type override, scalars map to these column types:
 | `MYSQL.STRING.TINYTEXT` / `MEDIUMTEXT` / `LONGTEXT` | `TINYTEXT` / `MEDIUMTEXT` / `LONGTEXT` |
 | `MYSQL.STRING.BIT(n)` | `BIT(n)` |
 | `SQLITE.STRING.TEXT` | `TEXT` (only option) |
+| `MSSQL.STRING.VARCHAR(n)` / `VARCHAR_MAX` | `VARCHAR(n)` / `VARCHAR(MAX)` |
+| `MSSQL.STRING.CHAR(n)` | `CHAR(n)` |
+| `MSSQL.STRING.NVARCHAR(n)` / `NVARCHAR_MAX` | `NVARCHAR(n)` / `NVARCHAR(MAX)` |
+| `MSSQL.STRING.NCHAR(n)` | `NCHAR(n)` |
+
+On SQL Server, a `VARCHAR` or `CHAR` native type also changes how VibORM binds
+the field's operands: as `VARCHAR`, so an index on the column is sought and the
+column's own collation rules compare it. See
+[SQL Server](/docs/drivers/sqlserver#string-comparison).
 
 A string field that NAMES an identifier format — `.uuid()`, `.uuidv7()`,
 `.ulid()`, `.ksuid()`, `.nanoid()`, `.cuid()` — chooses its own column, so the
@@ -203,6 +213,8 @@ create a second provider-specific precision or representation. See
 | `SQLITE.DATETIME.TEXT` | `TEXT` (ISO format, default) |
 | `SQLITE.DATETIME.REAL` | `REAL` (Julian day) |
 | `SQLITE.DATETIME.INTEGER` | `INTEGER` (Unix epoch milliseconds) |
+| `MSSQL.DATETIME.DATETIME` | `DATETIME` (operands bound as `DATETIME`) |
+| `MSSQL.DATETIME.SMALLDATETIME` | `SMALLDATETIME` |
 
 ## JSON
 

@@ -283,6 +283,13 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
     return true;
   }
 
+  /** `driver`'s {@link numbersPlaceholders}: what a view over its transport reads. */
+  protected numbersPlaceholdersOf(
+    driver: DriverInstrumentationBase<TClient, TTransaction>
+  ): boolean {
+    return driver.numbersPlaceholders;
+  }
+
   /**
    * A typed statement as it is sent: over the bind budget, equal values bind
    * once where the transport numbers its placeholders (a governed read

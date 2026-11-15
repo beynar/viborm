@@ -40,6 +40,7 @@ const DECIMAL_DIALECT: Readonly<Partial<Record<Dialect, DecimalDialect>>> = {
   postgresql: "pg",
   mysql: "mysql",
   sqlite: "sqlite",
+  mssql: "mssql",
 } satisfies Record<Exclude<Dialect, NoDecimalLimit>, DecimalDialect>;
 
 /** Return the first declared decimal domain the selected provider cannot hold. */

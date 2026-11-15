@@ -209,6 +209,13 @@ export function idStorageOf(
   dialect: IdDialect
 ): IdStorage | undefined {
   const nativeType = nativeTypeFor(declaration, dialect);
+  // SQL Server keeps every identifier as text (`MssqlAdapter`), in whatever
+  // column holds it.
+  if (dialect === "mssql")
+    return {
+      representation: "text",
+      columnType: nativeType?.type ?? "NVARCHAR(450)",
+    };
   if (nativeType === undefined) {
     return defaultIdStorage(domain.format, dialect);
   }

@@ -4,6 +4,7 @@ import { cache } from "@src/cache/exports";
 import { defaultOmit } from "@src/client/exports";
 import {
   createClient,
+  ForeignKeyError,
   NotFoundError,
   s,
   UniqueConstraintError,
@@ -141,6 +142,12 @@ export interface SoftDeleteProvider {
   readonly createDriver: () => AnyDriver;
   /** `false` on MySQL: no partial index, so no partial-unique witness. */
   readonly partialUnique?: false;
+  /**
+   * The database holds NO ACTION on a self-reference (SQL Server refuses
+   * any ON DELETE action there): a row is hard-deleted only once its
+   * replies are detached, as an application on that database does.
+   */
+  readonly heldSelfReference?: true;
 }
 
 export function runSoftDeleteBehavior(provider: SoftDeleteProvider): void {
@@ -154,6 +161,14 @@ export function runSoftDeleteBehavior(provider: SoftDeleteProvider): void {
         provider.partialUnique ?? true
       ));
     });
+    /** Replies of `ids` detached first, where the database cannot. */
+    const detachReplies = async (...ids: string[]) => {
+      if (provider.heldSelfReference)
+        await base.post.updateMany({
+          where: { parentId: { in: ids } },
+          data: { parentId: null },
+        });
+    };
     afterEach(async () => {
       await base.$disconnect();
     });
@@ -383,6 +398,7 @@ export function runSoftDeleteBehavior(provider: SoftDeleteProvider): void {
         "p6",
       ]);
       // A single hard delete of a tombstone.
+      await detachReplies("p4");
       await db.post.delete({
         where: { id: "p4" },
         deleted: "only",
@@ -404,6 +420,7 @@ export function runSoftDeleteBehavior(provider: SoftDeleteProvider): void {
         "p5",
         "p6",
       ]);
+      await detachReplies("p4");
       const purged = await db.post.purge({
         where: { id: "p4" },
         select: { id: true, deletedAt: true },
@@ -450,6 +467,7 @@ export function runSoftDeleteBehavior(provider: SoftDeleteProvider): void {
       ).toEqual({ count: 0 });
       // Filtered on `createdAt` instead, it deletes old LIVE posts and keeps
       // the old tombstones.
+      await detachReplies("p1");
       expect(
         await db.post.deleteMany({
           where: { createdAt: { lt: CUTOFF } },
@@ -464,6 +482,20 @@ export function runSoftDeleteBehavior(provider: SoftDeleteProvider): void {
         "p7",
       ]);
     });
+
+    if (provider.heldSelfReference)
+      test("a hard delete of a row with replies is refused where the database holds the self-reference", async () => {
+        expect(
+          await failure(
+            db.post.delete({
+              where: { id: "p4" },
+              deleted: "only",
+              mode: "hard",
+            })
+          )
+        ).toBeInstanceOf(ForeignKeyError);
+        expect(await physical("p4")).not.toBeNull();
+      });
 
     const partialUniqueRecipe = provider.partialUnique ?? true;
     if (partialUniqueRecipe)

@@ -131,7 +131,7 @@ the one PR merged into `main` as the release commit, whose latest
 `pull_request` run on its head branch and SHA passed, where the release commit's
 first parent is an ancestor of the head and both commits share one Git tree.
 Main only fast-forwards, so the PR run tested that tree. Either proof requires
-all fifteen CI jobs to succeed in the run's latest attempt (`RELEASE_CI_JOBS`:
+all sixteen CI jobs to succeed in the run's latest attempt (`RELEASE_CI_JOBS`:
 the nine `Local providers` matrix legs count separately); the output's `proof`
 field (`push` or `pull-request-tree`, with the PR number and head SHA) names the
 one used. A skipped job, an older green attempt, or a green run on another tree

@@ -400,7 +400,7 @@ describe("migrations on Snowflake", () => {
       expect(failure).toMatchObject({
         code: VibORMErrorCode.FEATURE_NOT_SUPPORTED,
         message: expect.stringContaining(
-          "Snowflake has no migrations: VibORM only reads it"
+          "snowflake has no migrations: VibORM writes no DDL for it"
         ),
       });
     }

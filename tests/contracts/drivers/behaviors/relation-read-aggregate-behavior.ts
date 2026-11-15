@@ -106,6 +106,7 @@ const TALLY_COLUMN: Record<AnyDriver["dialect"], RegExp> = {
   sqlite: /"_count" INTEGER NOT NULL/,
   surrealql: /(?!)/,
   snowflake: /(?!)/,
+  mssql: /"_count" (?:SMALLINT|INT) NOT NULL/,
 };
 
 type RelationReadAggregateClientConfig = VibORMConfig<typeof schema>;

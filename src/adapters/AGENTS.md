@@ -212,6 +212,32 @@ may only be conservative index prefilters before exact public semantics.
 
 **Important:** When PostgreSQL has a feature others lack, the adapter must either emulate it or the capability check must prevent its use.
 
+### SQL Server (`databases/mssql/`)
+
+T-SQL has no boolean VALUE: a predicate is not an expression and an expression
+is not a predicate. `literals.true()`/`false()` are `bit` values, and every
+member taking a condition reads those two instances back as `1 = 1`/`1 = 0`;
+in the other direction, a predicate the adapter built met in a value position
+(`aliased`, a JSON member, a `CASE` arm) becomes `CASE WHEN … THEN 1 ELSE 0
+END`. Both are identity facts the adapter holds; the engine is unchanged.
+No `RETURNING` (the driver reads `SCOPE_IDENTITY()` in the INSERT's own
+request), no targeted upsert (the locked branch, as on MySQL), no `LIMIT`
+(`TOP`/`OFFSET … FETCH`; an ordered derived table states `OFFSET 0 ROWS`),
+`CROSS`/`OUTER APPLY` for `LATERAL`, table hints for `FOR UPDATE`. The to-many
+carrier is `STRING_AGG` (no `JSON_ARRAYAGG` before 2025); an ordered page read
+by it carries a `ROW_NUMBER()` the aggregate states `WITHIN GROUP`, since
+`STRING_AGG` promises no input order. T-SQL has no row value either:
+`operators.rows` (declared by this adapter alone) spells `(k1, k2) IN (SELECT …)`
+as an `EXISTS` over the query as a derived table with named columns, and
+`(k1, k2) <= (v1, v2)` column by column; where it is present the engine also
+takes its general cursor window instead of the row-value seek. T-SQL
+aggregates no subquery (Msg 130), so a judged update cannot keep
+`HAVING MIN(guard) = 1` per key: `keptWhere`, in SQL Server's judged-write
+spelling alone (`databases/mssql/judged.ts`), folds the update's filter into the guard's own `CASE`, which then judges
+only the rows the filter keeps, and the engine keeps `kept AND guard = 1`.
+Recursive CTEs are refused (no `WITH` in a subquery, no `UNION` in a
+recursive member).
+
 `capabilities.sharesRelationBodies` is a transport fact, never a dialect
 one: declared by D1 (`SQLiteAdapter({ sharedRelationBodies: true })`) and by
 every PostgreSQL driver by default (`installPostgresAdapter`;
@@ -303,14 +329,15 @@ extensions judge no written row would carry them. `judged.ts` holds them by
 the dialect a driver declares, each dialect's in `databases/<dialect>/judged.ts`,
 and only what judges written rows (`src/extensions/judge.ts`) imports it; the
 call's adapter quotes. `typedRows` is the rows a judged write produces, typed
-by the table: one `UNION ALL SELECT` arm per row on MySQL; a `VALUES` list
+by the table: one `UNION ALL SELECT` arm per row on MySQL and SQL Server; a `VALUES` list
 after the typed head on SQLite (`SQLITE_MAX_COMPOUND_SELECT`, 500, does not
 count it); a `VALUES` list typed by its first row on PostgreSQL (each `UNION
 ALL` arm is one parser recursion: `54001` at 8,000 rows). The bind budget is
 a chunk's only bound. `holds` (a write's judgement of the row it produces)
 fails with its own sentinel, under the `__viborm_judged__` alias: PostgreSQL a text sublink
 cast to `integer` (22P02 naming `__viborm_refused__`), SQLite a JSON path
-naming it, MySQL an invalid JSON path (3143). `exists`/`notExists` (a batch's
+naming it, MySQL an invalid JSON path (3143), SQL Server a conversion error
+naming it (Msg 245). `exists`/`notExists` (a batch's
 premises) keep `__viborm_assert__` and their division by zero or invalid JSON
 text; `src/drivers/error-mapping.ts` tells the two apart.
 

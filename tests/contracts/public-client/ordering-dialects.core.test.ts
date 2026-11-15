@@ -1,5 +1,5 @@
 /**
- * viborm/ordering's statements on PostgreSQL, MySQL and SurrealDB, as the
+ * viborm/ordering's statements on PostgreSQL, MySQL, SQL Server and SurrealDB, as the
  * client builds them, over a driver that sends nothing: each statement is
  * recorded and answered from the test's script. A golden per case pins the
  * text and the parameters a database receives (`__golden__/ordering-dialects/`);
@@ -7,7 +7,8 @@
  * answered. What those statements do on a real database is proven by the
  * shared behaviour suite (`ordering-behavior.ts`) on each live provider:
  * `tests/providers/docker/pg-ordering.test.ts`,
- * `tests/providers/docker/mysql2-ordering.test.ts` and
+ * `tests/providers/docker/mysql2-ordering.test.ts`,
+ * `tests/providers/docker/mssql-ordering.test.ts` and
  * `tests/providers/docker/surrealdb-extensions.test.ts`.
  */
 
@@ -495,6 +496,51 @@ describe("MySQL", () => {
     expect(sent[2]!.params).toContainEqual(expect.stringMatching(KEY_IN_10));
     await expect(transcript(sent)).toMatchFileSnapshot(
       golden("mysql", "move-first-to-empty-list")
+    );
+  });
+});
+
+describe("SQL Server", () => {
+  test("a create appends: its key is computed by the INSERT, in T-SQL's spellings", async () => {
+    const row = { id: "b", columnId: "c1", rank: "11", title: null };
+    const { db, sent } = sqlClient("mssql", [{ rows: [], rowCount: 1 }, [row]]);
+    await expect(
+      db.card.create({ data: { id: "b", columnId: "c1" } })
+    ).resolves.toEqual(row);
+    expect(sent[0]!.sql).toContain("NEWID()");
+    await expect(transcript(sent)).toMatchFileSnapshot(
+      golden("mssql", "create-append")
+    );
+  });
+
+  test("rekey: one UPDATE joining the respaced keys, its derived table spelled twice", async () => {
+    const { db, sent } = sqlClient("mssql", [{ rows: [], rowCount: 3 }]);
+    await expect(db.card.rekey()).resolves.toEqual({ count: 3 });
+    expect(sent[0]!.sql).not.toContain("WITH g AS");
+    await expect(transcript(sent)).toMatchFileSnapshot(
+      golden("mssql", "rekey")
+    );
+  });
+
+  // A move on SQL Server reads its neighbours, then writes the key
+  // (`inStatement` answers MISSED there), as on MySQL.
+  test("a move before an anchor reads it, its neighbours, then locks and writes the row", async () => {
+    const a = { id: "a", columnId: "c1", rank: "13" };
+    const x = { id: "x", columnId: "c1", rank: "11" };
+    const b = { id: "b", columnId: "c1", rank: "15", title: null };
+    const written = { ...b, rank: "12" };
+    const { db, sent } = sqlClient("mssql", [
+      [a],
+      [a, x],
+      [b],
+      { rows: [], rowCount: 1 },
+      [written],
+    ]);
+    await expect(
+      db.card.move({ where: { id: "b" }, before: { id: "a" } })
+    ).resolves.toEqual(written);
+    await expect(transcript(sent)).toMatchFileSnapshot(
+      golden("mssql", "move-before")
     );
   });
 });

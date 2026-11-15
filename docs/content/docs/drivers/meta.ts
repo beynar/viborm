@@ -10,6 +10,7 @@ export default defineMeta({
     "postgresql",
     "mysql",
     "sqlite",
+    "sqlserver",
     "surrealdb",
     "snowflake",
   ],

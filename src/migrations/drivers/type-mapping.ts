@@ -84,6 +84,27 @@ export const MYSQL_TYPE_DEFAULTS = {
 } as const;
 
 /**
+ * Default SQL Server type mappings, the storage the runtime adapter reads and
+ * writes (`src/adapters/databases/mssql/mssql-adapter.ts`). Every list, JSON
+ * document and enum is text: SQL Server has no array, JSON or enum type.
+ * Strings are `NVARCHAR(MAX)` until `MssqlMigrationDriver.finalizeTable` sees
+ * a key on them.
+ */
+export const MSSQL_TYPE_DEFAULTS = {
+  string: "NVARCHAR(MAX)",
+  int: "INT",
+  number: "FLOAT",
+  boolean: "BIT",
+  datetime: "DATETIME2(3)",
+  date: "DATE",
+  time: "TIME(3)",
+  bigint: "BIGINT",
+  json: "NVARCHAR(MAX)",
+  blob: "VARBINARY(MAX)",
+  enum: "NVARCHAR(255)",
+} as const;
+
+/**
  * THE MySQL inline enum type — one spelling, both snapshot producers.
  *
  * MySQL has no standalone enum object: the values ARE the column type, so this
@@ -331,4 +352,17 @@ export function getMySQLType(context: ScalarTypeContext): string {
       ? MYSQL_TYPE_DEFAULTS.timetz
       : MYSQL_TYPE_DEFAULTS.time;
   return defaultType(MYSQL_TYPE_DEFAULTS, type);
+}
+
+/**
+ * SQL Server lists are JSON text, a decimal's members coefficient strings;
+ * a scalar decimal keeps its declared precision and scale. A timezone changes
+ * nothing: the adapter stores every instant as naive UTC.
+ */
+export function getMssqlType(context: ScalarTypeContext): string {
+  if (context.array) return MSSQL_TYPE_DEFAULTS.json;
+  return context.type === "decimal"
+    ? // T-SQL spells it as MySQL does: `DECIMAL(p,s)`.
+      decimalColumnType("mysql", requireDecimalDomain(context))
+    : defaultType(MSSQL_TYPE_DEFAULTS, context.type);
 }

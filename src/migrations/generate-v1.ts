@@ -3,7 +3,6 @@
  * Snapshot and SQL are published before the state manifest.
  */
 
-import type { SqlDialect } from "../drivers/types";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import {
   assertManualStepwiseProof,
@@ -53,7 +52,10 @@ import {
 } from "./snapshot-artifacts";
 import { SqlAssembly } from "./sql-assembly";
 import { sliceDispatch } from "./sql-blob";
-import { assertArtifactExecutionSafe } from "./statement-safety";
+import {
+  assertArtifactExecutionSafe,
+  type ClassifiedDialect,
+} from "./statement-safety";
 import type { MigrationStorageWriter } from "./storage/contract";
 import { assertEstateTargetMatches } from "./target";
 import type { DiffOperation, ResolveCallback, SchemaSnapshot } from "./types";
@@ -111,8 +113,9 @@ export async function generateV1(
     client,
     request.skipValidation ?? false
   );
-  // An estate's own format admits no dialect without a history.
-  const dialect = driver.target.dialect as SqlDialect;
+  // An estate's own format admits no dialect without a history, and no
+  // migration client is made for SQL Server (`createMigrationClient`).
+  const dialect = driver.target.dialect as ClassifiedDialect;
   const publishedEstate = await storage.readEstate();
   const estateBytes =
     publishedEstate ?? encodeEstateDescriptor(driver.target).bytes;

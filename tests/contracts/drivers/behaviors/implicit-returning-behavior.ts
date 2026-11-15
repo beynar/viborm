@@ -458,10 +458,21 @@ export function runImplicitReturningBehavior({
         skipDuplicates: true,
       });
 
-      expect(result.count).toBe(6);
+      // A database that pads trailing spaces (SQL Server) holds "trail " as
+      // a duplicate of "trail", and skips it.
+      const pads =
+        client!.$driver.adapter.capabilities.padsTrailingSpaces === true;
+      expect(result.count).toBe(pads ? 5 : 6);
       const rows = await client!.orderedConflict.findMany();
       expect(new Set(rows.map((row) => row.code))).toEqual(
-        new Set(["Case", "CASE", "résumé", "resume", "trail", "trail "])
+        new Set([
+          "Case",
+          "CASE",
+          "résumé",
+          "resume",
+          "trail",
+          ...(pads ? [] : ["trail "]),
+        ])
       );
     });
 

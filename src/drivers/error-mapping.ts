@@ -79,9 +79,10 @@ const JSON_ACCESS_SIGNATURE = /json(?!_each\(\?\)\))|->/i;
 
 /**
  * The dialects nothing collides with: SurrealDB raises no batch assertion,
- * and Snowflake runs no batch.
+ * Snowflake runs no batch, and SQL Server's premises fail only on their own
+ * sentinel's conversion.
  */
-type NoAssertionCollision = "surrealql" | "snowflake";
+type NoAssertionCollision = "surrealql" | "snowflake" | "mssql";
 
 // Every other dialect states its signature: one added to `Dialect` does not
 // compile until it is here or above. Checked by the type only, so the

@@ -32,6 +32,7 @@ import { derivedMigrationName } from "../utils";
 import {
   type ColumnContext,
   type ColumnTranslation,
+  translateMssqlColumn,
   translateMysqlColumn,
   translatePostgresColumn,
   translateSnowflakeColumn,
@@ -85,6 +86,7 @@ const TRANSLATORS: Record<
   sqlite: translateSqliteColumn,
   mysql: translateMysqlColumn,
   snowflake: translateSnowflakeColumn,
+  mssql: translateMssqlColumn,
 };
 
 const BINARY_KEY_TYPES: Record<IntrospectionDialect, string | undefined> = {
@@ -92,6 +94,8 @@ const BINARY_KEY_TYPES: Record<IntrospectionDialect, string | undefined> = {
   sqlite: "BLOB",
   mysql: "BINARY(16)",
   snowflake: undefined,
+  // SQL Server stores every identifier as its text.
+  mssql: undefined,
 };
 
 /** `.map()` takes identifiers only, so a name outside them has no spelling. */

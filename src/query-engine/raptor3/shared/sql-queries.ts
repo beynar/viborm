@@ -114,6 +114,7 @@ import {
   relations,
   reversedRows,
   rowIdentity,
+  rowIn,
   rowSet,
   rowValue,
   type ScalarStateOf,
@@ -1061,6 +1062,22 @@ export class SqlQueries extends Queries {
       this.scalarShape(model, field).id
     );
   }
+  /** {@link fieldValue}, bound to be compared with the field's column. */
+  #compared(model: AnyModel, field: string, value: unknown): Sql {
+    return (
+      this.#text(this.physical(model, field).scalar, value) ??
+      this.fieldValue(model, field, value)
+    );
+  }
+  /**
+   * A string compared with a column of `scalar` in the column's own family,
+   * where the adapter states one (`literals.string`): never a written value.
+   */
+  #text(scalar: Scalar, value: unknown): Sql | undefined {
+    return typeof value === "string"
+      ? this.adapter.literals.string?.(value, this.nativeType(scalar))
+      : undefined;
+  }
   /**
    * `id` is the destination column's identifier storage, which the scalar
    * alone cannot answer: a foreign key DERIVES its domain and a private
@@ -1273,6 +1290,8 @@ export class SqlQueries extends Queries {
         this.#null(),
         this.adapter.expressions.blobToHex(expression)
       );
+    if (leaf.type === "datetime" || leaf.type === "time")
+      return this.adapter.json.instant?.(expression, leaf.type) ?? expression;
     return expression;
   }
   junctionWhere(
@@ -1285,7 +1304,7 @@ export class SqlQueries extends Queries {
         .map(({ side, pair }) =>
           this.#eq(
             this.#escaped(pair.junctionField),
-            this.fieldValue(
+            this.#compared(
               side.model,
               pair.referencedField,
               values[pair.junctionField]
@@ -1308,7 +1327,7 @@ export class SqlQueries extends Queries {
           ? this.column(side.model, pair.referencedField, endpoint)
           : typeof endpoint === "function"
             ? endpoint(pair.referencedField)
-            : this.fieldValue(
+            : this.#compared(
                 side.model,
                 pair.referencedField,
                 endpoint[pair.referencedField]
@@ -1643,13 +1662,12 @@ export class SqlQueries extends Queries {
             limit: this.value(limit),
           }),
     });
-    return adapter.operators.in(
-      rowValue(keys.map((field) => this.column(model, field, alias))),
-      adapter.subqueries.scalar(
-        adapter.capabilities.supportsMutationTargetInSubquery
-          ? capped
-          : throughDerived(adapter, capped, this.alias())
-      )
+    return rowIn(
+      adapter,
+      keys.map((field) => this.column(model, field, alias)),
+      adapter.capabilities.supportsMutationTargetInSubquery
+        ? capped
+        : throughDerived(adapter, capped, this.alias())
     );
   }
   /** `<key> ASC, …` in {@link keyOrder}, the keys addressed through `alias`. */
@@ -1665,7 +1683,7 @@ export class SqlQueries extends Queries {
       ...Object.entries(identity).map(([field, value]) =>
         this.#eq(
           this.column(model, field, alias),
-          this.fieldValue(model, field, value)
+          this.#compared(model, field, value)
         )
       )
     );
@@ -2153,7 +2171,10 @@ export class SqlQueries extends Queries {
     }
     if (target.kind === "aggregate" && target.aggregate === "_sum")
       return this.#sumTargetValue(scalar, value, id);
-    return this.#scalarValue(scalar.physical.scalar, value, scalar.field, id);
+    return (
+      this.#text(scalar.physical.scalar, value) ??
+      this.#scalarValue(scalar.physical.scalar, value, scalar.field, id)
+    );
   }
   /** A `_sum` operand, out of line: only a decimal HAVING widens its cast. */
   #sumTargetValue(
@@ -3138,7 +3159,7 @@ export class SqlQueries extends Queries {
               )
             : this.#eq(
                 this.column(edge.target, pair.target, target),
-                this.fieldValue(edge.target, pair.target, given![pair.source])
+                this.#compared(edge.target, pair.target, given![pair.source])
               )
         )
       );
@@ -3146,13 +3167,12 @@ export class SqlQueries extends Queries {
     const junction = this.alias();
     // Membership first: the index on the source side finds the small target
     // worklist before the provider visits those target identities.
-    return this.adapter.operators.in(
-      rowValue(
-        edge.targetSide.members.map((field) =>
-          this.column(edge.target, field.referencedField, target)
-        )
+    return rowIn(
+      this.adapter,
+      edge.targetSide.members.map((field) =>
+        this.column(edge.target, field.referencedField, target)
       ),
-      this.#scalar({
+      assembleAdapterSelect(this.adapter, {
         columns: listed(
           edge.targetSide.members.map((field) =>
             this.#at(junction, field.junctionField)
@@ -3599,7 +3619,7 @@ export class SqlQueries extends Queries {
           );
         return this.#eq(
           this.#operand(model, field, sourceAlias),
-          this.fieldValue(model, field, value)
+          this.#compared(model, field, value)
         );
       })
     );
@@ -3617,7 +3637,7 @@ export class SqlQueries extends Queries {
     const keyColumns = order.map((term) =>
       this.#operand(model, term.field!, sourceAlias)
     );
-    if (sargable)
+    if (sargable && !a.operators.rows)
       return (descending ? a.operators.lte : a.operators.gte)(
         rowValue(order.map((term) => term.expression)),
         a.subqueries.scalar(cursorRow(keyColumns))

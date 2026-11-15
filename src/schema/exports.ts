@@ -75,8 +75,9 @@ export type {
   GeneratorDefaultBrand,
   InitialScalarState,
 } from "./scalars/common";
-// Native database types (PG, MYSQL, SQLITE)
+// Native database types (PG, MYSQL, SQLITE, MSSQL)
 export {
+  MSSQL,
   MYSQL,
   type NativeType,
   type NativeTypeMap,

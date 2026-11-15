@@ -655,7 +655,8 @@ export type Dialect =
   | "sqlite"
   | "mysql"
   | "surrealql"
-  | "snowflake";
+  | "snowflake"
+  | "mssql";
 
 /**
  * The durable estate target a migration history is generated for.
@@ -676,4 +677,5 @@ export type MigrationTarget = (
   | { readonly dialect: "sqlite" }
   | { readonly dialect: "surrealql" }
   | { readonly dialect: "snowflake" }
+  | { readonly dialect: "mssql"; readonly namespace: string }
 ) & { readonly tables?: readonly string[] };
