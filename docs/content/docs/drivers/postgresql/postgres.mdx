@@ -211,8 +211,12 @@ postgres.js itself sends again, once, a statement whose name the server lost.
 with no bound. Opting in, either way, means:
 
 - After a migration that replaces an enum type (removing or reordering values,
-  or using a value the same migration adds), restart or reconnect every running
-  client: until then its statements bound to the old type fail with `V2001`.
+  or using a value the same migration adds), a statement with a value of that
+  type no longer finds the old type. With `namedStatements`, it is sent again
+  once unprepared (in a transaction, the failure is the transaction's answer)
+  and never prepared again by that client. With `options: { prepare: true }`,
+  restart or reconnect every running client: until then those statements fail
+  with `V2001`.
 - The server keeps one prepared statement per distinct query shape (each
   `createMany` row count, for example) per connection until the connection
   reaches its `max_lifetime`: at most `max` with `namedStatements`, all of them

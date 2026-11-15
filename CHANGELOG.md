@@ -22,7 +22,11 @@ Versioning.
   holds 11 kB to 42 kB of server memory. Raw SQL is never named. On pg, a name
   the server lost (`DEALLOCATE`, `DISCARD ALL`), a plan whose result type
   changed and a parameter type a migration replaced are sent again once
-  unnamed outside a transaction. Off by default, and without it every
+  unnamed outside a transaction. On postgres.js, which retries the first two
+  itself, a statement whose parameter type a migration replaced is sent again
+  once unprepared and is not prepared again by that client;
+  `options: { prepare: true }` still needs a reconnect after such a migration.
+  Off by default, and without it every
   statement is sent exactly as before. Behind PgBouncer in transaction mode,
   set `max_prepared_statements` to at least `max` first. Bun SQL prepares every
   statement with values by default, and the docs now say so.

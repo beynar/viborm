@@ -53,6 +53,8 @@ export class NamedStatements {
   /** Each named text's name. */
   readonly #names = new Map<string, string>();
   #seen = new Set<string>();
+  /** Texts never named again (`drop`): at most `max`, as each had a name. */
+  readonly #dropped = new Set<string>();
   /** Names given, retired ones included: what a connection may hold. */
   #given = 0;
 
@@ -64,6 +66,7 @@ export class NamedStatements {
   name(text: string): string | undefined {
     const named = this.#names.get(text);
     if (named !== undefined || this.#given >= this.#max) return named;
+    if (this.#dropped.has(text)) return;
     if (this.#seen.delete(text)) return this.#give(text, "");
     if (this.#seen.size >= SEEN_MAX) this.#seen = new Set();
     this.#seen.add(text);
@@ -83,6 +86,15 @@ export class NamedStatements {
       this.#give(text, `_${this.#given}`);
   }
 
+  /**
+   * A driver whose client keys prepared statements by text (postgres.js)
+   * cannot name a stale text anew: the same text meets the same stale entry.
+   * The text is sent unprepared for the driver's life.
+   */
+  drop(text: string): void {
+    if (this.#names.delete(text)) this.#dropped.add(text);
+  }
+
   /** A 53-bit hash leaves two texts one name with a chance far below one in a billion. */
   #give(text: string, suffix: string): string {
     const name = `v${hash(text)}${suffix}`;
@@ -91,6 +103,9 @@ export class NamedStatements {
     return name;
   }
 }
+
+/** The routine of a parameter whose type was replaced: postgres.js does not retry it. */
+export const REPLACED_TYPE = "getTypeInputInfo";
 
 /**
  * The server routines that say a name is stale rather than the statement
@@ -102,7 +117,7 @@ export class NamedStatements {
 const STALE_ROUTINES = new Set([
   "FetchPreparedStatement",
   "RevalidateCachedQuery",
-  "getTypeInputInfo",
+  REPLACED_TYPE,
 ]);
 
 /** Whether a statement's failure says its name is stale, not that the statement is wrong. */

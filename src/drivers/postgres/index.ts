@@ -53,6 +53,7 @@ import {
   type NamedStatements,
   type NamedStatementsOption,
   namedStatements,
+  REPLACED_TYPE,
 } from "../shared/named-statements";
 import { CLEANUP_BOUND_MS } from "../shared/pinned-session";
 import { installPostgresAdapter } from "../shared/postgres-adapter";
@@ -314,17 +315,35 @@ export class PostgresDriver extends Driver<
   ): Promise<QueryResult<T>> {
     const operation = context?.operation ?? fallbackOperation;
     // postgres.js retries a prepared statement the server lost, once, itself.
-    const prepare =
-      this.driverOptions.options?.prepare === true ||
-      (fallbackOperation === "execute" &&
-        params?.length !== undefined &&
-        params.length > 0 &&
-        this.named?.name(sqlStr) !== undefined);
+    const named =
+      fallbackOperation === "execute" &&
+      params?.length !== undefined &&
+      params.length > 0 &&
+      this.named?.name(sqlStr) !== undefined;
+    const fail = (error: unknown): never => {
+      learnRelationLimit(this.adapter, error);
+      throw error;
+    };
     const result = await client
-      .unsafe<T[]>(sqlStr, params, { prepare })
+      .unsafe<T[]>(sqlStr, params, {
+        prepare: named || this.driverOptions.options?.prepare === true,
+      })
       .catch((error: unknown) => {
-        learnRelationLimit(this.adapter, error);
-        throw error;
+        // postgres.js retries a statement the server lost, or whose result
+        // type changed, itself, but not one whose parameter type a migration
+        // replaced, and it keys its statements by text: this text is no
+        // longer prepared. Alone, the statement failed before it did anything
+        // and is sent once more; in a transaction, the failure aborted it.
+        if (
+          !named ||
+          (error as { routine?: unknown }).routine !== REPLACED_TYPE
+        )
+          return fail(error);
+        this.named?.drop(sqlStr);
+        if (isTransaction(client)) return fail(error);
+        return client
+          .unsafe<T[]>(sqlStr, params, { prepare: false })
+          .catch(fail);
       });
     return {
       rows: result,

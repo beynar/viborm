@@ -111,6 +111,62 @@ describeIf("postgres.js namedStatements", () => {
     await sql.end();
   });
 
+  test("a parameter whose enum type a migration replaced is sent unprepared from then on", async () => {
+    const sql = connection();
+    await sql.unsafe(`DROP TYPE IF EXISTS "named_statements_tone"`);
+    await sql.unsafe(
+      `CREATE TYPE "named_statements_tone" AS ENUM ('calm', 'busy')`
+    );
+    await sql.unsafe(
+      `ALTER TABLE "${TABLE}" ADD COLUMN "tone" "named_statements_tone" NOT NULL DEFAULT 'calm'`
+    );
+    const toned = s
+      .model({
+        id: s.string().id(),
+        email: s.string().unique(),
+        tone: s.enum(["calm", "busy"]),
+      })
+      .map(TABLE);
+    const db = createClient({
+      schema: { toned },
+      client: sql as never,
+      namedStatements: true,
+    });
+    const read = () =>
+      db.toned.findMany({ where: { tone: "calm" }, orderBy: { id: "asc" } });
+    await read();
+    await read();
+    expect(await prepared(sql)).toBe(1);
+    // What a migration that adds a value in the middle does: a new type replaces the old one.
+    await sql.unsafe(
+      `ALTER TYPE "named_statements_tone" RENAME TO "named_statements_tone_old"`
+    );
+    await sql.unsafe(
+      `CREATE TYPE "named_statements_tone" AS ENUM ('calm', 'idle', 'busy')`
+    );
+    await sql.unsafe(`ALTER TABLE "${TABLE}" ALTER COLUMN "tone" DROP DEFAULT`);
+    await sql.unsafe(
+      `ALTER TABLE "${TABLE}" ALTER COLUMN "tone" TYPE "named_statements_tone" USING "tone"::text::"named_statements_tone"`
+    );
+    await sql.unsafe(`DROP TYPE "named_statements_tone_old"`);
+    // postgres.js keys its statements by text: the same text prepared again
+    // would meet the stale entry, so it is no longer prepared.
+    for (let i = 0; i < 3; i++) {
+      expect((await read()).map((row) => row.id)).toEqual(["a", "b", "c"]);
+    }
+    // Inside a transaction too, once the text is no longer prepared.
+    expect(
+      (
+        await db.$transaction((tx) =>
+          tx.toned.findMany({ where: { tone: "calm" } })
+        )
+      ).length
+    ).toBe(3);
+    await sql.unsafe(`ALTER TABLE "${TABLE}" DROP COLUMN "tone"`);
+    await sql.unsafe(`DROP TYPE "named_statements_tone"`);
+    await sql.end();
+  });
+
   test("a failing statement fails the same way prepared or not", async () => {
     const failure = async (namedStatements: boolean) => {
       const sql = connection();
