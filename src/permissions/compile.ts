@@ -271,85 +271,6 @@ type Made =
   | { readonly provided: readonly [tested: object, test: Where] }
   | { readonly exists: readonly [model: string, body: Where] }
   | { readonly row: readonly [column: string, up: unknown] };
-/**
- * One compilation's structural keys: two values share a key exactly when they
- * are the same value, numbers by `Object.is` (NaN and ±Infinity are no
- * `null`), bigints, valid dates by their instant, arrays and records member by
- * member; anything else by identity. A record or an array is keyed once, so
- * equality, duplicate removal and the implication cache cost one lookup
- * however often a shared clause is met. Keys hold only for one compilation,
- * which never mutates what it reads.
- */
-function structuralKeys(made: WeakMap<object, Made>) {
-  const shapes = new Map<string, string>();
-  const known = new WeakMap<object, string>();
-  // Opaque values (a Decimal, bytes, a symbol) are equal only to themselves.
-  const opaque = new Map<unknown, string>();
-  let next = 0;
-  const keyOf = (value: unknown): string => {
-    switch (typeof value) {
-      case "number":
-        return Object.is(value, -0) ? "n-0" : `n${value}`;
-      case "string":
-        return `s${JSON.stringify(value)}`;
-      case "bigint":
-        return `b${value}`;
-      case "boolean":
-      case "undefined":
-        return `p${value}`;
-      default:
-        break;
-    }
-    if (value === null) return "pnull";
-    // A date is read at each comparison; an invalid one equals only itself.
-    if (value instanceof Date && !Number.isNaN(value.getTime()))
-      return `d${value.getTime()}`;
-    if (typeof value !== "object") {
-      let key = opaque.get(value);
-      if (key === undefined) opaque.set(value, (key = `o${next++}`));
-      return key;
-    }
-    let key = known.get(value);
-    if (key !== undefined) return key;
-    // A word is what it stands for; another value equals only itself.
-    const word = made.get(value);
-    if (word !== undefined) key = `w${keyOf(word)}`;
-    else if (Array.isArray(value) || isRecord(value)) {
-      const shape = Array.isArray(value)
-        ? `[${value.map(keyOf).join(",")}]`
-        : `{${Object.keys(value)
-            .sort()
-            .map((field) => `${JSON.stringify(field)}:${keyOf(value[field])}`)
-            .join(",")}}`;
-      key = shapes.get(shape);
-      if (key === undefined) shapes.set(shape, (key = `#${next++}`));
-    } else key = `o${next++}`;
-    known.set(value, key);
-    return key;
-  };
-  const same = (x: unknown, y: unknown): boolean =>
-    (x === y && typeof x !== "number") || keyOf(x) === keyOf(y);
-  /** `members` without a repeated value, in order. */
-  const distinct = <T>(members: readonly T[]): T[] => {
-    const seen = new Set<string>();
-    return members.filter((member) => {
-      const key = keyOf(member);
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  };
-  const or = (clauses: readonly Clause[]): Clause => {
-    const kept = clauses.filter((clause): clause is Where => clause !== false);
-    if (kept.length === 0) return false;
-    if (kept.some(isTrue)) return {};
-    // Rules have already been evaluated at their declaring actions. Equal
-    // resulting branches contribute once without suppressing callback evaluation.
-    const flat = distinct(kept.flatMap((member) => membersOf(member, "OR")));
-    return flat.length === 1 ? flat[0]! : { OR: flat };
-  };
-  return { keyOf, same, distinct, or };
-}
 
 /** A model's admitted action graph, rule assignments and projection meaning. */
 interface ActionRules {
@@ -448,18 +369,23 @@ function actionsOf(name: string, policy: ModelPolicy): ActionRules {
           name
         );
   }
-  const closure = new Map<string, readonly string[]>();
-  for (const action of implies.keys()) {
-    const reached = new Set<string>();
-    const visit = (name: string) => {
-      if (reached.has(name)) return;
-      reached.add(name);
-      for (const next of implies.get(name)!) visit(next);
-    };
-    visit(action);
-    closure.set(action, [...reached]);
-  }
-  return { rules, closure };
+  // Each action and what it implies, depth first.
+  const reach = (action: string, reached: Set<string>): Set<string> => {
+    if (!reached.has(action)) {
+      reached.add(action);
+      for (const next of implies.get(action)!) reach(next, reached);
+    }
+    return reached;
+  };
+  return {
+    rules,
+    closure: new Map(
+      [...implies.keys()].map((action) => [
+        action,
+        [...reach(action, new Set())],
+      ])
+    ),
+  };
 }
 
 /**
@@ -573,7 +499,73 @@ export function policyCompiler(
   actor: ActorContract = actorContract(config.actor)
 ): PolicyCompiler {
   const made = new WeakMap<object, Made>();
-  const { keyOf, same, distinct, or } = structuralKeys(made);
+  /**
+   * One compilation's structural keys: two values share a key exactly when they
+   * are the same value, numbers by `Object.is` (NaN and ±Infinity are no
+   * `null`), bigints, valid dates by their instant, arrays and records member by
+   * member; anything else by identity. A record or an array is keyed once, so
+   * equality, duplicate removal and the implication cache cost one lookup
+   * however often a shared clause is met. Keys hold only for one compilation,
+   * which never mutates what it reads.
+   */
+  const shapes = new Map<string, string>();
+  const known = new WeakMap<object, string>();
+  // Opaque values (a Decimal, bytes, a symbol) are equal only to themselves.
+  const opaque = new Map<unknown, string>();
+  let next = 0;
+  const keyOf = (value: unknown): string => {
+    if (typeof value === "number")
+      return Object.is(value, -0) ? "n-0" : `n${value}`;
+    if (typeof value === "string") return `s${JSON.stringify(value)}`;
+    if (typeof value === "bigint") return `b${value}`;
+    if (value == null || typeof value === "boolean") return `p${value}`;
+    // A date is read at each comparison; an invalid one equals only itself.
+    if (value instanceof Date && !Number.isNaN(value.getTime()))
+      return `d${value.getTime()}`;
+    if (typeof value !== "object") {
+      let key = opaque.get(value);
+      if (key === undefined) opaque.set(value, (key = `o${next++}`));
+      return key;
+    }
+    let key = known.get(value);
+    if (key !== undefined) return key;
+    // A word is what it stands for; another value equals only itself.
+    const word = made.get(value);
+    if (word !== undefined) key = `w${keyOf(word)}`;
+    else if (Array.isArray(value) || isRecord(value)) {
+      const shape = Array.isArray(value)
+        ? `[${value.map(keyOf).join(",")}]`
+        : `{${Object.keys(value)
+            .sort()
+            .map((field) => `${JSON.stringify(field)}:${keyOf(value[field])}`)
+            .join(",")}}`;
+      key = shapes.get(shape);
+      if (key === undefined) shapes.set(shape, (key = `#${next++}`));
+    } else key = `o${next++}`;
+    known.set(value, key);
+    return key;
+  };
+  const same = (x: unknown, y: unknown): boolean =>
+    (x === y && typeof x !== "number") || keyOf(x) === keyOf(y);
+  /** `members` without a repeated value, in order. */
+  const distinct = <T>(members: readonly T[]): T[] => {
+    const seen = new Set<string>();
+    return members.filter((member) => {
+      const key = keyOf(member);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+  const or = (clauses: readonly Clause[]): Clause => {
+    const kept = clauses.filter((clause): clause is Where => clause !== false);
+    if (kept.length === 0) return false;
+    if (kept.some(isTrue)) return {};
+    // Rules have already been evaluated at their declaring actions. Equal
+    // resulting branches contribute once without suppressing callback evaluation.
+    const flat = distinct(kept.flatMap((member) => membersOf(member, "OR")));
+    return flat.length === 1 ? flat[0]! : { OR: flat };
+  };
   /** What `word` stands for, kept for the proof. */
   const wrote = (word: object, stands: Made): Where => {
     made.set(word, stands);
@@ -1901,7 +1893,45 @@ export function policyCompiler(
         } catch (error) {
           if (!(error instanceof ClientInitializationError)) throw error;
         }
-      recursed = recursion(compiled);
+      // Per model, the self relations holding a key that some compiled
+      // predicate recurses over, wherever it is read.
+      const found = new Map<string, string[]>();
+      // Per model, the clauses already walked there (P is shared, D7).
+      const seen = new Map<string, WeakSet<object>>();
+      const walk = (name: string, clause: unknown): void => {
+        const word = madeOf(clause);
+        if (word && "exists" in word) walk(...word.exists);
+        const walked = memo(seen, name, () => new WeakSet());
+        if (!isRecord(clause) || walked.has(clause)) return;
+        walked.add(clause);
+        for (const [key, member] of Object.entries(clause)) {
+          if (LOGICAL.has(key)) {
+            for (const item of Array.isArray(member) ? member : [member])
+              walk(name, item);
+            continue;
+          }
+          const target = targetOf(name, key);
+          if (target === undefined || !isRecord(member)) continue;
+          if (
+            target === name &&
+            member.recurse !== undefined &&
+            relationOf(name, key)!.state.foreignKey !== undefined
+          ) {
+            const list = memo(found, name, () => []);
+            if (!list.includes(key)) list.push(key);
+          }
+          const bodies = [...QUANTIFIERS].filter((op) =>
+            Object.hasOwn(member, op)
+          );
+          for (const body of bodies.length === 0
+            ? [member]
+            : bodies.map((op) => member[op]))
+            walk(target, body);
+        }
+      };
+      for (const [name, model] of compiled)
+        for (const clause of model.predicates.values()) walk(name, clause);
+      recursed = found;
     }
     return recursed.get(name) ?? NO_RELATIONS;
   };
@@ -1916,48 +1946,4 @@ export function policyCompiler(
     ),
     model: modelAt,
   };
-
-  /**
-   * Per model, the self relations holding a key that some compiled
-   * predicate recurses over, wherever it is read.
-   */
-  function recursion(models: ReadonlyMap<string, Compiled>) {
-    const found = new Map<string, string[]>();
-    // Per model, the clauses already walked there (P is shared, D7).
-    const seen = new Map(
-      Object.keys(schema).map((name) => [name, new WeakSet<object>()])
-    );
-    const walk = (name: string, clause: unknown): void => {
-      const word = madeOf(clause);
-      if (word && "exists" in word) walk(...word.exists);
-      if (!isRecord(clause) || seen.get(name)!.has(clause)) return;
-      seen.get(name)!.add(clause);
-      for (const [key, member] of Object.entries(clause)) {
-        if (LOGICAL.has(key)) {
-          for (const item of Array.isArray(member) ? member : [member])
-            walk(name, item);
-          continue;
-        }
-        const target = targetOf(name, key);
-        if (target === undefined || !isRecord(member)) continue;
-        if (
-          target === name &&
-          member.recurse !== undefined &&
-          relationOf(name, key)!.state.foreignKey !== undefined
-        ) {
-          const list = found.get(name) ?? [];
-          if (!list.includes(key)) list.push(key);
-          found.set(name, list);
-        }
-        const bodies = [...QUANTIFIERS].filter((op) =>
-          Object.hasOwn(member, op)
-        );
-        if (bodies.length === 0) walk(target, member);
-        for (const op of bodies) walk(target, member[op]);
-      }
-    };
-    for (const [name, model] of models)
-      for (const clause of model.predicates.values()) walk(name, clause);
-    return found;
-  }
 }
