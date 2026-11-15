@@ -25,6 +25,7 @@ import {
   rule,
   unit,
   when,
+  within,
 } from "@src/index";
 import { permissions } from "@src/permissions";
 import { softDelete } from "@src/soft-delete/index";
@@ -480,7 +481,7 @@ describe("PGlite: rows.confine, the capability tenant is built on", () => {
         ...Object.fromEntries(
           Object.entries(confine).map(([model, where]) => [
             model,
-            { confine: where },
+            { confine: within(where) },
           ])
         ),
       })

@@ -147,7 +147,7 @@ all-or-nothing when it fits one batch.
   `deletes`, `selecting`, `models`; `watch`, `settled`, `again`, `via`,
   `key`, `codec`, `database`; `arg`, `now`, `row`, `exists`, `when`,
   `unless`, `provided`, `nothing`, `only`, `check`, `gate`, `facts`, `keep`,
-  `lazy`, `omitted`; `oneOf`, `accepts`, `bound` with `.on`, `.models`,
+  `lazy`, `within`, `omitted`; `oneOf`, `accepts`, `bound` with `.on`, `.models`,
   `.required`, `.default`, `.volatile`; and `text`, `parameters`, `driver`,
   `failure`, `statement`, `statements`, `run`, `work`, `note`, `notes` and
   the other unit words. Each part and each word brings into a bundle only

@@ -91,7 +91,7 @@ build its rows passes a function of the schema to `rule`:
 | `controls` | `args({...})` with its modifiers |
 | `rows.control`, `rows.default`, `rows.models` | An argument `oneOf(...modes).default(d)`, and `root` / `related` written with `when` |
 | `rows.verbs` | The keys of `rule`; named predicates become shared constants |
-| `rows.confine` | `confine` in the model's `rule` entry |
+| `rows.confine` | `confine: within(where)` in the model's `rule` entry |
 | `deletion` | `rule({ m: { delete: { instead: keep(…) } } })` |
 | `data` | `defaults({ m: { create, update } })` |
 | `order` | `defaults({ m: { orderBy } })` |

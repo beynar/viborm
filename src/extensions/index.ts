@@ -7,6 +7,7 @@ export { accepts, args, bound, oneOf } from "./args";
 export { around, call } from "./call";
 export { again, via, watch } from "./call-words";
 export { type Codec, codec } from "./codec";
+export { within } from "./confine";
 export type {
   Accepted,
   AnyFacts,

@@ -20,6 +20,7 @@ import {
   only,
   rule,
   when,
+  within,
 } from "@src/index";
 import { v } from "@src/validation";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
@@ -74,7 +75,7 @@ describe("step 8: a confinement, a judgement and a gate reach the engine from an
         update: { where: only(pageSeen), check: check(pageSeen) },
         delete: { where: only(nothing) },
       },
-      grant: { confine: { tenant: arg("tenant") } },
+      grant: { confine: within({ tenant: arg("tenant") }) },
     })
   );
   const filtering = extension(

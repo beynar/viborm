@@ -308,8 +308,6 @@ class Lazy extends CarriedValue {
       const written: Readonly<Record<string, unknown>> = isPlainRecord(given)
         ? given
         : {};
-      if (written.confine !== undefined)
-        refuse("an entry given lazily holds no confine");
       const verbs = draftOf(given, model, schema, site, refuse, true) ?? {};
       const root = listOf(written.root);
       const related = listOf(written.related);

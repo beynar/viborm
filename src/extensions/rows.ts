@@ -1,18 +1,9 @@
-/**
- * What applies a `rule`: each extension's layer admitted once per schema
- * (`admission.ts`) and bound once per application into one domain, whose
- * predicates read each call's values. A chain whose parts filter, keep or
- * judge rows binds its call facts here, with what its other parts posed: the
- * kept rows, the stamps and the order.
- */
-import type { PreparedSelector } from "@query-engine/raptor3/shared/query";
 import type {
   CallRows,
   ModelDomain,
   RowDomain,
 } from "@query-engine/raptor3/shared/row-scope";
 import { type Input, memo } from "@query-engine/raptor3/shared/schema";
-import type { AnyModel } from "@schema/model";
 import {
   type AdmittedLayer,
   admitLayer,
@@ -28,7 +19,7 @@ import type {
   ExtensionPart,
   ResolvedExtensionChain,
 } from "./chain";
-import { type PreparedDomain, prepareCall } from "./row-domain";
+import { prepareCall } from "./row-domain";
 
 /**
  * One purpose's predicates per model, each at its layer's place in the
@@ -54,38 +45,6 @@ function modelDomain(
       }) ?? undefined,
   };
 }
-/**
- * What an `excluded` layer states its own whole-table sets of a model hold
- * (`confine`), for one prepared domain: inside its own predicates a layer
- * reads nothing of itself, but a set the statement computes over a whole
- * table (a shared body, a reaching set) still holds only what it bounds.
- * `undefined` where none states one.
- */
-function bound(domain: PreparedDomain) {
-  const bounds = new Map<string, PreparedSelector | null>();
-  return (
-    model: AnyModel,
-    excluded: readonly number[]
-  ): PreparedSelector | undefined => {
-    const name = model["~"].names.ts!;
-    const inputs = domain.rows.confine?.get(name);
-    if (inputs === undefined) return undefined;
-    // Every excluded layer's: each only narrows, and one left out would let
-    // another's widen what it bounds.
-    return (
-      memo(bounds, `${name} ${excluded}`, () =>
-        domain.conjunction(
-          model,
-          excluded.map((layer) => {
-            const input = inputs[layer];
-            return [layer, input === undefined ? [] : [input]] as const;
-          })
-        )
-      ) ?? undefined
-    );
-  };
-}
-
 /**
  * A chain's row facts, resolved once when an extension is applied: one
  * domain, with the chain's kept rows, stamps and order, so a call only looks
@@ -113,10 +72,6 @@ export class RowsBinding implements CallRowsBinding {
       prepare = prepareCall,
       ...verbs
     } = host?.bind(chain) ?? {};
-    const confine = new Map<string, Input[]>();
-    for (const [layer, member] of layers.entries())
-      for (const [model, where] of Object.entries(member.confine))
-        memo(confine, model, () => [])[layer] = where;
     const { kept, stamps, defaultOrder: order } = chain;
     this.#kept = kept;
     this.#stamps = stamps;
@@ -124,7 +79,8 @@ export class RowsBinding implements CallRowsBinding {
       root: modelDomain(layers, "root", filters),
       related: modelDomain(layers, "related", filters),
       ...verbs,
-      ...(confine.size > 0 && { confine, bound }),
+      // Where some layer confines its sets, what `within` brought binds them.
+      ...layers.find((layer) => layer.confine)?.brings?.confines?.bind(layers),
       ...(order && { order: new Map(Object.entries(order)) }),
     };
     // Where some predicate reads its call, what the words that read it

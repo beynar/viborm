@@ -118,6 +118,7 @@ export function draftOf(
   for (const key of Object.keys(entry))
     if (!RULE_KEYS.has(key)) refuse(`"${key}" is not a rule key`);
   if (lazy && read.where !== undefined) (verbs ??= {}).read = read.where;
+  join(entry.confine, "confine");
   join(read.fields, "read.fields", undefined, true);
   join(read.select, "read.select", undefined, true);
   for (const key of ["create", "update", "delete"])
@@ -186,7 +187,6 @@ function writeRule(
         refuse("two rule parts of one extension judge the model");
       layer.verbs[model] = verbs;
     }
-    if (written.confine !== undefined) layer.confine[model] = written.confine;
   }
 }
 
@@ -213,7 +213,6 @@ export function rule(rules: Entry | ((schema: Schema) => Entry)): unknown {
           root: {},
           related: {},
           verbs: {},
-          confine: {},
         };
         return { layer, brought: new Set([layerPart(layer)]) };
       });

@@ -17,6 +17,7 @@ import {
   statement,
   unit,
   when,
+  within,
 } from "@src/index";
 import { ordering } from "@src/ordering";
 import { permissions } from "@src/permissions";
@@ -227,7 +228,7 @@ test("a confine reading a relation is refused when applied", async () => {
             root: when(arg("scope"), "on", {
               children: { some: { flag: true } },
             }),
-            confine: { parent: { is: { flag: true } } },
+            confine: within({ parent: { is: { flag: true } } }),
           },
         })
       )
@@ -307,7 +308,7 @@ describe("composed bounds", () => {
         grant: {
           related: when(arg("other"), "on", { team: { is: { active: true } } }),
         },
-        team: { confine: { tenant: "b" } },
+        team: { confine: within({ tenant: "b" }) },
       })
     );
     const run = async (bounded: boolean) => {
@@ -385,7 +386,7 @@ test("shared reaching sets distinguish which layer bounds them", async () => {
       extRule({
         node: {
           root: when(arg("second"), "on", { AND: [walk, walk] }),
-          confine: { tenant: "b" },
+          confine: within({ tenant: "b" }),
         },
       })
     );
@@ -440,7 +441,7 @@ test("two generic bounds do not share their different reaching sets", async () =
       extRule({
         node: {
           root: when(arg("one"), "on", { AND: [walk, walk] }),
-          ...(bound ? { confine: { tenant: bound } } : {}),
+          ...(bound ? { confine: within({ tenant: bound }) } : {}),
         },
       })
     );
@@ -450,7 +451,7 @@ test("two generic bounds do not share their different reaching sets", async () =
     extRule({
       node: {
         root: when(arg("two"), "on", { AND: [walk, walk] }),
-        confine: { tenant: "b" },
+        confine: within({ tenant: "b" }),
       },
     })
   );

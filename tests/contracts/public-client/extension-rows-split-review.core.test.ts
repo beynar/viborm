@@ -19,6 +19,7 @@ import {
   parts,
   provided,
   when,
+  within,
 } from "@src/index";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { v } from "@validation";
@@ -170,7 +171,7 @@ test("a control named only under NOT, $if, $exists, recurse, in confine or in a 
       "confine",
       typed.extension(
         "named",
-        typed.rule(() => ({ node: { confine: { ownerId: ghost } } }))
+        typed.rule(() => ({ node: { confine: within({ ownerId: ghost }) } }))
       ),
     ],
     [

@@ -919,6 +919,7 @@ declare const keepWord: unique symbol;
 declare const onlyWord: unique symbol;
 declare const lazyWord: unique symbol;
 declare const omittedWord: unique symbol;
+declare const confineWord: unique symbol;
 
 /** `gate(where)`: the field is present where the predicate holds. */
 export interface GateWord<out W> {
@@ -946,6 +947,11 @@ export interface KeepWord<out D> {
 /** `only(where)`: a write takes only the rows that hold the predicate. */
 export interface OnlyWord<out W> {
   readonly [onlyWord]: W;
+}
+
+/** `within(where)`: every row of a set computed over the whole table holds it. */
+export interface ConfineWord<out W> {
+  readonly [confineWord]: W;
 }
 
 /** `lazy(() => entry)`: the entry is read when its model is first read. */
@@ -1000,7 +1006,7 @@ export interface RuleEntry<M, K extends string> {
   readonly acyclic?:
     | readonly RelationKeysOf<M>[]
     | (() => readonly RelationKeysOf<M>[]);
-  readonly confine?: RuleWhere<M, K>;
+  readonly confine?: ConfineWord<RuleWhere<M, K>>;
 }
 
 /**
@@ -1039,7 +1045,7 @@ export interface WideRuleEntry {
     readonly instead?: KeepWord<unknown>;
   };
   readonly acyclic?: readonly string[] | (() => readonly string[]);
-  readonly confine?: object;
+  readonly confine?: ConfineWord<unknown>;
 }
 
 /**

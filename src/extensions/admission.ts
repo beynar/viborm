@@ -74,7 +74,8 @@ export interface RuleLayer {
   readonly root: Record<string, unknown[]>;
   readonly related: Record<string, unknown[]>;
   readonly verbs: Record<string, VerbsDraft | (() => VerbsDraft)>;
-  readonly confine: Record<string, unknown>;
+  /** Per model, what its whole-table sets hold: written by `within`. */
+  confine?: Record<string, unknown>;
   /**
    * What admits and binds `verbs`: set by the words that write them
    * (`verbs.ts`), so a rule that only filters holds none of that code.
@@ -92,7 +93,19 @@ export interface RuleLayer {
     keys?: (model: string, layers: readonly (ModelVerbs | undefined)[]) => void;
     /** What admits and reads an entry given lazily, brought by `lazy`. */
     lazy?: LazyEntries;
+    /** What admits and binds the confinements, brought by `within`. */
+    confines?: Confines;
   };
+}
+
+/** What `within` brings: its predicates admitted, and the chain's bound. */
+export interface Confines {
+  admit(
+    admission: Admission,
+    written: Readonly<Record<string, unknown>>,
+    references: References
+  ): Record<string, Input>;
+  bind(layers: readonly AdmittedLayer[]): Partial<RowDomain>;
 }
 
 /** What `lazy` brings: its entries admitted when first read, then checked per chain. */
@@ -188,7 +201,7 @@ export interface AdmittedLayer {
   readonly reads?: CallReads;
   /** What judges and projects, brought by the words that ask either. */
   readonly brings?: RuleLayer["brings"];
-  readonly confine: { readonly [model: string]: Input };
+  readonly confine?: { readonly [model: string]: Input };
   /** What its eager predicates read of their call (`References`). */
   readonly references: readonly (string | undefined)[];
 }
@@ -327,19 +340,9 @@ export function admitLayer(
   const verbs = host
     ? host.admit(admitting, layer, filtersOf, references)
     : NO_VERBS;
-  const confine: Record<string, Input> = {};
-  for (const [name, predicate] of Object.entries(layer.confine)) {
-    // The model's own columns: a confinement reads no relation, so lowering
-    // it never builds another set it would confine in turn.
-    const { scalars } = schema[name]!["~"].state;
-    for (const field of Object.keys(predicate ?? {}))
-      if (!Object.hasOwn(scalars, field))
-        throw new ClientInitializationError(
-          `Extension "${extension}" rule.${name}.confine: names "${field}", which is not a scalar field: a confinement states the model's own columns.`,
-          { meta: { extension, model: name } }
-        );
-    confine[name] = admit(name, `${name}.confine`, predicate, references);
-  }
+  const confine = layer.confine
+    ? layer.brings!.confines!.admit(admitting, layer.confine, references)
+    : undefined;
   const reads = layer.reads ?? admitting.reads;
   const out: AdmittedLayer = {
     extension,
@@ -348,7 +351,7 @@ export function admitLayer(
     ...(host && { host }),
     ...(reads && { reads }),
     ...(layer.brings && { brings: layer.brings }),
-    confine,
+    ...(confine && { confine }),
     references: [...references],
   };
   return out;

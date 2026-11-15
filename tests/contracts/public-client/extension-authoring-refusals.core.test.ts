@@ -36,6 +36,7 @@ import {
   rule,
   unless,
   when,
+  within,
 } from "@src/index";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, describe, expect, test } from "vitest";
@@ -291,12 +292,12 @@ describe("rule: an entry's keys and the words they take", () => {
       refusal(
         applying(
           loose(rule, {
-            post: { confine: { author: { is: { name: "Ann" } } } },
+            post: { confine: within({ author: { is: { name: "Ann" } } }) },
           })
         )
       )
     ).toContain(
-      'rule.post.confine: names "author", which is not a scalar field'
+      'rule.post: confine names "author", which is not a scalar field'
     );
   });
 
@@ -448,8 +449,8 @@ describe("an entry given lazily is checked where it is first read", () => {
 
   test("it holds no confine", async () => {
     expect(
-      refusal(await firstRead(() => ({ confine: { title: "a" } })))
-    ).toContain("an entry given lazily holds no confine");
+      refusal(await firstRead(() => ({ confine: within({ title: "a" }) })))
+    ).toContain("a lazy entry does not take within()");
   });
 
   test("it holds no keep(), and no lazy() of its own", async () => {
