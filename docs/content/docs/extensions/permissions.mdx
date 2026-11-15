@@ -472,8 +472,8 @@ project: {
   deduplicate or group on a read-gated field; use a field the caller reads,
   or call as an actor who holds `full`. Explicitly selecting it
   (`select: { budget: true }`) on such a row is a `ValidationError`.
-- A key, a unique field or a foreign key cannot be read-protected: the
-  model's first call is refused.
+- A key, a unique field, a field of a unique index or a foreign key cannot
+  be read-protected: the model's first call is refused.
 
 ## 6. Sharing with grants
 
