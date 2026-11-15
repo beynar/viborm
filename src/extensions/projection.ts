@@ -1,8 +1,10 @@
 /**
  * What a read carries beside its rows and what it hides of them, for one
  * prepared domain: the entries' projection keys (`evidence`) and read-gated
- * fields (`reads`). Brought by `gate` and `facts`: a program whose rules
- * neither gate nor report holds none of it.
+ * fields (`reads`). A field a rule hides reads NULL where its row does not
+ * carry it, and a declared key says which rules hold of a row. Brought by
+ * `gate` and `facts`: a program whose rules neither gate nor report holds
+ * none of it. The engine lowers the predicates and decodes the rest.
  */
 import { assembleAdapterSelect } from "@adapters/adapter-internals";
 import { ClientInitializationError, UnsupportedOperationError } from "@errors";
@@ -11,55 +13,26 @@ import {
   type DeclaredEvidence,
   type FieldGate,
   freeze,
+  type GatedMember,
   type Leaf,
   type PreparedProjection,
   type PreparedProjectionField,
   type PreparedSelector,
   type ProjectedFacts,
-  type ProjectionShape,
-  type Queries,
-  type Reader,
   type Shape,
 } from "@query-engine/raptor3/shared/query";
 import type { JudgedEntry } from "@query-engine/raptor3/shared/row-scope";
-import type { Operation as Admitted } from "@query-engine/raptor3/shared/schema";
-import {
-  type Arguments,
-  type EngineSchema,
-  type Input,
-  memo,
-} from "@query-engine/raptor3/shared/schema";
+import { type Input, memo } from "@query-engine/raptor3/shared/schema";
 import type { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import type { Membership } from "@query-engine/raptor3/shared/storage";
 import { listed } from "@query-engine/raptor3/shared/terms";
+import { gateResultKey } from "@query-engine/result-aliases";
 import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
 import { ALL } from "./entries";
-import {
-  evidence,
-  gatedDocument,
-  gateHolds,
-  gating,
-  guarded,
-  refuseGatedRows,
-} from "./gates";
+import { gatedDocument, namedGatedFields } from "./gates";
 import { admitProjected } from "./projected";
 import type { PreparedDomain } from "./row-domain";
-
-/** Equal gates shared, so a projection carries one member per distinct gate. */
-function sharedGate(gate: FieldGate, known: FieldGate[]): FieldGate {
-  const same = known.find(
-    (other) =>
-      other.length === gate.length &&
-      other.every(
-        ([layer, , input], index) =>
-          layer === gate[index]![0] && input === gate[index]![2]
-      )
-  );
-  if (same) return same;
-  known.push(gate);
-  return gate;
-}
 
 /**
  * One model's projection keys across a chain's layers, brought by `facts`:
@@ -76,9 +49,7 @@ export function refuseSharedKeys(
     if (key === undefined) continue;
     if (key === "$through" || keys.has(key))
       throw new ClientInitializationError(
-        key === "$through"
-          ? `rule.${model}.read.select "$through" is reserved for a relation's link row.`
-          : `rule.${model}.read.select "${key}" is declared by two extensions of the chain.`,
+        `rule.${model}.read.select "${key}" ${key === "$through" ? "is reserved for a relation's link row" : "is declared by two extensions of the chain"}.`,
         { meta: { model } }
       );
     keys.add(key);
@@ -98,37 +69,49 @@ export const projectionOf = (domain: PreparedDomain) => {
    */
   const defaultProjections = new WeakMap<AnyModel, PreparedProjection>();
   /**
-   * A declared projection key (K5): `true` reports every declared name, a
-   * list the names it gives, in declared order, one boolean per name.
-   * Admission refused any other value.
+   * Where `input`, one of `model`'s predicates in `layer`, holds on the row
+   * at `alias`, as that layer's node: R5 and R6 judge it as they judge the
+   * layer's filter. `undefined` where the call drops it (it holds).
    */
-  function projectEvidence(
-    evidence: DeclaredEvidence,
-    name: string,
-    selection: unknown,
-    fields: Record<string, Shape | Leaf>,
-    prepared: PreparedProjectionField[]
-  ): void {
-    const names =
-      selection === true
-        ? evidence.names
-        : evidence.names.filter(([held]) =>
-            // Admission left `true` or a list of the declared names.
-            (selection as readonly string[]).includes(held)
-          );
-    fields[name] = freeze({
-      kind: "object",
-      nullable: false,
-      fields: freeze(
-        Object.fromEntries(names.map(([held]) => [held, BOOLEAN_LEAF]))
-      ),
-    });
-    prepared.push(freeze({ kind: "evidence", name, evidence, names }));
+  const layerHolds = (
+    q: SqlQueries,
+    model: AnyModel,
+    layer: number,
+    input: Input,
+    alias?: string
+  ): Sql | undefined =>
+    q.lowerSelector(projection.layered(model, layer, input), alias);
+  /** Where a read-gated field's row carries it: every gating layer's `read` and predicate. */
+  function gateHolds(
+    q: SqlQueries,
+    model: AnyModel,
+    gate: FieldGate,
+    alias: string | undefined,
+    visible: boolean
+  ): Sql | undefined {
+    const held: Sql[] = [];
+    // A gate masks a value: neither a positive nor a negative test, so no
+    // set it reads is bounded ({@link setBound}) and it holds where it would.
+    q.unbounded++;
+    try {
+      for (const [layer, read, input] of gate) {
+        const tested = input === read ? [read] : [read, input];
+        for (const where of visible ? tested.slice(1) : tested) {
+          const lowered = layerHolds(q, model, layer, where, alias);
+          if (lowered !== undefined) held.push(lowered);
+        }
+      }
+    } finally {
+      q.unbounded--;
+    }
+    return held.length === 0 ? undefined : q.adapter.operators.and(...held);
   }
   const projection = {
     /**
      * A projection key's value, or whether a gated field's row carries it, on
-     * the row at `alias` (`taken`: a row the domain already took).
+     * the row at `alias` (`taken`: a row the domain already took). A key's
+     * value is the layer's `read` once, around a document of one boolean per
+     * name (K5).
      */
     lower(
       q: SqlQueries,
@@ -137,9 +120,31 @@ export const projectionOf = (domain: PreparedDomain) => {
       alias: string | undefined,
       taken: boolean
     ): Sql {
-      return field.kind === "evidence"
-        ? evidence(q, model, field, alias, taken)
-        : q.truth(gateHolds(q, model, field.gate, alias, taken));
+      if (field.kind === "gate")
+        return q.truth(gateHolds(q, model, field.gate, alias, taken));
+      const a = q.adapter;
+      const { layer, read } = field.evidence;
+      const visible = taken
+        ? undefined
+        : layerHolds(q, model, layer, read, alias);
+      const held = a.json.objectFromColumns(
+        field.names.map(([name, input]) => [
+          name,
+          q.truth(
+            input === read
+              ? undefined
+              : layerHolds(q, model, layer, input, alias)
+          ),
+        ])
+      );
+      return visible === undefined
+        ? held
+        : a.expressions.caseWhen(
+            [{ when: visible, then: held }],
+            a.json.objectFromColumns(
+              field.names.map(([name]) => [name, a.literals.false()])
+            )
+          );
     },
     /**
      * A read-gated model's rows `where` keeps, as a window whose gated
@@ -162,7 +167,13 @@ export const projectionOf = (domain: PreparedDomain) => {
             .storedFields(model)
             .map((field) =>
               a.identifiers.aliased(
-                guarded(q, model, field, q.column(model, field, inner), inner),
+                projection.guarded(
+                  q,
+                  model,
+                  field,
+                  q.column(model, field, inner),
+                  inner
+                ),
                 q.columnName(model, field)
               )
             )
@@ -171,36 +182,35 @@ export const projectionOf = (domain: PreparedDomain) => {
         where: q.lowerWhere(model, where, inner),
       });
     },
-    /** What a rule hides of a row read: its gates read as `q` reads a boolean. */
-    gatedDocument(
-      q: Queries,
-      carried: boolean,
-      shape: Extract<ProjectionShape, { kind: "object" }>,
-      fields: readonly string[],
-      readers: readonly Reader[],
-      columns?: readonly string[]
-    ): Reader {
-      return gatedDocument(
-        q.compileReader(BOOLEAN_LEAF, false, carried),
-        shape,
-        fields,
-        readers,
-        columns
-      );
+    gatedDocument,
+    /**
+     * `column`, `model`'s `field` at `alias`, as an operand the caller wrote
+     * (K5): NULL on a row that does not carry a read-gated field. Every row a
+     * caller's operand is read on is one the domain takes, so `read` holds
+     * there: the gate's own predicate decides.
+     */
+    guarded(
+      q: SqlQueries,
+      model: AnyModel,
+      field: string,
+      column: Sql,
+      alias?: string
+    ): Sql {
+      const gate = projection.projected(model)?.gates.get(field);
+      const holds = gate && gateHolds(q, model, gate, alias, true);
+      const a = q.adapter;
+      return holds === undefined
+        ? column
+        : a.expressions.caseWhen(
+            [{ when: holds, then: column }],
+            a.literals.null()
+          );
     },
-    guarded,
     /**
      * A call's arguments admitted with the projection keys this domain
      * declares kept beside the schema's.
      */
-    admit(
-      schema: EngineSchema,
-      model: AnyModel,
-      operation: Admitted,
-      raw: unknown
-    ): Arguments {
-      return admitProjected(this, schema, model, operation, raw);
-    },
+    admit: admitProjected,
     /**
      * A `$through` that reads or tests a gated field of its junction `model`
      * is refused before any statement, as a hidden link row is: the hop has no
@@ -220,8 +230,13 @@ export const projectionOf = (domain: PreparedDomain) => {
           `Cannot ${use} $through.${gated} of relation '${edge.name}': this client gates that field of '${name}'. Read it through the '${name}' delegate.`
         );
     },
+    /** `$rows()` hands a caller the table's columns as they are: refused where a field of them is read-gated. */
     refuseGatedRows(model: AnyModel): void {
-      refuseGatedRows(projection.projected(model), model["~"].names.ts!);
+      const gates = projection.projected(model)?.gates;
+      if (gates?.size)
+        throw new UnsupportedOperationError(
+          `${model["~"].names.ts}.$rows() refuses read-gated fields: ${[...gates.keys()]}`
+        );
     },
     /** `input`, one of `model`'s predicates in `layer`, as that layer's node. */
     layered(model: AnyModel, layer: number, input: Input): PreparedSelector {
@@ -233,7 +248,11 @@ export const projectionOf = (domain: PreparedDomain) => {
         () => domain.conjunction(model, [[layer, [input]]])!
       );
     },
-    /** `model`'s projection keys and read-gated fields; `undefined` for none. */
+    /**
+     * `model`'s projection keys and read-gated fields, equal gates shared so
+     * a projection carries one member per distinct gate; `undefined` for
+     * none.
+     */
     projected(model: AnyModel): ProjectedFacts | undefined {
       const name = model["~"].names.ts!;
       const projected = memo(projectedBy, name, () => {
@@ -254,8 +273,18 @@ export const projectionOf = (domain: PreparedDomain) => {
             ]);
         }
         const known: FieldGate[] = [];
-        for (const [field, gate] of gates)
-          gates.set(field, sharedGate(freeze(gate), known));
+        for (const [field, gate] of gates) {
+          const same = known.find(
+            (other) =>
+              other.length === gate.length &&
+              other.every(
+                ([layer, , input], index) =>
+                  layer === gate[index]![0] && input === gate[index]![2]
+              )
+          );
+          if (same === undefined) known.push(freeze(gate));
+          gates.set(field, same ?? gate);
+        }
         return keys.size === 0 && gates.size === 0
           ? null
           : freeze({ keys, gates });
@@ -266,13 +295,20 @@ export const projectionOf = (domain: PreparedDomain) => {
      * What this domain adds to one projection of `model` a caller reads (K5),
      * `undefined` where it declares neither key nor gate on the model: the
      * default projections it shares, its declared keys (`key`: whether `name`
-     * is one, projected), and each gate of a scalar it reads (`field`, after
-     * the scalar), with the shape that says which member decides each field.
+     * is one, projected: `true` reports every declared name, a list the names
+     * it gives, in declared order, one boolean per name), and each gate of a
+     * scalar it reads (`field`, after the scalar: projected once), with the
+     * shape that says which member decides each gated field, and which of
+     * them the caller named.
      */
     preparing(model: AnyModel, select: unknown, path: string) {
       const projected = projection.projected(model);
       if (projected === undefined) return undefined;
-      const gates = gating(projected, select, path);
+      // The engine hands an admitted `select`, an object, or none, which no
+      // entry is keyed by.
+      const named = namedGatedFields.get(select as object);
+      const gated: Record<string, GatedMember> = {};
+      const gates = new Map<FieldGate, string>();
       return {
         defaults: defaultProjections,
         key: (
@@ -283,11 +319,40 @@ export const projectionOf = (domain: PreparedDomain) => {
         ): boolean => {
           const evidence = projected.keys.get(name);
           if (evidence === undefined) return false;
-          projectEvidence(evidence, name, selection, fields, prepared);
+          const names =
+            selection === true
+              ? evidence.names
+              : evidence.names.filter(([held]) =>
+                  // Admission left `true` or a list of the declared names.
+                  (selection as readonly string[]).includes(held)
+                );
+          fields[name] = freeze({
+            kind: "object",
+            nullable: false,
+            fields: freeze(
+              Object.fromEntries(names.map(([held]) => [held, BOOLEAN_LEAF]))
+            ),
+          });
+          prepared.push(freeze({ kind: "evidence", name, evidence, names }));
           return true;
         },
-        field: gates.field,
-        shape: gates.shape,
+        field(name: string, prepared: PreparedProjectionField[]): void {
+          const gate = projected.gates.get(name);
+          if (gate === undefined) return;
+          let member = gates.get(gate);
+          if (member === undefined) {
+            member = gateResultKey(gates.size);
+            gates.set(gate, member);
+            prepared.push(freeze({ kind: "gate", name: member, gate }));
+          }
+          gated[name] = named?.has(name)
+            ? freeze({ gate: member, refused: `${path}select.${name}` })
+            : freeze({ gate: member });
+        },
+        shape: () =>
+          gates.size > 0
+            ? { gated: freeze(gated), gates: freeze([...gates.values()]) }
+            : undefined,
       };
     },
   };

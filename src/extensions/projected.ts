@@ -124,12 +124,13 @@ function markNamed(
 }
 
 /**
- * `raw` admitted by the schema with the projection keys of `domain` added
+ * `raw` admitted by the schema with the projection keys of the domain added
  * to the schema's, and the read-gated fields it names marked: as the schema
- * admits it where the call reads no rows.
+ * admits it where the call reads no rows. The projection's `admit`, called
+ * on it.
  */
 export function admitProjected(
-  domain: Projection,
+  this: Projection,
   schema: EngineSchema,
   model: AnyModel,
   operation: Admitted,
@@ -138,14 +139,14 @@ export function admitProjected(
   const admit = () => schema.admit(model, operation, raw);
   // The model's entries are read before its arguments: an entry given
   // lazily refuses the call first.
-  domain.projected(model);
+  this.projected(model);
   if (!ROW_RESULTS.has(operation)) return admit();
   // A projection is provided under `$` and its model's name.
   const admitted = parseProviding((name, key) => {
     const target = name[0] === "$" ? schema.schema[name.slice(1)] : undefined;
-    const declared = target && domain.projected(target)?.keys.get(key);
+    const declared = target && this.projected(target)?.keys.get(key);
     return declared && keyValidator(declared.names);
   }, admit);
-  markNamed(domain, schema, model, raw, admitted);
+  markNamed(this, schema, model, raw, admitted);
   return admitted;
 }
