@@ -510,12 +510,19 @@ export function compilePolicy(
   };
 }
 
-/** What a listed model declares, read without lowering a rule. */
-interface Declared {
+/** A model's verbs and `as` modes: what applying a policy needs before any query. */
+export interface DeclaredModel {
   readonly read?: string;
   readonly update?: string;
   readonly delete?: string;
-  readonly modes: { readonly [mode: string]: string };
+  /** Its actions, then its domains: each names the predicate of its own name. */
+  readonly modes: readonly string[];
+  /** What the policy's own whole-table sets of this model hold (`tenant`). */
+  readonly bound?: Where | undefined;
+}
+
+/** What a model declares, read without lowering a rule. */
+interface Declared extends DeclaredModel {
   /** Field → the predicate an update writing it takes (by name). */
   readonly writes: { readonly [field: string]: string };
   /** The fields whose write action is not the update verb's: `$write:<field>`. */
@@ -524,17 +531,16 @@ interface Declared {
     write: string,
   ])[];
   readonly reads: { readonly [field: string]: string };
+  /** Field → its move (filled when the model compiles). */
+  readonly moves?: { readonly [field: string]: string };
 }
-
-/** A model's verbs and `as` modes: what applying a policy needs before any query. */
-export interface DeclaredModel {
-  readonly read?: string;
-  readonly update?: string;
-  readonly delete?: string;
-  readonly modes: { readonly [mode: string]: string };
-  /** What the policy's own whole-table sets of this model hold (`tenant`). */
-  readonly bound?: Where;
-}
+/** A model the policy does not list declares nothing. */
+const UNLISTED: Declared = {
+  modes: [],
+  writes: {},
+  protectedWrites: [],
+  reads: {},
+};
 
 /**
  * One policy against one schema, compiled a model at a time. Building it
@@ -1754,22 +1760,19 @@ export function policyCompiler(
       reads[field] = declared(`fields.${field}.read`, read)!;
     }
     claimName(PLACE, `models.${name}.create`);
-    const modes = new Map<string, string>(
-      model.actions.map((action) => [action, action])
-    );
-    for (const domain of Object.keys(policy.domains ?? {})) {
+    const domains = Object.keys(policy.domains ?? {});
+    for (const domain of domains)
       claimName(domain, `models.${name}.domains.${domain}`);
-      modes.set(domain, domain);
-    }
+    const modes = [...model.actions, ...domains];
     // One `as` name space for every model: the default is no action's.
-    if (modes.has(DEFAULT_MODE))
+    if (modes.includes(DEFAULT_MODE))
       refuse(
         `models.${name}: "${DEFAULT_MODE}" is the mode a call takes by default, not an action or a domain`,
         name
       );
     declarations.set(name, {
       ...verbs,
-      modes: Object.fromEntries(modes),
+      modes,
       writes,
       protectedWrites,
       reads,
@@ -1780,8 +1783,8 @@ export function policyCompiler(
   const compileModel = (name: string): Compiled => {
     const policy = config.models[name]!;
     const model = modelOf(name);
-    const { writes, protectedWrites, reads, modes, ...verbs } =
-      declarations.get(name)!;
+    const declared = declarations.get(name)!;
+    const { writes, protectedWrites, ...verbs } = declared;
     const named = new Map<string, Where>();
     // The declaration's names were claimed when the policy was applied; a
     // move's name is new here, and a domain may take one.
@@ -1859,7 +1862,7 @@ export function policyCompiler(
       const at = `models.${name}.domains.${domain}`;
       claim(domain, at, lower(name, "read", rule, at) || FALSE);
     }
-    return entryOf(name, verbs, named, writes, reads, moves, modes);
+    return entryOf(name, named, { ...declared, moves });
   };
   /**
    * A model's rule entry from its predicates by name: its read action, each
@@ -1872,23 +1875,15 @@ export function policyCompiler(
    */
   const entryOf = (
     name: string,
-    verbs: {
-      readonly read?: string;
-      readonly update?: string;
-      readonly delete?: string;
-    },
     named: ReadonlyMap<string, Where>,
-    writes: { readonly [field: string]: string },
-    reads: { readonly [field: string]: string },
-    moves: { readonly [field: string]: string },
-    modes: { readonly [mode: string]: string }
+    { writes, reads, moves = {}, modes, ...verbs }: Declared
   ): Compiled => {
     const P = (key: string | undefined): object =>
       key === undefined ? nothing : named.get(key)!;
     const names = modelOf(name).actions;
-    const root = Object.entries(modes)
-      .filter(([mode]) => mode !== verbs.read)
-      .map(([mode, key]) => when(arg(MODE), mode, P(key)));
+    const root = modes
+      .filter((mode) => mode !== verbs.read)
+      .map((mode) => when(arg(MODE), mode, P(mode)));
     return {
       predicates: named,
       entry: {
@@ -1940,7 +1935,7 @@ export function policyCompiler(
     if (known !== undefined) return known;
     const entry = Object.hasOwn(config.models, name)
       ? compileModel(name)
-      : entryOf(name, {}, new Map([[PLACE, FALSE]]), {}, {}, {}, {});
+      : entryOf(name, new Map([[PLACE, FALSE]]), UNLISTED);
     compiled.set(name, entry);
     return entry;
   };
@@ -1967,23 +1962,9 @@ export function policyCompiler(
   return {
     declared: Object.fromEntries(
       Object.keys(schema).map((name) => {
-        const {
-          read,
-          update,
-          delete: remove,
-          modes,
-        } = declarations.get(name) ?? {};
-        const bound = related(name);
-        return [
-          name,
-          {
-            ...(read !== undefined && { read }),
-            ...(update !== undefined && { update }),
-            ...(remove !== undefined && { delete: remove }),
-            modes: modes ?? {},
-            ...(bound !== undefined && { bound }),
-          },
-        ];
+        const { writes, protectedWrites, reads, ...declared } =
+          declarations.get(name) ?? UNLISTED;
+        return [name, { ...declared, bound: related(name) }];
       })
     ),
     model: modelAt,

@@ -703,12 +703,12 @@ export function permissions<const Config extends PermissionsConfig>(
           Object.hasOwn(config.models, model) &&
           (c.operation === "upsert" ||
             (verb === "create"
-              ? Object.hasOwn(at.modes, verb)
+              ? at.modes.includes(verb)
               : at[verb] !== undefined))
         ) ||
         (typeof mode === "string" &&
           mode !== DEFAULT_MODE &&
-          !Object.hasOwn(at.modes, mode))
+          !at.modes.includes(mode))
       )
         throw new ForbiddenError(model, c.operation);
     }, target(everyOperation)),

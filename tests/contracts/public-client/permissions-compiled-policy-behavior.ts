@@ -218,7 +218,7 @@ export function runCompiledPolicyBehavior(
       async () => {
         const listed = policyCompiler(policy.config, schema).declared;
         for (const model of GOVERNED_MODELS)
-          expect(Object.keys(listed[model]!.modes), model).toEqual([
+          expect(listed[model]!.modes, model).toEqual([
             ...actionsOf(model),
             ...(model === "page" ? ["given"] : []),
           ]);

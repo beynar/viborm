@@ -2278,10 +2278,7 @@ describe("a model at a time, and a rule checked where it compiles", () => {
     for (let attempt = 0; attempt < 2; attempt++)
       expect(() => compiler.model("post")).toThrow('actor path "usrId"');
     expect(compiler.model("note").read).toBe("read");
-    expect(compiler.declared.post).toEqual({
-      read: "read",
-      modes: { read: "read" },
-    });
+    expect(compiler.declared.post).toEqual({ read: "read", modes: ["read"] });
   });
 
   test("acyclic relations are found across the models that compile, past a refused one", () => {
