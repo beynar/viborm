@@ -1062,6 +1062,22 @@ export class SqlQueries extends Queries {
       this.scalarShape(model, field).id
     );
   }
+  /** {@link fieldValue}, bound to be compared with the field's column. */
+  #compared(model: AnyModel, field: string, value: unknown): Sql {
+    return (
+      this.#text(this.physical(model, field).scalar, value) ??
+      this.fieldValue(model, field, value)
+    );
+  }
+  /**
+   * A string compared with a column of `scalar` in the column's own family,
+   * where the adapter states one (`literals.string`): never a written value.
+   */
+  #text(scalar: Scalar, value: unknown): Sql | undefined {
+    return typeof value === "string"
+      ? this.adapter.literals.string?.(value, this.nativeType(scalar))
+      : undefined;
+  }
   /**
    * `id` is the destination column's identifier storage, which the scalar
    * alone cannot answer: a foreign key DERIVES its domain and a private
@@ -1098,11 +1114,6 @@ export class SqlQueries extends Queries {
     switch (state.type) {
       case "bigint":
         return this.#literal(state.array === true ? String(value) : value);
-      case "string":
-        return (
-          a.literals.string?.(value as string, this.nativeType(scalar)) ??
-          this.#literal(value)
-        );
       case "decimal":
       case "json":
       case "point":
@@ -1293,7 +1304,7 @@ export class SqlQueries extends Queries {
         .map(({ side, pair }) =>
           this.#eq(
             this.#escaped(pair.junctionField),
-            this.fieldValue(
+            this.#compared(
               side.model,
               pair.referencedField,
               values[pair.junctionField]
@@ -1316,7 +1327,7 @@ export class SqlQueries extends Queries {
           ? this.column(side.model, pair.referencedField, endpoint)
           : typeof endpoint === "function"
             ? endpoint(pair.referencedField)
-            : this.fieldValue(
+            : this.#compared(
                 side.model,
                 pair.referencedField,
                 endpoint[pair.referencedField]
@@ -1672,7 +1683,7 @@ export class SqlQueries extends Queries {
       ...Object.entries(identity).map(([field, value]) =>
         this.#eq(
           this.column(model, field, alias),
-          this.fieldValue(model, field, value)
+          this.#compared(model, field, value)
         )
       )
     );
@@ -2160,7 +2171,10 @@ export class SqlQueries extends Queries {
     }
     if (target.kind === "aggregate" && target.aggregate === "_sum")
       return this.#sumTargetValue(scalar, value, id);
-    return this.#scalarValue(scalar.physical.scalar, value, scalar.field, id);
+    return (
+      this.#text(scalar.physical.scalar, value) ??
+      this.#scalarValue(scalar.physical.scalar, value, scalar.field, id)
+    );
   }
   /** A `_sum` operand, out of line: only a decimal HAVING widens its cast. */
   #sumTargetValue(
@@ -3145,7 +3159,7 @@ export class SqlQueries extends Queries {
               )
             : this.#eq(
                 this.column(edge.target, pair.target, target),
-                this.fieldValue(edge.target, pair.target, given![pair.source])
+                this.#compared(edge.target, pair.target, given![pair.source])
               )
         )
       );
@@ -3605,7 +3619,7 @@ export class SqlQueries extends Queries {
           );
         return this.#eq(
           this.#operand(model, field, sourceAlias),
-          this.fieldValue(model, field, value)
+          this.#compared(model, field, value)
         );
       })
     );

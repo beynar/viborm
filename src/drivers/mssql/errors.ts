@@ -93,7 +93,9 @@ const CODE_SQLSTATES: Record<string, string> = {
  * are MySQL's, and many collide (1205 is a lock wait there).
  */
 export function withServerNumber(mapped: Error, error: unknown): Error {
-  const number = readErrorNumber(error) ?? readErrorNumber(errorCause(error));
+  const number =
+    readErrorNumber(error) ??
+    readErrorNumber(error instanceof Error ? error.cause : undefined);
   if (
     number !== undefined &&
     mapped instanceof VibORMError &&
@@ -102,9 +104,6 @@ export function withServerNumber(mapped: Error, error: unknown): Error {
     mapped.meta.providerErrno = number;
   return mapped;
 }
-
-const errorCause = (error: unknown): unknown =>
-  error instanceof Error ? error.cause : undefined;
 
 /**
  * A tedious `RequestError` (or the `mssql` wrapper around one) carrying the
@@ -137,14 +136,18 @@ export function readErrorNumber(error: unknown): number | undefined {
   );
 }
 
+/** `value[key]`, where `value` is an object. */
+const member = (value: unknown, key: string): unknown =>
+  typeof value === "object" && value !== null
+    ? Reflect.get(value, key)
+    : undefined;
+
 function readObject(value: unknown, key: string): object | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
-  const member: unknown = Reflect.get(value, key);
-  return typeof member === "object" && member !== null ? member : undefined;
+  const found = member(value, key);
+  return typeof found === "object" && found !== null ? found : undefined;
 }
 
 function readNumber(value: unknown, key: string): number | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
-  const member: unknown = Reflect.get(value, key);
-  return typeof member === "number" ? member : undefined;
+  const found = member(value, key);
+  return typeof found === "number" ? found : undefined;
 }

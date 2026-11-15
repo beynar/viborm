@@ -38,10 +38,13 @@ import { parseIntegerBoolean } from "../../shared/result-parsing";
 import {
   buildJsonPath,
   createAggregateFunctions,
+  createCommonExpressions,
   createComparisonOperators,
   createCoreJoins,
+  createCteBuilders,
   createDecimalSumOperandPrecision,
   createDirectionOrderBy,
+  createExistenceOperators,
   createIdentifiers,
   createInsertStatement,
   createMembershipOperators,
@@ -51,6 +54,7 @@ import {
   createRawSql,
   createRelationFilters,
   createSetOperations,
+  createStandardClauses,
   createStandardLiterals,
   escapeLikeLiteral,
   stringifyJson,
@@ -70,6 +74,7 @@ import {
  * connection tedious (and ODBC, OLE DB, JDBC) opens.
  */
 const quoteIdent = createIdentifierQuoter('"');
+const ident = (name: string): Sql => sql.raw(quoteIdent(name));
 /** Constraints named as PostgreSQL names them: `<table>_pkey`, `<table>_<key>_key`. */
 const MSSQL_CONSTRAINTS = createNamedConstraintIdentities(
   (table) => `${table}_pkey`
@@ -92,7 +97,6 @@ const boundText = (value: Sql): string | undefined => {
   const { strings, values } = Sql.peek(value);
   const [text] = values;
   return values.length === 1 &&
-    strings.length === 2 &&
     strings[0] === "" &&
     strings[1] === "" &&
     typeof text === "string"
@@ -110,8 +114,7 @@ const likeLiteral = (text: string): string =>
  * anything is sent; any other operand is escaped by the server.
  */
 const likePattern = (value: Sql, before: string, after: string): Sql => {
-  // A pattern is bound as it is: a cast operand is unwrapped to its string.
-  const text = boundText(value) ?? castText.get(value);
+  const text = boundText(value);
   if (text === undefined)
     return sql`${sql.raw(before ? "N'%' + " : "")}REPLACE(REPLACE(REPLACE(REPLACE(CAST(${value} AS NVARCHAR(MAX)), N'\\', N'\\\\'), N'%', N'\\%'), N'_', N'\\_'), N'[', N'\\[')${sql.raw(after ? " + N'%'" : "")}`;
   const pattern = `${before}${likeLiteral(text)}${after}`;
@@ -149,10 +152,11 @@ const predicate = (expr: Sql): Sql => {
   return expr;
 };
 
-const asValue = (expr: Sql): Sql =>
-  predicates.has(expr)
-    ? sql`CASE WHEN ${expr} THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END`
-    : expr;
+/** `condition` as the `bit` it answers. */
+const bit = (condition: Sql): Sql =>
+  sql`CASE WHEN ${condition} THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END`;
+
+const asValue = (expr: Sql): Sql => (predicates.has(expr) ? bit(expr) : expr);
 
 /** `members`, each function's result marked as a predicate. */
 function markingPredicates<T extends Record<string, unknown>>(members: T): T {
@@ -171,9 +175,6 @@ const condition = (value: Sql): Sql => {
   if (value === FALSE_VALUE) return FALSE_CONDITION;
   return value;
 };
-
-const isSqlList = (other: Sql | readonly Sql[]): other is readonly Sql[] =>
-  Array.isArray(other);
 
 /** `items` ≤ `bound` lexicographically, from column `index` on. */
 const rowAtMost = (
@@ -194,23 +195,18 @@ const rowAtMost = (
  */
 const EXACT_DECIMAL_ARITHMETIC_PRECISION = 19;
 
+/** `target`'s decimal, where its half-even arithmetic fits `DECIMAL(38)`. */
+const exactDecimal = (target?: ArithmeticTarget) =>
+  target?.decimal &&
+  target.decimal.precision <= EXACT_DECIMAL_ARITHMETIC_PRECISION
+    ? target.decimal
+    : undefined;
+
 /** A non-Unicode text column: `VARCHAR(n)`, `VARCHAR(MAX)`, `CHAR(n)`. */
 const NON_UNICODE_TEXT = /^(?:VARCHAR|CHAR)\(/;
 
 /** Only code points below 0x80 (a surrogate half is above it). */
 const ASCII = /^[^\u0080-\uFFFF]*$/;
-
-/** `literals.string`'s operands, each to the string it casts. */
-const castText = new WeakMap<Sql, string>();
-
-/**
- * A written value as it was given: the column's own code page converts it
- * on assignment, and a cast operand belongs to comparisons only.
- */
-const written = (value: Sql): Sql => {
-  const text = castText.get(value);
-  return text === undefined ? value : sql`${text}`;
-};
 
 /**
  * T-SQL's exact integer arithmetic over `DECIMAL(38, 0)`. `%` is defined on
@@ -288,56 +284,52 @@ const jsonObject = (pairs: [string, Sql][]): Sql => {
 /**
  * An `OPENJSON` row's member as JSON text: `null`, a string quoted and
  * escaped, the rest as stored. STRING_ESCAPE writes `/` as `\/`, which
- * JSON.stringify does not, so text equality with a bound value missed every
- * string holding one, and a pushed member was stored so: the escape is
- * undone. Each `/` it wrote follows its own `\`, so no backslash of the
- * value is taken with it.
+ * `JSON.stringify` does not: the escape is undone, so a member's text equals
+ * the bound value's. Each `/` it wrote follows its own `\`, so no backslash
+ * of the value is taken with it.
  */
 const OPENJSON_MEMBER = sql.raw(
   `CASE "type" WHEN 0 THEN N'null' WHEN 1 THEN N'"' + REPLACE(STRING_ESCAPE("value", 'json'), N'\\/', N'/') + N'"' ELSE "value" END`
 );
 
 /**
- * The JSON text at `path`, or NULL where it is absent: an object or array
- * through `JSON_QUERY`, a scalar re-encoded from `OPENJSON`'s typed row (`type`
- * 0 null, 1 string, 2 number, 3 boolean). `JSON_VALUE` alone cannot tell the
- * string `"1"` from the number `1`.
+ * `read` of the `OPENJSON` row at `path` (`type` 0 null, 1 string, 2 number,
+ * 3 boolean, 4 array, 5 object), NULL where it is absent. T-SQL's JSON
+ * functions read only an object or an array, so the root is read as the one
+ * member of an array holding it.
  */
-const jsonAt = (column: Sql, path: string[]): Sql => {
-  if (path.length === 0) return column;
-  return scalarAt(column, path);
+const openJsonAt = (
+  column: Sql,
+  path: string[],
+  read: Sql,
+  also: Sql = sql.empty
+): Sql => {
+  const [document, at] =
+    path.length === 0
+      ? [sql`(N'[' + ${column} + N']')`, ["0"]]
+      : [column, path];
+  return sql`(SELECT ${read} FROM OPENJSON(${container(document)}, ${buildJsonPath(at.slice(0, -1))}) WHERE "key" = ${at.at(-1)!}${also})`;
 };
 
 /**
- * A path into `column`, the document root included: T-SQL's JSON functions
- * read only an object or an array, so the root is read as the one member of
- * an array holding it.
+ * The JSON text at `path`, or NULL where it is absent, re-encoded from
+ * `OPENJSON`'s typed row: `JSON_VALUE` alone cannot tell the string `"1"`
+ * from the number `1`.
  */
-const rooted = (column: Sql, path: string[]): [Sql, string[]] =>
-  path.length === 0 ? [sql`(N'[' + ${column} + N']')`, ["0"]] : [column, path];
-
-const scalarAt = (column: Sql, path: string[]): Sql => {
-  const parent = buildJsonPath(path.slice(0, -1));
-  const key = path.at(-1)!;
-  return sql`(SELECT ${OPENJSON_MEMBER} FROM OPENJSON(${container(column)}, ${parent}) WHERE "key" = ${key})`;
-};
+const jsonAt = (column: Sql, path: string[]): Sql =>
+  path.length === 0 ? column : openJsonAt(column, path, OPENJSON_MEMBER);
 
 /** The JSON type code `OPENJSON` reports at `path`, NULL where absent. */
-const jsonTypeAt = (column: Sql, path: string[]): Sql => {
-  const [document, at] = rooted(column, path);
-  return sql`(SELECT "type" FROM OPENJSON(${container(document)}, ${buildJsonPath(at.slice(0, -1))}) WHERE "key" = ${at.at(-1)!})`;
-};
+const jsonTypeAt = (column: Sql, path: string[]): Sql =>
+  openJsonAt(column, path, sql.raw('"type"'));
 
 /**
  * The scalar text at `path`, the root included; NULL for an object, an
- * array, `null` or nothing. Read from `OPENJSON`'s `NVARCHAR(MAX)` value, as
- * `jsonTypeAt` reads its type: `JSON_VALUE` answers NULL past 4,000
- * characters.
+ * array, `null` or nothing: `OPENJSON`'s `NVARCHAR(MAX)` value, since
+ * `JSON_VALUE` answers NULL past 4,000 characters.
  */
-const jsonValueAt = (column: Sql, path: string[]): Sql => {
-  const [document, at] = rooted(column, path);
-  return sql`(SELECT "value" FROM OPENJSON(${container(document)}, ${buildJsonPath(at.slice(0, -1))}) WHERE "key" = ${at.at(-1)!} AND "type" < 4)`;
-};
+const jsonValueAt = (column: Sql, path: string[]): Sql =>
+  openJsonAt(column, path, sql.raw('"value"'), sql.raw(' AND "type" < 4'));
 
 /**
  * One JSON document's canonical text, for structural equality: the stored and
@@ -360,6 +352,13 @@ function sortJsonKeys(value: unknown): unknown {
 
 const jsonListValue = (values: unknown[]): Sql => sql`${stringifyJson(values)}`;
 
+/** The string at `path`, NULL for any other JSON type. */
+const stringAt = (column: Sql, path: string[]): Sql =>
+  sql`(CASE WHEN ${jsonTypeAt(column, path)} = 1 THEN ${jsonValueAt(column, path)} END)`;
+
+/** The canonical text of a bound JSON document. */
+const jsonValue = (v: unknown): Sql => sql`${canonicalJson(v)}`;
+
 /** The emulated `NULLS FIRST`/`LAST`: SQL Server sorts NULL lowest. */
 const nullsKey = (column: Sql, rank: string, direction: "asc" | "desc"): Sql =>
   sql`CASE WHEN ${column} IS NULL THEN ${sql.raw(rank)} ELSE 1 END, ${column} ${sql.raw(direction === "desc" ? "DESC" : "ASC")}`;
@@ -371,7 +370,7 @@ const nullsKey = (column: Sql, rank: string, direction: "asc" | "desc"): Sql =>
 const UTC_OFFSET = /[+-]00:00$/;
 
 const naiveIso = (iso: string): string =>
-  iso.length === 10 ? iso : iso.replace("Z", "").replace(UTC_OFFSET, "");
+  iso.replace("Z", "").replace(UTC_OFFSET, "");
 
 const NAIVE_DATETIME_REGEX =
   /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(\.\d+)?$/;
@@ -387,12 +386,18 @@ const naiveDateTimeToIso = (value: string): string | undefined => {
 const RECURSION_REFUSAL =
   "T-SQL allows no WITH inside a subquery and no UNION in a recursive member, so a recursive filter or projection cannot be spelled.";
 
+const STANDARD_CTE = createCteBuilders(quoteIdent);
+
+/** 1 where `test` holds, else a conversion error naming the sentinel. */
+const assertion = (test: Sql): Sql =>
+  sql`SELECT CASE WHEN ${test} THEN 1 ELSE CAST('__viborm_assert__' AS INT) END AS "__viborm_assert__"`;
+
 const unsupported = (method: string, reason: string): never => {
   throw new FeatureNotSupportedError("mssql", method, reason);
 };
 
 /** A schema name SQL Server accepts unquoted-or-quoted alike: 1–128 characters. */
-const normalizeSchema = (namespace: unknown): string | undefined => {
+const normalizeSchema = (namespace: unknown): string => {
   if (namespace === undefined) return "dbo";
   if (
     typeof namespace !== "string" ||
@@ -440,7 +445,7 @@ export class MssqlAdapter implements DatabaseAdapter {
     ...createStandardLiterals(),
     true: (): Sql => TRUE_VALUE,
     false: (): Sql => FALSE_VALUE,
-    json: (v: unknown): Sql => sql`${canonicalJson(v)}`,
+    json: jsonValue,
     // An instant compared as the column holds it: a `DATETIME` rounds to
     // 1/300 s, so a value read from one finds its row only as a `DATETIME`.
     dateTime: (iso: string, nativeType?: NativeTypeDeclaration): Sql => {
@@ -465,14 +470,11 @@ export class MssqlAdapter implements DatabaseAdapter {
         )
       )
         return undefined;
-      const operand = sql`CAST(${value} AS VARCHAR(MAX))`;
-      castText.set(operand, value);
-      return operand;
+      return sql`CAST(${value} AS VARCHAR(MAX))`;
     },
     decimal: (canonical: string, descriptor: DecimalDescriptor): Sql =>
       sql`CAST(${encodePhysicalDecimal(canonical, descriptor, "text")} AS ${decimalType(descriptor)})`,
-    id: (physical: string | Uint8Array, _representation: IdRepresentation) =>
-      sql`${physical}`,
+    id: (physical: string | Uint8Array) => sql`${physical}`,
   };
 
   operators = markingPredicates({
@@ -510,14 +512,13 @@ export class MssqlAdapter implements DatabaseAdapter {
     },
     not: (inner: Sql): Sql => sql`NOT (${condition(inner)})`,
 
-    exists: (subquery: Sql): Sql => sql`EXISTS (${subquery})`,
-    notExists: (subquery: Sql): Sql => sql`NOT EXISTS (${subquery})`,
+    ...createExistenceOperators(),
 
     // T-SQL has no row value. Membership reads the rows through a derived
     // table whose columns it names (`AS "r" ("r0", …)`, whatever the query
     // calls them); a bound is spelled column by column.
     rows: (items: readonly Sql[], other: Sql | readonly Sql[]): Sql => {
-      if (isSqlList(other)) return rowAtMost(items, other, 0);
+      if (!(other instanceof Sql)) return rowAtMost(items, other, 0);
       if (items.length === 1) return sql`${items[0]!} IN (${other})`;
       const names = items.map((_, index) => `r${index}`);
       return sql`EXISTS (SELECT 1 FROM (${other}) AS "r" (${sql.raw(
@@ -533,6 +534,7 @@ export class MssqlAdapter implements DatabaseAdapter {
   });
 
   expressions = {
+    ...createCommonExpressions(),
     caseWhen: (
       branches: readonly { readonly when: Sql; readonly then: Sql }[],
       otherwise: Sql
@@ -546,10 +548,6 @@ export class MssqlAdapter implements DatabaseAdapter {
             ),
             " "
           )} ELSE ${asValue(otherwise)} END`,
-    add: (left: Sql, right: Sql): Sql => sql`(${left} + ${right})`,
-    subtract: (left: Sql, right: Sql): Sql => sql`(${left} - ${right})`,
-    multiply: (left: Sql, right: Sql): Sql => sql`(${left} * ${right})`,
-    divide: (left: Sql, right: Sql): Sql => sql`(${left} / ${right})`,
     // Integer `/` truncates toward zero in T-SQL.
     integerDivide: (left: Sql, right: Sql): Sql => sql`(${left} / ${right})`,
     concat: (...parts: Sql[]): Sql => {
@@ -557,8 +555,6 @@ export class MssqlAdapter implements DatabaseAdapter {
       if (parts.length === 1) return parts[0]!;
       return sql`CONCAT(${sql.join(parts, ", ")})`;
     },
-    upper: (expr: Sql): Sql => sql`UPPER(${expr})`,
-    lower: (expr: Sql): Sql => sql`LOWER(${expr})`,
     caseFold: (expr: Sql): Sql => sql`LOWER(${expr})`,
     // The column's collation decides, as for every comparison.
     caseSensitiveText: (expr: Sql): Sql => expr,
@@ -568,7 +564,6 @@ export class MssqlAdapter implements DatabaseAdapter {
       representation === "bytes"
         ? sql`CONVERT(VARBINARY(MAX), ${expr}, 2)`
         : sql`CAST(${expr} AS NVARCHAR(MAX))`,
-    coalesce: (...exprs: Sql[]): Sql => sql`COALESCE(${sql.join(exprs, ", ")})`,
     greatest: (...exprs: Sql[]): Sql => sql`GREATEST(${sql.join(exprs, ", ")})`,
     least: (...exprs: Sql[]): Sql => sql`LEAST(${sql.join(exprs, ", ")})`,
     cast: (
@@ -629,8 +624,7 @@ export class MssqlAdapter implements DatabaseAdapter {
   json = {
     // Both sides are canonical text (see `canonicalJson`).
     equals: (left: Sql, right: Sql): Sql => predicate(sql`${left} = ${right}`),
-    boolean: (inner: Sql): Sql =>
-      sql`CASE WHEN ${condition(inner)} THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END`,
+    boolean: (inner: Sql): Sql => bit(condition(inner)),
     document: (expression: Sql): Sql => {
       const embedded = sql`JSON_QUERY(${expression})`;
       documents.set(embedded, expression);
@@ -670,10 +664,8 @@ export class MssqlAdapter implements DatabaseAdapter {
         : sql`COALESCE(${jsonValueAt(column, path)}, JSON_QUERY(${container(column)}, ${buildJsonPath(path)}))`,
     numberAtPath: (column: Sql, path: string[]): Sql =>
       sql`(CASE WHEN ${jsonTypeAt(column, path)} = 2 THEN CAST(${jsonValueAt(column, path)} AS FLOAT) END)`,
-    stringAtPath: (column: Sql, path: string[]): Sql =>
-      sql`(CASE WHEN ${jsonTypeAt(column, path)} = 1 THEN ${jsonValueAt(column, path)} END)`,
-    foldableStringAtPath: (column: Sql, path: string[]): Sql =>
-      sql`(CASE WHEN ${jsonTypeAt(column, path)} = 1 THEN ${jsonValueAt(column, path)} END)`,
+    stringAtPath: stringAt,
+    foldableStringAtPath: stringAt,
     // Every member of `value` is a member of `target` of its type: `null`
     // (whose OPENJSON value is SQL NULL) equal to `null`, any other member's
     // text as the database compares it.
@@ -683,7 +675,7 @@ export class MssqlAdapter implements DatabaseAdapter {
       ),
     lastElement: (target: Sql): Sql =>
       sql`(SELECT TOP (1) ${OPENJSON_MEMBER} FROM OPENJSON(CASE WHEN ISJSON(${target}, ARRAY) = 1 THEN ${target} END) ORDER BY CAST("key" AS INT) DESC)`,
-    value: (v: unknown): Sql => sql`${canonicalJson(v)}`,
+    value: jsonValue,
   };
 
   arrays = {
@@ -733,36 +725,32 @@ export class MssqlAdapter implements DatabaseAdapter {
   noLimitValue = sql.raw("0");
 
   clauses = {
-    select: (columns: Sql): Sql => sql`SELECT ${columns}`,
-    selectDistinct: (columns: Sql): Sql => sql`SELECT DISTINCT ${columns}`,
-    from: (table: Sql): Sql => sql`FROM ${table}`,
+    ...createStandardClauses(),
     where: (inner: Sql): Sql => sql`WHERE ${condition(inner)}`,
-    orderBy: (orders: Sql): Sql => sql`ORDER BY ${orders}`,
     limit: (count: Sql): Sql =>
       sql`OFFSET 0 ROWS FETCH NEXT ${count} ROWS ONLY`,
     offset: (count: Sql): Sql => sql`OFFSET ${count} ROWS`,
-    groupBy: (columns: Sql): Sql => sql`GROUP BY ${columns}`,
     having: (inner: Sql): Sql => sql`HAVING ${condition(inner)}`,
   };
 
   set = {
     ...createNumericSetOperations(),
-    assign: (column: Sql, value: Sql): Sql =>
-      sql`${column} = ${written(value)}`,
     // Half to even at the field's scale while the scaled product fits 38
     // digits; past that, SQL Server's own result type (at least 6 decimals,
     // rounded by the server), as a plain `*` or `/`.
-    multiply: (column: Sql, by: Sql, target?: ArithmeticTarget): Sql =>
-      target?.decimal &&
-      target.decimal.precision <= EXACT_DECIMAL_ARITHMETIC_PRECISION
-        ? logicalDecimalMultiply(MSSQL_INTEGERS, column, by, target.decimal)
-        : sql`${column} = ${column} * ${by}`,
+    multiply: (column: Sql, by: Sql, target?: ArithmeticTarget): Sql => {
+      const decimal = exactDecimal(target);
+      return decimal
+        ? logicalDecimalMultiply(MSSQL_INTEGERS, column, by, decimal)
+        : sql`${column} = ${column} * ${by}`;
+    },
     // Integer `/` already truncates toward zero.
-    divide: (column: Sql, by: Sql, target?: ArithmeticTarget): Sql =>
-      target?.decimal &&
-      target.decimal.precision <= EXACT_DECIMAL_ARITHMETIC_PRECISION
-        ? logicalDecimalDivide(MSSQL_INTEGERS, column, by, target.decimal)
-        : sql`${column} = ${column} / ${by}`,
+    divide: (column: Sql, by: Sql, target?: ArithmeticTarget): Sql => {
+      const decimal = exactDecimal(target);
+      return decimal
+        ? logicalDecimalDivide(MSSQL_INTEGERS, column, by, decimal)
+        : sql`${column} = ${column} / ${by}`;
+    },
     push: (column: Sql, values: Sql): Sql =>
       sql`${column} = ${this.#concatLists(sql`COALESCE(${column}, N'[]')`, values)}`,
     unshift: (column: Sql, values: Sql): Sql =>
@@ -781,7 +769,7 @@ export class MssqlAdapter implements DatabaseAdapter {
   subqueries = {
     scalar: (query: Sql): Sql => sql`(${query})`,
     correlate: (query: Sql, alias: string): Sql => {
-      const correlated = sql`(${query}) AS ${sql.raw(quoteIdent(alias))}`;
+      const correlated = sql`(${query}) AS ${ident(alias)}`;
       const page = this.#pages.get(query);
       if (page) this.#correlated.set(correlated, { page, alias });
       return correlated;
@@ -791,7 +779,7 @@ export class MssqlAdapter implements DatabaseAdapter {
     isolated: (inner: Sql): Sql => condition(inner),
     // No rowid: a SQL Server table keeps none `SELECT *` leaves out.
     rows: (from: Sql, _row: string, where: Sql | undefined, alias: string) =>
-      sql`(SELECT * FROM ${from} WHERE ${where ? condition(where) : TRUE_CONDITION}) AS ${sql.raw(quoteIdent(alias))}`,
+      sql`(SELECT * FROM ${from} WHERE ${where ? condition(where) : TRUE_CONDITION}) AS ${ident(alias)}`,
   };
 
   /**
@@ -808,10 +796,10 @@ export class MssqlAdapter implements DatabaseAdapter {
     if (member && read) {
       // A carrier aggregating an ordered page: `STRING_AGG` reads its rows in
       // no promised order, so the page numbers them and the aggregate states it.
-      const alias = sql.raw(quoteIdent(read.alias));
+      const alias = ident(read.alias);
       return this.#assemble({
         ...parts,
-        columns: jsonAgg(member, sql`${alias}.${sql.raw(quoteIdent(ORDINAL))}`),
+        columns: jsonAgg(member, sql`${alias}.${ident(ORDINAL)}`),
         from: sql`(${this.#assemble(read.page, true)}) AS ${alias}`,
       });
     }
@@ -831,19 +819,17 @@ export class MssqlAdapter implements DatabaseAdapter {
   /** `ordinal`: the page also numbers its rows in its order, `ORDINAL`. */
   #assemble(parts: QueryParts, ordinal = false): Sql {
     if (parts.distinct) return this.#distinct(parts, ordinal);
-    const unbounded = parts.limit === this.noLimitValue;
-    const limit = unbounded ? undefined : parts.limit;
-    const ordered = parts.orderBy !== undefined;
-    const top = limit && !ordered && !parts.offset;
+    const limit = parts.limit === this.noLimitValue ? undefined : parts.limit;
+    const top = limit && !parts.orderBy && !parts.offset;
     // A select of the bare true literal (a lock, an existence) may be a
     // derived table, whose every column T-SQL wants named (Msg 8155).
     const listed =
       parts.columns === TRUE_VALUE
-        ? sql`${TRUE_VALUE} AS ${sql.raw(quoteIdent("__viborm_true"))}`
+        ? sql`${TRUE_VALUE} AS ${ident("__viborm_true")}`
         : asValue(parts.columns);
     const columns =
       ordinal && parts.orderBy
-        ? sql`${listed}, ROW_NUMBER() OVER (ORDER BY ${parts.orderBy}) AS ${sql.raw(quoteIdent(ORDINAL))}`
+        ? sql`${listed}, ROW_NUMBER() OVER (ORDER BY ${parts.orderBy}) AS ${ident(ORDINAL)}`
         : listed;
     const fragments: Sql[] = [
       top ? sql`SELECT TOP (${limit}) ${columns}` : sql`SELECT ${columns}`,
@@ -852,29 +838,28 @@ export class MssqlAdapter implements DatabaseAdapter {
         : sql`FROM ${parts.from}`,
     ];
     this.#filters(fragments, parts);
-    if (ordered) fragments.push(sql`ORDER BY ${parts.orderBy}`);
-    else if (parts.offset || (limit && !top))
-      fragments.push(sql.raw("ORDER BY (SELECT NULL)"));
-    if (!top)
-      this.#window(fragments, limit, parts.offset, ordered || unbounded);
+    if (!top) this.#window(fragments, parts.orderBy, limit, parts.offset);
     return sql.join(fragments, " ");
   }
 
   #filters(fragments: Sql[], parts: QueryParts): void {
-    if (parts.joins && parts.joins.length > 0) fragments.push(...parts.joins);
+    if (parts.joins) fragments.push(...parts.joins);
     if (parts.where) fragments.push(sql`WHERE ${condition(parts.where)}`);
     if (parts.groupBy) fragments.push(sql`GROUP BY ${parts.groupBy}`);
     if (parts.having) fragments.push(sql`HAVING ${condition(parts.having)}`);
   }
 
+  /** The order and the page: a page needs an order, `(SELECT NULL)` at least. */
   #window(
     fragments: Sql[],
+    orderBy: Sql | undefined,
     limit: Sql | undefined,
-    offset: Sql | undefined,
-    ordered: boolean
+    offset: Sql | undefined
   ): void {
-    if (offset || limit || ordered)
-      fragments.push(sql`OFFSET ${offset ?? sql.raw("0")} ROWS`);
+    if (orderBy) fragments.push(sql`ORDER BY ${orderBy}`);
+    else if (limit || offset) fragments.push(sql.raw("ORDER BY (SELECT NULL)"));
+    else return;
+    fragments.push(sql`OFFSET ${offset ?? sql.raw("0")} ROWS`);
     if (limit) fragments.push(sql`FETCH NEXT ${limit} ROWS ONLY`);
   }
 
@@ -894,40 +879,29 @@ export class MssqlAdapter implements DatabaseAdapter {
     ];
     this.#filters(inner, parts);
     const outerColumns = parts.distinctColumnAliases!.map((alias) =>
-      sql.raw(quoteIdent(alias))
+      ident(alias)
     );
     if (ordinal && order)
       outerColumns.push(
-        sql`ROW_NUMBER() OVER (ORDER BY ${order.orderBy}) AS ${sql.raw(quoteIdent(ORDINAL))}`
+        sql`ROW_NUMBER() OVER (ORDER BY ${order.orderBy}) AS ${ident(ORDINAL)}`
       );
     const outer: Sql[] = [
       sql`SELECT ${sql.join(outerColumns, ", ")} FROM (${sql.join(inner, " ")}) AS "_distinct_subquery"`,
       sql.raw(`WHERE "_rn" = 1`),
     ];
     const limit = parts.limit === this.noLimitValue ? undefined : parts.limit;
-    if (order) outer.push(sql`ORDER BY ${order.orderBy}`);
-    else if (limit || parts.offset)
-      outer.push(sql.raw("ORDER BY (SELECT NULL)"));
-    this.#window(outer, limit, parts.offset, order !== undefined);
+    this.#window(outer, order?.orderBy, limit, parts.offset);
     return sql.join(outer, " ");
   }
 
   cte: DatabaseAdapter["cte"] = {
-    // T-SQL has no `WITH` inside a subquery and no `UNION` in a recursive
-    // member, which is where every recursive walk lives.
+    ...STANDARD_CTE,
     with: (definitions) => {
       if (definitions.some((definition) => definition.recursive))
         unsupported("recurse", RECURSION_REFUSAL);
-      return sql`WITH ${sql.join(
-        definitions.map(
-          ({ name, query }) => sql`${sql.raw(quoteIdent(name))} AS (${query})`
-        ),
-        ", "
-      )}`;
+      return STANDARD_CTE.with(definitions);
     },
     recursive: () => unsupported("recurse", RECURSION_REFUSAL),
-    opens: (query: Sql): boolean =>
-      Sql.peek(query).strings[0]!.trimStart().startsWith("WITH"),
   };
 
   mutations = {
@@ -938,14 +912,11 @@ export class MssqlAdapter implements DatabaseAdapter {
       source: Sql[][] | { readonly select: Sql },
       prefix?: Sql
     ): Sql => {
-      if (!Array.isArray(source))
-        return this.#insert(table, columns, source, prefix);
-      const rows = source.map((row) => row.map(written));
       // T-SQL bounds an `INSERT … VALUES` at 1,000 rows; a derived table of
       // `VALUES` has no such bound.
-      return rows.length > 1000
-        ? this.#insertRows(table, columns, rows)
-        : this.#insert(table, columns, rows, prefix);
+      return Array.isArray(source) && source.length > 1000
+        ? this.#insertRows(table, columns, source)
+        : this.#insert(table, columns, source, prefix);
     },
     // No conflict target in T-SQL: each row inserted where its key is absent,
     // then, with `sets`, the row under that key updated unless it holds them.
@@ -957,16 +928,13 @@ export class MssqlAdapter implements DatabaseAdapter {
       sets?: Sql,
       unless?: Sql
     ): Sql[] => {
-      const name = (column: string) => sql.raw(quoteIdent(column));
       return rows.flatMap((row) => [
-        sql`INSERT INTO ${table} (${sql.join(columns.map(name), ", ")}) SELECT * FROM (SELECT ${sql.join(
-          row.map(
-            (value, at) => sql`${written(value)} AS ${name(columns[at]!)}`
-          ),
+        sql`INSERT INTO ${table} (${sql.join(columns.map(ident), ", ")}) SELECT * FROM (SELECT ${sql.join(
+          row.map((value, at) => sql`${value} AS ${ident(columns[at]!)}`),
           ", "
         )}) AS "new" WHERE NOT EXISTS (SELECT 1 FROM ${table} AS "old" WHERE ${sql.join(
           key.map(
-            (column) => sql`"old".${name(column)} = "new".${name(column)}`
+            (column) => sql`"old".${ident(column)} = "new".${ident(column)}`
           ),
           " AND "
         )})`,
@@ -975,7 +943,7 @@ export class MssqlAdapter implements DatabaseAdapter {
               sql`UPDATE ${table} SET ${sets} WHERE ${sql.join(
                 key.map(
                   (column) =>
-                    sql`${name(column)} = ${row[columns.indexOf(column)]!}`
+                    sql`${ident(column)} = ${row[columns.indexOf(column)]!}`
                 ),
                 " AND "
               )}${unless ? sql` AND NOT (${condition(unless)})` : sql.empty}`,
@@ -1009,7 +977,7 @@ export class MssqlAdapter implements DatabaseAdapter {
   readonly #insert = createInsertStatement(quoteIdent);
 
   #insertRows(table: Sql, columns: string[], rows: Sql[][]): Sql {
-    const names = columns.map((column) => sql.raw(quoteIdent(column)));
+    const names = columns.map((column) => ident(column));
     return this.#insert(table, columns, {
       select: sql`SELECT * FROM (VALUES ${sql.join(
         rows.map((row) => sql`(${sql.join(row, ", ")})`),
@@ -1024,10 +992,8 @@ export class MssqlAdapter implements DatabaseAdapter {
    * conversion error to execution.
    */
   assertions = {
-    exists: (query: Sql): Sql =>
-      sql`SELECT CASE WHEN EXISTS (${query}) THEN 1 ELSE CAST('__viborm_assert__' AS INT) END AS "__viborm_assert__"`,
-    notExists: (query: Sql): Sql =>
-      sql`SELECT CASE WHEN NOT EXISTS (${query}) THEN 1 ELSE CAST('__viborm_assert__' AS INT) END AS "__viborm_assert__"`,
+    exists: (query: Sql): Sql => assertion(sql`EXISTS (${query})`),
+    notExists: (query: Sql): Sql => assertion(sql`NOT EXISTS (${query})`),
   };
 
   joins = {
@@ -1041,9 +1007,9 @@ export class MssqlAdapter implements DatabaseAdapter {
     full: (table: Sql, on: Sql): Sql =>
       sql`FULL OUTER JOIN ${table} ON ${condition(on)}`,
     lateral: (subquery: Sql, alias: string): Sql =>
-      sql`CROSS APPLY (${subquery}) AS ${sql.raw(quoteIdent(alias))}`,
+      sql`CROSS APPLY (${subquery}) AS ${ident(alias)}`,
     lateralLeft: (subquery: Sql, alias: string): Sql =>
-      sql`OUTER APPLY (${subquery}) AS ${sql.raw(quoteIdent(alias))}`,
+      sql`OUTER APPLY (${subquery}) AS ${ident(alias)}`,
   };
 
   setOperations = createSetOperations();
@@ -1096,7 +1062,7 @@ export class MssqlAdapter implements DatabaseAdapter {
   result: AdapterResultParser = {
     // Every list is JSON text, and a decimal member is its coefficient.
     decimalListRepresentation: "coefficient",
-    // No native type vocabulary for SQL Server yet: every identifier is text.
+    // Every identifier is text on SQL Server.
     idRepresentation: () => "text",
     parseResult: passThroughParseResult,
     parseRelation: (_value, next) => next(),

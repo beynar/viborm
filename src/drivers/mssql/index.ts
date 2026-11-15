@@ -107,14 +107,13 @@ const COUNTED_STATEMENT = /^\s*(?:WITH\b[\s\S]*\)\s*)?(?:UPDATE|DELETE)\b/i;
  */
 const ROWCOUNT_COLUMN = "__viborm_rowcount";
 const ROWCOUNT_SELECT = `;SELECT @@ROWCOUNT AS "${ROWCOUNT_COLUMN}"`;
+const IDENTITY_SELECT = `${ROWCOUNT_SELECT}, CAST(SCOPE_IDENTITY() AS BIGINT) AS "${INSERT_ID_COLUMN}"`;
 
 /** The target of a VibORM `INSERT INTO "schema"."table"`. */
 const INSERT_TARGET = /\bINSERT\s+INTO\s+((?:"(?:[^"]|"")*"\.)?"(?:[^"]|"")*")/;
 
 /** "Cannot insert explicit value for identity column … IDENTITY_INSERT is OFF." */
 const EXPLICIT_IDENTITY = 544;
-
-const IDENTITY_SELECT = `;SELECT @@ROWCOUNT AS "${ROWCOUNT_COLUMN}", CAST(SCOPE_IDENTITY() AS BIGINT) AS "${INSERT_ID_COLUMN}"`;
 
 /**
  * An `INSERT` that spells an identity column's value, as every other dialect
@@ -194,8 +193,11 @@ const ended = (transaction: Transaction) => {
 
 /**
  * Per transaction run at a level other than its pool's: marks its session
- * so the pool discards it (`_poolValidate` refuses a connection with
- * `hasError`).
+ * so the pool discards it. `mssql` names a transaction's connection and
+ * the mark its pool refuses on acquire by private fields alone
+ * (`_acquiredConnection`, `hasError`): read the same from 12.0.0 to 12.7.14,
+ * the peer range ends at 13, and `mssql-transactions.test.ts` fails the day
+ * either changes (the next session comes back at the foreign level).
  */
 const RETIRE = new WeakMap<Transaction, () => void>();
 
@@ -321,14 +323,11 @@ type ResultShape = "rows" | "counted" | "identity";
 const IDENTITY_TEXT = /^-?\d+$/;
 
 /** A generated key the driver read back, or a malformed one refused. */
-function identityOf(
-  id: unknown,
-  context: { provider: string; operation: string }
-): bigint {
+function identityOf(id: unknown, operation: string): bigint {
   if (typeof id === "string" && IDENTITY_TEXT.test(id)) return BigInt(id);
   throw new QueryError(
-    `Driver "mssql" returned a malformed insert id for operation "${context.operation}".`,
-    { meta: { driver: "mssql", operation: context.operation } }
+    `Driver "mssql" returned a malformed insert id for operation "${operation}".`,
+    { meta: { driver: "mssql", operation } }
   );
 }
 
@@ -340,16 +339,13 @@ function toQueryResult<T>(
   const context = { provider: "mssql", operation };
   const sets = result.recordsets as unknown as unknown[][];
   if (shape !== "rows") {
-    const last: unknown = sets.at(-1)?.[0];
-    const read = (column: string): unknown =>
-      typeof last === "object" && last !== null
-        ? Reflect.get(last, column)
-        : undefined;
+    const last = sets.at(-1)?.[0] as Record<string, unknown> | undefined;
+    const read = (column: string): unknown => last?.[column];
     // NULL where the table has no identity column; any other value is the
     // key, 0 and negative seeds included (`CAST(… AS BIGINT)`, read as text).
     const id = shape === "identity" ? read(INSERT_ID_COLUMN) : undefined;
     const insertId =
-      id === null || id === undefined ? undefined : identityOf(id, context);
+      id === null || id === undefined ? undefined : identityOf(id, operation);
     return {
       rows: [],
       rowCount: normalizeProviderRowCount(read(ROWCOUNT_COLUMN) ?? 0, context),
@@ -405,9 +401,7 @@ class MssqlTransactionDriver extends TransactionBoundDriver<
     query: Sql,
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
-    return ABORTED_BY_SERVER.has(this.#tx)
-      ? Promise.reject(ended(this.#tx))
-      : super._execute<T>(query, context);
+    return this.#unlessEnded(() => super._execute<T>(query, context));
   }
 
   override _executeRaw<T = Record<string, unknown>>(
@@ -415,9 +409,7 @@ class MssqlTransactionDriver extends TransactionBoundDriver<
     params?: unknown[],
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
-    return ABORTED_BY_SERVER.has(this.#tx)
-      ? Promise.reject(ended(this.#tx))
-      : super._executeRaw<T>(sql, params, context);
+    return this.#unlessEnded(() => super._executeRaw<T>(sql, params, context));
   }
 
   override _transaction<T>(
@@ -425,9 +417,13 @@ class MssqlTransactionDriver extends TransactionBoundDriver<
     options?: TransactionOptions,
     context?: QueryExecutionContext
   ): Promise<T> {
+    return this.#unlessEnded(() => super._transaction(fn, options, context));
+  }
+
+  #unlessEnded<T>(run: () => Promise<T>): Promise<T> {
     return ABORTED_BY_SERVER.has(this.#tx)
       ? Promise.reject(ended(this.#tx))
-      : super._transaction(fn, options, context);
+      : run();
   }
 
   protected override buildStatement(query: Sql): string {
@@ -488,8 +484,6 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
       },
     };
     defineImmutableDriverFact(this, "adapter", new MssqlAdapter(namespace));
-    // A supplied pool goes through `initClient` too, which connects it if
-    // the caller has not.
   }
 
   async #provider(): Promise<MssqlTypes> {
@@ -703,6 +697,12 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
       RETIRE.get(transaction)?.();
     });
     const level = options?.isolationLevel;
+    const requested =
+      level === undefined
+        ? undefined
+        : mssql.ISOLATION_LEVEL[
+            ISOLATION_LEVELS[level] as keyof typeof mssql.ISOLATION_LEVEL
+          ];
     // A session keeps the level a transaction set past its end, and `mssql`
     // lends it again: it goes back to the pool's own level first, in a batch
     // of its own (a parameterized request's SET ends with its scope).
@@ -710,21 +710,18 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
       (client as unknown as { config: MssqlConfig }).config.options
         ?.isolationLevel ?? mssql.ISOLATION_LEVEL.READ_COMMITTED;
     const restore =
-      level === undefined ||
-      mssql.ISOLATION_LEVEL[
-        ISOLATION_LEVELS[level] as keyof typeof mssql.ISOLATION_LEVEL
-      ] === configured
+      requested === undefined || requested === configured
         ? undefined
         : `SET TRANSACTION ISOLATION LEVEL ${LEVEL_NAMES[configured] ?? "READ COMMITTED"}`;
+    // A transaction a raw statement ended: `mssql` still holds its
+    // connection, which its (failing) ROLLBACK hands back to the pool.
+    const releaseEnded = async () => {
+      if (ENDED_BY_STATEMENT.has(transaction))
+        await transaction.rollback().catch(() => undefined);
+    };
     return runTransactionLifecycle({
       begin: async () => {
-        await transaction.begin(
-          level === undefined
-            ? undefined
-            : mssql.ISOLATION_LEVEL[
-                ISOLATION_LEVELS[level] as keyof typeof mssql.ISOLATION_LEVEL
-              ]
-        );
+        await transaction.begin(requested);
         // A transaction the server, or a raw COMMIT or ROLLBACK, ends keeps
         // its level on a session no restore reaches: the session is marked
         // so the pool discards it instead of lending it at that level.
@@ -743,11 +740,9 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
       callback: () => fn(transaction),
       commit: async () => {
         // Rolled back by the server, or ended by a raw statement: the
-        // outcome is known. `mssql` still holds a raw statement's connection,
-        // which its (failing) ROLLBACK hands back to the pool.
+        // outcome is known.
         if (ABORTED_BY_SERVER.has(transaction)) {
-          if (ENDED_BY_STATEMENT.has(transaction))
-            await transaction.rollback().catch(() => undefined);
+          await releaseEnded();
           throw ended(transaction);
         }
         if (restore) await transaction.request().batch(restore);
@@ -773,11 +768,7 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
         }
       },
       rollback: async () => {
-        if (ABORTED_BY_SERVER.has(transaction)) {
-          if (ENDED_BY_STATEMENT.has(transaction))
-            await transaction.rollback().catch(() => undefined);
-          return;
-        }
+        if (ABORTED_BY_SERVER.has(transaction)) return releaseEnded();
         try {
           if (restore) await transaction.request().batch(restore);
           await transaction.rollback();

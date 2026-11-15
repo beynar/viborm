@@ -188,7 +188,7 @@ export interface DatabaseAdapter {
      * converts the column, not the parameter, to compare two text types
      * (SQL Server's `VARCHAR` beside an `NVARCHAR` parameter): the operand
      * in the column's own family, or `undefined` for the plain parameter.
-     * The adapter's own write members bind a written value as it was given.
+     * Asked for compared values only: a written value binds as given.
      * Absent elsewhere.
      */
     string?: (
