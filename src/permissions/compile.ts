@@ -251,6 +251,17 @@ function and(clauses: readonly Clause[]): Clause {
   return { AND: kept };
 }
 
+/** `cache`'s value at `key`, built once; a build that throws is asked again. */
+const memo = <K, V>(
+  cache: { get(key: K): V | undefined; set(key: K, value: V): unknown },
+  key: K,
+  build: () => V
+): V => {
+  let value = cache.get(key);
+  if (value === undefined) cache.set(key, (value = build()));
+  return value;
+};
+
 /**
  * What a word the compiler writes stands for, as its proof reads it: an
  * argument's value (its argument and path), a condition on one (the value
@@ -349,7 +360,6 @@ interface ActionRules {
     { readonly rule: Rule | undefined; readonly source: string }
   >;
   readonly closure: ReadonlyMap<string, readonly string[]>;
-  readonly evidence: { readonly names: readonly string[] };
 }
 
 /** Resolve grouped rule keys once, before any consumer reads their actions. */
@@ -451,11 +461,7 @@ function actionsOf(name: string, policy: ModelPolicy): ActionRules {
     visit(action);
     closure.set(action, [...reached]);
   }
-  return {
-    rules,
-    closure,
-    evidence: { names: [...implies.keys()] },
-  };
+  return { rules, closure };
 }
 
 /**
@@ -632,16 +638,13 @@ export function policyCompiler(
     ])
   );
   const models = new Map<string, PolicyModel>();
-  const modelOf = (name: string): PolicyModel => {
-    const known = models.get(name);
-    if (known) return known;
-    const model: PolicyModel = Object.freeze({
-      name,
-      actions: Object.freeze([...(actions.get(name)?.evidence.names ?? [])]),
-    });
-    models.set(name, model);
-    return model;
-  };
+  const modelOf = (name: string): PolicyModel =>
+    memo(models, name, () =>
+      Object.freeze({
+        name,
+        actions: Object.freeze([...(actions.get(name)?.closure.keys() ?? [])]),
+      })
+    );
 
   // The declared rule owns callback evaluation. Inheritance reuses that exact
   // predicate; credential scope gates apply only to the requested action.
@@ -656,64 +659,55 @@ export function policyCompiler(
       condition("scopes", "allowed", { has: `${name}.${action}` }),
     ],
   });
-  const ruleAt = (name: string, action: string): Clause => {
-    const key = `${name}.${action}`;
-    const known = rules.get(key);
-    if (known !== undefined) return known;
-    const binding = actions.get(name)!.rules.get(action);
-    const clause =
-      binding?.rule === undefined
+  const ruleAt = (name: string, action: string): Clause =>
+    memo(rules, `${name}.${action}`, () => {
+      const binding = actions.get(name)!.rules.get(action);
+      return binding?.rule === undefined
         ? false
         : lower(name, action, binding.rule, binding.source);
-    rules.set(key, clause);
-    return clause;
-  };
+    });
   const restrictions = new Map<string, Clause>();
-  const restriction = (name: string): Clause => {
-    const known = restrictions.get(name);
-    if (known !== undefined) return known;
-    // Lowered at no action: a callback in it is refused where it stands.
-    const clause = and([
-      lower(
-        name,
-        undefined,
-        config.models[name]!.mandatory ?? {},
-        `models.${name}.mandatory`
-      ),
-      lower(name, undefined, config.mandatory ?? {}, "mandatory"),
-    ]);
-    restrictions.set(name, clause);
-    return clause;
-  };
+  // Lowered at no action: a callback in it is refused where it stands.
+  const restriction = (name: string): Clause =>
+    memo(restrictions, name, () =>
+      and([
+        lower(
+          name,
+          undefined,
+          config.models[name]!.mandatory ?? {},
+          `models.${name}.mandatory`
+        ),
+        lower(name, undefined, config.mandatory ?? {}, "mandatory"),
+      ])
+    );
   const P = (name: string, action: string): Clause => {
     const key = `${name}.${action}`;
-    const known = predicates.get(key);
-    if (known !== undefined) return known;
-    if (open.includes(key))
-      refuse(
-        `models.${key} reads itself: ${[...open.slice(open.indexOf(key)), key].join(" → ")}`,
-        name
-      );
-    open.push(key);
-    // A compiler outlives a refusal (a model compiles at its first call, and
-    // the next call asks again): the walk is unwound whatever happens.
-    try {
-      const declared = actions.get(name)!;
-      const inherited =
-        declared.rules.get(action)?.rule === false
-          ? []
-          : [...declared.closure].flatMap(([from, reaches]) =>
-              reaches.includes(action) ? [from] : []
-            );
-      const branches = inherited.map((from) => ruleAt(name, from));
-      const granted = or(branches);
-      const clause = and([restriction(name), absorb(name, granted)]);
-      predicates.set(key, clause);
-      if (clause !== false) inlined.add(clause);
-      return clause;
-    } finally {
-      open.pop();
-    }
+    return memo(predicates, key, () => {
+      if (open.includes(key))
+        refuse(
+          `models.${key} reads itself: ${[...open.slice(open.indexOf(key)), key].join(" → ")}`,
+          name
+        );
+      open.push(key);
+      // A compiler outlives a refusal (a model compiles at its first call, and
+      // the next call asks again): the walk is unwound whatever happens.
+      try {
+        const declared = actions.get(name)!;
+        const inherited =
+          declared.rules.get(action)?.rule === false
+            ? []
+            : [...declared.closure].flatMap(([from, reaches]) =>
+                reaches.includes(action) ? [from] : []
+              );
+        const branches = inherited.map((from) => ruleAt(name, from));
+        const granted = or(branches);
+        const clause = and([restriction(name), absorb(name, granted)]);
+        if (clause !== false) inlined.add(clause);
+        return clause;
+      } finally {
+        open.pop();
+      }
+    });
   };
   /**
    * A disjunction without a member another member provably contains: where
@@ -1930,15 +1924,12 @@ export function policyCompiler(
   // A Map: a model may be named `constructor`.
   const compiled = new Map<string, Compiled>();
   /** `name` compiled, once: an unlisted model holds nothing (R9). */
-  const modelAt = (name: string): Compiled => {
-    const known = compiled.get(name);
-    if (known !== undefined) return known;
-    const entry = Object.hasOwn(config.models, name)
-      ? compileModel(name)
-      : entryOf(name, new Map([[PLACE, FALSE]]), UNLISTED);
-    compiled.set(name, entry);
-    return entry;
-  };
+  const modelAt = (name: string): Compiled =>
+    memo(compiled, name, () =>
+      Object.hasOwn(config.models, name)
+        ? compileModel(name)
+        : entryOf(name, new Map([[PLACE, FALSE]]), UNLISTED)
+    );
   // R4: a self key a predicate recurses over never takes a parent inside
   // the row's own subtree. Any model's predicate may recurse over another's
   // relation, so this is the one fact that needs the whole policy compiled.
