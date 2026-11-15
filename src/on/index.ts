@@ -264,15 +264,15 @@ export function on(hooks: RuntimeHooks, options?: OnOptions): unknown {
 
 /** Does a write's payload name a relation of its model: a nested write? */
 function writesRelation(args: Row, relations: object): boolean {
-  for (const payload of [args.data, args.create, args.update])
-    for (const row of Array.isArray(payload) ? payload : [payload])
-      if (
+  // `flat` reads a list of rows as its rows.
+  return [args.data, args.create, args.update]
+    .flat()
+    .some(
+      (row) =>
         row !== null &&
         typeof row === "object" &&
         Object.keys(row).some((key) => Object.hasOwn(relations, key))
-      )
-        return true;
-  return false;
+    );
 }
 
 /** What `reachable` found, kept by each `on()` for its own calls. */
@@ -330,16 +330,11 @@ function refuse(problem: string): never {
   });
 }
 
-const AFTER = {
-  committed: "committed",
-  "may-have-committed": "may have committed",
-} as const;
-
 /** A hook's failure, as the error reported for it. */
 function failure(thrown: unknown, event: OnEvent, label: string): QueryError {
   const cause = thrown instanceof Error ? thrown : new Error(String(thrown));
   const error = new QueryError(
-    `Extension "${NAME}" hook ${label} failed after the write ${AFTER[event.certainty]}; the write is not undone.`,
+    `Extension "${NAME}" hook ${label} failed after the write ${event.certainty === "committed" ? "committed" : "may have committed"}; the write is not undone.`,
     {
       cause,
       meta: {
