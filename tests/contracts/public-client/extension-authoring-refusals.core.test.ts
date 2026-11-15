@@ -361,7 +361,8 @@ describe("keep(): what a delete writes instead", () => {
     expect(
       refusal(
         kept(
-          when(arg("trash"), { near: "keep" }, { deletedAt: now }),
+          // An untyped author's test: the types refuse it where they are read.
+          when(arg("trash"), { near: "keep" } as never, { deletedAt: now }),
           args({ trash: oneOf("keep", "remove") })
         )
       )
