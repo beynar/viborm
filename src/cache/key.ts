@@ -9,7 +9,7 @@
  */
 export const CACHE_PREFIX = "viborm";
 
-/** Namespace root reserved for authenticated official cache extensions. */
+/** Namespace root reserved for the official cache extension's scopes. */
 export const OFFICIAL_CACHE_NAMESPACE_ROOT = `${CACHE_PREFIX}:cache`;
 
 /**
