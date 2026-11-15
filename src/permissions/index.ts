@@ -641,7 +641,11 @@ export function permissions<const Config extends PermissionsConfig>(
   const actor = actorContract(config.actor);
   const compile = (schema: Schema) => compilePolicy(config, schema, actor);
   const { modes, scopes } = policyArguments(config);
-  const volatile = config.cache !== "allow";
+  /** A bound argument: a read that carries it is never cached, but under `cache: "allow"`. */
+  const held = (schema: Parameters<typeof bound>[0]) => {
+    const value = bound(schema).required();
+    return config.cache === "allow" ? value : value.volatile();
+  };
   /**
    * What applying the policy to one schema made: what the declaration
    * names, checked once, and what a root call may reach. Each model
@@ -676,12 +680,8 @@ export function permissions<const Config extends PermissionsConfig>(
       )
     ),
     args({
-      actor: volatile
-        ? bound(actor.schema).required().volatile()
-        : bound(actor.schema).required(),
-      scopes: volatile
-        ? bound(scopeSchema(scopes)).required().volatile()
-        : bound(scopeSchema(scopes)).required(),
+      actor: held(actor.schema),
+      scopes: held(scopeSchema(scopes)),
       [MODE]: oneOf(...modes)
         .default(DEFAULT_MODE)
         .on(selecting),

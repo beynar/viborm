@@ -2624,7 +2624,7 @@ describe("a model at a time, and a rule checked where it compiles", () => {
       "ownerId is compared with undefined"
     );
     expect(compile({ owner: undefined })).toThrow(
-      "owner is filtered with undefined, which holds for every row"
+      "owner is compared with undefined, which holds for every row"
     );
   });
 

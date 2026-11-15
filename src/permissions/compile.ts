@@ -955,18 +955,18 @@ export function policyCompiler(
         existing = wrote(exists({ [model!]: body }), {
           exists: [model!, body],
         });
+      } else if (member === undefined) {
+        // A filter's `undefined` filters nothing: in a rule it would grant
+        // every row, as an absent value never should.
+        refuse(
+          `${at}: ${key} is compared with undefined, which holds for every row; compare with null, a literal or an actor value`,
+          name
+        );
       } else if (targetOf(name, key) !== undefined) {
         const lowered = relation(name, action, key, member, at, scopes);
         if (lowered === false) return false;
         if (lowered !== undefined) out[key] = lowered;
       } else {
-        // A filter's `undefined` filters nothing: in a rule it would grant
-        // every row, as an absent value never should.
-        if (member === undefined)
-          refuse(
-            `${at}: ${key} is compared with undefined, which holds for every row; compare with null, a literal or an actor value`,
-            name
-          );
         out[key] = value(at, member, (operand) =>
           enclosingRow(name, key, operand, at, scopes)
         );
@@ -1044,11 +1044,6 @@ export function policyCompiler(
       const held = P(target, member);
       return held === false ? false : { is: held };
     }
-    if (member === undefined)
-      refuse(
-        `${at}: ${key} is filtered with undefined, which holds for every row`,
-        name
-      );
     // A field reference, a Date or any other value is not a relation filter.
     if (typeof member === "object" && member !== null && !isRecord(member))
       refuse(
