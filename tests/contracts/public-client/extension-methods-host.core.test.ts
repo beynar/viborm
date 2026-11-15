@@ -105,6 +105,11 @@ describe("methods: what the factory returns", () => {
     expect(() => base.$extends(returningModels("entry", { post: 1 }))).toThrow(
       'Extension "entry" methods.post must be an object of methods.'
     );
+    expect(() =>
+      base.$extends(returningModels("value", { post: { total: 1 } }))
+    ).toThrow(
+      'Extension "value" model method "post.total" must be a function.'
+    );
     for (const name of ["findMany", "then", "$rows"])
       expect(() =>
         base.$extends(returningModels("model", { post: { [name]: () => 1 } }))
