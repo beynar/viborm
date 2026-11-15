@@ -20,6 +20,7 @@ import {
   QueryError,
   rule,
   s,
+  unit,
 } from "@src/index";
 import { on } from "@src/on";
 import { softDelete } from "@src/soft-delete";
@@ -429,5 +430,52 @@ describe("a computed field", () => {
     await expect(
       db.book.findMany({ select: { id: true, author: false, label: true } })
     ).resolves.toEqual([{ id: "b", label: "2" }]);
+  });
+});
+
+describe("a statement unit", () => {
+  test("a batched findUnique's shared read that fails ends recovered: each caller then runs alone", async () => {
+    const member = s.model({ id: s.string().id(), name: s.string() });
+    const driver = new ScriptedDriver("postgresql", ({ params }, sent) => {
+      if (sent.length === 1) throw new Error("connection reset");
+      return [{ id: params[0], name: "n" }];
+    });
+    const ends: unknown[] = [];
+    const db = createClient({
+      schema: { member },
+      driver,
+      findUniqueBatching: true,
+    }).$extends(
+      extension(
+        "ends",
+        unit(
+          (_u, next) =>
+            next().then((end) => {
+              ends.push(end);
+            }),
+          ["statement"]
+        )
+      )
+    );
+    await expect(
+      Promise.all([
+        db.member.findUnique({ where: { id: "a" } }),
+        db.member.findUnique({ where: { id: "b" } }),
+      ])
+    ).resolves.toEqual([
+      { id: "a", name: "n" },
+      { id: "b", name: "n" },
+    ]);
+    expect(driver.sent.map(({ params }) => params)).toEqual([
+      ['{"a","b"}'],
+      ["b"],
+      ["a"],
+    ]);
+    expect(ends).toEqual([
+      expect.objectContaining({ status: "failure", recovered: true }),
+      expect.objectContaining({ status: "success" }),
+      expect.objectContaining({ status: "success" }),
+    ]);
+    expect(ends[1]).not.toHaveProperty("recovered");
   });
 });
