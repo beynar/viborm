@@ -30,7 +30,7 @@ import {
   unsaid,
 } from "./send";
 import { Lost, SEVERAL, Store } from "./store";
-import { verbs } from "./verbs";
+import { Verbs } from "./verbs";
 
 /** The verbs of one call, run on a store: made once, however many times the call runs them. */
 const call = (
@@ -39,10 +39,14 @@ const call = (
   args: Arguments,
   raw: unknown
 ): (() => () => unknown) => {
-  let verb: ReturnType<typeof verbs>["create"] | undefined;
+  let made: Verbs | undefined;
   return () => {
-    verb ??= verbs(store)[store.operation.operation as "create"];
-    return verb(model, args, raw as Input);
+    made ??= new Verbs(store);
+    return made[store.operation.operation as "create"](
+      model,
+      args,
+      raw as Input
+    );
   };
 };
 
@@ -133,7 +137,7 @@ async function sent(
           (binding?.kind === "borrowed-transaction" && !lent)
         )
           throw failure;
-        await transport.end(failure).catch(() => undefined);
+        await transport.end(failure)?.catch(() => undefined);
         phase = "pending";
         transport = open();
         store = new Store(operation, transport);
@@ -169,7 +173,9 @@ async function sent(
   }
   store.watch?.done();
   try {
-    await transport.end();
+    // No tick is spent on a unit that was never opened.
+    const ended = transport.end();
+    if (ended) await ended;
   } catch (error) {
     if (phase === "pending") throw error;
     const durable = phase === "committed";
@@ -215,7 +221,7 @@ export async function prepareCall(
           )
         )
       ),
-    end: async () => undefined,
+    end: () => undefined,
   });
   try {
     const { statements, answer } = await store.prepare(
