@@ -74,7 +74,7 @@ export interface AdmittedEntry extends JudgedEntry {
 export interface RuleLayer {
   readonly root: Record<string, unknown[]>;
   readonly related: Record<string, unknown[]>;
-  readonly rules: Record<string, EntryDraft | (() => EntryDraft)>;
+  readonly rules: Record<string, EntryDraft | LazyDraft>;
   /** Per model, what its whole-table sets hold: written by `within`. */
   confine?: Record<string, unknown>;
   /**
@@ -95,8 +95,8 @@ export interface RuleLayer {
       model: string,
       layers: readonly (JudgedEntry | undefined)[]
     ) => void;
-    /** What admits and reads an entry given lazily, brought by `lazy`. */
-    lazy?: LazyEntries;
+    /** Some entry is given lazily: brought by `lazy`. */
+    lazy?: true;
     /** What admits and binds the confinements, brought by `within`. */
     confines?: Confines;
   };
@@ -112,22 +112,20 @@ export interface Confines {
   bind(layers: readonly AdmittedLayer[]): Partial<RowDomain>;
 }
 
-/** What `lazy` brings: its entries admitted when first read, then checked per chain. */
-export interface LazyEntries {
-  /** The entry, admitted the first time its model is read. */
-  admit(
-    admission: Admission,
-    name: string,
-    entry: () => EntryDraft,
-    filtersOf: FiltersOf
-  ): () => AdmittedEntry;
-  /** The entry as `chain` reads it: the arguments it names checked against it. */
-  read(
-    chain: ResolvedExtensionChain,
-    entry: () => AdmittedEntry,
-    extension: string
-  ): AdmittedEntry;
-}
+/**
+ * An entry given lazily (`lazy`), as its layer is admitted: what reads it
+ * once, the first time its model is read, and checks the arguments it names
+ * against each chain it is bound to.
+ */
+export type LazyDraft = (
+  admission: Admission,
+  filtersOf: FiltersOf
+) => LazyEntry;
+/** An entry given lazily as admitted: the entry as `extension` of `chain` reads it. */
+export type LazyEntry = (
+  chain: ResolvedExtensionChain,
+  extension: string
+) => AdmittedEntry;
 
 /**
  * What the words that read a call bring (`call-values.ts`): each layer's
@@ -151,7 +149,7 @@ export interface Filters {
 }
 
 /** What admits one model's filters, for what admits an entry read later. */
-type FiltersOf = (
+export type FiltersOf = (
   name: string,
   lists: {
     readonly root?: readonly unknown[];
@@ -196,9 +194,7 @@ export interface EntryHost {
 export interface AdmittedLayer {
   readonly extension: string;
   readonly models: { readonly [model: string]: Filters };
-  readonly rules: {
-    readonly [model: string]: AdmittedEntry | (() => AdmittedEntry);
-  };
+  readonly rules: { readonly [model: string]: AdmittedEntry | LazyEntry };
   /** What admitted `rules`, and binds them. */
   readonly host?: EntryHost;
   /** What reads the call, where some predicate of it reads one. */

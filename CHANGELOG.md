@@ -259,15 +259,25 @@ VibORM reads Snowflake.
   `userId`), an actor without the value saw every row: the automatic guard
   folded the negated rule false, and its negation held everywhere. The guard
   is gone; the rule now keeps such an actor out.
+- **A `gate` no longer hides a field a unique index holds.** A field of an
+  index declared `unique` (`.index(["code"], { unique: true })`, whole,
+  partial or compound) could be gated, in a `rule` or by
+  `viborm/permissions`' `fields: { code: { read } }`: a caller who writes a
+  guessed value to a row it may update is answered by the constraint exactly
+  when a hidden row holds that value. It is now refused as a `.unique()`
+  field always was, with the same `ClientInitializationError`
+  (`read.fields.code names a key, a unique or a foreign key field`): where
+  the extension is applied, or, for `viborm/permissions`, at the first call
+  that needs the model. An index that is not unique changes nothing.
 
 ### Extensions: what they weigh
 
 - **What each extension adds to a PostgreSQL application, minified**
   (measured with `node scripts/extension-bytes.mjs`; before → now):
   default omission 45,233 → 5,692 bytes; `on` 47,016 → 9,667;
-  instrumentation 56,422 → 14,784; soft delete 80,013 → 20,674; ordering
-  100,547 → 26,879; cache 71,844 → 26,849; permissions 114,651 → 64,751;
-  `on`, ordering, permissions and soft delete together 142,213 → 100,531.
+  instrumentation 56,422 → 14,784; soft delete 80,013 → 20,563; ordering
+  100,547 → 26,879; cache 71,844 → 26,849; permissions 114,651 → 63,311;
+  `on`, ordering, permissions and soft delete together 142,213 → 99,091.
   An application that applies no extension: 519,322 → 508,070 bytes, of
   which 646 bytes are extension code.
 - **What one extension of an application costs the type checker**: an
