@@ -512,10 +512,8 @@ function findSites(sf, checker) {
       }
       unresolved.push({
         line: lineOf(inner),
-        text: callee
-          .getText(sf)
-          .replace(/<[^>]*>/g, "")
-          .slice(0, 40),
+        // The callee's name, without its type arguments.
+        text: callee.getText(sf).split("<")[0].slice(0, 40),
         why: "call",
       });
       return;
