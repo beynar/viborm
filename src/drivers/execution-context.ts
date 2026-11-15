@@ -31,18 +31,32 @@ class TrustedSnapshot {
   readonly #values: TrustedExecutionContext;
   readonly model?: string;
   readonly operation: string | undefined;
-  readonly correlationId?: string;
+  // Declared only: a field first made as a value, then made again as an accessor, costs each context a shape of its own.
+  declare readonly correlationId?: string;
+  /**
+   * The id made where it is first read. One accessor for every context: a
+   * getter of its own would also give each context a shape of its own, four
+   * times slower to make and to freeze.
+   */
+  static readonly #lazyCorrelationId: PropertyDescriptor = {
+    configurable: false,
+    enumerable: true,
+    get(this: object) {
+      return TrustedSnapshot.values(this)?.correlationIdGetter?.();
+    },
+  };
   constructor(values: TrustedExecutionContext) {
     this.#values = values;
     if (values.model) this.model = values.model;
     this.operation = values.operation;
-    if (values.correlationIdGetter) {
-      Object.defineProperty(this, "correlationId", {
-        configurable: false,
-        enumerable: true,
-        get: values.correlationIdGetter,
-      });
-    } else if (values.correlationId) this.correlationId = values.correlationId;
+    if (values.correlationIdGetter)
+      Object.defineProperty(
+        this,
+        "correlationId",
+        TrustedSnapshot.#lazyCorrelationId
+      );
+    // Always a property of its own, as a field is: set where there is no id too.
+    else this.correlationId = values.correlationId || undefined;
     Object.freeze(this);
   }
   static values(context: object): TrustedExecutionContext | undefined {

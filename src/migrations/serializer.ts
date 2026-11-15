@@ -72,8 +72,6 @@ export function assertMigrationDecimalDomainsFitProvider(
   models: Record<string, AnyModel>,
   dialect: Dialect
 ): void {
-  // SurrealDB's `decimal` holds any precision and scale: there is no limit to fit.
-  if (dialect === "surrealql") return;
   const refusal = findDecimalProviderLimitRefusal(models, dialect);
   if (refusal === undefined) return;
   throw new MigrationError(

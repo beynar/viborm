@@ -12,5 +12,6 @@ export default defineMeta({
     "sqlite",
     "sqlserver",
     "surrealdb",
+    "snowflake",
   ],
 });

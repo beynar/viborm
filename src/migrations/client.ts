@@ -1,11 +1,7 @@
 /** One capability-sensitive migration client composition root. */
 
 import { CLIENT_DIAGNOSTICS } from "../drivers/execution-context";
-import {
-  FeatureNotSupportedError,
-  MigrationError,
-  VibORMErrorCode,
-} from "../errors";
+import { MigrationError, VibORMErrorCode } from "../errors";
 import { errorCause } from "../errors/diagnostic-safety";
 import { type ApplyV1Result, applyV1 } from "./apply-v1";
 import { type CheckResult, checkEstate } from "./check";
@@ -170,12 +166,17 @@ export function createMigrationClient(
   client: MigrationClient,
   options?: MigrationClientOptions | LiveMigrationClientOptions
 ): LiveMigrations | ReadableMigrations | WritableMigrations {
-  // The one refusal: SQL Server's schema is read (`introspect()`), never written.
-  if (client.$driver.dialect === "mssql")
-    throw new FeatureNotSupportedError(
-      "mssql",
-      "migrations",
-      "VibORM queries SQL Server and introspects its schema, but generates and applies no DDL for it."
+  // VibORM writes no DDL for Snowflake, which it only reads, nor for SQL
+  // Server: no estate, no control table. Every command is refused here,
+  // before it reads storage or sends a statement.
+  const { dialect } = client.$driver;
+  if (dialect === "snowflake" || dialect === "mssql")
+    throw new MigrationError(
+      // Short: this text ships in every migrations bundle. The dialect's
+      // page says why.
+      `${dialect} has no migrations: VibORM writes no DDL for it (introspectSchema() reads its schema).`,
+      VibORMErrorCode.FEATURE_NOT_SUPPORTED,
+      { meta: { dialect } }
     );
   const record =
     options === undefined

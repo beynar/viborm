@@ -1,6 +1,6 @@
 ---
 title: From an existing database
-description: "Read a PostgreSQL, MySQL, SQL Server or SQLite database into a JSON schema document, and query it at once"
+description: "Read a PostgreSQL, MySQL, SQL Server, SQLite or Snowflake database into a JSON schema document, and query it at once"
 icon: database-zap
 ---
 
@@ -168,14 +168,16 @@ A list is `JSON` on MySQL, as on SQLite, and reads back as `json`.
 | Column | Field |
 | --- | --- |
 | `NVARCHAR(MAX)`, and `NVARCHAR(450)` on a keyed column (VibORM's spelling of an indexed string) | `string` |
-| `NVARCHAR(n)`, `VARCHAR(n)`, `NCHAR(n)`, `CHAR(n)`, `UNIQUEIDENTIFIER` | `string` (`approximated`: VibORM has no SQL Server native type, so the length is not carried and a push would widen it) |
+| `NVARCHAR(n)`, `VARCHAR(n)`, `VARCHAR(MAX)`, `NCHAR(n)`, `CHAR(n)` | `string` with its `MSSQL` native type (`MSSQL.STRING.VARCHAR(n)`, …) |
+| `UNIQUEIDENTIFIER` | `string` (`approximated`) |
 | `BIT` | `boolean` |
 | `INT`; `SMALLINT`, `TINYINT` (`approximated`) | `int` |
 | `BIGINT` | `bigint` |
 | `FLOAT`; `REAL` (`approximated`) | `number` |
 | `DECIMAL(p, s)`, `NUMERIC(p, s)` | `decimal` |
 | `VARBINARY(MAX)`; `VARBINARY(n)`, `BINARY(n)` (`approximated`) | `blob` |
-| `DATE`, `DATETIME2(3)`, `TIME(3)` | `date`, `datetime`, `time`; another precision, `DATETIME`, `SMALLDATETIME` and `DATETIMEOFFSET` are `approximated` |
+| `DATE`, `DATETIME2(3)`, `TIME(3)` | `date`, `datetime`, `time`; another precision and `DATETIMEOFFSET` are `approximated` |
+| `DATETIME`, `SMALLDATETIME` | `datetime` with its `MSSQL` native type |
 
 `IDENTITY` is `increment`, `SYSUTCDATETIME()` and `GETUTCDATE()` are `now()`,
 and `N'…'` literals are read as strings. A JSON document and a list are
@@ -217,6 +219,16 @@ database then plans a destructive `alterColumn` per column, a rebuild of the
 table that adds `NOT NULL` (a `drift` warning says so). The rebuild fails while
 a row's key is NULL, and cannot keep what the table carries beyond the document
 (its `unstated` warnings: a collation, `STRICT`, a trigger).
+
+## Snowflake
+
+Pass a [`SnowflakeDriver`](/docs/drivers/snowflake): a `snowflake://` URL carries
+no key or token, and `introspectSchema({ url })` refuses one. Snowflake declares
+keys and enforces none: each declared foreign key becomes a relation, and an
+`approximated` warning says the document's keys may not hold. A key into
+another schema or database is listed in `skipped`. Nothing is ever
+pushed to Snowflake, so no `drift` warning is reported. The
+[Snowflake page](/docs/drivers/snowflake#introspection) lists the types.
 
 ## What is skipped
 

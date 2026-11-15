@@ -133,7 +133,7 @@ export interface JudgedEntry<P = Input> {
    * row itself or a row below it. Lazy: the list is resolved only for an
    * update writing the key of one of `candidates`.
    */
-  readonly cycles?: readonly string[] | LazyRelations;
+  readonly cycles?: LazyRelations;
   /** The projection key the layer declares on the model (K5). */
   readonly as?: string;
   /** What it reports per row: each name with its predicate, in declared order. */

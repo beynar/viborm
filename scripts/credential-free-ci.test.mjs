@@ -129,6 +129,36 @@ function assertLocalProviderMatrix(localJob) {
   return lanes.map(({ lane }) => lane);
 }
 
+const snowflakeSecret = expression("secrets.SNOWFLAKE_TEST_CREDENTIALS");
+const snowflakeTestStep = "      - name: Read a real Snowflake account\n";
+const jobTimeout = /^ {4}timeout-minutes: (\d+)$/m;
+const stepTimeout = /^ {8}timeout-minutes: (\d+)$/m;
+
+/**
+ * The Snowflake job reads a trial account that will expire: a red result
+ * must not fail the run, which scripts/release-ci.mjs requires to succeed,
+ * and only its test step may see the account's secret.
+ */
+function assertSnowflakeReports(job) {
+  assert(job.includes("\n    continue-on-error: true\n"));
+  const [setup, test] = job.split(snowflakeTestStep);
+  // The test step times out before the job does: a job cancelled at its
+  // limit is not a failure continue-on-error turns into a success.
+  const jobLimit = Number(job.match(jobTimeout)?.[1]);
+  const stepLimit = Number(test?.match(stepTimeout)?.[1]);
+  assert(stepLimit > 0 && stepLimit < jobLimit);
+  assert(
+    test?.includes(`          SNOWFLAKE_TEST_CREDENTIALS: ${snowflakeSecret}\n`)
+  );
+  // Before the test step, the secret only answers whether it is set.
+  const [preamble, ...steps] = setup.split("\n      - name: ");
+  assert(!preamble.includes(snowflakeSecret));
+  const seeing = steps.filter((step) => step.includes(snowflakeSecret));
+  assert.equal(seeing.length, 1);
+  assert(seeing[0].startsWith("Say whether an account is configured\n"));
+  assert(!seeing[0].includes("uses:"));
+}
+
 function expandedJobNames(jobs) {
   const names = [];
   for (const [id, job] of jobs) {
@@ -183,6 +213,7 @@ test("CI keeps every delegated check and shallow sparse checkout", () => {
       "docker-providers",
       "surrealdb-provider",
       "mssql-provider",
+      "snowflake-provider",
       "platform-providers",
     ]
   );
@@ -200,6 +231,7 @@ test("CI keeps every delegated check and shallow sparse checkout", () => {
     ["docker-providers", "--project=provider-pgbouncer\n"],
     ["surrealdb-provider", "--project provider-surrealdb"],
     ["mssql-provider", "--project provider-mssql"],
+    ["snowflake-provider", "--project provider-snowflake"],
     ["platform-providers", "--project=provider-bun"],
     ["platform-providers", "VIBORM_RECURSIVE_WHERE_CHECKERS: bun"],
     ["platform-providers", "--project=provider-d1"],
@@ -215,11 +247,34 @@ test("CI keeps every delegated check and shallow sparse checkout", () => {
   assert.doesNotMatch(workflow, pullRequestPathCoverage);
   assert.doesNotMatch(workflow, perfTimingsVariable);
   // The release proof is exactly the set of jobs this workflow runs, the
-  // SurrealDB prototype's excepted: it reports, and no release waits on it.
+  // two that report excepted: no release waits on them.
   assert.deepEqual(
-    expandedJobNames(jobs).filter((name) => name !== "SurrealDB provider"),
+    expandedJobNames(jobs).filter(
+      (name) => name !== "SurrealDB provider" && name !== "Snowflake provider"
+    ),
     RELEASE_CI_JOBS
   );
+
+  const snowflakeJob = jobs.get("snowflake-provider");
+  assertSnowflakeReports(snowflakeJob);
+  for (const broken of [
+    snowflakeJob.replace("    continue-on-error: true\n", ""),
+    snowflakeJob.replace("        timeout-minutes: 10\n", ""),
+    snowflakeJob.replace(
+      "        timeout-minutes: 10\n",
+      "        timeout-minutes: 20\n"
+    ),
+    snowflakeJob.replace(
+      "    timeout-minutes: 20\n",
+      `    timeout-minutes: 20\n    env:\n      SNOWFLAKE_TEST_CREDENTIALS: ${snowflakeSecret}\n`
+    ),
+    snowflakeJob.replace(
+      "      - name: Install dependencies\n",
+      `      - name: Install dependencies\n        env:\n          SNOWFLAKE_TEST_CREDENTIALS: ${snowflakeSecret}\n`
+    ),
+  ]) {
+    assert.throws(() => assertSnowflakeReports(broken));
+  }
 
   const localJob = jobs.get("local-providers");
   for (const broken of [

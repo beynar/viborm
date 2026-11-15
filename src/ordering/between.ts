@@ -88,7 +88,10 @@ const standard = {
 };
 
 /** A dialect a statement spells a key in: every one but SurrealDB. */
-export type KeyDialect = Exclude<ModelSql["dialect"], "surrealql">;
+export type KeyDialect = Exclude<
+  ModelSql["dialect"],
+  "surrealql" | "snowflake"
+>;
 
 /** Every SQL dialect spells a key: a new one is a compile error here. */
 export const spellings: Readonly<Record<KeyDialect, Spelling>> = {

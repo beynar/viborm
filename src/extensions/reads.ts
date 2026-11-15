@@ -34,19 +34,16 @@ export function readsAny(
     case "condition":
       return false;
     case "relation":
+    case "exists":
       return (
-        (depth === 0 &&
+        (predicate.kind === "relation" &&
+          depth === 0 &&
           (predicate.edge.kind === "reference"
             ? hopFieldsOf(predicate.edge)
             : keys
           ).some((field) => fields.has(field))) ||
         (predicate.predicate !== undefined &&
           readsAny(predicate.predicate, fields, keys, depth + 1))
-      );
-    case "exists":
-      return (
-        predicate.predicate !== undefined &&
-        readsAny(predicate.predicate, fields, keys, depth + 1)
       );
     case "operation": {
       const operands = [predicate.operand, ...(predicate.operands ?? [])];

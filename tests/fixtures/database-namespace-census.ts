@@ -84,7 +84,7 @@ export const ADMITTED_NAMESPACE_MEMBER = "namespace";
 export const MIGRATION_ATTESTATION_MEMBER = "migrationNamespaceAttestation";
 
 /**
- * §1.1's exact seven option types and SurrealDB's own namespace — the ONLY declarations that may configure a
+ * §1.1's exact seven option types, SurrealDB's own namespace and Snowflake's schema — the ONLY declarations that may configure a
  * namespace. Every other options/config type that grows the member is a second
  * configurable source, which §13 "Generic `VibORMConfig` namespace options"
  * rejects.
@@ -98,6 +98,7 @@ export const ADMITTED_DRIVER_OPTION_TYPES = [
   "PgDriverOptions",
   "PlanetScaleDriverOptions",
   "PostgresDriverOptions",
+  "SnowflakeDriverOptions",
   "SurrealDriverOptions",
 ] as const;
 

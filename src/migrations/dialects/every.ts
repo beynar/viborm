@@ -9,6 +9,7 @@ import { libsqlMigrationDriver } from "../drivers/libsql";
 import { mssqlMigrationDriver } from "../drivers/mssql";
 import { mysqlMigrationDriver } from "../drivers/mysql";
 import { postgresMigrationDriver } from "../drivers/postgres";
+import { snowflakeMigrationDriver } from "../drivers/snowflake";
 import { sqlite3MigrationDriver } from "../drivers/sqlite";
 import { surrealMigrationDriver } from "../drivers/surrealql";
 
@@ -19,4 +20,5 @@ export function registerEveryMigrationDriver(): void {
   registerMigrationDriver(mysqlMigrationDriver);
   registerMigrationDriver(surrealMigrationDriver);
   registerMigrationDriver(mssqlMigrationDriver);
+  registerMigrationDriver(snowflakeMigrationDriver);
 }

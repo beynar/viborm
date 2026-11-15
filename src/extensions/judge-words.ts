@@ -8,10 +8,18 @@
  * holds none of it.
  */
 import { Condition } from "@query-engine/raptor3/shared/row-scope";
-import type { ModelState } from "@schema/model";
+import type { AnyModel } from "@schema/model";
+import { getModelKeyCatalog } from "@schema/model/keys";
+import type { AnyRelation } from "@schema/relation";
 import { isPlainRecord } from "@schema/relation/terminal";
-import type { EntryDraft } from "./admission";
+import type {
+  AdmittedEntry,
+  EntryDraft,
+  LazyDraft,
+  References,
+} from "./admission";
 import { CALL_READS } from "./call-values";
+import { extensionError } from "./chain";
 import type {
   CheckWord,
   FactsWord,
@@ -22,7 +30,7 @@ import type {
   LazyWord,
   OnlyWord,
 } from "./contract";
-import { ENTRIES, entryOf, LAZY_ENTRIES, prepareJudged } from "./entries";
+import { admitDraft, ENTRIES, entryOf, prepareJudged } from "./entries";
 import { judgeOf } from "./judge";
 import { keptPart } from "./kept";
 import { projectionOf, refuseSharedKeys } from "./projection";
@@ -42,41 +50,62 @@ export abstract class Held<T> extends CarriedValue {
 /** What the layer of a word's site brings beside its filters. */
 const brings = (site: Site) => (site.layer!.brings ??= {});
 
-/** The field `update.fields` names, refused where the model has none so named. */
-function fieldOf({ schema, model, field, refuse }: Site): string {
+/**
+ * Where `only` or `check` writes its predicate in `own`, the entry of its
+ * site: the entry key `places` gives the site's key, or, at
+ * `update.fields.f.<…>` (`perField`), field `f` of the map `fields`,
+ * refused where the model has no field so named.
+ */
+function placed(
+  { schema, model, key, field, refuse }: Site,
+  own: EntryDraft,
+  held: object,
+  word: string,
+  places: Readonly<Record<string, "update" | "delete" | "place" | "check">>,
+  perField: RegExp,
+  fields: "writes" | "moves"
+): void {
   const { state } = schema[model]!["~"];
-  if (
-    !(
-      Object.hasOwn(state.scalars, field!) ||
-      Object.hasOwn(state.relations, field!)
-    )
+  const at = places[key];
+  if (at !== undefined) own[at] = held;
+  else if (!perField.test(key)) refuse(`${key} does not take ${word}()`);
+  else if (
+    Object.hasOwn(state.scalars, field!) ||
+    Object.hasOwn(state.relations, field!)
   )
-    refuse(`update.fields names unknown field "${field}"`);
-  return field!;
+    (own[fields] ??= new Map()).set(field!, held);
+  else refuse(`update.fields names unknown field "${field}"`);
 }
 
-/** What a word that carries or hides fields of a read writes beside itself. */
+/**
+ * The entry of a word that carries or hides fields of a read, with what
+ * projects them.
+ */
 function shown(site: Site) {
   const own = entryOf(site);
-  if (site.shows !== undefined) own.shown = site.shows;
+  own.shown = site.shows;
+  brings(site).project = projectionOf;
   return own;
 }
 
-const UPDATE_FIELD = /^update\.fields\.[^.]+\.check$/;
 const FIELD_WHERE = /^update\.fields\.[^.]+\.where$/;
+const FIELD_CHECK = /^update\.fields\.[^.]+\.check$/;
 
 /** `only(where)`'s value: the rows a write may take. */
 class Only extends Held<object> {
   join(site: Site): void {
-    const { key, refuse } = site;
     const own = entryOf(site);
     brings(site).prepare = prepareJudged;
-    if (key === "update.where") own.update = this.held;
-    else if (key === "delete.where") own.delete = this.held;
-    // An update writing the field takes this instead of `update.where`.
-    else if (FIELD_WHERE.test(key))
-      (own.writes ??= new Map()).set(fieldOf(site), this.held);
-    else refuse(`${key} does not take only()`);
+    // An update writing the field takes its own instead of `update.where`.
+    placed(
+      site,
+      own,
+      this.held,
+      "only",
+      { "update.where": "update", "delete.where": "delete" },
+      FIELD_WHERE,
+      "writes"
+    );
   }
 }
 
@@ -95,17 +124,20 @@ export function only(where: object): unknown {
 /** `check(where)`'s value: what the row a write produces must hold. */
 class Checked extends Held<object> {
   join(site: Site): void {
-    const { key, refuse } = site;
     const own = entryOf(site);
     own.judge = judgeOf;
     brings(site).judge = judgeOf;
-    if (key === "create.check") own.place = this.held;
     // The row an update leaves is judged again where the update writes a
     // field the predicate reads (`update.check`), or the field named.
-    else if (key === "update.check") own.check = this.held;
-    else if (UPDATE_FIELD.test(key))
-      (own.moves ??= new Map()).set(fieldOf(site), this.held);
-    else refuse(`${key} does not take check()`);
+    placed(
+      site,
+      own,
+      this.held,
+      "check",
+      { "create.check": "place", "update.check": "check" },
+      FIELD_CHECK,
+      "moves"
+    );
   }
 }
 
@@ -122,43 +154,36 @@ export function check(where: object): unknown {
 }
 
 /**
- * A model's key, unique and foreign-key fields: what identity and every join
- * read, and what a unique constraint answers for on a write, so none of them
- * is ever read-gated.
+ * Whether `field` is one of the model's key, unique or foreign-key fields:
+ * what identity and every join read, and what a unique constraint answers
+ * for on a write, so none of them is ever read-gated. A write of a guessed
+ * value fails on the constraint exactly when some row holds it: a gate on a
+ * unique field would be confirmed by it, and a unique index, whole or
+ * partial, is such a constraint.
  */
-function keyFields(state: ModelState): ReadonlySet<string> {
-  return new Set([
-    ...Object.entries(state.scalars)
-      .filter(([, scalar]) => scalar["~"].state.isId === true)
-      .map(([field]) => field),
-    // A write of a guessed value fails on the constraint exactly when some
-    // row holds it: a gate on a unique field would be confirmed by it.
-    ...Object.keys(state.uniques),
-    ...[
-      ...Object.values(state.compoundId ?? {}),
-      ...Object.values(state.compoundUniques ?? {}),
-    ].flatMap(({ entries }) => Object.keys(entries)),
-    ...Object.values(state.relations).flatMap(
-      (relation) => relation["~"].state.foreignKey?.fields ?? []
-    ),
-  ]);
-}
+const isKeyField = (model: AnyModel, field: string): boolean =>
+  getModelKeyCatalog(model).uniqueOverlapFields.includes(field) ||
+  model["~"].state.indexes.some(
+    (index) => index.options.unique && index.fields.includes(field)
+  ) ||
+  Object.values<AnyRelation>(model["~"].state.relations).some(
+    (relation) =>
+      relation["~"].state.foreignKey?.fields.includes(field) === true
+  );
 
 /** `gate(where)`'s value: where a field is present. */
 class Gated extends Held<object> {
   join(site: Site): void {
     const { key, field, model, schema, refuse } = site;
     if (key !== `read.fields.${field}`) refuse(`${key} does not take gate()`);
-    const { state } = schema[model]!["~"];
-    if (!Object.hasOwn(state.scalars, field!))
+    const held = schema[model]!;
+    if (!Object.hasOwn(held["~"].state.scalars, field!))
       refuse(`${key} names no scalar of the model`);
     // Masked in a caller's operands while identity and joins read it raw,
     // a key would answer through a relation what a filter hides.
-    if (keyFields(state).has(field!))
+    if (isKeyField(held, field!))
       refuse(`${key} names a key, a unique or a foreign key field`);
-    const own = shown(site);
-    brings(site).project = projectionOf;
-    (own.reads ??= new Map()).set(field!, this.held);
+    (shown(site).reads ??= new Map()).set(field!, this.held);
   }
 }
 
@@ -189,10 +214,7 @@ class Facts extends Held<Readonly<Record<string, object>>> {
       refuse(`${key} is not \`$\` and an identifier`);
     const own = shown(site);
     if (own.as !== undefined) refuse("read.select holds one projection key");
-    Object.assign(brings(site), {
-      project: projectionOf,
-      keys: refuseSharedKeys,
-    });
+    brings(site).keys = refuseSharedKeys;
     own.as = field;
     own.facts = new Map(Object.entries(this.held));
   }
@@ -271,6 +293,8 @@ class Lazy extends Held<() => unknown> {
     const { key, model, schema, lazy, refuse } = site;
     if (key !== "the entry" || lazy) refuse(`${key} does not take lazy()`);
     const layer = site.layer!;
+    // Called as a plain function, as written.
+    const { held } = this;
     if (Object.hasOwn(layer.rules, model))
       refuse("two rule parts of one extension judge the model");
     layer.host = ENTRIES;
@@ -282,19 +306,53 @@ class Lazy extends Held<() => unknown> {
       project: projectionOf,
       prepare: prepareJudged,
       keys: refuseSharedKeys,
-      lazy: LAZY_ENTRIES,
+      lazy: true,
     };
-    const read = (): EntryDraft => {
-      const given: unknown = Reflect.apply(this.held, undefined, []);
-      const written: Readonly<Record<string, unknown>> = isPlainRecord(given)
-        ? given
-        : {};
-      const draft = draftOf(given, model, schema, site, refuse, true) ?? {};
-      const root = listOf(written.root);
-      const related = listOf(written.related);
-      return root.length + related.length === 0
-        ? draft
-        : { ...draft, root, related };
+    // Admitted once, the first time its model is read, with its own
+    // references, checked then against what each chain declared up to its
+    // extension, as `$extends` checks an eager entry's.
+    const read: LazyDraft = (admission, filtersOf) => {
+      let admitted: AdmittedEntry | undefined;
+      return (chain, extension) => {
+        if (admitted === undefined) {
+          const given: unknown = held();
+          const written: Readonly<Record<string, unknown>> = isPlainRecord(
+            given
+          )
+            ? given
+            : {};
+          const own: References = new Set();
+          const at = `lazy ${model}`;
+          const draft = draftOf(given, model, schema, site, refuse, true);
+          const entry = admitDraft(admission, model, draft ?? {}, own, at);
+          entry.filters = filtersOf(
+            model,
+            { root: listOf(written.root), related: listOf(written.related) },
+            own,
+            at
+          );
+          // Read after the filters: what they name is the entry's too.
+          entry.references = [...own];
+          admitted = entry;
+        }
+        // Declared by its own extension or one applied before it.
+        const at = (name: string) =>
+          chain.extensions.findIndex((member) => member.name === name);
+        for (const name of admitted.references!)
+          if (
+            name !== undefined &&
+            !chain.args?.all.some(
+              (argument) =>
+                argument.name === name &&
+                at(argument.extension) <= at(extension)
+            )
+          )
+            extensionError(
+              `Extension "${extension}" references undeclared argument "${name}".`,
+              extension
+            );
+        return admitted;
+      };
     };
     layer.rules[model] = read;
   }

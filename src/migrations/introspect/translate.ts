@@ -35,6 +35,7 @@ import {
   translateMssqlColumn,
   translateMysqlColumn,
   translatePostgresColumn,
+  translateSnowflakeColumn,
   translateSqliteColumn,
 } from "./columns";
 import { KeyAllocator, memberAllocator, relationNameFromColumn } from "./names";
@@ -84,6 +85,7 @@ const TRANSLATORS: Record<
   postgresql: translatePostgresColumn,
   sqlite: translateSqliteColumn,
   mysql: translateMysqlColumn,
+  snowflake: translateSnowflakeColumn,
   mssql: translateMssqlColumn,
 };
 
@@ -91,6 +93,7 @@ const BINARY_KEY_TYPES: Record<IntrospectionDialect, string | undefined> = {
   postgresql: undefined,
   sqlite: "BLOB",
   mysql: "BINARY(16)",
+  snowflake: undefined,
   // SQL Server stores every identifier as its text.
   mssql: undefined,
 };

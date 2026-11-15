@@ -12,6 +12,8 @@ extensions is smaller, an application with one is much smaller, a nested
 write sends fewer statements, and a many-row write on a batch-only driver is
 all-or-nothing when it fits one batch.
 
+VibORM reads Snowflake, and reads and writes Microsoft SQL Server.
+
 ### Extensions: what changes for users of the official extensions (breaking)
 
 - **Every official extension is applied in one step,
@@ -257,23 +259,30 @@ all-or-nothing when it fits one batch.
   `userId`), an actor without the value saw every row: the automatic guard
   folded the negated rule false, and its negation held everywhere. The guard
   is gone; the rule now keeps such an actor out.
+- **A `gate` no longer hides a field a unique index holds.** A field of an
+  index declared `unique` (`.index(["code"], { unique: true })`, whole,
+  partial or compound) could be gated, in a `rule` or by
+  `viborm/permissions`' `fields: { code: { read } }`: a caller who writes a
+  guessed value to a row it may update is answered by the constraint exactly
+  when a hidden row holds that value. It is now refused as a `.unique()`
+  field always was, with the same `ClientInitializationError`
+  (`read.fields.code names a key, a unique or a foreign key field`): where
+  the extension is applied, or, for `viborm/permissions`, at the first call
+  that needs the model. An index that is not unique changes nothing.
 
 ### Extensions: what they weigh
 
 - **What each extension adds to a PostgreSQL application, minified**
   (measured with `node scripts/extension-bytes.mjs`; before → now):
   default omission 45,233 → 5,692 bytes; `on` 47,016 → 9,667;
-  instrumentation 56,422 → 14,784; soft delete 80,013 → 20,674; ordering
-  100,547 → 26,879; cache 71,844 → 26,849; permissions 114,651 → 64,751;
-  `on`, ordering, permissions and soft delete together 142,213 → 100,531.
+  instrumentation 56,422 → 14,784; soft delete 80,013 → 20,563; ordering
+  100,547 → 26,879; cache 71,844 → 26,849; permissions 114,651 → 63,311;
+  `on`, ordering, permissions and soft delete together 142,213 → 99,091.
   An application that applies no extension: 519,322 → 508,070 bytes, of
   which 646 bytes are extension code.
 - **What one extension of an application costs the type checker**: an
   extension of the user's own on a 50-model schema, 1,345,449 → 649,244
   instantiations; on a 100-model schema, 2,422,856 → 899,335.
-
-VibORM now reads and writes Microsoft SQL Server, and reads an existing SQL
-Server schema into a schema document.
 
 ### Added
 
@@ -287,6 +296,44 @@ Server schema into a schema document.
 - **`getRowKey(model)`.** A model's primary key fields in constraint order,
   and the compound key's name. `viborm/client` also exports the type
   `NoExtraOperationKeys`.
+- **`viborm/snowflake`, a read-only driver for Snowflake's SQL API v2.** It
+  sends `fetch` requests and signs its key-pair JWT with WebCrypto (an OAuth or
+  programmatic access token works too), so it runs in Node, Bun, Workers and
+  Durable Objects without `snowflake-sdk`. It polls a statement that answers
+  202, reads every result partition, sends a failed request again with the
+  same `requestId`, and stops a statement past its `timeout`: half an hour by
+  default, held by the driver alone so a shorter account, user or warehouse
+  limit still applies, and `timeout: false` for none of the driver's
+  (Snowflake's own timeout, and a cancel once Snowflake has answered its
+  handle). `findMany`,
+  `findFirst`, `findUnique`, `count`, `exist`, `aggregate`, `groupBy` and
+  `$queryRaw` run, with nested `include`/`select`: Snowflake refuses a
+  correlated `LIMIT`, so a relation is read from an uncorrelated page numbered
+  per key, and only its `ARRAY_AGG` is correlated. Values cross exactly:
+  `bigint` and `Decimal` as text, timestamps to the nanosecond in a UTC
+  session. Every write, `$executeRaw` and `$transaction` fails before anything
+  is sent, and `createMigrationClient` refuses a Snowflake client (`V8001`):
+  Snowflake enforces no key, has no savepoint and no `RETURNING`. A recursive
+  filter and a root `cursor` not ordered by the model's single-field key are
+  refused too, as Snowflake refuses the SQL they need. Only `QUERY_TAG`,
+  `USE_CACHED_RESULT` and `CLIENT_RESULT_CHUNK_SIZE` pass as session
+  parameters, and an `account` that would send the token to another host, or
+  a `host` that is not `https://`, is refused. `s.time()` reads a `TIME` to the
+  millisecond, flat and nested, and refuses a finer one. A `5xx` is sent again
+  (same `requestId`, `retry=true`) and, still answered, is a `ConnectionError`;
+  a statement whose status reads fail is cancelled. A `NaN` or `Infinity`
+  inside a `VARIANT` reads as the string `STRICT_JSON_OUTPUT` prints, whatever
+  the account sets, and a raw result naming one column twice is refused.
+  `s.vector()` reads `VECTOR(FLOAT, n)` (`l2` and `cosine` distances) and
+  `s.point()` reads `GEOGRAPHY` (equality, bounds, polygons, distance in the
+  same metres as every provider; a point exactly on a polygon hole's edge reads
+  as outside there). See the
+  [Snowflake](https://viborm.dev/docs/drivers/snowflake) page.
+- **`introspectSchema({ driver })` reads a Snowflake schema**, its declared
+  (unenforced) foreign keys as relations (a key into another schema or
+  database is listed in `skipped`), with
+  `viborm/migrations/snowflake` registering only the Snowflake migration
+  driver, which reads and writes no DDL.
 - **`viborm/mssql`, a SQL Server driver** (the `mssql` package, tedious), for
   SQL Server 2022 and later and Azure SQL. Queries, nested writes and
   transactions run on it (savepoints are `SAVE TRANSACTION`, the isolation
@@ -382,6 +429,12 @@ Server schema into a schema document.
   run** (`delete` then `connect`, with or without `update`, where the child
   holds the key). `delete` then `connect` where the parent holds the key is
   still refused.
+- **A call costs less processor time and less memory.** Measured on in-memory
+  SQLite against 1.14.0: `create`, `update`, `upsert` and `delete` take 3 % to
+  7 % less time, `findUnique` 8 % less, and a `create` allocates 13 % fewer
+  bytes. `createMany` of ten rows takes 5 % more time and allocates 14 % fewer
+  bytes. A call sent to a database over a network spends its time there: the
+  gain shows on SQLite, Durable Objects and other in-process databases.
 - **A `default()` function is called once per written row, before any read.**
   A nested `updateMany` called it once more than it wrote rows.
 - **Every statement of a call is attributed to the operation the caller
@@ -421,8 +474,9 @@ Server schema into a schema document.
 
 ### Not supported on SQL Server
 
-- **Migrations**: `createMigrationClient` refuses a SQL Server client; VibORM
-  generates and applies no DDL for it.
+- **Migrations**: `createMigrationClient` refuses a SQL Server client
+  (`V8001`), as it refuses a Snowflake one; VibORM generates and applies no
+  DDL for it.
 - **Recursive queries** (`recurse`), in a filter, a projection or a
   `viborm/permissions` rule: T-SQL has no `WITH` inside a subquery and no
   `UNION` in a recursive member. The refusal is a `FeatureNotSupportedError`.

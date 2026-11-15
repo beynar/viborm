@@ -333,6 +333,7 @@ const ADMITTED_OPTION_TYPE_SPELLINGS = [
   "PgDriverOptions",
   "PlanetScaleDriverOptions",
   "PostgresDriverOptions",
+  "SnowflakeDriverOptions",
   "SurrealDriverOptions",
 ];
 

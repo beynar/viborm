@@ -78,20 +78,20 @@ const MYSQL_INVALID_JSON_TEXT = 3141;
 const JSON_ACCESS_SIGNATURE = /json(?!_each\(\?\)\))|->/i;
 
 /**
- * SQL Server's premises fail only on their own sentinel's conversion: nothing
- * it runs collides with one. Checked by the type only, so it costs an
- * application no byte; any other dialect added to `Dialect` does not compile
- * until it is below.
+ * The dialects nothing collides with: SurrealDB raises no batch assertion,
+ * Snowflake runs no batch, and SQL Server's premises fail only on their own
+ * sentinel's conversion.
  */
-type NoAssertionCollision = "mssql";
+type NoAssertionCollision = "surrealql" | "snowflake" | "mssql";
 
+// Every other dialect states its signature: one added to `Dialect` does not
+// compile until it is here or above. Checked by the type only, so the
+// dialects above cost an application no byte.
 const FOREIGN_ASSERTION_SIGNATURE: Readonly<Partial<Record<Dialect, RegExp>>> =
   {
     postgresql: /[/%]/,
     mysql: JSON_ACCESS_SIGNATURE,
     sqlite: JSON_ACCESS_SIGNATURE,
-    // It raises no batch assertion: nothing it runs can collide with one.
-    surrealql: /(?!)/,
   } satisfies Record<Exclude<Dialect, NoAssertionCollision>, RegExp>;
 
 /**

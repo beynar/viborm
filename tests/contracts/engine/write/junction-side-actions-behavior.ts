@@ -1,7 +1,7 @@
 // biome-ignore-all lint/suspicious/noMisplacedAssertion: `planning` registers the test these assertions run in.
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { FeatureNotSupportedError, ForeignKeyError } from "@errors";
+import { ForeignKeyError, VibORMErrorCode } from "@errors";
 import { createMigrationClient } from "@migrations";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -98,7 +98,9 @@ export function runJunctionSideActionsBehavior(options: {
   const planning = (name: string, body: () => Promise<unknown>) =>
     options.refusesMigrations
       ? test(`${name} (refused: the dialect has no migrations)`, async () => {
-          await expect(body()).rejects.toBeInstanceOf(FeatureNotSupportedError);
+          await expect(body()).rejects.toMatchObject({
+            code: VibORMErrorCode.FEATURE_NOT_SUPPORTED,
+          });
         })
       : test(name, body);
   describe(`${options.name} asymmetric junction actions (#46)`, () => {
