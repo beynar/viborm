@@ -385,7 +385,7 @@ function aroundError<Input extends object>(
       meta: {
         method: "around",
         model: context.model,
-        operation: String(context.operation),
+        operation: context.operation,
         ...(commitCertainty === undefined ? {} : { commitCertainty }),
       },
     }

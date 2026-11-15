@@ -239,33 +239,32 @@ const secondMoment =
  * would otherwise get a part that never runs.
  */
 function placed<H extends CallableFunction>(
-  { on: selection, inner }: CallSpec,
+  { on, inner }: CallSpec,
   handler: H,
-  { schema, owner }: Application
+  { schema, owner: { name, args } }: Application
 ): PlacedHandler<H> {
-  const own = { extension: owner.name, handler, args: owner.args };
-  if (selection === undefined) return { ...own, inner };
   const known = (names: readonly string[], holds: (name: string) => boolean) =>
     new Set(
-      names.map((name) =>
-        holds(name)
-          ? name
+      names.map((each) =>
+        holds(each)
+          ? each
           : extensionError(
-              `Extension "${owner.name}" target names unknown model or operation "${name}".`,
-              owner.name
+              `Extension "${name}" target names unknown model or operation "${each}".`,
+              name
             )
       )
     );
   return {
-    ...own,
+    extension: name,
+    handler,
+    args,
     inner,
-    on: {
-      models: known(selection.models ?? Object.keys(schema), (model) =>
+    on: on && {
+      models: known(on.models ?? Object.keys(schema), (model) =>
         Object.hasOwn(schema, model)
       ),
-      operations: known(
-        selection.operations ?? [...MODEL_OPERATIONS],
-        (operation) => MODEL_OPERATIONS.has(operation)
+      operations: known(on.operations ?? [...MODEL_OPERATIONS], (operation) =>
+        MODEL_OPERATIONS.has(operation)
       ),
     },
   };
@@ -313,14 +312,10 @@ function aroundPart(spec: CallSpec): ExtensionPart {
       appendFirst(application, spec, first);
       const handler = placed(spec, secondMoment(first), application);
       const list = next.around?.placed ?? [];
+      // A stable sort: the parts without `inner` first, each group in
+      // chain order.
       next.around = handlersOf(
-        handler.inner
-          ? [...list, handler]
-          : [
-              ...list.filter((other) => !other.inner),
-              handler,
-              ...list.filter((other) => other.inner),
-            ]
+        [...list, handler].sort((a, b) => Number(!!a.inner) - Number(!!b.inner))
       );
       coordinate(next, QUERIES);
     },
