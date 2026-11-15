@@ -527,13 +527,11 @@ export interface DeclaredModel {
 
 /** What a model declares, read without lowering a rule. */
 interface Declared extends DeclaredModel {
-  /** Field → the predicate an update writing it takes (by name). */
+  /**
+   * Field → the predicate an update writing it takes (by name): the update
+   * verb's, or `$write:<field>` where its write action is another.
+   */
   readonly writes: { readonly [field: string]: string };
-  /** The fields whose write action is not the update verb's: `$write:<field>`. */
-  readonly protectedWrites: readonly (readonly [
-    field: string,
-    write: string,
-  ])[];
   readonly reads: { readonly [field: string]: string };
   /** Field → its move (filled when the model compiles). */
   readonly moves?: { readonly [field: string]: string };
@@ -542,7 +540,6 @@ interface Declared extends DeclaredModel {
 const UNLISTED: Declared = {
   modes: [],
   writes: {},
-  protectedWrites: [],
   reads: {},
 };
 
@@ -1677,7 +1674,6 @@ export function policyCompiler(
       if (model.actions.includes(action)) verbs[verb] = action;
     }
     const writes: Record<string, string> = {};
-    const protectedWrites: [field: string, write: string][] = [];
     const reads: Record<string, string> = {};
     const state = stateOf(name);
     for (const [field, entry] of Object.entries(policy.fields ?? {})) {
@@ -1707,7 +1703,6 @@ export function policyCompiler(
           const protectedWrite = `$write:${field}`;
           claimName(protectedWrite, `models.${name}.fields.${field}.write`);
           writes[field] = protectedWrite;
-          protectedWrites.push([field, write]);
         }
       }
       // A key, a foreign key or a relation is refused by K5's admission.
@@ -1729,7 +1724,6 @@ export function policyCompiler(
       ...verbs,
       modes,
       writes,
-      protectedWrites,
       reads,
     });
   }
@@ -1739,7 +1733,7 @@ export function policyCompiler(
     const policy = config.models[name]!;
     const model = modelOf(name);
     const declared = declarations.get(name)!;
-    const { writes, protectedWrites, ...verbs } = declared;
+    const { writes, ...verbs } = declared;
     const named = new Map<string, Where>();
     // The declaration's names were claimed when the policy was applied; a
     // move's name is new here, and a domain may take one.
@@ -1752,14 +1746,15 @@ export function policyCompiler(
     // Field protection narrows the operation's grant. Core chooses one
     // write predicate per field, so compose both permissions here rather
     // than letting a field grant replace a denied or absent update grant.
-    for (const [field, write] of protectedWrites)
-      named.set(
-        `$write:${field}`,
-        and([
-          verbs.update === undefined ? false : named.get(verbs.update)!,
-          named.get(write)!,
-        ]) || FALSE
-      );
+    for (const [field, { write }] of Object.entries(policy.fields ?? {}))
+      if (writes[field] === `$write:${field}`)
+        named.set(
+          writes[field],
+          and([
+            verbs.update === undefined ? false : named.get(verbs.update)!,
+            named.get(write!)!,
+          ]) || FALSE
+        );
     // Creation is a named action evaluated on the proposed row. Its placement
     // adds target visibility; moves reuse the row rule without requiring a
     // create credential scope for an update.
@@ -1914,7 +1909,7 @@ export function policyCompiler(
   return {
     declared: Object.fromEntries(
       Object.keys(schema).map((name) => {
-        const { writes, protectedWrites, reads, ...declared } =
+        const { writes, reads, ...declared } =
           declarations.get(name) ?? UNLISTED;
         return [name, { ...declared, bound: related(name) }];
       })
