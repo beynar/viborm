@@ -36,22 +36,20 @@ const TEN = 10n;
 /** The integer part of a key, and its fraction; undefined if not a key. */
 function split(key: string): { integer: string; fraction: string } | undefined {
   if (key.length < 2 || !DIGITS.test(key)) return undefined;
-  let integer: string;
-  if (key[0] === "0") {
-    const length = 9 - Number(key[1]);
-    if (length < 1) return undefined;
-    integer = key.slice(0, 2 + length);
-    if (integer.length !== 2 + length) return undefined;
-    const body = BigInt(integer.slice(2));
-    if (body < 1n || body > 9n * TEN ** BigInt(length - 1)) return undefined;
-  } else {
-    const length = Number(key[0]);
-    integer = key.slice(0, 1 + length);
-    if (integer.length !== 1 + length) return undefined;
-    if (length > 1 && integer[1] === "0") return undefined;
-  }
+  const negative = key[0] === "0";
+  const length = negative ? 9 - Number(key[1]) : Number(key[0]);
+  const integer = key.slice(0, length + (negative ? 2 : 1));
+  const body = integer.slice(negative ? 2 : 1);
   const fraction = key.slice(integer.length);
-  if (fraction.endsWith("0")) return undefined;
+  if (
+    length < 1 ||
+    body.length !== length ||
+    fraction.endsWith("0") ||
+    (negative
+      ? BigInt(body) < 1n || BigInt(body) > 9n * TEN ** BigInt(length - 1)
+      : length > 1 && body[0] === "0")
+  )
+    return undefined;
   return { integer, fraction };
 }
 
