@@ -66,13 +66,21 @@ afterEach(async () => {
 const DRIVERS = ["sqlite", "pglite"] as const;
 type DriverName = (typeof DRIVERS)[number];
 
+// One Wasm Postgres for the file, its tables made again for each test: one
+// per test passes the bounded runner's memory ceiling.
+let shared: ReturnType<typeof openTestPGlite> | undefined;
+function pglite() {
+  shared ??= openTestPGlite();
+  return shared;
+}
+
 /** A client over fresh tables; `link.parentId` is checked at COMMIT. */
 async function open(driver: DriverName): Promise<Loose> {
   const client = (driver === "sqlite"
     ? createSQLiteClient({ schema, dataDir: ":memory:" })
     : createPGliteClient({
         schema,
-        client: openTestPGlite(),
+        client: pglite(),
       })) as never as Loose;
   opened.push(client);
   const deferred =
@@ -81,6 +89,10 @@ async function open(driver: DriverName): Promise<Loose> {
       : "REFERENCES parent(id) DEFERRABLE INITIALLY DEFERRED";
   if (driver === "sqlite")
     await client.$executeRawUnsafe("PRAGMA foreign_keys = ON");
+  else
+    await client.$executeRawUnsafe(
+      "DROP TABLE IF EXISTS link, parent, post CASCADE"
+    );
   await client.$executeRawUnsafe(
     "CREATE TABLE post (id TEXT PRIMARY KEY, title TEXT NOT NULL)"
   );
