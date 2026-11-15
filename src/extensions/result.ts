@@ -112,10 +112,8 @@ function planNode(
       nested.push([key, child.node]);
       if (childArgs?.recurse !== undefined)
         child.node.relations.push([key, child.node]);
-      if (child.args !== childArgs) {
-        if (nextProjection === projection) nextProjection = { ...projection };
-        nextProjection![key] = child.args;
-      }
+      if (child.args !== childArgs)
+        nextProjection = { ...nextProjection, [key]: child.args };
     }
   }
 
