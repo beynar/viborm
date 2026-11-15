@@ -196,3 +196,30 @@ describe("read-gated fields", () => {
     );
   });
 });
+
+describe("a governed raw read", () => {
+  test("$rows() of a model where the extension places no argument takes the model's domain alone", async () => {
+    const member = s.model({ id: s.string().id(), name: s.string() });
+    const page = s.model({ id: s.string().id(), owner: s.string() });
+    const driver = new ScriptedDriver("postgresql");
+    const db = createClient({ schema: { member, page }, driver }).$extends(
+      extension(
+        "owned",
+        args({ who: oneOf("a", "b").on(["findMany"]).models(["page"]) }),
+        rule({
+          page: { read: { where: { owner: arg("who") } } },
+          member: { read: { where: { name: "x" } } },
+        })
+      )
+    );
+    await expect(
+      db.$queryRaw`SELECT u.id FROM ${db.member.$rows("u")}`
+    ).resolves.toEqual([]);
+    expect(driver.sent).toEqual([
+      {
+        sql: 'SELECT u.id FROM (SELECT * FROM "public"."member" AS "q0" WHERE "q0"."name" = $1) AS "u"',
+        params: ["x"],
+      },
+    ]);
+  });
+});
