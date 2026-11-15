@@ -23,6 +23,7 @@ const contracts = [
   "tests/contracts/public-client/extension-deletion.core.test.ts",
   "tests/contracts/public-client/extension-dialect-edges.core.test.ts",
   "tests/contracts/public-client/extension-differential-review.core.test.ts",
+  "tests/contracts/public-client/extension-disclosed.core.test.ts",
   "tests/contracts/public-client/extension-evidence.core.test.ts",
   "tests/contracts/public-client/extension-final-review.core.test.ts",
   "tests/contracts/public-client/extension-lazy-verbs.core.test.ts",
