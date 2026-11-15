@@ -8,7 +8,9 @@
  * holds none of it.
  */
 import { Condition } from "@query-engine/raptor3/shared/row-scope";
-import type { ModelState } from "@schema/model";
+import type { AnyModel } from "@schema/model";
+import { getModelKeyCatalog } from "@schema/model/keys";
+import type { AnyRelation } from "@schema/relation";
 import { isPlainRecord } from "@schema/relation/terminal";
 import type {
   AdmittedEntry,
@@ -152,20 +154,15 @@ export function check(where: object): unknown {
 }
 
 /**
- * Whether `field`, a scalar of the model, is one of its key, unique or
- * foreign-key fields: what identity and every join read, and what a unique
- * constraint answers for on a write, so none of them is ever read-gated.
+ * Whether `field` is one of the model's key, unique or foreign-key fields:
+ * what identity and every join read, and what a unique constraint answers
+ * for on a write, so none of them is ever read-gated. A write of a guessed
+ * value fails on the constraint exactly when some row holds it: a gate on a
+ * unique field would be confirmed by it.
  */
-const isKeyField = (state: ModelState, field: string): boolean =>
-  state.scalars[field]!["~"].state.isId === true ||
-  // A write of a guessed value fails on the constraint exactly when some
-  // row holds it: a gate on a unique field would be confirmed by it.
-  Object.hasOwn(state.uniques, field) ||
-  [
-    ...Object.values(state.compoundId ?? {}),
-    ...Object.values(state.compoundUniques ?? {}),
-  ].some(({ entries }) => Object.hasOwn(entries, field)) ||
-  Object.values(state.relations).some(
+const isKeyField = (model: AnyModel, field: string): boolean =>
+  getModelKeyCatalog(model).uniqueOverlapFields.includes(field) ||
+  Object.values<AnyRelation>(model["~"].state.relations).some(
     (relation) =>
       relation["~"].state.foreignKey?.fields.includes(field) === true
   );
@@ -175,12 +172,12 @@ class Gated extends Held<object> {
   join(site: Site): void {
     const { key, field, model, schema, refuse } = site;
     if (key !== `read.fields.${field}`) refuse(`${key} does not take gate()`);
-    const { state } = schema[model]!["~"];
-    if (!Object.hasOwn(state.scalars, field!))
+    const held = schema[model]!;
+    if (!Object.hasOwn(held["~"].state.scalars, field!))
       refuse(`${key} names no scalar of the model`);
     // Masked in a caller's operands while identity and joins read it raw,
     // a key would answer through a relation what a filter hides.
-    if (isKeyField(state, field!))
+    if (isKeyField(held, field!))
       refuse(`${key} names a key, a unique or a foreign key field`);
     (shown(site).reads ??= new Map()).set(field!, this.held);
   }

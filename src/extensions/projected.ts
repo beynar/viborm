@@ -37,11 +37,8 @@ const keyValidator =
       ? { value: value || undefined }
       : Array.isArray(value) &&
           value.length > 0 &&
-          value.every(
-            (name) =>
-              typeof name === "string" &&
-              names.some(([declared]) => declared === name)
-          )
+          // A declared name is a string: no other value equals one.
+          value.every((name) => names.some(([declared]) => declared === name))
         ? { value: [...value] }
         : {
             issues: [
@@ -86,31 +83,24 @@ function markNamed(
         : undefined;
       if (resolved === undefined) continue;
       const many = resolved.edge.kind === "variantJunctionCarrier";
-      if (
-        resolved.member ||
-        !(many || resolved.edge.kind === "variantRowCarrier")
-      ) {
+      // A polymorphic relation's arms, each under its variant (a
+      // junction's under `variants`); any other relation is one arm.
+      const variants =
+        resolved.member || !(many || resolved.edge.kind === "variantRowCarrier")
+          ? [undefined]
+          : resolved.edge.members.map(({ variant }) => variant);
+      const arm = (node: unknown, variant: string | undefined) => {
+        if (variant === undefined) return node;
+        const arms = isPlainRecord(node) && many ? node.variants : node;
+        return isPlainRecord(arms) ? arms[variant] : undefined;
+      };
+      for (const variant of variants)
         markNamed(
           domain,
           schema,
-          schema.membership(model, name).target,
-          given[name],
-          kept[name]
-        );
-        continue;
-      }
-      const arms = (node: unknown) =>
-        isPlainRecord(node) && many ? node.variants : node;
-      const givenArms = arms(given[name]);
-      const keptArms = arms(kept[name]);
-      if (!(isPlainRecord(givenArms) && isPlainRecord(keptArms))) continue;
-      for (const member of resolved.edge.members)
-        markNamed(
-          domain,
-          schema,
-          schema.membership(model, name, member.variant).target,
-          givenArms[member.variant],
-          keptArms[member.variant]
+          schema.membership(model, name, variant).target,
+          arm(given[name], variant),
+          arm(kept[name], variant)
         );
     }
   }
