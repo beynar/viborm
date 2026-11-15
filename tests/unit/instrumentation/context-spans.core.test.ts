@@ -105,23 +105,6 @@ describe("createInstrumentationContext — tracer", () => {
     expect(recorder.find(SPAN_TRANSACTION)).toBeDefined();
   });
 
-  it("tracing object forwards includeSql/includeParams to the tracer (visible on span attrs)", async () => {
-    const ctx = createInstrumentationContext({
-      tracing: { includeSql: false, includeParams: true },
-    });
-    await ctx.tracer?.startActiveSpan(
-      { name: SPAN_EXECUTE, sql: { query: "SELECT 1", params: ["a", 2] } },
-      () => undefined
-    );
-    const span = recorder.find(SPAN_EXECUTE);
-    expect(span).toBeDefined();
-    // includeSql:false -> query text attribute absent.
-    expect(span?.attributes[ATTR_DB_QUERY_TEXT]).toBeUndefined();
-    // includeParams:true -> per-index parameter attributes; non-string stringified.
-    expect(span?.attributes[`${ATTR_DB_QUERY_PARAMETER_PREFIX}.0`]).toBe("a");
-    expect(span?.attributes[`${ATTR_DB_QUERY_PARAMETER_PREFIX}.1`]).toBe("2");
-  });
-
   it("tracing object forwards ignoreSpanTypes (matching span not recorded)", async () => {
     const ctx = createInstrumentationContext({
       tracing: { ignoreSpanTypes: [SPAN_CONNECT] },

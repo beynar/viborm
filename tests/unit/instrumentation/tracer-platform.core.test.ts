@@ -250,19 +250,12 @@ describe("tracing.tracer: spans start through the handed tracer", () => {
     ]);
   });
 
-  it("applies ignoreSpanTypes before the tracer and the disclosure options to attributes", async () => {
+  it("applies ignoreSpanTypes before the tracer", async () => {
     const { spans, tracer } = fakeTracer();
     const ignoring = createTracerWrapper({
       tracer,
       ignoreSpanTypes: [SPAN_CONNECT, EXECUTE_PATTERN],
     });
-    const disclosing = createTracerWrapper({
-      tracer,
-      includeParams: true,
-      includeSql: true,
-    });
-    const withholding = createTracerWrapper({ tracer });
-    const sqlFacts = { query: "SELECT $1", params: ["alice"] };
 
     await expect(
       ignoring.startActiveSpan({ name: SPAN_CONNECT }, () => "ignored")
@@ -273,24 +266,6 @@ describe("tracing.tracer: spans start through the handed tracer", () => {
     expect(ignoring.traces(SPAN_EXECUTE)).toBe(false);
     expect(ignoring.traces(SPAN_OPERATION)).toBe(true);
     expect(spans).toEqual([]);
-
-    await disclosing.startActiveSpan(
-      { name: SPAN_EXECUTE, sql: sqlFacts },
-      () => undefined
-    );
-    await withholding.startActiveSpan(
-      { name: SPAN_EXECUTE, sql: sqlFacts },
-      () => undefined
-    );
-    expect(spans.map(({ calls }) => calls)).toEqual([
-      [
-        "attr:db.query.text=SELECT $1",
-        "attr:db.query.parameter.0=alice",
-        OK,
-        "end",
-      ],
-      [OK, "end"],
-    ]);
   });
 
   it("is enabled at once: the first span starts in the call that asks for it", async () => {

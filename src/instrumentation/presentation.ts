@@ -20,6 +20,8 @@ import {
   ATTR_DB_DRIVER,
   ATTR_DB_NAMESPACE,
   ATTR_DB_OPERATION_NAME,
+  ATTR_DB_QUERY_PARAMETER_PREFIX,
+  ATTR_DB_QUERY_TEXT,
   ATTR_DB_SYSTEM,
   ATTR_VIBORM_CORRELATION_ID,
   SPAN_CONNECT,
@@ -30,7 +32,12 @@ import {
   type VibORMSpanName,
 } from "./spans";
 import type { SpanAttributes, VibORMSpanOptions } from "./tracer";
-import type { InstrumentationNote, LogEvent, LogLevel } from "./types";
+import type {
+  InstrumentationNote,
+  LogEvent,
+  LogLevel,
+  TracingConfig,
+} from "./types";
 
 const OR_THROW = /OrThrow$/;
 
@@ -192,20 +199,30 @@ function createUnitAttributes(
   };
 }
 
-/**
- * The execute span of one physical send: the tracer shows its text and
- * parameters as the tracing channel discloses them.
- */
+/** The execute span of one physical send, disclosed per the tracing channel. */
 export function createStatementSpanOptions(
+  tracing: true | Readonly<TracingConfig> | undefined,
   unit: Unit,
   sql: string | undefined,
   params: readonly unknown[] | undefined
 ): VibORMSpanOptions {
-  return {
-    name: SPAN_EXECUTE,
-    attributes: createUnitAttributes(unit, unit.model),
-    sql: { query: sql, params },
-  };
+  const { includeParams, includeSql } = channelOf(tracing);
+  const attributes: SpanAttributes = createUnitAttributes(unit, unit.model);
+  if (includeSql && sql !== undefined) attributes[ATTR_DB_QUERY_TEXT] = sql;
+  // The parameters are the unit's bounded snapshot (`parameters(u)`), plain
+  // data, one attribute each per the OTel spec: db.query.parameter.0, .1, …
+  if (includeParams)
+    for (const [index, value] of (params ?? []).entries())
+      attributes[`${ATTR_DB_QUERY_PARAMETER_PREFIX}.${index}`] =
+        typeof value === "string" ? value : String(JSON.stringify(value));
+  return { name: SPAN_EXECUTE, attributes };
+}
+
+/** One channel's SQL/parameter disclosure; `true` and absence disclose nothing. */
+function channelOf(
+  channel: true | Readonly<DiagnosticDisclosure> | undefined
+): DiagnosticDisclosure {
+  return channel && channel !== true ? channel : {};
 }
 
 /** The span of one connection, transaction, or savepoint. */
@@ -235,8 +252,7 @@ export function createStatementLogEvent(
   shown: readonly unknown[] | undefined,
   failure?: Error
 ): LogEvent {
-  // `true` and absence disclose nothing.
-  const disclosure = logging && logging !== true ? logging : {};
+  const disclosure = channelOf(logging);
   const index = failure === undefined ? undefined : statementIndexOf(failure);
   const member = index === undefined ? undefined : statements(unit)?.[index];
   const sql = member?.sql ?? text(unit);

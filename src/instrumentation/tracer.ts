@@ -9,11 +9,7 @@
  */
 
 import { VIBORM_VERSION } from "../version";
-import {
-  ATTR_DB_QUERY_PARAMETER_PREFIX,
-  ATTR_DB_QUERY_TEXT,
-  type VibORMSpanName,
-} from "./spans";
+import type { VibORMSpanName } from "./spans";
 import type { SpanTracer, TracingSpan } from "./types";
 
 /**
@@ -57,10 +53,8 @@ const settledSpans = new WeakSet<TracingSpan>();
 export interface VibORMSpanOptions {
   /** Span name: one of the predefined constants, or one a note names. */
   name: string;
-  /** Additional attributes */
+  /** Its attributes, already disclosed as the presentation decided */
   attributes?: SpanAttributes | undefined;
-  /** SQL info (only included if tracer config has includeSql enabled) */
-  sql?: { query?: string; params?: readonly unknown[] } | undefined;
   /**
    * Start a new root span (not child of current context). A handed tracer
    * takes no parent: its span nests under the active span.
@@ -72,10 +66,6 @@ export interface VibORMSpanOptions {
  * Configuration for tracer wrapper
  */
 export interface TracerWrapperConfig {
-  /** Include SQL query text in span attributes (default: false) */
-  includeSql?: boolean | undefined;
-  /** Include query parameters in span attributes (default: false) */
-  includeParams?: boolean | undefined;
   /** Span names to ignore */
   ignoreSpanTypes?: ReadonlyArray<string | RegExp> | undefined;
   /**
@@ -115,7 +105,7 @@ export interface TracerWrapper {
 export function createTracerWrapper(
   config: TracerWrapperConfig = {}
 ): TracerWrapper {
-  const { includeSql, includeParams, tracer: handed } = config;
+  const { tracer: handed } = config;
   const ignorePatterns = Object.freeze(
     (config.ignoreSpanTypes ?? []).map((pattern) =>
       typeof pattern === "string"
@@ -129,25 +119,6 @@ export function createTracerWrapper(
       if (typeof pattern === "string") return pattern === name;
       return new RegExp(pattern.source, pattern.flags).test(name);
     });
-  }
-
-  function buildAttributes(options: VibORMSpanOptions): SpanAttributes {
-    const attrs: SpanAttributes = { ...options.attributes };
-
-    if (options.sql) {
-      if (includeSql && options.sql.query !== undefined) {
-        attrs[ATTR_DB_QUERY_TEXT] = options.sql.query;
-      }
-      // The parameters are the unit's bounded snapshot (`parameters(u)`),
-      // one attribute each per the OTel spec: db.query.parameter.0, .1, …
-      if (includeParams && options.sql.params) {
-        for (const [index, value] of options.sql.params.entries())
-          attrs[`${ATTR_DB_QUERY_PARAMETER_PREFIX}.${index}`] =
-            formatSpanParameter(value);
-      }
-    }
-
-    return attrs;
   }
 
   // The auto-detected api, instance-scoped for serverless compatibility:
@@ -179,13 +150,12 @@ export function createTracerWrapper(
       // `fn`; the span nests under the active one (no kind, no root).
       if (handed !== undefined) {
         if (!traces(options.name)) return fn();
-        return runOnce(fn, API_CONTRACT_CODES, (run) => {
-          const attributes = buildAttributes(options);
-          return handed.startActiveSpan(options.name, (span) => {
-            setSpanAttributes(span, attributes);
+        return runOnce(fn, API_CONTRACT_CODES, (run) =>
+          handed.startActiveSpan(options.name, (span) => {
+            setSpanAttributes(span, options.attributes ?? {});
             return run(span);
-          });
-        });
+          })
+        );
       }
       // The global provider of the auto-detected api: the first span waits
       // for its import, later ones start synchronously.
@@ -195,7 +165,7 @@ export function createTracerWrapper(
       let span: Span;
       let contextWithSpan: Context;
       try {
-        const attributes = buildAttributes(options);
+        const attributes = { ...options.attributes };
         const kind = otel.SpanKind.INTERNAL;
         const parentContext = options.root
           ? otel.ROOT_CONTEXT
@@ -373,9 +343,4 @@ function createTraceError(): Error {
   const error = new Error("Operation failed");
   error.stack = undefined;
   return error;
-}
-
-function formatSpanParameter(value: unknown): string {
-  if (typeof value === "string") return value;
-  return String(JSON.stringify(value));
 }
