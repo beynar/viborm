@@ -20,6 +20,7 @@ import {
   rule,
   s,
 } from "@src/index";
+import { on } from "@src/on";
 import { softDelete } from "@src/soft-delete";
 import {
   ScriptedDriver,
@@ -296,5 +297,69 @@ describe("a judged update on MySQL", () => {
     await expect(transcript(sent)).toMatchFileSnapshot(
       "./__golden__/extension-dialect-edges/mysql-judged-acyclic.sql"
     );
+  });
+});
+
+describe("a polymorphic relation", () => {
+  const alpha = s.model({ id: s.string().id(), secret: s.string() });
+  const beta = s.model({ id: s.string().id(), label: s.string() });
+  const holder = s.model({
+    id: s.string().id(),
+    label: s.string(),
+    subject: s.toOne({ alpha: () => alpha, beta: () => beta }),
+  });
+  const variants = { holder, alpha, beta };
+
+  test("a connect through it writes no variant row: an on() hook of a variant is not called", async () => {
+    const driver = new ScriptedDriver("postgresql", ({ sql }) =>
+      sql.startsWith("UPDATE") ? [{ id: "h", label: "x" }] : [{ id: "a" }]
+    );
+    const updated: unknown[] = [];
+    const db = createClient({ schema: variants, driver }).$extends(
+      on({
+        alpha: {
+          update: (rows) => {
+            updated.push(rows);
+          },
+        },
+      })
+    );
+    await expect(
+      db.holder.update({
+        where: { id: "h" },
+        data: {
+          label: "x",
+          subject: { connect: { type: "alpha", where: { id: "a" } } },
+        },
+      })
+    ).resolves.toEqual({ id: "h", label: "x" });
+    expect(driver.sent.map(({ sql }) => sql.split(" ")[0])).toEqual([
+      "SELECT",
+      "SELECT",
+      "UPDATE",
+    ]);
+    expect(driver.sent[2]!.params).toEqual(["x", "alpha", "a", '{"h"}']);
+    expect(updated).toEqual([]);
+  });
+
+  test("a variant's gated field omitted is neither read nor its gate", async () => {
+    const driver = new ScriptedDriver("postgresql", () => [{ id: "a" }]);
+    const db = createClient({ schema: variants, driver }).$extends(
+      extension(
+        "secret",
+        rule({
+          alpha: { read: { where: {}, fields: { secret: gate({ id: "a" }) } } },
+        })
+      )
+    );
+    await expect(
+      db.alpha.findMany({ omit: { secret: true } })
+    ).resolves.toEqual([{ id: "a" }]);
+    expect(driver.sent).toEqual([
+      {
+        sql: 'SELECT "q0"."id" FROM "public"."alpha" AS "q0" WHERE TRUE ORDER BY "q0"."id" ASC',
+        params: [],
+      },
+    ]);
   });
 });
