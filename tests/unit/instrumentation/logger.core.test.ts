@@ -19,20 +19,12 @@ afterEach(() => {
 });
 
 describe("createLogger — dispatch & level isolation", () => {
-  it("snapshots handler identity and freezes the logger facade", () => {
+  it("hands an event on as it was made, and freezes the logger facade", () => {
     const original = captureLogs();
-    const mutated = captureLogs();
-    const config = {
-      includeParams: true,
-      includeSql: true,
-      query: original.callback,
-    };
-    const logger = createLogger(config);
+    const logger = createLogger({ query: original.callback });
 
-    config.includeParams = false;
-    config.includeSql = false;
-    config.query = mutated.callback;
-    logger.query({
+    logger.log({
+      level: "query",
       timestamp: ts,
       sql: "SELECT private_sql",
       params: ["private-param"],
@@ -44,31 +36,24 @@ describe("createLogger — dispatch & level isolation", () => {
       sql: "SELECT private_sql",
       params: ["private-param"],
     });
-    expect(mutated.events).toHaveLength(0);
   });
 
-  it("routes logger.query to the query handler; other levels do not reach it", () => {
+  it("routes a query event to the query handler; other levels do not reach it", () => {
     const q = captureLogs();
     const logger = createLogger({ query: q.callback });
 
-    logger.query({ timestamp: ts, model: "user", operation: "findMany" });
-    logger.cache({ timestamp: ts });
-    logger.error({ timestamp: ts });
+    logger.log({
+      level: "query",
+      timestamp: ts,
+      model: "user",
+      operation: "findMany",
+    });
+    logger.log({ level: "cache", timestamp: ts });
+    logger.log({ level: "error", timestamp: ts });
 
     expect(q.events).toHaveLength(1);
     expect(q.events[0]?.level).toBe("query");
     expect(q.events[0]?.model).toBe("user");
-  });
-
-  it("stamps the correct level per method", () => {
-    const all = captureLogs();
-    const logger = createLogger({ all: all.callback });
-
-    logger.query({ timestamp: ts });
-    logger.cache({ timestamp: ts });
-    logger.error({ timestamp: ts });
-
-    expect(all.events.map((e) => e.level)).toEqual(["query", "cache", "error"]);
   });
 
   it("logger.log emits with the event's already-set level (no re-stamping)", () => {
@@ -87,7 +72,7 @@ describe("createLogger — dispatch & level isolation", () => {
     const all = captureLogs();
     const logger = createLogger({ all: all.callback });
 
-    logger.cache({ timestamp: ts });
+    logger.log({ level: "cache", timestamp: ts });
 
     expect(all.events).toHaveLength(1);
     expect(all.events[0]?.level).toBe("cache");
@@ -101,7 +86,7 @@ describe("createLogger — dispatch & level isolation", () => {
       all: fallback.callback,
     });
 
-    logger.query({ timestamp: ts });
+    logger.log({ level: "query", timestamp: ts });
 
     expect(specific.events).toHaveLength(1);
     expect(fallback.events).toHaveLength(0);
@@ -113,7 +98,7 @@ describe("createLogger — dispatch & level isolation", () => {
       .spyOn(console, "log")
       .mockImplementation(() => undefined);
 
-    expect(() => logger.error({ timestamp: ts })).not.toThrow();
+    expect(() => logger.log({ level: "error", timestamp: ts })).not.toThrow();
     expect(consoleLog).not.toHaveBeenCalled();
   });
 });
@@ -139,7 +124,12 @@ describe("createLogger — handler === true invokes prettyLog", () => {
     const spy = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const logger = createLogger({ query: true });
 
-    logger.query({ timestamp: ts, model: "user", operation: "findMany" });
+    logger.log({
+      level: "query",
+      timestamp: ts,
+      model: "user",
+      operation: "findMany",
+    });
 
     expect(spy).toHaveBeenCalled();
     expect(spy.mock.calls[0]?.join(" ")).toContain("user");
@@ -151,7 +141,7 @@ describe("createLogger — handler === true invokes prettyLog", () => {
       .mockImplementation(() => undefined);
     const logger = createLogger({ error: true });
 
-    logger.error({ timestamp: ts, error: new Error("boom") });
+    logger.log({ level: "error", timestamp: ts, error: new Error("boom") });
 
     expect(error).toHaveBeenCalled();
   });
@@ -164,7 +154,12 @@ describe("createLogger — callback receives (sanitizedEvent, defaultLog)", () =
     const cap = captureLogs(true);
     const logger = createLogger({ query: cap.callback });
 
-    logger.query({ timestamp: ts, model: "user", operation: "findMany" });
+    logger.log({
+      level: "query",
+      timestamp: ts,
+      model: "user",
+      operation: "findMany",
+    });
 
     expect(cap.events).toHaveLength(1);
     expect(spy).toHaveBeenCalled();
@@ -178,7 +173,7 @@ describe("createLogger — the event it hands on", () => {
     const cap = captureLogs();
     const logger = createLogger({ query: cap.callback, includeParams: true });
 
-    logger.query({ timestamp: ts, params: [1, 2, 3] });
+    logger.log({ level: "query", timestamp: ts, params: [1, 2, 3] });
 
     expect(cap.events[0]?.params).toEqual([1, 2, 3]);
   });
@@ -189,13 +184,17 @@ describe("createLogger — the event it hands on", () => {
         throw new Error("callback failed");
       },
     });
-    expect(() => callbackLogger.query({ timestamp: ts })).not.toThrow();
+    expect(() =>
+      callbackLogger.log({ level: "query", timestamp: ts })
+    ).not.toThrow();
 
     vi.spyOn(console, "log").mockImplementation(() => {
       throw new Error("console failed");
     });
     const prettyLogger = createLogger({ query: true });
-    expect(() => prettyLogger.query({ timestamp: ts })).not.toThrow();
+    expect(() =>
+      prettyLogger.log({ level: "query", timestamp: ts })
+    ).not.toThrow();
 
     let deferredDefaultLog: (() => void) | undefined;
     const callbackLoggerWithDeferredConsole = createLogger({
@@ -203,7 +202,7 @@ describe("createLogger — the event it hands on", () => {
         deferredDefaultLog = defaultLog;
       },
     });
-    callbackLoggerWithDeferredConsole.query({ timestamp: ts });
+    callbackLoggerWithDeferredConsole.log({ level: "query", timestamp: ts });
     expect(() => deferredDefaultLog?.()).not.toThrow();
   });
 
@@ -214,7 +213,7 @@ describe("createLogger — the event it hands on", () => {
       },
     });
 
-    expect(() => logger.query({ timestamp: ts })).not.toThrow();
+    expect(() => logger.log({ level: "query", timestamp: ts })).not.toThrow();
     await Promise.resolve();
     await Promise.resolve();
   });
@@ -223,12 +222,13 @@ describe("createLogger — the event it hands on", () => {
     const cap = captureLogs();
     const logger = createLogger({ query: cap.callback });
     const aliasedSecrets = {
+      level: "query" as const,
       timestamp: ts,
       statement: "SELECT private",
       bindings: ["private-value"],
     };
 
-    logger.query(aliasedSecrets);
+    logger.log(aliasedSecrets);
 
     expect(cap.events).toHaveLength(1);
     expect(cap.events[0]).not.toHaveProperty("statement");
@@ -249,7 +249,8 @@ describe("prettyLog — query branch", () => {
       includeParams: true,
     });
 
-    logger.query({
+    logger.log({
+      level: "query",
       timestamp: ts,
       model: "user",
       operation: "findMany",
@@ -268,8 +269,8 @@ describe("prettyLog — query branch", () => {
     const spy = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const logger = createLogger({ query: true });
 
-    logger.query({ timestamp: ts, operation: "count" });
-    logger.query({ timestamp: ts });
+    logger.log({ level: "query", timestamp: ts, operation: "count" });
+    logger.log({ level: "query", timestamp: ts });
 
     const first = spy.mock.calls[0]?.join(" ") ?? "";
     const second = spy.mock.calls[1]?.join(" ") ?? "";
@@ -282,7 +283,8 @@ describe("prettyLog — query branch", () => {
     const logger = createLogger({ query: true, includeParams: true });
 
     // sql absent, params empty array → only the header line
-    logger.query({
+    logger.log({
+      level: "query",
       timestamp: ts,
       model: "user",
       operation: "findMany",
@@ -298,7 +300,8 @@ describe("prettyLog — cache branch", () => {
     const spy = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const logger = createLogger({ cache: true });
 
-    logger.cache({
+    logger.log({
+      level: "cache",
       timestamp: ts,
       meta: { event: "hit", status: "fresh", key: "user:1" },
     });
@@ -314,7 +317,7 @@ describe("prettyLog — cache branch", () => {
     const spy = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const logger = createLogger({ cache: true });
 
-    logger.cache({ timestamp: ts });
+    logger.log({ level: "cache", timestamp: ts });
 
     expect(spy.mock.calls[0]?.join(" ")).toContain("unknown");
   });
@@ -327,7 +330,8 @@ describe("prettyLog — error branch", () => {
       .mockImplementation(() => undefined);
     const logger = createLogger({ error: true, includeSql: true });
 
-    logger.error({
+    logger.log({
+      level: "error",
       timestamp: ts,
       model: "user",
       operation: "create",
@@ -347,7 +351,12 @@ describe("prettyLog — error branch", () => {
       .mockImplementation(() => undefined);
     const logger = createLogger({ error: true });
 
-    logger.error({ timestamp: ts, model: "user", operation: "create" });
+    logger.log({
+      level: "error",
+      timestamp: ts,
+      model: "user",
+      operation: "create",
+    });
 
     // Only the header line; no message/sql follow-ups.
     expect(error).toHaveBeenCalledTimes(1);
@@ -359,14 +368,15 @@ it("adds no ANSI codes and preserves fractional durations in captured logs", () 
   const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
   const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
   const logger = createLogger({ all: true });
-  logger.query({
+  logger.log({
+    level: "query",
     timestamp: ts,
     model: "user",
     operation: "findMany",
     duration: 0.125,
   });
-  logger.cache({ timestamp: ts, meta: { event: "hit" } });
-  logger.error({ timestamp: ts });
+  logger.log({ level: "cache", timestamp: ts, meta: { event: "hit" } });
+  logger.log({ level: "error", timestamp: ts });
   const output = [...log.mock.calls, ...warn.mock.calls, ...error.mock.calls]
     .flat()
     .join(" ");
@@ -379,7 +389,12 @@ describe("formatDuration — via query pretty output", () => {
     const spy = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const logger = createLogger({ query: true });
 
-    logger.query({ timestamp: ts, model: "user", operation: "findMany" });
+    logger.log({
+      level: "query",
+      timestamp: ts,
+      model: "user",
+      operation: "findMany",
+    });
 
     expect(spy.mock.calls[0]?.join(" ")).not.toContain("ms");
   });
@@ -388,9 +403,24 @@ describe("formatDuration — via query pretty output", () => {
     const spy = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const logger = createLogger({ query: true });
 
-    logger.query({ timestamp: ts, operation: "findFirst", duration: 5 }); // green <10
-    logger.query({ timestamp: ts, operation: "findMany", duration: 50 }); // yellow <100
-    logger.query({ timestamp: ts, operation: "count", duration: 500 }); // red >=100
+    logger.log({
+      level: "query",
+      timestamp: ts,
+      operation: "findFirst",
+      duration: 5,
+    }); // green <10
+    logger.log({
+      level: "query",
+      timestamp: ts,
+      operation: "findMany",
+      duration: 50,
+    }); // yellow <100
+    logger.log({
+      level: "query",
+      timestamp: ts,
+      operation: "count",
+      duration: 500,
+    }); // red >=100
 
     const rows = spy.mock.calls.map((c) => c.join(" "));
     expect(rows[0]).toContain("5ms");

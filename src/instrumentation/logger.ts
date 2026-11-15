@@ -44,14 +44,8 @@ export function presentLogMetadata(
  * Logger interface for internal use
  */
 export interface Logger {
-  /** Log an event with explicit level */
+  /** Log an event at its level */
   log(event: LogEvent): void;
-  /** Log a query event */
-  query(event: Omit<LogEvent, "level">): void;
-  /** Log a cache event */
-  cache(event: Omit<LogEvent, "level">): void;
-  /** Log an error event */
-  error(event: Omit<LogEvent, "level">): void;
   /** Check if a specific level is enabled */
   isLevelEnabled(level: LogLevel): boolean;
 }
@@ -91,94 +85,55 @@ function prettyLog(event: LogEvent): void {
 }
 
 /**
- * Get the handler for a specific level from config
- * Falls back to `all` handler if specific level is not defined
- */
-function getHandler(
-  config: LoggingConfig,
-  level: LogLevel
-): LogLevelHandler | undefined {
-  const specific = config[level];
-  if (specific !== undefined) return specific;
-  return config.all;
-}
-
-/**
- * Create a logger instance from config
+ * Create a logger instance from config: a level is handled by its own
+ * handler, or else by `all`.
  */
 export function createLogger(config: LoggingConfig): Logger {
-  const handlers: Readonly<Record<LogLevel, LogLevelHandler | undefined>> =
-    Object.freeze({
-      cache: getHandler(config, "cache"),
-      error: getHandler(config, "error"),
-      query: getHandler(config, "query"),
-    });
-
-  // The presentation made every field safe to show (`disclosed`, the
-  // `parameters` snapshot, `presentLogMetadata`) and left out what the
-  // logging channel does not disclose: an event is handed on as it is made.
-  function eventAt(
-    event: LogEvent | Omit<LogEvent, "level">,
-    level: LogLevel
-  ): LogEvent {
-    return {
-      level,
-      timestamp: event.timestamp,
-      duration: event.duration,
-      model: event.model,
-      operation: event.operation,
-      correlationId: event.correlationId,
-      sql: event.sql,
-      params: event.params,
-      error: event.error,
-      meta: event.meta,
-    };
-  }
-
-  function emit(
-    event: LogEvent | Omit<LogEvent, "level">,
-    level: LogLevel
-  ): void {
-    try {
-      const handler = handlers[level];
-      if (!handler) return;
-      const presented = eventAt(event, level);
-      const defaultLog = () => {
-        try {
-          prettyLog(presented);
-        } catch {
-          // Console output remains observational even when invoked later.
-        }
-      };
-      if (handler === true) {
-        defaultLog();
-      } else {
-        Promise.resolve(handler(presented, defaultLog)).catch(() => undefined);
-      }
-    } catch {
-      // Logging is observational and cannot alter application behavior.
-    }
-  }
+  const handlerOf = (level: LogLevel): LogLevelHandler | undefined =>
+    config[level] ?? config.all;
 
   return Object.freeze({
     log(event: LogEvent): void {
-      emit(event, event.level);
-    },
-
-    query(event: Omit<LogEvent, "level">): void {
-      emit(event, "query");
-    },
-
-    cache(event: Omit<LogEvent, "level">): void {
-      emit(event, "cache");
-    },
-
-    error(event: Omit<LogEvent, "level">): void {
-      emit(event, "error");
+      try {
+        const handler = handlerOf(event.level);
+        if (!handler) return;
+        // The presentation made every field safe to show (`disclosed`, the
+        // `parameters` snapshot, `presentLogMetadata`) and left out what the
+        // logging channel does not disclose: an event is handed on as it is
+        // made, in one shape.
+        const presented: LogEvent = {
+          level: event.level,
+          timestamp: event.timestamp,
+          duration: event.duration,
+          model: event.model,
+          operation: event.operation,
+          correlationId: event.correlationId,
+          sql: event.sql,
+          params: event.params,
+          error: event.error,
+          meta: event.meta,
+        };
+        const defaultLog = () => {
+          try {
+            prettyLog(presented);
+          } catch {
+            // Console output remains observational even when invoked later.
+          }
+        };
+        if (handler === true) {
+          defaultLog();
+        } else {
+          Promise.resolve(handler(presented, defaultLog)).catch(
+            () => undefined
+          );
+        }
+      } catch {
+        // Logging is observational and cannot alter application behavior.
+      }
     },
 
     isLevelEnabled(level: LogLevel): boolean {
-      return handlers[level] !== undefined;
+      return handlerOf(level) !== undefined;
     },
   });
 }

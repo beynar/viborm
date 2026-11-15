@@ -221,7 +221,7 @@ function presentOperation(
         logs(context, "error") &&
         !logged.has(origin(error))
       )
-        context.logger?.error(
+        context.logger?.log(
           createOperationErrorLogEvent(unit, error, startedAt, settled.duration)
         );
     }
@@ -255,17 +255,16 @@ function presentStatement(
       )
         return;
       if (failed) logged.add(origin(error));
-      context.logger?.log({
-        level: failed ? "error" : "query",
-        ...createStatementLogEvent(
+      context.logger?.log(
+        createStatementLogEvent(
           context.config.logging,
           unit,
           startedAt,
           duration,
           shown,
           failed ? error : undefined
-        ),
-      });
+        )
+      );
     }
   );
 }

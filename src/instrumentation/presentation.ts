@@ -32,8 +32,6 @@ import {
 import type { SpanAttributes, VibORMSpanOptions } from "./tracer";
 import type { InstrumentationNote, LogEvent, LogLevel } from "./types";
 
-type PresentedLog = Omit<LogEvent, "level">;
-
 const OR_THROW = /OrThrow$/;
 
 /**
@@ -163,15 +161,16 @@ export function createOperationErrorLogEvent(
   failure: Error,
   startedAt: number,
   duration: number
-): PresentedLog {
-  return Object.freeze({
+): LogEvent {
+  return {
+    level: "error",
     timestamp: new Date(startedAt + duration),
     error: disclosed(failure),
     model: unit.model,
     operation: resolvedOperation(unit),
     correlationId: correlation(unit),
     duration,
-  });
+  };
 }
 
 /**
@@ -235,7 +234,7 @@ export function createStatementLogEvent(
   duration: number,
   shown: readonly unknown[] | undefined,
   failure?: Error
-): PresentedLog {
+): LogEvent {
   // `true` and absence disclose nothing.
   const disclosure = logging && logging !== true ? logging : {};
   const index = failure === undefined ? undefined : statementIndexOf(failure);
@@ -246,7 +245,8 @@ export function createStatementLogEvent(
     member === undefined || index === undefined
       ? shown
       : batchMemberParameters(shown, index);
-  return Object.freeze({
+  return {
+    level: failure === undefined ? "query" : "error",
     // The instant the statement settled, not when this log is made.
     timestamp: new Date(startedAt + duration),
     duration,
@@ -263,7 +263,7 @@ export function createStatementLogEvent(
             sql: disclosure.includeSql,
             parameters: disclosure.includeParams,
           }),
-  });
+  };
 }
 
 function batchMemberParameters(

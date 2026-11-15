@@ -83,7 +83,7 @@ describe("createInstrumentationContext — tracer", () => {
     config.logging = { query: replacementHandler };
     pattern.lastIndex = 4;
 
-    ctx.logger?.query({ timestamp: new Date() });
+    ctx.logger?.log({ level: "query", timestamp: new Date() });
     await ctx.tracer?.startActiveSpan({ name: SPAN_CONNECT }, () => undefined);
 
     expect(originalHandler).toHaveBeenCalledOnce();
@@ -169,12 +169,17 @@ describe("createInstrumentationContext — logger", () => {
     const ctx = createInstrumentationContext({
       logging: { query: cap.callback },
     });
-    ctx.logger?.query({
+    ctx.logger?.log({
+      level: "query",
       timestamp: new Date(),
       model: "user",
       operation: "findMany",
     });
-    ctx.logger?.error({ timestamp: new Date(), error: new Error("nope") });
+    ctx.logger?.log({
+      level: "error",
+      timestamp: new Date(),
+      error: new Error("nope"),
+    });
     // Only the query handler is configured, so only the query event lands.
     expect(cap.events).toHaveLength(1);
     expect(cap.events[0]?.level).toBe("query");
