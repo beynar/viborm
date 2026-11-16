@@ -89,6 +89,31 @@ Versioning.
     `Object.prototype`'s (a document of another prototype is still read by own
     keys).
 
+### Fixed
+
+- **SurrealDB: a push of a whole schema to SurrealDB Cloud completes.** In
+  1.14.1 it still stopped at the first table holding a foreign key on a
+  column other than the target's id (`oauthClientResource` in a 54-table
+  schema), refused with `V5001` at each of its 16 commits, and every push
+  after it stopped at the same table. Cloud refuses, at every commit, a
+  transaction that defines an event reading a table after an index on that
+  table, however often it is sent: such a foreign key is held by events,
+  defined after the indexes of the table they read. A table's events now come
+  before its indexes.
+- **SurrealDB: a push that resumes a stopped one commits one operation per
+  request again.** A reference that waits for a table created after its own
+  is an operation of its own; where a push stopped between the two, the next
+  one held its whole program in one transaction, which Cloud refused.
+- **SurrealDB: a push waits for its index builds as long as they progress.**
+  Cloud builds a new table's indexes one after another, about five seconds
+  each even in an empty table (139 indexes: ten to twelve minutes), and the
+  push failed with `V11023` five minutes after its program committed. It now
+  fails only after five minutes with none more ready, and renews the lock's
+  lease while it waits.
+- **SurrealDB: between two attempts of a commit refused by another writer,
+  the wait doubles,** from at most 20 ms to at most 1 s: about 5 s in all over
+  16 attempts, where it was about 0.6 s.
+
 ## 1.14.1 — 2026-11-16
 
 A push of a whole schema to SurrealDB Cloud no longer fails.
