@@ -180,38 +180,22 @@ const ARITHMETIC: Partial<Record<string, "add" | "subtract" | "multiply">> = {
 const LATERAL_VALUE = "r";
 
 /**
- * The columns `text` reads through the alias `quoted` names (`"q0"."id"`),
- * each once, in the order first read; the alias's quote closes a name and
- * doubles inside one.
+ * The joins of each list in order; none where every list is empty. The one
+ * list that holds any is answered as it is: copying it for every SELECT was
+ * 2 % of a three-level read's client CPU.
  */
-const columnsRead = (text: string, quoted: string): string[] => {
-  const quote = quoted[0]!;
-  const prefix = `${quoted}.${quote}`;
-  const names = new Set<string>();
-  for (
-    let at = text.indexOf(prefix);
-    at !== -1;
-    at = text.indexOf(prefix, at)
-  ) {
-    let name = "";
-    let index = at + prefix.length;
-    for (; index < text.length; index++) {
-      if (text[index] !== quote) name += text[index];
-      else if (text[index + 1] === quote) name += text[index++];
-      else break;
-    }
-    names.add(name);
-    at = index;
-  }
-  return [...names];
-};
-
-/** The joins of each list in order; none where every list is empty. */
 const joined = (
-  ...lists: readonly (readonly Sql[] | undefined)[]
+  first: Sql[] | undefined,
+  second: Sql[] | undefined,
+  third?: Sql[]
 ): Sql[] | undefined => {
-  const joins = lists.flatMap((list) => list ?? []);
-  return joins.length === 0 ? undefined : joins;
+  const one = first?.length ? first : undefined;
+  const two = second?.length ? second : undefined;
+  const three = third?.length ? third : undefined;
+  if (!(two || three)) return one;
+  if (!(one || three)) return two;
+  if (!(one || two)) return three;
+  return [...(one ?? []), ...(two ?? []), ...(three ?? [])];
 };
 
 /** The body each slot of a statement was settled from. */
@@ -237,9 +221,17 @@ export class SqlQueries extends Queries {
   get #eq() {
     return this.#a.operators.eq;
   }
-  get #at() {
-    return this.#a.identifiers.column;
+  /**
+   * `alias`'s column `field`; noted where the statement lowering here reads
+   * the columns of that alias for its page ({@link windowFirst}).
+   */
+  #at(alias: string, field: string): Sql {
+    if (alias === this.#readAlias) this.#readColumns?.add(field);
+    return this.#a.identifiers.column(alias, field);
   }
+  /** The root alias whose columns are noted, and where ({@link at}). */
+  #readAlias: string | undefined;
+  #readColumns: Set<string> | undefined;
   get #named() {
     return this.#a.identifiers.aliased;
   }
@@ -3895,30 +3887,53 @@ export class SqlQueries extends Queries {
     // A unique read asks the page owner nothing: the key's total order was
     // completed and lowered here for every `findUnique`, then left out of its
     // statement (`unique`): 6 % of its client CPU.
-    const page = controls.unique
-      ? UNIQUE_PAGE
-      : this.#page(
-          model,
-          args,
-          alias,
-          controls.purpose,
-          !controls.forUpdate,
-          controls.approximate
-        );
-    const prepared = controls.projection ?? this.prepareProjection(model, args);
-    // A locked row refuses an outer join's nullable side, a produced row is
-    // no table's, and a `distinct` emulation reads columns, not joins. A
-    // bounded page is read first and joined after ({@link windowFirst}),
-    // which a page ordered through its own joins cannot be.
-    const bounded = page.limit !== undefined || page.offset !== undefined;
-    const [projection, laterals] = this.#lateralScope(
-      controls.source === undefined &&
-        !controls.forUpdate &&
-        !page.distinct &&
-        !(bounded && page.joins),
-      () =>
-        this.lowerProjection(prepared, alias, controls.purpose !== undefined)
-    );
+    // A bounded read may be paged first ({@link windowFirst}): the columns of
+    // its row that its order and its projection read are noted as they are
+    // lowered, the projection's first as its page lists them. Every fragment
+    // that names one is made here, whichever form a shared body's slot is
+    // settled to later; the filter's stay inside the page and are not noted.
+    const windowed = args.take !== undefined || args.skip !== undefined;
+    const ordered = windowed ? new Set<string>() : undefined;
+    const projected = windowed ? new Set<string>() : undefined;
+    const outerAlias = this.#readAlias;
+    const outerColumns = this.#readColumns;
+    this.#readAlias = alias;
+    this.#readColumns = ordered;
+    let page: Page;
+    let prepared: PreparedProjection;
+    let bounded: boolean;
+    let projection: Sql[];
+    let laterals: Sql[];
+    try {
+      page = controls.unique
+        ? UNIQUE_PAGE
+        : this.#page(
+            model,
+            args,
+            alias,
+            controls.purpose,
+            !controls.forUpdate,
+            controls.approximate
+          );
+      prepared = controls.projection ?? this.prepareProjection(model, args);
+      // A locked row refuses an outer join's nullable side, a produced row is
+      // no table's, and a `distinct` emulation reads columns, not joins. A
+      // bounded page is read first and joined after ({@link windowFirst}),
+      // which a page ordered through its own joins cannot be.
+      bounded = page.limit !== undefined || page.offset !== undefined;
+      this.#readColumns = projected;
+      [projection, laterals] = this.#lateralScope(
+        controls.source === undefined &&
+          !controls.forUpdate &&
+          !page.distinct &&
+          !(bounded && page.joins),
+        () =>
+          this.lowerProjection(prepared, alias, controls.purpose !== undefined)
+      );
+    } finally {
+      this.#readAlias = outerAlias;
+      this.#readColumns = outerColumns;
+    }
     const given =
       controls.selector ??
       (args.where === undefined
@@ -3966,7 +3981,15 @@ export class SqlQueries extends Queries {
         : this.#named(this.#escaped(controls.source), alias);
     if (bounded && laterals.length > 0)
       return {
-        sql: this.#windowFirst(alias, from, where, page, columns, laterals),
+        sql: this.#windowFirst(
+          alias,
+          from,
+          where,
+          page,
+          columns,
+          laterals,
+          new Set([...projected!, ...ordered!])
+        ),
         shape: prepared.shape,
       };
     return {
@@ -4008,22 +4031,16 @@ export class SqlQueries extends Queries {
       readonly offset?: Sql;
     },
     columns: Sql,
-    laterals: Sql[]
+    laterals: Sql[],
+    read: ReadonlySet<string>
   ): Sql {
     const a = this.adapter;
-    // The columns of `alias` the rest of the statement reads, and no other:
-    // `alias.*` would need the privilege on every column of the table, where
-    // the subqueries needed only those (a column-level grant). A shared
-    // body's slot is settled after this page is built, to its inline form or
-    // its key-set test ({@link sharingBodies}): both are read.
-    const read = columnsRead(
-      this.#texts(
-        sql`${columns} ${sql.join(laterals, " ")} ${page.orderBy ?? sql.empty}`
-      ),
-      Sql.leafText(this.#escaped(alias))!
-    );
+    // The page lists the columns of `alias` the rest of the statement reads
+    // ({@link at}), and no other: `alias.*` would need the privilege on every
+    // column of the table, where the subqueries needed only those (a
+    // column-level grant).
     const rows = assembleAdapterSelect(a, {
-      columns: listed(read.map((column) => this.#at(alias, column))),
+      columns: listed([...read].map((column) => this.#at(alias, column))),
       from,
       where,
       orderBy: page.orderBy,
@@ -4036,29 +4053,6 @@ export class SqlQueries extends Queries {
       joins: laterals,
       orderBy: page.orderBy,
     });
-  }
-  /**
-   * The text of `fragment` and of every form a shared body's slot in it may
-   * settle to, each read once, parts joined by a character no SQL holds.
-   */
-  #texts(fragment: Sql): string {
-    const placements = new Map<Sql, PlacedBody>();
-    for (const body of this.#shared?.order ?? [])
-      for (const placed of body.slots) placements.set(placed.slot, placed);
-    const parts: string[] = [];
-    const seen = new Set<Sql>();
-    const pending = [fragment];
-    for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
-      if (seen.has(next)) continue;
-      seen.add(next);
-      const { runs } = Sql.peekRuns(next, (node) => {
-        const placed = placements.get(node);
-        if (placed !== undefined) pending.push(placed.inline, placed.use);
-        return false;
-      });
-      for (const run of runs) parts.push(run.text);
-    }
-    return parts.join("\0");
   }
   /** {@link select}'s conjunction, in its order; `undefined` for none. */
   #selectWhere(
