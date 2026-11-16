@@ -132,7 +132,7 @@ describe("orderBy relation-depth deterministic contracts", () => {
         })
         .toStatement("$n")
     ).toBe(
-      'SELECT "q0"."id", (SELECT COALESCE(json_agg(json_build_object($1::text, "q4"."id")), \'[]\'::json) FROM (SELECT "q2"."id" FROM "public"."node" AS "q2" LEFT JOIN "public"."node" AS "q3" ON "q2"."parentId" = "q3"."id" WHERE "q0"."id" = "q2"."parentId" ORDER BY "q3"."label" ASC NULLS LAST, "q2"."id" ASC LIMIT $2) AS "q4") AS "children" FROM "public"."node" AS "q0" LEFT JOIN "public"."node" AS "q1" ON "q0"."parentId" = "q1"."id" ORDER BY "q1"."label" DESC NULLS FIRST, "q0"."id" ASC'
+      'SELECT "q0"."id", (SELECT COALESCE(json_agg(row_to_json("q4".*)), \'[]\'::json) FROM (SELECT "q2"."id" FROM "public"."node" AS "q2" LEFT JOIN "public"."node" AS "q3" ON "q2"."parentId" = "q3"."id" WHERE "q0"."id" = "q2"."parentId" ORDER BY "q3"."label" ASC NULLS LAST, "q2"."id" ASC LIMIT $1) AS "q4") AS "children" FROM "public"."node" AS "q0" LEFT JOIN "public"."node" AS "q1" ON "q0"."parentId" = "q1"."id" ORDER BY "q1"."label" DESC NULLS FIRST, "q0"."id" ASC'
     );
     const mysql = new TestQueryEngine(
       new PlanningDriver("mysql"),

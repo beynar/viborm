@@ -78,6 +78,7 @@ One statement on every database.
 | Optimization | PostgreSQL | Neon HTTP | MySQL | SQLite | D1 |
 |---|---|---|---|---|---|
 | `findUnique` calls in the same tick share one statement (`findUniqueBatching: true`) | ✅ | ✅ | ✅ | ✅ | ✅ (split at 100 binds) |
+| No `ORDER BY`: a unique key names at most one row | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 Opt-in since 1.4.1 (the shared read runs in the first call's async context).
 Calls are batched outside transactions when they target the same model, unique
@@ -85,6 +86,10 @@ key and projection, and their `where` is the key alone (string, int or bigint
 members). The batch is split at the driver's bind budget. 50 lookups in one
 tick: 50 statements become 1 (SQLite 1.29 → 0.63 ms, PGlite 7.75 → 0.60 ms).
 Implementation: `src/query-engine/find-unique-batch.ts`.
+
+A `findUnique` states no order since 1.15.0: PostgreSQL planned the sort of
+its one row all the same, 15 % of the statement's server time (35 against
+41 µs) and 9 % of the call (40 against 44 µs), local PostgreSQL 18.
 
 ## findFirst and findMany
 
@@ -121,6 +126,8 @@ subquery, nested to any depth, `_count` and polymorphic relations included.
 | Lean JSON spelling | Redundant column aliases dropped | Redundant column aliases dropped | Redundant column aliases dropped | `json_group_array(json_object(…))`, no extra `json()`/`COALESCE` | Same as SQLite |
 | Repeated relation bodies stated once in a `WITH` | ✅ `NOT MATERIALIZED` leaves | ✅ `NOT MATERIALIZED` leaves | ❌ | ❌ | ✅ `MATERIALIZED` non-leaf members |
 | Recursive projections | `LATERAL` derived table | `LATERAL` derived table | `LATERAL` derived table | Correlated CTE per reader | Correlated CTE per reader |
+| Relation object built from the whole row (`row_to_json`) | ✅ | ✅ | ❌ | ❌ | ❌ |
+| To-one relation joined `LEFT JOIN LATERAL` | ✅ (not under `relationsPerStatement`) | ✅ | ❌ | ❌ | ❌ |
 | Recursive edges ordered by key read from the walk, no table rejoined | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Recursive nodes read by key (opt-in: [`fewRows`](#opt-ins-what-only-your-data-knows)) | ✅ | ✅ | ❌ (ignored) | ❌ (ignored) | ❌ (ignored) |
 
@@ -130,6 +137,18 @@ subquery, nested to any depth, `_count` and polymorphic relations included.
   for every listed row: 1,040 rows of a 5,000-row tree with their ancestors
   went from 255 to 133 ms (1.10.0). A sibling order on a non-key field, a
   relation or a count still joins the table.
+- **Whole-row objects.** On PostgreSQL a related row's JSON is
+  `row_to_json` over its page, whose columns are named as the object's keys,
+  rather than `json_build_object` with one bound key per column: about 10 %
+  of a nested read's server time (20 users with their posts 205 → 184 µs).
+  A page carrying a many-to-many link row or a `distinct` keeps the pairs.
+- **Lateral to-one relations.** On PostgreSQL a to-one relation in a read is
+  a `LEFT JOIN LATERAL` rather than a subquery in the select list, so the
+  planner can cache the related row per key (`Memoize`) where many rows share
+  it: ten posts with their author and the author's posts, 178 → 145 µs on the
+  server, 17 % of the call. Not in a locking read, a `distinct` read, a
+  polymorphic relation or a recursive projection, nor under a relation budget
+  (`relationsPerStatement`, Neki), where each join would be one relation more.
 - **Alias trimming** makes plain PostgreSQL and MySQL reads about 9–11% shorter.
   The SQLite JSON spelling took a 9.4 MB include from 181 to 109 ms.
 - **Shared relation bodies.** A statement that repeats the same relation body

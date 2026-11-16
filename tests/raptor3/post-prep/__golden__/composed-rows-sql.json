@@ -127,7 +127,7 @@
   ],
   "findUnique": [
     {
-      "sql": "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"tenantId\" AS \"tenantId\", \"q0\".\"title\" AS \"title\", \"q0\".\"authorId\" AS \"authorId\", \"q0\".\"deletedAt\" AS \"deletedAt\", \"q0\".\"version\" AS \"version\" FROM \"post\" AS \"q0\" WHERE (\"q0\".\"id\" = ? AND (\"q0\".\"tenantId\" COLLATE BINARY = ? AND \"q0\".\"deletedAt\" IS NULL)) ORDER BY \"q0\".\"id\" ASC",
+      "sql": "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"tenantId\" AS \"tenantId\", \"q0\".\"title\" AS \"title\", \"q0\".\"authorId\" AS \"authorId\", \"q0\".\"deletedAt\" AS \"deletedAt\", \"q0\".\"version\" AS \"version\" FROM \"post\" AS \"q0\" WHERE (\"q0\".\"id\" = ? AND (\"q0\".\"tenantId\" COLLATE BINARY = ? AND \"q0\".\"deletedAt\" IS NULL))",
       "params": [10, "acme"]
     }
   ],

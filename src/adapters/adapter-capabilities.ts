@@ -101,6 +101,15 @@ export interface DatabaseAdapterCapabilities {
    */
   readsNodesByKey?: boolean;
   /**
+   * Whether a to-one relation a read projects is joined `LEFT JOIN LATERAL`
+   * rather than read by a scalar subquery: PostgreSQL then caches the related
+   * row per key (`Memoize`) where many rows share one, which a subquery in
+   * the select list never is — 18 % of a post → author → posts read. Not
+   * under {@link relationsPerStatement}: each join is one relation more.
+   * Absent: false.
+   */
+  joinsToOneLaterally?: boolean;
+  /**
    * The most terms one compound `SELECT` may chain, where the transport
    * bounds it below anything the engine writes: Cloudflare D1, 5. The engine
    * nests a longer union in derived tables of at most that many. Absent:
