@@ -1368,9 +1368,14 @@ interface SetTest {
  * sets it is tested against ({@link Queries.sharingBodies}).
  */
 export interface SharedBodies {
-  readonly byKey: Map<string, SharedBody>;
+  /** Made with the first body placed: most statements place none. */
+  byKey?: Map<string, SharedBody>;
   readonly order: SharedBody[];
-  readonly attach: Map<string, SqlSlot[]>;
+  /**
+   * Absent where no row joins a key set: only a statement held to a bound
+   * (`capabilities.relationsPerStatement`) flags one.
+   */
+  readonly attach?: Map<string, SqlSlot[]>;
   /**
    * The statement's root read, where it joins its key sets: its alias, and
    * its projection and `WHERE`, each place of which reads what it joins.

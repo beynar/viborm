@@ -400,7 +400,11 @@ export class MySQLAdapter implements DatabaseAdapter {
     installAdapterNamespace(this, namespace, "mysql");
     // Reads the installed value, so it cannot be a field initializer: those run
     // before the constructor body.
-    this.identifiers = createIdentifiers(quoteIdent, this.namespace, true);
+    this.identifiers = createIdentifiers(
+      quoteIdent,
+      this.namespace,
+      this.capabilities.namesQualifiedColumns
+    );
     installGeoPointSql(this, this.geoPoint);
     installAdapterInternals(this, {
       batchRefs: this.#batchRefs,
@@ -769,7 +773,7 @@ export class MySQLAdapter implements DatabaseAdapter {
         );
       }
 
-      return assembleSelectQuery(sql`SELECT ${parts.columns}`, parts, {
+      return assembleSelectQuery(parts, {
         forUpdate: "append",
         noLimitValue: this.noLimitValue,
       });
@@ -884,6 +888,7 @@ export class MySQLAdapter implements DatabaseAdapter {
   setOperations = createSetOperations();
 
   capabilities = {
+    namesQualifiedColumns: true,
     supportsReturning: false,
     supportsCteWithMutations: false, // MySQL CTEs are read-only
     supportsFullOuterJoin: false,

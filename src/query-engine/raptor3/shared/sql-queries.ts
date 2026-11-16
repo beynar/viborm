@@ -151,6 +151,24 @@ export interface SqlSelectControls extends SelectControls {
   unique?: boolean;
 }
 
+/** What {@link SqlQueries.page} states of one read's window. */
+interface Page {
+  readonly orderBy?: Sql;
+  /** The to-one order joins the page's FROM takes after its own. */
+  readonly joins?: Sql[];
+  readonly limit?: Sql;
+  readonly offset?: Sql;
+  readonly cursor?: Sql;
+  readonly distinct?: Sql;
+  readonly distinctOrderBy?: Sql;
+  readonly distinctOrder?: QueryParts["distinctOrder"];
+}
+/**
+ * A unique read's page: `findUnique` admits no order, window, cursor or
+ * `distinct` (`validation/model/args/find.ts`), and one row has no order.
+ */
+const UNIQUE_PAGE: Page = {};
+
 /** The adapter's arithmetic for each update operator that names one; a division is chosen by the column. */
 const ARITHMETIC: Partial<Record<string, "add" | "subtract" | "multiply">> = {
   increment: "add",
@@ -206,28 +224,65 @@ const bySlot = (bodies: readonly SharedBody[]): Map<Sql, SharedBody> => {
 
 export class SqlQueries extends Queries {
   declare readonly adapter: DatabaseAdapter;
-  // What the statements say most: the adapter's own, held from the start.
+  // What the statements say most: the adapter's own, read where it is said.
+  // Not held: a `SqlQueries` is made per call (`SqlOperationContext`), and
+  // seventeen fields filled for each one were 2 % of a `findUnique`'s client
+  // CPU (half of what making the call's context costs).
   get #a(): DatabaseAdapter {
     return this.adapter;
   }
-  readonly #and = this.#a.operators.and;
-  readonly #eq = this.#a.operators.eq;
-  readonly #at = this.#a.identifiers.column;
-  readonly #named = this.#a.identifiers.aliased;
-  readonly #escaped = this.#a.identifiers.escape;
-  readonly #cast = this.#a.expressions.cast;
-  readonly #inner = this.#a.joins.inner;
-  readonly #true = this.#a.literals.true;
-  readonly #false = this.#a.literals.false;
-  readonly #null = this.#a.literals.null;
-  readonly #literal = this.#a.literals.value;
-  readonly #document = this.#a.json.document;
-  readonly #object = this.#a.json.object;
+  get #and() {
+    return this.#a.operators.and;
+  }
+  get #eq() {
+    return this.#a.operators.eq;
+  }
+  get #at() {
+    return this.#a.identifiers.column;
+  }
+  get #named() {
+    return this.#a.identifiers.aliased;
+  }
+  get #escaped() {
+    return this.#a.identifiers.escape;
+  }
+  get #cast() {
+    return this.#a.expressions.cast;
+  }
+  get #inner() {
+    return this.#a.joins.inner;
+  }
+  get #true() {
+    return this.#a.literals.true;
+  }
+  get #false() {
+    return this.#a.literals.false;
+  }
+  get #null() {
+    return this.#a.literals.null;
+  }
+  get #literal() {
+    return this.#a.literals.value;
+  }
+  get #document() {
+    return this.#a.json.document;
+  }
+  get #object() {
+    return this.#a.json.object;
+  }
   /** A query read aside, under an alias. */
-  readonly #aside = this.#a.subqueries.correlate;
-  readonly #or = this.#a.operators.or;
-  readonly #isNull = this.#a.operators.isNull;
-  readonly #isNotNull = this.#a.operators.isNotNull;
+  get #aside() {
+    return this.#a.subqueries.correlate;
+  }
+  get #or() {
+    return this.#a.operators.or;
+  }
+  get #isNull() {
+    return this.#a.operators.isNull;
+  }
+  get #isNotNull() {
+    return this.#a.operators.isNotNull;
+  }
 
   /**
    * A raw `Sql` operand is PARENTHESIZED. A caller's fragment is an
@@ -321,10 +376,16 @@ export class SqlQueries extends Queries {
   }
   #sharingBodies(build: () => Sql): Sql {
     if (this.#shared !== undefined) return build();
+    // Read once per statement: a driver may answer it from its server's
+    // startup (`boundByServer`).
+    const budget = this.adapter.capabilities.relationsPerStatement;
+    // No bound, no flag ({@link flagging}), so no slot for one after each
+    // `FROM` item and no root scope: a fragment, a slot and a map entry per
+    // item of every statement, never read, were 2 % to 4 % of a read's
+    // client CPU.
     const shared: SharedBodies = {
-      byKey: new Map(),
       order: [],
-      attach: new Map(),
+      attach: budget === undefined ? undefined : new Map(),
     };
     this.#shared = shared;
     let statement: Sql;
@@ -344,7 +405,6 @@ export class SqlQueries extends Queries {
     // its bodies.
     if (repeated.length === 0) return statement;
     const walks = repeated.filter((body) => body.recursive === true);
-    const budget = this.adapter.capabilities.relationsPerStatement;
     const settle = (
       reaching: ReadonlySet<SharedBody>,
       flagged: FlagChoice = () => [],
@@ -439,7 +499,7 @@ export class SqlQueries extends Queries {
         stated.push(body);
         for (const placed of body.slots) placed.slot.settle(placed.use);
       } else for (const placed of body.slots) placed.slot.settle(placed.inline);
-    for (const slots of shared.attach.values())
+    for (const slots of shared.attach?.values() ?? [])
       for (const slot of slots) slot.settle(sql.empty);
     // A relation body is inlined where it reads no other shared body: a
     // nested one, inlined into every use of every body that reads it,
@@ -452,7 +512,7 @@ export class SqlQueries extends Queries {
     // How many places the statement reads each stated body at.
     const readers = new Map<SharedBody, number>();
     const attached = new Map<Sql, string>();
-    for (const [alias, slots] of shared.attach)
+    for (const [alias, slots] of shared.attach ?? [])
       for (const slot of slots) attached.set(slot, alias);
     const reads = new Set<SharedBody>();
     // The aliases the statement states (a body lowered more than once states
@@ -758,7 +818,7 @@ export class SqlQueries extends Queries {
         }
       }
     }
-    for (const [alias, slots] of shared.attach) {
+    for (const [alias, slots] of shared.attach ?? []) {
       const joined = joins.get(alias);
       if (joined === undefined) continue;
       for (const slot of slots) slot.settle(sql` ${sql.join(joined, " ")}`);
@@ -885,7 +945,11 @@ export class SqlQueries extends Queries {
       made = build();
       return of(made) ?? sql.empty;
     });
-    return of(made) === undefined ? made : into(made, statement);
+    // A statement that shared nothing is the one made: it is not put back.
+    const own = of(made);
+    return own === undefined || own === statement
+      ? made
+      : into(made, statement);
   }
   /** `args`, ordered by {@link defaultOrder} when it states no order. */
   #ordered(model: AnyModel, args: Arguments): Arguments {
@@ -1017,15 +1081,17 @@ export class SqlQueries extends Queries {
    * other joins and the clauses of its own query read `alias`.
    */
   #attached(model: AnyModel, alias: string): Sql {
-    return sql`${this.table(model, alias)}${this.#attachPoint(alias)}`;
+    const table = this.table(model, alias);
+    const point = this.#attachPoint(alias);
+    return point === sql.empty ? table : sql`${table}${point}`;
   }
-  /** The slot after `alias`'s `FROM` item ({@link attached}). */
+  /** The slot after `alias`'s `FROM` item ({@link attached}); none where no row joins a key set. */
   #attachPoint(alias: string): Sql {
-    const shared = this.#shared;
-    if (shared === undefined) return sql.empty;
+    const attach = this.#shared?.attach;
+    if (attach === undefined) return sql.empty;
     const slot = new SqlSlot(sql.empty);
-    const slots = shared.attach.get(alias);
-    if (slots === undefined) shared.attach.set(alias, [slot]);
+    const slots = attach.get(alias);
+    if (slots === undefined) attach.set(alias, [slot]);
     else slots.push(slot);
     return slot;
   }
@@ -1277,9 +1343,43 @@ export class SqlQueries extends Queries {
     return geoPoint;
   }
   projectedColumn(model: AnyModel, field: string, alias?: string): Sql {
-    const column = this.column(model, field, alias);
-    const leaf = this.scalarShape(model, field);
-    const state = this.physical(model, field).state;
+    const physical = this.physical(model, field);
+    return this.#spelled(
+      physical.state,
+      this.scalarShape(model, field),
+      alias ? this.#at(alias, physical.name) : this.#escaped(physical.name)
+    );
+  }
+  /**
+   * `model`'s `field` as a result column named by the field. Where the
+   * dialect names an unaliased qualified column by its own name
+   * (`capabilities.namesQualifiedColumns`, `own`), a column projected as it
+   * is stored, under the name it is stored by, is the column: known here as
+   * it is built, where `identifiers.aliased` read the text back to find the
+   * same answer, once per projected column of every statement (2 % to 4 %
+   * of a read's client CPU).
+   */
+  #projectedAs(
+    model: AnyModel,
+    field: string,
+    alias: string | undefined,
+    own: boolean
+  ): Sql {
+    const physical = this.physical(model, field);
+    const column = alias
+      ? this.#at(alias, physical.name)
+      : this.#escaped(physical.name);
+    const expression = this.#spelled(
+      physical.state,
+      this.scalarShape(model, field),
+      column
+    );
+    return own && expression === column && physical.name === field
+      ? column
+      : this.#named(expression, field);
+  }
+  /** A stored `column` in the spelling its projection carries its value in. */
+  #spelled(state: ScalarStateOf, leaf: Leaf, column: Sql): Sql {
     if (state.type === "bigint" && state.array !== true)
       return this.#cast(column, "text");
     if (
@@ -2696,11 +2796,12 @@ export class SqlQueries extends Queries {
     fields: readonly string[] = [],
     within?: PlacedBody["within"]
   ): { readonly body: SharedBody; readonly slot: Sql } {
-    let body = shared.byKey.get(key);
+    const byKey = (shared.byKey ??= new Map());
+    let body = byKey.get(key);
     if (body === undefined) {
       const name = `__shared_${shared.order.length}`;
       body = { name, slots: [], ...state(name) };
-      shared.byKey.set(key, body);
+      byKey.set(key, body);
       shared.order.push(body);
     }
     const { name } = body;
@@ -3486,17 +3587,7 @@ export class SqlQueries extends Queries {
     purpose?: RowPurpose,
     joined = true,
     approximate = false
-  ): {
-    readonly orderBy?: Sql;
-    /** The to-one order joins the page's FROM takes after its own. */
-    readonly joins?: Sql[];
-    readonly limit?: Sql;
-    readonly offset?: Sql;
-    readonly cursor?: Sql;
-    readonly distinct?: Sql;
-    readonly distinctOrderBy?: Sql;
-    readonly distinctOrder?: QueryParts["distinctOrder"];
-  } {
+  ): Page {
     const backward = args.take !== undefined && args.take < 0;
     const cursored = args.cursor !== undefined;
     const joins: OrderJoins | undefined = joined
@@ -3801,14 +3892,19 @@ export class SqlQueries extends Queries {
     // an ORDER, not a dependency (`g4/unit01-review-followup-3.md` finding K).
     // A locking read keeps its order terms correlated: PostgreSQL refuses
     // FOR UPDATE on the nullable side of an outer join.
-    const page = this.#page(
-      model,
-      args,
-      alias,
-      controls.purpose,
-      !controls.forUpdate,
-      controls.approximate
-    );
+    // A unique read asks the page owner nothing: the key's total order was
+    // completed and lowered here for every `findUnique`, then left out of its
+    // statement (`unique`): 6 % of its client CPU.
+    const page = controls.unique
+      ? UNIQUE_PAGE
+      : this.#page(
+          model,
+          args,
+          alias,
+          controls.purpose,
+          !controls.forUpdate,
+          controls.approximate
+        );
     const prepared = controls.projection ?? this.prepareProjection(model, args);
     // A locked row refuses an outer join's nullable side, a produced row is
     // no table's, and a `distinct` emulation reads columns, not joins. A
@@ -3853,7 +3949,7 @@ export class SqlQueries extends Queries {
       controls
     );
     const shared = this.#shared;
-    if (shared && controls.source === undefined && !controls.forUpdate)
+    if (shared?.attach && controls.source === undefined && !controls.forUpdate)
       shared.root ??= {
         alias,
         scope:
@@ -3879,7 +3975,7 @@ export class SqlQueries extends Queries {
         from,
         joins: joined(page.joins, laterals),
         where,
-        orderBy: controls.unique ? undefined : page.orderBy,
+        orderBy: page.orderBy,
         limit: page.limit,
         offset: page.offset,
         forUpdate: controls.forUpdate,
@@ -4428,12 +4524,17 @@ export class SqlQueries extends Queries {
     visible = false
   ): Sql[] {
     const columns: Sql[] = [];
+    const own = alias
+      ? this.adapter.capabilities.namesQualifiedColumns === true
+      : false;
     for (const field of projection.fields) {
       columns.push(
-        this.#named(
-          this.#lowerProjectionField(projection, field, alias, visible),
-          field.name
-        )
+        field.kind === "scalar"
+          ? this.#projectedAs(projection.model, field.name, alias, own)
+          : this.#named(
+              this.#lowerProjectionField(projection, field, alias, visible),
+              field.name
+            )
       );
     }
     return columns;

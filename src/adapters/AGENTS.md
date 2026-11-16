@@ -78,6 +78,23 @@ Every adapter method takes primitives/Sql and returns Sql. Never return strings.
 Adapters own the dialect spelling of both `INSERT ... VALUES` and
 `INSERT ... SELECT`; query-engine code must not hand-build either form.
 
+A builder returns ONE fragment where it can: the engine makes a fragment for
+every call and the statement's renderer walks each again, so a wrapper around
+a list, a fragment per clause, or a fragment for a name that is text of its
+own statement is paid for by every read (2026-11-16, PostgreSQL replay bench:
+`assembleSelectQuery` as one fragment 2 % to 4 % of a read's client CPU;
+`and`/`or`, `correlate`, the lateral joins and `json_build_object` 2 % to 4 %
+of a relation read's). `sql.join` takes the list's own ends; a name is
+quoted into the fragment's strings.
+
+`capabilities.namesQualifiedColumns` is the one statement of the fact
+`createIdentifiers` takes (PostgreSQL, MySQL, Snowflake: an unaliased
+`"t"."c"` result column is named `c`): `identifiers.aliased` leaves out an
+alias that only repeats the column's name, and the engine, which knows a
+column it projects as stored under its stored name as it builds it, does not
+ask (`SqlQueries.#projectedAs`, 2 % to 4 % of a read's client CPU). An adapter
+that does not state it is asked for every column and answers the same bytes.
+
 ### Rule 2: Implement for ALL Databases
 Every interface method MUST be implemented in postgres, mysql, AND sqlite. TypeScript enforces this, but incomplete implementations can return wrong results.
 

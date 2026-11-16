@@ -849,6 +849,7 @@ describe("dialect physical SQL vocabulary", () => {
 
   test("capability flags describe the grammar each adapter exposes", () => {
     expect(postgres.capabilities).toEqual({
+      namesQualifiedColumns: true,
       supportsReturning: true,
       supportsCteWithMutations: true,
       supportsFullOuterJoin: true,
@@ -864,6 +865,7 @@ describe("dialect physical SQL vocabulary", () => {
       joinsToOneLaterally: true,
     });
     expect(mysql.capabilities).toEqual({
+      namesQualifiedColumns: true,
       supportsReturning: false,
       supportsCteWithMutations: false,
       supportsFullOuterJoin: false,
