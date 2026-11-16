@@ -3778,9 +3778,15 @@ export class SqlQueries extends Queries {
     );
     const prepared = controls.projection ?? this.prepareProjection(model, args);
     // A locked row refuses an outer join's nullable side, a produced row is
-    // no table's, and a `distinct` emulation reads columns, not joins.
+    // no table's, and a `distinct` emulation reads columns, not joins. A
+    // bounded page is read first and joined after ({@link windowFirst}),
+    // which a page ordered through its own joins cannot be.
+    const bounded = page.limit !== undefined || page.offset !== undefined;
     const [projection, laterals] = this.#lateralScope(
-      controls.source === undefined && !controls.forUpdate && !page.distinct,
+      controls.source === undefined &&
+        !controls.forUpdate &&
+        !page.distinct &&
+        !(bounded && page.joins),
       () =>
         this.lowerProjection(prepared, alias, controls.purpose !== undefined)
     );
@@ -3822,16 +3828,22 @@ export class SqlQueries extends Queries {
             ? sql`${columns} ${where ?? sql.empty}`
             : sql`${columns} ${sql.join(laterals, " ")} ${where ?? sql.empty}`,
       };
+    const from =
+      controls.source === undefined
+        ? // FOR UPDATE refuses the nullable side of an outer join.
+          controls.forUpdate
+          ? this.table(model, alias)
+          : this.#attached(model, alias)
+        : this.#named(this.#escaped(controls.source), alias);
+    if (bounded && laterals.length > 0)
+      return {
+        sql: this.#windowFirst(alias, from, where, page, columns, laterals),
+        shape: prepared.shape,
+      };
     return {
       sql: assembleAdapterSelect(this.adapter, {
         columns,
-        from:
-          controls.source === undefined
-            ? // FOR UPDATE refuses the nullable side of an outer join.
-              controls.forUpdate
-              ? this.table(model, alias)
-              : this.#attached(model, alias)
-            : this.#named(this.#escaped(controls.source), alias),
+        from,
         joins: joined(page.joins, laterals),
         where,
         orderBy: controls.unique ? undefined : page.orderBy,
@@ -3849,6 +3861,41 @@ export class SqlQueries extends Queries {
       }),
       shape: prepared.shape,
     };
+  }
+  /**
+   * A bounded page read first, its rows then joined to their to-one
+   * relations and ordered again: a lateral join between the sort and its
+   * bound turns PostgreSQL's top-N sort into a whole one — 300,000 posts
+   * ordered by an unindexed column, 20 with their author: 63–92 ms as
+   * subqueries, 298–332 ms joined after the sort, 27 ms joined after the page.
+   */
+  #windowFirst(
+    alias: string,
+    from: Sql,
+    where: Sql | undefined,
+    page: {
+      readonly orderBy?: Sql;
+      readonly limit?: Sql;
+      readonly offset?: Sql;
+    },
+    columns: Sql,
+    laterals: Sql[]
+  ): Sql {
+    const a = this.adapter;
+    const rows = assembleAdapterSelect(a, {
+      columns: sql`${this.#escaped(alias)}.*`,
+      from,
+      where,
+      orderBy: page.orderBy,
+      limit: page.limit,
+      offset: page.offset,
+    });
+    return assembleAdapterSelect(a, {
+      columns,
+      from: this.#aside(rows, alias),
+      joins: laterals,
+      orderBy: page.orderBy,
+    });
   }
   /** {@link select}'s conjunction, in its order; `undefined` for none. */
   #selectWhere(
@@ -4656,42 +4703,15 @@ export class SqlQueries extends Queries {
       linkWhere,
     } = relation;
     const childAlias = this.#rowAlias(edge.target);
-    const childFields = Object.keys(projection.shape.fields);
-    const gates = projection.shape.gates ?? NO_GATES;
-    // The object is the page's whole row where the dialect builds one and the
-    // page holds exactly the object's members, each column carrying its
-    // value as the object would: no link row and no `distinct`, whose
-    // emulation reads the page's columns as stored.
-    const whole =
-      a.json.row !== undefined &&
-      linkRow === undefined &&
-      !nested.distinct?.length &&
-      projection.fields.length > 0 &&
-      projection.fields.length === childFields.length + gates.length &&
-      projection.fields.every(
-        ({ name }) =>
-          Object.hasOwn(projection.shape.fields, name) || gates.includes(name)
-      );
     // The page's own to-one relations join it laterally where they may: a
-    // `distinct` page's emulation reads its columns, not its joins.
+    // `distinct` page's emulation reads its columns, not its joins, and a
+    // page bounded by `take` or `skip` sorts before its bound, a sort the
+    // join between them would make whole ({@link select}).
     const [child, laterals] = this.#lateralScope(
-      !nested.distinct?.length,
-      () =>
-        whole
-          ? projection.fields.map((field) => {
-              const value = this.#lowerProjectionField(
-                projection,
-                field,
-                childAlias,
-                true
-              );
-              const leaf = projection.shape.fields[field.name];
-              return this.#named(
-                leaf ? this.#carriedValue(leaf, value) : value,
-                field.name
-              );
-            })
-          : this.lowerProjection(projection, childAlias, true)
+      !nested.distinct?.length &&
+        nested.take === undefined &&
+        nested.skip === undefined,
+      () => this.lowerProjection(projection, childAlias, true)
     );
     // A nested node is the ordinary page operator inside the parent's
     // correlation scope; `take: -n` reverses the window exactly as at the root.
@@ -4765,9 +4785,7 @@ export class SqlQueries extends Queries {
         : {}),
     });
     const pageAlias = this.alias();
-    const object = whole
-      ? a.json.row!(pageAlias)
-      : this.#pageObject(projection, pageAlias, linkRow, linkColumn);
+    const object = this.#pageObject(projection, pageAlias, linkRow, linkColumn);
     const from = this.#aside(page, pageAlias);
     if (edge.many) return this.#scalar({ columns: a.json.agg(object), from });
     const joins = lateral ? this.#laterals : undefined;

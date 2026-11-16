@@ -440,9 +440,6 @@ export class PostgresAdapter implements DatabaseAdapter {
     number: (expression: Sql): Sql => expression,
 
     object: postgresJsonObject,
-    // One call over the row, no key spelled: 10 % of a nested read's server
-    // time against `json_build_object` with a bound key per column.
-    row: (alias: string): Sql => sql.raw(`row_to_json(${quoteIdent(alias)}.*)`),
 
     array: (items: Sql[]): Sql => {
       if (items.length === 0) return sql.raw`'[]'::json`;

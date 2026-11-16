@@ -518,13 +518,6 @@ export interface DatabaseAdapter {
     number: (expression: Sql) => Sql;
     /** Build JSON object from key-value pairs */
     object: (pairs: [string, Sql][]) => Sql;
-    /**
-     * The JSON object of every column of the row `alias` names, each keyed by
-     * its column name and spelled as {@link object} spells it (PostgreSQL's
-     * `row_to_json`). Optional: a dialect without one builds the object from
-     * its pairs.
-     */
-    row?: (alias: string) => Sql;
     /** Build JSON array from items */
     array: (items: Sql[]) => Sql;
     /** Empty JSON array literal: '[]'::json (PG), JSON_ARRAY() (MySQL), '[]' (SQLite) */

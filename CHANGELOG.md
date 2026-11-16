@@ -53,19 +53,19 @@ Versioning.
   their relation; the memory allocated is the same, and the latency of a small
   read does not change measurably. A driver whose execution or parsers a
   caller replaced, and a supplied pool that ignores `rowMode`, keep keyed rows.
-- **PostgreSQL reads send leaner SQL.** Three costs Drizzle does not pay are
-  gone. A related row's JSON is `row_to_json` over its page instead of
-  `json_build_object` with a bound key per column. A to-one relation is a
-  `LEFT JOIN LATERAL` instead of a subquery in the select list, so PostgreSQL
-  can cache the related row per key where many rows share it (not under
-  `relationsPerStatement`, where each join is one relation more). And a
-  `findUnique` no longer states an `ORDER BY` for its one row, on every
-  database. The answers are the same, key order included. Measured on a local
-  PostgreSQL 18 through pg, best batch of ten alternated runs: 20 users with
-  their posts 12 % faster, ten posts with their author and the author's posts
-  17 %, a user with two filtered posts 9 %, a `findUnique` 9 %. With
-  `namedStatements`, the reads with relations now match or beat Drizzle 1.0's
-  relational API without prepared statements.
+- **PostgreSQL reads join their to-one relations laterally, and a
+  `findUnique` states no order.** A to-one relation is a `LEFT JOIN LATERAL`
+  instead of a subquery in the select list, so PostgreSQL can cache the
+  related row per key where many rows share it. A read bounded by `take` or
+  `skip` is paged first and joined after, which also makes it faster when it
+  is sorted on an unindexed column (300,000 posts, 20 by title with their
+  author: 54 → 28 ms). A bounded related page, a read ordered through a
+  relation and bounded, a locking or `distinct` read, and a statement under
+  `relationsPerStatement` keep subqueries. A `findUnique` no longer states an
+  `ORDER BY` for its one row, on every database. The answers are the same,
+  key order included. Measured on a local PostgreSQL 18 through pg: ten posts
+  with their author and the author's posts 14 % faster (best of eight
+  alternated runs), a `findUnique` 9 % (isolated A/B).
 
 ## 1.14.0 — 2026-11-15
 

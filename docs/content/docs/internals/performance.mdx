@@ -126,7 +126,6 @@ subquery, nested to any depth, `_count` and polymorphic relations included.
 | Lean JSON spelling | Redundant column aliases dropped | Redundant column aliases dropped | Redundant column aliases dropped | `json_group_array(json_object(…))`, no extra `json()`/`COALESCE` | Same as SQLite |
 | Repeated relation bodies stated once in a `WITH` | ✅ `NOT MATERIALIZED` leaves | ✅ `NOT MATERIALIZED` leaves | ❌ | ❌ | ✅ `MATERIALIZED` non-leaf members |
 | Recursive projections | `LATERAL` derived table | `LATERAL` derived table | `LATERAL` derived table | Correlated CTE per reader | Correlated CTE per reader |
-| Relation object built from the whole row (`row_to_json`) | ✅ | ✅ | ❌ | ❌ | ❌ |
 | To-one relation joined `LEFT JOIN LATERAL` | ✅ (not under `relationsPerStatement`) | ✅ | ❌ | ❌ | ❌ |
 | Recursive edges ordered by key read from the walk, no table rejoined | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Recursive nodes read by key (opt-in: [`fewRows`](#opt-ins-what-only-your-data-knows)) | ✅ | ✅ | ❌ (ignored) | ❌ (ignored) | ❌ (ignored) |
@@ -137,18 +136,22 @@ subquery, nested to any depth, `_count` and polymorphic relations included.
   for every listed row: 1,040 rows of a 5,000-row tree with their ancestors
   went from 255 to 133 ms (1.10.0). A sibling order on a non-key field, a
   relation or a count still joins the table.
-- **Whole-row objects.** On PostgreSQL a related row's JSON is
-  `row_to_json` over its page, whose columns are named as the object's keys,
-  rather than `json_build_object` with one bound key per column: about 10 %
-  of a nested read's server time (20 users with their posts 205 → 184 µs).
-  A page carrying a many-to-many link row or a `distinct` keeps the pairs.
 - **Lateral to-one relations.** On PostgreSQL a to-one relation in a read is
   a `LEFT JOIN LATERAL` rather than a subquery in the select list, so the
   planner can cache the related row per key (`Memoize`) where many rows share
   it: ten posts with their author and the author's posts, 178 → 145 µs on the
-  server, 17 % of the call. Not in a locking read, a `distinct` read, a
+  server, 14 % of the call. A read bounded by `take` or `skip` is paged first
+  and joined after, then ordered again: a join between a sort and its bound
+  would make a top-N sort a whole one (300,000 posts ordered by an unindexed
+  title, 20 with their author: 54 ms as subqueries, 604 ms joined after the
+  sort, 28 ms paged first). Not in a locking read, a `distinct` read, a read
+  ordered through a relation and bounded, a bounded related page, a
   polymorphic relation or a recursive projection, nor under a relation budget
   (`relationsPerStatement`, Neki), where each join would be one relation more.
+- **No whole-row reads.** Relation objects stay `json_build_object` with a
+  key per column: `row_to_json(alias.*)` measured 10 % faster on a nested
+  read, but PlanetScale Postgres (Neki) refuses a whole-row read, and the
+  engine does not know it talks to Neki before its first statement.
 - **Alias trimming** makes plain PostgreSQL and MySQL reads about 9–11% shorter.
   The SQLite JSON spelling took a 9.4 MB include from 181 to 109 ms.
 - **Shared relation bodies.** A statement that repeats the same relation body
