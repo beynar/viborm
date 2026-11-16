@@ -161,6 +161,33 @@ const ARITHMETIC: Partial<Record<string, "add" | "subtract" | "multiply">> = {
 /** The column a lateral join of a to-one relation answers its object in. */
 const LATERAL_VALUE = "r";
 
+/**
+ * The columns `text` reads through the alias `quoted` names (`"q0"."id"`),
+ * each once, in the order first read; the alias's quote closes a name and
+ * doubles inside one.
+ */
+const columnsRead = (text: string, quoted: string): string[] => {
+  const quote = quoted[0]!;
+  const prefix = `${quoted}.${quote}`;
+  const names = new Set<string>();
+  for (
+    let at = text.indexOf(prefix);
+    at !== -1;
+    at = text.indexOf(prefix, at)
+  ) {
+    let name = "";
+    let index = at + prefix.length;
+    for (; index < text.length; index++) {
+      if (text[index] !== quote) name += text[index];
+      else if (text[index + 1] === quote) name += text[index++];
+      else break;
+    }
+    names.add(name);
+    at = index;
+  }
+  return [...names];
+};
+
 /** The joins of each list in order; none where every list is empty. */
 const joined = (
   ...lists: readonly (readonly Sql[] | undefined)[]
@@ -3882,8 +3909,18 @@ export class SqlQueries extends Queries {
     laterals: Sql[]
   ): Sql {
     const a = this.adapter;
+    // The columns of `alias` the rest of the statement reads, and no other:
+    // `alias.*` would need the privilege on every column of the table, where
+    // the subqueries needed only those (a column-level grant).
+    const quoted = Sql.leafText(this.#escaped(alias))!;
+    const read = columnsRead(
+      Sql.peek(
+        sql`${columns} ${sql.join(laterals, " ")} ${page.orderBy ?? sql.empty}`
+      ).strings.join("\0"),
+      quoted
+    );
     const rows = assembleAdapterSelect(a, {
-      columns: sql`${this.#escaped(alias)}.*`,
+      columns: listed(read.map((column) => this.#at(alias, column))),
       from,
       where,
       orderBy: page.orderBy,

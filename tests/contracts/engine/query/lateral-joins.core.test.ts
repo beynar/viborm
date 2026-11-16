@@ -203,7 +203,7 @@ describe("PostgreSQL to-one relations", () => {
       include: { author: true },
     });
     expect(statement.toStatement("$n")).toBe(
-      'SELECT "q0"."id", "q0"."title", "q0"."content", "q0"."authorId", "q3"."r" AS "author" FROM (SELECT "q0".* FROM "public"."posts" AS "q0" ORDER BY "q0"."title" ASC, "q0"."id" ASC LIMIT $1) AS "q0" LEFT JOIN LATERAL (SELECT json_build_object($2::text, "q2"."id", $3::text, "q2"."name", $4::text, "q2"."email") AS "r" FROM (SELECT "q1"."id", "q1"."name", "q1"."email" FROM "public"."Author" AS "q1" WHERE "q0"."authorId" = "q1"."id" LIMIT $5) AS "q2") AS "q3" ON TRUE ORDER BY "q0"."title" ASC, "q0"."id" ASC'
+      'SELECT "q0"."id", "q0"."title", "q0"."content", "q0"."authorId", "q3"."r" AS "author" FROM (SELECT "q0"."id", "q0"."title", "q0"."content", "q0"."authorId" FROM "public"."posts" AS "q0" ORDER BY "q0"."title" ASC, "q0"."id" ASC LIMIT $1) AS "q0" LEFT JOIN LATERAL (SELECT json_build_object($2::text, "q2"."id", $3::text, "q2"."name", $4::text, "q2"."email") AS "r" FROM (SELECT "q1"."id", "q1"."name", "q1"."email" FROM "public"."Author" AS "q1" WHERE "q0"."authorId" = "q1"."id" LIMIT $5) AS "q2") AS "q3" ON TRUE ORDER BY "q0"."title" ASC, "q0"."id" ASC'
     );
     expect(statement.values).toEqual([20, "id", "name", "email", 1]);
   });
