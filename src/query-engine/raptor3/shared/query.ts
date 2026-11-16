@@ -1429,9 +1429,17 @@ interface SetTest {
  * sets it is tested against ({@link Queries.sharingBodies}).
  */
 export interface SharedBodies {
-  /** Made with the first body placed: most statements place none. */
+  /** Made with the first body stated: most statements state none. */
   byKey?: Map<string, SharedBody>;
-  readonly order: SharedBody[];
+  readonly order: (SharedBody | UnstatedBody)[];
+  /**
+   * The relation bodies lowered and not yet stated, by the table and the key
+   * columns of their key set: two bodies are one only where these are the
+   * same, so a body alone in its own is never compared with another, and its
+   * key set and key are not built. All are stated, in order, before any other
+   * body is placed ({@link UnstatedBody}).
+   */
+  alone?: Map<string, UnstatedBody>;
   /**
    * Absent where no row joins a key set: only a statement held to a bound
    * (`capabilities.relationsPerStatement`) flags one.
@@ -1445,6 +1453,17 @@ export interface SharedBodies {
 }
 /** One place a shared body was lowered at ({@link SharedBody}). */
 export type PlacedBody = SharedBody["slots"][number];
+/**
+ * A relation body lowered at one place, its key set not stated: its name and
+ * its place in {@link SharedBodies.order} are held as a stated body's are, and
+ * the statement settles its slot to `inline` unless `state` ran first, which
+ * puts the stated body in its place.
+ */
+export interface UnstatedBody {
+  readonly name: string;
+  readonly slots: readonly [Pick<PlacedBody, "slot" | "inline">];
+  readonly state: () => void;
+}
 /** The places one alias tests key sets on the same columns, and the sets. */
 export interface TestedColumns {
   readonly test: SetTest;

@@ -103,6 +103,14 @@ Versioning.
   - a nested document is decoded by walking its own keys while they come in
     the selection's order, as PostgreSQL and SQLite answer them; MySQL, which
     sorts a document's keys, is read as before.
+- **A read filtered through a relation spends about 14 % less CPU in
+  VibORM.** On a database whose statements share their relation bodies (every
+  PostgreSQL driver, D1), a relation filter (`posts: { some: … }`) built the
+  shared form of its body, and a key to compare it with the others, even where
+  the statement holds no other: nearly every read. They are now built when a
+  second body of the same table appears. The SQL a read sends and its answers
+  are the same. Measured as above, 20 users filtered by a related post:
+  9.9 → 8.5 µs of CPU per call.
 
 ## 1.14.2 — 2026-11-16
 

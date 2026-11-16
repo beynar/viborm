@@ -126,6 +126,7 @@ import {
   states,
   type TestedColumns,
   throughDerived,
+  type UnstatedBody,
 } from "./query";
 import { type CallScope, Parameter, type RowPurpose } from "./row-scope";
 import { RawRows, RowsOf } from "./rows-of";
@@ -388,7 +389,7 @@ export class SqlQueries extends Queries {
     }
     const repeated: SharedBody[] = [];
     for (const body of shared.order)
-      if (body.slots.length > 1) repeated.push(body);
+      if (!("state" in body) && body.slots.length > 1) repeated.push(body);
       else body.slots[0]!.slot.settle(body.slots[0]!.inline);
     // A statement that repeats no body is the one it was built as: none is
     // stated and no row joins a flag (an attach slot is placed empty), so it
@@ -2746,55 +2747,111 @@ export class SqlQueries extends Queries {
       conditions.length === 0
     )
       return inline;
-    const query = assembleAdapterSelect(a, {
-      columns: listed(
-        edge.pairs.map((pair, index) =>
-          this.#named(this.column(edge.target, pair.target, child), `k${index}`)
-        )
-      ),
-      from: this.#attached(edge.target, child),
-      where: this.#and(
-        ...conditions,
-        ...(quantified.holds ? this.#setBound(edge.target, child) : [])
-      ),
-    });
-    const placed = this.#placed(
-      shared,
-      sharedKey(query),
-      () => ({ query, correlated: true }),
-      inline,
-      quantified,
-      parent,
-      edge.source,
-      edge.pairs.map((pair) => pair.source)
-    );
-    enclosing.body = placed.body;
-    return placed.slot;
+    // What the key set reads of where it is lowered is read here; the rest of
+    // it is a function of these values, built when the body is stated. Where
+    // no row joins a key set, its `FROM` item has no slot: it is the table
+    // the test in place reads.
+    const from =
+      shared.attach === undefined ? table : this.#attached(edge.target, child);
+    const bound = quantified.holds ? this.#setBound(edge.target, child) : [];
+    const place = (held?: UnstatedBody): Sql => {
+      const query = assembleAdapterSelect(a, {
+        columns: listed(
+          edge.pairs.map((pair, index) =>
+            this.#named(
+              this.column(edge.target, pair.target, child),
+              `k${index}`
+            )
+          )
+        ),
+        from,
+        where: this.#and(...conditions, ...bound),
+      });
+      const placed = this.#placed(
+        shared,
+        () => sharedKey(query),
+        () => ({ query, correlated: true }),
+        inline,
+        quantified,
+        parent,
+        edge.source,
+        edge.pairs.map((pair) => pair.source),
+        undefined,
+        held
+      );
+      enclosing.body = placed.body;
+      return placed.slot;
+    };
+    // The first body of each key set's table and key columns is not stated
+    // while it is alone: nearly every statement lowers each relation filter
+    // once and settles it in place, and its key set, its key (a read of the
+    // key set's whole text) and the test of that set were built for nothing,
+    // 2 µs of a read's 11 on PostgreSQL (2026-11-16). Only while the statement
+    // has stated no body, joins no key set and pins no table: any other body
+    // states these first ({@link placed}), in the order they were lowered, so
+    // every body has the name and the place it had.
+    if (
+      shared.byKey === undefined &&
+      shared.attach === undefined &&
+      this.#pinned === undefined
+    ) {
+      const alone = (shared.alone ??= new Map());
+      const shape = `${tableOf(edge.target)}\0${edge.pairs
+        .map((pair) => this.columnName(edge.target, pair.target))
+        .join("\0")}`;
+      if (!alone.has(shape)) {
+        const slot = new SqlSlot(inline);
+        const held: UnstatedBody = {
+          name: `__shared_${shared.order.length}`,
+          slots: [{ slot, inline }],
+          state: () => {
+            place(held);
+          },
+        };
+        alone.set(shape, held);
+        shared.order.push(held);
+        return slot;
+      }
+    }
+    return place();
   }
   /**
-   * A place the statement reads a shared body at: the body `key` names,
+   * A place the statement reads a shared body at: the body `keyed` names,
    * stated once (`state`, where it is new), and the slot the statement
    * settles to `inline`, or to a test of the body as `quantified` reads it:
    * of the keys `fields` of `model` name on `alias`, where it has keys.
+   * `held`: the place is that of a relation body lowered earlier and not
+   * stated then ({@link UnstatedBody}), whose name, slot and order it takes.
+   * Any other place first states every such body, in order: the one placed
+   * may be one of them again, and its key reads the slots it holds, each
+   * holding its test of a set once its body is stated.
    */
   #placed(
     shared: SharedBodies,
-    key: string,
+    keyed: () => string,
     state: (name: string) => Omit<SharedBody, "name" | "slots">,
     inline: Sql,
     quantified: Quantified,
     alias: string,
     model?: AnyModel,
     fields: readonly string[] = [],
-    within?: PlacedBody["within"]
+    within?: PlacedBody["within"],
+    held?: UnstatedBody
   ): { readonly body: SharedBody; readonly slot: Sql } {
+    const alone = shared.alone;
+    if (held === undefined && alone !== undefined) {
+      shared.alone = undefined;
+      for (const unstated of alone.values()) unstated.state();
+    }
     const byKey = (shared.byKey ??= new Map());
+    const key = keyed();
     let body = byKey.get(key);
     if (body === undefined) {
-      const name = `__shared_${shared.order.length}`;
+      const name = held?.name ?? `__shared_${shared.order.length}`;
       body = { name, slots: [], ...state(name) };
       byKey.set(key, body);
-      shared.order.push(body);
+      if (held === undefined) shared.order.push(body);
+      else shared.order[shared.order.indexOf(held)] = body;
     }
     const { name } = body;
     const use = quantified.of(
@@ -2812,7 +2869,10 @@ export class SqlQueries extends Queries {
           : this.#true()
       )
     );
-    const slot = new SqlSlot(use);
+    // A body's key reads the slots it holds as they stand: a stated body's
+    // slot holds its test of the set until the statement settles it.
+    const slot = held?.slots[0].slot ?? new SqlSlot(use);
+    if (held !== undefined) slot.settle(use);
     body.slots.push({
       slot,
       inline,
@@ -2871,12 +2931,12 @@ export class SqlQueries extends Queries {
     // never is ({@link setBound}): the two, and two bounds, are not one set.
     const bound = quantified.holds ? this.#setBound(model, child) : [];
     const bounded = bound.length > 0;
-    const key = bounded
-      ? `${sharedKey(walk)} bounded ${sharedKey(bound[0]!)}`
-      : sharedKey(walk);
     const { body, slot } = this.#placed(
       shared,
-      key,
+      () =>
+        bounded
+          ? `${sharedKey(walk)} bounded ${sharedKey(bound[0]!)}`
+          : sharedKey(walk),
       (name) => ({
         query: this.#reachingSet(name, edge, child, closure, stated, bounded),
         correlated: false,
@@ -3205,7 +3265,7 @@ export class SqlQueries extends Queries {
     });
     return this.#placed(
       shared,
-      sharedKey(query),
+      () => sharedKey(query),
       () => ({ query, correlated: false }),
       a.filters.some(inline),
       { of: (read) => a.filters.some(read), holds: true },
