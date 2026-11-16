@@ -144,6 +144,11 @@ export interface SqlSelectControls extends SelectControls {
   condition?: Sql | ((alias: string) => Sql);
   /** The first order term is a distance an index may serve: {@link approximateOrder}. */
   approximate?: boolean;
+  /**
+   * The selector names at most one row (`findUnique`): no order is stated,
+   * since one row has none, and planning one cost PostgreSQL 15 % of the read.
+   */
+  unique?: boolean;
 }
 
 /** The adapter's arithmetic for each update operator that names one; a division is chosen by the column. */
@@ -151,6 +156,44 @@ const ARITHMETIC: Partial<Record<string, "add" | "subtract" | "multiply">> = {
   increment: "add",
   decrement: "subtract",
   multiply: "multiply",
+};
+
+/** The column a lateral join of a to-one relation answers its object in. */
+const LATERAL_VALUE = "r";
+
+/**
+ * The columns `text` reads through the alias `quoted` names (`"q0"."id"`),
+ * each once, in the order first read; the alias's quote closes a name and
+ * doubles inside one.
+ */
+const columnsRead = (text: string, quoted: string): string[] => {
+  const quote = quoted[0]!;
+  const prefix = `${quoted}.${quote}`;
+  const names = new Set<string>();
+  for (
+    let at = text.indexOf(prefix);
+    at !== -1;
+    at = text.indexOf(prefix, at)
+  ) {
+    let name = "";
+    let index = at + prefix.length;
+    for (; index < text.length; index++) {
+      if (text[index] !== quote) name += text[index];
+      else if (text[index + 1] === quote) name += text[index++];
+      else break;
+    }
+    names.add(name);
+    at = index;
+  }
+  return [...names];
+};
+
+/** The joins of each list in order; none where every list is empty. */
+const joined = (
+  ...lists: readonly (readonly Sql[] | undefined)[]
+): Sql[] | undefined => {
+  const joins = lists.flatMap((list) => list ?? []);
+  return joins.length === 0 ? undefined : joins;
 };
 
 /** The body each slot of a statement was settled from. */
@@ -229,6 +272,12 @@ export class SqlQueries extends Queries {
    */
   #bounded = false;
   /**
+   * The joins of the statement part lowering here that a to-one relation it
+   * projects is read through ({@link lateralScope}); `undefined`, a scalar
+   * subquery reads it.
+   */
+  #laterals: Sql[] | undefined;
+  /**
    * `build`'s statement, where the adapter shares relation bodies
    * (`capabilities.sharesRelationBodies`): each body the statement lowers
    * more than once is stated once, in a `WITH` before it, as the key set
@@ -248,6 +297,28 @@ export class SqlQueries extends Queries {
    * (PostgreSQL holds a one-column set as an array instead, computed once).
    * The bound is the driver's to state (Neki: 256); absent, nothing changes.
    */
+  /**
+   * `lower`'s value and the lateral joins of the to-one relations it projects
+   * (`capabilities.joinsToOneLaterally`), where `open` and no relation budget
+   * holds; none otherwise. Every projection lowered inside reads its own.
+   */
+  #lateralScope<T>(open: boolean, lower: () => T): [T, Sql[]] {
+    const outer = this.#laterals;
+    const joins: Sql[] = [];
+    const { joinsToOneLaterally, relationsPerStatement } =
+      this.adapter.capabilities;
+    this.#laterals =
+      open &&
+      joinsToOneLaterally === true &&
+      relationsPerStatement === undefined
+        ? joins
+        : undefined;
+    try {
+      return [lower(), joins];
+    } finally {
+      this.#laterals = outer;
+    }
+  }
   #sharingBodies(build: () => Sql): Sql {
     if (this.#shared !== undefined) return build();
     const shared: SharedBodies = {
@@ -3739,10 +3810,18 @@ export class SqlQueries extends Queries {
       controls.approximate
     );
     const prepared = controls.projection ?? this.prepareProjection(model, args);
-    const projection = this.lowerProjection(
-      prepared,
-      alias,
-      controls.purpose !== undefined
+    // A locked row refuses an outer join's nullable side, a produced row is
+    // no table's, and a `distinct` emulation reads columns, not joins. A
+    // bounded page is read first and joined after ({@link windowFirst}),
+    // which a page ordered through its own joins cannot be.
+    const bounded = page.limit !== undefined || page.offset !== undefined;
+    const [projection, laterals] = this.#lateralScope(
+      controls.source === undefined &&
+        !controls.forUpdate &&
+        !page.distinct &&
+        !(bounded && page.joins),
+      () =>
+        this.lowerProjection(prepared, alias, controls.purpose !== undefined)
     );
     const given =
       controls.selector ??
@@ -3775,20 +3854,32 @@ export class SqlQueries extends Queries {
     );
     const shared = this.#shared;
     if (shared && controls.source === undefined && !controls.forUpdate)
-      shared.root ??= { alias, scope: sql`${columns} ${where ?? sql.empty}` };
+      shared.root ??= {
+        alias,
+        scope:
+          laterals.length === 0
+            ? sql`${columns} ${where ?? sql.empty}`
+            : sql`${columns} ${sql.join(laterals, " ")} ${where ?? sql.empty}`,
+      };
+    const from =
+      controls.source === undefined
+        ? // FOR UPDATE refuses the nullable side of an outer join.
+          controls.forUpdate
+          ? this.table(model, alias)
+          : this.#attached(model, alias)
+        : this.#named(this.#escaped(controls.source), alias);
+    if (bounded && laterals.length > 0)
+      return {
+        sql: this.#windowFirst(alias, from, where, page, columns, laterals),
+        shape: prepared.shape,
+      };
     return {
       sql: assembleAdapterSelect(this.adapter, {
         columns,
-        from:
-          controls.source === undefined
-            ? // FOR UPDATE refuses the nullable side of an outer join.
-              controls.forUpdate
-              ? this.table(model, alias)
-              : this.#attached(model, alias)
-            : this.#named(this.#escaped(controls.source), alias),
-        joins: page.joins,
+        from,
+        joins: joined(page.joins, laterals),
         where,
-        orderBy: page.orderBy,
+        orderBy: controls.unique ? undefined : page.orderBy,
         limit: page.limit,
         offset: page.offset,
         forUpdate: controls.forUpdate,
@@ -3803,6 +3894,75 @@ export class SqlQueries extends Queries {
       }),
       shape: prepared.shape,
     };
+  }
+  /**
+   * A bounded page read first, its rows then joined to their to-one
+   * relations and ordered again: a lateral join between the sort and its
+   * bound turns PostgreSQL's top-N sort into a whole one — 300,000 posts
+   * ordered by an unindexed column, 20 with their author: 63–92 ms as
+   * subqueries, 298–332 ms joined after the sort, 27 ms joined after the page.
+   */
+  #windowFirst(
+    alias: string,
+    from: Sql,
+    where: Sql | undefined,
+    page: {
+      readonly orderBy?: Sql;
+      readonly limit?: Sql;
+      readonly offset?: Sql;
+    },
+    columns: Sql,
+    laterals: Sql[]
+  ): Sql {
+    const a = this.adapter;
+    // The columns of `alias` the rest of the statement reads, and no other:
+    // `alias.*` would need the privilege on every column of the table, where
+    // the subqueries needed only those (a column-level grant). A shared
+    // body's slot is settled after this page is built, to its inline form or
+    // its key-set test ({@link sharingBodies}): both are read.
+    const read = columnsRead(
+      this.#texts(
+        sql`${columns} ${sql.join(laterals, " ")} ${page.orderBy ?? sql.empty}`
+      ),
+      Sql.leafText(this.#escaped(alias))!
+    );
+    const rows = assembleAdapterSelect(a, {
+      columns: listed(read.map((column) => this.#at(alias, column))),
+      from,
+      where,
+      orderBy: page.orderBy,
+      limit: page.limit,
+      offset: page.offset,
+    });
+    return assembleAdapterSelect(a, {
+      columns,
+      from: this.#aside(rows, alias),
+      joins: laterals,
+      orderBy: page.orderBy,
+    });
+  }
+  /**
+   * The text of `fragment` and of every form a shared body's slot in it may
+   * settle to, each read once, parts joined by a character no SQL holds.
+   */
+  #texts(fragment: Sql): string {
+    const placements = new Map<Sql, PlacedBody>();
+    for (const body of this.#shared?.order ?? [])
+      for (const placed of body.slots) placements.set(placed.slot, placed);
+    const parts: string[] = [];
+    const seen = new Set<Sql>();
+    const pending = [fragment];
+    for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+      if (seen.has(next)) continue;
+      seen.add(next);
+      const { runs } = Sql.peekRuns(next, (node) => {
+        const placed = placements.get(node);
+        if (placed !== undefined) pending.push(placed.inline, placed.use);
+        return false;
+      });
+      for (const run of runs) parts.push(run.text);
+    }
+    return parts.join("\0");
   }
   /** {@link select}'s conjunction, in its order; `undefined` for none. */
   #selectWhere(
@@ -3866,6 +4026,7 @@ export class SqlQueries extends Queries {
               ? undefined
               : this.prepareSelector(model, args.where, true, false),
           purpose: "root",
+          unique: true,
         });
         return {
           query,
@@ -4420,15 +4581,19 @@ export class SqlQueries extends Queries {
         field.edge,
         alias ?? "",
         field.recurrence
-          ? this.#lowerRecursiveRelationProjection(
-              field,
-              field.recurrence,
-              alias ?? ""
-            )
-          : this.#lowerRelationProjection(field, alias ?? "")
+          ? this.#lateralScope(false, () =>
+              this.#lowerRecursiveRelationProjection(
+                field,
+                field.recurrence!,
+                alias ?? ""
+              )
+            )[0]
+          : this.#lowerRelationProjection(field, alias ?? "", true)
       );
     } else {
-      expression = this.#lowerSpecialProjectionField(projection, field, alias);
+      expression = this.#lateralScope(false, () =>
+        this.#lowerSpecialProjectionField(projection, field, alias)
+      )[0];
     }
     return expression;
   }
@@ -4593,7 +4758,8 @@ export class SqlQueries extends Queries {
   }
   #lowerRelationProjection(
     relation: PreparedRelationProjection,
-    alias: string
+    alias: string,
+    lateral = false
   ): Sql {
     const a = this.adapter;
     const {
@@ -4604,11 +4770,29 @@ export class SqlQueries extends Queries {
       linkWhere,
     } = relation;
     const childAlias = this.#rowAlias(edge.target);
-    const child = this.lowerProjection(projection, childAlias, true);
-    const childFields = Object.keys(projection.shape.fields);
+    // The page's own to-one relations join it laterally where they may: a
+    // `distinct` page's emulation reads its columns, not its joins, and a
+    // page bounded by `take` or `skip` sorts before its bound, a sort the
+    // join between them would make whole ({@link select}).
+    const [child, laterals] = this.#lateralScope(
+      !nested.distinct?.length &&
+        nested.take === undefined &&
+        nested.skip === undefined,
+      () => this.lowerProjection(projection, childAlias, true)
+    );
     // A nested node is the ordinary page operator inside the parent's
     // correlation scope; `take: -n` reverses the window exactly as at the root.
     const window = this.#page(edge.target, nested, childAlias, "related");
+    // Related rows with no order, page, cursor or `distinct` of their own
+    // (Arnaud, 2026-11-16): the caller asked for the rows, not their order,
+    // so none is paid for — 10 % of a nested read's server time on
+    // PostgreSQL. An extension's order (`ordering`) arrives as `orderBy`.
+    const unordered =
+      nested.orderBy === undefined &&
+      nested.take === undefined &&
+      nested.skip === undefined &&
+      nested.cursor === undefined &&
+      !nested.distinct?.length;
     const source = this.#memberSource(edge, alias, childAlias);
     const lowered = linkWhere && this.lowerSelector(linkWhere, source.link);
     // The link row is the one this page's own join reads the target through,
@@ -4627,10 +4811,7 @@ export class SqlQueries extends Queries {
     const page = assembleAdapterSelect(a, {
       columns: listed(child),
       from: source.from,
-      joins:
-        source.joins && window.joins
-          ? [...source.joins, ...window.joins]
-          : (source.joins ?? window.joins),
+      joins: joined(source.joins, window.joins, laterals),
       where: this.#and(
         source.where,
         ...(nested.selector
@@ -4639,7 +4820,7 @@ export class SqlQueries extends Queries {
         ...(lowered ? [lowered] : []),
         ...(window.cursor ? [window.cursor] : [])
       ),
-      orderBy: window.orderBy,
+      orderBy: unordered ? undefined : window.orderBy,
       // The aggregate below reads this page IN ORDER, so an ordered page
       // states its bound. MySQL merges an UNLIMITED derived table into the
       // query that reads it and the merge takes the ORDER BY with it, and the
@@ -4654,7 +4835,8 @@ export class SqlQueries extends Queries {
       // the dialect's own "no limit" value is. A dialect that needs no bound
       // to keep a derived order declares none (PostgreSQL) and emits nothing.
       limit: edge.many
-        ? (window.limit ?? (window.orderBy ? a.noLimitValue : undefined))
+        ? (window.limit ??
+          (window.orderBy && !unordered ? a.noLimitValue : undefined))
         : this.value(1),
       offset: window.offset,
       ...(window.distinct
@@ -4670,13 +4852,39 @@ export class SqlQueries extends Queries {
         : {}),
     });
     const pageAlias = this.alias();
-    const members = childFields.map((field): [string, Sql] => [
-      field,
-      this.#carriedValue(
-        projection.shape.fields[field]!,
-        this.#at(pageAlias, field)
-      ),
-    ]);
+    const object = this.#pageObject(projection, pageAlias, linkRow, linkColumn);
+    const from = this.#aside(page, pageAlias);
+    if (edge.many) return this.#scalar({ columns: a.json.agg(object), from });
+    const joins = lateral ? this.#laterals : undefined;
+    if (joins === undefined) return this.#scalar({ columns: object, from });
+    const row = this.alias();
+    joins.push(
+      a.joins.lateralLeft(
+        assembleAdapterSelect(a, {
+          columns: this.#named(object, LATERAL_VALUE),
+          from,
+        }),
+        row
+      )
+    );
+    return this.#at(row, LATERAL_VALUE);
+  }
+  /** The object of one page row built from its members, by name. */
+  #pageObject(
+    projection: PreparedProjection,
+    pageAlias: string,
+    linkRow: PreparedRelationProjection["linkRow"],
+    linkColumn: (index: number) => string
+  ): Sql {
+    const members = Object.keys(projection.shape.fields).map(
+      (field): [string, Sql] => [
+        field,
+        this.#carriedValue(
+          projection.shape.fields[field]!,
+          this.#at(pageAlias, field)
+        ),
+      ]
+    );
     for (const gate of projection.shape.gates ?? NO_GATES)
       members.push([gate, this.#at(pageAlias, gate)]);
     if (linkRow)
@@ -4692,12 +4900,7 @@ export class SqlQueries extends Queries {
           ])
         ),
       ]);
-    const object = this.#object(members);
-    const expression = this.#scalar({
-      columns: edge.many ? a.json.agg(object) : object,
-      from: this.#aside(page, pageAlias),
-    });
-    return expression;
+    return this.#object(members);
   }
 
   /**

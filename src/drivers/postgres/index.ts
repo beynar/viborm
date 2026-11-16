@@ -4,8 +4,9 @@
  * Driver implementation for postgres.js - a modern, fast PostgreSQL client.
  *
  * Generated statements use unsafe(query, values, queryOptions). Preparation
- * defaults to false for pooler compatibility; options.prepare: true opts into
- * the provider's prepared-statement reuse on compatible sessions.
+ * defaults to false for pooler compatibility. `namedStatements` prepares the
+ * generated statements VibORM repeats, a bounded number of them per
+ * connection; options.prepare: true prepares every statement, unbounded.
  */
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
@@ -48,6 +49,13 @@ import {
   refuseUnknownDriverConfigKeys,
   systemRootAsVerifyFull,
 } from "../shared/driver-options";
+import {
+  type NamedStatements,
+  type NamedStatementsOption,
+  namedStatements,
+  REPLACED_TYPE,
+  routineOf,
+} from "../shared/named-statements";
 import { CLEANUP_BOUND_MS } from "../shared/pinned-session";
 import { installPostgresAdapter } from "../shared/postgres-adapter";
 import { boundByServer, learnRelationLimit } from "../shared/relation-bound";
@@ -78,6 +86,15 @@ export interface PostgresDriverOptions {
    * need it.
    */
   migrationSessionAttestation?: MigrationSessionAttestation;
+  /**
+   * Prepare each statement VibORM repeats on the server: each connection
+   * parses it once, and the statements of a transaction then go out together
+   * instead of one round trip each. A statement is prepared the second time it
+   * is sent, and a connection holds at most `max` of them (100 with `true`).
+   * Off by default: behind PgBouncer in transaction mode, set
+   * `max_prepared_statements` first.
+   */
+  namedStatements?: NamedStatementsOption;
 }
 
 export const vibormTypes: Record<string, postgres.PostgresType> = {
@@ -134,6 +151,7 @@ const POSTGRES_CONFIG_KEYS: Record<keyof PostgresDriverOptions, true> = {
   databaseUrl: true,
   namespace: true,
   migrationSessionAttestation: true,
+  namedStatements: true,
 };
 
 type PostgresClient = PostgresSql<Record<string, unknown>>;
@@ -164,6 +182,8 @@ export class PostgresDriver extends Driver<
    * holding the caller's transport while believing it had made its own.
    */
   private readonly suppliedClient: PostgresClient | undefined;
+  /** The statements prepared, when `namedStatements` asks for them. */
+  private readonly named: NamedStatements | undefined;
 
   constructor(options: PostgresDriverOptions = {}) {
     super("postgresql", "postgres");
@@ -173,6 +193,7 @@ export class PostgresDriver extends Driver<
       options: { ...options.options },
     };
     this.suppliedClient = options.client;
+    this.named = namedStatements("postgres", options.namedStatements);
     const { host, hostname } = this.driverOptions.options ?? {};
     refuseEmptyDatabaseUrl(
       "postgres",
@@ -294,13 +315,32 @@ export class PostgresDriver extends Driver<
     fallbackOperation: "execute" | "executeRaw"
   ): Promise<QueryResult<T>> {
     const operation = context?.operation ?? fallbackOperation;
+    // postgres.js retries a prepared statement the server lost, once, itself.
+    const named =
+      fallbackOperation === "execute" &&
+      params?.length !== undefined &&
+      params.length > 0 &&
+      this.named?.name(sqlStr) !== undefined;
+    const fail = (error: unknown): never => {
+      learnRelationLimit(this.adapter, error);
+      throw error;
+    };
     const result = await client
       .unsafe<T[]>(sqlStr, params, {
-        prepare: this.driverOptions.options?.prepare === true,
+        prepare: named || this.driverOptions.options?.prepare === true,
       })
       .catch((error: unknown) => {
-        learnRelationLimit(this.adapter, error);
-        throw error;
+        // postgres.js retries a statement the server lost, or whose result
+        // type changed, itself, but not one whose parameter type a migration
+        // replaced, and it keys its statements by text: this text is no
+        // longer prepared. Alone, the statement failed before it did anything
+        // and is sent once more; in a transaction, the failure aborted it.
+        if (!named || routineOf(error) !== REPLACED_TYPE) return fail(error);
+        this.named?.drop(sqlStr);
+        if (isTransaction(client)) return fail(error);
+        return client
+          .unsafe<T[]>(sqlStr, params, { prepare: false })
+          .catch(fail);
       });
     return {
       rows: result,
@@ -502,6 +542,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     relationsPerStatement: config.relationsPerStatement,
     namespace,
     migrationSessionAttestation,
+    namedStatements: config.namedStatements,
   });
 
   return createClientFromDriverConfig<S, C, PostgresDriver>(config, driver);

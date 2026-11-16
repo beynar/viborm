@@ -640,3 +640,87 @@ test("a declared junction's hop reads a column beyond the key: a walk from a sel
   expect(forms[1]).toMatch(LEADING_REACHING_SET);
   expect(forms[1]).not.toMatch(WALK_IN_PLACE);
 });
+
+// A bounded read with a to-one relation pages its rows first and reads only
+// the columns the statement uses. A rule's walk settles to its inline form
+// after the page is built, and that form reads the parent key the caller did
+// not select: the page carries it all the same.
+test("a bounded read pages the columns its rule's walk settles to", async () => {
+  const owner = s.model({
+    id: s.string().id(),
+    name: s.string(),
+    folders: s.toMany(() => folder),
+  });
+  const folder = s.model({
+    id: s.string().id(),
+    holder: s.string().nullable(),
+    parentId: s.string().nullable(),
+    parent: s
+      .toOne(() => folder)
+      .fields("parentId")
+      .references("id")
+      .name("tree"),
+    children: s.toMany(() => folder).name("tree"),
+    ownerId: s.string(),
+    owner: s
+      .toOne(() => owner)
+      .fields("ownerId")
+      .references("id"),
+  });
+  const driver = createInMemoryPGliteDriver();
+  driver.adapter.capabilities.sharesRelationBodies = true;
+  const base = createClient({ schema: { owner, folder }, driver });
+  await opened(base);
+  await syncLiveSchema(base);
+  await base.owner.create({ data: { id: "o", name: "Owner" } });
+  await base.folder.createMany({
+    data: [
+      { id: "a", holder: "ann", ownerId: "o" },
+      { id: "b", parentId: "a", ownerId: "o" },
+      { id: "c", parentId: "b", ownerId: "o" },
+    ],
+  });
+  const db = base.$extends(
+    permissions({
+      actor: v.object({ userId: v.string() }),
+      models: {
+        owner: { actions: { read: [] }, read: true },
+        folder: {
+          actions: { read: [], update: ["read"] },
+          read: true,
+          update: {
+            parent: {
+              recurse: { depth: false },
+              self: true,
+              some: { holder: { actor: "userId" } },
+            },
+          },
+        },
+      },
+    })
+  ) as unknown as typeof base;
+  const governed = (
+    db as unknown as {
+      $as(actor: { userId: string }): typeof base;
+    }
+  ).$as({ userId: "ann" });
+  const answer = await (
+    governed.folder.findMany as (args: object) => Promise<unknown>
+  )({
+    orderBy: { id: "desc" },
+    take: 2,
+    select: { id: true, owner: { select: { name: true } }, $access: true },
+  });
+  expect(answer).toEqual([
+    {
+      id: "c",
+      owner: { name: "Owner" },
+      $access: { read: true, update: true },
+    },
+    {
+      id: "b",
+      owner: { name: "Owner" },
+      $access: { read: true, update: true },
+    },
+  ]);
+});

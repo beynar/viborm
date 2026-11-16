@@ -5,8 +5,67 @@ Versioning.
 
 ## Unreleased
 
+### Added
+
+- **`namedStatements`, an opt-in on `viborm/pg` and `viborm/postgres`.** The
+  statements VibORM repeats are sent as named, server-side prepared statements:
+  each connection parses and plans one once, then only binds it. Measured on a
+  local PostgreSQL 18 against the same release without the option, two passes:
+  a `findUnique` takes 21 % to 22 % less time on pg and 42 % to 44 % less on
+  postgres.js, 50 `findUnique` at once 24 % to 27 % and 25 % to 37 % less, a
+  `create` or an `update` 10 % to 14 % and 14 % to 22 % less; a read of 1,000
+  rows gains 0 % to 13 %. On postgres.js a statement also stops paying a second
+  round trip to describe its parameters: a transaction of eight inserts takes
+  10 round trips instead of 18. A statement with values is named the second
+  time it is sent, under a name derived from its text, and a connection holds
+  at most `max` of them (`namedStatements: { max }`, 100 with `true`): each
+  holds 11 kB to 42 kB of server memory. Raw SQL is never named. On pg, a name
+  the server lost (`DEALLOCATE`, `DISCARD ALL`), a plan whose result type
+  changed and a parameter type a migration replaced are sent again once
+  unnamed outside a transaction. On postgres.js, which retries the first two
+  itself, a statement whose parameter type a migration replaced is sent again
+  once unprepared and is not prepared again by that client;
+  `options: { prepare: true }` still needs a reconnect after such a migration.
+  Off by default, and without it every
+  statement is sent exactly as before. Behind PgBouncer in transaction mode,
+  set `max_prepared_statements` to at least `max` first. Bun SQL prepares every
+  statement with values by default, and the docs now say so.
+
 ### Changed
 
+- **Included rows are no longer sorted when you ask for no order
+  (behaviour change).** A relation read in an `include` or a `select`, at any
+  depth, with no `orderBy`, `take`, `skip`, `cursor` or `distinct` of its own
+  now comes back in the order the database gives, like a SQL query without
+  `ORDER BY`; it was sorted by the related model's key. The rows are the same.
+  The sort was about 10 % of a nested read's server time on PostgreSQL 18
+  (20 users with their posts 0.45 → 0.41 ms, 100 users with their posts and
+  comments 10.5 → 9.4 ms, the same SQL replayed with and without it). Give
+  an `orderBy` where the order matters. A page (`take`, `skip`, `cursor`), a
+  `distinct`, and an `ordering` or `defaults` extension's order still read in
+  a stable order, as does a root `findMany`. On every database.
+- **`viborm/pg` reads a `findMany` as positional rows.** node-postgres hands
+  each row over as the array it parsed (`rowMode: "array"`) instead of an
+  object keyed by every column name, and VibORM decodes it by position, as it
+  already did on D1 and better-sqlite3. The answers are the same. Measured on
+  a local PostgreSQL 18, three alternated runs: the client's CPU per call is
+  18 % to 20 % lower for 1,000 rows and 10 % to 13 % lower for 20 rows with
+  their relation; the memory allocated is the same, and the latency of a small
+  read does not change measurably. A driver whose execution or parsers a
+  caller replaced, and a supplied pool that ignores `rowMode`, keep keyed rows.
+- **PostgreSQL reads join their to-one relations laterally, and a
+  `findUnique` states no order.** A to-one relation is a `LEFT JOIN LATERAL`
+  instead of a subquery in the select list, so PostgreSQL can cache the
+  related row per key where many rows share it. A read bounded by `take` or
+  `skip` is paged first and joined after, which also makes it faster when it
+  is sorted on an unindexed column (300,000 posts, 20 by title with their
+  author: 54 → 28 ms). A bounded related page, a read ordered through a
+  relation and bounded, a locking or `distinct` read, and a statement under
+  `relationsPerStatement` keep subqueries. A `findUnique` no longer states an
+  `ORDER BY` for its one row, on every database. The answers are the same,
+  key order included. Measured on a local PostgreSQL 18 through pg: ten posts
+  with their author and the author's posts 14 % faster (best of eight
+  alternated runs), a `findUnique` 9 % (isolated A/B).
 - **A read spends 12 % to 19 % less CPU in VibORM on PostgreSQL.** Every
   PostgreSQL driver shares the relation bodies a statement repeats, and the
   engine read each statement again to find them, even when it repeats none,
@@ -16,6 +75,7 @@ Versioning.
   users with their posts 24.0 → 21.0 µs, ten posts with their author and the
   author's posts 25.1 → 21.1 µs. D1, which shares bodies too, gains the same
   way.
+
 
 ## 1.14.1 — 2026-11-16
 
