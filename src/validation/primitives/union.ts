@@ -65,11 +65,25 @@ function isLiteral(
   return isRecord(entry) && entry.type === "literal";
 }
 
+/**
+ * Does `option` refuse every value but a boolean, reading nothing of it? A
+ * `v.boolean()` without options (`validateBoolean`), or a `v.coerce` of one,
+ * whose transform never runs on a refusal (`transform.ts`).
+ */
+function takesBooleansAlone(option: object): boolean {
+  const type = Reflect.get(option, "type");
+  if (type === "transform") {
+    const wrapped: unknown = Reflect.get(option, "wrapped");
+    return isRecord(wrapped) && takesBooleansAlone(wrapped);
+  }
+  return type === "boolean" && Reflect.get(option, "options") === undefined;
+}
+
 type MemberResult = ReturnType<VibSchema["~standard"]["validate"]>;
 
 /** A member's result, an async member's promise being a refusal. */
-function settled(result: MemberResult): ValidationResult<unknown> {
-  if (!("then" in result)) return result as ValidationResult<unknown>;
+function settled<T>(result: MemberResult): ValidationResult<T> {
+  if (!("then" in result)) return result as ValidationResult<T>;
   discardAsyncValidationResult(result);
   return { issues: ASYNC_REFUSAL };
 }
@@ -102,16 +116,36 @@ export function union<const TOptions extends readonly VibSchema<any, any>[]>(
   // members. Members whose entries are still unresolved thunks then read as
   // untagged for good, and the depth rule alone names the member.
   let tags: Tags | undefined | null = null;
+  // Which members take booleans alone, read on first use like `tags`;
+  // `undefined` when none does.
+  let booleansOnly: readonly boolean[] | undefined | null = null;
   const schema = createSchema<
     InferInput<TOptions[number]>,
     InferOutput<TOptions[number]>
   >("union", (value) => {
     if (tags === null) tags = tagsOf(options);
     const tagged = tags && isRecord(value) && tags.members.get(value[tags.key]);
-    if (tagged) {
-      return settled(tagged(value)) as ValidationResult<
-        InferOutput<TOptions[number]>
-      >;
+    if (tagged) return settled<InferOutput<TOptions[number]>>(tagged(value));
+    // A member that takes booleans alone refuses any other value without
+    // reading it, so it is asked last, and only if no member matches: a
+    // relation node written as an object skipped its `true` arm's refusal,
+    // 9 % of a three-level include's validation (2026-11-16). Its refusal is
+    // then weighed in its own place, so the union refuses as before.
+    if (booleansOnly === null) {
+      const marks = options.map(takesBooleansAlone);
+      booleansOnly = marks.includes(true) ? marks : undefined;
+    }
+    const skipped = typeof value === "boolean" ? undefined : booleansOnly;
+    let refused: (readonly ValidationIssue[] | undefined)[] | undefined;
+    if (skipped) {
+      for (let at = 0; at < validators.length; at++) {
+        if (skipped[at]) continue;
+        const result = settled<InferOutput<TOptions[number]>>(
+          validators[at]!(value)
+        );
+        if (!result.issues) return result;
+        (refused ??= [])[at] = result.issues;
+      }
     }
     // Success returns the matching member's result as-is. Nothing about a
     // refusal is allocated until a second member refuses as deep as the first,
@@ -120,11 +154,12 @@ export function union<const TOptions extends readonly VibSchema<any, any>[]>(
     let depth = -1;
     let tied: string[] | undefined;
 
-    for (const validate of validators) {
-      const result = settled(validate(value));
-      if (!result.issues) {
-        return result as { value: InferOutput<TOptions[number]> };
-      }
+    for (let at = 0; at < validators.length; at++) {
+      const result =
+        skipped && !skipped[at]
+          ? { issues: refused![at]! }
+          : settled<InferOutput<TOptions[number]>>(validators[at]!(value));
+      if (!result.issues) return result;
       const { issues } = result;
       const reach = issues[0]!.path?.length ?? 0;
       if (reach > depth) {

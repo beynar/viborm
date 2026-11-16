@@ -15,6 +15,7 @@ import {
   withTransform,
   wrapped,
 } from "./helpers";
+import { answersAbsentWithUndefined } from "./optional";
 
 // =============================================================================
 // Object Schema Types
@@ -579,7 +580,8 @@ function createObjectValidator(
         (schema as { acceptsUndefined?: boolean }).acceptsUndefined === true;
 
       if (mutableRunOnMissingIdx) {
-        if (doesAcceptUndefined) mutableRunOnMissingIdx.push(i);
+        if (doesAcceptUndefined && !absentStaysAbsent(schema))
+          mutableRunOnMissingIdx.push(i);
       } else if (mutableAcceptsUndefined) {
         mutableAcceptsUndefined[i] = doesAcceptUndefined;
       }
@@ -875,6 +877,19 @@ function createObjectValidator(
   };
 
   return partial && !atLeast ? parsePartial : parseDense;
+}
+
+/**
+ * Does `schema` answer an absent value with `undefined` and nothing else? The
+ * validator of a `v.optional` without a default does (`optional.ts`; a schema
+ * that replaced it is asked as before), and a fully partial object leaves out
+ * a member whose value is `undefined`, so such a member need not run when its
+ * key is absent. Every relation node declares one (`recurse`), and a `where`
+ * one per field: running them was 15 % of a three-level include's validation
+ * and 30 % of a one-field `where`'s (2026-11-16).
+ */
+function absentStaysAbsent(schema: VibSchema<any, any>): boolean {
+  return answersAbsentWithUndefined(schema["~standard"].validate);
 }
 
 /** `found` after the issues a parse has already gathered, if any. */

@@ -55,6 +55,17 @@ type OptionalOutput<
   ? InferOutput<UnwrapSchema<TWrapped>> | undefined
   : InferOutput<UnwrapSchema<TWrapped>>;
 
+/** The validators of the optional schemas built without a default. */
+const withoutDefault = new WeakSet<VibSchema["~standard"]["validate"]>();
+
+/**
+ * Is `validate` the validator of a `v.optional` without a default, which
+ * answers `undefined` with `{ value: undefined }` and reads nothing else?
+ */
+export const answersAbsentWithUndefined = (
+  validate: VibSchema["~standard"]["validate"]
+): boolean => withoutDefault.has(validate);
+
 /**
  * Create an optional schema that allows undefined values.
  * Supports both direct schemas and thunks (for circular references).
@@ -120,6 +131,8 @@ export function optional<
     }
   ) as OptionalSchema<TWrapped, TDefault>;
 
+  if (defaultValue === undefined)
+    withoutDefault.add(schema["~standard"].validate);
   // Add references
   (schema as any).wrapped = wrapped;
   (schema as any).default = defaultValue;

@@ -479,7 +479,10 @@ Do not reconstruct clearability from scalar nullability in the engine.
 `EngineSchema` owns lazy immutable factory-lifetime views for physical field
 descriptors, ordered stored fields, exact model/slot/variant membership
 orientation, slot clearability, and the query owner's per-adapter views
-(the scalar leaves and the default projection). Reuse original resolved descriptors,
+(the scalar leaves, the default projection, and, for a read under no row
+domain, a relation read at its target's default projection: `rel: true`, or
+a node whose admitted `select` names exactly the default selection).
+Reuse original resolved descriptors,
 topology, edges, and members. What is prepared is read-only by its type; the engine freezes none of it at run time.
 These caches contain no aliases, operation demands, origins, refusals,
 assignments, scratch references, or attempt values.

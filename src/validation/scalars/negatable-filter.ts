@@ -54,12 +54,20 @@ export const FILTER_WITHOUT_OPERATION =
  */
 export const requireFilterOperation = (
   value: Record<string, unknown>
-): string | undefined =>
-  Object.entries(value).some(
-    ([key, member]) => !FILTER_MODIFIER_KEYS.has(key) && member !== undefined
-  )
-    ? undefined
-    : FILTER_WITHOUT_OPERATION;
+): string | undefined => {
+  // Own keys read in place: `Object.entries` built an array of pairs per
+  // admitted filter object, 5 % of a filtered nested read's validation
+  // (2026-11-16).
+  for (const key in value) {
+    if (
+      Object.hasOwn(value, key) &&
+      !FILTER_MODIFIER_KEYS.has(key) &&
+      value[key] !== undefined
+    )
+      return undefined;
+  }
+  return FILTER_WITHOUT_OPERATION;
+};
 
 export interface NegatableFilter<
   S extends V.Schema,
