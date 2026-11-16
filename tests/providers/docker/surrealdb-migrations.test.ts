@@ -18,6 +18,7 @@ import {
   surrealUrl,
 } from "@tests/fixtures/drivers/surrealdb";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import type { Surreal } from "surrealdb";
 import { describe, expect, it } from "vitest";
 
 /** The read that waits for builds in the background (`awaitIndexBuilds`). */
@@ -45,6 +46,24 @@ const push = async (client: Client) => {
 
 const preview = (client: Client) =>
   createMigrationClient(client).push({ dryRun: true });
+
+/**
+ * `rewrite` over each statement of a request the driver sends as one batch:
+ * a push of new tables sends each operation so (`executeBatch`).
+ */
+function rewriteBatches(driver: object, rewrite: (sql: string) => string) {
+  const executeBatch = (driver as any).executeBatch.bind(driver);
+  (driver as any).executeBatch = (
+    client: never,
+    queries: readonly { sql: string }[],
+    ...rest: unknown[]
+  ) =>
+    executeBatch(
+      client,
+      queries.map((query) => ({ ...query, sql: rewrite(query.sql) })),
+      ...rest
+    );
+}
 
 const statements = (plan: { statements: readonly { sql: string }[] }) =>
   plan.statements.map(({ sql }) => sql);
@@ -988,6 +1007,10 @@ describe.skipIf(!surrealUrl)("the indexes of a new table", () => {
 
   it("build in the background, and push returns once each is ready", async () => {
     const driver = createSurrealRecordingDriver();
+    rewriteBatches(driver, (sql) => {
+      driver.statements.push(sql);
+      return sql;
+    });
     const db = clientOf(schema(), driver);
     await using(db, async () => {
       await (driver as unknown as { fresh(): Promise<void> }).fresh();
@@ -1142,21 +1165,13 @@ describe.skipIf(!surrealUrl)("the indexes of a new table", () => {
 
   it("a build that fails refuses the push by name, its statements committed", async () => {
     const driver = createSurrealRecordingDriver();
-    // Two rows holding one email, written in the push's own transaction just
-    // ahead of the unique index over it.
-    const execute = (driver as any).execute.bind(driver);
-    (driver as any).execute = (
-      client: never,
-      statement: string,
-      params: unknown[]
-    ) =>
-      execute(
-        client,
-        statement.includes("UNIQUE CONCURRENTLY")
-          ? `CREATE item:a SET email = "same", rank = 1; CREATE item:b SET email = "same", rank = 2; ${statement}`
-          : statement,
-        params
-      );
+    // Two rows holding one email, written in the transaction that creates
+    // their table, just ahead of the unique index over it.
+    rewriteBatches(driver, (statement) =>
+      statement.includes("UNIQUE CONCURRENTLY")
+        ? `CREATE item:a SET email = "same", rank = 1; CREATE item:b SET email = "same", rank = 2; ${statement}`
+        : statement
+    );
     const db = clientOf(schema(), driver);
     await using(db, async () => {
       await (driver as unknown as { fresh(): Promise<void> }).fresh();
@@ -1176,6 +1191,104 @@ describe.skipIf(!surrealUrl)("the indexes of a new table", () => {
         { email: "same" },
       ]);
       expect(await raw(db, "SELECT * FROM viborm_migration_lock")).toEqual([]);
+    });
+  });
+});
+
+/** What SurrealDB says of a transaction another writer met at its commit. */
+const CONFLICT = "Transaction write conflict. This transaction can be retried";
+
+describe.skipIf(!surrealUrl)("a push the server refuses at a commit", () => {
+  it("creates a new schema one operation per request, and sends again the one refused at its commit", async () => {
+    const driver = createSurrealTestDriver();
+    // Each request, as its statements; the first is refused at its commit,
+    // as SurrealDB Cloud refuses a long transaction that defines things.
+    const requests: string[] = [];
+    const executeBatch = (driver as any).executeBatch.bind(driver);
+    (driver as any).executeBatch = (
+      client: never,
+      queries: readonly { sql: string }[],
+      ...rest: unknown[]
+    ) => {
+      requests.push(queries.map(({ sql }) => sql).join("\n"));
+      return requests.length === 1
+        ? Promise.reject(new TransactionError(CONFLICT))
+        : executeBatch(client, queries, ...rest);
+    };
+    // What ran inside a transaction held across requests.
+    const held: string[] = [];
+    const execute = (driver as any).execute.bind(driver);
+    (driver as any).execute = (
+      client: object,
+      statement: string,
+      params: unknown[]
+    ) => {
+      if (client.constructor.name === "ReplayedTransaction")
+        held.push(statement);
+      return execute(client, statement, params);
+    };
+    const db = clientOf(everything(), driver);
+    await using(db, async () => {
+      await (driver as unknown as { fresh(): Promise<void> }).fresh();
+      const plan = await preview(db);
+      const applied = await createMigrationClient(db).push({
+        consent: plan.consent,
+      });
+      expect(applied.outcome).toBe("applied");
+      expect(held).toEqual([]);
+      expect(requests).toHaveLength(plan.operations.length + 1);
+      expect(requests[1]).toBe(requests[0]);
+      expect(requests.slice(1).join("\n")).toBe(statements(plan).join("\n"));
+      expect((await preview(db)).outcome).toBe("noop");
+    });
+  });
+
+  it("commits a change to a table that is there, in one transaction, run again after its commit was refused", async () => {
+    const db = clientOf({
+      item: s.model({ id: s.string().id(), name: s.string() }),
+    });
+    await using(db, async () => {
+      await syncLiveSchema(db);
+      await db.item.create({ data: { id: "a", name: "first" } });
+      const next = nextVersion(
+        {
+          item: s.model({
+            id: s.string().id(),
+            name: s.string(),
+            note: s.string().nullable(),
+          }),
+          tag: s.model({ id: s.string().id(), label: s.string() }),
+        },
+        db
+      );
+      // The commit of the first transaction that defines something is refused.
+      const surreal = (db.$driver as any).client as Surreal;
+      const begin = surreal.beginTransaction.bind(surreal);
+      let refused = 0;
+      surreal.beginTransaction = async () => {
+        const transaction = await begin();
+        let defines = false;
+        const query = transaction.query.bind(transaction);
+        transaction.query = ((text: string, ...rest: never[]) => {
+          defines ||= text.includes("DEFINE ");
+          return query(text, ...rest);
+        }) as never;
+        const commit = transaction.commit.bind(transaction);
+        transaction.commit = async () => {
+          if (!defines || refused > 0) return commit();
+          refused += 1;
+          await transaction.cancel();
+          throw new Error(CONFLICT);
+        };
+        return transaction;
+      };
+      const applied = await push(next);
+      expect(applied.outcome).toBe("applied");
+      expect(refused).toBe(1);
+      expect((await preview(next)).outcome).toBe("noop");
+      expect(await next.item.findMany()).toEqual([
+        { id: "a", name: "first", note: null },
+      ]);
     });
   });
 });

@@ -126,15 +126,16 @@ export interface MigrationFrameDriver {
 }
 
 /**
- * A driver whose own transaction around a statement the migration engine built
- * can be refused at its commit (SurrealDB): it sends that statement (`send`)
- * and decides whether a refusal runs it again. Only `executeExactSql` calls it;
- * a caller's raw statement never goes through it. Kept off `Driver` so the
+ * A driver whose own transaction around what the migration engine built can be
+ * refused at its commit (SurrealDB): it sends that statement, or those
+ * statements as one batch, which it makes one transaction of (`send`), and
+ * decides whether a refusal runs it again. Only `execute-dispatch.ts` calls
+ * it; a caller's raw statement never goes through it. Kept off `Driver` so the
  * client's types do not carry it.
  */
 export interface CommitRerunningDriver {
   rerunRefusedCommit(
-    statement: string,
+    statement: string | readonly BatchQuery[],
     send: () => Promise<unknown>
   ): Promise<unknown>;
 }
