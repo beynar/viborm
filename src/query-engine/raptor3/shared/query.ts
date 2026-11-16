@@ -79,12 +79,14 @@ import {
 } from "./row-scope";
 import {
   type Arguments,
+  type DefaultRelation,
   type EngineSchema,
   entries,
   type Input,
   memo,
   type QueryViews,
   type ReadOperation,
+  record,
 } from "./schema";
 import {
   bindMembership,
@@ -214,6 +216,14 @@ type FieldReader = (value: unknown) => unknown;
  * answers the public one.
  */
 export type Reader = (value: unknown) => unknown;
+/**
+ * A scalar placement's compiled reader, and the `typeof` of the values it
+ * answers unchanged when it has one.
+ */
+interface CompiledLeaf {
+  readonly read: Reader;
+  readonly unchanged: string | undefined;
+}
 type RelationProjectionArguments = Pick<
   Partial<Arguments>,
   "orderBy" | "take" | "skip" | "cursor" | "distinct"
@@ -1250,6 +1260,57 @@ function defaultSelection(model: AnyModel): Record<string, true> {
   const selection: Record<string, true> = {};
   for (const field of projectableScalarNames(model)) selection[field] = true;
   return selection;
+}
+
+/**
+ * A relation member's prepared field, its members written out: a literal
+ * that spreads after members of its own (`{ kind, name, ...nested }`) takes
+ * V8's generic property copy, which was 1.6 % of a three-level read's client
+ * CPU (2026-11-16). It names every member of
+ * {@link PreparedRelationProjection}.
+ */
+function relationField(
+  name: string,
+  nested: PreparedRelationProjection
+): PreparedProjectionField {
+  return {
+    kind: "relation",
+    name,
+    edge: nested.edge,
+    linkRow: nested.linkRow,
+    linkWhere: nested.linkWhere,
+    arguments: nested.arguments,
+    projection: nested.projection,
+    recurrence: nested.recurrence,
+  };
+}
+
+/**
+ * Does `select` name exactly the default selection: every projectable scalar,
+ * `true`, in declaration order? It then prepares what no `select` prepares.
+ * An inherited enumerable key fails the count, and takes the general path.
+ */
+function namesDefault(model: AnyModel, select: Input): boolean {
+  const names = projectableScalarNames(model);
+  let at = 0;
+  for (const name in select) {
+    if (select[name] !== true || names[at] !== name) return false;
+    at++;
+  }
+  return at === names.length;
+}
+
+/**
+ * Is a relation member's admitted node its target's default read: `true`, or
+ * a node holding nothing but a `select` that names the default selection?
+ */
+function namesDefaultNode(edge: Membership, selection: unknown): boolean {
+  if (selection === true) return true;
+  const node = record(selection);
+  for (const key in node) if (key !== "select") return false;
+  return (
+    node.select === undefined || namesDefault(edge.target, record(node.select))
+  );
 }
 
 export function rowSet(query: Query): ProjectionShape {
@@ -3144,8 +3205,15 @@ export abstract class Queries {
    * An operation that names NEITHER `select` NOR `include` asks for the model's
    * DEFAULT projection, which is a fact of the model and the dialect and of
    * nothing else, so it is resolved once per (adapter, model) and shared
-   * ({@link QueryViews}). Every other operation prepares per operation exactly
-   * as before, reusing only the per-field leaves.
+   * ({@link QueryViews}). Undomained, so does a `select` that names exactly
+   * the default selection, which is what admission makes of `rel: true` and
+   * of a node that writes only an `include`: such a node starts from the
+   * shared projection's members, and a relation read at its default
+   * projection is shared whole (`#defaultRelation`). Every other operation
+   * prepares per operation, reusing only the per-field leaves. Rebuilding
+   * the default per relation level was a third of this function's work in a
+   * three-level read (9.7 % of its client CPU before, 6.4 % after;
+   * 2026-11-16).
    */
   /**
    * `internal` names a projection the engine reads for itself (a stored row,
@@ -3162,18 +3230,39 @@ export abstract class Queries {
     const added = internal
       ? undefined
       : this.domain?.project?.preparing(model, args.select, path);
-    const shared = args.select === undefined && args.include === undefined;
+    // Undomained, a `select` naming exactly the default selection prepares
+    // the default projection, whatever spelled it (a domain's keys and gates
+    // read which fields the caller named, so it prepares its own).
+    const scalars =
+      args.select === undefined ||
+      (added === undefined && namesDefault(model, args.select));
+    const shared = scalars && args.include === undefined;
     const defaults = added?.defaults ?? this.#views.defaultProjections;
     if (shared) {
       const resolved = defaults.get(model);
       if (resolved !== undefined) return resolved;
     }
-    // `omit` is desugared into `select` at admission; an explicit selection and
-    // an include can therefore both be present and both belong to the result.
-    let selected = args.select ?? defaultSelection(model);
-    if (args.include !== undefined) selected = { ...selected, ...args.include };
-    const prepared: PreparedProjectionField[] = [];
-    const fields: Record<string, Shape | Leaf> = {};
+    let selected: Input;
+    let prepared: PreparedProjectionField[];
+    let fields: Record<string, Shape | Leaf>;
+    if (scalars && args.include !== undefined && added === undefined) {
+      // The default projection's members, then what the include adds: the
+      // order `{ ...defaultSelection, ...include }` walks, since an include
+      // names relations and `_count`, never a scalar.
+      const base = this.prepareProjection(model, {}, true);
+      prepared = base.fields[0]?.kind === "sentinel" ? [] : base.fields.slice();
+      fields = { ...base.shape.fields };
+      selected = args.include;
+    } else {
+      // `omit` is desugared into `select` at admission; an explicit selection
+      // and an include can therefore both be present and both belong to the
+      // result.
+      selected = args.select ?? defaultSelection(model);
+      if (args.include !== undefined)
+        selected = { ...selected, ...args.include };
+      prepared = [];
+      fields = {};
+    }
     let distanceSelected = false;
     for (const name of Object.keys(selected)) {
       const selection = selected[name];
@@ -3224,13 +3313,20 @@ export abstract class Queries {
         );
         continue;
       }
+      const edge = bindMembership(this.schema, model, name);
+      if (this.domain === undefined && namesDefaultNode(edge, selection)) {
+        const relation = this.#defaultRelation(edge);
+        fields[name] = relation.shape;
+        prepared.push(relation.field);
+        continue;
+      }
       const nested = this.#prepareRelationProjection(
-        bindMembership(this.schema, model, name),
+        edge,
         selection,
         `${path}${args.include?.[name] === undefined ? "select" : "include"}.${name}.`
       );
       fields[name] = this.#relationShape(nested);
-      prepared.push({ kind: "relation", name, ...nested });
+      prepared.push(relationField(name, nested));
     }
     // An empty projection is the model's own default — every scalar omitted —
     // and the row still exists, so it carries the sentinel column. A written
@@ -3245,6 +3341,27 @@ export abstract class Queries {
     };
     if (shared) defaults.set(model, projection);
     return projection;
+  }
+  /**
+   * A relation read at its target's default projection, on a read under no
+   * row domain: prepared once per (adapter, model, relation) and shared, as
+   * the default projection itself is. Its window is empty and its order the
+   * caller's none (a domain's default order is why a domain prepares its
+   * own), so every member is a fact of the schema and the dialect.
+   */
+  #defaultRelation(edge: Membership): DefaultRelation {
+    const relations = memo(
+      this.#views.defaultRelations,
+      edge.source,
+      () => new Map<string, DefaultRelation>()
+    );
+    return memo(relations, edge.name, () => {
+      const nested = this.#prepareRelationProjection(edge, true);
+      return {
+        field: relationField(edge.name, nested),
+        shape: this.#relationShape(nested),
+      };
+    });
   }
   /**
    * A to-many node's decoded shape. A negative `take` runs the reversed window
@@ -3838,11 +3955,8 @@ export abstract class Queries {
     carried: boolean,
     columns?: readonly string[]
   ): Reader {
-    if (shape.kind === "scalar") {
-      const provider = carried ? undefined : this.fieldReader(shape.type);
-      const list = shape.list ? this.compileList(shape, internal) : undefined;
-      return this.compileScalar(shape, internal, provider, list);
-    }
+    if (shape.kind === "scalar")
+      return this.#compileLeaf(shape, internal, carried).read;
     if (shape.kind === "recursive") {
       const readRow = this.compileReader(shape.row, internal, true);
       // An identity is validated as the stored key it is (an INTERNAL read),
@@ -3933,14 +4047,20 @@ export abstract class Queries {
     // by `Object.fromEntries`) made this decoder allocate 2.5x the shipped
     // engine's bytes per row (`g4/release/p1/note.md`).
     const fields = Object.keys(shape.fields);
-    const readers = fields.map((field) => {
+    const readers: Reader[] = [];
+    // The type of value each member's reader answers unchanged, if any.
+    const unchanged: (string | undefined)[] = [];
+    for (const field of fields) {
       const nested = shape.fields[field]!;
-      return this.compileReader(
-        nested,
-        internal,
-        carried || nested.kind !== "scalar"
-      );
-    });
+      if (nested.kind === "scalar") {
+        const leaf = this.#compileLeaf(nested, internal, carried);
+        readers.push(leaf.read);
+        unchanged.push(leaf.unchanged);
+      } else {
+        readers.push(this.compileReader(nested, internal, true));
+        unchanged.push(undefined);
+      }
+    }
     // An internal read is the engine's own: it reads every member it asked
     // for, its gates unread (K5).
     if (shape.gates && !internal)
@@ -3974,6 +4094,13 @@ export abstract class Queries {
     // omitted. Read once per batch — the test per member of every row was
     // 4 % to 8 % of a read's client CPU where it decodes documents.
     const inherited = fields.map((field) => field in Object.prototype);
+    // OWN-key semantics ({@link own}): a plain member read on a
+    // `JSON.parse` result finds `Object.prototype`'s own members, so a
+    // field named `toString` the provider OMITTED would inherit a function
+    // instead of failing closed. Nested evidence documents also contain
+    // user-named predicates, not just schema identifiers. Their `__proto__`
+    // member must be an own data property, never the inherited setter.
+    // A document of another prototype is read by own keys throughout.
     return (value) => {
       const source = providerDocument(providerJson(value));
       if (source === null) {
@@ -3983,17 +4110,28 @@ export abstract class Queries {
       }
       if (source === undefined)
         refuseResult("row", "a requested document is not a provider row");
-      // OWN-key semantics ({@link own}): a plain member read on a
-      // `JSON.parse` result finds `Object.prototype`'s own members, so a
-      // field named `toString` the provider OMITTED would inherit a function
-      // instead of failing closed. Nested evidence documents also contain
-      // user-named predicates, not just schema identifiers. Their `__proto__`
-      // member must be an own data property, never the inherited setter.
-      // A document of another prototype is read by own keys throughout.
       const prototype = Object.getPrototypeOf(source);
       const plain = prototype === Object.prototype || prototype === null;
       const document: Input = {};
-      for (let index = 0; index < fields.length; index++) {
+      let index = 0;
+      // The members a plain document holds in place — its own keys, in the
+      // members' order, as PostgreSQL's `json_build_object` and SQLite's
+      // `json_object` answer them — are read as the document is walked: each
+      // is loaded by the document's own layout, not by a name that varies
+      // across every member of every shape. The walk ends at the first key
+      // that is not the next member, and at a member `Object.prototype` names.
+      if (plain)
+        for (const key in source) {
+          if (key !== fields[index] || inherited[index]) break;
+          const raw = source[key];
+          // A member its codec answers as itself is read without the call.
+          document[key] =
+            typeof raw === unchanged[index] ? raw : readers[index]!(raw);
+          index++;
+        }
+      // Every member the walk left (MySQL sorts the keys, a provider adds or
+      // omits one, another prototype) is read by its name, each once.
+      for (; index < fields.length; index++) {
         const field = fields[index]!;
         const decoded = readers[index]!(
           plain && !inherited[index] ? source[field] : own(source, field)
@@ -4044,7 +4182,7 @@ export abstract class Queries {
     internal: boolean,
     provider?: FieldReader,
     list?: Reader
-  ): Reader {
+  ): CompiledLeaf {
     const readValue = list ?? this.#compileScalarValue(leaf, internal);
     const nullable = leaf.nullable;
     const allowsJsonNull = leaf.type === "json" && leaf.list !== true;
@@ -4061,7 +4199,20 @@ export abstract class Queries {
       return readValue(provider === undefined ? raw : provider(raw));
     };
     const join = this.splitSum(leaf)?.join;
-    return join ? (parts) => read(join(parts)) : read;
+    if (join)
+      return { read: (parts) => read(join(parts)), unchanged: undefined };
+    // A carried value its codec answers unchanged is read without the call
+    // by the document reader; a physical value still crosses the provider.
+    return {
+      read,
+      unchanged: provider ? undefined : UNCHANGED_BY.get(readValue),
+    };
+  }
+  /** A scalar placement's reader: physical slots cross the provider. */
+  #compileLeaf(leaf: Leaf, internal: boolean, carried: boolean): CompiledLeaf {
+    const provider = carried ? undefined : this.fieldReader(leaf.type);
+    const list = leaf.list ? this.compileList(leaf, internal) : undefined;
+    return this.compileScalar(leaf, internal, provider, list);
   }
   /** Bind the declared scalar codec once, preserving its provider-value checks. */
   #compileScalarValue(leaf: Leaf, internal: boolean): Reader {
@@ -4242,7 +4393,7 @@ export abstract class Queries {
       list: undefined,
       nullable: false,
     };
-    const readMember = this.compileScalar(member, internal);
+    const readMember = this.compileScalar(member, internal).read;
     const arrayText =
       this.adapter.result.enumListRepresentation === "arrayText";
     return (value) => {
@@ -4374,6 +4525,12 @@ function decodeBoolean(value: unknown): unknown {
   if (value === 1 || value === 1n) return true;
   refuseResult("boolean", "the value is not true, false, zero, or one");
 }
+
+/** The shared codecs that answer every value of one `typeof` as itself. */
+const UNCHANGED_BY = new Map<Reader, string>([
+  [decodeString, "string"],
+  [decodeBoolean, "boolean"],
+]);
 
 /** `sum`: an int `_sum` past 2^53 reads as the nearest double (a lossy sum). */
 function decodeInt(value: unknown, sum = false): unknown {

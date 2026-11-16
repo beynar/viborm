@@ -479,7 +479,10 @@ Do not reconstruct clearability from scalar nullability in the engine.
 `EngineSchema` owns lazy immutable factory-lifetime views for physical field
 descriptors, ordered stored fields, exact model/slot/variant membership
 orientation, slot clearability, and the query owner's per-adapter views
-(the scalar leaves and the default projection). Reuse original resolved descriptors,
+(the scalar leaves, the default projection, and, for a read under no row
+domain, a relation read at its target's default projection: `rel: true`, or
+a node whose admitted `select` names exactly the default selection).
+Reuse original resolved descriptors,
 topology, edges, and members. What is prepared is read-only by its type; the engine freezes none of it at run time.
 These caches contain no aliases, operation demands, origins, refusals,
 assignments, scratch references, or attempt values.
@@ -1798,6 +1801,25 @@ Only the root physical row arm can read positional native cells; actual native
 column aliases locate cells once, including explicit absence for a missing
 alias. Every nested carried document keeps the own-key object reader. Both
 representations allocate fresh public rows and a fresh outer result array.
+That object reader has ONE body. It first walks a plain document's own keys
+(`for…in`) for as long as each is the next member and no name
+`Object.prototype` holds — what `json_build_object` and `json_object` answer —
+so each member is loaded by the document's own layout, not by a keyed load
+whose key varies across every member of every shape. It then reads every
+member the walk left by its name, with the own-key test where it applies:
+sorted keys (MySQL), a member added or omitted, another prototype, a member
+named as one of `Object.prototype`'s (`__proto__` is defined, never assigned).
+A member is read once, whichever part reads it: a provider is asked once per
+physical cell. There is no second reader to fall back to, and no branch per
+dialect. A carried member whose shared codec answers every value of its
+`typeof` as itself (string, boolean) is read without the call; `compileScalar`
+states which (`UNCHANGED_BY`), the reader only applies it. Same answers and
+refusals; 2026-11-16, PostgreSQL replay bench: −8 % client CPU for 20 users
+with their posts, −6 % for 10 posts with their author's posts (−5 % and −4 %
+without the codec shortcut). Do not copy the document whole instead
+(`{ ...source }`, `Object.assign`): the copy is fast only while its one site
+sees at most four shapes, it publishes a provider's symbol members, and
+`Object.assign` runs `Object.prototype` setters.
 
 **A list leaf's element descriptor has the same lifetime**
 (`docs/architecture/raptor3-compiled-list-decoder-report.md`). `compileReader`

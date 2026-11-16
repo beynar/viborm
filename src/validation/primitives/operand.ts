@@ -450,7 +450,11 @@ function findOpaqueOperand(
   root: unknown,
   fragments: boolean
 ): string | undefined {
-  const seen = new WeakSet<object>();
+  // The set of visited objects is made at the second object: most values
+  // checked here are one flat object (an `orderBy` term), and a `WeakSet` per
+  // check was 5 % of an ordered nested read's validation (2026-11-16).
+  let first: object | undefined;
+  let seen: WeakSet<object> | undefined;
   const pending: unknown[] = [root];
 
   while (pending.length > 0) {
@@ -462,8 +466,12 @@ function findOpaqueOperand(
       return `Field reference '${payload.model}.${payload.field}'`;
     }
     if (fragments && isSql(value)) return "An SQL fragment";
-    if (seen.has(value)) continue;
-    seen.add(value);
+    if (seen) {
+      if (seen.has(value)) continue;
+      seen.add(value);
+    } else if (first === undefined) first = value;
+    else if (value === first) continue;
+    else seen = new WeakSet([first, value]);
 
     if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) continue;
 

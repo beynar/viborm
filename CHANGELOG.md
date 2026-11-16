@@ -88,6 +88,21 @@ Versioning.
   - a decoded document reads a member directly when its name is none of
     `Object.prototype`'s (a document of another prototype is still read by own
     keys).
+- **A read with relations spends another 8 % to 14 % less CPU in VibORM.**
+  Each relation level of a read cost VibORM about as much as the level before
+  it; two parts of that cost are cut. The SQL a read sends and its answers are
+  the same. Measured as above, CPU per call against the entry before this one:
+  2 users with their posts 9.5 → 8.7 µs, 20 users with their posts 17.3 →
+  14.9 µs, a user with two filtered posts 9.0 → 8.3 µs, ten posts with their
+  author and the author's posts 17.9 → 15.8 µs; a read without relations is
+  unchanged. What changed:
+  - a relation read at its default selection (`posts: true`, or a node that
+    only adds an `include`) is prepared once per model and no longer at every
+    call, and admitting a relation node no longer runs the options it leaves
+    out;
+  - a nested document is decoded by walking its own keys while they come in
+    the selection's order, as PostgreSQL and SQLite answer them; MySQL, which
+    sorts a document's keys, is read as before.
 
 ## 1.14.2 — 2026-11-16
 
