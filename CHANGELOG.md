@@ -5,6 +5,18 @@ Versioning.
 
 ## Unreleased
 
+### Changed
+
+- **A read spends 12 % to 19 % less CPU in VibORM on PostgreSQL.** Every
+  PostgreSQL driver shares the relation bodies a statement repeats, and the
+  engine read each statement again to find them, even when it repeats none,
+  which is nearly every read. Such a statement is now sent as built. The SQL
+  and the answers are the same. Measured through a pool that replays recorded
+  results, so only VibORM's own work counts: a `findUnique` 9.0 → 7.7 µs, 20
+  users with their posts 24.0 → 21.0 µs, ten posts with their author and the
+  author's posts 25.1 → 21.1 µs. D1, which shares bodies too, gains the same
+  way.
+
 ## 1.14.1 — 2026-11-16
 
 A push of a whole schema to SurrealDB Cloud no longer fails.
