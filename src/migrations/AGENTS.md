@@ -928,7 +928,8 @@ The push flow is:
 
 On a driver that makes one transaction of a batch and reruns it when refused
 at its commit (`rerunsRefusedCommits`, SurrealDB), a transactional program
-that only creates tables, and references between them, runs one operation per
+that only creates tables, and references to them (whose own table a push
+stopped part-way may have created already), runs one operation per
 transaction, each ONE request (`executeDispatchGroup`; the engine adds
 `BEGIN`/`COMMIT`, never the migration's text), and proves the destination
 after the last one. SurrealDB Cloud refuses at its commit a transaction that
@@ -936,7 +937,9 @@ defines things the more often the longer it stayed open, and one transaction
 for a whole schema, a round trip per statement, stayed open minutes. A
 refused commit applied nothing and is sent again (bounded); any other failure
 leaves the operations before it committed, and the next push, planning from
-the live schema, creates the rest. Every other program keeps its one
+the live schema, creates the rest the same way. Cloud also refuses, at every
+commit, a transaction that defines an event reading a table after an index on
+it: the SurrealQL driver defines a new table's events ahead of its indexes. Every other program keeps its one
 transaction, whose rerun after a refused commit replays its reads: SurrealQL
 introspection therefore never reads the catalog numbers the server gives a
 table or sequence, which a rerun gets anew.

@@ -262,8 +262,9 @@ async function executeLockedPlan(
   // transaction, each one request: a transaction around a whole schema stays
   // open for a round trip per statement, which the server refuses at its
   // commit the more often the longer it ran (SurrealDB Cloud). Part of such a
-  // program leaves only fewer of its new tables, which the next push creates;
-  // any other program keeps its one transaction.
+  // program leaves the operations before the one that failed, which the next
+  // push, planning from them, completes; any other program keeps its one
+  // transaction.
   const grouped =
     plan.atomicity === "transactional" &&
     createsTablesOnly(plan.operations) &&
@@ -323,7 +324,12 @@ async function executeLockedPlan(
   );
 }
 
-/** Whether `operations` create tables, and references between them, and touch nothing else. */
+/**
+ * Whether `operations` create tables, and references to them, and touch
+ * nothing else. A reference to a table created after its own waits for it in
+ * an operation of its own (`extractForwardReferenceForeignKeys`), whose table
+ * a push stopped between the two has already created.
+ */
 function createsTablesOnly(operations: readonly DiffOperation[]): boolean {
   const created = new Set(
     operations.flatMap((operation) =>
@@ -334,7 +340,6 @@ function createsTablesOnly(operations: readonly DiffOperation[]): boolean {
     (operation) =>
       operation.type === "createTable" ||
       (operation.type === "addForeignKey" &&
-        created.has(operation.tableName) &&
         created.has(operation.fk.referencedTable))
   );
 }
