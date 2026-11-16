@@ -63,7 +63,7 @@ export interface PlannedStatement {
   readonly kind: "clear" | "effect";
   readonly operationId: string;
   /** The index of the operation it is part of, in `operations`; none for a clear. */
-  readonly operation?: number;
+  readonly operation?: number | undefined;
   readonly dispatch: MigrationDispatchV1;
 }
 
@@ -311,9 +311,7 @@ export function compilePlanStatements(
     statements: pending.map((statement) => ({
       kind: statement.kind,
       operationId: statement.operationId,
-      ...(statement.operation === undefined
-        ? {}
-        : { operation: statement.operation }),
+      operation: statement.operation,
       dispatch: dispatchAt(sealed.dispatches, statement.index),
     })),
   };

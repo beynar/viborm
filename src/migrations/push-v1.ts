@@ -46,7 +46,6 @@ import {
   buildPushPlan,
   type InternalPushPlan,
   introspectManaged,
-  type PlannedStatement,
 } from "./push-plan";
 import { readCommandControl } from "./resume";
 import { assertMigrationDecimalDomainsFitProvider } from "./serializer";
@@ -285,24 +284,31 @@ async function executeLockedPlan(
       ),
     },
     async (producer, atomic) => {
-      if (grouped) {
-        for (const operation of byOperation(plan.statements)) {
-          await executeDispatchGroup(
-            grouped,
-            plan.sqlBlob,
-            operation,
-            command.namespace
-          );
-        }
-        return null;
+      // Each statement alone or, grouped, each operation's statements
+      // together: they are contiguous, and each names its operation.
+      const groups: MigrationDispatchV1[][] = [];
+      for (const [
+        index,
+        { operation, dispatch },
+      ] of plan.statements.entries()) {
+        if (grouped && operation === plan.statements[index - 1]?.operation)
+          groups.at(-1)!.push(dispatch);
+        else groups.push([dispatch]);
       }
-      for (const statement of plan.statements) {
-        await executeDispatch(
-          producer,
-          plan.sqlBlob,
-          statement.dispatch,
-          command.namespace
-        );
+      for (const group of groups) {
+        await (grouped
+          ? executeDispatchGroup(
+              grouped,
+              plan.sqlBlob,
+              group,
+              command.namespace
+            )
+          : executeDispatch(
+              producer,
+              plan.sqlBlob,
+              group[0]!,
+              command.namespace
+            ));
       }
       return atomic ? attestFinalFingerprint(producer, command, plan) : null;
     }
@@ -331,21 +337,6 @@ function createsTablesOnly(operations: readonly DiffOperation[]): boolean {
         created.has(operation.tableName) &&
         created.has(operation.fk.referencedTable))
   );
-}
-
-/** Each operation's dispatches, in program order, where they stand together. */
-function byOperation(
-  statements: readonly PlannedStatement[]
-): MigrationDispatchV1[][] {
-  const operations: MigrationDispatchV1[][] = [];
-  let last: number | undefined;
-  for (const { operation, dispatch } of statements) {
-    if (operation !== undefined && operation === last)
-      operations.at(-1)!.push(dispatch);
-    else operations.push([dispatch]);
-    last = operation;
-  }
-  return operations;
 }
 
 async function attestFinalFingerprint(
