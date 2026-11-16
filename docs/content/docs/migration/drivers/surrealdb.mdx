@@ -86,6 +86,16 @@ change, a `reset`, an index over rows the same migration backfills, and a partia
 need committed rows first: those programs run statement by statement, and a failure part-way leaves
 a state the next `push` plans from.
 
+- **A `push` that only creates tables** (a first push, or new tables and the references between
+  them) commits one table at a time: each table with its fields and indexes, and each reference, is
+  one request, `BEGIN; …; COMMIT;`. SurrealDB Cloud refuses at its commit a transaction that defines
+  things more often the longer it stays open, so one transaction for a whole schema failed there.
+  A request refused at its commit applied nothing and is sent again, up to 16 times; any other
+  failure leaves the tables before it created, and the next `push` creates the rest.
+- **A transaction refused at its commit** (`Transaction conflict`, "can be retried") runs again, its
+  reads compared with what they answered the first time, up to 16 times, before it fails with
+  `V5001`.
+
 - **Renaming a table or a field, and changing a key,** copy the rows, since SurrealDB has no rename
   and a record's id never changes. The copy is not atomic.
 - **An index built in the background** is waited for before the command returns, the lock still

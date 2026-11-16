@@ -20,7 +20,11 @@ import { canonicalizeJson } from "./canonical-json";
 import { refuseIncompatibleHistory, unfinishedAttempts } from "./control";
 import { diff } from "./differ";
 import type { BoundMigrationDriver } from "./drivers";
-import { executeDispatch } from "./execute-dispatch";
+import {
+  executeDispatch,
+  executeDispatchGroup,
+  rerunsRefusedCommits,
+} from "./execute-dispatch";
 import { domainHash, HASH_DOMAIN, type Sha256 } from "./identity";
 import {
   resolveCommandDriver,
@@ -46,10 +50,12 @@ import {
 import { readCommandControl } from "./resume";
 import { assertMigrationDecimalDomainsFitProvider } from "./serializer";
 import { sliceDispatch } from "./sql-blob";
+import type { DiffOperation } from "./types";
 import type {
   PushApplyResult as BasePushApplyResult,
   PushPreview as BasePushPreview,
   ExactPushOptions,
+  MigrationDispatchV1,
   PushConsent,
   PushOptionsV1,
   PushPlanningOptions,
@@ -251,6 +257,19 @@ async function executeLockedPlan(
     return appliedResult(plan, plan.sourceFingerprint, "noop");
   }
 
+  // A driver that makes one transaction of a batch, and runs it again when
+  // refused at its commit (SurrealDB), creates new tables one operation per
+  // transaction, each one request: a transaction around a whole schema stays
+  // open for a round trip per statement, which the server refuses at its
+  // commit the more often the longer it ran (SurrealDB Cloud). Part of such a
+  // program leaves only fewer of its new tables, which the next push creates;
+  // any other program keeps its one transaction.
+  const grouped =
+    plan.atomicity === "transactional" &&
+    createsTablesOnly(plan.operations) &&
+    rerunsRefusedCommits(pinned)
+      ? pinned
+      : undefined;
   // In a transaction the destination is proven before its COMMIT, and the
   // lifted foreign-key bracket runs around it (its pragmas, sent again
   // inside, are no-ops there); otherwise once the statements ran — on MySQL
@@ -259,19 +278,37 @@ async function executeLockedPlan(
     pinned,
     command,
     {
-      transactional: plan.atomicity === "transactional",
+      transactional: plan.atomicity === "transactional" && !grouped,
       statements: plan.statements.map((statement) =>
         sliceDispatch(plan.sqlBlob, statement.dispatch)
       ),
     },
     async (producer, atomic) => {
-      for (const statement of plan.statements) {
-        await executeDispatch(
-          producer,
-          plan.sqlBlob,
-          statement.dispatch,
-          command.namespace
-        );
+      // Each statement alone or, grouped, each operation's statements
+      // together: they are contiguous, and each names its operation.
+      const groups: MigrationDispatchV1[][] = [];
+      for (const [
+        index,
+        { operation, dispatch },
+      ] of plan.statements.entries()) {
+        if (grouped && operation === plan.statements[index - 1]?.operation)
+          groups.at(-1)!.push(dispatch);
+        else groups.push([dispatch]);
+      }
+      for (const group of groups) {
+        await (grouped
+          ? executeDispatchGroup(
+              grouped,
+              plan.sqlBlob,
+              group,
+              command.namespace
+            )
+          : executeDispatch(
+              producer,
+              plan.sqlBlob,
+              group[0]!,
+              command.namespace
+            ));
       }
       return atomic ? attestFinalFingerprint(producer, command, plan) : null;
     }
@@ -283,6 +320,22 @@ async function executeLockedPlan(
     plan,
     fingerprint ?? (await attestFinalFingerprint(pinned, command, plan)),
     "applied"
+  );
+}
+
+/** Whether `operations` create tables, and references between them, and touch nothing else. */
+function createsTablesOnly(operations: readonly DiffOperation[]): boolean {
+  const created = new Set(
+    operations.flatMap((operation) =>
+      operation.type === "createTable" ? [operation.table.name] : []
+    )
+  );
+  return operations.every(
+    (operation) =>
+      operation.type === "createTable" ||
+      (operation.type === "addForeignKey" &&
+        created.has(operation.tableName) &&
+        created.has(operation.fk.referencedTable))
   );
 }
 
