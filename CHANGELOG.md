@@ -66,26 +66,28 @@ Versioning.
   key order included. Measured on a local PostgreSQL 18 through pg: ten posts
   with their author and the author's posts 14 % faster (best of eight
   alternated runs), a `findUnique` 9 % (isolated A/B).
-- **A read spends 12 % to 19 % less CPU in VibORM on PostgreSQL.** Every
-  PostgreSQL driver shares the relation bodies a statement repeats, and the
-  engine read each statement again to find them, even when it repeats none,
-  which is nearly every read. Such a statement is now sent as built. The SQL
-  and the answers are the same. Measured through a pool that replays recorded
-  results, so only VibORM's own work counts: a `findUnique` 9.0 → 7.7 µs, 20
-  users with their posts 24.0 → 21.0 µs, ten posts with their author and the
-  author's posts 25.1 → 21.1 µs. D1, which shares bodies too, gains the same
-  way.
-- **A read spends another 4 % to 12 % less CPU in VibORM.** Smaller costs paid
-  on every call are gone: a quoted identifier is computed once, the column
-  name check of a projection no longer copies strings, the PostgreSQL
-  command tag `SELECT` is recognized without parsing, the fields a default
-  projection reads are listed once per model, and a decoded document reads a
-  member directly when its name is none of `Object.prototype`'s (a document of
-  another prototype is still read by own keys). The SQL and the answers are
-  the same. Measured the same way: a `findUnique` 8.7 → 7.9 µs, 20 users with
-  their posts 22.3 → 19.7 µs, ten posts with their author and the author's
-  posts 22.2 → 19.5 µs.
-
+- **A read spends 26 % to 50 % less CPU in VibORM.** The work VibORM itself
+  does per call, outside the database and the driver, was profiled against
+  Drizzle 1.0's relational API and cut where it bought nothing. The SQL a read
+  sends and its answers are the same. Measured through a pool that replays
+  recorded PostgreSQL results, so only VibORM's own work counts, CPU per call
+  against 1.14.1: a `findUnique` 7.1 → 3.5 µs, 20 rows filtered and ordered
+  8.1 → 5.6 µs, 20 users with their posts 23.7 → 17.5 µs, a user with two
+  filtered posts 14.8 → 8.9 µs, ten posts with their author and the author's
+  posts 25.3 → 17.9 µs. What changed:
+  - a statement that repeats no relation body is no longer read again to find
+    the bodies it shares (every PostgreSQL driver and D1 share them);
+  - a `findUnique` no longer prepares the paging and the order it then left
+    out, and a read's SELECT is one fragment, not one per clause;
+  - the client's model proxy no longer wraps another proxy, a read's rows are
+    decoded by the engine object that prepared it, and an operation allocates
+    no frozen record of its own;
+  - a quoted identifier is computed once, a plain column is projected without
+    its text being read back, and the columns a paged read lists are noted as
+    its SQL is built;
+  - a decoded document reads a member directly when its name is none of
+    `Object.prototype`'s (a document of another prototype is still read by own
+    keys).
 
 ## 1.14.1 — 2026-11-16
 
