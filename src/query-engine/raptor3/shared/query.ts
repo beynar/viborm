@@ -216,6 +216,14 @@ type FieldReader = (value: unknown) => unknown;
  * answers the public one.
  */
 export type Reader = (value: unknown) => unknown;
+/**
+ * A scalar placement's compiled reader, and the `typeof` of the values it
+ * answers unchanged when it has one.
+ */
+interface CompiledLeaf {
+  readonly read: Reader;
+  readonly unchanged: string | undefined;
+}
 type RelationProjectionArguments = Pick<
   Partial<Arguments>,
   "orderBy" | "take" | "skip" | "cursor" | "distinct"
@@ -3947,11 +3955,8 @@ export abstract class Queries {
     carried: boolean,
     columns?: readonly string[]
   ): Reader {
-    if (shape.kind === "scalar") {
-      const provider = carried ? undefined : this.fieldReader(shape.type);
-      const list = shape.list ? this.compileList(shape, internal) : undefined;
-      return this.compileScalar(shape, internal, provider, list);
-    }
+    if (shape.kind === "scalar")
+      return this.#compileLeaf(shape, internal, carried).read;
     if (shape.kind === "recursive") {
       const readRow = this.compileReader(shape.row, internal, true);
       // An identity is validated as the stored key it is (an INTERNAL read),
@@ -4042,14 +4047,20 @@ export abstract class Queries {
     // by `Object.fromEntries`) made this decoder allocate 2.5x the shipped
     // engine's bytes per row (`g4/release/p1/note.md`).
     const fields = Object.keys(shape.fields);
-    const readers = fields.map((field) => {
+    const readers: Reader[] = [];
+    // The type of value each member's reader answers unchanged, if any.
+    const unchanged: (string | undefined)[] = [];
+    for (const field of fields) {
       const nested = shape.fields[field]!;
-      return this.compileReader(
-        nested,
-        internal,
-        carried || nested.kind !== "scalar"
-      );
-    });
+      if (nested.kind === "scalar") {
+        const leaf = this.#compileLeaf(nested, internal, carried);
+        readers.push(leaf.read);
+        unchanged.push(leaf.unchanged);
+      } else {
+        readers.push(this.compileReader(nested, internal, true));
+        unchanged.push(undefined);
+      }
+    }
     // An internal read is the engine's own: it reads every member it asked
     // for, its gates unread (K5).
     if (shape.gates && !internal)
@@ -4083,6 +4094,13 @@ export abstract class Queries {
     // omitted. Read once per batch — the test per member of every row was
     // 4 % to 8 % of a read's client CPU where it decodes documents.
     const inherited = fields.map((field) => field in Object.prototype);
+    // OWN-key semantics ({@link own}): a plain member read on a
+    // `JSON.parse` result finds `Object.prototype`'s own members, so a
+    // field named `toString` the provider OMITTED would inherit a function
+    // instead of failing closed. Nested evidence documents also contain
+    // user-named predicates, not just schema identifiers. Their `__proto__`
+    // member must be an own data property, never the inherited setter.
+    // A document of another prototype is read by own keys throughout.
     return (value) => {
       const source = providerDocument(providerJson(value));
       if (source === null) {
@@ -4092,17 +4110,28 @@ export abstract class Queries {
       }
       if (source === undefined)
         refuseResult("row", "a requested document is not a provider row");
-      // OWN-key semantics ({@link own}): a plain member read on a
-      // `JSON.parse` result finds `Object.prototype`'s own members, so a
-      // field named `toString` the provider OMITTED would inherit a function
-      // instead of failing closed. Nested evidence documents also contain
-      // user-named predicates, not just schema identifiers. Their `__proto__`
-      // member must be an own data property, never the inherited setter.
-      // A document of another prototype is read by own keys throughout.
       const prototype = Object.getPrototypeOf(source);
       const plain = prototype === Object.prototype || prototype === null;
       const document: Input = {};
-      for (let index = 0; index < fields.length; index++) {
+      let index = 0;
+      // The members a plain document holds in place — its own keys, in the
+      // members' order, as PostgreSQL's `json_build_object` and SQLite's
+      // `json_object` answer them — are read as the document is walked: each
+      // is loaded by the document's own layout, not by a name that varies
+      // across every member of every shape. The walk ends at the first key
+      // that is not the next member, and at a member `Object.prototype` names.
+      if (plain)
+        for (const key in source) {
+          if (key !== fields[index] || inherited[index]) break;
+          const raw = source[key];
+          // A member its codec answers as itself is read without the call.
+          document[key] =
+            typeof raw === unchanged[index] ? raw : readers[index]!(raw);
+          index++;
+        }
+      // Every member the walk left (MySQL sorts the keys, a provider adds or
+      // omits one, another prototype) is read by its name, each once.
+      for (; index < fields.length; index++) {
         const field = fields[index]!;
         const decoded = readers[index]!(
           plain && !inherited[index] ? source[field] : own(source, field)
@@ -4153,7 +4182,7 @@ export abstract class Queries {
     internal: boolean,
     provider?: FieldReader,
     list?: Reader
-  ): Reader {
+  ): CompiledLeaf {
     const readValue = list ?? this.#compileScalarValue(leaf, internal);
     const nullable = leaf.nullable;
     const allowsJsonNull = leaf.type === "json" && leaf.list !== true;
@@ -4170,7 +4199,20 @@ export abstract class Queries {
       return readValue(provider === undefined ? raw : provider(raw));
     };
     const join = this.splitSum(leaf)?.join;
-    return join ? (parts) => read(join(parts)) : read;
+    if (join)
+      return { read: (parts) => read(join(parts)), unchanged: undefined };
+    // A carried value its codec answers unchanged is read without the call
+    // by the document reader; a physical value still crosses the provider.
+    return {
+      read,
+      unchanged: provider ? undefined : UNCHANGED_BY.get(readValue),
+    };
+  }
+  /** A scalar placement's reader: physical slots cross the provider. */
+  #compileLeaf(leaf: Leaf, internal: boolean, carried: boolean): CompiledLeaf {
+    const provider = carried ? undefined : this.fieldReader(leaf.type);
+    const list = leaf.list ? this.compileList(leaf, internal) : undefined;
+    return this.compileScalar(leaf, internal, provider, list);
   }
   /** Bind the declared scalar codec once, preserving its provider-value checks. */
   #compileScalarValue(leaf: Leaf, internal: boolean): Reader {
@@ -4351,7 +4393,7 @@ export abstract class Queries {
       list: undefined,
       nullable: false,
     };
-    const readMember = this.compileScalar(member, internal);
+    const readMember = this.compileScalar(member, internal).read;
     const arrayText =
       this.adapter.result.enumListRepresentation === "arrayText";
     return (value) => {
@@ -4483,6 +4525,12 @@ function decodeBoolean(value: unknown): unknown {
   if (value === 1 || value === 1n) return true;
   refuseResult("boolean", "the value is not true, false, zero, or one");
 }
+
+/** The shared codecs that answer every value of one `typeof` as itself. */
+const UNCHANGED_BY = new Map<Reader, string>([
+  [decodeString, "string"],
+  [decodeBoolean, "boolean"],
+]);
 
 /** `sum`: an int `_sum` past 2^53 reads as the nearest double (a lossy sum). */
 function decodeInt(value: unknown, sum = false): unknown {
