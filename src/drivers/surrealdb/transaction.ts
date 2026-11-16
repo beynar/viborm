@@ -50,6 +50,18 @@ const NEXT_VALUE = /sequence::nextval\(\$(p\d+)\)/g;
 /** Each attempt is won by someone, so this bounds the writers that can meet at once. */
 export const COMMITS = 16;
 
+/**
+ * The wait after attempt `attempt` met another writer at its commit: at random,
+ * since two losers running again together would only meet again, below a
+ * ceiling that doubles from 20 ms to 1 s. Over {@link COMMITS} attempts that is
+ * about 5 s in all (10 s at most), where a ceiling of 10 ms per attempt gave a
+ * writer still busy after a second no chance to finish.
+ */
+export const backOff = (attempt: number): Promise<void> =>
+  new Promise((resolve) =>
+    setTimeout(resolve, Math.random() * Math.min(1000, 10 * 2 ** attempt))
+  );
+
 interface Statement {
   text: string;
   values: Record<string, unknown>;
@@ -227,10 +239,7 @@ export class ReplayedTransaction {
         } catch (error) {
           if (!isConflict(error) || attempt === COMMITS) throw error;
         }
-        // Two losers running again together would only meet again.
-        await new Promise((resolve) =>
-          setTimeout(resolve, Math.random() * 10 * attempt)
-        );
+        await backOff(attempt);
         await this.#replay();
       }
     } catch (error) {

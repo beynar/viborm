@@ -51,6 +51,7 @@ import { createTransactionCleanupError } from "../shared/transactions";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "../types";
 import { SurrealQueries } from "./queries";
 import {
+  backOff,
   COMMITS,
   FORBIDDEN_ROW,
   isConflict,
@@ -447,10 +448,7 @@ export class SurrealDriver
         )
           throw error;
       }
-      // Two losers running again together would only meet again.
-      await new Promise((resolve) =>
-        setTimeout(resolve, Math.random() * 10 * attempt)
-      );
+      await backOff(attempt);
     }
   }
 
