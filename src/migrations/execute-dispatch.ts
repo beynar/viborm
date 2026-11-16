@@ -39,13 +39,41 @@ export async function executeExactSql(
   parameters: readonly unknown[] = []
 ): Promise<void> {
   const send = () => producer._executeRaw(sql, [...parameters]);
-  await (reruns(producer) ? producer.rerunRefusedCommit(sql, send) : send());
+  await (rerunsRefusedCommits(producer)
+    ? producer.rerunRefusedCommit(sql, send)
+    : send());
 }
 
-const reruns = (
+/**
+ * Whether `driver` makes one transaction of a batch it sends, and runs it
+ * again where that transaction was refused at its commit (SurrealDB).
+ */
+export const rerunsRefusedCommits = (
   driver: AnyDriver
 ): driver is AnyDriver & CommitRerunningDriver =>
   typeof Reflect.get(driver, "rerunRefusedCommit") === "function";
+
+/**
+ * Dispatches that commit together or not at all, as ONE request: the driver
+ * makes one transaction of the batch, outside any other. Refused at its
+ * commit, nothing of it was applied, so it runs again (`rerunRefusedCommit`),
+ * which no other failure does. The engine opens that transaction: a
+ * migration's text never holds `BEGIN`, `COMMIT` or `CANCEL`
+ * (`statement-safety.ts`).
+ */
+export async function executeDispatchGroup(
+  producer: AnyDriver & CommitRerunningDriver,
+  blob: Uint8Array,
+  dispatches: readonly MigrationDispatchV1[],
+  targetNamespace?: string
+): Promise<void> {
+  const queries = dispatches.map((dispatch) =>
+    dispatchQuery(blob, dispatch, targetNamespace)
+  );
+  await producer.rerunRefusedCommit(queries, () =>
+    producer._executeBatch(queries)
+  );
+}
 
 /** A dispatch's exact text and its decoded parameters. */
 function dispatchQuery(

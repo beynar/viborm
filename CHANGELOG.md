@@ -5,6 +5,22 @@ Versioning.
 
 ## Unreleased
 
+### Fixed
+
+- **SurrealDB: a push that creates a whole schema no longer fails with
+  `V5001` on SurrealDB Cloud.** It sent each statement in its own round trip
+  inside one transaction (a schema of 54 tables: 937 statements, about three
+  minutes on Cloud), which Cloud refused at its commit the more often the
+  longer it ran. The rerun after that refusal could then never succeed: the
+  push's own proof read the number the server gives each table, which the
+  rerun's tables get anew. A push that only creates tables, and references
+  between them, now sends each operation (a table with its fields and
+  indexes, a reference) as one request, `BEGIN; …; COMMIT;`, sent again when
+  refused at its commit, and proves the result once the last one committed. A
+  failure leaves the tables before it created, and the next push creates the
+  rest. Any other push keeps its one transaction, and its rerun after a
+  refused commit now succeeds.
+
 ## 1.14.0 — 2026-11-15
 
 VibORM now runs on a Durable Object's own SQLite storage, takes over tables it

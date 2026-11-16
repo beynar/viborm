@@ -926,6 +926,21 @@ The push flow is:
    digest; it is not the attest target, because partial-index predicates
    cannot be canonicalized against tables that do not exist yet.
 
+On a driver that makes one transaction of a batch and reruns it when refused
+at its commit (`rerunsRefusedCommits`, SurrealDB), a transactional program
+that only creates tables, and references between them, runs one operation per
+transaction, each ONE request (`executeDispatchGroup`; the engine adds
+`BEGIN`/`COMMIT`, never the migration's text), and proves the destination
+after the last one. SurrealDB Cloud refuses at its commit a transaction that
+defines things the more often the longer it stayed open, and one transaction
+for a whole schema, a round trip per statement, stayed open minutes. A
+refused commit applied nothing and is sent again (bounded); any other failure
+leaves the operations before it committed, and the next push, planning from
+the live schema, creates the rest. Every other program keeps its one
+transaction, whose rerun after a refused commit replays its reads: SurrealQL
+introspection therefore never reads the catalog numbers the server gives a
+table or sequence, which a rerun gets anew.
+
 Consent is not authority and the preview is not an executable public plan. A
 forged or stale value can only cause refusal. Resolution callbacks run outside
 the lock; their normalized decisions are closed into consent and checked

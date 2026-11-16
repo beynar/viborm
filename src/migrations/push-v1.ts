@@ -20,7 +20,11 @@ import { canonicalizeJson } from "./canonical-json";
 import { refuseIncompatibleHistory, unfinishedAttempts } from "./control";
 import { diff } from "./differ";
 import type { BoundMigrationDriver } from "./drivers";
-import { executeDispatch } from "./execute-dispatch";
+import {
+  executeDispatch,
+  executeDispatchGroup,
+  rerunsRefusedCommits,
+} from "./execute-dispatch";
 import { domainHash, HASH_DOMAIN, type Sha256 } from "./identity";
 import {
   resolveCommandDriver,
@@ -42,14 +46,17 @@ import {
   buildPushPlan,
   type InternalPushPlan,
   introspectManaged,
+  type PlannedStatement,
 } from "./push-plan";
 import { readCommandControl } from "./resume";
 import { assertMigrationDecimalDomainsFitProvider } from "./serializer";
 import { sliceDispatch } from "./sql-blob";
+import type { DiffOperation } from "./types";
 import type {
   PushApplyResult as BasePushApplyResult,
   PushPreview as BasePushPreview,
   ExactPushOptions,
+  MigrationDispatchV1,
   PushConsent,
   PushOptionsV1,
   PushPlanningOptions,
@@ -251,6 +258,19 @@ async function executeLockedPlan(
     return appliedResult(plan, plan.sourceFingerprint, "noop");
   }
 
+  // A driver that makes one transaction of a batch, and runs it again when
+  // refused at its commit (SurrealDB), creates new tables one operation per
+  // transaction, each one request: a transaction around a whole schema stays
+  // open for a round trip per statement, which the server refuses at its
+  // commit the more often the longer it ran (SurrealDB Cloud). Part of such a
+  // program leaves only fewer of its new tables, which the next push creates;
+  // any other program keeps its one transaction.
+  const grouped =
+    plan.atomicity === "transactional" &&
+    createsTablesOnly(plan.operations) &&
+    rerunsRefusedCommits(pinned)
+      ? pinned
+      : undefined;
   // In a transaction the destination is proven before its COMMIT, and the
   // lifted foreign-key bracket runs around it (its pragmas, sent again
   // inside, are no-ops there); otherwise once the statements ran — on MySQL
@@ -259,12 +279,23 @@ async function executeLockedPlan(
     pinned,
     command,
     {
-      transactional: plan.atomicity === "transactional",
+      transactional: plan.atomicity === "transactional" && !grouped,
       statements: plan.statements.map((statement) =>
         sliceDispatch(plan.sqlBlob, statement.dispatch)
       ),
     },
     async (producer, atomic) => {
+      if (grouped) {
+        for (const operation of byOperation(plan.statements)) {
+          await executeDispatchGroup(
+            grouped,
+            plan.sqlBlob,
+            operation,
+            command.namespace
+          );
+        }
+        return null;
+      }
       for (const statement of plan.statements) {
         await executeDispatch(
           producer,
@@ -284,6 +315,37 @@ async function executeLockedPlan(
     fingerprint ?? (await attestFinalFingerprint(pinned, command, plan)),
     "applied"
   );
+}
+
+/** Whether `operations` create tables, and references between them, and touch nothing else. */
+function createsTablesOnly(operations: readonly DiffOperation[]): boolean {
+  const created = new Set(
+    operations.flatMap((operation) =>
+      operation.type === "createTable" ? [operation.table.name] : []
+    )
+  );
+  return operations.every(
+    (operation) =>
+      operation.type === "createTable" ||
+      (operation.type === "addForeignKey" &&
+        created.has(operation.tableName) &&
+        created.has(operation.fk.referencedTable))
+  );
+}
+
+/** Each operation's dispatches, in program order, where they stand together. */
+function byOperation(
+  statements: readonly PlannedStatement[]
+): MigrationDispatchV1[][] {
+  const operations: MigrationDispatchV1[][] = [];
+  let last: number | undefined;
+  for (const { operation, dispatch } of statements) {
+    if (operation !== undefined && operation === last)
+      operations.at(-1)!.push(dispatch);
+    else operations.push([dispatch]);
+    last = operation;
+  }
+  return operations;
 }
 
 async function attestFinalFingerprint(

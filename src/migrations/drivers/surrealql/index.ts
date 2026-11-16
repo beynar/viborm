@@ -425,9 +425,11 @@ export class SurrealMigrationDriver extends MigrationDriver {
     const one = async <T>(statement: string) =>
       (await executeRaw<T>(`RETURN [${statement}]`)).rows[0]!;
     // Only what the schema is: an answer also holds how far the server's own
-    // work on a removed field has come, which changes under any transaction.
+    // work on a removed field has come, which changes under any transaction,
+    // and the number the server gave each table and sequence, which a
+    // transaction run again after a refused commit gets anew.
     const database = await one<DatabaseInfo>(
-      "(INFO FOR DB STRUCTURE).{ tables, sequences }"
+      "(INFO FOR DB STRUCTURE).{ tables: tables.{ name, comment, kind }, sequences: sequences.{ name } }"
     );
     const sequences = new Set(database.sequences.map(({ name }) => name));
     const known = database.tables.filter(
