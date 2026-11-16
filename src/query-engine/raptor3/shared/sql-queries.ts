@@ -3911,13 +3911,14 @@ export class SqlQueries extends Queries {
     const a = this.adapter;
     // The columns of `alias` the rest of the statement reads, and no other:
     // `alias.*` would need the privilege on every column of the table, where
-    // the subqueries needed only those (a column-level grant).
-    const quoted = Sql.leafText(this.#escaped(alias))!;
+    // the subqueries needed only those (a column-level grant). A shared
+    // body's slot is settled after this page is built, to its inline form or
+    // its key-set test ({@link sharingBodies}): both are read.
     const read = columnsRead(
-      Sql.peek(
+      this.#texts(
         sql`${columns} ${sql.join(laterals, " ")} ${page.orderBy ?? sql.empty}`
-      ).strings.join("\0"),
-      quoted
+      ),
+      Sql.leafText(this.#escaped(alias))!
     );
     const rows = assembleAdapterSelect(a, {
       columns: listed(read.map((column) => this.#at(alias, column))),
@@ -3933,6 +3934,29 @@ export class SqlQueries extends Queries {
       joins: laterals,
       orderBy: page.orderBy,
     });
+  }
+  /**
+   * The text of `fragment` and of every form a shared body's slot in it may
+   * settle to, each read once, parts joined by a character no SQL holds.
+   */
+  #texts(fragment: Sql): string {
+    const placements = new Map<Sql, PlacedBody>();
+    for (const body of this.#shared?.order ?? [])
+      for (const placed of body.slots) placements.set(placed.slot, placed);
+    const parts: string[] = [];
+    const seen = new Set<Sql>();
+    const pending = [fragment];
+    for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+      if (seen.has(next)) continue;
+      seen.add(next);
+      const { runs } = Sql.peekRuns(next, (node) => {
+        const placed = placements.get(node);
+        if (placed !== undefined) pending.push(placed.inline, placed.use);
+        return false;
+      });
+      for (const run of runs) parts.push(run.text);
+    }
+    return parts.join("\0");
   }
   /** {@link select}'s conjunction, in its order; `undefined` for none. */
   #selectWhere(
