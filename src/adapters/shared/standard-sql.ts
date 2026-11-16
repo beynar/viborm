@@ -269,17 +269,16 @@ const isQualifiedColumnNamed = (
   quote: string
 ): boolean => {
   if (text === undefined || !text.endsWith(quotedName)) return false;
-  const qualifier = text.slice(0, -quotedName.length - 1);
-  return (
-    text[qualifier.length] === "." &&
-    qualifier.length >= 2 &&
-    qualifier[0] === quote &&
-    qualifier.at(-1) === quote &&
-    !qualifier
-      .slice(1, -1)
-      .replaceAll(quote + quote, "")
-      .includes(quote)
-  );
+  // The qualifier is `text` before `.` + `quotedName`: quoted at both ends,
+  // and every quote between them doubled. Read in place, once per projected
+  // column of every statement, so nothing is sliced.
+  const close = text.length - quotedName.length - 2;
+  if (close < 1 || text[close + 1] !== "." || text[0] !== quote) return false;
+  if (text[close] !== quote) return false;
+  for (let at = 1; at < close; at++)
+    if (text[at] === quote && (at + 1 >= close || text[++at] !== quote))
+      return false;
+  return true;
 };
 
 /**

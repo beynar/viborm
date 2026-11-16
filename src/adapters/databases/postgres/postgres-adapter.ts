@@ -108,9 +108,11 @@ function postgresJsonObject(pairs: [string, Sql][]): Sql {
   // PostgreSQL limits a function call to 100 arguments. Chunking preserves
   // the surrounding aggregate scope, unlike moving values into a subquery.
   for (let start = 0; start < pairs.length; start += 50) {
-    const args = pairs
-      .slice(start, start + 50)
-      .flatMap(([key, value]) => [sql`${key}::text`, value]);
+    const args: Sql[] = [];
+    for (let at = start; at < pairs.length && at < start + 50; at++) {
+      const [key, value] = pairs[at]!;
+      args.push(sql`${key}::text`, value);
+    }
     chunks.push(sql`${buildObject}(${sql.join(args, ", ")})`);
   }
   return chunks.length === 1

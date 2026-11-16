@@ -1732,7 +1732,11 @@ the absent column are answered on the RAW value, before any representation
 rule, so a provider that decodes `'null'` into the JSON null document still
 writes a NOT NULL `json` column. Object shapes carry nullability — a carrier the
 statement always builds cannot decode as `null` — members are read with
-`Object.hasOwn`, and the decoder's structural failures are
+`Object.hasOwn`, except, in a document whose prototype is `Object.prototype`
+or `null`, a member whose name is none of `Object.prototype`'s (decided once
+per batch), read directly: only a prototype a third party polluted could
+answer it for an omitted member (Arnaud, 2026-11-16: 4 % to 8 % of a read's
+client CPU where it decodes documents) — and the decoder's structural failures are
 `InvalidScalarResult`, which `run` publishes as non-retryable public `QueryError` V2006 (`QUERY_RESULT_INVALID`).
 **And the member LIST of a decoded document is the PROJECTION's fact, not the
 row's** (P1, ruling D-61): `prepareProjection` states `shape.fields` once,

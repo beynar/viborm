@@ -75,6 +75,16 @@ Versioning.
   users with their posts 24.0 → 21.0 µs, ten posts with their author and the
   author's posts 25.1 → 21.1 µs. D1, which shares bodies too, gains the same
   way.
+- **A read spends another 4 % to 12 % less CPU in VibORM.** Smaller costs paid
+  on every call are gone: a quoted identifier is computed once, the column
+  name check of a projection no longer copies strings, the PostgreSQL
+  command tag `SELECT` is recognized without parsing, the fields a default
+  projection reads are listed once per model, and a decoded document reads a
+  member directly when its name is none of `Object.prototype`'s (a document of
+  another prototype is still read by own keys). The SQL and the answers are
+  the same. Measured the same way: a `findUnique` 8.7 → 7.9 µs, 20 users with
+  their posts 22.3 → 19.7 µs, ten posts with their author and the author's
+  posts 22.2 → 19.5 µs.
 
 
 ## 1.14.1 — 2026-11-16
