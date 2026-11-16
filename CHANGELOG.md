@@ -5,6 +5,10 @@ Versioning.
 
 ## Unreleased
 
+## 1.14.1 — 2026-11-16
+
+A push of a whole schema to SurrealDB Cloud no longer fails.
+
 ### Fixed
 
 - **SurrealDB: a push that creates a whole schema no longer fails with
