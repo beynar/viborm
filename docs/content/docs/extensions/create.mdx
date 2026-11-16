@@ -1326,6 +1326,8 @@ what `defaults` set as well.
   `skip`, `cursor`), so the rows a page counts are the rows it reads. A
   `cursor` pages through it.
 - An explicit `orderBy` replaces it, whole; `orderBy: []` reads in key order.
+  Without this extension, a relation read without `orderBy`, `take`, `skip`,
+  `cursor` or `distinct` comes back in no particular order.
   `findUnique`, `groupBy` and unpaged aggregates are not ordered by it.
 - The model's key always ends the order, so equal values read in a stable
   order.

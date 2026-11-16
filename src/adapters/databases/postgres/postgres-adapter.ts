@@ -648,6 +648,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     supportsRowLocks: true,
     joinsJunctionFilters: "unbounded",
     readsNodesByKey: true,
+    joinsToOneLaterally: true,
   };
 
   lastInsertId = (): Sql => sql.raw`lastval()`;
