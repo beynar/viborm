@@ -67,6 +67,10 @@ Versioning.
   with their author and the author's posts 14 % faster (best of eight
   alternated runs), a `findUnique` 9 % (isolated A/B).
 
+## 1.14.2 — 2026-11-16
+
+A push of a whole schema to SurrealDB Cloud completes, and a push that stopped part-way resumes.
+
 ### Fixed
 
 - **SurrealDB: a push of a whole schema to SurrealDB Cloud completes.** In
