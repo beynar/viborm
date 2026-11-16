@@ -119,17 +119,24 @@ const defer: (callback: () => void) => void = (() => {
 })();
 
 /**
+ * Whether a `findUnique` of `engine` may share a read now: what its owner asks
+ * before it describes the call to {@link batchFindUnique}.
+ *
+ * A call on the originating client inside its own callback transaction
+ * runs alone, and is refused there as it always was: in a batch, the shared
+ * read would queue behind the transaction that waits for this call.
+ */
+export function sharesFindUnique(engine: QueryEngine): boolean {
+  return engineBatches(engine) && !engine.driver.holdsConnectionScope();
+}
+
+/**
  * Join a batch, or answer `undefined` when this call does not batch and must
- * run as it always has.
+ * run as it always has. Its engine {@link sharesFindUnique}.
  */
 export function batchFindUnique(
   call: FindUniqueCall
 ): Promise<unknown> | undefined {
-  // A call on the originating client inside its own callback transaction
-  // runs alone, and is refused there as it always was: in a batch, the shared
-  // read would queue behind the transaction that waits for this call.
-  if (!engineBatches(call.engine) || call.engine.driver.holdsConnectionScope())
-    return undefined;
   let admitted: Record<string, unknown>;
   try {
     admitted = call.routed.args;

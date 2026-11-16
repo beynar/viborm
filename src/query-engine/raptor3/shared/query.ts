@@ -1709,6 +1709,13 @@ export abstract class Queries {
       | undefined;
   }
   abstract under(domain: PreparedDomain, call?: CallScope): Queries;
+  /** Whether a view made for `driver` would decode its rows as this one does: by this adapter and this driver parser. */
+  decodes(driver: {
+    readonly adapter: EngineFacts;
+    readonly result?: DriverResultParser;
+  }): boolean {
+    return driver.adapter === this.adapter && driver.result === this.result;
+  }
   /**
    * The domain predicate a lowering-time read takes for `model`: the call's
    * own outside every layer, under `judgement` for a write; inside one, the
