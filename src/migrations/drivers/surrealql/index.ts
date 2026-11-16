@@ -66,11 +66,11 @@ const LOCK_RECORD = `${LOCK_TABLE}:command`;
 const LOCK_LEASE = "15m";
 const LOCK_RETRY_MS = 50;
 /**
- * How long a command waits for the indexes its program builds in the background,
- * and how often it looks. An index on a table no row is in yet is ready well
- * under a second: five minutes leave a slow server room, inside the lock's lease
- * unless the program itself took most of it. The pause doubles from the first to
- * the last.
+ * How long a command waits for one more of the indexes its program builds in
+ * the background, and how often it looks. SurrealDB Cloud builds them one after
+ * another, about five seconds each even on a table no row is in: 139 took
+ * ten to twelve minutes. Five minutes with none more ready is a build that stopped.
+ * The pause doubles from the first to the last.
  */
 const INDEX_BUILD_WAIT_MS = 300_000;
 const INDEX_BUILD_FIRST_PAUSE_MS = 50;
@@ -1113,6 +1113,19 @@ export class SurrealMigrationDriver extends MigrationDriver {
             `DEFINE SEQUENCE ${key.length === 1 && key[0] === column.name ? "" : "OVERWRITE "}${this.escapeIdentifier(sequenceOf(table.name, key.includes(column.name) ? column.name : partName(table, column.name), key))} START 1;`
         ),
       ...fields,
+      // Ahead of the indexes: SurrealDB Cloud refuses, at every commit, a
+      // transaction that defines an event reading a table after an index on it.
+      ...table.foreignKeys.flatMap((fk) =>
+        this.holdsRecord(fk, context, table, key)
+          ? []
+          : this.events(
+              table,
+              fk,
+              key,
+              this.keyOf(fk.referencedTable, context, table),
+              context
+            )
+      ),
       ...table.uniqueConstraints.map((unique) =>
         this.index(
           table.name,
@@ -1124,17 +1137,6 @@ export class SurrealMigrationDriver extends MigrationDriver {
       ),
       ...table.indexes.flatMap((index) =>
         this.plainIndex(table, index, false, empty)
-      ),
-      ...table.foreignKeys.flatMap((fk) =>
-        this.holdsRecord(fk, context, table, key)
-          ? []
-          : this.events(
-              table,
-              fk,
-              key,
-              this.keyOf(fk.referencedTable, context, table),
-              context
-            )
       ),
     ];
   }
@@ -2018,9 +2020,9 @@ export class SurrealMigrationDriver extends MigrationDriver {
    * Waits, the lock still held, until every index of the managed tables is
    * `ready` once a program building one in the background has committed: until
    * then a unique one lets a duplicate in, which leaves it failed and its table
-   * refusing every write. A failed build, or one still going past
-   * {@link INDEX_BUILD_WAIT_MS}, is refused by name; what the program did stays
-   * committed.
+   * refusing every write. Each read renews the lock's lease, which the wait
+   * may outlast. A failed build, or {@link INDEX_BUILD_WAIT_MS} with none more
+   * ready, is refused by name; what the program did stays committed.
    */
   override async awaitIndexBuilds(
     producer: AnyDriver,
@@ -2029,14 +2031,19 @@ export class SurrealMigrationDriver extends MigrationDriver {
     // Said in a string or a comment, it only costs one read.
     if (!statements.some((sql) => CONCURRENTLY.test(sql))) return;
     const tables = this.target?.tables;
-    const deadline = Date.now() + INDEX_BUILD_WAIT_MS;
+    let deadline = 0;
+    let building = Number.POSITIVE_INFINITY;
     for (let pause = INDEX_BUILD_FIRST_PAUSE_MS; ; ) {
       const { rows } = await producer._executeRaw<IndexInfo>(
-        `RETURN (INFO FOR DB STRUCTURE).tables${tables ? ".filter(|$t| $t.name IN $p1)" : ""}.map(|$t| (INFO FOR TABLE $t.name STRUCTURE).indexes.map(|$i| $i + (INFO FOR INDEX $i.name ON $t.name).building)).flatten().filter(|$i| $i.status != "ready")`,
+        `UPDATE ${LOCK_RECORD} SET at = time::now() RETURN NONE; RETURN (INFO FOR DB STRUCTURE).tables${tables ? ".filter(|$t| $t.name IN $p1)" : ""}.map(|$t| (INFO FOR TABLE $t.name STRUCTURE).indexes.map(|$i| $i + (INFO FOR INDEX $i.name ON $t.name).building)).flatten().filter(|$i| $i.status != "ready")`,
         [tables]
       );
       const [first] = rows;
       if (!first) return;
+      if (rows.length < building) {
+        building = rows.length;
+        deadline = Date.now() + INDEX_BUILD_WAIT_MS;
+      }
       const failed = rows.find(({ status }) => status === "error");
       if (failed || Date.now() >= deadline)
         throw unbuilt(
