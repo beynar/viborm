@@ -92,6 +92,35 @@ describeIf("postgres.js namedStatements", () => {
     await sql.end();
   });
 
+  test("raw SQL is never prepared, and takes no place a generated statement could have", async () => {
+    const sql = connection();
+    const db = createClient({
+      schema: { member },
+      client: sql as never,
+      namedStatements: { max: 1 },
+    });
+    for (let i = 0; i < 3; i++) {
+      expect(await db.$queryRaw`SELECT ${1}::int AS "raw_one"`).toEqual([
+        { raw_one: 1 },
+      ]);
+      await db.$executeRaw`UPDATE "named_statements_member" SET "name" = "name" WHERE "id" = ${"none"}`;
+    }
+    for (let i = 0; i < 2; i++)
+      await db.$transaction([
+        db.$queryRaw`SELECT ${2}::int AS "raw_two"`,
+        db.$executeRaw`UPDATE "named_statements_member" SET "name" = "name" WHERE "id" = ${"gone"}`,
+      ]);
+    const [held] = await sql.unsafe(
+      "SELECT count(*)::int AS n FROM pg_prepared_statements WHERE statement LIKE '%raw_%' OR statement LIKE 'UPDATE%'"
+    );
+    expect(held?.n).toBe(0);
+    // The one place is still there for a generated statement.
+    await db.member.findUnique({ where: { id: "a" } });
+    await db.member.findUnique({ where: { id: "b" } });
+    expect(await prepared(sql)).toBe(1);
+    await sql.end();
+  });
+
   test("a statement the server lost is sent again", async () => {
     const sql = connection();
     const db = createClient({
