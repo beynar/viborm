@@ -1368,9 +1368,14 @@ interface SetTest {
  * sets it is tested against ({@link Queries.sharingBodies}).
  */
 export interface SharedBodies {
-  readonly byKey: Map<string, SharedBody>;
+  /** Made with the first body placed: most statements place none. */
+  byKey?: Map<string, SharedBody>;
   readonly order: SharedBody[];
-  readonly attach: Map<string, SqlSlot[]>;
+  /**
+   * Absent where no row joins a key set: only a statement held to a bound
+   * (`capabilities.relationsPerStatement`) flags one.
+   */
+  readonly attach?: Map<string, SqlSlot[]>;
   /**
    * The statement's root read, where it joins its key sets: its alias, and
    * its projection and `WHERE`, each place of which reads what it joins.
@@ -1709,6 +1714,13 @@ export abstract class Queries {
       | undefined;
   }
   abstract under(domain: PreparedDomain, call?: CallScope): Queries;
+  /** Whether a view made for `driver` would decode its rows as this one does: by this adapter and this driver parser. */
+  decodes(driver: {
+    readonly adapter: EngineFacts;
+    readonly result?: DriverResultParser;
+  }): boolean {
+    return driver.adapter === this.adapter && driver.result === this.result;
+  }
   /**
    * The domain predicate a lowering-time read takes for `model`: the call's
    * own outside every layer, under `judgement` for a write; inside one, the
@@ -3957,6 +3969,11 @@ export abstract class Queries {
         return document;
       };
     }
+    // Of a plain document, only a member named as one of `Object.prototype`'s
+    // needs the own-key test: no other name inherits a value the document
+    // omitted. Read once per batch — the test per member of every row was
+    // 4 % to 8 % of a read's client CPU where it decodes documents.
+    const inherited = fields.map((field) => field in Object.prototype);
     return (value) => {
       const source = providerDocument(providerJson(value));
       if (source === null) {
@@ -3972,10 +3989,15 @@ export abstract class Queries {
       // instead of failing closed. Nested evidence documents also contain
       // user-named predicates, not just schema identifiers. Their `__proto__`
       // member must be an own data property, never the inherited setter.
+      // A document of another prototype is read by own keys throughout.
+      const prototype = Object.getPrototypeOf(source);
+      const plain = prototype === Object.prototype || prototype === null;
       const document: Input = {};
       for (let index = 0; index < fields.length; index++) {
         const field = fields[index]!;
-        const decoded = readers[index]!(own(source, field));
+        const decoded = readers[index]!(
+          plain && !inherited[index] ? source[field] : own(source, field)
+        );
         if (field === "__proto__")
           Object.defineProperty(document, field, {
             value: decoded,

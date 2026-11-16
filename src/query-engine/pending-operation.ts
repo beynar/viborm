@@ -21,12 +21,11 @@ import type { UnitSource } from "@extensions/unit-source";
 import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
 import {
-  createPendingOperationContext,
-  type OperationExecutionContext,
+  createOperationExecutionContext,
   observeTransactionBatchPhase,
   withOperationErrorContext,
 } from "./execution-context";
-import { batchFindUnique } from "./find-unique-batch";
+import { batchFindUnique, sharesFindUnique } from "./find-unique-batch";
 import { PendingExecution } from "./pending-execution";
 import type { QueryEngine } from "./query-engine";
 import { snapshotQueryInput } from "./query-inspection";
@@ -110,10 +109,6 @@ interface OperationInputPreparation extends CallOrigin {
   error?: unknown;
 }
 
-type ResolvedPrepareOptions = Readonly<
-  PrepareOptions & { readonly originalOperation: string }
->;
-
 const OR_THROW_SUFFIX = "OrThrow";
 const pendingOperationConstruction = Object.freeze({});
 
@@ -139,13 +134,22 @@ export class PendingOperation<T>
 {
   readonly [Symbol.toStringTag] = "Promise";
   readonly [PENDING_OPERATION_SYMBOL] = true;
-  readonly #context: OperationExecutionContext;
+  // Ownership and attribution as they were when the operation was created.
+  // Members of the operation itself: a frozen record of the three and a
+  // frozen copy of its options were made per call (with the description of
+  // a `findUnique` no batch takes, 0.5 kB and 1 % of its client CPU).
+  readonly #clientId: symbol;
+  readonly #scopeId: symbol;
+  readonly #attribution: QueryExecutionContext;
   readonly #engine: QueryEngine;
   readonly #model: AnyModel;
   readonly #args: Record<string, unknown>;
   readonly #modelName: string;
   readonly #operation: Operation;
-  readonly #options: ResolvedPrepareOptions;
+  /** The verb the caller asked for, `…OrThrow` included. */
+  readonly #requested: string;
+  /** The client's last step on the operation's value, if any. */
+  readonly #finishResult: ((value: unknown) => unknown) | undefined;
 
   readonly #execution: PendingExecution<T>;
   readonly #inputPreparation: OperationInputPreparation | undefined;
@@ -187,17 +191,17 @@ export class PendingOperation<T>
         prepareWriteOutcomeRegistration
       );
     pendingOperationTransactionOwner = Object.freeze({
-      clientId: (operation) => operation.#context.clientId,
-      scopeId: (operation) => operation.#context.scopeId,
+      clientId: (operation) => operation.#clientId,
+      scopeId: (operation) => operation.#scopeId,
       model: (operation) => operation.#modelName,
       operation: (operation) => operation.#operation,
-      context: (operation) => operation.#context.attribution,
+      context: (operation) => operation.#attribution,
       prepareAdmission: (operation, phase = "input") => {
         operation.#preparedInput();
         if (phase === "plan") operation.#resolveSinglePackage();
       },
       around: (operation) => {
-        const requestedOperation = String(operation.#options.originalOperation);
+        const requestedOperation = operation.#requested;
         const handlers = operation.#engine.extensionChain?.around?.handlers(
           operation.#modelName,
           requestedOperation
@@ -241,12 +245,10 @@ export class PendingOperation<T>
       // result. A verb that needs the asynchronous fold publishes no single
       // query, and the array owner asks it for the package instead.
       finishResult: (operation, value) =>
-        operation.#options.finishResult
-          ? operation.#options.finishResult(value)
-          : value,
+        operation.#finishResult ? operation.#finishResult(value) : value,
       prepare: (operation) => operation.#resolveSinglePackage()?.queries[0],
       prepareBatch: (operation) =>
-        operation.#resolveRouted().prepareBatch(operation.#context.attribution),
+        operation.#resolveRouted().prepareBatch(operation.#attribution),
       parseResult: (operation, raw) => {
         const single = operation.#resolveSinglePackage();
         if (!single) {
@@ -257,15 +259,11 @@ export class PendingOperation<T>
         return single.parseResult([raw]);
       },
       observeBatchPhase: (operation, driver, execute) =>
-        observeTransactionBatchPhase(
-          operation.#context.attribution,
-          driver,
-          execute
-        ),
+        observeTransactionBatchPhase(operation.#attribution, driver, execute),
     } satisfies TransactionOperationOwner<PendingOperation<unknown>>);
     registerTransactionOperationOwner(
       PendingOperation.prototype,
-      (value): value is PendingOperation<unknown> => #context in value,
+      (value): value is PendingOperation<unknown> => #attribution in value,
       pendingOperationTransactionOwner
     );
     Object.freeze(PendingOperation.prototype);
@@ -299,16 +297,13 @@ export class PendingOperation<T>
       : (requestedOperation as Operation);
     this.#modelName = model["~"].names.ts ?? "unknown";
     this.#execution = new PendingExecution<T>(this.#modelName, this.#operation);
-    this.#options = Object.freeze({
-      ...options,
-      throwIfNotFound: isOrThrow || options?.throwIfNotFound,
-      originalOperation: options?.originalOperation ?? requestedOperation,
-    });
-    this.#context = createPendingOperationContext(
+    this.#requested = options?.originalOperation ?? requestedOperation;
+    this.#finishResult = options?.finishResult;
+    this.#clientId = engine.clientId;
+    this.#scopeId = engine.scopeId;
+    this.#attribution = createOperationExecutionContext(
       this.#modelName,
       this.#operation,
-      engine.clientId,
-      engine.scopeId,
       engine.extensionChain
     );
     // The call object an extension's moments share is where the words on the
@@ -316,7 +311,7 @@ export class PendingOperation<T>
     if (inputPreparation)
       inputPreparation.of = {
         engine,
-        context: this.#context.attribution,
+        context: this.#attribution,
         prepared: () => this.#resolveRouted(),
       };
     Object.freeze(this);
@@ -339,7 +334,7 @@ export class PendingOperation<T>
     try {
       const admission = this.#engine.extensionChain?.args?.admit(
         this.#modelName,
-        String(this.#options.originalOperation),
+        this.#requested,
         this.#operation,
         this.#args,
         this.#engine.bound
@@ -366,7 +361,7 @@ export class PendingOperation<T>
       return this.#writeOutcomeRegistration;
     }
     this.#writeOutcomeRegistration = this.#prepareWriteOutcomeRegistration?.(
-      this.#context.attribution,
+      this.#attribution,
       this.#inputPreparation?.values,
       this.#inputPreparation
     );
@@ -395,7 +390,7 @@ export class PendingOperation<T>
     const routed = this.#route.prepare(
       this.#modelName,
       // Refused above where it is no operation the engine knows.
-      this.#options.originalOperation as never,
+      this.#requested as never,
       args,
       this.#callRows()
     );
@@ -418,9 +413,7 @@ export class PendingOperation<T>
    */
   #resolveSinglePackage(): PreparedBatchOperation<unknown> | undefined {
     if (this.#singlePackageResolved) return this.#singlePackage;
-    const prepared = this.#resolveRouted().prepareSingle(
-      this.#context.attribution
-    );
+    const prepared = this.#resolveRouted().prepareSingle(this.#attribution);
     this.#singlePackage = prepared?.queries.length === 1 ? prepared : undefined;
     this.#singlePackageResolved = true;
     return this.#singlePackage;
@@ -451,7 +444,7 @@ export class PendingOperation<T>
       mode,
       kind: "model" as const,
       model: this.#modelName,
-      operation: String(this.#options.originalOperation),
+      operation: this.#requested,
       get input() {
         input ??= snapshotQueryInput(preparedInput);
         return input;
@@ -475,7 +468,7 @@ export class PendingOperation<T>
 
   /** The value its caller receives: the client's last step applied, if any. */
   #finished(value: Promise<T>): Promise<T> {
-    const finish = this.#options.finishResult;
+    const finish = this.#finishResult;
     return finish ? value.then((result) => finish(result) as T) : value;
   }
 
@@ -486,9 +479,9 @@ export class PendingOperation<T>
   #unit(certain?: true): UnitSource {
     return {
       kind: "operation",
-      operation: String(this.#options.originalOperation),
+      operation: this.#requested,
       model: this.#modelName,
-      context: this.#context.attribution,
+      context: this.#attribution,
       driver: this.#engine.driver,
       table: this.#model["~"].names.sql ?? this.#modelName,
       ...(certain ? { certainty: () => this.#observationCommitCertainty } : {}),
@@ -500,7 +493,7 @@ export class PendingOperation<T>
     committedWriteSegment?: CommittedWriteSegmentNotification,
     writeMayBeVisible?: WriteMayBeVisibleNotification
   ): Promise<T> {
-    return withOperationErrorContext(this.#context.attribution, () =>
+    return withOperationErrorContext(this.#attribution, () =>
       this.#runAttributedExecution(
         driverOverride,
         committedWriteSegment,
@@ -517,7 +510,7 @@ export class PendingOperation<T>
     const observerCommitted = this.#observationNotification("committed");
     const observerMayHaveCommitted =
       this.#observationNotification("may-have-committed");
-    const requestedOperation = String(this.#options.originalOperation);
+    const requestedOperation = this.#requested;
     const handlers = this.#engine.extensionChain?.around?.handlers(
       this.#modelName,
       requestedOperation
@@ -656,38 +649,67 @@ export class PendingOperation<T>
     } catch (error) {
       return Promise.reject(error);
     }
-    const run = () =>
-      routed.run({
-        committedWriteSegment,
-        context: this.#context.attribution,
-        driverOverride,
-        engineDriver: this.#engine.driver,
-        isWrite: !isReadOperation(String(this.#options.originalOperation)),
-        writeMayBeVisible,
-      }) as Promise<T>;
     // Below every per-call lifecycle step, outside any borrowed scope: a
     // `findUnique` may share one read with the calls of the same tick.
     // A read whose rows are kept (`codec`) is sent alone: a shared read's
-    // rows are not its own.
+    // rows are not its own. Asked before the call is described to the batch:
+    // where the client shares none, nothing is made to describe it.
     if (
       this.#operation === "findUnique" &&
       driverOverride === undefined &&
-      routed.seen === undefined
-    ) {
-      const batched = batchFindUnique({
-        engine: this.#engine,
-        model: this.#model,
-        requested: String(this.#options.originalOperation),
-        args: this.#resolveArgs(),
-        values: this.#inputPreparation?.values,
-        rows: () => this.#callRows(),
+      routed.seen === undefined &&
+      sharesFindUnique(this.#engine)
+    )
+      return this.#runShared(routed, committedWriteSegment, writeMayBeVisible);
+    return this.#runRouted(
+      routed,
+      driverOverride,
+      committedWriteSegment,
+      writeMayBeVisible
+    );
+  }
+
+  #runRouted(
+    routed: PreparedOperation,
+    driverOverride?: AnyDriver,
+    committedWriteSegment?: CommittedWriteSegmentNotification,
+    writeMayBeVisible?: WriteMayBeVisibleNotification
+  ): Promise<T> {
+    return routed.run({
+      committedWriteSegment,
+      context: this.#attribution,
+      driverOverride,
+      engineDriver: this.#engine.driver,
+      isWrite: !isReadOperation(this.#requested),
+      writeMayBeVisible,
+    }) as Promise<T>;
+  }
+
+  /** A `findUnique` on a client that shares reads: in a batch, or alone where it joins none. */
+  #runShared(
+    routed: PreparedOperation,
+    committedWriteSegment?: CommittedWriteSegmentNotification,
+    writeMayBeVisible?: WriteMayBeVisibleNotification
+  ): Promise<T> {
+    const run = () =>
+      this.#runRouted(
         routed,
-        context: this.#context.attribution,
-        run,
-      });
-      if (batched !== undefined) return batched as Promise<T>;
-    }
-    return run();
+        undefined,
+        committedWriteSegment,
+        writeMayBeVisible
+      );
+    const batched = batchFindUnique({
+      engine: this.#engine,
+      model: this.#model,
+      requested: this.#requested,
+      args: this.#resolveArgs(),
+      values: this.#inputPreparation?.values,
+      rows: () => this.#callRows(),
+      routed,
+      context: this.#attribution,
+      run,
+    });
+    return batched === undefined ? run() : (batched as Promise<T>);
   }
 
   getArgs(): Record<string, unknown> {

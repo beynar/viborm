@@ -764,17 +764,6 @@ export class PgDriver extends Driver<PgPool, PgPoolClient> {
     array: boolean
   ) {
     const observed = this.readBackgroundPoolFailure(client);
-    const fail = (error: unknown): never => {
-      learnRelationLimit(this.adapter, error);
-      return this.throwPoolQueryFailure(
-        client,
-        observed,
-        error,
-        sql,
-        params,
-        context
-      );
-    };
     // Only a generated statement with values: naming moves node-postgres to
     // the extended protocol, which a statement without values (several
     // commands in one text, as raw SQL may be) does not use today. A tagged
@@ -789,21 +778,54 @@ export class PgDriver extends Driver<PgPool, PgPoolClient> {
     const query = array
       ? { text: sql, values: params, types: utcSafeTypes, rowMode: "array" }
       : { text: sql, values: params, types: utcSafeTypes };
-    const result = await client
-      .query(name === undefined ? query : { ...query, name })
-      .catch((error: unknown) => {
-        if (name === undefined || !isStaleStatement(error)) return fail(error);
-        this.named?.retire(sql);
-        // Alone on the pool, the statement failed before it did anything: it
-        // is sent once more, unnamed, and answers as it would have without
-        // names. In a transaction, the failure aborted it and stays the answer.
-        if ("release" in client) return fail(error);
-        return client.query(query).catch(fail);
-      });
+    // The statement is sent before the wait: what `query` throws at once is
+    // thrown as it is. Awaited here rather than through `.catch` handlers: a
+    // failure handler and a recovery handler made per statement, and the
+    // promise they answered through, were 0.4 kB of every statement.
+    const sent = client.query(name === undefined ? query : { ...query, name });
+    let result: Awaited<typeof sent>;
+    try {
+      result = await sent;
+    } catch (error) {
+      if (name === undefined || !isStaleStatement(error))
+        this.failSend(client, observed, error, sql, params, context);
+      this.named?.retire(sql);
+      // Alone on the pool, the statement failed before it did anything: it
+      // is sent once more, unnamed, and answers as it would have without
+      // names. In a transaction, the failure aborted it and stays the answer.
+      if ("release" in client)
+        this.failSend(client, observed, error, sql, params, context);
+      const again = client.query(query);
+      try {
+        result = await again;
+      } catch (failure) {
+        this.failSend(client, observed, failure, sql, params, context);
+      }
+    }
     // `Pool.query` includes an acquisition. Its success proves transport
     // recovery, but only for evidence that predates this exact operation.
     this.clearBackgroundPoolFailure(client, observed);
     return result;
+  }
+
+  /** A statement's failure as `send` throws it, the relation limit it states learnt. */
+  private failSend(
+    client: PgPool | PgPoolClient,
+    observed: BackgroundPoolFailure | undefined,
+    error: unknown,
+    sql: string,
+    params: unknown[] | undefined,
+    context: QueryExecutionContext | undefined
+  ): never {
+    learnRelationLimit(this.adapter, error);
+    return this.throwPoolQueryFailure(
+      client,
+      observed,
+      error,
+      sql,
+      params,
+      context
+    );
   }
 
   /**

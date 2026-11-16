@@ -995,7 +995,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
       // SQLite uses database-level locking, so FOR UPDATE is a no-op
       // (ignoring parts.forUpdate intentionally)
-      return assembleSelectQuery(sql`SELECT ${parts.columns}`, parts, {
+      return assembleSelectQuery(parts, {
         forUpdate: "omit",
         noLimitValue: this.noLimitValue,
       });

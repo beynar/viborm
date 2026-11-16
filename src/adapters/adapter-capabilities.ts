@@ -101,6 +101,14 @@ export interface DatabaseAdapterCapabilities {
    */
   readsNodesByKey?: boolean;
   /**
+   * Whether the dialect names an unaliased `"t"."c"` result column `c`
+   * (PostgreSQL, MySQL, Snowflake): `identifiers.aliased` then leaves out an
+   * alias that only repeats the column's own name, and the engine does not
+   * ask it about a column it projects as stored, under its stored name.
+   * SQLite promises no name for an unaliased column. Absent: false.
+   */
+  namesQualifiedColumns?: boolean;
+  /**
    * Whether a to-one relation a read projects is joined `LEFT JOIN LATERAL`
    * rather than read by a scalar subquery: PostgreSQL then caches the related
    * row per key (`Memoize`) where many rows share one, which a subquery in

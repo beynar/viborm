@@ -45,6 +45,7 @@ import {
 } from "@query-engine/routed-operations";
 import type { TransactionOperation } from "@query-engine/transaction-operation";
 import { hydrateSchemaNames } from "@schema/hydration";
+import type { AnyModel } from "@schema/model";
 import type { Scalar } from "@schema/scalars/base";
 import {
   describeDecimalProviderLimitRefusal,
@@ -129,7 +130,9 @@ function createModelProxy<S extends Schema, R>(
   modelMethods?: ExtensionMethods["model"],
   /** A model's core members beside its operations: `$rows(alias)`, and `$sql` where no alias is given. */
   rowsOf?: (model: keyof S, alias?: unknown) => unknown,
-  path: string[] = []
+  path: string[] = [],
+  /** The proxy's own target: a view that answers for a root hands its own. */
+  target: object = path.length === 2 ? () => undefined : {}
 ): unknown {
   // A model's own methods, read (and their factories invoked) only once the
   // model itself is.
@@ -166,7 +169,7 @@ function createModelProxy<S extends Schema, R>(
     }
     return child;
   };
-  return new Proxy(path.length === 2 ? () => undefined : {}, {
+  return new Proxy(target, {
     get: (target, key) =>
       Object.hasOwn(target, key) ? Reflect.get(target, key) : readMember(key),
     has: (target, key) =>
@@ -842,7 +845,8 @@ export class VibORM<C extends VibORMConfig> {
   #createClient(
     engine: QueryEngine,
     modelMethods: ExtensionMethods["model"] | undefined,
-    clientOmit: ClientOmitResolver | undefined
+    clientOmit: ClientOmitResolver | undefined,
+    target: object
   ): Client<C> {
     return createModelProxy(
       this.#schema,
@@ -861,7 +865,9 @@ export class VibORM<C extends VibORMConfig> {
               .get(this.#schema)!
               .get(engine.driver.adapter)!
               .spelling(this.#schema[modelName]!, engine.driver.dialect)
-          : createRowsFragment(engine, this.#schema[modelName]!, alias[0])
+          : createRowsFragment(engine, this.#schema[modelName]!, alias[0]),
+      [],
+      target
     ) as Client<C>;
   }
 
@@ -883,8 +889,37 @@ export class VibORM<C extends VibORMConfig> {
     }
 
     const rawArgs = (args ?? {}) as Record<string, unknown>;
-    const isWrite = isWriteOperation(operation);
     const chain = engine.extensionChain;
+    // Without a chain or an omission nothing transforms the arguments, plans
+    // a field or watches a write: the operation is its arguments as given.
+    // Apart, so that such a call makes none of what a chain's steps share
+    // (0.2 kB and 1 % of a `findUnique`'s client CPU).
+    if (chain === undefined && clientOmit === undefined) {
+      assertNonEmptyUniqueWhere(modelNameStr, operation, rawArgs);
+      return engine.prepare(model, operation, rawArgs);
+    }
+    return this.#prepareChainedModelOperation(
+      engine,
+      model,
+      modelNameStr,
+      operation,
+      rawArgs,
+      clientOmit,
+      chain
+    );
+  }
+
+  /** One model operation of a client with an extension chain or an omission. */
+  #prepareChainedModelOperation(
+    engine: QueryEngine,
+    model: AnyModel,
+    modelNameStr: string,
+    operation: Operations,
+    rawArgs: Record<string, unknown>,
+    clientOmit: ClientOmitResolver | undefined,
+    chain: ResolvedExtensionChain | undefined
+  ): PendingOperation<unknown> {
+    const isWrite = isWriteOperation(operation);
 
     const request = chain?.call;
     const requestHandlers = request?.handlers(modelNameStr, operation);
@@ -1023,10 +1058,22 @@ export class VibORM<C extends VibORMConfig> {
     // shares the transaction's connection and rolls back with it. The surface
     // is built on first `$queryRaw`-family access.
     let rawSurface: RawSurface | undefined;
-    return new Proxy(this.#createClient(engine, methods?.model, clientOmit), {
-      get: (target, prop) => {
+    // The view and its model proxy share one target, and the view asks the
+    // model proxy by name. A proxy whose target is a proxy checks each member
+    // it answers against that target's own property: every `db.user` asked
+    // the model proxy for a descriptor and read the member a second time
+    // (4 % of a `findUnique`'s client CPU).
+    const target = {};
+    const models = this.#createClient(
+      engine,
+      methods?.model,
+      clientOmit,
+      target
+    );
+    return new Proxy(target, {
+      get: (_target, prop) => {
         if (typeof prop === "string" && !prop.startsWith("$")) {
-          return Reflect.get(target, prop);
+          return Reflect.get(models, prop);
         }
         if (prop === "$schema") return this.#schema;
         if (prop === "$transaction") return transaction;
@@ -1042,9 +1089,14 @@ export class VibORM<C extends VibORMConfig> {
         }
         // A `$`-named model is still reachable; anything else is absent.
         return Object.hasOwn(this.#schema, prop)
-          ? Reflect.get(target, prop)
+          ? Reflect.get(models, prop)
           : undefined;
       },
+      // What the model proxy answered while it was the target.
+      has: (_target, key) => Reflect.has(models, key),
+      ownKeys: () => Reflect.ownKeys(models),
+      getOwnPropertyDescriptor: (_target, key) =>
+        Reflect.getOwnPropertyDescriptor(models, key),
     }) as V;
   }
 

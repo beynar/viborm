@@ -277,7 +277,11 @@ export class SnowflakeAdapter implements DatabaseAdapter {
       enumerable: true,
       configurable: false,
     });
-    this.identifiers = createIdentifiers(quoteIdent, namespace, true);
+    this.identifiers = createIdentifiers(
+      quoteIdent,
+      namespace,
+      this.capabilities.namesQualifiedColumns
+    );
     // A GeoPoint is a GEOGRAPHY point: WGS 84, VibORM's own EPSG:4326.
     installGeoPointSql(this, createSnowflakeGeoPointSql(this.operators));
     installAdapterInternals(this, {
@@ -566,7 +570,7 @@ export class SnowflakeAdapter implements DatabaseAdapter {
           this.identifiers.escape,
           this.noLimitValue
         )
-      : assembleSelectQuery(sql`SELECT ${parts.columns}`, parts, {
+      : assembleSelectQuery(parts, {
           // Snowflake takes no row lock a read could ask for.
           forUpdate: "omit",
           noLimitValue: this.noLimitValue,
@@ -602,6 +606,7 @@ export class SnowflakeAdapter implements DatabaseAdapter {
   };
 
   capabilities: DatabaseAdapter["capabilities"] = {
+    namesQualifiedColumns: true,
     supportsReturning: false,
     supportsCteWithMutations: false,
     supportsFullOuterJoin: true,

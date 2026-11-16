@@ -49,12 +49,22 @@ export type ProjectableScalarKeys<M extends AnyModel> = Exclude<
  * declaration order, which is the order the default projection emits columns
  * in — callers depend on it for stable SELECT lists.
  */
-export const projectableScalarNames = (model: AnyModel): string[] => {
+export const projectableScalarNames = (model: AnyModel): readonly string[] => {
   const state = model["~"].state;
-  const omitted = state.omit;
-  const names = Object.keys(state.scalars);
-  if (!omitted) return names;
-  return names.filter(
-    (name) => !Object.hasOwn(omitted, name) || omitted[name] !== true
-  );
+  let names = projectable.get(state);
+  if (names === undefined) {
+    const omitted = state.omit;
+    const all = Object.keys(state.scalars);
+    names = Object.freeze(
+      omitted
+        ? all.filter(
+            (name) => !Object.hasOwn(omitted, name) || omitted[name] !== true
+          )
+        : all
+    );
+    projectable.set(state, names);
+  }
+  return names;
 };
+/** The names, once per model state: a default projection reads them per call. */
+const projectable = new WeakMap<object, readonly string[]>();

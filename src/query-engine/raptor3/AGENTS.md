@@ -285,7 +285,11 @@ place, as on a dialect bounding recursion iterations
 `WITH RECURSIVE`. Past that, where an alias tests repeated members on the same
 columns more often than joining them costs (`#flagging`), and its `FROM`
 item is one `#attached` writes (a root read not locking, a relation page,
-an `EXISTS` body, a member's own read, a reaching set's anchor), it joins
+an `EXISTS` body, a member's own read, a reaching set's anchor; the slot and
+the root scope are made only in a statement held to a bound, read once as
+its scope opens: without one no flag is joined, and they were a fragment, a
+slot and a map entry per `FROM` item of every statement, 2 % to 4 % of a
+read's client CPU, 2026-11-16), it joins
 them once: one member per group of sets holds each key with one flag per
 set (`#flagSet`: `MAX` over a `UNION ALL` of typed 1/NULL flags; one set
 alone, its keys `GROUP BY`), `LEFT JOIN`ed after the item, and each test
@@ -510,6 +514,11 @@ second engine. `grouped` is the ONE named exception: it emits the raw signed
 no `distinct` (`validation/model/args/aggregate.ts`) and the shipped
 `operations/groupby.ts:110-114` emits the raw signed take too. That is parity,
 not a divergence; do not widen the exception to a verb that admits a cursor.
+A unique read (`findUnique`, `SqlSelectControls.unique`) asks the page owner
+nothing: it admits no order, window, cursor or `distinct`
+(`validation/model/args/find.ts`), one row has no order, and its statement
+already left out the key order the owner completed and lowered for it
+(2026-11-16: 6 % of a `findUnique`'s client CPU).
 
 *Addendum (R2b, 2026-09-21).* A nested to-many page that carries an ORDER BY
 also carries a BOUND, because the aggregate above it reads its rows IN ORDER:
@@ -627,7 +636,10 @@ eligibility answer the SurrealDB backend reads too.
 and decoder shape. `lowerProjection` binds that description to fresh statement
 aliases for SELECT, RETURNING, and reference-value projection. Its per-field
 lowering also supplies recursive JSON documents, without building unused aliased
-columns. DISTINCT names are read from the prepared projection only when needed;
+columns. A scalar projected as it is stored, under the name it is stored by,
+at an alias, is its column where the adapter states
+`capabilities.namesQualifiedColumns` (`#projectedAs`): `identifiers.aliased`
+is not asked to read that answer back from the column's text. DISTINCT names are read from the prepared projection only when needed;
 `decodeProjection` consumes its shape without rebuilding SQL. When one mutation
 uses RETURNING plus a required stored-row continuation, both lowerings reuse the
 same prepared description while keeping distinct query-local aliases. `Queries.assertExpectedRows` is
@@ -1732,7 +1744,11 @@ the absent column are answered on the RAW value, before any representation
 rule, so a provider that decodes `'null'` into the JSON null document still
 writes a NOT NULL `json` column. Object shapes carry nullability — a carrier the
 statement always builds cannot decode as `null` — members are read with
-`Object.hasOwn`, and the decoder's structural failures are
+`Object.hasOwn`, except, in a document whose prototype is `Object.prototype`
+or `null`, a member whose name is none of `Object.prototype`'s (decided once
+per batch), read directly: only a prototype a third party polluted could
+answer it for an omitted member (Arnaud, 2026-11-16: 4 % to 8 % of a read's
+client CPU where it decodes documents) — and the decoder's structural failures are
 `InvalidScalarResult`, which `run` publishes as non-retryable public `QueryError` V2006 (`QUERY_RESULT_INVALID`).
 **And the member LIST of a decoded document is the PROJECTION's fact, not the
 row's** (P1, ruling D-61): `prepareProjection` states `shape.fields` once,

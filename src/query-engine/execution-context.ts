@@ -10,13 +10,6 @@ import { VibORMError } from "@errors";
 import type { ResolvedExtensionChain } from "@extensions/chain";
 import type { Operation } from "./types";
 
-/** Immutable ownership and attribution captured when an operation is created. */
-export interface OperationExecutionContext {
-  readonly clientId: symbol;
-  readonly scopeId: symbol;
-  readonly attribution: QueryExecutionContext;
-}
-
 export function createOperationExecutionContext(
   model: string,
   operation: Operation | string,
@@ -33,24 +26,6 @@ export function createOperationExecutionContext(
     extensionChain,
     origin
   );
-}
-
-export function createPendingOperationContext(
-  model: string,
-  operation: Operation,
-  clientId: symbol,
-  scopeId: symbol,
-  extensionChain?: ResolvedExtensionChain
-): OperationExecutionContext {
-  return Object.freeze({
-    clientId,
-    scopeId,
-    attribution: createOperationExecutionContext(
-      model,
-      operation,
-      extensionChain
-    ),
-  });
 }
 
 /** Preserve an ORM failure's deferred origin without wrapping errors returned by user extensions. */

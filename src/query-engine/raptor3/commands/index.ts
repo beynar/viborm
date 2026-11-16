@@ -268,7 +268,8 @@ class PreparedCommand implements PreparedOperation {
       binding,
       preparing,
       attribution,
-      this.#scope
+      this.#scope,
+      this.#queries
     );
   }
 

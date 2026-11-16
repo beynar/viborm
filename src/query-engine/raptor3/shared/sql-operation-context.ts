@@ -30,6 +30,7 @@ import { InsertValue } from "./insert-value";
 import {
   InvalidScalarResult,
   type PreparedProjection,
+  type Queries,
   type Query,
   type Read,
   type ResultRefusal,
@@ -88,11 +89,13 @@ export class SqlOperationContext {
   readonly modelName: string;
   readonly operation: Operation;
   readonly driver: AnyDriver & { readonly adapter: DatabaseAdapter };
-  readonly queries: SqlQueries;
   readonly backend: EngineBackend | undefined;
   /** Whether the call owns its unit, or prepares a package for an owner. */
   readonly #owner: "standalone" | "borrowed-transaction" | "batch-preparation";
   readonly #caller: QueryExecutionContext | undefined;
+  /** The view the call's read was prepared by, where its preparer names one. */
+  readonly #reader: Queries | undefined;
+  #queries: SqlQueries | undefined;
   #correlation: string | undefined;
   #package: PreparedBatchOperation<unknown> | undefined;
 
@@ -104,13 +107,15 @@ export class SqlOperationContext {
     binding?: ExecutionBinding,
     preparing = false,
     caller?: QueryExecutionContext,
-    scope?: CallScope
+    scope?: CallScope,
+    reader?: Queries
   ) {
     this.schema = schema;
     this.scope = scope;
     this.modelName = modelName;
     this.operation = operation;
     this.#caller = caller;
+    this.#reader = reader;
     this.#owner = preparing
       ? "batch-preparation"
       : (binding?.kind ?? "standalone");
@@ -120,13 +125,39 @@ export class SqlOperationContext {
     // The language is the driver's the call was made on: a transaction's view of it writes the same.
     this.backend =
       factoryDriver.backend && engineBackend(factoryDriver.backend);
-    this.queries = new (this.backend?.queries ?? SqlQueries)(
-      schema,
+  }
+
+  /**
+   * The call's own statement owner: the aliases it counts and the rows its
+   * statements read are this call's. Made where the call first states or
+   * decodes with it, which a read answered by the driver it was prepared for
+   * never does ({@link #decoder}).
+   */
+  get queries(): SqlQueries {
+    return (this.#queries ??= new (this.backend?.queries ?? SqlQueries)(
+      this.schema,
       this.driver.adapter,
       this.driver.result,
-      scope?.domain,
-      scope
-    ) as SqlQueries;
+      this.scope?.domain,
+      this.scope
+    ) as SqlQueries);
+  }
+
+  /**
+   * What decodes a read's rows. The view that prepared the read does, where
+   * the call has no row scope and the driver that answers is the one that
+   * view was made for: decoding reads the adapter and the driver's parser and
+   * nothing of a statement, and compiles its reader per batch either way. A
+   * statement owner made only to decode was 4 % of a `findUnique`'s client
+   * CPU and 0.7 kB. Any other call decodes with its own.
+   */
+  get #decoder(): Queries {
+    const reader = this.#reader;
+    return reader !== undefined &&
+      this.scope === undefined &&
+      reader.decodes(this.driver)
+      ? reader
+      : this.queries;
   }
 
   /** What every statement of the call is attributed to. */
@@ -173,9 +204,10 @@ export class SqlOperationContext {
 
   /** A read's rows as the call publishes them. */
   #published(read: Read, rows: Input[]): Input[] {
-    this.queries.assertExpectedRows(read.query, rows.length);
-    return this.queries.decodeResult(rows, this.operation, (raw) =>
-      this.queries.decodeProjection(read.query.shape, raw)
+    const decoder = this.#decoder;
+    decoder.assertExpectedRows(read.query, rows.length);
+    return decoder.decodeResult(rows, this.operation, (raw) =>
+      decoder.decodeProjection(read.query.shape, raw)
     );
   }
 
@@ -208,11 +240,12 @@ export class SqlOperationContext {
       response.kind === "positional" &&
       resolvePositionalResultDriver(this.driver) === positional
     ) {
-      this.queries.assertExpectedRows(read.query, response.rows.length);
+      const decoder = this.#decoder;
+      decoder.assertExpectedRows(read.query, response.rows.length);
       return decide(
         read,
         missing,
-        this.queries.decodeProjection(
+        decoder.decodeProjection(
           read.query.shape,
           response.rows,
           false,
