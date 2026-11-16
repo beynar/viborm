@@ -172,6 +172,38 @@ describeIf("pg namedStatements", () => {
     await pool.end();
   });
 
+  test("raw SQL is never named, and takes no name a generated statement could have", async () => {
+    const { pool, wrapped, sent } = recordingPool();
+    const db = createClient({
+      schema: { person },
+      pool: wrapped as never,
+      namedStatements: { max: 1 },
+    });
+    // A tagged raw statement with values runs as a typed statement does.
+    for (let i = 0; i < 3; i++) {
+      expect(await db.$queryRaw`SELECT ${1}::int AS "raw_one"`).toEqual([
+        { raw_one: 1 },
+      ]);
+      await db.$executeRaw`UPDATE "named_statements_person" SET "name" = "name" WHERE "id" = ${"none"}`;
+    }
+    for (let i = 0; i < 2; i++)
+      await db.$transaction([
+        db.$queryRaw`SELECT ${2}::int AS "raw_two"`,
+        db.$executeRaw`UPDATE "named_statements_person" SET "name" = "name" WHERE "id" = ${"gone"}`,
+      ]);
+    const raw = sent.filter(
+      (query) => query.text.includes("raw_") || query.text.startsWith("UPDATE")
+    );
+    expect(raw.length).toBe(10);
+    expect(raw.every((query) => query.name === undefined)).toBe(true);
+    expect(await preparedNames(pool)).toEqual([]);
+    // The one name is still there for a generated statement.
+    await db.person.findUnique({ where: { id: "a" } });
+    await db.person.findUnique({ where: { id: "b" } });
+    expect((await preparedNames(pool)).length).toBe(1);
+    await pool.end();
+  });
+
   test("a name the server lost is sent again unnamed, then named anew", async () => {
     const { pool, wrapped, sent } = recordingPool();
     const db = createClient({

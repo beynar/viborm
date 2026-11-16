@@ -777,9 +777,13 @@ export class PgDriver extends Driver<PgPool, PgPoolClient> {
     };
     // Only a generated statement with values: naming moves node-postgres to
     // the extended protocol, which a statement without values (several
-    // commands in one text, as raw SQL may be) does not use today.
+    // commands in one text, as raw SQL may be) does not use today. A tagged
+    // raw statement runs as a typed one and is the caller's text all the
+    // same: it takes no name a generated statement could have.
     const name =
-      fallbackOperation === "execute" && params?.length
+      fallbackOperation === "execute" &&
+      params?.length &&
+      context?.model !== "$raw"
         ? this.named?.name(sql)
         : undefined;
     const query = array

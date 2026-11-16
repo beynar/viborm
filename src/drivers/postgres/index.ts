@@ -316,10 +316,12 @@ export class PostgresDriver extends Driver<
   ): Promise<QueryResult<T>> {
     const operation = context?.operation ?? fallbackOperation;
     // postgres.js retries a prepared statement the server lost, once, itself.
+    // Raw SQL is the caller's text, tagged or not: never prepared here.
     const named =
       fallbackOperation === "execute" &&
       params?.length !== undefined &&
       params.length > 0 &&
+      context?.model !== "$raw" &&
       this.named?.name(sqlStr) !== undefined;
     const fail = (error: unknown): never => {
       learnRelationLimit(this.adapter, error);
