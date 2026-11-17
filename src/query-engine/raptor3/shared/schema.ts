@@ -14,6 +14,7 @@ import {
   type ResolvedSlot,
 } from "@schema/validation/relation-resolution";
 import { createResolvedSchemaRegistry } from "@validation/builder";
+import type { GroupByMember } from "@validation/model/args/time-step";
 import type { NormalizedRecurrence } from "@validation/relations/recurrence";
 import type { VibSchema } from "@validation/types";
 import { isRecord } from "@validation/value-guards";
@@ -105,7 +106,9 @@ export interface Arguments extends Input {
   skip?: number;
   cursor?: Input;
   distinct?: string[];
-  by?: string[];
+  by?: readonly GroupByMember[];
+  /** A grouped read's IANA zone for its time steps (`time-step.ts`). */
+  timeZone?: string;
   having?: Input;
   limit?: number;
   omit?: Input;

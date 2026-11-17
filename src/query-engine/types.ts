@@ -178,4 +178,6 @@ export interface ExpectedResultShape {
   polymorphic: ReadonlyMap<string, ExpectedPolymorphicResultShape>;
   aggregates: ReadonlyMap<string, ExpectedAggregateResultShape>;
   relationCounts: ReadonlySet<string>;
+  /** `groupBy` fields grouped by a time step: each holds a period's day. */
+  readonly periods?: ReadonlySet<string>;
 }

@@ -11,6 +11,7 @@ import type {
 import type { ScalarState } from "@schema/scalars/common";
 import type { DecimalDescriptor } from "@validation/primitives/decimal-codec";
 import { scopeOperands } from "@validation/primitives/operand";
+import { createSchema, fail, ok } from "../../primitives/helpers";
 import v, { type V } from "../../primitives/v";
 import type {
   InferInput,
@@ -35,6 +36,13 @@ import {
   paginationSkip,
   paginationTake,
 } from "./pagination";
+import {
+  type GroupByMember,
+  groupedColumn,
+  isTimeZoneName,
+  TIME_STEPS,
+  type TimeStep,
+} from "./time-step";
 
 // =============================================================================
 // AGGREGATE SCALAR SCHEMAS
@@ -845,6 +853,36 @@ type GroupByScalarKeys<M extends AnyModel> = NonPointScalarKeys<
 
 type EnumOfScalarMap<M extends AnyModel> = V.Enum<GroupByScalarKeys<M>[]>;
 
+/** The single `date` and `dateTime` columns a time step can group. */
+type TemporalScalarKeys<M extends AnyModel> = {
+  [K in keyof ModelStateOf<M>["scalars"]]: ModelStateOf<M>["scalars"][K]["~"]["state"] extends {
+    array: true;
+  }
+    ? never
+    : ModelStateOf<M>["scalars"][K]["~"]["state"] extends {
+          type: "date" | "datetime";
+        }
+      ? K & string
+      : never;
+}[keyof ModelStateOf<M>["scalars"]];
+
+/** What the runtime object below admits, before the one-key rule. */
+type StepEntries = Partial<Record<string, TimeStep>>;
+
+/**
+ * `{ [column]: step }`: exactly one key, so a union of one-key objects, each
+ * closing every other column (a union alone would admit a second key).
+ */
+type TimeStepMember<M extends AnyModel> = {
+  [K in TemporalScalarKeys<M>]: { readonly [P in K]: TimeStep } & {
+    readonly [P in Exclude<GroupByScalarKeys<M>, K>]?: never;
+  };
+}[TemporalScalarKeys<M>];
+
+type GroupByMemberSchema<M extends AnyModel> = V.Union<
+  readonly [EnumOfScalarMap<M>, VibSchema<TimeStepMember<M>, TimeStepMember<M>>]
+>;
+
 export type GroupByArgs<
   M extends AnyModel,
   F extends ScalarSchemas<M>,
@@ -852,10 +890,11 @@ export type GroupByArgs<
   {
     by: V.Union<
       readonly [
-        V.Array<EnumOfScalarMap<M>>,
-        V.ShorthandArray<EnumOfScalarMap<M>>,
+        V.Array<GroupByMemberSchema<M>>,
+        V.ShorthandArray<GroupByMemberSchema<M>>,
       ]
     >;
+    timeZone: VibSchema<string, string>;
     where: CoreSchemas<M, F>["where"];
     having: HavingSchema<M, F>;
     orderBy: V.Union<
@@ -894,7 +933,9 @@ const groupByCollisions = (
   // `by` is an `atLeast` key over `v.union([v.array(…), v.shorthandArray(…)])`,
   // so the object schema has already refused a missing `by` and normalised a
   // single column into a list before this runs: what arrives is a column set.
-  const grouped = value.by as string[];
+  const grouped = (value.by as GroupByMember[]).map(
+    (member) => groupedColumn(member).field
+  );
   if (new Set(grouped).size !== grouped.length) {
     return "GroupBy operation does not allow duplicate fields in 'by'";
   }
@@ -916,26 +957,29 @@ const HAVING_COMBINATORS: ReadonlySet<string> = new Set(["AND", "OR", "NOT"]);
 
 /**
  * The path, under `having`, of the first field-keyed condition on a field
- * outside `by`: it names ONE row's column, which a grouped row has only for a
- * grouped field. An aggregate condition is always legitimate; a combinator is
- * walked unless a declared field owns its name (that field wins the key).
+ * `comparable` refuses. Outside `by`, it names ONE row's column, which a
+ * grouped row has only for a grouped field; grouped by a time step, the group
+ * holds a period, not the column's value. An aggregate condition is always
+ * legitimate; a combinator is walked unless a declared field owns its name
+ * (that field wins the key).
  */
-const ungroupedHavingPath = (
+const uncomparedHavingPath = (
   having: unknown,
-  by: readonly string[],
+  comparable: (field: string) => boolean,
   scalars: Readonly<Record<string, unknown>>
 ): PropertyKey[] | undefined => {
   for (const [key, value] of Object.entries(having ?? {})) {
-    if (value === undefined || by.includes(key)) continue;
+    if (value === undefined) continue;
     if (HAVING_COMBINATORS.has(key) && !Object.hasOwn(scalars, key)) {
       const arms: unknown[] = Array.isArray(value) ? value : [value];
       for (const [index, arm] of arms.entries()) {
-        const path = ungroupedHavingPath(arm, by, scalars);
+        const path = uncomparedHavingPath(arm, comparable, scalars);
         if (path)
           return Array.isArray(value) ? [key, index, ...path] : [key, ...path];
       }
       continue;
     }
+    if (comparable(key)) continue;
     const aggregated =
       isRecord(value) &&
       Object.entries(value).some(
@@ -955,26 +999,42 @@ const ungroupedHavingPath = (
  */
 const groupedMembershipIssue = (
   {
-    by,
+    by: members,
     having,
     orderBy,
   }: {
-    readonly by: readonly string[];
+    readonly by: readonly GroupByMember[];
     readonly having?: unknown;
     readonly orderBy?: unknown;
   },
   scalars: Readonly<Record<string, unknown>>
 ): ValidationIssue | undefined => {
-  if (by.length === 0)
+  if (members.length === 0)
     return {
       message: "groupBy needs at least one field in 'by'.",
       path: ["by"],
     };
-  const ungrouped = ungroupedHavingPath(having, by, scalars);
+  const columns = members.map(groupedColumn);
+  const by = columns.map((column) => column.field);
+  const ungrouped = uncomparedHavingPath(
+    having,
+    (field) => by.includes(field),
+    scalars
+  );
   if (ungrouped)
     return {
       message: `Scalar '${String(ungrouped.at(-1))}' used in 'having' must be included in 'by'.`,
       path: ["having", ...ungrouped],
+    };
+  const stepped = uncomparedHavingPath(
+    having,
+    (field) => !columns.some((column) => column.field === field && column.step),
+    scalars
+  );
+  if (stepped)
+    return {
+      message: `'having' cannot compare '${String(stepped.at(-1))}', grouped by a time step; filter it in 'where'.`,
+      path: ["having", ...stepped],
     };
   const terms: unknown[] = Array.isArray(orderBy) ? orderBy : [orderBy];
   for (const [index, term] of terms.entries())
@@ -991,6 +1051,18 @@ const groupedMembershipIssue = (
   return undefined;
 };
 
+/**
+ * The call's time zone: an IANA name, checked before any statement is sent
+ * (`time-step.ts`). It decides only where a zoned column's periods begin.
+ */
+const timeZoneSchema = createSchema<string, string>("string", (value) =>
+  typeof value === "string" && isTimeZoneName(value)
+    ? ok(value)
+    : fail(
+        "'timeZone' takes an IANA name such as 'America/Montreal', not an offset or an abbreviation."
+      )
+);
+
 export const getGroupByArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
   model: M,
   fieldSchemas: F,
@@ -1004,6 +1076,39 @@ export const getGroupByArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
 
   // Use enum for scalar names for proper type inference
   const scalarSchema = v.enum(scalarKeys);
+  // `{ [column]: step }`: every scalar is a key, so a column that is not a
+  // single date or dateTime is refused by name rather than as unknown.
+  const stepSchema = v.enum(TIME_STEPS);
+  const stepEntries: VibSchema<StepEntries, StepEntries> = v.object(
+    Object.fromEntries(
+      scalarKeys.map((field) => {
+        const { type, array } = state.scalars[field]!["~"].state;
+        return [
+          field,
+          (type === "date" || type === "datetime") && array !== true
+            ? stepSchema
+            : v.refused(`'${field}' is not a date or dateTime column.`),
+        ];
+      })
+    ),
+    {
+      // One column per member: the refusal names the second, or the object.
+      refuse: (value) => {
+        const [first, second] = Object.keys(value);
+        if (first !== undefined && second === undefined) return undefined;
+        return {
+          message: 'A time step names one column: { date: "month" }.',
+          path: second === undefined ? [] : [second],
+        };
+      },
+    }
+  );
+  // The refusal makes every admitted object one key: the declared type.
+  const stepMember = stepEntries as VibSchema<
+    TimeStepMember<M>,
+    TimeStepMember<M>
+  >;
+  const member = v.union([scalarSchema, stepMember]);
 
   const aggSchemas = getAggregateScalarSchemas(model);
   const havingSchema = getHavingSchema(model, fieldSchemas);
@@ -1014,7 +1119,8 @@ export const getGroupByArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
       // ONE admitted shape downstream: `by: "category"` and
       // `by: ["category"]` are the same grouped column set, normalised here
       // so no preparer asks the question again (or calls `.map` on a string).
-      by: v.union([v.array(scalarSchema), v.shorthandArray(scalarSchema)]),
+      by: v.union([v.array(member), v.shorthandArray(member)]),
+      timeZone: timeZoneSchema,
       where: v.lazyRef(() => core.where),
       having: havingSchema,
       orderBy: v.union([orderBySchema, v.array(orderBySchema)]),
@@ -1031,7 +1137,7 @@ export const getGroupByArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
       refuse: (value) =>
         groupByCollisions(value) ??
         groupedMembershipIssue(
-          value as { readonly by: readonly string[] },
+          value as { readonly by: readonly GroupByMember[] },
           state.scalars
         ),
     }

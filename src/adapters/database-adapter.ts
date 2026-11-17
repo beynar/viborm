@@ -1,5 +1,6 @@
 import type { NativeTypeDeclaration } from "@schema/scalars/native-types";
 import type { Sql } from "@sql";
+import type { TimeStep } from "@validation/model/args/time-step";
 import type { DecimalDescriptor } from "@validation/primitives/decimal-codec";
 import type {
   GeoBounds,
@@ -17,6 +18,38 @@ export type {
   CastType,
 } from "./adapter-core-types";
 export type { AdapterResultParser } from "./adapter-result-parser";
+
+/**
+ * The column a time-step period is taken of: a calendar date or a date and
+ * time, whether it declares a zone, and its native type, which may state the
+ * zone instead.
+ */
+export interface PeriodSource {
+  readonly date: boolean;
+  readonly withTimezone: boolean;
+  readonly nativeType: NativeTypeDeclaration | undefined;
+}
+
+/** A `groupBy` time step's period: computed once, then spelled. */
+export interface PeriodSql {
+  /**
+   * The first day of the `step` period holding `column`, as a date: what a
+   * grouped read groups and orders. A column that stores an instant is read
+   * as wall time in `zone` (an admitted IANA name); a date, or a date and
+   * time with no zone, as written.
+   */
+  readonly of: (
+    column: Sql,
+    step: TimeStep,
+    source: PeriodSource,
+    zone: string
+  ) => Sql;
+  /**
+   * That date as the text the engine publishes from, `YYYY-MM-DD AD` or
+   * `YYYY-MM-DD BC`, whatever the session's date style or the driver.
+   */
+  readonly text: (period: Sql) => Sql;
+}
 
 /** The one physical SQL vocabulary for a logical EPSG:4326 GeoPoint. */
 export interface GeoPointSql {
@@ -1024,6 +1057,13 @@ export interface DatabaseAdapter {
    * GeoPoint tier; optional members distinguish the full polygon/distance tier.
    */
   readonly geoPoint?: GeoPointSql;
+
+  /**
+   * The periods of a `by` member grouped by a time step. Absence means this
+   * adapter groups by no time step, and the engine refuses such a call before
+   * any statement is sent.
+   */
+  readonly period?: PeriodSql;
 
   result: AdapterResultParser;
 }

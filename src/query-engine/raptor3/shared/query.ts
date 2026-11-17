@@ -143,6 +143,14 @@ export type Leaf = {
   id?: IdentifierColumn;
   enumValues?: ReadonlySet<string>;
   dimension?: number;
+  /**
+   * A time-step period (`groupBy`'s `{ column: step }`): the adapter's
+   * `YYYY-MM-DD AD|BC` text of its first day, published as an ISO day. A
+   * period may begin outside the DateTime domain (the week of 0000-01-01, the
+   * year a zone moves 9999-12-31 into), so it is read as a calendar day, not
+   * through the instant codec.
+   */
+  period?: true;
 };
 export type ProjectionShape =
   | {
@@ -4376,6 +4384,7 @@ export abstract class Queries {
           return internal ? value : parsed;
         };
       case "date":
+        if (leaf.period) return decodePeriod;
         return (value) => {
           if (value instanceof Date) {
             const epoch = value.getTime();
@@ -4590,6 +4599,19 @@ function isPlainJsonRecord(value: unknown): value is Record<string, unknown> {
 
 const INTEGER_TEXT = /^(?:0|-?[1-9]\d*)$/;
 const DATE_TEXT = /^(\d{4})-(\d{2})-(\d{2})(?: (BC))?$/;
+const PERIOD_TEXT = /^(\d{4,})(-\d{2}-\d{2}) (AD|BC)$/;
+/**
+ * `YYYY-MM-DD AD|BC` as an ISO day with an astronomical year: n BC is year
+ * 1 - n (`0000` for 1 BC, `-0001` for 2 BC).
+ */
+const decodePeriod: Reader = (value) => {
+  const match = typeof value === "string" ? PERIOD_TEXT.exec(value) : null;
+  if (!match)
+    throw new InvalidScalarResult("date", "the value is not a period's day");
+  if (match[3] === "AD") return match[1]! + match[2]!;
+  const year = 1 - Number(match[1]);
+  return `${year < 0 ? "-" : ""}${String(Math.abs(year)).padStart(4, "0")}${match[2]}`;
+};
 const TIME_TEXT =
   /^(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,6})?(?:Z|[+-](\d{2})(?::?(\d{2}))?)?$/;
 const TIME_ZONE_SUFFIX = /(?:Z|[+-]\d{2}(?::?\d{2})?)$/;

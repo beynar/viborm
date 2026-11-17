@@ -201,6 +201,16 @@ presence of the optional members proves the full query tier. Do not add a
 geospatial capability boolean, mutable member, strategy, generic geometry, or
 second parser.
 
+### Rule 8b: A Time-Step Period Is One Optional Member
+
+`DatabaseAdapter.period` is a `groupBy` period: `of` its first day as a date
+(the instant read in the call's zone, a naive date and time or a date as
+written, never in the session's zone), grouped and ordered as a date so it
+keeps its era, and `text` that date as `YYYY-MM-DD AD|BC`, which no session
+date style or driver changes. Only PostgreSQL has it.
+Absence means the dialect groups by no time step, and the engine refuses the
+call before any statement; do not add a capability boolean beside it.
+
 ### Rule 9: List Updates Receive One Complete Container
 
 `DatabaseAdapter.set.push()` and `.unshift()` receive one already encoded `Sql`

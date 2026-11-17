@@ -9,6 +9,13 @@ export const EMPTY_ROW_RESULT_KEY = "0viborm_empty_row" as const;
 /** The `index`-th read gate of one projected row (K5), never published. */
 export const gateResultKey = (index: number): string => `0viborm_gate:${index}`;
 /**
+ * The `index`-th time-step period of a grouped read's window: the column it
+ * is computed once in, grouped and ordered by there, published under the
+ * grouped field's own name.
+ */
+export const periodColumnKey = (index: number): string =>
+  `0viborm_period:${index}`;
+/**
  * The cursor predicate's derived-table carrier, one per requested sort key.
  *
  * A nullable sort column's cursor predicate reads the cursor row's own values

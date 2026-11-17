@@ -173,6 +173,13 @@ function scalarType(scalar: Scalar): TypeNode {
   return state.nullable ? unionOf(value, NULL_TYPE) : value;
 }
 
+/** A period's first day, `YYYY-MM-DD`; `null` too where the column is nullable. */
+function periodType(scalar: Scalar): TypeNode {
+  return scalar["~"].state.nullable
+    ? unionOf(atom("string"), NULL_TYPE)
+    : atom("string");
+}
+
 function requiredRelationShape(
   relationName: string,
   expected: ExpectedRelationResultShape | undefined
@@ -329,7 +336,12 @@ function rowFields(
         });
         break;
       case "scalar":
-        fields.push({ name: column.key, type: scalarType(column.scalar) });
+        fields.push({
+          name: column.key,
+          type: shape.periods?.has(column.key)
+            ? periodType(column.scalar)
+            : scalarType(column.scalar),
+        });
         break;
       case "relation": {
         const expected = requiredRelationShape(column.key, column.expected);

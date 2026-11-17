@@ -33,6 +33,7 @@ import type {
 import type { Membership } from "@query-engine/raptor3/shared/storage";
 import { jsonNullKindOf } from "@schema/json-null";
 import { Sql, sql } from "@sql";
+import { timeStepUnsupported } from "@validation/model/args/time-step";
 import { Decimal, GeometryPoint, RecordId } from "surrealdb";
 import type { SurrealQueries } from "./queries";
 
@@ -558,7 +559,11 @@ export class SurrealReadBackend implements ReadBackend {
         };
       }
       case "groupBy": {
-        const query = this.#aggregation(model, args, args.by as string[]);
+        const by = args.by!.map((member) => {
+          if (typeof member === "string") return member;
+          throw timeStepUnsupported();
+        });
+        const query = this.#aggregation(model, args, by);
         return {
           query,
           single: false,
