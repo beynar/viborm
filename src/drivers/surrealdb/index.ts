@@ -74,6 +74,26 @@ const NAMED_PARAMETER = /\$p(\d+)\b/g;
  * connection that opened keeps the SDK's reconnection.
  */
 const FIRST_CONNECTION_MS = 10_000;
+/** How long the client of a first connection that expired is waited for to close. */
+const FIRST_CONNECTION_CLOSE_MS = 1000;
+
+/** `promise`'s answer, or `"expired"` once `ms` passed first. */
+const within = async <T>(
+  promise: Promise<T>,
+  ms: number
+): Promise<T | "expired"> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<"expired">((resolve) => {
+        timer = setTimeout(() => resolve("expired"), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+};
 
 /**
  * A statement that holds what it reads ahead of itself, where no transaction
@@ -338,19 +358,17 @@ export class SurrealDriver
       ...(database ? { database } : {}),
       ...(authentication ? { authentication: { ...authentication } } : {}),
     });
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const expired = new Promise<"expired">((resolve) => {
-      timer = setTimeout(() => resolve("expired"), FIRST_CONNECTION_MS);
-    });
-    try {
-      if ((await Promise.race([connected, expired])) !== "expired")
-        return client;
-    } finally {
-      clearTimeout(timer);
-    }
-    // Closing ends the SDK's retries. The connection it was still trying for
-    // then fails into the race above, which already handles it.
-    await client.close();
+    if ((await within(connected, FIRST_CONNECTION_MS)) !== "expired")
+      return client;
+    // Closing ends the SDK's retries; the connection it was still trying for
+    // then fails into the race above, which already handles it. A socket that
+    // opened waits for the server to acknowledge its close, which a server
+    // that stalled (or SurrealDB Cloud, which never answers it) may never do:
+    // the close is waited for a second at most.
+    await within(
+      client.close().catch(() => undefined),
+      FIRST_CONNECTION_CLOSE_MS
+    );
     // Ours, so its words reach the caller as they are (a provider's failure
     // is redacted); the url may carry credentials and is not named.
     throw new ConnectionError(
