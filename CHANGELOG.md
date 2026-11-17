@@ -184,19 +184,25 @@ Versioning.
   rows must hand each as an array of its values, in the selection's order: a
   keyed one is refused as a malformed row (`QUERY_RESULT_INVALID`). SurrealDB
   and Snowflake are unchanged.
-- **A read with relations allocates 10 % to 12 % less memory in VibORM.**
+- **A read with relations allocates 16 % to 19 % less memory in VibORM.**
   Building a read's SQL allocated the same objects at every call, whatever
   the rows it then read. The SQL a read sends and its answers are the same,
   and its time is unchanged. Measured on a local PostgreSQL 18 through pg, JS
   heap allocated per call by VibORM itself (what the driver allocates to
   replay the same statement is left out): three reads of two relation levels
-  with a filter at each go 74.3 → 66.0 kB, 67.7 → 59.3 kB and 74.5 → 67.2 kB;
-  20 rows without a relation 26.3 → 24.4 kB, a `findUnique` 21.2 → 20.3 kB.
+  with a filter at each go 74.3 → 62.0 kB, 67.7 → 54.8 kB and 74.5 → 62.5 kB;
+  20 rows without a relation 26.3 → 24.6 kB, a `findUnique` 21.2 → 19.6 kB.
   What changed:
-  - a qualified column is one kept fragment, no longer a string and a
-    fragment per reference (at most 4,096 kept per client);
+  - a qualified column, and a table with its alias, are one kept fragment
+    each, no longer a string and a fragment per reference (at most 4,096 kept
+    per client);
   - a relation read with no `orderBy`, `take`, `skip`, `cursor` or `distinct`
-    no longer builds the order it then left out.
+    no longer builds the order it then left out;
+  - a related row's document is built from its values alone, a SELECT's
+    clauses no longer outgrow the list they start in, and on PostgreSQL the
+    document's separators are shared by every document of the same width;
+  - `viborm/pg` no longer lists its own parts at every read to check that
+    none was replaced.
 
 ### Fixed
 

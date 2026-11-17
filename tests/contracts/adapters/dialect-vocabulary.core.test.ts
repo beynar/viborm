@@ -261,7 +261,7 @@ describe("shared adapter SQL vocabulary", () => {
         );
       });
 
-      test("a column is one kept fragment per alias and field, up to a bound", () => {
+      test("a column and a table are one kept fragment per pair of names, up to a bound", () => {
         const quoted = (text: string) =>
           name === "mysql" ? `\`${text}\`` : `"${text}"`;
         const { identifiers } = adapter;
@@ -273,6 +273,17 @@ describe("shared adapter SQL vocabulary", () => {
         // Another alias or another field is another fragment.
         expect(identifiers.column("kept_other", "kept_field")).not.toBe(column);
         expect(identifiers.column("kept_alias", "kept_else")).not.toBe(column);
+        // A table with its alias is kept the same way, and without one.
+        const table = identifiers.table("kept_table", "kept_alias");
+        expect(table.toStatement()).toContain(
+          `${quoted("kept_table")} AS ${quoted("kept_alias")}`
+        );
+        expect(identifiers.table("kept_table", "kept_alias")).toBe(table);
+        const bare = identifiers.table("kept_table");
+        expect(bare).not.toBe(table);
+        expect(identifiers.table("kept_table")).toBe(bare);
+        // A column and a table of the same two names are two fragments.
+        expect(identifiers.column("kept_table", "kept_alias")).not.toBe(table);
         // Past the bound a reference is made anew, with the same text: the
         // names a process may meet are not bounded, what it keeps is.
         for (let index = 0; index < 5000; index++)
