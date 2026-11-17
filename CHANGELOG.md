@@ -111,6 +111,30 @@ Versioning.
   second body of the same table appears. The SQL a read sends and its answers
   are the same. Measured as above, 20 users filtered by a related post:
   9.9 → 8.5 µs of CPU per call.
+- **Related rows travel as arrays, not objects, on PostgreSQL, MySQL and
+  SQLite (the SQL of a read with relations changes).** A related row inside a
+  read, and a `_count`, an aggregate or a `$through` row, was a JSON object:
+  one key per column, each key sent as a parameter and written again in every
+  row of the answer. It is now the JSON array of its values
+  (`json_build_array`, `JSON_ARRAY`, `json_array`), read back by position. The
+  answers are the same, and a read without relations sends the same SQL.
+  Measured end to end on a local PostgreSQL 18 through pg, median of 500
+  alternated batches:
+  - three reads of two relation levels with a filter at each take 513 → 475
+    µs, 425 → 406 µs and 731 → 683 µs (4 % to 7 % less), where Drizzle 1.0's
+    relational API takes 477, 394 and 671 µs on the same rows;
+  - 500 users with their posts and each post's author take 7.8 → 6.4 ms (17 %
+    less) and the answer is 48 % smaller (320 → 166 kB); 1,000 posts with
+    their author take 7 % less;
+  - a `findUnique` with its posts takes 5 % less, and nothing measured takes
+    more.
+  The same three reads take 5 % to 6 % less on MySQL 8.4 and 10 % to 15 %
+  less on SQLite. What you may have to change: code that reads the SQL text
+  of a read with relations (a statement transform, a pinned statement in a
+  test) sees the new spelling, and a driver double that hands back related
+  rows must hand each as an array of its values, in the selection's order: a
+  keyed one is refused as a malformed row (`QUERY_RESULT_INVALID`). SurrealDB
+  and Snowflake are unchanged.
 
 ### Fixed
 

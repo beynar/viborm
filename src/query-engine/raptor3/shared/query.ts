@@ -923,6 +923,24 @@ export function providerDocument(value: unknown): Input | null | undefined {
     : undefined;
 }
 /**
+ * The reading of a provider document CARRIED AS AN ARRAY of its members
+ * (`capabilities.carriesDocumentsAsArrays`): an array of exactly the `size`
+ * members its shape lists, in that order. `null` is answered as itself, as
+ * {@link providerDocument} answers it; anything else — an object, a scalar,
+ * an array of another length — is no document (`undefined`). The length
+ * does not say each cell is the array's own: its readers answer that.
+ */
+export function providerMembers(
+  value: unknown,
+  size: number
+): unknown[] | null | undefined {
+  const members = providerJson(value);
+  if (members === null) return null;
+  return Array.isArray(members) && members.length === size
+    ? members
+    : undefined;
+}
+/**
  * One member of a provider document, read with OWN-key semantics. An omitted
  * field is absent, whatever `Object.prototype` happens to carry under that
  * name.
@@ -4082,6 +4100,10 @@ export abstract class Queries {
     }
     // An internal read is the engine's own: it reads every member it asked
     // for, its gates unread (K5).
+    // A document carried inside another is an array of its members where the
+    // adapter says so, the one fact its lowering asked too.
+    const members =
+      carried && this.adapter.capabilities.carriesDocumentsAsArrays === true;
     if (shape.gates && !internal)
       return this.domain!.project!.gatedDocument(
         this,
@@ -4089,8 +4111,48 @@ export abstract class Queries {
         shape,
         fields,
         readers,
-        columns
+        columns,
+        members
       );
+    if (members) {
+      // A gate an internal read leaves unread is still a member carried.
+      const size = fields.length + (shape.gates?.length ?? 0);
+      return (value) => {
+        const source = providerMembers(value, size);
+        if (source === null) {
+          if (shape.nullable === false)
+            refuseResult(
+              "row",
+              "a document the statement always builds is null"
+            );
+          return null;
+        }
+        if (source === undefined)
+          refuseResult("row", "a requested document is not a provider row");
+        // As a plain object's members are: a plain array's cells are read
+        // directly — only a polluted `Array.prototype` could answer a hole —
+        // and an array of another prototype by its OWN indexes.
+        const plain = Object.getPrototypeOf(source) === Array.prototype;
+        const document: Input = {};
+        for (let index = 0; index < fields.length; index++) {
+          const field = fields[index]!;
+          const raw =
+            plain || Object.hasOwn(source, index) ? source[index] : undefined;
+          // A member its codec answers as itself is read without the call.
+          const decoded =
+            typeof raw === unchanged[index] ? raw : readers[index]!(raw);
+          if (field === "__proto__")
+            Object.defineProperty(document, field, {
+              value: decoded,
+              enumerable: true,
+              configurable: true,
+              writable: true,
+            });
+          else document[field] = decoded;
+        }
+        return document;
+      };
+    }
     if (columns) {
       // Native aliases locate cells once; a statement transform may reorder
       // columns. Last occurrence matches the keyed transport's duplicate names.

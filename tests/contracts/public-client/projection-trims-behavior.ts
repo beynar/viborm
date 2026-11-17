@@ -185,7 +185,8 @@ export function runProjectionTrimsBehavior({
       const [statement] = statements;
       expect(statement).not.toContain("COALESCE(COALESCE(");
       if (dialect === "sqlite") {
-        expect(statement).toContain("json_group_array(json_object(");
+        // A nested row is carried as the array of its members.
+        expect(statement).toContain("json_group_array(json_array(");
         expect(statement).not.toContain("json_group_array(json(");
         expect(statement).toMatch(SAME_NAME_ALIAS);
       } else {
