@@ -29,15 +29,18 @@ describe("CLI entrypoint", () => {
         return true;
       });
     // The entry point ends the process once the command settled, keeping
-    // the exit code it set.
-    const exit = vi
-      .spyOn(process, "exit")
-      .mockImplementation((() => undefined) as never);
+    // the exit code it set: the exit is observed as the sentinel it throws.
+    const exits: unknown[] = [];
+    const exit = vi.spyOn(process, "exit").mockImplementation((code) => {
+      exits.push(code);
+      throw new ProcessExitError(Number(code ?? 0));
+    });
     try {
       process.exitCode = undefined;
-      await import("@src/cli/index");
-      expect(exit).toHaveBeenCalledOnce();
-      expect(exit).toHaveBeenCalledWith();
+      await expect(import("@src/cli/index")).rejects.toBeInstanceOf(
+        ProcessExitError
+      );
+      expect(exits).toEqual([undefined]);
       expect(stderr.join("")).toBe(
         failure instanceof Error
           ? "entry failure\n"
@@ -65,14 +68,13 @@ describe("CLI entrypoint", () => {
         return true;
       });
     // Commander exits with 0 once it printed the help; the entry point's own
-    // exit, once the command settled, takes no code.
-    const exits: (number | undefined)[] = [];
-    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((
-      code?: number
-    ) => {
+    // exit, once the command settled, takes no code. Each is observed as the
+    // sentinel it throws.
+    const exits: unknown[] = [];
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation((code) => {
       exits.push(code);
-      if (code !== undefined) throw new ProcessExitError(Number(code));
-    }) as never);
+      throw new ProcessExitError(Number(code ?? 0));
+    });
 
     let thrown: unknown;
     try {
@@ -85,7 +87,7 @@ describe("CLI entrypoint", () => {
       process.argv = originalArgv;
     }
 
-    expect(thrown).toBeUndefined();
+    expect(thrown).toBeInstanceOf(ProcessExitError);
     expect(exits).toEqual([0, undefined]);
     process.exitCode = undefined;
     const output = stdout.join("");
