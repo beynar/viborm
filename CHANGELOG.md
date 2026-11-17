@@ -5,6 +5,16 @@ Versioning.
 
 ## Unreleased
 
+## 1.15.0 — 2026-11-17
+
+PostgreSQL statements can be sent as named, prepared statements: an opt-in on
+`viborm/pg` and `viborm/postgres`, with `named` to choose them call by call.
+`groupBy` groups a date by day, week, month, quarter or year.
+
+A read spends 26 % to 50 % less CPU in VibORM, and a read with relations
+allocates 16 % to 19 % less memory. The CLI ends once its command is done, and
+a first SurrealDB connection that does not open fails after 10 s.
+
 ### Added
 
 - **`namedStatements`, an opt-in on `viborm/pg` and `viborm/postgres`, and
