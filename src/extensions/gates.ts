@@ -74,8 +74,12 @@ export function gatedDocument(
     ...gates.map((gate) => columns.lastIndexOf(gate)),
   ];
   const cell = (source: unknown, index: number, key: string): unknown => {
-    // A document carried as an array holds its members then its gates.
-    if (members) return (source as unknown[])[index];
+    // A document carried as an array holds its members then its gates, each
+    // read as its OWN cell: a hole takes nothing from a prototype.
+    if (members)
+      return Object.hasOwn(source as unknown[], index)
+        ? (source as unknown[])[index]
+        : undefined;
     // Without columns a source row is a record, with them an array of cells.
     if (positions === undefined) return own(source as Input, key);
     // A column the statement does not carry is at -1, where no row has a cell.

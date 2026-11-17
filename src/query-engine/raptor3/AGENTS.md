@@ -1829,7 +1829,11 @@ the decoder; a placement has one reader, never the two forms side by side.
 The array holds EXACTLY the shape's members: an object, a scalar, or an array
 of another length is the malformed row (`a requested document is not a
 provider row`), so a lowering that lists its members in another order than
-the shape fails loudly instead of answering one member as another. Whoever
+the shape fails loudly instead of answering one member as another. A cell
+is read as a plain object's member is: directly from an array whose prototype
+is `Array.prototype` — only a polluted prototype could answer a hole — and by
+its OWN index from an array of any other prototype (the gated reader always
+by own index). Whoever
 adds a carried object shape builds its document with `carriedDocument`, its
 members in the shape's order (an evidence document's names are held in
 own-key order for that, `extensions/projection.ts`). What stays keyed on every

@@ -605,6 +605,17 @@ describe("SQL NULL, absence and own keys are row facts, answered before the chai
     ]);
     // A document that holds fewer members than its shape lists, or more, or
     // that is keyed, is no document: no member is read from a prototype.
+    // A cell is the array's own: an array of another prototype takes no
+    // member from it, and the hole reads as the absent value.
+    const holed: unknown[] = [2];
+    holed.length = 2;
+    Object.setPrototypeOf(
+      holed,
+      Object.create(Array.prototype, { 1: { value: "inherited" } })
+    );
+    expect((await rejection(nested(holed))).message).toBe(
+      'The "findMany" result is incompatible with the string scalar domain: the value is absent.'
+    );
     const keyed = Object.create({ id: 2, title: "inherited" });
     for (const member of [[2], [2, "t", "u"], { id: 2, title: "t" }, keyed])
       expect((await rejection(nested(member))).message).toBe(

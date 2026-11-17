@@ -927,7 +927,8 @@ export function providerDocument(value: unknown): Input | null | undefined {
  * (`capabilities.carriesDocumentsAsArrays`): an array of exactly the `size`
  * members its shape lists, in that order. `null` is answered as itself, as
  * {@link providerDocument} answers it; anything else — an object, a scalar,
- * an array of another length — is no document (`undefined`).
+ * an array of another length — is no document (`undefined`). The length
+ * does not say each cell is the array's own: its readers answer that.
  */
 export function providerMembers(
   value: unknown,
@@ -4128,10 +4129,15 @@ export abstract class Queries {
         }
         if (source === undefined)
           refuseResult("row", "a requested document is not a provider row");
+        // As a plain object's members are: a plain array's cells are read
+        // directly — only a polluted `Array.prototype` could answer a hole —
+        // and an array of another prototype by its OWN indexes.
+        const plain = Object.getPrototypeOf(source) === Array.prototype;
         const document: Input = {};
         for (let index = 0; index < fields.length; index++) {
           const field = fields[index]!;
-          const raw = source[index];
+          const raw =
+            plain || Object.hasOwn(source, index) ? source[index] : undefined;
           // A member its codec answers as itself is read without the call.
           const decoded =
             typeof raw === unchanged[index] ? raw : readers[index]!(raw);
