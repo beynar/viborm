@@ -33,9 +33,10 @@
  *
  * Refused, with a typed error before anything is sent: a nested `cursor` or
  * `distinct`, a nested order by a relation, a `_count` or an aggregate, a
- * recursive relation, a polymorphic slot, a junction's `$through` row and a
- * relation's `_aggregate`; a root `cursor` whose order is not the model's
- * single-field key alone.
+ * recursive relation, a polymorphic slot, a junction's `$through` row, a
+ * relation's `_aggregate` and an order by an aggregate of its rows at any
+ * level; a root `cursor` whose order is not the model's single-field key
+ * alone.
  */
 
 import { assembleAdapterSelect } from "@adapters/adapter-internals";
@@ -117,6 +118,23 @@ export class SnowflakeQueries extends SqlQueries {
         "Snowflake pages with a cursor only in the order of the model's single-field key, alone. Order by that key, or page with skip.",
         { meta: { dialect: "snowflake", feature: "cursor" } }
       );
+    // An aggregate of a collection's rows orders by a correlated subquery in
+    // ORDER BY, which Snowflake documents in WHERE only, a junction's
+    // `IN (SELECT …)` included; never run on an account, so refused by name.
+    const { orderBy } = args;
+    for (const term of Array.isArray(orderBy)
+      ? orderBy
+      : orderBy
+        ? [orderBy]
+        : [])
+      for (const [field, specification] of Object.entries(term))
+        if (
+          model["~"].state.relations[field]?.["~"].state.cardinality ===
+            "many" &&
+          isRecord(specification) &&
+          Object.keys(specification).some((key) => key !== "_count")
+        )
+          refused("an order by an aggregate of its rows");
     return super.read(model, operation, args);
   }
 

@@ -7,9 +7,8 @@
  * sort key, apart from the projection's, as an order by `_count` is; a sum the
  * adapter orders exactly on two keys (SQLite's integers) takes two.
  *
- * SurrealDB and Snowflake refuse `_aggregate` with a typed error before any
- * request; Snowflake sends an order by an aggregate, which is the SQL
- * backend's statement.
+ * SurrealDB and Snowflake refuse `_aggregate` and an order by an aggregate
+ * with a typed error before any request.
  */
 
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
@@ -174,7 +173,7 @@ describe("SurrealDB and Snowflake", () => {
     expect(asked).toEqual([]);
   });
 
-  test("Snowflake refuses _aggregate before any request and sends an order by an aggregate", async () => {
+  test("Snowflake refuses _aggregate and an order by an aggregate before any request, and sends one by _count", async () => {
     const sent: string[] = [];
     const fetch = async (_input: string, init?: { body?: unknown }) => {
       sent.push(String(init?.body ?? ""));
@@ -200,8 +199,16 @@ describe("SurrealDB and Snowflake", () => {
     ).rejects.toThrow(
       "Snowflake reads a relation without the aggregates of its rows ('_aggregate')."
     );
+    // At the root too: Snowflake documents a correlated subquery in WHERE
+    // only, and this one, in ORDER BY, never ran on an account.
+    await expect(client.shop.findMany(SUMMED)).rejects.toThrow(
+      "Snowflake reads a relation without an order by an aggregate of its rows."
+    );
     expect(sent).toEqual([]);
-    await client.shop.findMany(SUMMED);
-    expect(sent.join("\n")).toContain("SUM(");
+    await client.shop.findMany({
+      select: { id: true },
+      orderBy: { orders: { _count: "desc" } },
+    });
+    expect(sent.join("\n")).toContain("COUNT(");
   });
 });

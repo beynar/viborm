@@ -169,6 +169,7 @@ const label = s.model({
 const item = s.model({
   id: s.string().id(),
   price: s.int(),
+  meta: s.json().nullable(),
   labels: s.toMany(() => label),
 });
 
@@ -206,4 +207,27 @@ test("a many-to-many relation is aggregated and ordered through its junction", a
     { id: "a", _aggregate: { items: { _count: 2, _sum: { price: 7 } } } },
     { id: "c", _aggregate: { items: { _count: 0, _sum: { price: null } } } },
   ]);
+});
+
+test("a JSON field has no _min or _max to order by, at the root or through a relation", async () => {
+  const db = createClient({
+    schema: { label, item },
+    driver: createInMemorySQLite3Driver(),
+  });
+  clients.push(db);
+  // `MAX(jsonb)` does not exist on PostgreSQL: refused on every database.
+  for (const call of [
+    () =>
+      db.label.findMany({
+        orderBy: { items: { _max: { meta: "desc" } } } as never,
+      }),
+    () =>
+      db.item.groupBy({
+        by: ["id"],
+        orderBy: { _min: { meta: "asc" } } as never,
+      }),
+  ])
+    await expect(call()).rejects.toThrow(
+      "A JSON, vector or blob field cannot be ordered by"
+    );
 });

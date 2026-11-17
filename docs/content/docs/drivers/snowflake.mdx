@@ -207,8 +207,10 @@ And with an `UnsupportedOperationError`, before anything is sent:
   junction's `$through` row;
 - a relation's [`_aggregate`](/docs/client/selecting#aggregate-relations):
   Snowflake answers a correlated aggregate over no row with `NULL` where every
-  other database answers one row (`_count` 0). An order by an aggregate of a
-  relation's rows at the root is sent: over no row it is `NULL` either way.
+  other database answers one row (`_count` 0);
+- an order by `_sum`, `_avg`, `_min` or `_max` of a relation's rows, at any
+  level: Snowflake documents a correlated subquery in `WHERE` only, and this
+  one would sit in `ORDER BY`. An order by `_count` is sent.
 
 What VibORM does not refuse can still write: `$queryRaw` and
 `$queryRawUnsafe` send their text as written, and so do `$driver._execute`

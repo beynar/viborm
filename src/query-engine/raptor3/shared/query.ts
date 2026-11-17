@@ -3190,10 +3190,9 @@ export abstract class Queries {
     const aggregates: PreparedRelationAggregate[] = [];
     const shapes: Record<string, Shape> = {};
     for (const relation of Object.keys(selection)) {
-      const entry = selection[relation] as Input | undefined;
-      if (!entry) continue;
-      // Admission admits an entry on an ordinary to-many relation only, and
-      // each entry selects at least one aggregate.
+      const entry = selection[relation] as Input;
+      // Admission admits at least one entry, each on an ordinary to-many
+      // relation and selecting at least one aggregate.
       const edge = bindMembership(this.schema, model, relation);
       const aggregated = this.aggregateSelection(edge.target, entry);
       // Built on every row, as a count carrier is: one aggregate row answers
@@ -3218,8 +3217,6 @@ export abstract class Queries {
         selection: aggregated,
       });
     }
-    // As for `_count`: an entry list that names nothing contributes no key.
-    if (aggregates.length === 0) return;
     fields[name] = { kind: "object", nullable: false, fields: shapes };
     prepared.push({ kind: "aggregates", name, aggregates });
   }

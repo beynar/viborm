@@ -774,6 +774,10 @@ export function runRelationReadAggregateBehavior({
         const refused = async (args: unknown, message: string) =>
           expect(client.shop.findMany(args as never)).rejects.toThrow(message);
         await refused(
+          { select: { id: true, _aggregate: {} } },
+          "'_aggregate' names at least one relation."
+        );
+        await refused(
           {
             select: {
               id: true,

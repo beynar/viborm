@@ -39,6 +39,7 @@ const order = s.model({
   placedAt: s.dateTime(),
   status: s.string(),
   tags: s.string().array(),
+  meta: s.json().nullable(),
 });
 
 // The result: each entry is the target's own aggregate result.
@@ -137,4 +138,8 @@ type _includedCounts = Expect<
 ({
   // @ts-expect-error a list orders by `_count` only.
   orderBy: { orders: { _min: { tags: "asc" } } },
+}) satisfies OperationPayload<"findMany", typeof shop>;
+({
+  // @ts-expect-error a JSON field has no `_max` to order by.
+  orderBy: { orders: { _max: { meta: "desc" } } },
 }) satisfies OperationPayload<"findMany", typeof shop>;

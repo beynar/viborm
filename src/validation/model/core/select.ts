@@ -189,6 +189,14 @@ type PolymorphicAggregateEntries<F extends RelationSchemaBundle> = V.FromKeys<
   VibSchema<never, never>
 >["entries"];
 
+/** An `_aggregate` that names no relation asks for nothing. */
+const requireAggregatedRelation = (
+  entries: Record<string, unknown>
+): string | undefined =>
+  Object.keys(entries).length > 0
+    ? undefined
+    : "'_aggregate' names at least one relation.";
+
 /**
  * `_aggregate: { <relation>: { where?, _count?, _sum?, _avg?, _min?, _max? } }`:
  * per to-many relation, the aggregates of the rows it reaches. Each relation's
@@ -197,19 +205,24 @@ type PolymorphicAggregateEntries<F extends RelationSchemaBundle> = V.FromKeys<
  */
 export type RelationAggregatesSchema<F extends RelationSchemaBundle> = V.Object<
   V.FromObject<F["relations"], "aggregate", { optional: true }>["entries"] &
-    PolymorphicAggregateEntries<F>
+    PolymorphicAggregateEntries<F>,
+  { readonly refuse: typeof requireAggregatedRelation }
 >;
 
 const getRelationAggregatesSchema = <F extends RelationSchemaBundle>(
   schemas: F
 ): RelationAggregatesSchema<F> =>
-  v.object({
-    ...v.fromObject(schemas.relations, "aggregate", { optional: true }).entries,
-    ...v.fromKeys(
-      Object.keys(schemas.polymorphic),
-      polymorphicAggregateRefusal()
-    ).entries,
-  }) as RelationAggregatesSchema<F>;
+  v.object(
+    {
+      ...v.fromObject(schemas.relations, "aggregate", { optional: true })
+        .entries,
+      ...v.fromKeys(
+        Object.keys(schemas.polymorphic),
+        polymorphicAggregateRefusal()
+      ).entries,
+    },
+    { refuse: requireAggregatedRelation }
+  ) as RelationAggregatesSchema<F>;
 
 export const vectorDistanceSelectSchema = v.object(
   {
@@ -262,9 +275,7 @@ const requireSelectedField = (
   Object.entries(select).some(([key, value]) =>
     key === "_count"
       ? isRecord(value) && Object.values(new Object(value.select)).some(selects)
-      : key === "_aggregate"
-        ? isRecord(value) && Object.values(value).some(selects)
-        : selects(value)
+      : selects(value)
   )
     ? undefined
     : "select needs at least one truthy value; leave it out to return the default row.";

@@ -757,6 +757,31 @@ type AggregateOrderSchema<
     PointAggregateEntries<M>
 >;
 
+/** The types no provider orders a `_min` / `_max` of everywhere (`MAX(jsonb)` does not exist). */
+const UNORDERED_EXTREMES = ["json", "vector", "blob"];
+type UnorderedExtremeKeys<M extends AnyModel> = {
+  [K in keyof ModelStateOf<M>["scalars"]]: ModelStateOf<M>["scalars"][K]["~"]["state"] extends {
+    type: "json" | "vector" | "blob";
+  }
+    ? K & string
+    : never;
+}[keyof ModelStateOf<M>["scalars"]];
+type ExtremeOrderSchema<
+  M extends AnyModel,
+  D extends VibSchema<any, any>,
+> = V.Object<
+  V.FromKeys<
+    Exclude<AggregateScalarKeys<M>, UnorderedExtremeKeys<M>>[],
+    D
+  >["entries"] &
+    ListAggregateEntries<M> &
+    PointAggregateEntries<M> &
+    V.FromKeys<
+      UnorderedExtremeKeys<M>[],
+      AggregateValueRefusalSchema
+    >["entries"]
+>;
+
 /**
  * The value aggregates' order members over `model`, each admitted field
  * taking `D`: `groupBy`'s orderBy and a to-many relation's
@@ -776,8 +801,8 @@ export type AggregateOrderSchemas<
     NumericScalarKeys<ModelStateOf<M>["scalars"]>,
     D
   >;
-  _min: AggregateOrderSchema<M, AggregateScalarKeys<M>, D>;
-  _max: AggregateOrderSchema<M, AggregateScalarKeys<M>, D>;
+  _min: ExtremeOrderSchema<M, D>;
+  _max: ExtremeOrderSchema<M, D>;
 };
 
 export const getAggregateOrderSchemas = <
@@ -792,13 +817,14 @@ export const getAggregateOrderSchemas = <
   const numericKeys: string[] = [];
   const aggregateKeys: string[] = [];
   const pointKeys: string[] = [];
+  const unorderedKeys: string[] = [];
   for (const name of Object.keys(state.scalars)) {
     const scalar = state.scalars[name]!["~"].state;
     if (scalar.array === true) listKeys.push(name);
+    else if (UNORDERED_EXTREMES.includes(scalar.type)) unorderedKeys.push(name);
+    else if (scalar.type !== "point") aggregateKeys.push(name);
     if (scalar.type === "point") pointKeys.push(name);
     if (isSummableScalar(scalar)) numericKeys.push(name);
-    if (scalar.array !== true && scalar.type !== "point")
-      aggregateKeys.push(name);
   }
 
   const aggregateOrder = (
@@ -807,6 +833,14 @@ export const getAggregateOrderSchemas = <
   ) =>
     v.object({
       ...v.fromKeys(keys, direction).entries,
+      ...(aggregate === "_min" || aggregate === "_max"
+        ? v.fromKeys(
+            unorderedKeys,
+            v.refused(
+              `A JSON, vector or blob field cannot be ordered by '${aggregate}'.`
+            )
+          ).entries
+        : {}),
       ...v.fromKeys(
         listKeys,
         v.refused(

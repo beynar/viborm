@@ -34,12 +34,16 @@ Versioning.
     as `aggregate` does.
   - **Refused.** A to-one relation (its aggregate is the field itself), a
     polymorphic slot (its members share no column; `_count` stays), an entry
-    that selects no aggregate, a field the aggregate does not admit (`_sum`
-    and `_avg` take numeric fields, `_min` and `_max` no list and no
-    GeoPoint), more than one aggregate in one order term (use an array), and a
-    `cursor` after an order by an aggregate. SurrealDB and Snowflake refuse
-    `_aggregate` with an `UnsupportedOperationError` before anything is sent;
-    SurrealDB refuses an order by an aggregate too, and Snowflake sends it.
+    that selects no aggregate, an `_aggregate` that names no relation, a
+    field the aggregate does not admit (`_sum` and `_avg` take numeric fields;
+    `_min` and `_max` no list and no GeoPoint, and in an order no JSON,
+    vector or blob field), more than one aggregate in one order term (use an
+    array), and a `cursor` after an order by an aggregate. SurrealDB and
+    Snowflake refuse `_aggregate` and an order by an aggregate with an
+    `UnsupportedOperationError` before anything is sent.
+  - **`groupBy` too.** Its `orderBy` by `_min` or `_max` of a JSON, vector or
+    blob field is now refused at validation: PostgreSQL has no `MAX` of
+    `jsonb`, and the call failed there in the database.
   - **Reserved name.** `_aggregate` joins `_count` and `_distance` as a member
     name a model cannot declare (`F010`); a column of that name is kept with
     `.map("_aggregate")`.

@@ -652,9 +652,10 @@ a correlated subquery of its own per sort key, `nullable` because an aggregate
 over no row is NULL; a widened `_sum` takes the adapter's exact `order` keys
 (`splitSum`), two on SQLite's integers. Admission admits an entry and an
 aggregate order term on an ordinary to-many relation only (one membership), and
-one aggregate of one field per term. SurrealDB and Snowflake refuse `_aggregate`
-by name before any request; Snowflake sends an order by an aggregate, which is
-this backend's statement and reads NULL over no row as it does here.
+one aggregate of one field per term; `_min` and `_max` order no JSON, vector or
+blob field (`MAX(jsonb)` does not exist). SurrealDB and Snowflake refuse
+`_aggregate` and an order by an aggregate by name before any request (Snowflake
+documents a correlated subquery in WHERE only).
 
 `Queries.carriedValue` is the one carrier transport rule for a value that rides
 inside a JSON document: a value that is already JSON stays a document, a
