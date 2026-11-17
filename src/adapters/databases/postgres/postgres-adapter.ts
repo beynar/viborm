@@ -99,6 +99,24 @@ function postgresLikePattern(kind: TextMatch, value: Sql): Sql {
     return sql`${head + escapeLikeLiteral(literal) + tail}`;
   return sql`(${sql.raw(head && "'%' || ")}REPLACE(REPLACE(REPLACE(CAST(${value} AS TEXT), CHR(92), CHR(92) || CHR(92)), '%', CHR(92) || '%'), '_', CHR(92) || '_')${sql.raw(tail && " || '%'")})`;
 }
+function postgresJsonArray(items: Sql[]): Sql {
+  if (items.length === 0) return sql.raw`'[]'::json`;
+  const chunks: Sql[] = [];
+  const buildArray =
+    items.length > 100 ? "jsonb_build_array" : "json_build_array";
+  // PostgreSQL limits a function call to 100 arguments, and one fragment
+  // per call is what {@link postgresJsonObject} measured.
+  for (let start = 0; start < items.length; start += 100) {
+    const end = Math.min(items.length, start + 100);
+    const strings = [`${buildArray}(`];
+    for (let at = start + 1; at < end; at++) strings.push(", ");
+    strings.push(")");
+    chunks.push(new Sql(strings, items.slice(start, end)));
+  }
+  return chunks.length === 1
+    ? chunks[0]!
+    : sql`(${sql.join(chunks, " || ")})::json`;
+}
 function postgresJsonObject(pairs: [string, Sql][]): Sql {
   if (pairs.length === 0) return sql.raw`'{}'::json`;
   const chunks: Sql[] = [];
@@ -452,10 +470,7 @@ export class PostgresAdapter implements DatabaseAdapter {
 
     object: postgresJsonObject,
 
-    array: (items: Sql[]): Sql => {
-      if (items.length === 0) return sql.raw`'[]'::json`;
-      return sql`json_build_array(${sql.join(items, ", ")})`;
-    },
+    array: postgresJsonArray,
 
     emptyArray: (): Sql => sql.raw`'[]'::json`,
 
@@ -661,6 +676,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     joinsJunctionFilters: "unbounded",
     readsNodesByKey: true,
     joinsToOneLaterally: true,
+    carriesDocumentsAsArrays: true,
   };
 
   lastInsertId = (): Sql => sql.raw`lastval()`;

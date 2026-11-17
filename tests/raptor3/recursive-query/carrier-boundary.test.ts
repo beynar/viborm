@@ -115,9 +115,10 @@ const carrier = (
   edges: readonly CarrierEdge[]
 ) => ({ __rq_root: root, __rq_nodes: nodes, __rq_edges: edges });
 
+/** A node whose row carries `id` and `mutable`, the members the decoders select, in that order. */
 const node = (id: string, mutable: unknown = {}) => ({
   __rq_key: [id],
-  __rq_row: { id, mutable },
+  __rq_row: [id, mutable],
 });
 
 const edge = (parent: string, child: string, depth?: number) => ({
@@ -199,10 +200,7 @@ describe("recursive carrier boundary", () => {
       INVALID_PROVIDER_DUPLICATE_RECURSIVE_NODE_PATTERN
     );
     assert.throws(
-      () =>
-        decode(
-          carrier(["root"], [{ __rq_row: { id: "child", mutable: {} } }], [])
-        ),
+      () => decode(carrier(["root"], [{ __rq_row: ["child", {}] }], [])),
       INVALID_PROVIDER_RECURSIVE_IDENTITY_PATTERN
     );
   });
@@ -523,8 +521,8 @@ describe("recursive carrier boundary", () => {
           carrier(
             ["root"],
             [
-              { __rq_key: ["left"], __rq_row: { id: "left" } },
-              { __rq_key: ["right"], __rq_row: { id: "right" } },
+              { __rq_key: ["left"], __rq_row: ["left"] },
+              { __rq_key: ["right"], __rq_row: ["right"] },
             ],
             [edge("root", "left"), edge("root", "right")]
           )
@@ -563,7 +561,8 @@ describe("recursive carrier boundary", () => {
       decode(
         carrier(
           ["root"],
-          [{ __rq_key: ["child"], __rq_row: publicRow }],
+          // The row carries its members in the order `fields` selects them.
+          [{ __rq_key: ["child"], __rq_row: Object.values(publicRow) }],
           [edge("root", "child")]
         )
       ),

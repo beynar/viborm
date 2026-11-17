@@ -15,6 +15,10 @@
  * "nested update" 10 to 7; the others in parentheses only). Each statement a
  * `batch` call ran carries that batch's ordinal within the call: on D1, one
  * batch is one atomic unit, so a call's batch count is part of what it does.
+ * Five calls re-recorded on 2026-11-17 ("findMany include", "findMany include
+ * to-one", "aggregate", "groupBy", "relation count order"): a document carried
+ * inside a row is the `json_array` of its members, no longer a `json_object`,
+ * so the parameters that bound its keys are gone and nothing else changed.
  */
 
 import { createClient } from "@client/client";

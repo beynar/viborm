@@ -359,7 +359,8 @@ describe("the list container at a physical root cell", () => {
     expect(root?.tags[1]).toBe("b");
     await physical.$disconnect();
 
-    const nested = scripted([{ id: 1, boxes: [{ id: 2, tags: sparse() }] }]);
+    // A carried row is an array of its members, in the projection's order.
+    const nested = scripted([{ id: 1, boxes: [[2, sparse()]] }]);
     const [parent] = await nested.crate.findMany({
       select: { id: true, boxes: { select: { id: true, tags: true } } },
     });
@@ -547,9 +548,7 @@ describe("a physical list crosses the chain once; a carried list never does", ()
       [
         {
           id: 1,
-          boxes: [
-            { id: 2, counts: [3, 4], levels: '["HIGH"]', maybeTags: null },
-          ],
+          boxes: [[2, [3, 4], '["HIGH"]', null]],
         },
       ],
       recording(asks)
@@ -578,10 +577,8 @@ describe("a physical list crosses the chain once; a carried list never does", ()
         {
           id: 9,
           subject: {
-            box: {
-              ...boxRow({ id: 2, tags: ["v"], counts: "[5]" }),
-              crateId: null,
-            },
+            // Every scalar of the arm's model, in the model's order.
+            box: [2, ["v"], "[5]", "[]", "[]", "[]", null, null],
             other: null,
           },
         },
@@ -638,8 +635,8 @@ describe("a physical list crosses the chain once; a carried list never does", ()
       {
         id: 1,
         boxes: [
-          { id: 2, tags: carriedTags },
-          { id: 3, tags: carriedTags },
+          [2, carriedTags],
+          [3, carriedTags],
         ],
       },
     ]);

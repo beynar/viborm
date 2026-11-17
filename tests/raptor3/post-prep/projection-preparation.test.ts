@@ -181,9 +181,10 @@ describe("post-G3 projection preparation", () => {
     const providerRow = {
       id: 1,
       amount: "1234",
-      author: JSON.stringify({ displayName: "Ada" }),
+      // A carried row is the array of its members, in the shape's order.
+      author: JSON.stringify(["Ada"]),
       subject: JSON.stringify({
-        post: { id: 7, headline: "Prepared once" },
+        post: [7, "Prepared once"],
         video: null,
       }),
     };

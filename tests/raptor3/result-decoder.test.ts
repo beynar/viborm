@@ -8,8 +8,10 @@
  * driver first, adapter second, once per PHYSICAL non-null cell, and never for
  * a value a JSON window already decoded (Arnaud's D-17); a parser's library
  * error reaches the caller intact while a foreign throw is a malformed scalar;
- * SQL NULL and absence are answered before the chain; provider documents are
- * read by own key; and the chain that runs is the one of the EXECUTION's
+ * SQL NULL and absence are answered before the chain; a provider row is read
+ * by own key and a document carried inside it — SQLite carries one as an
+ * array of its members (`capabilities.carriesDocumentsAsArrays`) — by
+ * position; and the chain that runs is the one of the EXECUTION's
  * driver, on the live, borrowed-transaction and packaged routes alike.
  *
  * The last group pins four answers that were compatibility choices rather
@@ -576,7 +578,7 @@ describe("SQL NULL, absence and own keys are row facts, answered before the chai
     await document.$disconnect();
   });
 
-  it("reads own members only, at the root and inside a relation document", async () => {
+  it("reads own members only at the root, and a relation document's members by position", async () => {
     const inherited = Object.create({ title: "inherited" });
     inherited.id = 1;
     const root = scripted([inherited]);
@@ -588,18 +590,26 @@ describe("SQL NULL, absence and own keys are row facts, answered before the chai
     );
     await root.$disconnect();
 
-    const member = Object.create({ title: "inherited" });
-    member.id = 2;
-    const nested = scripted([{ id: 1, item: member }]);
-    const inDocument = await rejection(
-      nested.tag.findMany({
-        select: { id: true, item: { select: { id: true, title: true } } },
-      })
-    );
-    expect(inDocument.message).toBe(
-      'The "findMany" result is incompatible with the string scalar domain: the value is absent.'
-    );
-    await nested.$disconnect();
+    const nested = async (member: unknown) => {
+      const client = scripted([{ id: 1, item: member }]);
+      try {
+        return await client.tag.findMany({
+          select: { id: true, item: { select: { id: true, title: true } } },
+        });
+      } finally {
+        await client.$disconnect();
+      }
+    };
+    expect(await nested([2, "t"])).toEqual([
+      { id: 1, item: { id: 2, title: "t" } },
+    ]);
+    // A document that holds fewer members than its shape lists, or more, or
+    // that is keyed, is no document: no member is read from a prototype.
+    const keyed = Object.create({ id: 2, title: "inherited" });
+    for (const member of [[2], [2, "t", "u"], { id: 2, title: "t" }, keyed])
+      expect((await rejection(nested(member))).message).toBe(
+        'The "findMany" result is incompatible with the row scalar domain: a requested document is not a provider row.'
+      );
   });
 });
 
@@ -701,8 +711,8 @@ describe("one continuation per physical value, bound to the execution", () => {
     );
     expect(
       decode([
-        { id: 1, title: "a", note: null, tags: [{ id: 5 }] },
-        { id: 2, title: "b", note: "n", tags: '[{"id":6}]' },
+        { id: 1, title: "a", note: null, tags: [[5]] },
+        { id: 2, title: "b", note: "n", tags: "[[6]]" },
       ])
     ).toEqual([
       { id: 1, title: "A", note: null, tags: [{ id: 5 }] },
@@ -772,7 +782,7 @@ describe("one continuation per physical value, bound to the execution", () => {
 });
 
 describe("one document rule at every object placement", () => {
-  it("reads a relation _count carrier: text parsed, null and non-documents refused, own keys only", async () => {
+  it("reads a relation _count carrier: text parsed, null and non-documents refused, its members by position", async () => {
     const read = async (carrier: unknown) => {
       const client = scripted([{ id: 1, _count: carrier }]);
       try {
@@ -783,16 +793,15 @@ describe("one document rule at every object placement", () => {
         await client.$disconnect();
       }
     };
-    expect(await read('{"tags":2}')).toEqual([{ id: 1, _count: { tags: 2 } }]);
+    expect(await read("[2]")).toEqual([{ id: 1, _count: { tags: 2 } }]);
+    expect(await read([2])).toEqual([{ id: 1, _count: { tags: 2 } }]);
     expect((await rejection(read(null))).message).toBe(
       'The "findMany" result is incompatible with the row scalar domain: a document the statement always builds is null.'
     );
-    expect((await rejection(read([]))).message).toBe(
-      'The "findMany" result is incompatible with the row scalar domain: a requested document is not a provider row.'
-    );
-    expect((await rejection(read(Object.create({ tags: 2 })))).message).toBe(
-      'The "findMany" result is incompatible with the int scalar domain: the value is absent.'
-    );
+    for (const malformed of [[], [2, 3], 5, { tags: 2 }, '{"tags":2}'])
+      expect((await rejection(read(malformed))).message).toBe(
+        'The "findMany" result is incompatible with the row scalar domain: a requested document is not a provider row.'
+      );
   });
 
   it("reads an aggregate carrier by the same rule, its NULL aside", async () => {
@@ -805,18 +814,16 @@ describe("one document rule at every object placement", () => {
       }
     };
     // An int `_sum` on SQLite travels as its two `integerSum` parts.
-    expect(await read('{"rank":[0,3]}')).toEqual({ _sum: { rank: 3 } });
-    for (const malformed of [5, []])
+    expect(await read("[[0,3]]")).toEqual({ _sum: { rank: 3 } });
+    for (const malformed of [5, [], { rank: [0, 3] }])
       expect((await rejection(read(malformed))).message).toBe(
         'The "aggregate" result is incompatible with the row scalar domain: a requested document is not a provider row.'
       );
-    expect(
-      (await rejection(read(Object.create({ rank: [0, 3] })))).message
-    ).toBe(
+    expect((await rejection(read([[3]]))).message).toBe(
       'The "aggregate" result is incompatible with the int scalar domain: the sum is not its two parts.'
     );
 
-    const counted = scripted([{ _count: [] }]);
+    const counted = scripted([{ _count: {} }]);
     expect(
       (await rejection(counted.item.aggregate({ _count: { id: true } })))
         .message
@@ -837,12 +844,13 @@ describe("one document rule at every object placement", () => {
         await client.$disconnect();
       }
     };
-    expect((await rejection(read([[]]))).message).toBe(
-      'The "findMany" result is incompatible with the row scalar domain: a requested document is not a provider row.'
-    );
-    expect((await rejection(read([Object.create({ id: 5 })]))).message).toBe(
-      'The "findMany" result is incompatible with the int scalar domain: the value is absent.'
-    );
+    expect(await read([[5]])).toEqual([{ id: 1, tags: [{ id: 5 }] }]);
+    // A collection row is carried as an array of its members; the root row
+    // below is the driver's own, read by key.
+    for (const row of [[], { id: 5 }, Object.create({ id: 5 })])
+      expect((await rejection(read([row]))).message).toBe(
+        'The "findMany" result is incompatible with the row scalar domain: a requested document is not a provider row.'
+      );
 
     const arrayRow = scripted([{ id: 1 }], {
       parseResult: (_raw, operation, next) => next([[]], operation),
@@ -888,7 +896,7 @@ describe("one document rule for the recursive carrier and its entries", () => {
   });
   const decode = (value: unknown) =>
     queries.decodeProjection(shape, [{ children: value }])[0]?.children;
-  const child = { __rq_key: ["child"], __rq_row: { id: "child" } };
+  const child = { __rq_key: ["child"], __rq_row: ["child"] };
   const hop = { __rq_parent: ["root"], __rq_child: ["child"], __rq_depth: 1 };
   const carrier = (nodes: unknown[], edges: unknown[]) => ({
     __rq_root: ["root"],
@@ -939,8 +947,8 @@ describe("a variant arm and a recursive node are carried at every depth", () => 
     const asked: string[] = [];
     const client = scripted(
       [
-        { id: 1, subject: { article: { id: 3, title: "A" }, clip: null } },
-        { id: 2, subject: { article: null, clip: '{"id":4,"title":"C"}' } },
+        { id: 1, subject: { article: [3, "A"], clip: null } },
+        { id: 2, subject: { article: null, clip: '[4,"C"]' } },
       ],
       counting(asked)
     );
@@ -972,7 +980,7 @@ describe("a variant arm and a recursive node are carried at every depth", () => 
     });
     const carrier = {
       __rq_root: ["root"],
-      __rq_nodes: [{ __rq_key: ["child"], __rq_row: { id: "child" } }],
+      __rq_nodes: [{ __rq_key: ["child"], __rq_row: ["child"] }],
       __rq_edges: [
         { __rq_parent: ["root"], __rq_child: ["child"], __rq_depth: 1 },
       ],
@@ -1073,7 +1081,7 @@ describe("compatibility choices, as ruled on 2026-09-25", () => {
     }
 
     const absent = scripted([
-      { id: 1, subject: { article: [{ id: 3, title: "A" }], clip: [] } },
+      { id: 1, subject: { article: [[3, "A"]], clip: [] } },
     ]);
     expect(
       await absent.shelf.findMany({ select: { id: true, subject: true } })
