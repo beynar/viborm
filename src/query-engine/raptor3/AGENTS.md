@@ -1889,6 +1889,31 @@ without the codec shortcut). Do not copy the document whole instead
 sees at most four shapes, it publishes a provider's symbol members, and
 `Object.assign` runs `Object.prototype` setters.
 
+**A column fragment is SHARED across statements** (Arnaud, 2026-11-17).
+`identifiers.column(alias, field)` answers one kept fragment per adapter for
+the same two names (at most 4,096; past that, a fresh one as before): a read
+named the same qualified columns at every call, about forty strings and forty
+fragments of a two-level read. Its text is a fact of the dialect and of two
+names, never of a call, which is why it may be kept where a statement may
+not. So a fragment it returns is never mutated, and never marked by its
+identity: a `WeakSet` or `WeakMap` entry on one would hold for every
+statement that names the column. Mark a fresh wrapper instead, as
+`memberRead` does. The same PR stops lowering what a statement then leaves
+out: a related node with no `orderBy`, `take`, `skip`, `cursor` or `distinct`
+reads `UNIQUE_PAGE` and never calls `#page`, whose order completed by the
+model's key was built and dropped. Measured on PostgreSQL, JS heap allocated
+per call by VibORM itself: 74.3 → 66.0 kB, 67.7 → 59.3 kB and 74.5 → 67.2 kB
+on three two-level filtered reads, 21.2 → 20.3 kB for a `findUnique`; same
+SQL, same answers, no measurable change of time
+(`viborm-evidence/…/vs-drizzle-2026-11-16/main-2026-11-17/`). Tried in the
+same PR and left out for their bytes (the bundle's measured one by one, the
+allocation measured together, 4 kB, and split by the profile): a kept
+fragment per table and alias (about 0.8 kB per call for 20 B of the bundle),
+a SELECT's clause lists begun with room (0.9 kB for 45 B), a row's document
+built without a pair per member (about 0.5 kB for 45 B), PostgreSQL's array
+strings shared per member count (about 0.4 kB for 55 B): the D1 Worker had
+130 B left under its limit.
+
 **A list leaf's element descriptor has the same lifetime**
 (`docs/architecture/raptor3-compiled-list-decoder-report.md`). `compileReader`
 compiles a list leaf's container reader, `Queries.compileList`, beside the

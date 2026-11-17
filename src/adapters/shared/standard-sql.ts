@@ -292,6 +292,8 @@ const isQualifiedColumnNamed = (
  * repeats the column's own name. SQLite promises no name for an unaliased
  * column, so it always states the alias.
  */
+/** How many column fragments one adapter keeps ({@link createIdentifiers}). */
+const COLUMN_FRAGMENTS = 4096;
 export const createIdentifiers = (
   quoteIdent: IdentifierQuoter,
   namespace?: string,
@@ -299,14 +301,33 @@ export const createIdentifiers = (
 ): DatabaseAdapter["identifiers"] => {
   const qualify = createQualifiedIdentifierRenderer(quoteIdent, namespace);
   const quote = quoteIdent("")[0]!;
+  // One fragment per alias and column. A read names the same qualified
+  // columns at every call, and each reference was a string and a fragment
+  // more to make: 5.8 kB of a two-level read's 74 kB. The text is a fact of
+  // the dialect and of two names, never of a call. A fragment is immutable,
+  // so one serves every statement. Bounded: past `COLUMN_FRAGMENTS` a
+  // reference is made as it was.
+  const columns = new Map<string, Map<string, Sql>>();
+  let kept = 0;
   return {
     escape: (name: string): Sql => sql.raw(quoteIdent(name)),
 
     column: (alias: string, field: string): Sql => {
-      const identifier = alias
-        ? `${quoteIdent(alias)}.${quoteIdent(field)}`
-        : quoteIdent(field);
-      return sql.raw(identifier);
+      const held = columns.get(alias);
+      let fragment = held?.get(field);
+      if (fragment === undefined) {
+        fragment = sql.raw(
+          alias
+            ? `${quoteIdent(alias)}.${quoteIdent(field)}`
+            : quoteIdent(field)
+        );
+        if (kept < COLUMN_FRAGMENTS) {
+          kept++;
+          if (held) held.set(field, fragment);
+          else columns.set(alias, new Map([[field, fragment]]));
+        }
+      }
+      return fragment;
     },
 
     table: (tableName: string, alias?: string): Sql => {

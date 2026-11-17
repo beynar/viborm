@@ -261,6 +261,30 @@ describe("shared adapter SQL vocabulary", () => {
         );
       });
 
+      test("a column is one kept fragment per alias and field, up to a bound", () => {
+        const quoted = (text: string) =>
+          name === "mysql" ? `\`${text}\`` : `"${text}"`;
+        const { identifiers } = adapter;
+        const column = identifiers.column("kept_alias", "kept_field");
+        expect(column.toStatement()).toBe(
+          `${quoted("kept_alias")}.${quoted("kept_field")}`
+        );
+        expect(identifiers.column("kept_alias", "kept_field")).toBe(column);
+        // Another alias or another field is another fragment.
+        expect(identifiers.column("kept_other", "kept_field")).not.toBe(column);
+        expect(identifiers.column("kept_alias", "kept_else")).not.toBe(column);
+        // Past the bound a reference is made anew, with the same text: the
+        // names a process may meet are not bounded, what it keeps is.
+        for (let index = 0; index < 5000; index++)
+          identifiers.column("kept_filler", `f${index}`);
+        const late = identifiers.column("kept_late", "kept_field");
+        expect(identifiers.column("kept_late", "kept_field")).not.toBe(late);
+        expect(late.toStatement()).toBe(
+          `${quoted("kept_late")}.${quoted("kept_field")}`
+        );
+        expect(identifiers.column("kept_alias", "kept_field")).toBe(column);
+      });
+
       test("ordinary assignments and mutations cover optional clauses", () => {
         const table = sql.raw`users`;
         const column = sql.raw`score`;
