@@ -206,6 +206,13 @@ Versioning.
   never answers a WebSocket's closing handshake, `push` printed `Push applied.`
   (or `No schema changes.`) and then never returned, holding up any script or
   CI step that ran it.
+- **SurrealDB: a first connection that does not open fails after 10 s.** A
+  driver given a `url` connected through the SDK, which retries a connection
+  that never opens for as long as it stays shut: an address nothing answers at
+  (a typo, a stopped server) left a command or a request waiting for good,
+  without a word. It now fails with `V1001`, `SurrealDB did not connect within
+  10 s.`. Once connected, the SDK still reconnects without a limit. A client
+  you connected yourself is yours to bound.
 
 ## 1.14.2 — 2026-11-16
 
