@@ -40,3 +40,8 @@ auditConfig:
     # which never runs SvelteKit; the fix exists only in kit 3.1.1, which
     # blume's dependents do not accept yet. Drop this once blume moves.
     - GHSA-3r8g-jcqq-3p5j
+    # picomatch ReDoS through repeated extglobs: every version is affected and
+    # none is patched yet. It reaches the audit only through the Astro docs
+    # site (blume, and astro > unstorage > anymatch), which matches its own
+    # build globs, never user input. Drop this once a fixed picomatch exists.
+    - GHSA-fc5q-39xc-vjpf
