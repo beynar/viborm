@@ -177,6 +177,15 @@ Versioning.
   keyed one is refused as a malformed row (`QUERY_RESULT_INVALID`). SurrealDB
   and Snowflake are unchanged.
 
+### Fixed
+
+- **The CLI ends once its command is done.** `viborm push`, `migrate`,
+  `check` and `pull` exit after printing their outcome and closing the
+  config's client, whatever a driver left open: against SurrealDB Cloud, which
+  never answers a WebSocket's closing handshake, `push` printed `Push applied.`
+  (or `No schema changes.`) and then never returned, holding up any script or
+  CI step that ran it.
+
 ## 1.14.2 — 2026-11-16
 
 A push of a whole schema to SurrealDB Cloud completes, and a push that stopped part-way resumes.
