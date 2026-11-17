@@ -25,8 +25,12 @@ const db = createClient({
 });
 ```
 
+The driver connects at the first query. If that first connection does not open within
+10 seconds (nothing answers at `url`), the query fails with `V1001` instead of waiting:
+the SDK would otherwise retry for good. Once connected, the SDK reconnects without a limit.
+
 To keep control of the connection, pass a client you connected. The driver never
-closes it:
+closes it, nor bounds its connection:
 
 ```ts
 import { Surreal } from "surrealdb";

@@ -16,6 +16,7 @@ import {
 import type { Schema } from "@client/types";
 import {
   ClientInitializationError,
+  ConnectionError,
   ForeignKeyError,
   NestedWriteAssertionError,
   QueryError,
@@ -63,6 +64,16 @@ import { SurrealCall, SurrealWriter } from "./writer";
 /** In a text of several statements, where one's answers end: a statement may hold several of its own ahead of itself. */
 const MARKED = "viborm:|";
 const NAMED_PARAMETER = /\$p(\d+)\b/g;
+
+/**
+ * How long the first connection of a driver given a `url` may take. The SDK
+ * retries a connection that does not open for as long as it stays shut, the
+ * first one included: an address nothing answers at (a typo, a stopped
+ * server) left a command waiting for good, without a word. Past this the
+ * client is closed and the call fails as a connection failure (`V1001`); a
+ * connection that opened keeps the SDK's reconnection.
+ */
+const FIRST_CONNECTION_MS = 10_000;
 
 /**
  * A statement that holds what it reads ahead of itself, where no transaction
@@ -322,12 +333,30 @@ export class SurrealDriver
         { meta: { driver: "surrealdb", operation: "configuration" } }
       );
     const client = new Surreal();
-    await client.connect(url, {
+    const connected = client.connect(url, {
       ...(namespace ? { namespace } : {}),
       ...(database ? { database } : {}),
       ...(authentication ? { authentication: { ...authentication } } : {}),
     });
-    return client;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expired = new Promise<"expired">((resolve) => {
+      timer = setTimeout(() => resolve("expired"), FIRST_CONNECTION_MS);
+    });
+    try {
+      if ((await Promise.race([connected, expired])) !== "expired")
+        return client;
+    } finally {
+      clearTimeout(timer);
+    }
+    // Closing ends the SDK's retries. The connection it was still trying for
+    // then fails into the race above, which already handles it.
+    await client.close();
+    // Ours, so its words reach the caller as they are (a provider's failure
+    // is redacted); the url may carry credentials and is not named.
+    throw new ConnectionError(
+      `SurrealDB did not connect within ${FIRST_CONNECTION_MS / 1000} s.`,
+      { meta: { driver: this.driverName, operation: "connect" } }
+    );
   }
 
   protected async closeClient(): Promise<void> {
