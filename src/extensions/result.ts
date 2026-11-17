@@ -337,12 +337,14 @@ export function fieldsPart(
             declared[key] ?? {}
           )) {
             const at = `Extension "${extension}" result.${key}.${name}`;
+            // `_count` and `_aggregate` are the relations' own outputs (F010).
             if (
               name === "_count" ||
+              name === "_aggregate" ||
               Object.hasOwn(model["~"].state.relations, name)
             )
               extensionError(
-                `${at} cannot be computed: "${name}" is a relation of model "${modelName}".`,
+                `${at} cannot be computed: "${name}" is a relation of model "${modelName}" or its relation output.`,
                 extension
               );
             const needed = Object.keys(needs)

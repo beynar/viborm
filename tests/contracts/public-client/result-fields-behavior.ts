@@ -737,6 +737,15 @@ export function runResultFieldsBehavior({
       expect(
         apply({ user: { posts: { needs: {}, compute: () => 1 } } })
       ).toThrow('"posts" is a relation of model "user"');
+      // The relations' own outputs, on one model or on every model.
+      for (const reserved of ["_count", "_aggregate"])
+        for (const declared of [
+          { user: { [reserved]: { compute: () => 1 } } },
+          { $allModels: { [reserved]: { compute: () => 1 } } },
+        ])
+          expect(apply(declared), reserved).toThrow(
+            `"${reserved}" is a relation of model "user" or its relation output.`
+          );
       expect(apply({ nobody: { x: { compute: () => 1 } } })).toThrow(
         'Extension "bad" result names unknown model "nobody".'
       );
