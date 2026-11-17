@@ -226,6 +226,21 @@ statement is whole, a body placed once settles to its `EXISTS` (so a statement
 repeating none is byte-identical) and a repeated one to its test; a nested
 repeated body is defined before the body holding it. A junction or variant
 membership keeps its place (a walk inside a shared body is shared with it).
+A reference body is NOT STATED while it is alone (`SharedBodies.alone`,
+`UnstatedBody`): two key sets are one only where they read the same table and
+the same key columns, so the first body of each is held with its name, its
+place in the order and its slot, and its key set, its key (a read of the
+whole text) and its test are built only when another body is placed, a second
+of its table and columns or any other (a walk, an `$exists`). `#placed` then
+states every held body first, in the order they were lowered, and only then
+reads the new body's key: a key reads the slots it holds as they stand, and a
+stated body's slot holds its test of the set. Only while the statement has
+stated no body, joins no key set (`attach`: a relation budget) and pins no
+table; what the key set reads of where it is lowered (`from`, the set bound)
+is read when the filter is lowered, never when it is stated. Same names,
+same order, same bytes; 2026-11-16, PostgreSQL replay bench: a relation
+filter cost a read 3.4 µs and costs 2.1 µs (20 users filtered by a related
+post: −14 % client CPU).
 Since 1.4.0, where the adapter bounds a statement's relations
 (`capabilities.relationsPerStatement`: a PostgreSQL driver's
 `relationsPerStatement` option, else, read as the statement is built, 256
