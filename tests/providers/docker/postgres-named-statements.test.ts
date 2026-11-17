@@ -12,11 +12,14 @@
 import { createClient, vibormTypes } from "@drivers/postgres";
 import { s } from "@schema";
 import postgres from "postgres";
+import { vi } from "vitest";
 
 const TEST_CONNECTION_STRING = process.env.PG_TEST_CONNECTION_STRING;
 const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
 
 const TABLE = "named_statements_member";
+const TOLD_MAX =
+  /^VibORM \(postgres\): named: true, but all namedStatements\.max \(1\) names are given/;
 
 const member = s
   .model({
@@ -272,6 +275,200 @@ describeIf("postgres.js namedStatements", () => {
       { id: "b", email: "b@x.io", name: "B1" },
       { id: "c", email: "c@x.io", name: "C1" },
     ]);
+    await sql.end();
+  });
+});
+
+const PETS = "named_statements_member_pet";
+const keeper = s
+  .model({
+    id: s.string().id(),
+    email: s.string().unique(),
+    name: s.string().nullable(),
+    pets: s.toMany(() => kept),
+  })
+  .map(TABLE);
+const kept = s
+  .model({
+    id: s.string().id(),
+    name: s.string(),
+    keeperId: s.string(),
+    keeper: s
+      .toOne(() => keeper)
+      .fields("keeperId")
+      .references("id"),
+  })
+  .map(PETS);
+
+/** The statements of this test's tables the session holds, by text. */
+const preparedTexts = async (
+  sql: ReturnType<typeof connection>
+): Promise<string[]> =>
+  (
+    await sql.unsafe(
+      `SELECT statement FROM pg_prepared_statements WHERE statement LIKE '%named_statements_member%' ORDER BY statement`
+    )
+  ).map((row) => String(row.statement));
+
+describeIf("postgres.js named, the call option", () => {
+  const admin = connection();
+
+  beforeEach(async () => {
+    await admin.unsafe(`DROP TABLE IF EXISTS "${PETS}"`);
+    await admin.unsafe(`DROP TABLE IF EXISTS "${TABLE}"`);
+    await admin.unsafe(
+      `CREATE TABLE "${TABLE}" ("id" text PRIMARY KEY, "email" text NOT NULL UNIQUE, "name" text)`
+    );
+    await admin.unsafe(
+      `INSERT INTO "${TABLE}" VALUES ('a', 'a@x.io', 'A'), ('b', 'b@x.io', 'B'), ('c', 'c@x.io', null)`
+    );
+    await admin.unsafe(
+      `CREATE TABLE "${PETS}" ("id" text PRIMARY KEY, "name" text NOT NULL, "keeperId" text NOT NULL REFERENCES "${TABLE}" ("id"))`
+    );
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  afterAll(async () => {
+    await admin.unsafe(`DROP TABLE IF EXISTS "${PETS}"`);
+    await admin.unsafe(`DROP TABLE IF EXISTS "${TABLE}"`);
+    await admin.end();
+  });
+
+  test("`named: true` prepares a statement at its first sending, in either mode", async () => {
+    for (const namedStatements of [true, "explicit"] as const) {
+      const sql = connection();
+      const db = createClient({
+        schema: { member },
+        client: sql as never,
+        namedStatements,
+      });
+      expect(
+        await db.member.findUnique({ where: { id: "b" }, named: true })
+      ).toEqual({ id: "b", email: "b@x.io", name: "B" });
+      expect(await prepared(sql)).toBe(1);
+      await sql.end();
+    }
+  });
+
+  test("`named: false` is never prepared, in the automatic mode nor under `prepare: true`", async () => {
+    const sql = connection();
+    const db = createClient({
+      schema: { member },
+      client: sql as never,
+      namedStatements: true,
+    });
+    for (let i = 0; i < 3; i++)
+      await db.member.findUnique({ where: { id: "a" }, named: false });
+    expect(await prepared(sql)).toBe(0);
+    await db.member.findUnique({ where: { id: "a" } });
+    expect(await prepared(sql)).toBe(0);
+    await db.member.findUnique({ where: { id: "a" } });
+    expect(await prepared(sql)).toBe(1);
+    await sql.end();
+
+    const always = connection();
+    const everything = createClient({
+      schema: { member },
+      client: always as never,
+      options: { prepare: true },
+    });
+    for (let i = 0; i < 3; i++)
+      await everything.member.findMany({ where: { name: "A" }, named: false });
+    expect(await prepared(always)).toBe(0);
+    await everything.member.findMany({ where: { name: "A" } });
+    expect(await prepared(always)).toBe(1);
+    await always.end();
+  });
+
+  test("the explicit mode, in both spellings, prepares only the calls that pass `named: true`", async () => {
+    for (const namedStatements of [
+      "explicit",
+      { max: 100, auto: false },
+    ] as const) {
+      const sql = connection();
+      const db = createClient({
+        schema: { member },
+        client: sql as never,
+        namedStatements,
+      });
+      for (let i = 0; i < 3; i++) {
+        await db.member.findUnique({ where: { id: "a" } });
+        await db.member.findMany({ where: { name: "A" } });
+      }
+      expect(await prepared(sql)).toBe(0);
+      await db.member.findMany({ where: { email: "a@x.io" }, named: true });
+      expect(await preparedTexts(sql)).toEqual([
+        expect.stringContaining(`"q0"."email" = $1`),
+      ]);
+      await sql.end();
+    }
+  });
+
+  test("`max` counts every prepared statement; a `named: true` call past it is sent unprepared, and told once per text", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const sql = connection();
+    const db = createClient({
+      schema: { member },
+      client: sql as never,
+      namedStatements: { max: 1 },
+    });
+    await db.member.findUnique({ where: { id: "a" } });
+    await db.member.findUnique({ where: { id: "a" } });
+    for (let i = 0; i < 3; i++) {
+      await db.member.findMany({ where: { name: "A" }, named: true });
+      await db.member.findMany({ where: { email: "a@x.io" }, named: true });
+    }
+    expect(await prepared(sql)).toBe(1);
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(String(warn.mock.calls[0]?.[0])).toMatch(TOLD_MAX);
+    await sql.end();
+  });
+
+  test("an array transaction, an interactive one and a nested write: each call carries its own", async () => {
+    const sql = connection();
+    const db = createClient({
+      schema: { keeper, kept },
+      client: sql as never,
+      namedStatements: "explicit",
+    });
+    await db.$transaction([
+      db.keeper.findUnique({ where: { id: "a" }, named: true }),
+      db.keeper.findMany({ where: { name: "B" }, named: false }),
+      db.keeper.findMany({ where: { email: "c@x.io" } }),
+    ]);
+    expect(await preparedTexts(sql)).toEqual([
+      expect.stringContaining(`"q0"."id" = $1`),
+    ]);
+    await db.$transaction(async (tx) => {
+      await tx.keeper.findMany({ where: { email: "a@x.io" }, named: true });
+      await tx.keeper.findMany({ where: { name: "A" } });
+    });
+    expect((await preparedTexts(sql)).length).toBe(2);
+    await db.keeper.create({
+      data: {
+        id: "d",
+        email: "d@x.io",
+        pets: { create: [{ id: "p1", name: "Rex" }] },
+      },
+      named: true,
+    });
+    const texts = await preparedTexts(sql);
+    expect(texts.some((text) => text.startsWith("INSERT INTO"))).toBe(true);
+    expect(texts.some((text) => text.includes(PETS))).toBe(true);
+    await sql.end();
+  });
+
+  test("without `namedStatements`, `named` prepares nothing", async () => {
+    const sql = connection();
+    const db = createClient({ schema: { member }, client: sql as never });
+    for (let i = 0; i < 3; i++) {
+      await db.member.findUnique({ where: { id: "a" }, named: true });
+      await db.member.findMany({ where: { name: "A" }, named: false });
+    }
+    expect(await prepared(sql)).toBe(0);
     await sql.end();
   });
 });

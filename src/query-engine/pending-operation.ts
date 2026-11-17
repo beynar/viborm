@@ -304,7 +304,8 @@ export class PendingOperation<T>
     this.#attribution = createOperationExecutionContext(
       this.#modelName,
       this.#operation,
-      engine.extensionChain
+      engine.extensionChain,
+      options?.named
     );
     // The call object an extension's moments share is where the words on the
     // call (`key`, `codec`, `database`) find the operation it became.

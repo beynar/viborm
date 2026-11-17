@@ -526,6 +526,21 @@ export type Client<
   };
 };
 
+/**
+ * What every operation of every client takes beside its payload, whatever its
+ * driver: a driver without named statements accepts it and does nothing, so
+ * code written for one database runs on another.
+ */
+export interface CallOptions {
+  /**
+   * Named statements for this call (`namedStatements` on `viborm/pg` and
+   * `viborm/postgres`): `true` names every statement of the call at its first
+   * sending, within `max`; `false` never names them. Absent, the client's mode
+   * decides. It changes neither the SQL nor what an extension sees.
+   */
+  readonly named?: boolean;
+}
+
 /** The arguments one (model, operation) accepts; none without a declaration. */
 export type PlacedOperationArguments<Arguments, ModelName, O> = [
   keyof Arguments,
@@ -2250,7 +2265,11 @@ export type NoExtraOperationKeys<
   Arguments = NoArguments,
 > = Arg &
   ExclusiveSelection<Arg> &
-  Record<Exclude<keyof Arg, keyof Payload | keyof Arguments>, never> &
+  CallOptions &
+  Record<
+    Exclude<keyof Arg, keyof Payload | keyof Arguments | keyof CallOptions>,
+    never
+  > &
   ClauseGuard<Arg, Payload, "where"> &
   NestedClauseGuard<Arg, Payload, M, "where"> &
   OperatorBagGuard<Arg, Payload, M> &

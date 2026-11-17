@@ -87,10 +87,14 @@ export interface PostgresDriverOptions {
    */
   migrationSessionAttestation?: MigrationSessionAttestation;
   /**
-   * Prepare each statement VibORM repeats on the server: each connection
-   * parses it once, and the statements of a transaction then go out together
-   * instead of one round trip each. A statement is prepared the second time it
-   * is sent, and a connection holds at most `max` of them (100 with `true`).
+   * Prepare statements on the server: each connection parses one once, and
+   * the statements of a transaction then go out together instead of one round
+   * trip each. With `true` (`{ max: 100, auto: true }`) a statement is
+   * prepared the second time it is sent; with `"explicit"`
+   * (`{ max: 100, auto: false }`) only the statements of a call that passes
+   * `named: true` are. A call's `named: true` prepares its statements at their
+   * first sending, `named: false` never, not even under
+   * `options: { prepare: true }`. A connection holds at most `max` of them.
    * Off by default: behind PgBouncer in transaction mode, set
    * `max_prepared_statements` first.
    */
@@ -322,14 +326,17 @@ export class PostgresDriver extends Driver<
       params?.length !== undefined &&
       params.length > 0 &&
       context?.model !== "$raw" &&
-      this.named?.name(sqlStr) !== undefined;
+      this.named?.name(sqlStr, context?.named) !== undefined;
     const fail = (error: unknown): never => {
       learnRelationLimit(this.adapter, error);
       throw error;
     };
     const result = await client
       .unsafe<T[]>(sqlStr, params, {
-        prepare: named || this.driverOptions.options?.prepare === true,
+        prepare:
+          named ||
+          (context?.named !== false &&
+            this.driverOptions.options?.prepare === true),
       })
       .catch((error: unknown) => {
         // postgres.js retries a statement the server lost, or whose result

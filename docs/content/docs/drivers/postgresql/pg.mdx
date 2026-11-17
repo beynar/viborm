@@ -33,7 +33,7 @@ const client = createClient({
 | `sharedRelationBodies` | `boolean` | State each relation-filter body a statement repeats once, in a `WITH` (default `true`; `false` keeps the bodies inline) |
 | `relationsPerStatement` | `number` | The most relations (`FROM` items) one statement may reference (PlanetScale Neki: `256`); a statement over it is rewritten to fit. See [Neki](/docs/extensions/permissions#providers) |
 | `migrationSessionAttestation` | `"dedicated-session"` | Your claim, at your risk, that every connection of the pool is one server session for its whole life; lifts the migration refusal of Hyperdrive and Neon `-pooler` hosts (see [Migrations through a pooler](/docs/drivers/production#migrations-through-a-pooler)) |
-| `namedStatements` | `boolean \| { max: number }` | Send the statements VibORM repeats as named prepared statements, at most `max` per connection (100 with `true`); off by default. See [Named statements](#named-statements) |
+| `namedStatements` | `boolean \| "explicit" \| { max: number; auto?: boolean }` | Send statements as named prepared statements, at most `max` per connection (100 with `true` or `"explicit"`): the ones VibORM repeats, and the calls that pass `named: true`; with `"explicit"` or `auto: false`, only those calls. Off by default. See [Named statements](#named-statements) |
 
 `createClient` refuses any other key with a `ClientInitializationError` that
 names it.
@@ -225,9 +225,9 @@ semantics — see [Namespaces](/docs/drivers/namespaces).
 ## Named statements
 
 By default every statement is sent unnamed: the server parses and plans it each
-time, and keeps nothing once it has run. `namedStatements` sends the statements
-VibORM repeats under a name instead, so each connection parses and plans one
-once and then only binds it:
+time, and keeps nothing once it has run. `namedStatements` sends statements
+under a name instead, so each connection parses and plans one once and then
+only binds it:
 
 ```typescript
 import { createClient } from "viborm/pg";
@@ -235,7 +235,7 @@ import { createClient } from "viborm/pg";
 const client = createClient({
   databaseUrl: process.env.DATABASE_URL,
   schema,
-  namedStatements: true, // or { max: 50 }
+  namedStatements: true, // or { max: 50 }, or "explicit"
 });
 ```
 
@@ -246,14 +246,16 @@ named or not, so the number of round trips does not change.
 
 What it does:
 
-- A statement is named the second time VibORM sends it, under a name derived
-  from its text, so a shape sent once never takes a place. Two clients sharing
-  one pool give the same statement the same name.
+- With `true` (`{ max: 100, auto: true }`), a statement is named the second
+  time VibORM sends it, under a name derived from its text, so a shape sent
+  once never takes a place. Two clients sharing one pool give the same
+  statement the same name.
 - Only statements VibORM writes, with values, are named. Raw SQL and
   statements without values are sent as before.
 - A connection holds at most `max` named statements (100 with `true`). Each
   costs the server memory for the connection's life: 11 kB for a `findUnique`
-  to 42 kB for a `findMany` with a relation as JSON, measured on PostgreSQL 18.
+  to 42 kB for a `findMany` with a relation as JSON, and 1.3 to 4.2 MB for a
+  read of 141 to 251 relations, measured on PostgreSQL 18.
 - When the server no longer has a statement's name (after `DEALLOCATE` or
   `DISCARD ALL`), or the table under it changed (a column type, an enum a
   migration replaced), the statement is sent again once, unnamed, and answers
@@ -266,12 +268,78 @@ What it does:
   life. After migrations that change many tables, a new client (or a larger
   `max`) names them again.
 
+### Choosing per call: `named`
+
+Every operation takes `named`, beside its payload:
+
+```typescript
+// A heavy read that repeats: named from its first sending.
+await client.document.findMany({ where: { teamId }, include: { blocks: true }, named: true });
+
+// Never named, even in the automatic mode.
+await client.user.findMany({ where: { email: { startsWith: q } }, named: false });
+
+// Every statement of a nested write follows the option.
+await client.order.create({ data: { ...order, lines: { create: lines } }, named: true });
+```
+
+- `named: true` names each statement of the call at its first sending, within
+  `max`. The name is still derived from the text: a call writes different
+  texts as its arguments vary (a `where` left out, an `include` more), and a
+  name stands for one text.
+- `named: false` never names the call's statements.
+- Left out, the client's mode decides: the second sending with `true`,
+  never with `"explicit"`.
+- Without `namedStatements`, it does nothing: every statement is sent exactly as
+  without it. Every client accepts it, on every database, so code written for
+  pg runs unchanged on PGlite, SQLite, MySQL, D1 or Neon HTTP, where it does
+  nothing either.
+- It changes neither the SQL nor what an extension sees: not the arguments
+  of a `call` or an `around`, not the key of a `$withCache` read. In
+  `$transaction([...])` each operation carries its own; in an interactive
+  transaction, each call.
+
+With `namedStatements: "explicit"` (or `{ max, auto: false }`), only the calls
+that pass `named: true` are named: every place goes to what you chose, rather
+than to the first shapes seen twice. A `named: true` call that finds every
+place taken is sent unnamed, and VibORM writes a warning once per statement
+(`console.warn`, starting `VibORM (pg): a call passed named: true`): raise
+`max`, or name fewer calls.
+
+Some statements are slower named. After five executions PostgreSQL may switch
+a named statement to a generic plan, which cannot use the value it is bound
+to: a prefix `LIKE` (`startsWith`) measured 26 % slower named on a plain
+PostgreSQL 18. Pass `named: false` to such a call.
+
+### Workers and Hyperdrive
+
+On Cloudflare Workers a client lives for one request, so the automatic mode
+never sees a statement twice and names nothing. `named: true` is the only way
+to name there:
+
+- Hyperdrive passes VibORM's names through to the database and keeps them on
+  its own connections to it, from one session to the next; it prepares a name
+  on a connection where it is missing by itself. Since the name is derived from
+  the text, every isolate gives a statement the same name. Measured through
+  Hyperdrive with a client per request: 5 parses for 80 executions.
+- On a small read the gain is database CPU (0.06 to 0.13 ms per call), not
+  latency. On heavy reads it is both: on PlanetScale Neki, reads of 141 to
+  251 relations took 25 to 70 ms less named (20 % to 30 %), through
+  Hyperdrive with a new client per request as directly. Neki never switches to
+  a generic plan.
+- Memory is the cost. Hyperdrive keeps the names on connections the whole
+  fleet shares, and each heavy named read holds megabytes per connection. Name
+  the heavy reads that repeat, and keep `max` as the bound.
+
+On Workers, prefer `viborm/pg`: postgres.js sends an unprepared statement with
+values in two round trips (see [postgres.js prepared statements](/docs/drivers/postgresql/postgres#prepared-statements)).
+
 **Behind PgBouncer in transaction mode**, named statements need
 `max_prepared_statements` set (PgBouncer 1.21 or later; its default is 200
 since 1.24). Set it to at least `max`. Without it, a transaction that lands on
 another server connection does not find the name: each such statement fails
-once, then runs unnamed. Hyperdrive and other poolers have their own policy;
-leave the option off unless yours keeps prepared statements.
+once, then runs unnamed. Other poolers have their own policy; leave the option
+off unless yours keeps prepared statements.
 
 ## Transactions
 

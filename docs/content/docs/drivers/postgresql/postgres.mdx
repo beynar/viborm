@@ -32,7 +32,7 @@ const client = createClient({
 | `postgis` | `boolean` | Enable PostGIS support |
 | `sharedRelationBodies` | `boolean` | State each relation-filter body a statement repeats once, in a `WITH` (default `true`; `false` keeps the bodies inline) |
 | `relationsPerStatement` | `number` | The most relations (`FROM` items) one statement may reference (PlanetScale Neki: `256`); a statement over it is rewritten to fit. See [Neki](/docs/extensions/permissions#providers) |
-| `namedStatements` | `boolean \| { max: number }` | Prepare the statements VibORM repeats, at most `max` per connection (100 with `true`); off by default. See [Prepared statements](#prepared-statements) |
+| `namedStatements` | `boolean \| "explicit" \| { max: number; auto?: boolean }` | Prepare statements, at most `max` per connection (100 with `true` or `"explicit"`): the ones VibORM repeats, and the calls that pass `named: true`; with `"explicit"` or `auto: false`, only those calls. Off by default. See [Prepared statements](#prepared-statements) |
 
 `createClient` refuses any other key with a `ClientInitializationError` that
 names it.
@@ -196,12 +196,17 @@ also beside a supplied `client` that keeps postgres.js's default
 const client = createClient({
   databaseUrl: process.env.DATABASE_URL,
   schema,
-  namedStatements: true, // or { max: 50 }
+  namedStatements: true, // or { max: 50 }, or "explicit"
 });
 ```
 
-A statement VibORM writes, with values, is prepared the second time it is sent,
-and a connection holds at most `max` of them (100 with `true`). Each is then
+A statement VibORM writes, with values, is prepared the second time it is sent
+(with `true`), or at its first sending when its call passes `named: true`, and
+a connection holds at most `max` of them (100 with `true`). With `"explicit"`
+(or `{ max, auto: false }`), only the calls that pass `named: true` are
+prepared. A call that passes `named: false` is never prepared, not even under
+`options: { prepare: true }`. The option works as on pg, warning included: see
+[choosing per call](/docs/drivers/postgresql/pg#choosing-per-call-named). Each is then
 parsed once per connection and costs one round trip after that: a transaction
 of eight inserts takes 10 round trips instead of 18. On a local PostgreSQL 18,
 where a round trip costs little, a `findUnique` already takes about 40 % less
@@ -224,3 +229,11 @@ with no bound. Opting in, either way, means:
   memory, measured on PostgreSQL 18.
 - Behind PgBouncer in transaction mode, set `max_prepared_statements` (its
   default is 200 since 1.24) to at least `max`.
+
+On Cloudflare Hyperdrive, prefer [`viborm/pg`](/docs/drivers/postgresql/pg#workers-and-hyperdrive).
+postgres.js names its prepared statements per client, so a new client per
+request never reuses one, and it describes every statement with values it has
+not prepared on its connection before running it: two round trips, for every
+such statement under the default `prepare: false`, and for the first sending
+of each text in a request otherwise. A page of three reads measured 116 ms
+through Hyperdrive on postgres.js, 61 ms on pg.

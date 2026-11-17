@@ -46,8 +46,24 @@ describe("driver execution-context snapshots", () => {
     expect(generated).toBe(1);
   });
 
+  it("carries a call's `named`, its own before its bound context's", () => {
+    const bound = createExecutionContext(
+      { operation: "findMany", named: true },
+      () => "id"
+    );
+    expect(bound.named).toBe(true);
+    // A context without it keeps exactly its keys (a pinned public shape).
+    expect(
+      Reflect.ownKeys(createExecutionContext({ model: "user" }, () => "id"))
+    ).toEqual(["model", "operation", "correlationId"]);
+    expect(snapshotExecutionContext({ model: "user" }, bound).named).toBe(true);
+    expect(
+      snapshotExecutionContext({ model: "user", named: false }, bound).named
+    ).toBe(false);
+  });
+
   it("reads external context members once into a stable immutable snapshot", () => {
-    const reads = { correlationId: 0, model: 0, operation: 0 };
+    const reads = { correlationId: 0, model: 0, named: 0, operation: 0 };
     const external = Object.defineProperties(
       {},
       {
@@ -69,16 +85,28 @@ describe("driver execution-context snapshots", () => {
             return "findMany";
           },
         },
+        named: {
+          get() {
+            reads.named += 1;
+            return true;
+          },
+        },
       }
     );
 
     const snapshot = snapshotExecutionContext(external);
 
-    expect(reads).toEqual({ correlationId: 1, model: 1, operation: 1 });
+    expect(reads).toEqual({
+      correlationId: 1,
+      model: 1,
+      named: 1,
+      operation: 1,
+    });
     expect(Object.isFrozen(snapshot)).toBe(true);
     expect(snapshot).toEqual({
       correlationId: "first",
       model: "user",
+      named: true,
       operation: "findMany",
     });
     expect(snapshot.correlationId).toBe("first");

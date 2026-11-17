@@ -7,13 +7,20 @@
  * bound: the server skips the parse and the plan a short query mostly pays
  * for. Each connection keeps every statement it was asked to name until it
  * closes (node-postgres and postgres.js evict none), and VibORM writes one SQL
- * text per query shape, so the names are bounded here: a text is named the
- * second time it is sent, while fewer than `max` texts have a name. A text seen
- * once (a one-off shape, a `createMany` of an unusual row count) never takes a
- * place, and a connection holds at most `max` statements of this driver.
+ * text per query shape, so the names are bounded here: at most `max` texts
+ * ever take a name, and a connection holds at most `max` statements of this
+ * driver.
  *
- * The name is derived from the text, so two clients sharing one pool give the
- * same text the same name.
+ * Which texts take a place: a call's `named` decides first (`true` names its
+ * statements at their first sending, `false` never), and a call that says
+ * nothing is named, in the automatic mode only, the second time its text is
+ * sent. A text seen once (a one-off shape, a `createMany` of an unusual row
+ * count) never takes a place on its own.
+ *
+ * The name is derived from the text, never chosen by the caller: one call
+ * writes several texts as its arguments vary, and a name stands for one text.
+ * Two clients sharing one pool, or two Workers isolates behind Hyperdrive,
+ * give the same text the same name.
  */
 
 import { ClientInitializationError } from "@errors";
@@ -29,8 +36,15 @@ export const NAMED_STATEMENTS_MAX = 100;
 /** Texts remembered as seen once; past it, counting starts over. */
 const SEEN_MAX = 256;
 
-/** The public option: `true`, or the most statements one connection holds. */
-export type NamedStatementsOption = boolean | { readonly max: number };
+/**
+ * The public option. `true` is `{ max: 100, auto: true }`; `"explicit"` is
+ * `{ max: 100, auto: false }`. With `auto: false`, only the statements of a
+ * call that passes `named: true` are named.
+ */
+export type NamedStatementsOption =
+  | boolean
+  | "explicit"
+  | { readonly max: number; readonly auto?: boolean };
 
 /** A 53-bit hash of the text (cyrb53), in base 36: about eleven characters. */
 const hash = (text: string): string => {
@@ -49,25 +63,42 @@ const hash = (text: string): string => {
 };
 
 export class NamedStatements {
+  readonly #driver: string;
   readonly #max: number;
+  /** Whether a call that does not pass `named` may be named. */
+  readonly #auto: boolean;
   /** Each named text's name. */
   readonly #names = new Map<string, string>();
   #seen = new Set<string>();
   /** Texts never named again (`drop`): at most `max`, as each had a name. */
   readonly #dropped = new Set<string>();
+  /** Texts a `named: true` call asked for after the bound: each told once. */
+  readonly #refused = new Set<string>();
   /** Names given, retired ones included: what a connection may hold. */
   #given = 0;
 
-  constructor(option: Exclude<NamedStatementsOption, false>) {
-    this.#max = option === true ? NAMED_STATEMENTS_MAX : option.max;
+  constructor(driver: string, option: Exclude<NamedStatementsOption, false>) {
+    this.#driver = driver;
+    this.#max = typeof option === "object" ? option.max : NAMED_STATEMENTS_MAX;
+    this.#auto =
+      option === true || (typeof option === "object" && option.auto !== false);
   }
 
-  /** The name to send this text under, or `undefined` to send it unnamed. */
-  name(text: string): string | undefined {
-    const named = this.#names.get(text);
-    if (named !== undefined || this.#given >= this.#max) return named;
+  /**
+   * The name to send this text under, or `undefined` to send it unnamed.
+   * `named` is the call's own option: `true` names the text at once, `false`
+   * never, absent the second time it is sent where the mode is automatic.
+   */
+  name(text: string, named: boolean | undefined): string | undefined {
+    if (named === false || !(named || this.#auto)) return;
+    const given = this.#names.get(text);
+    if (given !== undefined) return given;
+    if (this.#given >= this.#max) {
+      if (named) this.#full(text);
+      return;
+    }
     if (this.#dropped.has(text)) return;
-    if (this.#seen.delete(text)) return this.#give(text, "");
+    if (this.#seen.delete(text) || named) return this.#give(text, "");
     if (this.#seen.size >= SEEN_MAX) this.#seen = new Set();
     this.#seen.add(text);
     return;
@@ -93,6 +124,19 @@ export class NamedStatements {
    */
   drop(text: string): void {
     if (this.#names.delete(text)) this.#dropped.add(text);
+  }
+
+  /**
+   * A call asked to name a text and every place is taken: the text is sent
+   * unnamed, and the application told once per text (of the first
+   * `SEEN_MAX`) that `max` is too low for what it names.
+   */
+  #full(text: string): void {
+    if (this.#refused.size >= SEEN_MAX || this.#refused.has(text)) return;
+    this.#refused.add(text);
+    console.warn(
+      `VibORM (${this.#driver}): named: true, but all namedStatements.max (${this.#max}) names are given; sent unnamed: ${text.slice(0, 160)}`
+    );
   }
 
   /** A 53-bit hash leaves two texts one name with a chance far below one in a billion. */
@@ -138,11 +182,15 @@ export const namedStatements = (
   option: NamedStatementsOption | undefined
 ): NamedStatements | undefined => {
   if (!option) return;
-  if (option !== true && !(Number.isInteger(option.max) && option.max > 0)) {
+  if (
+    typeof option === "object"
+      ? !(Number.isInteger(option.max) && option.max > 0) ||
+        (option.auto !== undefined && typeof option.auto !== "boolean")
+      : option !== true && option !== "explicit"
+  )
     throw new ClientInitializationError(
-      `Driver "${driver}": namedStatements.max must be a positive integer.`,
+      `Driver "${driver}": namedStatements must be true, "explicit" or { max, auto? }, max a positive integer.`,
       { meta: { driver, operation: "configuration" } }
     );
-  }
-  return new NamedStatements(option);
+  return new NamedStatements(driver, option);
 };
