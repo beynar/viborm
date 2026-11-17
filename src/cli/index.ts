@@ -37,3 +37,12 @@ try {
   );
   process.exitCode = 1;
 }
+
+// The command settled and its client was closed (`runCli`): the process ends
+// here, whatever a driver left open. A socket a server never finishes closing
+// (SurrealDB Cloud does not answer a WebSocket's closing handshake) otherwise
+// kept `push` alive for good after it had printed its outcome. What was
+// written goes out first.
+await new Promise<void>((resolve) => process.stdout.write("", () => resolve()));
+await new Promise<void>((resolve) => process.stderr.write("", () => resolve()));
+process.exit();
