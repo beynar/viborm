@@ -121,6 +121,14 @@ would reintroduce the emitted graph. Export the type names required by inferred
 declarations, including nominal extension capability interfaces; their unique
 symbol keys remain private and have no runtime representation.
 
+`CallOptions` (`named`, the call option of named statements) is no payload
+key: `#prepareModelOperation` takes it out of the arguments before anything
+reads them, admits it once (a boolean) and hands it to the operation's
+execution context, which every statement of the call carries; neither the
+SQL, a cache key nor an extension sees it. `NoExtraOperationKeys` admits it as
+a member of the intersection, never as an intersection around the parameter:
+`Parameters<typeof op>[0]` of a generic method collapses to `never` under one.
+
 `NoExtraOperationKeys` keys what the caller SPELLED, walking the literal and
 never the payload. `NestedClauseGuard` checks WHERE model-field names through
 relation and logical filters, and nested write data (create, createMany.data,

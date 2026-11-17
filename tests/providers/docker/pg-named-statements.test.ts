@@ -14,13 +14,17 @@
 import { createClient } from "@drivers/pg";
 import { s } from "@schema";
 import pg from "pg";
+import { vi } from "vitest";
 import { TEST_CONNECTION_STRING } from "./pg-fixtures";
 
 const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
 
 const TABLE = "named_statements_person";
 const NAME = /^v[0-9a-z]+$/;
-const REFUSED_MAX = /namedStatements\.max must be a positive integer/;
+const REFUSED =
+  /namedStatements must be true, "explicit" or \{ max, auto\? \}, max a positive integer/;
+const TOLD_MAX = /all namedStatements\.max \(1\) names are given/;
+const SELECT = /^SELECT/;
 
 const person = s
   .model({
@@ -33,6 +37,8 @@ const person = s
 interface Sent {
   readonly text: string;
   readonly name?: string;
+  /** Everything the query object holds but its name, as JSON. */
+  readonly sent: string;
 }
 
 /**
@@ -48,8 +54,12 @@ function recordingPool() {
   const sent: Sent[] = [];
   const note = (query: unknown) => {
     if (typeof query === "object" && query !== null && "text" in query) {
-      const { text, name } = query as { text: string; name?: string };
-      sent.push(name === undefined ? { text } : { text, name });
+      const { name, ...rest } = query as { text: string; name?: string };
+      const { text } = rest;
+      const json = JSON.stringify(rest);
+      sent.push(
+        name === undefined ? { text, sent: json } : { text, name, sent: json }
+      );
     }
     return query;
   };
@@ -446,6 +456,294 @@ describeIf("pg namedStatements", () => {
         databaseUrl: TEST_CONNECTION_STRING,
         namedStatements: { max: 0 },
       })
-    ).toThrow(REFUSED_MAX);
+    ).toThrow(REFUSED);
+  });
+
+  test('a mode that is not `true`, `"explicit"` or `{ max, auto }` is refused', () => {
+    const refused = (namedStatements: unknown) => () =>
+      createClient({
+        schema: { person },
+        databaseUrl: TEST_CONNECTION_STRING,
+        namedStatements: namedStatements as never,
+      });
+    expect(refused("auto")).toThrow(REFUSED);
+    expect(refused({ max: 10, auto: "no" })).toThrow(REFUSED);
+  });
+});
+
+const PETS = "named_statements_pet";
+const owner = s
+  .model({
+    id: s.string().id(),
+    email: s.string().unique(),
+    name: s.string().nullable(),
+    pets: s.toMany(() => pet),
+  })
+  .map(TABLE);
+const pet = s
+  .model({
+    id: s.string().id(),
+    name: s.string(),
+    ownerId: s.string(),
+    owner: s
+      .toOne(() => owner)
+      .fields("ownerId")
+      .references("id"),
+  })
+  .map(PETS);
+
+/** The texts a run sent named, and those it sent unnamed, of this test's tables. */
+const split = (sent: readonly Sent[]) => ({
+  named: sent.filter((query) => query.name !== undefined),
+  unnamed: sent.filter(
+    (query) => query.name === undefined && query.text.includes(TABLE)
+  ),
+});
+
+describeIf("pg named, the call option", () => {
+  const admin = new pg.Pool({
+    connectionString: TEST_CONNECTION_STRING,
+    max: 1,
+  });
+
+  beforeEach(async () => {
+    await admin.query(`DROP TABLE IF EXISTS "${PETS}"`);
+    await admin.query(`DROP TABLE IF EXISTS "${TABLE}"`);
+    await admin.query(
+      `CREATE TABLE "${TABLE}" ("id" text PRIMARY KEY, "email" text NOT NULL UNIQUE, "name" text)`
+    );
+    await admin.query(
+      `INSERT INTO "${TABLE}" VALUES ('a', 'a@x.io', 'A'), ('b', 'b@x.io', 'B'), ('c', 'c@x.io', null)`
+    );
+    await admin.query(
+      `CREATE TABLE "${PETS}" ("id" text PRIMARY KEY, "name" text NOT NULL, "ownerId" text NOT NULL REFERENCES "${TABLE}" ("id"))`
+    );
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  afterAll(async () => {
+    await admin.query(`DROP TABLE IF EXISTS "${PETS}"`);
+    await admin.query(`DROP TABLE IF EXISTS "${TABLE}"`);
+    await admin.end();
+  });
+
+  test("`named: true` names a statement at its first sending, in either mode", async () => {
+    for (const namedStatements of [true, "explicit"] as const) {
+      const { pool, wrapped, sent } = recordingPool();
+      const db = createClient({
+        schema: { person },
+        pool: wrapped as never,
+        namedStatements,
+      });
+      expect(
+        await db.person.findUnique({ where: { id: "b" }, named: true })
+      ).toEqual({ id: "b", email: "b@x.io", name: "B" });
+      expect(sent.length).toBe(1);
+      expect(sent[0]?.name).toMatch(NAME);
+      expect(await preparedNames(pool)).toEqual([sent[0]?.name]);
+      await pool.end();
+    }
+  });
+
+  test("`named: false` is never named, even in the automatic mode, and is no sighting", async () => {
+    const { pool, wrapped, sent } = recordingPool();
+    const db = createClient({
+      schema: { person },
+      pool: wrapped as never,
+      namedStatements: true,
+    });
+    for (let i = 0; i < 3; i++)
+      await db.person.findUnique({ where: { id: "a" }, named: false });
+    expect(sent.every((query) => query.name === undefined)).toBe(true);
+    // The automatic mode counts from the first call that does not refuse.
+    await db.person.findUnique({ where: { id: "a" } });
+    expect(sent.at(-1)?.name).toBeUndefined();
+    await db.person.findUnique({ where: { id: "a" } });
+    expect(sent.at(-1)?.name).toMatch(NAME);
+    // And a name given does not reach a call that refuses one.
+    await db.person.findUnique({ where: { id: "a" }, named: false });
+    expect(sent.at(-1)?.name).toBeUndefined();
+    await pool.end();
+  });
+
+  test("the explicit mode, in both spellings, names only the calls that pass `named: true`", async () => {
+    for (const namedStatements of [
+      "explicit",
+      { max: 100, auto: false },
+    ] as const) {
+      const { pool, wrapped, sent } = recordingPool();
+      const db = createClient({
+        schema: { person },
+        pool: wrapped as never,
+        namedStatements,
+      });
+      for (let i = 0; i < 3; i++) {
+        await db.person.findUnique({ where: { id: "a" } });
+        await db.person.findMany({ where: { name: "A" } });
+      }
+      expect(sent.every((query) => query.name === undefined)).toBe(true);
+      sent.length = 0;
+      await db.person.findMany({ where: { name: "A" }, named: true });
+      await db.person.findMany({ where: { name: "B" } });
+      expect(sent.map((query) => query.name === undefined)).toEqual([
+        false,
+        true,
+      ]);
+      expect((await preparedNames(pool)).length).toBe(1);
+      await pool.end();
+    }
+  });
+
+  test("`max` counts every name; a `named: true` call past it is sent unnamed, and told once per text", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const { pool, wrapped, sent } = recordingPool();
+    const db = createClient({
+      schema: { person },
+      pool: wrapped as never,
+      namedStatements: { max: 1 },
+    });
+    // The automatic mode takes the one place.
+    await db.person.findUnique({ where: { id: "a" } });
+    await db.person.findUnique({ where: { id: "a" } });
+    sent.length = 0;
+    for (let i = 0; i < 3; i++) {
+      await db.person.findMany({ where: { name: "A" }, named: true });
+      await db.person.findMany({ where: { email: "a@x.io" }, named: true });
+    }
+    expect(sent.length).toBe(6);
+    expect(sent.every((query) => query.name === undefined)).toBe(true);
+    expect((await preparedNames(pool)).length).toBe(1);
+    expect(warn).toHaveBeenCalledTimes(2);
+    const told = warn.mock.calls.map(([message]) => String(message));
+    expect(told[0]).toMatch(TOLD_MAX);
+    expect(told[0]).toContain(`"q0"."name" = $1`);
+    expect(told[1]).toContain(`"q0"."email" = $1`);
+    await pool.end();
+  });
+
+  test("an array transaction and an interactive one: each call carries its own", async () => {
+    const { pool, wrapped, sent } = recordingPool();
+    const db = createClient({
+      schema: { person },
+      pool: wrapped as never,
+      namedStatements: "explicit",
+    });
+    await db.$transaction([
+      db.person.findUnique({ where: { id: "a" }, named: true }),
+      db.person.findMany({ where: { name: "B" }, named: false }),
+      db.person.findMany({ where: { email: "c@x.io" } }),
+    ]);
+    const array = split(sent);
+    expect(array.named.map((query) => query.text)).toEqual([
+      expect.stringContaining(`"q0"."id" = $1`),
+    ]);
+    expect(array.unnamed.length).toBe(2);
+    sent.length = 0;
+    await db.$transaction(async (tx) => {
+      await tx.person.update({
+        where: { id: "a" },
+        data: { name: "A1" },
+        named: true,
+      });
+      await tx.person.findMany({ where: { name: "A1" } });
+    });
+    const interactive = split(sent);
+    expect(interactive.named.length).toBeGreaterThan(0);
+    expect(
+      interactive.named.every((query) => query.text.startsWith("UPDATE"))
+    ).toBe(true);
+    expect(interactive.unnamed.map((query) => query.text)).toEqual([
+      expect.stringMatching(SELECT),
+    ]);
+    await pool.end();
+  });
+
+  test("every statement with values of a nested write is named", async () => {
+    const { pool, wrapped, sent } = recordingPool();
+    const db = createClient({
+      schema: { owner, pet },
+      pool: wrapped as never,
+      namedStatements: "explicit",
+    });
+    await db.owner.create({
+      data: {
+        id: "d",
+        email: "d@x.io",
+        pets: {
+          create: [
+            { id: "p1", name: "Rex" },
+            { id: "p2", name: "Tom" },
+          ],
+        },
+      },
+      include: { pets: true },
+      named: true,
+    });
+    const withValues = sent.filter((query) =>
+      Array.isArray(JSON.parse(query.sent).values)
+        ? JSON.parse(query.sent).values.length > 0
+        : false
+    );
+    expect(withValues.length).toBeGreaterThan(1);
+    expect(withValues.every((query) => NAME.test(query.name ?? ""))).toBe(true);
+    expect(
+      sent.some(
+        (query) => query.text.includes(PETS) && query.name !== undefined
+      )
+    ).toBe(true);
+    await pool.end();
+  });
+
+  test("without `namedStatements`, `named` changes nothing that is sent", async () => {
+    const run = async (named: boolean | undefined) => {
+      const { pool, wrapped, sent } = recordingPool();
+      const db = createClient({
+        schema: { owner, pet },
+        pool: wrapped as never,
+      });
+      await db.owner.findUnique({ where: { id: "a" }, named });
+      await db.owner.findMany({
+        where: { name: "A" },
+        include: { pets: true },
+        named,
+      });
+      await db.owner.update({
+        where: { id: "b" },
+        data: { name: "B" },
+        named,
+      });
+      await db.$transaction([
+        db.owner.findMany({ where: { email: "c@x.io" }, named }),
+      ]);
+      await pool.end();
+      return sent;
+    };
+    const plain = await run(undefined);
+    expect(plain.every((query) => query.name === undefined)).toBe(true);
+    expect(await run(true)).toEqual(plain);
+    expect(await run(false)).toEqual(plain);
+  });
+
+  test("`named` changes neither the text nor the values sent", async () => {
+    const { pool, wrapped, sent } = recordingPool();
+    const db = createClient({
+      schema: { owner, pet },
+      pool: wrapped as never,
+      namedStatements: true,
+    });
+    const call = { where: { name: "A" }, include: { pets: true } } as const;
+    await db.owner.findMany(call);
+    await db.owner.findMany({ ...call, named: false });
+    await db.owner.findMany({ ...call, named: true });
+    expect(new Set(sent.map((query) => query.sent)).size).toBe(1);
+    expect(sent.map((query) => query.name === undefined)).toEqual([
+      true,
+      true,
+      false,
+    ]);
+    await pool.end();
   });
 });

@@ -7,6 +7,7 @@ interface TrustedExecutionContext {
   readonly correlationIdGetter?: () => string;
   readonly extensionChain?: ResolvedExtensionChain;
   readonly model?: string;
+  readonly named?: boolean;
   readonly operation?: string;
   readonly transactionPhases?: TransactionPhaseNotifications;
   /**
@@ -33,6 +34,8 @@ class TrustedSnapshot {
   readonly operation: string | undefined;
   // Declared only: a field first made as a value, then made again as an accessor, costs each context a shape of its own.
   declare readonly correlationId?: string;
+  // Declared only: a context of a call that did not pass `named` has no such key.
+  declare readonly named?: boolean;
   /**
    * The id made where it is first read. One accessor for every context: a
    * getter of its own would also give each context a shape of its own, four
@@ -57,6 +60,7 @@ class TrustedSnapshot {
       );
     // Always a property of its own, as a field is: set where there is no id too.
     else this.correlationId = values.correlationId || undefined;
+    if (values.named !== undefined) this.named = values.named;
     Object.freeze(this);
   }
   static values(context: object): TrustedExecutionContext | undefined {
@@ -92,6 +96,7 @@ export function createExecutionContext(
     correlationIdGetter,
     extensionChain,
     model: readString(values, "model"),
+    named: readBoolean(values),
     operation: readString(values, "operation"),
   });
 }
@@ -129,6 +134,7 @@ export function snapshotExecutionContext(
   const transactionPhases =
     contextValues.transactionPhases ?? boundValues.transactionPhases;
   const recoverable = contextValues.recoverable ?? boundValues.recoverable;
+  const named = contextValues.named ?? boundValues.named;
 
   if (
     context &&
@@ -142,7 +148,8 @@ export function snapshotExecutionContext(
       extensionChain,
       transactionPhases,
       callsite,
-      recoverable
+      recoverable,
+      named
     )
   ) {
     return context;
@@ -159,7 +166,8 @@ export function snapshotExecutionContext(
       extensionChain,
       transactionPhases,
       callsite,
-      recoverable
+      recoverable,
+      named
     )
   ) {
     return boundContext;
@@ -171,6 +179,7 @@ export function snapshotExecutionContext(
     correlationIdGetter,
     extensionChain,
     model,
+    named,
     operation,
     transactionPhases,
     ...(recoverable && { recoverable }),
@@ -295,6 +304,7 @@ function snapshotExternalExecutionContext(
   return {
     correlationId: readString(value, "correlationId"),
     model: readString(value, "model"),
+    named: readBoolean(value),
     operation: readString(value, "operation"),
   };
 }
@@ -308,10 +318,12 @@ function representsExecutionContext(
   extensionChain: ResolvedExtensionChain | undefined,
   transactionPhases: TransactionPhaseNotifications | undefined,
   callsite: string | undefined,
-  recoverable: true | undefined
+  recoverable: true | undefined,
+  named: boolean | undefined
 ): boolean {
   return (
     values.recoverable === recoverable &&
+    values.named === named &&
     values.callsite === callsite &&
     values.model === model &&
     values.operation === operation &&
@@ -328,6 +340,13 @@ function readString(
 ): string | undefined {
   const member = readProperty(value, key);
   return typeof member === "string" ? member : undefined;
+}
+
+function readBoolean(
+  value: QueryExecutionContext | undefined
+): boolean | undefined {
+  const member = readProperty(value, "named");
+  return typeof member === "boolean" ? member : undefined;
 }
 
 function readProperty(value: unknown, key: PropertyKey): unknown {

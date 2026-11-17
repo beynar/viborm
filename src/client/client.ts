@@ -5,7 +5,11 @@ import type {
   BatchTransactionOptions,
   TransactionOptions,
 } from "@drivers/shared/transaction-options";
-import { ClientInitializationError, isVibORMError } from "@errors";
+import {
+  ClientInitializationError,
+  isVibORMError,
+  ValidationError,
+} from "@errors";
 import type { ResolvedExtensionChain } from "@extensions/chain";
 import type {
   AnyFacts,
@@ -40,10 +44,12 @@ import { QueryEngine } from "@query-engine/query-engine";
 import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { renderers } from "@query-engine/raptor3/shared/insert-value";
 import {
+  baseOperation,
   isWriteOperation,
   ROUTED_OPERATIONS,
 } from "@query-engine/routed-operations";
 import type { TransactionOperation } from "@query-engine/transaction-operation";
+import type { PrepareOptions } from "@query-engine/types";
 import { hydrateSchemaNames } from "@schema/hydration";
 import type { AnyModel } from "@schema/model";
 import type { Scalar } from "@schema/scalars/base";
@@ -888,7 +894,17 @@ export class VibORM<C extends VibORMConfig> {
       );
     }
 
-    const rawArgs = (args ?? {}) as Record<string, unknown>;
+    let rawArgs = (args ?? {}) as Record<string, unknown>;
+    // `named` is the call's, not its payload's: it leaves the arguments before
+    // anything reads them, so neither the SQL, a cache key nor an extension
+    // sees it, and reaches every statement of the call through its context.
+    let options: PrepareOptions | undefined;
+    if (Object.hasOwn(rawArgs, "named")) {
+      const { named, ...payload } = rawArgs;
+      rawArgs = payload;
+      if (named !== undefined)
+        options = { named: admitNamed(modelNameStr, operation, named) };
+    }
     const chain = engine.extensionChain;
     // Without a chain or an omission nothing transforms the arguments, plans
     // a field or watches a write: the operation is its arguments as given.
@@ -896,7 +912,7 @@ export class VibORM<C extends VibORMConfig> {
     // (0.2 kB and 1 % of a `findUnique`'s client CPU).
     if (chain === undefined && clientOmit === undefined) {
       assertNonEmptyUniqueWhere(modelNameStr, operation, rawArgs);
-      return engine.prepare(model, operation, rawArgs);
+      return engine.prepare(model, operation, rawArgs, options);
     }
     return this.#prepareChainedModelOperation(
       engine,
@@ -905,7 +921,8 @@ export class VibORM<C extends VibORMConfig> {
       operation,
       rawArgs,
       clientOmit,
-      chain
+      chain,
+      options?.named
     );
   }
 
@@ -917,7 +934,8 @@ export class VibORM<C extends VibORMConfig> {
     operation: Operations,
     rawArgs: Record<string, unknown>,
     clientOmit: ClientOmitResolver | undefined,
-    chain: ResolvedExtensionChain | undefined
+    chain: ResolvedExtensionChain | undefined,
+    named: boolean | undefined
   ): PendingOperation<unknown> {
     const isWrite = isWriteOperation(operation);
 
@@ -1004,8 +1022,11 @@ export class VibORM<C extends VibORMConfig> {
       operation,
       operationArgs,
       resultFields === undefined && written === undefined
-        ? undefined
+        ? named === undefined
+          ? undefined
+          : { named }
         : {
+            named,
             finishResult(value) {
               const finished =
                 finishResult === undefined ? value : finishResult(value);
@@ -1379,6 +1400,20 @@ function prepareSchema(schema: Schema, checked: boolean): PreparedSchema {
   };
   preparedSchemas.set(schema, prepared);
   return prepared;
+}
+
+/** A call's `named` option, admitted once: a boolean, or the call is refused. */
+function admitNamed(
+  model: string,
+  operation: Operations,
+  named: unknown
+): boolean {
+  if (typeof named === "boolean") return named;
+  throw new ValidationError(
+    baseOperation(operation),
+    [{ path: "named", message: "named must be a boolean." }],
+    { meta: { model } }
+  );
 }
 
 /**

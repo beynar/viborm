@@ -282,11 +282,14 @@ export interface PgDriverOptions {
    */
   migrationSessionAttestation?: MigrationSessionAttestation;
   /**
-   * Send each statement VibORM repeats as a named, server-side prepared
-   * statement: each connection parses and plans it once, then only binds it.
-   * A statement is named the second time it is sent, and a connection holds
-   * at most `max` of them (100 with `true`). Off by default: behind PgBouncer
-   * in transaction mode, set `max_prepared_statements` first.
+   * Send statements as named, server-side prepared statements: each
+   * connection parses and plans one once, then only binds it. With `true`
+   * (`{ max: 100, auto: true }`) a statement is named the second time it is
+   * sent; with `"explicit"` (`{ max: 100, auto: false }`) only the statements
+   * of a call that passes `named: true` are. A call's `named: true` names its
+   * statements at their first sending, `named: false` never. A connection
+   * holds at most `max` of them. Off by default: behind PgBouncer in
+   * transaction mode, set `max_prepared_statements` first.
    */
   namedStatements?: NamedStatementsOption;
 }
@@ -773,7 +776,7 @@ export class PgDriver extends Driver<PgPool, PgPoolClient> {
       fallbackOperation === "execute" &&
       params?.length &&
       context?.model !== "$raw"
-        ? this.named?.name(sql)
+        ? this.named?.name(sql, context?.named)
         : undefined;
     const query = array
       ? { text: sql, values: params, types: utcSafeTypes, rowMode: "array" }
