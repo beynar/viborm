@@ -863,6 +863,7 @@ describe("dialect physical SQL vocabulary", () => {
       joinsJunctionFilters: "unbounded",
       readsNodesByKey: true,
       joinsToOneLaterally: true,
+      carriesDocumentsAsArrays: true,
     });
     expect(mysql.capabilities).toEqual({
       namesQualifiedColumns: true,
@@ -878,6 +879,7 @@ describe("dialect physical SQL vocabulary", () => {
       supportsRowLocks: true,
       locksMissingKeys: true,
       boundsRecursionIterations: true,
+      carriesDocumentsAsArrays: true,
     });
     expect(sqlite.capabilities).toEqual({
       supportsReturning: true,
@@ -891,6 +893,7 @@ describe("dialect physical SQL vocabulary", () => {
       supportsMutationRowLimit: false,
       supportsRowLocks: false,
       joinsJunctionFilters: true,
+      carriesDocumentsAsArrays: true,
     });
   });
 });
@@ -909,6 +912,19 @@ describe("coverage low value", () => {
     expect(projection.values).toEqual(
       pairs.flatMap(([key], index) => [key, index])
     );
+    // An array of 100 members is one call; one more is two chunks joined.
+    const members = (count: number): Sql[] =>
+      Array.from({ length: count }, (_, index) => sql`${index}`);
+    const marks = (count: number): string =>
+      Array.from({ length: count }, () => "?").join(", ");
+    expect(adapter.json.array(members(100)).toStatement()).toBe(
+      `json_build_array(${marks(100)})`
+    );
+    const wide = adapter.json.array(members(101));
+    expect(wide.toStatement()).toBe(
+      `(jsonb_build_array(${marks(100)}) || jsonb_build_array(?))::json`
+    );
+    expect(wide.values).toEqual(members(101).map((_, index) => index));
     expectSql(
       adapter.aggregates.min(sql.raw`active`, true),
       "BOOL_AND(active)"
