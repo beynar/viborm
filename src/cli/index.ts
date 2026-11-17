@@ -41,8 +41,9 @@ try {
 // The command settled and its client was closed (`runCli`): the process ends
 // here, whatever a driver left open. A socket a server never finishes closing
 // (SurrealDB Cloud does not answer a WebSocket's closing handshake) otherwise
-// kept `push` alive for good after it had printed its outcome. What was
-// written goes out first.
-await new Promise<void>((resolve) => process.stdout.write("", () => resolve()));
-await new Promise<void>((resolve) => process.stderr.write("", () => resolve()));
+// kept `push` alive for good after it had printed its outcome. What is still
+// buffered (a pipe is written asynchronously outside Linux) goes out first.
+for (const stream of [process.stdout, process.stderr])
+  if (stream.writableLength > 0)
+    await new Promise<void>((resolve) => stream.write("", () => resolve()));
 process.exit();
