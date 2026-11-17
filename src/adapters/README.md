@@ -467,6 +467,12 @@ WHERE ...
 LIMIT 1
 ```
 
+The engine itself does not key a nested row where the adapter declares
+`capabilities.carriesDocumentsAsArrays` (PostgreSQL, MySQL, SQLite): it carries
+the row as `json.array` of its members' values, in the prepared shape's order,
+and its decoder reads them by position
+(`query-engine/raptor3/AGENTS.md`, "A document CARRIED inside another value").
+
 ---
 
 ## Database-Specific Limitations

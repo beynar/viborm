@@ -263,6 +263,30 @@ export class SqlQueries extends Queries {
   get #object() {
     return this.#a.json.object;
   }
+  /**
+   * A document carried INSIDE another value, for a prepared object shape:
+   * `members` in that shape's own order — its fields, then its gates — which
+   * is the order the decoder reads the members of an array in. An array of
+   * their values where the adapter carries documents so
+   * (`capabilities.carriesDocumentsAsArrays`), a keyed object elsewhere.
+   */
+  carriedDocument(members: [string, Sql][]): Sql {
+    if (this.#a.capabilities.carriesDocumentsAsArrays !== true)
+      return this.#a.json.object(members);
+    const values: Sql[] = [];
+    for (const member of members) values.push(member[1]);
+    return this.#a.json.array(values);
+  }
+  /**
+   * What stands where a carried document is owed and none can be read: the
+   * container a document is NOT carried as, which no row projects and the
+   * decoder refuses by name.
+   */
+  get #noDocument(): Sql {
+    return this.#a.capabilities.carriesDocumentsAsArrays === true
+      ? this.#a.json.object([])
+      : this.#a.json.emptyArray();
+  }
   /** A query read aside, under an alias. */
   get #aside() {
     return this.#a.subqueries.correlate;
@@ -4436,8 +4460,8 @@ export class SqlQueries extends Queries {
       shape[name] = { kind: "object", fields: leaves };
       builders.push((alias) => [
         name,
-        a.json.objectFromColumns(
-          selected.map(([field]) => {
+        this.carriedDocument(
+          selected.map(([field]): [string, Sql] => {
             const leaf = leaves[field]!;
             const scalar =
               field === "_all" ? undefined : this.scalar(model, field);
@@ -4605,8 +4629,8 @@ export class SqlQueries extends Queries {
     const a = this.adapter;
     let expression: Sql;
     if (field.kind === "counts") {
-      expression = a.json.objectFromColumns(
-        field.counts.map((count) => [
+      expression = this.carriedDocument(
+        field.counts.map((count): [string, Sql] => [
           count.relation,
           this.#correlatedCount(
             count.edges,
@@ -4768,7 +4792,7 @@ export class SqlQueries extends Queries {
    */
   #missingArm(edge: Membership, parentAlias: string): Sql {
     if (this.domainOf(edge.target, "related") === undefined)
-      return this.#object([]);
+      return this.carriedDocument([]);
     const target = this.alias();
     return this.#when(
       this.adapter.operators.exists(
@@ -4778,7 +4802,7 @@ export class SqlQueries extends Queries {
         )
       ),
       this.#null(),
-      this.#object([])
+      this.carriedDocument([])
     );
   }
   /**
@@ -4806,7 +4830,9 @@ export class SqlQueries extends Queries {
    * So the count is a SIBLING scalar subquery over the member table, ahead of
    * the row subquery's `WHERE` and its `LIMIT`, and the refusal is carried in
    * the VALUE, not raised in SQL — no provider has a portable `RAISE`. The
-   * branch emits a JSON ARRAY where the leaf owes one row object, which is the
+   * branch emits the container a row document is NOT carried as
+   * ({@link #noDocument}: a JSON array where the leaf owes a row object, an
+   * object where it owes an array of members), which is the
    * shape the decoder already refuses by name and which no projection of a
    * model row can produce (the shipped `guardJunctionIntegrity`,
    * `builders/include-many-to-many.ts` at `ff5e77ca`).
@@ -4828,7 +4854,7 @@ export class SqlQueries extends Queries {
     const members = this.#links(edge, this.alias(), parentAlias);
     return this.#when(
       this.adapter.operators.gt(members, this.value(1)),
-      this.adapter.json.emptyArray(),
+      this.#noDocument,
       projected
     );
   }
@@ -5024,7 +5050,7 @@ export class SqlQueries extends Queries {
     );
     return this.#at(row, LATERAL_VALUE);
   }
-  /** The object of one page row built from its members, by name. */
+  /** The document of one page row: its members, in its shape's order. */
   #pageObject(
     projection: PreparedProjection,
     pageAlias: string,
@@ -5040,12 +5066,11 @@ export class SqlQueries extends Queries {
         ),
       ]
     );
-    for (const gate of projection.shape.gates ?? NO_GATES)
-      members.push([gate, this.#at(pageAlias, gate)]);
+    // The decoded row lists `$through` among its fields, ahead of its gates.
     if (linkRow)
       members.push([
         "$through",
-        this.#object(
+        this.carriedDocument(
           linkRow.fields.map((field, index): [string, Sql] => [
             field,
             this.#carriedValue(
@@ -5055,7 +5080,9 @@ export class SqlQueries extends Queries {
           ])
         ),
       ]);
-    return this.#object(members);
+    for (const gate of projection.shape.gates ?? NO_GATES)
+      members.push([gate, this.#at(pageAlias, gate)]);
+    return this.carriedDocument(members);
   }
 
   /**
@@ -5388,15 +5415,28 @@ export class SqlQueries extends Queries {
       from: this.#named(this.#escaped(cteName), walk),
     });
     const node = this.#rowAlias(model);
-    const nodeDocument = this.#object(
-      relation.projection.fields.map((field) => [
-        field.name,
-        this.#carriedValue(
-          // A gate is the one member the decoded shape does not list.
-          relation.projection.shape.fields[field.name] ?? BOOLEAN_LEAF,
-          this.#lowerProjectionField(relation.projection, field, node, true)
-        ),
-      ])
+    // The node's document in its shape's order, its fields then its gates:
+    // the order a document carried as an array is read in.
+    const nodeShape = relation.projection.shape;
+    const lowered = new Map(
+      relation.projection.fields.map((field) => [field.name, field])
+    );
+    const nodeDocument = this.carriedDocument(
+      [...Object.keys(nodeShape.fields), ...(nodeShape.gates ?? NO_GATES)].map(
+        (name): [string, Sql] => [
+          name,
+          this.#carriedValue(
+            // A gate is the one member the decoded shape does not list.
+            nodeShape.fields[name] ?? BOOLEAN_LEAF,
+            this.#lowerProjectionField(
+              relation.projection,
+              lowered.get(name)!,
+              node,
+              true
+            )
+          ),
+        ]
+      )
     );
     const nodeCarrier = this.#object([
       [

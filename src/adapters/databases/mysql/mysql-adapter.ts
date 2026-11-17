@@ -889,6 +889,7 @@ export class MySQLAdapter implements DatabaseAdapter {
 
   capabilities = {
     namesQualifiedColumns: true,
+    carriesDocumentsAsArrays: true,
     supportsReturning: false,
     supportsCteWithMutations: false, // MySQL CTEs are read-only
     supportsFullOuterJoin: false,

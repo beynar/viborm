@@ -290,7 +290,7 @@ function chainRow(levels: number, bounded: boolean): Record<string, unknown> {
   let parent = "root";
   for (let level = 1; level <= levels; level += 1) {
     const child = `n${level}`;
-    nodes.push({ __rq_key: [child], __rq_row: { id: child } });
+    nodes.push({ __rq_key: [child], __rq_row: [child] });
     edges.push({
       __rq_parent: [parent],
       __rq_child: [child],

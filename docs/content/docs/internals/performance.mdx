@@ -123,7 +123,8 @@ subquery, nested to any depth, `_count` and polymorphic relations included.
 |---|---|---|---|---|---|
 | One statement for the whole relation tree | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Many-to-many read from the junction joined to the target | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Lean JSON spelling | Redundant column aliases dropped | Redundant column aliases dropped | Redundant column aliases dropped | `json_group_array(json_object(…))`, no extra `json()`/`COALESCE` | Same as SQLite |
+| Lean JSON spelling | Redundant column aliases dropped | Redundant column aliases dropped | Redundant column aliases dropped | `json_group_array(json_array(…))`, no extra `json()`/`COALESCE` | Same as SQLite |
+| Related rows carried as arrays of values, no key per column | ✅ `json_build_array` | ✅ `json_build_array` | ✅ `JSON_ARRAY` | ✅ `json_array` | ✅ `json_array` |
 | Repeated relation bodies stated once in a `WITH` | ✅ `NOT MATERIALIZED` leaves | ✅ `NOT MATERIALIZED` leaves | ❌ | ❌ | ✅ `MATERIALIZED` non-leaf members |
 | Recursive projections | `LATERAL` derived table | `LATERAL` derived table | `LATERAL` derived table | Correlated CTE per reader | Correlated CTE per reader |
 | To-one relation joined `LEFT JOIN LATERAL` | ✅ (not under `relationsPerStatement`) | ✅ | ❌ | ❌ | ❌ |
@@ -148,10 +149,20 @@ subquery, nested to any depth, `_count` and polymorphic relations included.
   ordered through a relation and bounded, a bounded related page, a
   polymorphic relation or a recursive projection, nor under a relation budget
   (`relationsPerStatement`, Neki), where each join would be one relation more.
-- **No whole-row reads.** Relation objects stay `json_build_object` with a
-  key per column: `row_to_json(alias.*)` measured 10 % faster on a nested
-  read, but PlanetScale Postgres (Neki) refuses a whole-row read, and the
-  engine does not know it talks to Neki before its first statement.
+- **Related rows are arrays, not objects.** A related row, and a `_count`,
+  an aggregate or a `$through` row, is the JSON array of its values, read back
+  by position: no key is written per column, bound as a parameter or parsed
+  again for every row. On a local PostgreSQL 18, three reads of two relation
+  levels with a filter at each take 4 % to 7 % less end to end than with
+  `json_build_object` (513 → 475 µs, 425 → 406 µs, 731 → 683 µs), and 500
+  users with their posts and each post's author take 17 % less for an answer
+  48 % smaller. MySQL 8.4 takes 5 % to 6 % less and SQLite 10 % to 15 % less on
+  the same three reads. SurrealDB answers native records and Snowflake keeps
+  keyed objects.
+- **No whole-row reads.** `row_to_json(alias.*)` would also drop the keys
+  from the statement, but PlanetScale Postgres (Neki) refuses a whole-row
+  read, and the engine does not know it talks to Neki before its first
+  statement. An array of values needs no whole-row read and is smaller still.
 - **Alias trimming** makes plain PostgreSQL and MySQL reads about 9–11% shorter.
   The SQLite JSON spelling took a 9.4 MB include from 181 to 109 ms.
 - **Shared relation bodies.** A statement that repeats the same relation body

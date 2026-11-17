@@ -806,6 +806,7 @@ const SQLITE_JOINS = {
 };
 
 const SQLITE_CAPABILITIES = {
+  carriesDocumentsAsArrays: true,
   supportsReturning: true, // SQLite 3.35+
   // FALSE IN FACT, and it read `true` until the Phase 8 fold gave the flag its
   // first reader (query-performance-plan Phase 10.1). SQLite's `WITH` grammar
