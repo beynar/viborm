@@ -157,3 +157,51 @@ describe("_aggregate reads the rows the caller reads", () => {
     expect(byCost).toEqual([{ id: "s2" }, { id: "s1" }]);
   });
 });
+
+// A many-to-many relation reaches its rows through the junction: the entry's
+// one subquery and the order's read the target rows the junction links.
+const label = s.model({
+  id: s.string().id(),
+  items: s.toMany(() => item),
+});
+const item = s.model({
+  id: s.string().id(),
+  price: s.int(),
+  labels: s.toMany(() => label),
+});
+
+test("a many-to-many relation is aggregated and ordered through its junction", async () => {
+  const db = createClient({
+    schema: { label, item },
+    driver: createInMemorySQLite3Driver(),
+  });
+  clients.push(db);
+  await syncLiveSchema(db);
+  await db.item.createMany({
+    data: [
+      { id: "i1", price: 3 },
+      { id: "i2", price: 4 },
+      { id: "i3", price: 10 },
+    ],
+  });
+  await db.label.create({
+    data: { id: "a", items: { connect: [{ id: "i1" }, { id: "i2" }] } },
+  });
+  await db.label.create({
+    data: { id: "b", items: { connect: [{ id: "i2" }, { id: "i3" }] } },
+  });
+  await db.label.create({ data: { id: "c" } });
+  expect(
+    await db.label.findMany({
+      orderBy: { items: { _sum: { price: { sort: "desc", nulls: "last" } } } },
+      select: {
+        id: true,
+        _aggregate: { items: { _count: true, _sum: { price: true } } },
+      },
+    })
+  ).toEqual([
+    { id: "b", _aggregate: { items: { _count: 2, _sum: { price: 14 } } } },
+    { id: "a", _aggregate: { items: { _count: 2, _sum: { price: 7 } } } },
+    { id: "c", _aggregate: { items: { _count: 0, _sum: { price: null } } } },
+  ]);
+});
