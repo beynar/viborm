@@ -26,6 +26,12 @@ import type { Cardinality } from "@schema/relation/static-membership";
 import type { ResolvedSlot } from "@schema/validation/relation-resolution";
 import { lazyRecord } from "../lazy";
 import v from "../primitives/v";
+import type { VibSchema } from "../types";
+import {
+  type RelationAggregateSchema,
+  relationAggregateFactory,
+  toOneAggregateRefusal,
+} from "./aggregate";
 import { type CountFilterSchema, countFilterFactory } from "./count-filter";
 import {
   type ToManyCreateSchema,
@@ -101,6 +107,7 @@ const toOneSchemas = <
     ),
     orderBy: toOneOrderByFactory<S, T>(relation, targetSchemas),
     countFilter: v.lazy(() => countFilterFactory(state, targetSchemas)),
+    aggregate: v.lazy(toOneAggregateRefusal),
   };
 };
 
@@ -154,8 +161,9 @@ const toManySchemas = <
         junctionSchemas
       )
     ),
-    orderBy: v.lazy(() => toManyOrderByFactory(state)),
+    orderBy: v.lazy(() => toManyOrderByFactory(relation)),
     countFilter: v.lazy(() => countFilterFactory(state, targetSchemas)),
+    aggregate: v.lazy(() => relationAggregateFactory<S, T>(targetSchemas)),
   };
 };
 
@@ -175,6 +183,7 @@ export type ToOneSchemas<
   include: ToOneIncludeSchema<Source, Key, S>;
   orderBy: ToOneOrderBySchema<S>;
   countFilter: CountFilterSchema<S>;
+  aggregate: VibSchema<never, never>;
 };
 
 export type ToManySchemas<
@@ -189,6 +198,7 @@ export type ToManySchemas<
   include: ToManyIncludeSchema<Source, Key, S>;
   orderBy: ToManyOrderBySchema<S>;
   countFilter: CountFilterSchema<S>;
+  aggregate: RelationAggregateSchema<S>;
 };
 
 /**

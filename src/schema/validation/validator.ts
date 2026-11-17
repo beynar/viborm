@@ -204,7 +204,7 @@ export function validateResolvedSchemaOrThrow(
  * The rules every effect-capable boundary runs beside the relation gate: each
  * gives one admitted selector one meaning — a compound selector never reuses a
  * member name (I006), and no member takes an output key a selection
- * reserves, `_count` or `_distance` (F010).
+ * reserves, `_count`, `_aggregate` or `_distance` (F010).
  */
 const SELECTOR_RULES: ValidationRule[] = [
   publicSelectorNamesAreUnambiguous,

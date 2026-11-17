@@ -404,30 +404,32 @@ export function compoundConstraintsNonEmpty(
 }
 
 /**
- * F010's reserved names, each with the output it is reserved for. Both are
+ * F010's reserved names, each with the output it is reserved for. All are
  * keys a selection publishes on its own (owner rulings, 2026-09-26: "_count is
- * a reserved word", "_distance is reserved too"): `_count` in `select` and
- * `include` is the relation-count projection, and `_distance` is the key a
- * selected point or vector distance publishes under.
+ * a reserved word", "_distance is reserved too"; 2026-11-17: `_aggregate`):
+ * `_count` and `_aggregate` in `select` and `include` are the relation-count
+ * and relation-aggregate projections, and `_distance` is the key a selected
+ * point or vector distance publishes under.
  */
 const RESERVED_MEMBER_NAMES = {
   _count: "relation counts",
+  _aggregate: "relation aggregates",
   _distance: "distance results",
 } as const;
 
 /**
  * F010: a model member never takes a reserved name.
  *
- * A member named `_count` or `_distance` — a scalar, a relation or a variant
+ * A member named `_count`, `_aggregate` or `_distance` — a scalar, a relation or a variant
  * slot — would give that output key two producers, and every reader of a
  * selection (admission, the engine's projection, the schema-only renderer,
  * the static types) then needs its own answer to which one wins. Refusing the
- * name here leaves each key one meaning everywhere downstream. The two names
+ * name here leaves each key one meaning everywhere downstream. The names
  * share one sentence because they share the reason and the remedy: the column
  * name stays available, and a renamed scalar keeps it with `.map(...)`.
  *
  * TypeScript callers meet the refusal earlier: the shape parameter of
- * `s.model` and `.extends` forbids both keys (`DeclaredModelShape`). That is a
+ * `s.model` and `.extends` forbids these keys (`DeclaredModelShape`). That is a
  * convenience for them only; a JavaScript caller, a cast or a computed key
  * reaches this rule, so F010 is the contract for every caller.
  */

@@ -747,66 +747,58 @@ export function getHavingSchema(
  */
 type OrderDirectionSchema = V.Enum<["asc", "desc"]>;
 
-type GroupAggregateOrderSchema<M extends AnyModel, K extends string> = V.Object<
-  V.FromKeys<K[], OrderDirectionSchema>["entries"] &
+type AggregateOrderSchema<
+  M extends AnyModel,
+  K extends string,
+  D extends VibSchema<any, any>,
+> = V.Object<
+  V.FromKeys<K[], D>["entries"] &
     ListAggregateEntries<M> &
     PointAggregateEntries<M>
 >;
 
-export type GroupByOrderBySchema<M extends AnyModel> = V.Object<
-  V.FromKeys<OrderableScalarKeys<M>[], SortOrderSchema>["entries"] &
-    V.FromKeys<
-      DecimalListScalarKeys<ModelStateOf<M>["scalars"]>[],
-      DecimalListOrderByRefusalSchema
-    >["entries"] & {
-      _count: V.FromKeys<CountScalarKeys<M>[], OrderDirectionSchema>;
-      _avg: GroupAggregateOrderSchema<
-        M,
-        NumericScalarKeys<ModelStateOf<M>["scalars"]>
-      >;
-      _sum: GroupAggregateOrderSchema<
-        M,
-        NumericScalarKeys<ModelStateOf<M>["scalars"]>
-      >;
-      _min: GroupAggregateOrderSchema<M, AggregateScalarKeys<M>>;
-      _max: GroupAggregateOrderSchema<M, AggregateScalarKeys<M>>;
-    }
->;
+/**
+ * The value aggregates' order members over `model`, each admitted field
+ * taking `D`: `groupBy`'s orderBy and a to-many relation's
+ * (`validation/relations/order-by.ts`).
+ */
+export type AggregateOrderSchemas<
+  M extends AnyModel,
+  D extends VibSchema<any, any>,
+> = {
+  _avg: AggregateOrderSchema<
+    M,
+    NumericScalarKeys<ModelStateOf<M>["scalars"]>,
+    D
+  >;
+  _sum: AggregateOrderSchema<
+    M,
+    NumericScalarKeys<ModelStateOf<M>["scalars"]>,
+    D
+  >;
+  _min: AggregateOrderSchema<M, AggregateScalarKeys<M>, D>;
+  _max: AggregateOrderSchema<M, AggregateScalarKeys<M>, D>;
+};
 
-const orderDirection = v.enum(["asc", "desc"]);
-
-export const getGroupByOrderBySchema = <M extends AnyModel>(
-  model: M
-): GroupByOrderBySchema<M> => {
+export const getAggregateOrderSchemas = <
+  M extends AnyModel,
+  D extends VibSchema<any, any>,
+>(
+  model: M,
+  direction: D
+): AggregateOrderSchemas<M, D> => {
   const state = model["~"].state;
-  const allScalarKeys: string[] = [];
-  const scalarKeys: string[] = [];
-  const decimalListKeys: string[] = [];
   const listKeys: string[] = [];
   const numericKeys: string[] = [];
   const aggregateKeys: string[] = [];
   const pointKeys: string[] = [];
-
   for (const name of Object.keys(state.scalars)) {
-    const scalar = state.scalars[name]!;
-    allScalarKeys.push(name);
-    if (scalar["~"].state.array === true) listKeys.push(name);
-    if (scalar["~"].state.type === "point") {
-      pointKeys.push(name);
-    } else if (isOrderableScalarState(scalar["~"].state)) {
-      scalarKeys.push(name);
-    } else {
-      decimalListKeys.push(name);
-    }
-    if (isSummableScalar(scalar["~"].state)) {
-      numericKeys.push(name);
-    }
-    if (
-      scalar["~"].state.array !== true &&
-      scalar["~"].state.type !== "point"
-    ) {
+    const scalar = state.scalars[name]!["~"].state;
+    if (scalar.array === true) listKeys.push(name);
+    if (scalar.type === "point") pointKeys.push(name);
+    if (isSummableScalar(scalar)) numericKeys.push(name);
+    if (scalar.array !== true && scalar.type !== "point")
       aggregateKeys.push(name);
-    }
   }
 
   const aggregateOrder = (
@@ -814,7 +806,7 @@ export const getGroupByOrderBySchema = <M extends AnyModel>(
     keys: string[]
   ) =>
     v.object({
-      ...v.fromKeys(keys, orderDirection).entries,
+      ...v.fromKeys(keys, direction).entries,
       ...v.fromKeys(
         listKeys,
         v.refused(
@@ -829,14 +821,50 @@ export const getGroupByOrderBySchema = <M extends AnyModel>(
       ).entries,
     });
 
-  return v.object({
-    ...v.fromKeys(scalarKeys, sortOrderSchema).entries,
-    ...v.fromKeys(decimalListKeys, decimalListOrderByRefusalSchema).entries,
-    _count: v.fromKeys(["_all", ...allScalarKeys], orderDirection),
+  return {
     _avg: aggregateOrder("_avg", numericKeys),
     _sum: aggregateOrder("_sum", numericKeys),
     _min: aggregateOrder("_min", aggregateKeys),
     _max: aggregateOrder("_max", aggregateKeys),
+  } as AggregateOrderSchemas<M, D>;
+};
+
+export type GroupByOrderBySchema<M extends AnyModel> = V.Object<
+  V.FromKeys<OrderableScalarKeys<M>[], SortOrderSchema>["entries"] &
+    V.FromKeys<
+      DecimalListScalarKeys<ModelStateOf<M>["scalars"]>[],
+      DecimalListOrderByRefusalSchema
+    >["entries"] & {
+      _count: V.FromKeys<CountScalarKeys<M>[], OrderDirectionSchema>;
+    } & AggregateOrderSchemas<M, OrderDirectionSchema>
+>;
+
+const orderDirection = v.enum(["asc", "desc"]);
+
+export const getGroupByOrderBySchema = <M extends AnyModel>(
+  model: M
+): GroupByOrderBySchema<M> => {
+  const state = model["~"].state;
+  const allScalarKeys: string[] = [];
+  const scalarKeys: string[] = [];
+  const decimalListKeys: string[] = [];
+
+  for (const name of Object.keys(state.scalars)) {
+    const scalar = state.scalars[name]!;
+    allScalarKeys.push(name);
+    if (scalar["~"].state.type === "point") continue;
+    if (isOrderableScalarState(scalar["~"].state)) {
+      scalarKeys.push(name);
+    } else {
+      decimalListKeys.push(name);
+    }
+  }
+
+  return v.object({
+    ...v.fromKeys(scalarKeys, sortOrderSchema).entries,
+    ...v.fromKeys(decimalListKeys, decimalListOrderByRefusalSchema).entries,
+    _count: v.fromKeys(["_all", ...allScalarKeys], orderDirection),
+    ...getAggregateOrderSchemas(model, orderDirection),
   }) as GroupByOrderBySchema<M>;
 };
 

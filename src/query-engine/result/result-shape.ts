@@ -15,12 +15,14 @@ import {
   DISTANCE_RESULT_KEY,
   EMPTY_ROW_RESULT_KEY,
   getAggregateResultKey,
+  RELATION_AGGREGATES_RESULT_KEY,
   RELATION_COUNTS_RESULT_KEY,
 } from "../result-aliases";
 import {
   type ExpectedAggregateResultShape,
   type ExpectedPolymorphicResultShape,
   type ExpectedPolymorphicVariantShape,
+  type ExpectedRelationAggregateShape,
   type ExpectedRelationResultShape,
   type ExpectedResultShape,
   type Operation,
@@ -221,17 +223,40 @@ function buildModelShape(
     rawKeys.push(RELATION_COUNTS_RESULT_KEY);
   }
 
+  // Admission admits an `_aggregate` entry on an ordinary to-many relation only.
+  const relationAggregates = new Map<string, ExpectedRelationAggregateShape>();
+  for (const selection of [
+    getOwnValue(select, "_aggregate"),
+    getOwnValue(include, "_aggregate"),
+  ]) {
+    for (const [relationName, entry] of selectedEntries(selection)) {
+      const relation: AnyRelation | undefined = getOwnValue(
+        modelRelations,
+        relationName
+      );
+      if (!(relation && isRecord(entry))) continue;
+      relationAggregates.set(relationName, {
+        model: relation["~"].settleTarget() as Model<any>,
+        shape: buildAggregateShape(entry),
+      });
+    }
+  }
+  if (relationAggregates.size > 0) rawKeys.push(RELATION_AGGREGATES_RESULT_KEY);
+
   // A written `select` that keeps nothing never arrives: admission refuses it.
   if (rawKeys.length === 0) rawKeys.push(EMPTY_ROW_RESULT_KEY);
 
-  return createShape(
-    rawKeys,
-    relations,
-    new Map(),
-    relationCounts,
-    polymorphic,
-    distanceScalar
-  );
+  return {
+    ...createShape(
+      rawKeys,
+      relations,
+      new Map(),
+      relationCounts,
+      polymorphic,
+      distanceScalar
+    ),
+    ...(relationAggregates.size > 0 ? { relationAggregates } : {}),
+  };
 }
 
 /**

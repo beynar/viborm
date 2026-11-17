@@ -202,9 +202,13 @@ And with an `UnsupportedOperationError`, before anything is sent:
   order an extension such as `viborm/ordering` gives the model counts): the
   comparison would need a multi-column subquery, which Snowflake refuses
   (measured); order by the key, or page with `skip`;
-- in a nested relation: `cursor`, `distinct`, an order by a related row or a
-  `_count`, a recursive relation, a polymorphic slot, a junction's `$through`
-  row.
+- in a nested relation: `cursor`, `distinct`, an order by a related row, a
+  `_count` or an aggregate, a recursive relation, a polymorphic slot, a
+  junction's `$through` row;
+- a relation's [`_aggregate`](/docs/client/selecting#aggregate-relations):
+  Snowflake answers a correlated aggregate over no row with `NULL` where every
+  other database answers one row (`_count` 0). An order by an aggregate of a
+  relation's rows at the root is sent: over no row it is `NULL` either way.
 
 What VibORM does not refuse can still write: `$queryRaw` and
 `$queryRawUnsafe` send their text as written, and so do `$driver._execute`

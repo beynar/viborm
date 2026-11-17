@@ -935,7 +935,8 @@ export type InferSelectResult<
 > = Prettify<
   ApplyOmit<
     InferSelectedFields<S, Selection, ClientDefaults> &
-      InferRelationCountSelection<S, Selection>,
+      InferRelationCountSelection<S, Selection> &
+      InferRelationAggregateSelection<S, Selection>,
     Omission
   > &
     InferDistanceSelection<S, Selection, Omission>
@@ -1125,6 +1126,31 @@ type InferRelationCountSelection<
     : Record<never, never>;
 
 /**
+ * `_aggregate: { posts: { _sum: { views: true } } }` → `{ _aggregate: { posts:
+ * { _sum: { views: number | null } } } }`: each entry is typed as the target
+ * model's own `aggregate` result for the same selection, which is what the
+ * engine decodes it with. Admission admits an entry on a to-many relation
+ * only, so a key that is not one never reaches a value here.
+ */
+type InferRelationAggregateSelection<
+  S extends ModelState,
+  Selection,
+> = Selection extends { _aggregate: infer Entries }
+  ? {
+      _aggregate: {
+        [K in keyof Entries & keyof S["relations"] as Entries[K] extends object
+          ? K
+          : never]: S["relations"][K] extends AnyRelation
+          ? AggregateResultType<
+              GetTargetModelState<S["relations"][K]>["shape"],
+              Entries[K]
+            >
+          : never;
+      };
+    }
+  : Record<never, never>;
+
+/**
  * Result when include is provided - base result + included relations
  */
 export type InferIncludeResult<
@@ -1146,7 +1172,8 @@ export type InferIncludeResult<
           ClientDefaults
         >
       : never;
-  } & InferRelationCountSelection<S, Include>
+  } & InferRelationCountSelection<S, Include> &
+    InferRelationAggregateSelection<S, Include>
 >;
 
 /** What a node asks of its link row: `never` where it asks for nothing. */

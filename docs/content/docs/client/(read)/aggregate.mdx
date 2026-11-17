@@ -26,6 +26,11 @@ const stats = await client.post.aggregate({
 // }
 ```
 
+The same aggregates of a to-many relation's rows, per row of the parent, are
+[`_aggregate`](/docs/client/selecting#aggregate-relations) in a `select` or an
+`include`, and a parent can be [ordered](/docs/client/sorting#aggregate-sorting)
+by one of them.
+
 ## Functions
 
 | Function | Description | Applies to |

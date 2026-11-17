@@ -10,7 +10,7 @@
 import { isValidSchemaIdentifier } from "../../schema/identifier";
 
 /** F010's reserved member names: a column may not take them as its key. */
-const RESERVED_MEMBERS = new Set(["_count", "_distance"]);
+const RESERVED_MEMBERS = new Set(["_count", "_aggregate", "_distance"]);
 
 const INVALID_CHARACTER = /[^a-zA-Z0-9_]/g;
 const LEADING_DIGIT = /^[0-9]/;

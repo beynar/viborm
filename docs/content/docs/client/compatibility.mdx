@@ -26,6 +26,7 @@ The common API has provider-specific storage, collation and transaction limits. 
 | `deleteMany` | Extension | Returns `{ count }`, or the deleted rows when the call carries a `select` (scalar-only). Prisma has no returning `deleteMany`. Prisma 6's `limit` is supported and takes the first matching rows by primary key, ascending. |
 | `count` / `aggregate` / `groupBy` | ✅ | `where`, aggregate selections, `having`, ordering, and pagination. Fixed-decimal aggregates return exact `Decimal` values when the provider can represent the result; SQLite integer sums can overflow and fail. |
 | `exist` | Extension | Returns `boolean`. Prisma has no equivalent (note: `exist`, not `exists`). |
+| `_aggregate`, and an `orderBy` by `_sum` / `_avg` / `_min` / `_max` of a relation | Extension | Prisma aggregates a relation by `_count` only. `_aggregate` in a `select` or an `include` takes, per to-many relation, what `aggregate` takes, without the page; see [Aggregate Relations](/docs/client/selecting#aggregate-relations) and [Aggregate Sorting](/docs/client/sorting#aggregate-sorting). |
 | `$queryRaw` / `$executeRaw` | ✅ | Tagged templates that bind every interpolation, exactly like Prisma's. `$queryRaw` returns `T[]`, `$executeRaw` returns the affected count. See [Raw SQL](/docs/client/raw-sql). |
 | `$queryRawUnsafe` / `$executeRawUnsafe` | ✅ | Prisma's signatures: a statement string plus positional parameters. |
 

@@ -2177,7 +2177,7 @@ export class SurrealReadBackend implements ReadBackend {
       };
     }
     const [nested, inner] = Object.entries(spec)[0]!;
-    if (edge.many) refuse(`ordering by the relation '${field}'`);
+    if (edge.many) refuse(`ordering by '${nested}' of the relation '${field}'`);
     const linked = edge.kind === "reference" && this.#linked(edge);
     if (path && !linked)
       refuse(`ordering by the relation '${field}' through another relation`);
@@ -2333,6 +2333,8 @@ export class SurrealReadBackend implements ReadBackend {
           )} }`,
           alias: field.name,
         };
+      case "aggregates":
+        return refuse("the aggregates of a relation's rows ('_aggregate')");
       default:
         return refuse(`a '${(field as { kind: string }).kind}' projection`);
     }

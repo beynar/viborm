@@ -118,6 +118,9 @@ and says so.
   by name.
 - **A `groupBy`** reads every row it groups. Under a `take` of at most 20 groups, ordered by a field an
   index holds and without a `having`, it first seeks those groups on the index and reads only their rows.
+- **An aggregate of a relation's rows** is not read here yet: a
+  [`_aggregate`](/docs/client/selecting#aggregate-relations) and an order by `_sum`, `_avg`, `_min` or
+  `_max` of a to-many relation are refused by name before anything is sent. `_count` is read.
 - **Every index kind** is a plain index here: a `spatial`, `gin` or `fulltext` declaration is kept,
   and a read through it scans as it would without. An HNSW or search index is declared with
   [`.rawIndex()`](/docs/schema/model#rawindexname-templates), whose comment holds VibORM's marker.

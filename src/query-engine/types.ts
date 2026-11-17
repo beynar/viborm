@@ -167,6 +167,12 @@ export interface ExpectedRelationResultShape {
   readonly recurrence?: NormalizedRecurrence;
 }
 
+/** One `_aggregate` entry: the target's own `aggregate` result for its selection. */
+export interface ExpectedRelationAggregateShape {
+  readonly model: Model<any>;
+  readonly shape: ExpectedResultShape;
+}
+
 /** Exact raw columns and nested projections expected for one returned row. */
 export interface ExpectedResultShape {
   /** Raw statement carrier declared by the compiled operation result. */
@@ -178,6 +184,11 @@ export interface ExpectedResultShape {
   polymorphic: ReadonlyMap<string, ExpectedPolymorphicResultShape>;
   aggregates: ReadonlyMap<string, ExpectedAggregateResultShape>;
   relationCounts: ReadonlySet<string>;
+  /** Each relation a `_aggregate` names, in the order it names them. */
+  readonly relationAggregates?: ReadonlyMap<
+    string,
+    ExpectedRelationAggregateShape
+  >;
   /** `groupBy` fields grouped by a time step: each holds a period's day. */
   readonly periods?: ReadonlySet<string>;
 }

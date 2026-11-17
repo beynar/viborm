@@ -97,7 +97,36 @@ const entry = s
   })
   .map("rel_agg_entries");
 
-const schema = { user, post, archive, ledger, vault, entry };
+// `_aggregate`: every aggregate of a field of a to-many relation's rows, beside
+// `_count`. `big` holds a value past 2^53 so a sum that travelled as a double
+// would be seen, and `price` a decimal whose sum and average stay exact.
+const shop = s
+  .model({
+    id: s.string().id(),
+    name: s.string(),
+    orders: s.toMany(() => order),
+  })
+  .map("rel_agg_shops");
+
+const order = s
+  .model({
+    id: s.string().id(),
+    shopId: s.string(),
+    shop: s
+      .toOne(() => shop)
+      .fields("shopId")
+      .references("id"),
+    quantity: s.int(),
+    big: s.bigInt(),
+    weight: s.number(),
+    price: s.decimal({ precision: 10, scale: 2 }),
+    placedAt: s.dateTime(),
+    status: s.string(),
+    note: s.string().nullable(),
+  })
+  .map("rel_agg_orders");
+
+const schema = { user, post, archive, ledger, vault, entry, shop, order };
 
 /** The `_count` column's definition `tally`'s map names, by dialect. */
 const TALLY_COLUMN: Record<AnyDriver["dialect"], RegExp> = {
@@ -453,6 +482,339 @@ export function runRelationReadAggregateBehavior({
           select: { id: true },
         });
         expect(desc.map((p) => p.id)).toEqual(["p6", "p4", "p1", "p2", "p3"]);
+      });
+    });
+
+    // Seed: s1 three orders, s2 one, s3 none.
+    describe("relation _aggregate", () => {
+      const refusing = () => dialect === "surrealql";
+
+      beforeEach(async () => {
+        await client.shop.createMany({
+          data: [
+            { id: "s1", name: "North" },
+            { id: "s2", name: "South" },
+            { id: "s3", name: "Empty" },
+          ],
+        });
+        await client.order.createMany({
+          data: [
+            {
+              id: "o1",
+              shopId: "s1",
+              quantity: 2,
+              big: 9_007_199_254_740_993n,
+              weight: 1.5,
+              price: "10.25",
+              placedAt: new Date("2026-01-01T00:00:00.000Z"),
+              status: "paid",
+              note: "gift",
+            },
+            {
+              id: "o2",
+              shopId: "s1",
+              quantity: 3,
+              big: 1n,
+              weight: 2.25,
+              price: "0.10",
+              placedAt: new Date("2026-03-01T00:00:00.000Z"),
+              status: "paid",
+              note: null,
+            },
+            {
+              id: "o3",
+              shopId: "s1",
+              quantity: 7,
+              big: 2n,
+              weight: 0.25,
+              price: "5.00",
+              placedAt: new Date("2026-02-01T00:00:00.000Z"),
+              status: "open",
+              note: null,
+            },
+            {
+              id: "o4",
+              shopId: "s2",
+              quantity: 7,
+              big: -4n,
+              weight: 10,
+              price: "1.00",
+              placedAt: new Date("2025-12-31T00:00:00.000Z"),
+              status: "open",
+              note: "rush",
+            },
+          ],
+        });
+      });
+
+      test("selects every aggregate of a relation's rows, NULL where it has none", async () => {
+        const read = () =>
+          client.shop.findMany({
+            orderBy: { id: "asc" },
+            select: {
+              id: true,
+              _aggregate: {
+                orders: {
+                  _count: { _all: true, note: true },
+                  _sum: {
+                    quantity: true,
+                    big: true,
+                    weight: true,
+                    price: true,
+                  },
+                  _avg: { quantity: true, price: true },
+                  _min: { placedAt: true, status: true },
+                  _max: { placedAt: true },
+                },
+              },
+            },
+          });
+        if (refusing()) {
+          await expect(read()).rejects.toThrow("'_aggregate'");
+          return;
+        }
+        const shops = await read();
+        const [north, south, empty] = shops;
+        expect(Object.keys(north!).sort()).toEqual(["_aggregate", "id"]);
+        expect(north!._aggregate.orders._count).toEqual({ _all: 3, note: 1 });
+        expect(north!._aggregate.orders._sum.quantity).toBe(12);
+        expect(north!._aggregate.orders._sum.big).toBe(9_007_199_254_740_996n);
+        expect(north!._aggregate.orders._sum.weight).toBe(4);
+        expect(String(north!._aggregate.orders._sum.price)).toBe("15.35");
+        expect(north!._aggregate.orders._avg.quantity).toBe(4);
+        // 15.35 / 3, at the field's scale, half to even.
+        expect(String(north!._aggregate.orders._avg.price)).toBe("5.12");
+        expect(north!._aggregate.orders._min).toEqual({
+          placedAt: new Date("2026-01-01T00:00:00.000Z"),
+          status: "open",
+        });
+        expect(north!._aggregate.orders._max).toEqual({
+          placedAt: new Date("2026-03-01T00:00:00.000Z"),
+        });
+        expect(south!._aggregate.orders._sum.big).toBe(-4n);
+        expect(empty).toEqual({
+          id: "s3",
+          _aggregate: {
+            orders: {
+              _count: { _all: 0, note: 0 },
+              _sum: { quantity: null, big: null, weight: null, price: null },
+              _avg: { quantity: null, price: null },
+              _min: { placedAt: null, status: null },
+              _max: { placedAt: null },
+            },
+          },
+        });
+      });
+
+      test("an entry's where narrows the rows it aggregates", async () => {
+        const read = () =>
+          client.shop.findMany({
+            orderBy: { id: "asc" },
+            select: {
+              id: true,
+              _aggregate: {
+                orders: {
+                  where: { status: "paid" },
+                  _count: true,
+                  _sum: { quantity: true },
+                },
+              },
+            },
+          });
+        if (refusing()) {
+          await expect(read()).rejects.toThrow("'_aggregate'");
+          return;
+        }
+        expect(await read()).toEqual([
+          {
+            id: "s1",
+            _aggregate: { orders: { _count: 2, _sum: { quantity: 5 } } },
+          },
+          {
+            id: "s2",
+            _aggregate: { orders: { _count: 0, _sum: { quantity: null } } },
+          },
+          {
+            id: "s3",
+            _aggregate: { orders: { _count: 0, _sum: { quantity: null } } },
+          },
+        ]);
+      });
+
+      test("sits beside _count, the relation's rows and include", async () => {
+        if (refusing()) return;
+        const shops = await client.shop.findMany({
+          orderBy: { id: "asc" },
+          include: {
+            orders: { select: { id: true }, orderBy: { id: "asc" } },
+            _count: { select: { orders: true } },
+            _aggregate: { orders: { _max: { quantity: true } } },
+          },
+        });
+        expect(
+          shops.map(({ id, name, orders, _count, _aggregate }) => ({
+            id,
+            name,
+            orders: orders.map((row) => row.id),
+            _count,
+            _aggregate,
+          }))
+        ).toEqual([
+          {
+            id: "s1",
+            name: "North",
+            orders: ["o1", "o2", "o3"],
+            _count: { orders: 3 },
+            _aggregate: { orders: { _max: { quantity: 7 } } },
+          },
+          {
+            id: "s2",
+            name: "South",
+            orders: ["o4"],
+            _count: { orders: 1 },
+            _aggregate: { orders: { _max: { quantity: 7 } } },
+          },
+          {
+            id: "s3",
+            name: "Empty",
+            orders: [],
+            _count: { orders: 0 },
+            _aggregate: { orders: { _max: { quantity: null } } },
+          },
+        ]);
+      });
+
+      test("inside a nested relation, correlated to each related row", async () => {
+        if (refusing()) return;
+        const orders = await client.order.findMany({
+          where: { id: { in: ["o1", "o4"] } },
+          orderBy: { id: "asc" },
+          select: {
+            id: true,
+            shop: {
+              select: {
+                id: true,
+                _aggregate: { orders: { _sum: { weight: true } } },
+              },
+            },
+          },
+        });
+        expect(orders).toEqual([
+          {
+            id: "o1",
+            shop: { id: "s1", _aggregate: { orders: { _sum: { weight: 4 } } } },
+          },
+          {
+            id: "o4",
+            shop: {
+              id: "s2",
+              _aggregate: { orders: { _sum: { weight: 10 } } },
+            },
+          },
+        ]);
+      });
+
+      test("orders by an aggregate, NULL placed as PostgreSQL places it unless spelled", async () => {
+        const ids = async (orderBy: unknown) =>
+          (
+            await client.shop.findMany({
+              orderBy: orderBy as never,
+              select: { id: true },
+            })
+          ).map((row) => row.id);
+        if (refusing()) {
+          await expect(
+            ids({ orders: { _sum: { quantity: "desc" } } })
+          ).rejects.toThrow("'_sum' of the relation 'orders'");
+          return;
+        }
+        // An empty relation's sum is NULL: first in a descending order, last
+        // in an ascending one, on every database.
+        expect(await ids({ orders: { _sum: { quantity: "desc" } } })).toEqual([
+          "s3",
+          "s1",
+          "s2",
+        ]);
+        expect(
+          await ids({
+            orders: { _sum: { quantity: { sort: "desc", nulls: "last" } } },
+          })
+        ).toEqual(["s1", "s2", "s3"]);
+        expect(await ids({ orders: { _max: { placedAt: "asc" } } })).toEqual([
+          "s2",
+          "s1",
+          "s3",
+        ]);
+        expect(
+          await ids({
+            orders: { _min: { placedAt: { sort: "asc", nulls: "first" } } },
+          })
+        ).toEqual(["s3", "s2", "s1"]);
+        // A bigint sum past 2^53 and a decimal average order exactly.
+        expect(
+          await ids({
+            orders: { _sum: { big: { sort: "desc", nulls: "last" } } },
+          })
+        ).toEqual(["s1", "s2", "s3"]);
+        expect(
+          await ids({
+            orders: { _avg: { price: { sort: "asc", nulls: "last" } } },
+          })
+        ).toEqual(["s2", "s1", "s3"]);
+        // `_count` is unchanged, and an aggregate sits in an orderBy array.
+        expect(
+          await ids([
+            { orders: { _count: "desc" } },
+            { orders: { _max: { weight: "desc" } } },
+          ])
+        ).toEqual(["s1", "s2", "s3"]);
+      });
+
+      test("refuses an aggregate a relation cannot answer, before any SQL", async () => {
+        const refused = async (args: unknown, message: string) =>
+          expect(client.shop.findMany(args as never)).rejects.toThrow(message);
+        await refused(
+          {
+            select: {
+              id: true,
+              _aggregate: { orders: { where: { status: "paid" } } },
+            },
+          },
+          "selects at least one field"
+        );
+        await refused(
+          { select: { id: true, _aggregate: { orders: { _sum: {} } } } },
+          "selects at least one field"
+        );
+        await refused(
+          {
+            select: {
+              id: true,
+              _aggregate: { orders: { _sum: { status: true } } },
+            },
+          },
+          "status"
+        );
+        await refused(
+          {
+            orderBy: { orders: { _sum: { quantity: "desc" }, _count: "asc" } },
+          },
+          "orders by one aggregate"
+        );
+        await refused(
+          {
+            orderBy: { orders: { _max: { quantity: "desc", weight: "asc" } } },
+          },
+          "orders by one aggregate"
+        );
+        await expect(
+          client.order.findMany({
+            select: {
+              id: true,
+              _aggregate: { shop: { _count: true } },
+            } as never,
+          })
+        ).rejects.toThrow("A to-one relation has no rows to aggregate");
       });
     });
 

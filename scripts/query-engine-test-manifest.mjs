@@ -24,6 +24,7 @@ export const QUERY_ENGINE_CORE_TESTS = Object.freeze([
   "tests/contracts/engine/query/for-update-dialects.core.test.ts",
   "tests/contracts/engine/query/geopoint-sql.core.test.ts",
   "tests/contracts/engine/query/groupby-time-step-sql.core.test.ts",
+  "tests/contracts/engine/query/relation-aggregate-sql.core.test.ts",
   "tests/contracts/engine/query/json-null-sentinel-sql.core.test.ts",
   "tests/contracts/engine/query/junction-filter-sql.core.test.ts",
   "tests/contracts/engine/query/lateral-joins.core.test.ts",

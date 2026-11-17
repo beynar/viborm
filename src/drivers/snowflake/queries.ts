@@ -32,9 +32,10 @@
  * adapter.
  *
  * Refused, with a typed error before anything is sent: a nested `cursor` or
- * `distinct`, a nested order by a relation or a `_count`, a recursive
- * relation, a polymorphic slot and a junction's `$through` row; a root
- * `cursor` whose order is not the model's single-field key alone.
+ * `distinct`, a nested order by a relation, a `_count` or an aggregate, a
+ * recursive relation, a polymorphic slot, a junction's `$through` row and a
+ * relation's `_aggregate`; a root `cursor` whose order is not the model's
+ * single-field key alone.
  */
 
 import { assembleAdapterSelect } from "@adapters/adapter-internals";
@@ -150,6 +151,10 @@ export class SnowflakeQueries extends SqlQueries {
           field.name
         );
       if (field.kind === "variants") refused("a polymorphic slot");
+      // Snowflake answers a correlated aggregate over no row with NULL, not
+      // with the one row an ungrouped aggregate is (see `#relation`).
+      if (field.kind === "aggregates")
+        refused("the aggregates of its rows ('_aggregate')");
       // A vector and a point are spelled exactly here: the SQL backend's
       // projections would read them through prints that round them.
       const type =
@@ -326,7 +331,7 @@ export class SnowflakeQueries extends SqlQueries {
       for (const [field, direction] of Object.entries(term)) {
         if (direction === undefined) continue;
         if (model["~"].state.relations[field])
-          refused("an order by a related row or its _count");
+          refused("an order by a related row, its _count or an aggregate");
         let descending: boolean;
         let nulls: "first" | "last" | undefined;
         if (direction === "asc" || direction === "desc")

@@ -37,7 +37,11 @@ const CENSUS: Readonly<Record<string, string>> = {
   "ordering by a count through '…'": "validation refuses it everywhere",
   "ordering by a distance through a relation":
     "validation refuses it everywhere",
-  "ordering by the relation '…'": "validation refuses it everywhere",
+  // Lowered on the SQL databases only, by the owner's decision (2026-11-17).
+  "ordering by '…' of the relation '…'":
+    "NOT YET: an aggregate of a relation's rows is a SQL database's",
+  "the aggregates of a relation's rows ('_aggregate')":
+    "NOT YET: an aggregate of a relation's rows is a SQL database's",
   // Reached only through a path, which a filter reading further never takes.
   "a recursive filter through a to-one link": NEVER_ASKED,
   "a filter through a to-one link into a declared junction": NEVER_ASKED,

@@ -4,7 +4,9 @@ import type { AnyModel } from "@schema/model";
 import type { StringKeyOf } from "@schema/model/helper";
 import type { AnyRelation } from "@schema/relation";
 import type { ScalarState } from "@schema/scalars";
+import { polymorphicAggregateRefusal } from "@validation/relations/aggregate";
 import v, { type V } from "../../primitives/v";
+import type { VibSchema } from "../../types";
 import { isRecord } from "../../value-guards";
 import type { ScalarSchemas } from "../index";
 import {
@@ -177,6 +179,38 @@ const getCountSchema = <F extends RelationSchemaBundle>(
   ]) as CountSchema<F>;
 };
 
+// =============================================================================
+// _aggregate SCHEMA (aggregates of a relation's rows)
+// =============================================================================
+
+/** The polymorphic slots of a bundle, each a named refusal under `_aggregate`. */
+type PolymorphicAggregateEntries<F extends RelationSchemaBundle> = V.FromKeys<
+  (keyof F["polymorphic"] & string)[],
+  VibSchema<never, never>
+>["entries"];
+
+/**
+ * `_aggregate: { <relation>: { where?, _count?, _sum?, _avg?, _min?, _max? } }`:
+ * per to-many relation, the aggregates of the rows it reaches. Each relation's
+ * own `aggregate` family admits the entry; a to-one relation and a polymorphic
+ * slot are named refusals.
+ */
+export type RelationAggregatesSchema<F extends RelationSchemaBundle> = V.Object<
+  V.FromObject<F["relations"], "aggregate", { optional: true }>["entries"] &
+    PolymorphicAggregateEntries<F>
+>;
+
+const getRelationAggregatesSchema = <F extends RelationSchemaBundle>(
+  schemas: F
+): RelationAggregatesSchema<F> =>
+  v.object({
+    ...v.fromObject(schemas.relations, "aggregate", { optional: true }).entries,
+    ...v.fromKeys(
+      Object.keys(schemas.polymorphic),
+      polymorphicAggregateRefusal()
+    ).entries,
+  }) as RelationAggregatesSchema<F>;
+
 export const vectorDistanceSelectSchema = v.object(
   {
     _distance: v.object(
@@ -228,7 +262,9 @@ const requireSelectedField = (
   Object.entries(select).some(([key, value]) =>
     key === "_count"
       ? isRecord(value) && Object.values(new Object(value.select)).some(selects)
-      : selects(value)
+      : key === "_aggregate"
+        ? isRecord(value) && Object.values(value).some(selects)
+        : selects(value)
   )
     ? undefined
     : "select needs at least one truthy value; leave it out to return the default row.";
@@ -246,6 +282,7 @@ export type SelectSchema<
     V.FromObject<F["relations"], "select">["entries"] &
     V.FromObject<F["polymorphic"], "select">["entries"] & {
       _count: CountSchema<F>;
+      _aggregate: RelationAggregatesSchema<F>;
     },
   SelectRefusal
 >;
@@ -414,6 +451,7 @@ export const getSelectSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
       // Accepts `true` (count every to-many relation) or the explicit
       // { select: { <relation>: true | { where } } } object.
       _count: getCountSchema(model, fieldSchemas),
+      _aggregate: getRelationAggregatesSchema(fieldSchemas),
     },
     selectOptions(model)
   );
@@ -430,6 +468,7 @@ export const getSelectSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
 export type IncludeSchema<F extends RelationSchemaBundle> = V.Object<
   V.FromObject<F["relations"], "include", { optional: true }>["entries"] & {
     _count: CountSchema<F>;
+    _aggregate: RelationAggregatesSchema<F>;
   } & V.FromObject<F["polymorphic"], "include", { optional: true }>["entries"],
   { readonly provides: string | undefined }
 >;
@@ -463,6 +502,7 @@ export const getIncludeSchema = <F extends RelationSchemaBundle>(
       // `true` shorthand and the explicit object; mirror the select-schema
       // entry (the query engine already builds _count in include position).
       _count: getCountSchema(model, schemas),
+      _aggregate: getRelationAggregatesSchema(schemas),
     },
     options
   );

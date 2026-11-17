@@ -385,6 +385,17 @@ function rowFields(
         });
         break;
       }
+      case "relationAggregates":
+        fields.push({
+          name: "_aggregate",
+          type: objectOf(
+            [...column.relations].map(([relationName, expected]) => ({
+              name: relationName,
+              type: rowType(expected.model, expected.shape, declarations),
+            }))
+          ),
+        });
+        break;
       case "aggregate":
         fields.push({
           name: column.name,
