@@ -1828,15 +1828,23 @@ bound as a parameter or parsed back. One fact, asked by the lowering and by
 the decoder; a placement has one reader, never the two forms side by side.
 The array holds EXACTLY the shape's members: an object, a scalar, or an array
 of another length is the malformed row (`a requested document is not a
-provider row`), so a lowering that lists its members in another order than
-the shape fails loudly instead of answering one member as another. A cell
+provider row`). **That refuses a wrong COUNT only, never a wrong ORDER**: two
+members of one type lowered in another order than the shape lists them decode
+in silence, each as the other. What rules that out is the lowering itself:
+every one lists its members from the list the shape was made of, in the
+shape's own-key order — a row walks `Object.keys(shape.fields)` then
+`shape.gates` (`#pageObject`, the recursive node document), a `_count`, an
+aggregate carrier and a link row map the one list their shape was built from
+(schema identifiers, which own-key order never moves), and an evidence
+document's names, which are the caller's and may be integer-like, are held in
+own-key order (`extensions/projection.ts`). Never build a carried document
+from a list of your own. A cell
 is read as a plain object's member is: directly from an array whose prototype
 is `Array.prototype` — only a polluted prototype could answer a hole — and by
 its OWN index from an array of any other prototype (the gated reader always
 by own index). Whoever
 adds a carried object shape builds its document with `carriedDocument`, its
-members in the shape's order (an evidence document's names are held in
-own-key order for that, `extensions/projection.ts`). What stays keyed on every
+members read off the shape as above. What stays keyed on every
 adapter: the root row (the driver's), a variant SLOT and its integrity entry,
 and the recursive carrier and its node and edge entries, each read by
 `providerDocument` + `own`. Measured on PostgreSQL 18, end to end, three
