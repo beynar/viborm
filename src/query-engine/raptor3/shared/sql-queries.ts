@@ -5066,19 +5066,20 @@ export class SqlQueries extends Queries {
     linkRow: PreparedRelationProjection["linkRow"],
     linkColumn: (index: number) => string
   ): Sql {
-    const members = Object.keys(projection.shape.fields).map(
-      (field): [string, Sql] => [
-        field,
-        this.#carriedValue(
-          projection.shape.fields[field]!,
-          this.#at(pageAlias, field)
-        ),
-      ]
-    );
+    // Names beside values, not pairs: where the document is an array of its
+    // values the names are never read, and a pair per member of every related
+    // row of every read was made only to be taken apart.
+    const fields = projection.shape.fields;
+    const names = Object.keys(fields);
+    const values: Sql[] = [];
+    for (const field of names)
+      values.push(
+        this.#carriedValue(fields[field]!, this.#at(pageAlias, field))
+      );
     // The decoded row lists `$through` among its fields, ahead of its gates.
-    if (linkRow)
-      members.push([
-        "$through",
+    if (linkRow) {
+      names.push("$through");
+      values.push(
         this.carriedDocument(
           linkRow.fields.map((field, index): [string, Sql] => [
             field,
@@ -5087,11 +5088,18 @@ export class SqlQueries extends Queries {
               this.#at(pageAlias, linkColumn(index))
             ),
           ])
-        ),
-      ]);
-    for (const gate of projection.shape.gates ?? NO_GATES)
-      members.push([gate, this.#at(pageAlias, gate)]);
-    return this.carriedDocument(members);
+        )
+      );
+    }
+    for (const gate of projection.shape.gates ?? NO_GATES) {
+      names.push(gate);
+      values.push(this.#at(pageAlias, gate));
+    }
+    return this.#a.capabilities.carriesDocumentsAsArrays === true
+      ? this.#a.json.array(values)
+      : this.#a.json.object(
+          names.map((name, index): [string, Sql] => [name, values[index]!])
+        );
   }
 
   /**

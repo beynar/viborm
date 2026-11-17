@@ -23,6 +23,22 @@ const clause = (into: Clauses, word: string, operand: Sql): void => {
   into.values.push(operand);
 };
 
+/**
+ * A SELECT's clauses, begun with room for the ones it takes next. A list of
+ * two members that takes a third by `push` is copied into a store of
+ * nineteen: 240 bytes more for every SELECT the engine assembles, seven of
+ * them in a read of two relation levels. The lists are written longer and cut
+ * back, which keeps their store, so a WHERE, an ORDER BY, a LIMIT and an
+ * OFFSET land in place.
+ */
+const begun = (first: string, second: string, a: Sql, b: Sql): Clauses => {
+  const strings = [first, second, "", "", "", "", "", ""];
+  const values = [a, b, a, a, a, a];
+  strings.length = 2;
+  values.length = 2;
+  return { strings, values };
+};
+
 const closed = (clauses: Clauses, last = ""): Sql => {
   clauses.strings.push(last);
   return new Sql(clauses.strings, clauses.values);
@@ -39,7 +55,7 @@ export const assembleSelectQuery = (
         strings: ["SELECT DISTINCT ON (", ") ", " FROM "],
         values: [distinctOn, parts.columns, parts.from],
       }
-    : { strings: ["SELECT ", " FROM "], values: [parts.columns, parts.from] };
+    : begun("SELECT ", " FROM ", parts.columns, parts.from);
 
   appendFilterParts(query, parts);
 

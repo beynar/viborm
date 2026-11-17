@@ -292,7 +292,7 @@ const isQualifiedColumnNamed = (
  * repeats the column's own name. SQLite promises no name for an unaliased
  * column, so it always states the alias.
  */
-/** How many column fragments one adapter keeps ({@link createIdentifiers}). */
+/** How many column and table fragments one adapter keeps ({@link createIdentifiers}). */
 const COLUMN_FRAGMENTS = 4096;
 export const createIdentifiers = (
   quoteIdent: IdentifierQuoter,
@@ -307,35 +307,53 @@ export const createIdentifiers = (
   // the dialect and of two names, never of a call. A fragment is immutable,
   // so one serves every statement. Bounded: past `COLUMN_FRAGMENTS` a
   // reference is made as it was.
-  const columns = new Map<string, Map<string, Sql>>();
+  const columns = new Map<string, Map<string | undefined, Sql>>();
+  const tables: typeof columns = new Map();
   let kept = 0;
+  const keep = (
+    by: typeof columns,
+    first: string,
+    second: string | undefined,
+    fragment: Sql
+  ): Sql => {
+    if (kept < COLUMN_FRAGMENTS) {
+      kept++;
+      const held = by.get(first);
+      if (held) held.set(second, fragment);
+      else by.set(first, new Map([[second, fragment]]));
+    }
+    return fragment;
+  };
   return {
     escape: (name: string): Sql => sql.raw(quoteIdent(name)),
 
-    column: (alias: string, field: string): Sql => {
-      const held = columns.get(alias);
-      let fragment = held?.get(field);
-      if (fragment === undefined) {
-        fragment = sql.raw(
+    column: (alias: string, field: string): Sql =>
+      columns.get(alias)?.get(field) ??
+      keep(
+        columns,
+        alias,
+        field,
+        sql.raw(
           alias
             ? `${quoteIdent(alias)}.${quoteIdent(field)}`
             : quoteIdent(field)
-        );
-        if (kept < COLUMN_FRAGMENTS) {
-          kept++;
-          if (held) held.set(field, fragment);
-          else columns.set(alias, new Map([[field, fragment]]));
-        }
-      }
-      return fragment;
-    },
+        )
+      ),
 
-    table: (tableName: string, alias?: string): Sql => {
-      const qualified = qualify(tableName);
-      return sql.raw(
-        alias === undefined ? qualified : `${qualified} AS ${quoteIdent(alias)}`
-      );
-    },
+    // One fragment per table and alias, as a column has: the `FROM` item
+    // of every table of every read was a string and a fragment more.
+    table: (tableName: string, alias?: string): Sql =>
+      tables.get(tableName)?.get(alias) ??
+      keep(
+        tables,
+        tableName,
+        alias,
+        sql.raw(
+          alias === undefined
+            ? qualify(tableName)
+            : `${qualify(tableName)} AS ${quoteIdent(alias)}`
+        )
+      ),
 
     aliased: (expression: Sql, alias: string): Sql => {
       const quoted = quoteIdent(alias);

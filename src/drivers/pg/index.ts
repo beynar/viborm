@@ -731,14 +731,22 @@ export class PgDriver extends Driver<PgPool, PgPoolClient> {
    */
   private static isPositionalCandidate(driver: AnyDriver): boolean {
     if (!(driver instanceof PgDriver)) return false;
-    const surface = PgDriver.#surface(driver);
+    // {@link #surface}, part by part: asked at every read, where a list of
+    // the five parts and a closure to compare them were made each time.
+    const installed = driver.#installed;
+    const { adapter } = driver;
+    const { result } = adapter;
     return (
       Object.getPrototypeOf(driver) === PgDriver.prototype &&
       driver._execute === PgDriver.#executeEntry &&
       driver.execute === PgDriver.#execute &&
       driver.executeTypedStatement === PgDriver.#typedStatement &&
       driver.result === undefined &&
-      driver.#installed.every((part, index) => part === surface[index])
+      installed[0] === adapter &&
+      installed[1] === result &&
+      installed[2] === result.parseField &&
+      installed[3] === result.parseRelation &&
+      installed[4] === result.parseResult
     );
   }
 

@@ -102,23 +102,34 @@ function postgresLikePattern(kind: TextMatch, value: Sql): Sql {
     return sql`${head + escapeLikeLiteral(literal) + tail}`;
   return sql`(${sql.raw(head && "'%' || ")}REPLACE(REPLACE(REPLACE(CAST(${value} AS TEXT), CHR(92), CHR(92) || CHR(92)), '%', CHR(92) || '%'), '_', CHR(92) || '_')${sql.raw(tail && " || '%'")})`;
 }
+/** The strings of `json_build_array` over `count` members, made once per count. */
+const ARRAY_STRINGS: string[][] = [];
 function postgresJsonArray(items: Sql[]): Sql {
   if (items.length === 0) return sql.raw`'[]'::json`;
+  // One call: its strings are a fact of the member count alone, and the
+  // caller's own list holds its values, so a related row's document is one
+  // fragment and nothing else.
+  if (items.length <= 100) {
+    let strings = ARRAY_STRINGS[items.length];
+    if (strings === undefined) {
+      strings = ["json_build_array("];
+      for (let at = 1; at < items.length; at++) strings.push(", ");
+      strings.push(")");
+      ARRAY_STRINGS[items.length] = strings;
+    }
+    return new Sql(strings, items);
+  }
   const chunks: Sql[] = [];
-  const buildArray =
-    items.length > 100 ? "jsonb_build_array" : "json_build_array";
   // PostgreSQL limits a function call to 100 arguments, and one fragment
   // per call is what {@link postgresJsonObject} measured.
   for (let start = 0; start < items.length; start += 100) {
     const end = Math.min(items.length, start + 100);
-    const strings = [`${buildArray}(`];
+    const strings = ["jsonb_build_array("];
     for (let at = start + 1; at < end; at++) strings.push(", ");
     strings.push(")");
     chunks.push(new Sql(strings, items.slice(start, end)));
   }
-  return chunks.length === 1
-    ? chunks[0]!
-    : sql`(${sql.join(chunks, " || ")})::json`;
+  return sql`(${sql.join(chunks, " || ")})::json`;
 }
 function postgresJsonObject(pairs: [string, Sql][]): Sql {
   if (pairs.length === 0) return sql.raw`'{}'::json`;
