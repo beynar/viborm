@@ -1,0 +1,152 @@
+import type { OperationResult } from "@client/types";
+import { PGliteDriver } from "@drivers/pglite";
+import { s } from "@schema";
+import { createClient } from "@src/index";
+import { describe, expectTypeOf, test } from "vitest";
+
+const facture = s.model({
+  id: s.int().id(),
+  statut: s.string(),
+  montant: s.int(),
+  date: s.dateTime(),
+  jour: s.date(),
+  dueAt: s.dateTime().nullable(),
+  jours: s.date().array(),
+});
+
+const client = createClient({
+  schema: { facture },
+  driver: new PGliteDriver(),
+});
+
+type Row<Args> = OperationResult<"groupBy", typeof facture, Args>[number];
+
+describe("groupBy by a time step: types", () => {
+  test("a stepped column reads as the period's YYYY-MM-DD string", () => {
+    type Mixed = Row<{
+      by: ["statut", { date: "month" }];
+      _sum: { montant: true };
+      _count: true;
+    }>;
+    expectTypeOf<Mixed["statut"]>().toEqualTypeOf<string>();
+    expectTypeOf<Mixed["date"]>().toEqualTypeOf<string>();
+    expectTypeOf<Mixed["_sum"]["montant"]>().toEqualTypeOf<number | null>();
+    expectTypeOf<Mixed["_count"]>().toEqualTypeOf<number>();
+    // Without a step, the same column is a Date.
+    expectTypeOf<Row<{ by: ["date"] }>["date"]>().toEqualTypeOf<Date>();
+  });
+
+  test("a nullable column keeps its null group; a single member is a list", () => {
+    expectTypeOf<
+      Row<{ by: [{ dueAt: "week" }, { jour: "year" }] }>
+    >().toEqualTypeOf<{ dueAt: string | null; jour: string }>();
+    expectTypeOf<Row<{ by: { jour: "quarter" } }>>().toEqualTypeOf<{
+      jour: string;
+    }>();
+  });
+
+  test("only keys a member surely names are fields; one arm's key is optional", () => {
+    // A closer spelled `undefined` names nothing: admission strips it.
+    expectTypeOf<
+      Row<{ by: [{ date: "month"; jour: undefined }] }>
+    >().toEqualTypeOf<{ date: string }>();
+    // A member typed as one arm or another: either field may come back.
+    type Either = { date: "month" } | { jour: "year" };
+    expectTypeOf<Row<{ by: ["statut", Either] }>>().toEqualTypeOf<{
+      statut: string;
+      date?: string;
+      jour?: string;
+    }>();
+    // Two members, each its own column: both come back.
+    expectTypeOf<
+      Row<{ by: [{ date: "month" }, { jour: "year" }] }>
+    >().toEqualTypeOf<{ date: string; jour: string }>();
+  });
+
+  test("a generic `by` of columns still compiles, as on main", () => {
+    const _list = <B extends ("statut" | "montant")[]>(by: B) =>
+      client.facture.groupBy({
+        by,
+        _count: true,
+        orderBy: { _count: { id: "desc" } },
+      });
+    const _single = <B extends "statut" | "montant">(by: B) =>
+      client.facture.groupBy({ by, _count: true });
+    expectTypeOf(_list).toBeFunction();
+    expectTypeOf(_single).toBeFunction();
+  });
+
+  test("the client call: orderBy names the stepped column; wrong spellings fail", async () => {
+    const rows = await client.facture.groupBy({
+      by: ["statut", { date: "month" }],
+      timeZone: "America/Montreal",
+      _sum: { montant: true },
+      orderBy: [{ date: "asc" }, { _sum: { montant: "desc" } }],
+    });
+    expectTypeOf(rows[0]!.date).toEqualTypeOf<string>();
+
+    const _ungroupedOrder = () =>
+      client.facture.groupBy({
+        by: [{ date: "month" }],
+        // @ts-expect-error - jour is not grouped
+        orderBy: { jour: "asc" },
+      });
+    const _notADate = () =>
+      client.facture.groupBy({
+        // @ts-expect-error - montant is not a date or dateTime column
+        by: [{ montant: "month" }],
+      });
+    const _list = () =>
+      client.facture.groupBy({
+        // @ts-expect-error - a list of dates has no single period
+        by: [{ jours: "month" }],
+      });
+    const _twoColumns = () =>
+      client.facture.groupBy({
+        // @ts-expect-error - one column per member
+        by: [{ date: "month", jour: "year" }],
+      });
+    // Held, not fresh: excess-property checking does not reach these.
+    const heldTypo = { date: "month", dtae: "month" } as const;
+    const _heldTypoInList = () =>
+      client.facture.groupBy({
+        // @ts-expect-error - dtae beside a real column, held in a variable
+        by: ["statut", heldTypo],
+      });
+    const _heldTypoAlone = () =>
+      client.facture.groupBy({
+        // @ts-expect-error - the same member as the single shorthand
+        by: heldTypo,
+      });
+    // A real column that is not a date, beside the date, held.
+    const heldNotADate = { date: "month", montant: "month" } as const;
+    const _heldNotADate = () =>
+      client.facture.groupBy({
+        // @ts-expect-error - montant is a column, not a date one
+        by: ["statut", heldNotADate],
+      });
+    const heldMember = { date: "month" } as const;
+    const _heldMember = () =>
+      client.facture.groupBy({ by: ["statut", heldMember], _count: true });
+    const _freshTypo = () =>
+      client.facture.groupBy({
+        // @ts-expect-error - a fresh literal with the typo beside the column
+        by: [{ date: "month", dtae: "month" }],
+      });
+    const _unknownStep = () =>
+      client.facture.groupBy({
+        // @ts-expect-error - hour is not a step
+        by: [{ date: "hour" }],
+      });
+    expectTypeOf(_ungroupedOrder).toBeFunction();
+    expectTypeOf(_notADate).toBeFunction();
+    expectTypeOf(_list).toBeFunction();
+    expectTypeOf(_twoColumns).toBeFunction();
+    expectTypeOf(_unknownStep).toBeFunction();
+    expectTypeOf(_heldTypoInList).toBeFunction();
+    expectTypeOf(_heldTypoAlone).toBeFunction();
+    expectTypeOf(_heldMember).toBeFunction();
+    expectTypeOf(_heldNotADate).toBeFunction();
+    expectTypeOf(_freshTypo).toBeFunction();
+  });
+});

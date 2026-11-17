@@ -1,17 +1,18 @@
-import { QueryEngineError } from "../types";
+import { groupedColumn } from "@validation/model/args/time-step";
 
-/** Normalize groupBy fields and reject duplicate output columns. */
-export function getGroupByFields(value: unknown): string[] {
-  const fields = Array.isArray(value)
-    ? value.filter((field): field is string => typeof field === "string")
-    : typeof value === "string"
-      ? [value]
-      : [];
-  const uniqueFields = new Set(fields);
-  if (uniqueFields.size !== fields.length) {
-    throw new QueryEngineError(
-      "GroupBy operation does not allow duplicate fields in 'by'"
-    );
-  }
-  return fields;
+/**
+ * The grouped fields of an admitted `by` (a list, duplicates already
+ * refused), and those grouped by a time step among them.
+ */
+export function getGroupByFields(by: unknown): {
+  readonly fields: string[];
+  readonly periods: ReadonlySet<string>;
+} {
+  const columns = Array.isArray(by) ? by.map(groupedColumn) : [];
+  return {
+    fields: columns.map(({ field }) => field),
+    periods: new Set(
+      columns.filter(({ step }) => step !== undefined).map(({ field }) => field)
+    ),
+  };
 }

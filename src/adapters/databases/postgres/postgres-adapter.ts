@@ -9,6 +9,7 @@ import {
 } from "@schema/scalars/native-types";
 import { idStorageOf } from "@schema/scalars/string/id-domain";
 import { Sql, sql } from "@sql";
+import type { TimeStep } from "@validation/model/args/time-step";
 import { encodePostgresTemporal } from "@validation/primitives/datetime-physical-codec";
 import {
   type DecimalDescriptor,
@@ -32,6 +33,8 @@ import {
   type DatabaseAdapter,
   type GeoPointSql,
   installGeoPointSql,
+  type PeriodSource,
+  type PeriodSql,
   type TextMatch,
   type VectorOrderKey,
 } from "../../database-adapter";
@@ -209,6 +212,27 @@ const POSTGRES_INTEGERS: ExactIntegerArithmetic = {
   remainder: (n: Sql, d: Sql): Sql => sql`mod(${n}, ${d})`,
 };
 
+/** `date_trunc`'s field for each step: a closed table, never caller text. */
+const PERIOD_FIELD: Readonly<Record<TimeStep, Sql>> = Object.freeze({
+  day: sql.raw`'day'`,
+  week: sql.raw`'week'`,
+  month: sql.raw`'month'`,
+  quarter: sql.raw`'quarter'`,
+  year: sql.raw`'year'`,
+});
+
+/**
+ * Whether the column stores an instant: declared with a zone, or a native
+ * type PostgreSQL reads as `timestamptz` in any spelling — the rule the
+ * PostgreSQL migration driver applies to the same column.
+ */
+const storesInstant = ({ withTimezone, nativeType }: PeriodSource): boolean => {
+  const native = nativeTypeFor(nativeType, "pg")?.type.toLowerCase();
+  return native === undefined
+    ? withTimezone
+    : native.includes("timestamptz") || native.includes("with time zone");
+};
+
 /** The two characters PostgreSQL reads structurally inside a quoted member. */
 
 /**
@@ -253,6 +277,35 @@ export class PostgresAdapter implements DatabaseAdapter {
   }
 
   raw = createRawSql();
+
+  /**
+   * `date_trunc` reads a `timestamptz` in the SESSION zone and turns a `date`
+   * into one, so the wall time it truncates is always stated: the instant in
+   * `zone`, a `timestamp` as stored, a `date` as a `timestamp`. The period is
+   * a `date`, grouped and ordered as one, so it keeps its era (year zero is
+   * 1 BC here); its text is `to_char`'s over a `timestamp`, which neither the
+   * session's `DateStyle` nor its zone changes. A `week` starts on Monday.
+   */
+  period: PeriodSql = Object.freeze({
+    of: (
+      column: Sql,
+      step: TimeStep,
+      source: PeriodSource,
+      zone: string
+    ): Sql => {
+      const wall = source.date
+        ? sql`CAST(${column} AS TIMESTAMP)`
+        : storesInstant(source)
+          ? sql`(${column} AT TIME ZONE ${zone})`
+          : column;
+      return sql`CAST(date_trunc(${PERIOD_FIELD[step]}, ${wall}) AS DATE)`;
+    },
+    // `to_char` has no `date` form: given one, PostgreSQL picks the
+    // `timestamptz` form, whose midnight is the session zone's and may not
+    // exist there (Samoa skipped 2011-12-30). A `timestamp` has no zone.
+    text: (period: Sql): Sql =>
+      sql`to_char(CAST(${period} AS TIMESTAMP), 'YYYY-MM-DD BC')`,
+  });
 
   identifiers: DatabaseAdapter["identifiers"];
 

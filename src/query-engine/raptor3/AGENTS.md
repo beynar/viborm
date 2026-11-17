@@ -379,6 +379,17 @@ filtered rows (`#overMasked`), so the gate is lowered once per row rather
 than once per grouped expression. A model whose entry declares neither keeps
 its default projection and its bytes.
 
+*Time steps (`groupBy`'s `{ column: step }`, `validation/model/args/time-step.ts`).*
+A grouped read with a time step in `by` reads a window of its own, over the
+masked window where the model gates fields and over the table otherwise:
+each period is the adapter's `period.of` computed once there as a private
+date column (`periodColumnKey`), which the grouping and the order read and
+the projection spells through `period.text`. Written twice, its zone bound
+twice, PostgreSQL no longer sees one grouped expression. The decoder reads
+that text as a calendar day (`decodePeriod`), since a period may begin
+outside the DateTime domain. An adapter without `period` is refused before
+any statement (`timeStepUnsupported`).
+
 *Tombstones (a `rule`'s `delete.instead: keep(…)`, `src/extensions/kept.ts`;
 plan v3.1 §2.3).* A call whose facts carry `tombstones` (absent when its
 arguments matched the `unless`/`when` that keeps the delete physical) writes
@@ -1656,8 +1667,11 @@ is about a FILTER, not about a `where`. A JSON `path` is parsed into segments
 at admission, in both spellings, with the six grammar refusals and the one
 portable-path rule asked on every dialect; the preparer consumes segments only
 and the SQLite adapter's throw stays the defensive backstop it says it is.
-`groupBy`'s `by` is admitted as an array, a duplicate member and a grouped
-column named like a selected aggregate are refused there, and a default-only
+`groupBy`'s `by` is admitted as an array of columns and `{ column: step }`
+members, read through `groupedColumn`; a duplicate column in any spelling, a
+grouped column named like a selected aggregate, a step on a column that is not
+a single date, a `having` comparison of a stepped column and a `timeZone`
+that is not an IANA name are refused there, and a default-only
 row under `skipDuplicates` is refused wherever the `createMany` verb is
 admitted — root, nested in a create, nested in an update, and a polymorphic
 collection group. At admission the
