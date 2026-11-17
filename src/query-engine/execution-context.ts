@@ -13,7 +13,8 @@ import type { Operation } from "./types";
 export function createOperationExecutionContext(
   model: string,
   operation: Operation | string,
-  extensionChain?: ResolvedExtensionChain
+  extensionChain?: ResolvedExtensionChain,
+  named?: boolean
 ): QueryExecutionContext {
   // Capture before asynchronous request/plan/provider work, and allocate no stack by default.
   const origin =
@@ -21,7 +22,7 @@ export function createOperationExecutionContext(
       ? new Error("VibORM operation created here").stack
       : undefined;
   return createExecutionContext(
-    { model, operation },
+    { model, operation, named },
     createCorrelationId,
     extensionChain,
     origin

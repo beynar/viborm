@@ -7,29 +7,70 @@ Versioning.
 
 ### Added
 
-- **`namedStatements`, an opt-in on `viborm/pg` and `viborm/postgres`.** The
-  statements VibORM repeats are sent as named, server-side prepared statements:
-  each connection parses and plans one once, then only binds it. Measured on a
-  local PostgreSQL 18 against the same release without the option, two passes:
-  a `findUnique` takes 21 % to 22 % less time on pg and 42 % to 44 % less on
-  postgres.js, 50 `findUnique` at once 24 % to 27 % and 25 % to 37 % less, a
-  `create` or an `update` 10 % to 14 % and 14 % to 22 % less; a read of 1,000
-  rows gains 0 % to 13 %. On postgres.js a statement also stops paying a second
-  round trip to describe its parameters: a transaction of eight inserts takes
-  10 round trips instead of 18. A statement with values is named the second
-  time it is sent, under a name derived from its text, and a connection holds
-  at most `max` of them (`namedStatements: { max }`, 100 with `true`): each
-  holds 11 kB to 42 kB of server memory. Raw SQL is never named. On pg, a name
-  the server lost (`DEALLOCATE`, `DISCARD ALL`), a plan whose result type
-  changed and a parameter type a migration replaced are sent again once
-  unnamed outside a transaction. On postgres.js, which retries the first two
-  itself, a statement whose parameter type a migration replaced is sent again
-  once unprepared and is not prepared again by that client;
-  `options: { prepare: true }` still needs a reconnect after such a migration.
-  Off by default, and without it every
-  statement is sent exactly as before. Behind PgBouncer in transaction mode,
-  set `max_prepared_statements` to at least `max` first. Bun SQL prepares every
-  statement with values by default, and the docs now say so.
+- **`namedStatements`, an opt-in on `viborm/pg` and `viborm/postgres`, and
+  `named`, its per-call option.** Statements are sent as named, server-side
+  prepared statements: each connection parses and plans one once, then only
+  binds it. Measured on a local PostgreSQL 18 against the same release without
+  the option, two passes: a `findUnique` takes 21 % to 22 % less time on pg and
+  42 % to 44 % less on postgres.js, 50 `findUnique` at once 24 % to 27 % and
+  25 % to 37 % less, a `create` or an `update` 10 % to 14 % and 14 % to 22 %
+  less; a read of 1,000 rows gains 0 % to 13 %. On postgres.js a statement also
+  stops paying a second round trip to describe its parameters: a transaction of
+  eight inserts takes 10 round trips instead of 18.
+  - **Which statements.** With `namedStatements: true` (`{ max: 100, auto:
+    true }`), a statement with values is named the second time it is sent.
+    Every operation also takes `named`: `named: true` names each statement of
+    the call at its first sending, nested writes included, and `named: false`
+    never names them. With `namedStatements: "explicit"` (`{ max: 100, auto:
+    false }`), only the calls that pass `named: true` are named, so every place
+    goes to what you chose rather than to the first shapes seen twice. In
+    `$transaction([...])` each operation carries its own option; in an
+    interactive transaction, each call. The name is always derived from the
+    text, never chosen by the caller: a call writes several texts as its
+    arguments vary, and a name stands for one text.
+  - **The bound.** A connection holds at most `max` named statements, those of
+    `named: true` included. A `named: true` call that finds every place taken
+    is sent unnamed, and VibORM writes a `console.warn` once per statement
+    text, so you know `max` is too low for what you name.
+  - **Portable.** Every client accepts `named`, on every database; where there
+    are no named statements (PGlite, SQLite, MySQL, D1, Neon HTTP, SurrealDB,
+    and Bun SQL, which prepares by itself) it does nothing. It changes neither
+    the SQL, nor the key of a `$withCache` read, nor the arguments an extension
+    sees, and an extension may not declare an argument called `named`. Without
+    `namedStatements`, every statement is sent exactly as before, `named` or
+    not.
+  - **Why per call.** On Cloudflare Workers a client lives for one request, so
+    the automatic mode never sees a statement twice and names nothing;
+    `named: true` is the only way to name there. Hyperdrive passes VibORM's
+    names through and keeps them on its connections to the database from one
+    session to the next (measured 2026-11-16: 5 parses for 80 executions), and
+    since the name is derived from the text, every isolate gives a statement
+    the same name. On a small read the gain is database CPU (0.06 to 0.13 ms per
+    call), not latency. On heavy reads it is both: on PlanetScale Neki, reads of
+    141 to 251 relations took 25 to 70 ms less named (20 % to 30 %), through
+    Hyperdrive with a new `pg` client per request as directly (`teams.list`
+    310 → 240 ms, `documents.get` 127 → 99 ms; 0 errors in 1,016 named
+    executions). Neki never switches to a generic plan; plain PostgreSQL may,
+    and a prefix `LIKE` measured 26 % slower named there, hence
+    `named: false`. Memory is the cost: a heavy named read holds 1.3 to 4.2 MB
+    per connection on plain PostgreSQL, and behind Hyperdrive the names stay
+    on connections the whole fleet shares. Name the heavy reads that repeat,
+    and keep `max` as the bound. On Workers, prefer `viborm/pg`: postgres.js
+    sends an unprepared statement with values in two round trips. Drizzle
+    1.0.0-rc.5's `.prepare()` without a name is the same contract (a name
+    hashed from the text, per query), with no bound, eviction, replay or
+    automatic mode.
+  - **What stays.** Raw SQL is never named. On pg, a name the server lost
+    (`DEALLOCATE`, `DISCARD ALL`), a plan whose result type changed and a
+    parameter type a migration replaced are sent again once unnamed outside a
+    transaction; in one, the server's failure is the answer. On postgres.js,
+    which retries the first two itself, a statement whose parameter type a
+    migration replaced is sent again once unprepared and is not prepared again
+    by that client; `options: { prepare: true }` still needs a reconnect after
+    such a migration, and `named: false` overrides it for its call. Off by
+    default. Behind PgBouncer in transaction mode, set `max_prepared_statements`
+    to at least `max` first. Bun SQL prepares every statement with values by
+    default, and the docs now say so.
 
 ### Changed
 

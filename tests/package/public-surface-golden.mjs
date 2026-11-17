@@ -733,6 +733,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "CacheableOperations",
       "CachedClient",
       "CachedClientOf",
+      "CallOptions",
       "Client",
       "ClientOmitConfig",
       "ClientSchema",

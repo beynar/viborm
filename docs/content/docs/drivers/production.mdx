@@ -70,6 +70,11 @@ and [postgres.js prepared statements](/docs/drivers/postgresql/postgres#prepared
 Bun SQL prepares by default (see [Bun SQL prepared statements](/docs/drivers/postgresql/bun-sql#prepared-statements)).
 Namespace qualification does not depend on session search_path.
 
+Cloudflare Hyperdrive keeps named statements across sessions, so on Workers a
+call's `named: true` names a heavy read at its first sending, which the
+automatic mode, with a client per request, never does. Use `viborm/pg` there;
+see [Workers and Hyperdrive](/docs/drivers/postgresql/pg#workers-and-hyperdrive).
+
 Use [Neon HTTP](/docs/drivers/postgresql/neon-http) for stateless HTTP requests.
 Its ordered batch/isolation support does not provide interactive callbacks.
 A Neon WebSocket `Pool` from `@neondatabase/serverless` runs as the pg driver's

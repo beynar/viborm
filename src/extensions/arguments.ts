@@ -207,6 +207,12 @@ export function appendArguments(
   const binder = all.find((argument) => argument.bind)?.bind;
   const names = new Set<string>();
   for (const { name, extension } of all) {
+    // `named` is core's own call option (named statements): no extension takes it.
+    if (name === "named")
+      extensionError(
+        `Extension "${extension}" declares argument "named", which VibORM reserves for named statements.`,
+        extension
+      );
     if (names.has(name))
       extensionError(
         `Extension "${extension}" declares argument "${name}", which extension "${all.find((argument) => argument.name === name)?.extension}" already declares.`,

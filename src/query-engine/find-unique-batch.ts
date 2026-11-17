@@ -16,7 +16,8 @@
  * the same engine (so the same client view, extension chain and bound
  * arguments), outside every transaction, the same model, the same unique key
  * spelled the same way, the same projection (`select`/`include`/`omit`, nested
- * arguments included, compared structurally) and the same admitted arguments.
+ * arguments included, compared structurally), the same admitted arguments and
+ * the same `named` option, which the merged read carries.
  * The `where` must be the key alone: a value per member, nothing else.
  *
  * A row reaches a caller only when its decoded key is EXACTLY the caller's
@@ -166,7 +167,7 @@ export function batchFindUnique(
   };
   const leads = enqueue(
     call,
-    `${key.selector}\u0000${shape}`,
+    `${key.selector}\u0000${shape}\u0000${call.context.named}`,
     key,
     member,
     lead

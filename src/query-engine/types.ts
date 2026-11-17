@@ -89,6 +89,11 @@ export interface PrepareOptions {
    * fields), applied once, after every extension and the cache have run.
    */
   finishResult?: (value: unknown) => unknown;
+  /**
+   * The call's `named` option, taken out of its arguments by the client and
+   * carried to every statement of the call by its execution context.
+   */
+  named?: boolean;
 }
 
 /**

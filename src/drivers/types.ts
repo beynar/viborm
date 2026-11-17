@@ -25,6 +25,12 @@ export interface QueryExecutionContext {
   readonly model?: string;
   readonly operation?: string;
   readonly correlationId?: string;
+  /**
+   * The call's `named` option, carried to each of its statements: `true`
+   * asks a driver with named statements to name them at once, `false` never
+   * to name them. Absent when the call did not pass it.
+   */
+  readonly named?: boolean;
 }
 
 /**

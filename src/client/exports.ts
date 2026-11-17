@@ -57,6 +57,7 @@ export type {
 export type {
   CacheableOperations,
   CachedClient,
+  CallOptions,
   Client,
   InferDatabase,
   MutationOperations,
